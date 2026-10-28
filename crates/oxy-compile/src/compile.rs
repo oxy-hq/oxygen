@@ -700,7 +700,12 @@ async fn compile_one(file: &DiscoveredFile) -> Result<Vec<CompiledRow>, FileFail
             })
         }),
         FileKind::App => compile_app(file, &content),
-        FileKind::Automation(p) => compile_automation(file, &content, p),
+        FileKind::Automation(p) => compile_automation(
+            file,
+            &content,
+            p,
+            crate::automation_check::refusal_enabled(),
+        ),
         FileKind::AirwayPipeline => compile_named_yaml(file, &content, |name, file_path, def| {
             CompiledRow::Pipeline(CompiledPipeline {
                 name,
@@ -1282,8 +1287,27 @@ fn compile_automation(
     file: &DiscoveredFile,
     content: &str,
     automation_kind: AutomationKind,
+    refuse_retired_steps: bool,
 ) -> Result<Vec<CompiledRow>, FileFailure> {
     let value = parse_yaml(file, content)?;
+    // Refused here, not at run time: a step that writes into the workspace
+    // directory, or edits it, only ever worked on the one process that held a
+    // working copy. Off, it only warns. See `automation_check`.
+    if let Some(message) = crate::automation_check::failure_message(&value) {
+        if refuse_retired_steps {
+            return Err(FileFailure {
+                path: file.rel_path.clone(),
+                kind: FailureKind::Validation,
+                message,
+            });
+        }
+        warn!(
+            path = %file.rel_path,
+            %message,
+            "compile: retired automation step not refused; set {}=1 to fail the compile",
+            crate::automation_check::REFUSE_RETIRED_STEPS_ENV
+        );
+    }
     let name = value
         .as_object()
         .and_then(|m| m.get("name"))
@@ -1790,6 +1814,96 @@ mod tests {
         let err = compile_one(file).await.unwrap_err();
         assert!(matches!(err.kind, FailureKind::Yaml));
         assert_eq!(err.path, "agents/broken.agentic.yml");
+    }
+
+    /// With the refusal on, it reaches the revision: the file becomes a
+    /// `Validation` failure naming the step, so the revision is not promoted.
+    /// Off, the same file compiles (the runtime ignores the keys).
+    #[test]
+    fn an_automation_with_a_retired_step_feature_fails_the_file() {
+        for (rel, body, expect) in [
+            (
+                "procedures/export.automation.yml",
+                "tasks:\n  - name: dump\n    type: formatter\n    template: x\n    export:\n      path: out/x.txt\n      format: txt\n",
+                "`export:`",
+            ),
+            (
+                "procedures/cache.procedure.yml",
+                "tasks:\n  - name: gen\n    type: formatter\n    template: x\n    cache:\n      path: out/x.sql\n",
+                "`cache:`",
+            ),
+            (
+                "procedures/builder.automation.yml",
+                "tasks:\n  - name: edit\n    type: agent\n    agent_ref: __builder__\n    prompt: p\n",
+                "__builder__",
+            ),
+        ] {
+            let dir = TempDir::new().unwrap();
+            write(dir.path(), rel, body);
+            let files = discover(dir.path()).unwrap();
+            let file = files
+                .iter()
+                .find(|f| matches!(f.kind, FileKind::Automation(_)))
+                .unwrap();
+            let FileKind::Automation(kind) = file.kind else {
+                unreachable!()
+            };
+            let err = compile_automation(file, body, kind, true).unwrap_err();
+            assert!(matches!(err.kind, FailureKind::Validation), "{rel}");
+            assert_eq!(err.path, rel);
+            assert!(err.message.contains(expect), "{rel}: {}", err.message);
+
+            let rows = compile_automation(file, body, kind, false)
+                .unwrap_or_else(|e| panic!("{rel} with the refusal off: {}", e.message));
+            assert!(matches!(rows[..], [CompiledRow::Automation(_)]), "{rel}");
+        }
+    }
+
+    /// Every automation the repository ships (the embedded demo project that
+    /// seeds each new Demo workspace, the examples, the integration fixture)
+    /// must clear the refusal. A shipped file that does not fails the first
+    /// compile of every workspace created from it.
+    #[test]
+    fn every_shipped_automation_clears_the_refusal() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut checked = 0;
+        for dir in ["demo_project", "examples", "tests/fixtures"] {
+            let root = repo.join(dir);
+            for file in discover(&root).unwrap() {
+                if !matches!(file.kind, FileKind::Automation(_)) {
+                    continue;
+                }
+                let text = fs::read_to_string(&file.abs_path).unwrap();
+                let value: Value = serde_yaml::from_str(&text)
+                    .unwrap_or_else(|e| panic!("{dir}/{}: {e}", file.rel_path));
+                assert_eq!(
+                    crate::automation_check::failure_message(&value),
+                    None,
+                    "{dir}/{}",
+                    file.rel_path
+                );
+                checked += 1;
+            }
+        }
+        // A floor, so a moved directory cannot turn this into a test of nothing.
+        assert!(checked >= 10, "only {checked} shipped automations found");
+    }
+
+    #[tokio::test]
+    async fn an_automation_without_them_still_compiles() {
+        let dir = TempDir::new().unwrap();
+        write(
+            dir.path(),
+            "procedures/ok.automation.yml",
+            "name: ok\ntasks:\n  - name: say\n    type: formatter\n    template: hi\n",
+        );
+        let files = discover(dir.path()).unwrap();
+        let file = files
+            .iter()
+            .find(|f| matches!(f.kind, FileKind::Automation(_)))
+            .unwrap();
+        let rows = compile_one(file).await.unwrap();
+        assert!(matches!(rows[0], CompiledRow::Automation(_)));
     }
 
     #[tokio::test]

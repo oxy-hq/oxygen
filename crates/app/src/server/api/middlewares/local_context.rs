@@ -20,7 +20,6 @@ use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
 };
 use crate::server::router::AppState;
-use crate::server::service::retrieval::EnumIndexManager;
 use crate::server::service::secret_manager::SecretManagerService;
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 use axum::extract::State;
@@ -191,11 +190,6 @@ async fn attach_workspace_manager(
             return Ok(());
         }
     };
-
-    match EnumIndexManager::init_from_config(workspace_manager.config_manager.clone()).await {
-        Ok(_) => tracing::debug!("local_context: enum index initialized successfully"),
-        Err(e) => tracing::debug!("local_context: enum index initialization skipped: {}", e),
-    }
 
     let mut ctx = crate::agentic_wiring::OxyProjectContext::new(workspace_manager.clone());
     // Mirror the cloud-mode `workspace_context` middleware: anomaly tools

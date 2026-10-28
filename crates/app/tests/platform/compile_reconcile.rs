@@ -86,7 +86,13 @@ impl Fx {
 
     /// Serve a ready main revision compiled from `git_sha`.
     async fn serving(&self, git_sha: &str) -> Uuid {
-        let revision = self.ready_revision(git_sha).await;
+        self.serving_stamped(git_sha, &oxy_compile::compiler_version())
+            .await
+    }
+
+    /// Serve a ready main revision of `git_sha` written by `compiler`.
+    async fn serving_stamped(&self, git_sha: &str, compiler: &str) -> Uuid {
+        let revision = self.ready_revision_by(git_sha, compiler).await;
         let mut ws: workspaces::ActiveModel = workspaces::Entity::find_by_id(self.ws)
             .one(&self.db)
             .await
@@ -99,6 +105,11 @@ impl Fx {
     }
 
     async fn ready_revision(&self, git_sha: &str) -> Uuid {
+        self.ready_revision_by(git_sha, &oxy_compile::compiler_version())
+            .await
+    }
+
+    async fn ready_revision_by(&self, git_sha: &str, compiler: &str) -> Uuid {
         let now = Utc::now().fixed_offset();
         let id = Uuid::new_v4();
         revisions::ActiveModel {
@@ -106,11 +117,11 @@ impl Fx {
             workspace_id: ActiveValue::Set(self.ws),
             git_sha: ActiveValue::Set(git_sha.into()),
             branch: ActiveValue::Set(Some("main".into())),
-            schema_version: ActiveValue::Set(1),
+            schema_version: ActiveValue::Set(oxy_compile::CURRENT_SCHEMA_VERSION),
             status: ActiveValue::Set("ready".into()),
             kind: ActiveValue::Set("main".into()),
             owner_user_id: ActiveValue::Set(None),
-            compiler_version: ActiveValue::Set("test".into()),
+            compiler_version: ActiveValue::Set(compiler.into()),
             started_at: ActiveValue::Set(now),
             finished_at: ActiveValue::Set(Some(now)),
             file_count_seen: ActiveValue::Set(1),
@@ -211,6 +222,49 @@ async fn a_branch_head_that_is_being_served_queues_nothing() {
         "the next check is one interval out, got {}s",
         due_in(&row)
     );
+}
+
+/// A compile's output depends on the compiler as well as the commit: a head
+/// that is being served is compiled again when an older compiler wrote the
+/// revision serving it, and only then.
+#[tokio::test]
+async fn a_head_served_by_an_older_compiler_is_compiled_again_once() {
+    let fx = Fx::new().await;
+    fx.serving_stamped(HEAD, "oxy-compile/0.0.1").await;
+    fx.branch_head_is(HEAD).await;
+    fx.an_interval_passes().await;
+
+    let ran = tick(&fx.db).await;
+
+    assert_eq!((ran.checked, ran.enqueued), (1, 1), "{ran:?}");
+    assert_eq!(
+        fx.compile_tasks().await,
+        [("compile_git".to_string(), HEAD.to_string(), true)]
+    );
+    // Not queued again beside the one in flight, however many checks come.
+    fx.an_interval_passes().await;
+    tick(&fx.db).await;
+    assert_eq!(fx.compile_tasks().await.len(), 1);
+}
+
+async fn a_head_served_by(stamp: &str) {
+    let fx = Fx::new().await;
+    fx.serving_stamped(HEAD, stamp).await;
+    fx.branch_head_is(HEAD).await;
+    fx.an_interval_passes().await;
+    let ran = tick(&fx.db).await;
+    assert_eq!((ran.checked, ran.enqueued), (1, 0), "{stamp}");
+    assert!(fx.compile_tasks().await.is_empty(), "{stamp}");
+}
+
+#[tokio::test]
+async fn a_head_served_by_a_newer_compiler_is_left_alone() {
+    a_head_served_by("oxy-compile/999.0.0").await;
+}
+
+#[tokio::test]
+async fn a_head_served_by_this_compiler_is_left_alone() {
+    a_head_served_by(&oxy_compile::compiler_version()).await;
 }
 
 /// The case this loop exists for: the workspace serves a snapshot of a disk,

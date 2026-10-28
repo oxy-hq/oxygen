@@ -71,7 +71,7 @@ export type WarehouseType = "bigquery" | "snowflake" | "clickhouse" | "duckdb";
 
 export type ConnectionStatus = "idle" | "testing" | "success" | "failed";
 
-export type BuildPhase = "semantic_layer" | "config" | "agent" | "app" | "app2";
+export type BuildPhase = "semantic_layer" | "config" | "agent";
 export type PhaseStatus = "running" | "done" | "failed";
 
 export interface SchemaInfo {
@@ -316,20 +316,9 @@ export interface GeneratedArtifact {
   type: "view" | "topic" | "app" | "agent" | "agentic" | "config";
 }
 
-/**
- * The `"app2"` value is an expected-file-only marker (not a real artifact
- * type). Onboarding's App2 phase emits either `apps/<topic>.app.yml` for a
- * single-topic deep-dive or `apps/<topic1>_<topic2>.app.yml` for a
- * cross-topic JOIN dashboard, and the frontend can't predict which slug
- * will be picked. Tagging the expected entry as `"app2"` lets the right
- * rail match it against any non-overview `.app.yml` artifact rather than
- * a literal filename. See `CreatedFilesSection` for the matching logic.
- */
-type ExpectedFileType = GeneratedArtifact["type"] | "app2";
-
 export interface ExpectedFile {
   name: string;
-  type: ExpectedFileType;
+  type: GeneratedArtifact["type"];
 }
 
 export interface OnboardingRailState {
@@ -337,7 +326,7 @@ export interface OnboardingRailState {
   connectedServices: ConnectedService[];
   selectedTables: string[];
   generatedArtifacts: GeneratedArtifact[];
-  /** Ordered list of expected files to create (config + views + agent + app). */
+  /** Ordered list of expected files to create (config + views + agent). */
   expectedFiles: ExpectedFile[];
   /** Whether any build phase is currently running. */
   isBuildRunning: boolean;
@@ -348,7 +337,7 @@ export interface OnboardingRailState {
 // ── Per-phase timing / progress ─────────────────────────────────────────────
 
 /** Sub-phases shown in the right rail build progress. */
-export type SubPhaseKey = "semantic" | "agent" | "app" | "app2";
+export type SubPhaseKey = "semantic" | "agent";
 
 /** Wall-clock start/end timestamps for a sub-phase. */
 interface PhaseTiming {

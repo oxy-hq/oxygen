@@ -44,7 +44,12 @@ pub async fn start_server_and_web_app(
 ) -> Result<(), OxyError> {
     // OXY_ROLE → ide | serve | worker | all (default). Read once so the
     // routing middleware can enforce the FS-routing boundary.
-    crate::server::role_manifest::init_process_role_from_env();
+    let role = crate::server::role_manifest::init_process_role_from_env();
+
+    // Any role but `all` shares state with other nodes, and these settings are
+    // what make the state shareable. Refuse here, before anything is built,
+    // rather than boot onto this node's disk.
+    crate::server::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
 
     // Before anything is built: a composition that dropped a custom-app task
     // kind, background job or the outer mount would otherwise boot and fail

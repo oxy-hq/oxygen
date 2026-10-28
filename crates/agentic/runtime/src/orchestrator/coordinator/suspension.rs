@@ -133,17 +133,22 @@ impl Coordinator {
                 {
                     // After the commit: the host's observer reads the run, its
                     // suspension and whether anyone asked to hear, back.
-                    Ok(()) if is_root => {
-                        crate::lifecycle::suspend_hook::root_run_suspended(&run_id).await
+                    Ok(()) => {
+                        self.unrecorded_suspensions.remove(task_id);
+                        if is_root {
+                            crate::lifecycle::suspend_hook::root_run_suspended(&run_id).await
+                        }
                     }
-                    Ok(()) => {}
-                    Err(e) => tracing::error!(
-                        target: "coordinator",
-                        task_id,
-                        run_id = %run_id,
-                        error = %e,
-                        "failed to persist suspension"
-                    ),
+                    Err(e) => {
+                        tracing::error!(
+                            target: "coordinator",
+                            task_id,
+                            run_id = %run_id,
+                            error = %e,
+                            "failed to persist suspension"
+                        );
+                        self.unrecorded_suspensions.insert(task_id.to_string());
+                    }
                 }
                 self.state.statuses.insert(
                     run_id,
@@ -532,6 +537,7 @@ impl Coordinator {
         match &node.status {
             TaskStatus::SuspendedHuman => {
                 tracing::info!(target: "coordinator", task_id, "human answer: direct answer");
+                self.unrecorded_suspensions.remove(task_id);
                 // resume_parent handles: status update, input_resolved
                 // event, DB update, and TaskSpec::Resume assignment.
                 // HITL answers are treated as a successful "child" so the

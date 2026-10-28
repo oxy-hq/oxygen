@@ -28,6 +28,29 @@ export const useAdminWorkspacesList = (
     placeholderData: options.keepPreviousData ? (prev) => prev : undefined
   });
 
+/** The server's largest page (`page_size` is clamped to 200). */
+export const PICKER_PAGE_SIZE = 200;
+
+/**
+ * Workspaces for the "Open Factory…" picker: with no `search`, the newest page,
+ * which the picker filters by org and workspace name in the browser; with one, the
+ * server's search by workspace name across every workspace, so one older than the
+ * newest page is still found. Kept on its own key so it never shares a cache entry
+ * with the staff console's paged list.
+ */
+export const useAdminWorkspacesForPicker = (enabled: boolean, search = "") =>
+  useQuery({
+    queryKey: queryKeys.adminWorkspaces.picker(search),
+    queryFn: () =>
+      AdminWorkspacesService.list({
+        page_size: PICKER_PAGE_SIZE,
+        ...(search ? { search } : {})
+      }),
+    enabled,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev
+  });
+
 export const useAdminWorkspaceDetail = (workspaceId: string | undefined) =>
   useQuery({
     queryKey: queryKeys.adminWorkspaces.detail(workspaceId ?? ""),
@@ -60,5 +83,25 @@ export const useDeleteAdminWorkspace = () => {
       toast.success("Workspace deleted");
     },
     onError: (err) => toast.error(errMessage(err, "Failed to delete workspace"))
+  });
+};
+
+export const useAdminFactoryAccess = (workspaceId: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.adminWorkspaces.factoryAccess(workspaceId ?? ""),
+    queryFn: () => AdminWorkspacesService.factoryAccess(workspaceId as string),
+    enabled: !!workspaceId
+  });
+
+export const useSetAdminFactoryAccess = (workspaceId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, granted }: { userId: string; granted: boolean }) =>
+      AdminWorkspacesService.setFactoryAccess(workspaceId, userId, granted),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.adminWorkspaces.factoryAccess(workspaceId) });
+      toast.success(vars.granted ? "Factory access granted" : "Factory access revoked");
+    },
+    onError: (err) => toast.error(errMessage(err, "Failed to change Factory access"))
   });
 };

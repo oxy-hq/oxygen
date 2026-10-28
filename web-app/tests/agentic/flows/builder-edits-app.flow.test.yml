@@ -96,7 +96,7 @@ cases:
       # The builder run streams events into the new thread page; wait
       # for it to finish. Cold builder runs take 30–120 seconds — the
       # solver runs a multi-iteration tool loop (read_file → edit_file
-      # → run_app smoke-test → maybe retry), and with auto-approve ON
+      # → validate_project → maybe retry), and with auto-approve ON
       # each file-mutation suspension auto-resolves immediately.
       - wait_for: streaming_complete
 

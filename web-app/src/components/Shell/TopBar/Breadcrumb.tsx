@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
@@ -16,9 +17,12 @@ export function Breadcrumb() {
   const orgName = useCurrentOrg((s) => s.org?.name);
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const { workspace } = useCurrentWorkspace();
-  const wsId = workspace?.id ?? "";
-  const ws = ROUTES.ORG(orgSlug).WORKSPACE(wsId);
   const pageName = usePageName();
+  // The org home is the apps-first experience's; without it, the workspace's.
+  const appsFirst = useAppsFirstExperience();
+  const home = appsFirst
+    ? ROUTES.ORG(orgSlug).HOME
+    : ROUTES.ORG(orgSlug).WORKSPACE(workspace?.id ?? "").HOME;
 
   // Org name in cloud; workspace name as a fallback; plain label in local mode.
   const workspaceName = orgName || workspace?.name || "Workspace";
@@ -26,7 +30,7 @@ export function Breadcrumb() {
   return (
     <div className='flex min-w-0 items-center gap-2 text-sm'>
       <Link
-        to={ws.HOME}
+        to={home}
         data-testid='topbar-workspace-link'
         className='min-w-0 truncate font-medium text-foreground transition-opacity hover:opacity-70'
       >

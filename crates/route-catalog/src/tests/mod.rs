@@ -9,6 +9,7 @@ use super::{GENERATED_SCANNED_DIRS, catalog};
 
 mod admin_apps_alias_removed;
 mod app_grant_scope;
+mod factory_routes;
 mod handler;
 mod previews_read_only;
 mod sandbox_agent_refusal;
@@ -96,7 +97,6 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/{workspace_id}/world-model",
     "/api/{workspace_id}/sql/",
     "/api/{workspace_id}/integrations",
-    "/api/{workspace_id}/repositories",
     "/api/{workspace_id}/onboarding",
     // `oxy-api-source-upload`, on the workspace seam.
     "/api/{workspace_id}/source-uploads",

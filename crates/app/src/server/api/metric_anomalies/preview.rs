@@ -63,7 +63,7 @@ pub async fn preview_monitor(
     // rollup whose newest buckets are missing would read as a drop.
     let runner = Arc::new(
         OxyMetricTreeRunner::new(workspace_manager, user.id, role)
-            .with_scan_path(source.scan_path.clone())
+            .with_scan(source.scan.clone())
             .with_preagg(
                 preagg_ctx.cache.clone(),
                 preagg_ctx.renewal_threshold_secs_or(&config_manager),

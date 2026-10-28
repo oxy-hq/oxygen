@@ -318,17 +318,10 @@ function CreatedFilesSection({
         a.filePath
           .split("/")
           .pop()
-          ?.replace(/\.(view|topic|app)\.yml$/, "") ?? a.filePath
+          ?.replace(/\.(view|topic)\.yml$/, "") ?? a.filePath
     )
   );
-  // App2 is matched by category, not literal name: any `apps/*.app.yml`
-  // other than `apps/overview.app.yml` counts as completing it. The actual
-  // filename is unpredictable (single-topic vs cross-topic JOIN dashboard).
-  const hasNonOverviewApp = artifacts.some(
-    (a) => a.filePath.startsWith("apps/") && a.filePath !== "apps/overview.app.yml"
-  );
-  const isExpectedDone = (f: ExpectedFile): boolean =>
-    f.type === "app2" ? hasNonOverviewApp : createdNames.has(f.name);
+  const isExpectedDone = (f: ExpectedFile): boolean => createdNames.has(f.name);
   const completed = expectedFiles.filter(isExpectedDone).length;
   const firstPendingIdx = expectedFiles.findIndex((f) => !isExpectedDone(f));
 
@@ -378,9 +371,7 @@ function CreatedFilesSection({
                 >
                   {expected.name}
                 </span>
-                <span className='shrink-0 text-muted-foreground text-xs'>
-                  {expected.type === "app2" ? "app" : expected.type}
-                </span>
+                <span className='shrink-0 text-muted-foreground text-xs'>{expected.type}</span>
               </div>
             );
           })}
@@ -404,16 +395,14 @@ function formatDuration(ms: number): string {
   return formatSeconds(Math.round(ms / 1000));
 }
 
-function idToPhaseKey(id: string): "semantic" | "agent" | "app" | "app2" | null {
+function idToPhaseKey(id: string): "semantic" | "agent" | null {
   if (id === "build-semantic") return "semantic";
   if (id === "build-agent") return "agent";
-  if (id === "build-app") return "app";
-  if (id === "build-app2") return "app2";
   return null;
 }
 
 function computePhaseDurationSeconds(
-  key: "semantic" | "agent" | "app" | "app2",
+  key: "semantic" | "agent",
   timings?: PhaseTimings
 ): number | undefined {
   const timing = timings?.[key];

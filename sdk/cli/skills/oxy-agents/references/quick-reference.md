@@ -184,7 +184,7 @@ or the engine is unreachable at run start, the run fails.
 | `oxy validate --file <path>` | parses with the runtime's own parser. Structural only, with the same blind spots |
 | `oxy agentic run <path> -q "<question>"` | the real build and run, streamed by state. `--json`, `--thinking-mode extended_thinking`. Needs Oxy's Postgres (`OXY_DATABASE_URL`) |
 | `oxy test [<file>.test.yml]` | LLM-judged evals; with no file, every `*.test.yml` in the workspace |
-| `oxy build` | not an agent check: it builds embeddings and syncs integrations |
+| `oxy build` | not an agent check: it does nothing any more |
 
 ## `.test.yml` (evals)
 

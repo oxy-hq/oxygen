@@ -13,8 +13,8 @@ use agentic_http::{AgenticState, airway_router, automation_router, router as age
 
 use crate::api::{
     agent, api_keys, app, apps, artifacts, automation, chart, cohort, competitors, compile,
-    compile_staging, data, data_repo, database, execution_analytics, experiment, exported_chart,
-    file, foot_traffic, integration, local_setup, metric_anomalies, metric_tree, metric_tree_probe,
+    compile_staging, data, database, execution_analytics, experiment, file, foot_traffic,
+    integration, local_setup, metric_anomalies, metric_tree, metric_tree_probe,
     metric_tree_projection, metrics, modeling, org_subdomain, pipeline, preagg, result_files,
     schedules, semantic, simulation, test_file, test_project_run, test_run, thread, traces, video,
     workspace_logo, workspace_members, workspace_oxy_access, workspaces, world_model,
@@ -163,10 +163,6 @@ pub(super) fn build_workspace_routes(
         )
         .route_fleet("/artifacts/{id}", get(artifacts::get_artifact))
         .route_fleet("/charts/{file_path}", get(chart::get_chart))
-        .route_ide(
-            "/exported-charts/{file_name}",
-            get(exported_chart::get_exported_chart),
-        )
         .route_fleet("/logs", get(thread::get_logs))
         .route_fleet(
             "/builder-availability",
@@ -425,9 +421,7 @@ pub(super) fn build_workspace_routes(
         );
 
     if include_git_features {
-        router = router
-            .merge(build_git_routes(&app_state))
-            .nest("/repositories", build_data_repo_routes(&app_state));
+        router = router.merge(build_git_routes(&app_state));
     }
 
     if include_local_setup {
@@ -680,8 +674,8 @@ fn build_metric_anomaly_routes(
     use axum::Extension;
     RoleRouter::new(app_state.clone())
         .route_fleet("/", get(metric_anomalies::list_anomalies))
-        // See the mirror of these two in `build_external_workspace_routes`:
-        // the runner reads the semantic model off the workspace root, so
+        // Mounted on the external surface too (`build_external_workspace_routes`).
+        // The scan runner reads the semantic model off the workspace root, so
         // FleetOk was a promise a replica could not keep.
         .route_ide("/scan", post(metric_anomalies::run_scan))
         // The dry run of one monitor. Unlike `/scan` it asks for no working
@@ -696,7 +690,9 @@ fn build_metric_anomaly_routes(
             "/{anomaly_id}/status",
             post(metric_anomalies::update_status),
         )
-        .route_ide(
+        // Like `/preview`: the semantic model through `resolve_scan`, the
+        // anomaly a Postgres row, the queries to the warehouse.
+        .route_fleet(
             "/{anomaly_id}/explain",
             post(metric_anomalies::explain_anomaly),
         )
@@ -767,27 +763,9 @@ fn build_database_routes(app_state: &AppState) -> RoleRouter {
         )
 }
 
-fn build_data_repo_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone())
-        .route_ide(
-            "/",
-            get(data_repo::list_repositories).post(data_repo::add_repository),
-        )
-        .route_ide("/{name}", delete(data_repo::remove_repository))
-        .route_ide("/{name}/branch", get(data_repo::get_repo_branch))
-        .route_ide("/{name}/branches", get(data_repo::list_repo_branches))
-        .route_ide("/{name}/checkout", post(data_repo::checkout_repo_branch))
-        .route_ide("/{name}/diff", get(data_repo::get_repo_diff))
-        .route_ide("/{name}/commit", post(data_repo::commit_repo))
-        .route_ide("/{name}/files", get(data_repo::get_repo_file_tree))
-        .route_ide("/github", post(data_repo::add_repo_from_github))
-}
-
 fn build_integration_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone())
         .route_ide("/looker", get(integration::list_looker_integrations))
-        .route_ide("/looker/query", post(integration::execute_looker_query))
-        .route_ide("/looker/query/sql", post(integration::compile_looker_query))
         .route_fleet(
             "/quickbooks/authorize",
             post(crate::integrations::quickbooks::oauth::authorize::authorize),
@@ -804,7 +782,7 @@ fn build_integration_routes(app_state: &AppState) -> RoleRouter {
 // MIXED role builder. IdeOnly (must reach the ide singleton): `/source` + `/file`
 // read the working copy / local state dir; `/{pathb64}` + `/run` + `/result`
 // EXECUTE the inline workflow over the local DuckDB connector; `/publish`,
-// `/unpublish`, `/save-from-run/{run_id}` WRITE the working copy. FleetOk
+// `/unpublish` WRITE the working copy. FleetOk
 // (compile boundary + S3 + Postgres): `/` (list), `/displays`, `/data-cached`,
 // `/charts/...`. Any FS-reading/-writing route added here MUST be classified by
 // hand in `server/role_manifest.rs` — the `fully_fs_builder_routes_classify_ide_only`
@@ -828,7 +806,6 @@ fn build_app_routes(app_state: &AppState) -> RoleRouter {
         .route_ide("/{pathb64}/unpublish", post(app::unpublish_app))
         .route_ide("/file/{pathb64}", get(app::get_data))
         .route_ide("/source/{pathb64}", get(app::get_source_file))
-        .route_ide("/save-from-run/{run_id}", post(app::save_app_builder_run))
 }
 
 fn build_test_file_routes(app_state: &AppState) -> RoleRouter {
@@ -1012,7 +989,6 @@ mod tests {
             ("GET", "/recent-commits"),
             ("GET", "/revision-info"),
             ("POST", "/reset-to-commit"),
-            ("GET", "/repositories"),
             ("GET", "/files/Zm9vLnltbA==/from-git"),
             ("POST", "/files/Zm9vLnltbA==/revert"),
         ];

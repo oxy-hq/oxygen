@@ -187,7 +187,23 @@ async fn last_known_good_revision(
     let rows = entity::revisions::Entity::find()
         .filter(entity::revisions::Column::WorkspaceId.eq(workspace_id))
         .filter(entity::revisions::Column::Kind.eq("main"))
-        .filter(entity::revisions::Column::Status.eq("ready"))
+        .filter(
+            // A revision stepped aside by a newer compiler's recompile of the
+            // same commit (`oxy-compile`'s `supersede_older_compiler`) is still
+            // a revision whose rows are all there, and for a build that cannot
+            // read the new compiler's output it is the one that works. Not a
+            // race loser, which is also `superseded` but has no rows.
+            sea_orm::Condition::any()
+                .add(entity::revisions::Column::Status.eq("ready"))
+                .add(
+                    sea_orm::Condition::all()
+                        .add(entity::revisions::Column::Status.eq("superseded"))
+                        .add(sea_orm::sea_query::Expr::cust_with_values(
+                            "error_summary->>'reason' = $1",
+                            [oxy_compile::SUPERSEDED_BY_NEWER_COMPILER],
+                        )),
+                ),
+        )
         .order_by_desc(entity::revisions::Column::FinishedAt)
         .limit(SCAN_LIMIT)
         .all(db)

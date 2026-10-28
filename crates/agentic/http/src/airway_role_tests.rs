@@ -60,7 +60,6 @@ fn the_in_process_backfill_drive_is_pinned_by_name() {
 
 #[test]
 fn the_authoring_only_routes_stay_on_the_factory() {
-    assert_eq!(declared("GET", "/files"), Some(RouteRole::IdeOnly));
     assert_eq!(
         declared("POST", "/sources/discover"),
         Some(RouteRole::IdeOnly)

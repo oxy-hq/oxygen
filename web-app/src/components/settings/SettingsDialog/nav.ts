@@ -8,7 +8,6 @@ import {
   Eye,
   Fingerprint,
   FolderKey,
-  GitBranch,
   HardHat,
   Key,
   KeyRound,
@@ -23,7 +22,6 @@ import {
   UsersRound
 } from "lucide-react";
 import { AirhouseLogo } from "@/components/icons";
-import { FEATURES } from "@/libs/features";
 import type { SettingsSection } from "@/stores/useSettingsDialog";
 
 type NavIcon = LucideIcon | React.ComponentType<{ className?: string }>;
@@ -52,9 +50,15 @@ interface NavItem {
   icon: NavIcon;
   /** Omit to show the item to every member of the org/workspace. */
   requires?: NavGate;
-  featureFlag?: keyof typeof FEATURES;
   /** When set, only render this item if the matching authConfig flag is true. */
   requiresBilling?: boolean;
+  /**
+   * The section writes the workspace's config (databases, linked repositories,
+   * secrets, connections), which is the Oxygen Factory's: its routes refuse a
+   * caller the Factory is not open to. Independent of `requires` — a workspace
+   * admin who may not use the Factory is not shown it. See `canUseFactory`.
+   */
+  requiresFactory?: boolean;
 }
 
 export interface NavGroup {
@@ -139,7 +143,8 @@ export const CLOUD_NAV: NavGroup[] = [
         value: "workspace.databases",
         label: "Databases",
         icon: Database,
-        requires: "workspaceAdmin"
+        requires: "workspaceAdmin",
+        requiresFactory: true
       },
       // Ungated on purpose. `get_connection` and `get_credentials` accept any
       // org member, and the credential minted is per-user, TTL-bounded and
@@ -155,13 +160,6 @@ export const CLOUD_NAV: NavGroup[] = [
       // access. Queries reach the database only through `postgres_managed`,
       // which resolves the read-only analyst server-side.
       { value: "workspace.oltp", label: "OLTP Database", icon: Database },
-      {
-        value: "workspace.repositories",
-        label: "Repositories",
-        icon: GitBranch,
-        featureFlag: "LINKED_REPOS",
-        requires: "workspaceAdmin"
-      },
       // Oxy staff only — previews are a staff tool, never the customer's, so a
       // tenant admin does not see this either. See `useCanUsePreviews`.
       { value: "workspace.previews", label: "Previews", icon: Eye, requires: "staff" },
@@ -182,7 +180,13 @@ export const CLOUD_NAV: NavGroup[] = [
       // revoke needs workspace admin, and that is gated on the button inside
       // the section, not here.
       { value: "workspace.legacy_api_keys", label: "Legacy API keys", icon: FolderKey },
-      { value: "workspace.secrets", label: "Secrets", icon: KeyRound, requires: "workspaceAdmin" },
+      {
+        value: "workspace.secrets",
+        label: "Secrets",
+        icon: KeyRound,
+        requires: "workspaceAdmin",
+        requiresFactory: true
+      },
       {
         // "Connections", not "Integrations" — the org-level section above is
         // already called Integration (GitHub + Slack) and two near-identical
@@ -191,7 +195,8 @@ export const CLOUD_NAV: NavGroup[] = [
         value: "workspace.connections",
         label: "Connections",
         icon: Plug,
-        requires: "workspaceAdmin"
+        requires: "workspaceAdmin",
+        requiresFactory: true
       },
       { value: "workspace.apps", label: "Apps", icon: AppWindow, requires: "workspaceAdmin" },
       {
@@ -254,6 +259,12 @@ export interface NavVisibilityContext {
   isWorkspaceAdmin: boolean;
   /** `useCanUsePreviews()` — Oxy platform staff. Absent reads as not staff. */
   isStaff?: boolean;
+  /**
+   * `canUseFactory(workspace)` — whether the server lets the caller into the
+   * Oxygen Factory here. Absent reads as allowed, like a response that predates
+   * the field.
+   */
+  canUseFactory?: boolean;
   billingEnabled: boolean;
   hasOrg: boolean;
   hasWorkspace: boolean;
@@ -309,8 +320,8 @@ export function visibleNavGroups(ctx: NavVisibilityContext): VisibleNavGroup[] {
       subtitle: groupSubtitle(g.label),
       items: g.items.filter(
         (i) =>
-          (!i.featureFlag || FEATURES[i.featureFlag]) &&
           gateSatisfied(i.requires, ctx) &&
+          (!i.requiresFactory || ctx.isLocalMode || ctx.canUseFactory !== false) &&
           (!i.requiresBilling || ctx.billingEnabled)
       )
     }))

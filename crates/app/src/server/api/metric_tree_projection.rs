@@ -196,7 +196,7 @@ pub async fn post_projection(
     // The scan source owns a materialised tempdir; hold it until the
     // projection has finished every read of `scan_path`.
     let source = resolve_scan(&workspace_manager).await?;
-    let layer = load_layer_at(&source.scan_path)?;
+    let layer = load_layer_at(&source.scan)?;
     let exec = ProjectionExec {
         preagg_cache: preagg_ctx.cache.clone(),
         preagg_renewal_threshold_secs: preagg_ctx

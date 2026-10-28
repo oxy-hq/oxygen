@@ -22,13 +22,16 @@ The solver runs a single LLM tool loop in the Solving phase. Tools let the LLM r
 | `delete_file` | Delete a file — **suspends for user confirmation** |
 | `manage_directory` | Create / delete / rename a directory — **suspends for user confirmation** |
 | `validate_project` | Validate against Oxy YAML schemas |
-| `lookup_reference` | Load a domain reference card (semantic-layer / app-builder / agentic-builder) |
+| `lookup_reference` | Load a domain reference card (semantic-layer / agentic-builder) |
 | `lookup_schema` | Retrieve JSON schema for any Oxy object type |
 | `run_tests` | Execute `.test.yml` evaluation files |
-| `run_app` | Execute every task in a `.app.yml` end-to-end (smoke test, optional control params) |
 | `execute_sql` | Run SQL against configured databases |
 | `semantic_query` | Compile and run semantic model queries |
 | `ask_user` | Generic clarification prompt |
+
+## Data Apps are retired
+
+The builder never creates a `.app.yml`: `write_file` refuses a path that ends in `.app.yml` or `.app.yaml` unless the file already exists, there is no `app-builder` reference card, `run_app` is not offered to the model (its runner stays wired until Data Apps are removed), and onboarding has no app phases. The system prompt tells the model to point dashboard requests at custom apps. Existing `.app.yml` files can still be read and edited.
 
 ## Suspension / HITL
 
@@ -48,7 +51,7 @@ If the LLM batches multiple write ops in a single turn, all are applied on the f
 - `start_pipeline(BuilderPipelineParams)` → `PipelineHandle<BuilderEvent>`
 - `event_handler()` → `DomainHandler` for EventRegistry registration
 - `BuilderTestRunner` — trait for running test files (injected by `oxy-app`)
-- `BuilderAppRunner` — trait for running `.app.yml` files end-to-end (injected by `oxy-app`)
+- `BuilderAppRunner` — trait for running `.app.yml` files (injected by `oxy-app`); no tool offers it any more, it goes with the Data App removal
 - `KnowledgeCard` — typed reference-card enum, exposed to the solver as cached prefix or via `lookup_reference`
 - `ConversationTurn` / `ToolExchange` — thread history types
 

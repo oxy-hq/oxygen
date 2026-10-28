@@ -51,10 +51,6 @@ const ALLOWED: &[(&str, &str)] = &[
          detail. Fully-FS builder, classified IdeOnly.",
     ),
     (
-        "src/server/api/data_repo.rs",
-        "data-repo git operations. Fully-FS builder, IdeOnly.",
-    ),
-    (
         "src/server/api/modeling.rs",
         "dbt projects live in `modeling/` and have no compiled artifact. \
          IdeOnly; the LIST no longer degrades to `[]` when the ide is down.",
@@ -76,18 +72,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "the `.databases/` sync cache, written by the IdeOnly sync route. No \
          compiled substitute exists — `oxy-compile` carries `config.databases`, \
          not the synced schema. Degrades to `datasets: null`.",
-    ),
-    (
-        "src/server/api/secrets.rs",
-        "BACKLOG. Secret file resolution against the working copy.",
-    ),
-    (
-        "src/server/api/integration.rs",
-        "Looker synced metadata under the state dir. IdeOnly as of this branch.",
-    ),
-    (
-        "src/server/api/data.rs",
-        "BACKLOG. Path resolution for `sql_file` tasks.",
     ),
 ];
 

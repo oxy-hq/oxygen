@@ -1,3 +1,4 @@
+import { isAxiosError } from "axios";
 import { apiBaseURL } from "../env";
 import { apiClient } from "./axios";
 
@@ -10,6 +11,76 @@ export interface CreateAnalyticsRunRequest {
   thinking_mode?: ThinkingMode;
   /** When true, the backend auto-accepts all file_change tool calls. */
   auto_accept?: boolean;
+  /** `"builder"` starts the Builder copilot instead of an analytics agent. */
+  domain?: string;
+  model?: string;
+  /** Onboarding's structured context; the backend builds the prompt from it. */
+  onboarding_context?: unknown;
+}
+
+/**
+ * A Builder or onboarding run edits workspace files, so it starts and is
+ * answered on routes only the Factory serves. A chat starts and is answered on
+ * routes any server answers.
+ */
+const startsABuilderRun = (body: CreateAnalyticsRunRequest) =>
+  body.domain === "builder" || body.onboarding_context != null;
+
+/**
+ * A chat's answer can land on a server that is not the one driving the run (with
+ * queued starts off, a chat is driven in the memory of the server that took its
+ * start). That server answers `503` with `retryable` and `Retry-After`, and a
+ * retry that reaches the driving server, or arrives once its lease has lapsed,
+ * goes through. Bounded so a run nobody can resume still fails.
+ */
+const ANSWER_RETRY_ATTEMPTS = 15;
+const ANSWER_RETRY_MAX_DELAY_MS = 5_000;
+
+/** How long to wait before retrying `err`, or `null` when it is not retryable. */
+const answerRetryDelayMs = (err: unknown): number | null => {
+  if (!isAxiosError(err) || err.response?.status !== 503) return null;
+  // Only the server's own "another server drives this run" answer: that one
+  // took nothing, so posting again cannot deliver the answer twice. A 503
+  // from anything else (a proxy, a gateway) may have reached the run.
+  const retryable = (err.response.data as { retryable?: unknown } | undefined)?.retryable;
+  if (retryable !== true) return null;
+  const header: unknown = err.response.headers?.["retry-after"];
+  const seconds = Number(header);
+  const ms = Number.isFinite(seconds) && seconds >= 0 ? seconds * 1_000 : 1_000;
+  return Math.min(ms, ANSWER_RETRY_MAX_DELAY_MS);
+};
+
+const waitFor = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true }
+    );
+  });
+
+/** Post a chat answer, retrying while the server says another server drives it. */
+async function postChatAnswer(
+  url: string,
+  answer: string,
+  signal?: AbortSignal
+): Promise<{ ok: boolean; resumed?: boolean }> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await apiClient.post(url, { answer });
+      return res.data;
+    } catch (err: unknown) {
+      const delay = answerRetryDelayMs(err);
+      if (delay === null || attempt >= ANSWER_RETRY_ATTEMPTS || signal?.aborted) throw err;
+      await waitFor(delay, signal);
+      if (signal?.aborted) throw err;
+    }
+  }
 }
 
 export interface CreateAnalyticsRunResponse {
@@ -486,7 +557,8 @@ export class AnalyticsService {
     projectId: string,
     body: CreateAnalyticsRunRequest
   ): Promise<CreateAnalyticsRunResponse> {
-    const response = await apiClient.post(`/${projectId}/analytics/runs`, body);
+    const path = startsABuilderRun(body) ? "analytics/builder/runs" : "analytics/runs";
+    const response = await apiClient.post(`/${projectId}/${path}`, body);
     return response.data;
   }
 
@@ -518,15 +590,41 @@ export class AnalyticsService {
     }
   }
 
+  /**
+   * `builder`: the run is a Builder or onboarding run, so the answer goes straight to
+   * the Builder answer route (the chat route refuses one on every server). Without
+   * it (a run whose kind the caller does not know) the chat route is tried first and
+   * its `421` names the Builder route — a second round trip that a page navigating
+   * away in between would lose.
+   *
+   * A chat answer is retried while its server says another server drives the run
+   * (see `postChatAnswer`); `signal` stops those retries.
+   */
   static async submitAnswer(
     projectId: string,
     runId: string,
-    answer: string
+    answer: string,
+    { builder = false, signal }: { builder?: boolean; signal?: AbortSignal } = {}
   ): Promise<{ ok: boolean; resumed?: boolean }> {
-    const res = await apiClient.post(`/${projectId}/analytics/runs/${runId}/answer`, {
-      answer
-    });
-    return res.data;
+    if (builder) {
+      const res = await apiClient.post(`/${projectId}/analytics/builder/runs/${runId}/answer`, {
+        answer
+      });
+      return res.data;
+    }
+    try {
+      return await postChatAnswer(`/${projectId}/analytics/runs/${runId}/answer`, answer, signal);
+    } catch (err: unknown) {
+      // A Builder run is answered on its own route, which the Factory serves. The
+      // chat route says so with 421 and the Builder answer route.
+      if (isAxiosError(err) && err.response?.status === 421) {
+        const res = await apiClient.post(`/${projectId}/analytics/builder/runs/${runId}/answer`, {
+          answer
+        });
+        return res.data;
+      }
+      throw err;
+    }
   }
 
   static async cancelRun(projectId: string, runId: string): Promise<void> {

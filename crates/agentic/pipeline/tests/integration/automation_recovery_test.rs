@@ -322,8 +322,6 @@ async fn test_decision_version_advances_after_decide() {
         tasks: vec![agentic_automation::config::TaskConfig {
             name: "step0".to_string(),
             task_type: agentic_automation::config::TaskType::Unknown,
-            export: None,
-            cache: None,
         }],
         description: String::new(),
         variables: None,
@@ -356,7 +354,7 @@ async fn test_decision_version_advances_after_decide() {
 
     // Run the decider — should return DelegateStep for step0.
     let decider = agentic_automation::AutomationDecider::new(None);
-    let (new_state, decision) = decider.decide(initial_state, None, None, None).await;
+    let (new_state, decision) = decider.decide(initial_state, None, None).await;
 
     // decide() does NOT modify decision_version — the persistence layer owns it.
     assert_eq!(
@@ -398,7 +396,7 @@ async fn test_decision_version_advances_after_decide() {
         status: "done".to_string(),
         answer: r#"{"text":"result"}"#.to_string(),
     };
-    let (new_state2, decision2) = decider.decide(loaded, Some(child_answer), None, None).await;
+    let (new_state2, decision2) = decider.decide(loaded, Some(child_answer), None).await;
     // decision_version is still 1 (from the DB load after first update).
     // decide() does not touch it.
     assert_eq!(
@@ -498,8 +496,6 @@ async fn seed_crashed_automation(db: &DatabaseConnection) -> (String, String) {
         tasks: vec![agentic_automation::config::TaskConfig {
             name: "step0".to_string(),
             task_type: agentic_automation::config::TaskType::Unknown,
-            export: None,
-            cache: None,
         }],
         description: String::new(),
         variables: None,
@@ -934,8 +930,6 @@ async fn seed_agent_delegates_to_automation(db: &DatabaseConnection) -> (String,
         tasks: vec![agentic_automation::config::TaskConfig {
             name: "step0".to_string(),
             task_type: agentic_automation::config::TaskType::Unknown,
-            export: None,
-            cache: None,
         }],
         description: String::new(),
         variables: None,
@@ -1254,8 +1248,6 @@ impl TaskExecutor for HappyPathExecutor {
                     tasks: vec![agentic_automation::config::TaskConfig {
                         name: "step0".to_string(),
                         task_type: agentic_automation::config::TaskType::Unknown,
-                        export: None,
-                        cache: None,
                     }],
                     description: String::new(),
                     variables: None,
@@ -1315,9 +1307,7 @@ impl TaskExecutor for HappyPathExecutor {
                     .ok_or("no automation state")?;
 
                 let decider = agentic_automation::AutomationDecider::new(None);
-                let (new_state, decision) = decider
-                    .decide(state, pending_child_answer, None, None)
-                    .await;
+                let (new_state, decision) = decider.decide(state, pending_child_answer, None).await;
                 agentic_automation::extension::update_automation_state(&db, &new_state)
                     .await
                     .map_err(|e| format!("update state: {e}"))?;

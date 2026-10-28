@@ -19,6 +19,7 @@
 mod download;
 mod preflight;
 mod remote;
+pub(crate) mod self_heal;
 mod task;
 mod unpack;
 
@@ -31,7 +32,7 @@ use tempfile::TempDir;
 use uuid::Uuid;
 
 pub use download::MAX_ARCHIVE_BYTES;
-pub use task::{enqueue, fetch_for_task};
+pub use task::{enqueue, fetch_for_task, retry_policy};
 pub use unpack::{Limits, MAX_TREE_BYTES, MAX_TREE_FILES, UnpackError, Unpacked};
 
 use crate::server::workspace_repo_facts::stored_repo_subdir;
@@ -98,6 +99,11 @@ pub enum CompileGitError {
     Io(String),
 }
 
+/// What [`CompileGitError::task_failure`] puts after the code when the same task
+/// could succeed if it ran again, e.g. `[github_unavailable, retryable]`. The
+/// task's retry policy ([`retry_policy`]) matches on it.
+pub(crate) const RETRYABLE_MARKER: &str = ", retryable";
+
 impl CompileGitError {
     pub(crate) fn io(e: std::io::Error) -> Self {
         Self::Io(e.to_string())
@@ -145,7 +151,7 @@ impl CompileGitError {
     /// The task's failure message: the code first, so it can be grouped on.
     pub fn task_failure(&self) -> String {
         let retry = if self.is_retryable() {
-            ", retryable"
+            RETRYABLE_MARKER
         } else {
             ""
         };
@@ -230,6 +236,11 @@ pub(crate) fn github_repository(
         .ok_or(CompileGitError::NoRemote(row.id))?;
     remote::github_slug(remote)
         .ok_or_else(|| CompileGitError::UnsupportedRemote(remote.to_string()))
+}
+
+/// The `(owner, repo)` a github.com remote URL names; `None` for any other URL.
+pub(crate) fn github_slug_of(remote: &str) -> Option<(String, String)> {
+    remote::github_slug(remote)
 }
 
 /// What can be known about a commit compile before queueing it, without

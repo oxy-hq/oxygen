@@ -78,6 +78,7 @@ oxy-observability = { workspace = true }
 # The concrete LLM provider crates (anthropic/gemini/ollama/openai) are no longer
 # a direct dependency: the eval judge now reaches the agentic LLM stack through
 # agentic-pipeline, and the config schema types live in oxy-llm.
+oxy-airlayer-compat = { workspace = true }
 oxy-git = { workspace = true }
 oxy-llm = { workspace = true }
 oxy-semantic = { workspace = true }
@@ -172,8 +173,6 @@ serde_yaml = { workspace = true }
 urlencoding = { workspace = true }
 tempfile = { workspace = true }
 xxhash-rust = { workspace = true, features = ["xxh3"] }
-aho-corasick = { workspace = true }
-rkyv = { workspace = true, features = ["bytecheck"] }
 sentry = { workspace = true }
 df-interchange = { workspace = true, features = ["arrow_54", "arrow_58"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

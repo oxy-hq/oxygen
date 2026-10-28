@@ -135,7 +135,8 @@ impl CallerRunResolver {
 
     /// The resolver every recovery entry point is handed
     /// (`router::recovery`): a preview-owned root on its preview platform, a
-    /// custom-app ask as its caller, everything else on the tick's.
+    /// custom-app ask as its caller, a run a workspace request started as its
+    /// requester, everything else on the tick's.
     pub fn shared(db: &DatabaseConnection) -> Arc<dyn RunPlatformResolver> {
         Arc::new(Self::new(db.clone(), PreviewRunResolver::shared(db)))
     }
@@ -173,9 +174,16 @@ impl RunPlatformResolver for CallerRunResolver {
             return Ok(platform);
         }
         match self.caller_platform(root).await {
+            Ok(Some(context)) => return Ok(Arc::new(context)),
+            Ok(None) => {}
+            // Not driven this tick — and never on `platform` instead.
+            Err(e) => return Err(e.to_string()),
+        }
+        // A run a workspace request started records its requester: driven as
+        // them, at the role the request resolved (`queued_analytics::requester`).
+        match crate::server::queued_analytics::requester::requester_platform(&self.db, root).await {
             Ok(Some(context)) => Ok(Arc::new(context)),
             Ok(None) => Ok(platform),
-            // Not driven this tick — and never on `platform` instead.
             Err(e) => Err(e.to_string()),
         }
     }

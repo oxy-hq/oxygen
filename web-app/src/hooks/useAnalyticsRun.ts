@@ -258,6 +258,9 @@ export function sseEventToUiBlock(ev: SseEvent): UiBlock {
 
 export interface UseAnalyticsRunOptions {
   projectId: string;
+  /** The runs this hook drives are Builder runs (the caller knows: a Builder
+   *  thread). A run it starts with the Builder agent counts too. */
+  builder?: boolean;
 }
 
 export interface UseAnalyticsRunResult {
@@ -288,7 +291,13 @@ export interface UseAnalyticsRunResult {
   isAnswering: boolean;
 }
 
-export function useAnalyticsRun({ projectId }: UseAnalyticsRunOptions): UseAnalyticsRunResult {
+export function useAnalyticsRun({
+  projectId,
+  builder = false
+}: UseAnalyticsRunOptions): UseAnalyticsRunResult {
+  // Whether the run's answers go to the Builder route (see `submitAnswer`).
+  const builderRunRef = useRef(builder);
+  builderRunRef.current = builder || builderRunRef.current;
   const [state, setState] = useState<AnalyticsRunState>({ tag: "idle" });
   const abortRef = useRef<AbortController | null>(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -483,6 +492,7 @@ export function useAnalyticsRun({ projectId }: UseAnalyticsRunOptions): UseAnaly
     ) => {
       setIsStarting(true);
       setState({ tag: "running", runId: "", events: [] });
+      builderRunRef.current = builder || agentId === "__builder__";
       AnalyticsService.createRun(projectId, {
         agent_id: agentId,
         question,
@@ -509,7 +519,7 @@ export function useAnalyticsRun({ projectId }: UseAnalyticsRunOptions): UseAnaly
         })
         .finally(() => setIsStarting(false));
     },
-    [projectId, openStream]
+    [projectId, openStream, builder]
   );
 
   const reconnect = useCallback(
@@ -526,7 +536,10 @@ export function useAnalyticsRun({ projectId }: UseAnalyticsRunOptions): UseAnaly
       const answerController = abortRef.current;
       setState({ tag: "running", runId, events });
       setIsAnswering(true);
-      AnalyticsService.submitAnswer(projectId, runId, text)
+      AnalyticsService.submitAnswer(projectId, runId, text, {
+        builder: builderRunRef.current,
+        signal: answerController?.signal
+      })
         .then((res) => {
           // The user may have navigated away or hit Stop while the answer was
           // in flight; don't reopen a stream they no longer care about.

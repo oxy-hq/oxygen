@@ -6,8 +6,6 @@
 //! (`preagg_context`) reads the pin from the task to stand aside for a
 //! branch's model.
 
-use std::path::PathBuf;
-
 use agentic_semantic::compile::PreaggContext;
 
 use super::*;
@@ -22,18 +20,15 @@ impl ProjectFunctionHost {
             .map_err(|e| format!("invalid semantic query spec: {e}"))?;
 
         let cm = &self.proj_ctx.workspace_manager().config_manager;
-        // The compiled revision this invocation reads, materialised — the same
-        // `scan_dir` the `/semantic-query` route uses. This read
-        // `semantics_scan_path()`, the raw working copy: an IDE node answered
-        // from whatever was on disk, and a diskless replica from a directory
-        // that is not there. `_scan` keeps a materialised tempdir alive until
-        // the compile below is done.
-        let _scan = oxy::config::scan::scan_dir(cm).await.map_err(|e| {
+        // The compiled revision this invocation reads — the same `scan_dir` the
+        // `/semantic-query` route uses. This read `semantics_scan_path()`, the
+        // raw working copy: an IDE node answered from whatever was on disk, and
+        // a diskless replica from a directory that is not there.
+        let scan = oxy::config::scan::scan_dir(cm).await.map_err(|e| {
             format!("ctx.semantic.query: no compiled semantic model available: {e}")
         })?;
-        let scan_path = _scan.path().to_path_buf();
         let pre_loaded_layer = if scoped {
-            Some(self.reach_scoped_layer(&scan_path, &mut query).await?)
+            Some(self.reach_scoped_layer(&scan, &mut query).await?)
         } else {
             None
         };
@@ -48,13 +43,7 @@ impl ProjectFunctionHost {
         let hub = sentry::Hub::current();
         let compiled = tokio::task::spawn_blocking(move || {
             sentry::Hub::run(hub, || {
-                resolve_and_compile(
-                    &scan_path,
-                    &databases,
-                    &query,
-                    preagg.as_ref(),
-                    pre_loaded_layer,
-                )
+                resolve_and_compile(&scan, &databases, &query, preagg.as_ref(), pre_loaded_layer)
             })
         })
         .await
@@ -65,19 +54,17 @@ impl ProjectFunctionHost {
 
     /// A scoped query needs the layer before it compiles, to know which of its
     /// views are bound. Loaded once and handed to the compile, so the
-    /// directory is walked one time, not two.
+    /// model is parsed one time, not two.
     async fn reach_scoped_layer(
         &self,
-        scan_path: &std::path::Path,
+        scan: &oxy::config::ScanDir,
         query: &mut SemanticQueryConfig,
     ) -> Result<oxy_airlayer_compat::SemanticLayer, String> {
-        let scan_for_layer: PathBuf = scan_path.to_path_buf();
+        let scan_for_layer = scan.clone();
         // Sentry hubs are per thread; keep the invocation's on the blocking pool.
         let hub = sentry::Hub::current();
         let layer = tokio::task::spawn_blocking(move || {
-            sentry::Hub::run(hub, || {
-                oxy_airlayer_compat::load_layer_from_dir(&scan_for_layer)
-            })
+            sentry::Hub::run(hub, || scan_for_layer.load_layer())
         })
         .await
         .map_err(|e| format!("semantic layer task panicked: {e}"))?

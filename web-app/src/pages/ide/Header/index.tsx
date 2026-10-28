@@ -3,17 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import { Card } from "@/components/ui/shadcn/card";
 import useRevisionInfo from "@/hooks/api/workspaces/useRevisionInfo";
-import { FEATURES } from "@/libs/features";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import useIdeBranch from "@/stores/useIdeBranch";
-import useSelectedRepo from "@/stores/useSelectedRepo";
 import { GitActions } from "./components/GitActions";
 import { GithubIcon } from "./components/GithubIcon";
 import { IDEProjectSwitcher } from "./components/IDEProjectSwitcher";
-import { LinkedRepoActions } from "./components/LinkedRepoActions";
-import { RepoSwitcher } from "./components/RepoSwitcher";
 import { IdeGitProvider } from "./context/IdeGitContext";
 import { useGithubUrls } from "./hooks/useGithubUrls";
 
@@ -23,9 +19,7 @@ const EMPTY_PROTECTED_BRANCHES: string[] = [];
 
 const Header = () => {
   const { workspace: project } = useCurrentWorkspace();
-  const { selectedRepo } = useSelectedRepo();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const isLinkedRepo = selectedRepo !== "primary";
   const navigate = useNavigate();
 
   // `useCurrentWorkspaceBranch` throws without a workspace; Header renders
@@ -37,7 +31,6 @@ const Header = () => {
   const isOnMain = ideBranch === defaultBranch;
 
   const caps = project?.capabilities;
-  const canCommit = !!caps?.can_commit;
   const canDiff = !!caps?.can_diff;
   const protectedBranches = project?.protected_branches ?? EMPTY_PROTECTED_BRANCHES;
 
@@ -67,7 +60,7 @@ const Header = () => {
         <Home className='h-4 w-4' />
       </Button>
       <IDEProjectSwitcher />
-      {githubRepoUrl && !isLinkedRepo && (
+      {githubRepoUrl && (
         <Button
           size='sm'
           onClick={(e) => {
@@ -81,21 +74,16 @@ const Header = () => {
         </Button>
       )}
       <div className='flex flex-1 items-center justify-end gap-2'>
-        {FEATURES.LINKED_REPOS && <RepoSwitcher isReadOnly={!canCommit && !project?.id} />}
-        {FEATURES.LINKED_REPOS && isLinkedRepo ? (
-          <LinkedRepoActions repoName={selectedRepo} />
-        ) : (
-          <IdeGitProvider
-            workspaceId={project?.id}
-            branch={ideBranch}
-            defaultBranch={defaultBranch}
-            isOnMain={isOnMain}
-            protectedBranches={protectedBranches}
-            capabilities={project?.capabilities}
-          >
-            <GitActions />
-          </IdeGitProvider>
-        )}
+        <IdeGitProvider
+          workspaceId={project?.id}
+          branch={ideBranch}
+          defaultBranch={defaultBranch}
+          isOnMain={isOnMain}
+          protectedBranches={protectedBranches}
+          capabilities={project?.capabilities}
+        >
+          <GitActions />
+        </IdeGitProvider>
       </div>
     </Card>
   );

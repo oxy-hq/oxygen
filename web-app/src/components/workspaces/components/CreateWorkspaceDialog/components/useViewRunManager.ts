@@ -350,7 +350,10 @@ async function runSingleView(
             }
           });
           if (isAutoAcceptable) {
-            AnalyticsService.submitAnswer(projectId, runId, "Accept").catch(() => {});
+            // An onboarding run is a Builder run: its answer goes to the Builder route.
+            AnalyticsService.submitAnswer(projectId, runId, "Accept", { builder: true }).catch(
+              () => {}
+            );
           } else {
             settle(() => reject(new Error("View run suspended with unrecoverable error")));
           }

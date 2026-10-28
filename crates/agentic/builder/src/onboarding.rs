@@ -1,19 +1,14 @@
 //! Onboarding prompt builder — constructs the builder agent prompt from
 //! structured onboarding context (tables, warehouse type, model config).
 //!
-//! Six focused prompts are generated, one per build phase:
+//! Four focused prompts are generated, one per build phase:
 //! - `SemanticLayer` — inspect schemas, update config.yml, create .view.yml files (legacy, all-in-one)
 //! - `Config`        — update config.yml only (model entry + database defaults)
 //! - `SemanticView`  — inspect one table, create matching .view.yml + .topic.yml files
 //! - `Agent`         — create analytics.agentic.yml (agentic analytics agent)
-//! - `App`           — create apps/overview.app.yml (semantic_query-powered starter dashboard,
-//!                     picked from a data-profile-driven scoring of every topic)
-//! - `App2`          — create a complementary dashboard (cross-topic execute_sql JOIN
-//!                     when an FK overlap is found, otherwise a single-topic deep-dive
-//!                     on the first non-overview topic alphabetically). The output filename
-//!                     is `apps/<topic1>_<topic2>.app.yml` for the cross-topic path or
-//!                     `apps/<topic_slug>.app.yml` for the single-topic path. Only
-//!                     triggered when the workspace has ≥ 2 topics.
+//!
+//! Onboarding no longer builds starter dashboards: Data Apps (`.app.yml`) are retired
+//! in favour of custom apps, so there is no `App` / `App2` phase.
 //!
 //! This keeps the prompt templates server-side so the frontend only sends
 //! structured selections, not raw LLM instructions.
@@ -48,28 +43,6 @@ pub enum OnboardingBuildStep {
     /// onboarding now end up with the multi-step FSM analytics pipeline
     /// (`agentic-analytics`) rather than a single-turn tool-calling agent.
     Agent,
-    /// Create the starter `.app.yml` dashboard (`apps/overview.app.yml`).
-    ///
-    /// Onboarding always generates this — a credible starter artifact
-    /// (trend chart + top performers table + bottom performers table, plus
-    /// an optional fourth high-signal block) that showcases the user's data.
-    /// The prompt profiles every topic (rows, cardinality, time coverage,
-    /// stddev) and picks the one that passes the most fitness criteria,
-    /// rather than blindly using the first topic alphabetically.
-    App,
-    /// Create a second `.app.yml` dashboard pivoted on a *different* topic
-    /// than the overview. Filename is `apps/<topic1>_<topic2>.app.yml`
-    /// (cross-topic FK-join path) or `apps/<topic_slug>.app.yml`
-    /// (single-topic path) — never `apps/detail.app.yml`.
-    ///
-    /// The frontend only triggers this phase when the workspace has ≥ 2
-    /// topics (i.e. the user selected ≥ 2 tables). The prompt looks for a
-    /// shared entity key between the overview's view and a non-overview
-    /// view; if it finds one, it generates a cross-topic story via
-    /// `execute_sql` JOINs. If no FK overlap is viable, it falls back to a
-    /// single-topic deep-dive on the first non-overview topic alphabetically.
-    #[serde(rename = "app2")]
-    App2,
 }
 
 /// A column definition pre-fetched during schema discovery.
@@ -113,8 +86,6 @@ impl OnboardingContext {
             OnboardingBuildStep::Config => self.build_config_prompt(),
             OnboardingBuildStep::SemanticView => self.build_semantic_view_prompt(),
             OnboardingBuildStep::Agent => self.build_agent_prompt(),
-            OnboardingBuildStep::App => self.build_app_prompt(),
-            OnboardingBuildStep::App2 => self.build_app2_prompt(),
         }
     }
 
@@ -136,11 +107,6 @@ impl OnboardingContext {
             }
             // analytics.agentic.yml — covered by the agentic-builder card.
             OnboardingBuildStep::Agent => vec![AgenticBuilder],
-            // .app.yml — needs both: app-builder for tasks/displays and
-            // semantic-model because tasks reference view fields.
-            OnboardingBuildStep::App | OnboardingBuildStep::App2 => {
-                vec![SemanticLayer, AppBuilder]
-            }
         }
     }
 
@@ -167,15 +133,10 @@ impl OnboardingContext {
         // Phases that touch the warehouse (DESCRIBE TABLE, smoke-test
         // queries, data profiling) need execute_sql + semantic_query.
         let warehouse: &[&str] = &["execute_sql", "semantic_query"];
-        // App phases additionally need `run_app` to smoke-test the
-        // generated dashboard end-to-end (catches runtime SQL errors that
-        // schema validation misses — broken JOINs, dialect type mismatches).
-        let app_smoke_test: &[&str] = &["execute_sql", "semantic_query", "run_app"];
 
         let extras: &[&str] = match self.step {
             OnboardingBuildStep::Config | OnboardingBuildStep::Agent => &[],
             OnboardingBuildStep::SemanticView | OnboardingBuildStep::SemanticLayer => warehouse,
-            OnboardingBuildStep::App | OnboardingBuildStep::App2 => app_smoke_test,
         };
 
         common
@@ -303,7 +264,7 @@ entities:
     key: <fk_dim_on_this_view>       # e.g. `restaurant_id`
 ```
 
-Without this declaration the App phase has no way to surface the lookup view's name column on a chart axis and falls back to rendering raw UUIDs. The semantic-layer reference card has the full rule under "Critical rules" #5."#
+Without this declaration the analytics agent has no way to surface the lookup view's name column next to a measure and falls back to returning raw UUIDs. The semantic-layer reference card has the full rule under "Critical rules" #5."#
             )
         } else {
             String::new()
@@ -320,14 +281,14 @@ Without this declaration the App phase has no way to surface the lookup view's n
   # If you declared any `type: foreign` entities on the view above, also list
   # those lookup views here. Example: a fact view that declares a foreign
   # `restaurant` entity should include `restaurants` in this list, so the
-  # analytics agent and apps can pull labels (e.g. `restaurants.location_name`)
+  # analytics agent can pull labels (e.g. `restaurants.location_name`)
   # via semantic_query instead of rendering raw FK UUIDs."#
         } else {
             ""
         };
 
         let topic_fk_motivation = if has_other_tables {
-            " **Including FK-target views in `views:` is what unlocks human-readable labels on dashboards** — without it the App phase has to either ship UUIDs or fall back to raw SQL JOINs."
+            " **Including FK-target views in `views:` is what unlocks human-readable labels in answers** — without it the analytics agent has to either return UUIDs or fall back to raw SQL JOINs."
         } else {
             ""
         };
@@ -403,7 +364,7 @@ views:
   - {view_name}{topic_fk_views_comment}
 ```
 
-Topics are what the analytics agent and dashboards query against — every view needs a matching topic.{topic_fk_motivation}
+Topics are what the analytics agent queries against — every view needs a matching topic.{topic_fk_motivation}
 
 Call `write_file` **exactly once** per file (once for the view, once for the topic). Pass the full file contents in the `content` argument. Do not call `write_file` again for the same file — no revisions, no re-drafts.
 
@@ -500,6 +461,7 @@ After all smoke tests pass (or you've stopped after one fix attempt per view), S
     fn build_agent_prompt(&self) -> String {
         let db_name = &self.warehouse_type;
         let model_name = self.model_name();
+        let table_list = self.table_list();
 
         format!(
             r#"The semantic model for the {db_name} warehouse has just been created — views (`semantics/*.view.yml`) and matching topics (`semantics/*.topic.yml`).
@@ -528,7 +490,6 @@ databases:
 
 context:
   - ./semantics/**/*
-  - ./apps/**/*.app.yml
   - ./example_sql/**/*.sql
 
 states:
@@ -543,500 +504,9 @@ Constraints:
 - Exactly one YAML document; each top-level key appears at most once.
 - Do NOT create an `.agent.yml` file — the legacy classic-agent format is no longer used for onboarding.
 
-After the single `write_file` call, STOP — do NOT call `write_file` again for this file, and do NOT write a summary or explanation."#,
-        )
-    }
+After the single `write_file` call, do NOT call `write_file` again for this file. Once it is accepted, output **only** a "Sample Questions" section with 5 numbered questions, each ending in a question mark, that a user could ask this analytics agent about these tables. Nothing else — no summary, no explanation.
 
-    // ── Phase 3: Starter Dashboard App ─────────────────────────────────────────
-
-    fn build_app_prompt(&self) -> String {
-        let db_name = &self.warehouse_type;
-
-        format!(
-            r#"The semantic model for {db_name} has been created. Each `.view.yml` has a matching `.topic.yml`.
-
-Your task: **create `apps/overview.app.yml`** — a starter dashboard powered by the semantic model.
-
-This is the first artifact the user sees after onboarding, so every block must earn its place. The goal is **insight density**, not block count: a short, high-signal dashboard beats a long, generic one.
-
-**Tool budget:** keep this efficient — read at most 4 `.topic.yml` files + their views, run at most 4 profiling SQL queries (one per topic), and call `write_file` exactly once. You have a 30-round tool loop budget; aim to finish well within it. Skip to step 3 once you've gathered enough signal — don't over-profile.
-
-## Phase 1 — Discover and profile all topics
-
-### Step 1: Read every topic and its view
-
-List all `.topic.yml` files in `semantics/`. For **each** one, read it and its matching `.view.yml`. Record:
-- Topic name and view name
-- Table name (from the view's `table:` field)
-- Every dimension: name, type, and `expr`
-- Every measure: name, type, and `expr`
-
-### Step 2: Run a profiling query for each topic
-
-For each topic (profile **at most 4** — skip any beyond the fourth to keep runtime reasonable), build and run **one consolidated profiling query** against the underlying table. Derive every column identifier from the view's actual `expr:` fields — never guess column names.
-
-The query must return in a **single SELECT**:
-- `COUNT(*) AS rows`
-- `COUNT(DISTINCT <entity_candidate_expr>) AS entity_card` — for the 1–2 most promising entity dimensions (string type, non-id)
-- For each date/datetime dimension: `MIN(<expr>)`, `MAX(<expr>)`, `COUNT(DISTINCT DATE_TRUNC('month', <expr>)) AS month_count`
-- For each numeric measure: `MIN(<expr>)`, `MAX(<expr>)`, `STDDEV(<expr>) AS measure_stddev`
-
-Example (Postgres/DuckDB syntax) for a sales view (`table: public.sales`, entity dim `expr: store_name`, date dim `expr: week_date`, measure `expr: weekly_sales`):
-```sql
-SELECT
-  COUNT(*) AS rows,
-  COUNT(DISTINCT store_name) AS entity_card,
-  MIN(week_date) AS min_date, MAX(week_date) AS max_date,
-  COUNT(DISTINCT DATE_TRUNC('month', week_date)) AS month_count,
-  MIN(weekly_sales) AS min_val, MAX(weekly_sales) AS max_val,
-  STDDEV(weekly_sales) AS measure_stddev
-FROM public.sales
-```
-
-**Use {db_name}-appropriate syntax** for date truncation and stddev. The full dialect matrix (BigQuery / Snowflake / Postgres / DuckDB / ClickHouse) lives in `## SQL dialect notes` in the app-builder reference already in your system context — consult it rather than guessing.
-
-**On profiling-query failure:** follow `## Failure recovery` in the same reference — simplify and retry once, then skip the topic. Never loop on a failing query.
-
-### Step 3: Pick the best topic for the overview
-
-Evaluate each profiled topic. A topic is suitable for the overview when ALL of these hold:
-- `rows` ≥ 100 (enough data for meaningful aggregation)
-- At least one date dimension has `month_count` ≥ 3 (enough time for a trend line)
-- The primary measure has `measure_stddev` > 0 (not a flat line — every row is NOT the same value)
-- The best entity dimension has `entity_card` between 5 and 500 (useful top/bottom ranking)
-
-**Rejection rules — skip a topic when:**
-- The measure's STDDEV ≈ 0: every entity returns the same value. A horizontal trend chart at "1" or "0" is actively misleading — worse than no chart.
-- `entity_card` < 5: top/bottom 10 tables would show the same rows, which is useless.
-- The topic is a reference or dimension table (e.g., one row per job title with count = 1) — prefer a fact table with aggregatable measures.
-
-Choose the topic that **passes the most criteria** above. If multiple topics pass all four, prefer the one with the highest `month_count` (more time coverage); break further ties alphabetically. If ALL topics fail the criteria, fall back to the first alphabetically and skip any block that cannot be made meaningful with the available data.
-
-## Phase 2 — Confirm field selections
-
-From the chosen topic's profiling results, confirm:
-- **Primary metric (ONE measure)** — prefer `sum`/`average` over raw `count`. Must have STDDEV > 0.
-- **Date dimension** — only include the trend chart if `month_count` ≥ 3. If not, omit `trend_over_time` entirely.
-- **Entity dimension** — must have cardinality between 5 and 500.
-
-Decide on the fourth block using the "Fourth-block decision" rules below.
-
-## Phase 3 — Generate the app
-
-Call `write_file` **exactly once** to create `apps/overview.app.yml`. Pass the full file contents in the `content` argument. Do not call `write_file` again — no revisions, no re-drafts, no second calls.
-
-## Required blocks (in order)
-
-Every dashboard ships with these three, assuming the data supports them:
-
-| # | Task name           | Block       | Purpose                                              |
-|---|---------------------|-------------|------------------------------------------------------|
-| 1 | `trend_over_time`   | line_chart  | How is the primary metric changing?                  |
-| 2 | `top_performers`    | table       | Top 10 entities by the primary metric (descending).  |
-| 3 | `bottom_performers` | table       | Bottom 10 entities by the primary metric (ascending). |
-
-Top + bottom tables together give leaders *and* laggards — that pairing is almost always more interesting than a chart/table duplicate of the same cut.
-
-## Fourth-block decision (optional)
-
-Include a fourth block ONLY if it adds information the first three do not. Prefer, in order:
-
-1. **`ranked_entities` bar chart** of the top ~15 entities by the primary metric. Adds visual distribution/shape (steep drop vs long tail) that tables can't convey.
-2. **Grouped comparison bar chart** on a *genuinely meaningful* non-binary categorical dimension (product_family, region, segment, channel, status with ≥ 3 non-trivial values). Skip unless this cut reveals something the top/bottom tables miss.
-3. **Trend-breakdown line chart** with `series: <view_name>.<entity_dimension>` showing the top entities' trajectories over time — only if there are ≤ 8 stable top entities.
-
-**Omit the fourth block entirely** when none of the above clearly adds insight. Three strong blocks > four diluted blocks.
-
-### Do NOT use these dimensions for the ranked / grouped / fourth block
-
-- Binary or boolean flags: `holiday_flag`, `is_active`, `has_*`, `*_flag`, any dimension with only 2 distinct values (0/1, true/false, yes/no).
-- Dimensions with fewer than 3 distinct meaningful values (splitting "null" vs "not null" doesn't count as two values).
-- Raw surrogate keys or IDs that are not human-readable (pick a name / title / label instead when available).
-- The same dimension used in both a chart and a table — no redundant chart + table pairs on the same cut.
-
-## Template
-
-Fill every `<placeholder>` with a real field name or a concrete human title (e.g. `"Weekly sales trend"`, not `"Chart 1"`). Include the commented blocks inline as guides — they are for your reasoning only; emit the final YAML without the `# OPTIONAL` comments.
-
-The `title:` field is the dashboard's human-readable name shown in listings — infer a short, business-friendly label from what the data actually represents (e.g. "Sales Overview", "Customer Orders", "Product Performance"). Do NOT just title-case the table name — `raw_orders` should become "Orders Overview", not "Raw_orders Dashboard". Always include the word "Overview" since this is the overview dashboard.
-
-```yaml
-title: "<Business-friendly name> Overview"
-description: "Overview of <topic in plain English> — trend, top performers, and weak spots."
-
-tasks:
-  - name: trend_over_time
-    type: semantic_query
-    topic: <topic_name>
-    dimensions:
-      - <view_name>.<date_dimension>
-    measures:
-      - <view_name>.<primary_measure>
-    orders:
-      - field: <view_name>.<date_dimension>
-        direction: asc
-
-  - name: top_performers
-    type: semantic_query
-    topic: <topic_name>
-    dimensions:
-      - <view_name>.<entity_dimension>
-    measures:
-      - <view_name>.<primary_measure>
-    orders:
-      - field: <view_name>.<primary_measure>
-        direction: desc
-    limit: 10
-
-  - name: bottom_performers
-    type: semantic_query
-    topic: <topic_name>
-    dimensions:
-      - <view_name>.<entity_dimension>
-    measures:
-      - <view_name>.<primary_measure>
-    orders:
-      - field: <view_name>.<primary_measure>
-        direction: asc
-    limit: 10
-
-  # OPTIONAL fourth task — include ONLY if it clears the Fourth-block decision bar above.
-  # Example (ranked-entities variant):
-  # - name: ranked_entities
-  #   type: semantic_query
-  #   topic: <topic_name>
-  #   dimensions:
-  #     - <view_name>.<entity_dimension>
-  #   measures:
-  #     - <view_name>.<primary_measure>
-  #   orders:
-  #     - field: <view_name>.<primary_measure>
-  #       direction: desc
-  #   limit: 15
-
-display:
-  - type: markdown
-    content: |
-      # <Topic in Title Case> Overview
-      A quick read on <primary measure, in plain English>: where it's trending, who's leading, and where the weak spots are.
-  - type: line_chart
-    title: "<primary measure> over time"
-    data: trend_over_time
-    x: <view_name>__<date_dimension>
-    y: <view_name>__<primary_measure>
-    # Include `y_format: currency` ONLY when the primary measure is monetary
-    # (see "Number formatting" below). Omit the line otherwise.
-  - type: row
-    children:
-      - type: table
-        title: "Top 10 <entities> by <primary measure>"
-        data: top_performers
-        # Include `formats:` ONLY when the primary measure is monetary.
-      - type: table
-        title: "Bottom 10 <entities> by <primary measure>"
-        data: bottom_performers
-  # OPTIONAL fourth display block — emit ONLY when the fourth task is included.
-  # Example (ranked bar chart):
-  # - type: bar_chart
-  #   title: "Top 15 <entities> by <primary measure>"
-  #   data: ranked_entities
-  #   x: <view_name>__<entity_dimension>
-  #   y: <view_name>__<primary_measure>
-```
-
-### Rules (violations break the dashboard)
-
-- Task `dimensions` and `measures` references use a single dot: `<view_name>.<field_name>`.
-- Display chart refs (`x:`, `y:`) use DOUBLE UNDERSCORE between view and field: `<view_name>__<field_name>`. This is how the semantic engine names its output columns.
-- `table` blocks do NOT take `x` / `y` — they only take `data:`, `title:`, and optionally `formats:`. The table renders every column the task returns.
-- `topic`, `<view_name>`, and every dimension/measure must match the real names you read in Step 1. Do not invent names.
-- If the view has no usable date/datetime dimension, omit the `trend_over_time` task AND its line_chart entirely. In that case the fourth block is not optional — add a ranked bar chart so the dashboard has at least one visual.
-- If the view has no usable entity dimension, reuse a meaningful categorical dimension for top/bottom — but still respect the "no binary flags" rule.
-- Reuse the same `<primary_measure>` across every task so the dashboard tells one coherent story.
-- Never emit more than four tasks or six display blocks total. Shorter is better.
-
-### Entity labeling — escape hatch when only a FK/UUID is available
-
-Prefer `type: semantic_query` for every task. **One narrow exception:** if the only viable entity dimension is an opaque FK (column name ends in `_id` / `_guid`, samples look like UUIDs/hex strings) AND the chosen topic does NOT include a lookup view that exposes a name dimension for it, fall back to `type: execute_sql` for `top_performers` / `bottom_performers` (ONLY) with an explicit JOIN to the lookup view. Pull the lookup view's name column directly. Keep `trend_over_time` as `semantic_query` either way.
-
-When you take this path:
-- Locate the lookup view's `table:` and `datasource:`, plus its primary key column and a name-like dimension (`name`, `location_name`, `display_name`, `title`). If you already covered this view in Step 1's view scan, reuse what you recorded — no re-read needed. Re-read only when the lookup view wasn't part of the first 4 you looked at.
-- Use {db_name}-appropriate JOIN syntax. Example skeleton (Postgres/DuckDB/ClickHouse):
-  ```yaml
-  - name: top_performers
-    type: execute_sql
-    database: <fact_view_datasource>
-    sql_query: |
-      SELECT
-        r.<name_col> AS entity,
-        SUM(t.<measure_col>) AS metric
-      FROM <fact_table> t
-      INNER JOIN <lookup_table> r ON t.<fk_col> = r.<lookup_pk_col>
-      GROUP BY r.<name_col>
-      ORDER BY metric DESC
-      LIMIT 10
-  ```
-- Display refs for `execute_sql` task outputs are the **plain SQL aliases** — `x: entity`, `y: metric` — no double underscore. Mixing `execute_sql` aliases with `__` refs will silently break charts.
-- The `formats:` map on a table for `execute_sql` outputs uses the alias name directly (e.g. `metric: currency`).
-
-Use this fallback only for entity-labeling. Do not switch to `execute_sql` for trend, time series, or any task that the semantic model can express. Better to ship a labeled top/bottom and a semantic trend than a fully raw-SQL dashboard.
-
-### Number formatting
-
-Pick a `DisplayFormat` per measure column based on what the measure actually represents. This is a judgement call — the measure name, its `description` in the `.view.yml`, its `type` (sum / average / count / …), and the business concept of the topic all inform the right answer. Do not treat the keywords below as an exhaustive checklist; treat them as examples.
-
-- `currency` — any monetary quantity. Common signals: mentions of money, revenue, spend, cost, price, fees, billing, payments, GMV, ARR/MRR, LTV, AOV, ARPU, ACV, gross/net, a currency symbol or code in the description, or a `sum`/`average` measure over a column that is obviously dollars / euros / etc. When a data-literate user would naturally read the value with a `$`, use `currency`.
-- `percent` — rates, shares, completion ratios, margins, attach/churn/conversion rates. Only when the underlying value is already scaled to 0–100 (a 0–1 ratio would render as `0.25%` with our current implementation, which is wrong — prefer plain `number` in that case, or omit the format).
-- `number` — high-magnitude counts or integers that benefit from thousands separators (page views, sessions, users, orders, transactions, units sold, clicks). Use this for any `count` / `count_distinct` measure where values typically reach five digits or more, so `1234567` reads as `1,234,567`.
-- Omit the format — small integer counts, already-formatted strings, or anything where formatting adds no clarity.
-
-For charts (`line_chart` / `bar_chart`) set `y_format: <format>`; for the pie chart `value_format`; for tables use a `formats:` map keyed by the output column name, one entry per measure column on display. When two interpretations are plausible, pick the one a finance-literate user would expect — `total_weekly_sales` reads as currency, `session_count` reads as number, `conversion_rate_pct` reads as percent.
-
-## Phase 4 — Smoke-test the generated dashboard
-
-Schema validation only catches structural YAML errors; it does NOT catch malformed SQL that fails at runtime (broken JOIN syntax, dialect type mismatches, missing `ON` clauses). Onboarding leaves no chance for the user to fix things before opening the app, so this step is non-negotiable.
-
-After the `write_file` call is accepted, call `run_app(file_path: "apps/overview.app.yml", params_json: "{{}}")` once. The tool runs every task in the app exactly the way the dashboard will on first load and reports per-task pass/fail.
-
-- **All tasks pass:** stop — the phase is done. Proceed to the "Sample Questions" output below.
-- **Any task fails:** read the error message verbatim. Diagnose against `## SQL dialect notes` and `## Failure recovery` in the app-builder reference (already in your system context). Common fixes:
-  - Re-state a malformed JOIN: `INNER JOIN <table> AS <alias> ON <alias>.<col> = <other>.<col>`. The `ON` keyword is mandatory; the alias goes immediately after `AS`, before `ON`.
-  - Replace a dialect-specific function with the matrix entry that matches `{db_name}` (e.g. ClickHouse uses `toStartOfMonth(col)` and `stddevPop()`, not `DATE_TRUNC` and `STDDEV`).
-  - Drop a measure / dimension that the view doesn't actually expose and pick a different one.
-
-  Call `edit_file` ONCE with the corrective `old_string` / `new_string` pair, and re-run `run_app` ONCE. If the second attempt still fails, stop and surface the error to the user — do NOT keep iterating.
-
-After all tasks pass (or you've stopped after one fix attempt), output **only** a "Sample Questions" section with 5 numbered questions users could ask the analytics agent about this data. Nothing else."#,
-        )
-    }
-
-    // ── Phase 3b: Cross-topic Deep-dive Dashboard ──────────────────────────────
-
-    fn build_app2_prompt(&self) -> String {
-        let db_name = &self.warehouse_type;
-
-        format!(
-            r#"The semantic model for {db_name} has been created, and `apps/overview.app.yml` already exists.
-
-Your task: **create a second dashboard that complements — and does not duplicate — the overview**. This phase only runs when the workspace has multiple topics, so you can assume at least two `.topic.yml` files exist.
-
-**Tool budget (every read counts):** read `apps/overview.app.yml` once (Phase 1), then at most 6 semantic files total across Phase 2 (counting both `.topic.yml` reads to find each view's owning topic AND `.view.yml` reads). Run at most 2 SQL queries total (1 join overlap check + at most 1 profiling query) and call `write_file` exactly once. You have a 30-round tool loop budget — aim to finish well within it.
-
-## Phase 1 — Determine the overview topic
-
-Read `apps/overview.app.yml`. Find the `topic:` field in its first task — that is the topic the overview already covers. You must NOT use the same topic for this dashboard.
-
-## Phase 2 — Discover entity key relationships (cap: 4 views)
-
-Read up to 4 `.view.yml` files in `semantics/`. Always include the overview's view, plus up to 3 others (alphabetical order). For each view, record:
-- View name and the `entities[0].key` dimension name
-- The `expr:` of that key dimension (the actual column used in SQL)
-- The `table:` and `datasource:` (needed for raw SQL JOINs)
-- Whether it has a name-like dimension (`name`, `location_name`, `display_name`, `title`, etc.) — this matters for entity labeling on the chart axis
-
-Look for an FK match: does the overview's view share an entity key (same `key:` name OR same underlying `expr:` column) with another view? Example: overview view `sales` has `key: store_id` / `expr: store_id`, and `labor` view has `key: store_id` / `expr: store_id` — these can be joined.
-
-**Also identify a labeling lookup view** (optional, but strongly preferred): if a third view's primary key (`entities[0].key`) matches the same FK AND it has a name-like dimension, you should plan a 3-way JOIN so the bar chart's `x:` axis is the human-readable name (e.g. `restaurants.location_name`) rather than the raw FK UUID. Skipping this step is the most common reason cross-topic dashboards ship UUIDs on the axis.
-
-If a candidate FK is found, run **one join overlap check** using {db_name}-appropriate syntax:
-```sql
-SELECT COUNT(*) AS overlap
-FROM <table1> t1
-INNER JOIN <table2> t2 ON t1.<key_expr> = t2.<key_expr>
-```
-A join is **viable** if `overlap > 0`. If the query errors (different schema, type mismatch, etc.), treat the join as not viable and proceed to the single-topic path — do not retry more than once.
-
-## Phase 3 — Choose cross-topic or single-topic
-
-### Cross-topic path (viable FK join found)
-
-**Important:** Onboarding views only declare primary entities, so the semantic engine cannot auto-join them. Cross-topic apps must use raw `execute_sql` tasks — not `semantic_query` tasks — and you do NOT create a combined `.topic.yml`. Just create the app file with one or two `execute_sql` tasks that JOIN the underlying tables directly.
-
-Tell a **cross-table story** — a metric that genuinely needs both tables (e.g., labor cost as % of revenue, headcount per sales dollar, cost vs. output by entity). Then call `write_file` **exactly once** to write `apps/<topic1>_<topic2>.app.yml` (e.g. `apps/sales_labor.app.yml`), passing the full file contents in the `content` argument.
-
-Cross-topic app skeleton — **use the 3-way variant when a labeling lookup view exists**, otherwise fall back to the 2-way variant:
-
-**3-way (preferred when a lookup view with a name dimension is available):**
-```yaml
-title: "<Business-friendly cross-topic name>"
-description: "<one-line description of the cross-table story>"
-
-tasks:
-  - name: cross_topic_ranking
-    type: execute_sql
-    database: <datasource_name>     # from the view's `datasource:` field
-    sql_query: |
-      SELECT
-        r.<lookup_name_col> AS entity,
-        SUM(t1.<measure_col>) AS metric_a,
-        SUM(t2.<measure_col>) AS metric_b,
-        SUM(t2.<measure_col>) / NULLIF(SUM(t1.<measure_col>), 0) AS ratio
-      FROM <table1> t1
-      INNER JOIN <table2> t2 ON t1.<key_expr> = t2.<key_expr>
-      INNER JOIN <lookup_table> r ON t1.<key_expr> = r.<lookup_pk_col>
-      GROUP BY r.<lookup_name_col>
-      ORDER BY ratio DESC
-      LIMIT 15
-```
-
-**2-way fallback (only when no lookup view with a name dimension was found):**
-```yaml
-tasks:
-  - name: cross_topic_ranking
-    type: execute_sql
-    database: <datasource_name>
-    sql_query: |
-      SELECT
-        t1.<entity_col> AS entity,
-        SUM(t1.<measure_col>) AS metric_a,
-        SUM(t2.<measure_col>) AS metric_b,
-        SUM(t2.<measure_col>) / NULLIF(SUM(t1.<measure_col>), 0) AS ratio
-      FROM <table1> t1
-      INNER JOIN <table2> t2 ON t1.<key_expr> = t2.<key_expr>
-      GROUP BY 1
-      ORDER BY ratio DESC
-      LIMIT 15
-```
-
-The display block is the same either way:
-```yaml
-display:
-  - type: markdown
-    content: |
-      # <Cross-table story title>
-      <one-paragraph summary of what the dashboard shows>
-  - type: bar_chart
-    title: "<Cross-topic metric>"
-    data: cross_topic_ranking
-    x: entity
-    y: ratio
-  - type: table
-    title: "Detail"
-    data: cross_topic_ranking
-```
-
-For execute_sql tasks, display refs use the **column alias** as written in the SELECT (no double underscore — that convention only applies to semantic_query output columns). When you use the 3-way JOIN, `entity` carries the human-readable name; when you use the 2-way fallback, `entity` carries the raw FK and the chart axis WILL show UUIDs — prefer the 3-way variant whenever a lookup view is available.
-
-### Single-topic path (no viable FK join)
-
-Pick the **first non-overview topic alphabetically** as the candidate (do not burn extra profiling queries comparing topics — the budget caps you at one). **Profile that candidate before committing**: build and run **one consolidated profiling query** for it, using {db_name}-appropriate syntax. The query should return:
-- `COUNT(*) AS rows`
-- `COUNT(DISTINCT <entity_expr>) AS entity_card` — for the best candidate entity dimension
-- For the candidate primary measure: `MIN(<expr>)`, `MAX(<expr>)`, `STDDEV(<expr>) AS measure_stddev`
-
-A topic qualifies for the single-topic deep-dive when ALL of these hold:
-- `rows` ≥ 100
-- `entity_card` between 5 and 500
-- `measure_stddev` > 0 (not flat / all-same value)
-
-If a profiling query errors due to dialect issues, follow `## Failure recovery` in the app-builder reference (simplify, retry once, skip). Never loop on the same broken query.
-
-If no remaining topic qualifies, pick the first non-overview topic alphabetically and skip any block that cannot be made meaningful with the available data.
-
-Derive a snake_case slug from the chosen topic name (strip `.topic.yml`). Write to `apps/<topic_slug>.app.yml`. Example: topic `customers` → `apps/customers.app.yml`.
-
-## Template (single-topic path)
-
-Fill in every `<placeholder>` with real field names. Do NOT leave words like "Topic" or "Category" in the output.
-
-The `title:` field is the dashboard's human-readable name — infer it from the data's actual business meaning. NEVER just title-case the slug: `raw_orders` → "Orders Deep Dive", `customers` → "Customer Insights". Keep it short (2–4 words), title-cased, business-friendly, and distinct from the overview's title.
-
-```yaml
-title: "<Business-friendly name>"
-description: "Deep dive into <topic in plain English> — leaders and weak spots."
-
-tasks:
-  - name: ranked_entities
-    type: semantic_query
-    topic: <topic_name>
-    dimensions:
-      - <view_name>.<entity_dimension>
-    measures:
-      - <view_name>.<primary_measure>
-    orders:
-      - field: <view_name>.<primary_measure>
-        direction: desc
-    limit: 15
-
-  - name: bottom_performers
-    type: semantic_query
-    topic: <topic_name>
-    dimensions:
-      - <view_name>.<entity_dimension>
-    measures:
-      - <view_name>.<primary_measure>
-    orders:
-      - field: <view_name>.<primary_measure>
-        direction: asc
-    limit: 10
-
-display:
-  - type: markdown
-    content: |
-      # <Topic in Title Case>
-      A closer look at <primary measure, in plain English>: who's leading and where the weak spots are.
-  - type: bar_chart
-    title: "Top 15 <entities> by <primary measure>"
-    data: ranked_entities
-    x: <view_name>__<entity_dimension>
-    y: <view_name>__<primary_measure>
-    # Include `y_format: currency` ONLY when the primary measure is monetary.
-  - type: table
-    title: "Bottom 10 <entities> by <primary measure>"
-    data: bottom_performers
-    # Include `formats:` ONLY when the primary measure is monetary.
-```
-
-### Dimension rules
-
-- Binary or boolean flags: `*_flag`, `is_*`, `has_*`, any dimension with only 2 distinct values (0/1, true/false, yes/no) — never use as entity dimension.
-- Dimensions with fewer than 3 distinct meaningful values — skip.
-- Raw surrogate keys that are not human-readable — pick a name/title/label instead.
-
-### Rules (violations break the dashboard)
-
-- The topic you pick must NOT be the same topic the overview dashboard uses.
-- Filename: `apps/<topic_slug>.app.yml`. Do NOT name the file `apps/detail.app.yml`.
-- Task `dimensions` and `measures` references use a single dot: `<view_name>.<field_name>`.
-- Display chart refs (`x:`, `y:`) for `semantic_query` task outputs use DOUBLE UNDERSCORE: `<view_name>__<field_name>`. For `execute_sql` tasks (the cross-topic path), refs are the plain column aliases as written in the SELECT — no double underscore. Mixing the two breaks chart rendering.
-- `table` blocks only take `data:`, `title:`, and optionally `formats:` — no `x` / `y`.
-- Reuse the same `<primary_measure>` across both tasks so the dashboard is coherent.
-- For the single-topic path: 2 tasks, 1 markdown + 1 chart + 1 table. Cross-topic may add one more task if the story requires it.
-
-### Number formatting
-
-Pick a `DisplayFormat` for the primary measure based on what it actually represents.
-
-- `currency` — monetary quantities (revenue, sales, spend, cost, price, fees, billing, GMV, ARR/MRR, LTV, AOV, ARPU, payments, margins-as-dollars). When a finance-literate user would naturally read the value with a `$`, use currency.
-- `percent` — rates, shares, or ratios already scaled to 0–100 (conversion rate, churn rate, margin percentage). Do not use `percent` for a 0–1 ratio — prefer `number` or omit.
-- `number` — high-magnitude counts or integers that benefit from thousands separators (`count` / `count_distinct` measures where values reach five digits or more).
-- Omit — small integer counts or measures where formatting adds no clarity.
-
-Set `y_format: <format>` on the bar chart as a sibling of `title:` / `data:`, and add a `formats:` map to the table. The map key matches whatever the task actually emits — for `semantic_query` tasks (single-topic path) that's `<view_name>__<primary_measure>`; for `execute_sql` tasks (cross-topic path) that's the plain SELECT alias (e.g. `metric`):
-```yaml
-# semantic_query (single-topic):
-formats:
-  <view_name>__<primary_measure>: <format>
-# execute_sql (cross-topic):
-formats:
-  <plain_alias>: <format>
-```
-
-## Phase 4 — Smoke-test the generated dashboard
-
-The cross-topic `execute_sql` path is where runtime SQL errors hide most often: handwritten JOINs against {db_name} can parse as YAML but fail on first dashboard load (broken JOIN syntax, dialect type mismatches, missing `ON` clauses). Onboarding leaves no chance for the user to fix things before opening the app, so this step is non-negotiable.
-
-After the `write_file` call is accepted, call `run_app(file_path: "<the file you just wrote>", params_json: "{{}}")` once. The tool runs every task in the app exactly the way the dashboard will on first load and reports per-task pass/fail.
-
-- **All tasks pass:** stop — the phase is done.
-- **Any task fails:** read the error message verbatim. Diagnose against `## SQL dialect notes` and `## Failure recovery` in the app-builder reference (already in your system context). Common fixes for the cross-topic path:
-  - Re-state a malformed JOIN: `INNER JOIN <table> AS <alias> ON <alias>.<col> = <other>.<col>`. The `ON` keyword is mandatory; the alias goes immediately after `AS`, before `ON`. Each JOIN gets its own `ON` clause.
-  - Replace a dialect-specific function with the matrix entry that matches `{db_name}` (e.g. ClickHouse uses `toStartOfMonth(col)` and `stddevPop()`, not `DATE_TRUNC` and `STDDEV`).
-  - Drop a measure / dimension that the view doesn't actually expose and pick a different one.
-
-  Call `edit_file` ONCE with the corrective `old_string` / `new_string` pair, and re-run `run_app` ONCE. If the second attempt still fails, stop and surface the error to the user — do NOT keep iterating.
-
-After all tasks pass (or you've stopped after one fix attempt), STOP — do NOT write a summary or explanation."#,
+{table_list}"#,
         )
     }
 }
@@ -1205,13 +675,11 @@ mod tests {
 
     #[test]
     fn other_phases_do_not_reference_legacy_agent_path() {
-        // Regression guard: app / app2 / config / semantic_view prompts should
+        // Regression guard: config / semantic_view prompts should
         // no longer instruct the builder to produce a classic .agent.yml file.
         for step in [
             OnboardingBuildStep::Config,
             OnboardingBuildStep::SemanticView,
-            OnboardingBuildStep::App,
-            OnboardingBuildStep::App2,
         ] {
             let prompt = ctx_with(step.clone()).build_prompt();
             assert!(
@@ -1240,7 +708,7 @@ mod tests {
     #[test]
     fn semantic_view_prompt_creates_topic_file() {
         // Every view must ship with a matching .topic.yml — the analytics
-        // agent's semantic_query tool and all app tasks query against topics.
+        // agent's semantic_query tool queries against topics.
         let prompt = ctx_with(OnboardingBuildStep::SemanticView).build_prompt();
         assert!(
             prompt.contains(".topic.yml"),
@@ -1258,7 +726,7 @@ mod tests {
         // run must show the agent the FULL list so it can declare foreign
         // entities for FK columns pointing at those other tables. Without
         // this, FK-shape declarations are inconsistent across the views and
-        // the App phase ends up rendering raw UUIDs on chart axes.
+        // the analytics agent ends up returning raw UUIDs.
         let ctx = ctx_with(OnboardingBuildStep::SemanticView);
         let prompt = ctx.build_prompt();
         // `ctx_with` seeds two tables: "public.orders" and "public.customers".
@@ -1342,479 +810,6 @@ mod tests {
         );
     }
 
-    // ── App phase: semantic_query + display reference guards ───────────────
-
-    #[test]
-    fn app_prompts_use_semantic_query_task_type() {
-        // The overview app and App2's single-topic deep-dive must use
-        // `semantic_query` for trends and the primary tasks. The App phase
-        // is allowed a narrow `execute_sql` escape hatch ONLY for the
-        // entity-labeling fallback (when the only viable entity dim is an
-        // FK and the topic doesn't include a lookup view with a name
-        // dimension). App2's cross-topic path is allowed to use
-        // `execute_sql` with a raw JOIN, since onboarding views declare
-        // only primary entities and the semantic engine cannot auto-join
-        // them without explicit foreign-entity relationships.
-        let app_prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            app_prompt.contains("type: semantic_query"),
-            "App phase must use `type: semantic_query` tasks for the primary cuts"
-        );
-        // The App phase prompt may mention `type: execute_sql` only inside
-        // the explicit "Entity labeling — escape hatch" section. Guard
-        // that the trend task is unambiguously instructed to be
-        // `semantic_query` (the labeling fallback applies only to top/bottom).
-        assert!(
-            app_prompt.contains("Keep `trend_over_time` as `semantic_query`"),
-            "App phase must keep the trend task on semantic_query even when the labeling fallback fires"
-        );
-        assert!(
-            app_prompt.contains("entity-labeling") || app_prompt.contains("Entity labeling"),
-            "App phase must scope any `execute_sql` mention to the entity-labeling fallback"
-        );
-
-        // App2: must mention semantic_query for the single-topic path.
-        // execute_sql is permitted only as part of the cross-topic JOIN path.
-        let app2_prompt = ctx_with(OnboardingBuildStep::App2).build_prompt();
-        assert!(
-            app2_prompt.contains("type: semantic_query"),
-            "App2 single-topic path must use `type: semantic_query`"
-        );
-    }
-
-    #[test]
-    fn app_prompts_use_double_underscore_in_display_refs() {
-        // airlayer joins view + field with `__` in its output column names,
-        // so chart `x:` / `y:` must use that convention. Using a dot there
-        // silently produces empty charts.
-        for step in [OnboardingBuildStep::App, OnboardingBuildStep::App2] {
-            let prompt = ctx_with(step.clone()).build_prompt();
-            assert!(
-                prompt.contains("__"),
-                "phase {step:?} must document the double-underscore display ref convention"
-            );
-        }
-    }
-
-    #[test]
-    fn app_prompt_produces_overview_file() {
-        // The starter dashboard's filename is fixed at apps/overview.app.yml
-        // so the frontend can key its completion fallback off a stable path.
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            prompt.contains("apps/overview.app.yml"),
-            "app phase must target apps/overview.app.yml"
-        );
-    }
-
-    #[test]
-    fn app_prompt_includes_high_signal_table_blocks() {
-        // The starter dashboard relies on tables for the "wow" moment —
-        // top + bottom performers. A regression to charts-only or a retreat
-        // to the old `breakdown` table would bring back the sparse feel we
-        // moved away from.
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            prompt.matches("type: table").count() >= 2,
-            "app phase must include at least two `type: table` display blocks; got:\n{prompt}"
-        );
-        assert!(
-            prompt.contains("top_performers"),
-            "app phase must include a top-N ranking task named `top_performers`"
-        );
-        assert!(
-            prompt.contains("bottom_performers"),
-            "app phase must pair top_performers with a `bottom_performers` ascending-ranked table"
-        );
-        assert!(
-            prompt.contains("direction: asc"),
-            "app phase must include an ascending order (for the bottom-performers ranking)"
-        );
-    }
-
-    #[test]
-    fn app_prompt_bans_binary_flag_dimensions() {
-        // Regression guard for the "holiday_flag bar chart" bug: the prompt
-        // must explicitly tell the LLM not to rank on binary/boolean
-        // dimensions, which produced low-signal output in the early starter
-        // dashboards.
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            prompt.contains("binary") && (prompt.contains("flag") || prompt.contains("boolean")),
-            "app phase must forbid binary/boolean flag dimensions for the main splits"
-        );
-        assert!(
-            prompt.contains("2 distinct values")
-                || prompt.contains("only 2 distinct")
-                || prompt.contains("fewer than 3 distinct"),
-            "app phase must forbid ≤2-value dimensions from being used as a ranking dimension"
-        );
-    }
-
-    #[test]
-    fn app_prompt_retires_low_signal_defaults() {
-        // The old prompt always emitted a `breakdown` table and a
-        // `comparison_by_group` bar chart on the same categorical dimension
-        // — a redundant chart/table pair that collapsed into noise when the
-        // dimension was low-cardinality (see the `holiday_flag` screenshot).
-        // Those tasks are gone; guard against them silently coming back.
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            !prompt.contains("- name: breakdown"),
-            "app phase must not define a `breakdown` task; top+bottom tables replaced it"
-        );
-        assert!(
-            !prompt.contains("- name: comparison_by_group"),
-            "app phase must not define a `comparison_by_group` task; the fourth block is now conditional"
-        );
-    }
-
-    #[test]
-    fn app_prompt_documents_entity_labeling_fallback() {
-        // When the only viable entity dim is an FK/UUID and the topic
-        // doesn't include a lookup view exposing a name dimension, the App
-        // phase must permit (and instruct) an `execute_sql` JOIN fallback
-        // for top/bottom — but ONLY for that case, and ONLY for the
-        // ranking tasks. Trends must stay on semantic_query.
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            prompt.contains("Entity labeling")
-                || prompt.contains("entity-labeling")
-                || prompt.contains("entity labeling"),
-            "App phase must include an entity-labeling section that documents the execute_sql fallback"
-        );
-        assert!(
-            prompt.contains("execute_sql"),
-            "App phase must mention `execute_sql` as the fallback task type for entity labeling"
-        );
-        assert!(
-            prompt.contains("INNER JOIN"),
-            "App phase fallback must show an explicit INNER JOIN to the lookup view"
-        );
-        assert!(
-            prompt.contains("Keep `trend_over_time` as `semantic_query`"),
-            "App phase must clamp the fallback to top/bottom — trend stays on semantic_query"
-        );
-    }
-
-    #[test]
-    fn app_prompt_makes_fourth_block_conditional() {
-        // The fourth block is opt-in: the prompt must give the LLM explicit
-        // permission to ship only three strong blocks rather than pad with a
-        // weak fourth one.
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            prompt.contains("Fourth-block decision") || prompt.contains("fourth block"),
-            "app phase must describe how to decide on the fourth block"
-        );
-        assert!(
-            prompt.to_lowercase().contains("omit") || prompt.contains("Three strong blocks"),
-            "app phase must explicitly allow omitting the fourth block"
-        );
-    }
-
-    #[test]
-    fn app2_prompt_is_cross_topic_and_topic_named() {
-        // App2 must pivot on a DIFFERENT topic than the overview and its
-        // filename must be derived from that topic — never `apps/detail.app.yml`.
-        // App2 reads the already-generated overview.app.yml to determine which
-        // topic is taken, then discovers entity key (FK) relationships to
-        // enable cross-topic stories when two views share a join key.
-        let prompt = ctx_with(OnboardingBuildStep::App2).build_prompt();
-        assert!(
-            prompt.contains("apps/overview.app.yml") || prompt.contains("overview.app.yml"),
-            "app2 prompt must read overview.app.yml to determine which topic the overview uses"
-        );
-        assert!(
-            prompt.contains("apps/<topic_slug>.app.yml")
-                || prompt.contains("apps/<topic_name>.app.yml")
-                || prompt.contains("apps/<topic1>_<topic2>.app.yml"),
-            "app2 prompt must name the file after the topic, not `detail`"
-        );
-        assert!(
-            !prompt.contains("apps/detail.app.yml")
-                || prompt.contains("Do NOT name the file `apps/detail.app.yml`")
-                || prompt.contains("not name the file"),
-            "app2 prompt must avoid writing to apps/detail.app.yml (or explicitly forbid it)"
-        );
-        assert!(
-            prompt.contains("different topic") || prompt.contains("NOT be the same topic"),
-            "app2 prompt must explicitly require a different topic than the overview"
-        );
-        assert!(
-            prompt.contains("entity key")
-                || prompt.contains("entities[0].key")
-                || prompt.contains("FK")
-                || prompt.contains("join"),
-            "app2 prompt must check entity key relationships to enable cross-topic stories"
-        );
-    }
-
-    #[test]
-    fn app_prompts_require_title_field() {
-        // Both onboarding dashboards must emit a human-friendly `title:` field
-        // so the completion screen can show a business-friendly label instead
-        // of the raw filename (e.g. "Orders Overview" rather than
-        // "Raw_orders Dashboard"). Skipping this field means listings fall
-        // back to the filename, which is exactly the regression we're
-        // guarding against.
-        for step in [OnboardingBuildStep::App, OnboardingBuildStep::App2] {
-            let prompt = ctx_with(step.clone()).build_prompt();
-            let yaml = extract_yaml_block(&prompt);
-            assert!(
-                yaml.contains("title:"),
-                "phase {step:?} YAML template must include a `title:` field so the LLM emits one"
-            );
-            assert!(
-                prompt.to_lowercase().contains("business-friendly"),
-                "phase {step:?} prompt must instruct the LLM to infer a business-friendly title from the data"
-            );
-        }
-    }
-
-    #[test]
-    fn app2_prompt_is_smaller_than_overview() {
-        // The overview is the big "wow" artifact — 4 tasks, markdown + chart + row.
-        // App2's single-topic template is a focused 2-task deep-dive so the two
-        // dashboards feel distinct. Cross-topic App2 may add one extra task but
-        // the prompt template still references fewer `- name:` tasks than overview.
-        let overview = ctx_with(OnboardingBuildStep::App).build_prompt();
-        let deep_dive = ctx_with(OnboardingBuildStep::App2).build_prompt();
-        assert!(
-            overview.matches("- name:").count() > deep_dive.matches("- name:").count(),
-            "overview template must define more tasks than the deep-dive single-topic template (overview={}, deep-dive={})",
-            overview.matches("- name:").count(),
-            deep_dive.matches("- name:").count()
-        );
-    }
-
-    // ── App phase: data-aware profiling guards ─────────────────────────────
-
-    #[test]
-    fn app_prompt_reads_all_topics_not_just_first() {
-        // The old prompt only read the first topic alphabetically, producing
-        // trivially wrong apps when the first topic was a sparse dimension table
-        // (e.g., a jobs reference table with count = 1 per row). The new prompt
-        // reads ALL topics and picks the best one based on profiling results.
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            !prompt.contains("Read the **first** one and its matching"),
-            "app phase must no longer hard-code reading only the first topic alphabetically"
-        );
-        assert!(
-            prompt.contains("For **each** one")
-                || prompt.contains("for each")
-                || prompt.contains("For each"),
-            "app phase must instruct reading every topic file, not just the first"
-        );
-    }
-
-    #[test]
-    fn app_prompt_requires_data_profiling_before_field_selection() {
-        // Without profiling, the LLM picks fields by name alone and produces
-        // flat charts (stddev ≈ 0) or useless top/bottom tables (cardinality < 5).
-        // The prompt must now require a profiling SQL query per topic before
-        // committing to any field selection.
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            prompt.contains("STDDEV")
-                || prompt.contains("stddev")
-                || prompt.contains("measure_stddev"),
-            "app phase must require a STDDEV profiling query to detect flat/all-same measures"
-        );
-        assert!(
-            prompt.contains("profiling")
-                || prompt.contains("consolidated")
-                || prompt.contains("COUNT(DISTINCT"),
-            "app phase must require a consolidated profiling query to check entity cardinality"
-        );
-        assert!(
-            prompt.contains("DATE_TRUNC") || prompt.contains("month_count"),
-            "app phase must require checking time coverage (distinct months) before adding a trend chart"
-        );
-    }
-
-    #[test]
-    fn app_prompt_rejects_flat_measures_and_sparse_topics() {
-        // The key fix for the "restaurant jobs" failure case: the prompt must
-        // explicitly tell the LLM to skip measures where stddev ≈ 0 (every entity
-        // returns the same value) and topics that are reference/dimension tables.
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            (prompt.contains("stddev") || prompt.contains("STDDEV"))
-                && (prompt.contains("flat")
-                    || prompt.contains("same value")
-                    || prompt.contains("horizontal")),
-            "app phase must reject measures with stddev ≈ 0 as producing flat/useless charts"
-        );
-        assert!(
-            prompt.contains("dimension table")
-                || prompt.contains("reference")
-                || prompt.contains("count = 1"),
-            "app phase must warn against using reference/dimension tables as the overview source"
-        );
-    }
-
-    // ── App2 phase: cross-topic and FK discovery guards ─────────────────────
-
-    #[test]
-    fn app2_prompt_reads_overview_to_avoid_duplicate_topic() {
-        // App2 must read the already-generated overview.app.yml to find which
-        // topic is already covered, rather than relying on alphabetical ordering.
-        // This prevents both apps from covering the same business concept.
-        let prompt = ctx_with(OnboardingBuildStep::App2).build_prompt();
-        assert!(
-            prompt.contains("overview.app.yml"),
-            "app2 phase must read apps/overview.app.yml to determine the overview topic"
-        );
-        assert!(
-            prompt.contains("topic:") || prompt.contains("`topic:`"),
-            "app2 phase must instruct the LLM to extract the topic field from overview.app.yml"
-        );
-    }
-
-    #[test]
-    fn app2_prompt_discovers_entity_key_relationships_for_cross_topic() {
-        // App2 now checks for FK-style join opportunities between views so it
-        // can produce a cross-topic story (e.g., revenue × labor cost) when the
-        // data supports it, rather than always defaulting to a single-topic view.
-        let prompt = ctx_with(OnboardingBuildStep::App2).build_prompt();
-        assert!(
-            prompt.contains("entity key")
-                || prompt.contains("entities[0].key")
-                || prompt.contains("FK"),
-            "app2 phase must check entity key relationships across views"
-        );
-        assert!(
-            prompt.contains("join") || prompt.contains("JOIN") || prompt.contains("overlap"),
-            "app2 phase must verify join viability with a SQL overlap check"
-        );
-    }
-
-    #[test]
-    fn app2_cross_topic_skeleton_supports_lookup_join() {
-        // The cross-topic execute_sql skeleton must show a 3-way JOIN
-        // variant that pulls a name column from a labeling lookup view.
-        // Without this, the fact-fact JOIN produces a chart with the FK
-        // (often a UUID) on the x-axis. The 2-way fallback is still
-        // documented for the case where no lookup view with a name dim
-        // exists, but the 3-way must be the preferred shape.
-        let prompt = ctx_with(OnboardingBuildStep::App2).build_prompt();
-        assert!(
-            prompt.contains("3-way") || prompt.contains("labeling lookup view"),
-            "App2 cross-topic skeleton must document the 3-way JOIN variant for entity labeling"
-        );
-        // Look for the lookup-view JOIN line in the skeleton (the third
-        // INNER JOIN with a `r.<lookup_pk_col>`-shaped clause).
-        assert!(
-            prompt.contains("lookup_table") || prompt.contains("<lookup_table>"),
-            "App2 cross-topic skeleton must reference a `<lookup_table>` placeholder in the 3-way JOIN"
-        );
-        assert!(
-            prompt.contains("name-like dimension")
-                || prompt.contains("name_col")
-                || prompt.contains("location_name"),
-            "App2 cross-topic skeleton must reference a name-like lookup column for the entity axis"
-        );
-    }
-
-    #[test]
-    fn app2_cross_topic_uses_raw_sql_join_not_combined_topic() {
-        // Onboarding views only declare primary entities, so the semantic
-        // engine cannot auto-join them. The cross-topic path therefore uses
-        // raw `execute_sql` with an INNER JOIN against the underlying tables —
-        // NOT a combined `.topic.yml` with multiple views (which would fail
-        // semantic-model validation with "not reachable via joins").
-        let prompt = ctx_with(OnboardingBuildStep::App2).build_prompt();
-        assert!(
-            prompt.contains("execute_sql")
-                && (prompt.contains("INNER JOIN") || prompt.contains("JOIN")),
-            "app2 cross-topic path must use execute_sql with a JOIN against underlying tables"
-        );
-        // The cross-topic path must NOT instruct creating a combined topic file.
-        assert!(
-            !prompt.contains("Create `semantics/<topic1>_<topic2>.topic.yml`"),
-            "app2 cross-topic path must not instruct creating a combined .topic.yml — onboarding views lack the foreign-entity declarations needed for auto-join"
-        );
-        assert!(
-            prompt.contains("primary entities")
-                || prompt.contains("primary entity")
-                || prompt.contains("cannot auto-join")
-                || prompt.contains("auto-join them"),
-            "app2 prompt must explain why semantic auto-join doesn't work for onboarding views"
-        );
-    }
-
-    #[test]
-    fn app2_prompt_caps_view_reads_for_tool_budget() {
-        // App2's view-discovery loop must cap how many .view.yml files it reads
-        // so it doesn't blow the 30-round tool budget on workspaces with many
-        // tables. The cap should be explicit in the prompt.
-        let prompt = ctx_with(OnboardingBuildStep::App2).build_prompt();
-        assert!(
-            prompt.contains("at most 4")
-                || prompt.contains("up to 4")
-                || prompt.contains("(cap: 4")
-                || prompt.contains("Tool budget"),
-            "app2 prompt must cap view-file reads (and announce a tool budget) to avoid runaway tool-loop usage"
-        );
-    }
-
-    #[test]
-    fn app2_single_topic_path_requires_measure_profiling() {
-        // The single-topic deep-dive must verify its candidate measure has
-        // STDDEV > 0 before committing — otherwise it can fall into the same
-        // "all-1s flat chart" trap that motivated this whole prompt overhaul.
-        let prompt = ctx_with(OnboardingBuildStep::App2).build_prompt();
-        assert!(
-            prompt.contains("STDDEV")
-                || prompt.contains("measure_stddev")
-                || prompt.contains("stddev"),
-            "app2 single-topic path must run a STDDEV profiling query before committing to a measure"
-        );
-        assert!(
-            prompt.contains("profiling")
-                || prompt.contains("Profile")
-                || prompt.contains("profile"),
-            "app2 single-topic path must explicitly instruct profiling the candidate topic"
-        );
-    }
-
-    #[test]
-    fn app_prompts_mention_sql_dialect_awareness() {
-        // The example profiling SQL is Postgres-flavored. Without dialect
-        // guidance, the LLM may emit DATE_TRUNC('month', col) on BigQuery
-        // (which uses column-first syntax) or ClickHouse (which uses
-        // toStartOfMonth) and silently fail. Both prompts must mention
-        // dialect awareness.
-        for step in [OnboardingBuildStep::App, OnboardingBuildStep::App2] {
-            let prompt = ctx_with(step.clone()).build_prompt();
-            assert!(
-                prompt.contains("BigQuery")
-                    || prompt.contains("ClickHouse")
-                    || prompt.contains("dialect")
-                    || prompt.contains("appropriate syntax"),
-                "phase {step:?} must mention SQL dialect concerns so profiling queries don't silently fail"
-            );
-        }
-    }
-
-    #[test]
-    fn app_prompts_specify_profiling_failure_fallback() {
-        // If a profiling query errors (dialect, type, missing function), the
-        // LLM must NOT loop on the failing query. The prompt must give
-        // explicit fallback guidance: simplify, retry once, then skip.
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            prompt.contains("error") || prompt.contains("fail"),
-            "app prompt must address profiling-query failures explicitly"
-        );
-        assert!(
-            prompt.contains("skip") || prompt.contains("simplify") || prompt.contains("move on"),
-            "app prompt must instruct the LLM to skip / simplify on profiling failure rather than loop"
-        );
-    }
-
     // ── Legacy SemanticLayer phase: keep it aligned with new schema ─────────
 
     // ── knowledge_cards() per phase ─────────────────────────────────────────
@@ -1827,8 +822,6 @@ mod tests {
             (OnboardingBuildStep::SemanticView, &[SemanticLayer]),
             (OnboardingBuildStep::SemanticLayer, &[SemanticLayer]),
             (OnboardingBuildStep::Agent, &[AgenticBuilder]),
-            (OnboardingBuildStep::App, &[SemanticLayer, AppBuilder]),
-            (OnboardingBuildStep::App2, &[SemanticLayer, AppBuilder]),
         ];
         for (step, expected) in cases {
             let cards = ctx_with(step.clone()).knowledge_cards();
@@ -1870,8 +863,6 @@ mod tests {
             OnboardingBuildStep::SemanticView,
             OnboardingBuildStep::SemanticLayer,
             OnboardingBuildStep::Agent,
-            OnboardingBuildStep::App,
-            OnboardingBuildStep::App2,
         ] {
             let allowlist = ctx_with(step.clone()).tool_allowlist();
             for bad in &banned {
@@ -1904,8 +895,6 @@ mod tests {
             OnboardingBuildStep::SemanticView,
             OnboardingBuildStep::SemanticLayer,
             OnboardingBuildStep::Agent,
-            OnboardingBuildStep::App,
-            OnboardingBuildStep::App2,
         ] {
             let allowlist = ctx_with(step.clone()).tool_allowlist();
             for needed in &common {
@@ -1926,8 +915,6 @@ mod tests {
         let warehouse_phases = [
             OnboardingBuildStep::SemanticView,
             OnboardingBuildStep::SemanticLayer,
-            OnboardingBuildStep::App,
-            OnboardingBuildStep::App2,
         ];
         let non_warehouse_phases = [OnboardingBuildStep::Config, OnboardingBuildStep::Agent];
 
@@ -1941,83 +928,6 @@ mod tests {
             assert!(!allowlist.iter().any(|t| t == "execute_sql"));
             assert!(!allowlist.iter().any(|t| t == "semantic_query"));
         }
-    }
-
-    // ── App phases: run_app smoke test ──────────────────────────────────────
-
-    #[test]
-    fn app_phases_allowlist_includes_run_app() {
-        // The smoke-test tool catches runtime SQL errors that schema
-        // validation misses (broken JOINs, dialect type mismatches).
-        // Onboarding's App / App2 phases are the ones the user opens
-        // immediately after onboarding, so they must surface this tool.
-        for step in [OnboardingBuildStep::App, OnboardingBuildStep::App2] {
-            let allowlist = ctx_with(step.clone()).tool_allowlist();
-            assert!(
-                allowlist.iter().any(|t| t == "run_app"),
-                "phase {step:?} must expose run_app for the smoke test"
-            );
-        }
-    }
-
-    #[test]
-    fn non_app_phases_do_not_expose_run_app() {
-        // Other phases produce different artifact types — exposing the
-        // app smoke-test tool there would be tool-list noise.
-        for step in [
-            OnboardingBuildStep::Config,
-            OnboardingBuildStep::Agent,
-            OnboardingBuildStep::SemanticView,
-            OnboardingBuildStep::SemanticLayer,
-        ] {
-            let allowlist = ctx_with(step.clone()).tool_allowlist();
-            assert!(
-                !allowlist.iter().any(|t| t == "run_app"),
-                "phase {step:?} must NOT expose run_app"
-            );
-        }
-    }
-
-    #[test]
-    fn app_prompt_includes_smoke_test_phase() {
-        let prompt = ctx_with(OnboardingBuildStep::App).build_prompt();
-        assert!(
-            prompt.contains("Phase 4"),
-            "App prompt must include the Phase 4 smoke-test step"
-        );
-        assert!(
-            prompt.contains("run_app"),
-            "App prompt must instruct calling run_app"
-        );
-        // The smoke-test step pins the file path so the tool call doesn't
-        // require the model to invent it.
-        assert!(
-            prompt.contains("apps/overview.app.yml"),
-            "App prompt must name the file the smoke test should target"
-        );
-        // Bound iteration: one corrective change, one retry, then stop.
-        assert!(
-            prompt.contains("ONCE") && prompt.to_lowercase().contains("do not keep iterating"),
-            "App prompt must bound the smoke-test retry loop"
-        );
-    }
-
-    #[test]
-    fn app2_prompt_includes_smoke_test_phase() {
-        let prompt = ctx_with(OnboardingBuildStep::App2).build_prompt();
-        assert!(
-            prompt.contains("Phase 4"),
-            "App2 prompt must include the Phase 4 smoke-test step"
-        );
-        assert!(
-            prompt.contains("run_app"),
-            "App2 prompt must instruct calling run_app"
-        );
-        // Bound iteration: one corrective change, one retry, then stop.
-        assert!(
-            prompt.contains("ONCE") && prompt.to_lowercase().contains("do not keep iterating"),
-            "App2 prompt must bound the smoke-test retry loop"
-        );
     }
 
     // ── Smoke-test step in SemanticView prompt ──────────────────────────────
@@ -2151,5 +1061,65 @@ mod tests {
             prompt.contains(".topic.yml"),
             "legacy SemanticLayer prompt must instruct topic creation alongside views"
         );
+    }
+
+    // ── Data Apps are retired: onboarding never creates one ─────────────────
+
+    const EVERY_STEP: [OnboardingBuildStep; 4] = [
+        OnboardingBuildStep::SemanticLayer,
+        OnboardingBuildStep::Config,
+        OnboardingBuildStep::SemanticView,
+        OnboardingBuildStep::Agent,
+    ];
+
+    #[test]
+    fn no_onboarding_step_asks_for_a_data_app() {
+        for step in EVERY_STEP {
+            let ctx = ctx_with(step.clone());
+            let prompt = ctx.build_prompt();
+            assert!(
+                !prompt.contains(".app.yml"),
+                "phase {step:?} prompt mentions a Data App file"
+            );
+            assert!(
+                !ctx.tool_allowlist().iter().any(|t| t == "run_app"),
+                "phase {step:?} still exposes run_app"
+            );
+        }
+    }
+
+    #[test]
+    fn the_agent_phase_ends_with_sample_questions_for_the_completion_screen() {
+        // The completion screen's "Try these with your analytics agent" prompts come
+        // from the last phase's answer. The starter-dashboard phase used to write
+        // them; the agent phase does now.
+        let prompt = ctx_with(OnboardingBuildStep::Agent).build_prompt();
+        assert!(prompt.contains("\"Sample Questions\" section with 5 numbered questions"));
+        assert!(
+            prompt.contains("- public.orders"),
+            "the tables are named: {prompt}"
+        );
+    }
+
+    #[test]
+    fn the_generated_agent_does_not_read_apps() {
+        let prompt = ctx_with(OnboardingBuildStep::Agent).build_prompt();
+        assert!(!prompt.contains(".app.yml"));
+    }
+
+    #[test]
+    fn the_app_steps_no_longer_deserialize() {
+        for step in ["app", "app2"] {
+            let body = format!(
+                r#"{{"tables": ["public.orders"], "warehouse_type": "postgres", "step": "{step}"}}"#
+            );
+            assert!(
+                serde_json::from_str::<OnboardingContext>(&body).is_err(),
+                "step {step:?} was accepted: an old client would get a Data App prompt"
+            );
+        }
+        let body =
+            r#"{"tables": ["public.orders"], "warehouse_type": "postgres", "step": "agent"}"#;
+        assert!(serde_json::from_str::<OnboardingContext>(body).is_ok());
     }
 }

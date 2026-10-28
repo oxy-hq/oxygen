@@ -19,6 +19,14 @@ keyfile, then pass the path to that file to your `config.yml` file, as shown bel
       - "company_activity_analytics_summary_view" # one specific table
 ```
 
+<Warning>
+  `key_path` reads a file from your repository. The pods that serve the hosted
+  platform do not have your repository, so queries against this database fail
+  there, and compiles will be refused once that check is enabled. A BigQuery
+  key cannot be served from the hosted platform yet; contact Oxy support to
+  connect the database. `key_path` works when you run Oxy on your own machine.
+</Warning>
+
 # Generating a keyfile
 
 To generate a keyfile, follow these steps:

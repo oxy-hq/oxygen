@@ -17,6 +17,11 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies]
 # The sandbox-agent refusal tables the console owns (`custom_apps_agent_refusal`).
 oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
+# The workspace-seam route roles the server composes (`oxy-server`
+# `surface_seams`), so `factory_routes` can say which pod serves every
+# customer route, the surfaces' included.
+oxy-api-tenancy = { path = "../api-tenancy", default-features = false }
+oxy-api-source-upload = { path = "../api-source-upload", default-features = false }
 axum = { workspace = true }
 uuid = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -64,16 +64,12 @@ const IDE_DEFER_QUEUE_WORK_ENV: &str = "OXY_IDE_DEFER_QUEUE_WORK";
 /// one without the other either strands it or runs it where it fails.
 ///
 /// **`workflow` is deliberately not here, and it is the one to know about.**
-/// No automation needs the Factory as a kind, but three step shapes read or
-/// write the working copy and so behave differently on a worker:
-///
-/// - a `sql_file` step the compile boundary does not serve (`modeling/**`,
-///   `schemas/**`) fails with "this node holds no workspace files";
-/// - `export:` / `cache:` steps write under a workspace root that exists only
-///   on that worker's ephemeral disk (the known violation recorded in
-///   `tests/platform/workspace_path_needs_is_dir.rs`);
-/// - an `agent_ref: __builder__` step runs the file-editing builder on a node
-///   that has no working copy to edit.
+/// No automation needs the Factory as a kind, but one step shape reads the
+/// working copy and so behaves differently on a worker: a `sql_file` step the
+/// compile boundary does not serve (`modeling/**`, `schemas/**`) fails with
+/// "this node holds no workspace files". (`export:` / `cache:` steps and
+/// `agent_ref: __builder__` steps were the other two; the compile now refuses
+/// both.)
 ///
 /// None of that is new: a worker already drives any automation it wins the
 /// race for. What this gate changes is the odds — from "whichever node polled
@@ -232,6 +228,12 @@ pub(super) fn announce(policy: DrivePolicy) {
             "this node drives only these run kinds at selection; every other \
              kind is left for the worker fleet, and driven here only once it \
              has gone unclaimed for the grace"
+        ),
+        DrivePolicy::Exactly(only) => tracing::info!(
+            target: "recovery",
+            role,
+            only = ?only,
+            "this node drives only these run kinds, and never any other"
         ),
     }
 }

@@ -141,6 +141,14 @@ pub async fn load_principal_facts_scoped(
     } else {
         Vec::new()
     };
+    // The Factory grants are workspace facts like the override above, and skipped
+    // with it: only `Ring::Factory` reads them, and the custom-app data plane's
+    // scoped load must not pay a query for a ring it never asks.
+    let factory_workspaces = if include_workspace_facts {
+        load_factory_workspaces(db, user_id).await?
+    } else {
+        Vec::new()
+    };
     // Loaded on BOTH paths, unlike the workspace override: AppAccess itself reads
     // these once an app is restricted, and AppAccess is exactly what the scoped
     // (custom-app hot path) caller enforces. Skipping it there would deny an app
@@ -166,6 +174,7 @@ pub async fn load_principal_facts_scoped(
         member_orgs,
         partners,
         ws_admin_override,
+        factory_workspaces,
         app_memberships,
         app_admin_memberships,
         frontline_orgs,
@@ -569,4 +578,27 @@ async fn load_ws_admin_override(db: &DatabaseConnection, user_id: Uuid) -> Optio
             .map(|m| m.workspace_id)
             .collect(),
     )
+}
+
+/// The workspaces an Oxy operator granted this user the Factory in
+/// (`workspace_factory_grants`). One bounded query keyed by the user.
+///
+/// `None` = the query errored: unknown, not empty. Averaging a blip into "no
+/// grants" would refuse a granted editor the Factory they were named for, with
+/// nothing in the log to say why.
+async fn load_factory_workspaces(db: &DatabaseConnection, user_id: Uuid) -> Option<Vec<Uuid>> {
+    let rows = entity::workspace_factory_grants::Entity::find()
+        .filter(entity::workspace_factory_grants::Column::UserId.eq(user_id))
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::warn!(
+                target: "authz",
+                error = %e,
+                user = %user_id,
+                "factory grant lookup failed — facts are unknown, not empty"
+            );
+        })
+        .ok()?;
+    Some(rows.into_iter().map(|g| g.workspace_id).collect())
 }

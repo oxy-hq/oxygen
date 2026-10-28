@@ -19,7 +19,6 @@ use axum::{
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use oxy_airlayer_compat::engine::promotions::Promotions;
-use oxy_semantic::parse_semantic_layer_from_dir;
 use oxy_semantic::parser::{ParserConfig, SemanticLayerParser};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -40,7 +39,7 @@ use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
     WorkspaceManagerReadOnly,
 };
-use crate::server::api::semantic_scan::{self, ScanDir, SemanticEntity};
+use crate::server::api::semantic_scan::{self, ScanDir, SemanticEntity, SemanticTarget};
 use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
 
 #[derive(Serialize, ToSchema)]
@@ -131,19 +130,24 @@ pub async fn get_view_details(
 ) -> Result<extract::Json<ViewResponse>, (StatusCode, extract::Json<ErrorResponse>)> {
     let file_path_str = decode_b64_path(&file_path_b64)?;
     // Boundary first (a stateless serve replica has no working copy), FS fallback
-    // in local / not-yet-promoted mode. `_guard` keeps the materialised tempdir
-    // alive until parsing finishes.
-    let (scan_path, view_file, guard) = resolve_semantic_source(
+    // in local / not-yet-promoted mode.
+    let (scan, target) = resolve_semantic_source(
         &workspace_manager,
         SemanticEntity::View,
         &file_path_str,
         "View",
     )
     .await?;
-    let source_revision = scan_source_revision(&guard, &workspace_manager);
+    let source_revision = scan_source_revision(&Some(scan.clone()), &workspace_manager);
 
-    let parser = SemanticLayerParser::new(ParserConfig::new(&scan_path));
-    let view = parser.parse_view_file(&view_file).map_err(|e| {
+    let parser = SemanticLayerParser::new(ParserConfig::new(parser_root(&scan)));
+    let view = match &target {
+        SemanticTarget::File(path) => parser.parse_view_file(path),
+        SemanticTarget::Yaml { file_path, yaml } => {
+            parser.parse_view_str(yaml, std::path::Path::new(file_path))
+        }
+    }
+    .map_err(|e| {
         semantic_err(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to parse view file: {e}"),
@@ -153,10 +157,11 @@ pub async fn get_view_details(
     // Load the full airlayer semantic model to compute the promotion closure.
     // Induced measures are defined on fine-grain views but become queryable at
     // every coarser-grain ancestor — they don't exist in the single-file YAML.
-    // `scan_path` is the whole promoted scan (boundary tempdir or FS fallback),
-    // so loading it gives the cross-view graph the promotion closure needs.
+    // `scan` is the whole promoted scan (the revision's files or the FS
+    // fallback), so loading it gives the cross-view graph the promotion closure
+    // needs.
     let airlayer_layer = layer_cache
-        .get_or_load(source_revision, scan_path.clone())
+        .get_or_load(source_revision, scan.clone())
         .await
         .map_err(|e| {
             semantic_err(
@@ -203,20 +208,26 @@ pub async fn get_topic_details(
     }): Path<TopicPath>,
 ) -> Result<extract::Json<TopicDetailsResponse>, (StatusCode, extract::Json<ErrorResponse>)> {
     let file_path_str = decode_b64_path(&file_path_b64)?;
-    // Boundary first, FS fallback. The WHOLE scan is materialised so the topic's
-    // referenced views hydrate from the same dir (`parse_semantic_layer_from_dir`
-    // below reads `semantics_path`). `_guard` holds the tempdir until then.
-    let (semantics_path, topic_file, guard) = resolve_semantic_source(
+    // Boundary first, FS fallback. The WHOLE scan is read so the topic's
+    // referenced views hydrate from the same model (`parse_semantic_model`
+    // below).
+    let (scan, target) = resolve_semantic_source(
         &workspace_manager,
         SemanticEntity::Topic,
         &file_path_str,
         "Topic",
     )
     .await?;
-    let source_revision = scan_source_revision(&guard, &workspace_manager);
+    let source_revision = scan_source_revision(&Some(scan.clone()), &workspace_manager);
 
-    let parser = SemanticLayerParser::new(ParserConfig::new(&semantics_path));
-    let topic = parser.parse_topic_file(&topic_file).map_err(|e| {
+    let parser = SemanticLayerParser::new(ParserConfig::new(parser_root(&scan)));
+    let topic = match &target {
+        SemanticTarget::File(path) => parser.parse_topic_file(path),
+        SemanticTarget::Yaml { file_path, yaml } => {
+            parser.parse_topic_str(yaml, std::path::Path::new(file_path))
+        }
+    }
+    .map_err(|e| {
         semantic_err(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to parse topic file: {e}"),
@@ -227,7 +238,7 @@ pub async fn get_topic_details(
     // missing reference is a real authoring error — return 400 with
     // the offending name rather than silently dropping the view, so the
     // IDE can surface it to the user.
-    let parse_result = parse_semantic_layer_from_dir(&semantics_path).map_err(|e| {
+    let parse_result = scan.parse_semantic_model().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             extract::Json(ErrorResponse {
@@ -237,7 +248,7 @@ pub async fn get_topic_details(
     })?;
 
     let airlayer_layer = layer_cache
-        .get_or_load(source_revision, semantics_path.clone())
+        .get_or_load(source_revision, scan.clone())
         .await
         .map_err(|e| {
             (
@@ -300,23 +311,28 @@ pub async fn get_topic_details(
     }))
 }
 
-/// Resolve where to read a single view/topic: the compile boundary (materialised
-/// into a tempdir) when the workspace is promoted, else the working-copy FS.
-/// Returns `(scan_root, file_path, guard)` — HOLD `guard` until parsing finishes
-/// (dropping it deletes the materialised tempdir).
+/// The directory the file-based `oxy_semantic` parser names files relative to:
+/// the working copy's, or a placeholder for a compiled revision, which has no
+/// directory and whose files are parsed from text.
+fn parser_root(scan: &ScanDir) -> &std::path::Path {
+    scan.directory()
+        .unwrap_or(std::path::Path::new("semantics"))
+}
+
+/// Resolve where to read a single view/topic: the compile boundary (the
+/// revision's files, in memory) when the workspace is promoted, else the
+/// working-copy FS. Returns the scan the entity belongs to, for the full-model
+/// reads the detail handlers also do, and the entity itself.
 async fn resolve_semantic_source<S: DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
     entity: SemanticEntity,
     file_path_str: &str,
     label: &str,
-) -> Result<
-    (std::path::PathBuf, std::path::PathBuf, Option<ScanDir>),
-    (StatusCode, extract::Json<ErrorResponse>),
->
+) -> Result<(ScanDir, SemanticTarget), (StatusCode, extract::Json<ErrorResponse>)>
 where
     ConfigManager<S>: ResolveWorkspaceFile,
 {
-    if let Some((scan, file)) = semantic_scan::materialise_semantic_entity(
+    if let Some(found) = semantic_scan::read_semantic_entity(
         &workspace_manager.config_manager,
         entity,
         file_path_str,
@@ -325,10 +341,10 @@ where
     .map_err(|e| {
         semantic_err(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to materialise semantic scan: {e}"),
+            format!("Failed to read semantic scan: {e}"),
         )
     })? {
-        return Ok((scan.path().to_path_buf(), file, Some(scan)));
+        return Ok(found);
     }
 
     // The boundary missed. `try_resolve_file` has an impl for each capability,
@@ -365,7 +381,7 @@ where
                 ),
             )
         })?;
-    Ok((scan_path, full_path, None))
+    Ok((ScanDir::Real(scan_path), SemanticTarget::File(full_path)))
 }
 
 pub(crate) fn semantic_err(
@@ -378,31 +394,21 @@ pub(crate) fn semantic_err(
 /// Where a semantic **query** (compile / execute) reads the layer from.
 ///
 /// The query-shaped counterpart to [`resolve_semantic_source`], which does the
-/// same for a single-file read. `_guard` owns the materialised tempdir — hold it
-/// until compilation finishes or the scan root is deleted out from under it.
+/// same for a single-file read. On a serve replica the scan is the compiled
+/// revision's files, held in memory, so there is nothing to keep alive; where a
+/// working copy is held it is that directory.
 pub(crate) struct QueryScanSource {
-    pub(crate) scan_path: std::path::PathBuf,
-    _guard: Option<ScanDir>,
+    pub(crate) scan: ScanDir,
 }
 
 impl QueryScanSource {
     /// A scan rooted at a directory that is already on disk — the working-copy
-    /// arm, where there is no materialised tempdir to guard.
-    ///
-    /// Lets a caller that resolved a root some other way (or a test) hand one
-    /// to something that takes a `QueryScanSource`, without making `_guard`
-    /// public and inviting a materialised scan to be built without its guard.
+    /// arm. Lets a caller that resolved a root some other way (or a test) hand
+    /// one to something that takes a `QueryScanSource`.
     pub(crate) fn at(scan_path: std::path::PathBuf) -> Self {
         Self {
-            scan_path,
-            _guard: None,
+            scan: ScanDir::Real(scan_path),
         }
-    }
-
-    /// The directory to scan. Valid only while `self` is alive: a materialised
-    /// scan's tempdir is deleted when the guard drops.
-    pub(crate) fn path(&self) -> &std::path::Path {
-        &self.scan_path
     }
 
     /// The revision this scan actually READ, or `None` for the working copy.
@@ -410,7 +416,7 @@ impl QueryScanSource {
         &self,
         workspace_manager: &WorkspaceManager<S>,
     ) -> Option<Uuid> {
-        scan_source_revision(&self._guard, workspace_manager)
+        scan_source_revision(&Some(self.scan.clone()), workspace_manager)
     }
 }
 
@@ -430,7 +436,7 @@ pub(crate) fn scan_source_revision<S: oxy::config::DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
 ) -> Option<Uuid> {
     match guard {
-        Some(scan) if scan.is_materialised() => workspace_manager.config_manager.revision_id(),
+        Some(scan) if scan.is_compiled() => workspace_manager.config_manager.revision_id(),
         _ => None,
     }
 }
@@ -494,12 +500,7 @@ pub(crate) async fn resolve_query_scan_source<S: oxy::config::DiskSlot>(
     // `scan_dir` covers both arms — the working copy's own path, or the compiled
     // rows written out — so it only fails when neither is available.
     match semantic_scan::scan_dir(&workspace_manager.config_manager).await {
-        Ok(scan) => {
-            return Ok(QueryScanSource {
-                scan_path: scan.path().to_path_buf(),
-                _guard: Some(scan),
-            });
-        }
+        Ok(scan) => return Ok(QueryScanSource { scan }),
         Err(e) => tracing::warn!(
             workspace_id = %workspace_id,
             error = %e,
@@ -537,10 +538,7 @@ pub(crate) async fn resolve_query_scan_source<S: oxy::config::DiskSlot>(
         });
     };
 
-    Ok(QueryScanSource {
-        scan_path,
-        _guard: None,
-    })
+    Ok(QueryScanSource::at(scan_path))
 }
 
 /// [`resolve_query_scan_source`] for a reader that must JUDGE the workspace
@@ -564,10 +562,7 @@ pub(crate) async fn resolve_compiled_scan_source<S: oxy::config::DiskSlot>(
 ) -> Result<QueryScanSource, ScanUnavailable> {
     let workspace_id = workspace_manager.workspace_id;
     match oxy::config::scan::compiled_scan_dir(&workspace_manager.config_manager).await {
-        Ok(scan) => Ok(QueryScanSource {
-            scan_path: scan.path().to_path_buf(),
-            _guard: Some(scan),
-        }),
+        Ok(scan) => Ok(QueryScanSource { scan }),
         Err(e) => {
             tracing::warn!(
                 workspace_id = %workspace_id,
@@ -671,12 +666,11 @@ pub async fn compile_semantic_query(
 ) -> Result<extract::Json<SemanticQueryCompileResponse>, (StatusCode, extract::Json<ErrorResponse>)>
 {
     // Compile boundary first — this route is FleetOk and must not depend on a
-    // working copy. `source` owns the materialised tempdir; keep it alive until
-    // the blocking compile below has finished reading from it.
+    // working copy.
     let source = resolve_query_scan_source(&workspace_manager)
         .await
         .map_err(|e| semantic_err(StatusCode::SERVICE_UNAVAILABLE, e.message()))?;
-    let scan_path = source.scan_path.clone();
+    let scan = source.scan.clone();
     let databases: Vec<oxy_airlayer_compat::DatabaseConfig> = workspace_manager
         .config_manager
         .list_databases()
@@ -690,9 +684,7 @@ pub async fn compile_semantic_query(
         // Compile to warehouse SQL only (no preagg cache) — IDE preview
         // should always show the human-readable warehouse SQL, not the
         // local-Parquet rewrite.
-        resolve_and_compile_cached(
-            &cache, engine_key, &scan_path, &databases, &query, None, None,
-        )
+        resolve_and_compile_cached(&cache, engine_key, &scan, &databases, &query, None, None)
     })
     .await
     .map_err(|e| {
@@ -769,12 +761,11 @@ pub async fn execute_semantic_query(
     Path(WorkspacePath { workspace_id: _ }): Path<WorkspacePath>,
     extract::Json(payload): extract::Json<SemanticQueryExecuteRequest>,
 ) -> Result<extract::Json<SemanticQueryResponse>, (StatusCode, extract::Json<SqlErrorResponse>)> {
-    // Compile boundary first — see `resolve_query_scan_source`. `source` owns the
-    // materialised tempdir and must outlive the blocking compile below.
+    // Compile boundary first — see `resolve_query_scan_source`.
     let source = resolve_query_scan_source(&workspace_manager)
         .await
         .map_err(|e| sql_error_503(e.message()))?;
-    let scan_path = source.scan_path.clone();
+    let scan = source.scan.clone();
     let databases: Vec<oxy_airlayer_compat::DatabaseConfig> = workspace_manager
         .config_manager
         .list_databases()
@@ -788,13 +779,12 @@ pub async fn execute_semantic_query(
     // rollup covers the request, `compiled` will be `LocalParquet` and
     // we serve from the on-disk Parquet via DuckDB instead of round-
     // tripping to the warehouse.
-    let scan_path_for_compile = scan_path.clone();
-    // Keyed on the workspace ID, never on `scan_path` — that's
-    // `source.scan_path`, a per-request materialised tempdir on any workspace
-    // with a promoted compile (see `resolve_query_scan_source`), and it is
-    // also branch-dependent. Either one as a cache key sends the reader to a
-    // directory nothing ever built: right rows, always from the warehouse, no
-    // "Pre-aggregated" badge, no error. See `resolve_and_compile`'s doc.
+    // Keyed on the workspace ID, never on the scan — which is branch-dependent
+    // and, on any workspace with a promoted compile, the revision's files rather
+    // than a directory (see `resolve_query_scan_source`). Either one as a cache
+    // key sends the reader to a directory nothing ever built: right rows, always
+    // from the warehouse, no "Pre-aggregated" badge, no error. See
+    // `resolve_and_compile`'s doc.
     let preagg = crate::server::preagg_context::preagg_context(
         workspace_manager.workspace_id,
         preagg_cache.clone(),
@@ -810,7 +800,7 @@ pub async fn execute_semantic_query(
         resolve_and_compile_cached(
             &cache,
             engine_key,
-            &scan_path_for_compile,
+            &scan,
             &databases,
             &query,
             preagg.as_ref(),

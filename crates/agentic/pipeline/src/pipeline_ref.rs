@@ -57,7 +57,8 @@ pub enum PipelineRefError {
     #[error("{0}")]
     Unavailable(String),
     /// The boundary **answered**, for a promoted revision, and the ref is not
-    /// in it — and this node holds no working copy that could say otherwise.
+    /// in it. A node that holds a working copy does not say otherwise: once a
+    /// revision is pinned it is the only source.
     ///
     /// Split out of [`Unavailable`](Self::Unavailable) because waiting does not
     /// fix it and the two were indistinguishable. A pipeline that exists only
@@ -110,9 +111,13 @@ fn validate_pipeline_ref(pipeline_ref: &str) -> Result<&str, String> {
 ///    means it came from the workspace's compiled `airway_pipelines` rows,
 ///    scoped to that workspace's promoted revision. No filesystem involved —
 ///    this is the path a stateless durable worker takes.
-/// 3. `Ok(None)` means "read the FS" (host doesn't do the boundary, workspace
-///    is the legacy local one, branch is a draft, or nothing is compiled yet).
-///    Fall through to the canonical-containment-checked read.
+/// 3. `Ok(None)` from a host pinned to a promoted revision
+///    ([`WorkspaceContext::compiled_revision`] is `Some`) is the revision's
+///    answer: the ref is not in it, so [`PipelineRefError::NotInRevision`].
+///    The working copy is never read for it. From a host with no pinned
+///    revision (the CLI, local mode, a draft branch, nothing compiled yet) it
+///    means "read the FS": fall through to the canonical-containment-checked
+///    read.
 /// 4. `Err` means the host could not be *asked* — a database blip, not an
 ///    answer. That is [`PipelineRefError::Unavailable`] and never a fall-through
 ///    to the FS: a working copy that happens to exist would answer a question
@@ -120,7 +125,7 @@ fn validate_pipeline_ref(pipeline_ref: &str) -> Result<&str, String> {
 ///    divergence this module exists to remove.
 ///
 /// Step 3 has its own `Unavailable` case, and it is the one that used to be
-/// mis-classified: if there is no compiled row *and* this process holds no
+/// mis-classified: if no revision is pinned *and* this process holds no
 /// working copy, nothing here can answer, so the root being inaccessible is a
 /// fact about the node and not about the caller's ref.
 ///
@@ -143,6 +148,50 @@ pub async fn load_pipeline_yaml(
         }
     }
 
+    // The host is pinned to a promoted revision and that revision does not
+    // serve the ref. The working copy is not consulted, on any node: a pod that
+    // happens to hold the files must not answer a revision miss from them, or
+    // one request returns different YAML depending on which pod served it, and
+    // the files are what is being retired
+    // (`internal-docs/factory-retirement.md`, Phase 4).
+    //
+    // Not `Unavailable`: the boundary answered, and waiting does not fix a ref
+    // that is not in the revision (see [`PipelineRefError::NotInRevision`]).
+    //
+    // States the OBSERVATION and then both readings of it, rather than one
+    // instruction. "Commit it and let a compile promote it" is the ordinary
+    // cause and would have been wrong in the incident that produced this
+    // variant: that file was committed, merged, and present in a revision whose
+    // compile reported `files_seen=92 files_failed=0`. Telling that user to
+    // commit and compile sends them round a loop and teaches them the message
+    // lies, so the second sentence says "you have found a bug".
+    //
+    // **"not served from" rather than "not present in", deliberately.**
+    // `Ok(None)` from the host covers two states: no row at all, and a row that
+    // was found and could not be re-serialised. "Not present" would be false of
+    // the second.
+    //
+    // Naming the revision is the load-bearing half: it lets a reader check the
+    // ref against that revision's tree in one command.
+    //
+    // Says "a compile that promotes it will make it resolvable" rather than
+    // "retry": this deferral shares one `first_deferred_at` with every other
+    // deferral of the same task, so THIS run may have no retries left (see
+    // `AIRWAY_NOT_IN_REVISION_MAX_WAIT_SECS`). The statement is true of the
+    // workspace either way; a promise about this run would not be.
+    if let Some(revision_id) = workspace.compiled_revision() {
+        return Err(PipelineRefError::NotInRevision(format!(
+            "pipeline_ref `{pipeline_ref}` is not served from promoted revision \
+             {revision_id}. If it was added recently, a compile that promotes it will make \
+             it resolvable. If it is already committed and compiled, this is a bug — the \
+             revision does not serve a ref it compiled."
+        )));
+    }
+
+    // No revision is pinned: nothing compiled for this host, a draft branch, or
+    // a host that never reads the boundary (the CLI, local mode, test fakes).
+    // Only that case reads the working copy.
+    //
     // `workspace_path()` is an `Option`: `None` is a node that declares no
     // working copy, `Some(p)` with `!p.is_dir()` is one that declares one and
     // does not have it. Both mean the same thing here.
@@ -150,63 +199,12 @@ pub async fn load_pipeline_yaml(
     let Some(root) = root else {
         // Deliberately checked before `resolve_pipeline_ref`, which folds this
         // into the same `Err(String)` as "not found" and so cannot be told
-        // apart downstream.
-        //
-        // Which of the two this is turns on whether the host reads a promoted
-        // revision at all. Asking it is what lets the message say only what is
-        // known: "not compiled for this revision" would be false whenever the
-        // host declined for another reason — a draft branch, nothing promoted,
-        // or a row it found and could not re-serialise.
-        return Err(match workspace.compiled_revision() {
-            // The boundary answered, for a real revision, and did not serve
-            // this path. Waiting does not fix that, so it must not be reported
-            // as the retryable state — see `PipelineRefError::NotInRevision`.
-            //
-            // States the OBSERVATION and then both readings of it, rather than
-            // one instruction. An earlier draft said "commit it and let a
-            // compile promote it", which is the ordinary cause and would have
-            // been wrong in the incident that produced this variant: that file
-            // was committed, merged, and present in a revision whose compile
-            // reported `files_seen=92 files_failed=0`. Telling that user to
-            // commit and compile sends them round a loop and teaches them the
-            // message lies. The second sentence is what says "you have found a
-            // bug", and it has to be there for the message to be honest in
-            // both cases.
-            //
-            // **"not served from" rather than "not present in", deliberately.**
-            // `Ok(None)` from the host covers two states, and a compiled
-            // revision is `Some` for both: no row at all, and a row that was
-            // found and could not be re-serialised (`workspace_context`'s
-            // re-serialise arm logs a WARN and declines). "Not present" and
-            // "is not registered" would be false of the second — it IS
-            // registered, it is unusable — so the wording has to span both,
-            // and the last clause says what is actually known: the revision
-            // does not serve a ref it compiled. Splitting the two at the port
-            // would let this be sharper, and is the better fix if this arm
-            // ever gets traffic.
-            //
-            // Naming the revision is the load-bearing half: it is what lets a
-            // reader check the ref against that revision's tree in one command
-            // instead of inferring from compile counts.
-            //
-            // Says "a compile that promotes it will make it resolvable" rather
-            // than "retry": this deferral shares one `first_deferred_at` with
-            // every other deferral of the same task, so THIS run may have no
-            // retries left (see `AIRWAY_NOT_IN_REVISION_MAX_WAIT_SECS`). The
-            // statement is true of the workspace either way; a promise about
-            // this run would not be.
-            Some(revision_id) => PipelineRefError::NotInRevision(format!(
-                "pipeline_ref `{pipeline_ref}` is not served from promoted revision \
-                 {revision_id}, and this node holds no working copy. If it was added \
-                 recently, a compile that promotes it will make it resolvable. If it is \
-                 already committed and compiled, this is a bug — the revision does not \
-                 serve a ref it compiled."
-            )),
-            None => PipelineRefError::Unavailable(format!(
-                "pipeline_ref `{pipeline_ref}` could not be resolved on this node (nothing served \
-                 from the compile boundary, no working copy here)"
-            )),
-        });
+        // apart downstream. Nothing was served and there is nowhere else to
+        // look: this is "not compiled yet", which is retryable.
+        return Err(PipelineRefError::Unavailable(format!(
+            "pipeline_ref `{pipeline_ref}` could not be resolved on this node (nothing is \
+             compiled for this workspace yet, and there is no working copy here)"
+        )));
     };
 
     let path = resolve_pipeline_ref(root, trimmed).map_err(PipelineRefError::Invalid)?;
@@ -411,6 +409,38 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, PipelineRefError::Invalid(_)));
         assert!(!err.to_string().contains(&*dir.path().to_string_lossy()));
+    }
+
+    /// A pinned revision that does not serve the ref is the answer, even on a
+    /// node whose working copy HAS the file.
+    ///
+    /// The root is real and contains the pipeline, so an implementation that
+    /// reads the working copy after a boundary miss returns `Ok(yaml)` and this
+    /// fails. That read made one request return different YAML depending on
+    /// which pod served it.
+    #[tokio::test]
+    async fn a_pinned_revision_miss_is_not_answered_from_an_existing_working_copy() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(dir.path().join("pipelines")).expect("mkdir");
+        fs::write(
+            dir.path().join("pipelines/p.airway.yml"),
+            "name: from_working_copy\n",
+        )
+        .expect("write");
+
+        let host = FakeHost {
+            root: dir.path().to_path_buf(),
+            compiled: Ok(None),
+            revision: Some(uuid::Uuid::new_v4()),
+        };
+
+        let err = load_pipeline_yaml(&host, "pipelines/p.airway.yml")
+            .await
+            .expect_err("the revision does not serve it; the working copy is not asked");
+        assert!(
+            matches!(err, PipelineRefError::NotInRevision(_)),
+            "got {err:?}"
+        );
     }
 
     /// An `Err` from the compile boundary must NOT fall through to a working

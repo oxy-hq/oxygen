@@ -4,6 +4,7 @@ import PageHeader from "@/components/PageHeader";
 import { Card, CardHeader, CardTitle } from "@/components/ui/shadcn/card";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import useApps from "@/hooks/api/apps/useApps";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { encodeBase64 } from "@/libs/encoding";
 import ROUTES from "@/libs/utils/routes";
@@ -12,6 +13,7 @@ import { appDisplayLabel } from "@/utils/appLabel";
 
 /** Published .app.yml Data Apps ("Dashboards"). Lives at /apps. */
 export default function DashboardsPage() {
+  const appsFirst = useAppsFirstExperience();
   const { data: apps, isPending } = useApps({ publishedOnly: true });
   const { project } = useCurrentProjectBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
@@ -23,7 +25,9 @@ export default function DashboardsPage() {
       <div className='flex flex-1 flex-col gap-4 overflow-auto p-6'>
         <div>
           <h1 className='font-semibold text-2xl'>Dashboards</h1>
-          <p className='text-muted-foreground text-sm'>Published data apps in this workspace.</p>
+          <p className='text-muted-foreground text-sm'>
+            {appsFirst ? "Published data apps." : "Published data apps in this workspace."}
+          </p>
         </div>
         {isPending && (
           <div className='flex items-center justify-center py-12'>

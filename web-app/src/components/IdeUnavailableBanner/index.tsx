@@ -1,6 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Unplug, X } from "lucide-react";
 import { useState } from "react";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
+import useFactoryAccess from "@/hooks/useFactoryAccess";
 import useIdeHealth from "@/hooks/useIdeHealth";
 import { cn } from "@/libs/shadcn/utils";
 import { dismissIdeUnavailableBanner } from "@/libs/utils/ideHealth";
@@ -16,6 +18,11 @@ export default function IdeUnavailableBanner() {
   const { unavailable, dismissed, lastPath, since } = useIdeHealth();
   const queryClient = useQueryClient();
   const [retrying, setRetrying] = useState(false);
+  // Apps-first: someone who may not use the Factory is not told about it, its
+  // files or git, nor shown the API path that failed.
+  const appsFirst = useAppsFirstExperience();
+  const factoryUser = useFactoryAccess();
+  const plain = appsFirst && !factoryUser;
 
   if (!unavailable || dismissed) return null;
 
@@ -51,14 +58,15 @@ export default function IdeUnavailableBanner() {
 
         <div className='min-w-0 flex-1'>
           <p className='font-medium text-foreground text-sm'>
-            Oxygen Factory is temporarily unavailable
+            {plain ? "Some live data is paused" : "Oxygen Factory is temporarily unavailable"}
           </p>
           <p className='mt-0.5 text-muted-foreground text-xs'>
-            File editing, Git, and live app runs are paused right now. Chat and your saved data keep
-            working.
+            {plain
+              ? "Live app runs are paused for a moment. Chat and your saved data keep working."
+              : "File editing, Git, and live app runs are paused right now. Chat and your saved data keep working."}
           </p>
 
-          {lastPath && (
+          {lastPath && !plain && (
             <p
               className='mt-2 truncate font-mono text-muted-foreground/70 text-xs'
               title={lastPath}

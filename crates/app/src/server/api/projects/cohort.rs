@@ -179,7 +179,7 @@ pub async fn post_cohort(
         Err(msg) => return err_with_code(StatusCode::BAD_REQUEST, msg, "invalid_statistic"),
     };
 
-    let layer = match load_layer(boundary.scan.path_buf()).await {
+    let layer = match load_layer(boundary.scan.clone()).await {
         Ok(l) => l,
         Err(resp) => return resp,
     };

@@ -9,7 +9,7 @@ mounted under `/api` by [`crate::cli::commands::serve`].
 |---|---|
 | [`mod.rs`](./mod.rs) | `AppState`, `WorkspaceExtractor`, shared `build_cors_layer`, router tests |
 | [`entry.rs`](./entry.rs) | `api_router` / `internal_api_router` — assembles the full router, applies CORS, timeout, Sentry |
-| [`public.rs`](./public.rs) | Routes with no *user session* gate (health, auth handshake, current user, and webhook receivers — Slack, Toast, and `POST /webhooks/apps/{org}/{app}/{fn}` with its non-production twin `POST /webhooks/apps-env/{environment}/{org}/{app}/{fn}`, which authenticate the sender by HMAC instead) |
+| [`public.rs`](./public.rs) | Routes with no *user session* gate (health, auth handshake, current user, and webhook receivers — Slack, Toast, GitHub (`POST /webhooks/github`), and `POST /webhooks/apps/{org}/{app}/{fn}` with its non-production twin `POST /webhooks/apps-env/{environment}/{org}/{app}/{fn}`, which authenticate the sender by HMAC instead) |
 | [`global.rs`](./global.rs) | Cloud-only flat routes (logout, org CRUD, per-user GitHub) |
 | [`workspace.rs`](./workspace.rs) | The `/{workspace_id}/…` tree and every per-resource sub-builder |
 | [`secrets.rs`](./secrets.rs) | Secret CRUD + the admin-only gating middleware |
@@ -157,11 +157,10 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /files/              tree, diff-summary, get, from-git, revert, save,
 │                        delete(-file|-folder), rename-(file|folder), new-(file|folder)
 ├── /databases/          list, create, test-connection, sync, build, clean
-├── /repositories/       list, add, remove, branch ops, diff, commit, files, github
-├── /integrations/       looker: list, query, query/sql
-├── /secrets/            list, create, bulk, env, get, update, delete, reveal  (admin-gated)
+├── /integrations/       looker: list
+├── /secrets/            list, create, bulk, get, update, delete, reveal  (admin-gated)
 ├── /tests/              test files, project-runs, runs + human-verdicts
-├── /apps/               list, get, run, result, displays, charts, file, source, save-from-run
+├── /apps/               list, get, run, result, displays, charts, file, source
 ├── /traces/             traces_routes()
 ├── /metrics/            metrics_routes()
 ├── /execution-analytics/
@@ -170,7 +169,6 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /members · /members/{user_id}         (put / delete role overrides)
 ├── /artifacts/{id}
 ├── /charts/{file_path}
-├── /exported-charts/{file_name}
 ├── /logs
 ├── /events · /events/lookup · /events/sync
 ├── /blocks

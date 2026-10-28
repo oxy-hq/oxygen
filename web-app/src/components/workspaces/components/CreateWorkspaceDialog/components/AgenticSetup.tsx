@@ -28,7 +28,7 @@ import { type OnboardingResetRequest, OnboardingService } from "@/services/api/o
 import CancelSetupButton from "./CancelSetupButton";
 import OnboardingRightRail from "./OnboardingRightRail";
 import OnboardingThread from "./OnboardingThread";
-import { getPreviousStep, useOnboardingOrchestrator, wantsSecondApp } from "./orchestrator";
+import { getPreviousStep, useOnboardingOrchestrator } from "./orchestrator";
 import StartOverConfirmDialog from "./StartOverConfirmDialog";
 import type {
   GeneratedArtifact,
@@ -187,13 +187,10 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
   const { isMobile } = useSidebar();
   const navigate = useNavigate();
 
-  // One run hook per scalar build phase (config, agent, app, optionally app2).
-  // The app2 hook is always instantiated (React hooks can't be conditional),
-  // but the effects that drive it are gated on `wantsSecondApp(selectedTables)`.
+  // One run hook per scalar build phase (config, agent). Onboarding builds no
+  // dashboard: Data Apps are retired in favour of custom apps.
   const configRun = useAnalyticsRun({ projectId });
   const agentRun = useAnalyticsRun({ projectId });
-  const appRun = useAnalyticsRun({ projectId });
-  const app2Run = useAnalyticsRun({ projectId });
 
   // Parallel view run manager — handles N concurrent view builds
   const { setViewRunStatus } = orchestrator;
@@ -213,13 +210,13 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
 
   // Derive builder activity items from the currently-streaming run
   const activeEvents = useMemo(() => {
-    for (const run of [configRun, agentRun, appRun, app2Run]) {
+    for (const run of [configRun, agentRun]) {
       if (run.state.tag === "running" || run.state.tag === "suspended") {
         return run.state.events.map(sseEventToUiBlock);
       }
     }
     return [];
-  }, [configRun, agentRun, appRun, app2Run]);
+  }, [configRun, agentRun]);
   const builderActivityItems = useBuilderActivity(activeEvents, new Map());
 
   // Extract stable references
@@ -307,14 +304,9 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
     viewStartAll
   ]);
 
-  // ── Build phases 2+3: Agent + App (+ optional App2) in parallel ────────────
-  // Start all as soon as config + all view runs complete. App2 only runs when
-  // the workspace has ≥ 2 topics — with a single topic there's no variety to
-  // warrant a second dashboard.
+  // ── Build phase 2: the analytics agent ────────────────────────────────────
+  // Starts as soon as config + all view runs complete.
   const agentReconnect = agentRun.reconnect;
-  const appReconnect = appRun.reconnect;
-  const app2Reconnect = app2Run.reconnect;
-  const shouldBuildApp2 = useMemo(() => wantsSecondApp(selectedTables), [selectedTables]);
   // Config file is "written" when the config run's file_change tool returns,
   // even if the LLM continues generating summary text. The phase completion
   // tracking effect below will mark config as "done" so phase 2 can start.
@@ -333,45 +325,22 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
   }, [viewRunStatuses, selectedTables]);
 
   useEffect(() => {
-    if (
-      step === "building" &&
-      configDone &&
-      allViewsDone &&
-      !phaseStatuses?.agent &&
-      !phaseStatuses?.app &&
-      (!shouldBuildApp2 || !phaseStatuses?.app2)
-    ) {
-      const runs = [
-        startBuildPhase("agent").then((runId) => {
+    if (step === "building" && configDone && allViewsDone && !phaseStatuses?.agent) {
+      startBuildPhase("agent")
+        .then((runId) => {
           agentReconnect(runId);
-        }),
-        startBuildPhase("app").then((runId) => {
-          appReconnect(runId);
         })
-      ];
-      if (shouldBuildApp2) {
-        runs.push(
-          startBuildPhase("app2").then((runId) => {
-            app2Reconnect(runId);
-          })
-        );
-      }
-      Promise.all(runs).catch((err: unknown) => {
-        setBuildError(err instanceof Error ? err.message : "Failed to start agent/app build");
-      });
+        .catch((err: unknown) => {
+          setBuildError(err instanceof Error ? err.message : "Failed to start agent build");
+        });
     }
   }, [
     step,
     configDone,
     allViewsDone,
     phaseStatuses?.agent,
-    phaseStatuses?.app,
-    phaseStatuses?.app2,
-    shouldBuildApp2,
     startBuildPhase,
     agentReconnect,
-    appReconnect,
-    app2Reconnect,
     setBuildError
   ]);
 
@@ -387,15 +356,9 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
     if (phaseRunIds?.agent && phaseStatuses?.agent === "running") {
       agentReconnect(phaseRunIds.agent);
     }
-    if (phaseRunIds?.app && phaseStatuses?.app === "running") {
-      appReconnect(phaseRunIds.app);
-    }
-    if (phaseRunIds?.app2 && phaseStatuses?.app2 === "running") {
-      app2Reconnect(phaseRunIds.app2);
-    }
   }, []);
 
-  // ── Auto-accept file_change suspensions for config, agent, app ──────────
+  // ── Auto-accept file_change suspensions for config and agent ────────────
   const configAnswer = configRun.answer;
   useEffect(() => {
     if (step === "building" && configRun.state.tag === "suspended" && !configRun.isAnswering) {
@@ -436,46 +399,6 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
     setBuildError
   ]);
 
-  const appAnswer = appRun.answer;
-  useEffect(() => {
-    if (step === "building" && appRun.state.tag === "suspended" && !appRun.isAnswering) {
-      if (isAutoAcceptSuspension(appRun.state.questions)) {
-        appAnswer("Accept");
-      } else {
-        setPhaseStatus("app", "failed");
-        setBuildError(extractSuspensionError(appRun.state.questions));
-      }
-    }
-  }, [
-    step,
-    appRun.state.tag,
-    appRun.isAnswering,
-    appRun.state,
-    appAnswer,
-    setPhaseStatus,
-    setBuildError
-  ]);
-
-  const app2Answer = app2Run.answer;
-  useEffect(() => {
-    if (step === "building" && app2Run.state.tag === "suspended" && !app2Run.isAnswering) {
-      if (isAutoAcceptSuspension(app2Run.state.questions)) {
-        app2Answer("Accept");
-      } else {
-        setPhaseStatus("app2", "failed");
-        setBuildError(extractSuspensionError(app2Run.state.questions));
-      }
-    }
-  }, [
-    step,
-    app2Run.state.tag,
-    app2Run.isAnswering,
-    app2Run.state,
-    app2Answer,
-    setPhaseStatus,
-    setBuildError
-  ]);
-
   // ── Phase completion tracking ──────────────────────────────────────────────
   useEffect(() => {
     if (step !== "building") return;
@@ -508,24 +431,6 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
     }
   }, [step, agentRun.state.tag, setPhaseStatus, setBuildError, agentRun.state]);
 
-  useEffect(() => {
-    if (step !== "building") return;
-    if (appRun.state.tag === "done") setPhaseStatus("app", "done");
-    if (appRun.state.tag === "failed") {
-      setPhaseStatus("app", "failed");
-      setBuildError(appRun.state.message);
-    }
-  }, [step, appRun.state.tag, setPhaseStatus, setBuildError, appRun.state]);
-
-  useEffect(() => {
-    if (step !== "building") return;
-    if (app2Run.state.tag === "done") setPhaseStatus("app2", "done");
-    if (app2Run.state.tag === "failed") {
-      setPhaseStatus("app2", "failed");
-      setBuildError(app2Run.state.message);
-    }
-  }, [step, app2Run.state.tag, setPhaseStatus, setBuildError, app2Run.state]);
-
   // ── Polling fallback for stuck phases ─────────────────────────────────────
   // SSE streams can miss events (race between run completion and SSE connect).
   // Poll the run status via REST API every 5s for any phase stuck at "running".
@@ -533,11 +438,7 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
   useEffect(() => {
     if (step !== "building" || !builderThreadId || !projectId) return;
 
-    const hasStuckPhase =
-      phaseStatuses?.config === "running" ||
-      phaseStatuses?.agent === "running" ||
-      phaseStatuses?.app === "running" ||
-      phaseStatuses?.app2 === "running";
+    const hasStuckPhase = phaseStatuses?.config === "running" || phaseStatuses?.agent === "running";
     if (!hasStuckPhase) return;
 
     // Capture the phase maps at effect-registration time so each interval
@@ -625,8 +526,8 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
       }
     };
 
-    // Scan hook run events (config, agent, app, app2)
-    for (const run of [configRun, agentRun, appRun, app2Run]) {
+    // Scan hook run events (config, agent)
+    for (const run of [configRun, agentRun]) {
       if (!("events" in run.state)) continue;
       for (const ev of run.state.events) {
         collectFromEvent(ev);
@@ -649,49 +550,32 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
     const ps = phaseStatuses ?? {};
     if (ps.config === "done") addIfNew("config.yml");
     if (ps.agent === "done") addIfNew("analytics.agentic.yml");
-    if (ps.app === "done") addIfNew("apps/overview.app.yml");
-    // No synthesized fallback for app2 — its filename is unpredictable
-    // (single-topic deep-dive `apps/<topic>.app.yml` vs cross-topic
-    // `apps/<topic1>_<topic2>.app.yml`), so only trust the actual
-    // file-change event captured above. Synthesizing a guess would
-    // inject a fictional path that never resolves on disk and
-    // is not superseded by the real one (`addIfNew` is monotonic).
 
     if (changed) setAccumulatedArtifacts([...map.values()]);
   }, [
     step,
     configRun.state,
     agentRun.state,
-    appRun.state,
-    app2Run.state,
     viewRunManager.events,
     orchestrator.state.viewRunStatuses,
     selectedTables,
     phaseStatuses,
     configRun,
-    agentRun,
-    appRun,
-    app2Run
+    agentRun
   ]);
 
-  // ── Complete once all parallel phases are done ──────────────────────────────
+  // ── Complete once the agent phase is done ──────────────────────────────
   useEffect(() => {
-    // App2 only factors into completion when the workspace has ≥ 2 topics.
-    // For single-topic workspaces it's neither started nor required.
-    const app2Settled =
-      !shouldBuildApp2 || phaseStatuses?.app2 === "done" || phaseStatuses?.app2 === "failed";
     if (
       step === "building" &&
       (phaseStatuses?.agent === "done" || phaseStatuses?.agent === "failed") &&
-      (phaseStatuses?.app === "done" || phaseStatuses?.app === "failed") &&
-      app2Settled &&
       !buildError
     ) {
       const knownFiles = deriveCreatedFiles(selectedTables, phaseStatuses);
       const artifactFiles = accumulatedArtifacts.map((a) => a.filePath);
       const files = [...new Set([...artifactFiles, ...knownFiles])];
       const questions =
-        appRun.state.tag === "done" ? extractQuestionsFromAnswer(appRun.state.answer) : [];
+        agentRun.state.tag === "done" ? extractQuestionsFromAnswer(agentRun.state.answer) : [];
       complete(files, questions);
     }
   }, [
@@ -701,14 +585,13 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
     complete,
     accumulatedArtifacts,
     selectedTables,
-    appRun.state,
-    shouldBuildApp2
+    agentRun.state
   ]);
 
   // ── Per-phase start/end time tracking ──────────────────────────────────────
   // Wall-clock timestamps let us render accurate elapsed time + fine-grained
   // progress bars for each sub-milestone. Semantic covers config + all views;
-  // agent / app / app2 are tracked per-run.
+  // agent is tracked per-run.
   const [phaseTimings, setPhaseTimings] = useState<PhaseTimings>({});
 
   // Semantic start = first view run or config run kicks off (= step enters building
@@ -742,24 +625,17 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
       if (semanticPhaseStarted) setStart("semantic");
       if (semanticPhaseDone) setEnd("semantic");
 
-      // Agent / app / app2 phases — track per run status
-      const phaseMap: Array<[SubPhaseKey, "agent" | "app" | "app2"]> = [
-        ["agent", "agent"],
-        ["app", "app"],
-        ...(shouldBuildApp2 ? ([["app2", "app2"]] as Array<[SubPhaseKey, "app2"]>) : [])
-      ];
-      for (const [key, statusKey] of phaseMap) {
-        const status = phaseStatuses?.[statusKey];
-        if (status === "running") setStart(key);
-        if (status === "done" || status === "failed") {
-          setStart(key); // in case we missed the start transition
-          setEnd(key);
-        }
+      // Agent phase — track per run status
+      const agentStatus = phaseStatuses?.agent;
+      if (agentStatus === "running") setStart("agent");
+      if (agentStatus === "done" || agentStatus === "failed") {
+        setStart("agent"); // in case we missed the start transition
+        setEnd("agent");
       }
 
       return next === prev ? prev : next;
     });
-  }, [step, semanticPhaseStarted, semanticPhaseDone, phaseStatuses, shouldBuildApp2]);
+  }, [step, semanticPhaseStarted, semanticPhaseDone, phaseStatuses]);
 
   // Reset timings when leaving the build flow entirely
   useEffect(() => {
@@ -787,9 +663,7 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
         // 40s per batch (one view in parallel) + 10s for config + inspection pre-pass.
         return Math.max(30, batches * 40 + 10);
       }
-      if (key === "agent") return 45;
-      if (key === "app") return 45; // richer starter dashboard with 2 charts + 2 tables
-      return 35; // app2 — focused deep-dive (1 chart + 1 table) is faster
+      return 45; // agent
     },
     [selectedTables.length]
   );
@@ -798,9 +672,7 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
   useEffect(() => {
     setEstimateBaselines((prev) => {
       let next = prev;
-      const keys: SubPhaseKey[] = shouldBuildApp2
-        ? ["semantic", "agent", "app", "app2"]
-        : ["semantic", "agent", "app"];
+      const keys: SubPhaseKey[] = ["semantic", "agent"];
       for (const key of keys) {
         if (phaseTimings[key]?.start && next[key] === undefined) {
           next = { ...next, [key]: computeFreshBaseline(key) };
@@ -808,7 +680,7 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
       }
       return next === prev ? prev : next;
     });
-  }, [phaseTimings, computeFreshBaseline, shouldBuildApp2]);
+  }, [phaseTimings, computeFreshBaseline]);
 
   // Reset baselines when leaving the build flow
   useEffect(() => {
@@ -827,11 +699,7 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
   useEffect(() => {
     if (step !== "building") return;
     const anyRunning =
-      !!phaseStatuses?.config ||
-      !!phaseStatuses?.agent ||
-      !!phaseStatuses?.app ||
-      !!phaseStatuses?.app2 ||
-      viewRunManager.isRunning;
+      !!phaseStatuses?.config || !!phaseStatuses?.agent || viewRunManager.isRunning;
     if (!anyRunning) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -877,9 +745,7 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
     };
     return {
       semantic: compute("semantic"),
-      agent: compute("agent"),
-      app: compute("app"),
-      app2: compute("app2")
+      agent: compute("agent")
     };
   }, [
     phaseTimings,
@@ -939,13 +805,11 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
   const handleStopBuild = useCallback(() => {
     stopRunHook(configRun);
     stopRunHook(agentRun);
-    stopRunHook(appRun);
-    stopRunHook(app2Run);
     viewCancelAll();
     stopBuild("Build stopped.");
     // Effects can race, but the next retry path resets this explicitly.
     buildStartingRef.current = false;
-  }, [stopRunHook, configRun, agentRun, appRun, app2Run, viewCancelAll, stopBuild]);
+  }, [stopRunHook, configRun, agentRun, viewCancelAll, stopBuild]);
 
   const handleRetryBuild = useCallback(() => {
     // Abort any still-running phases before clearing state so a zombie SSE
@@ -962,16 +826,9 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
 
   const configTag = configRun.state.tag;
   const agentTag = agentRun.state.tag;
-  const appTag = appRun.state.tag;
-  const app2Tag = app2Run.state.tag;
   const hasInFlightBuild = useMemo(() => {
     const ps = phaseStatuses ?? {};
-    if (
-      ps.config === "running" ||
-      ps.agent === "running" ||
-      ps.app === "running" ||
-      ps.app2 === "running"
-    ) {
+    if (ps.config === "running" || ps.agent === "running") {
       return true;
     }
     const vs = viewRunStatuses ?? {};
@@ -979,16 +836,8 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
     if (viewRunManager.isRunning) return true;
     // Any SSE stream actively attached — covers the brief window between
     // startBuildPhase resolving and START_PHASE landing in orchestrator state.
-    return [configTag, agentTag, appTag, app2Tag].some((t) => t === "running" || t === "suspended");
-  }, [
-    phaseStatuses,
-    viewRunStatuses,
-    viewRunManager.isRunning,
-    configTag,
-    agentTag,
-    appTag,
-    app2Tag
-  ]);
+    return [configTag, agentTag].some((t) => t === "running" || t === "suspended");
+  }, [phaseStatuses, viewRunStatuses, viewRunManager.isRunning, configTag, agentTag]);
 
   const handleStartOverConfirmed = useCallback(async () => {
     // Best-effort cancel any in-flight phase runs first, so they don't race
@@ -1129,9 +978,6 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
             actions={actions}
             semanticRun={configRun}
             agentRun={agentRun}
-            appRun={appRun}
-            app2Run={app2Run}
-            includeApp2={shouldBuildApp2}
             builderActivityItems={builderActivityItems}
             viewEvents={viewEventBlocks}
             viewsRunning={viewRunManager.isRunning}
@@ -1149,9 +995,6 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
               actions={actions}
               semanticRun={configRun}
               agentRun={agentRun}
-              appRun={appRun}
-              app2Run={app2Run}
-              includeApp2={shouldBuildApp2}
               builderActivityItems={builderActivityItems}
               viewEvents={viewEventBlocks}
               viewsRunning={viewRunManager.isRunning}
@@ -1197,8 +1040,6 @@ function GithubOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHand
   // props. They stay in their initial `idle` state and never stream.
   const semanticRun = useAnalyticsRun({ projectId });
   const agentRun = useAnalyticsRun({ projectId });
-  const appRun = useAnalyticsRun({ projectId });
-  const app2Run = useAnalyticsRun({ projectId });
 
   const { step, storageKey: onboardingStorageKey } = orchestrator.state;
   const { fetchGithubSetup } = actions;
@@ -1327,9 +1168,6 @@ function GithubOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHand
             actions={actions}
             semanticRun={semanticRun}
             agentRun={agentRun}
-            appRun={appRun}
-            app2Run={app2Run}
-            includeApp2={false}
             builderActivityItems={[]}
             railState={railState}
           />
@@ -1342,9 +1180,6 @@ function GithubOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHand
               actions={actions}
               semanticRun={semanticRun}
               agentRun={agentRun}
-              appRun={appRun}
-              app2Run={app2Run}
-              includeApp2={false}
               builderActivityItems={[]}
             />
           </ResizablePanel>
@@ -1392,7 +1227,6 @@ function extractSuspensionError(questions: HumanInputQuestion[]): string {
 /** Infer the artifact type from a file path. */
 function inferArtifactType(filePath: string): GeneratedArtifact["type"] {
   if (filePath.endsWith(".view.yml")) return "view";
-  if (filePath.endsWith(".app.yml")) return "app";
   if (filePath.endsWith(".topic.yml")) return "topic";
   if (filePath.endsWith(".agentic.yml") || filePath.endsWith(".agentic.yaml")) return "agentic";
   return "config";
@@ -1414,10 +1248,10 @@ function deriveCreatedFiles(
     files.push(`semantics/${name}.topic.yml`);
   }
   if (ps.agent === "done") files.push("analytics.agentic.yml");
+  // Onboarding state saved before Data Apps were retired may record a finished
+  // `app` phase. Keep naming its file so "Start over" still removes it; nothing
+  // new sets that status.
   if (ps.app === "done") files.push("apps/overview.app.yml");
-  // app2 is intentionally omitted — its filename is unpredictable.
-  // The caller merges this list with `accumulatedArtifacts`, which already
-  // has the actual app2 path captured from the file-change event.
   return files;
 }
 

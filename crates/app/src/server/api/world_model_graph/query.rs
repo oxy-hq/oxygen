@@ -1332,7 +1332,7 @@ pub(super) struct WmExecCtx {
     pub(super) workspace_manager: WorkspaceManager<ReadOnly>,
     pub(super) user_id: Uuid,
     pub(super) role: WorkspaceRole,
-    pub(super) scan_path: std::path::PathBuf,
+    pub(super) scan: oxy::config::ScanDir,
     pub(super) databases: Vec<oxy_airlayer_compat::DatabaseConfig>,
     pub(super) layer: oxy_airlayer_compat::SemanticLayer,
     pub(super) engine_cache:
@@ -1343,7 +1343,7 @@ pub(super) struct WmExecCtx {
 impl WmExecCtx {
     /// Compile a config to `(sql, database_name)`; `None` on compile failure.
     pub(super) async fn compile_full(&self, cfg: SemanticQueryConfig) -> Option<(String, String)> {
-        let sp = self.scan_path.clone();
+        let sp = self.scan.clone();
         let dbs = self.databases.clone();
         let layer = self.layer.clone();
         let cache = self.engine_cache.clone();

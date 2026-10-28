@@ -2,6 +2,14 @@ use include_dir::{Dir, include_dir};
 use std::fs;
 use tracing::error;
 
+/// A Data App (`.app.yml`). Data Apps are retired, so a new workspace is never
+/// given one, even though `demo_project/` still carries three as fixtures for
+/// the tests that view and run existing apps.
+fn is_data_app_file(name: &std::ffi::OsStr) -> bool {
+    let name = name.to_string_lossy().to_ascii_lowercase();
+    name.ends_with(".app.yml") || name.ends_with(".app.yaml")
+}
+
 /// Outcome of a skip-if-exists demo copy. Paths are relative to the destination
 /// root (e.g. `"config.yml"`, `"agents/duckdb.agent.yml"`).
 #[derive(Debug, Default)]
@@ -49,6 +57,9 @@ fn copy_embedded_dir_recursive_skip(
         let rel_str = rel_path.to_string_lossy().into_owned();
 
         if let Some(file) = entry.as_file() {
+            if is_data_app_file(name) {
+                continue;
+            }
             if dst_path.exists() {
                 result.files_skipped.push(rel_str);
                 continue;
@@ -120,6 +131,42 @@ mod tests {
         assert!(tmp.path().join("config.yml").exists());
     }
 
+    fn app_files_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut found = Vec::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("read_dir") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if is_data_app_file(path.file_name().unwrap()) {
+                    found.push(path);
+                }
+            }
+        }
+        found
+    }
+
+    #[tokio::test]
+    async fn the_demo_workspace_is_not_given_a_data_app() {
+        let skip = TempDir::new().expect("tempdir");
+        copy_demo_files_to_with_skip(skip.path())
+            .await
+            .expect("copy");
+        assert_eq!(
+            app_files_under(skip.path()),
+            Vec::<std::path::PathBuf>::new()
+        );
+
+        let plain = TempDir::new().expect("tempdir");
+        copy_demo_files_to(plain.path()).await.expect("copy");
+        assert_eq!(
+            app_files_under(plain.path()),
+            Vec::<std::path::PathBuf>::new()
+        );
+        assert!(plain.path().join("config.yml").exists());
+    }
+
     #[tokio::test]
     async fn copy_demo_files_to_with_skip_skips_existing_files() {
         let tmp = TempDir::new().expect("tempdir");
@@ -187,6 +234,9 @@ async fn copy_embedded_dir_recursive(
         let dst_path = dst.join(name);
 
         if let Some(file) = entry.as_file() {
+            if is_data_app_file(name) {
+                continue;
+            }
             let content = file.contents();
             fs::write(&dst_path, content).map_err(|e| {
                 error!("Failed to write file {:?}: {}", dst_path, e);

@@ -48,6 +48,7 @@ async fn compile_staging(db: &DatabaseConnection, ws: Uuid, root: &std::path::Pa
         promote: false,
         kind: RevisionKind::Staging,
         owner_user_id: None,
+        asked_at: None,
     });
     let outcome = tokio::time::timeout(Duration::from_secs(60), task.outcomes.recv())
         .await

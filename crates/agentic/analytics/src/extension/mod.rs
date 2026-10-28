@@ -75,7 +75,7 @@ pub async fn get_run_execution(
 
 /// Insert an analytics extension row for a run.
 pub async fn insert_run_meta(
-    db: &DatabaseConnection,
+    db: &impl sea_orm::ConnectionTrait,
     run_id: &str,
     agent_id: &str,
     thinking_mode: Option<String>,

@@ -17,25 +17,99 @@
 
 use std::sync::Arc;
 
+use oxy::config::model::{Config, DatabaseType, SnowflakeAuthType};
+use oxy_app_core::process_role::current_process_role;
 use oxy_compile::{CompiledConfig, ConfigGate, merge_compiled_config};
+use oxy_shared::fleet_role::Role;
 
 /// The production config gate: merge the split columns and assert the result
-/// deserialises into the runtime [`oxy::config::model::Config`].
+/// deserialises into the runtime [`oxy::config::model::Config`], and that it
+/// asks for no credential the pods serving it cannot have.
 pub struct RuntimeConfigGate;
 
 impl ConfigGate for RuntimeConfigGate {
     fn check(&self, cfg: &CompiledConfig) -> Result<(), String> {
         let merged = merge_compiled_config(cfg);
-        serde_json::from_value::<oxy::config::model::Config>(merged)
-            .map(|_| ())
-            .map_err(|e| {
-                format!(
-                    "compiled config does not deserialise into the runtime Config — it would 503 \
-                     the stateless fleet for this workspace; check for a corrupted enum \
-                     discriminator or a redacted required field: {e}"
-                )
-            })
+        let config = serde_json::from_value::<Config>(merged).map_err(|e| {
+            format!(
+                "compiled config does not deserialise into the runtime Config — it would 503 \
+                 the stateless fleet for this workspace; check for a corrupted enum \
+                 discriminator or a redacted required field: {e}"
+            )
+        })?;
+        reject_file_credentials(&config, current_process_role(), refusal_enabled())
     }
+}
+
+/// The environment variable that turns the file-credential refusal on. Without
+/// it the gate only logs a warning for each such database, which is the rollout
+/// gate (dev, then staging, then production): the refusal freezes a workspace's
+/// served revision, and the in-product "create database connection" flow still
+/// writes this shape, so it is switched on only once production has been checked
+/// (the same pattern as `OXY_COMPILE_RECONCILE`).
+pub const REFUSE_FILE_CREDENTIALS_ENV: &str = "OXY_COMPILE_REFUSE_FILE_CREDENTIALS";
+
+/// Whether [`REFUSE_FILE_CREDENTIALS_ENV`] is set to `1`.
+fn refusal_enabled() -> bool {
+    std::env::var(REFUSE_FILE_CREDENTIALS_ENV).is_ok_and(|v| v == "1")
+}
+
+/// Refuse a database whose credential is a file in the repository, unless this
+/// compile is single-process, and only when `refuse` is set (otherwise it
+/// warns).
+///
+/// A serving pod has no working copy, so `key_path` (BigQuery) and
+/// `private_key_path` (Snowflake) name a file that is not there. The compiler
+/// also strips both values from the compiled config (`redact_inline_secrets`
+/// blanks any key it takes for a secret, and `key_path` and `private_key` are
+/// among them), so what a pod reads is an empty path whatever the file held.
+/// The connection fails at the first query, on a pod, with an error about a
+/// file the customer never wrote. Failing the compile puts the message where
+/// the author is and keeps the previous revision serving.
+///
+/// `Role::All` is exempt: one process compiles and serves, from the directory
+/// the file is in (the CLI, `oxy seed`, a laptop). Every other role compiles
+/// for pods that are not that process.
+fn reject_file_credentials(config: &Config, role: Role, refuse: bool) -> Result<(), String> {
+    if role == Role::All {
+        return Ok(());
+    }
+    for database in &config.databases {
+        let refusal = match &database.database_type {
+            // After the redaction above a file path reads back as an empty
+            // path, still `Some`; only an absent key is `None`.
+            DatabaseType::Bigquery(bigquery) if bigquery.key_path.is_some() => Some(format!(
+                "database `{}`: `key_path` reads a service-account key file from the \
+                 repository, which the pods that serve a compiled workspace do not have. A \
+                 BigQuery key cannot be served from the hosted platform yet: `key_path_var` \
+                 names a path, not the key, so it fails the same way on a pod. Contact Oxy \
+                 support to connect this database",
+                database.name
+            )),
+            DatabaseType::Snowflake(snowflake)
+                if matches!(snowflake.auth_type, SnowflakeAuthType::PrivateKey { .. }) =>
+            {
+                Some(format!(
+                    "database `{}`: `private_key_path` reads a private key file from the \
+                     repository, which the pods that serve a compiled workspace do not have. \
+                     Keep the credential in the secret manager: use `password_var`, or browser \
+                     authentication where a person is present",
+                    database.name
+                ))
+            }
+            _ => None,
+        };
+        if let Some(message) = refusal {
+            if refuse {
+                return Err(message);
+            }
+            tracing::warn!(
+                %message,
+                "compile: file credential not refused; set {REFUSE_FILE_CREDENTIALS_ENV}=1 to fail the compile"
+            );
+        }
+    }
+    Ok(())
 }
 
 /// The gate the production compile paths (worker + CLI) install on every
@@ -146,6 +220,138 @@ databases: []
             RuntimeConfigGate.check(&cfg).is_err(),
             "a nulled discriminator must be rejected by the gate, not 503 the fleet"
         );
+    }
+
+    const BIGQUERY_KEY_FILE: &str = r#"
+models: []
+databases:
+  - name: warehouse
+    type: bigquery
+    key_path: service-account.json
+    dataset: sales
+"#;
+
+    const BIGQUERY_KEY_VAR: &str = r#"
+models: []
+databases:
+  - name: warehouse
+    type: bigquery
+    key_path_var: BQ_KEY
+    dataset: sales
+"#;
+
+    const SNOWFLAKE_KEY_FILE: &str = r#"
+models: []
+databases:
+  - name: wh
+    type: snowflake
+    account: acme
+    username: svc
+    warehouse: compute
+    database: analytics
+    private_key_path: keys/svc.p8
+"#;
+
+    const SNOWFLAKE_PASSWORD_VAR: &str = r#"
+models: []
+databases:
+  - name: wh
+    type: snowflake
+    account: acme
+    username: svc
+    warehouse: compute
+    database: analytics
+    password_var: SNOWFLAKE_PASSWORD
+"#;
+
+    /// The compiled form of an authored `config.yml`, as the gate sees it: split
+    /// into columns and redacted.
+    fn compiled(yaml: &str) -> oxy_compile::CompiledConfig {
+        let value: Value = serde_yaml::from_str(yaml).unwrap();
+        build_compiled_config(value, None).expect("build_compiled_config")
+    }
+
+    fn config_of(yaml: &str) -> Config {
+        serde_json::from_value(merge_compiled_config(&compiled(yaml))).expect("runtime Config")
+    }
+
+    /// A file credential fails the compile on every role that compiles for
+    /// other pods, and names the database and the key to use instead.
+    #[test]
+    fn a_file_credential_is_refused_when_the_compile_is_for_other_pods() {
+        for role in [Role::Ide, Role::Worker, Role::Serve] {
+            let err = reject_file_credentials(&config_of(BIGQUERY_KEY_FILE), role, true)
+                .expect_err("a BigQuery key file is not servable");
+            assert!(
+                err.contains("`warehouse`") && err.contains("cannot be served"),
+                "{err}"
+            );
+
+            let err = reject_file_credentials(&config_of(SNOWFLAKE_KEY_FILE), role, true)
+                .expect_err("a Snowflake key file is not servable");
+            assert!(
+                err.contains("`wh`") && err.contains("password_var"),
+                "{err}"
+            );
+        }
+    }
+
+    /// The check works on what the gate is given — the REDACTED config — which
+    /// is the one place a rename in the redactor would blind it. The path is
+    /// blanked, not removed, so the field is still `Some`.
+    #[test]
+    fn the_refusal_survives_the_redaction_of_the_path() {
+        let cfg = compiled(BIGQUERY_KEY_FILE);
+        let databases = serde_json::to_string(&cfg.databases).unwrap();
+        assert!(
+            !databases.contains("service-account.json"),
+            "the compiled config carries no key path: {databases}"
+        );
+        assert!(
+            reject_file_credentials(&config_of(BIGQUERY_KEY_FILE), Role::Worker, true).is_err()
+        );
+    }
+
+    /// A single-process compile serves from the directory the file is in, and
+    /// the secret-backed spellings are fine everywhere.
+    #[test]
+    fn the_single_process_role_and_secret_credentials_are_accepted() {
+        assert!(reject_file_credentials(&config_of(BIGQUERY_KEY_FILE), Role::All, true).is_ok());
+        assert!(reject_file_credentials(&config_of(SNOWFLAKE_KEY_FILE), Role::All, true).is_ok());
+        for role in [Role::All, Role::Ide, Role::Worker, Role::Serve] {
+            assert!(reject_file_credentials(&config_of(BIGQUERY_KEY_VAR), role, true).is_ok());
+            assert!(
+                reject_file_credentials(&config_of(SNOWFLAKE_PASSWORD_VAR), role, true).is_ok()
+            );
+            assert!(reject_file_credentials(&config_of(DUCKDB_LOCAL), role, true).is_ok());
+        }
+    }
+
+    /// The rollout gate: without the refusal switched on the same configs only
+    /// warn, so the change can be merged and deployed before production has been
+    /// checked, and turned on per environment afterwards.
+    #[test]
+    fn without_the_switch_a_file_credential_only_warns() {
+        for role in [Role::Ide, Role::Worker, Role::Serve] {
+            assert!(
+                reject_file_credentials(&config_of(BIGQUERY_KEY_FILE), role, false).is_ok(),
+                "{role:?}"
+            );
+            assert!(reject_file_credentials(&config_of(SNOWFLAKE_KEY_FILE), role, false).is_ok());
+        }
+        assert!(
+            reject_file_credentials(&config_of(BIGQUERY_KEY_FILE), Role::Worker, true).is_err()
+        );
+    }
+
+    /// Through the real gate, on the process role it is running under: a test
+    /// binary has none set, which is the single-process role.
+    #[test]
+    fn the_gate_applies_the_process_role() {
+        assert_eq!(current_process_role(), Role::All);
+        RuntimeConfigGate
+            .check(&compiled(BIGQUERY_KEY_FILE))
+            .expect("single-process compiles keep working");
     }
 
     /// A genuinely broken config is still rejected — the gate is a faithful

@@ -36,9 +36,6 @@ tasks:
       FROM store_rankings
       WHERE sales_rank <= 10
       ORDER BY sales_rank
-    export:
-      format: "csv"
-      path: "results/top_stores_list.csv"
 
   # STEP 2: Loop Through Each Store for Deep Analysis
   - name: analyze_each_store
@@ -118,9 +115,6 @@ tasks:
             ROUND(m.max_weekly_sales - m.min_weekly_sales, 2) AS sales_range,
             ROUND((m.q3_sales - m.q1_sales), 2) AS iqr
           FROM metrics m
-        export:
-          format: "csv"
-          path: "results/store_{{ analyze_each_store.value }}_metrics.csv"
 
       # Task 2.2: Store Holiday Analysis
       - name: store_holiday_analysis
@@ -179,9 +173,6 @@ tasks:
             END AS holiday_lift_pct
           FROM holiday_metrics hm
           ORDER BY hm.week_type DESC
-        export:
-          format: "csv"
-          path: "results/store_{{ analyze_each_store.value }}_holiday.csv"
 
       # Task 2.3: Store Seasonal Patterns
       - name: store_seasonal_patterns
@@ -266,9 +257,6 @@ tasks:
             bp.best_month
           FROM seasonal_performance sp
           CROSS JOIN best_periods bp
-        export:
-          format: "csv"
-          path: "results/store_{{ analyze_each_store.value }}_seasonal.csv"
 
       # Task 2.4: Store Factor Correlations
       - name: store_factor_correlations
@@ -334,9 +322,6 @@ tasks:
             RANK() OVER (ORDER BY abs_correlation DESC) AS importance_rank
           FROM correlations
           ORDER BY abs_correlation DESC
-        export:
-          format: "csv"
-          path: "results/store_{{ analyze_each_store.value }}_correlations.csv"
 
       # Task 2.5: Store Individual Report
       - name: store_individual_report
@@ -427,9 +412,6 @@ tasks:
 
           ---
           *This report provides comprehensive analysis for Store {{ analyze_each_store.value }} based on historical data.*
-        export:
-          format: "txt"
-          path: "results/store_{{ analyze_each_store.value }}_report.txt"
 
   # STEP 3: Aggregate Insights Across All Analyzed Stores
   - name: aggregate_store_insights
@@ -468,9 +450,6 @@ tasks:
         RANK() OVER (ORDER BY (holiday_avg - non_holiday_avg) / non_holiday_avg DESC) AS holiday_sensitivity_rank
       FROM store_metrics
       ORDER BY total_sales DESC
-    export:
-      format: "csv"
-      path: "results/aggregate_store_insights.csv"
 
   # STEP 4: Executive Summary
   - name: deep_dive_executive_summary
@@ -538,19 +517,16 @@ tasks:
 
       ## Individual Store Reports
 
-      Detailed individual reports have been generated for each of the 10 stores:
+      A detailed report was produced for each of the 10 stores (see the `store_individual_report` step output):
       {% for i in range(aggregate_store_insights | length) %}
       {% if aggregate_store_insights.Store[i] %}
-      - Store {{aggregate_store_insights.Store[i]}}: results/store_{{aggregate_store_insights.Store[i]}}_report.txt
+      - Store {{aggregate_store_insights.Store[i]}}
       {% endif %}
       {% endfor %}
 
       ---
       *This executive summary synthesizes insights from 10 individual store analyses.*
       *Review individual store reports for detailed recommendations and action plans.*
-    export:
-      format: "txt"
-      path: "results/deep_dive_executive_summary.txt"
 
 tests:
   - type: consistency

@@ -77,8 +77,7 @@ Set `output.mode: sql` to use an agent as a SQL generator. The agent stops once
 it has SQL — skipping the natural-language answer — and the SQL text becomes the
 task's result. SQL compiled from the semantic model or matched from a verified
 query is returned without running it; SQL the agent wrote itself gets a
-`LIMIT 0` check first. Pair it with [`cache`](#caching-a-tasks-output) to save
-the SQL to a file and an `execute_sql` task to run it:
+`LIMIT 0` check first. A later step reads the SQL as `{{ query.text }}`:
 
 ```yaml
 tasks:
@@ -88,14 +87,13 @@ tasks:
     prompt: Aggregate total weekly sales by month.
     output:
       mode: sql
-    cache:
-      enabled: true
-      path: results/cache/monthly_sales.sql
 
-  - name: run_query
-    type: execute_sql
-    database: local
-    sql_file: results/cache/monthly_sales.sql
+  - name: show_sql
+    type: formatter
+    template: |
+      ```sql
+      {{ query.text }}
+      ```
 ```
 
 Automations that the agent would otherwise delegate to can't be used in SQL
@@ -282,18 +280,13 @@ tasks:
 
 ## Common task options
 
-Any task can also take:
-
-| Component | Description |
-| --------- | ----------- |
-| export    | Write the task's result to a file: `path` (relative to the project root; may use Jinja) and `format` (`csv` or `json` for tabular results; `sql` for `execute_sql` and `semantic_query`, which writes the executed SQL). |
-| cache     | File-backed cache: `path` (may use Jinja) and `enabled` (default `true`). The first run writes the task's result to `path`; later runs skip the task and use the file's contents instead. Edit the file to change what downstream tasks see; delete it to regenerate. |
-
-### Caching a task's output
-
-`cache` is useful for LLM-generated artifacts you want to review and pin — for
-example, SQL from an agent in [SQL output mode](#sql-output-mode). After the
-first run, edits you make to the cached file are used on every later run.
+<Warning>
+`export:` and `cache:` (which wrote a task's result to a file in the workspace
+directory) and `agent_ref: __builder__` steps are no longer supported. A
+`.automation.yml` that still uses one fails to compile, and the failure names
+the step. Remove the key or the step; to keep a result, write it to the
+warehouse with an `execute_sql` or `airway` step.
+</Warning>
 
 <Note>
 The `visualize` task type has been retired. Automations that still use it fail

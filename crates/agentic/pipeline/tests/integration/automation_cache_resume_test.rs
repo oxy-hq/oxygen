@@ -98,24 +98,18 @@ fn make_automation(step2_seed: &str) -> WfConfig {
                 task_type: TaskType::Formatter(FormatterConfig {
                     template: "a".into(),
                 }),
-                export: None,
-                cache: None,
             },
             TaskConfig {
                 name: "step2".into(),
                 task_type: TaskType::Formatter(FormatterConfig {
                     template: format!("{{{{ step1.text }}}}-{step2_seed}"),
                 }),
-                export: None,
-                cache: None,
             },
             TaskConfig {
                 name: "step3".into(),
                 task_type: TaskType::Formatter(FormatterConfig {
                     template: "final-{{ step2.text }}".into(),
                 }),
-                export: None,
-                cache: None,
             },
         ],
     }
@@ -193,9 +187,7 @@ async fn drive_to_complete(db: &DatabaseConnection, run_id: &str) -> Vec<String>
             None
         };
 
-        let (new_state, decision) = decider
-            .decide(state, None, prior_owned.as_ref(), None)
-            .await;
+        let (new_state, decision) = decider.decide(state, None, prior_owned.as_ref()).await;
 
         // Capture cache_hit events from this decision before consuming.
         let events_iter: &[(String, Value)] = match &decision {

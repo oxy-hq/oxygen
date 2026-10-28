@@ -261,8 +261,8 @@ heartbeat: "10m" (clamped 30s–24h), renewal_threshold: "120s" (clamped
    tool before calling it done. Validators don't check cross-file wiring — an
    entity join that matches nothing, a topic naming a missing view, a measure
    a twin lacks.
-3. **`oxy build` does not validate the semantic model** (embeddings and
-   integration sync only). Read real column names from `.databases/` (written
+3. **`oxy build` does not validate the semantic model** (search embeddings
+   only). Read real column names from `.databases/` (written
    by `oxy sync`).
 
 When refreshing a view, build fresh from the schema source (`.databases/`),

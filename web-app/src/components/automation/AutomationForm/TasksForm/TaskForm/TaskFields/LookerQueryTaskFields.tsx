@@ -40,8 +40,6 @@ export const LookerQueryTaskFields: React.FC<LookerQueryTaskFieldsProps> = ({
   const selectedIntegration = watch(`${taskPath}.integration`) as string | undefined;
   // @ts-expect-error - dynamic field path
   const selectedModel = watch(`${taskPath}.model`) as string | undefined;
-  // @ts-expect-error - dynamic field path
-  const selectedExplore = watch(`${taskPath}.explore`) as string | undefined;
 
   const { data: lookerIntegrations = [] } = useLookerIntegrations();
 
@@ -53,11 +51,6 @@ export const LookerQueryTaskFields: React.FC<LookerQueryTaskFieldsProps> = ({
 
   const availableExplores = currentIntegration
     ? currentIntegration.explores.filter((e) => e.model === selectedModel)
-    : [];
-
-  const currentExplore = availableExplores.find((explore) => explore.name === selectedExplore);
-  const availableFieldOptions: string[] = currentExplore
-    ? [...currentExplore.dimensions, ...currentExplore.measures]
     : [];
 
   const {
@@ -222,37 +215,10 @@ export const LookerQueryTaskFields: React.FC<LookerQueryTaskFieldsProps> = ({
             {fieldEntries.map((field, fieldIndex) => (
               <div key={field.id} className='flex items-start gap-2'>
                 <div className='min-w-0 flex-1'>
-                  <Controller
-                    control={control}
+                  <Input
+                    placeholder='view.field_name'
                     // @ts-expect-error - dynamic field path
-                    name={`${taskPath}.fields.${fieldIndex}`}
-                    render={({ field: selectedField }) => (
-                      <Select
-                        disabled={!selectedExplore || availableFieldOptions.length === 0}
-                        value={(selectedField.value as string) || ""}
-                        onValueChange={selectedField.onChange}
-                      >
-                        <SelectTrigger className='w-full'>
-                          <SelectValue
-                            className='min-w-0 truncate'
-                            placeholder={
-                              selectedExplore
-                                ? availableFieldOptions.length > 0
-                                  ? "Select field"
-                                  : "No synced fields available"
-                                : "Select explore first"
-                            }
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableFieldOptions.map((fieldName) => (
-                            <SelectItem key={fieldName} value={fieldName}>
-                              {fieldName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
+                    {...register(`${taskPath}.fields.${fieldIndex}`)}
                   />
                 </div>
                 <Button
@@ -268,7 +234,7 @@ export const LookerQueryTaskFields: React.FC<LookerQueryTaskFieldsProps> = ({
           </div>
         )}
         <p className='text-muted-foreground text-sm'>
-          Fields are populated from synced Looker metadata
+          Use the full field name, as in the Looker explore: view.field_name
         </p>
       </div>
 
@@ -290,37 +256,10 @@ export const LookerQueryTaskFields: React.FC<LookerQueryTaskFieldsProps> = ({
             {filterEntries.map((filter, filterIndex) => (
               <div key={filter.id} className='flex items-start gap-2'>
                 <div className='min-w-0 flex-1'>
-                  <Controller
-                    control={control}
+                  <Input
+                    placeholder='view.field_name'
                     // @ts-expect-error - dynamic field path
-                    name={`${taskPath}.filters.${filterIndex}.key`}
-                    render={({ field: filterField }) => (
-                      <Select
-                        disabled={!selectedExplore || availableFieldOptions.length === 0}
-                        value={(filterField.value as string) || ""}
-                        onValueChange={filterField.onChange}
-                      >
-                        <SelectTrigger className='w-full'>
-                          <SelectValue
-                            className='min-w-0 truncate'
-                            placeholder={
-                              selectedExplore
-                                ? availableFieldOptions.length > 0
-                                  ? "Select filter field"
-                                  : "No synced fields available"
-                                : "Select explore first"
-                            }
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableFieldOptions.map((fieldName) => (
-                            <SelectItem key={fieldName} value={fieldName}>
-                              {fieldName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
+                    {...register(`${taskPath}.filters.${filterIndex}.key`)}
                   />
                 </div>
                 <div className='flex-1'>
@@ -375,37 +314,10 @@ export const LookerQueryTaskFields: React.FC<LookerQueryTaskFieldsProps> = ({
             {sortEntries.map((sort, sortIndex) => (
               <div key={sort.id} className='flex items-start gap-2'>
                 <div className='min-w-0 flex-1'>
-                  <Controller
-                    control={control}
+                  <Input
+                    placeholder='view.field_name'
                     // @ts-expect-error - dynamic field path
-                    name={`${taskPath}.sorts.${sortIndex}.field`}
-                    render={({ field: sortField }) => (
-                      <Select
-                        disabled={!selectedExplore || availableFieldOptions.length === 0}
-                        value={(sortField.value as string) || ""}
-                        onValueChange={sortField.onChange}
-                      >
-                        <SelectTrigger className='w-full'>
-                          <SelectValue
-                            className='min-w-0 truncate'
-                            placeholder={
-                              selectedExplore
-                                ? availableFieldOptions.length > 0
-                                  ? "Select sort field"
-                                  : "No synced fields available"
-                                : "Select explore first"
-                            }
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableFieldOptions.map((fieldName) => (
-                            <SelectItem key={fieldName} value={fieldName}>
-                              {fieldName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
+                    {...register(`${taskPath}.sorts.${sortIndex}.field`)}
                   />
                 </div>
                 <div className='w-24'>

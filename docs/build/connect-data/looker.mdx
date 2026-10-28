@@ -1,6 +1,6 @@
 ---
 title: "Looker"
-description: "Connect Oxygen to Looker for querying explores and syncing metadata"
+description: "Connect Oxygen to Looker for querying explores from automations"
 ---
 import RewriteBanner from "/snippets/rewrite-banner.mdx";
 
@@ -9,7 +9,7 @@ import RewriteBanner from "/snippets/rewrite-banner.mdx";
 
 # Looker Integration
 
-Oxygen integrates with [Looker](https://cloud.google.com/looker) to enable agents and automations to query Looker explores directly. The integration supports metadata synchronization, LLM-powered query generation, and automation support.
+Oxygen integrates with [Looker](https://cloud.google.com/looker) to enable automations to query Looker explores directly.
 
 ## Prerequisites
 
@@ -77,75 +77,9 @@ To generate API credentials in Looker:
 </Step>
 </Steps>
 
-## Metadata Synchronization
+## Looker Filter Syntax
 
-Before querying, you need to sync explore metadata from Looker. This downloads field definitions (dimensions, measures, views) so that agents have context for generating queries.
-
-### Sync Commands
-
-```bash
-# Sync all configured explores
-oxy looker sync
-
-# Sync a specific integration
-oxy looker sync --integration my_looker
-
-# Sync a specific model
-oxy looker sync --integration my_looker --model ecommerce
-
-# Sync a specific explore
-oxy looker sync --integration my_looker --model ecommerce --explore orders
-
-# Force re-sync (overwrite existing metadata)
-oxy looker sync --force
-```
-
-### How Metadata Storage Works
-
-Synced metadata is stored in two layers:
-
-- **Base metadata** (auto-generated, git-ignored): `~/.local/share/oxy/.looker/<integration>/<model>/<explore>.yml`
-- **Overlay metadata** (user-managed, version-controlled): `looker/<integration>/<model>/<explore>.yml` in your project directory
-
-The overlay file lets you add custom descriptions, agent hints, and query examples that are merged with the base metadata at runtime.
-
-#### Overlay Metadata Example
-
-```yaml
-# looker/my_looker/ecommerce/orders.yml
-description: "Order analytics explore"
-views:
-  - name: orders
-    dimensions:
-      - name: orders.created_date
-        agent_hint: "Supports relative dates like 'last 7 days'"
-        examples:
-          - query: "Orders from Q4 2025"
-            filters:
-              orders.created_date: "2025-10-01 to 2025-12-31"
-    measures:
-      - name: orders.total_revenue
-        agent_hint: "Primary revenue metric"
-```
-
-## Using Looker in Agents
-
-Add a Looker tool to your agent configuration to let the agent query Looker explores:
-
-```yaml
-tools:
-  - name: query_orders
-    type: looker
-    integration: my_looker
-    model: ecommerce
-    explore: orders
-```
-
-The agent receives synced metadata (dimensions, measures, descriptions, and any overlay hints) as context. It uses this to generate Looker query parameters — including fields, filters, and sorts — and executes them via the Looker API.
-
-### Looker Filter Syntax
-
-Looker uses its own filter syntax, **not** SQL expressions. When writing overlay hints for agents, include examples using native Looker filter syntax:
+Looker uses its own filter syntax, **not** SQL expressions. Filters in a `looker_query` task use native Looker filter syntax:
 
 | Filter Type         | Example                                           |
 | ------------------- | ------------------------------------------------- |
@@ -175,9 +109,6 @@ tasks:
       - field: orders.created_date
         direction: desc
     limit: 1000
-    export:
-      format: csv
-      path: ./output/sales_data.csv
 ```
 
 ### Query Parameters
@@ -196,22 +127,15 @@ tasks:
 oxy looker test --integration my_looker
 ```
 
-### List Synced Explores
-
-```bash
-# List all synced explores
-oxy looker list
-
-# List explores for a specific integration
-oxy looker list --integration my_looker
-
-# List explores for a specific model
-oxy looker list --integration my_looker --model ecommerce
-```
+<Note>
+`oxy looker sync` and `oxy looker list` were removed. They wrote a metadata
+cache (and an overlay directory, `looker/`) that nothing at run time read.
+Name fields in full, as `view.field_name`, in the task.
+</Note>
 
 ## Troubleshooting
 
 - **Authentication errors** - Verify your client ID and secret are correct and that the environment variables are exported. API credentials may expire if rotated in the Looker admin panel.
 - **Connection refused** - Ensure the `base_url` includes the correct port (Looker API typically runs on port `19999`).
-- **Empty metadata after sync** - Check that the explores listed in your configuration exist in Looker and that your API credentials have permission to access them.
+- **Unknown field errors** - Check that the explores listed in your configuration exist in Looker, that the field names are written `view.field_name`, and that your API credentials have permission to access them.
 - **Query errors with filters** - Looker uses its own filter syntax, not SQL. Use expressions like `"last 30 days"` instead of SQL date functions.

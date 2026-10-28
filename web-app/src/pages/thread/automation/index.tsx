@@ -4,7 +4,9 @@ import OutputLogs from "@/components/automation/output/Logs";
 import PageHeader from "@/components/PageHeader";
 import { Separator } from "@/components/ui/shadcn/separator";
 import { useResumeAutomationThread } from "@/hooks/automation/useResumeAutomationThread";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { decodeBase64 } from "@/libs/encoding";
+import { objectNameFromPath } from "@/libs/utils/objectName";
 import useAutomationThreadStore from "@/stores/useAutomationThread";
 import type { ThreadItem } from "@/types/chat";
 import ProcessingWarning from "../ProcessingWarning";
@@ -36,15 +38,19 @@ const AutomationThread = ({
   // path (matches the automation run page's URL param). Decode for the
   // header so the user sees the readable path; fall back to the raw
   // value if decoding fails so we never render an empty header.
+  // Apps-first: the automation's plain name, never its file path.
+  const plainNames = useAppsFirstExperience();
   const sourcePath = useMemo(() => {
     const source = thread?.source;
     if (!source) return "";
+    let path: string;
     try {
-      return decodeBase64(source);
+      path = decodeBase64(source);
     } catch {
-      return source;
+      path = source;
     }
-  }, [thread?.source]);
+    return plainNames ? objectNameFromPath(path) : path;
+  }, [thread?.source, plainNames]);
 
   return (
     <div className='flex h-full flex-col'>

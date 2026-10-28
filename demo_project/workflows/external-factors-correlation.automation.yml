@@ -85,9 +85,6 @@ tasks:
         ROUND((SELECT overall_correlation FROM overall_stats), 3) AS temp_correlation_coef
       FROM temp_ordered
       ORDER BY temp_order
-    export:
-      format: "csv"
-      path: "results/temperature_correlation.csv"
 
   # FUEL PRICE IMPACT: Energy Cost Analysis
   - name: fuel_price_impact
@@ -167,9 +164,6 @@ tasks:
         ROUND((SELECT fuel_sales_corr FROM correlation), 3) AS fuel_correlation_coef
       FROM fuel_ordered
       ORDER BY fuel_order
-    export:
-      format: "csv"
-      path: "results/fuel_price_impact.csv"
 
   # UNEMPLOYMENT IMPACT: Economic Indicator
   - name: unemployment_impact
@@ -249,9 +243,6 @@ tasks:
         ROUND((SELECT cpi_sales_corr FROM correlation), 3) AS cpi_corr_coef
       FROM unemployment_ordered
       ORDER BY unemp_order
-    export:
-      format: "csv"
-      path: "results/unemployment_impact.csv"
 
   # MULTI-FACTOR CORRELATION MATRIX
   - name: correlation_matrix
@@ -313,9 +304,6 @@ tasks:
         ROUND(cpi_corr, 4) AS cpi,
         ROUND(unemployment_corr, 4) AS unemployment
       FROM correlations
-    export:
-      format: "csv"
-      path: "results/correlation_matrix.csv"
 
   # COMBINED FACTORS: Interaction Effects
   - name: combined_factors_analysis
@@ -371,9 +359,6 @@ tasks:
         RANK() OVER (ORDER BY avg_sales DESC) AS performance_rank
       FROM combinations
       ORDER BY avg_sales DESC
-    export:
-      format: "csv"
-      path: "results/combined_factors.csv"
 
   # FACTOR SIGNIFICANCE RANKING
   - name: factor_significance
@@ -433,9 +418,6 @@ tasks:
         RANK() OVER (ORDER BY abs_correlation DESC) AS importance_rank
       FROM factor_correlations
       ORDER BY abs_correlation DESC
-    export:
-      format: "csv"
-      path: "results/factor_significance.csv"
 
   # EXTERNAL FACTORS SUMMARY
   - name: external_factors_summary
@@ -539,9 +521,6 @@ tasks:
       1. **Combined Effects**: Best conditions yield {{combined_factors_analysis.pct_vs_avg[0]}}% above average
       2. **Risk Management**: High volatility in certain combinations requires hedging strategies
       3. **Predictive Modeling**: Use significant factors (≥0.3) in forecasting models
-    export:
-      format: "txt"
-      path: "results/external_factors_summary.txt"
 
 tests:
   - type: consistency

@@ -1,6 +1,7 @@
-import { FolderOpen, RefreshCw, Search } from "lucide-react";
-import { useState } from "react";
+import { FolderOpen, RefreshCw, Search, SquareTerminal } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { type FactoryTarget, OpenFactoryDialog } from "@/components/admin/OpenFactoryDialog";
 import { Button } from "@/components/ui/shadcn/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/shadcn/card";
 import { Input } from "@/components/ui/shadcn/input";
@@ -12,6 +13,7 @@ import {
   SelectValue
 } from "@/components/ui/shadcn/select";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/shadcn/table";
+import { useAllAdminOrgs } from "@/hooks/api/adminTenants/useAdminOrgs";
 import { useAdminWorkspacesList } from "@/hooks/api/adminTenants/useAdminWorkspaces";
 import ROUTES from "@/libs/utils/routes";
 import { CopyableId } from "@/pages/admin/components/CopyableId";
@@ -40,6 +42,15 @@ export default function AdminWorkspaces() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
+  // "Open Factory…" from the header (pick any workspace), or a row's own action.
+  const [openFactory, setOpenFactory] = useState<{ target: FactoryTarget | null } | null>(null);
+  // The row has only the org's slug; the consent text names the org, so look its
+  // name up the way the picker does.
+  const orgPages = useAllAdminOrgs();
+  const orgNames = useMemo(
+    () => new Map((orgPages.data?.pages.flat() ?? []).map((o) => [o.id, o.name] as const)),
+    [orgPages.data]
+  );
 
   // The whole query, not `data: workspaces = []`: that default rendered a failed fetch
   // as "No workspaces yet.", so an outage and an empty deployment looked the same.
@@ -94,6 +105,15 @@ export default function AdminWorkspaces() {
                 {workspaces.data.length} {workspaces.data.length === 1 ? "workspace" : "workspaces"}
               </span>
             ) : null}
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setOpenFactory({ target: null })}
+              data-testid='admin-workspaces-open-factory'
+            >
+              <SquareTerminal className='size-4' />
+              Open Factory…
+            </Button>
             <Button variant='outline' size='sm' onClick={() => refetch()} disabled={isFetching}>
               <RefreshCw className={`size-4 ${isFetching ? "animate-spin" : ""}`} />
               Refresh
@@ -128,6 +148,9 @@ export default function AdminWorkspaces() {
                     <AdminTh>Status</AdminTh>
                     <AdminTh align='right'>Members</AdminTh>
                     <AdminTh>Last opened</AdminTh>
+                    <AdminTh align='right'>
+                      <span className='sr-only'>Actions</span>
+                    </AdminTh>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -167,6 +190,32 @@ export default function AdminWorkspaces() {
                       <TableCell className='text-muted-foreground text-xs tabular-nums'>
                         {w.last_opened_at ? new Date(w.last_opened_at).toLocaleDateString() : "—"}
                       </TableCell>
+                      <TableCell className='text-right'>
+                        {w.org_id && w.org_slug && (
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={(e) => {
+                              // The row itself opens the detail page.
+                              e.stopPropagation();
+                              setOpenFactory({
+                                target: {
+                                  workspaceId: w.id,
+                                  workspaceName: w.name,
+                                  orgId: w.org_id as string,
+                                  orgSlug: w.org_slug as string,
+                                  orgName:
+                                    orgNames.get(w.org_id as string) ?? (w.org_slug as string)
+                                }
+                              });
+                            }}
+                            data-testid={`admin-workspaces-open-factory-${w.id}`}
+                          >
+                            <SquareTerminal className='size-4' />
+                            Open Factory
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -175,6 +224,11 @@ export default function AdminWorkspaces() {
           </AdminAsync>
         </CardContent>
       </Card>
+      <OpenFactoryDialog
+        open={openFactory !== null}
+        onOpenChange={(open) => !open && setOpenFactory(null)}
+        initialTarget={openFactory?.target ?? null}
+      />
     </AdminPage>
   );
 }

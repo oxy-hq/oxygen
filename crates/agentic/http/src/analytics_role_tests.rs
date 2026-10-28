@@ -46,12 +46,12 @@ fn saving_the_thinking_mode_needs_no_factory() {
     );
 }
 
-/// `active-runs` and `tree` prefer `RuntimeState::statuses` to the row, and
-/// `live` streams nothing else. That map is per process, so these are declared
-/// — not left to the wildcard — and a reader of this table for "what is safe to
-/// move" finds the reason beside each.
+/// `active-runs`, `tree` and `live` answer from the run rows, and `retry`
+/// seeds through the start route's own submit. None reads anything a process
+/// holds in memory, so the ops dashboard and its Retry button work with the
+/// Factory down.
 #[test]
-fn what_reads_this_processes_run_statuses_is_pinned_by_name() {
+fn the_dashboard_reads_and_retry_need_no_factory() {
     for path in [
         "/coordinator/active-runs",
         "/coordinator/runs/{id}/tree",
@@ -59,34 +59,50 @@ fn what_reads_this_processes_run_statuses_is_pinned_by_name() {
     ] {
         assert_eq!(
             declared("GET", path),
-            Some(RouteRole::IdeOnly),
-            "GET {path} reads in-process run statuses and must stay on the ide"
+            Some(RouteRole::FleetOk),
+            "GET {path} reads the run rows and must be served by any replica"
         );
     }
-}
-
-/// A write whose airway fallback answers a 500 where the start route answers a
-/// retryable 503; pinned until it shares that contract.
-#[test]
-fn retry_is_pinned_by_name() {
     assert_eq!(
         declared("POST", "/coordinator/runs/{id}/retry"),
-        Some(RouteRole::IdeOnly)
+        Some(RouteRole::FleetOk)
     );
 }
 
-/// Starting, answering, cancelling, streaming and reverting stay under the
-/// catch-all: none may acquire a declaration of its own by accident.
+/// A chat is started, answered, cancelled and streamed by any pod: a run reads
+/// the promoted revision on every role. Phase 3d of factory-retirement.md.
 #[test]
-fn the_execution_routes_have_no_declaration_but_the_wildcard() {
+fn a_chat_runs_on_any_pod() {
     for (method, path) in [
         ("POST", "/runs"),
         ("GET", "/runs/{id}/events"),
         ("POST", "/runs/{id}/answer"),
         ("POST", "/runs/{id}/cancel"),
+    ] {
+        assert_eq!(
+            declared(method, path),
+            Some(RouteRole::FleetOk),
+            "{method} {path}"
+        );
+    }
+}
+
+/// The Builder copilot and onboarding edit workspace files, and a Builder run
+/// is driven in the memory of the process that started it: its start, its
+/// answers and undoing its edits stay with the Factory. A route added without
+/// a declaration falls to the one catch-all, which is the Factory's too.
+#[test]
+fn the_builder_and_undeclared_routes_stay_on_the_factory() {
+    for (method, path) in [
+        ("POST", "/builder/runs"),
+        ("POST", "/builder/runs/{id}/answer"),
         ("POST", "/runs/{id}/revert-file-changes"),
     ] {
-        assert_eq!(declared(method, path), None, "{method} {path}");
+        assert_eq!(
+            declared(method, path),
+            Some(RouteRole::IdeOnly),
+            "{method} {path}"
+        );
     }
     assert_eq!(declared("*", "/{*rest}"), Some(RouteRole::IdeOnly));
     let wildcards = router_roles()
@@ -96,12 +112,63 @@ fn the_execution_routes_have_no_declaration_but_the_wildcard() {
     assert_eq!(wildcards, 1, "one catch-all, and it is the IdeOnly one");
 }
 
+/// The constants a refusal names are the routes declared above, under the
+/// mount `oxy-app` nests this router at.
+#[test]
+fn a_refusal_names_the_declared_builder_routes() {
+    use crate::routes::run::{BUILDER_ANSWER_ROUTE, BUILDER_START_ROUTE};
+    for route in [BUILDER_START_ROUTE, BUILDER_ANSWER_ROUTE] {
+        let path = route
+            .strip_prefix("/analytics")
+            .expect("the analytics mount");
+        assert_eq!(
+            declared("POST", path),
+            Some(RouteRole::IdeOnly),
+            "{route} must be a route the Factory serves"
+        );
+    }
+}
+
+/// The automation routes a customer reaches — starting, cancelling and
+/// streaming a run, and reading the automation list and one automation —
+/// answer from the compiled revision and the run rows, on any pod.
+#[test]
+fn an_automation_runs_on_any_pod() {
+    use crate::automation_router_roles;
+    let declared = |method: &str, path: &str| {
+        automation_router_roles()
+            .iter()
+            .find(|d| d.method == method && d.path == path)
+            .map(|d| d.role)
+    };
+    for (method, path) in [
+        ("POST", "/runs"),
+        ("POST", "/runs/{id}/cancel"),
+        ("GET", "/runs/{id}/events"),
+        ("GET", "/files"),
+        ("GET", "/files/{path_b64}"),
+        ("GET", "/runs"),
+        ("GET", "/runs/{id}"),
+        ("GET", "/threads/{thread_id}/run"),
+    ] {
+        assert_eq!(
+            declared(method, path),
+            Some(RouteRole::FleetOk),
+            "{method} {path}"
+        );
+    }
+    assert_eq!(declared("*", "/{*rest}"), Some(RouteRole::IdeOnly));
+}
+
 /// A `FleetOk` declaration names its verb. With `*`, carving out a read would
 /// also carve out whatever is later mounted at the same path under another
 /// method — `GET /coordinator/runs` must not unpin a `POST` there.
 #[test]
 fn no_fleet_ok_declaration_covers_every_method() {
-    for d in router_roles() {
+    for d in router_roles()
+        .iter()
+        .chain(crate::automation_router_roles())
+    {
         if d.role == RouteRole::FleetOk {
             assert_ne!(d.method, "*", "{} is FleetOk for every method", d.path);
         }

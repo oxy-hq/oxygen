@@ -5,8 +5,10 @@ import ErrorAlert from "@/components/ui/ErrorAlert";
 import { Button } from "@/components/ui/shadcn/button";
 import { Dialog, DialogContent } from "@/components/ui/shadcn/dialog";
 import useRevertBuilderFileChanges from "@/hooks/api/analytics/useRevertBuilderFileChanges";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import type { BuilderFileChange } from "@/hooks/useBuilderActivity";
 import { useBuilderActivity } from "@/hooks/useBuilderActivity";
+import { objectNameFromPath } from "@/libs/utils/objectName";
 
 import AnalyticsReasoningTrace from "../AnalyticsReasoningTrace";
 import ChangeVisualization from "../BuilderActivityPanel/ChangeVisualization";
@@ -26,6 +28,8 @@ export default function BuilderDelegationPanel({
   projectId,
   onClose
 }: BuilderDelegationPanelProps) {
+  // Apps-first: what changed by plain name, never by file path.
+  const plainNames = useAppsFirstExperience();
   const {
     events,
     isStreaming,
@@ -82,7 +86,9 @@ export default function BuilderDelegationPanel({
             toast.success(
               res.reverted.length === 1
                 ? "Change reverted"
-                : `Reverted ${res.reverted.length} files`
+                : plainNames
+                  ? `Reverted ${res.reverted.length} changes`
+                  : `Reverted ${res.reverted.length} files`
             );
           },
           onError: (err: unknown) => {
@@ -96,7 +102,7 @@ export default function BuilderDelegationPanel({
         }
       );
     },
-    [revertMutation, childRunId]
+    [revertMutation, childRunId, plainNames]
   );
 
   // A failed stream is not a finished run: what is shown may be missing or partial.
@@ -175,7 +181,9 @@ export default function BuilderDelegationPanel({
               return (
                 <div key={change.id} className='rounded-lg border'>
                   <div className='flex items-center justify-between gap-2 border-b px-3 py-2'>
-                    <span className='min-w-0 truncate font-medium text-xs'>{change.filePath}</span>
+                    <span className='min-w-0 truncate font-medium text-xs'>
+                      {plainNames ? objectNameFromPath(change.filePath) : change.filePath}
+                    </span>
                     <div className='flex shrink-0 items-center gap-1'>
                       {reverted ? (
                         <span className='rounded bg-muted px-2 py-0.5 text-[11px] text-muted-foreground'>

@@ -9,7 +9,6 @@ import { cn } from "@/libs/shadcn/utils";
 import { markOnboardingDismissedForStorageKey } from "@/libs/utils/onboardingStorage";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import type { AppItem } from "@/types/app";
 import { appDisplayLabel } from "@/utils/appLabel";
 import type { Milestone, OnboardingMode, PhaseTimings } from "../types";
 
@@ -67,10 +66,8 @@ export default function CompletionCard({
     if (onboardingStorageKey) markOnboardingDismissedForStorageKey(onboardingStorageKey);
   }, [onboardingStorageKey]);
 
-  // Always load the workspace app list: in blank mode it carries the
-  // LLM-authored `title:` for each dashboard we just built, which we prefer
-  // over deriving a label from the filename. In github mode it is the only
-  // source of app paths (nothing is built).
+  // The workspace app list: in github mode it is the only source of app paths
+  // (nothing is built).
   const { data: workspaceApps } = useApps(true, false, false);
   // Both `github` and `demo` start from a config.yml that ships agents +
   // dashboards already on disk — no semantic-model build, no warehouse
@@ -79,22 +76,10 @@ export default function CompletionCard({
   const isDemo = mode === "demo";
 
   const viewFiles = createdFiles.filter((f) => f.endsWith(".view.yml"));
-  const createdAppFiles = createdFiles.filter((f) => f.endsWith(".app.yml"));
 
-  // Join each created path to its `AppItem` so we can surface the LLM-authored
-  // title. Paths without a matching entry (e.g. fetch still in flight) fall
-  // back to a filename-derived label.
-  const appsByPath = new Map<string, AppItem>();
-  for (const app of workspaceApps ?? []) {
-    appsByPath.set(app.path, app);
-  }
-  const exploreApps = isGithub
-    ? (workspaceApps ?? [])
-    : createdAppFiles.map((path) => {
-        const match = appsByPath.get(path);
-        const name = path.replace(/^apps\//, "").replace(/\.app\.yml$/, "");
-        return match ?? { path, name, title: undefined };
-      });
+  // Onboarding never builds an app any more (Data Apps are retired), so only a
+  // repository that was imported with apps already in it has any to open.
+  const exploreApps = isGithub ? (workspaceApps ?? []) : [];
   const sortedExploreApps = sortAppsForExplore(exploreApps);
   const promptCount = Math.min(3, sampleQuestions.length);
 
@@ -106,10 +91,6 @@ export default function CompletionCard({
   if (viewFiles.length > 0)
     summaryParts.push(`${viewFiles.length} semantic view${viewFiles.length > 1 ? "s" : ""}`);
   summaryParts.push("1 analytics agent");
-  if (createdAppFiles.length > 0)
-    summaryParts.push(
-      `${createdAppFiles.length} dashboard${createdAppFiles.length > 1 ? "s" : ""}`
-    );
   const summaryList = summaryParts.join(", ").replace(/, ([^,]*)$/, ", and $1");
 
   return (
@@ -130,7 +111,7 @@ export default function CompletionCard({
         <p className='font-medium text-sm'>Workspace ready</p>
         <p className='text-muted-foreground text-sm leading-relaxed'>
           {isDemo
-            ? "Your demo workspace is set up. Try the sample agents and dashboards on the bundled DuckDB data."
+            ? "Your demo workspace is set up. Try the sample agents on the bundled DuckDB data."
             : isGithub
               ? "Your repository is connected. You can start asking questions against the agents and dashboards that ship with it."
               : `Connected ${warehouseName} and built ${summaryList}.`}
@@ -382,18 +363,13 @@ function formatDuration(ms: number): string {
   return formatSeconds(Math.round(ms / 1000));
 }
 
-function idToPhaseKey(id: string): "semantic" | "agent" | "app" | "app2" | null {
+function idToPhaseKey(id: string): "semantic" | "agent" | null {
   if (id === "build-semantic") return "semantic";
   if (id === "build-agent") return "agent";
-  if (id === "build-app") return "app";
-  if (id === "build-app2") return "app2";
   return null;
 }
 
-function phaseDuration(
-  key: "semantic" | "agent" | "app" | "app2",
-  timings?: PhaseTimings
-): number | undefined {
+function phaseDuration(key: "semantic" | "agent", timings?: PhaseTimings): number | undefined {
   const t = timings?.[key];
   if (!t?.start || !t.end) return undefined;
   return Math.max(0, Math.round((t.end - t.start) / 1000));

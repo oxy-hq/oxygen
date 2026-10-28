@@ -22,14 +22,11 @@ vi.mock("@/hooks/useCurrentProjectBranch", () => ({
 vi.mock("@/hooks/api/secrets/useSecrets", () => ({
   default: () => ({ data: { secrets: [secret] }, isLoading: false, error: null })
 }));
-vi.mock("@/hooks/api/secrets/useEnvSecrets", () => ({
-  default: () => ({ data: [], isLoading: false, error: null })
-}));
 vi.mock("@/hooks/api/customApps/useCustomApps", () => ({
   useCustomApps: () => ({ data: [] })
 }));
 vi.mock("@/services/secretService", () => ({
-  SecretService: { createSecret: vi.fn(), updateSecret: vi.fn(), deleteSecret: vi.fn() }
+  SecretService: { updateSecret: vi.fn(), deleteSecret: vi.fn() }
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 // Not under test: the detail dialog is reduced to its actions.
@@ -37,13 +34,11 @@ vi.mock("./components/SecretDetailDialog", () => ({
   SecretDetailDialog: ({
     row,
     onEdit,
-    onDelete,
-    onAddOverride
+    onDelete
   }: {
     row: UnifiedRow | null;
     onEdit: (secret: Secret) => void;
     onDelete: (secret: Secret) => void;
-    onAddOverride: (name: string) => void;
   }) =>
     row?.secretInfo ? (
       <>
@@ -53,16 +48,12 @@ vi.mock("./components/SecretDetailDialog", () => ({
         <button type='button' onClick={() => row.secretInfo && onDelete(row.secretInfo)}>
           Delete from detail
         </button>
-        <button type='button' onClick={() => onAddOverride("NEW_KEY")}>
-          Override from detail
-        </button>
       </>
     ) : null
 }));
 
 import { UnifiedSecretsTable } from "./index";
 
-const createSecret = vi.mocked(SecretService.createSecret);
 const updateSecret = vi.mocked(SecretService.updateSecret);
 const deleteSecret = vi.mocked(SecretService.deleteSecret);
 const unhandledRejection = vi.fn();
@@ -139,23 +130,6 @@ describe("UnifiedSecretsTable delete", () => {
 });
 
 describe("UnifiedSecretsTable success toasts", () => {
-  it("says a secret was created once", async () => {
-    createSecret.mockResolvedValue({ ...secret, name: "NEW_KEY" });
-
-    openFromDetail("Override from detail");
-    fireEvent.change(screen.getByLabelText("Value *"), { target: { value: "s3cret" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Create" })).toBeNull());
-    await settled();
-    expect(createSecret).toHaveBeenCalledWith("proj-1", {
-      name: "NEW_KEY",
-      value: "s3cret",
-      description: undefined
-    });
-    expect(vi.mocked(toast.success).mock.calls).toEqual([["Secret created successfully"]]);
-  });
-
   it("says a secret was updated once", async () => {
     updateSecret.mockResolvedValue(secret);
 

@@ -41,7 +41,7 @@ pub async fn get_world_model(
     if let Some(hit) = cache_lookup(&boundary, "wm-graph", "", wants_refresh(uri.query())) {
         return hit;
     }
-    let layer = match load_layer(boundary.scan.path_buf()).await {
+    let layer = match load_layer(boundary.scan.clone()).await {
         Ok(l) => l,
         Err(resp) => return resp,
     };
@@ -107,7 +107,7 @@ pub async fn get_world_model_instances(
         Ok(b) => b,
         Err(resp) => return resp,
     };
-    let layer = match load_layer(boundary.scan.path_buf()).await {
+    let layer = match load_layer(boundary.scan.clone()).await {
         Ok(l) => l,
         Err(resp) => return resp,
     };
@@ -138,7 +138,7 @@ pub async fn get_world_model_instances(
         boundary.app.user.id,
         WorkspaceRole::Viewer,
         &layer,
-        boundary.scan.path_buf(),
+        boundary.scan.clone(),
         // No engine cache on this path: `enter_semantic_boundary` is
         // headers-driven and carries no `AppState`.
         None,
@@ -164,7 +164,7 @@ pub async fn get_measure_breakdown(
         Ok(b) => b,
         Err(resp) => return resp,
     };
-    let layer = match load_layer(boundary.scan.path_buf()).await {
+    let layer = match load_layer(boundary.scan.clone()).await {
         Ok(l) => l,
         Err(resp) => return resp,
     };

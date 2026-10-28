@@ -8,9 +8,8 @@
 //! - `delete_file`           — delete an existing file (HITL-gated)
 //! - `manage_directory`      — create, delete, or rename a directory with user confirmation
 //! - `validate_project`      — validate project files against schema using the oxy config validator
-//! - `lookup_reference`      — load a domain reference card (semantic-model/app-builder/agentic-builder)
+//! - `lookup_reference`      — load a domain reference card (semantic-layer/agentic-builder)
 //! - `run_tests`             — run one or more `.test.yml` files using the oxy eval pipeline
-//! - `run_app`               — execute every task in a `.app.yml` end-to-end with optional control params (smoke test, bypasses cache)
 //! - `execute_sql`           — run a SQL query against a configured database
 //! - `semantic_query`        — compile and execute a semantic model query
 //! - `list_dbt_projects`     — list all airform/dbt projects in the workspace
@@ -75,6 +74,7 @@ pub use semantic_query::execute_semantic_query;
 pub use utils::{hitl_confirm, remove_file, safe_path, write_file_content};
 pub use validate_project::execute_validate_project;
 pub use write_file::execute_write_file;
+pub(crate) use write_file::is_data_app_path;
 
 /// All tools available to the builder copilot.
 pub fn all_tools(schema_provider: &dyn BuilderSchemaProvider) -> Vec<ToolDef> {
@@ -89,7 +89,6 @@ pub fn all_tools(schema_provider: &dyn BuilderSchemaProvider) -> Vec<ToolDef> {
         lookup_reference::lookup_reference_def(),
         lookup_schema::lookup_schema_def(schema_provider),
         run_tests::run_tests_def(),
-        run_app::run_app_def(),
         execute_sql::execute_sql_def(),
         semantic_query::semantic_query_def(),
         airform::list_dbt_projects_def(),
@@ -110,4 +109,19 @@ pub fn all_tools(schema_provider: &dyn BuilderSchemaProvider) -> Vec<ToolDef> {
         manage_directory::manage_directory_def(),
         agentic_core::tools::ask_user_tool_def(),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema_provider::EmptySchemaProvider;
+
+    #[test]
+    fn no_tool_runs_or_builds_a_data_app() {
+        let names: Vec<&str> = all_tools(&EmptySchemaProvider)
+            .iter()
+            .map(|t| t.name)
+            .collect();
+        assert!(!names.contains(&"run_app"), "{names:?}");
+    }
 }

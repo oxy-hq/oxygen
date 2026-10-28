@@ -9,7 +9,7 @@ use agentic_connector::{DatabaseConnector, StringLiteral};
 use async_trait::async_trait;
 use oxy::config::model::IntegrationType;
 
-use super::{OxyProjectContext, resolve_workspace_relative};
+use super::{OxyProjectContext, validate_automation_ref_syntax};
 use crate::agentic_wiring::string_literal::string_literal_of;
 
 #[async_trait]
@@ -286,8 +286,8 @@ impl WorkspaceContext for OxyProjectContext {
         // sidebar is empty. Fall through to the FS walk on a miss (workspace not
         // promoted / non-default branch).
         //
-        // Workspace-RELATIVE, like `list_airway_files` below. Both consumers
-        // relativise anyway and both tolerate a path that already is:
+        // Workspace-RELATIVE. The consumers relativise anyway and tolerate a
+        // path that already is:
         // `make_workspace_relative` returns early on `is_relative()`
         // (`automation/src/runner.rs`), and the HTTP lister does
         // `strip_prefix(root).unwrap_or(&abs)`, which passes a relative path
@@ -306,21 +306,6 @@ impl WorkspaceContext for OxyProjectContext {
             .map_err(|e| format!("{e}"))?
             .into_iter()
             .map(|a| PathBuf::from(a.file_path))
-            .collect())
-    }
-
-    async fn list_airway_files(&self) -> Result<Vec<PathBuf>, String> {
-        // Workspace-relative. The one consumer strips the root with
-        // `strip_prefix(..).unwrap_or(&abs)`, so a relative path passes through
-        // unchanged — and relative is what the compiled arm carries.
-        Ok(self
-            .workspace_manager
-            .config_manager
-            .list_pipelines()
-            .await
-            .map_err(|e| format!("{e}"))?
-            .into_iter()
-            .map(|p| PathBuf::from(p.file_path))
             .collect())
     }
 
@@ -501,44 +486,53 @@ impl WorkspaceContext for OxyProjectContext {
         &self,
         workflow_ref: &str,
     ) -> Result<String, WorkspaceReadError> {
-        // Serve the automation YAML from `procedure_definitions`; falls through
-        // to the filesystem read below on any miss. Round-trips JSONB →
-        // strict-typed Workflow → YAML so the downstream parser (which expects
+        // `workflow_ref` can be caller-supplied (the `path_b64` route param and
+        // the queued workflow spec). A compiled lookup is an equality match on a
+        // row key, so a traversal ref cannot match anything; the syntactic
+        // reject is still done first so the diagnostic is the same on every
+        // source, and so `Origin::Disk` never starts to resolve one.
+        validate_automation_ref_syntax(workflow_ref).map_err(WorkspaceReadError::Missing)?;
+
+        // The manager's source decides: the pinned revision's
+        // `automation_definitions` row, or the directory it was built over on
+        // `Origin::Disk` (the CLI, single-process mode, a draft branch in the
+        // IDE). There is no second, separate file read after it. This function
+        // used to read the working copy whenever the manager answered `None`,
+        // so a pod that held the files answered a revision miss from them.
+        //
+        // Round-trips JSONB to YAML so the downstream parser (which expects
         // YAML) is unchanged.
         match self.compiled_automation(workflow_ref).await {
-            Ok(Some(definition)) => match serde_yaml::to_string(&definition) {
-                Ok(yaml) => return Ok(yaml),
-                // Row found, contents unusable: a content problem with that
-                // revision, not a question we failed to ask. A host with a
-                // working copy has a better answer, so fall through.
-                Err(e) => tracing::warn!(
+            Ok(Some(definition)) => serde_yaml::to_string(&definition).map_err(|e| {
+                // The row (or file) was found and its contents are unusable:
+                // that is the workspace's content, not a question we failed to
+                // ask.
+                tracing::warn!(
                     workspace_id = %self.workspace_manager.workspace_id,
                     workflow_ref,
                     error = ?e,
-                    "compile boundary automation re-serialise failed; falling through to FS"
-                ),
-            },
-            // Draft branch, workspace not promoted, or no matching row.
-            Ok(None) => {}
-            // The lookup itself failed. Propagated rather than laundered into
-            // a miss — same rule `resolve_pipeline_yaml` above already states:
-            // this is "unknown", and the caller must not read it as "not
-            // compiled here" and go to a filesystem this node may not have.
+                    "automation definition re-serialise failed"
+                );
+                WorkspaceReadError::Invalid(format!(
+                    "automation {workflow_ref:?} could not be serialised: {e}"
+                ))
+            }),
+            // The source answered and does not have it.
+            Ok(None) => Err(WorkspaceReadError::Missing(
+                match self.compiled_revision() {
+                    Some(revision_id) => format!(
+                        "automation {workflow_ref:?} is not in compiled revision {revision_id}"
+                    ),
+                    None => format!("automation {workflow_ref:?} not found"),
+                },
+            )),
+            // The lookup itself failed. Propagated rather than laundered into a
+            // miss: this is "unknown", not "not compiled here".
             // Labelled by the SHAPE of the failure, not by where the call sat.
-            // An earlier version called every error here `Unavailable` on the
-            // stated grounds that `definition` only fails without a working
-            // copy — which is false. It also propagates a `definition_from_disk`
-            // error on `Origin::Disk`, on the `Ok(None)` arm for any variant it
-            // does not fold into a miss, and on the compiled-`Err`-with-disk
-            // arm. `definition_from_disk` returns `ConfigurationError` for
-            // unparseable YAML, so a typo in `orders.automation.yml` opened in
-            // the IDE answered 503 + `Retry-After` — a retryable status for a
-            // permanent condition, told to a client that will never see it
-            // resolve.
-            //
             // `ArtifactError::retryable()` is exactly `!matches!(self,
             // Config(_))`, i.e. the line between "could not look" and "looked,
-            // and the content is bad". Reuse it rather than restating it.
+            // and the content is bad" (unparseable YAML on `Origin::Disk` is a
+            // permanent condition, not a 503 with `Retry-After`).
             Err(e) => {
                 let retryable = e.retryable();
                 tracing::warn!(
@@ -548,31 +542,12 @@ impl WorkspaceContext for OxyProjectContext {
                     retryable,
                     "automation definition read failed"
                 );
-                return Err(if retryable {
+                Err(if retryable {
                     WorkspaceReadError::Unavailable(e.to_string())
                 } else {
                     WorkspaceReadError::Invalid(e.to_string())
-                });
+                })
             }
         }
-
-        // Authenticated callers can supply an arbitrary `workflow_ref` via
-        // the `path_b64` route param (and the queued workflow spec), so we
-        // must contain it to the workspace root before reading. A raw
-        // `workspace_path().join(workflow_ref)` would happily resolve
-        // `../../etc/passwd` or replace the prefix entirely with an
-        // absolute path — `ConfigManager::resolve_file` runs
-        // `validate_path_within_project` which canonicalises and rejects
-        // anything outside the workspace.
-        //
-        // Both failures below are `Missing`: past the boundary arm we are
-        // reading this node's own filesystem, where "not there" is the answer
-        // and not a symptom.
-        let resolved = resolve_workspace_relative(&self.workspace_manager, workflow_ref)
-            .await
-            .map_err(WorkspaceReadError::Missing)?;
-        std::fs::read_to_string(&resolved).map_err(|e| {
-            WorkspaceReadError::Missing(format!("failed to read workflow {workflow_ref:?}: {e}"))
-        })
     }
 }

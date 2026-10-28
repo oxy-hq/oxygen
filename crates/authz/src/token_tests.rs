@@ -103,7 +103,8 @@ const ROLES: [RoleCeiling; 3] = [RoleCeiling::Member, RoleCeiling::Admin, RoleCe
 /// model has no other viewer/member distinction, and the shipped check
 /// (`EffectiveWorkspaceRole`, capped at the source) carries the rest.
 fn viewer_loses(action: Action, resource: &Resource) -> bool {
-    action.ring() == crate::Ring::WorkspaceEdit
+    matches!(action.ring(), crate::Ring::WorkspaceEdit)
+        || action == Action::FactoryUse
         || (matches!(action, Action::WorkspaceRename | Action::NamespaceDelete)
             && resource.owner == Some(USER))
 }
@@ -728,4 +729,113 @@ fn a_blocked_org_is_outside_a_token_whatever_its_grants_say() {
         Some(Scope::Orgs(Vec::new())),
         "a blocked org is not in the bounded scope"
     );
+}
+
+/// The Factory grant is a member's standing, so a token needs a member ceiling over
+/// the workspace to carry it: a viewer ceiling, a grant on another workspace and a
+/// token that does not cover the target at all each decide as the grant not held.
+#[test]
+fn a_factory_grant_is_carried_only_by_a_member_ceiling_over_that_workspace() {
+    let granted = PrincipalFacts {
+        factory_workspaces: vec![WS_A],
+        ..session(Some(RoleCeiling::Member))
+    };
+    let ws = Resource::workspace(WS_A, ORG);
+    assert!(
+        allows(&granted, Action::FactoryUse, &ws),
+        "a session holds it"
+    );
+
+    for (why, grants, want) in [
+        (
+            "member ceiling here",
+            vec![grant(Some(WS_A), RoleCeiling::Member)],
+            true,
+        ),
+        (
+            "admin ceiling org-wide",
+            vec![grant(None, RoleCeiling::Admin)],
+            true,
+        ),
+        (
+            "viewer ceiling here",
+            vec![grant(Some(WS_A), RoleCeiling::Viewer)],
+            false,
+        ),
+        (
+            "grant on another workspace",
+            vec![grant(Some(WS_B), RoleCeiling::Owner)],
+            false,
+        ),
+        ("no grant at all", Vec::new(), false),
+    ] {
+        for facts in both_ways(&granted, &token(grants)) {
+            assert_eq!(allows(&facts, Action::FactoryUse, &ws), want, "{why}");
+        }
+    }
+}
+
+/// An org owner or admin reaches the Factory by that role, so a token carries it
+/// only at an admin ceiling over the workspace: capped to a member, the same person
+/// decides as a plain member, who needs a grant.
+#[test]
+fn an_org_officers_factory_access_is_carried_only_by_an_admin_ceiling() {
+    let ws = Resource::workspace(WS_A, ORG);
+    for role in [RoleCeiling::Admin, RoleCeiling::Owner] {
+        let officer = session(Some(role));
+        assert!(
+            allows(&officer, Action::FactoryUse, &ws),
+            "a {role:?} session holds it"
+        );
+        for (why, grants, want) in [
+            (
+                "admin ceiling here",
+                vec![grant(Some(WS_A), RoleCeiling::Admin)],
+                true,
+            ),
+            (
+                "member ceiling here",
+                vec![grant(Some(WS_A), RoleCeiling::Member)],
+                false,
+            ),
+            ("no grant at all", Vec::new(), false),
+        ] {
+            for facts in both_ways(&officer, &token(grants)) {
+                assert_eq!(
+                    allows(&facts, Action::FactoryUse, &ws),
+                    want,
+                    "{role:?}: {why}"
+                );
+            }
+        }
+    }
+}
+
+/// Staff reach into the Factory is a staff tool used inside a tenant, so a token
+/// carries it only at an admin ceiling, as `Ring::StaffReach` does: a staff
+/// token capped at member over the workspace is refused.
+#[test]
+fn staff_factory_access_is_carried_only_by_an_admin_ceiling() {
+    let operator = staff(
+        Some(PlatformStanding::from_role(
+            PlatformRole::GlobalAdmin,
+            Scope::All,
+        )),
+        false,
+    );
+    let ws = Resource::workspace(WS_A, ORG);
+    assert!(
+        allows(&operator, Action::FactoryUse, &ws),
+        "a session holds it"
+    );
+    for (why, ceiling, want) in [
+        ("owner ceiling", RoleCeiling::Owner, true),
+        ("admin ceiling", RoleCeiling::Admin, true),
+        ("member ceiling", RoleCeiling::Member, false),
+        ("viewer ceiling", RoleCeiling::Viewer, false),
+    ] {
+        for facts in both_ways(&operator, &token(vec![grant(Some(WS_A), ceiling)])) {
+            assert_eq!(allows(&facts, Action::FactoryUse, &ws), want, "{why}");
+        }
+    }
 }

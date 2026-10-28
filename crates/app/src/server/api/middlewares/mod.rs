@@ -2,6 +2,7 @@ pub mod api_key_query;
 pub mod app_grant_scope;
 pub mod app_publish_token_scope;
 pub mod app_scope_guard;
+mod lazy_compile_throttle;
 pub mod local_context;
 pub mod org_context;
 pub mod oxy_app_admin_guard;

@@ -162,15 +162,6 @@ fn ide_routes_classify_against_live_uri() {
         classify("GET", "/api/d9830be4-c6a4/meta"),
         RouteRole::FleetOk
     );
-    // The Looker query POSTs read node-local synced metadata, like the GET.
-    assert_eq!(
-        classify("POST", "/api/d9830be4-c6a4/integrations/looker/query"),
-        RouteRole::IdeOnly
-    );
-    assert_eq!(
-        classify("POST", "/api/d9830be4-c6a4/integrations/looker/query/sql"),
-        RouteRole::IdeOnly
-    );
     // Running a test case is execution against the working copy.
     assert_eq!(
         classify("POST", "/api/d9830be4-c6a4/tests/cGF0aA/cases/0"),
@@ -216,26 +207,29 @@ fn ide_routes_classify_against_live_uri() {
     );
 }
 
-/// The agentic run/exec + generated-chart surface must stay IdeOnly: a
-/// subrun's `execute_sql` runs in-process against local DuckDB, and charts
-/// are read off local disk. Flipping any of these to FleetOk would serve
-/// them on a no-working-copy replica — and for `/analytics` specifically it
-/// would bypass the runtime serve-safety gate (the conditional un-pin),
-/// breaking every workspace with an FS-bound database. This test is the
-/// regression guard for that whole surface.
+/// What still runs only where the working copy is: an airway run started on
+/// a route nothing declares, a Data App's run (removed with Data Apps, #3835),
+/// and the Builder — its start, its answers and undoing its edits. A chat and
+/// an automation are not among them any more: they read the promoted revision
+/// on every role (factory-retirement.md phase 3d), see
+/// `chat_and_automation_runs_are_fleet_ok`.
 #[test]
-fn run_exec_and_chart_surface_stays_ide_only() {
+fn run_exec_surface_that_needs_the_working_copy_stays_ide_only() {
     let ws = "d9830be4-c6a4";
-    // `/charts/{file}` is deliberately absent: the writer mirrors it to S3,
-    // so it serves from any replica. `exported-charts` has no mirror.
     let cases: [(&str, String); 7] = [
-        ("POST", format!("/api/{ws}/analytics/runs")),
-        ("POST", format!("/api/{ws}/analytics/runs/abc/answer")),
         ("POST", format!("/api/{ws}/agentic-workflows/run")),
         ("POST", format!("/api/{ws}/agentic-airway/run")),
-        ("GET", format!("/api/{ws}/exported-charts/x.svg")),
         ("GET", format!("/api/{ws}/apps/cGF0aA")), // data-app auto-run
         ("POST", format!("/api/{ws}/apps/cGF0aA/run")), // data-app run
+        ("POST", format!("/api/{ws}/analytics/builder/runs")),
+        (
+            "POST",
+            format!("/api/{ws}/analytics/builder/runs/r-1/answer"),
+        ),
+        (
+            "POST",
+            format!("/api/{ws}/analytics/runs/r-1/revert-file-changes"),
+        ),
     ];
     for (method, path) in cases {
         assert_eq!(
@@ -246,13 +240,56 @@ fn run_exec_and_chart_surface_stays_ide_only() {
     }
 }
 
+/// A chat and an automation are started, answered, cancelled and streamed by
+/// any pod, and the automation files a customer opens are read from the
+/// compiled revision. With the Factory scaled to zero these are what chat and
+/// the automation page call.
+#[test]
+fn chat_and_automation_runs_are_fleet_ok() {
+    let ws = "d9830be4-c6a4";
+    for (method, path) in [
+        ("POST", format!("/api/{ws}/analytics/runs")),
+        ("GET", format!("/api/{ws}/analytics/runs/r-1/events")),
+        ("POST", format!("/api/{ws}/analytics/runs/r-1/answer")),
+        ("POST", format!("/api/{ws}/analytics/runs/r-1/cancel")),
+        ("POST", format!("/api/{ws}/agentic-workflows/runs")),
+        (
+            "GET",
+            format!("/api/{ws}/agentic-workflows/runs/r-1/events"),
+        ),
+        (
+            "POST",
+            format!("/api/{ws}/agentic-workflows/runs/r-1/cancel"),
+        ),
+        ("GET", format!("/api/{ws}/agentic-workflows/files")),
+        ("GET", format!("/api/{ws}/agentic-workflows/files/cGF0aA")),
+        ("POST", format!("/api/{ws}/agentic-automations/runs")),
+        (
+            "GET",
+            format!("/api/{ws}/agentic-automations/runs/r-1/events"),
+        ),
+        (
+            "POST",
+            format!("/api/{ws}/agentic-automations/runs/r-1/cancel"),
+        ),
+        ("GET", format!("/api/{ws}/agentic-automations/files")),
+        ("GET", format!("/api/{ws}/agentic-automations/files/cGF0aA")),
+    ] {
+        assert_eq!(
+            classify(method, &path),
+            RouteRole::FleetOk,
+            "{method} {path} must be served by any replica"
+        );
+    }
+}
+
 /// Viewing a past conversation / run is a Postgres read and must NOT depend
 /// on the ide singleton (HA). The run-history reads across all three agentic
 /// surfaces are carved out to FleetOk even though they sit under the IdeOnly
-/// `/analytics` `/agentic-workflows` `/agentic-airway` wildcards; the
-/// EXECUTION + live-stream + file-read endpoints right next to them stay
-/// IdeOnly. (Airway's start, cancel and stream are not among those any more:
-/// its driver is the worker fleet — see `airway_control_routes_are_fleet_ok`.)
+/// `/analytics` `/agentic-workflows` `/agentic-airway` wildcards. (The run
+/// routes beside them are FleetOk too now — see
+/// `chat_and_automation_runs_are_fleet_ok` and
+/// `airway_control_routes_are_fleet_ok` — except undoing a Builder edit.)
 #[test]
 fn agentic_run_history_reads_are_fleet_ok() {
     let ws = "d9830be4-c6a4";
@@ -276,35 +313,16 @@ fn agentic_run_history_reads_are_fleet_ok() {
             "{path} is a Postgres run-history read — must serve from any replica"
         );
     }
-    // Execution / live-stream / FS-write endpoints under the same surfaces
-    // stay IdeOnly — the carve-out must not widen to them. Note the
-    // live-SSE `runs/{id}/events` has one MORE segment than the carved-out
-    // `runs/{id}`, so it is not shadowed.
-    for (method, path) in [
-        ("POST", format!("/api/{ws}/analytics/runs")), // start (executes)
-        ("GET", format!("/api/{ws}/analytics/runs/r-1/events")), // live SSE
-        ("POST", format!("/api/{ws}/analytics/runs/r-1/answer")), // resume
-        (
+    // Undoing a Builder edit writes the working copy: the carve-outs above
+    // must not widen to it.
+    assert_eq!(
+        classify(
             "POST",
-            format!("/api/{ws}/analytics/runs/r-1/revert-file-changes"),
-        ), // FS write
-        ("POST", format!("/api/{ws}/agentic-workflows/runs")), // start
-        (
-            "GET",
-            format!("/api/{ws}/agentic-workflows/runs/r-1/events"),
-        ), // live SSE
-        (
-            "POST",
-            format!("/api/{ws}/agentic-workflows/runs/r-1/cancel"),
+            &format!("/api/{ws}/analytics/runs/r-1/revert-file-changes")
         ),
-        ("GET", format!("/api/{ws}/agentic-workflows/files")), // workspace FS read
-    ] {
-        assert_eq!(
-            classify(&method, &path),
-            RouteRole::IdeOnly,
-            "{method} {path} executes/streams/reads-FS — must stay IdeOnly"
-        );
-    }
+        RouteRole::IdeOnly,
+        "undoing a Builder edit writes the working copy — must stay IdeOnly"
+    );
 }
 
 /// The ops dashboard's run history, recovery counts and queue health are
@@ -318,6 +336,20 @@ fn coordinator_postgres_reads_are_fleet_ok() {
         ("GET", format!("/api/{ws}/analytics/coordinator/runs")),
         ("GET", format!("/api/{ws}/analytics/coordinator/recovery")),
         ("GET", format!("/api/{ws}/analytics/coordinator/queue")),
+        // Answered from the run rows, not this process's status map.
+        (
+            "GET",
+            format!("/api/{ws}/analytics/coordinator/active-runs"),
+        ),
+        (
+            "GET",
+            format!("/api/{ws}/analytics/coordinator/runs/r-1/tree"),
+        ),
+        ("GET", format!("/api/{ws}/analytics/coordinator/live")),
+        (
+            "POST",
+            format!("/api/{ws}/analytics/coordinator/runs/r-1/retry"),
+        ),
         (
             "PATCH",
             format!("/api/{ws}/analytics/runs/r-1/thinking_mode"),
@@ -338,35 +370,18 @@ fn coordinator_postgres_reads_are_fleet_ok() {
     }
 }
 
-/// What that carve-out must NOT sweep along.
-///
-/// `active-runs` and `tree` overlay each row with this process's in-memory run
-/// status and prefer it, and `live` streams that map alone; `retry` is a write
-/// with a 500 where its sibling start route answers a retryable 503. The
-/// reasons are beside each declaration in `agentic_http::router_roles`.
+/// What those carve-outs must NOT sweep along. The reasons are beside each
+/// declaration in `agentic_http::router_roles`.
 #[test]
 fn coordinator_routes_that_need_the_driving_process_stay_ide_only() {
     let ws = "d9830be4-c6a4";
     for (method, path) in [
-        (
-            "GET",
-            format!("/api/{ws}/analytics/coordinator/active-runs"),
-        ),
-        // Two MORE segments than the carved-out `/coordinator/runs`, so that
-        // declaration cannot answer for these.
-        (
-            "GET",
-            format!("/api/{ws}/analytics/coordinator/runs/r-1/tree"),
-        ),
+        // The route that shares `/runs/{id}/…` with thinking_mode and still
+        // writes the working copy.
         (
             "POST",
-            format!("/api/{ws}/analytics/coordinator/runs/r-1/retry"),
+            format!("/api/{ws}/analytics/runs/r-1/revert-file-changes"),
         ),
-        ("GET", format!("/api/{ws}/analytics/coordinator/live")),
-        // The execution routes that share `/runs/{id}/…` with thinking_mode.
-        ("GET", format!("/api/{ws}/analytics/runs/r-1/events")),
-        ("POST", format!("/api/{ws}/analytics/runs/r-1/answer")),
-        ("POST", format!("/api/{ws}/analytics/runs/r-1/cancel")),
         // A carved-out path under a method it was not declared for.
         ("POST", format!("/api/{ws}/analytics/coordinator/runs")),
         ("DELETE", format!("/api/{ws}/analytics/coordinator/queue")),
@@ -429,7 +444,6 @@ fn airway_in_process_and_authoring_routes_stay_ide_only() {
     for (method, path) in [
         ("POST", format!("/api/{ws}/agentic-airway/chunked-backfill")),
         ("POST", format!("/api/{ws}/agentic-airway/resume-backfill")),
-        ("GET", format!("/api/{ws}/agentic-airway/files")),
         ("POST", format!("/api/{ws}/agentic-airway/sources/discover")),
         // Not routes today. A route added under this mount without a
         // declaration of its own must land here, not on the fleet.
@@ -661,12 +675,15 @@ fn runtime_routes_are_ide_only() {
     // answered by a replica that has neither the execution env nor the
     // broadcaster — regardless of what its handler's signature suggests.
     let ws = "d9830be4-c6a4";
+    // (A chat start is not among them since phase 3d: it reads the compiled
+    // revision on every role — `chat_and_automation_runs_are_fleet_ok`. The
+    // Builder's start is: it edits the working copy.)
     let runtime: [(&str, String); 6] = [
         ("GET", format!("/api/{ws}/apps/cGF0aA")),
         ("POST", format!("/api/{ws}/apps/cGF0aA/run")),
         ("POST", format!("/api/{ws}/apps/cGF0aA/result")),
         ("GET", format!("/api/{ws}/apps/file/cGF0aA")),
-        ("POST", format!("/api/{ws}/analytics/runs")),
+        ("POST", format!("/api/{ws}/analytics/builder/runs")),
         ("POST", format!("/api/{ws}/agentic-airway/run")),
     ];
     for (method, path) in &runtime {
@@ -704,20 +721,23 @@ fn unknown_routes_default_to_fleet_ok() {
     assert_eq!(classify("POST", "/api/analytics/runs"), RouteRole::FleetOk);
     assert_eq!(classify("GET", "/health"), RouteRole::FleetOk);
     assert_eq!(classify("GET", "/healthz"), RouteRole::FleetOk);
-    // The agentic run/exec surface (/analytics, /agentic-workflows) is pinned
-    // to the ide for ephemeral-env tier 1 — subruns execute in-process where
-    // the run drives and touch the FS — so even the cross-process /events
-    // streams under it now classify IdeOnly. (/agentic-airway is queue-driven
-    // and declares its own roles: `airway_control_routes_are_fleet_ok`.)
+    // The run streams under /analytics and /agentic-workflows are declared
+    // FleetOk (phase 3d): a stream polls the event log when another process
+    // drives. What an unknown route under those mounts gets is the catch-all,
+    // which is the Factory's.
     assert_eq!(
         classify("GET", "/api/d9830be4-c6a4/analytics/runs/abc/events"),
-        RouteRole::IdeOnly
+        RouteRole::FleetOk
     );
     assert_eq!(
         classify(
             "GET",
             "/api/d9830be4-c6a4/agentic-workflows/runs/abc/events"
         ),
+        RouteRole::FleetOk
+    );
+    assert_eq!(
+        classify("GET", "/api/d9830be4-c6a4/analytics/not-a-route"),
         RouteRole::IdeOnly
     );
     // Every `/world-model/*` read is FleetOk — the Postgres+S3 ones here, and
@@ -911,8 +931,8 @@ fn app_data_and_source_file_reads_are_ide_only() {
         RouteRole::FleetOk
     );
     // App WRITE surface mutates the working copy → IdeOnly (proxied to the
-    // ide). FleetOk here would silently drop the publish toggle / generated
-    // app on a working-copy-less replica.
+    // ide). FleetOk here would silently drop the publish toggle
+    // on a working-copy-less replica.
     assert_eq!(
         classify("POST", &format!("{ws}/apps/b3h5bWFydA/publish")),
         RouteRole::IdeOnly
@@ -921,10 +941,9 @@ fn app_data_and_source_file_reads_are_ide_only() {
         classify("POST", &format!("{ws}/apps/b3h5bWFydA/unpublish")),
         RouteRole::IdeOnly
     );
-    assert_eq!(
-        classify("POST", &format!("{ws}/apps/save-from-run/run-123")),
-        RouteRole::IdeOnly
-    );
+    // `save-from-run` created `generated/<run>.app.yml`; it is gone, and the
+    // path falls through to the `/apps/{pathb64}/…` wildcard, never a writer.
+    assert!(!include_str!("router/workspace.rs").contains("save-from-run"));
 }
 
 /// Router-DERIVED drift guard — the automated router ⇄ manifest cross-check
@@ -944,11 +963,7 @@ fn app_data_and_source_file_reads_are_ide_only() {
 fn fully_fs_builder_routes_classify_ide_only() {
     let src = include_str!("router/workspace.rs");
     // (builder fn, mount prefix beneath /api/{workspace_id})
-    let builders = [
-        ("build_git_routes", ""),
-        ("build_file_routes", "/files"),
-        ("build_data_repo_routes", "/repositories"),
-    ];
+    let builders = [("build_git_routes", ""), ("build_file_routes", "/files")];
     let ws = "/api/d9830be4-c6a4";
     let mut checked = 0;
     for (builder, prefix) in builders {
@@ -999,10 +1014,8 @@ fn every_test_sub_route_is_classified() {
     assert_sub_routes_classified(src, "build_test_file_routes", "/tests", TEST_FLEET_OK, 1);
 }
 
-/// Per-sub-route drift guard for `build_integration_routes()`, MIXED since
-/// the two Looker query POSTs were pinned. They read node-local synced
-/// metadata with no S3 read-through, and were FleetOk only because they carry
-/// one more path segment than the already-IdeOnly `GET /looker`.
+/// Per-sub-route drift guard for `build_integration_routes()`, MIXED: the
+/// OAuth authorize routes are fleet-servable, `GET /looker` is not.
 #[test]
 fn every_integration_sub_route_is_classified() {
     let src = include_str!("router/workspace.rs");
@@ -1018,7 +1031,7 @@ fn every_integration_sub_route_is_classified() {
         "build_integration_routes",
         "/integrations",
         INTEGRATION_FLEET_OK,
-        3,
+        1,
     );
 }
 
@@ -1078,7 +1091,7 @@ fn assert_sub_routes_classified(
 /// only sees the `/apps` NEST (its one-segment probe matches the IdeOnly
 /// `/apps/{pathb64}` pattern), so every app SUB-route was otherwise
 /// classified by reviewer attention alone — exactly how publish/unpublish/
-/// save-from-run wrote the working copy while classified FleetOk. This
+/// (and a since-removed save-from-run) wrote the working copy while classified FleetOk. This
 /// parses `build_app_routes()` and asserts each sub-route is EITHER IdeOnly
 /// OR on the explicit `APP_FLEET_OK` ack-list below, so a new app sub-route
 /// fails CI unless someone classifies it on purpose.
@@ -1111,7 +1124,7 @@ fn every_app_sub_route_is_classified() {
             "app sub-route {route:?} (under /apps) classifies FleetOk but is not in \
              APP_FLEET_OK — if it reads/writes the working copy, mount it with \
              `route_ide`; if it is genuinely stateless add it to APP_FLEET_OK. \
-             (This is the publish/unpublish/save-from-run gap.)",
+             (This is the publish/unpublish gap.)",
         );
         checked += 1;
     }
@@ -1345,7 +1358,7 @@ fn concretize(pattern: &str) -> String {
 }
 
 /// Drift guard (hand-maintained — NOT router-introspecting). Every flat
-/// route mounted by `build_git_routes()` + `build_data_repo_routes()`
+/// route mounted by `build_git_routes()`
 /// (router/workspace.rs) touches the working copy / shells out to git, so
 /// each MUST classify IdeOnly; a route that's FleetOk lands on a serve
 /// replica with no working copy → 500. This test asserts the list below
@@ -1384,24 +1397,6 @@ fn manifest_covers_every_git_route() {
             "git route {method} {path} must be IdeOnly (touches working copy)"
         );
     }
-    // build_data_repo_routes(), nested under /repositories.
-    let repo_routes = [
-        ("GET", format!("{ws}/repositories")),
-        ("POST", format!("{ws}/repositories")),
-        ("DELETE", format!("{ws}/repositories/my-repo")),
-        ("POST", format!("{ws}/repositories/my-repo/checkout")),
-        ("GET", format!("{ws}/repositories/my-repo/diff")),
-        ("POST", format!("{ws}/repositories/my-repo/commit")),
-        ("GET", format!("{ws}/repositories/my-repo/files")),
-        ("POST", format!("{ws}/repositories/github")),
-    ];
-    for (method, path) in &repo_routes {
-        assert_eq!(
-            classify(method, path),
-            RouteRole::IdeOnly,
-            "data-repo route {method} {path} must be IdeOnly (git working copy)"
-        );
-    }
     // `onboarding-readiness` moved out with the rest of the onboarding surface
     // — see `crates/api-tenancy/tests/integration/onboarding_route_roles.rs`.
 }
@@ -1423,18 +1418,15 @@ fn manifest_covers_state_touching_routes() {
         // git/working-copy state reads (workspace_root + detect_git_mode)
         ("GET", format!("{ws}/git-state")),
         ("GET", format!("{ws}/status")),
-        ("GET", format!("{ws}/exported-charts/abc.png")),
         // modeling/airform — dbt projects on disk; ALL methods + the bare
         // list root are IdeOnly (regression for the POST-only-manifest gap).
         ("GET", format!("{ws}/modeling")),
         ("GET", format!("{ws}/modeling/myproj/lineage")),
         ("POST", format!("{ws}/modeling/myproj/run")),
-        // Agentic run/exec surface — ide-pinned for tier 1 (subruns run
-        // in-process where the analytics run drives and touch the FS).
-        ("POST", format!("{ws}/analytics/runs")),
-        ("GET", format!("{ws}/analytics/runs/r1/events")),
-        ("GET", format!("{ws}/agentic-workflows/files")),
-        ("GET", format!("{ws}/agentic-workflows/runs/r1/events")),
+        // The Builder edits the working copy and is driven in the Factory's
+        // memory (a chat and an automation are not: phase 3d).
+        ("POST", format!("{ws}/analytics/builder/runs")),
+        ("POST", format!("{ws}/analytics/builder/runs/r1/answer")),
         // Airway's chunked backfill still drives in the accepting process.
         // (Its `/runs/{id}/events` is NOT here: that stream tails Postgres on
         // a timer because its driver is a worker in another process, so it has
@@ -1451,11 +1443,14 @@ fn manifest_covers_state_touching_routes() {
     }
     // Counter-guard: routes that LOOK similar but are cross-process safe
     // must stay FleetOk, or we needlessly pin the chat data plane to the
-    // ide singleton. (The agentic run/exec surface — /analytics and
-    // /agentic-workflows — is ide-pinned for tier 1; see the `ide_only` set
-    // above. /agentic-airway's start, cancel and stream are queue-driven and
-    // belong on this side.)
+    // ide singleton. (A chat's and an automation's start, cancel and stream
+    // read the compiled revision and the run rows, and /agentic-airway's are
+    // queue-driven: all belong on this side.)
     let fleet_ok = [
+        ("POST", format!("{ws}/analytics/runs")),
+        ("GET", format!("{ws}/analytics/runs/r1/events")),
+        ("GET", format!("{ws}/agentic-workflows/files")),
+        ("GET", format!("{ws}/agentic-workflows/runs/r1/events")),
         ("POST", format!("{ws}/agentic-airway/runs")),
         ("GET", format!("{ws}/agentic-airway/runs/r1/events")),
         ("GET", format!("{ws}/world-model/cameras")),

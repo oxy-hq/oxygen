@@ -16,7 +16,7 @@ pub fn lookup_reference_def() -> ToolDef {
         description: "Load a domain reference card for a given Oxygen YAML file type. \
              Returns the full reference body (rules, file shape, examples) plus any \
              associated verbatim templates. Call this before authoring or modifying \
-             a `.view.yml`, `.topic.yml`, `.app.yml`, or `.agentic.yml` \
+             a `.view.yml`, `.topic.yml`, or `.agentic.yml` \
              file when the relevant card has not already been loaded in this conversation.",
         parameters: json!({
             "type": "object",
@@ -25,12 +25,10 @@ pub fn lookup_reference_def() -> ToolDef {
                     "type": "string",
                     "enum": [
                         "semantic-layer",
-                        "app-builder",
                         "agentic-builder"
                     ],
                     "description": "Which reference card to load. \
                         `semantic-layer` covers .view.yml + .topic.yml; \
-                        `app-builder` covers .app.yml; \
                         `agentic-builder` covers .agentic.yml."
                 }
             },
@@ -101,10 +99,9 @@ mod tests {
         assert!(content.contains("Agentic agent reference"));
         assert!(content.contains("states:"));
 
-        // app-builder is card-only, no templates.
-        let out = execute_lookup_reference(&json!({"card_name": "app-builder"})).unwrap();
-        let content = out["content"].as_str().unwrap();
-        assert!(content.contains("Data app reference"));
+        // Data Apps are retired: there is no card for authoring one.
+        let err = execute_lookup_reference(&json!({"card_name": "app-builder"})).unwrap_err();
+        assert!(matches!(err, ToolError::BadParams(_)));
     }
 
     #[test]

@@ -393,3 +393,71 @@ fn production_mounts_the_three_routes_here() {
         );
     }
 }
+
+/// What the start route answers when the promoted revision has no runnable
+/// automation of that name, and what it does not do.
+///
+/// A misspelt id is a `404` and queues no compile: no compile can fix it, and
+/// a client polling a typo would otherwise mint a revision after each one. A row
+/// the runner cannot parse is a `400 automation_invalid_yaml`, for the same
+/// reason. Both used to read as `503` "retry shortly" with a compile queued.
+#[tokio::test]
+async fn a_permanent_miss_is_not_answered_with_a_retry_and_queues_no_compile() {
+    use entity::{automation_definitions, workspaces};
+    use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
+
+    let f = fixture().await;
+    let revision_id = workspaces::Entity::find_by_id(f.workspace_id)
+        .one(&f.t.db)
+        .await
+        .expect("load workspace")
+        .and_then(|w| w.current_revision_id)
+        .expect("the fixture promotes a revision");
+    automation_definitions::ActiveModel {
+        revision_id: ActiveValue::Set(revision_id),
+        file_path: ActiveValue::Set("procedures/broken.automation.yml".into()),
+        name: ActiveValue::Set("broken".into()),
+        extension: ActiveValue::Set("automation.yml".into()),
+        definition: ActiveValue::Set(json!({ "name": "broken", "tasks": "not a list" })),
+    }
+    .insert(&f.t.db)
+    .await
+    .expect("seed a row the runner cannot parse");
+    let app = replica(&f.t.db);
+    let compiles_queued = || async {
+        let row = f
+            .t
+            .db
+            .query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT count(*)::bigint AS n FROM agentic_task_queue WHERE spec->>'type' = 'compile'"
+                .to_string(),
+            ))
+            .await
+            .expect("count")
+            .expect("a row");
+        row.try_get::<i64>("", "n").expect("n")
+    };
+    let before = compiles_queued().await;
+
+    let post = |id: &str| {
+        Request::post(format!("/projects/{}/procedures/{id}/runs", f.workspace_id))
+            .header("content-type", "application/json")
+            .body(Body::from(json!({ "v": 1 }).to_string()))
+            .unwrap()
+    };
+
+    let (status, body) = send(&app, post("nope")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["code"], "automation_not_found", "{body}");
+
+    let (status, body) = send(&app, post("broken")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "automation_invalid_yaml", "{body}");
+
+    assert_eq!(
+        compiles_queued().await,
+        before,
+        "neither answer queues a compile"
+    );
+}

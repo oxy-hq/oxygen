@@ -8,11 +8,7 @@ import { OnboardingService } from "@/services/api/onboarding";
 import { ThreadService } from "@/services/api/threads";
 import { SecretService } from "@/services/secretService";
 import type { WarehouseConfig } from "@/types/database";
-import {
-  humanizeTopicSlug,
-  predictSecondAppTopic,
-  type useOnboardingOrchestrator
-} from "./orchestrator";
+import type { useOnboardingOrchestrator } from "./orchestrator";
 import type {
   BuildPhase,
   GithubSetupWarehouse,
@@ -522,16 +518,10 @@ export function useOnboardingActions(orchestrator: Orchestrator) {
 
       // Phase labels double as the user-facing thread title for each builder
       // run — keep them short and specific so the thread list reads cleanly.
-      const secondAppTopic = predictSecondAppTopic(selectedTables);
-      const secondAppLabel = secondAppTopic
-        ? `Create ${humanizeTopicSlug(secondAppTopic)} dashboard`
-        : "Create deep-dive dashboard";
       const phaseLabel: Record<BuildPhase, string> = {
         semantic_layer: "Build semantic model",
         config: "Update config.yml",
-        agent: "Create analytics agent",
-        app: "Create starter dashboard",
-        app2: secondAppLabel
+        agent: "Create analytics agent"
       };
 
       const onboardingContext = {

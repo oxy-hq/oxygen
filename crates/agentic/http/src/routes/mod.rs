@@ -80,8 +80,7 @@ pub mod thread;
 pub use airway::{
     airway_backfill_ranges, airway_coverage, airway_resource_cursors, airway_resume,
     backfill_airway, cancel_airway_run, chunked_backfill, create_airway_run,
-    discover_source_tables, list_airway_files, list_runs_for_pipeline, reset_airway_cursors,
-    reset_airway_schema,
+    discover_source_tables, list_runs_for_pipeline, reset_airway_cursors, reset_airway_schema,
 };
 pub use automation::{
     cancel_automation_run, create_automation_run, get_automation_file, get_automation_run,
@@ -89,7 +88,8 @@ pub use automation::{
 };
 pub use notify::request_run_notice;
 pub use run::{
-    RevertFileChangesRequest, UpdateThinkingModeRequest, answer_run, cancel_run, create_run,
-    revert_file_changes, stream_events, update_thinking_mode,
+    RevertFileChangesRequest, UpdateThinkingModeRequest, answer_builder_run, answer_run,
+    cancel_run, create_builder_run, create_run, revert_file_changes, stream_events,
+    update_thinking_mode,
 };
 pub use thread::{get_run_by_thread, list_runs_by_thread};

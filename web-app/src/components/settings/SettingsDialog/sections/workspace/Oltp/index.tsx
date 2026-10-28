@@ -2,6 +2,8 @@ import { Database, ExternalLink } from "lucide-react";
 import type React from "react";
 import { Badge } from "@/components/ui/shadcn/badge";
 import useOltpConnection from "@/hooks/api/oltp/useOltpConnection";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
+import { canUseFactory } from "@/libs/utils/factoryAccess";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import SectionHeader from "../../../components/SectionHeader";
 import SchemaDiagram from "./components/SchemaDiagram";
@@ -41,6 +43,7 @@ const ProjectField: React.FC<{ name: string; url: string | null }> = ({ name, ur
 const Oltp: React.FC = () => {
   const { workspace } = useCurrentWorkspace();
   const { data: connection, isLoading, error } = useOltpConnection(workspace?.id);
+  const showConfigSnippet = !useAppsFirstExperience() || canUseFactory(workspace);
 
   const renderContent = () => {
     if (isLoading) {
@@ -97,12 +100,15 @@ const Oltp: React.FC = () => {
             <code className='font-mono text-xs'>{connection.analyst_role}</code>, which is
             read-only. Writes come only from published app functions and Airway pipelines.
           </p>
-          <div className='rounded-md border bg-muted/40 p-3'>
-            <p className='mb-2 text-muted-foreground text-xs'>Add to config.yml to query it:</p>
-            <pre className='font-mono text-xs'>
-              {"databases:\n  - name: oltp\n    type: postgres_managed"}
-            </pre>
-          </div>
+          {/* Configuring it is the Factory's; apps-first, only a Factory user sees how. */}
+          {showConfigSnippet && (
+            <div className='rounded-md border bg-muted/40 p-3'>
+              <p className='mb-2 text-muted-foreground text-xs'>Add to config.yml to query it:</p>
+              <pre className='font-mono text-xs'>
+                {"databases:\n  - name: oltp\n    type: postgres_managed"}
+              </pre>
+            </div>
+          )}
           {!connection.analyst_ready && (
             <p className='text-destructive text-sm'>
               The read-only credential hasn't been created yet, so{" "}

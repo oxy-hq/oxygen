@@ -1,6 +1,5 @@
 //! Automation-related executor methods + the automation decision runner.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use agentic_core::delegation::{TaskOutcome, TaskSpec};
@@ -272,31 +271,8 @@ impl PipelineTaskExecutor {
             None
         };
 
-        // Workspace path is needed by `decide()` for the file-presence
-        // cache check (`TaskConfig.cache.path`). The workspace
-        // doesn't change across decision passes within a run, so we
-        // clone the path once here rather than threading it through
-        // `AutomationRunState`.
         let workspace: std::sync::Arc<dyn agentic_automation::WorkspaceContext> =
             self.platform.clone();
-        // `decide` takes `Option<&Path>` and skips the file-cache probe when it
-        // is `None` (`step_decider::probe_file_cache`), so a node with no files
-        // degrades to "cache miss" instead of resolving against a directory
-        // that is not there.
-        //
-        // The `.filter(|p| p.is_dir())` is what makes that sentence true. It
-        // used to say "a node with no files" while testing only whether the
-        // manager DECLARED a working copy — which it does on every node,
-        // replica included. So a worker took the `Some` branch and probed a
-        // directory that is not there. Benign here (a probe against a missing
-        // root simply misses, which is the same answer), but the premise was
-        // false, and the identical wrong premise one layer over is what took a
-        // pipeline down in #3056. Enforced by
-        // `crates/app/tests/platform/workspace_path_needs_is_dir.rs`.
-        let workspace_path: Option<std::path::PathBuf> = workspace
-            .workspace_path()
-            .filter(|p| p.is_dir())
-            .map(|p| p.to_path_buf());
         // An airway step inside this automation queues the same
         // `TaskSpec::Airway` a schedule does, so it must be admitted under the
         // same `airway_source_config` policy. The domain crate has neither a
@@ -312,12 +288,7 @@ impl PipelineTaskExecutor {
         let decider = agentic_automation::AutomationDecider::new(None)
             .with_airway_admission_resolver(admission_resolver);
         let (new_state, decision) = decider
-            .decide(
-                state,
-                pending_child_answer,
-                prior_state_owned.as_ref(),
-                workspace_path.as_deref(),
-            )
+            .decide(state, pending_child_answer, prior_state_owned.as_ref())
             .await;
 
         // Compute the new step result(s) added this decision and pack them
@@ -356,25 +327,6 @@ impl PipelineTaskExecutor {
         let mut events = vec![decider_decided_event(&decision)];
         events.extend(decision_events(&decision).iter().cloned());
 
-        // Build the export + cache-write plan from the delta + automation
-        // config *before* `new_state` moves into `commit_decision`. Run
-        // the writes only after the commit succeeds — that way a
-        // version-conflict rollback can't leave half-written files for
-        // a step the runtime doesn't actually consider committed.
-        //
-        // Steps that came from a file-cache hit (`subrun_step_cache_hit`
-        // with `source: "file"`) are excluded from the cache-write pass
-        // so we don't clobber the file the user may have just edited;
-        // those rows still go through `export:` if it's configured
-        // separately.
-        let file_cache_hit_steps = collect_file_cache_hit_steps(&events);
-        let failed_steps = collect_failed_steps(&events);
-        let export_plan = build_export_plan(
-            &new_state,
-            &result_delta,
-            &file_cache_hit_steps,
-            &failed_steps,
-        );
         let terminal = decision_terminal(&decision);
 
         // AutomationDecision tasks use their run_id as their queue task_id.
@@ -429,196 +381,7 @@ impl PipelineTaskExecutor {
             agentic_automation::extension::CommitOutcome::Committed => {}
         }
 
-        // After commit succeeds, run the export plan. Walking the delta
-        // covers every task type uniformly: inline (formatter /
-        // conditional), delegated automation steps (execute_sql /
-        // semantic_query / …), agent tasks, and sub-automations — they
-        // all surface as a new key in `state.results` either inline
-        // within this decide call or via the fold path after a child
-        // completion.
-        //
-        // Export failures are logged but do NOT fail the decision —
-        // the step already succeeded and committed. A missing file is
-        // an ops issue, not a task-correctness issue. The legacy
-        // behavior of "fail the step on export failure" only applied
-        // to inline tasks (run_automation_step used to do the write);
-        // agent / sub-automation steps would have failed silently anyway
-        // because they never hit that path.
-        run_export_plan(self.platform.clone(), run_id, export_plan).await;
-
         run_decision_task(decision)
-    }
-}
-
-/// One step's pre-resolved post-commit write work. Either or both of
-/// `export` / `cache` may be set; the runner handles each
-/// independently. Cloned out of `new_state` so the commit can move
-/// that struct without preventing the post-commit pass.
-struct StepWriteEntry {
-    step_name: String,
-    /// `export: { path, format }` — separate from cache; writes
-    /// regardless of how the step ran.
-    export: Option<agentic_automation::config::TaskExport>,
-    /// `cache: { enabled, path }` — only set when the step actually
-    /// ran (cache-hit steps are skipped here to preserve the file the
-    /// user may have edited).
-    cache: Option<agentic_automation::config::CacheConfig>,
-    result: serde_json::Value,
-}
-
-/// Scan the about-to-commit events for `subrun_step_cache_hit
-/// { source: "file" }` markers — these identify steps whose result
-/// came from the file-presence cache, which the post-commit cache-write
-/// pass must skip to avoid clobbering the file (the whole point is
-/// that the user may have edited it).
-fn collect_file_cache_hit_steps(events: &[(String, serde_json::Value)]) -> HashSet<String> {
-    let mut hits = HashSet::new();
-    for (event_type, payload) in events {
-        if event_type != "subrun_step_cache_hit" {
-            continue;
-        }
-        let is_file = payload
-            .get("source")
-            .and_then(|v| v.as_str())
-            .map(|s| s == "file")
-            .unwrap_or(false);
-        if !is_file {
-            continue;
-        }
-        if let Some(step) = payload.get("step").and_then(|v| v.as_str()) {
-            hits.insert(step.to_string());
-        }
-    }
-    hits
-}
-
-/// Scan the about-to-commit events for `subrun_step_completed
-/// { success: false }` — failed steps must be excluded from the
-/// post-commit export / cache-write pass.
-///
-/// Without this, the fold path inserts the failure answer (the error
-/// string) into `state.results`, the result_delta picks it up, and
-/// `write_cache` writes the error to `cache.path`. The next run then
-/// sees a file at the cache path, short-circuits the agent step
-/// with the error string as its result, and downstream steps fail.
-/// Drop them from the plan instead.
-fn collect_failed_steps(events: &[(String, serde_json::Value)]) -> HashSet<String> {
-    let mut failed = HashSet::new();
-    for (event_type, payload) in events {
-        if event_type != "subrun_step_completed" {
-            continue;
-        }
-        let success = payload
-            .get("success")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-        if success {
-            continue;
-        }
-        if let Some(step) = payload.get("step").and_then(|v| v.as_str()) {
-            failed.insert(step.to_string());
-        }
-    }
-    failed
-}
-
-/// Cross-reference `result_delta` with the automation's task list to
-/// figure out which newly-finalised steps need an `export:` write or a
-/// `cache:` write (or both).
-///
-/// - Steps in `file_cache_hits` skip the cache-write side because their
-///   result came from the file itself — re-writing would clobber any
-///   user edits.
-/// - Steps in `failed_steps` are excluded entirely — the fold path
-///   inserts the failure answer (an error string) into `state.results`
-///   so it lands in `result_delta`, but persisting that to `cache.path`
-///   or an `export:` target would silently poison the artifact and
-///   break the next run.
-fn build_export_plan(
-    state: &agentic_automation::extension::AutomationRunState,
-    result_delta: &serde_json::Value,
-    file_cache_hits: &HashSet<String>,
-    failed_steps: &HashSet<String>,
-) -> (Vec<StepWriteEntry>, serde_json::Value) {
-    let mut plan = Vec::new();
-    let render_context = state.render_context.clone();
-    let Some(delta) = result_delta.as_object() else {
-        return (plan, render_context);
-    };
-    for (step_name, result) in delta {
-        if failed_steps.contains(step_name) {
-            continue;
-        }
-        let Some(task) = state.workflow.tasks.iter().find(|t| &t.name == step_name) else {
-            continue;
-        };
-        let cache = task
-            .cache
-            .as_ref()
-            .filter(|c| c.enabled && !file_cache_hits.contains(step_name))
-            .cloned();
-        let export = task.export.clone();
-        if cache.is_none() && export.is_none() {
-            continue;
-        }
-        plan.push(StepWriteEntry {
-            step_name: step_name.clone(),
-            export,
-            cache,
-            result: result.clone(),
-        });
-    }
-    (plan, render_context)
-}
-
-/// Execute a previously-built export/cache plan. Logs on failure;
-/// never returns an error — the caller has already committed the
-/// decision.
-async fn run_export_plan(
-    platform: std::sync::Arc<dyn crate::platform::PlatformContext>,
-    run_id: &str,
-    plan: (Vec<StepWriteEntry>, serde_json::Value),
-) {
-    let (entries, render_context) = plan;
-    if entries.is_empty() {
-        return;
-    }
-    let workspace: std::sync::Arc<dyn agentic_automation::WorkspaceContext> = platform;
-    for entry in entries {
-        if let Some(export) = &entry.export
-            && let Err(e) = agentic_automation::export::write_export(
-                workspace.as_ref(),
-                &entry.step_name,
-                export,
-                &entry.result,
-                &render_context,
-            )
-            .await
-        {
-            tracing::warn!(
-                run_id,
-                step = %entry.step_name,
-                error = %e,
-                "step export failed (post-commit; step still succeeded)"
-            );
-        }
-        if let Some(cache) = &entry.cache
-            && let Err(e) = agentic_automation::export::write_cache(
-                workspace.as_ref(),
-                &entry.step_name,
-                cache,
-                &entry.result,
-                &render_context,
-            )
-            .await
-        {
-            tracing::warn!(
-                run_id,
-                step = %entry.step_name,
-                error = %e,
-                "step cache-write failed (post-commit; step still succeeded)"
-            );
-        }
     }
 }
 

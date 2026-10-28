@@ -121,7 +121,7 @@ fn parse_checkpoint(run_id: &str, resume_data: Value) -> Option<SuspendedRunData
 }
 
 pub async fn get_suspension(
-    db: &DatabaseConnection,
+    db: &impl sea_orm::ConnectionTrait,
     run_id: &str,
 ) -> Result<Option<SuspendedRunData>, DbErr> {
     let row = run_suspension::Entity::find_by_id(run_id.to_string())

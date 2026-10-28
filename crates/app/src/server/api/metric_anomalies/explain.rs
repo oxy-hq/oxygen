@@ -2,6 +2,13 @@
 //! recursive driver search and writes the result onto the row; every later call
 //! returns it, which is why the cache lives on the anomaly rather than in a
 //! request-keyed store.
+//!
+//! Served by any pod. The semantic model comes through `resolve_scan` (the
+//! compile boundary, or the working copy on a node that holds one) exactly as
+//! the dry run (`preview`) and the metric tree's own explain read it, the
+//! anomaly is a Postgres row, and the queries go to the warehouse. It used to
+//! ask for the working copy and hand the runner no scan, so the runner read
+//! the semantic model off the workspace directory — which only the Factory has.
 
 use agentic_http::AgenticState;
 use axum::extract::{Extension, Json, Path, Query};
@@ -17,8 +24,9 @@ use uuid::Uuid;
 
 use super::error::AnomalyError;
 use crate::agentic_wiring::OxyMetricTreeRunner;
+use crate::server::api::metric_tree::resolve_scan;
 use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerWorkingCopy,
+    EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly,
 };
 
 #[derive(Debug, Deserialize, Default)]
@@ -36,7 +44,7 @@ pub struct ExplainAnomalyQuery {
 /// survives page refreshes without re-running the 20-30s recursive search.
 /// `?refresh=true` busts the cache for the rescan affordance in the UI.
 pub async fn explain_anomaly(
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
+    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     Extension(state): Extension<Arc<AgenticState>>,
@@ -88,7 +96,12 @@ pub async fn explain_anomaly(
     // attribute the drop it invented to whichever driver lags with it.
     let renewal_threshold_secs =
         preagg_ctx.renewal_threshold_secs_or(&workspace_manager.config_manager);
-    let runner = OxyMetricTreeRunner::new(workspace_manager.into_read_only(), user.id, role)
+    // `source` owns the materialised semantic model; it has to outlive the run.
+    let source = resolve_scan(&workspace_manager)
+        .await
+        .map_err(|_| AnomalyError::Unavailable("the semantic model is not readable yet".into()))?;
+    let runner = OxyMetricTreeRunner::new(workspace_manager, user.id, role)
+        .with_scan(source.scan.clone())
         .with_preagg(preagg_ctx.cache.clone(), renewal_threshold_secs)
         .requiring_fresh_rollups();
     let mut config = oxy_airlayer_compat::engine::metric_tree_ops::ExplainConfig::default();

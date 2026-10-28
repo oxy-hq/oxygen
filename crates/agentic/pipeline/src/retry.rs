@@ -19,7 +19,7 @@ use sea_orm::{DatabaseConnection, DbErr};
 use agentic_runtime::crud::{TaskScope, get_run_in_workspace};
 use agentic_runtime::entity::run;
 
-use crate::airway_run::{StartAirwayRequest, start_airway_run};
+use crate::airway_run::StartAirwayRequest;
 use crate::automation_run::{StartAutomationRequest, start_automation_run};
 
 #[derive(Debug)]
@@ -38,6 +38,12 @@ pub enum RetryError {
     /// present as a 500, and the cross-replica-cancel path makes that the
     /// COMMON outcome, so it would page.
     Conflict(String),
+    /// This node could not resolve the airway pipeline the retry re-seeds —
+    /// the compile boundary could not be asked, or the promoted revision does
+    /// not serve the ref and this node has no working copy. Retryable: the
+    /// caller answers it as `POST /agentic-airway/runs` does (`503`), not as a
+    /// server fault.
+    AirwayNotServable(crate::airway_run::AirwayRunError),
     Db(DbErr),
 }
 
@@ -49,6 +55,7 @@ impl std::fmt::Display for RetryError {
             RetryError::SeedFailed(m) => write!(f, "seed failed: {m}"),
             // No "failed:" prefix — this is a refusal, not a failure.
             RetryError::Conflict(m) => write!(f, "{m}"),
+            RetryError::AirwayNotServable(e) => write!(f, "{e}"),
             RetryError::Db(e) => write!(f, "db error: {e}"),
         }
     }
@@ -336,7 +343,47 @@ async fn retry_airway(
         backfill_from: None,
         backfill_to: None,
     };
-    start_airway_run(db, workspace, req, TaskScope::Global, original.workspace_id)
+    // Seeded as an interactive submit is: `Global`, and a ref the promoted
+    // revision lacks asks for a compile. Both "not servable here" answers stay
+    // their own error, so the route answers them as the start route does.
+    crate::airway_request::submit_airway_run(db, workspace, req, original.workspace_id)
         .await
-        .map_err(|e| RetryError::SeedFailed(e.to_string()))
+        .map_err(airway_seed_error)
+}
+
+/// A failed airway re-seed, as a retry reports it: "not servable here" stays
+/// its own error (the route answers it `503`), everything else is a failed
+/// seed.
+fn airway_seed_error(e: crate::airway_run::AirwayRunError) -> RetryError {
+    match e {
+        e @ (crate::airway_run::AirwayRunError::Unavailable(_)
+        | crate::airway_run::AirwayRunError::NotInRevision(_)) => RetryError::AirwayNotServable(e),
+        e => RetryError::SeedFailed(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod airway_seed_error_tests {
+    use super::*;
+    use crate::airway_run::AirwayRunError;
+
+    /// The two "this node cannot serve the ref" errors keep their kind, so the
+    /// route can answer them as the start route does; a real seed failure does
+    /// not hide among them.
+    #[test]
+    fn not_servable_stays_apart_from_a_failed_seed() {
+        for e in [
+            AirwayRunError::Unavailable("db blip".into()),
+            AirwayRunError::NotInRevision("not compiled".into()),
+        ] {
+            assert!(
+                matches!(airway_seed_error(e), RetryError::AirwayNotServable(_)),
+                "kept apart"
+            );
+        }
+        assert!(matches!(
+            airway_seed_error(AirwayRunError::InvalidInput("bad".into())),
+            RetryError::SeedFailed(m) if m.contains("bad")
+        ));
+    }
 }

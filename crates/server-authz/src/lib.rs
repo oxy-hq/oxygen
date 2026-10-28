@@ -20,6 +20,7 @@ pub use oxy_authz::*;
 
 pub mod assume_liveness;
 pub mod caller;
+pub mod factory;
 pub mod globals;
 mod grant_memo;
 pub mod loader;
@@ -119,6 +120,54 @@ pub async fn enforce_for(
         Some(facts) => enforce(label, &facts, action, &resource, existing_allow),
         None => existing_allow && !caller.reach().is_some_and(TokenReach::narrows),
     }
+}
+
+/// Of `orgs` — each paired with the caller's effective role there — the ones where the
+/// caller may create a workspace: the same two halves `OrgWorkspaceProvisioner` asks.
+/// An org Owner or Admin, **and** Oxy staff whose grant carries `OperatePlatform` over
+/// that org (`Action::WorkspaceProvision`).
+///
+/// This is what `OrgResponse::may_provision_workspace` reports, so the web app shows the
+/// "New workspace" control to exactly the people the server would admit. It exists
+/// because `is_owner || is_app_admin` is true for every platform role: it cannot tell a
+/// Global Admin from an App Operator, nor a grant scoped to other orgs from one that
+/// reaches this org.
+///
+/// **UX only.** The guard re-decides on every call. Unknown facts answer "no" here,
+/// the opposite of [`enforce_guard`]'s fallback: a hidden button is the safe direction
+/// for a display field.
+pub async fn workspace_provision_orgs(
+    db: &sea_orm::DatabaseConnection,
+    caller: &Caller,
+    orgs: &[(Uuid, entity::org_members::OrgRole)],
+) -> std::collections::HashSet<Uuid> {
+    let officer_orgs: Vec<Uuid> = orgs
+        .iter()
+        .filter(|(_, role)| role_is_officer(role))
+        .map(|(id, _)| *id)
+        .collect();
+    // The common case, a customer's own admin, is decided without loading any facts.
+    if officer_orgs.is_empty() || !globals::platform_standing(db, caller).await.is_staff() {
+        return Default::default();
+    }
+    match loader::load_principal_facts(db, caller).await {
+        Some(facts) => provisionable(&facts, &officer_orgs),
+        None => Default::default(),
+    }
+}
+
+fn role_is_officer(role: &entity::org_members::OrgRole) -> bool {
+    use entity::org_members::OrgRole;
+    matches!(role, OrgRole::Owner | OrgRole::Admin)
+}
+
+/// The staff half of [`workspace_provision_orgs`], over facts already loaded.
+fn provisionable(facts: &PrincipalFacts, org_ids: &[Uuid]) -> std::collections::HashSet<Uuid> {
+    org_ids
+        .iter()
+        .copied()
+        .filter(|id| allows(facts, Action::WorkspaceProvision, &Resource::org(*id)))
+        .collect()
 }
 
 /// Translate the partner tier's capability enum into the authz vocabulary.

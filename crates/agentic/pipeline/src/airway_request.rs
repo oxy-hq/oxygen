@@ -21,9 +21,12 @@
 //! `oxy-app`'s `request_compile` refuses within a window of a successful
 //! compile and then answers `false`, so the message below is not appended.
 //!
-//! On a node that holds a working copy none of this is reachable:
-//! `NotInRevision` is only ever produced with no working copy to read, so the
-//! IDE, a single-process deployment and the CLI behave exactly as before.
+//! A node that holds a working copy gets the same answer when its host is pinned
+//! to a promoted revision: the working copy is not read for a ref the revision
+//! lacks (`internal-docs/factory-retirement.md`, Phase 4), and the compile this
+//! module requests is what makes the ref resolvable. A host with no pinned
+//! revision (the CLI, a single-process deployment, a draft branch in the IDE)
+//! still reads its directory and never comes through here.
 
 use agentic_automation::WorkspaceContext;
 use sea_orm::DatabaseConnection;
@@ -66,7 +69,8 @@ pub async fn load_pipeline_yaml_for_request(
 ///
 /// Enqueues `TaskScope::Global` — the worker fleet drives the run, never the
 /// node that accepted the submit — and asks for a compile when the promoted
-/// revision does not serve the ref. Schedules, retries and Oxy Functions keep
+/// revision does not serve the ref. A coordinator retry of a reaped run comes
+/// through here too — a person asked for it. Schedules and Oxy Functions keep
 /// calling `start_airway_run` directly, for the reason in the module doc.
 pub async fn submit_airway_run(
     db: &DatabaseConnection,

@@ -10,6 +10,7 @@
  */
 
 import { useMemo } from "react";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 
 import type { AutomationEvent, SubrunStepInfo } from "@/services/api/automations";
 import type { LogItem } from "@/services/types/logs";
@@ -46,7 +47,9 @@ const STATUS_LABEL: Record<StepRow["status"], string> = {
  * output, so the memo only re-runs when `events` changes.
  */
 export function useLogItems(events: AutomationEvent[]): LogItem[] {
-  return useMemo(() => buildLogItems(events), [events]);
+  // Apps-first: a run log a customer reads names no file.
+  const hidePaths = useAppsFirstExperience();
+  return useMemo(() => buildLogItems(events, { hidePaths }), [events, hidePaths]);
 }
 
 /**
@@ -54,7 +57,10 @@ export function useLogItems(events: AutomationEvent[]): LogItem[] {
  * chat-thread automation runner, which keeps events in a closure and writes
  * the tree into a zustand store on each SSE message).
  */
-export function buildLogItems(events: AutomationEvent[]): LogItem[] {
+export function buildLogItems(
+  events: AutomationEvent[],
+  { hidePaths = false }: { hidePaths?: boolean } = {}
+): LogItem[] {
   const stepsByName = new Map<string, StepRow>();
   const order: string[] = [];
 
@@ -103,7 +109,7 @@ export function buildLogItems(events: AutomationEvent[]): LogItem[] {
         // debug a step-hash cascade. Branch the message so neither
         // case shows `undefined`.
         const content =
-          event.payload.source === "file" && event.payload.path
+          event.payload.source === "file" && event.payload.path && !hidePaths
             ? `Reused from cached file \`${event.payload.path}\``
             : event.payload.prior_run_id
               ? `Reused from prior run \`${event.payload.prior_run_id}\``

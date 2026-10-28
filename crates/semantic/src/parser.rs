@@ -141,6 +141,40 @@ impl SemanticLayerParser {
             }
         }
 
+        self.assemble(views, topics, parsed_files)
+    }
+
+    /// Parses a model whose files are already in memory: `(path, YAML text)`
+    /// pairs, the path naming the file in errors and in `parsed_files`.
+    ///
+    /// Same validation and variable collection as [`Self::parse`], which reads
+    /// the same shape from a directory.
+    pub fn parse_sources(
+        &self,
+        views: &[(PathBuf, String)],
+        topics: &[(PathBuf, String)],
+    ) -> Result<ParseResult, SemanticLayerError> {
+        let mut parsed_views = Vec::with_capacity(views.len());
+        let mut parsed_topics = Vec::with_capacity(topics.len());
+        let mut parsed_files = Vec::with_capacity(views.len() + topics.len());
+        for (path, content) in views {
+            parsed_views.push(self.parse_view_str(content, path)?);
+            parsed_files.push(path.clone());
+        }
+        for (path, content) in topics {
+            parsed_topics.push(self.parse_topic_str(content, path)?);
+            parsed_files.push(path.clone());
+        }
+        self.assemble(parsed_views, parsed_topics, parsed_files)
+    }
+
+    /// Validate parsed views and topics and collect the variables they use.
+    fn assemble(
+        &self,
+        views: Vec<View>,
+        topics: Vec<Topic>,
+        parsed_files: Vec<PathBuf>,
+    ) -> Result<ParseResult, SemanticLayerError> {
         if views.is_empty() && self.config.validate {
             return Err(SemanticLayerError::IOError(format!(
                 "At least one .view.yml file is required; .topic.yml files alone are not \
@@ -228,10 +262,15 @@ impl SemanticLayerParser {
         let content = fs::read_to_string(path).map_err(|e| {
             SemanticLayerError::IOError(format!("Failed to read file {}: {}", path.display(), e))
         })?;
+        self.parse_view_str(&content, path)
+    }
 
-        reject_legacy_globals(&content, path)?;
+    /// Parses one view from YAML text already in memory. `path` is only used to
+    /// name the file in error messages; nothing is read from it.
+    pub fn parse_view_str(&self, content: &str, path: &Path) -> Result<View, SemanticLayerError> {
+        reject_legacy_globals(content, path)?;
 
-        let mut yaml_value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| {
+        let mut yaml_value: serde_yaml::Value = serde_yaml::from_str(content).map_err(|e| {
             let location_info = if let Some(location) = e.location() {
                 format!(" at line {}, column {}", location.line(), location.column())
             } else {
@@ -270,11 +309,16 @@ impl SemanticLayerParser {
         let content = fs::read_to_string(path).map_err(|e| {
             SemanticLayerError::IOError(format!("Failed to read file {}: {}", path.display(), e))
         })?;
+        self.parse_topic_str(&content, path)
+    }
 
-        reject_legacy_globals(&content, path)?;
+    /// Parses one topic from YAML text already in memory. See
+    /// [`Self::parse_view_str`].
+    pub fn parse_topic_str(&self, content: &str, path: &Path) -> Result<Topic, SemanticLayerError> {
+        reject_legacy_globals(content, path)?;
 
         // First parse as generic YAML value
-        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&content).map_err(|e| {
+        let yaml_value: serde_yaml::Value = serde_yaml::from_str(content).map_err(|e| {
             let location_info = if let Some(location) = e.location() {
                 format!(" at line {}, column {}", location.line(), location.column())
             } else {
@@ -557,6 +601,93 @@ dimensions:
 "#,
             name = name
         )
+    }
+
+    mod in_memory_tests {
+        use super::*;
+
+        fn parser() -> SemanticLayerParser {
+            SemanticLayerParser::new(ParserConfig::new("semantics"))
+        }
+
+        /// A model whose files are text already in memory parses to the same
+        /// layer the directory walk builds from the same documents, and a
+        /// document that does not parse names the file it came from.
+        #[test]
+        fn parse_sources_matches_parsing_the_same_files_from_a_directory() {
+            let dir = create_test_fixture();
+            std::fs::write(
+                dir.path().join("orders.view.yml"),
+                minimal_view_yaml("orders"),
+            )
+            .unwrap();
+            std::fs::write(
+                dir.path().join("items.view.yml"),
+                minimal_view_yaml("items"),
+            )
+            .unwrap();
+            let from_dir = parse_semantic_layer_from_dir(dir.path()).unwrap();
+
+            // The directory walk's order is the file system's; sort both.
+            let mut from_dir_names: Vec<String> = from_dir
+                .semantic_layer
+                .views
+                .iter()
+                .map(|v| v.name.clone())
+                .collect();
+            from_dir_names.sort();
+
+            let views = vec![
+                (
+                    PathBuf::from("views/orders.view.yml"),
+                    minimal_view_yaml("orders"),
+                ),
+                (
+                    PathBuf::from("views/items.view.yml"),
+                    minimal_view_yaml("items"),
+                ),
+            ];
+            let from_text = parser().parse_sources(&views, &[]).unwrap();
+            let mut from_text_names: Vec<String> = from_text
+                .semantic_layer
+                .views
+                .iter()
+                .map(|v| v.name.clone())
+                .collect();
+            from_text_names.sort();
+
+            assert_eq!(from_text_names, from_dir_names);
+            assert_eq!(from_text.parsed_files.len(), 2);
+            assert_eq!(from_text.variables_found, from_dir.variables_found);
+            assert!(from_text.validation.is_some(), "validation still runs");
+        }
+
+        #[test]
+        fn a_source_that_does_not_parse_names_its_path() {
+            let views = vec![(
+                PathBuf::from("views/bad.view.yml"),
+                "name: [unclosed".to_string(),
+            )];
+            let err = parser().parse_sources(&views, &[]).unwrap_err().to_string();
+            assert!(err.contains("views/bad.view.yml"), "{err}");
+        }
+
+        #[test]
+        fn a_model_with_no_views_is_refused_when_validating() {
+            let err = parser().parse_sources(&[], &[]).unwrap_err().to_string();
+            assert!(err.contains("At least one .view.yml"), "{err}");
+        }
+
+        #[test]
+        fn parse_view_str_reads_no_file() {
+            let view = parser()
+                .parse_view_str(
+                    &minimal_view_yaml("orders"),
+                    Path::new("/does/not/exist.view.yml"),
+                )
+                .unwrap();
+            assert_eq!(view.name, "orders");
+        }
     }
 
     mod parser_config_tests {

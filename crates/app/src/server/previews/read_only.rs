@@ -97,8 +97,6 @@ pub const ALLOWED: &[(&str, &str)] = &[
     ("POST", "/world-model/foot-traffic/radar"),
     ("POST", "/world-model/weather/current"),
     ("POST", "/world-model/llm/messages"),
-    ("POST", "/integrations/looker/query"),
-    ("POST", "/integrations/looker/query/sql"),
     ("POST", "/integrations/unifi/preview"),
     // Opening a live camera view.
     ("POST", "/cameras/{cam_id}/preview/webrtc/session"),
@@ -197,10 +195,14 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
     ("*", "/files/{*rest}", "Editing files"),
     (
         "*",
+        "/analytics/builder/{*rest}",
+        "Building with the Builder Agent",
+    ),
+    (
+        "*",
         "/analytics/runs/{id}/revert-file-changes",
         "Reverting the Builder Agent's changes",
     ),
-    ("*", "/apps/save-from-run/{run_id}", "Saving a data app"),
     ("*", "/apps/{pathb64}/publish", "Publishing a data app"),
     ("*", "/apps/{pathb64}/unpublish", "Unpublishing a data app"),
     ("*", "/app-integrations", "Changing an app integration"),
@@ -223,8 +225,6 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
     ("*", "/unresolve-conflict-file", GIT),
     ("*", "/switch-branch", GIT),
     ("*", "/branches/{branch_name}", GIT),
-    ("*", "/repositories", "Changing data repositories"),
-    ("*", "/repositories/{*rest}", "Changing data repositories"),
     // Configuration and access.
     ("*", "/databases", "Adding a database"),
     ("*", "/databases/sync", "Syncing a database"),

@@ -52,6 +52,7 @@
 //! `oxy-app` and the future TaskSpec wrapper lives in
 //! `agentic-pipeline`.
 
+mod automation_check;
 pub mod blob_store;
 pub mod compile;
 pub mod context_documents;
@@ -78,7 +79,7 @@ pub use outcome::{CompileOutcome, FailureKind, FileFailure, Promotion, RevisionS
 // `oxy-compile` deliberately does not depend on `oxy-oltp`. This is the door
 // the applier comes back through.
 pub use workspace_path::resolve_workspace_path;
-pub use writer::promote_existing;
+pub use writer::{SUPERSEDED_BY_NEWER_COMPILER, compiler_is_older, promote_existing};
 
 /// Identifier the compile worker stamps on every `revisions` row so
 /// operator dashboards can spot version-skew across a rolling deploy.

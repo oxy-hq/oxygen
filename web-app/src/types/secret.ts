@@ -58,21 +58,3 @@ export interface SecretEditFormData {
   value?: string;
   description?: string;
 }
-
-/** Where a secret's value is currently set */
-type SecretSource = "dot_env" | "environment" | "not_set";
-
-/** A secret environment variable known to Oxy */
-export interface EnvSecret {
-  /** The environment variable name, e.g. "SLACK_BOT_TOKEN" */
-  env_var: string;
-  /** Where Oxy references this variable (config path or built-in label).
-   *  null if the variable appears only in .env and is not referenced by config. */
-  referenced_by: string | null;
-  /** Where the secret value is currently set */
-  source: SecretSource;
-  /** Whether the env var is currently set to a non-empty value */
-  is_set: boolean;
-  /** Masked value of the env var if set, e.g. "sk-a****bcde" */
-  masked_value?: string;
-}

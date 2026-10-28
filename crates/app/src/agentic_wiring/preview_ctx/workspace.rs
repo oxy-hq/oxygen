@@ -309,10 +309,6 @@ impl WorkspaceContext for PreviewPlatformContext {
         None
     }
 
-    async fn list_airway_files(&self) -> Result<Vec<PathBuf>, String> {
-        self.pinned(self.inner.list_airway_files()).await
-    }
-
     async fn resolve_pipeline_yaml(&self, pipeline_ref: &str) -> Result<Option<String>, String> {
         let name = self.own_name(pipeline_ref)?;
         self.pinned(self.inner.resolve_pipeline_yaml(name)).await

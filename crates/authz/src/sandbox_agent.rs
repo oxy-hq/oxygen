@@ -157,6 +157,8 @@ pub(crate) fn covers(reach: &SandboxAgentReach, action: Action, resource: &Resou
         | Action::NamespaceDelete
         | Action::WorkspaceOxyAccess
         | Action::WorkspacePreview
+        | Action::WorkspaceProvision
+        | Action::FactoryUse
         | Action::PartnerManageMembers
         | Action::PartnerManageApps
         | Action::PartnerDevelopApps

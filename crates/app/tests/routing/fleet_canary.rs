@@ -221,6 +221,8 @@ async fn the_meta_route_reads_no_filesystem_on_a_replica() {
         ),
         axum::extract::Extension(row),
         axum::extract::Path(workspace_id),
+        // What the extractor answers with the Factory switch off: everyone.
+        oxy_app::server::factory_access::FactoryAccess(true),
     )
     .await
     .expect("meta needs no working copy, so it cannot fail for want of one");

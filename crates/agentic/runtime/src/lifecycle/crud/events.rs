@@ -21,7 +21,7 @@ pub struct EventRow {
 }
 
 pub async fn insert_event(
-    db: &DatabaseConnection,
+    db: &impl sea_orm::ConnectionTrait,
     run_id: &str,
     seq: i64,
     event_type: &str,
@@ -188,7 +188,7 @@ pub async fn delete_events_from_seq(
     Ok(result.rows_affected)
 }
 
-pub async fn get_max_seq(db: &DatabaseConnection, run_id: &str) -> Result<i64, DbErr> {
+pub async fn get_max_seq(db: &impl sea_orm::ConnectionTrait, run_id: &str) -> Result<i64, DbErr> {
     let last = run_event::Entity::find()
         .filter(run_event::Column::RunId.eq(run_id))
         .order_by_desc(run_event::Column::Seq)

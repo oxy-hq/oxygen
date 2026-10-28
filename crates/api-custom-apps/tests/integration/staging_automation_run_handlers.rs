@@ -20,18 +20,20 @@ use entity::customer_app_procedure_runs as proc_run;
 use entity::users::UserStatus;
 use oxy_api_custom_apps::custom_apps_staging_held::{HeldEntry, HeldQuery, list_held};
 use oxy_app::surface::testing::agentic_wiring::OxyThreadOwnerLookup;
+use oxy_app::surface::testing::compile_config_gate::runtime_config_gate;
 use oxy_app::surface::testing::projects::automation_run::start_automation_run;
 use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::ServeMode;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
+use oxy_compile::{CompileRequest, Promotion, RevisionKind, compile_workspace, compiler_version};
 use sea_orm::{EntityTrait, PaginatorTrait};
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::common::demo_workspace_id;
+use crate::common::{demo_workspace_id, examples_path};
 use crate::custom_app_functions_fixture::{Tenant, publish_build, seeded_tenant};
 use crate::staging_functions::{held_rows, make_guest_staff, production_host, staging_host};
 
@@ -64,6 +66,43 @@ fn on_host(host: &str) -> HeaderMap {
     let mut h = HeaderMap::new();
     h.insert("host", HeaderValue::from_str(host).unwrap());
     h
+}
+
+/// Compile and promote the one automation these tests start, under the demo
+/// workspace's id. The start handler answers from the promoted revision and
+/// nothing else. Compiling all of `examples/` would be deferred on its
+/// `schemas/*.sql` migrations, which need an OLTP database this test has not
+/// got, so only the automation and a `config.yml` go in.
+async fn compile_demo_workspace(t: &Tenant) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("config.yml"), "databases: []\nmodels: []\n")
+        .expect("config.yml");
+    std::fs::create_dir_all(dir.path().join("procedures")).expect("mkdir");
+    std::fs::copy(
+        examples_path().join("procedures/anonymize.automation.yml"),
+        dir.path().join("procedures/anonymize.automation.yml"),
+    )
+    .expect("copy the example automation");
+    let outcome = compile_workspace(CompileRequest {
+        db: &t.db,
+        workspace_id: demo_workspace_id(),
+        workspace_path: dir.path(),
+        git_sha: None,
+        branch: None,
+        compiler_version: compiler_version(),
+        promote: true,
+        kind: RevisionKind::Main,
+        owner_user_id: None,
+        config_gate: Some(runtime_config_gate()),
+    })
+    .await
+    .expect("compile the workspace");
+    assert_eq!(
+        outcome.promotion,
+        Promotion::Promoted,
+        "failures: {:?}",
+        outcome.failures
+    );
 }
 
 async fn app(t: &Tenant, slug: &str) -> Uuid {
@@ -146,6 +185,7 @@ async fn production_starts_the_run_unaffected() {
     let t = seeded_tenant().await;
     let slug = "stg-automation-prod";
     app(&t, slug).await;
+    compile_demo_workspace(&t).await;
     let before = run_count(&t).await;
 
     let (status, body) = start(&t, &production_host(&t, slug), AUTOMATION_ID).await;

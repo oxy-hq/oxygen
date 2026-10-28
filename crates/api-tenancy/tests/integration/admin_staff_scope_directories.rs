@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 #[path = "../../../app/tests/platform/admin_staff_scope/fixture.rs"]
 #[allow(dead_code)]
-mod fixture;
+pub(crate) mod fixture;
 use fixture::{Reply, as_actor, reply, world};
 
 fn uri(path: &'static str) -> OriginalUri {

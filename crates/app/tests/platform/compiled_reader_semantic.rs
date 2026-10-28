@@ -4,7 +4,7 @@
 //! `resolve_semantic_view` / `resolve_semantic_topic` must key the compiled row
 //! by its workspace-relative `file_path`, NOT the primary-key `name` (the YAML
 //! `name:` field). Their only callers (the IDE preview via
-//! `materialise_semantic_entity`) pass the file path. Keying by `name` made the
+//! `read_semantic_entity`) pass the file path. Keying by `name` made the
 //! lookup miss for every view/topic whose `name:` differs from its path — i.e.
 //! all of them — so the read fell through to the working-copy filesystem, which
 //! a stateless serve replica doesn't have ("Failed to canonicalize project

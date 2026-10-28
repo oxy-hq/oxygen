@@ -101,7 +101,6 @@ pub(super) trait ConfigStorage {
     async fn load_app_config<P: AsRef<Path>>(&self, app_path: P) -> Result<AppConfig, OxyError>;
     async fn get_charts_dir(&self) -> Result<PathBuf, OxyError>;
     async fn get_results_dir(&self) -> Result<PathBuf, OxyError>;
-    async fn get_exported_chart_dir(&self) -> Result<PathBuf, OxyError>;
     async fn get_app_results_dir(&self) -> Result<PathBuf, OxyError>;
     async fn load_test_config<P: AsRef<Path>>(
         &self,
@@ -712,12 +711,6 @@ impl ConfigStorage for FsStorage {
 
     async fn get_charts_dir(&self) -> Result<PathBuf, OxyError> {
         let charts_dir = self.resolve_state_dir().await?.join("charts");
-        self.try_ensure_dir_exists(&charts_dir)?;
-        Ok(charts_dir)
-    }
-
-    async fn get_exported_chart_dir(&self) -> Result<PathBuf, OxyError> {
-        let charts_dir = self.resolve_state_dir().await?.join("exported-charts");
         self.try_ensure_dir_exists(&charts_dir)?;
         Ok(charts_dir)
     }

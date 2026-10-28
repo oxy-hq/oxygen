@@ -75,6 +75,9 @@ const ROUTES = {
     const base = isLocal ? "" : `/${orgSlug}`;
     return {
       ROOT: isLocal ? "/" : base,
+      /** The org's home: every app the person can open across its workspaces. In
+       *  local mode there is one workspace, so its own home is the org's. */
+      HOME: isLocal ? "/home" : `${base}/home`,
       WORKSPACES: `${base}/workspaces`,
       MEMBERS: `${base}/members`,
       SETTINGS: `${base}/settings`,
@@ -119,9 +122,7 @@ const ROUTES = {
             ROOT: `${wsBase}/ide`,
             FILES: {
               ROOT: `${wsBase}/ide/files`,
-              FILE: (pathb64: string) => `${wsBase}/ide/files/${pathb64}`,
-              LOOKER_EXPLORE: (integrationName: string, model: string, exploreName: string) =>
-                `${wsBase}/ide/files/looker/${encodeURIComponent(integrationName)}/${encodeURIComponent(model)}/${encodeURIComponent(exploreName)}`
+              FILE: (pathb64: string) => `${wsBase}/ide/files/${pathb64}`
             },
             DATABASE: {
               ROOT: `${wsBase}/ide/database`
@@ -181,6 +182,9 @@ const ROUTES = {
           },
 
           CONTEXT_GRAPH: `${wsBase}/context-graph`,
+          /** The read-only world model a customer opens from the home. The Factory's
+           *  own, with its exploration tools, is `IDE.WORLD_MODEL`. */
+          WORLD_MODEL: `${wsBase}/world-model`,
           CUSTOMER_APPS: `${wsBase}/apps`,
           ONBOARDING: `${wsBase}/onboarding`
         };

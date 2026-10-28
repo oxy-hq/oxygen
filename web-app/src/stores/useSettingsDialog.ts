@@ -13,7 +13,6 @@ export type SettingsSection =
   | "organization.integration"
   | "workspace.members"
   | "workspace.databases"
-  | "workspace.repositories"
   | "workspace.previews"
   | "workspace.airhouse"
   | "workspace.oltp"

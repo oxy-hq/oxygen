@@ -1,6 +1,6 @@
 //! Routes that do not require authentication: health probes, auth endpoints,
 //! current-user lookup, and provider-originated webhooks/callbacks (Slack,
-//! Toast, and per-app function webhooks).
+//! Toast, GitHub, and per-app function webhooks).
 //!
 //! "No auth gate" here means no *user session*, not "no caller check". The
 //! webhook receivers authenticate the SENDER instead, by HMAC over the raw
@@ -64,6 +64,10 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
         )
         .route_fleet("/user", get(user::get_current_user_public))
         .route_fleet("/webhooks/stripe", post(billing::webhook::stripe_webhook))
+        // The GitHub App's webhook: a push to a default branch queues a commit
+        // compile. Signature-verified; FleetOk because it only reads Postgres
+        // and queues a task.
+        .route_fleet("/webhooks/github", post(webhooks::github::github_webhook))
         .route_fleet(
             "/webhooks/toast/orders",
             post(webhooks::toast::toast_order_webhook),

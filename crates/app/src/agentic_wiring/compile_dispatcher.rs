@@ -74,6 +74,7 @@ impl CompileDispatcher for OxyCompileDispatcher {
         kind: Option<String>,
         owner_user_id: Option<Uuid>,
         from_git: bool,
+        task_id: &str,
     ) -> Result<ExecutingTask, String> {
         if from_git {
             // A commit compile reads no working copy, so none of the checks
@@ -91,6 +92,7 @@ impl CompileDispatcher for OxyCompileDispatcher {
             )?;
             let spec = compile_worker::CompileSpec {
                 from_git: true,
+                asked_at: compile_worker::asked_at(&self.db, task_id).await,
                 ..spec
             };
             return Ok(compile_worker::CompileWorker::new(self.db.clone()).execute(spec));

@@ -204,8 +204,6 @@ mod tests {
                     variables: None,
                     resolved_tasks: vec![],
                 }),
-                export: None,
-                cache: None,
             }],
         }
     }
@@ -243,12 +241,8 @@ mod tests {
                         variables: None,
                         resolved_tasks: vec![],
                     }),
-                    export: None,
-                    cache: None,
                 }],
             }),
-            export: None,
-            cache: None,
         };
         let mut cfg = AutomationConfig {
             name: "parent".into(),
@@ -337,8 +331,6 @@ mod tests {
                                 variables: None,
                                 resolved_tasks: vec![],
                             }),
-                            export: None,
-                            cache: None,
                         }],
                     }],
                     else_tasks: Some(vec![TaskConfig {
@@ -346,12 +338,8 @@ mod tests {
                         task_type: TaskType::Formatter(FormatterConfig {
                             template: "x".into(),
                         }),
-                        export: None,
-                        cache: None,
                     }]),
                 }),
-                export: None,
-                cache: None,
             }],
         };
         resolve_sub_automations(&mut cfg, &ws).await;

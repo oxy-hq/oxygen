@@ -100,23 +100,6 @@ impl GitClient for CliGitClient {
         branch::list_branches_with_origin(workspace_root, token).await
     }
 
-    async fn list_all_branches(
-        &self,
-        workspace_root: &Path,
-        token: Option<&str>,
-    ) -> Result<Vec<String>, OxyError> {
-        branch::list_all_branches(workspace_root, token).await
-    }
-
-    async fn checkout_branch(
-        &self,
-        workspace_root: &Path,
-        branch_name: &str,
-        token: Option<&str>,
-    ) -> Result<(), OxyError> {
-        branch::checkout_branch(workspace_root, branch_name, token).await
-    }
-
     async fn ensure_local_ref(
         &self,
         workspace_root: &Path,

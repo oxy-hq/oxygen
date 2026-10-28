@@ -6,6 +6,12 @@
 //!    var is unset — convenient for local dev, **not safe for production**).
 //! 3. If neither exists, generates a fresh key and writes it to the file.
 //!
+//! Steps 2 and 3 are for a single process (`OXY_ROLE=all`, `oxy start`).
+//! `oxy serve` and `oxy worker` refuse to start in any other role without the
+//! env var — see `oxy_app::server::shared_state_check` — because a file key is
+//! per node, and a second node would mint its own and fail to read what the
+//! first sealed.
+//!
 //! The master key is consumed by [`crate::secrets::OrgSecretsService`] for
 //! per-org secret encryption and by other oxy modules that encrypt their
 //! own values (GitHub OAuth tokens, the legacy `_var` secret manager).
@@ -18,7 +24,8 @@ use aes_gcm::{Aes256Gcm, Key};
 use base64::{Engine as _, engine::general_purpose, engine::general_purpose::STANDARD as BASE64};
 use oxy_shared::errors::OxyError;
 
-const OXY_ENCRYPTION_KEY_VAR: &str = "OXY_ENCRYPTION_KEY";
+/// The env var holding the master key: base64 of 32 bytes.
+pub const ENCRYPTION_KEY_VAR: &str = "OXY_ENCRYPTION_KEY";
 
 /// Look up oxy's state directory.
 ///
@@ -38,29 +45,37 @@ fn get_key_file_path() -> PathBuf {
     get_state_dir().join("encryption_key.txt")
 }
 
-fn decode_key_from_string(key_str: &str) -> [u8; 32] {
+/// Decode a master key without panicking: base64 of exactly 32 bytes.
+///
+/// The one definition of "a valid key". [`get_encryption_key`] panics on a
+/// value this refuses; a boot check calls this first so an operator gets the
+/// reason as a startup error instead of a panic on the first secret read.
+pub fn parse_encryption_key(key_str: &str) -> Result<[u8; 32], String> {
     let decoded = general_purpose::STANDARD
-        .decode(key_str)
-        .map_err(|e| OxyError::SecretManager(format!("Invalid encryption key format: {e}")))
-        .expect("Failed to decode encryption key");
-
+        .decode(key_str.trim())
+        .map_err(|e| format!("not valid base64: {e}"))?;
     if decoded.len() != 32 {
-        panic!(
-            "Invalid encryption key length: expected 32 bytes, got {}",
+        return Err(format!(
+            "expected 32 bytes after base64 decoding, got {}",
             decoded.len()
-        );
+        ));
     }
-
     let mut key = [0u8; 32];
     key.copy_from_slice(&decoded);
-    key
+    Ok(key)
+}
+
+fn decode_key_from_string(key_str: &str) -> [u8; 32] {
+    parse_encryption_key(key_str)
+        .map_err(|e| OxyError::SecretManager(format!("Invalid encryption key format: {e}")))
+        .expect("Failed to decode encryption key")
 }
 
 /// Get the encryption key from environment variable.
 /// Falls back to a development key for development (NOT secure for production).
 pub fn get_encryption_key() -> [u8; 32] {
     // First try environment variable
-    if let Ok(key_str) = std::env::var(OXY_ENCRYPTION_KEY_VAR) {
+    if let Ok(key_str) = std::env::var(ENCRYPTION_KEY_VAR) {
         return decode_key_from_string(&key_str);
     }
 

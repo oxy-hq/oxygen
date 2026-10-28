@@ -94,6 +94,13 @@ impl ProjectContext for PreviewPlatformContext {
         self.workspace_id
     }
 
+    /// Whoever the preview's request is for. A preview run is never queued
+    /// (`queued_run`) and recovery retires one, so nothing drives it as this
+    /// record — it only names who asked, as on every other run.
+    fn requester(&self) -> Option<agentic_pipeline::platform::Requester> {
+        self.inner.requester()
+    }
+
     fn timezone(&self) -> Option<chrono_tz::Tz> {
         self.inner.timezone()
     }

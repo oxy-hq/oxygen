@@ -21,6 +21,8 @@ pub mod executor;
 pub mod function_schedule;
 pub mod pipeline_ref;
 pub mod platform;
+pub mod queued_answer;
+pub mod queued_run;
 pub mod recovery;
 pub mod retry;
 pub mod revert;
@@ -630,33 +632,11 @@ impl PipelineBuilder {
         base_dir: &std::path::Path,
         skip_db_insert: bool,
     ) -> Result<StartedPipeline, PipelineError> {
-        // `resolve_agent_yaml` returns the compiled agent definition when the
-        // compile boundary is enabled; `None` falls through to the FS read below.
-        let config = match self.platform.resolve_agent_yaml(agent_id).await {
-            Some(yaml) => {
-                AgentConfig::from_yaml(&yaml).map_err(|e| PipelineError::Config(format!("{e}")))?
-            }
-            None => {
-                let config_path = base_dir.join(agent_id);
-                let config_path = if config_path.exists() {
-                    config_path
-                } else {
-                    let with_ext = base_dir.join(format!("{}.agentic.yml", agent_id));
-                    if with_ext.exists() {
-                        with_ext
-                    } else {
-                        config_path // will produce a clear "not found" error
-                    }
-                };
-                AgentConfig::from_file(&config_path)
-                    .map_err(|e| PipelineError::Config(format!("{e}")))?
-            }
-        };
-
         // Before the run row exists, on purpose: "not compiled yet" is a
         // retryable start, and a retry should not find a failed run of its own
         // question already in the thread.
-        let domain_docs = context_documents::resolve(&*self.platform, &config).await?;
+        let (config, domain_docs) =
+            load_analytics_agent(self.platform.as_ref(), agent_id, base_dir).await?;
 
         // Insert run + extension (skipped for delegation children — the
         // coordinator already created the run via insert_run_with_parent).
@@ -1227,6 +1207,42 @@ pub async fn prepare_one_shot(
     Ok(OneShotCompleter {
         client: platform::build_llm_client(&info).with_genai_context(genai),
     })
+}
+
+/// An analytics agent's definition and the context documents it names: what
+/// [`PipelineBuilder::start`] reads before it inserts a run, and what
+/// [`queued_run::check_analytics_agent`] reads in place of a start.
+///
+/// `resolve_agent_yaml` returns the compiled definition when the compile
+/// boundary has one; `None` falls through to this node's working copy, where a
+/// missing file is the "not found" a caller maps to `404`.
+pub(crate) async fn load_analytics_agent(
+    platform: &dyn PlatformContext,
+    agent_id: &str,
+    base_dir: &std::path::Path,
+) -> Result<(AgentConfig, Option<Vec<String>>), PipelineError> {
+    let config = match platform.resolve_agent_yaml(agent_id).await {
+        Some(yaml) => {
+            AgentConfig::from_yaml(&yaml).map_err(|e| PipelineError::Config(format!("{e}")))?
+        }
+        None => {
+            let config_path = base_dir.join(agent_id);
+            let config_path = if config_path.exists() {
+                config_path
+            } else {
+                let with_ext = base_dir.join(format!("{}.agentic.yml", agent_id));
+                if with_ext.exists() {
+                    with_ext
+                } else {
+                    config_path // will produce a clear "not found" error
+                }
+            };
+            AgentConfig::from_file(&config_path)
+                .map_err(|e| PipelineError::Config(format!("{e}")))?
+        }
+    };
+    let domain_docs = context_documents::resolve(platform, &config).await?;
+    Ok((config, domain_docs))
 }
 
 // ── StartedPipeline (type-erased) ───────────────────────────────────────────

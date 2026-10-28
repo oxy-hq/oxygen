@@ -75,6 +75,14 @@ pub enum DrivePolicy {
     /// select — it is the pass that reaps a dead worker's claim, and it must not
     /// then drive what it freed on a node that defers it.
     Only(&'static [&'static str]),
+    /// Drive **only** these kinds, and never any other, however long it waits.
+    ///
+    /// The absolute allow-list, [`DrivePolicy::Except`] turned around. For a
+    /// drive that runs under a context built to carry one kind of work and
+    /// would fail every other: a workspace with nothing compiled yet has no
+    /// config an agent or a pipeline could run against, but a commit compile
+    /// needs none.
+    Exactly(&'static [&'static str]),
 }
 
 impl DrivePolicy {
@@ -104,6 +112,7 @@ pub fn may_drive(source_type: Option<&str>, unclaimed_secs: u64, policy: DrivePo
         DrivePolicy::Except(kinds) => !listed(kinds),
         DrivePolicy::Defer(kinds) => !listed(kinds) || waited,
         DrivePolicy::Only(kinds) => listed(kinds) || waited,
+        DrivePolicy::Exactly(kinds) => listed(kinds),
     }
 }
 
@@ -228,6 +237,26 @@ mod tests {
         assert!(may_drive(Some("compile"), FRESH, p));
         assert!(may_drive(Some("workflow"), FRESH, p));
         assert!(may_drive(Some("analytics"), FRESH, p));
+    }
+
+    /// The strict allow-list is [`DrivePolicy::Only`] without the fallback: a
+    /// kind it does not name is never driven, at any age, which is what lets a
+    /// drive run under a context that could only fail it.
+    #[test]
+    fn an_exact_list_never_drives_another_kind() {
+        let p = DrivePolicy::Exactly(&["compile_git"]);
+        assert!(may_drive(Some("compile_git"), FRESH, p));
+        assert!(may_drive(Some("compile_git"), ANCIENT, p));
+        for kind in ["compile", "airway", "analytics", "a_kind_added_next_year"] {
+            assert!(!may_drive(Some(kind), FRESH, p), "{kind}");
+            assert!(!may_drive(Some(kind), ANCIENT, p), "{kind} when old");
+        }
+        assert!(!may_drive(None, ANCIENT, p));
+        assert!(!may_drive(
+            Some("compile_git"),
+            ANCIENT,
+            DrivePolicy::Exactly(&[])
+        ));
     }
 
     /// The deny form of the preference carries the same fallback as the allow

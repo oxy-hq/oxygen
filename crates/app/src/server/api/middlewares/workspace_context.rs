@@ -1,5 +1,4 @@
 use crate::server::router::AppState;
-use crate::server::service::retrieval::EnumIndexManager;
 use crate::server::service::secret_manager::SecretManagerService;
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 use axum::extract::{FromRequestParts, Path};
@@ -447,7 +446,7 @@ impl SemanticLayerCacheCtx {
     pub async fn get_or_load(
         &self,
         source_revision: Option<Uuid>,
-        scan_path: std::path::PathBuf,
+        scan: oxy::config::ScanDir,
     ) -> Result<
         std::sync::Arc<oxy_airlayer_compat::SemanticLayer>,
         oxy_airlayer_compat::SemanticError,
@@ -457,15 +456,13 @@ impl SemanticLayerCacheCtx {
             tracing::debug!(workspace_id = %self.workspace_id, source = ?key.source, "semantic model cache hit");
             return Ok(layer);
         }
-        tracing::info!(workspace_id = %self.workspace_id, source = ?key.source, path = ?scan_path, "semantic model cache miss — loading from disk");
+        tracing::info!(workspace_id = %self.workspace_id, source = ?key.source, directory = ?scan.directory(), "semantic model cache miss — loading");
         let t0 = std::time::Instant::now();
-        let layer = tokio::task::spawn_blocking(move || {
-            oxy_airlayer_compat::load_layer_from_dir(&scan_path)
-        })
-        .await
-        .map_err(|e| {
-            oxy_airlayer_compat::SemanticError::Engine(format!("blocking task failed: {e}"))
-        })??;
+        let layer = tokio::task::spawn_blocking(move || scan.load_layer())
+            .await
+            .map_err(|e| {
+                oxy_airlayer_compat::SemanticError::Engine(format!("blocking task failed: {e}"))
+            })??;
         tracing::info!(workspace_id = %self.workspace_id, source = ?key.source, elapsed_ms = t0.elapsed().as_millis(), "semantic model loaded");
         let arc_layer = std::sync::Arc::new(layer);
         self.cache.insert(key, arc_layer.clone());
@@ -699,6 +696,14 @@ pub async fn workspace_middleware(
     // Authorize before choosing the revision: a preview pin depends on who is
     // asking. Reads no compiled data, so it needs no pin of its own.
     let workspace_row = authorize_workspace(workspace_id, &user, &mut request).await?;
+
+    // The Factory's routes are for Oxy staff, the org's owners and admins, and the
+    // members an operator granted this workspace to. A no-op unless the switch is on, and for every route a
+    // customer reaches — see `server::factory_access`.
+    request = match crate::server::factory_access::gate(request).await {
+        Ok(request) => request,
+        Err(refusal) => return Ok(refusal),
+    };
 
     // A preview request (`x-oxy-preview-revision`) from staff, naming a ready
     // staging revision of this workspace, reads that revision. Every other
@@ -1306,8 +1311,50 @@ fn lazy_compile_backoff_secs(consecutive_failures: u32, content_change: bool) ->
     (LAZY_COMPILE_BACKOFF_SECS << doublings).min(LAZY_COMPILE_BACKOFF_MAX_SECS)
 }
 
+/// Queue a compile because a request found nothing usable compiled.
+///
+/// A workspace serving a revision of a real commit that GitHub can give back
+/// recompiles that commit (`compile_git`, any worker can take it); anything
+/// else compiles the working copy, as before. See
+/// [`crate::server::compile_git::self_heal`].
 pub async fn enqueue_lazy_compile(db: &sea_orm::DatabaseConnection, workspace_id: Uuid) {
-    enqueue_compile_deduped(db, workspace_id, None, None, "lazy self-heal").await
+    use crate::server::compile_git::self_heal::{Heal, heal};
+    // A burst of requests for one workspace decides once, before any read
+    // (see `lazy_compile_throttle`).
+    if !super::lazy_compile_throttle::first_in_window(workspace_id) {
+        return;
+    }
+    let target = match heal(db, workspace_id).await {
+        Heal::Commit(target) => target,
+        Heal::CheckBranch => {
+            // Only when a check will look at the workspace. When it will not
+            // (not ready, or the last check found something a person has to
+            // fix) no commit compile is coming, and the working-copy compile
+            // is the only way to a first revision.
+            if crate::server::compile_reconcile::request_check(db, workspace_id).await {
+                return;
+            }
+            return enqueue_compile_deduped(db, workspace_id, None, None, "lazy self-heal").await;
+        }
+        Heal::WorkingCopy => {
+            return enqueue_compile_deduped(db, workspace_id, None, None, "lazy self-heal").await;
+        }
+    };
+    // The same content again, so a failure backs off the way a self-heal
+    // always has, not on the short window a new commit gets.
+    let how = CompileEnqueue {
+        from_git: true,
+        new_content: false,
+    };
+    enqueue_compile_deduped_as(
+        db,
+        workspace_id,
+        Some(target.git_sha),
+        target.branch,
+        "lazy self-heal",
+        how,
+    )
+    .await
 }
 
 /// Shared enqueue path for every *automatic* compile trigger: the lazy
@@ -1587,13 +1634,16 @@ pub(crate) async fn enqueue_compile_deduped_as(
         owner_user_id: None,
         from_git: how.from_git,
     };
+    let retry = how.from_git.then(crate::server::compile_git::retry_policy);
     if let Err(e) = agentic_runtime::crud::enqueue_task(
         &txn,
         &task_id,
         &task_id,
         None,
         &spec,
-        None,
+        // A commit compile rides out a brief GitHub or Postgres outage on the
+        // queue itself; a working-copy compile has nothing to retry.
+        retry.as_ref(),
         agentic_runtime::orchestrator::crud::queue::TaskScope::Global,
     )
     .await
@@ -1774,18 +1824,6 @@ async fn try_attach_workspace_manager(
             return Ok(());
         }
     };
-
-    match EnumIndexManager::init_from_config(workspace_manager.config_manager.clone()).await {
-        Ok(_) => tracing::debug!(
-            "Enum index initialized successfully for workspace {}",
-            workspace_id
-        ),
-        Err(e) => tracing::debug!(
-            "Enum index initialization skipped for workspace {}: {}",
-            workspace_id,
-            e
-        ),
-    }
 
     let mut ctx = crate::agentic_wiring::OxyProjectContext::new(workspace_manager.clone())
         .with_subject(user_id);

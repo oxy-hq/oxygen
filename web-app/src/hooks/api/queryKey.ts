@@ -234,8 +234,7 @@ const userTokenKeys = {
 const secretKeys = {
   all: ["secret"] as const,
   list: (projectId: string) => [...secretKeys.all, "list", projectId] as const,
-  item: (projectId: string, id: string) => [...secretKeys.all, projectId, { id }] as const,
-  envList: (projectId: string) => [...secretKeys.all, "env", projectId] as const
+  item: (projectId: string, id: string) => [...secretKeys.all, projectId, { id }] as const
 };
 
 const spApiKeys = {
@@ -252,17 +251,6 @@ const settingsKeys = {
   all: ["settings"] as const,
   projectStatus: (project_id: string) =>
     [...settingsKeys.all, "project-status", { project_id }] as const
-};
-
-const repositoryKeys = {
-  all: ["repositories"] as const,
-  list: (projectId: string) => [...repositoryKeys.all, "list", projectId] as const,
-  branch: (projectId: string, name: string) =>
-    [...repositoryKeys.all, "branch", projectId, name] as const,
-  diff: (projectId: string, name: string) =>
-    [...repositoryKeys.all, "diff", projectId, name] as const,
-  branches: (projectId: string, name: string) =>
-    [...repositoryKeys.all, "branches", projectId, name] as const
 };
 
 const builderKeys = {
@@ -844,7 +832,11 @@ const adminWorkspacesKeys = {
   all: ["admin", "workspaces"] as const,
   list: (search?: string, status?: string, orgId?: string) =>
     [...adminWorkspacesKeys.all, "list", search ?? "", status ?? "", orgId ?? ""] as const,
-  detail: (workspaceId: string) => [...adminWorkspacesKeys.all, "detail", workspaceId] as const
+  detail: (workspaceId: string) => [...adminWorkspacesKeys.all, "detail", workspaceId] as const,
+  /** The "Open Factory…" picker: the newest page, or a search by workspace name. */
+  picker: (search: string) => [...adminWorkspacesKeys.all, "picker", search] as const,
+  factoryAccess: (workspaceId: string) =>
+    [...adminWorkspacesKeys.all, "factory-access", workspaceId] as const
 };
 
 const workspaceHealthKeys = {
@@ -1275,7 +1267,6 @@ const queryKeys = {
   appIntegrations: appIntegrationKeys,
   onboarding: onboardingKeys,
   settings: settingsKeys,
-  repositories: repositoryKeys,
   config: configKeys,
   artifact: artifactKeys,
   contextGraph: contextGraphKeys,

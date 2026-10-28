@@ -43,6 +43,9 @@ pub struct CompileSpec {
     pub promote: bool,
     pub kind: RevisionKind,
     pub owner_user_id: Option<Uuid>,
+    /// When the task was queued. Set for a commit compile, whose retry can run
+    /// minutes after it was asked for; see [`superseded_since`].
+    pub asked_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub struct CompileWorker {
@@ -96,7 +99,7 @@ impl CompileWorker {
     fields(workspace_id = %spec.workspace_id, promote = spec.promote)
 )]
 async fn drive(
-    spec: CompileSpec,
+    mut spec: CompileSpec,
     db: Arc<DatabaseConnection>,
     event_tx: mpsc::Sender<(String, Value)>,
     cancel: CancellationToken,
@@ -128,6 +131,21 @@ async fn drive(
             ))
             .await;
         return;
+    }
+
+    if spec.from_git
+        && spec.promote
+        && let Some(asked_at) = spec.asked_at
+        && superseded_since(&db, spec.workspace_id, asked_at).await
+    {
+        tracing::info!(
+            workspace_id = %spec.workspace_id,
+            git_sha = ?spec.git_sha,
+            %asked_at,
+            "a compile that started after this one was queued is being served; compiling \
+             this commit without promoting it"
+        );
+        spec.promote = false;
     }
 
     // A commit compile brings its own tree, so the role's working copy — the
@@ -774,7 +792,66 @@ pub fn spec_from_taskspec(
         promote,
         kind,
         owner_user_id,
+        asked_at: None,
     })
+}
+
+/// When queue row `task_id` was first enqueued. `None` when it cannot be read,
+/// which leaves the compile ordered by when it ran, as every compile was.
+pub async fn asked_at(
+    db: &DatabaseConnection,
+    task_id: &str,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT created_at FROM agentic_task_queue WHERE task_id = $1",
+            [task_id.into()],
+        ))
+        .await
+        .inspect_err(
+            |e| tracing::warn!(%task_id, error = %e, "could not read when a compile was queued"),
+        )
+        .ok()??;
+    row.try_get::<sea_orm::prelude::DateTimeWithTimeZone>("", "created_at")
+        .ok()
+        .map(|t| t.with_timezone(&chrono::Utc))
+}
+
+/// Whether the workspace is serving a revision whose compile started after
+/// `asked_at`.
+///
+/// Promotion is ordered by when a compile started ("a later start wins"), which
+/// is right while a compile runs soon after it is asked for. A commit compile
+/// that waited out a retry backoff starts minutes later than it was asked, and
+/// would take over from anything compiled in between: the Compile button's
+/// working-copy compile, say. So such a compile is ordered by when it was
+/// asked for: it still compiles, and its revision is kept, but it does not
+/// move the pointer past one that started after it was queued.
+async fn superseded_since(
+    db: &DatabaseConnection,
+    workspace_id: Uuid,
+    asked_at: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let found = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT 1 FROM workspaces w \
+             JOIN revisions r ON r.revision_id = w.current_revision_id \
+             WHERE w.id = $1 AND r.started_at > $2",
+            [workspace_id.into(), asked_at.fixed_offset().into()],
+        ))
+        .await;
+    match found {
+        Ok(row) => row.is_some(),
+        // Unreadable: promote, as every compile did before this check existed.
+        Err(e) => {
+            tracing::warn!(%workspace_id, error = %e, "could not check what the workspace serves");
+            false
+        }
+    }
 }
 
 #[cfg(test)]

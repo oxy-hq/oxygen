@@ -319,7 +319,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
 
   const queryClient = useQueryClient();
   const { state, start, reconnect, answer, stop, reset, isStarting, isAnswering } = useAnalyticsRun(
-    { projectId: project.id }
+    { projectId: project.id, builder: thread.source === "__builder__" }
   );
   // Keep a stable ref so effects that only run on isTerminal can read the
   // current events without listing state as a reactive dependency.

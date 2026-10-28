@@ -21,65 +21,6 @@ import type {
   WarehouseType
 } from "./types";
 
-// ── Topic / second-app prediction ───────────────────────────────────────────
-//
-// Each selected table becomes one `.view.yml` + one `.topic.yml`, and the
-// topic name is the short (post-`.`) table name. App naming convention:
-//
-// - Overview (always) → `apps/overview.app.yml`. The App phase picks the
-//   most data-rich topic via profiling, so the topic *backing* the overview
-//   is not known up front — but the filename is always `overview`.
-// - Second deep-dive → only emitted when ≥ 2 topics exist. Filename is
-//   either `apps/<topic1>_<topic2>.app.yml` (cross-topic JOIN dashboard
-//   when an FK overlap exists) OR `apps/<topic>.app.yml` (single-topic
-//   deep-dive on the first non-overview topic alphabetically). The frontend
-//   cannot reliably predict the slug, so completion matching uses the
-//   "any non-overview .app.yml" rule (see `OnboardingRightRail`'s
-//   `CreatedFilesSection`). The helpers below are still exported because
-//   they're useful as a *display fallback* — labels show the predicted
-//   topic name while the file is being written, then swap to the real
-//   `title:` once the artifact is read.
-
-/** Short table name: the segment after the last dot. */
-function shortTableName(table: string): string {
-  return table.split(".").pop() ?? table;
-}
-
-/** Sorted (alpha) list of short table names. */
-function sortedTopicSlugs(tables: string[]): string[] {
-  return tables.map(shortTableName).sort();
-}
-
-/**
- * Best-effort guess at the topic slug the deep-dive dashboard will cover,
- * used only as a *display fallback* for labels while the file is being
- * written. The backend may emit either a single-topic or cross-topic
- * dashboard with a filename we can't predict from the table list alone, so
- * this is never used for completion matching — see `CreatedFilesSection`
- * for the actual "any non-overview .app.yml" rule.
- *
- * Returns `undefined` when the workspace has fewer than 2 topics, in which
- * case no second app is built.
- */
-export function predictSecondAppTopic(tables: string[]): string | undefined {
-  const sorted = sortedTopicSlugs(tables);
-  return sorted.length >= 2 ? sorted[1] : undefined;
-}
-
-/** True when onboarding should build the second (deep-dive) dashboard. */
-export function wantsSecondApp(tables: string[]): boolean {
-  return predictSecondAppTopic(tables) !== undefined;
-}
-
-/** Title-case a snake_case slug for display (e.g. "order_items" → "Order Items"). */
-export function humanizeTopicSlug(slug: string): string {
-  return slug
-    .split("_")
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
 // ── Actions ─────────────────────────────────────────────────────────────────
 
 // Exported for unit tests; consumers use `useOnboardingOrchestrator`.
@@ -592,7 +533,7 @@ function deriveGithubMessages(state: OnboardingState): OnboardingMessage[] {
     id: "welcome",
     role: "assistant",
     content: isDemo
-      ? "Welcome to your demo workspace. The sample agents, dashboards, and DuckDB data are already in place — I just need an LLM API key so the agents can answer questions about the data."
+      ? "Welcome to your demo workspace. The sample agents and DuckDB data are already in place — I just need an LLM API key so the agents can answer questions about the data."
       : "Welcome back. Your repository is imported — I just need a few secrets from you before you can start asking questions. Skip anything you're not ready to set up yet.",
     status: state.step === "github_loading" ? undefined : "complete"
   });
@@ -1058,7 +999,7 @@ export function deriveMessages(state: OnboardingState): OnboardingMessage[] {
     });
   }
 
-  // Agent + app messages — shown once semantic model phase has started
+  // Agent message — shown once semantic model phase has started
   const semanticStarted = ps.config || ps.semantic_layer;
   if (semanticStarted) {
     const totalViews = state.selectedTables.length;
@@ -1085,49 +1026,6 @@ export function deriveMessages(state: OnboardingState): OnboardingMessage[] {
       content: semanticDone ? "Creating your analytics agent…" : "Analytics agent",
       status: agentStatus
     });
-
-    const appStatus: OnboardingMessage["status"] =
-      ps.app === "done" || isDone
-        ? "complete"
-        : ps.app === "failed"
-          ? "error"
-          : ps.app === "running"
-            ? "working"
-            : semanticDone
-              ? "working"
-              : "pending";
-    messages.push({
-      id: "phase_app",
-      role: "assistant",
-      content: semanticDone ? "Building your starter dashboard…" : "Starter dashboard",
-      status: appStatus
-    });
-
-    // Deep-dive dashboard — only advertised when the workspace has ≥ 2 topics.
-    // With a single topic there's no variety to warrant a second dashboard,
-    // so the UI should not even tease one.
-    if (wantsSecondApp(state.selectedTables)) {
-      const secondTopic = predictSecondAppTopic(state.selectedTables) ?? "detail";
-      const secondTopicLabel = humanizeTopicSlug(secondTopic);
-      const app2Status: OnboardingMessage["status"] =
-        ps.app2 === "done" || isDone
-          ? "complete"
-          : ps.app2 === "failed"
-            ? "error"
-            : ps.app2 === "running"
-              ? "working"
-              : semanticDone
-                ? "working"
-                : "pending";
-      messages.push({
-        id: "phase_app2",
-        role: "assistant",
-        content: semanticDone
-          ? `Building your ${secondTopicLabel} dashboard…`
-          : `${secondTopicLabel} dashboard`,
-        status: app2Status
-      });
-    }
   }
 
   return messages;
@@ -1180,27 +1078,8 @@ function buildPhaseMilestones(
       id: "build-agent",
       label: "Analytics Agent",
       status: toMilestoneStatus(ps.agent, isDone)
-    },
-    {
-      id: "build-app",
-      label: "Starter Dashboard",
-      status: toMilestoneStatus(ps.app, isDone)
     }
   ];
-
-  // Surface the deep-dive milestone only when we have enough topic variety
-  // to warrant a second dashboard. The label is a *display fallback* — the
-  // backend may emit a cross-topic JOIN dashboard with a different slug,
-  // so the predicted name is just the best guess until the real `title:`
-  // can be read off the artifact.
-  const secondTopic = predictSecondAppTopic(state.selectedTables);
-  if (secondTopic) {
-    milestones.push({
-      id: "build-app2",
-      label: `${humanizeTopicSlug(secondTopic)} Dashboard`,
-      status: toMilestoneStatus(ps.app2, isDone)
-    });
-  }
 
   return milestones;
 }
@@ -1312,15 +1191,7 @@ export function deriveRailState(state: OnboardingState): OnboardingRailState {
     });
   }
 
-  // Build expected file list: config + views + agent + app(s).
-  //
-  // The second app's filename is unpredictable — App2 may emit a single-topic
-  // deep-dive (`apps/<topic>.app.yml`) or a cross-topic JOIN dashboard
-  // (`apps/<topic1>_<topic2>.app.yml`). We tag the expected entry as `"app2"`
-  // so `CreatedFilesSection` matches it against any non-overview `.app.yml`
-  // artifact regardless of slug. The `name` is just a display label —
-  // `humanizeTopicSlug(predicted)` while we wait for the real `title:`.
-  const secondAppTopic = predictSecondAppTopic(state.selectedTables);
+  // Build expected file list: config + views + agent.
   const expectedFiles: import("./types").ExpectedFile[] =
     state.selectedTables.length > 0
       ? [
@@ -1329,11 +1200,7 @@ export function deriveRailState(state: OnboardingState): OnboardingRailState {
             const tableName = t.split(".").pop() ?? t;
             return { name: tableName, type: "view" as const };
           }),
-          { name: "analytics.agentic.yml", type: "agentic" },
-          { name: "overview", type: "app" as const },
-          ...(secondAppTopic
-            ? [{ name: humanizeTopicSlug(secondAppTopic), type: "app2" as const }]
-            : [])
+          { name: "analytics.agentic.yml", type: "agentic" }
         ]
       : [];
 

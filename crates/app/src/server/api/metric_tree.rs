@@ -117,14 +117,6 @@ impl IntoResponse for MetricTreeError {
 /// Resolve the scan root for this request: compile boundary first, working copy
 /// second — the same resolution `execute_semantic_query` performs.
 ///
-/// The returned [`QueryScanSource`] owns the materialised tempdir, so callers
-/// must keep it alive until every read of `scan_path` has finished. Every such
-/// read happens in the async half of a handler — parsing the layer, or a
-/// runner's `snapshot_for_blocking` — deliberately: a `spawn_blocking` task
-/// outlives handler cancellation (client disconnect, `EXPLAIN_TIMEOUT`), which
-/// drops the guard and deletes the directory underneath it. Keep it that way;
-/// the invariant "hold the guard across the blocking task" is not one the
-/// handler can actually enforce.
 pub(crate) async fn resolve_scan<S: oxy::config::DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
 ) -> Result<QueryScanSource, MetricTreeError> {
@@ -133,17 +125,16 @@ pub(crate) async fn resolve_scan<S: oxy::config::DiskSlot>(
         .map_err(|e| MetricTreeError::ScanUnavailable(e.message()))
 }
 
-/// Parse the workspace's semantic model from an already-resolved scan root.
+/// Parse the workspace's semantic model from an already-resolved scan.
 pub(crate) fn load_layer_at(
-    scan_path: &std::path::Path,
+    scan: &oxy::config::ScanDir,
 ) -> Result<oxy_airlayer_compat::SemanticLayer, MetricTreeError> {
-    OxyMetricTreeRunner::load_layer_at(scan_path)
-        .map_err(|e| MetricTreeError::LayerLoad(e.to_string()))
+    OxyMetricTreeRunner::load_layer_at(scan).map_err(|e| MetricTreeError::LayerLoad(e.to_string()))
 }
 
-/// Build the metric tree from an already-resolved scan root.
-fn load_tree_at(scan_path: &std::path::Path) -> Result<MetricTree, MetricTreeError> {
-    let layer = load_layer_at(scan_path)?;
+/// Build the metric tree from an already-resolved scan.
+fn load_tree_at(scan: &oxy::config::ScanDir) -> Result<MetricTree, MetricTreeError> {
+    let layer = load_layer_at(scan)?;
     Ok(oxy_semantic::build_metric_tree(&layer))
 }
 
@@ -168,7 +159,7 @@ pub async fn get_metric_tree(
     Query(q): Query<TreeQuery>,
 ) -> Result<Json<MetricTree>, MetricTreeError> {
     let source = resolve_scan(&workspace_manager).await?;
-    let tree = load_tree_at(&source.scan_path)?;
+    let tree = load_tree_at(&source.scan)?;
     match q.root {
         Some(root) => oxy_semantic::subtree(&tree, &root)
             .map(Json)
@@ -184,7 +175,7 @@ pub async fn get_sensitivity(
 ) -> Result<Json<oxy_airlayer_compat::engine::metric_tree_ops::SensitivityResult>, MetricTreeError>
 {
     let source = resolve_scan(&workspace_manager).await?;
-    let tree = load_tree_at(&source.scan_path)?;
+    let tree = load_tree_at(&source.scan)?;
     oxy_semantic::sensitivity(&tree, &measure_id)
         .map(Json)
         .map_err(|e| MetricTreeError::Op(e.to_string()))
@@ -265,7 +256,7 @@ pub async fn post_predict(
     Json(req): Json<PredictRequest>,
 ) -> Result<Json<oxy_airlayer_compat::engine::metric_tree_ops::PredictResult>, MetricTreeError> {
     let source = resolve_scan(&workspace_manager).await?;
-    let layer = load_layer_at(&source.scan_path)?;
+    let layer = load_layer_at(&source.scan)?;
     let mut tree = oxy_semantic::build_metric_tree(&layer);
     // Before propagation: a fitted coefficient has to make the edge behave
     // exactly as a declared one would, or the forecast the user sees would
@@ -376,7 +367,7 @@ pub async fn post_explain(
     // holds a working copy and is pinned to a revision.
     let source_revision = source.source_revision(&workspace_manager);
     let runner = OxyMetricTreeRunner::new(workspace_manager, user.id, role)
-        .with_scan_path(source.scan_path.clone())
+        .with_scan(source.scan.clone())
         .with_engine_cache(engine_cache.cache.clone(), source_revision)
         .with_preagg(
             preagg_ctx.cache.clone(),
@@ -527,7 +518,7 @@ pub async fn post_opportunity(
     // parsed. Nothing inside the blocking task reads it — the executor derives
     // its own (different) pre-aggregation cache root from the workspace manager.
     let source = resolve_scan(&workspace_manager).await?;
-    let mut layer = load_layer_at(&source.scan_path)?;
+    let mut layer = load_layer_at(&source.scan)?;
     // Order is load-bearing. The tree is built from the clean layer: the
     // dispersion measure below is a pass-through, and pass-throughs read as
     // composite nodes, so a tree built after it would sprout an internal
@@ -1199,7 +1190,7 @@ pub async fn post_baseline(
     Json(req): Json<BaselineRequest>,
 ) -> Result<Json<BaselineResponse>, MetricTreeError> {
     let source = resolve_scan(&workspace_manager).await?;
-    let layer = load_layer_at(&source.scan_path)?;
+    let layer = load_layer_at(&source.scan)?;
     let tree = oxy_semantic::build_metric_tree(&layer);
 
     // Reject unknown levers up front: a typo must not read as "this measure
@@ -1323,7 +1314,7 @@ pub async fn post_opportunity_drill(
     // parsed. Nothing inside the blocking task reads it — the executor derives
     // its own (different) pre-aggregation cache root from the workspace manager.
     let source = resolve_scan(&workspace_manager).await?;
-    let mut clean_layer = load_layer_at(&source.scan_path)?;
+    let mut clean_layer = load_layer_at(&source.scan)?;
     // Tree from the CLEAN layer (same reason as post_opportunity: augmentation
     // adds pass-through measures that would sprout graph nodes).
     let tree = oxy_semantic::build_metric_tree(&clean_layer);
@@ -1435,7 +1426,7 @@ pub async fn get_time_dimensions(
     WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
 ) -> Result<Json<TimeDimensionsResponse>, MetricTreeError> {
     let source = resolve_scan(&workspace_manager).await?;
-    let layer = load_layer_at(&source.scan_path)?;
+    let layer = load_layer_at(&source.scan)?;
     Ok(Json(time_dimensions_of(&layer)))
 }
 
@@ -1506,7 +1497,7 @@ pub async fn post_distribution(
     // holds a working copy and is pinned to a revision.
     let source_revision = source.source_revision(&workspace_manager);
     let runner = OxyMetricTreeRunner::new(workspace_manager, user.id, role)
-        .with_scan_path(source.scan_path.clone())
+        .with_scan(source.scan.clone())
         .with_engine_cache(engine_cache.cache.clone(), source_revision)
         .with_preagg(
             preagg_ctx.cache.clone(),

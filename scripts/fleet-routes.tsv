@@ -47,7 +47,6 @@ POST	/api/{workspace_id}/agentic-airway/backfill	fleet-ok	Fixture	single-window 
 GET	/api/{workspace_id}/agentic-airway/backfill-ranges	fleet-ok	Fixture	needs a real `pipeline_ref`
 POST	/api/{workspace_id}/agentic-airway/chunked-backfill	ide-only	Fixture	needs a real `pipeline_ref` on a windowed source; drives every chunk in the accepting process, which is why it stays on the ide
 GET	/api/{workspace_id}/agentic-airway/coverage	fleet-ok	Fixture	needs a real `pipeline_ref`
-GET	/api/{workspace_id}/agentic-airway/files	ide-only	Now	legacy pipeline lister (the web app reads `airway-pipelines`) — a plain GET, not yet in this script's case table
 POST	/api/{workspace_id}/agentic-airway/reset-cursors	fleet-ok	Destr	clears saved cursors for a real pipeline — its next run re-pulls that history
 POST	/api/{workspace_id}/agentic-airway/reset-schema	fleet-ok	Destr	drops a real pipeline's destination tables and its state rows
 GET	/api/{workspace_id}/agentic-airway/resource-cursors	fleet-ok	Fixture	needs a real `pipeline_ref`
@@ -57,29 +56,46 @@ POST	/api/{workspace_id}/agentic-airway/runs	fleet-ok	Fixture	`POST /runs` needs
 POST	/api/{workspace_id}/agentic-airway/runs/{id}/cancel	fleet-ok	Fixture	needs a real run id — start one first
 GET	/api/{workspace_id}/agentic-airway/runs/{id}/events	fleet-ok	Fixture	SSE; needs a real run id — start one first
 POST	/api/{workspace_id}/agentic-airway/sources/discover	ide-only	Ext	authoring wizard call that dials a caller-supplied source host — needs a reachable external database
-*	/api/{workspace_id}/agentic-automations/{*rest}	ide-only	Fixture	`POST /runs` needs a real `workflow_ref` — 23 automations exist; `/files` reads real automation files
+*	/api/{workspace_id}/agentic-automations/{*rest}	ide-only	Struct	catch-all for an automation route added without a declaration — every route the router mounts has a row of its own below, so no request reaches it
+GET	/api/{workspace_id}/agentic-automations/files	fleet-ok	Now	the automation list from the revision's `automation_definitions` rows on a pod with no working copy; 23 automations exist
+GET	/api/{workspace_id}/agentic-automations/files/{path_b64}	fleet-ok	Now	one automation's YAML through `resolve_automation_yaml`, which answers from the pinned revision on every role; use a `path_b64` from the list
 GET	/api/{workspace_id}/agentic-automations/runs	fleet-ok	Now	verified live: `400` = missing-param, not failure; buildable with a real `workflow_ref`
+POST	/api/{workspace_id}/agentic-automations/runs	fleet-ok	Fixture	needs a real `workflow_ref`; queued while `queued_chat_and_workflow_starts` is on, driven in the accepting process while it is off — not yet in this script's case table
 GET	/api/{workspace_id}/agentic-automations/runs/{id}	fleet-ok	Fixture	needs a real run id — start one first
+POST	/api/{workspace_id}/agentic-automations/runs/{id}/cancel	fleet-ok	Fixture	needs a live run id; writes the durable cancel flag the driver polls
+GET	/api/{workspace_id}/agentic-automations/runs/{id}/events	fleet-ok	Fixture	needs a real run id; polls the event log when another process drives
 GET	/api/{workspace_id}/agentic-automations/threads/{thread_id}/run	fleet-ok	Now	use one of the 3 real thread ids; empty is a valid response
 *	/api/{workspace_id}/agentic-schedules	fleet-ok	Now	verified live 200 — 1 real schedule ("Health check"); `POST` create is disposable
 *	/api/{workspace_id}/agentic-schedules/{id}	fleet-ok	Now	`GET` the real seeded id (`65c121b2-…`); `PATCH`/`DELETE` against it are destructive to a schedule other tooling may read — use a disposable one you create yourself
 *	/api/{workspace_id}/agentic-schedules/{id}/backfill	fleet-ok	Fixture	use a disposable schedule + a valid date range
 *	/api/{workspace_id}/agentic-schedules/{id}/run-now	fleet-ok	Fixture	same — prefer not to perturb the real health-check cadence
-*	/api/{workspace_id}/agentic-workflows/{*rest}	ide-only	Fixture	legacy alias of `agentic-automations`, identical handlers
+*	/api/{workspace_id}/agentic-workflows/{*rest}	ide-only	Struct	legacy alias of `agentic-automations`, identical handlers and declarations; the catch-all no request reaches
+GET	/api/{workspace_id}/agentic-workflows/files	fleet-ok	Now	same as the automations alias
+GET	/api/{workspace_id}/agentic-workflows/files/{path_b64}	fleet-ok	Now	same
 GET	/api/{workspace_id}/agentic-workflows/runs	fleet-ok	Now	same as the automations alias
+POST	/api/{workspace_id}/agentic-workflows/runs	fleet-ok	Fixture	same as the automations alias
 GET	/api/{workspace_id}/agentic-workflows/runs/{id}	fleet-ok	Fixture	same
+POST	/api/{workspace_id}/agentic-workflows/runs/{id}/cancel	fleet-ok	Fixture	same
+GET	/api/{workspace_id}/agentic-workflows/runs/{id}/events	fleet-ok	Fixture	same
 GET	/api/{workspace_id}/agentic-workflows/threads/{thread_id}/run	fleet-ok	Now	same
 *	/api/{workspace_id}/agents	fleet-ok	Now	verified live 200 — 4 real agents
 *	/api/{workspace_id}/airway-pipelines	fleet-ok	Now	verified live 200 — 5 real pipelines (`sql_ingest`, `toast_pos`, `weather`, `clickhouse_ingest`, `ubereats`)
-*	/api/{workspace_id}/analytics/{*rest}	ide-only	Fixture	`POST /runs` against one of 4 real agents — needs a real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` value (present as env pass-through in the compose file, value unverified); the catch-all for the execution routes (start, events, answer, cancel, revert-file-changes) and for a route added without a declaration — the coordinator routes, `notify` and `thinking_mode` have rows of their own below
-GET	/api/{workspace_id}/analytics/coordinator/active-runs	ide-only	Fixture	Postgres rows, but each row's status is overlaid from the answering process's in-memory run map, which wins — a replica that only accepted an airway submit holds that run as `running` for good, so this stays on the ide until the overlay is gone
-GET	/api/{workspace_id}/analytics/coordinator/live	ide-only	Now	SSE over the answering process's in-memory run map and nothing else — a plain GET that never ends, not yet in this script's case table
+*	/api/{workspace_id}/analytics/{*rest}	ide-only	Struct	catch-all for an analytics route added without a declaration — every route the router mounts has a row of its own below, so no request reaches it
+POST	/api/{workspace_id}/analytics/builder/runs	ide-only	Fixture	the Builder copilot and onboarding start: edits the working copy and is driven in the Factory's memory; needs a real LLM key
+POST	/api/{workspace_id}/analytics/builder/runs/{id}/answer	ide-only	Fixture	an answer to a suspended Builder run; needs one first
+GET	/api/{workspace_id}/analytics/coordinator/active-runs	fleet-ok	Fixture	Postgres only; each row's status is the row's own (`user_facing_status`), no longer overlaid from the answering process's run map
+GET	/api/{workspace_id}/analytics/coordinator/live	fleet-ok	Now	SSE tailing the workspace's active runs in `agentic_runs` every 2 s — a plain GET that never ends, not yet in this script's case table
 GET	/api/{workspace_id}/analytics/coordinator/queue	fleet-ok	Fixture	Postgres only (`agentic_task_queue` joined to `agentic_runs`)
 GET	/api/{workspace_id}/analytics/coordinator/recovery	fleet-ok	Fixture	Postgres only; the body differs between any two calls on a busy fleet, so the case compares status
 GET	/api/{workspace_id}/analytics/coordinator/runs	fleet-ok	Fixture	Postgres only (run history, with LLM cost and duration baselines from the event rows)
-POST	/api/{workspace_id}/analytics/coordinator/runs/{id}/retry	ide-only	Fixture	needs a failed workflow or airway run id; writes Postgres only, but a reaped airway task re-resolves the spec and answers a 500 where the start route answers a retryable 503 — not yet in this script's case table
-GET	/api/{workspace_id}/analytics/coordinator/runs/{id}/tree	ide-only	Fixture	needs a real run id; the same in-memory status overlay as `active-runs` — not yet in this script's case table
+POST	/api/{workspace_id}/analytics/coordinator/runs/{id}/retry	fleet-ok	Fixture	needs a failed workflow or airway run id; writes Postgres and enqueues `Global`; a reaped airway run is re-seeded through `submit_airway_run`, so an unservable ref is the start route's 503 — not yet in this script's case table
+GET	/api/{workspace_id}/analytics/coordinator/runs/{id}/tree	fleet-ok	Fixture	needs a real run id; Postgres only, each node's status the row's own — not yet in this script's case table
+POST	/api/{workspace_id}/analytics/runs	fleet-ok	Fixture	`POST /runs` against one of 4 real agents — needs a real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` value; queued while `queued_chat_and_workflow_starts` is on, driven in the accepting process while it is off. A Builder or onboarding start on a serve pod is refused `421` naming `/analytics/builder/runs`
+POST	/api/{workspace_id}/analytics/runs/{id}/answer	fleet-ok	Fixture	needs a suspended chat run; an answer to a Builder run on a serve pod is refused `421` naming the Builder answer route
+POST	/api/{workspace_id}/analytics/runs/{id}/cancel	fleet-ok	Fixture	needs a live run id; writes the durable cancel flag the driver's lease polls
+GET	/api/{workspace_id}/analytics/runs/{id}/events	fleet-ok	Fixture	needs a real run id; polls the event log when another process drives
 POST	/api/{workspace_id}/analytics/runs/{id}/notify	fleet-ok	Fixture	needs a real analytics run id on the caller's own thread; one UPDATE of its `agentic_runs` row, and for a run that already ended the `oxy.ask_finished` notice written and its delivery queued — not yet in this script's case table
+POST	/api/{workspace_id}/analytics/runs/{id}/revert-file-changes	ide-only	Fixture	undoes a Builder edit in the working copy; needs a Builder run that changed files
 PATCH	/api/{workspace_id}/analytics/runs/{id}/thinking_mode	fleet-ok	Fixture	needs a real analytics run id; one UPDATE of its `analytics_run_extensions` row — not yet in this script's case table
 GET	/api/{workspace_id}/analytics/threads/{thread_id}/run	fleet-ok	Now	use a real thread id — all 3 fixture threads are `source_type: analytics`, real history expected
 GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
@@ -100,7 +116,6 @@ POST	/api/{workspace_id}/app-integrations	ide-only	Fixture	creates a real Toast/
 *	/api/{workspace_id}/apps/{pathb64}/run	ide-only	Fixture	executes a real Data App query against one of the 11 DB connections — the DuckDB-backed ones (`local`/`training`/`duckdb_persistent`) are the realistic candidates; the rest need real external creds
 *	/api/{workspace_id}/apps/{pathb64}/unpublish	ide-only	Destr	unpublishes a real, shared, seeded app — use a disposable app, not one of the 10
 *	/api/{workspace_id}/apps/file/{pathb64}	ide-only	Now	reads a real file behind one of the 10 apps
-*	/api/{workspace_id}/apps/save-from-run/{run_id}	ide-only	Fixture	needs a completed `app_builder` agentic run id first
 *	/api/{workspace_id}/apps/source/{pathb64}	ide-only	Now	base64 one of the 10 real `.app.yml` paths (e.g. `insights.app.yml`)
 *	/api/{workspace_id}/artifacts/{id}	fleet-ok	Fixture	needs a real artifact id produced by a prior run
 *	/api/{workspace_id}/automations	fleet-ok	Now	verified live 200 — 23 real automations (alias of `/procedures`)
@@ -132,7 +147,6 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/events/sync	ide-only	Fixture	non-SSE poll variant (`automation_events_sync`) of the row above; same fixture need
 *	/api/{workspace_id}/execution-analytics	fleet-ok	Struct	404 verified live
 *	/api/{workspace_id}/execution-analytics/{*rest}	fleet-ok	Ext	RESOLVED: not a fleet bug. get_summary() gates on state.observability, which is the ClickHouse-only store (crates/app/src/observability_setup.rs: "ClickHouse is the sole backend"); this fleet has no OXY_CLICKHOUSE_* creds (same absence as /traces). Router comment "aggregate the runtime tables" is misleading (implies Postgres) but FleetOk classification is still correct -- ClickHouse, when configured, is reachable identically from every replica. Live-confirmed 500 "Observability not configured" on every node uniformly.
-*	/api/{workspace_id}/exported-charts/{file_name}	ide-only	Fixture	needs a previously-exported chart file on the ide's local state dir
 *	/api/{workspace_id}/fetch	ide-only	Now	verified live 200 — likely a no-op: `revision-info` shows empty SHAs (`base_sha`/`head_sha` = `""`), i.e. no git remote is actually configured on this fixture
 *	/api/{workspace_id}/files	ide-only	Now	real file tree of the working copy
 *	/api/{workspace_id}/files/{pathb64}	ide-only	Now	`GET` an existing file (e.g. `config.yml`); `POST` write — use a scratch path, not a real fixture file
@@ -147,9 +161,7 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/files/diff-summary	ide-only	Now	empty diff if clean is still a valid response
 *	/api/{workspace_id}/force-push	ide-only	Destr	could rewrite the shared workspace's branch history — needs a disposable branch, never the shared one
 *	/api/{workspace_id}/git-state	ide-only	Now	verified live 200
-*	/api/{workspace_id}/integrations/looker	ide-only	Ext	needs a real Looker connection; none configured
-*	/api/{workspace_id}/integrations/looker/query	ide-only	Ext	same
-*	/api/{workspace_id}/integrations/looker/query/sql	ide-only	Ext	same
+*	/api/{workspace_id}/integrations/looker	ide-only	Now	lists the Looker integrations named in config.yml; an empty list when none is configured
 *	/api/{workspace_id}/integrations/quickbooks/authorize	fleet-ok	Ext	starts QuickBooks OAuth; no creds
 *	/api/{workspace_id}/logo	fleet-ok	Now	reads workspace logo (default/placeholder), read-only
 *	/api/{workspace_id}/logs	fleet-ok	Now	Postgres/runtime read; real data plausible from the seeded schedule/threads
@@ -174,15 +186,6 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/pull-changes	ide-only	Now	likely a no-op given no configured remote (see `/fetch`); still exercises the route
 *	/api/{workspace_id}/push-changes	ide-only	Destr	probably a no-op today, but treat as destructive in principle — a configured remote would push real commits
 *	/api/{workspace_id}/recent-commits	ide-only	Now	verified live 200
-*	/api/{workspace_id}/repositories	ide-only	Now	data-repo list; likely empty, still a valid 200
-*	/api/{workspace_id}/repositories/{name}	ide-only	Fixture	needs a repo added first
-*	/api/{workspace_id}/repositories/{name}/branch	ide-only	Fixture	same
-*	/api/{workspace_id}/repositories/{name}/branches	ide-only	Fixture	same
-*	/api/{workspace_id}/repositories/{name}/checkout	ide-only	Fixture	same
-*	/api/{workspace_id}/repositories/{name}/commit	ide-only	Fixture	same
-*	/api/{workspace_id}/repositories/{name}/diff	ide-only	Fixture	same
-*	/api/{workspace_id}/repositories/{name}/files	ide-only	Fixture	same
-*	/api/{workspace_id}/repositories/github	ide-only	Ext	adds a repo from GitHub; no creds
 *	/api/{workspace_id}/reset-to-commit	ide-only	Destr	rewrites the shared working copy's HEAD — needs a disposable branch
 *	/api/{workspace_id}/resolve-conflict-file	ide-only	Fixture	only meaningful mid-merge-conflict
 *	/api/{workspace_id}/resolve-conflict-with-content	ide-only	Fixture	same
@@ -193,10 +196,9 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/secrets/{id}	fleet-ok	Fixture	needs a secret created first
 *	/api/{workspace_id}/secrets/{id}/value	fleet-ok	Fixture	same, reveal
 *	/api/{workspace_id}/secrets/bulk	fleet-ok	Fixture	bulk create, disposable
-*	/api/{workspace_id}/secrets/env	ide-only	Now	lists env-var-backed secrets from the working copy, safe read
 *	/api/{workspace_id}/semantic	fleet-ok	Fixture	`execute_semantic_query` needs a valid query body against a real measure — 13 known monitored measures give a starting point
 *	/api/{workspace_id}/semantic/anomalies	fleet-ok	Now	Postgres read, empty is valid
-*	/api/{workspace_id}/semantic/anomalies/{anomaly_id}/explain	ide-only	Fixture	needs a real anomaly id
+*	/api/{workspace_id}/semantic/anomalies/{anomaly_id}/explain	fleet-ok	Fixture	needs a real anomaly id; the semantic model through `resolve_scan`, as `/preview` reads it
 *	/api/{workspace_id}/semantic/anomalies/{anomaly_id}/status	fleet-ok	Fixture	same
 *	/api/{workspace_id}/semantic/anomalies/scan	ide-only	Fixture	triggers a real scan against the semantic model + warehouse; up to ~55s per `local-split-fleet-testing.md`
 *	/api/{workspace_id}/semantic/anomalies/status	fleet-ok	Fixture	bulk status update — needs real anomaly ids from a scan first

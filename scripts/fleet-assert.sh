@@ -76,6 +76,22 @@ OXY_BIN="${OXY_BIN:-$REPO_ROOT/target/debug/oxy}"
 PG_CONTAINER="${PG_CONTAINER:-oxy-fleet-assert-pg}"
 PG_PORT="${PG_PORT:-5432}"
 DB_URL="postgresql://admin:password@localhost:${PG_PORT}/oxy"
+# Native mode starts nodes with OXY_ROLE=ide / serve, and `oxy serve` refuses any
+# role but `all` without a shared key and the two custom-app buckets
+# (server/shared_state_check.rs), so native mode brings its own MinIO beside the
+# Postgres. The key is the disposable fixture value docker-compose.fleet.yml uses.
+MINIO_CONTAINER="${MINIO_CONTAINER:-oxy-fleet-assert-minio}"
+MINIO_PORT="${MINIO_PORT:-9100}"
+MINIO_IMAGE="${MINIO_IMAGE:-ghcr.io/oxy-hq/minio:RELEASE.2026-09-22T19-25-18Z@sha256:4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285}"
+SHARED_STATE_ENV=(
+  OXY_ENCRYPTION_KEY=ZmxlZXQtZml4dHVyZS1rZXktbm90LWEtcmVhbC1zZWM=
+  OXY_CUSTOMER_APPS_S3_BUCKET=oxy-customer-apps
+  OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET=oxy-customer-apps
+  AWS_ENDPOINT_URL="http://127.0.0.1:${MINIO_PORT}"
+  AWS_ACCESS_KEY_ID=minioadmin
+  AWS_SECRET_ACCESS_KEY=minioadmin
+  AWS_REGION=us-east-1
+)
 # Deterministic: Uuid::new_v5(NAMESPACE_DNS, "demo.oxy.local") — see seed.rs.
 WS="${WS:-70787bb2-e11b-5488-b2c3-02e60d5fc7d3}"
 # Deterministic local org, verified live (product-context.md: org "local").
@@ -457,7 +473,7 @@ cleanup() {
   [ "$KEEP" = "1" ] && { printf '\n(--keep) fleet left running: ide :%s  serve :%s  serve :%s\n' "$IDE_PORT" "$S1_PORT" "$S2_PORT"; return; }
   printf '\nTearing down…\n'
   pkill -f "$OXY_BIN serve" 2>/dev/null
-  docker rm -f "$PG_CONTAINER" >/dev/null 2>&1
+  docker rm -f "$PG_CONTAINER" "$MINIO_CONTAINER" >/dev/null 2>&1
 }
 trap cleanup EXIT
 
@@ -468,7 +484,7 @@ start_node() { # name role port internal extra_env...
   OXY_DEV_LOGIN_EMAILS="$DEV_EMAIL,$FLOW_EMAIL" \
   OXY_ROLE="$role" \
   "$@" \
-  "$OXY_BIN" serve --enterprise --port "$port" --internal-port "$internal" \
+  env "${SHARED_STATE_ENV[@]}" "$OXY_BIN" serve --enterprise --port "$port" --internal-port "$internal" \
     > "/tmp/oxy-fleet-assert-$name.log" 2>&1 &
   printf -v "PID_${name}" '%s' "$!"
 }
@@ -503,7 +519,7 @@ if [ "$MODE" = native ]; then
   docker info >/dev/null 2>&1 || die "docker is not running"
   [ -x "$OXY_BIN" ] || die "no binary at $OXY_BIN — run: cargo build -p oxy-server"
   assert_fresh "$OXY_BIN" "the binary" "cargo build -p oxy-server"
-  for p in $IDE_PORT $IDE_INTERNAL $S1_PORT $S1_INTERNAL $S2_PORT $S2_INTERNAL; do
+  for p in $IDE_PORT $IDE_INTERNAL $S1_PORT $S1_INTERNAL $S2_PORT $S2_INTERNAL $MINIO_PORT; do
     lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1 && die "port $p already in use"
   done
   ok "binary present, ports free, docker up"
@@ -524,6 +540,20 @@ if [ "$MODE" = native ]; then
   fi
   ok "postgres ready on :$PG_PORT"
 
+  step "2b. MinIO (the shared custom-app stores)"
+  docker rm -f "$MINIO_CONTAINER" >/dev/null 2>&1
+  docker run -d --name "$MINIO_CONTAINER" --user 0:0 \
+    -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+    -p "${MINIO_PORT}:9000" "$MINIO_IMAGE" server /data >/dev/null || die "could not start minio"
+  for _ in $(seq 1 60); do
+    docker exec "$MINIO_CONTAINER" mc ready local >/dev/null 2>&1 && break
+    sleep 1
+  done
+  docker exec "$MINIO_CONTAINER" sh -c \
+    'mc alias set fleet http://127.0.0.1:9000 minioadmin minioadmin >/dev/null && mc mb --ignore-existing fleet/oxy-customer-apps' \
+    >/dev/null 2>&1 || die "minio never accepted the bucket (docker logs $MINIO_CONTAINER)"
+  ok "minio ready on :$MINIO_PORT, bucket oxy-customer-apps"
+
   step "3. Start ide node"
   ide_start
   wait_health "http://127.0.0.1:${IDE_INTERNAL}/api/health" 180 || die "ide never became healthy (see /tmp/oxy-fleet-assert-ide.log)"
@@ -531,7 +561,7 @@ if [ "$MODE" = native ]; then
 
   step "4. Seed + compile + promote"
   OXY_DATABASE_URL="$DB_URL" OXY_GLOBAL_ADMINS="internal@localhost,$DEV_EMAIL,$FLOW_EMAIL" \
-    "$OXY_BIN" seed >/tmp/oxy-fleet-assert-seed.log 2>&1 || die "seed failed (see /tmp/oxy-fleet-assert-seed.log)"
+    env "${SHARED_STATE_ENV[@]}" "$OXY_BIN" seed >/tmp/oxy-fleet-assert-seed.log 2>&1 || die "seed failed (see /tmp/oxy-fleet-assert-seed.log)"
   OXY_DATABASE_URL="$DB_URL" "$OXY_BIN" compile \
     --workspace-path "$REPO_ROOT/examples" --workspace-id "$WS" \
     --enterprise --promote --skip-migrations >/tmp/oxy-fleet-assert-compile.log 2>&1 \
@@ -740,9 +770,8 @@ declare -a REPLAYABLE_GET=()
 # replay in steps 12/13. Without this, the replay fires a GET against
 # something THIS SCRIPT deliberately removed and reports "still 404 after
 # the ide returned" — a self-inflicted false failure that reads exactly
-# like a real ide-recovery defect. Measured live: 5 of this run's 28
-# failures were this shape (a renamed scratch file + all four
-# repositories/{name}/{branch,branches,diff,files} reads) before this fix.
+# like a real ide-recovery defect. Measured live: a renamed scratch file
+# read back after removal was this shape before this fix.
 # No associative arrays (bash 3.2, see the file header) — a linear rebuild.
 strip_replayable() { # exact concrete path to stop replaying
   local keep=() entry role rpath
@@ -874,7 +903,6 @@ DISPOSABLE_ORG_ID=""; DISPOSABLE_WS_ID=""; DISPOSABLE_APP_ID=""
 INVITATION_ID=""; INVITATION_TOKEN=""
 # Extended fixtures (step 8b, below the original disposable-resource block) —
 # declared here so `set -u` never trips if a creation step is skipped.
-DATA_REPO_NAME="fleet-assert-scratch-repo"; DATA_REPO_LIVE=0
 DISPOSABLE_WS_SCRATCH_B64=""
 SCRATCH_FILE_LIVE=0; SCRATCH_FOLDER_LIVE=0
 OWM_SECRET_ID=""; BESTTIME_SECRET_ID=""
@@ -1126,11 +1154,11 @@ fi
 # TABLE below (so they get the real 3-way serve-1/serve-2/ide comparison like
 # everything else, instead of a single ad-hoc curl).
 if [ "$SKIP_FIXTURES" = "1" ]; then
-  skip "extended Fixture-bucket coverage (repositories/apps/automations/integrations/tests/semantic) — --skip-fixtures was passed"
+  skip "extended Fixture-bucket coverage (apps/automations/integrations/tests/semantic) — --skip-fixtures was passed"
 else
   ANOM_ID=""
 
-  step "8b. Disposable-workspace scratch file (backs the data-repo + conflict-route probes below)"
+  step "8b. Disposable-workspace scratch file (backs the conflict-route probes below)"
   if [ -n "$DISPOSABLE_WS_ID" ]; then
     DISPOSABLE_WS_SCRATCH_PATH="_fleet_probe/repo-scratch.txt"
     DISPOSABLE_WS_SCRATCH_B64=$(pathb64_std "$DISPOSABLE_WS_SCRATCH_PATH")
@@ -1140,51 +1168,10 @@ else
       ok "created a scratch file in the disposable workspace"
     else
       DISPOSABLE_WS_SCRATCH_B64=""
-      skip "could not create a scratch file in the disposable workspace ($sfc) — data-repo commit + conflict-route probes left uncovered"
+      skip "could not create a scratch file in the disposable workspace ($sfc) — conflict-route probes left uncovered"
     fi
   else
-    skip "no disposable workspace — data-repo + conflict-route + branch-lifecycle Fixture routes left uncovered"
-  fi
-
-  step "8c. Disposable data-repo lifecycle (repositories/* — path=\".\", the disposable workspace's OWN repo, never the shared Demo's)"
-  if [ -n "$DISPOSABLE_WS_ID" ]; then
-    c=$(req POST "${S1_BASE}/api/${DISPOSABLE_WS_ID}/repositories" /dev/null \
-      "$(printf '{"name":"%s","path":"."}' "$DATA_REPO_NAME")")
-    if [[ "$c" =~ ^2 ]]; then
-      ok "added disposable data-repo '$DATA_REPO_NAME'"
-      DATA_REPO_LIVE=1
-      mark_covered "/api/{workspace_id}/repositories"
-      CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${DISPOSABLE_WS_ID}/repositories/${DATA_REPO_NAME}")
-      # commit and checkout are NOT attempted here — measured live as 500
-      # ("fatal: not a git repository (or any parent up to mount point
-      # /var/lib/oxy)", confirmed via the ide container's own log for this
-      # exact request). Root cause confirmed, not guessed: `path: "."`
-      # resolves to the disposable workspace's OWN root, and a workspace
-      # onboarded via /onboarding/new is a plain directory — never
-      # `git init`-ed. That is a genuine mismatch in what this fixture
-      # asked the data-repo feature to do, not a product defect: nothing
-      # about `add_repository` promises an arbitrary `path` is a git repo,
-      # and every OTHER data-repo route degrades gracefully on a non-repo
-      # path (get_repo_branch/_diff swallow the git error via
-      # `.unwrap_or_else`/`.unwrap_or_default`; list_repo_branches and
-      # get_repo_file_tree short-circuit on their own `resolve_repo`
-      # check) — only commit_repo and checkout_repo_branch propagate the
-      # git failure as a hard 500 instead of the same graceful pattern,
-      # which is arguably a rough edge worth a follow-up, but not the
-      # diskless-replica bug class this harness exists to catch. Left
-      # honestly uncovered rather than asserting against a fixture that
-      # cannot pass by construction — exercising these for real would need
-      # a `path` that genuinely IS its own git repo, which nothing
-      # reachable over this HTTP API creates today.
-      #
-      # branch / branches / diff / files ARE exercised — read-only, and
-      # every one of them tolerates the same non-git directory gracefully
-      # (see above) — added to the CASE TABLE below for the real 3-way
-      # compare. The final DELETE happens in step 10c, after those reads
-      # run.
-    else
-      skip "repositories create (path=.) returned $c — the whole disposable data-repo chain left uncovered"
-    fi
+    skip "no disposable workspace — conflict-route + branch-lifecycle Fixture routes left uncovered"
   fi
 
   step "8d. Conflict/rebase no-op-path routes (disposable workspace — real requests, no genuine conflict state)"
@@ -1428,8 +1415,7 @@ else
     if [[ "$arc" =~ ^2 ]]; then
       AUTOMATION_RUN_ID=$(jq -r '.run_id // empty' "$aro")
       ok "started automation run $AUTOMATION_RUN_ID ($NOLLM_AUTOMATION_PATH)"
-      mark_covered "/api/{workspace_id}/agentic-automations/{*rest}"
-      mark_covered "/api/{workspace_id}/agentic-workflows/{*rest}"
+      mark_covered "/api/{workspace_id}/agentic-automations/runs"
       # Formatter-only run — should reach a terminal state almost instantly.
       # Wait briefly so the CASE TABLE's 3-way read comparison below doesn't
       # race a still-"running" status on one node.
@@ -1616,10 +1602,8 @@ add Now  "oxy-access"        GET "/api/${WS}/oxy-access"               body   "/
 add Now  "procedures-list"   GET "/api/${WS}/procedures"               body   "/api/{workspace_id}/procedures"
 add Now  "pull-changes"      POST "/api/${WS}/pull-changes"            status "/api/{workspace_id}/pull-changes"
 add Now  "recent-commits"    GET "/api/${WS}/recent-commits"           body   "/api/{workspace_id}/recent-commits"
-add Now  "repositories"      GET "/api/${WS}/repositories"             body   "/api/{workspace_id}/repositories"
 add Now  "revision-info"     GET "/api/${WS}/revision-info"            body   "/api/{workspace_id}/revision-info"
 add Now  "secrets-list"      GET "/api/${WS}/secrets"                  body   "/api/{workspace_id}/secrets"
-add Now  "secrets-env"       GET "/api/${WS}/secrets/env"              body   "/api/{workspace_id}/secrets/env"
 add Now  "status"            GET "/api/${WS}/status"                  body   "/api/{workspace_id}/status"
 add Now  "tests-list"        GET "/api/${WS}/tests"                    body   "/api/{workspace_id}/tests"
 add Now  "tests-project-runs" GET "/api/${WS}/tests/project-runs"      body   "/api/{workspace_id}/tests/project-runs"
@@ -1869,14 +1853,6 @@ add Fixture "databases-sync" POST "/api/${WS}/databases/sync?database=local" sta
 add Fixture "modeling-nodes" GET "/api/${WS}/modeling/jaffle_shop/nodes" body "/api/{workspace_id}/modeling/{*rest}"
 add Fixture "modeling-lineage" GET "/api/${WS}/modeling/jaffle_shop/lineage" body "/api/{workspace_id}/modeling/{*rest}"
 
-# ── Fixture bucket: disposable data-repo reads (branch/branches/diff/files) ─
-if [ "$DATA_REPO_LIVE" = "1" ] && [ -n "$DISPOSABLE_WS_ID" ]; then
-  add Fixture "repo-branch"   GET "/api/${DISPOSABLE_WS_ID}/repositories/${DATA_REPO_NAME}/branch"   body "/api/{workspace_id}/repositories/{name}/branch"
-  add Fixture "repo-branches" GET "/api/${DISPOSABLE_WS_ID}/repositories/${DATA_REPO_NAME}/branches" body "/api/{workspace_id}/repositories/{name}/branches"
-  add Fixture "repo-diff"     GET "/api/${DISPOSABLE_WS_ID}/repositories/${DATA_REPO_NAME}/diff"     body "/api/{workspace_id}/repositories/{name}/diff"
-  add Fixture "repo-files"    GET "/api/${DISPOSABLE_WS_ID}/repositories/${DATA_REPO_NAME}/files"    body "/api/{workspace_id}/repositories/{name}/files"
-fi
-
 # ── Fixture bucket: world-model proxy routes (weather/foot-traffic/competitors)
 # Real, comparable requests once a real integration row exists (see 8f) — the
 # upstream call itself legitimately fails on a fake key (502), which is still
@@ -2116,7 +2092,7 @@ mark_covered "/api/logout"
 # not something the coverage report can see). The trap's CLEANUP_CMDS entries
 # for these same resources are left in place as a redundant safety net —
 # deleting an already-deleted resource twice 404s harmlessly.
-step "10c. Finalize delete-only-verb fixtures (files, data-repo, app-integrations)"
+step "10c. Finalize delete-only-verb fixtures (files, app-integrations)"
 if [ "$SCRATCH_FILE_LIVE" = "1" ]; then
   dfc=$(req DELETE "${S1_BASE}/api/${WS}/files/${SCRATCH_FILE_CURRENT_B64:-$SCRATCH_FILE_B64}/delete-file" /dev/null)
   [[ "$dfc" =~ ^2 ]] && ok "files/{pathb64}/delete-file: $dfc" || bad "files/{pathb64}/delete-file: expected 2xx, got $dfc"
@@ -2130,22 +2106,6 @@ if [ "$SCRATCH_FOLDER_LIVE" = "1" ]; then
   dfoc=$(req DELETE "${S1_BASE}/api/${WS}/files/${SCRATCH_FOLDER_B64}/delete-folder" /dev/null)
   [[ "$dfoc" =~ ^2 ]] && ok "files/{pathb64}/delete-folder: $dfoc" || bad "files/{pathb64}/delete-folder: expected 2xx, got $dfoc"
   mark_covered "/api/{workspace_id}/files/{pathb64}/delete-folder"
-fi
-if [ "$DATA_REPO_LIVE" = "1" ] && [ -n "$DISPOSABLE_WS_ID" ]; then
-  drc=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X DELETE -H "Authorization: $TOKEN" \
-    "${S1_BASE}/api/${DISPOSABLE_WS_ID}/repositories/${DATA_REPO_NAME}")
-  [[ "$drc" =~ ^2 ]] && ok "repositories/{name} DELETE: $drc" || bad "repositories/{name} DELETE: expected 2xx, got $drc"
-  mark_covered "/api/{workspace_id}/repositories/{name}"
-  # Same reasoning as the scratch-file strip above — branch/branches/diff/
-  # files all passed as real GETs during the CASE TABLE loop and were
-  # queued for ide-down/ide-recovery replay; stop that now that the repo
-  # they read is gone. Measured live before this fix: all four replayed as
-  # "still 404 after the ide returned", which is this exact self-inflicted
-  # shape, not a real recovery defect.
-  strip_replayable "/api/${DISPOSABLE_WS_ID}/repositories/${DATA_REPO_NAME}/branch"
-  strip_replayable "/api/${DISPOSABLE_WS_ID}/repositories/${DATA_REPO_NAME}/branches"
-  strip_replayable "/api/${DISPOSABLE_WS_ID}/repositories/${DATA_REPO_NAME}/diff"
-  strip_replayable "/api/${DISPOSABLE_WS_ID}/repositories/${DATA_REPO_NAME}/files"
 fi
 if [ "$APP_INTEGRATION_OWM_LIVE" = "1" ]; then
   aic=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X DELETE -H "Authorization: $TOKEN" \

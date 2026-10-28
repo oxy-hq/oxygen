@@ -17,9 +17,6 @@ tasks:
           ---
           Schedule by Interval: {{schedules.value}}
           ---
-        export:
-          path: output/loop_sequential_formatter.txt
-          format: txt
 
   - name: formatter
     type: formatter
@@ -34,6 +31,3 @@ tasks:
       {{schedule.report}}
       {% endfor %}
 
-    export:
-      path: output/formatter.txt
-      format: txt

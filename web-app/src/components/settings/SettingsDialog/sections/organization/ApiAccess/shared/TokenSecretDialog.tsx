@@ -1,5 +1,6 @@
 import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
+import { CopyBlock } from "@/components/CopyBlock";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -11,7 +12,6 @@ import {
 } from "@/components/ui/shadcn/dialog";
 import type { TokenWithSecret } from "@/types/apiToken";
 import { exportTokenSnippet } from "../utils/workflowSnippet";
-import { CopyBlock } from "./CopyBlock";
 
 interface TokenSecretDialogProps {
   /** The freshly minted or regenerated token. `null` keeps the dialog closed. */

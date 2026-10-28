@@ -113,6 +113,44 @@ pub(super) async fn reconcile(
     Ok(verdict)
 }
 
+/// Is the root's queued entry the continuation from the checkpoint it is at —
+/// an answer to its question, or a resume the coordinator assigned — that no
+/// driver has started yet? Read-only: asked before the drive, to tell a
+/// continuation from a recovery ([`super::recover_single_run`]). A run that is
+/// being answered is not being recovered, so it spends no recovery budget and
+/// gets none of a recovery's clean-up of the log.
+///
+/// "Not started yet" is read from the log, not the queue row: the answer's
+/// `input_resolved` (`queued_answer`) is the last event until a driver starts
+/// the resume and writes after it. The row cannot say it — a crashed driver's
+/// claim is requeued with its count charged, but a graceful release (every
+/// rolling deploy) refunds the count to zero, and either way the spec and the
+/// suspension still match. A driver that died before writing anything did
+/// nothing, so continuing its resume afresh is right.
+pub(super) async fn continues(db: &DatabaseConnection, root_id: &str) -> Result<bool, String> {
+    let suspension = agentic_runtime::crud::get_suspension(db, root_id)
+        .await
+        .map_err(|e| format!("failed to read the root's suspension: {e}"))?;
+    if suspension.is_none() {
+        return Ok(false);
+    }
+    let entry = agentic_runtime::crud::get_queue_entry(db, root_id)
+        .await
+        .map_err(|e| format!("failed to read the root's queue entry: {e}"))?;
+    if classify(suspension.as_ref(), entry.as_ref()) != RootEntry::Continues {
+        return Ok(false);
+    }
+    let last_seq = agentic_runtime::crud::get_max_seq(db, root_id)
+        .await
+        .map_err(|e| format!("failed to read the root's log: {e}"))?;
+    let last = agentic_runtime::crud::get_events_after(db, root_id, last_seq - 1)
+        .await
+        .map_err(|e| format!("failed to read the root's log: {e}"))?;
+    Ok(last
+        .last()
+        .is_some_and(|event| event.event_type == "input_resolved"))
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

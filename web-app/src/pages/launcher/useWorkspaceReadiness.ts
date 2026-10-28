@@ -2,6 +2,7 @@ import { Database, GitFork, KeyRound } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useChosenWorkspaceId } from "@/contexts/ChosenWorkspaceContext";
 import useAgents from "@/hooks/api/agents/useAgents";
 import useDatabases from "@/hooks/api/databases/useDatabases";
 import useGithubSetup from "@/hooks/api/onboarding/useGithubSetup";
@@ -50,7 +51,10 @@ export default function useWorkspaceReadiness(): WorkspaceReadiness {
   const navigate = useNavigate();
   const location = useLocation();
   const openSettings = useSettingsDialog((s) => s.open);
-  const { wsId: urlWsId } = useParams<{ wsId: string }>();
+  const { wsId: paramWsId } = useParams<{ wsId: string }>();
+  // The org home has no :wsId segment; it loads from a chosen workspace instead.
+  const chosenWsId = useChosenWorkspaceId();
+  const urlWsId = paramWsId ?? chosenWsId;
   const locationState = location.state as { agentPath?: string } | null;
 
   // The Zustand store lags one render behind workspace switches; gate every

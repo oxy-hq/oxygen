@@ -55,8 +55,6 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::{mpsc, watch};
@@ -684,62 +682,6 @@ pub async fn cancel_airway_run(
         }
     }
     StatusCode::NO_CONTENT.into_response()
-}
-
-// ── GET /agentic-airway/files ─────────────────────
-//
-// Mirrors `/agentic-workflows/files`: lists `.airway.yml` pipeline
-// files as { path, path_b64 } so the Schedules UI target picker can be
-// populated for airway schedules.
-//
-// `IdeOnly`, as a legacy route rather than by need: the web app lists pipelines
-// from `GET /airway-pipelines` (oxy-app, `FleetOk`, compile-boundary-backed)
-// and nothing off the Factory calls this one. Its lister does have a compiled
-// arm, but a boundary fault on a node with no working copy surfaces below as a
-// 500 — fix that mapping before unpinning it.
-
-#[derive(Serialize)]
-pub struct AirwayFile {
-    /// Workspace-relative path, usable as a schedule `target_ref`.
-    pub path: String,
-    /// URL-safe base64 of `path` (parity with the automation files shape).
-    pub path_b64: String,
-}
-
-pub async fn list_airway_files(
-    Extension(platform): Extension<Arc<dyn PlatformContext>>,
-) -> Response {
-    let workspace: Arc<dyn WorkflowWorkspaceContext> = platform.clone();
-    let paths = match workspace.list_airway_files().await {
-        Ok(p) => p,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("list files: {e}"),
-            )
-                .into_response();
-        }
-    };
-    let root = workspace
-        .workspace_path()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_default();
-    let files: Vec<AirwayFile> = paths
-        .into_iter()
-        .map(|abs| {
-            let rel = abs
-                .strip_prefix(&root)
-                .unwrap_or(&abs)
-                .to_string_lossy()
-                .to_string();
-            let path_b64 = URL_SAFE_NO_PAD.encode(rel.as_bytes());
-            AirwayFile {
-                path: rel,
-                path_b64,
-            }
-        })
-        .collect();
-    Json(files).into_response()
 }
 
 // ── POST /agentic-airway/sources/discover ──────────────────────────────────

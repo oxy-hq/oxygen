@@ -244,11 +244,14 @@ pub async fn run_worker(
     // and `All` is the value that claims the workspace filesystem. A chart that
     // never sets `OXY_ROLE` would otherwise get all three wrong branches below
     // anyway. An explicit `OXY_ROLE` still wins.
-    crate::server::role_manifest::init_process_role_from_env_with_default(
+    let role = crate::server::role_manifest::init_process_role_from_env_with_default(
         crate::server::role_manifest::Role::Worker,
     );
 
     require_database_url()?;
+    // A worker is never the single process unless OXY_ROLE=all says so; its
+    // secrets and custom-app files must come from state every node can read.
+    crate::server::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
 
     // NOTE: do not add a second `init_process_role_from_env()` here. This PR
     // originally did, before main's #2822 added the `_with_default(Worker)`

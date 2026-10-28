@@ -269,119 +269,125 @@ fn main() {
 
     // DO NOT USE #[tokio::main]
     // https://docs.sentry.io/platforms/rust/
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async {
-            // Install the subscriber: Sentry + stderr/file + (for a server
-            // command with OXY_OBSERVABILITY_BACKEND set) the
-            // SpanCollectorLayer + (if an OTLP endpoint is configured) the
-            // OpenTelemetry exporters. The observability *store* isn't wired
-            // yet — the `oxy start` path boots its ClickHouse container and
-            // only then are `OXY_CLICKHOUSE_*` set; `observability_boot::
-            // finalize()` is called from `serve.rs` once that endpoint is
-            // available, and from `worker.rs` at boot. The OTel resource needs
-            // the fleet role now, before clap has parsed anything, so it is
-            // read from OXY_ROLE + argv.
-            let command = server_command(&args);
-            let role =
-                oxy_telemetry::resource::role_hint(command, env::var("OXY_ROLE").ok().as_deref());
-            let mut otel = OtelConfig::from_env(role);
-            if command.is_none() {
-                otel.sdk_disabled = true;
-            }
-            // Only a command that drains the span channel may fill it — see
-            // `server_command`.
-            let collect_product_spans = observability_enabled && command.is_some();
-            let telemetry_problems = logging::init(collect_product_spans, &otel, command.is_some());
-            for problem in telemetry_problems {
-                tracing::warn!(%problem, "platform telemetry degraded");
-            }
-            if otel.export_enabled() {
-                tracing::info!(
-                    traces_endpoint = otel.traces_endpoint.as_deref().unwrap_or_default(),
-                    logs_endpoint = otel.logs_endpoint.as_deref().unwrap_or_default(),
-                    traces = otel.traces_exported(),
-                    logs = otel.logs_exported(),
-                    filter = %otel.filter,
-                    role = role.unwrap_or("none"),
-                    "OTLP export enabled"
-                );
-            }
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    runtime.enable_all();
+    // A debug build's `async fn` poll frame reserves room for every future it
+    // awaits, so a request's stack is the sum of its whole middleware chain's
+    // frames. A ClickHouse `POST /{ws}/sql/query` measured 1.3 MB of it on macOS
+    // before reaching the connector, and overflowed the default 2 MiB worker
+    // stack on Linux in the custom-app canary. Release builds are far below
+    // that and keep the default.
+    #[cfg(debug_assertions)]
+    runtime.thread_stack_size(8 * 1024 * 1024);
+    runtime.build().unwrap().block_on(async {
+        // Install the subscriber: Sentry + stderr/file + (for a server
+        // command with OXY_OBSERVABILITY_BACKEND set) the
+        // SpanCollectorLayer + (if an OTLP endpoint is configured) the
+        // OpenTelemetry exporters. The observability *store* isn't wired
+        // yet — the `oxy start` path boots its ClickHouse container and
+        // only then are `OXY_CLICKHOUSE_*` set; `observability_boot::
+        // finalize()` is called from `serve.rs` once that endpoint is
+        // available, and from `worker.rs` at boot. The OTel resource needs
+        // the fleet role now, before clap has parsed anything, so it is
+        // read from OXY_ROLE + argv.
+        let command = server_command(&args);
+        let role =
+            oxy_telemetry::resource::role_hint(command, env::var("OXY_ROLE").ok().as_deref());
+        let mut otel = OtelConfig::from_env(role);
+        if command.is_none() {
+            otel.sdk_disabled = true;
+        }
+        // Only a command that drains the span channel may fill it — see
+        // `server_command`.
+        let collect_product_spans = observability_enabled && command.is_some();
+        let telemetry_problems = logging::init(collect_product_spans, &otel, command.is_some());
+        for problem in telemetry_problems {
+            tracing::warn!(%problem, "platform telemetry degraded");
+        }
+        if otel.export_enabled() {
+            tracing::info!(
+                traces_endpoint = otel.traces_endpoint.as_deref().unwrap_or_default(),
+                logs_endpoint = otel.logs_endpoint.as_deref().unwrap_or_default(),
+                traces = otel.traces_exported(),
+                logs = otel.logs_exported(),
+                filter = %otel.filter,
+                role = role.unwrap_or("none"),
+                "OTLP export enabled"
+            );
+        }
 
-            // Metrics, installed after the subscriber so its own diagnostics
-            // are logged rather than dropped. Separate from `OtelConfig`
-            // because the two signals have independent switches: the
-            // Prometheus reader is always on (a pull endpoint costs nothing
-            // until scraped) while OTLP push is opt-in, and a one-shot CLI
-            // command gets neither.
-            let mut metrics_config = oxy_telemetry::metrics::MetricsConfig::from_env();
-            if command.is_none() {
-                metrics_config.sdk_disabled = true;
-            }
-            for problem in
-                oxy_telemetry::metrics::init(&metrics_config, oxy_telemetry::resource::build(role))
-            {
-                tracing::warn!(%problem, "platform metrics degraded");
-            }
-            if metrics_config.otlp_exported() {
-                tracing::info!(
-                    endpoint = metrics_config.otlp_endpoint.as_deref().unwrap_or_default(),
-                    interval_secs = metrics_config.export_interval.as_secs(),
-                    "OTLP metrics export enabled"
-                );
-            }
+        // Metrics, installed after the subscriber so its own diagnostics
+        // are logged rather than dropped. Separate from `OtelConfig`
+        // because the two signals have independent switches: the
+        // Prometheus reader is always on (a pull endpoint costs nothing
+        // until scraped) while OTLP push is opt-in, and a one-shot CLI
+        // command gets neither.
+        let mut metrics_config = oxy_telemetry::metrics::MetricsConfig::from_env();
+        if command.is_none() {
+            metrics_config.sdk_disabled = true;
+        }
+        for problem in
+            oxy_telemetry::metrics::init(&metrics_config, oxy_telemetry::resource::build(role))
+        {
+            tracing::warn!(%problem, "platform metrics degraded");
+        }
+        if metrics_config.otlp_exported() {
+            tracing::info!(
+                endpoint = metrics_config.otlp_endpoint.as_deref().unwrap_or_default(),
+                interval_secs = metrics_config.export_interval.as_secs(),
+                "OTLP metrics export enabled"
+            );
+        }
 
-            // Give the server enough file-descriptor headroom before it binds
-            // listeners / boots the embedded Postgres — macOS defaults to a
-            // soft NOFILE of 256, which busy instances exhaust (EMFILE).
-            raise_fd_limit();
+        // Give the server enough file-descriptor headroom before it binds
+        // listeners / boots the embedded Postgres — macOS defaults to a
+        // soft NOFILE of 256, which busy instances exhaust (EMFILE).
+        raise_fd_limit();
 
-            let exit_code = match cli(surface_seams()).await {
-                Ok(_) => 0,
-                Err(e) => {
-                    tracing::error!(error = %e, "Application error");
-                    sentry_config::capture_error_with_context(&*e, "CLI execution failed");
-                    eprintln!("{}", format!("{e}").error());
-                    1
+        let exit_code = match cli(surface_seams()).await {
+            Ok(_) => 0,
+            Err(e) => {
+                tracing::error!(error = %e, "Application error");
+                sentry_config::capture_error_with_context(&*e, "CLI execution failed");
+                eprintln!("{}", format!("{e}").error());
+                1
+            }
+        };
+
+        observability_boot::shutdown().await;
+
+        // Metrics before the trace/log exporters: the meter provider's own
+        // flush can emit internal logs, and those should still have
+        // somewhere to go.
+        match tokio::task::spawn_blocking(oxy_telemetry::metrics::shutdown).await {
+            Ok(problems) => {
+                for problem in problems {
+                    eprintln!("oxy: {problem}");
                 }
-            };
+            }
+            Err(e) => eprintln!("oxy: metrics shutdown did not complete: {e}"),
+        }
 
-            observability_boot::shutdown().await;
-
-            // Metrics before the trace/log exporters: the meter provider's own
-            // flush can emit internal logs, and those should still have
-            // somewhere to go.
-            match tokio::task::spawn_blocking(oxy_telemetry::metrics::shutdown).await {
-                Ok(problems) => {
-                    for problem in problems {
-                        eprintln!("oxy: {problem}");
-                    }
+        // Last: flush the OTLP exporters. Blocking, bounded, and off the
+        // async thread so a slow collector cannot wedge the runtime.
+        match tokio::task::spawn_blocking(oxy_telemetry::otel::shutdown).await {
+            Ok(problems) => {
+                for problem in problems {
+                    eprintln!("oxy: {problem}");
                 }
-                Err(e) => eprintln!("oxy: metrics shutdown did not complete: {e}"),
             }
+            Err(e) => eprintln!("oxy: OTLP exporter shutdown did not complete: {e}"),
+        }
 
-            // Last: flush the OTLP exporters. Blocking, bounded, and off the
-            // async thread so a slow collector cannot wedge the runtime.
-            match tokio::task::spawn_blocking(oxy_telemetry::otel::shutdown).await {
-                Ok(problems) => {
-                    for problem in problems {
-                        eprintln!("oxy: {problem}");
-                    }
-                }
-                Err(e) => eprintln!("oxy: OTLP exporter shutdown did not complete: {e}"),
-            }
+        // Truly last: point fd 2 back at the real stderr and let the
+        // capture thread write out whatever stray lines are still queued
+        // (the `eprintln!`s just above included).
+        oxy_telemetry::stderr_capture::finish(std::time::Duration::from_secs(2));
 
-            // Truly last: point fd 2 back at the real stderr and let the
-            // capture thread write out whatever stray lines are still queued
-            // (the `eprintln!`s just above included).
-            oxy_telemetry::stderr_capture::finish(std::time::Duration::from_secs(2));
-
-            if exit_code != 0 {
-                exit(exit_code);
-            }
-        });
+        if exit_code != 0 {
+            exit(exit_code);
+        }
+    });
 }
 
 #[cfg(test)]

@@ -12,3 +12,14 @@ pub mod routes;
 pub mod store;
 
 pub use cache::is_enabled;
+
+/// The apps-first experience, in one switch: the customer home and onboarding, the
+/// customer's read-only world model page, the web app without its workspace
+/// management and creation screens, and Factory access enforcement
+/// (`server::factory_access`). Global: the registry has no per-org targeting.
+pub const APPS_FIRST_EXPERIENCE: &str = "apps_first_experience";
+
+/// Whether [`APPS_FIRST_EXPERIENCE`] is on.
+pub fn apps_first_experience() -> bool {
+    is_enabled(APPS_FIRST_EXPERIENCE)
+}

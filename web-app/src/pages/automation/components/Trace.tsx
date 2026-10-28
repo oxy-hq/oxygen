@@ -29,6 +29,7 @@
 
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import type { AutomationEvent } from "@/services/api/automations";
 
 type Props = {
@@ -53,6 +54,7 @@ export const Trace = ({ events }: Props) => {
 };
 
 const TraceRow = ({ index, event }: { index: number; event: AutomationEvent }) => {
+  const hidePaths = useAppsFirstExperience();
   const [expanded, setExpanded] = useState(false);
   const isFailure = isFailureEvent(event);
   const Icon = expanded ? ChevronDown : ChevronRight;
@@ -71,7 +73,7 @@ const TraceRow = ({ index, event }: { index: number; event: AutomationEvent }) =
         <span className={`shrink-0 ${isFailure ? "text-destructive" : "text-foreground"}`}>
           {event.type}
         </span>
-        <span className='truncate text-muted-foreground'>{summarize(event)}</span>
+        <span className='truncate text-muted-foreground'>{summarize(event, hidePaths)}</span>
       </button>
       {expanded && (
         <pre className='mt-1 mb-2 ml-12 overflow-x-auto whitespace-pre-wrap break-all rounded bg-muted px-2 py-1 text-[11px]'>
@@ -82,14 +84,20 @@ const TraceRow = ({ index, event }: { index: number; event: AutomationEvent }) =
   );
 };
 
-function summarize(event: AutomationEvent): string {
+/** `hidePaths` (apps-first): a cached step says "cache", never the file it came from. */
+function summarize(event: AutomationEvent, hidePaths = false): string {
   switch (event.type) {
     case "subrun_started":
       return `${event.payload.subrun_name} (${event.payload.steps.length} steps)`;
     case "subrun_step_started":
       return event.payload.step;
     case "subrun_step_cache_hit": {
-      const src = event.payload.source === "file" ? event.payload.path : event.payload.prior_run_id;
+      const src =
+        event.payload.source === "file"
+          ? hidePaths
+            ? undefined
+            : event.payload.path
+          : event.payload.prior_run_id;
       return `${event.payload.step} ← ${src ?? "cache"}`;
     }
     case "subrun_step_output":

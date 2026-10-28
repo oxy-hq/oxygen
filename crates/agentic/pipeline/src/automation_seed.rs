@@ -74,6 +74,18 @@ pub fn ensure_unscheduled(request: &StartAutomationRequest) -> Result<(), Automa
     }
 }
 
+/// Record on the run's metadata who it was started for, so a driver in another
+/// process (a `Global` entry is anyone's to claim) runs it as that requester
+/// instead of on its own subject-less context. Nothing when there is none.
+pub fn stamp_requester(metadata: &mut Value, requester: Option<crate::platform::Requester>) {
+    if let (Some(requester), Some(map)) = (requester, metadata.as_object_mut()) {
+        map.insert(
+            crate::platform::Requester::KEY.to_string(),
+            requester.to_metadata(),
+        );
+    }
+}
+
 /// Insert the `agentic_runs` row and enqueue its root task under `run_id`
 /// (root task id == run id, like every Global seed — see
 /// `scheduler::start_health_eval_run`). Runs on any connection, including an
@@ -85,11 +97,25 @@ pub async fn seed_automation_run(
     scope: crud::TaskScope,
     workspace_id: Uuid,
 ) -> Result<(), AutomationRunError> {
+    seed_automation_run_as(db, run_id, request, scope, workspace_id, None).await
+}
+
+/// [`seed_automation_run`], recording who the run was started for
+/// ([`stamp_requester`]).
+pub async fn seed_automation_run_as(
+    db: &impl ConnectionTrait,
+    run_id: &str,
+    request: StartAutomationRequest,
+    scope: crud::TaskScope,
+    workspace_id: Uuid,
+    requester: Option<crate::platform::Requester>,
+) -> Result<(), AutomationRunError> {
     request.validate()?;
     ensure_unscheduled(&request)?;
     let thread = thread_uuid(&request)?;
     let question = format!("workflow: {}", request.workflow_ref);
-    let metadata = automation_metadata(&request);
+    let mut metadata = automation_metadata(&request);
+    stamp_requester(&mut metadata, requester);
     crud::insert_run(
         db,
         run_id,

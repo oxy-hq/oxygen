@@ -25,6 +25,7 @@ mod function_retries_test;
 mod integration_tests;
 mod preview_airway_sample_test;
 mod preview_run_recovery_test;
+mod queued_analytics_park_test;
 mod run_platform_resolver_test;
 mod scheduler_test;
 mod starting_run_recovery_test;

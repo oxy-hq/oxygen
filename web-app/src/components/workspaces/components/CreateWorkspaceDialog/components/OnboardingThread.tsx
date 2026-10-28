@@ -1,19 +1,13 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { Dialog, DialogContent } from "@/components/ui/shadcn/dialog";
 import type { SelectableItem } from "@/hooks/analyticsSteps";
-import useApps from "@/hooks/api/apps/useApps";
-import queryKeys from "@/hooks/api/queryKey";
 import type { UseAnalyticsRunResult } from "@/hooks/useAnalyticsRun";
 import type { BuilderActivityItem } from "@/hooks/useBuilderActivity";
-import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import { markOnboardingDismissedForStorageKey } from "@/libs/utils/onboardingStorage";
 import AnalyticsArtifactSidebar from "@/pages/thread/analytics/AnalyticsArtifactSidebar";
 import type { UiBlock } from "@/services/api/analytics";
-import type { AppItem } from "@/types/app";
-import { appDisplayLabel } from "@/utils/appLabel";
 import BuildJobsPanel, { type BuildJob, type JobStatus } from "./components/BuildJobsPanel";
 import CompletionCard from "./components/CompletionCard";
 import CredentialForm from "./components/CredentialForm";
@@ -21,12 +15,7 @@ import OnboardingMessage from "./components/OnboardingMessage";
 import SecureInput from "./components/SecureInput";
 import SelectionCards from "./components/SelectionCards";
 import TableSelector from "./components/TableSelector";
-import {
-  humanizeTopicSlug,
-  MODEL_OPTIONS,
-  predictSecondAppTopic,
-  type useOnboardingOrchestrator
-} from "./orchestrator";
+import { MODEL_OPTIONS, type useOnboardingOrchestrator } from "./orchestrator";
 import type {
   OnboardingInputBlock,
   OnboardingRailState,
@@ -44,14 +33,6 @@ interface OnboardingThreadProps {
   actions: Actions;
   semanticRun: UseAnalyticsRunResult;
   agentRun: UseAnalyticsRunResult;
-  appRun: UseAnalyticsRunResult;
-  /**
-   * Present but only surfaced when `includeApp2` is true — the hook is
-   * always instantiated in the parent (React hook rules) but its events
-   * and job card should only be shown when the workspace has ≥ 2 topics.
-   */
-  app2Run: UseAnalyticsRunResult;
-  includeApp2: boolean;
   builderActivityItems: BuilderActivityItem[];
   viewEvents?: UiBlock[];
   viewsRunning?: boolean;
@@ -69,12 +50,7 @@ interface OnboardingThreadProps {
 
 // The per-phase messages are replaced by `BuildJobsPanel` in the build step —
 // filter them out so we don't render duplicate narrative.
-const BUILD_PHASE_MESSAGE_IDS = new Set([
-  "phase_semantic",
-  "phase_agent",
-  "phase_app",
-  "phase_app2"
-]);
+const BUILD_PHASE_MESSAGE_IDS = new Set(["phase_semantic", "phase_agent"]);
 
 /** Message-id prefix for GitHub-mode LLM key prompts. */
 const GITHUB_LLM_KEY_PREFIX = "github_llm_key_";
@@ -129,13 +105,6 @@ function toUiBlocks(run: UseAnalyticsRunResult): UiBlock[] {
   })) as UiBlock[];
 }
 
-/** Prefer the LLM-authored `title:` from the on-disk app when available,
- *  falling back to a generic label while the YAML is still being written. */
-function labelForAppPath(appsByPath: Map<string, AppItem>, path: string, fallback: string): string {
-  const match = appsByPath.get(path);
-  return match ? appDisplayLabel(match) : fallback;
-}
-
 function runStatus(
   run: UseAnalyticsRunResult,
   phaseStatus: "running" | "done" | "failed" | undefined,
@@ -155,9 +124,6 @@ export default function OnboardingThread({
   actions,
   semanticRun,
   agentRun,
-  appRun,
-  app2Run,
-  includeApp2,
   builderActivityItems: _builderActivityItems,
   viewEvents = [],
   viewsRunning = false,
@@ -175,39 +141,8 @@ export default function OnboardingThread({
     setSelectedArtifact(item);
   }, []);
 
-  // Workspace app list carries the LLM-authored `title:` for each dashboard
-  // (e.g. "Contact Coverage" instead of the predicted "CONTACT dashboard").
-  // Shared TanStack cache with CompletionCard. The refs below ensure we
-  // invalidate at most once per phase transition — without them, any later
-  // change to `project.id` / `branchName` would re-fire the invalidation.
-  const queryClient = useQueryClient();
-  const { project, branchName } = useCurrentProjectBranch();
-  const { data: workspaceApps } = useApps(true, false, false);
-  const appPhaseStatus = state.phaseStatuses?.app;
-  const app2PhaseStatus = state.phaseStatuses?.app2;
-  const appInvalidatedRef = useRef(false);
-  const app2InvalidatedRef = useRef(false);
-  useEffect(() => {
-    let shouldInvalidate = false;
-    if (appPhaseStatus === "done" && !appInvalidatedRef.current) {
-      appInvalidatedRef.current = true;
-      shouldInvalidate = true;
-    }
-    if (app2PhaseStatus === "done" && !app2InvalidatedRef.current) {
-      app2InvalidatedRef.current = true;
-      shouldInvalidate = true;
-    }
-    if (shouldInvalidate) {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.app.list(project.id, branchName)
-      });
-    }
-  }, [appPhaseStatus, app2PhaseStatus, queryClient, project.id, branchName]);
-
   const semanticEvents = toUiBlocks(semanticRun);
   const agentEvents = toUiBlocks(agentRun);
-  const appEvents = toUiBlocks(appRun);
-  const app2Events = includeApp2 ? toUiBlocks(app2Run) : [];
 
   const semanticCombinedEvents = useMemo(
     () => [...semanticEvents, ...viewEvents],
@@ -249,38 +184,6 @@ export default function OnboardingThread({
       isRunning: false
     };
     const agentProgress = phaseProgress?.agent ?? semanticProgress;
-    const appProgress = phaseProgress?.app ?? semanticProgress;
-    const app2Progress = phaseProgress?.app2 ?? semanticProgress;
-
-    // Look up each job's label from the LLM-authored `title:` in the
-    // generated `.app.yml` once it's on disk. Falls back to the predicted
-    // label while the file is still being written.
-    const appsByPath = new Map<string, AppItem>();
-    for (const app of workspaceApps ?? []) {
-      appsByPath.set(app.path, app);
-    }
-    // Pinned by the builder prompt at crates/agentic/builder/src/onboarding.rs
-    // (see test `app_prompt_produces_overview_file`). If that path moves,
-    // this fallback silently kicks in.
-    const appLabel = labelForAppPath(appsByPath, "apps/overview.app.yml", "Starter dashboard");
-    // App2's filename is unpredictable (single-topic vs cross-topic JOIN),
-    // so we find the first non-overview app on disk and read its title.
-    // While the file is still being written, fall back to the alphabetical
-    // second-topic guess for a hint label.
-    const secondTopic = includeApp2 ? predictSecondAppTopic(state.selectedTables) : undefined;
-    const app2Fallback = secondTopic
-      ? `${humanizeTopicSlug(secondTopic)} dashboard`
-      : "Deep-dive dashboard";
-    const app2Path = includeApp2
-      ? Array.from(appsByPath.keys()).find(
-          (p) => p.startsWith("apps/") && p !== "apps/overview.app.yml"
-        )
-      : undefined;
-    const app2Label = includeApp2
-      ? app2Path
-        ? labelForAppPath(appsByPath, app2Path, app2Fallback)
-        : app2Fallback
-      : app2Fallback;
 
     const jobs: BuildJob[] = [
       {
@@ -299,28 +202,8 @@ export default function OnboardingThread({
         events: agentEvents,
         run: agentRun,
         progress: agentProgress
-      },
-      {
-        id: "app",
-        label: appLabel,
-        status: runStatus(appRun, ps.app, !!ps.app),
-        events: appEvents,
-        run: appRun,
-        progress: appProgress
       }
     ];
-
-    // Deep-dive job — only advertised when the workspace has ≥ 2 topics.
-    if (includeApp2) {
-      jobs.push({
-        id: "app2",
-        label: app2Label,
-        status: runStatus(app2Run, ps.app2, !!ps.app2),
-        events: app2Events,
-        run: app2Run,
-        progress: app2Progress
-      });
-    }
 
     return jobs;
   }, [
@@ -332,13 +215,7 @@ export default function OnboardingThread({
     semanticCombinedEvents,
     agentRun,
     agentEvents,
-    appRun,
-    appEvents,
-    app2Run,
-    app2Events,
-    includeApp2,
-    phaseProgress,
-    workspaceApps
+    phaseProgress
   ]);
 
   const isBuildPhase = state.step === "building" || state.step === "complete";
@@ -347,11 +224,10 @@ export default function OnboardingThread({
     [messages, isBuildPhase]
   );
 
-  const anyStreaming = [semanticRun, agentRun, appRun, ...(includeApp2 ? [app2Run] : [])].some(
+  const anyStreaming = [semanticRun, agentRun].some(
     (r) => r.state.tag === "running" || r.state.tag === "suspended"
   );
-  const totalEventCount =
-    semanticCombinedEvents.length + agentEvents.length + appEvents.length + app2Events.length;
+  const totalEventCount = semanticCombinedEvents.length + agentEvents.length;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll should trigger when messages/events change
   useEffect(() => {

@@ -664,6 +664,12 @@ const TABLES: &[(&str, Placement)] = &[
         },
     ),
     ("workspace_compiled_configs", Control("compiled config.yml")),
+    (
+        "workspace_factory_grants",
+        Control(
+            "which members an Oxy operator let into a workspace's Factory: ids and a timestamp",
+        ),
+    ),
     ("workspace_health_state", Control("workspace health")),
     (
         "workspace_health_transitions",

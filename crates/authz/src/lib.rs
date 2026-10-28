@@ -289,6 +289,44 @@ pub enum Action {
     /// who is also a member of the org is still staff, and this is a staff tool
     /// rather than a tenant role the override could out-rank.
     WorkspacePreview,
+    /// Create a workspace in an org: the demo, the blank one and the GitHub
+    /// import (`POST /orgs/{org_id}/onboarding/{demo,new,github}`). Oxy staff only:
+    /// customers do not build, so a customer org admin cannot stand up a workspace
+    /// and its setup wizard.
+    ///
+    /// The same ring as [`Action::WorkspacePreview`] and for the same reason —
+    /// staff whose grant carries `OperatePlatform` over the org, scope consulted. It
+    /// is a separate action so the guard logs under its own name and the two can be
+    /// tightened apart. Callers also pass the org-admin door, which an operator
+    /// acting as a tenant clears with the synthetic Owner role.
+    WorkspaceProvision,
+    /// Use the **Factory** in a workspace — the IDE and back office under `/ide`, and
+    /// every workspace route that authors or operates the workspace's definitions
+    /// rather than serving a customer (`server::factory_access` holds the route
+    /// list). Customers do not build, so no workspace role and no plain org
+    /// membership means this.
+    ///
+    /// Three ways in, and only three:
+    ///
+    /// - **Oxy staff** whose grant carries `OperatePlatform` over the workspace's org
+    ///   (scope consulted). Membership neither grants nor blocks it, like
+    ///   [`Action::WorkspacePreview`], and for the same reason: this is a staff tool,
+    ///   not a tenant role the operator override could out-rank.
+    /// - **An owner or admin of the workspace's org** — a person whose `org_members`
+    ///   role is owner or admin, with no grant needed (decided 2026-10-27). A token
+    ///   carries this only with an admin ceiling over the workspace, as every officer
+    ///   term does.
+    /// - **A real member of the workspace's org** holding a row in
+    ///   `workspace_factory_grants` for THIS workspace
+    ///   ([`PrincipalFacts::factory_workspaces`]). The grant is a filter on the org,
+    ///   never a way into it: an ex-member's leftover row opens nothing.
+    ///
+    /// Deliberately NOT: a plain org member without a grant, a workspace owner or
+    /// admin by that workspace role alone, an admin service account, a managing
+    /// partner, or an App Operator. A token needs a member ceiling over the workspace
+    /// to carry a grant, and an admin ceiling to carry staff reach or an officer's
+    /// role.
+    FactoryUse,
 
     // ── Partner ceiling (one action per PartnerCapability) ────────────────────
     // The partner tier shipped a whole second decision engine of its own. These absorb
@@ -402,7 +440,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 53] = [
+    pub const ALL: [Action; 55] = [
         Action::OrgRead,
         Action::ManageLocations,
         Action::ManageOrgRoles,
@@ -434,6 +472,8 @@ impl Action {
         Action::NamespaceDelete,
         Action::WorkspaceOxyAccess,
         Action::WorkspacePreview,
+        Action::WorkspaceProvision,
+        Action::FactoryUse,
         Action::PartnerManageMembers,
         Action::PartnerManageApps,
         Action::PartnerDevelopApps,
@@ -494,6 +534,8 @@ impl Action {
             Action::NamespaceDelete => "namespace_delete",
             Action::WorkspaceOxyAccess => "workspace_oxy_access",
             Action::WorkspacePreview => "workspace_preview",
+            Action::WorkspaceProvision => "workspace_provision",
+            Action::FactoryUse => "factory_use",
             // Ids match PartnerCapability::as_str, prefixed — the partner tier's own
             // policy uses the bare cap name; these live in the shared action space.
             Action::PartnerManageMembers => "partner_manage_members",
@@ -552,7 +594,10 @@ impl Action {
             Action::AppNonProduction => Ring::StaffReach(Cap::DevelopApps),
             Action::WorkspaceRename | Action::NamespaceDelete => Ring::OrgAdminOrCreator,
             Action::WorkspaceOxyAccess => Ring::WorkspaceAdminStrict,
-            Action::WorkspacePreview => Ring::StaffReach(Cap::OperatePlatform),
+            Action::WorkspacePreview | Action::WorkspaceProvision => {
+                Ring::StaffReach(Cap::OperatePlatform)
+            }
+            Action::FactoryUse => Ring::Factory,
             Action::PartnerManageMembers => Ring::PartnerCap(Cap::ManageMembers),
             Action::PartnerManageApps => Ring::PartnerCap(Cap::ManageApps),
             Action::PartnerDevelopApps => Ring::PartnerCap(Cap::DevelopApps),
@@ -1118,6 +1163,18 @@ enum Ring {
     /// are therefore conditioned on NOT being a member. A staff-only tool has no
     /// tenant role to out-rank, so neither membership nor its absence moves it.
     StaffReach(Cap),
+    /// The Factory ([`Action::FactoryUse`]): Oxy staff holding `OperatePlatform` over
+    /// the resource's org — exactly [`Self::StaffReach`] — OR an owner or admin of
+    /// that org (a person, at an admin ceiling) OR a real member of that org holding
+    /// a per-workspace Factory grant for this very workspace. The grant term reads a
+    /// workspace resource only: the grant is keyed by workspace, and an org or
+    /// platform resource names none.
+    ///
+    /// Its own ring because it is the one place a staff term and tenant terms meet
+    /// on a tool: `StaffReach` has no tenant side, and every tenant ring's staff term
+    /// is the synthetic-owner override, conditioned on non-membership. Neither
+    /// shape fits "staff, the org's officers, or a member Oxy named".
+    Factory,
     /// Platform tier — holds ANY staff standing. The `/admin/*` door only
     /// (`oxy_owner_or_app_admin_guard`); every section behind it escalates to
     /// [`Self::PlatformCap`].
@@ -1376,6 +1433,11 @@ pub struct PrincipalFacts {
     /// the org-derived workspace role comes free from the org sets via the hierarchy,
     /// and overrides can only elevate, never downgrade.
     pub ws_admin_override: Vec<Uuid>,
+    /// Workspaces an Oxy operator granted this principal the Factory in
+    /// (`workspace_factory_grants`). Read by exactly one ring, [`Ring::Factory`], and
+    /// only ANDed with membership of the workspace's org. Loaded with the other
+    /// workspace facts, so the custom-app data plane's scoped load never pays for it.
+    pub factory_workspaces: Vec<Uuid>,
     /// Apps where the principal holds an `app_members` row of ANY role. Read only
     /// by [`Ring::AppAccess`], and only when the app is restricted — so an app
     /// whose visibility is `org` behaves exactly as it did before this existed.
@@ -1726,6 +1788,32 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
             !is_platform
                 && at_least(RoleCeiling::Admin)
                 && facts.platform_grants(cap, resource.org_id)
+        }
+        // The Factory: staff reach into this org, an owner or admin of this org, or a
+        // member Oxy granted THIS workspace to. Authoring writes the tenant's
+        // workspace, so the token ceiling is the member's — the lowest that edits a
+        // workspace at all.
+        //
+        // The staff term is `StaffReach(OperatePlatform)` to the letter: no membership
+        // condition, scope consulted, and an admin ceiling, because a staff tool
+        // changes the tenant it is used in. The officer term is `officer_here`: a PERSON
+        // whose `org_members` role is owner or admin, as far as the token's ceiling
+        // lets that role reach (an admin ceiling), so an admin service account and a
+        // member-ceiling token do not carry it (decided 2026-10-27). The grant term is
+        // ANDed with membership, so a row left behind by a removed member opens
+        // nothing, and it is read only against a WORKSPACE resource — an org or the
+        // platform singleton names no workspace a grant could be for. A partner's
+        // assume session, a plain org member without a grant, and a workspace owner or
+        // admin by that workspace role alone reach it by none of these.
+        Ring::Factory => {
+            !is_platform
+                && ((at_least(RoleCeiling::Admin)
+                    && facts.platform_grants(Cap::OperatePlatform, resource.org_id))
+                    || officer_here
+                    || (at_least(RoleCeiling::Member)
+                        && resource.kind == ResourceKind::Workspace
+                        && member_here
+                        && facts.factory_workspaces.contains(&resource.id)))
         }
         // The console IS scoped: the capability must come from the partner being acted
         // as. Operating a partner that grants `cap` over some other client authorizes
@@ -2861,6 +2949,7 @@ mod policy_tests {
             Ring::WorkspaceData,
             Ring::StaffReach(Cap::DevelopApps),
             Ring::StaffReach(Cap::OperatePlatform),
+            Ring::Factory,
         ] {
             assert!(
                 Action::ALL.iter().any(|a| a.ring() == ring),
@@ -3531,6 +3620,148 @@ mod policy_tests {
                 "{who} must not reach a staff-only preview"
             );
         }
+    }
+
+    /// The Factory has three doors and no fourth. Staff reach it as they reach a
+    /// preview; the org's owners and admins reach it by that role; any other member
+    /// reaches it only through a grant for THIS workspace. A workspace role does not
+    /// count, however high.
+    #[test]
+    fn factory_use_is_staff_an_org_officer_or_a_granted_member_and_nothing_else() {
+        let ws_id = Uuid::from_u128(77);
+        let ws = Resource::workspace(ws_id, org());
+        let granted = PrincipalFacts {
+            member_orgs: vec![org()],
+            factory_workspaces: vec![ws_id],
+            ..facts()
+        };
+        let ga = PrincipalFacts {
+            platform: global_admin_standing(),
+            ..facts()
+        };
+        let owner = PrincipalFacts {
+            is_global_owner: true,
+            ..facts()
+        };
+        let ga_member = PrincipalFacts {
+            member_orgs: vec![org()],
+            platform: global_admin_standing(),
+            ..facts()
+        };
+        let org_admin = PrincipalFacts {
+            admin_orgs: vec![org()],
+            member_orgs: vec![org()],
+            ..facts()
+        };
+        let org_owner = PrincipalFacts {
+            owned_orgs: vec![org()],
+            admin_orgs: vec![org()],
+            member_orgs: vec![org()],
+            ..facts()
+        };
+        for (who, f) in [
+            ("granted member", &granted),
+            ("global admin", &ga),
+            ("global owner", &owner),
+            ("global admin who is also a plain member", &ga_member),
+            ("org admin without a grant", &org_admin),
+            ("org owner without a grant", &org_owner),
+        ] {
+            assert!(
+                allows(f, Action::FactoryUse, &ws),
+                "{who} must reach the Factory"
+            );
+        }
+
+        let plain_member = PrincipalFacts {
+            member_orgs: vec![org()],
+            ..facts()
+        };
+        let admin_of_elsewhere = PrincipalFacts {
+            admin_orgs: vec![other_org()],
+            member_orgs: vec![other_org()],
+            ..facts()
+        };
+        let workspace_admin = PrincipalFacts {
+            member_orgs: vec![org()],
+            ws_admin_override: vec![ws_id],
+            ..facts()
+        };
+        let partner = PrincipalFacts {
+            partners: vec![standing(partner_org(), org(), &Cap::ALL)],
+            ..facts()
+        };
+        let app_operator = PrincipalFacts {
+            platform: app_operator_standing(Scope::All),
+            ..facts()
+        };
+        for (who, f) in [
+            ("plain member", &plain_member),
+            ("an admin of another org", &admin_of_elsewhere),
+            ("workspace admin override", &workspace_admin),
+            ("partner with every cap", &partner),
+            ("app operator", &app_operator),
+            ("nobody", &facts()),
+        ] {
+            assert!(
+                !allows(f, Action::FactoryUse, &ws),
+                "{who} must not reach the Factory without a grant"
+            );
+        }
+
+        // The officer term reads a tenant resource only, never the platform singleton.
+        assert!(!allows(
+            &org_owner,
+            Action::FactoryUse,
+            &Resource::platform()
+        ));
+    }
+
+    /// A grant is for one workspace, and a filter on the org rather than a way into
+    /// it: another workspace's grant, a removed member's leftover row and a decision
+    /// on the org or the platform singleton all read as no grant.
+    #[test]
+    fn a_factory_grant_is_per_workspace_and_needs_membership() {
+        let ws_id = Uuid::from_u128(77);
+        let ws = Resource::workspace(ws_id, org());
+        let other_ws = Resource::workspace(Uuid::from_u128(78), org());
+
+        let granted = PrincipalFacts {
+            member_orgs: vec![org()],
+            factory_workspaces: vec![ws_id],
+            ..facts()
+        };
+        assert!(allows(&granted, Action::FactoryUse, &ws));
+        assert!(!allows(&granted, Action::FactoryUse, &other_ws));
+        assert!(!allows(&granted, Action::FactoryUse, &Resource::org(org())));
+        assert!(!allows(&granted, Action::FactoryUse, &Resource::platform()));
+
+        let removed_member = PrincipalFacts {
+            factory_workspaces: vec![ws_id],
+            ..facts()
+        };
+        assert!(
+            !allows(&removed_member, Action::FactoryUse, &ws),
+            "a grant row without membership of the org opens nothing"
+        );
+
+        let member_of_elsewhere = PrincipalFacts {
+            member_orgs: vec![other_org()],
+            factory_workspaces: vec![ws_id],
+            ..facts()
+        };
+        assert!(!allows(&member_of_elsewhere, Action::FactoryUse, &ws));
+    }
+
+    /// Staff reach honours the grant's scope, exactly like a preview: bounded to
+    /// one org, the Factory of that org's workspaces and no other's.
+    #[test]
+    fn factory_use_for_staff_honours_grant_scope() {
+        let here = Resource::workspace(Uuid::from_u128(77), org());
+        let there = Resource::workspace(Uuid::from_u128(78), other_org());
+        let bounded = admin_over(Scope::Orgs(vec![org()]));
+        assert!(allows(&bounded, Action::FactoryUse, &here));
+        assert!(!allows(&bounded, Action::FactoryUse, &there));
     }
 
     /// Scope is consulted, because the resource is a tenant's workspace: a grant

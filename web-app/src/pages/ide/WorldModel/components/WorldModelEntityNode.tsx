@@ -7,6 +7,8 @@ import { contributorHandleId, measureSymbol, measureSymbolColor } from "../world
 
 interface WmEntityData {
   entity: WorldModelEntity;
+  /** The customer's read-only page (see `WorldModelGraph`'s `plain`). */
+  plain?: boolean;
   selected: boolean;
   dimmed: boolean;
   /** Softly blurred into the background while an unrelated breakdown is shown. */
@@ -140,7 +142,8 @@ export function WorldModelEntityNode({ data }: NodeProps) {
     isContributorCard,
     onExpandEntity,
     onSelectChildInstance,
-    onBrowseSamples
+    onBrowseSamples,
+    plain
   } = data as unknown as WmEntityData;
 
   const obsCount = entity.dimensions.length;
@@ -168,18 +171,20 @@ export function WorldModelEntityNode({ data }: NodeProps) {
           </span>
         </div>
 
-        {/* Row 2: grain id · depth */}
-        <div className='flex min-w-0 items-center gap-1.5 font-mono text-[9px] text-muted-foreground'>
-          <span
-            className={cn(
-              "size-1.5 shrink-0 rounded-full",
-              dimmed ? "bg-muted-foreground" : "bg-info"
-            )}
-          />
-          <span className='truncate'>{entity.id}</span>
-          <span className='shrink-0 opacity-50'>·</span>
-          <span className='shrink-0'>depth {entity.depth}</span>
-        </div>
+        {/* Row 2: grain id · depth (not on the customer's page) */}
+        {!plain && (
+          <div className='flex min-w-0 items-center gap-1.5 font-mono text-[9px] text-muted-foreground'>
+            <span
+              className={cn(
+                "size-1.5 shrink-0 rounded-full",
+                dimmed ? "bg-muted-foreground" : "bg-info"
+              )}
+            />
+            <span className='truncate'>{entity.id}</span>
+            <span className='shrink-0 opacity-50'>·</span>
+            <span className='shrink-0'>depth {entity.depth}</span>
+          </div>
+        )}
 
         {/* Row 3: metric chips, filter badge, loading skeleton, or obs/calc counts */}
         <div className='mt-0.5 text-[10px]'>
@@ -250,6 +255,11 @@ export function WorldModelEntityNode({ data }: NodeProps) {
               <span className='uppercase tracking-wider'>filtering</span>
               <span className='animate-pulse'>···</span>
             </div>
+          ) : plain ? (
+            <span className='text-muted-foreground'>
+              {calcCount} {calcCount === 1 ? "measure" : "measures"}, {obsCount}{" "}
+              {obsCount === 1 ? "detail" : "details"}
+            </span>
           ) : (
             <div className='flex items-center gap-3'>
               <span className='flex items-center gap-1'>

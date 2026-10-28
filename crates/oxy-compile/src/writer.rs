@@ -36,6 +36,11 @@ pub struct RevisionContext {
     /// Carried so `finalise_revision`'s superseded path can look up
     /// the winner without re-fetching the revisions row.
     pub git_sha: String,
+    /// What this compile was stamped with at insert. `finalise_revision`
+    /// compares them with a revision of the same commit that is already
+    /// `ready` (see [`supersede_older_compiler`]).
+    pub schema_version: i32,
+    pub compiler_version: String,
 }
 
 /// Insert the initial `revisions` row with `status = compiling`. The
@@ -77,6 +82,8 @@ pub async fn insert_compiling_revision(
         workspace_id,
         started_at,
         git_sha: git_sha.to_string(),
+        schema_version,
+        compiler_version: compiler_version.to_string(),
     })
 }
 
@@ -162,6 +169,15 @@ pub async fn finalise_revision(
 
     let txn = db.begin().await?;
     let finished_at = Utc::now();
+
+    // A `ready` main revision of this commit by an OLDER compiler would make
+    // the status update below collide with the unique index, and this compile
+    // would be reported as superseded by the very revision it exists to
+    // replace. Step it aside in the same transaction: if anything after this
+    // fails, it rolls back and the older revision is still `ready`.
+    if matches!(input.status, RevisionStatus::Ready) && input.kind == "main" {
+        supersede_older_compiler(&txn, ctx).await?;
+    }
 
     write_compiled_rows(&txn, ctx, input.rows, &blob_keys).await?;
 
@@ -285,6 +301,148 @@ pub async fn finalise_revision(
         finished_at,
         promotion,
     })
+}
+
+/// The `error_summary.reason` of a revision stepped aside by a newer compiler's
+/// recompile of the same commit. Not a race loser (also `superseded`, but with
+/// no rows): its rows are all there, which is what lets the read path fall back
+/// to it when a build cannot read the new compiler's output.
+pub const SUPERSEDED_BY_NEWER_COMPILER: &str = "recompiled by a newer compiler";
+
+/// Mark `ready` main revisions of `ctx`'s commit that an older compiler wrote
+/// as `superseded`, so this one can take their place under the unique index
+/// on `(workspace_id, git_sha)`.
+///
+/// Without it a compile addressed by a commit never replaces what an older
+/// compiler produced for the same commit: the index lets one ready revision
+/// per commit exist, so a newer compiler's output lost the race to its own
+/// predecessor and a binary upgrade never reached a workspace until its next
+/// commit. Only a strictly older compiler is stepped aside, so two builds
+/// running side by side during a rolling deploy do not undo each other.
+async fn supersede_older_compiler(
+    txn: &impl ConnectionTrait,
+    ctx: &RevisionContext,
+) -> Result<(), CompileError> {
+    use sea_orm::{ColumnTrait, QueryFilter};
+    let rows = entity::revisions::Entity::find()
+        .filter(entity::revisions::Column::WorkspaceId.eq(ctx.workspace_id))
+        .filter(entity::revisions::Column::GitSha.eq(ctx.git_sha.as_str()))
+        .filter(entity::revisions::Column::Status.eq("ready"))
+        .filter(entity::revisions::Column::Kind.eq("main"))
+        .filter(entity::revisions::Column::RevisionId.ne(ctx.revision_id))
+        .all(txn)
+        .await?;
+    for row in rows {
+        if !compiler_is_older(
+            row.schema_version,
+            &row.compiler_version,
+            ctx.schema_version,
+            &ctx.compiler_version,
+        ) {
+            continue;
+        }
+        entity::revisions::ActiveModel {
+            revision_id: Set(row.revision_id),
+            status: Set("superseded".to_string()),
+            error_summary: Set(Some(serde_json::json!({
+                "superseded_by": ctx.revision_id.to_string(),
+                "reason": SUPERSEDED_BY_NEWER_COMPILER,
+            }))),
+            ..Default::default()
+        }
+        .update(txn)
+        .await?;
+        tracing::info!(
+            workspace_id = %ctx.workspace_id,
+            git_sha = %ctx.git_sha,
+            superseded = %row.revision_id,
+            by = %ctx.revision_id,
+            "compile: stepped aside a revision of this commit written by an older compiler"
+        );
+    }
+    Ok(())
+}
+
+/// Whether a revision stamped `(schema, compiler)` was written by an older
+/// compiler than `(ours_schema, ours_compiler)`: a lower schema version, or
+/// the same schema version and a lower `oxy-compile/<semver>`. A stamp that is
+/// not a version (a test fixture, a hand-written row) counts as older than a
+/// real one; two equal stamps are not older.
+pub fn compiler_is_older(
+    schema: i32,
+    compiler: &str,
+    ours_schema: i32,
+    ours_compiler: &str,
+) -> bool {
+    if schema != ours_schema {
+        return schema < ours_schema;
+    }
+    if compiler == ours_compiler {
+        return false;
+    }
+    match (
+        parse_compiler_version(compiler),
+        parse_compiler_version(ours_compiler),
+    ) {
+        (Some(theirs), Some(ours)) => theirs < ours,
+        (None, Some(_)) => true,
+        // Ours is not a version, so there is no order to speak of.
+        (_, None) => false,
+    }
+}
+
+fn parse_compiler_version(stamp: &str) -> Option<(u64, u64, u64)> {
+    let version = stamp.strip_prefix("oxy-compile/")?;
+    // Drop a pre-release or build suffix; compare the numeric core.
+    let core = version.split(['-', '+']).next()?;
+    let mut parts = core.split('.');
+    let mut next = || parts.next()?.parse::<u64>().ok();
+    let parsed = (next()?, next()?, next()?);
+    parts.next().is_none().then_some(parsed)
+}
+
+#[cfg(test)]
+mod compiler_order_tests {
+    use super::compiler_is_older;
+
+    const OURS: &str = "oxy-compile/0.5.158";
+
+    #[test]
+    fn a_lower_schema_version_is_older_whatever_the_compiler() {
+        assert!(compiler_is_older(1, "oxy-compile/9.9.9", 2, OURS));
+        assert!(!compiler_is_older(3, "oxy-compile/0.0.1", 2, OURS));
+    }
+
+    #[test]
+    fn at_the_same_schema_version_the_lower_release_is_older() {
+        assert!(compiler_is_older(2, "oxy-compile/0.5.157", 2, OURS));
+        // Numeric, not textual: 0.5.99 is older than 0.5.158.
+        assert!(compiler_is_older(2, "oxy-compile/0.5.99", 2, OURS));
+        assert!(compiler_is_older(2, "oxy-compile/0.4.999", 2, OURS));
+        assert!(!compiler_is_older(2, "oxy-compile/0.5.159", 2, OURS));
+        assert!(!compiler_is_older(2, "oxy-compile/0.6.0", 2, OURS));
+    }
+
+    #[test]
+    fn the_same_stamp_is_not_older_and_a_pre_release_is_compared_by_its_core() {
+        assert!(!compiler_is_older(2, OURS, 2, OURS));
+        assert!(!compiler_is_older(2, "oxy-compile/0.5.158-rc.1", 2, OURS));
+        assert!(compiler_is_older(2, "oxy-compile/0.5.157-rc.1", 2, OURS));
+    }
+
+    #[test]
+    fn a_stamp_that_is_not_a_version_is_older_than_one_that_is() {
+        for odd in [
+            "test",
+            "",
+            "oxy-compile/",
+            "oxy-compile/0.5",
+            "oxy-compile/a.b.c",
+        ] {
+            assert!(compiler_is_older(2, odd, 2, OURS), "{odd:?}");
+        }
+        assert!(!compiler_is_older(2, OURS, 2, "test"));
+    }
 }
 
 /// The promote/defer/decline decision, split out because it is the one

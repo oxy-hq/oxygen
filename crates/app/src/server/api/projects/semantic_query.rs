@@ -338,19 +338,22 @@ pub async fn run_semantic_query(
         }
         return response;
     }
-    let scan_path = match materialised.as_ref() {
-        Some(m) => m.path().to_path_buf(),
-        None => proj_ctx
-            .workspace_manager()
-            .config_manager
-            .semantics_scan_path(),
+    let scan = match materialised {
+        Some(m) => m,
+        None => crate::server::api::semantic_scan::ScanDir::Real(
+            proj_ctx
+                .workspace_manager()
+                .config_manager
+                .semantics_scan_path(),
+        ),
     };
     // The engine cache keys on the source that was actually read, so derive it
-    // from the same match: `is_materialised()` distinguishes a compiled
-    // revision from the working copy, which `revision_id()` cannot.
-    let source_revision = match materialised.as_ref() {
-        Some(m) if m.is_materialised() => proj_ctx.workspace_manager().config_manager.revision_id(),
-        _ => None,
+    // from the scan itself: `is_compiled()` distinguishes a compiled revision
+    // from the working copy, which `revision_id()` cannot.
+    let source_revision = if scan.is_compiled() {
+        proj_ctx.workspace_manager().config_manager.revision_id()
+    } else {
+        None
     };
     let databases: Vec<oxy_airlayer_compat::DatabaseConfig> = proj_ctx
         .workspace_manager()
@@ -425,7 +428,7 @@ pub async fn run_semantic_query(
             workspace_id: proj_ctx.workspace_manager().workspace_id,
             engine_cache: app_state.semantic_engine_cache.clone(),
         };
-        let layer = match layers.get_or_load(source_revision, scan_path.clone()).await {
+        let layer = match layers.get_or_load(source_revision, scan.clone()).await {
             Ok(layer) => layer,
             Err(e) => {
                 return err_with_code(
@@ -484,7 +487,7 @@ pub async fn run_semantic_query(
             agentic_semantic::compile::resolve_and_compile_cached(
                 &engine_cache,
                 engine_key,
-                &scan_path,
+                &scan,
                 &databases,
                 &req_clone,
                 preagg.as_ref(),

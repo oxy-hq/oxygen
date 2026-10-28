@@ -440,7 +440,7 @@ async fn compile_and_promote(db: &DatabaseConnection, root: &std::path::Path) ->
 /// Seed an org + a workspace row whose `path` is `root`. Split from
 /// [`compile_and_promote`] so a test can compile the same workspace more than
 /// once, which is what production does and what a from-scratch fixture cannot.
-async fn seed_workspace_at(db: &DatabaseConnection, root: &std::path::Path) -> Uuid {
+pub(super) async fn seed_workspace_at(db: &DatabaseConnection, root: &std::path::Path) -> Uuid {
     let now = chrono::Utc::now().fixed_offset();
     let org_id = Uuid::new_v4();
     organizations::ActiveModel {

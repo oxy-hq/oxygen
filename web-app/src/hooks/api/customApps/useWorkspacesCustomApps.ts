@@ -28,7 +28,10 @@ export const useWorkspacesCustomApps = (workspaceIds: readonly string[]): Worksp
     queries: workspaceIds.map((id) => ({
       queryKey: queryKeys.customApps.list(id),
       queryFn: () => CustomAppsService.listForWorkspace(id),
-      retry: 1
+      retry: 1,
+      // The org home and the rail read N lists on every page; without this each
+      // remount or window focus would refetch all of them.
+      staleTime: 60_000
     }))
   });
   return {

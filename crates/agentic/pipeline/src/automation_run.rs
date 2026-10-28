@@ -285,14 +285,36 @@ pub async fn start_automation_run(
     scope: crud::TaskScope,
     workspace_id: Uuid,
 ) -> Result<String, AutomationRunError> {
+    start_automation_run_as(db, request, scope, workspace_id, None).await
+}
+
+/// [`start_automation_run`], recording on the run's own insert who it was
+/// started for. A driver in another process — the run's `Global` entry is
+/// anyone's to claim — then runs it as that requester
+/// (`platform::Requester`) instead of on its own subject-less context.
+pub async fn start_automation_run_as(
+    db: &DatabaseConnection,
+    request: StartAutomationRequest,
+    scope: crud::TaskScope,
+    workspace_id: Uuid,
+    requester: Option<crate::platform::Requester>,
+) -> Result<String, AutomationRunError> {
     request.validate()?;
     let run_id = Uuid::new_v4().to_string();
     let Some(schedule_id) = request.schedule_id.clone() else {
-        crate::automation_seed::seed_automation_run(db, &run_id, request, scope, workspace_id)
-            .await?;
+        crate::automation_seed::seed_automation_run_as(
+            db,
+            &run_id,
+            request,
+            scope,
+            workspace_id,
+            requester,
+        )
+        .await?;
         return Ok(run_id);
     };
-    let metadata = crate::automation_seed::automation_metadata(&request);
+    let mut metadata = crate::automation_seed::automation_metadata(&request);
+    crate::automation_seed::stamp_requester(&mut metadata, requester);
     let thread_uuid = crate::automation_seed::thread_uuid(&request)?;
     let question = format!("workflow: {}", request.workflow_ref);
     crud::insert_run_with_schedule(
@@ -337,7 +359,8 @@ pub async fn start_automation_run(
 /// Drive a queued automation run.
 ///
 /// `builder_bridges` is required for automations that delegate to the
-/// built-in builder agent via `agent_ref: __builder__` (SQL gen, file
+/// built-in builder agent via `agent_ref: __builder__` (refused at compile
+/// now, so only a revision compiled before that holds one: SQL gen, file
 /// edits, etc.) — without it the executor returns "builder bridges
 /// not provided" the moment such a step delegates. `None` is only
 /// valid for paths that don't have a workspace context (the recovery
@@ -714,9 +737,7 @@ async fn run_inline_automation_internal(
     // — long enough for any realistic Data App, short enough to surface a
     // runaway decider as a failure rather than a hang.
     for _ in 0..1024 {
-        let (new_state, decision) = decider
-            .decide(state, pending_child.take(), None, None)
-            .await;
+        let (new_state, decision) = decider.decide(state, pending_child.take(), None).await;
         state = new_state;
         match decision {
             AutomationDecision::StepExecutedInline { .. } => continue,

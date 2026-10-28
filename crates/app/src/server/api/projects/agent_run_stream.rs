@@ -122,6 +122,9 @@ pub async fn stream_agent_run(
     let stream = async_stream::stream! {
         let mut last_sent_seq = last_seq;
         let mut processor = registry.stream_processor(&source_type);
+        let mut quiet_polls: u32 = 0;
+        // Set once the row has read terminal: the next pass is the last.
+        let mut row_terminal: Option<agentic_runtime::entity::run::Model> = None;
 
         loop {
             // Pull all new events past last_sent_seq.
@@ -132,6 +135,7 @@ pub async fn stream_agent_run(
                     break;
                 }
             };
+            quiet_polls = if rows.is_empty() { quiet_polls + 1 } else { 0 };
 
             let mut terminal = false;
             for row in rows {
@@ -176,6 +180,42 @@ pub async fn stream_agent_run(
                 return;
             }
 
+            // The log alone cannot say a run is over. A driver that dies
+            // between the run's end and its terminal event leaves none, and
+            // recovery reuses the sequence numbers of the partial events it
+            // deletes, so a terminal event written after that can sit below
+            // `last_sent_seq` where this loop never looks. The row is the
+            // authority: once it reads terminal, the events already read are
+            // re-read once more (the event may have landed just before the
+            // row), and if none of them ends the stream, the row's status
+            // does.
+            if let Some(run) = row_terminal.take() {
+                if let Some((event_type, payload)) =
+                    agentic_http::routes::run::terminal_event_for_status(
+                        run.task_status.as_deref(),
+                        run.error_message.as_deref(),
+                        run.answer.as_deref(),
+                        &run.id,
+                    )
+                {
+                    yield Ok(SseEvent::default()
+                        .id(last_sent_seq.saturating_add(1).to_string())
+                        .event(event_type)
+                        .data(payload.to_string()));
+                }
+                return;
+            }
+            if quiet_polls > 0 && quiet_polls % ROW_CHECK_EVERY_QUIET_POLLS == 0 {
+                match agentic_runtime::crud::get_run(&db, &run_id_for_stream).await {
+                    Ok(Some(run)) if run_is_over(run.task_status.as_deref()) => {
+                        row_terminal = Some(run);
+                        continue;
+                    }
+                    // Still going, or a failed read: keep streaming.
+                    _ => {}
+                }
+            }
+
             // Poll cadence: 250 ms between sweeps. Matches what the
             // workspace handler uses as its notifier-free fallback;
             // tight enough for token-like UX, loose enough that a
@@ -201,10 +241,65 @@ pub async fn stream_agent_run(
         .into_response()
 }
 
+/// Quiet 250 ms polls between reads of the run row: one read every 2 s while
+/// nothing arrives, never while events are flowing.
+const ROW_CHECK_EVERY_QUIET_POLLS: u32 = 8;
+
+/// Does this `task_status` mean nothing more is coming? `awaiting_input` is
+/// not over: the stream has already carried the question, and the bundle
+/// stops on that event itself.
+fn run_is_over(status: Option<&str>) -> bool {
+    matches!(
+        status,
+        Some("done") | Some("failed") | Some("cancelled") | Some("timed_out")
+    )
+}
+
 /// Customer-app SSE bundles see a small subset of the analytics
 /// UI-event taxonomy. Terminal events are the ones that should close
 /// the stream. Keep the set explicit so a new UI event added
 /// upstream doesn't accidentally truncate streams here.
 fn is_terminal_event(ui_event_type: &str) -> bool {
     matches!(ui_event_type, "done" | "error" | "cancelled" | "failed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The row closes the stream only when the run has ended. A run parked on
+    /// a question stays open: the bundle stops on the `awaiting_input` event
+    /// itself, and closing here would hand it an end the run never reached.
+    #[test]
+    fn only_an_ended_run_closes_the_stream() {
+        for over in ["done", "failed", "cancelled", "timed_out"] {
+            assert!(run_is_over(Some(over)), "{over}");
+        }
+        for going in [
+            "running",
+            "awaiting_input",
+            "delegating",
+            "needs_resume",
+            "shutdown",
+        ] {
+            assert!(!run_is_over(Some(going)), "{going}");
+        }
+        assert!(!run_is_over(None));
+    }
+
+    /// Every status the row can close the stream with maps to an event the
+    /// bundle ends on — so a closed stream is never one the SDK reconnects to.
+    #[test]
+    fn every_ending_the_row_reports_is_an_event_the_bundle_stops_on() {
+        for over in ["done", "failed", "cancelled", "timed_out"] {
+            let (event, _) = agentic_http::routes::run::terminal_event_for_status(
+                Some(over),
+                Some("why"),
+                None,
+                "run-1",
+            )
+            .expect("terminal");
+            assert!(is_terminal_event(event), "{over} -> {event}");
+        }
+    }
 }

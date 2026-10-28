@@ -1,13 +1,17 @@
-import { Handshake, House, MessagesSquare, Shield } from "lucide-react";
-import type { ReactNode } from "react";
+import { Handshake, House, MessagesSquare, Shield, SquareTerminal } from "lucide-react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AskDock } from "@/components/Ask/AskDock";
+import { OpenFactoryDialog } from "@/components/admin/OpenFactoryDialog";
 import { OxygenFactoryMark } from "@/components/OxygenFactoryMark";
 import { PreviewBar } from "@/components/PreviewBar";
 import WorkspaceStatus from "@/components/WorkspaceStatus";
-import { useCustomApps } from "@/hooks/api/customApps/useCustomApps";
+import { useActingSession } from "@/hooks/api/adminAssume/useActingSession";
+import useOrgCustomApps from "@/hooks/api/customApps/useOrgCustomApps";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { appWindowName } from "@/libs/utils/appWindowName";
+import { canUseFactory } from "@/libs/utils/factoryAccess";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
@@ -28,17 +32,31 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const { workspace } = useCurrentWorkspace();
   const wsId = workspace?.id ?? "";
-  const ws = ROUTES.ORG(orgSlug).WORKSPACE(wsId);
+  const org = ROUTES.ORG(orgSlug);
+  const ws = org.WORKSPACE(wsId);
 
-  const { data: customApps = [] } = useCustomApps(wsId);
+  // The rail's app marks are the org's: every app the person can open across its
+  // workspaces, the same list the org home's grid shows.
+  // With the apps-first experience off, the current workspace's apps, as before.
+  const appsFirst = useAppsFirstExperience();
+  const { apps: customApps } = useOrgCustomApps(wsId, { acrossOrg: appsFirst });
   const { data: profile } = useCurrentUser();
   // Global Owners (`OXY_OWNER`) and Global Admins (`app_admins` table) get a
   // one-click hop into the admin console. Tenant-internal org roles never do —
   // this mirrors the gate on the admin routes themselves.
   const isOperator = !!(profile?.is_owner || profile?.is_app_admin);
+  // The Factory admits staff by `operate_platform` (`Ring::Factory`), which an App
+  // Operator does not hold although `is_app_admin` is true for one. A Global Owner
+  // reports every capability; `is_owner` covers a response that omits the list.
+  const operatesPlatform = !!(
+    profile?.is_owner || profile?.platform_capabilities?.includes("operate_platform")
+  );
   // Partner admins (users who administer ≥1 partner) get a console hop. The
   // server enforces scope; this only decides whether to show the entry.
   const isPartnerAdmin = !!profile?.partner_memberships?.length;
+  const [openFactoryOpen, setOpenFactoryOpen] = useState(false);
+  const currentOrg = useCurrentOrg((s) => s.org);
+  const { session, isActing } = useActingSession();
 
   const path = location.pathname;
   const inIde = /\/ide(\/|$)/.test(path);
@@ -47,18 +65,22 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const hideStatus = inIde;
 
   // In local mode ws.ROOT is "" — the index route is "/".
-  const isHome = path === ws.HOME || path === (ws.ROOT || "/");
+  const isHome = path === org.HOME || path === ws.HOME || path === (ws.ROOT || "/");
+  // The read-only world model (apps-first) is opened from the home's card and has
+  // no rail entry of its own, so Home stays lit there.
+  const onWorldModel = appsFirst && path === ws.WORLD_MODEL;
 
   // Conceptual groups (divided in the rail): Home + Chat · Apps. (World Model
   // moved into Oxygen Factory as its own IDE sidebar surface.)
   const hq: RailItem = {
     key: "hq",
-    label: "HQ",
+    label: appsFirst ? "Home" : "HQ",
     testId: "rail-hq",
     icon: <House className='h-4 w-4' />,
-    active: isHome,
+    active: isHome || onWorldModel,
     onSelect: () => {
-      navigate(ws.HOME);
+      // The org home is the apps-first experience's; without it, the workspace's.
+      navigate(appsFirst ? org.HOME : ws.HOME);
     }
   };
   // The Chat landing (composer + recent threads) reached at /threads. Replaces
@@ -113,6 +135,40 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     }
   };
 
+  // "Open Factory…" (apps-first, staff who operate the platform only): this org's
+  // Factory in one click.
+  // Acting as this org already, it goes straight in; otherwise it opens the Open
+  // Factory flow on this org's workspaces (one workspace: straight to the reason),
+  // with a way to search every organization. It replaces the plain Factory entry
+  // for operators, who would otherwise see two.
+  const actingHere = isActing && !!currentOrg && session?.org_id === currentOrg.id;
+  const openFactory: RailItem = {
+    key: "open-factory",
+    label: "Open Factory…",
+    tooltip: currentOrg
+      ? `Open ${currentOrg.name}'s Factory, or search every organization`
+      : "Open an organization's Factory",
+    testId: "rail-open-factory",
+    icon: <SquareTerminal className='h-4 w-4' />,
+    active: path.startsWith(ws.IDE.ROOT),
+    onSelect: () => {
+      if (actingHere && wsId) {
+        navigate(ws.IDE.ROOT);
+        return;
+      }
+      setOpenFactoryOpen(true);
+    }
+  };
+  const staffFactory = appsFirst && operatesPlatform;
+  // Stable, so the dialog does not start over on every render while it is open.
+  const factoryScope = useMemo(
+    () =>
+      currentOrg
+        ? { orgId: currentOrg.id, orgSlug: currentOrg.slug, orgName: currentOrg.name }
+        : null,
+    [currentOrg]
+  );
+
   // Partner console entry — shown to partner admins (non-operators reach it
   // here; the server enforces scope on every call).
   const partner: RailItem = {
@@ -132,7 +188,15 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const groups: RailItem[][] = appItems.length ? [[hq, chat], appItems] : [[hq, chat]];
   // System zone: Oxygen Factory, then the Partner console (if any) and the
   // operator-only Admin hop below it.
-  const footerItems: RailItem[] = [core];
+  // The Factory is for Oxy staff, the org's owners and admins, and the members an
+  // operator granted it to. The
+  // server says (`factory_access` on the workspace); this only decides whether to
+  // show the entry — the routes refuse everyone else on their own.
+  const footerItems: RailItem[] = staffFactory
+    ? [openFactory]
+    : canUseFactory(workspace)
+      ? [core]
+      : [];
   if (isPartnerAdmin) footerItems.push(partner);
   if (isOperator) footerItems.push(admin);
 
@@ -145,7 +209,10 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           footerItems={footerItems}
           bottom={
             <>
-              <RailWorkspaceSwitch />
+              {/* Apps-first drops the switcher: the home lists every app across
+                  the org, and Oxy engineers move between an org's workspaces in
+                  the Factory's own picker. */}
+              {!appsFirst && <RailWorkspaceSwitch />}
               <RailUserMenu />
             </>
           }
@@ -179,6 +246,13 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     <div className='flex h-full w-full flex-col'>
       <PreviewBar />
       {layout}
+      {staffFactory && (
+        <OpenFactoryDialog
+          open={openFactoryOpen}
+          onOpenChange={setOpenFactoryOpen}
+          initialScope={factoryScope}
+        />
+      )}
     </div>
   );
 }

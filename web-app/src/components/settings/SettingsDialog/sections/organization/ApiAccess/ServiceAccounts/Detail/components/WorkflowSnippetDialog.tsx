@@ -1,3 +1,4 @@
+import { CopyBlock } from "@/components/CopyBlock";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -8,7 +9,6 @@ import {
   DialogTitle
 } from "@/components/ui/shadcn/dialog";
 import type { TrustPolicy } from "@/types/orgApiAccess";
-import { CopyBlock } from "../../../shared/CopyBlock";
 import { buildWorkflowSnippet } from "../../../utils/workflowSnippet";
 
 interface WorkflowSnippetDialogProps {

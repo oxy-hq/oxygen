@@ -26,10 +26,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    db,
-    state::{AgenticState, RunStatus},
-};
+use crate::{db, state::AgenticState};
 
 // ── Response types ──────────────────────────────────────────────────────────
 
@@ -355,18 +352,11 @@ pub async fn list_active_runs(
     let entries: Vec<ActiveRunEntry> = runs
         .into_iter()
         .map(|r| {
-            // Prefer in-memory status (more up-to-date) over DB status.
-            let live_status = state
-                .statuses
-                .get(&r.id)
-                .map(|s| match s.value() {
-                    RunStatus::Running => "running",
-                    RunStatus::Suspended { .. } => "suspended",
-                    RunStatus::Done => "done",
-                    RunStatus::Failed(_) => "failed",
-                    RunStatus::Cancelled => "cancelled",
-                })
-                .unwrap_or_else(|| db::user_facing_status(r.task_status.as_deref()));
+            // The row, not this process's status map: every coordinator
+            // transition writes Postgres before the map, and a replica that
+            // only accepted a submit holds a map entry nobody updates. See
+            // `router_roles`.
+            let live_status = db::user_facing_status(r.task_status.as_deref());
 
             ActiveRunEntry {
                 run_id: r.id,
@@ -627,17 +617,8 @@ pub async fn get_run_tree(
     let mut nodes: Vec<TaskTreeNode> = runs
         .into_iter()
         .map(|r| {
-            let live_status = state
-                .statuses
-                .get(&r.id)
-                .map(|s| match s.value() {
-                    RunStatus::Running => "running",
-                    RunStatus::Suspended { .. } => "suspended",
-                    RunStatus::Done => "done",
-                    RunStatus::Failed(_) => "failed",
-                    RunStatus::Cancelled => "cancelled",
-                })
-                .unwrap_or_else(|| db::user_facing_status(r.task_status.as_deref()));
+            // The row — see `list_active_runs`.
+            let live_status = db::user_facing_status(r.task_status.as_deref());
 
             let trigger = extract_trigger(&r.metadata);
             let source_kind = extract_metadata_string(&r.metadata, "source_kind");
@@ -788,6 +769,12 @@ pub async fn retry_run(
         Err(RetryError::Conflict(m)) => {
             tracing::info!(%run_id, reason = %m, "retry: refused, run or pipeline still active");
             (StatusCode::CONFLICT, m).into_response()
+        }
+        // A reaped airway run is re-seeded through the start route's own
+        // `submit_airway_run`, and answers its "not servable here" as that
+        // route does: `503` + `Retry-After`, never a `500`.
+        Err(RetryError::AirwayNotServable(e)) => {
+            crate::routes::airway_not_servable::not_servable_response(e)
         }
         Err(RetryError::SeedFailed(m)) => {
             tracing::warn!(%run_id, error = %m, "retry: seed failed");
@@ -1005,8 +992,11 @@ pub async fn get_queue_health(
 
 // ── GET /coordinator/live (SSE) ──────────────────────────────────────────────
 //
-// Streams run status snapshots every time any run's status changes.
-// The client receives a periodic snapshot of all in-memory run statuses.
+// Tails the workspace's active runs in `agentic_runs` every 2 seconds and sends
+// a snapshot whenever it changes — as the airway event stream tails its table.
+// The web app uses it as a cache-invalidation signal for `active-runs` and
+// `tree`. It reads Postgres and nothing in this process, so any replica can
+// serve it (`router_roles`).
 
 #[derive(Serialize)]
 struct LiveStatusEntry {
@@ -1019,14 +1009,13 @@ pub async fn live_stream(
     Path(workspace_id): Path<uuid::Uuid>,
 ) -> Response {
     let stream = async_stream::stream! {
-        // Send an initial snapshot immediately, filtered to this workspace.
-        let snapshot = workspace_snapshot(&state, workspace_id).await;
+        // Send an initial snapshot immediately.
+        let snapshot = workspace_snapshot(&state, workspace_id).await.unwrap_or_default();
         let event = SseEvent::default()
             .event("snapshot")
             .data(serde_json::to_string(&snapshot).unwrap_or_default());
         yield Ok::<_, std::convert::Infallible>(event);
 
-        // Poll every 2 seconds for status changes.
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
         let mut last_snapshot = snapshot;
 
@@ -1036,7 +1025,9 @@ pub async fn live_stream(
                 _ = state.shutdown_token.cancelled() => break,
             }
 
-            let current = workspace_snapshot(&state, workspace_id).await;
+            let Some(current) = workspace_snapshot(&state, workspace_id).await else {
+                continue;
+            };
             if current != last_snapshot {
                 let event = SseEvent::default()
                     .event("snapshot")
@@ -1052,49 +1043,29 @@ pub async fn live_stream(
         .into_response()
 }
 
-/// The in-memory status map is global (one process drives runs across
-/// every workspace) so each poll asks the DB which of the current run
-/// ids belong to the subscriber's workspace and filters the snapshot.
-/// One small SELECT per poll — cheap enough at the 2-second cadence.
+/// The workspace's active runs and their statuses, read from the run rows —
+/// the same rows `GET /coordinator/active-runs` answers with. A run that ends
+/// leaves the snapshot, which is the change a subscriber refetches on. `None`
+/// for a failed read, which the stream skips: an empty snapshot would read as
+/// "every run ended".
 async fn workspace_snapshot(
     state: &AgenticState,
     workspace_id: uuid::Uuid,
-) -> Vec<LiveStatusEntry> {
-    let full = build_snapshot(state);
-    if full.is_empty() {
-        return full;
-    }
-    let run_ids: Vec<String> = full.iter().map(|s| s.run_id.clone()).collect();
-    let allowed = match db::runs_in_workspace(&state.db, workspace_id, &run_ids).await {
-        Ok(set) => set,
+) -> Option<Vec<LiveStatusEntry>> {
+    match db::list_active_runs(&state.db, workspace_id, false).await {
+        Ok(runs) => Some(
+            runs.into_iter()
+                .map(|r| LiveStatusEntry {
+                    status: db::user_facing_status(r.task_status.as_deref()).to_string(),
+                    run_id: r.id,
+                })
+                .collect(),
+        ),
         Err(e) => {
-            tracing::warn!(error = %e, "live_stream: workspace filter query failed");
-            return Vec::new();
+            tracing::warn!(error = %e, "live_stream: active-runs read failed");
+            None
         }
-    };
-    full.into_iter()
-        .filter(|e| allowed.contains(&e.run_id))
-        .collect()
-}
-
-fn build_snapshot(state: &AgenticState) -> Vec<LiveStatusEntry> {
-    state
-        .statuses
-        .iter()
-        .map(|entry| {
-            let status = match entry.value() {
-                RunStatus::Running => "running",
-                RunStatus::Suspended { .. } => "suspended",
-                RunStatus::Done => "done",
-                RunStatus::Failed(_) => "failed",
-                RunStatus::Cancelled => "cancelled",
-            };
-            LiveStatusEntry {
-                run_id: entry.key().clone(),
-                status: status.to_string(),
-            }
-        })
-        .collect()
+    }
 }
 
 impl PartialEq for LiveStatusEntry {

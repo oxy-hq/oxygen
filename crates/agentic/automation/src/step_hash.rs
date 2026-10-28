@@ -123,8 +123,6 @@ mod tests {
             task_type: TaskType::Formatter(FormatterConfig {
                 template: template.into(),
             }),
-            export: None,
-            cache: None,
         }
     }
 
@@ -225,8 +223,6 @@ mod tests {
                 variables: None,
                 resolved_tasks: vec![],
             }),
-            export: None,
-            cache: None,
         };
         let ctx = json!({});
         let h_v1 = compute_step_hash(&StepHashInputs {

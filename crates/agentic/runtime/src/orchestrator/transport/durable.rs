@@ -26,6 +26,7 @@ mod adopt;
 mod beat;
 mod claims;
 mod dead_letter;
+mod parked;
 mod retry;
 
 use claims::{ClaimTokens, Heartbeats, fence};

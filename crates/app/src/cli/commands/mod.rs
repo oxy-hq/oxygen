@@ -33,10 +33,8 @@ use crate::cli::commands::mcp::{start_mcp_sse_server, start_mcp_stdio};
 use crate::cli::commands::migrate::migrate;
 use crate::cli::commands::migrate_automations::{MigrateAutomationsArgs, migrate_automations};
 use crate::cli::commands::run::{RunArgs, handle_run_command};
-use crate::server::service::retrieval::{ReindexInput, reindex};
 use crate::server::service::sync::{SyncFilter, sync_databases};
 use ::oxy::adapters::secrets::SecretsManager;
-use ::oxy::adapters::workspace::builder::WorkspaceBuilder;
 use ::oxy::config::model::AppConfig;
 use ::oxy::config::test_config::TestFileConfig;
 use ::oxy::config::*;
@@ -55,7 +53,6 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::exit;
-use uuid::Uuid;
 
 use init::init;
 
@@ -178,11 +175,11 @@ enum SubCommand {
     /// target, scores each run with an LLM judge, and reports accuracy and
     /// consistency. Omit the file to run every `.test.yml` in the project.
     Test(test::TestArgs),
-    /// Build vector embeddings and sync integrations
+    /// Does nothing; kept so existing scripts keep working
     ///
-    /// Process your project files and create searchable embeddings for
-    /// enhanced semantic search and retrieval functionality. Also synchronizes
-    /// configured integrations like Omni and Looker metadata.
+    /// It used to build vector embeddings and sync Looker and Omni metadata.
+    /// Nothing read the embeddings, and the metadata caches were removed, so
+    /// there is nothing left to build.
     Build(BuildArgs),
     /// Compile the workspace into the compile-boundary Postgres schema (Phase 1.6a observation mode).
     ///
@@ -266,10 +263,9 @@ enum SubCommand {
     /// Remove cached data, vector embeddings, and temporary files to reset
     /// the project to a clean state. Useful for troubleshooting data corruption.
     Clean(CleanArgs),
-    /// Manage Looker integration metadata
+    /// Test Looker integrations
     ///
-    /// Synchronize, list, and test Looker integrations configured in your project.
-    /// Use subcommands to sync metadata, list explores, or test connections.
+    /// Check that the Looker integrations configured in your project can connect.
     Looker(looker::LookerArgs),
     /// Intent classification and clustering
     ///
@@ -326,11 +322,10 @@ pub enum OutputFormat {
 
 #[derive(Parser, Debug)]
 pub struct BuildArgs {
-    /// Drop all existing embedding tables before rebuilding
-    ///
-    /// Warning: This will delete all existing vector embeddings
-    /// and rebuild the entire search index from scratch.
+    /// Accepted and ignored: there is no embedding index to drop. Kept so a
+    /// script that passes it does not start failing.
     #[clap(long, short = 'd', default_value_t = false)]
+    #[allow(dead_code)]
     drop_all_tables: bool,
 }
 
@@ -776,33 +771,13 @@ pub async fn cli(
             sentry_config::add_operation_context("test", test_args.file.as_deref());
             test::handle_test_command(test_args).await?;
         }
-        Some(SubCommand::Build(build_args)) => {
+        Some(SubCommand::Build(_)) => {
             sentry_config::add_operation_context("build", None);
 
-            handle_omni_sync().await?;
-
-            // Synchronize Looker metadata if configured
-            handle_looker_auto_sync().await?;
-
-            // Setup
-            let workspace_path = resolve_local_workspace_path()?
-                .to_string_lossy()
-                .to_string();
-            let config_manager = ConfigBuilder::new()
-                .with_workspace_path(workspace_path)?
-                .build_with_working_copy(Origin::Disk, OnMissing::Fail)
-                .await?;
-            let secrets_manager = SecretsManager::from_environment()?;
-
-            // Build vector embeddings
-            reindex(ReindexInput {
-                config: config_manager.clone(),
-                secrets_manager,
-                drop_all_tables: build_args.drop_all_tables,
-            })
-            .await?;
-
-            println!("✅ Build complete");
+            // Nothing is left to build: the vector-embeddings reindex built an enum
+            // index nothing read and was removed, and the Looker and Omni syncs went
+            // with their metadata caches. Kept so existing scripts do not fail.
+            println!("{}", "Nothing to build".info());
         }
         Some(SubCommand::Compile(compile_args)) => {
             sentry_config::add_operation_context("compile", None);
@@ -1062,185 +1037,6 @@ pub async fn cli(
     }
 
     Ok(())
-}
-
-async fn handle_omni_sync() -> Result<(), OxyError> {
-    use omni::sync::OmniSyncService;
-    use omni::{OmniApiClient, OmniError as AdapterOmniError};
-
-    // Load configuration to get Omni integration settings
-    let workspace_path = resolve_local_workspace_path()?;
-
-    let project = WorkspaceBuilder::<WorkingCopy>::new(Uuid::nil())
-        .with_working_copy(&workspace_path, None, OnMissing::Fail)
-        .await?
-        .build()
-        .await
-        .map_err(|e| OxyError::from(anyhow::anyhow!("Failed to create project: {e}")))?;
-
-    let config = project.config_manager.clone();
-
-    // Get all Omni integration configurations - if none found, skip silently
-    let omni_integrations: Vec<_> = config
-        .get_config()
-        .integrations
-        .iter()
-        .filter_map(|integration| match &integration.integration_type {
-            ::oxy::config::model::IntegrationType::Omni(omni_integration) => {
-                Some((integration.name.clone(), omni_integration.clone()))
-            }
-            _ => None,
-        })
-        .collect();
-
-    if omni_integrations.is_empty() {
-        // No Omni integrations configured, skip silently
-        return Ok(());
-    }
-
-    println!(
-        "🔗 Synchronizing {} Omni integration(s)...",
-        omni_integrations.len()
-    );
-
-    let mut all_sync_results = Vec::new();
-    let mut total_successful_topics = Vec::new();
-
-    for (integration_name, omni_integration) in omni_integrations {
-        println!("\n🔗 Processing integration: {}", integration_name);
-
-        // Resolve API key from environment variable
-        let api_key = project
-            .secrets_manager
-            .resolve_secret(&omni_integration.api_key_var)
-            .await?
-            .unwrap();
-        let base_url = omni_integration.base_url.clone();
-        let topics = omni_integration.topics.clone();
-
-        // Sync all configured topics for this integration
-        println!("🔄 Synchronizing Omni metadata for {} topics", topics.len());
-        let topics_to_sync: Vec<_> = topics.iter().collect();
-
-        let api_client =
-            OmniApiClient::new(base_url.clone(), api_key.clone()).map_err(|e| match e {
-                AdapterOmniError::ConfigError(msg) => {
-                    OxyError::ConfigurationError(format!("Omni configuration error: {}", msg))
-                }
-                _ => OxyError::RuntimeError(format!("Failed to create Omni API client: {}", e)),
-            })?;
-
-        let sync_service =
-            OmniSyncService::new(api_client, &workspace_path, integration_name.clone());
-
-        // Perform synchronization for each topic in this integration
-        println!("📥 Fetching metadata from Omni API...");
-
-        let mut integration_results = Vec::new();
-        for topic in &topics_to_sync {
-            println!(
-                "  📋 Syncing topic: {} (model: {})",
-                topic.name, topic.model_id
-            );
-            let sync_result = sync_service
-                .sync_metadata(&topic.model_id, &topic.name)
-                .await
-                .map_err(|e| {
-                    OxyError::RuntimeError(format!(
-                        "Sync operation failed for topic '{}' (model '{}'): {}",
-                        topic.name, topic.model_id, e
-                    ))
-                })?;
-            integration_results.push(sync_result);
-        }
-
-        if let Some(first_result) = integration_results.into_iter().next() {
-            total_successful_topics.extend(first_result.successful_topics.clone());
-            all_sync_results.push(first_result);
-        }
-    }
-
-    // Display overall results
-    println!("\n{}", "🎉 Omni synchronization completed!".success());
-
-    if !all_sync_results.is_empty() {
-        let overall_success = all_sync_results.iter().all(|r| r.is_success());
-        let partial_success = all_sync_results.iter().any(|r| r.is_partial_success());
-
-        if overall_success {
-            println!(
-                "{}",
-                "All integrations synchronized successfully.".success()
-            );
-        } else if partial_success {
-            println!(
-                "{}",
-                "Partial synchronization completed with some errors.".warning()
-            );
-            // Show error summaries from failed integrations
-            for sync_result in &all_sync_results {
-                if let Some(error_summary) = sync_result.error_summary() {
-                    println!("\n{}", "Errors encountered:".warning());
-                    println!("{}", error_summary.error());
-                }
-            }
-        } else {
-            println!("{}", "Some integrations failed to synchronize.".error());
-            for sync_result in &all_sync_results {
-                if let Some(error_summary) = sync_result.error_summary() {
-                    println!("\n{}", "Errors encountered:".error());
-                    println!("{}", error_summary.error());
-                }
-            }
-            return Err(OxyError::RuntimeError(
-                "Some Omni sync operations failed".to_string(),
-            ));
-        }
-
-        // Show all successful topics across all integrations
-        if !total_successful_topics.is_empty() {
-            println!("\n{}", "Successfully synchronized topics:".success());
-            for topic in &total_successful_topics {
-                println!("  ✅ {}", topic);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-async fn handle_looker_auto_sync() -> Result<(), OxyError> {
-    let workspace_path = resolve_local_workspace_path()?;
-
-    let project = WorkspaceBuilder::<WorkingCopy>::new(Uuid::nil())
-        .with_working_copy(&workspace_path, None, OnMissing::Fail)
-        .await?
-        .build()
-        .await
-        .map_err(|e| OxyError::from(anyhow::anyhow!("Failed to create project: {e}")))?;
-
-    let looker_integrations: Vec<_> = project
-        .config_manager
-        .get_config()
-        .integrations
-        .iter()
-        .filter_map(|integration| match &integration.integration_type {
-            ::oxy::config::model::IntegrationType::Looker(_) => Some(integration.name.clone()),
-            _ => None,
-        })
-        .collect();
-
-    if looker_integrations.is_empty() {
-        return Ok(());
-    }
-
-    looker::handle_looker_sync(looker::LookerSyncArgs {
-        integration: None,
-        model: None,
-        explore: None,
-        force: false,
-    })
-    .await
 }
 
 async fn handle_check_for_updates() -> Result<(), OxyError> {

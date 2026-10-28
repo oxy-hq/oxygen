@@ -71,19 +71,6 @@ pub trait GitClient: Send + Sync {
         token: Option<&str>,
     ) -> Vec<crate::types::BranchInfo>;
 
-    async fn list_all_branches(
-        &self,
-        workspace_root: &Path,
-        token: Option<&str>,
-    ) -> Result<Vec<String>, OxyError>;
-
-    async fn checkout_branch(
-        &self,
-        workspace_root: &Path,
-        branch: &str,
-        token: Option<&str>,
-    ) -> Result<(), OxyError>;
-
     /// Ensures `branch` exists locally without modifying the current worktree's
     /// HEAD or working files, and reports whether it also exists on origin.
     /// See `branch::ensure_local_ref`.

@@ -165,8 +165,6 @@ fn airway_automation_state() -> AutomationRunState {
                     pipeline: PIPELINE_REF.to_string(),
                     resources: None,
                 }),
-                export: None,
-                cache: None,
             }],
             description: String::new(),
             variables: None,
@@ -277,9 +275,7 @@ resources:
         PipelineAirwayAdmissionResolver::new(db.clone(), workspace, workspace_id),
     ));
 
-    let (_state, decision) = decider
-        .decide(airway_automation_state(), None, None, None)
-        .await;
+    let (_state, decision) = decider.decide(airway_automation_state(), None, None).await;
 
     match airway_spec(decision) {
         TaskSpec::Airway {
@@ -312,9 +308,7 @@ resources:
 #[tokio::test(flavor = "multi_thread")]
 async fn resolver_absent_is_the_pre_port_bug() {
     let decider = AutomationDecider::new(None);
-    let (_state, decision) = decider
-        .decide(airway_automation_state(), None, None, None)
-        .await;
+    let (_state, decision) = decider.decide(airway_automation_state(), None, None).await;
 
     match airway_spec(decision) {
         TaskSpec::Airway {
@@ -347,9 +341,7 @@ async fn an_unresolvable_admission_fails_the_step_rather_than_defaulting() {
     }
 
     let decider = AutomationDecider::new(None).with_airway_admission_resolver(Arc::new(Broken));
-    let (_state, decision) = decider
-        .decide(airway_automation_state(), None, None, None)
-        .await;
+    let (_state, decision) = decider.decide(airway_automation_state(), None, None).await;
 
     match decision {
         AutomationDecision::Fail { error, .. } => {

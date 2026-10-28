@@ -111,8 +111,25 @@ export const WorkspaceService = {
    * downstream reads the merged object out of the store, so nothing else
    * changes — including `useWorkspaceStatus`, which is gated on a branch being
    * present and must stay closed when there is none.
+   *
+   * `gitStateOnlyForFactory` (the apps-first experience): `/git-state` is the
+   * Factory's, so ask `/meta` first and leave the git half out for someone it says
+   * may not use the Factory — the same object a degraded git half gives. That makes
+   * the two requests sequential for a Factory user; the price of not sending a
+   * customer's browser to a Factory route on every page.
    */
-  async getWorkspace(workspaceId: string): Promise<Workspace> {
+  async getWorkspace(
+    workspaceId: string,
+    { gitStateOnlyForFactory = false }: { gitStateOnlyForFactory?: boolean } = {}
+  ): Promise<Workspace> {
+    if (gitStateOnlyForFactory) {
+      const meta = await apiClient.get(`/${workspaceId}/meta`);
+      if (meta.data?.factory_access === false) {
+        return { ...meta.data, ...GIT_STATE_UNAVAILABLE };
+      }
+      const gitState = await apiClient.get(`/${workspaceId}/git-state`).catch(() => null);
+      return { ...meta.data, ...(gitState?.data ?? GIT_STATE_UNAVAILABLE) };
+    }
     const [meta, gitState] = await Promise.all([
       apiClient.get(`/${workspaceId}/meta`),
       apiClient.get(`/${workspaceId}/git-state`).catch(() => null)

@@ -11,6 +11,7 @@ import useBuilderAvailable from "@/hooks/api/useBuilderAvailable";
 import useRunAutomationThread from "@/hooks/automation/useRunAutomationThread";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { useEnterSubmit } from "@/hooks/useEnterSubmit";
+import useFactoryAccess from "@/hooks/useFactoryAccess";
 import { useMentionHighlight } from "@/hooks/useMentionHighlight";
 import { cn } from "@/libs/shadcn/utils";
 import { flattenFiles, getActiveMention, getCleanObjectName } from "@/libs/utils/mention";
@@ -62,10 +63,14 @@ const ChatPanel = ({
   const [automation, setAutomation] = useState<AutomationOption | null>(null);
 
   const {
-    isAvailable: isBuilderAvailable,
+    isAvailable: builderConfigured,
     isLoading: isCheckingBuilder,
     isBuiltin
   } = useBuilderAvailable();
+  // The Builder edits workspace files, so it starts on a Factory route: offered
+  // only to someone the server lets into the Factory.
+  const factoryAccess = useFactoryAccess();
+  const isBuilderAvailable = builderConfigured && factoryAccess;
 
   const { mutate: createThread, isPending } = useThreadMutation((data) => {
     switch (data.source_type) {
@@ -391,7 +396,7 @@ const ChatPanel = ({
                   detail={{
                     title: "Build",
                     description:
-                      "Build data applications and dashboards by describing what you need in natural language."
+                      "Build semantic models, agents, and automations by describing what you need in natural language."
                   }}
                 >
                   <Hammer className='size-4' />

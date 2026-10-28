@@ -1,17 +1,16 @@
 //! What the queue carries for a custom-app ask, and what a claimed one is
 //! driven with.
 //!
-//! An ask today is a spawn in the handler, on whichever serve replica took the
-//! request: a deploy or a restart of that pod kills it, and the bundle's
-//! stream waits for a terminal event that never comes. The queued form is one
-//! `TaskSpec::Custom { kind: "custom_app_agent_ask" }` on a run the start has
-//! already inserted, executed by [`super::executor::AgentAskExecutor`] on
-//! whichever driver claims it.
-//!
-//! **Nothing enqueues this kind yet.** The executor is registered on every
-//! driver one release ahead of the handler's enqueue, so that by the time a
-//! serve replica queues an ask there is no pod left that would fail it as an
-//! unknown kind (`internal-docs/worker-fleet.md` § "Agent asks").
+//! A live ask is one `TaskSpec::Custom { kind: "custom_app_agent_ask" }` on a
+//! run the start has already inserted (`super::start::queue_ask`, through
+//! `agentic_pipeline::queued_run`), executed by
+//! [`super::executor::AgentAskExecutor`] on whichever driver claims it. Before
+//! that, an ask was a spawn in the handler on whichever serve replica took the
+//! request: a deploy or a restart of that pod killed it, and the bundle's
+//! stream waited for a terminal event that never came. The executor was
+//! registered on every driver a release before the start enqueued the kind,
+//! so no pod is left that fails it as unknown
+//! (`internal-docs/worker-fleet.md` § "Agent asks").
 //!
 //! **The payload is empty, and that is the point.** Everything a driver needs
 //! is on the run row the start inserted: the question, the thread, the

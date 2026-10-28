@@ -91,6 +91,7 @@ services:
         mc alias set myminio http://airhouse-minio:9000 minioadmin minioadmin
         mc mb myminio/airhouse --ignore-existing
         mc mb myminio/oxy-compile-blobs --ignore-existing
+        mc mb myminio/oxy-customer-apps --ignore-existing
 
   airhouse-createcpdb:
     image: postgres:18

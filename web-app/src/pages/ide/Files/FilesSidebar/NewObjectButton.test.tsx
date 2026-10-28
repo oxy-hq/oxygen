@@ -67,4 +67,12 @@ describe("NewObjectButton", () => {
 
     expect(createFile).toHaveBeenCalledTimes(1);
   });
+
+  it("does not offer a new Data App", () => {
+    // Data Apps (`.app.yml`) are retired in favour of custom apps.
+    render(<NewObjectButton />);
+
+    expect(screen.queryByText("App")).toBeNull();
+    expect(screen.getByText("Automation")).toBeTruthy();
+  });
 });

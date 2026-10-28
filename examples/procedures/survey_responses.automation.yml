@@ -12,9 +12,6 @@ tasks:
     type: execute_sql
     database: primary_database
     sql_file: data/example_intervals.sql
-    export:
-      format: sql
-      path: output/example_intervals.sql
 
   - name: schedules
     type: loop_sequential
@@ -35,9 +32,6 @@ tasks:
               variable_a: "1000"
               variable_b: "{{ metrics.value }}"
               variable_c: "{{ metrics.value }}"
-            export:
-              format: sql
-              path: output/example_{{schedules.value}}_{{metrics.value}}.sql
 
           - name: report
             type: agent
@@ -45,9 +39,6 @@ tasks:
               Generate a detail {{schedules.value}} report using {{metrics.value}} metrics:
               {{table}}
             agent_ref: agents/local.agent.yml
-            export:
-              format: sql
-              path: output/agent_{{schedules.value}}_{{metrics.value}}.sql
 
       - name: metric_reports
         type: formatter
@@ -57,9 +48,6 @@ tasks:
           {{metric.report}}
           -- End of Metric: {{metric.value}} --
           {% endfor %}
-        export:
-          format: txt
-          path: output/formatter_{{schedules.value}}.txt
 
   - name: formatter
     type: formatter
@@ -76,6 +64,3 @@ tasks:
       {{schedule.metric_reports}}
       -- End of Schedule: {{schedule.value}} --
       {% endfor %}
-    export:
-      format: txt
-      path: output/formatter_report.txt

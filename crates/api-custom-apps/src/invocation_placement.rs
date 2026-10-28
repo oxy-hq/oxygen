@@ -28,9 +28,8 @@
 //! of the two it is, never a run against an empty config and never the
 //! generic ide-down 502 that would hide the retry contract.
 //!
-//! The judgement is `serve_safety`'s, the allowlist the `/analytics` un-pin
-//! already uses: anything it cannot prove file-free goes to the Factory, so the
-//! worst case is a hop that was not needed.
+//! The judgement is `servability`'s: anything it cannot prove file-free goes to
+//! the Factory, so the worst case is a hop that was not needed.
 //!
 //! Lives here, not in `custom_apps_functions`, because every fact it weighs is
 //! the fleet's — this process's role, the Factory upstream, the compile queue.
@@ -45,7 +44,7 @@ use futures::future::BoxFuture;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use oxy_app::surface::fleet::serve_safety::{self, Servability};
+use oxy_app::surface::fleet::servability::{self, Servability};
 use oxy_app::surface::fleet::{ide_proxy, role_middleware};
 use oxy_app::surface::roles::current_process_role;
 
@@ -121,7 +120,7 @@ async fn placed_elsewhere(
     if oxy::workspace_fs_probe::process_owns_workspace_files() {
         return None;
     }
-    let servability = serve_safety::servability(project_id).await;
+    let servability = servability::servability(project_id).await;
     let upstream = ide_proxy::ide_upstream();
     // Configured, not proven up: whether it answers is learned by asking.
     let factory_reachable = upstream.is_some() && !ide_proxy::forwarded_once(arrived.headers);

@@ -5,16 +5,21 @@ import { NOTIFICATIONS_PARAM } from "@/components/Shell/TopBar/NotificationsBell
 import { SETTINGS_PARAM } from "@/components/settings/SettingsDialog/useSettingsDeepLink";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useOrgs } from "@/hooks/api/organizations";
+import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useAllWorkspaces } from "@/hooks/api/workspaces/useWorkspaces";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { useLandingWorkspace } from "@/hooks/useLandingWorkspace";
 import { carriedSearch } from "@/libs/utils/carriedSearch";
 import { clearLastWorkspaceId, setLastWorkspaceId } from "@/libs/utils/lastWorkspace";
 import ROUTES from "@/libs/utils/routes";
+import { landsInWorkspace } from "@/libs/utils/staffLanding";
 
 /**
  * Landing at `/:orgSlug`. OrgGuard has already verified the slug resolves to a
  * member org, so we just pick a workspace (`useLandingWorkspace`: the
- * remembered one, else the one with the most apps) and redirect. An org with no
+ * remembered one, else the one with the most apps) and redirect: a customer to
+ * the org home (`/:orgSlug/home`), which loads from that workspace, staff into
+ * the workspace itself. An org with no
  * navigable workspace — none yet, or every one still cloning — renders the
  * "being set up" screen in place (clearing a stale lastWorkspace id) rather
  * than sending anyone into onboarding: orgs are provisioned for their members.
@@ -35,9 +40,11 @@ export default function OrgDispatcher() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const [searchParams] = useSearchParams();
   const { data: orgs, isPending: orgsPending } = useOrgs();
+  const { data: user, isPending: userPending } = useCurrentUser();
   const org = orgs?.find((o) => o.slug === orgSlug);
   const { data: workspaces, isPending: wsPending, isError } = useAllWorkspaces(org?.id);
   const landing = useLandingWorkspace(workspaces, org?.id);
+  const appsFirst = useAppsFirstExperience();
   // Keyed by org: this element survives an org switch, and "creating" must not.
   const [creatingInOrgId, setCreatingInOrgId] = useState<string | null>(null);
 
@@ -51,7 +58,7 @@ export default function OrgDispatcher() {
     </div>
   );
 
-  if (orgsPending || !org || wsPending) return spinner;
+  if (orgsPending || userPending || !org || wsPending) return spinner;
 
   const setupPending = (
     <OrgSetupPending
@@ -89,7 +96,12 @@ export default function OrgDispatcher() {
   // along, as does `?notifications=open` (a push notification's click) for the
   // inbox bell. Only those: the rest of an org-root query was never forwarded.
   const search = carriedSearch(searchParams, [SETTINGS_PARAM, NOTIFICATIONS_PARAM]);
-  return (
-    <Navigate to={{ pathname: ROUTES.ORG(org.slug).WORKSPACE(target.id).ROOT, search }} replace />
-  );
+  // A customer lands on the org's home, which loads from the workspace picked
+  // above; staff (an operator or a partner's staff) go into that workspace.
+  // Without the apps-first experience everyone goes into the workspace, as before.
+  const pathname =
+    !appsFirst || landsInWorkspace(user)
+      ? ROUTES.ORG(org.slug).WORKSPACE(target.id).ROOT
+      : ROUTES.ORG(org.slug).HOME;
+  return <Navigate to={{ pathname, search }} replace />;
 }

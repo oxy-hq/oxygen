@@ -109,36 +109,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "agentic/automation/src/workspace.rs",
         "default context_root impl + the port's own doc comments",
     ),
-    // Listing handler on an IdeOnly route; `unwrap_or_default` feeds
-    // strip_prefix for display, and route classification is what keeps it on a
-    // node with files.
-    (
-        "agentic/http/src/routes/airway.rs",
-        "IdeOnly listing handler; strip_prefix for display only",
-    ),
-    // ---- KNOWN VIOLATION, deliberately deferred. This is the backlog half. ----
-    //
-    // `export` and `cache` steps DO open (in fact create) what they resolve,
-    // and on a worker that means `create_dir_all` succeeds against a phantom
-    // root: the workspace directory is materialised on pod-ephemeral storage
-    // and a file is written that nobody will ever read. Silent, and it trips
-    // the compile boundary's rule that nothing on a resolution path may create
-    // a directory.
-    //
-    // Not fixed here because the fix is a product decision, not a filter: these
-    // steps predate custom apps and `ctx.storage`, so "write into the workspace
-    // working copy" may have no fleet-safe meaning at all. The options are
-    // retire / fail-fast / route to object storage, and picking one is not a
-    // review this PR should carry.
-    //
-    // Adding `.filter(|p| p.is_dir())` here would be a one-line improvement
-    // (fail instead of phantom-write) and is the obvious stopgap if the
-    // decision stalls.
-    (
-        "agentic/automation/src/export.rs",
-        "KNOWN VIOLATION — phantom write on a volume-less node; deferred pending a decision \
-         on whether workspace-directory exports should exist at all",
-    ),
 ];
 
 fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {

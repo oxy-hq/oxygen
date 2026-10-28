@@ -1,11 +1,12 @@
 //! Compile-boundary-backed Airway pipeline (`.airway.yml`) listing.
 //!
 //! Airway pipelines are already compiled (`walker` → `CompiledRow::Pipeline` →
-//! `airway_pipelines`), but the legacy `/agentic-airway/files` lister lives in
-//! the `agentic-http` crate (which can't reach `compiled_reader`) and walks the
-//! filesystem, so it 502s on a stateless serve node when the ide is down. This
-//! FleetOk endpoint serves the list from the boundary, falling through to the
-//! filesystem in local / not-yet-promoted mode — mirroring `automation.rs`.
+//! `airway_pipelines`). A legacy `/agentic-airway/files` lister in the
+//! `agentic-http` crate (which can't reach `compiled_reader`) walked the
+//! filesystem and 502d on a stateless serve node when the ide was down; it is
+//! gone. This FleetOk endpoint serves the list from the boundary, falling
+//! through to the filesystem in local / not-yet-promoted mode — mirroring
+//! `automation.rs`.
 
 use axum::extract::{self, Query};
 use axum::http::StatusCode;
@@ -35,9 +36,9 @@ pub struct ListPipelinesQuery {
     pub branch: Option<String>,
 }
 
-/// One pipeline file, matching the `agentic-http` `AirwayFile` shape the FE
-/// already consumes: a workspace-relative `path` and its `URL_SAFE_NO_PAD`
-/// base64 (`path_b64`).
+/// One pipeline file, in the shape the FE
+/// consumes (the removed `/agentic-airway/files` lister used it too): a
+/// workspace-relative `path` and its `URL_SAFE_NO_PAD` base64 (`path_b64`).
 #[derive(Debug, Serialize)]
 pub struct PipelineFile {
     pub path: String,

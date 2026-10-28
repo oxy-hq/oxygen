@@ -27,7 +27,7 @@ pub use ops::MAX_UPLOAD_BODY_BYTES;
 /// project, or a GitHub import. These live at `/orgs/{org_id}/onboarding/*` and
 /// carry `org_middleware` + `subscription_guard`, mirroring oxy-app's
 /// `build_org_routes` (where they used to live): `org_middleware` reads the
-/// `{org_id}` path param and inserts the `OrgContext` that `OrgAdmin` — and
+/// `{org_id}` path param and inserts the `OrgContext` that `OrgWorkspaceProvisioner` — and
 /// `setup_github`'s cross-org namespace check — depend on, and the guard keeps
 /// workspace creation paywall-gated.
 ///

@@ -13,13 +13,17 @@ import PageHeader from "@/components/PageHeader";
 import ErrorAlert from "@/components/ui/ErrorAlert";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import { useAgenticAutomationFiles } from "@/hooks/api/agentic-automations/useAgenticAutomations";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import { objectNameFromPath } from "@/libs/utils/objectName";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 
 const AutomationsListPage = () => {
   const filesQuery = useAgenticAutomationFiles();
   const { project } = useCurrentProjectBranch();
+  // Apps-first: plain names, no file paths or file-creation hints.
+  const plainNames = useAppsFirstExperience();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
 
   return (
@@ -38,7 +42,9 @@ const AutomationsListPage = () => {
         )}
         {filesQuery.isSuccess && filesQuery.data.length === 0 && (
           <p className='text-muted-foreground'>
-            No automations found. Create a `.automation.yml` in the project to get started.
+            {plainNames
+              ? "No automations yet."
+              : "No automations found. Create a `.automation.yml` in the project to get started."}
           </p>
         )}
         {filesQuery.isSuccess && filesQuery.data.length > 0 && (
@@ -50,7 +56,9 @@ const AutomationsListPage = () => {
                   className='flex items-center gap-3 rounded-md border bg-card px-3 py-2 transition-colors hover:bg-muted/50'
                 >
                   <AutomationIcon className='size-4 text-muted-foreground' />
-                  <span className='flex-1 truncate font-medium text-sm'>{file.path}</span>
+                  <span className='flex-1 truncate font-medium text-sm'>
+                    {plainNames ? objectNameFromPath(file.path) : file.path}
+                  </span>
                   <ChevronRight className='size-4 text-muted-foreground' />
                 </Link>
               </li>

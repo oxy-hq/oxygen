@@ -4,7 +4,7 @@ import { cn } from "@/libs/shadcn/utils";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 
-/** Rail-top workspace identity: the org/code-first logo when present, the
+/** Rail-top workspace identity: the org logo when present, the
  *  name initial otherwise. Pure branding — switching workspaces lives in
  *  the bottom cluster (`RailWorkspaceSwitch`). */
 export function RailWorkspaceTile() {

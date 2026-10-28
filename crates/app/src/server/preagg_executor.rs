@@ -763,7 +763,7 @@ fn skip_suffix(skipped_no_key: usize, skipped_no_datasource: usize) -> String {
 /// draining this Custom task), the workspace's FS second (works only when this
 /// node happens to have it checked out). Mirrors
 /// `semantic::resolve_query_scan_source` + the same loader
-/// (`oxy_airlayer_compat::load_layer_from_dir`) every other semantic-model
+/// (`ScanDir::load_layer`) every other semantic-model
 /// surface in this crate already resolves through — replaces this module's old
 /// direct `**/*.view.yml` FS glob, which only ever worked on the ide node and
 /// is exactly the limitation this rewrite exists to lift.
@@ -776,12 +776,11 @@ async fn load_views(
     let scan = crate::server::api::semantic::resolve_query_scan_source(workspace_manager)
         .await
         .map_err(|e| e.message())?;
-    let scan_path = scan.scan_path.clone();
-    let layer =
-        tokio::task::spawn_blocking(move || oxy_airlayer_compat::load_layer_from_dir(&scan_path))
-            .await
-            .map_err(|e| format!("load_views task panicked: {e}"))?
-            .map_err(|e| format!("failed to load semantic model: {e}"))?;
+    let scan = scan.scan.clone();
+    let layer = tokio::task::spawn_blocking(move || scan.load_layer())
+        .await
+        .map_err(|e| format!("load_views task panicked: {e}"))?
+        .map_err(|e| format!("failed to load semantic model: {e}"))?;
 
     Ok(layer
         .views

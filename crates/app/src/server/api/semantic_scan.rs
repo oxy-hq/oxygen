@@ -1,8 +1,7 @@
 //! Moved to `oxy::config::scan`.
 //!
-//! These materialisers ARE the compiled-vs-disk decision for the artifacts a
-//! Path-based consumer needs (airlayer's scan dir, an agent's `context:` root,
-//! `.monitor.yml`). That decision belongs to `ConfigManager` — living here made
+//! These readers ARE the compiled-vs-disk decision for the semantic scan, an
+//! agent's `context:` root and `.monitor.yml`. That decision belongs to `ConfigManager` — living here made
 //! it a free function every caller could reach around, and the four
 //! `compiled_*` row readers it uses had to be public for it, which is what let
 //! three other call sites write their own half of the choice.
@@ -11,6 +10,6 @@
 //! so the call sites read the same; there is no second door left.
 
 pub use oxy::config::scan::{
-    MaterialisedContext, MaterialisedMonitorConfig, ScanDir, SemanticEntity,
-    materialise_agent_context, materialise_monitor_config, materialise_semantic_entity, scan_dir,
+    MaterialisedContext, MaterialisedMonitorConfig, ScanDir, SemanticEntity, SemanticTarget,
+    materialise_agent_context, materialise_monitor_config, read_semantic_entity, scan_dir,
 };

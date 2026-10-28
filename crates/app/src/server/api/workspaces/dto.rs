@@ -191,6 +191,13 @@ pub struct WorkspaceMetaResponse {
     /// resolvable — the frontend renders the setup dialog instead of the app.
     #[serde(default)]
     pub requires_local_setup: bool,
+    /// Whether the caller may use the Oxygen Factory (the IDE and back office) in
+    /// this workspace: Oxy staff, an owner or admin of the org, or a member an
+    /// operator granted it to. Always
+    /// `true` while enforcement (the `apps_first_experience` flag) is off, and in local
+    /// mode. The rail shows its Factory entry only when this is set; the routes
+    /// themselves are refused on the server regardless of what a client does with it.
+    pub factory_access: bool,
 }
 
 /// The half of [`WorkspaceDetailsResponse`] that needs `.git`.

@@ -14,9 +14,15 @@ import OrgDispatcher from "./OrgDispatcher";
  */
 
 type Workspace = { id: string; status: "ready" | "cloning" | "failed" };
-type User = { email: string; is_owner: boolean; is_app_admin: boolean };
+type User = {
+  email: string;
+  is_owner: boolean;
+  is_app_admin: boolean;
+  partner_memberships?: { partner_id: string }[];
+};
 
 const MEMBER_USER: User = { email: "crew@acme.test", is_owner: false, is_app_admin: false };
+const STAFF_USER: User = { ...MEMBER_USER, is_app_admin: true };
 
 let org: Organization;
 let workspaces: Workspace[];
@@ -40,7 +46,15 @@ vi.mock("@/hooks/api/customApps/useWorkspacesCustomApps", () => ({
 vi.mock("@/hooks/api/users/useCurrentUser", () => ({
   default: () => ({ data: user, isPending: false })
 }));
-vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ logout: vi.fn() }) }));
+// The apps-first flag as `GET /auth/config` reports it; off unless a test turns it on.
+let appsFirst = false;
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ logout: vi.fn() }),
+  useOptionalAuth: () => ({
+    isLocalMode: false,
+    authConfig: { apps_first_experience: appsFirst }
+  })
+}));
 vi.mock("@/components/OxyLogo", () => ({ default: () => null }));
 vi.mock("@/components/settings/SettingsDialog", () => ({ default: () => null }));
 vi.mock("@/components/settings/SettingsDialog/useSettingsDeepLink", () => ({
@@ -79,6 +93,10 @@ const renderAt = (entry = "/acme") =>
 const setRole = (role: OrgRole) => {
   org = { ...org, role };
 };
+// What `GET /orgs` reports for the staff who may provision here.
+const allowProvisioning = () => {
+  org = { ...org, may_provision_workspace: true };
+};
 
 beforeEach(() => {
   org = { id: "org-1", name: "Acme", slug: "acme", role: "member" };
@@ -86,6 +104,7 @@ beforeEach(() => {
   user = MEMBER_USER;
   appCounts = {};
   countsPending = false;
+  appsFirst = false;
   localStorage.clear();
 });
 afterEach(cleanup);
@@ -134,6 +153,7 @@ describe("OrgDispatcher — an org with nothing ready", () => {
   it("offers Create workspace to staff holding an Owner role (e.g. an assume-role session)", () => {
     user = { ...MEMBER_USER, is_app_admin: true };
     setRole("owner");
+    allowProvisioning();
     renderAt();
     expect(screen.getByTestId("org-setup-pending-create-workspace")).toBeInTheDocument();
     expect(screen.getByTestId("org-setup-pending-open-settings")).toBeInTheDocument();
@@ -145,6 +165,7 @@ describe("OrgDispatcher — an org with nothing ready", () => {
     // unmount the creator and skip that hand-off.
     user = { ...MEMBER_USER, is_app_admin: true };
     setRole("owner");
+    allowProvisioning();
     const { rerender } = renderAt();
     fireEvent.click(screen.getByTestId("org-setup-pending-create-workspace"));
     expect(screen.getByTestId("creator")).toBeInTheDocument();
@@ -163,35 +184,104 @@ describe("OrgDispatcher — an org with nothing ready", () => {
   });
 });
 
+describe("OrgDispatcher — an org with nothing ready, apps-first", () => {
+  beforeEach(() => {
+    appsFirst = true;
+  });
+
+  it("tells a customer their Oxy team is setting their apps up, with nothing to create", () => {
+    renderAt();
+    expect(screen.getByTestId("org-setup-pending")).toHaveTextContent(
+      "Your Oxy team is setting up your apps"
+    );
+    expect(screen.queryByTestId("org-setup-pending-create-workspace")).toBeNull();
+    expect(screen.queryByTestId("org-setup-pending-bootstrap")).toBeNull();
+  });
+
+  it("gives a customer's own owner the organization settings and nothing to create", () => {
+    setRole("owner");
+    renderAt();
+    expect(screen.getByTestId("org-setup-pending-open-settings")).toBeInTheDocument();
+    expect(screen.queryByTestId("org-setup-pending-create-workspace")).toBeNull();
+    expect(screen.queryByTestId("org-setup-pending-bootstrap")).toBeNull();
+  });
+
+  it("gives staff who may set the org up the oxyc commands, not the web creator", () => {
+    user = STAFF_USER;
+    setRole("owner");
+    allowProvisioning();
+    renderAt();
+    expect(screen.queryByTestId("org-setup-pending-create-workspace")).toBeNull();
+    const script = screen.getByTestId("org-setup-pending-bootstrap-script");
+    expect(script).toHaveTextContent("oxyc new acme-oxy --display 'Acme'");
+    expect(script).toHaveTextContent("orgs/org-1/onboarding/github");
+    expect(screen.getByTestId("org-setup-pending-bootstrap-blank")).toHaveTextContent(
+      "oxyc api -X POST orgs/org-1/onboarding/new -f name='Acme'"
+    );
+  });
+
+  it("shows the commands to nobody the server would refuse", () => {
+    user = STAFF_USER;
+    setRole("owner");
+    org = { ...org, may_provision_workspace: false };
+    renderAt();
+    expect(screen.queryByTestId("org-setup-pending-bootstrap")).toBeNull();
+  });
+});
+
 describe("OrgDispatcher — an org with a ready workspace", () => {
-  it("still goes straight into it", () => {
+  beforeEach(() => {
+    appsFirst = true;
+  });
+
+  it("sends a customer to the org home", () => {
     workspaces = [{ id: "ws-1", status: "ready" }];
+    renderAt();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home$/);
+  });
+
+  it("sends an operator straight into the workspace", () => {
+    workspaces = [{ id: "ws-1", status: "ready" }];
+    user = STAFF_USER;
     renderAt();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1$/);
   });
 
-  it("carries a settings deep link into the workspace, and nothing else", () => {
+  it("sends a partner's staff straight into the workspace", () => {
+    workspaces = [{ id: "ws-1", status: "ready" }];
+    user = { ...MEMBER_USER, partner_memberships: [{ partner_id: "p-1" }] };
+    renderAt();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1$/);
+  });
+
+  it("a platform owner who is not an app admin is staff too", () => {
+    workspaces = [{ id: "ws-1", status: "ready" }];
+    user = { ...MEMBER_USER, is_owner: true };
+    renderAt();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1$/);
+  });
+
+  it("carries a settings deep link into the page it lands on, and nothing else", () => {
     // `/kiosk` links a browser that is not a tablet to `/<org>?settings=
     // organization.crew`; the workspace layout is what opens the dialog, so the
     // section has to survive the hop.
     workspaces = [{ id: "ws-1", status: "ready" }];
     renderAt("/acme?settings=organization.crew&slack_installed=ok");
     expect(screen.getByTestId("location")).toHaveTextContent(
-      /^\/acme\/workspaces\/ws-1\?settings=organization\.crew$/
+      /^\/acme\/home\?settings=organization\.crew$/
     );
   });
 
   it("carries the inbox deep link a push notification opens", () => {
     workspaces = [{ id: "ws-1", status: "ready" }];
     renderAt("/acme?notifications=open&slack_installed=ok");
-    expect(screen.getByTestId("location")).toHaveTextContent(
-      /^\/acme\/workspaces\/ws-1\?notifications=open$/
-    );
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home\?notifications=open$/);
   });
 });
 
 describe("OrgDispatcher — an org with several workspaces", () => {
   beforeEach(() => {
+    appsFirst = true;
     // The prod repro: the API lists an app-less workspace first.
     workspaces = [
       { id: "ws-empty", status: "ready" },
@@ -200,21 +290,45 @@ describe("OrgDispatcher — an org with several workspaces", () => {
     appCounts = { "ws-apps": 3 };
   });
 
-  it("lands on the workspace with the most apps", () => {
+  it("lands staff on the workspace with the most apps", () => {
+    user = STAFF_USER;
     renderAt();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-apps$/);
   });
 
   it("waits for the counts instead of landing on the first in the list", () => {
+    user = STAFF_USER;
     countsPending = true;
     renderAt();
     expect(screen.queryByTestId("location")).toBeNull();
   });
 
-  it("keeps the workspace this user opened last", () => {
+  it("keeps the workspace this staff member opened last", () => {
+    user = STAFF_USER;
     localStorage.setItem("user", JSON.stringify({ id: "user-1" }));
     localStorage.setItem("oxy:last_workspace:user-1:org-1", "ws-empty");
     renderAt();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-empty$/);
+  });
+
+  it("sends a customer to the org home, which picks the workspace itself", () => {
+    renderAt();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home$/);
+  });
+});
+
+describe("OrgDispatcher — the apps-first experience off", () => {
+  it("sends a customer into the workspace, as before the org home", () => {
+    workspaces = [{ id: "ws-1", status: "ready" }];
+    renderAt();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1$/);
+  });
+
+  it("carries a settings deep link into the workspace", () => {
+    workspaces = [{ id: "ws-1", status: "ready" }];
+    renderAt("/acme?settings=organization.crew&slack_installed=ok");
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      /^\/acme\/workspaces\/ws-1\?settings=organization\.crew$/
+    );
   });
 });

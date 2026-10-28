@@ -269,10 +269,6 @@ impl<S> ConfigManager<S> {
         }
     }
 
-    pub fn list_repositories(&self) -> &[crate::config::model::Repository] {
-        &self.config.repositories
-    }
-
     pub fn get_integration_by_name(
         &self,
         integration_name: &str,
@@ -327,17 +323,6 @@ impl<S> ConfigManager<S> {
         self.config.timezone.as_deref()
     }
 }
-
-/// Candidate logo file names at the workspace root, in precedence order, with
-/// their content types. Moved here with `workspace_logo` — the list and the
-/// probe belong to whoever owns the source, not to the handler that serves it.
-const LOGO_CANDIDATES: [(&str, &str); 5] = [
-    ("logo.svg", "image/svg+xml"),
-    ("logo.png", "image/png"),
-    ("logo.jpg", "image/jpeg"),
-    ("logo.jpeg", "image/jpeg"),
-    ("logo.webp", "image/webp"),
-];
 
 // ── 2. works on either capability — asks whether a disk is there ────────
 
@@ -537,34 +522,6 @@ impl<S: DiskSlot> ConfigManager<S> {
         Ok(self.disk()?.project_path().to_path_buf())
     }
 
-    /// The workspace's code-first logo file, if there is one.
-    ///
-    /// The one artifact with NO compiled arm: `oxy_compile::walker` discovers
-    /// YAML, not images, so there is nothing in Postgres to read instead. That
-    /// makes this method the whole answer rather than half of one — and it is
-    /// still the manager's to give, because the two absences differ:
-    ///
-    /// - `Ok(None)`  — this workspace has no logo file. The caller's 404 is
-    ///                 correct and the frontend draws a monogram.
-    /// - `Err`       — there is no working copy to look in. Same 404 to the
-    ///                 caller, but it is a fact about the NODE, not the
-    ///                 workspace, and the log should say so.
-    ///
-    /// Collapsing them at a call site is how "this replica holds no files"
-    /// gets recorded as "this customer configured no logo".
-    pub async fn workspace_logo(&self) -> Result<Option<(PathBuf, &'static str)>, ArtifactError> {
-        let root = self.disk()?.project_path().to_path_buf();
-        let found = tokio::task::spawn_blocking(move || {
-            LOGO_CANDIDATES.iter().find_map(|(name, mime)| {
-                let path = root.join(name);
-                path.is_file().then_some((path, *mime))
-            })
-        })
-        .await
-        .map_err(|e| ArtifactError::Config(OxyError::RuntimeError(format!("logo probe: {e}"))))?;
-        Ok(found)
-    }
-
     /// One workspace YAML file, parsed, from the working copy.
     ///
     /// The compiled `definition` column IS this value: `oxy_compile` stores
@@ -662,6 +619,32 @@ impl<S: DiskSlot> ConfigManager<S> {
         }
     }
 
+    /// One definition for a kind that is read from the promoted revision and
+    /// from nothing else once a revision is pinned: automations and airway
+    /// pipelines.
+    ///
+    /// Unlike [`Self::definition`] this has no working-copy fallback under
+    /// `Origin::Compiled`, on any node. A miss is the revision's answer ("not in
+    /// this revision") and a failed read is an error the caller can retry; a
+    /// node that happens to hold the files does not get to answer instead,
+    /// because then the same request returns different YAML depending on which
+    /// pod served it, and the files are what is being retired
+    /// (`internal-docs/factory-retirement.md`, Phase 4).
+    ///
+    /// `Origin::Disk` is untouched. It means this manager was built to read a
+    /// directory (the CLI, single-process mode, a draft branch in the IDE), and
+    /// no revision was ever pinned for it to defer to.
+    async fn revision_definition(
+        &self,
+        compiled: impl Future<Output = Result<Option<serde_json::Value>, ArtifactError>>,
+        file_path: &str,
+    ) -> Result<Option<serde_json::Value>, ArtifactError> {
+        match self.origin {
+            Origin::Compiled { .. } => compiled.await,
+            Origin::Disk => self.definition_from_disk(file_path).await,
+        }
+    }
+
     /// One app's definition, from whichever source this manager reads.
     ///
     /// For callers that want the JSON rather than an `AppConfig` — pulling one
@@ -699,7 +682,7 @@ impl<S: DiskSlot> ConfigManager<S> {
                 Origin::Disk => Ok(None),
             }
         };
-        self.definition(compiled, file_path).await
+        self.revision_definition(compiled, file_path).await
     }
 
     /// One airway pipeline's definition, from whichever source this manager
@@ -716,7 +699,7 @@ impl<S: DiskSlot> ConfigManager<S> {
                 Origin::Disk => Ok(None),
             }
         };
-        self.definition(compiled, file_path).await
+        self.revision_definition(compiled, file_path).await
     }
 
     /// One verified query's SQL body, from whichever source this manager reads.
@@ -872,6 +855,10 @@ impl<S: DiskSlot> ConfigManager<S> {
 
     /// Every automation.
     ///
+    /// Under `Origin::Compiled` this reads the revision and nothing else: a failed
+    /// read is the error, never a reason to list the working copy instead.
+    /// `Origin::Disk` lists the directory it was built over.
+    ///
     /// The two arms do NOT enumerate the same set and this does not change
     /// that: the working copy unions `.procedure.yml`, `.workflow.yml` and
     /// `.automation.yml`, while the walker dropped `.workflow.yml` as a file
@@ -883,19 +870,7 @@ impl<S: DiskSlot> ConfigManager<S> {
     pub async fn list_automations(&self) -> Result<Vec<AutomationEntry>, ArtifactError> {
         match self.origin {
             Origin::Compiled { revision_id, .. } => {
-                match super::compiled::list_automations_at(revision_id).await {
-                    Ok(automations) => Ok(automations),
-                    Err(e) => match self.working_copy() {
-                        Some(_) => {
-                            tracing::warn!(
-                                error = %e,
-                                "compile boundary failed; falling back to the working copy"
-                            );
-                            Ok(self.disk()?.list_workflows().await?)
-                        }
-                        None => Err(e),
-                    },
-                }
+                super::compiled::list_automations_at(revision_id).await
             }
             Origin::Disk => Ok(self.disk()?.list_workflows().await?),
         }
@@ -930,25 +905,14 @@ impl<S: DiskSlot> ConfigManager<S> {
         }
     }
 
-    /// Every Airway pipeline. The two arms enumerate the same set — the walker
+    /// Every Airway pipeline. Under `Origin::Compiled` this reads the revision and
+    /// nothing else, as [`Self::list_automations`] does. The two arms enumerate the same set — the walker
     /// and the working copy agree on `.airway.yml` — so this is the one kind
     /// where the compiled and disk answers are interchangeable by construction.
     pub async fn list_pipelines(&self) -> Result<Vec<PipelineEntry>, ArtifactError> {
         match self.origin {
             Origin::Compiled { revision_id, .. } => {
-                match super::compiled::list_pipelines_at(revision_id).await {
-                    Ok(pipelines) => Ok(pipelines),
-                    Err(e) => match self.working_copy() {
-                        Some(_) => {
-                            tracing::warn!(
-                                error = %e,
-                                "compile boundary failed; falling back to the working copy"
-                            );
-                            Ok(self.disk()?.list_pipelines().await?)
-                        }
-                        None => Err(e),
-                    },
-                }
+                super::compiled::list_pipelines_at(revision_id).await
             }
             Origin::Disk => Ok(self.disk()?.list_pipelines().await?),
         }
@@ -1233,10 +1197,6 @@ impl ConfigManager<WorkingCopy> {
         self.source.storage().get_charts_dir().await
     }
 
-    pub async fn get_exported_chart_dir(&self) -> Result<PathBuf, OxyError> {
-        self.source.storage().get_exported_chart_dir().await
-    }
-
     pub async fn get_results_dir(&self) -> Result<PathBuf, OxyError> {
         self.source.storage().get_results_dir().await
     }
@@ -1341,45 +1301,6 @@ impl ConfigManager<WorkingCopy> {
         Ok(())
     }
 
-    pub async fn add_repository(
-        &self,
-        repo: crate::config::model::Repository,
-    ) -> Result<(), OxyError> {
-        let mut updated_config = self.config_for_write().await;
-
-        if updated_config
-            .repositories
-            .iter()
-            .any(|r| r.name == repo.name)
-        {
-            return Err(OxyError::ConfigurationError(format!(
-                "Repository with name '{}' already exists",
-                repo.name
-            )));
-        }
-
-        updated_config.repositories.push(repo);
-        self.source.storage().write_config(&updated_config).await?;
-        Ok(())
-    }
-
-    pub async fn remove_repository(&self, name: &str) -> Result<(), OxyError> {
-        let mut updated_config = self.config_for_write().await;
-
-        let initial_len = updated_config.repositories.len();
-        updated_config.repositories.retain(|r| r.name != name);
-
-        if updated_config.repositories.len() == initial_len {
-            return Err(OxyError::ConfigurationError(format!(
-                "Repository with name '{}' not found",
-                name
-            )));
-        }
-
-        self.source.storage().write_config(&updated_config).await?;
-        Ok(())
-    }
-
     pub async fn upsert_integration(
         &self,
         integration: crate::config::model::Integration,
@@ -1462,49 +1383,6 @@ mod tests {
         );
     }
 
-    /// Moved with `LOGO_CANDIDATES` + the probe from
-    /// `oxy-app/server/api/workspace_logo.rs`. They now exercise the real
-    /// method rather than a private helper next to the handler, which is the
-    /// point of the move: the source decision is the manager's.
-    #[tokio::test]
-    async fn logo_absent_present_and_precedence() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let manager = disk_manager(dir.path()).await;
-
-        assert!(
-            manager.workspace_logo().await.expect("probe").is_none(),
-            "no logo file is `Ok(None)` — a fact about the workspace"
-        );
-
-        // A DIRECTORY named `logo.svg` is not a logo; the next candidate wins.
-        tokio::fs::create_dir(dir.path().join("logo.svg"))
-            .await
-            .expect("mkdir");
-        tokio::fs::write(dir.path().join("logo.png"), b"png")
-            .await
-            .expect("write");
-        let (path, mime) = manager.workspace_logo().await.expect("probe").expect("png");
-        assert!(path.ends_with("logo.png"));
-        assert_eq!(mime, "image/png");
-    }
-
-    #[tokio::test]
-    async fn every_candidate_maps_to_its_content_type() {
-        for (name, expected) in LOGO_CANDIDATES {
-            let dir = tempfile::tempdir().expect("tempdir");
-            let manager = disk_manager(dir.path()).await;
-            tokio::fs::write(dir.path().join(name), b"x")
-                .await
-                .expect("write");
-            let (_, mime) = manager
-                .workspace_logo()
-                .await
-                .expect("probe")
-                .unwrap_or_else(|| panic!("{name} should be found"));
-            assert_eq!(mime, expected, "for {name}");
-        }
-    }
-
     /// The wide version: every read whose disk arm goes through `disk()` is on
     /// a manager the ide hands out as `WorkspaceManagerReadOnly`, and an
     /// UNPROMOTED workspace — or an ide previewing a feature branch — has
@@ -1536,40 +1414,6 @@ mod tests {
         assert!(apps.is_ok(), "list_apps: {apps:?}");
         assert!(monitors.is_ok(), "monitor_config: {monitors:?}");
         assert!(automation.is_ok(), "automation_definition: {automation:?}");
-    }
-
-    /// The regression this slot exists to prevent. The read-only manager used
-    /// to assert emptiness, so `disk()` errored on a node whose files were
-    /// right there — and the ide serves every read-only route from exactly such
-    /// a manager.
-    #[tokio::test]
-    async fn a_read_only_manager_still_sees_the_files_this_node_has() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        tokio::fs::write(dir.path().join("logo.png"), b"png")
-            .await
-            .expect("write");
-        let readonly = disk_manager(dir.path()).await.into_read_only();
-        let found = readonly.workspace_logo().await;
-        assert!(
-            matches!(found, Ok(Some(_))),
-            "the file is on this node and the manager refuses to see it: {found:?}"
-        );
-    }
-
-    /// The distinction the method exists for. Both are a 404 to the caller, but
-    /// only the first is a statement about the customer's workspace.
-    #[tokio::test]
-    async fn no_working_copy_is_an_error_not_an_absent_logo() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        tokio::fs::write(dir.path().join("logo.png"), b"png")
-            .await
-            .expect("write");
-        let diskless = disk_manager(dir.path()).await.without_working_copy();
-        let err = diskless
-            .workspace_logo()
-            .await
-            .expect_err("a node with no working copy cannot say the logo is absent");
-        assert!(err.retryable(), "got {err}");
     }
 
     async fn disk_manager(dir: &std::path::Path) -> ConfigManager<WorkingCopy> {
@@ -1777,6 +1621,78 @@ mod tests {
             "a lookup that never completed must stay distinguishable: {boundary_down:?}"
         );
     }
+    /// A revision-pinned manager on a pod that HAS the file still answers from
+    /// the revision, and `Origin::Disk` still reads its directory.
+    ///
+    /// [`ConfigManager::definition`] (still used for apps) falls back to the
+    /// working copy on a compiled miss and on a failed compiled read; the
+    /// helper automations and pipelines use must not. The file is on disk in
+    /// every case, so an implementation that falls back returns `Some` and the
+    /// assertions fail.
+    #[tokio::test]
+    async fn a_revision_pinned_manager_does_not_answer_from_the_files_it_holds() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let automations = dir.path().join("automations");
+        std::fs::create_dir_all(&automations).expect("mkdir");
+        std::fs::write(
+            automations.join("on_disk.automation.yml"),
+            "name: on_disk\ntasks: []\n",
+        )
+        .expect("write");
+        let path = "automations/on_disk.automation.yml";
+
+        let pinned = crate::config::ConfigBuilder::new()
+            .with_workspace_path(dir.path())
+            .expect("workspace path")
+            .build_with_provided_config_and_working_copy(
+                serde_yaml::from_str("models: []\ndatabases: []\n").expect("config"),
+                Origin::Compiled {
+                    workspace_id: Uuid::new_v4(),
+                    revision_id: Uuid::new_v4(),
+                },
+            )
+            .expect("manager");
+        assert!(
+            pinned.can_read_disk(),
+            "precondition: this pod has the files"
+        );
+
+        let miss = pinned.revision_definition(async { Ok(None) }, path).await;
+        assert!(
+            matches!(miss, Ok(None)),
+            "the revision does not have it, and the directory is not asked: {miss:?}"
+        );
+        let down = pinned
+            .revision_definition(
+                async { Err(ArtifactError::Backend("connection refused".into())) },
+                path,
+            )
+            .await;
+        assert!(
+            matches!(down, Err(ref e) if e.retryable()),
+            "a failed read is a retryable error, not a read of the directory: {down:?}"
+        );
+        let hit = pinned
+            .revision_definition(
+                async { Ok(Some(serde_json::json!({ "name": "rev" }))) },
+                path,
+            )
+            .await;
+        assert_eq!(
+            hit.expect("read").expect("row")["name"],
+            "rev",
+            "and a row is served as is"
+        );
+
+        let disk = disk_manager(dir.path()).await;
+        let read = disk
+            .revision_definition(async { Ok(None) }, path)
+            .await
+            .expect("read")
+            .expect("the directory this manager was built over");
+        assert_eq!(read["name"], "on_disk");
+    }
+
     /// The line every caller labelling these errors depends on.
     ///
     /// A file that is present and unparseable is the workspace's content, and

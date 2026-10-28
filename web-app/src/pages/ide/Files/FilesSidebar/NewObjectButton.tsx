@@ -1,5 +1,4 @@
 import {
-  AppWindow,
   Workflow as Automation,
   BookOpen,
   ChartBar,
@@ -44,7 +43,7 @@ import { QB_WIZARD_STASH_KEY } from "@/services/api/quickbooks";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import type { FileTreeModel } from "@/types/file";
 
-type ObjectType = "agentic" | "automation" | "view" | "topic" | "app" | "test";
+type ObjectType = "agentic" | "automation" | "view" | "topic" | "test";
 
 interface ObjectTypeConfig {
   type: ObjectType;
@@ -78,16 +77,6 @@ context: []
 description: ""
 
 tasks: []
-`
-  },
-  {
-    type: "app",
-    label: "App",
-    icon: AppWindow,
-    extension: ".app.yml",
-    defaultContent: `tasks:
-
-display:
 `
   },
   {

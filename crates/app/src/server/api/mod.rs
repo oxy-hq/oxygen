@@ -55,13 +55,11 @@ pub use oxy_custom_apps::usage_airhouse as custom_apps_usage_airhouse;
 /// Moved to the `oxy-custom-apps` domain crate; the old path stays so no call site changes.
 pub use oxy_custom_apps::usage_queue as custom_apps_usage_queue;
 pub mod data;
-pub mod data_repo;
 pub mod database;
 // The document-library HTTP surface moved to the `oxy-api-documents` sibling
 // crate, mounted by `oxy-server`. oxy-app no longer depends on it.
 pub mod execution_analytics;
 pub mod experiment;
-pub mod exported_chart;
 pub mod file;
 pub mod foot_traffic;
 mod foot_traffic_seed;

@@ -40,12 +40,13 @@ import { AdminEmptyState } from "../../components/AdminEmptyState";
 import { AdminLinkedList, AdminLinkedRow } from "../../components/AdminLinkedRow";
 import { AdminSectionLabel } from "../../components/AdminSectionLabel";
 import { AdminStatusPill, type AdminStatusTone } from "../../components/AdminStatusPill";
+import FactoryAccessPanel from "./components/FactoryAccessPanel";
 import WorkspaceHealthPanel from "./components/WorkspaceHealthPanel";
 
-type TabId = "overview" | "health" | "members" | "settings";
+type TabId = "overview" | "health" | "members" | "factory" | "settings";
 
 const isTabId = (v: string | null): v is TabId =>
-  v === "overview" || v === "health" || v === "members" || v === "settings";
+  v === "overview" || v === "health" || v === "members" || v === "factory" || v === "settings";
 
 const ageDays = (iso: string) =>
   Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
@@ -244,6 +245,7 @@ export default function AdminWorkspaceDetail({
           { id: "overview", label: "Overview" },
           { id: "health", label: "Health" },
           { id: "members", label: "Members", count: detail.member_count },
+          { id: "factory", label: "Factory" },
           { id: "settings", label: "Settings" }
         ]}
       />
@@ -360,6 +362,12 @@ export default function AdminWorkspaceDetail({
               ))}
             </AdminLinkedList>
           )}
+        </AdminDetailTabPanel>
+      ) : null}
+
+      {tab === "factory" ? (
+        <AdminDetailTabPanel>
+          <FactoryAccessPanel workspaceId={detail.id} orgSlug={detail.org_slug} />
         </AdminDetailTabPanel>
       ) : null}
 

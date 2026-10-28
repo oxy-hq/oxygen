@@ -22,7 +22,7 @@ use crate::server::api::middlewares::workspace_context::{
 use crate::server::api::semantic::{
     ErrorResponse, QueryScanSource, resolve_query_scan_source, semantic_err,
 };
-use crate::server::serve_safety;
+use crate::server::servability;
 
 /// The error every handler here answers with.
 pub(super) type WmError = (StatusCode, Json<ErrorResponse>);
@@ -60,8 +60,8 @@ impl ModelSource {
         Ok(Self { scan, revision })
     }
 
-    pub(super) fn scan_path(&self) -> std::path::PathBuf {
-        self.scan.path().to_path_buf()
+    pub(super) fn scan(&self) -> oxy::config::ScanDir {
+        self.scan.scan.clone()
     }
 
     /// The parsed model, from the per-workspace layer cache.
@@ -69,9 +69,7 @@ impl ModelSource {
         &self,
         layer_cache: &SemanticLayerCacheCtx,
     ) -> Result<Arc<oxy_airlayer_compat::SemanticLayer>, oxy_airlayer_compat::SemanticError> {
-        layer_cache
-            .get_or_load(self.revision, self.scan_path())
-            .await
+        layer_cache.get_or_load(self.revision, self.scan()).await
     }
 
     /// The engine-cache key for the model this request read.
@@ -145,7 +143,7 @@ pub(super) fn refuse_databases_this_pod_cannot_open<'a, S: DiskSlot>(
         return Ok(());
     }
     let databases = workspace_manager.config_manager.list_databases();
-    match serve_safety::first_needing_working_copy(&databases, datasources) {
+    match servability::first_needing_working_copy(&databases, datasources) {
         None => Ok(()),
         Some(name) => Err(semantic_err(
             StatusCode::SERVICE_UNAVAILABLE,

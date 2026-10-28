@@ -88,7 +88,7 @@ pub mod workspace_context {
 /// Pod placement: whether this process holds the working copy, and how a
 /// request that needs the Factory is relayed to it.
 pub mod fleet {
-    pub use crate::server::{ide_proxy, role_middleware, serve_safety};
+    pub use crate::server::{ide_proxy, role_middleware, servability};
 }
 
 /// The notification service's parts the staff console's "Test notifications"
@@ -185,6 +185,12 @@ pub use crate::server::api::admin::assume;
 pub mod admin_scope {
     pub use crate::server::api::admin::org_filter::{scope_org_filter, scope_org_filter_checked};
     pub use crate::server::api::admin::scope::*;
+}
+
+/// Whether Factory access is enforced (the `apps_first_experience` flag), for
+/// the staff console's Factory-access tab to say what a grant changes today.
+pub mod factory_access {
+    pub use crate::server::factory_access::enforced;
 }
 
 /// Transactional email delivery (SES, or the local preview provider).

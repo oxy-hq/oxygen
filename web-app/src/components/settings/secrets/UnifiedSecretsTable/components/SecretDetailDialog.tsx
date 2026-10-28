@@ -1,5 +1,5 @@
 import { formatDistanceToNow } from "date-fns";
-import { Check, Code2, Copy, Edit, Eye, EyeOff, Plus, Trash2, UserRound } from "lucide-react";
+import { Check, Code2, Copy, Edit, Eye, EyeOff, Trash2, UserRound } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -24,7 +24,6 @@ interface SecretDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   onEdit: (secret: Secret) => void;
   onDelete: (secret: Secret) => void;
-  onAddOverride: (name: string) => void;
 }
 
 const DetailField: React.FC<React.PropsWithChildren<{ label: string }>> = ({ label, children }) => (
@@ -37,18 +36,17 @@ const DetailField: React.FC<React.PropsWithChildren<{ label: string }>> = ({ lab
 );
 
 /**
- * Detail view for a single secret / env var. Surfaces everything that used to
+ * Detail view for a single secret. Surfaces everything that used to
  * live in the (now removed) Value / Updated / Actions table columns: the
- * masked value with reveal + copy, source, config reference, last-updated
- * metadata, and the edit / delete / add-override actions.
+ * masked value with reveal + copy, source, last-updated metadata, and the
+ * edit / delete actions.
  */
 export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
   row,
   open,
   onOpenChange,
   onEdit,
-  onDelete,
-  onAddOverride
+  onDelete
 }) => {
   const { project } = useCurrentProjectBranch();
   const [revealed, setRevealed] = useState<string | undefined>(undefined);
@@ -70,24 +68,16 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
   }
 
   const sourceConfig = SOURCE_CONFIG[row.source];
-  const isDbSecret = !!row.secretInfo;
-  const isUnset = !isDbSecret && !row.envInfo?.is_set;
-  // Reveal/copy is only available for DB-stored secrets. Env-sourced values are
-  // never returned as plaintext by the API — the env endpoint always nulls out
-  // full_value — so there is nothing to reveal for env rows. (isDbSecret already
-  // implies !isUnset.)
-  const canReveal = isDbSecret;
   const isRevealed = revealed !== undefined;
   const date = row.secretInfo?.updated_at;
   const updatedBy = row.secretInfo?.updated_by_email ?? row.secretInfo?.created_by_email;
-  const displayValue = isRevealed ? revealed : (row.maskedValue ?? DOTS);
+  const displayValue = isRevealed ? revealed : DOTS;
 
   const handleReveal = async () => {
     if (isRevealed) {
       setRevealed(undefined);
       return;
     }
-    if (!row.secretInfo) return;
     setRevealLoading(true);
     try {
       const value = await SecretService.revealSecret(project.id, row.secretInfo.id);
@@ -100,7 +90,6 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
   };
 
   const handleCopy = async () => {
-    if (!row.secretInfo) return;
     let value = revealed;
     if (value === undefined) {
       try {
@@ -132,52 +121,41 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
 
         <div className='flex flex-col'>
           <DetailField label='Value'>
-            {isUnset ? (
-              <Badge
-                variant='outline'
-                className='border-destructive/30 bg-destructive/10 font-medium text-[10px] text-destructive'
-              >
-                Not set
-              </Badge>
-            ) : (
-              <div className='flex items-center gap-2'>
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 break-all font-mono text-sm",
-                    isRevealed ? "text-foreground" : "text-muted-foreground/70 tracking-widest"
-                  )}
-                >
-                  {displayValue}
-                </span>
-                {canReveal && (
-                  <div className='-mr-1 flex shrink-0 items-center gap-0.5'>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      className='size-7 p-0'
-                      onClick={handleReveal}
-                      disabled={revealLoading}
-                      title={isRevealed ? "Hide value" : "Reveal value"}
-                    >
-                      {isRevealed ? <EyeOff className='size-3.5' /> : <Eye className='size-3.5' />}
-                    </Button>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      className='size-7 p-0'
-                      onClick={handleCopy}
-                      title='Copy value'
-                    >
-                      {copied ? (
-                        <Check className='size-3.5 text-success' />
-                      ) : (
-                        <Copy className='size-3.5' />
-                      )}
-                    </Button>
-                  </div>
+            <div className='flex items-center gap-2'>
+              <span
+                className={cn(
+                  "min-w-0 flex-1 break-all font-mono text-sm",
+                  isRevealed ? "text-foreground" : "text-muted-foreground/70 tracking-widest"
                 )}
+              >
+                {displayValue}
+              </span>
+              <div className='-mr-1 flex shrink-0 items-center gap-0.5'>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className='size-7 p-0'
+                  onClick={handleReveal}
+                  disabled={revealLoading}
+                  title={isRevealed ? "Hide value" : "Reveal value"}
+                >
+                  {isRevealed ? <EyeOff className='size-3.5' /> : <Eye className='size-3.5' />}
+                </Button>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className='size-7 p-0'
+                  onClick={handleCopy}
+                  title='Copy value'
+                >
+                  {copied ? (
+                    <Check className='size-3.5 text-success' />
+                  ) : (
+                    <Copy className='size-3.5' />
+                  )}
+                </Button>
               </div>
-            )}
+            </div>
           </DetailField>
 
           <DetailField label='Source'>
@@ -188,14 +166,6 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
               {sourceConfig.label}
             </Badge>
           </DetailField>
-
-          {row.referencedBy && (
-            <DetailField label='Reference'>
-              <span className='break-all font-mono text-muted-foreground text-xs'>
-                {isDbSecret ? `overrides ${row.referencedBy}` : row.referencedBy}
-              </span>
-            </DetailField>
-          )}
 
           {row.secretInfo?.description && (
             <DetailField label='Description'>
@@ -219,28 +189,19 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
         </div>
 
         <DialogFooter className='sm:justify-between'>
-          {isDbSecret ? (
-            <>
-              <Button
-                variant='ghost'
-                size='sm'
-                className='text-destructive hover:bg-destructive/10 hover:text-destructive'
-                onClick={() => row.secretInfo && onDelete(row.secretInfo)}
-              >
-                <Trash2 className='size-4' />
-                Delete
-              </Button>
-              <Button size='sm' onClick={() => row.secretInfo && onEdit(row.secretInfo)}>
-                <Edit className='size-4' />
-                Edit
-              </Button>
-            </>
-          ) : (
-            <Button size='sm' className='sm:ml-auto' onClick={() => onAddOverride(row.name)}>
-              <Plus className='size-4' />
-              Add override
-            </Button>
-          )}
+          <Button
+            variant='ghost'
+            size='sm'
+            className='text-destructive hover:bg-destructive/10 hover:text-destructive'
+            onClick={() => onDelete(row.secretInfo)}
+          >
+            <Trash2 className='size-4' />
+            Delete
+          </Button>
+          <Button size='sm' onClick={() => onEdit(row.secretInfo)}>
+            <Edit className='size-4' />
+            Edit
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

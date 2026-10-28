@@ -41,7 +41,7 @@ nearly everything (`oxy`, agentic-http/pipeline, integrations). Keep it thin:
 | `server/router/` | Route mounting: `public.rs`, `protected.rs`, `workspace.rs`, `global.rs`, `entry.rs`, `openapi.rs`. `ROUTES.md` documents the surface. |
 | `server/role_manifest.rs` (~230 lines; roles travel as `RouteRoleDecl` next to each route) | **Routing authority** for the split fleet — classifies every route `IdeOnly` vs `FleetOk`. FS/`.git`/state-dir routes MUST be `IdeOnly`; persisted-data reads MUST stay `FleetOk`. Invoke `oxy-route-classification` before touching routes. |
 | `server/{worker_runtime,worker_health,worker_metrics}.rs`, `preagg_*`, `compile_*` | Durable-task worker fleet + pre-aggregation + compile-boundary workers. |
-| `server/{serve_safety,admission,ide_proxy,role_middleware}.rs` | Serve-mode gating, self-routing reverse proxy (`IdeOnly` → ide upstream), admission control. `ServeMode` itself now lives in `oxy-app-core` — see below. |
+| `server/{servability,admission,ide_proxy,role_middleware}.rs` | Whether a replica can serve a workspace without the working copy, self-routing reverse proxy (`IdeOnly` → ide upstream), admission control. `ServeMode` itself now lives in `oxy-app-core` — see below. |
 | `server/service/` | Server-side services (api keys, app, eval, project, formatters). |
 
 **Five modules now live in `oxy-app-core` (`crates/app-core`), not here** — `audit`,

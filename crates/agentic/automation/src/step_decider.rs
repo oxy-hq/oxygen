@@ -4,13 +4,12 @@
 //! `AutomationDecider::decide` loads state, folds in any completed child answer,
 //! decides the next action, and returns. No in-memory channels survive a crash.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use crate::airway_admission::AirwayAdmissionResolver;
 use crate::config::TaskType;
 use crate::extension::AutomationRunState;
-use crate::render::{render_jinja_string, validate_workspace_relative_path};
+use crate::render::render_jinja_string;
 use crate::step_hash::{StepHashInputs, compute_step_hash};
 use crate::step_orchestrator::{build_minijinja_context, to_column_oriented};
 use agentic_core::delegation::{
@@ -139,7 +138,6 @@ impl AutomationDecider {
         mut state: AutomationRunState,
         pending_child_answer: Option<ChildCompletion>,
         prior_state: Option<&AutomationRunState>,
-        workspace_path: Option<&Path>,
     ) -> (AutomationRunState, AutomationDecision) {
         // Events emitted during the fold phase — prepended to the decision's events.
         let mut fold_events: Vec<(String, Value)> = Vec::new();
@@ -310,71 +308,6 @@ impl AutomationDecider {
             "subrun_step_started".to_string(),
             json!({ "step": step_name }),
         ));
-
-        // ── File-presence cache ──────────────────────────────────────────
-        //
-        // Distinct from the step-hash cache below: this check skips the
-        // step iff the configured `cache.path` file already exists on
-        // disk. Mirrors the legacy `oxy-workflow::TaskCache` semantics so
-        // a customer pattern of "agent generates SQL, user edits the
-        // file, subsequent runs use the edited file as-is" keeps
-        // working. File presence wins over step-hash — if both apply,
-        // the file content is the source of truth (the whole point is
-        // that the user may have edited it). See `TaskConfig.cache`.
-        if let (Some(cache), Some(workspace)) = (task.cache.as_ref(), workspace_path)
-            && cache.enabled
-            && let Some((rendered_path, content)) =
-                probe_file_cache(workspace, &cache.path, &state.render_context).await
-        {
-            // The cached content can be either a JSON-shaped result
-            // (agents that emit structured output) or a raw text blob
-            // (the common case — SQL the user edited, an LLM-generated
-            // markdown report). Try JSON first; on parse failure, wrap
-            // in `{"text": <content>}` to match the fold-step envelope
-            // (see `decide`'s fold path at ~line 113) so a downstream
-            // `{{ step.text }}` template resolves the same way on a
-            // fresh run and on a cache-hit rerun. Previously this fell
-            // back to `Value::String` and `{{ step.text }}` rendered
-            // empty after a cache hit.
-            let result_value = serde_json::from_str::<Value>(&content)
-                .unwrap_or_else(|_| json!({"text": content}));
-            state
-                .results
-                .insert(step_name.clone(), result_value.clone());
-            // Intentionally don't write a step_hash entry — the next run
-            // will probe the file again and either hit or miss; the
-            // step-hash cache is orthogonal and shouldn't be poisoned
-            // by a file-presence shortcut.
-            update_render_context(&mut state, &step_name);
-            events.push((
-                "subrun_step_cache_hit".to_string(),
-                json!({
-                    "step": step_name,
-                    "source": "file",
-                    "path": rendered_path,
-                }),
-            ));
-            events.push((
-                "subrun_step_output".to_string(),
-                json!({
-                    "step": step_name,
-                    "task_type": task.task_type.name(),
-                    "output": result_value,
-                }),
-            ));
-            events.push((
-                "subrun_step_completed".to_string(),
-                json!({ "step": step_name, "success": true, "cached": true, "cache_source": "file" }),
-            ));
-            state.current_step += 1;
-            return (
-                state,
-                AutomationDecision::StepExecutedInline {
-                    step_name,
-                    emitted_events: events,
-                },
-            );
-        }
 
         // ── Cache check (resume-unchanged-steps) ──────────────────────────
         //
@@ -1399,27 +1332,6 @@ fn resolve_loop_values(values: &Value, render_context: &Value) -> Result<Vec<Val
     }
 }
 
-/// Resolve a `TaskConfig.cache.path` against the step's render context
-/// and the workspace root, then return `(rendered_path, content)` if
-/// the file exists. Missing file, render failure, traversal-unsafe
-/// path, or I/O error all collapse to `None` — the caller treats any
-/// of those as a cache miss and runs the step normally.
-///
-/// I/O is real but the file is expected to be small (SQL text, JSON
-/// blob); blocking the decide task for one stat + one read is fine.
-async fn probe_file_cache(
-    workspace_path: &Path,
-    cache_path_template: &str,
-    render_context: &Value,
-) -> Option<(String, String)> {
-    let rendered = render_jinja_string(cache_path_template, render_context).ok()?;
-    let abs = validate_workspace_relative_path(workspace_path, &rendered).ok()?;
-    match tokio::fs::read_to_string(&abs).await {
-        Ok(content) => Some((rendered, content)),
-        Err(_) => None,
-    }
-}
-
 fn update_render_context(state: &mut AutomationRunState, step_name: &str) {
     let Some(value) = state.results.get(step_name) else {
         return;
@@ -1474,8 +1386,6 @@ mod final_answer_tests {
                     task_type: TaskType::Formatter(FormatterConfig {
                         template: String::new(),
                     }),
-                    export: None,
-                    cache: None,
                 })
                 .collect(),
             variables: None,
@@ -1622,8 +1532,6 @@ mod iteration_cache_tests {
                     tasks: vec![],
                     concurrency: 1,
                 }),
-                export: None,
-                cache: None,
             }],
             description: String::new(),
             variables: None,
@@ -1756,8 +1664,6 @@ mod iteration_cache_tests {
                 task_type: TaskType::Formatter(crate::config::FormatterConfig {
                     template: "x".into(),
                 }),
-                export: None,
-                cache: None,
             }],
             description: String::new(),
             variables: None,
@@ -1790,8 +1696,6 @@ mod cache_tests {
                 task_type: TaskType::Formatter(FormatterConfig {
                     template: template.into(),
                 }),
-                export: None,
-                cache: None,
             }],
         }
     }
@@ -1847,7 +1751,7 @@ mod cache_tests {
 
         let current = fresh_state(wf, true, Some("prior-run"));
         let decider = AutomationDecider::new(None);
-        let (new_state, decision) = decider.decide(current, None, Some(&prior), None).await;
+        let (new_state, decision) = decider.decide(current, None, Some(&prior)).await;
 
         assert!(matches!(
             decision,
@@ -1890,7 +1794,7 @@ mod cache_tests {
             .invalidate_iterations
             .insert("greet".into(), vec![0]);
         let decider = AutomationDecider::new(None);
-        let (_, decision) = decider.decide(current, None, Some(&prior), None).await;
+        let (_, decision) = decider.decide(current, None, Some(&prior)).await;
 
         if let AutomationDecision::StepExecutedInline { emitted_events, .. } = &decision {
             assert!(
@@ -1900,159 +1804,6 @@ mod cache_tests {
                 "iteration override must skip step-level cache hit",
             );
         }
-    }
-
-    /// File-presence cache short-circuit: when `cache.path` exists,
-    /// the step is skipped and the file contents become the result.
-    /// The whole point of this path is preserving manual edits, so
-    /// the test writes a deliberately different string into the file
-    /// and asserts the step's result matches the file (not the
-    /// formatter's actual output).
-    #[tokio::test]
-    async fn file_cache_hit_short_circuits_step() {
-        let tmpdir = tempfile::tempdir().expect("tmpdir");
-        let cache_path = "cached.txt";
-        let abs_cache = tmpdir.path().join(cache_path);
-        // User-edited contents — deliberately different from what the
-        // formatter would render, to prove the file wins.
-        std::fs::write(&abs_cache, "USER-EDITED-CONTENT").expect("seed cache");
-
-        let wf = AutomationConfig {
-            name: "test-wf".into(),
-            description: String::new(),
-            variables: None,
-            consistency_prompt: None,
-            consistency_model: None,
-            tasks: vec![TaskConfig {
-                name: "greet".into(),
-                task_type: TaskType::Formatter(FormatterConfig {
-                    template: "hello".into(),
-                }),
-                export: None,
-                cache: Some(crate::config::CacheConfig {
-                    enabled: true,
-                    path: cache_path.into(),
-                }),
-            }],
-        };
-
-        let current = fresh_state(wf, false, None);
-        let decider = AutomationDecider::new(None);
-        let (new_state, decision) = decider
-            .decide(current, None, None, Some(tmpdir.path()))
-            .await;
-
-        // Result is the file content wrapped in `{"text": ...}` so it
-        // matches the fold-step shape — keeps `{{ step.text }}` working
-        // identically on fresh runs and on cache-hit reruns.
-        assert_eq!(
-            new_state.results.get("greet"),
-            Some(&json!({"text": "USER-EDITED-CONTENT"}))
-        );
-
-        // subrun_step_cache_hit with source=file is emitted.
-        let events = match &decision {
-            AutomationDecision::StepExecutedInline { emitted_events, .. } => emitted_events,
-            other => panic!("expected StepExecutedInline, got {other:?}"),
-        };
-        let cache_hit = events
-            .iter()
-            .find(|(t, _)| t == "subrun_step_cache_hit")
-            .expect("file cache hit event");
-        assert_eq!(
-            cache_hit.1.get("source").and_then(|v| v.as_str()),
-            Some("file")
-        );
-    }
-
-    /// A file cache that already contains a JSON-shaped payload skips
-    /// the `{"text": ...}` wrap and uses the parsed JSON directly — so
-    /// a step that previously emitted structured output round-trips
-    /// without nesting under `text`.
-    #[tokio::test]
-    async fn file_cache_hit_parses_json_directly() {
-        let tmpdir = tempfile::tempdir().expect("tmpdir");
-        let cache_path = "structured.json";
-        let abs_cache = tmpdir.path().join(cache_path);
-        std::fs::write(&abs_cache, r#"{"sql": "SELECT 1", "verified": true}"#).expect("seed cache");
-
-        let wf = AutomationConfig {
-            name: "test-wf".into(),
-            description: String::new(),
-            variables: None,
-            consistency_prompt: None,
-            consistency_model: None,
-            tasks: vec![TaskConfig {
-                name: "gen".into(),
-                task_type: TaskType::Formatter(FormatterConfig {
-                    template: "ignored".into(),
-                }),
-                export: None,
-                cache: Some(crate::config::CacheConfig {
-                    enabled: true,
-                    path: cache_path.into(),
-                }),
-            }],
-        };
-
-        let current = fresh_state(wf, false, None);
-        let decider = AutomationDecider::new(None);
-        let (new_state, _) = decider
-            .decide(current, None, None, Some(tmpdir.path()))
-            .await;
-
-        // Parsed JSON object lands as-is — no extra `{"text": ...}`
-        // wrapping, so callers can reach into `{{ step.sql }}` directly.
-        assert_eq!(
-            new_state.results.get("gen"),
-            Some(&json!({"sql": "SELECT 1", "verified": true}))
-        );
-    }
-
-    /// File cache miss: the agent step runs normally. (Here we
-    /// substitute formatter for "the step ran" since the formatter
-    /// path executes inline.)
-    #[tokio::test]
-    async fn file_cache_miss_runs_step_normally() {
-        let tmpdir = tempfile::tempdir().expect("tmpdir");
-        // Intentionally don't write a file at this path → miss.
-        let wf = AutomationConfig {
-            name: "test-wf".into(),
-            description: String::new(),
-            variables: None,
-            consistency_prompt: None,
-            consistency_model: None,
-            tasks: vec![TaskConfig {
-                name: "greet".into(),
-                task_type: TaskType::Formatter(FormatterConfig {
-                    template: "hello".into(),
-                }),
-                export: None,
-                cache: Some(crate::config::CacheConfig {
-                    enabled: true,
-                    path: "missing.txt".into(),
-                }),
-            }],
-        };
-        let current = fresh_state(wf, false, None);
-        let decider = AutomationDecider::new(None);
-        let (new_state, decision) = decider
-            .decide(current, None, None, Some(tmpdir.path()))
-            .await;
-        // Formatter ran → result is "hello", not from the (missing) file.
-        assert_eq!(
-            new_state.results.get("greet"),
-            Some(&json!({"text": "hello"}))
-        );
-        // No file-source cache_hit was emitted.
-        let events = match &decision {
-            AutomationDecision::StepExecutedInline { emitted_events, .. } => emitted_events,
-            other => panic!("expected StepExecutedInline, got {other:?}"),
-        };
-        let any_file_hit = events.iter().any(|(t, p)| {
-            t == "subrun_step_cache_hit" && p.get("source").and_then(|v| v.as_str()) == Some("file")
-        });
-        assert!(!any_file_hit, "cache miss must not emit file cache_hit");
     }
 
     /// When the user did not opt in (`cache_enabled = false`), the prior run
@@ -2078,7 +1829,7 @@ mod cache_tests {
         // cache_enabled = false even though retry_from points at prior.
         let current = fresh_state(wf, false, Some("prior-run"));
         let decider = AutomationDecider::new(None);
-        let (new_state, _) = decider.decide(current, None, Some(&prior), None).await;
+        let (new_state, _) = decider.decide(current, None, Some(&prior)).await;
 
         // Step ran fresh (the formatter rendered "hi"), not "STALE".
         assert_eq!(new_state.results.get("greet"), Some(&json!({"text": "hi"})));
@@ -2107,7 +1858,7 @@ mod cache_tests {
         let new_wf = formatter_automation("greet", "HOLA");
         let current = fresh_state(new_wf, true, Some("prior-run"));
         let decider = AutomationDecider::new(None);
-        let (new_state, decision) = decider.decide(current, None, Some(&prior), None).await;
+        let (new_state, decision) = decider.decide(current, None, Some(&prior)).await;
 
         // Ran fresh: render produced "HOLA".
         assert_eq!(
@@ -2141,7 +1892,7 @@ mod cache_tests {
 
         let current = fresh_state(wf, true, Some("prior-run"));
         let decider = AutomationDecider::new(None);
-        let (new_state, _) = decider.decide(current, None, Some(&prior), None).await;
+        let (new_state, _) = decider.decide(current, None, Some(&prior)).await;
 
         assert_eq!(new_state.results.get("greet"), Some(&json!({"text": "hi"})));
     }

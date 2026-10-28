@@ -1,6 +1,6 @@
 use crate::server::api::middlewares::role_guards::WorkspaceAdmin;
 use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath,
+    EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspacePath,
 };
 use crate::server::api::typed_stream::{
     EMPTY_RESULT_SENTINEL, typed_stream_to_json_array, typed_stream_to_parquet,
@@ -39,17 +39,16 @@ pub enum SemanticQueryResponse {
         truncated: bool,
     },
 }
-use crate::server::service::retrieval::{ReindexInput, reindex};
 use agentic_connector::{
     ConnectorError, DatabaseConnector, QueryFailedDetails, is_wrappable_select,
 };
 use axum::extract::{self, Path};
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use entity::workspace_members::WorkspaceRole;
 use oxy::adapters::{session_filters::SessionFilters, workspace::manager::WorkspaceManager};
 use oxy::config::model::ConnectionOverrides;
-use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile, WorkingCopy};
+use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_shared::errors::OxyError;
 use serde::{Deserialize, Serialize};
@@ -499,166 +498,23 @@ pub async fn execute_sql_query(
     execute_sql(workspace, user, role, path, payload).await
 }
 
-// TODO: may want to rename this and the `reindex()` function below as we're doing more
-//       only conditionally reindexing and doing more than just building embeddings:
-//         - constructing retrieval items to store in lancedb
-//         - calculating inclusion radius for each retrieval item
-//         - caching enum values for each variable so they can be detected at query time
+/// The workspace "Build" action. Nothing is left for it to build: the reindex
+/// built an enum index nothing read and was removed, and the Omni sync went with
+/// the Looker and Omni metadata caches. It answers success so the Settings →
+/// Databases → Build button and old scripts keep working until they are removed.
 pub async fn build_embeddings(
-    // Runs an Omni sync and a reindex. Its siblings on the same router,
-    // `/databases/sync` and `/databases/clean`, are `WorkspaceAdmin`, and its one
-    // caller (Settings → Databases → Build) renders only for a workspace admin.
-    // First, so a refused caller is refused before anything is resolved.
+    // Its siblings on the same router, `/databases/sync` and `/databases/clean`,
+    // are `WorkspaceAdmin`, and its one caller (Settings → Databases → Build)
+    // renders only for a workspace admin, so the guard stays.
     _: WorkspaceAdmin,
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
     Path(WorkspacePath {
         workspace_id: _workspace_id,
     }): Path<WorkspacePath>,
 ) -> Result<extract::Json<EmbeddingsBuildResponse>, Response> {
-    handle_omni_sync(&workspace_manager)
-        .await
-        .map_err(|e| StatusCode::from(e).into_response())?;
-    let config_manager = workspace_manager.config_manager;
-    let secret_manager = workspace_manager.secrets_manager;
-    let drop_all_tables = false;
-
-    match reindex(ReindexInput {
-        config: config_manager,
-        secrets_manager: secret_manager,
-        drop_all_tables,
-    })
-    .await
-    {
-        Ok(_) => Ok(extract::Json(EmbeddingsBuildResponse {
-            success: true,
-            message: "Embeddings built successfully".to_string(),
-        })),
-        Err(e) => {
-            tracing::error!("Embeddings build failed: {}", e);
-            Ok(extract::Json(EmbeddingsBuildResponse {
-                success: false,
-                message: format!("Embeddings build failed: {e}"),
-            }))
-        }
-    }
-}
-
-async fn handle_omni_sync(workspace: &WorkspaceManager<WorkingCopy>) -> Result<(), OxyError> {
-    use omni::sync::OmniSyncService;
-    use omni::{OmniApiClient, OmniError as AdapterOmniError};
-
-    let workspace_path = workspace.config_manager.workspace_path();
-
-    let config = workspace.config_manager.clone();
-
-    // Get all Omni integration configurations - if none found, skip silently
-    let omni_integrations: Vec<_> = config
-        .get_config()
-        .integrations
-        .iter()
-        .filter_map(|integration| match &integration.integration_type {
-            oxy::config::model::IntegrationType::Omni(omni_integration) => {
-                Some((integration.name.clone(), omni_integration.clone()))
-            }
-            _ => None,
-        })
-        .collect();
-
-    if omni_integrations.is_empty() {
-        // No Omni integrations configured, skip silently
-        return Ok(());
-    }
-
-    tracing::info!(
-        "Synchronizing {} Omni integration(s)",
-        omni_integrations.len()
-    );
-
-    let mut all_sync_results = Vec::new();
-    let mut total_successful_topics = Vec::new();
-
-    for (integration_name, omni_integration) in omni_integrations {
-        tracing::info!(integration = %integration_name, "Processing Omni integration");
-
-        // Resolve API key from environment variable
-        let api_key = workspace
-            .secrets_manager
-            .resolve_secret(&omni_integration.api_key_var)
-            .await?
-            .unwrap();
-        let base_url = omni_integration.base_url.clone();
-        let topics = omni_integration.topics.clone();
-
-        tracing::debug!(integration = %integration_name, topic_count = topics.len(), "Synchronizing Omni metadata");
-        let topics_to_sync: Vec<_> = topics.iter().collect();
-
-        let api_client =
-            OmniApiClient::new(base_url.clone(), api_key.clone()).map_err(|e| match e {
-                AdapterOmniError::ConfigError(msg) => {
-                    OxyError::ConfigurationError(format!("Omni configuration error: {}", msg))
-                }
-                _ => OxyError::RuntimeError(format!("Failed to create Omni API client: {}", e)),
-            })?;
-
-        let sync_service =
-            OmniSyncService::new(api_client, workspace_path, integration_name.clone());
-
-        tracing::debug!("Fetching metadata from Omni API");
-
-        let mut integration_results = Vec::new();
-        for topic in &topics_to_sync {
-            tracing::debug!(topic = %topic.name, model = %topic.model_id, "Syncing Omni topic");
-            let sync_result = sync_service
-                .sync_metadata(&topic.model_id, &topic.name)
-                .await
-                .map_err(|e| {
-                    OxyError::RuntimeError(format!(
-                        "Sync operation failed for topic '{}' (model '{}'): {}",
-                        topic.name, topic.model_id, e
-                    ))
-                })?;
-            integration_results.push(sync_result);
-        }
-
-        if let Some(first_result) = integration_results.into_iter().next() {
-            total_successful_topics.extend(first_result.successful_topics.clone());
-            all_sync_results.push(first_result);
-        }
-    }
-
-    tracing::info!("Omni synchronization completed");
-
-    if !all_sync_results.is_empty() {
-        let overall_success = all_sync_results.iter().all(|r| r.is_success());
-        let partial_success = all_sync_results.iter().any(|r| r.is_partial_success());
-
-        if overall_success {
-            tracing::info!("All integrations synchronized successfully");
-        } else if partial_success {
-            tracing::warn!("Partial synchronization completed with some errors");
-            for sync_result in &all_sync_results {
-                if let Some(error_summary) = sync_result.error_summary() {
-                    tracing::warn!(error = %error_summary, "Omni sync errors encountered");
-                }
-            }
-        } else {
-            tracing::error!("Some integrations failed to synchronize");
-            for sync_result in &all_sync_results {
-                if let Some(error_summary) = sync_result.error_summary() {
-                    tracing::error!(error = %error_summary, "Omni sync errors encountered");
-                }
-            }
-            return Err(OxyError::RuntimeError(
-                "Some Omni sync operations failed".to_string(),
-            ));
-        }
-
-        if !total_successful_topics.is_empty() {
-            tracing::info!(topics = ?total_successful_topics, "Successfully synchronized topics");
-        }
-    }
-
-    Ok(())
+    Ok(extract::Json(EmbeddingsBuildResponse {
+        success: true,
+        message: "Nothing to build".to_string(),
+    }))
 }
 
 #[cfg(test)]

@@ -150,13 +150,12 @@ async fn zone_for_pipeline(
         .map_err(|e| pipeline_read_error(pipeline_ref, e))?
     {
         Some(definition) => definition,
-        // `Ok(None)` is already the answer from BOTH sources. `definition()`
-        // falls through to the working copy on a compiled miss and only returns
-        // `None` for a genuine not-found; when there is no disk at all it
-        // returns `None` without reading one. Either way a re-read here found
-        // the same nothing and phrased the same 503 — so it re-derived the
-        // workspace root through `working_copy().root()` to learn nothing, and
-        // that synonym is invisible to `workspace_path_escape_hatch`.
+        // `Ok(None)` is the answer of whichever source the manager reads: the
+        // pinned revision (never the working copy, on any pod), or the
+        // directory itself when no revision is pinned. A re-read here would
+        // find the same nothing and phrase the same 503 — so it used to
+        // re-derive the workspace root through `working_copy().root()` to learn
+        // nothing, and that synonym is invisible to `workspace_path_escape_hatch`.
         //
         // Still 503 rather than 404: the caller cannot tell a typo from a
         // workspace mid-compile, and "no such pipeline" during a deploy sends
@@ -165,9 +164,10 @@ async fn zone_for_pipeline(
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
                 format!(
-                    "`{pipeline_ref}` is not in the compiled workspace and could not be read \
-                     from the working copy — it may not exist, or the workspace may not be \
-                     compiled yet. Retry, and check the path if it persists."
+                    "`{pipeline_ref}` is not in the compiled workspace — it may not exist, or \
+                     it was added after the last compile, or nothing is compiled yet. A \
+                     compile that promotes it will make it resolvable; check the path if it \
+                     persists."
                 ),
             ));
         }

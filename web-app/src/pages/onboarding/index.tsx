@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useMyInvitations, useOrgs } from "@/hooks/api/organizations";
 import queryKeys from "@/hooks/api/queryKey";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { releaseBodyPointerLock } from "@/libs/utils/pointerEvents";
 import ROUTES from "@/libs/utils/routes";
 import type { Organization } from "@/types/organization";
@@ -34,6 +35,7 @@ export default function OnboardingPage() {
   const { data: user } = useCurrentUser();
   const { data: orgs } = useOrgs();
   const [joinOpen, setJoinOpen] = useState(false);
+  const appsFirst = useAppsFirstExperience();
 
   const { data: invites, isPending: invitesPending } = useMyInvitations();
 
@@ -79,15 +81,29 @@ export default function OnboardingPage() {
             <h1 className='font-semibold text-2xl tracking-tight'>
               {hasOrgs ? "Join an organization" : "You're not part of an organization yet"}
             </h1>
-            <p className='max-w-md text-muted-foreground text-sm'>
-              People join an Oxygen organization by invitation. Ask your admin to invite{" "}
-              {user?.email ? (
-                <span className='font-medium text-foreground'>{user.email}</span>
-              ) : (
-                "you"
-              )}
-              , or paste the invitation link you were sent.
-            </p>
+            {appsFirst ? (
+              // Apps-first: an Oxy team sets each company up and invites its people.
+              <p className='max-w-md text-muted-foreground text-sm'>
+                Your Oxy team sets up your company's apps and will invite you to them. The
+                invitation goes to{" "}
+                {user?.email ? (
+                  <span className='font-medium text-foreground'>{user.email}</span>
+                ) : (
+                  "your email"
+                )}
+                . If you already have an invitation link, paste it below.
+              </p>
+            ) : (
+              <p className='max-w-md text-muted-foreground text-sm'>
+                People join an Oxygen organization by invitation. Ask your admin to invite{" "}
+                {user?.email ? (
+                  <span className='font-medium text-foreground'>{user.email}</span>
+                ) : (
+                  "you"
+                )}
+                , or paste the invitation link you were sent.
+              </p>
+            )}
           </div>
         )}
 

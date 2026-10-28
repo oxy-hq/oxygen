@@ -3,7 +3,7 @@
 //! claimed it. Registered into the `CustomTaskRegistry` by
 //! `server::router::recovery`; `PipelineTaskExecutor` delegates the kind here.
 //!
-//! **Registered, and dormant: nothing enqueues the kind yet.** See
+//! Every live ask reaches it: the start queues the kind (`super::start`). See
 //! [`super::task`].
 //!
 //! The pipeline is the handler's own — [`super::pipeline::ask_pipeline`] is
@@ -33,16 +33,13 @@
 
 use std::sync::Arc;
 
-use agentic_core::delegation::{TaskAssignment, TaskOutcome};
+use agentic_core::delegation::TaskAssignment;
 use agentic_pipeline::AnalyticsSchemaCatalog;
 use agentic_runtime::entity::run;
 use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 use sentry::SentryFutureExt;
-use serde_json::Value as JsonValue;
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
 use super::caller::CallerContextError;
@@ -50,10 +47,9 @@ use super::pipeline::ask_pipeline;
 use super::task::{self, QueuedAsk};
 use crate::agentic_wiring::OxyProjectContext;
 
-mod admission;
-mod heartbeat;
+use crate::server::queued_analytics::{self, Settled, admission, heartbeat};
 
-pub use admission::INTERRUPTED_MESSAGE;
+pub use crate::server::queued_analytics::INTERRUPTED_MESSAGE;
 
 /// The schema cache a driver shares across the runs it drives.
 pub type SchemaCache =
@@ -88,20 +84,17 @@ impl AgentAskExecutor {
     /// One claimed attempt, start to report: the pipeline's own task when this
     /// attempt is the one that starts it, a settled one otherwise.
     async fn claim(&self, run_id: &str) -> ExecutingTask {
-        let run = match admission::admit(&self.db, run_id).await {
-            Ok(run) => run,
-            Err(settled) => return settled.into_task(),
-        };
-        let prepared = match prepare(&self.db, &run).await {
-            Ok(prepared) => prepared,
-            Err(e) => return unprepared(run_id, e).into_task(),
-        };
-        // From here the pipeline may run, so from here a later attempt must not.
-        if let Err(settled) = admission::begin(&self.db, run_id).await {
-            return settled.into_task();
-        }
-        let beating = heartbeat::spawn(self.db.clone(), run_id.to_string(), heartbeat::INTERVAL);
-        self.start(prepared, beating).await
+        queued_analytics::attempt(
+            &self.db,
+            run_id,
+            |run| async move {
+                prepare(&self.db, &run)
+                    .await
+                    .map_err(|e| unprepared(run_id, e))
+            },
+            |prepared, beating| self.start(prepared, beating),
+        )
+        .await
     }
 
     /// Start the pipeline of a begun ask. Its heartbeat beats beside it until
@@ -120,14 +113,7 @@ impl AgentAskExecutor {
         // Boxed: the start's future is a large one, and this runs on a driver
         // task's stack beside the claim loop's.
         match Box::pin(builder.start(&self.db)).await {
-            Ok(started) => {
-                let (task, pipeline_stopped) = started.into_executing_task();
-                tokio::spawn(async move {
-                    let _ = pipeline_stopped.await;
-                    beating.stop().await;
-                });
-                task
-            }
+            Ok(started) => queued_analytics::beside_the_pipeline(started, beating),
             Err(e) => {
                 beating.stop().await;
                 tracing::warn!(run_id = %ask.run_id, error = %e, "agent ask: pipeline start failed");
@@ -167,7 +153,7 @@ impl PrepareError {
     /// cannot tell a blip from a workspace whose config will never load, and
     /// retrying the second would leave the bundle's stream open for a day
     /// where an `error` now lets its user ask again. That is also what the
-    /// same failure does to a handler-driven ask today.
+    /// same failure does to a staging (handler-driven) ask.
     fn is_transient(&self) -> bool {
         matches!(
             self,
@@ -197,55 +183,6 @@ fn unprepared(run_id: &str, e: PrepareError) -> Settled {
         admission::step_aside(run_id, format!("the ask could not be prepared yet: {e}"))
     } else {
         Settled::failed(e.to_string())
-    }
-}
-
-/// The report of an attempt that does not start the pipeline: at most one
-/// event for the run's log, then one outcome.
-#[derive(Debug)]
-pub(super) struct Settled {
-    event: Option<(String, JsonValue)>,
-    outcome: TaskOutcome,
-}
-
-impl Settled {
-    /// An outcome and nothing for the log.
-    fn only(outcome: TaskOutcome) -> Self {
-        Self {
-            event: None,
-            outcome,
-        }
-    }
-
-    /// The ask ends here, failed, without its pipeline having run. The bundle
-    /// reads the run's event log and never its row, so the failure has to be
-    /// on the log too: an `error` event is what ends its stream.
-    fn failed(message: String) -> Self {
-        Self {
-            event: Some((
-                "error".to_string(),
-                serde_json::json!({ "message": message, "trace_id": "" }),
-            )),
-            outcome: TaskOutcome::Failed(message),
-        }
-    }
-
-    /// As the task a worker forwards: the event, then the outcome, then both
-    /// channels closed.
-    fn into_task(self) -> ExecutingTask {
-        let (event_tx, events) = mpsc::channel(1);
-        let (outcome_tx, outcomes) = mpsc::channel(1);
-        if let Some(event) = self.event {
-            // Capacity one, one send: cannot be full.
-            let _ = event_tx.try_send(event);
-        }
-        let _ = outcome_tx.try_send(self.outcome);
-        ExecutingTask {
-            events,
-            outcomes,
-            cancel: CancellationToken::new(),
-            answers: None,
-        }
     }
 }
 

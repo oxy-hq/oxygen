@@ -35,7 +35,7 @@ use tokio::sync::{mpsc, watch};
 use agentic_pipeline::WorkflowWorkspaceContext;
 use agentic_pipeline::automation_run::{
     AutomationRunError, StartAutomationRequest, get_automation_snapshot, list_automation_runs,
-    spawn_automation_run_drive, start_automation_run,
+    spawn_automation_run_drive, start_automation_run_as,
 };
 use agentic_pipeline::platform::{BuilderBridges, PlatformContext};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
@@ -89,37 +89,60 @@ pub async fn create_automation_run(
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
     Extension(bridges): Extension<BuilderBridges>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
     Json(body): Json<StartAutomationRequest>,
 ) -> Response {
-    // Interactive run: a co-located scoped coordinator is spawned right
-    // below via `spawn_automation_run_drive`, so it owns this run's tree.
+    // A run started for a requester goes on the queue: seeded `Global`, with
+    // who asked on its insert, and driven by whichever driver claims it — as
+    // that requester. This replica may then go away without taking the run
+    // with it. Which runs qualify, and why the rest keep a co-located scoped
+    // coordinator (spawned below): `queued_run::AutomationAdmission`.
+    //
     // workspace_id stamped from the platform context (injected by the
     // app's workspace_middleware from the `/{workspace_id}/...` path) so
     // out-of-process drivers can route this row back to its workspace.
+    //
+    // Only while the host turns queued starts on (`AgenticState::queued_starts`):
+    // until then every run keeps its co-located coordinator, as before.
     let workspace_id = platform.workspace_id();
-    let run_id = match start_automation_run(
-        &state.db,
-        body,
-        agentic_pipeline::TaskScope::Scoped,
-        workspace_id,
-    )
-    .await
-    {
-        Ok(id) => id,
-        Err(AutomationRunError::InvalidInput(msg)) => {
-            return (StatusCode::BAD_REQUEST, msg).into_response();
+    let queued_for = if (state.queued_starts)() {
+        agentic_pipeline::queued_run::AutomationAdmission {
+            working_copy_branch: super::run::branch_in_query(query.as_deref()),
         }
-        Err(e) => {
-            tracing::error!(%e, "create_automation_run: start failed");
-            return (StatusCode::INTERNAL_SERVER_ERROR, format!("start: {e}")).into_response();
-        }
+        .queueable(&*platform)
+    } else {
+        None
     };
+    let scope = if queued_for.is_some() {
+        agentic_pipeline::TaskScope::Global
+    } else {
+        agentic_pipeline::TaskScope::Scoped
+    };
+    let queued = queued_for.is_some();
+    let run_id =
+        match start_automation_run_as(&state.db, body, scope, workspace_id, queued_for).await {
+            Ok(id) => id,
+            Err(AutomationRunError::InvalidInput(msg)) => {
+                return (StatusCode::BAD_REQUEST, msg).into_response();
+            }
+            Err(e) => {
+                tracing::error!(%e, "create_automation_run: start failed");
+                return (StatusCode::INTERNAL_SERVER_ERROR, format!("start: {e}")).into_response();
+            }
+        };
 
     // Who to tell if it fails. Before the drive starts, so the run cannot
     // finish first; best-effort, because without it the failure goes to the
     // workspace's admins instead.
     if let Err(e) = agentic_pipeline::stamp_started_by(&state.db, &run_id, user.id).await {
         tracing::warn!(%e, run_id = %run_id, "create_automation_run: could not record who started it");
+    }
+
+    // Queued: registers nothing here. A notifier in this process would park
+    // its stream of the run on a wake nothing rings; the driver registers its
+    // own, and a cancel reaches it through the durable flag.
+    if queued {
+        return Json(CreateAutomationRunResponse { run_id }).into_response();
     }
 
     // Register cancel + answer channels so the run is cancellable via SSE.
@@ -294,6 +317,15 @@ pub async fn cancel_automation_run(
         // rewritten to `failed("cancelled by user")` and on reload
         // show as failed.
         //
+        // And a third: a run on the queue (a `Global` entry, `queued` or
+        // `claimed`), which a driver in another process holds or is about to
+        // take. That driver turns the flag into a proper `cancelled` within
+        // about 5 s; writing `failed` here would close it under that driver.
+        // A scoped run's coordinator lives in this process, so no channel
+        // here still means case 1 or 2.
+        let held_elsewhere = agentic_pipeline::queued_run::held_by_the_queue(&state.db, &run_id)
+            .await
+            .unwrap_or(false);
         // Gate the write on `task_status` being non-terminal. The
         // status enum lives in `crud::user_facing_status`:
         // `done | failed | cancelled | timed_out` are terminal,
@@ -314,6 +346,7 @@ pub async fn cancel_automation_run(
             }
         };
         if !already_terminal
+            && !held_elsewhere
             && let Err(e) =
                 agentic_runtime::crud::update_run_failed(&state.db, &run_id, "cancelled by user")
                     .await

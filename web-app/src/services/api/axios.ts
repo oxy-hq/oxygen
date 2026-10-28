@@ -5,6 +5,7 @@ import { isAppEnvironmentPath, isOrgApiAccessPath, isTokenErrorCode } from "@/li
 import { reportAssumeRequired } from "@/libs/utils/assumeRequired";
 import { clearAuthScopedStorage } from "@/libs/utils/authStorage";
 import { readDetachedHeadBody } from "@/libs/utils/detachedHead";
+import { FACTORY_ACCESS_REQUIRED } from "@/libs/utils/factoryAccess";
 import { reportIdeReachable, reportIdeUnavailable } from "@/libs/utils/ideHealth";
 import {
   PREVIEW_HEADER,
@@ -109,11 +110,12 @@ const makeResponseErrorHandler = () => {
       headers?: Record<string, string | undefined>;
       data?: {
         code?: string;
+        message?: string;
         status?: "incomplete" | "unpaid" | "canceled";
         contact_required?: boolean;
       };
     };
-    config?: { url?: string };
+    config?: { url?: string; method?: string };
     message?: string;
   }) => {
     const status = error.response?.status;
@@ -172,6 +174,19 @@ const makeResponseErrorHandler = () => {
           | { org_name?: string | null; message?: string | null }
           | undefined;
         reportAssumeRequired(assumeOrgId, body?.org_name ?? null, body?.message ?? null);
+      } else if (error.response?.data?.code === FACTORY_ACCESS_REQUIRED) {
+        // The Oxygen Factory is for Oxy staff, the org's owners and admins, and the
+        // people an operator named. A
+        // refusal is spoken only when a person did something: a read is a
+        // background query (a page load, a refetch), and one the person never
+        // asked for must not put a toast on their screen. One toast, in the
+        // server's words, whichever Factory route a person's action called.
+        if (error.config?.method?.toLowerCase() !== "get") {
+          toast.error(
+            error.response.data.message ?? "The Oxygen Factory is not available to you here.",
+            { id: "factory-access-required" }
+          );
+        }
       } else if (
         !isTokenErrorCode(error.response?.data?.code) &&
         !isOrgApiAccessPath(url) &&

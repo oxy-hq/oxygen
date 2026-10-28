@@ -167,19 +167,44 @@ async fn a_ref_the_boundary_serves_asks_for_nothing() {
     assert_eq!(host.compile_requests(), 0);
 }
 
-/// "Existing behaviour is unchanged on a pod WITH a working copy", pinned.
+/// A pod WITH a working copy gets the replica's answer when its host is pinned
+/// to a revision.
 ///
 /// Same host answers as the replica case — a promoted revision that declines
-/// the ref — but the root is a real directory. The file there is read, a file
-/// that is not there is the caller's mistake (`Invalid`, a 400), and in neither
-/// case is a compile requested: the working copy already is the answer.
+/// the ref — with a real directory that HAS the file. It is not read: the
+/// revision is the only source, so one request cannot return different YAML
+/// depending on which pod served it. The compile requested is what makes the
+/// ref resolvable on the node that holds the files.
 #[tokio::test]
-async fn a_node_with_a_working_copy_never_asks_for_a_compile() {
+async fn a_node_with_a_working_copy_is_not_answered_from_it() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::create_dir_all(dir.path().join("pipelines")).expect("mkdir");
     std::fs::write(dir.path().join(PIPELINE_REF), "name: from_fs\n").expect("write");
     let host = Host {
         root: dir.path().to_path_buf(),
+        ..Host::replica(Ok(None))
+    };
+
+    let err = load_pipeline_yaml_for_request(&host, PIPELINE_REF)
+        .await
+        .expect_err("the revision does not serve it, and the directory is not asked");
+    assert!(
+        matches!(err, PipelineRefError::NotInRevision(_)),
+        "got {err:?}"
+    );
+    assert_eq!(host.compile_requests(), 1);
+}
+
+/// A host with no pinned revision still reads its directory (the CLI,
+/// single-process mode, a draft branch in the IDE), and requests no compile.
+#[tokio::test]
+async fn a_host_with_no_pinned_revision_reads_its_directory() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("pipelines")).expect("mkdir");
+    std::fs::write(dir.path().join(PIPELINE_REF), "name: from_fs\n").expect("write");
+    let host = Host {
+        root: dir.path().to_path_buf(),
+        revision: None,
         ..Host::replica(Ok(None))
     };
 

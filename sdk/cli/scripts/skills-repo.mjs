@@ -189,7 +189,7 @@ const MARKETPLACE = "oxy-hq";
 const PLUGIN = "oxy";
 const PLUGIN_DESCRIPTION =
   "Oxy platform skills for coding agents: custom apps and Oxy Functions, semantic models, " +
-  "agents, automations, Airway pipelines, data apps, evals, and the oxyc CLI.";
+  "agents, automations, Airway pipelines, evals, and the oxyc CLI.";
 
 export function marketplaceJson() {
   return {

@@ -150,6 +150,7 @@ impl Fx {
                 Some("main".into()),
                 None,
                 from_git,
+                "test-task",
             )
             .await?;
         let mut outcomes = task.outcomes;

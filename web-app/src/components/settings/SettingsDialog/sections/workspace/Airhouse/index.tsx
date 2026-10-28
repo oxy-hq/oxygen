@@ -6,6 +6,8 @@ import useAddAirhouseToConfig from "@/hooks/api/airhouse/useAddAirhouseToConfig"
 import useAirhouseConnection from "@/hooks/api/airhouse/useAirhouseConnection";
 import useProvisionAirhouse from "@/hooks/api/airhouse/useProvisionAirhouse";
 import useAuthConfig from "@/hooks/auth/useAuthConfig";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
+import { canUseFactory } from "@/libs/utils/factoryAccess";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import SectionHeader from "../../../components/SectionHeader";
@@ -35,7 +37,13 @@ const Airhouse: React.FC = () => {
   // guest is always Owner server-side (and the provision endpoint enforces
   // that regardless), so treat local mode as always able to provision.
   const isLocal = authConfig?.mode === "local";
-  const canProvision = isLocal || orgRole === "owner" || orgRole === "admin";
+  // With the apps-first experience on, setting Airhouse up is the Oxy team's work
+  // (the Factory's): an owner or admin who may not use the Factory reads the
+  // connection details and is told who sets it up.
+  const appsFirst = useAppsFirstExperience();
+  const canProvision =
+    isLocal ||
+    ((orgRole === "owner" || orgRole === "admin") && (!appsFirst || canUseFactory(workspace)));
 
   const handleProvision = async (tenantName: string) => {
     try {
@@ -77,8 +85,9 @@ const Airhouse: React.FC = () => {
       if (!canProvision) {
         return (
           <p className='text-muted-foreground text-sm'>
-            Airhouse hasn't been provisioned for this workspace yet. Ask an Owner or Admin to
-            complete setup.
+            {appsFirst
+              ? "Airhouse isn't set up yet. Your Oxy team sets it up."
+              : "Airhouse hasn't been provisioned for this workspace yet. Ask an Owner or Admin to complete setup."}
           </p>
         );
       }

@@ -1,9 +1,8 @@
 //! `router::recovery` as the driver of a queued custom-app ask.
 //!
-//! Nothing enqueues one yet. The executor is registered a release ahead of the
-//! handler's enqueue precisely so that, when a serve replica starts queueing
-//! asks, no driver is left that fails the kind as unknown or declines it for
-//! ever. These pin the two things that would make that false.
+//! Every live ask is queued (`projects::agent_ask::start`), so every driver
+//! must take the kind and none may decline it for ever. These pin the two
+//! things that would make that false.
 
 use agentic_pipeline::recovery::{STRANDED_GRACE_SECS, may_drive};
 
@@ -58,6 +57,24 @@ fn the_driver_registry_executes_queued_asks() {
     assert!(
         registry.get(AGENT_ASK_KIND).is_some(),
         "`build_custom_task_registry` does not register {AGENT_ASK_KIND}"
+    );
+}
+
+/// The same for a queued chat run: registered on every driver a release before
+/// the `/analytics` start queues one. Its run is an analytics run too, so the
+/// placement cases below hold for it unchanged.
+#[test]
+fn the_driver_registry_executes_queued_chat_runs() {
+    let registry = build_custom_task_registry(
+        &sea_orm::DatabaseConnection::default(),
+        &PreaggCacheCtx::default(),
+        &[],
+        None,
+    );
+    let kind = agentic_pipeline::queued_run::CHAT_RUN_KIND;
+    assert!(
+        registry.get(kind).is_some(),
+        "`build_custom_task_registry` does not register {kind}"
     );
 }
 

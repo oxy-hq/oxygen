@@ -446,6 +446,7 @@ impl TaskExecutor for PipelineTaskExecutor {
                     kind.as_deref(),
                     *owner_user_id,
                     *from_git,
+                    &assignment.task_id,
                 )
                 .await
             }
@@ -1113,6 +1114,7 @@ impl PipelineTaskExecutor {
         kind: Option<&str>,
         owner_user_id: Option<uuid::Uuid>,
         from_git: bool,
+        task_id: &str,
     ) -> Result<ExecutingTask, String> {
         let dispatcher = self.platform.compile_dispatcher().ok_or_else(|| {
             "compile: PlatformContext::compile_dispatcher() returned None — the host \
@@ -1128,6 +1130,7 @@ impl PipelineTaskExecutor {
                 kind.map(str::to_string),
                 owner_user_id,
                 from_git,
+                task_id,
             )
             .await
     }

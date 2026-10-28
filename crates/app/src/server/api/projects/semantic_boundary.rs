@@ -13,8 +13,6 @@
 //! Extracted so the metric-tree and world-model handler modules don't each
 //! reimplement (and drift on) the gate + boundary logic.
 
-use std::path::{Path, PathBuf};
-
 use axum::Json;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -63,43 +61,14 @@ pub(crate) fn err_with_code(
         .into_response()
 }
 
-/// The resolved semantic-model scan directory. `Materialised` holds the
-/// compile-boundary tempdir guard — it MUST stay alive until every layer
-/// parse / query finishes, so callers keep the whole [`SemanticBoundary`]
-/// in scope for the duration of the request.
-pub(crate) enum ScanHandle {
-    /// Compile-boundary tempdir (the serve-fleet path).
-    Materialised(ScanDir),
-    /// Workspace FS scan path (local / ide path, when the boundary is empty
-    /// but we're not on a stateless replica).
-    WorkingCopy(PathBuf),
-}
-
-impl ScanHandle {
-    /// Directory to parse the semantic model from.
-    pub(crate) fn path(&self) -> &Path {
-        match self {
-            ScanHandle::Materialised(m) => m.path(),
-            ScanHandle::WorkingCopy(p) => p.as_path(),
-        }
-    }
-
-    /// Owned copy of the scan path, for threading into `spawn_blocking` /
-    /// the metric-tree runner.
-    pub(crate) fn path_buf(&self) -> PathBuf {
-        self.path().to_path_buf()
-    }
-}
-
 /// Everything a semantic-analysis handler needs after the shared prelude:
 /// the gate context, the per-request project context, and the resolved scan
-/// directory. Keep this value alive for the whole request — dropping it
-/// early would delete the materialised tempdir out from under an in-flight
-/// query.
+/// (the compiled revision's files on a serve replica, the working copy's
+/// directory where one is held).
 pub(crate) struct SemanticBoundary {
     pub app: CustomAppContext,
     pub proj_ctx: OxyProjectContext,
-    pub scan: ScanHandle,
+    pub scan: ScanDir,
 }
 
 impl SemanticBoundary {
@@ -139,7 +108,7 @@ pub(crate) async fn enter_semantic_boundary(
     };
 
     let scan = match materialised {
-        Some(m) => ScanHandle::Materialised(m),
+        Some(m) => m,
         None => {
             // Stateless-fleet guard: no working copy, so the FS fallback
             // points at a non-existent dir. Return the NeedsRecompile contract
@@ -167,7 +136,7 @@ pub(crate) async fn enter_semantic_boundary(
                 }
                 return Err(response);
             }
-            ScanHandle::WorkingCopy(
+            ScanDir::Real(
                 proj_ctx
                     .workspace_manager()
                     .config_manager
@@ -184,20 +153,16 @@ pub(crate) async fn enter_semantic_boundary(
     })
 }
 
-/// Parse the airlayer semantic model from a scan directory, off the async
-/// runtime (it's blocking CPU work that walks every `.view.yml`/`.topic.yml`).
+/// Parse the airlayer semantic model from a scan, off the async runtime
+/// (it's blocking CPU work that parses every `.view.yml`/`.topic.yml`).
 pub(crate) async fn load_layer(
-    scan_path: PathBuf,
+    scan: ScanDir,
 ) -> Result<oxy_airlayer_compat::SemanticLayer, Response> {
     // Sentry hubs are per thread: carry the request's onto the blocking pool so
     // a panic while parsing the model is captured under the custom-app surface
     // tag (`middlewares::sentry_surface`), not on the pool thread's bare hub.
     let hub = sentry::Hub::current();
-    match tokio::task::spawn_blocking(move || {
-        sentry::Hub::run(hub, || oxy_airlayer_compat::load_layer_from_dir(&scan_path))
-    })
-    .await
-    {
+    match tokio::task::spawn_blocking(move || sentry::Hub::run(hub, || scan.load_layer())).await {
         Ok(Ok(layer)) => Ok(layer),
         Ok(Err(e)) => Err(err_with_code(
             StatusCode::INTERNAL_SERVER_ERROR,

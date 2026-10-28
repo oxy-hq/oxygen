@@ -1,5 +1,5 @@
 // Re-export service modules from core
-pub use oxy::service::{message, retrieval, secret_manager, sync, task_manager};
+pub use oxy::service::{message, secret_manager, sync, task_manager};
 pub use oxy::types;
 
 // These modules depend on extracted crates and must stay in CLI

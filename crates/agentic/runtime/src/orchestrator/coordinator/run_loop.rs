@@ -53,6 +53,15 @@ impl Coordinator {
                 tracing::debug!(target: "coordinator", "all tasks terminal, shutting down");
                 break;
             }
+            if let Some(root) = self.root_parked_on_a_person() {
+                tracing::info!(
+                    target: "coordinator",
+                    task_id = %root,
+                    "root is parked on a person; stopping the drive until it is answered"
+                );
+                self.parked_root = Some(root);
+                break;
+            }
 
             // Check for timed-out suspended tasks before waiting for messages.
             if self.check_suspend_timeouts().await {
@@ -139,6 +148,35 @@ impl Coordinator {
     }
 
     // ── Main loop helpers ───────────────────────────────────────────────
+
+    /// The root's task id, when this coordinator stops at a person
+    /// ([`Self::ending_at_root_human_input`]) and the root is there: suspended
+    /// for human input, that suspension on record, and no other task running,
+    /// delegating or waiting on a person of its own.
+    pub(super) fn root_parked_on_a_person(&self) -> Option<String> {
+        if !self.ends_at_root_human_input {
+            return None;
+        }
+        let (root_id, root) = self
+            .tasks
+            .iter()
+            .find(|(_, node)| node.parent_task_id.is_none())?;
+        if !matches!(root.status, TaskStatus::SuspendedHuman)
+            || self.unrecorded_suspensions.contains(root_id)
+        {
+            return None;
+        }
+        let others_active = self.tasks.iter().any(|(id, node)| {
+            id != root_id
+                && matches!(
+                    node.status,
+                    TaskStatus::Running
+                        | TaskStatus::SuspendedHuman
+                        | TaskStatus::WaitingOnChildren { .. }
+                )
+        });
+        (!others_active).then(|| root_id.clone())
+    }
 
     /// Non-blocking poll of ALL suspended tasks' answer channels.
     /// Returns the first answer found, if any.

@@ -448,6 +448,7 @@ pub async fn get_workspace_meta(
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     project: Extension<entity::workspaces::Model>,
     path: Path<Uuid>,
+    crate::server::factory_access::FactoryAccess(factory_access): crate::server::factory_access::FactoryAccess,
 ) -> Result<ResponseJson<WorkspaceMetaResponse>, Response> {
     // Local mode keeps the delegation. Both of the fields that can only be
     // answered from disk — `requires_local_setup` and `workspace_error` — are
@@ -466,6 +467,8 @@ pub async fn get_workspace_meta(
             storage_key: d.storage_key,
             current_user_role: d.current_user_role,
             requires_local_setup: d.requires_local_setup,
+            // Local mode is one guest owner on their own machine: no Factory to gate.
+            factory_access: true,
         }));
     }
 
@@ -494,6 +497,7 @@ pub async fn get_workspace_meta(
         storage_key: compute_workspace_storage_key(workspace_id, None),
         current_user_role: role.as_str().to_string(),
         requires_local_setup: false,
+        factory_access,
     }))
 }
 

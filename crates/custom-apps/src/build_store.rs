@@ -48,9 +48,12 @@ pub fn build_prefix(app_id: Uuid, build_id: &str) -> String {
     format!("customer-apps/{app_id}/builds/{build_id}/")
 }
 
+/// The env var naming the build store's S3 bucket.
+pub const BUCKET_VAR: &str = "OXY_CUSTOMER_APPS_S3_BUCKET";
+
 /// Configured S3 bucket, or `None` to select the filesystem backend.
 fn bucket() -> Option<String> {
-    std::env::var("OXY_CUSTOMER_APPS_S3_BUCKET")
+    std::env::var(BUCKET_VAR)
         .ok()
         .filter(|b| !b.trim().is_empty())
 }

@@ -82,9 +82,10 @@ const ALLOWED: &[(&str, &str)] = &[
          reads the promoted revision, which is a different question.",
     ),
     (
-        "src/server/serve_safety.rs",
-        "Decides whether the fleet can serve a workspace locally or must proxy to \
-         the ide. A routing decision, taken before there is a manager.",
+        "src/server/servability.rs",
+        "Decides whether a replica can serve a workspace's custom-app function \
+         locally or must relay it to the Factory. A placement decision, taken \
+         before there is a manager.",
     ),
     (
         "src/server/api/admin/workspace_health/smoke/config.rs",

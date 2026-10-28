@@ -2,15 +2,16 @@
 //! no working copy and drives no run — the Factory (`OXY_ROLE=ide`) being down
 //! must not take the view of the queue with it.
 //!
-//! `agentic_http::router_roles` declares `GET /coordinator/{runs,recovery,queue}`
-//! and `PATCH /runs/{id}/thinking_mode` `FleetOk`. That is a claim about the
+//! `agentic_http::router_roles` declares `GET /coordinator/{runs,recovery,queue,
+//! active-runs,runs/{id}/tree,live}`, `POST /coordinator/runs/{id}/retry` and
+//! `PATCH /runs/{id}/thinking_mode` `FleetOk`. That is a claim about the
 //! handlers, and this is where it is tested rather than reasoned: the real
 //! router over a fresh `AgenticState` (so empty in-process maps), a platform
 //! context whose workspace has no path, and the process flagged as owning no
 //! workspace files so `workspace_fs_probe` counts any reach for one.
 //!
-//! The last case is the other direction — why `active-runs` and `tree` are
-//! declared `IdeOnly` by name although they read the same tables.
+//! The last case is why `tree` could move: a replica that registered a run it
+//! does not drive now answers from the row like every other.
 //!
 //! Database-backed through [`crate::common::fresh_db`] with every migrator
 //! `oxy serve` runs.
@@ -238,18 +239,14 @@ async fn a_thinking_mode_save_writes_one_row_and_registers_nothing() {
     assert_eq!(leaks(), 0, "the save may not reach for a working copy");
 }
 
-/// Why `GET /coordinator/runs/{id}/tree` and `/coordinator/active-runs` stay
-/// `IdeOnly`: they overlay each row with `RuntimeState::statuses` and the map
-/// wins. A replica that accepts an airway submit `register`s the run
-/// (`routes::airway::start_and_drive`) and is never told how it ended — a
-/// worker in another process drives it — so that replica reports `running`
-/// for good while every other one reports what Postgres holds.
-///
-/// When this fails because both replicas say `done`, the overlay is gone:
-/// declare the two routes `FleetOk` in `agentic_http::router_roles` and delete
-/// this case.
+/// Why `GET /coordinator/runs/{id}/tree` is served by any replica: it
+/// answers from the run row. A replica that accepts an airway submit
+/// `register`s the run (`routes::airway::start_and_drive`) and is never told
+/// how it ended — a worker in another process drives it. It used to overlay
+/// that stale `running` over the row and answer differently from every other
+/// replica; now both answer what Postgres holds.
 #[tokio::test]
-async fn two_replicas_disagree_about_a_run_only_one_of_them_accepted() {
+async fn two_replicas_agree_about_a_run_only_one_of_them_accepted() {
     let (db, _url) = crate::common::fresh_db(crate::common::Schema::All).await;
     let ws = Uuid::new_v4();
     seed(&db, ws, "air-1", "airway").await;
@@ -265,12 +262,42 @@ async fn two_replicas_disagree_about_a_run_only_one_of_them_accepted() {
     let (elsewhere, _) = replica(&db, ws);
     let path = format!("/{ws}/analytics/coordinator/runs/air-1/tree");
     let from_postgres = statuses(&get(&elsewhere, &path).await, "nodes");
-    let from_memory = statuses(&get(&accepted, &path).await, "nodes");
+    let from_accepting = statuses(&get(&accepted, &path).await, "nodes");
 
     assert_eq!(from_postgres["air-1"], "done");
     assert_eq!(
-        from_memory["air-1"], "running",
-        "the replica that accepted the submit now answers from Postgres too — \
-         see this case's doc comment for what to flip"
+        from_accepting["air-1"], "done",
+        "the replica that accepted the submit answers from Postgres too"
     );
+}
+
+/// `GET /coordinator/live` on a replica that drives nothing — an empty status
+/// map — opens with a snapshot of the workspace's active runs from Postgres.
+/// It used to stream that map alone, so such a replica sent `[]` for ever.
+#[tokio::test]
+async fn the_live_stream_opens_with_the_active_runs_from_postgres() {
+    use futures::StreamExt;
+
+    let (db, _url) = crate::common::fresh_db(crate::common::Schema::All).await;
+    let ws = Uuid::new_v4();
+    seed(&db, ws, "air-1", "airway").await;
+    let (router, state) = replica(&db, ws);
+    assert!(holds_no_run_state(&state));
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!("/{ws}/analytics/coordinator/live"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = router.oneshot(req).await.expect("oneshot");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let mut body = resp.into_body().into_data_stream();
+    let chunk = tokio::time::timeout(std::time::Duration::from_secs(10), body.next())
+        .await
+        .expect("a first snapshot within the deadline")
+        .expect("a chunk")
+        .expect("a readable chunk");
+    let text = String::from_utf8_lossy(&chunk).into_owned();
+    assert!(text.contains("event: snapshot"), "{text}");
+    assert!(text.contains("air-1"), "{text}");
 }

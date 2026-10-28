@@ -657,7 +657,14 @@ async fn new_agentic_state(
         AgenticState::new(shutdown_token, db, thread_owner)
             .with_builder_test_runner(Arc::new(OxyTestRunner))
             .with_builder_app_runner(Arc::new(OxyBuilderAppRunner))
-            .with_router(router),
+            .with_router(router)
+            .with_queued_starts(crate::server::queued_analytics::queued_starts_enabled)
+            .with_working_copy(|| {
+                use crate::server::role_manifest::{
+                    current_process_role, role_owns_workspace_files,
+                };
+                role_owns_workspace_files(current_process_role())
+            }),
     ))
 }
 

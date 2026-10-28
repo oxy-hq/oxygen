@@ -24,6 +24,15 @@ pub struct OrgResponse {
     pub workspace_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub member_count: Option<i64>,
+    /// Whether the caller may create a workspace in this org: an org Owner or
+    /// Admin who is also Oxy staff with a grant carrying `OperatePlatform` over
+    /// it — the answer `OrgWorkspaceProvisioner` gives, decided by the same
+    /// `WorkspaceProvision` ring. UX only: the web app shows its "New workspace"
+    /// control from this and never derives it from `is_owner` / `is_app_admin`,
+    /// which are true for every platform role. Absent from endpoints that do
+    /// not compute it (invitation accept).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub may_provision_workspace: Option<bool>,
 }
 
 #[derive(Deserialize)]

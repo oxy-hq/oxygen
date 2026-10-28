@@ -12,6 +12,10 @@ export interface Organization {
   updated_at?: string;
   workspace_count?: number;
   member_count?: number;
+  /** The server's answer to "may this person create a workspace here": an
+   *  org owner or admin who is also Oxy staff with `operate_platform` over this
+   *  org. Absent means unknown, which reads as no. */
+  may_provision_workspace?: boolean;
 }
 
 export interface OrgMember {

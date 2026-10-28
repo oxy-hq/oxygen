@@ -10,11 +10,13 @@
 //! default branch, this asks GitHub where the branch is (one small request)
 //! and, when that is not the commit being served, queues a commit compile of
 //! it (`server::compile_git`). It is the periodic half of the triggers in
-//! `internal-docs/factory-retirement.md`, phase 1; there is no webhook yet.
+//! `internal-docs/factory-retirement.md`, phase 1. Its other half is the GitHub
+//! `push` webhook ([`push`]), which reaches the same enqueue sooner.
 //!
-//! **Off unless `OXY_COMPILE_RECONCILE` is set.** Turning it on changes what
-//! a deployment serves: a push to a default branch is promoted without anyone
-//! clicking Compile. It is a rollout gate — dev, then staging — not a setting.
+//! **Off unless `OXY_COMPILE_RECONCILE` is set**, and the webhook obeys the same
+//! gate. Turning it on changes what a deployment serves: a push to a default
+//! branch is promoted without anyone clicking Compile. It is a rollout gate —
+//! dev, then staging — not a setting.
 //!
 //! Three properties the loop is built around:
 //!
@@ -32,6 +34,7 @@
 //!   behind another and repeated failures back off.
 
 mod check;
+pub mod push;
 mod state;
 
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -91,6 +94,43 @@ pub fn announce() {
             "{GATE_ENV} is set: this node compares each remote-backed workspace's default \
              branch with the revision it serves, and queues a commit compile when they differ"
         );
+    }
+}
+
+/// Ask for `workspace_id`'s branch to be checked at the next tick instead of
+/// when its interval comes round. For a workspace a request found with nothing
+/// compiled: its first compile is a commit compile of its default branch, and
+/// the check is what finds the head and queues it.
+///
+/// Does nothing with the gate off, and what it does is bounded (see
+/// [`state::pull_forward`]): it moves a due time, it does not ask GitHub.
+///
+/// Returns whether a check **will** look at the workspace. `false` means no
+/// commit compile can come of it (the gate is off, the workspace is not ready,
+/// or its last check found something only a person can fix), and the caller
+/// has to compile some other way or the workspace waits for nothing.
+pub async fn request_check(db: &DatabaseConnection, workspace_id: uuid::Uuid) -> bool {
+    if !enabled() {
+        return false;
+    }
+    match state::pull_forward(db, workspace_id).await {
+        Ok(pull) => {
+            if pull.moved {
+                tracing::info!(
+                    target: "compile_reconcile",
+                    %workspace_id,
+                    "a request found nothing compiled; the branch check is due at the next tick"
+                );
+            }
+            pull.will_run
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "compile_reconcile", %workspace_id, error = %e,
+                "bringing a branch check forward failed"
+            );
+            false
+        }
     }
 }
 

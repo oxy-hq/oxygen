@@ -332,6 +332,24 @@ interface AdminWorkspaceMember {
   joined_at: string;
 }
 
+/** One person on a workspace's Factory access list. */
+export interface AdminFactoryAccessMember {
+  user_id: string;
+  email: string;
+  name: string;
+  /** Their role in the workspace's org; `null` for a grant whose holder has left the org. */
+  org_role: string | null;
+  granted: boolean;
+  granted_by: string | null;
+  granted_at: string | null;
+}
+
+export interface AdminFactoryAccess {
+  /** Whether enforcement is on. Off, a grant changes nobody's access yet. */
+  enforced: boolean;
+  members: AdminFactoryAccessMember[];
+}
+
 export interface ListWorkspacesQuery {
   search?: string;
   status?: WorkspaceStatusId;
@@ -361,6 +379,19 @@ export const AdminWorkspacesService = {
 
   async remove(workspaceId: string): Promise<void> {
     await apiClient.delete(`/admin/workspaces/${workspaceId}`);
+  },
+
+  async factoryAccess(workspaceId: string): Promise<AdminFactoryAccess> {
+    const res = await apiClient.get<AdminFactoryAccess>(
+      `/admin/workspaces/${workspaceId}/factory-access`
+    );
+    return res.data;
+  },
+
+  async setFactoryAccess(workspaceId: string, userId: string, granted: boolean): Promise<void> {
+    const url = `/admin/workspaces/${workspaceId}/factory-access/${userId}`;
+    if (granted) await apiClient.put(url);
+    else await apiClient.delete(url);
   },
 
   async transferOrg(workspaceId: string, newOrgId: string): Promise<void> {

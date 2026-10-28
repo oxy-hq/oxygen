@@ -10,7 +10,7 @@ use agentic_llm::{LlmError, LlmOutput};
 use agentic_core::orchestrator::RunContext;
 
 use crate::{
-    tools::{all_tools, apply_edit, safe_path},
+    tools::{all_tools, apply_edit, is_data_app_path, safe_path},
     types::{BuilderDomain, BuilderError, BuilderSolution, BuilderSpec, ToolExchange},
 };
 
@@ -67,11 +67,15 @@ struct PrecomputedOpContent {
 /// - `write_file`: new_content = args.content
 /// - `edit_file`:  new_content = apply_edit(current_content, old_string, new_string)
 /// - `delete_file`: new_content = ""
+///
+/// Also returns one refusal line per op that was left out because it would create a
+/// Data App, so the model is told that file was not written instead of being told the
+/// whole batch was applied.
 async fn precompute_batch_ops(
     workspace_root: &Path,
     prior_messages: &[serde_json::Value],
     suspended_prompt: &str,
-) -> Vec<(String, PrecomputedOpContent)> {
+) -> (Vec<(String, PrecomputedOpContent)>, Vec<String>) {
     let suspended_parsed = serde_json::from_str::<serde_json::Value>(suspended_prompt).ok();
     let suspended_file: Option<String> = suspended_parsed
         .as_ref()
@@ -90,6 +94,7 @@ async fn precompute_batch_ops(
     }
 
     let mut result = Vec::new();
+    let mut refused = Vec::new();
     let mut seen_suspended = false;
     for op in extract_all_write_ops(prior_messages) {
         let file_path = match &op {
@@ -105,6 +110,18 @@ async fn precompute_batch_ops(
             Ok(p) => p,
             Err(_) => continue,
         };
+        // Data Apps are retired: `execute_write_file` refuses to create one, and a
+        // batched write reaches the disk through this list instead, so the same
+        // rule applies here. An existing app may still be edited or deleted.
+        if is_data_app_path(&file_path) && !abs.exists() && !matches!(op, WriteOp::Delete(_)) {
+            tracing::warn!(file = %file_path, "precompute_batch_ops: skipping a new Data App");
+            refused.push(format!(
+                "'{file_path}' was not written: Data apps are retired and can no longer be \
+                 created. A custom app replaces them (a code-first React app published with \
+                 `oxyc publish`); tell the user so."
+            ));
+            continue;
+        }
         // Use chained state if a prior op already projected content for this file.
         let old_content = file_states
             .get(&file_path)
@@ -144,7 +161,7 @@ async fn precompute_batch_ops(
             },
         ));
     }
-    result
+    (result, refused)
 }
 
 /// Extract all `write_file`, `edit_file`, and `delete_file` calls from the most
@@ -348,7 +365,7 @@ impl BuilderSolver {
                 // Pre-compute old/new content for every batched write op that
                 // was NOT the suspended (first) op.  Stored in stage_data so
                 // resume can apply each file without a TOCTOU re-read.
-                let batch_ops =
+                let (batch_ops, refused_ops) =
                     precompute_batch_ops(&self.project_root, &prior_messages, &prompt).await;
 
                 // Build pending_op_prompts from the precomputed ops (already in LLM
@@ -381,6 +398,11 @@ impl BuilderSolver {
                     stage_data["pending_op_prompts"] =
                         serde_json::to_value(&pending_op_prompts).unwrap_or_default();
                     stage_data["op_results"] = serde_json::json!([]);
+                }
+                // Ops left out of the batch are reported to the model with the rest of
+                // the results, rather than being counted as applied.
+                if !refused_ops.is_empty() {
+                    stage_data["op_results"] = serde_json::json!(refused_ops);
                 }
                 <BuilderSolver as DomainSolver<BuilderDomain>>::store_suspension_data(
                     self,
@@ -695,3 +717,68 @@ impl BuilderSolver {
 }
 
 mod resumption;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// An Anthropic-format assistant turn that batches several tool calls.
+    fn turn(calls: &[(&str, serde_json::Value)]) -> Vec<serde_json::Value> {
+        let blocks: Vec<_> = calls
+            .iter()
+            .enumerate()
+            .map(|(i, (name, input))| {
+                json!({"type": "tool_use", "id": format!("t{i}"), "name": name, "input": input})
+            })
+            .collect();
+        vec![json!({"role": "assistant", "content": blocks})]
+    }
+
+    fn write(path: &str) -> (&'static str, serde_json::Value) {
+        (
+            "write_file",
+            json!({"file_path": path, "content": "x: 1\n", "description": "d"}),
+        )
+    }
+
+    /// `write_file` refuses to create a Data App, but a batched turn reaches the disk
+    /// through `precompute_batch_ops`: the first call suspends and the rest are queued
+    /// without going through the tool. The queue must apply the same rule.
+    #[tokio::test]
+    async fn a_batched_turn_cannot_queue_a_new_data_app() {
+        let dir = std::env::temp_dir().join(format!("batch_data_app_{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let root = dir.canonicalize().unwrap();
+        tokio::fs::write(root.join("old.app.yml"), "tasks: []\n")
+            .await
+            .unwrap();
+
+        let messages = turn(&[
+            write("semantics/orders.view.yml"),
+            write("apps/orders.app.yml"),
+            (
+                "edit_file",
+                json!({
+                    "file_path": "apps/ghost.app.yml", "old_string": "a", "new_string": "b",
+                    "description": "d"
+                }),
+            ),
+            write("old.app.yml"),
+            write("semantics/customers.view.yml"),
+        ]);
+        let suspended =
+            json!({"file_path": "semantics/orders.view.yml", "new_content": "x: 1\n"}).to_string();
+
+        let (queued, refused) = precompute_batch_ops(&root, &messages, &suspended).await;
+        let paths: Vec<&str> = queued.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(paths, ["old.app.yml", "semantics/customers.view.yml"]);
+        // The model is told which writes were not made.
+        assert_eq!(refused.len(), 2, "{refused:?}");
+        assert!(refused[0].contains("'apps/orders.app.yml' was not written"));
+        assert!(refused[1].contains("'apps/ghost.app.yml' was not written"));
+        assert!(refused.iter().all(|r| r.contains("custom app")));
+
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+}

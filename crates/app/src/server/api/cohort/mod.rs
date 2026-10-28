@@ -135,7 +135,7 @@ async fn prepare_ide_cohort(
     let source = resolve_query_scan_source(workspace_manager)
         .await
         .map_err(|e| CohortError::ScanUnavailable(e.message()))?;
-    let layer = OxyMetricTreeRunner::load_layer_at(&source.scan_path)
+    let layer = OxyMetricTreeRunner::load_layer_at(&source.scan)
         .map_err(|e| CohortError::LayerLoad(e.to_string()))?;
 
     let cohort_name = resolve_cohort_name(&layer, &req.entity, &req.measure, req.cohort.as_deref())

@@ -122,14 +122,17 @@ fn a_member_account_decides_as_a_member_does() {
 }
 
 #[test]
-fn an_admin_account_decides_as_an_admin_does_but_does_not_bill() {
+fn an_admin_account_decides_as_an_admin_does_but_does_not_bill_or_use_the_factory() {
     let admin = person(RoleCeiling::Admin);
     for ceiling in RoleCeiling::ALL {
+        // Two things are a person's: billing, and the Factory an org owner or admin
+        // reaches by role (decided 2026-10-27). An admin account gets the Factory
+        // only as any member does, through a grant for the workspace.
         assert_decides_like(
             &account(true),
             &admin,
             &org_wide(ceiling),
-            &[Action::OrgBilling],
+            &[Action::OrgBilling, Action::FactoryUse],
         );
     }
     let facts = account(true).narrowed_by(&org_wide(RoleCeiling::Admin));

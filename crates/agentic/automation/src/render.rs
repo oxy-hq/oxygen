@@ -1,7 +1,7 @@
 //! Shared Jinja rendering + workspace path containment helpers.
 //!
 //! Used by [`step_executor`](crate::step_executor) (for `sql_file` paths
-//! and inline SQL) and [`export`](crate::export) (for `export.path`).
+//! and inline SQL).
 //! Lifted into one module so a future divergence — e.g. one renderer
 //! sandboxing templates differently — doesn't sneak in unnoticed.
 //!
@@ -11,15 +11,13 @@
 //! isn't. An automation that does `sql_file: "data/{{ loop.value }}.sql"`
 //! over a list whose values come from a SQL query will substitute
 //! whatever the query returned — and if any row contains `../etc/passwd`
-//! we'd happily read it (or, in the export case, write to it). The
+//! we'd happily read it. The
 //! same path-traversal concern that closed
 //! [`OxyProjectContext::resolve_automation_yaml`][rwy] applies here.
 //!
 //! Containment is enforced syntactically (no `canonicalize`): we
 //! reject empty paths, absolute paths, and any path containing a `..`
-//! component. The export writer also targets paths that don't exist
-//! yet, so the canonicalisation-based check `validate_path_within_project`
-//! uses for read-only paths isn't applicable here.
+//! component.
 //!
 //! [rwy]: agentic_wiring::OxyProjectContext::resolve_automation_yaml
 

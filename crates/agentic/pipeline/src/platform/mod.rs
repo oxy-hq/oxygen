@@ -66,6 +66,10 @@ pub trait CompileDispatcher: Send + Sync {
     ///
     /// `from_git` is `TaskSpec::Compile::from_git`: fetch the commit `git_sha`
     /// names rather than read a working copy.
+    ///
+    /// `task_id` is the queue row being executed. It is how the host learns when
+    /// the compile was asked for, which a delayed (retried) one needs in order
+    /// not to promote over a compile that started after it was asked.
     #[allow(clippy::too_many_arguments)]
     async fn dispatch(
         &self,
@@ -76,6 +80,7 @@ pub trait CompileDispatcher: Send + Sync {
         kind: Option<String>,
         owner_user_id: Option<uuid::Uuid>,
         from_git: bool,
+        task_id: &str,
     ) -> Result<agentic_runtime::worker::ExecutingTask, String>;
 }
 
@@ -210,6 +215,18 @@ pub trait ProjectContext: Send + Sync {
     /// mode (where nil == `LOCAL_WORKSPACE_ID`) compile unchanged.
     fn workspace_id(&self) -> uuid::Uuid {
         uuid::Uuid::nil()
+    }
+
+    /// Who this context acts for, when a request built it: the authenticated
+    /// user and the workspace role the request resolved. `None` for a context
+    /// nothing requested — a driver tick, the CLI, a test fake — which is the
+    /// default.
+    ///
+    /// Recorded on a run its request starts ([`Requester::KEY`]), so a driver
+    /// in another process can rebuild the same identity rather than run the
+    /// root on its own subject-less context.
+    fn requester(&self) -> Option<Requester> {
+        None
     }
 
     /// IANA timezone the host project resolves relative dates in, sourced
@@ -348,6 +365,46 @@ pub trait ThreadOwnerLookup: Send + Sync {
         _title: &str,
     ) -> Result<uuid::Uuid, String> {
         Err("thread creation not supported by this ThreadOwnerLookup".to_string())
+    }
+}
+
+/// The person a run was started for, as its request resolved them.
+///
+/// Read back by whatever drives the run without that request — a queued
+/// chat's driver, recovery — to build the context the request had: this user
+/// as its subject, at this role. A driver's own context carries no subject,
+/// and `airhouse_managed` mints a system Admin for that.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Requester {
+    pub user_id: uuid::Uuid,
+    /// The workspace role the request resolved (`owner`, `admin`, `member`,
+    /// `viewer`), already capped by any API-token ceiling. `None` when the
+    /// request resolved none; the run is then built with no role, which mints
+    /// a Reader.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+}
+
+impl Requester {
+    /// The key the record sits under in `agentic_runs.metadata`.
+    pub const KEY: &'static str = "requester";
+
+    /// The value stored under [`Self::KEY`].
+    pub fn to_metadata(&self) -> serde_json::Value {
+        serde_json::json!(self)
+    }
+
+    /// The record a run carries. `Ok(None)` when it carries none — a run no
+    /// request started, or one from before the record existed. A key that is
+    /// present but does not read back is an error, not an absence: treating it
+    /// as "none" would drive the run as the driver.
+    pub fn recorded(metadata: Option<&serde_json::Value>) -> Result<Option<Self>, String> {
+        let Some(value) = metadata.and_then(|m| m.get(Self::KEY)) else {
+            return Ok(None);
+        };
+        serde_json::from_value(value.clone())
+            .map(Some)
+            .map_err(|e| format!("the run's `{}` record is unreadable: {e}", Self::KEY))
     }
 }
 

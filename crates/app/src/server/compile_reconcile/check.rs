@@ -25,6 +25,13 @@ const UNREACHABLE_BACKOFF: Duration = Duration::from_secs(60 * 60);
 /// person has to, and six hours bounds the warnings to four a day.
 const UNCHECKABLE_BACKOFF: Duration = Duration::from_secs(6 * 60 * 60);
 
+/// The `last_outcome` labels of a check that found something only a person can
+/// fix: no GitHub connection, a repository or branch GitHub will not answer for,
+/// a refused token, or a row that lacks what a check needs. Each is backed off
+/// for hours (see [`Outcome::backoff`]), and a request does not bring such a
+/// workspace's check forward.
+pub(super) const NEEDS_A_PERSON: [&str; 4] = ["no_token", "not_found", "denied", "uncheckable"];
+
 /// What a check found, and so what the loop does next.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -136,7 +143,16 @@ pub(super) async fn check(
         Ok(state) => state,
         Err(e) => return Outcome::Unavailable(e.to_string()),
     };
-    match decide(&head, promoted.as_deref(), ready_for_head) {
+    let mut decision = decide(&head, promoted.as_deref(), ready_for_head);
+    if decision == Decision::Nothing {
+        // The head is what is being served. It is still stale when a compiler
+        // older than this build wrote the revision serving it.
+        match served_by_older_compiler(db, &row).await {
+            Ok(stale) => decision = recompile_if_stale(decision, stale),
+            Err(e) => return Outcome::Unavailable(e.to_string()),
+        }
+    }
+    match decision {
         Decision::Nothing => Outcome::UpToDate { head },
         Decision::AlreadyCompiled => Outcome::AlreadyCompiled { head },
         Decision::Compile => {
@@ -180,8 +196,46 @@ async fn branch_head(
         })
 }
 
+/// A head that is being served is compiled again when the revision serving it
+/// came from an older compiler.
+///
+/// A compile's output depends on the compiler as well as the commit, so a
+/// workspace whose branch has not moved would otherwise serve an old compiler's
+/// output until its next commit. The recompile replaces that revision
+/// (`oxy-compile`'s `supersede_older_compiler`), so the next check finds it
+/// current and does not repeat it.
+pub(super) fn recompile_if_stale(decision: Decision, served_by_older_compiler: bool) -> Decision {
+    match decision {
+        Decision::Nothing if served_by_older_compiler => Decision::Compile,
+        other => other,
+    }
+}
+
+/// Whether the revision `row` serves was written by a strictly older compiler
+/// than this build (`oxy_compile::compiler_is_older`).
+async fn served_by_older_compiler(
+    db: &DatabaseConnection,
+    row: &workspaces::Model,
+) -> Result<bool, sea_orm::DbErr> {
+    let Some(id) = row.current_revision_id else {
+        return Ok(false);
+    };
+    Ok(revisions::Entity::find_by_id(id)
+        .one(db)
+        .await?
+        .is_some_and(|served| {
+            served.kind == "main"
+                && oxy_compile::compiler_is_older(
+                    served.schema_version,
+                    &served.compiler_version,
+                    oxy_compile::CURRENT_SCHEMA_VERSION,
+                    &oxy_compile::compiler_version(),
+                )
+        }))
+}
+
 /// `(SHA being served, whether a ready main revision of head exists)`.
-async fn compiled_state(
+pub(super) async fn compiled_state(
     db: &DatabaseConnection,
     row: &workspaces::Model,
     head: &str,
@@ -223,6 +277,23 @@ mod tests {
         assert_eq!(decide(HEAD, None, false), Decision::Compile);
     }
 
+    #[test]
+    fn a_head_served_by_an_older_compiler_is_compiled_again_and_nothing_else_changes() {
+        assert_eq!(
+            recompile_if_stale(Decision::Nothing, true),
+            Decision::Compile
+        );
+        assert_eq!(
+            recompile_if_stale(Decision::Nothing, false),
+            Decision::Nothing
+        );
+        // Only a served head is asked about; the other answers stand.
+        for other in [Decision::Compile, Decision::AlreadyCompiled] {
+            assert_eq!(recompile_if_stale(other, true), other);
+            assert_eq!(recompile_if_stale(other, false), other);
+        }
+    }
+
     /// The node with the working copy compiled the head and then something
     /// newer; compiling the head again would only fetch it to change nothing.
     #[test]
@@ -231,6 +302,31 @@ mod tests {
             decide(HEAD, Some("89abcdef0123456789abcdef0123456789abcdef"), true),
             Decision::AlreadyCompiled
         );
+    }
+
+    /// The labels a request must not override are exactly the outcomes that are
+    /// backed off for hours: one list in the SQL and one in the backoff cannot
+    /// be allowed to drift.
+    #[test]
+    fn the_outcomes_a_request_leaves_alone_are_the_ones_with_a_backoff() {
+        let all = [
+            Outcome::UpToDate { head: HEAD.into() },
+            Outcome::AlreadyCompiled { head: HEAD.into() },
+            Outcome::Enqueued { head: HEAD.into() },
+            Outcome::Uncheckable("x"),
+            Outcome::NoToken,
+            Outcome::NotFound,
+            Outcome::Denied,
+            Outcome::RateLimited,
+            Outcome::Unavailable("x".into()),
+        ];
+        for outcome in all {
+            assert_eq!(
+                NEEDS_A_PERSON.contains(&outcome.label()),
+                outcome.backoff() > Duration::ZERO,
+                "{outcome:?}"
+            );
+        }
     }
 
     #[test]

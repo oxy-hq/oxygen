@@ -109,7 +109,8 @@ Utility tiles at the bottom of the launcher open list modals or navigate:
 
 There is no launcher affordance to `.app.yml` Data Apps (the launcher grid
 shows published **custom** apps only); reach a Data App by direct
-`browser_navigate` to `/apps/<base64>` in local mode, or via the
+`browser_navigate` to `/apps/<base64>` in local mode, or, for a
+workspace imported from a GitHub repo that already holds Data Apps, via the
 onboarding completion screen's `onboarding-explore-app-<index>` buttons
 in cloud mode (workspace-prefixed URLs embed a per-run UUID, so recorded
 absolute navigations would break warm replay).

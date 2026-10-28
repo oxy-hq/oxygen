@@ -791,8 +791,7 @@ export class AirwayService {
 
   static async listFiles(projectId: string): Promise<AirwayFile[]> {
     // Served from the compile boundary at `/airway-pipelines` (any replica) so
-    // the list renders with the Factory down. `/agentic-airway/files` is the
-    // legacy lister and stays Factory-only — see `base()` for the split.
+    // the list renders with the Factory down.
     const { data } = await apiClient.get(`/${projectId}/airway-pipelines`);
     return data;
   }

@@ -61,7 +61,7 @@ async fn boundary_with_layer(
     project_id: Uuid,
 ) -> Result<(SemanticBoundary, oxy_airlayer_compat::SemanticLayer), Response> {
     let boundary = enter_semantic_boundary(headers, project_id).await?;
-    let layer = load_layer(boundary.scan.path_buf()).await?;
+    let layer = load_layer(boundary.scan.clone()).await?;
     Ok((boundary, layer))
 }
 
@@ -94,7 +94,7 @@ fn runner_for(boundary: &SemanticBoundary, app_state: &AppState) -> OxyMetricTre
         boundary.app.user.id,
         WorkspaceRole::Viewer,
     )
-    .with_scan_path(boundary.scan.path_buf())
+    .with_scan(boundary.scan.clone())
     .with_preagg(preagg_ctx.cache, renewal_threshold_secs)
 }
 
@@ -117,7 +117,7 @@ pub async fn get_metric_tree(
     if let Some(hit) = cache_lookup(&boundary, "mt-tree", &key, wants_refresh(uri.query())) {
         return hit;
     }
-    let layer = match load_layer(boundary.scan.path_buf()).await {
+    let layer = match load_layer(boundary.scan.clone()).await {
         Ok(l) => l,
         Err(resp) => return resp,
     };
@@ -157,7 +157,7 @@ pub async fn get_sensitivity(
     ) {
         return hit;
     }
-    let layer = match load_layer(boundary.scan.path_buf()).await {
+    let layer = match load_layer(boundary.scan.clone()).await {
         Ok(l) => l,
         Err(resp) => return resp,
     };
@@ -570,7 +570,7 @@ pub async fn post_baseline(
         Ok(r) => r,
         Err(resp) => return resp,
     };
-    let layer = match load_layer(boundary.scan.path_buf()).await {
+    let layer = match load_layer(boundary.scan.clone()).await {
         Ok(l) => l,
         Err(resp) => return resp,
     };

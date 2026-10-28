@@ -30,6 +30,3 @@ tasks:
       {% for item in per_fruit %}
       ## {{ item.summary.summary }}
       {% endfor %}
-    export:
-      path: output/fruit_loop_report.docx
-      format: docx

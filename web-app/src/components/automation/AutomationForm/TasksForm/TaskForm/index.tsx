@@ -2,7 +2,6 @@ import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
 import { Controller, useFormContext } from "react-hook-form";
-import { FilePathAutocompleteInput } from "@/components/ui/FilePathAutocompleteInput";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Collapsible,
@@ -19,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/shadcn/select";
-import { Switch } from "@/components/ui/shadcn/switch";
 import type { AutomationFormData } from "..";
 import {
   AirwayTaskFields,
@@ -53,14 +51,6 @@ const TASK_TYPES = [
   { value: "omni_query", label: "Omni Query" },
   { value: "conditional", label: "Conditional" },
   { value: "airway", label: "Airway" }
-];
-
-const EXPORT_FORMATS = [
-  { value: "sql", label: "SQL" },
-  { value: "csv", label: "CSV" },
-  { value: "json", label: "JSON" },
-  { value: "txt", label: "Text" },
-  { value: "docx", label: "Word Document" }
 ];
 
 export const TaskForm: React.FC<TaskFormProps> = ({ index, onRemove, basePath = "tasks" }) => {
@@ -97,9 +87,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ index, onRemove, basePath = 
       // @ts-expect-error - Dynamic path for nested tasks
       setValue(taskPath, {
         name: task?.name,
-        type: task?.type,
-        export: task?.export,
-        cache: task?.cache
+        type: task?.type
       });
     }
   };
@@ -232,101 +220,6 @@ export const TaskForm: React.FC<TaskFormProps> = ({ index, onRemove, basePath = 
             </div>
 
             {renderTaskSpecificFields()}
-
-            <div className='space-y-4 border-t pt-4'>
-              <h4 className='font-medium'>Cache Configuration</h4>
-              <div className='flex items-center space-x-2'>
-                <Controller
-                  // @ts-expect-error - Dynamic path for nested tasks
-                  name={`${taskPath}.cache.enabled`}
-                  control={control}
-                  render={({ field: { value, onChange } }) => (
-                    <Switch
-                      id={`${taskPath}.cache.enabled`}
-                      checked={(value as boolean) || false}
-                      onCheckedChange={onChange}
-                    />
-                  )}
-                />
-                <Label htmlFor={`${taskPath}.cache.enabled`}>Enable caching</Label>
-              </div>
-              {/* @ts-expect-error - Dynamic path for nested tasks */}
-              {watch(`${taskPath}.cache.enabled`) && (
-                <div className='space-y-2'>
-                  <Label htmlFor={`${taskPath}.cache.path`}>Cache Path</Label>
-                  <FilePathAutocompleteInput
-                    id={`${taskPath}.cache.path`}
-                    datalistId={`cache-path-${basePath}-${index}`}
-                    placeholder='Enter cache file path'
-                    // @ts-expect-error - Dynamic path for nested tasks
-                    {...register(`${taskPath}.cache.path`)}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className='space-y-4 border-t pt-4'>
-              <h4 className='font-medium'>Export Configuration</h4>
-              <div className='flex items-center space-x-2'>
-                <Controller
-                  // @ts-expect-error - Dynamic path for nested tasks
-                  name={`${taskPath}.export.enabled`}
-                  control={control}
-                  render={({ field: { value, onChange } }) => (
-                    <Switch
-                      id={`${taskPath}.export.enabled`}
-                      checked={(value as boolean) || false}
-                      onCheckedChange={onChange}
-                    />
-                  )}
-                />
-                <Label htmlFor={`${taskPath}.export.enabled`}>Enable export</Label>
-              </div>
-              {/* @ts-expect-error - Dynamic path for nested tasks */}
-              {watch(`${taskPath}.export.enabled`) && (
-                <div className='grid grid-cols-2 gap-4'>
-                  <div className='space-y-2'>
-                    <Label htmlFor={`${taskPath}.export.format`}>Export Format</Label>
-                    <Controller
-                      // @ts-expect-error - Dynamic path for nested tasks
-                      name={`${taskPath}.export.format`}
-                      control={control}
-                      render={({ field }) => (
-                        <Select
-                          onValueChange={field.onChange}
-                          value={(field.value as string) || ""}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder='Select format' />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {EXPORT_FORMATS.map((format) => (
-                              <SelectItem
-                                className='cursor-pointer'
-                                key={format.value}
-                                value={format.value}
-                              >
-                                {format.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
-                  </div>
-                  <div className='space-y-2'>
-                    <Label htmlFor={`${taskPath}.export.path`}>Export Path</Label>
-                    <FilePathAutocompleteInput
-                      id={`${taskPath}.export.path`}
-                      datalistId={`export-path-${basePath}-${index}`}
-                      placeholder='Enter export file path'
-                      // @ts-expect-error - Dynamic path for nested tasks
-                      {...register(`${taskPath}.export.path`)}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         </CollapsibleContent>
       </Collapsible>

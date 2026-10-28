@@ -1,30 +1,34 @@
-//! Postgres-backed FS materialisers for callers that walk a directory
-//! / file path: airlayer (semantic scan) and the metric-monitoring
-//! crate (`.monitor.yml`).
+//! The semantic model a request reads, from the working copy or from a compiled
+//! revision, and the in-memory copy of a revision that serves it.
 //!
-//! `airlayer` (and the local semantic engine on top of it) consumes a
-//! filesystem directory of `.view.yml` + `.topic.yml` files and parses
-//! them itself. We don't want to fork that loader to take Postgres
-//! rows directly — too much surface and the loader semantics are
-//! intentionally FS-coupled (glob ordering, dialect-aware shims, etc.).
+//! The compile boundary stores a workspace's `.view.yml` and `.topic.yml` files
+//! as rows. Callers that build an airlayer model out of them used to be handed a
+//! directory: the rows were written into a temporary directory laid out the way
+//! airlayer's loader expects, and the loader walked it. That was a disk write
+//! per revision per process on a pod that is meant to need no disk, and a path
+//! that had to be kept alive for as long as anything held it.
 //!
-//! Instead, when the compile boundary is wired on, we *materialise*
-//! the compiled rows into a temporary directory laid out the way
-//! airlayer expects and hand THAT directory back as the scan path.
+//! A compiled revision is now held as the YAML text of its files
+//! ([`CompiledSemanticFiles`]) and parsed straight from memory, by the same
+//! parser the directory loader uses (`oxy_airlayer_compat::build_layer_from_yaml`),
+//! so the two sources differ in nothing but where the text came from. The
+//! working copy is still a directory, because it is one.
 //!
-//! Cost: the writes were never the expensive part. The read in front of them
-//! was — two boundary queries, then one S3 GET per row whenever
-//! `OXY_COMPILE_BLOB_S3_BUCKET` is set (every serve replica sets it), issued one
-//! after another, on every semantic request, before the engine cache was even
-//! consulted. A revision never changes once written, so the materialised
-//! directory is now cached per `(workspace_id, revision_id)` (`scan_cache`),
-//! and the one materialise a revision still pays resolves its bodies
-//! concurrently. The tempdir therefore outlives the request: it is deleted
-//! once the cache has evicted it AND the last request holding it has finished.
+//! The text is cached per `(workspace_id, revision_id)` (`scan_cache`). The read
+//! in front of it was always the expensive part: two boundary queries, then one
+//! S3 GET per row whenever `OXY_COMPILE_BLOB_S3_BUCKET` is set (every serve
+//! replica sets it), issued one after another, on every semantic request, before
+//! the engine cache was even consulted. A revision never changes once written,
+//! so the cache is always current, and the one read a revision still pays
+//! resolves its bodies concurrently.
+//!
+//! This module also holds the two readers that still write a directory, because
+//! what they hand to their caller is one: [`materialise_agent_context`] (an
+//! agent's `context:` globs match files) and [`materialise_monitor_config`].
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use lru::LruCache;
@@ -36,34 +40,61 @@ use super::artifacts::{ArtifactError, CompiledArtifact, VerifiedQueryEntry};
 use super::manager::{ConfigManager, DiskSlot, Origin};
 use super::storage::ConfigStorage;
 
-/// A directory `airlayer` can scan, whatever the manager reads from.
+/// One compiled `.view.yml` or `.topic.yml`: the row's workspace-relative path,
+/// and the YAML text the airlayer loader would have read from that file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticFile {
+    pub file_path: String,
+    pub yaml: String,
+}
+
+/// A compiled revision's semantic files, in the order the directory loader
+/// reads them (sorted by path below `semantics/views/` and `semantics/topics/`),
+/// so an engine built from either source is built in the same order.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct CompiledSemanticFiles {
+    views: Vec<SemanticFile>,
+    topics: Vec<SemanticFile>,
+}
+
+impl CompiledSemanticFiles {
+    pub fn views(&self) -> &[SemanticFile] {
+        &self.views
+    }
+
+    pub fn topics(&self) -> &[SemanticFile] {
+        &self.topics
+    }
+
+    /// The file a compiled row came from, by its workspace-relative path.
+    fn file(&self, entity: SemanticEntity, file_path: &str) -> Option<&SemanticFile> {
+        let files = match entity {
+            SemanticEntity::View => &self.views,
+            SemanticEntity::Topic => &self.topics,
+        };
+        files.iter().find(|f| f.file_path == file_path)
+    }
+}
+
+/// Where a request reads the semantic model from, whichever source the manager
+/// reads.
 ///
-/// On `Origin::Disk` this is the working copy itself — no bytes are copied. On
-/// `Origin::Compiled` the rows are written into a tempdir laid out the way
-/// airlayer expects:
-///
-/// ```text
-/// <tmp>/semantics/views/<file_path>
-/// <tmp>/semantics/topics/<file_path>
-/// ```
-///
-/// The guard MUST be held until parsing finishes. A materialised tempdir is
-/// shared — the scan cache holds one clone and every request reading that
-/// revision holds another — and is deleted when the last clone drops.
-#[derive(Clone)]
+/// On `Origin::Disk` this is the working copy's directory. On
+/// `Origin::Compiled` it is the revision's files, in memory: nothing is written
+/// anywhere, and a clone shares the one copy.
+#[derive(Debug, Clone)]
 pub enum ScanDir {
     Real(PathBuf),
-    Materialised {
-        _dir: Arc<TempDir>,
-        scan_path: PathBuf,
-    },
+    Compiled(Arc<CompiledSemanticFiles>),
 }
 
 impl ScanDir {
-    pub fn path(&self) -> &std::path::Path {
+    /// The directory this scan reads, when it is the working copy. A compiled
+    /// revision has none.
+    pub fn directory(&self) -> Option<&Path> {
         match self {
-            ScanDir::Real(p) => p,
-            ScanDir::Materialised { scan_path, .. } => scan_path,
+            ScanDir::Real(p) => Some(p),
+            ScanDir::Compiled(_) => None,
         }
     }
 
@@ -73,12 +104,55 @@ impl ScanDir {
     /// A node can hold a working copy AND be pinned to a revision, so
     /// `ConfigManager::revision_id()` cannot answer this — it reports the pin,
     /// not the source. Anything caching by layer identity has to ask here.
-    pub fn is_materialised(&self) -> bool {
-        matches!(self, ScanDir::Materialised { .. })
+    pub fn is_compiled(&self) -> bool {
+        matches!(self, ScanDir::Compiled(_))
+    }
+
+    /// Parse the airlayer semantic model. Blocking: it parses every file, so
+    /// call it from a blocking task.
+    pub fn load_layer(
+        &self,
+    ) -> Result<oxy_airlayer_compat::SemanticLayer, oxy_airlayer_compat::SemanticError> {
+        match self {
+            ScanDir::Real(root) => oxy_airlayer_compat::load_layer_from_dir(root),
+            ScanDir::Compiled(files) => {
+                let views: Vec<&str> = files.views.iter().map(|f| f.yaml.as_str()).collect();
+                let topics: Vec<&str> = files.topics.iter().map(|f| f.yaml.as_str()).collect();
+                oxy_airlayer_compat::build_layer_from_yaml(&views, &topics)
+            }
+        }
+    }
+
+    /// Parse the semantic model with the `oxy_semantic` parser, which also
+    /// validates it. Blocking, like [`Self::load_layer`].
+    pub fn parse_semantic_model(
+        &self,
+    ) -> Result<oxy_semantic::ParseResult, oxy_semantic::SemanticLayerError> {
+        match self {
+            ScanDir::Real(root) => oxy_semantic::parse_semantic_layer_from_dir(root),
+            ScanDir::Compiled(files) => {
+                let named = |files: &[SemanticFile]| -> Vec<(PathBuf, String)> {
+                    files
+                        .iter()
+                        .map(|f| (PathBuf::from(&f.file_path), f.yaml.clone()))
+                        .collect()
+                };
+                oxy_semantic::SemanticLayerParser::new(oxy_semantic::ParserConfig::new("semantics"))
+                    .parse_sources(&named(&files.views), &named(&files.topics))
+            }
+        }
     }
 }
 
-/// The scan directory for whichever source this manager reads.
+impl oxy_airlayer_compat::LoadLayer for ScanDir {
+    fn load_layer(
+        &self,
+    ) -> Result<oxy_airlayer_compat::SemanticLayer, oxy_airlayer_compat::SemanticError> {
+        ScanDir::load_layer(self)
+    }
+}
+
+/// The scan for whichever source this manager reads.
 ///
 /// Replaces a `materialise -> Option` that only knew the compiled arm and left
 /// each caller to work out the other one.
@@ -104,23 +178,23 @@ async fn read_scan_dir<S: DiskSlot>(
         // A promoted revision with no semantic files.
         //
         // On a node that HAS a working copy, prefer it: the revision may be
-        // older than the files on disk, and an empty scan dir would hide them
+        // older than the files on disk, and an empty scan would hide them
         // — airlayer reads an empty directory as "scanned, found none", which
         // is absent-reported-as-empty in the other direction.
         //
         // On a node that has none, that reasoning inverts. Zero semantic rows
-        // in the promoted revision IS the whole answer, so an empty scan dir
-        // states it rather than overstating it. Erroring here instead made a
+        // in the promoted revision IS the whole answer, so an empty scan states
+        // it rather than overstating it. Erroring here instead made a
         // legitimate workspace — compiled, promoted, no semantic model yet — a
         // permanently retryable 503 on every replica: neither input changes on
         // a retry, so the caller polls forever.
         return scan_dir_for_empty_revision(config_manager);
     }
 
-    materialise(config_manager.origin(), &views, &topics).await
+    load_compiled_scan(config_manager.origin(), &views, &topics).await
 }
 
-/// The scan directory for the COMPILED revision and nothing else.
+/// The scan for the COMPILED revision and nothing else.
 ///
 /// [`scan_dir`] falls back to this node's working copy twice — when the manager
 /// reads from disk at all, and when a promoted revision has no semantic rows
@@ -137,8 +211,8 @@ async fn read_scan_dir<S: DiskSlot>(
 pub async fn compiled_scan_dir<S: DiskSlot>(
     config_manager: &ConfigManager<S>,
 ) -> Result<ScanDir, ArtifactError> {
-    // The cache only ever holds a compiled revision's materialisation, which is
-    // exactly what this resolver would build — so a hit is safe here too.
+    // The cache only ever holds a compiled revision's files, which is exactly
+    // what this resolver would build — so a hit is safe here too.
     scan_once(
         config_manager.origin(),
         read_compiled_scan_dir(config_manager),
@@ -159,63 +233,40 @@ async fn read_compiled_scan_dir<S: DiskSlot>(
 
     // A promoted revision with zero semantic rows is a complete answer, and the
     // only one this caller may act on: the workspace models nothing. An empty
-    // scan dir states exactly that, and the probes that need a measure report
-    // it as nothing-to-check rather than as a failure.
+    // scan states exactly that, and the probes that need a measure report it as
+    // nothing-to-check rather than as a failure.
     if views.is_empty() && topics.is_empty() {
-        return empty_scan_dir();
+        return Ok(empty_scan());
     }
 
-    materialise(config_manager.origin(), &views, &topics).await
+    load_compiled_scan(config_manager.origin(), &views, &topics).await
 }
 
-/// Write compiled rows into the tempdir layout airlayer expects, and cache the
-/// result under `origin`'s revision. Shared by both resolvers so the two can
-/// only differ in WHICH source they accept, never in how a compiled one is laid
-/// out or cached.
-async fn materialise(
+/// Resolve compiled rows into a revision's files, and cache the result under
+/// `origin`'s revision. Shared by both resolvers so the two can only differ in
+/// WHICH source they accept, never in how a compiled one is read or cached.
+async fn load_compiled_scan(
     origin: Origin,
     views: &[CompiledArtifact],
     topics: &[CompiledArtifact],
 ) -> Result<ScanDir, ArtifactError> {
-    let dir = TempDir::new().map_err(io_err)?;
-    let scan_path = dir.path().join("semantics");
-    let views_dir = scan_path.join("views");
-    let topics_dir = scan_path.join("topics");
-    tokio::fs::create_dir_all(&views_dir)
-        .await
-        .map_err(io_err)?;
-    tokio::fs::create_dir_all(&topics_dir)
-        .await
-        .map_err(io_err)?;
+    let files = CompiledSemanticFiles {
+        views: resolve_files(views, "view.yml").await.map_err(io_err)?,
+        topics: resolve_files(topics, "topic.yml").await.map_err(io_err)?,
+    };
 
-    let first_view = write_artifacts(views, &views_dir, "view.yml")
-        .await
-        .map_err(io_err)?;
-    let first_topic = write_artifacts(topics, &topics_dir, "topic.yml")
-        .await
-        .map_err(io_err)?;
-
-    // info, not debug: this now fires once per revision per process rather than
+    // info, not debug: this fires once per revision per process rather than
     // once per request, and it is the line that shows the cache working.
     tracing::info!(
         ?origin,
-        views = views.len(),
-        topics = topics.len(),
-        path = %scan_path.display(),
-        "semantic scan: materialised from the compile boundary"
+        views = files.views.len(),
+        topics = files.topics.len(),
+        "semantic scan: read from the compile boundary"
     );
 
-    // What `cached_scan` stats to tell a live tree from a reaped one: a file
-    // this materialise wrote, or the root when no row produced one.
-    let sentinel = first_view
-        .or(first_topic)
-        .unwrap_or_else(|| scan_path.clone());
-    let scan = ScanDir::Materialised {
-        _dir: Arc::new(dir),
-        scan_path,
-    };
+    let scan = ScanDir::Compiled(Arc::new(files));
     if let Some(key) = revision_key(origin) {
-        remember_scan(key, &scan, sentinel);
+        remember_scan(key, &scan);
     }
     Ok(scan)
 }
@@ -288,22 +339,15 @@ fn in_flight(key: (Uuid, Uuid)) -> Arc<tokio::sync::Mutex<bool>> {
     flight
 }
 
-/// Max `(workspace, revision)` scans a process keeps materialised, across every
-/// workspace. [`REVISIONS_PER_WORKSPACE`] bounds each workspace's share.
+/// Max `(workspace, revision)` scans a process keeps, across every workspace.
+/// [`REVISIONS_PER_WORKSPACE`] bounds each workspace's share.
 const SCAN_CACHE_CAP: usize = 256;
 
 /// How many revisions of one workspace the scan cache keeps: the current one,
 /// and the one a promote window's stragglers are still pinned to.
 const REVISIONS_PER_WORKSPACE: usize = 2;
 
-/// A cached materialisation, and the file that shows its tree is still there.
-#[derive(Clone)]
-struct CachedScan {
-    scan: ScanDir,
-    sentinel: PathBuf,
-}
-
-/// Process-global LRU of materialised semantic scans, keyed by
+/// Process-global LRU of compiled semantic scans, keyed by
 /// `(workspace_id, revision_id)`.
 ///
 /// A revision's rows are written in the one transaction that finalises it and
@@ -312,22 +356,21 @@ struct CachedScan {
 /// `current_revision_id`, the request pins the new id, and the lookup misses —
 /// a new revision can never be served an old one's files.
 ///
-/// Bounded per workspace as well as in total, because every entry pins a
-/// tempdir — on tmpfs, so in RAM, in plenty of container images — and a
-/// workspace that promotes all day must not fill the cache with superseded
-/// models. [`materialise_agent_context`] meets the same pressure by popping a
-/// workspace's prior revisions on insert, freeing the stale tempdir the moment
-/// a promote lands. This cache keeps ONE prior revision instead of none: across
-/// a promote window requests pinned to the old and the new revision are both
-/// in flight, and evicting either on the other's insert would ping-pong
-/// re-materialisations on the request hot path. An evicted tempdir is deleted
-/// once the last request holding it drops its clone.
+/// Bounded per workspace as well as in total, because every entry holds a whole
+/// semantic model in memory, and a workspace that promotes all day must not
+/// fill the cache with superseded ones. [`materialise_agent_context`] meets the
+/// same pressure by popping a workspace's prior revisions on insert. This cache
+/// keeps ONE prior revision instead of none: across a promote window requests
+/// pinned to the old and the new revision are both in flight, and evicting
+/// either on the other's insert would ping-pong re-reads on the request hot
+/// path. An evicted scan is freed once the last request holding it drops its
+/// clone.
 ///
 /// Only the non-empty compiled arm is stored. The working copy is mutable, and
 /// an EMPTY revision's answer depends on whether this node holds a working copy
 /// right now (`scan_dir_for_empty_revision`), which can change under it.
-fn scan_cache() -> &'static Mutex<LruCache<(Uuid, Uuid), CachedScan>> {
-    static CACHE: OnceLock<Mutex<LruCache<(Uuid, Uuid), CachedScan>>> = OnceLock::new();
+fn scan_cache() -> &'static Mutex<LruCache<(Uuid, Uuid), ScanDir>> {
+    static CACHE: OnceLock<Mutex<LruCache<(Uuid, Uuid), ScanDir>>> = OnceLock::new();
     CACHE.get_or_init(|| {
         Mutex::new(LruCache::new(
             NonZeroUsize::new(SCAN_CACHE_CAP).expect("SCAN_CACHE_CAP is non-zero"),
@@ -337,17 +380,11 @@ fn scan_cache() -> &'static Mutex<LruCache<(Uuid, Uuid), CachedScan>> {
 
 /// Cache `scan` under `key`, then trim its workspace to the
 /// [`REVISIONS_PER_WORKSPACE`] most recently used revisions.
-fn remember_scan(key: (Uuid, Uuid), scan: &ScanDir, sentinel: PathBuf) {
+fn remember_scan(key: (Uuid, Uuid), scan: &ScanDir) {
     let Ok(mut cache) = scan_cache().lock() else {
         return;
     };
-    cache.put(
-        key,
-        CachedScan {
-            scan: scan.clone(),
-            sentinel,
-        },
-    );
+    cache.put(key, scan.clone());
     // `iter` runs most- to least-recently used, so whatever of this workspace
     // comes after its first few entries is what goes.
     let superseded: Vec<(Uuid, Uuid)> = cache
@@ -372,23 +409,12 @@ fn revision_key(origin: Origin) -> Option<(Uuid, Uuid)> {
     }
 }
 
-/// This process's materialisation of `origin`'s revision, if it has one. The
-/// guard is held for the map op and one stat, never across an await.
+/// This process's scan of `origin`'s revision, if it has one. The guard is held
+/// for the map op, never across an await.
 fn cached_scan(origin: Origin) -> Option<ScanDir> {
     let key = revision_key(origin)?;
     let mut cache = scan_cache().lock().ok()?;
-    let entry = cache.get(&key)?.clone();
-    // The one way a cached tempdir differs from a per-request one: it lives
-    // long enough for something else to delete it. An age-based tmp reaper
-    // removes files first and emptied directories after, so a tree can be
-    // gutted with every directory still standing — stat the root and airlayer
-    // parses an empty model from it on every hit. So stat a file the
-    // materialise wrote: still one syscall. On a miss the caller re-materialises.
-    if !entry.sentinel.exists() {
-        cache.pop(&key);
-        return None;
-    }
-    Some(entry.scan)
+    cache.get(&key).cloned()
 }
 
 /// Where a promoted revision with zero semantic rows scans from.
@@ -406,26 +432,16 @@ fn scan_dir_for_empty_revision<S: DiskSlot>(
         // nodes where zero semantic rows IS the answer. Named rather than `_`
         // so a future variant cannot silently become an empty scan — which is
         // absence-as-emptiness, one level in.
-        Err(ArtifactError::NoSource | ArtifactError::WorkspaceUnavailable(_)) => empty_scan_dir(),
+        Err(ArtifactError::NoSource | ArtifactError::WorkspaceUnavailable(_)) => Ok(empty_scan()),
         Err(e) => Err(e),
     }
 }
 
-/// An empty scan directory, for a promoted revision that genuinely has no
-/// semantic files on a node with no working copy to check it against.
-///
-/// Laid out like the materialised arm — `semantics/{views,topics}` — so
-/// airlayer walks the shape it always walks and finds nothing, rather than
-/// failing on a directory that is not there.
-fn empty_scan_dir() -> Result<ScanDir, ArtifactError> {
-    let dir = TempDir::new().map_err(io_err)?;
-    let scan_path = dir.path().join("semantics");
-    std::fs::create_dir_all(scan_path.join("views")).map_err(io_err)?;
-    std::fs::create_dir_all(scan_path.join("topics")).map_err(io_err)?;
-    Ok(ScanDir::Materialised {
-        _dir: Arc::new(dir),
-        scan_path,
-    })
+/// A scan with no files, for a promoted revision that genuinely has no semantic
+/// files on a node with no working copy to check it against. Loading it yields
+/// a model with no views, which is what airlayer reads an empty directory as.
+fn empty_scan() -> ScanDir {
+    ScanDir::Compiled(Arc::new(CompiledSemanticFiles::default()))
 }
 
 fn io_err(e: std::io::Error) -> ArtifactError {
@@ -439,33 +455,33 @@ pub enum SemanticEntity {
     Topic,
 }
 
-/// Materialise the promoted semantic scan and return it together with the
-/// on-disk path of ONE requested view/topic, so a Path-based parser (airlayer)
-/// can parse that file WITH full scan context for cross-entity reference
-/// resolution (a topic hydrates its referenced views from the same scan dir).
+/// One requested view or topic, in whichever form its source has it.
+#[derive(Debug, Clone)]
+pub enum SemanticTarget {
+    /// The file in the working copy.
+    File(PathBuf),
+    /// The compiled revision's copy of the file, which has no path.
+    Yaml { file_path: String, yaml: String },
+}
+
+/// The scan the manager reads, together with ONE requested view or topic of it,
+/// so a parser can read that entity WITH full scan context for cross-entity
+/// reference resolution (a topic hydrates its referenced views from the same
+/// scan).
 ///
 /// Returns `Ok(None)` when the workspace isn't promoted or the requested file
 /// isn't a compiled row — the caller then falls through to the FS, exactly like
-/// every other reader. The returned [`ScanDir`] guard MUST be held
-/// until parsing finishes.
+/// every other reader.
 ///
 /// The scan itself comes from [`scan_dir`]'s per-revision cache, so a detail
-/// read no longer re-materialises the whole promoted model (S3 + disk writes)
-/// on every open; what it still pays per call is the one boundary query that
-/// maps `file_path` to its row.
-pub async fn materialise_semantic_entity<S: DiskSlot>(
+/// read no longer re-reads the whole promoted model on every open; what it
+/// still pays per call is nothing but a lookup of `file_path` in it.
+pub async fn read_semantic_entity<S: DiskSlot>(
     config_manager: &ConfigManager<S>,
     entity: SemanticEntity,
     file_path: &str,
-) -> Result<Option<(ScanDir, PathBuf)>, ArtifactError> {
+) -> Result<Option<(ScanDir, SemanticTarget)>, ArtifactError> {
     let scan = scan_dir(config_manager).await?;
-    // On a working copy the file is already where the caller expects it; the
-    // materialised arm has to map the row's workspace-relative path into the
-    // tempdir the way `write_artifacts` did.
-    let (subdir, suffix) = match entity {
-        SemanticEntity::View => ("views", "view.yml"),
-        SemanticEntity::Topic => ("topics", "topic.yml"),
-    };
     let target = match &scan {
         // `file_path` is base64 out of the request URL. Joining it onto the
         // root is a traversal: `../../etc/x.yml` resolves outside the
@@ -481,7 +497,17 @@ pub async fn materialise_semantic_entity<S: DiskSlot>(
                 return Ok(None);
             };
             match working_copy.storage().fs_link(file_path).await {
-                Ok(resolved) => PathBuf::from(resolved),
+                Ok(resolved) => {
+                    let resolved = PathBuf::from(resolved);
+                    if !resolved.exists() {
+                        tracing::warn!(
+                            file_path,
+                            "semantic single-read: no file at the resolved path; caller falls through"
+                        );
+                        return Ok(None);
+                    }
+                    SemanticTarget::File(resolved)
+                }
                 Err(e) => {
                     tracing::warn!(
                         file_path,
@@ -492,115 +518,91 @@ pub async fn materialise_semantic_entity<S: DiskSlot>(
                 }
             }
         }
-        ScanDir::Materialised { scan_path, .. } => {
-            let rows = match entity {
-                SemanticEntity::View => config_manager.compiled_semantic_views().await?,
-                SemanticEntity::Topic => config_manager.compiled_semantic_topics().await?,
-            }
-            .unwrap_or_default();
-            let Some(row) = rows.into_iter().find(|r| r.file_path == file_path) else {
-                return Ok(None);
-            };
-            match derive_target_path(&scan_path.join(subdir), &row.file_path, &row.name, suffix) {
-                Some(target) => target,
-                // The row was not materialised, so there is nothing to read.
-                None => return Ok(None),
-            }
-        }
+        ScanDir::Compiled(files) => match files.file(entity, file_path) {
+            Some(file) => SemanticTarget::Yaml {
+                file_path: file.file_path.clone(),
+                yaml: file.yaml.clone(),
+            },
+            None => return Ok(None),
+        },
     };
-    if !target.exists() {
-        tracing::warn!(
-            file_path,
-            "semantic single-read: no file at the resolved path; caller falls through"
-        );
-        return Ok(None);
-    }
     Ok(Some((scan, target)))
 }
 
-/// Write each artifact's `definition` JSONB to a YAML file under
-/// `target_dir`, recreating the subdirectory layout from the row's
-/// `file_path` so two artifacts that share a basename across
-/// directories (e.g. `a/orders.view.yml` and `b/orders.view.yml` with
-/// distinct in-file `name`s) don't collide.
+/// Resolve each row's body into a [`SemanticFile`], sorted by the row's path
+/// below its kind (`semantics/views/` or `semantics/topics/`) — the order the
+/// directory loader reads the same files in.
 ///
-/// The compile-boundary PK on `semantic_views` is `(revision_id,
-/// name)`, so distinct names with the same basename DO ship as two
-/// rows. A flat tempdir would silently overwrite one with the other
-/// and airlayer would see only the survivor at query time — a
-/// silent-data-loss bug under the "two folders, same file basename"
-/// pattern.
-///
-/// Returns the first file written, if any row produced one: the scan cache
-/// stats it to tell a live tree from a reaped one.
-async fn write_artifacts(
+/// Keyed by that relative path, so two rows that share a basename across
+/// directories (`a/orders.view.yml` and `b/orders.view.yml` with distinct
+/// in-file `name`s) stay two files. The compile-boundary PK on `semantic_views`
+/// is `(revision_id, name)`, so distinct names with the same basename DO ship as
+/// two rows; keying on the basename would silently keep one of them and airlayer
+/// would see only the survivor at query time.
+async fn resolve_files(
     rows: &[CompiledArtifact],
-    target_dir: &std::path::Path,
     fallback_suffix: &str,
-) -> Result<Option<std::path::PathBuf>, std::io::Error> {
+) -> Result<Vec<SemanticFile>, std::io::Error> {
     use futures::stream::{StreamExt, TryStreamExt};
-    use std::collections::HashSet;
 
-    // Inside `materialise_semantic_scan` we already build
-    // `<tmp>/semantics/views` and `<tmp>/semantics/topics`. The
-    // compile rows' `file_path` is workspace-relative (e.g.
-    // `semantics/views/orders.view.yml` or
-    // `team-a/orders.view.yml`). We strip the leading
-    // `semantics/<kind>/` prefix when present so the result lands as
-    // a child of `target_dir`; otherwise we append the row's relative
-    // path verbatim. The point is: preserve every directory segment
-    // BELOW the kind, so distinct rows land at distinct paths.
-    let mut written: HashSet<std::path::PathBuf> = HashSet::new();
     // Rows are cloned into their fetches rather than borrowed. A stream of
     // futures each holding a `&CompiledArtifact` trips rustc's higher-ranked
     // auto-trait check in every axum handler that awaits a scan ("implementation
     // of `Send` is not general enough"). The clone is cheap next to the GET it
     // feeds, and it runs once per revision.
-    let targets: Vec<(std::path::PathBuf, CompiledArtifact)> = rows
+    let mut seen: BTreeMap<PathBuf, ()> = BTreeMap::new();
+    let targets: Vec<(PathBuf, CompiledArtifact)> = rows
         .iter()
         .filter_map(|row| {
-            let target =
-                derive_target_path(target_dir, &row.file_path, &row.name, fallback_suffix)?;
-            if !written.insert(target.clone()) {
+            let relative = relative_scan_path(&row.file_path, &row.name, fallback_suffix)?;
+            if seen.insert(relative.clone(), ()).is_some() {
                 tracing::warn!(
                     file_path = %row.file_path,
-                    target = %target.display(),
-                    "semantic scan: two rows materialise to the same tempdir path — second write overwrites the first"
+                    "semantic scan: two rows read as the same file — the second replaces the first"
                 );
             }
-            Some((target, row.clone()))
+            Some((relative, row.clone()))
         })
         .collect();
 
     // Bodies resolve concurrently — each is an S3 GET when the blob bucket is
     // set, and one after another those GETs were the whole cost of a scan —
-    // while the writes still land one at a time, in row order. `buffered`
-    // rather than `buffer_unordered` is what keeps that order, and it is
-    // load-bearing: two rows that share a path still end last-writer-wins, as
-    // the warning above promises, and the first failing row is still the one
-    // reported.
-    let first = targets.first().map(|(target, _)| target.clone());
-    futures::stream::iter(targets.into_iter().map(|(target, row)| async move {
-        let body = resolve_body(&row).await.map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("resolve body for semantic row {}: {e}", row.name),
-            )
-        })?;
-        Ok::<_, std::io::Error>((target, body))
-    }))
-    .buffered(MAX_CONCURRENT_BODY_FETCHES)
-    .try_for_each(|(target, body)| async move {
-        if let Some(parent) = target.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::write(target, body).await
-    })
-    .await?;
-    Ok(first)
+    // while the results are still taken in row order. `buffered` rather than
+    // `buffer_unordered` is what keeps that order, and it is load-bearing: two
+    // rows that share a path still end last-writer-wins, as the warning above
+    // promises, and the first failing row is still the one reported.
+    let bodies: Vec<(PathBuf, SemanticFile)> =
+        futures::stream::iter(targets.into_iter().map(|(relative, row)| async move {
+            let body = resolve_body(&row).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("resolve body for semantic row {}: {e}", row.name),
+                )
+            })?;
+            let yaml = String::from_utf8(body).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("semantic row {} is not UTF-8: {e}", row.name),
+                )
+            })?;
+            Ok::<_, std::io::Error>((
+                relative,
+                SemanticFile {
+                    file_path: row.file_path,
+                    yaml,
+                },
+            ))
+        }))
+        .buffered(MAX_CONCURRENT_BODY_FETCHES)
+        .try_collect()
+        .await?;
+
+    // Later rows win a shared path; the map then yields them sorted by path.
+    let files: BTreeMap<PathBuf, SemanticFile> = bodies.into_iter().collect();
+    Ok(files.into_values().collect())
 }
 
-/// How many row bodies one materialise resolves at once. Bounded so a large
+/// How many row bodies one read of a revision resolves at once. Bounded so a large
 /// semantic model cannot open unbounded S3 connections; shared by both writers
 /// that fetch blobs.
 const MAX_CONCURRENT_BODY_FETCHES: usize = 16;
@@ -632,35 +634,26 @@ async fn resolve_body(row: &CompiledArtifact) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("yaml: {e}"))
 }
 
-/// Strip the `semantics/<kind>/` prefix from a workspace-relative path
-/// when present (the airlayer loader already gives us the kind-rooted
-/// target_dir). Falls back to a sanitised version of the row name when
-/// the path has no `file_name()` (e.g. trailing slash), or when the path
-/// would leave `target_dir`.
+/// A compiled row's path below its kind: the workspace-relative path with a
+/// leading `semantics/views/` or `semantics/topics/` removed. Falls back to the
+/// row name plus `fallback_suffix` when nothing is left (a trailing slash).
 ///
-/// `None` for an unsafe path rather than a clamped one: the two writers below
-/// already skip-and-warn (`write_context_artifacts`, `write_verified_queries`),
-/// and a silently rewritten destination is worse than a dropped row — the
-/// operator sees neither.
-fn derive_target_path(
-    target_dir: &std::path::Path,
-    file_path: &str,
-    row_name: &str,
-    fallback_suffix: &str,
-) -> Option<std::path::PathBuf> {
+/// `None` for an unsafe path (absolute, or leaving the scan through `..`)
+/// rather than a clamped one: the two writers below already skip-and-warn
+/// (`write_context_artifacts`, `write_verified_queries`), and a silently
+/// rewritten destination is worse than a dropped row — the operator sees
+/// neither. Nothing is written for these rows any more, but the compiler reads
+/// the path out of a workspace YAML, and a row the directory loader would not
+/// have read must not become part of the model here either.
+fn relative_scan_path(file_path: &str, row_name: &str, fallback_suffix: &str) -> Option<PathBuf> {
     let trimmed = file_path
         .strip_prefix("semantics/views/")
         .or_else(|| file_path.strip_prefix("semantics/topics/"))
         .unwrap_or(file_path);
     if trimmed.is_empty() {
-        return Some(target_dir.join(format!("{}.{}", row_name, fallback_suffix)));
+        return Some(PathBuf::from(format!("{row_name}.{fallback_suffix}")));
     }
-    // Same guard the sibling writers apply. `file_path` is compiler-produced,
-    // which is why this looked safe — but the compiler reads it out of a
-    // workspace YAML, and both siblings decided not to trust that. One writer
-    // trusting it is the gap: this is the one that lands files where an
-    // airlayer scan will read them.
-    let rel = std::path::Path::new(trimmed);
+    let rel = Path::new(trimmed);
     if rel.is_absolute()
         || rel
             .components()
@@ -668,11 +661,11 @@ fn derive_target_path(
     {
         tracing::warn!(
             file_path,
-            "semantic scan: skipping a row whose file_path leaves the scan dir"
+            "semantic scan: skipping a row whose file_path leaves the scan"
         );
         return None;
     }
-    Some(target_dir.join(trimmed))
+    Some(rel.to_path_buf())
 }
 
 /// A workspace's compiled context entities materialised at their
@@ -1026,16 +1019,12 @@ mod tests {
         let scan = scan_dir_for_empty_revision(&diskless)
             .expect("zero semantic rows is an answer, not a fault");
 
-        // Airlayer walks the shape it always walks and finds nothing — which
-        // on this node is the truth, not a guess about files it cannot see.
-        assert!(scan.path().join("views").is_dir());
-        assert!(scan.path().join("topics").is_dir());
-        assert_eq!(
-            std::fs::read_dir(scan.path().join("views"))
-                .expect("read views")
-                .count(),
-            0
-        );
+        // An empty model, held in memory — which on this node is the truth, not
+        // a guess about files it cannot see.
+        assert!(scan.is_compiled(), "nothing on disk is read");
+        let layer = scan.load_layer().expect("an empty scan loads");
+        assert!(layer.views.is_empty());
+        assert!(layer.topics.is_none());
     }
 
     /// The other half, and the reason the empty dir is not simply always
@@ -1049,7 +1038,10 @@ mod tests {
         let scan = scan_dir_for_empty_revision(&manager).expect("a working copy is a scan dir");
 
         assert_eq!(
-            scan.path().canonicalize().expect("canonicalise scan"),
+            scan.directory()
+                .expect("the working copy is a directory")
+                .canonicalize()
+                .expect("canonicalise scan"),
             dir.path().canonicalize().expect("canonicalise workspace"),
             "the working copy wins when there is one"
         );
@@ -1095,7 +1087,7 @@ mod tests {
         .await
         .expect("write view");
 
-        let (_scan, path) = materialise_semantic_entity(
+        let (_scan, target) = read_semantic_entity(
             &manager,
             SemanticEntity::View,
             "semantics/views/orders.view.yml",
@@ -1104,6 +1096,9 @@ mod tests {
         .expect("a path inside the workspace is not an error")
         .expect("a path inside the workspace must resolve");
 
+        let SemanticTarget::File(path) = target else {
+            panic!("the working copy answers with a file, got {target:?}");
+        };
         assert!(
             path.ends_with("semantics/views/orders.view.yml"),
             "resolved to {}",
@@ -1136,10 +1131,9 @@ mod tests {
             .await
             .expect("manager");
 
-        let escaped =
-            materialise_semantic_entity(&manager, SemanticEntity::View, "../secret.view.yml")
-                .await
-                .expect("a rejected path is not an error");
+        let escaped = read_semantic_entity(&manager, SemanticEntity::View, "../secret.view.yml")
+            .await
+            .expect("a rejected path is not an error");
 
         assert!(
             escaped.is_none(),
@@ -1148,29 +1142,28 @@ mod tests {
     }
 
     /// The guard both sibling writers already had. `file_path` is
-    /// compiler-produced, but the compiler reads it out of a workspace YAML,
-    /// and this is the writer whose output an airlayer scan then reads.
+    /// compiler-produced, but the compiler reads it out of a workspace YAML, and
+    /// a row the directory loader would not have read must not become part of
+    /// the model here either.
     #[test]
-    fn a_row_path_cannot_escape_the_scan_dir() {
-        let target = std::path::Path::new("/tmp/scan/views");
-
+    fn a_row_path_cannot_escape_the_scan() {
         assert!(
-            derive_target_path(target, "../../etc/evil.view.yml", "evil", "view.yml").is_none(),
+            relative_scan_path("../../etc/evil.view.yml", "evil", "view.yml").is_none(),
             "a `..` path must be skipped, not clamped"
         );
         assert!(
-            derive_target_path(target, "/etc/evil.view.yml", "evil", "view.yml").is_none(),
+            relative_scan_path("/etc/evil.view.yml", "evil", "view.yml").is_none(),
             "an absolute path must be skipped"
         );
         assert_eq!(
-            derive_target_path(
-                target,
-                "semantics/views/a/orders.view.yml",
-                "orders",
-                "view.yml"
-            ),
-            Some(target.join("a/orders.view.yml")),
+            relative_scan_path("semantics/views/a/orders.view.yml", "orders", "view.yml"),
+            Some(PathBuf::from("a/orders.view.yml")),
             "a normal row still keeps every directory segment below the kind"
+        );
+        assert_eq!(
+            relative_scan_path("semantics/views/", "orders", "view.yml"),
+            Some(PathBuf::from("orders.view.yml")),
+            "nothing below the kind falls back to the row's name"
         );
     }
 
@@ -1247,43 +1240,61 @@ mod tests {
     }
 
     /// The fix itself. Every semantic request used to re-read the rows, fetch
-    /// each body from S3 one at a time and write a fresh tempdir, even when
-    /// the engine cache already held the answer. Now a revision is
-    /// materialised once, and every later scan of it — from either resolver —
-    /// is the same directory.
+    /// each body from S3 one at a time and write a fresh tempdir, even when the
+    /// engine cache already held the answer. Now a revision is read once, and
+    /// every later scan of it — from either resolver — is the same files.
     ///
     /// This manager has no database behind it, so a scan that went back to the
-    /// boundary would fail, or at best land in a fresh tempdir. Getting THIS
-    /// directory back is only possible from the cache.
+    /// boundary would fail. Getting these files back is only possible from the
+    /// cache.
     #[tokio::test]
-    async fn a_revision_is_materialised_once_and_then_served_from_the_cache() {
+    async fn a_revision_is_read_once_and_then_served_from_the_cache() {
         let root = TempDir::new().expect("tempdir");
         let manager = compiled_manager(root.path());
 
-        let first = materialise(
+        let first = load_compiled_scan(
             manager.origin(),
             &[row("semantics/views/orders.view.yml", "orders")],
             &[row("semantics/topics/sales.topic.yml", "sales")],
         )
         .await
-        .expect("materialise");
+        .expect("read");
 
         let served = scan_dir(&manager).await.expect("a cached revision scans");
-        assert!(served.is_materialised(), "it is the revision, not the disk");
-        assert_eq!(
-            served.path(),
-            first.path(),
-            "the same tempdir, not a second copy"
+        assert!(served.is_compiled(), "it is the revision, not the disk");
+        let (ScanDir::Compiled(served_files), ScanDir::Compiled(first_files)) = (&served, &first)
+        else {
+            panic!("both are the revision");
+        };
+        assert!(
+            Arc::ptr_eq(served_files, first_files),
+            "the same files, not a second copy"
         );
-        assert_eq!(
-            std::fs::read_to_string(served.path().join("views/orders.view.yml")).expect("view"),
-            body_of("orders")
-        );
+        assert_eq!(served_files.views()[0].yaml, body_of("orders"));
+        assert_eq!(served_files.topics()[0].yaml, body_of("sales"));
 
         let judged = compiled_scan_dir(&manager)
             .await
             .expect("the compiled-only resolver shares the cache");
-        assert_eq!(judged.path(), first.path());
+        let ScanDir::Compiled(judged_files) = &judged else {
+            panic!("the revision");
+        };
+        assert!(Arc::ptr_eq(judged_files, first_files));
+    }
+
+    /// Nothing is written: a compiled scan has no directory at all, so there is
+    /// nothing for a tmp reaper to delete and nothing a caller can be handed
+    /// that is gone.
+    #[tokio::test]
+    async fn a_compiled_scan_has_no_directory() {
+        let origin = Origin::Compiled {
+            workspace_id: Uuid::new_v4(),
+            revision_id: Uuid::new_v4(),
+        };
+        let scan = load_compiled_scan(origin, &[row("semantics/views/a.view.yml", "a")], &[])
+            .await
+            .expect("read");
+        assert!(scan.directory().is_none());
     }
 
     /// Promotion safety. The key is the revision the request is pinned to, so
@@ -1300,9 +1311,9 @@ mod tests {
             workspace_id,
             revision_id: Uuid::new_v4(),
         };
-        let _held = materialise(old, &[row("semantics/views/a.view.yml", "a")], &[])
+        let _held = load_compiled_scan(old, &[row("semantics/views/a.view.yml", "a")], &[])
             .await
-            .expect("materialise");
+            .expect("read");
 
         assert!(cached_scan(old).is_some(), "the old revision is cached");
         assert!(
@@ -1315,60 +1326,20 @@ mod tests {
         );
     }
 
-    /// A cached tempdir outlives requests, so something else can delete it
-    /// under a long-idle process. A hit must never hand out a path that is
-    /// gone; it is a miss, and the caller re-materialises.
-    #[tokio::test]
-    async fn a_cached_scan_whose_directory_was_reaped_is_a_miss() {
-        let origin = Origin::Compiled {
-            workspace_id: Uuid::new_v4(),
-            revision_id: Uuid::new_v4(),
-        };
-        let scan = materialise(origin, &[row("semantics/views/a.view.yml", "a")], &[])
-            .await
-            .expect("materialise");
-        std::fs::remove_dir_all(scan.path()).expect("reap the tempdir");
-
-        assert!(
-            cached_scan(origin).is_none(),
-            "a reaped directory is a miss"
-        );
-
-        // The state an age-based reaper leaves mid-pass: files deleted by age,
-        // emptied directories not yet. Every directory still stands, so a stat
-        // of the root would call this tree live and airlayer would parse an
-        // empty model from it.
-        let origin = Origin::Compiled {
-            workspace_id: Uuid::new_v4(),
-            revision_id: Uuid::new_v4(),
-        };
-        let scan = materialise(
-            origin,
-            &[row("semantics/views/a.view.yml", "a")],
-            &[row("semantics/topics/t.topic.yml", "t")],
-        )
-        .await
-        .expect("materialise");
-        std::fs::remove_file(scan.path().join("views/a.view.yml")).expect("reap the view");
-        std::fs::remove_file(scan.path().join("topics/t.topic.yml")).expect("reap the topic");
-        assert!(scan.path().join("views").is_dir(), "the directories stand");
-
-        assert!(cached_scan(origin).is_none(), "a gutted tree is a miss too");
-    }
-
-    /// Bounded per workspace, not only in total. A workspace promoting all
-    /// day would otherwise fill the cache with superseded models, each pinning
-    /// a tempdir. Two stay — the promote window has requests pinned to the old
-    /// and the new revision at once — and the rest go.
+    /// Bounded per workspace, not only in total. A workspace promoting all day
+    /// would otherwise fill the cache with superseded models. Two stay — the
+    /// promote window has requests pinned to the old and the new revision at
+    /// once — and the rest go.
     #[tokio::test]
     async fn a_workspace_keeps_only_its_two_most_recent_revisions() {
         let neighbour = Origin::Compiled {
             workspace_id: Uuid::new_v4(),
             revision_id: Uuid::new_v4(),
         };
-        let _neighbour = materialise(neighbour, &[row("semantics/views/n.view.yml", "n")], &[])
-            .await
-            .expect("materialise");
+        let _neighbour =
+            load_compiled_scan(neighbour, &[row("semantics/views/n.view.yml", "n")], &[])
+                .await
+                .expect("read");
 
         let workspace_id = Uuid::new_v4();
         let revisions: Vec<Origin> = (0..3)
@@ -1378,9 +1349,9 @@ mod tests {
             })
             .collect();
         for origin in &revisions {
-            materialise(*origin, &[row("semantics/views/a.view.yml", "a")], &[])
+            load_compiled_scan(*origin, &[row("semantics/views/a.view.yml", "a")], &[])
                 .await
-                .expect("materialise");
+                .expect("read");
         }
 
         assert!(
@@ -1399,9 +1370,8 @@ mod tests {
     }
 
     /// The single-flight. A sheet fires its queries together, so on a cold
-    /// replica they all miss at once; each used to read the boundary and
-    /// materialise the same revision. Now one does, and the rest are served
-    /// the directory it made.
+    /// replica they all miss at once; each used to read the boundary and read
+    /// the same revision. Now one does, and the rest are served what it read.
     #[tokio::test]
     async fn a_burst_of_cold_requests_reads_the_boundary_once() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1415,7 +1385,7 @@ mod tests {
             reads.fetch_add(1, Ordering::SeqCst);
             // Hold the read open long enough for the whole burst to miss.
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            materialise(origin, &[row("semantics/views/a.view.yml", "a")], &[]).await
+            load_compiled_scan(origin, &[row("semantics/views/a.view.yml", "a")], &[]).await
         };
 
         let burst = futures::future::join_all((0..7).map(|_| scan_once(origin, read()))).await;
@@ -1425,12 +1395,16 @@ mod tests {
             1,
             "one boundary read for the burst"
         );
-        let first = burst[0].as_ref().expect("scan").path().to_path_buf();
+        let ScanDir::Compiled(first) = burst[0].as_ref().expect("scan") else {
+            panic!("the revision");
+        };
         for scan in &burst {
-            assert_eq!(
-                scan.as_ref().expect("scan").path(),
-                first,
-                "every request is served the one directory"
+            let ScanDir::Compiled(files) = scan.as_ref().expect("scan") else {
+                panic!("the revision");
+            };
+            assert!(
+                Arc::ptr_eq(files, first),
+                "every request is served the one copy"
             );
         }
     }
@@ -1473,28 +1447,78 @@ mod tests {
         );
     }
 
-    /// A materialised scan is shared, so its tempdir must survive whichever
-    /// holder drops first — the cache evicting it mid-request must not delete
-    /// files a parse is reading — and must still go when the last one does.
-    /// An empty scan dir is never cached, so this test holds every clone.
-    #[test]
-    fn a_shared_scan_dir_is_deleted_by_its_last_holder() {
-        let scan = empty_scan_dir().expect("empty scan dir");
-        let root = scan.path().to_path_buf();
-        let held = scan.clone();
+    /// The files of a compiled scan load into the model the directory loader
+    /// would have built from the same documents, with the entity lookup keyed
+    /// by the row's workspace-relative path. The bodies here are the in-row
+    /// `definition` (no blob key), so no S3 is reached.
+    #[tokio::test]
+    async fn a_compiled_scan_loads_the_same_model_as_the_files_would() {
+        fn view_row(path: &str, name: &str) -> CompiledArtifact {
+            CompiledArtifact {
+                name: name.to_string(),
+                file_path: path.to_string(),
+                definition: serde_json::json!({
+                    "name": name,
+                    "table": name,
+                    "entities": [],
+                    "dimensions": [{ "name": "id", "type": "number", "expr": "id" }],
+                }),
+                blob_key: None,
+            }
+        }
+        let origin = Origin::Compiled {
+            workspace_id: Uuid::new_v4(),
+            revision_id: Uuid::new_v4(),
+        };
+        let scan = load_compiled_scan(
+            origin,
+            &[
+                view_row("semantics/views/b/zeta.view.yml", "zeta"),
+                view_row("semantics/views/alpha.view.yml", "alpha"),
+            ],
+            &[],
+        )
+        .await
+        .expect("read");
 
-        drop(scan);
-        assert!(root.join("views").is_dir(), "a remaining holder keeps it");
+        let layer = scan.load_layer().expect("the model loads from memory");
+        let names: Vec<&str> = layer.views.iter().map(|v| v.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["alpha", "zeta"],
+            "sorted by path below the kind, as the directory loader orders them"
+        );
+        let parsed = scan
+            .parse_semantic_model()
+            .expect("and parses and validates");
+        assert_eq!(parsed.semantic_layer.views.len(), 2);
 
-        drop(held);
-        assert!(!root.exists(), "the last holder deletes it");
+        // The entity lookup goes by the row's own path, not the path below the kind.
+        let ScanDir::Compiled(files) = &scan else {
+            panic!("the revision");
+        };
+        assert!(
+            files
+                .file(SemanticEntity::View, "semantics/views/b/zeta.view.yml")
+                .is_some()
+        );
+        assert!(
+            files
+                .file(SemanticEntity::View, "b/zeta.view.yml")
+                .is_none()
+        );
+        assert!(
+            files
+                .file(SemanticEntity::Topic, "semantics/views/alpha.view.yml")
+                .is_none()
+        );
     }
 
-    /// Bodies now resolve concurrently, which is only right if the tree is the
-    /// one the serial loop wrote: every row, every directory segment below the
-    /// kind, and two rows sharing a path still last-writer-wins.
+    /// Bodies resolve concurrently, which is only right if the result is the
+    /// one the serial loop produced: every row, and two rows sharing a path
+    /// still last-writer-wins.
     #[tokio::test]
-    async fn a_concurrent_materialise_writes_what_the_serial_one_did() {
+    async fn a_concurrent_read_keeps_every_row_and_the_last_of_a_shared_path() {
         // Several times the concurrency bound, so the stream runs full windows
         // back to back rather than finishing inside the first one.
         let count = MAX_CONCURRENT_BODY_FETCHES * 3;
@@ -1509,24 +1533,29 @@ mod tests {
         rows.push(row("semantics/views/shared.view.yml", "first"));
         rows.push(row("semantics/views/shared.view.yml", "second"));
 
-        let dir = TempDir::new().expect("tempdir");
-        write_artifacts(&rows, dir.path(), "view.yml")
-            .await
-            .expect("write");
+        let files = resolve_files(&rows, "view.yml").await.expect("resolve");
 
+        assert_eq!(files.len(), count + 1, "one file per distinct path");
         for i in 0..count {
-            let path = dir.path().join(format!("team-{}/v{i}.view.yml", i % 4));
-            assert_eq!(
-                std::fs::read_to_string(&path).expect("every row is written"),
-                body_of(&format!("v{i}")),
-                "{}",
-                path.display()
-            );
+            let path = format!("semantics/views/team-{}/v{i}.view.yml", i % 4);
+            let file = files
+                .iter()
+                .find(|f| f.file_path == path)
+                .unwrap_or_else(|| panic!("{path} is read"));
+            assert_eq!(file.yaml, body_of(&format!("v{i}")), "{path}");
         }
+        let shared = files
+            .iter()
+            .find(|f| f.file_path == "semantics/views/shared.view.yml")
+            .expect("shared");
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("shared.view.yml")).expect("shared"),
+            shared.yaml,
             body_of("second"),
             "row order is kept, so the later row still wins the shared path"
         );
+        let paths: Vec<&str> = files.iter().map(|f| f.file_path.as_str()).collect();
+        let mut sorted = paths.clone();
+        sorted.sort();
+        assert_eq!(paths, sorted, "files come back sorted by path");
     }
 }

@@ -67,6 +67,18 @@ impl IntoResponse for NotServable {
     }
 }
 
+/// A start's "not servable here" (`Unavailable`, `NotInRevision`) as the
+/// start route answers it; any other error is a `500`. For a caller that
+/// seeds an airway run outside the start route — the coordinator's retry.
+pub(crate) fn not_servable_response(e: agentic_pipeline::airway_run::AirwayRunError) -> Response {
+    use agentic_pipeline::airway_run::AirwayRunError;
+    match e {
+        AirwayRunError::Unavailable(m) => NotServable::Unavailable(m).into_response(),
+        AirwayRunError::NotInRevision(m) => NotServable::NeedsRecompile(m).into_response(),
+        other => (StatusCode::INTERNAL_SERVER_ERROR, other.to_string()).into_response(),
+    }
+}
+
 /// `/reset-schema`'s failure, as a response. Caller mistakes → 400; a failed
 /// destination drop or state delete → 500; not servable here → 503.
 pub(super) fn reset_schema_error_response(e: ResetSchemaError) -> Response {
@@ -194,5 +206,43 @@ mod tests {
             assert_eq!(code_of(&response), None);
             assert!(response.headers().get(RETRY_AFTER).is_none());
         }
+    }
+}
+
+#[cfg(test)]
+mod not_servable_response_tests {
+    use agentic_pipeline::airway_run::AirwayRunError;
+    use axum::http::StatusCode;
+    use axum::http::header::RETRY_AFTER;
+
+    use super::*;
+
+    /// A retry's "not servable here" is the start route's answer: `503`, a
+    /// `Retry-After`, and the reason in the header — never a `500` that pages.
+    #[test]
+    fn a_retry_that_cannot_serve_its_ref_here_answers_as_the_start_does() {
+        for (error, code) in [
+            (
+                AirwayRunError::Unavailable("db blip".into()),
+                CODE_UNAVAILABLE,
+            ),
+            (
+                AirwayRunError::NotInRevision("not compiled".into()),
+                CODE_NEEDS_RECOMPILE,
+            ),
+        ] {
+            let response = not_servable_response(error);
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert!(response.headers().get(RETRY_AFTER).is_some());
+            assert_eq!(
+                response
+                    .headers()
+                    .get(HEADER_ERROR_CODE)
+                    .and_then(|v| v.to_str().ok()),
+                Some(code)
+            );
+        }
+        let other = not_servable_response(AirwayRunError::InvalidInput("bad".into()));
+        assert_eq!(other.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

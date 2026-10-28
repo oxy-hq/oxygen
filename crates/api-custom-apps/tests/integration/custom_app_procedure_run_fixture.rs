@@ -40,6 +40,7 @@ use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::config::OnMissing;
 use oxy_app::surface::testing::agentic_wiring::OxyProjectContext;
 use oxy_app::surface::testing::agentic_wiring::thread_owner::OxyThreadOwnerLookup;
+use oxy_app::surface::testing::compile_config_gate::runtime_config_gate;
 use oxy_app::surface::testing::projects::automation_run::executor::{
     ProcedureRunExecutor, STARTED_EVENT,
 };
@@ -49,6 +50,7 @@ use oxy_app::surface::testing::projects::automation_run::{
 };
 use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::ServeMode;
+use oxy_compile::{CompileRequest, Promotion, RevisionKind, compile_workspace, compiler_version};
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
@@ -82,7 +84,9 @@ pub(crate) struct Fixture {
     pub(crate) _workspace_dir: tempfile::TempDir,
 }
 
-/// A workspace of the Local org with one automation, `greet`, on disk.
+/// A workspace of the Local org with one automation, `greet`, compiled and
+/// promoted. The start handler reads the promoted revision and nothing else, so
+/// the file on disk is only the compiler's input.
 pub(crate) async fn fixture() -> Fixture {
     let t = seeded_tenant().await;
     let dir = tempfile::tempdir().expect("workspace dir");
@@ -106,6 +110,26 @@ pub(crate) async fn fixture() -> Fixture {
     .insert(&t.db)
     .await
     .expect("seed workspace");
+    let outcome = compile_workspace(CompileRequest {
+        db: &t.db,
+        workspace_id,
+        workspace_path: dir.path(),
+        git_sha: None,
+        branch: None,
+        compiler_version: compiler_version(),
+        promote: true,
+        kind: RevisionKind::Main,
+        owner_user_id: None,
+        config_gate: Some(runtime_config_gate()),
+    })
+    .await
+    .expect("compile the workspace");
+    assert_eq!(
+        outcome.promotion,
+        Promotion::Promoted,
+        "the start handler reads the promoted revision; failures: {:?}",
+        outcome.failures
+    );
     Fixture {
         t,
         workspace_id,

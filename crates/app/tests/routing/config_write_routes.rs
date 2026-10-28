@@ -33,8 +33,6 @@ const WRITE_HANDLERS: &[(&str, &str)] = &[
     ("src/server/api/database.rs", "add_databases"),
     ("src/server/api/apps.rs", "upsert_integration"),
     ("src/server/api/apps.rs", "remove_integration_by_kind"),
-    ("src/server/api/data_repo.rs", "add_repository"),
-    ("src/server/api/data_repo.rs", "remove_repository"),
     // Moved out of oxy-app into the `oxy-api-onboarding` sibling crate, now
     // `oxy-api-tenancy`'s `onboarding` module. The
     // path is relative to `crates/app`, and the guard still applies: crossing a
@@ -82,8 +80,6 @@ const WRITE_ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/{workspace_id}/databases"),
     ("POST", "/api/{workspace_id}/app-integrations"),
     ("DELETE", "/api/{workspace_id}/app-integrations/{kind}"),
-    ("POST", "/api/{workspace_id}/repositories"),
-    ("DELETE", "/api/{workspace_id}/repositories/{name}"),
 ];
 
 #[test]
@@ -139,8 +135,6 @@ fn the_set_of_config_writing_methods_has_not_grown() {
         "add_databases",
         "remove_database",
         "remove_model",
-        "add_repository",
-        "remove_repository",
         "upsert_integration",
         "remove_integration_by_kind",
     ];
@@ -208,7 +202,7 @@ fn the_external_api_surface_classifies_like_the_main_one() {
             "/api/x/world-model/events",
             "/external/api/x/world-model/events",
         ),
-        ("GET", "/api/x/secrets/env", "/external/api/x/secrets/env"),
+        ("GET", "/api/x/git-state", "/external/api/x/git-state"),
         ("POST", "/api/x/databases", "/external/api/x/databases"),
         ("GET", "/api/x/threads", "/external/api/x/threads"),
     ] {

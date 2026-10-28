@@ -26,6 +26,8 @@ use axum::response::Response;
 use entity::{messages, threads};
 use oxy_api_custom_apps::custom_apps_threads::{get_thread_transcript, list_threads};
 use oxy_app::surface::testing::agentic_wiring::OxyThreadOwnerLookup;
+use oxy_app::surface::testing::projects::agent_ask::caller::RUN_CALLER_KEY;
+use oxy_app::surface::testing::projects::agent_ask::task::AGENT_ASK_KIND;
 use oxy_app::surface::testing::projects::agent_ask::{cancel_ask, start_ask};
 use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::ServeMode;
@@ -176,6 +178,67 @@ async fn staff_reaches_the_pipeline(slug: &str, env: Env) {
 
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
     assert_eq!(body["code"], "agent_not_found", "{body}");
+}
+
+/// A live ask is queued, not driven by the replica that took it: the run, its
+/// extension row and one `queued` Global entry carrying the ask's kind, with
+/// the caller recorded on the run — and nothing registered in this process,
+/// whose notifier would park the chat stream on a wake nothing rings.
+#[test]
+fn a_production_ask_is_queued_for_a_driver_not_driven_here() {
+    on_a_server_stack(async {
+        let t = seeded_tenant().await;
+        let slug = "stg-ask-hqueue";
+        app(&t, slug).await;
+        let st = state(&t);
+        let agentic = st.agentic_state.clone().expect("agentic state");
+        let body = json!({ "v": 1, "question": "how many orders?" });
+
+        let resp = Box::pin(start_ask(
+            State(st),
+            Path((demo_workspace_id(), "analytics".to_string())),
+            on_host(&production_host(&t, slug)),
+            Bytes::from(body.to_string()),
+        ))
+        .await;
+        let (status, body) = json_of(resp).await;
+
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let run_id = body["run_id"].as_str().expect("run_id").to_string();
+        let run = agentic_runtime::crud::get_run(&t.db, &run_id)
+            .await
+            .unwrap()
+            .expect("the run");
+        assert_eq!(run.source_type.as_deref(), Some("analytics"));
+        assert_eq!(run.task_status.as_deref(), Some("running"));
+        assert_eq!(
+            run.thread_id.map(|id| id.to_string()).as_deref(),
+            body["thread_id"].as_str()
+        );
+        let metadata = run.metadata.expect("metadata");
+        assert_eq!(metadata["agent_id"], json!("analytics"));
+        assert!(
+            metadata[RUN_CALLER_KEY]["user_id"].is_string(),
+            "who asked, for the driver to run it as: {metadata}"
+        );
+        let entry = agentic_runtime::crud::get_queue_entry(&t.db, &run_id)
+            .await
+            .unwrap()
+            .expect("a queue entry");
+        assert_eq!(entry.queue_status, "queued");
+        assert!(!entry.scope_owned);
+        assert_eq!(entry.spec["kind"], json!(AGENT_ASK_KIND), "{}", entry.spec);
+        assert!(
+            agentic_pipeline::run_execution::get_run_execution(&t.db, &run_id)
+                .await
+                .unwrap()
+                .is_some_and(|e| e.started_at.is_none()),
+            "the extension row is there and no attempt has begun"
+        );
+        assert!(!agentic.notifiers.contains_key(&run_id));
+        assert!(!agentic.answer_txs.contains_key(&run_id));
+        assert!(!agentic.cancel_txs.contains_key(&run_id));
+    });
 }
 
 /// A run in the demo workspace, with `metadata`.

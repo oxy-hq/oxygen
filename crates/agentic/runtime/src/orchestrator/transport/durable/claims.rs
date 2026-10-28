@@ -142,6 +142,11 @@ impl Heartbeats {
         }
     }
 
+    /// The claim this process is beating for `task_id`, if any.
+    pub(super) fn held(&self, task_id: &str) -> Option<ClaimEpoch> {
+        self.0.get(task_id).map(|entry| entry.0)
+    }
+
     /// Stop the ticker of exactly this claim, if it is still the registered one.
     /// An unfenced ([`NO_CLAIM`]) caller owns whatever ticker is registered.
     pub(super) fn retire(&self, task_id: &str, claim: ClaimEpoch, why: &'static str) {

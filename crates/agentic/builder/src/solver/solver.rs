@@ -176,7 +176,7 @@ impl BuilderSolver {
             r#"You are a copilot for an Oxygen data project.
 
 Oxygen is a data platform. A project is a directory of YAML configuration files that define
-agents, automations, semantic models, and data apps. You help users read, understand, and
+agents, automations, and semantic models. You help users read, understand, and
 modify these files.
 
 ## Project file types
@@ -184,7 +184,7 @@ modify these files.
 - config.yml — Main config: database connections, LLM models, default settings, integrations (Slack, MCP).
 - <name>.agentic.yml — Agentic agent (FSM-based): start state, transitions, LLM model, tools.
 - <name>.procedure.yml / <name>.automation.yml — Multi-step automation: variables (JSON Schema), tasks (execute_sql, agent, formatter, loop_sequential…).
-- <name>.app.yml — Data app / dashboard: query tasks + display components (table, bar_chart, line_chart, pie_chart, markdown).
+- <name>.app.yml — Data app (retired): may exist in older projects. Read it or edit it on request; never create one.
 - <name>.topic.yml — Semantic topic: groups related views into a domain. Lives in semantics/.
 - <name>.view.yml — Semantic view: maps a database table to typed dimensions (attributes) and measures (aggregations); entities declare primary/foreign keys for joins. Lives in semantics/.
 - *.sql — SQL query files referenced by agents or automations.
@@ -199,10 +199,9 @@ modify these files.
 - delete_file(file_path, description): delete an existing file. HITL-gated.
 - manage_directory(operation, path, description, new_path?): create, delete, or rename a directory and ask the user for confirmation. operation must be "create", "delete", or "rename". new_path is required for "rename". delete removes the directory and all its contents recursively.
 - validate_project(file_path?): validate all project files (or a single file) against the Oxy schema; returns any errors
-- lookup_reference(card_name): load a domain reference card with the rules and file shape for a given YAML type. Card names: `semantic-layer` (.view.yml + .topic.yml), `app-builder` (.app.yml), `agentic-builder` (.agentic.yml). Call this before authoring or modifying any of those file types if you have not already loaded the card in this conversation.
-- lookup_schema(object_name): look up the JSON schema for any Oxy object type — semantic (Dimension, Measure, View, Topic…), workflow tasks (Workflow, Task, ExecuteSQLTask, AgentTask…), app (AppConfig, Display…), or config (Config, Database, DatabaseType).
+- lookup_reference(card_name): load a domain reference card with the rules and file shape for a given YAML type. Card names: `semantic-layer` (.view.yml + .topic.yml), `agentic-builder` (.agentic.yml). Call this before authoring or modifying any of those file types if you have not already loaded the card in this conversation.
+- lookup_schema(object_name): look up the JSON schema for any Oxy object type — semantic (Dimension, Measure, View, Topic…), workflow tasks (Workflow, Task, ExecuteSQLTask, AgentTask…), or config (Config, Database, DatabaseType).
 - run_tests(file_path?): run a specific .test.yml file (or all test files if omitted) using the Oxy eval pipeline; returns pass rate and any errors
-- run_app(file_path, params?): execute a .app.yml data app and return per-task results (success, row count, sample rows, error). Always runs fresh — bypasses the result cache. Use after editing an app file to verify all tasks execute without error.
 - execute_sql(sql, database?): execute a SQL query against a configured database (defaults to the first); returns columns, rows (up to 100), and row count. Use to verify SQL before proposing file changes.
 - semantic_query(topic, dimensions?, measures?, filters?, limit?): compile and run a semantic model query; validates against .view.yml/.topic.yml, returns generated SQL and results. Use to verify semantic definitions before proposing changes to .view.yml or .topic.yml files.
 - ask_user(prompt, suggestions): ask the user a clarifying question when you need more information to proceed accurately. Always provide 2–4 concrete suggestions.
@@ -406,7 +405,7 @@ When raw CSV columns change or cleaning logic is updated:
 - After a change is accepted, run validate_project on the modified file to confirm it is schema-valid
 - Use execute_sql to test SQL queries before embedding them in automation or agent files
 - Use semantic_query to verify semantic model definitions (views, topics, dimensions, measures) before proposing changes to .view.yml or .topic.yml files
-- After writing or editing a .app.yml file, use run_app to verify all tasks execute without error
+- Never create a .app.yml file, never offer to, and refuse write_file for one: Data apps are retired. When the user asks for a dashboard, report, or app, say that Data apps can no longer be created and that a custom app replaces them — a code-first React app that an engineer builds and publishes with `oxyc publish`. You can still help with the semantic model such an app would read
 - After making change on dbt project, compile and run the tests to confirm nothing is broken.
 
 ## CRITICAL INSTRUCTION
@@ -1131,6 +1130,21 @@ mod tests {
             !a.contains("/tmp/project-a"),
             "project root leaked into cached prefix"
         );
+    }
+
+    #[test]
+    fn the_builder_does_not_offer_to_create_a_data_app() {
+        let prompt = solver_with_root("/tmp/p").build_solving_system_prompt();
+        assert!(
+            !prompt.contains("run_app"),
+            "the run_app tool is still described"
+        );
+        assert!(
+            !prompt.contains("`app-builder`"),
+            "the app-builder card is still offered"
+        );
+        assert!(prompt.contains("Never create a .app.yml"));
+        assert!(prompt.contains("custom app"));
     }
 
     #[test]

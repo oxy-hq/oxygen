@@ -123,6 +123,9 @@ pub enum StorageError {
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
+/// The env var naming the asset bucket.
+pub const BUCKET_VAR: &str = "OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET";
+
 /// Dedicated asset bucket, separate from the build-store and compile-blob buckets
 /// so asset retention/lifecycle is governed independently.
 ///
@@ -134,7 +137,7 @@ pub enum StorageError {
 /// `org-documents/{org_id}/` belongs to the org. See
 /// `oxy_api_documents::storage`.
 pub fn bucket() -> Option<String> {
-    std::env::var("OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET")
+    std::env::var(BUCKET_VAR)
         .ok()
         .filter(|b| !b.trim().is_empty())
 }

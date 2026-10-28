@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/
 import { Separator } from "@/components/ui/shadcn/separator";
 import useSidebar from "@/components/ui/shadcn/sidebar-context";
 import { useAllWorkspaces } from "@/hooks/api/workspaces/useWorkspaces";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { releaseBodyPointerLock } from "@/libs/utils/pointerEvents";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -26,6 +27,11 @@ export function WorkspaceSwitcherPopover({ children }: Props) {
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const openManageDialog = useManageWorkspacesDialog((s) => s.open);
+  // Apps-first, this picker is the Factory's alone (the rail's opener is gone): it
+  // keeps an Oxy engineer in the Factory on the other workspace, and offers no
+  // "Manage sets of apps" — workspaces are created with `oxyc` and the API, and
+  // deleted from the staff console.
+  const appsFirst = useAppsFirstExperience();
 
   const handleSelect = (workspaceId: string) => {
     if (workspaceId === currentWorkspace?.id) {
@@ -40,7 +46,8 @@ export function WorkspaceSwitcherPopover({ children }: Props) {
       toast.error("Workspace is unavailable. Try again in a moment.");
       return;
     }
-    navigate(ROUTES.ORG(orgSlug).WORKSPACE(workspaceId).ROOT);
+    const targetWs = ROUTES.ORG(orgSlug).WORKSPACE(workspaceId);
+    navigate(appsFirst ? targetWs.IDE.ROOT : targetWs.ROOT);
     setOpen(false);
   };
 
@@ -75,16 +82,20 @@ export function WorkspaceSwitcherPopover({ children }: Props) {
           </div>
         )}
 
-        <Separator className='my-1' />
+        {!appsFirst && (
+          <>
+            <Separator className='my-1' />
 
-        <button
-          type='button'
-          onClick={handleManageClick}
-          className='flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground text-sm transition-colors hover:bg-accent hover:text-foreground'
-        >
-          <Settings className='h-3.5 w-3.5' />
-          <span>Manage workspaces</span>
-        </button>
+            <button
+              type='button'
+              onClick={handleManageClick}
+              className='flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground text-sm transition-colors hover:bg-accent hover:text-foreground'
+            >
+              <Settings className='h-3.5 w-3.5' />
+              <span>Manage workspaces</span>
+            </button>
+          </>
+        )}
       </PopoverContent>
     </Popover>
   );

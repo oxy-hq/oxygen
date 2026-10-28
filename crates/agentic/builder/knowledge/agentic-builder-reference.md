@@ -2,7 +2,7 @@
 source:
   - sdk/cli/skills/oxy-agents/SKILL.md
   - sdk/cli/skills/oxy-agents/references/quick-reference.md
-reconciled-hash: 9849ec17c0a8c3250a949c9116f1cb69b286ee03
+reconciled-hash: 8949bc70afe8efc72689013e936d508d0854923a
 note: |
   Authored condensation of the platform skills listed above. Not auto-synced —
   scripts/sync-skills.sh only copies the verbatim YAML templates. Re-condense
@@ -23,7 +23,7 @@ you do not define its states or its tools.
   removed — never create one or copy one from an old workspace.
 - **There is no `kind:` field.** Every `.agentic.yml` runs the same analytics
   pipeline; a file named `app_builder.agentic.yml` is not special. Generating
-  apps, views or agent files is the Builder Agent (chat Build mode), which no
+  views or agent files is the Builder Agent (chat Build mode), which no
   `.agentic.yml` configures.
 - **Automations are a different file** (`.automation.yml`; `.procedure.yml`
   still works; `.workflow.yml` is no longer recognised). An agent can *run* an
@@ -210,7 +210,7 @@ ignored).
   (needs Oxy's Postgres; `--json`, `--thinking-mode extended_thinking`).
 - `oxy test <file>.test.yml` runs LLM-judged evals (`target:`, `settings:
   {runs, concurrency, judge_model}`, `cases: [{prompt, expected, tags}]`).
-- **`oxy build` does not check agents** (embeddings + integration sync).
+- **`oxy build` does not check agents** (it builds search embeddings).
 - A JSON schema *is* published for `.agentic.yml`; an editor header on line 1
   is optional — preserve it if present:
   `# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agentic.json`.

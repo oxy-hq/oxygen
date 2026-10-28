@@ -12,7 +12,6 @@ pub(super) fn build_secret_routes(app_state: AppState) -> RoleRouter {
     RoleRouter::new(app_state)
         .route_fleet("/", get(secrets::list_secrets).post(secrets::create_secret))
         .route_fleet("/bulk", post(secrets::bulk_create_secrets))
-        .route_ide("/env", get(secrets::list_env_secrets))
         .route_fleet(
             "/{id}",
             get(secrets::get_secret)

@@ -252,7 +252,7 @@ impl OxyProjectContext {
     pub(crate) fn semantic_scan_root(&self) -> crate::agentic_wiring::metric_tree_runner::ScanRoot {
         use crate::agentic_wiring::metric_tree_runner::ScanRoot;
         match (&self.semantic_scan, self.semantic_scan_required) {
-            (Some(scan), _) => ScanRoot::Compiled(scan.path().to_path_buf()),
+            (Some(scan), _) => ScanRoot::Compiled(scan.scan.clone()),
             (None, true) => ScanRoot::Unavailable,
             (None, false) => ScanRoot::WorkingCopy,
         }
@@ -569,33 +569,13 @@ pub(super) fn env_fallback(
     std::env::var(name).ok()
 }
 
-/// Validate that `workflow_ref` is a single relative path that stays under
-/// the workspace root, then return the absolute path to read from.
-///
-/// Rejects: absolute paths, parent-dir traversal, empty refs. Errors do
-/// **not** quote the resolved absolute path — only the caller-supplied
-/// `workflow_ref` — so a failed traversal attempt cannot be used to probe
-/// workspace layout.
-async fn resolve_workspace_relative(
-    workspace_manager: &WorkspaceManager<WorkingCopy>,
-    workflow_ref: &str,
-) -> Result<PathBuf, String> {
-    validate_automation_ref_syntax(workflow_ref)?;
-    let resolved = workspace_manager
-        .config_manager
-        .resolve_file(workflow_ref)
-        .await
-        .map_err(|e| format!("invalid workflow_ref {workflow_ref:?}: {e}"))?;
-    Ok(PathBuf::from(resolved))
-}
-
 /// Cheap syntactic reject for obviously-unsafe `workflow_ref`s. The
 /// canonicalisation-based check in `validate_path_within_project` would
 /// catch absolute paths and `..` traversal too, but its error messages
 /// vary by OS and by whether the path happens to exist; failing here
 /// keeps the diagnostics stable and avoids touching the filesystem at all
 /// for the easy cases.
-fn validate_automation_ref_syntax(workflow_ref: &str) -> Result<(), String> {
+pub(super) fn validate_automation_ref_syntax(workflow_ref: &str) -> Result<(), String> {
     if workflow_ref.is_empty() {
         return Err("workflow_ref is empty".to_string());
     }

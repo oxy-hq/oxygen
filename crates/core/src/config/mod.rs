@@ -36,7 +36,7 @@ pub use artifacts::{
 pub use builder::{ConfigBuilder, OnMissing};
 pub use manager::{ConfigManager, DiskSlot, Origin, ReadOnly, ResolveWorkspaceFile, WorkingCopy};
 pub use naming::artifact_name;
-pub use scan::{ScanDir, SemanticEntity};
+pub use scan::{CompiledSemanticFiles, ScanDir, SemanticEntity, SemanticFile, SemanticTarget};
 
 impl Config {
     pub fn validate_config(&self) -> anyhow::Result<()> {

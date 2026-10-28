@@ -26,15 +26,6 @@ export interface AutomationFormData {
 export interface TaskFormData {
   name?: string;
   type?: string;
-  cache?: {
-    enabled?: boolean;
-    path?: string;
-  };
-  export?: {
-    enabled?: boolean;
-    format?: string;
-    path?: string;
-  };
   [key: string]: unknown;
 }
 
@@ -75,17 +66,7 @@ const getDefaultData = (data?: Partial<AutomationFormData>) => {
   if (data.variables !== undefined) result.variables = data.variables;
 
   if (data.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-    result.tasks = data.tasks.map((task) => {
-      const processedTask = { ...task };
-
-      if (processedTask.export && typeof processedTask.export === "object") {
-        if (processedTask.export.format || processedTask.export.path) {
-          processedTask.export.enabled = true;
-        }
-      }
-
-      return processedTask;
-    });
+    result.tasks = data.tasks;
   }
 
   if (data.tests && Array.isArray(data.tests) && data.tests.length > 0) {

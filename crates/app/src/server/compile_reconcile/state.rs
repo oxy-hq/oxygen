@@ -43,6 +43,78 @@ pub(super) async fn seed(db: &DatabaseConnection, interval_secs: i64) -> Result<
     Ok(seeded.rows_affected())
 }
 
+/// Make `workspace_id`'s check due now, for a request that found the workspace
+/// with nothing compiled. Returns whether the check was moved or created.
+///
+/// Not a way round the budget: a check that ran in the last
+/// [`ASKED_AGAIN_AFTER_SECS`] stays where it is, and so does one that last
+/// found something only a person can fix (`no_token`, `not_found`, `denied`,
+/// `uncheckable`), which are backed off for hours on purpose. A page that
+/// retries every few seconds costs GitHub one request a minute at the most.
+pub(super) async fn pull_forward(
+    db: &DatabaseConnection,
+    workspace_id: Uuid,
+) -> Result<Pull, DbErr> {
+    let blocked = super::check::NEEDS_A_PERSON
+        .iter()
+        .map(|label| format!("'{label}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let moved = db
+        .execute_raw(statement(
+            &format!(
+                "INSERT INTO workspace_compile_checks (workspace_id, next_check_at) \
+             SELECT w.id, now() FROM workspaces w \
+             WHERE w.id = $1 \
+               AND w.git_remote_url IS NOT NULL \
+               AND COALESCE(w.default_branch, '') <> '' \
+               AND w.status = 'ready' \
+             ON CONFLICT (workspace_id) DO UPDATE SET next_check_at = now() \
+             WHERE workspace_compile_checks.next_check_at > now() \
+               AND (workspace_compile_checks.last_checked_at IS NULL \
+                    OR workspace_compile_checks.last_checked_at \
+                       < now() - $2::bigint * interval '1 second') \
+               AND COALESCE(workspace_compile_checks.last_outcome, '') NOT IN ({blocked})"
+            ),
+            vec![workspace_id.into(), ASKED_AGAIN_AFTER_SECS.into()],
+        ))
+        .await?;
+    // Whether a check will run is not the same as whether this call moved one:
+    // it may be due already, or have just run. It will not when the workspace
+    // has no row at all (not `ready`, no remote or no branch: the check never
+    // looks at it) or its last check found something only a person can fix.
+    let outcome = db
+        .query_one_raw(statement(
+            "SELECT last_outcome FROM workspace_compile_checks WHERE workspace_id = $1",
+            vec![workspace_id.into()],
+        ))
+        .await?;
+    let will_run = match outcome {
+        None => false,
+        Some(row) => {
+            let label: Option<String> = row.try_get("", "last_outcome")?;
+            !label.is_some_and(|l| super::check::NEEDS_A_PERSON.contains(&l.as_str()))
+        }
+    };
+    Ok(Pull {
+        moved: moved.rows_affected() > 0,
+        will_run,
+    })
+}
+
+/// What [`pull_forward`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Pull {
+    /// This call made a check due now.
+    pub moved: bool,
+    /// A check will look at this workspace: it is due, or was moved, or ran a
+    /// moment ago and found nothing that needs a person.
+    pub will_run: bool,
+}
+
+/// How long after a check a request may bring the next one forward.
+pub(super) const ASKED_AGAIN_AFTER_SECS: i64 = 60;
+
 /// The checks that are due, oldest first, at most `limit`.
 pub(super) async fn due(db: &DatabaseConnection, limit: i64) -> Result<Vec<Due>, DbErr> {
     let rows = db

@@ -56,6 +56,13 @@ pub const CANCEL_POLL: Duration = Duration::from_secs(5);
 /// Every direct-drive lease this process holds: run id → driver id.
 static HELD: std::sync::LazyLock<DashMap<String, String>> = std::sync::LazyLock::new(DashMap::new);
 
+/// Whether a direct drive in THIS process holds `run_id`'s lease. An answer
+/// handler uses it to tell its own (dead-channel) drive from a live driver in
+/// another process, which it must not drive a second time.
+pub fn held_in_this_process(run_id: &str) -> bool {
+    HELD.contains_key(run_id)
+}
+
 /// Wait, up to `timeout`, for every direct drive in this process to release
 /// its lease. For the graceful-shutdown hook, after the drives were
 /// cancelled: each one releases its own lease once its coordinator returns.

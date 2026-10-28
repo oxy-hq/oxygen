@@ -31,7 +31,7 @@ pub const MAX_OUTPUT_LENGTH: usize = 1000;
 /// compatibility — the implementation moved to the `oxy-platform` crate so
 /// `airhouse` and other leaf integrations can use it without pulling in the
 /// full `oxy` crate.
-pub use oxy_platform::secrets::get_encryption_key;
+pub use oxy_platform::secrets::{ENCRYPTION_KEY_VAR, get_encryption_key, parse_encryption_key};
 
 pub fn truncate_with_ellipsis(s: &str, max_width: Option<usize>) -> String {
     // We should truncate at grapheme-boundary and compute character-widths,

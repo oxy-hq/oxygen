@@ -40,14 +40,6 @@ export type NodeType = TaskType | NoneTaskNodeType;
 type BaseTaskConfig = {
   name: string;
   type: TaskType;
-  export?: ExportConfig;
-};
-
-type ExportFormat = "csv" | "json" | "sql" | "docx";
-
-type ExportConfig = {
-  format: ExportFormat;
-  path: string;
 };
 
 type FormatterTaskConfig = BaseTaskConfig & {

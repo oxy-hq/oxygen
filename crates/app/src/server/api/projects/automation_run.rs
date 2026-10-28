@@ -309,144 +309,72 @@ pub async fn start_automation_run(
         Err(resp) => return resp,
     };
 
-    // Discover all automation files (.procedure.yml / .automation.yml)
-    // recursively under the workspace root, matching the convention used
-    // by `list_workflows` in the config manager.
-    // The custom-app automation-id is the file's base name without the
-    // double extension; the file may live in any subdirectory (e.g.
-    // `workflows/foo.automation.yml`), not just the project root.
-    // Compile boundary first. This handler serves custom-app bundles from the
-    // public router, so on a replica there is no working copy — and since
-    // `require_root()` landed, `list_workflows()` errors there rather than
-    // answering `[]`. That is the right error and the wrong outcome for a route
-    // whose artifact is already compiled.
-    let compiled: Option<AutomationConfig> =
-        compiled_automation(&proj_ctx.workspace_manager().config_manager, &automation_id).await;
-
-    // Boundary missed and there is nothing to fall through to. `list_workflows()`
-    // would error here (that is `require_root`), but a 500 describes a fault on
-    // this node; the truth is the workspace is not compiled yet.
-    if compiled.is_none() && !proj_ctx.workspace_manager().config_manager.can_read_disk() {
-        if let Ok(db) = oxy::database::client::establish_connection().await {
-            crate::server::api::middlewares::workspace_context::enqueue_lazy_compile(
-                &db, project_id,
-            )
-            .await;
-        }
-        return err_with_code(
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!(
-                "automation {automation_id} is not in the compiled revision and this \
-                 instance holds no working copy; a compile has been enqueued — retry shortly"
-            ),
-            "automation_needs_recompile",
-        );
-    }
-
-    let automation_config: AutomationConfig = if let Some(config) = compiled {
-        config
+    // The promoted revision is the only source. The id is a file's base name
+    // without the double extension (`workflows/foo.automation.yml` is `foo`),
+    // and the file may live in any subdirectory, so the lookup lists the
+    // revision's automations and matches on that name.
+    //
+    // This used to fall through to the working copy when the revision missed
+    // and the pod held one: list the directory, read the file, parse it. That
+    // made the answer depend on which pod served the request, and the working
+    // copy is being retired (`internal-docs/factory-retirement.md`, Phase 4).
+    // A manager with no pinned revision means nothing is compiled yet, and
+    // `compiled_automation` is not asked: on `Origin::Disk` it would read the
+    // directory itself.
+    let manager = &proj_ctx.workspace_manager().config_manager;
+    let lookup = if manager.revision_id().is_some() {
+        compiled_automation(manager, &automation_id).await
     } else {
-        let all_automations = match proj_ctx
-            .workspace_manager()
-            .config_manager
-            .list_automations()
-            .await
-        {
-            Ok(w) => w,
-            Err(e) => {
-                error!(error = %e, "list_workflows failed");
-                return err(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "could not enumerate project workflows",
-                );
-            }
-        };
-        // Collect *all* matches by basename so we can detect collisions —
-        // `list_workflows()` walks `read_dir` in filesystem-dependent order,
-        // so a bare `.find()` against duplicate basenames in different
-        // subdirectories (`workflows/refresh.automation.yml` and
-        // `staging/refresh.automation.yml`) resolves non-deterministically.
-        // Pick the alphabetically-first match for stable behaviour and
-        // `warn!` so the operator notices the collision.
-        let mut matches: Vec<&str> = all_automations
-            .iter()
-            .map(|a| a.file_path.as_str())
-            .filter(|rel| matches_automation_id(rel, &automation_id))
-            .collect();
-        matches.sort();
-        let automation_path = match matches.first() {
-            Some(p) => {
-                if matches.len() > 1 {
-                    let all_paths: Vec<String> = matches.iter().map(|p| p.to_string()).collect();
-                    warn!(
-                        automation_id = %automation_id,
-                        chosen = %p,
-                        matches = ?all_paths,
-                        "automation-id resolved to multiple automation files; picked the \
-                         alphabetically-first one. Consider renaming one of the files \
-                         or passing a qualified path."
-                    );
-                }
-                // Workspace-relative now. `resolve_file` turns it absolute
-                // through the storage layer, which checks the result is still
-                // inside the project — `workspace_path().join(..)` would not.
-                match proj_ctx
-                    .workspace_manager()
-                    .config_manager
-                    .resolve_file(p)
-                    .await
-                {
-                    Ok(abs) => std::path::PathBuf::from(abs),
-                    Err(e) => {
-                        error!(path = %p, error = %e, "resolve automation path failed");
-                        return err(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "could not resolve automation file",
-                        );
-                    }
-                }
-            }
-            None => {
-                let tried = automation_basenames(&automation_id).join(", ");
-                return err_with_hint(
-                    StatusCode::NOT_FOUND,
-                    format!("automation '{automation_id}' not found"),
-                    "automation_not_found",
-                    format!(
-                        "Looked for: {tried} (recursively under the project root). \
-                         Pass the automation's base name without the extension \
-                         (e.g. for `weekly_summary.procedure.yml`, call \
-                         `useProcedureRun({{ procedureId: 'weekly_summary' }})`)."
-                    ),
-                );
-            }
-        };
+        Lookup::NothingCompiled
+    };
 
-        // `tokio::fs::read_to_string` so we don't block the executor
-        // thread on potentially-slow disk I/O. Matches the workspace
-        // /workflows route's pattern. YAML parsing below is synchronous
-        // but fast enough on automation-sized files (~10 KB typical) that
-        // spawn_blocking adds more overhead than it saves.
-        let automation_yaml = match tokio::fs::read_to_string(&automation_path).await {
-            Ok(s) => s,
-            Err(e) => {
-                error!(path = ?automation_path, error = %e, "read automation file failed");
-                return err(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "could not read automation file",
-                );
+    let automation_config = match lookup {
+        Lookup::Found(config) => config,
+        // The revision listed its automations and none has this file name. A
+        // compile cannot fix a misspelt id, so this is not a retry and queues
+        // nothing; an automation added since the last compile shows once the
+        // compile that promotes it lands.
+        Lookup::NoMatch => {
+            let tried = automation_basenames(&automation_id).join(", ");
+            return err_with_hint(
+                StatusCode::NOT_FOUND,
+                format!("automation '{automation_id}' not found"),
+                "automation_not_found",
+                format!(
+                    "Looked for: {tried} (anywhere in the compiled revision). Pass the \
+                     automation's base name without the extension (e.g. for \
+                     `weekly_summary.automation.yml`, `weekly_summary`). An automation \
+                     added since the last compile appears once that compile lands."
+                ),
+            );
+        }
+        // The row is in the revision and is not an automation this runner can
+        // run. The same answer as before, and no compile changes it.
+        Lookup::Invalid(e) => {
+            warn!(error = %e, "compiled automation did not deserialise");
+            return err_with_code(
+                StatusCode::BAD_REQUEST,
+                format!("automation YAML parse failed: {e}"),
+                "automation_invalid_yaml",
+            );
+        }
+        // Nothing to answer from yet, or the read itself failed: a compile (or
+        // a moment) is the fix.
+        Lookup::NothingCompiled | Lookup::Failed => {
+            if let Ok(db) = oxy::database::client::establish_connection().await {
+                crate::server::api::middlewares::workspace_context::enqueue_lazy_compile(
+                    &db, project_id,
+                )
+                .await;
             }
-        };
-        match serde_yaml::from_str(&automation_yaml) {
-            Ok(c) => c,
-            Err(e) => {
-                warn!(error = %e, "automation YAML parse failed");
-                return err_with_code(
-                    StatusCode::BAD_REQUEST,
-                    format!("automation YAML parse failed: {e}"),
-                    "automation_invalid_yaml",
-                );
-            }
+            return err_with_code(
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!(
+                    "automation {automation_id} could not be read from a compiled revision; a \
+                     compile has been enqueued — retry shortly"
+                ),
+                "automation_needs_recompile",
+            );
         }
     };
 
@@ -879,7 +807,10 @@ mod tests {
             .expect("manager");
 
         assert!(
-            compiled_automation(&manager, "anonymize").await.is_some(),
+            matches!(
+                compiled_automation(&manager, "anonymize").await,
+                Lookup::Found(_)
+            ),
             "the id is the filename; matching the YAML `name:` misses every \
              automation that renames itself, and on a diskless node that miss \
              is a permanent 503"
@@ -949,10 +880,10 @@ mod tests {
     }
 }
 
-/// The automation's compiled definition, matched by name on the manager's
-/// revision. `None` on any miss — including "this manager reads the working
-/// copy", which the trait reports as `Ok(None)` — and the caller falls through
-/// to the working copy, which is the compile-boundary contract.
+/// The automation's compiled definition, matched by file name on the manager's
+/// revision. `None` on any miss; the caller answers "not compiled yet, retry".
+/// Callers must check the manager pins a revision first: on `Origin::Disk` the
+/// manager reads its directory and this would too.
 ///
 /// Generic over the capability, not bound to `WorkingCopy`: these are Postgres
 /// reads keyed by revision, so they are exactly as valid on a replica that owns
@@ -962,17 +893,16 @@ mod tests {
 /// Whether `file_path` is the file `automation_id` names.
 ///
 /// The id is a file's base name without the double extension — that is the
-/// contract the 404 hint states, and what a custom app passes.
+/// contract the 503 message states, and what a custom app passes.
 ///
 /// Shared because the two sources answered differently. The FS arm always
 /// matched this way; the compiled arm matched `AutomationEntry::name`, which is
 /// the YAML `name:` when the file declares one (`oxy_compile::compile_
 /// automation`) and only falls back to the path otherwise. Twelve of the
 /// eighteen `examples/procedures/*.automation.yml` declare a name that differs
-/// from their filename, so the compiled lookup missed for all of them — and on
-/// a node with no working copy the miss hits `can_read_disk()` and answers
-/// `503 "a compile has been enqueued — retry shortly"`. Recompiling cannot
-/// change the name, so that 503 is permanent for an automation that IS in the
+/// from their filename, so the compiled lookup missed for all of them, and the
+/// miss read as "not found" (or, on a node with no working copy, as a `503`
+/// retry that recompiling cannot clear) for an automation that IS in the
 /// revision.
 fn automation_basenames(automation_id: &str) -> [String; 2] {
     [
@@ -989,27 +919,56 @@ fn matches_automation_id(file_path: &str, automation_id: &str) -> bool {
         .is_some_and(|n| targets.iter().any(|t| t == n))
 }
 
-/// is the same key the filesystem lookup below uses minus the extension. The
-/// collision handling there exists because `read_dir` order is unstable; a
-/// compiled row set is keyed and needs none.
+/// What looking an automation up in the manager's revision found.
+enum Lookup {
+    Found(AutomationConfig),
+    /// The revision listed its automations and none matches the id.
+    NoMatch,
+    /// A row matches and its definition is not an automation this runner can
+    /// run.
+    Invalid(serde_json::Error),
+    /// The manager reads no revision, so there is nothing compiled to look in.
+    /// Not produced by [`compiled_automation`]: the caller checks first,
+    /// because on `Origin::Disk` that function would read the directory.
+    NothingCompiled,
+    /// The boundary did not answer, or answered inconsistently (a listed row
+    /// with no definition).
+    Failed,
+}
+
+/// The automation `automation_id` names in the manager's revision, and why not
+/// when there is none. The caller answers each reason differently: only
+/// [`Lookup::Failed`] is helped by a compile.
 async fn compiled_automation<S: oxy::config::DiskSlot + Send + Sync>(
     config_manager: &ConfigManager<S>,
     automation_id: &str,
-) -> Option<AutomationConfig> {
-    let rows = config_manager
-        .list_automations()
-        .await
-        .map_err(|e| warn!(error = %e, "automation list failed"))
-        .ok()?;
-    let row = rows
+) -> Lookup {
+    let rows = match config_manager.list_automations().await {
+        Ok(rows) => rows,
+        Err(e) => {
+            warn!(error = %e, "automation list failed");
+            return Lookup::Failed;
+        }
+    };
+    let Some(row) = rows
         .into_iter()
-        .find(|r| matches_automation_id(&r.file_path, automation_id))?;
-    let artifact = config_manager
-        .automation_definition(&row.file_path)
-        .await
-        .map_err(|e| warn!(error = ?e, "automation read failed"))
-        .ok()??;
-    serde_json::from_value(artifact)
-        .map_err(|e| warn!(error = %e, "compiled automation did not deserialise"))
-        .ok()
+        .find(|r| matches_automation_id(&r.file_path, automation_id))
+    else {
+        return Lookup::NoMatch;
+    };
+    let artifact = match config_manager.automation_definition(&row.file_path).await {
+        Ok(Some(artifact)) => artifact,
+        Ok(None) => {
+            warn!(file_path = %row.file_path, "a listed automation has no definition");
+            return Lookup::Failed;
+        }
+        Err(e) => {
+            warn!(error = ?e, "automation read failed");
+            return Lookup::Failed;
+        }
+    };
+    match serde_json::from_value(artifact) {
+        Ok(config) => Lookup::Found(config),
+        Err(e) => Lookup::Invalid(e),
+    }
 }

@@ -136,6 +136,20 @@ pub async fn list_orgs(
         }
     }
 
+    // Resolved to the role the server enforces (an assumed org is not always
+    // Owner, a token is capped), then asked of the `WorkspaceProvision` ring.
+    let roles: Vec<(Uuid, org_members::OrgRole)> = orgs
+        .iter()
+        .filter_map(|org| {
+            let role = match memberships.iter().find(|m| m.org_id == org.id) {
+                Some(m) => m.role.clone(),
+                None => assumed_role.get(&org.id)?.clone(),
+            };
+            Some((org.id, capped(org.id, role)))
+        })
+        .collect();
+    let may_provision = oxy_server_authz::workspace_provision_orgs(&db, &caller, &roles).await;
+
     let responses: Vec<OrgResponse> = orgs
         .iter()
         .filter_map(|org| {
@@ -156,6 +170,7 @@ pub async fn list_orgs(
                 updated_at: org.updated_at.to_rfc3339(),
                 workspace_count: Some(workspace_counts.get(&org.id).copied().unwrap_or(0)),
                 member_count: Some(member_counts.get(&org.id).copied().unwrap_or(0)),
+                may_provision_workspace: Some(may_provision.contains(&org.id)),
             })
         })
         .collect();
@@ -163,15 +178,39 @@ pub async fn list_orgs(
     Ok(Json(responses))
 }
 
+/// The `may_provision_workspace` answer for the one org a request is scoped to.
+async fn may_provision_workspace(
+    db: &sea_orm::DatabaseConnection,
+    user: &oxy_auth::types::AuthenticatedUser,
+    ctx: &oxy_app::surface::OrgContext,
+) -> bool {
+    let caller = oxy_server_authz::Caller::from_user(user);
+    oxy_server_authz::workspace_provision_orgs(
+        db,
+        &caller,
+        &[(ctx.org.id, ctx.membership.role.clone())],
+    )
+    .await
+    .contains(&ctx.org.id)
+}
+
 /// GET /orgs/:org_id
 pub async fn get_org(
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     OrgContextExtractor(ctx): OrgContextExtractor,
 ) -> Result<Json<OrgResponse>, StatusCode> {
-    Ok(Json(org_response(&ctx.org, &ctx.membership.role)))
+    let db = establish_connection().await.map_err(|e| {
+        tracing::error!("DB connection error: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let mut resp = org_response(&ctx.org, &ctx.membership.role);
+    resp.may_provision_workspace = Some(may_provision_workspace(&db, &user, &ctx).await);
+    Ok(Json(resp))
 }
 
 /// PATCH /orgs/:org_id
 pub async fn update_org(
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     OrgAdmin(ctx): OrgAdmin,
     Json(req): Json<UpdateOrgRequest>,
 ) -> Result<Json<OrgResponse>, StatusCode> {
@@ -217,7 +256,9 @@ pub async fn update_org(
     // that is the entry that exists, and the new one was never cached.
     oxy_custom_apps::cache::invalidate_app_resolution_cache_for_org(&ctx.org.slug);
 
-    Ok(Json(org_response(&updated, &ctx.membership.role)))
+    let mut resp = org_response(&updated, &ctx.membership.role);
+    resp.may_provision_workspace = Some(may_provision_workspace(&db, &user, &ctx).await);
+    Ok(Json(resp))
 }
 
 /// Tear down the org's OLTP database — staging branch first — ahead of the

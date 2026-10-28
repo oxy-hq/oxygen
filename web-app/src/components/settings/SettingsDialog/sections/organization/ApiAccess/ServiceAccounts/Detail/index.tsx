@@ -1,8 +1,8 @@
 import { ArrowLeft, Info } from "lucide-react";
+import { CopyButton } from "@/components/CopyBlock";
 import { Button } from "@/components/ui/shadcn/button";
 import type { ServiceAccount } from "@/types/orgApiAccess";
 import type { Organization } from "@/types/organization";
-import { CopyButton } from "../../shared/CopyBlock";
 import { serviceAccountHandle } from "../../utils/slug";
 import { formatDay } from "../../utils/tokens";
 import { ServiceAccountActions } from "../components/ServiceAccountActions";

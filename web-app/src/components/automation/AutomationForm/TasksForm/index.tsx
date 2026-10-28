@@ -13,15 +13,6 @@ export interface AutomationFormData {
 interface TaskFormData {
   name?: string;
   type?: string;
-  cache?: {
-    enabled?: boolean;
-    path?: string;
-  };
-  export?: {
-    enabled?: boolean;
-    format?: string;
-    path?: string;
-  };
   [key: string]: unknown;
 }
 

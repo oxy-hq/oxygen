@@ -165,6 +165,13 @@ export interface AuthConfigResponse {
    */
   billing_enabled: boolean;
   /**
+   * Mirror of the backend `apps_first_experience` feature flag (global). On: the
+   * customer home and onboarding, the read-only world model page, and no
+   * workspace management or creation screens. Read it through
+   * `useAppsFirstExperience`. Absent (an older server) reads as off.
+   */
+  apps_first_experience?: boolean;
+  /**
    * Whether the dev-only sign-in bypass is reachable **by this caller** — the
    * server computes it per request, not once per process. An allow-list
    * inferred from the staff roster (debug builds, no `OXY_DEV_LOGIN_EMAILS`)

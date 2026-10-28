@@ -17,7 +17,7 @@ use tokio::sync::{mpsc, watch};
 use uuid::Uuid;
 
 use agentic_pipeline::PipelineBuilder;
-use agentic_pipeline::platform::{BuilderBridges, PlatformContext, ThreadOwnerLookup};
+use agentic_pipeline::platform::{BuilderBridges, PlatformContext, Requester};
 use agentic_pipeline::{AutoAcceptInputProvider, BuilderLlmMetadata, LlmClient, OpenAiProvider};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
@@ -47,6 +47,95 @@ async fn build_onboarding_llm_client(
     } else {
         LlmClient::with_model(api_key, model_ref.to_string())
     }
+}
+
+/// Where a Builder or onboarding run starts, relative to the analytics mount:
+/// the route the role manifest pins to the Factory
+/// ([`crate::router_roles`]). The customer route `POST /runs` names it when it
+/// refuses one on a process without the working copy.
+pub const BUILDER_START_ROUTE: &str = "/analytics/builder/runs";
+/// Where an answer to a Builder run goes, for the same reason: the run is
+/// driven in the Factory's memory, and only a process with the working copy
+/// may resume it.
+pub const BUILDER_ANSWER_ROUTE: &str = "/analytics/builder/runs/{id}/answer";
+
+/// The header every refusal that only the Factory can serve carries, as the
+/// role middleware's own misroute answer does.
+const HEADER_REQUIRED_ROLE: &str = "x-oxy-required-role";
+
+/// Which of the two routes a start or an answer arrived on. The handlers are
+/// shared; what they accept is not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RunRoute {
+    /// `POST /runs`, `POST /runs/{id}/answer`: a customer's chat. On the customer
+    /// list, so the Factory gate lets every member through, and it never starts or
+    /// answers a Builder run, on any process.
+    Chat,
+    /// `POST /builder/runs`, `POST /builder/runs/{id}/answer`: on the Factory list
+    /// (the gate decides who), pinned to the Factory by the role manifest.
+    Builder,
+}
+
+/// Whether to refuse a Builder start: always on the chat route, which the
+/// Factory gate does not cover (a plain member would otherwise start a run that
+/// edits workspace files), and on the Builder route only where the files are not.
+fn refuses_builder_start(route: RunRoute, is_builder: bool, holds_working_copy: bool) -> bool {
+    is_builder && (route == RunRoute::Chat || !holds_working_copy)
+}
+
+/// Whether an answer to a run whose drive is in another process's memory must
+/// not start a second drive here: the run's lease is live and not held by a
+/// drive in this process. Its own driver takes the answer through its channel.
+fn driven_elsewhere(
+    driver_id: Option<&str>,
+    heartbeat_at: Option<chrono::DateTime<chrono::FixedOffset>>,
+    held_here: bool,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    let live = match (driver_id, heartbeat_at) {
+        (Some(_), Some(at)) => {
+            now.signed_duration_since(at)
+                < chrono::Duration::seconds(agentic_runtime::crud::DRIVER_LEASE_TTL_SECS)
+        }
+        _ => false,
+    };
+    live && !held_here
+}
+
+/// Whether a start is a Builder run: the Builder domain, or onboarding (which
+/// runs the Builder with its own prompt and tool list). Both edit workspace
+/// files.
+fn starts_a_builder_run(body: &CreateRunRequest) -> bool {
+    body.domain.as_deref() == Some("builder") || body.onboarding_context.is_some()
+}
+
+/// Whether a run of this `source_type` may be resumed only by a process that
+/// holds the working copy: a Builder run (the Builder copilot, onboarding).
+fn resumes_only_with_the_files(source_type: Option<&str>) -> bool {
+    source_type == Some("builder")
+}
+
+/// The answer to a Builder start or a Builder answer on the chat routes (on any
+/// process), or on the Builder routes where the working copy is not:
+/// `421 Misdirected Request`, as the role middleware answers a route this process
+/// cannot serve, naming the route that reaches the Factory. Never a run against
+/// files that are not here, and never one the Factory gate did not admit.
+fn builder_needs_the_factory(what: &str, route: &str) -> Response {
+    let mut response = (
+        StatusCode::MISDIRECTED_REQUEST,
+        Json(serde_json::json!({
+            "error": format!(
+                "{what} edits workspace files; send it to {route}, which the Factory serves"
+            ),
+            "route": route,
+        })),
+    )
+        .into_response();
+    response.headers_mut().insert(
+        HEADER_REQUIRED_ROLE,
+        axum::http::HeaderValue::from_static("ide"),
+    );
+    response
 }
 
 /// Build a structured error response for a failed pipeline start/resume.
@@ -95,10 +184,45 @@ fn pipeline_error_response(
     (status, Json(body)).into_response()
 }
 
+/// `POST /runs`: a customer's chat. Never a Builder run (see [`RunRoute`]).
 pub async fn create_run(
+    state: Extension<Arc<AgenticState>>,
+    platform: Extension<Arc<dyn PlatformContext>>,
+    bridges: Extension<BuilderBridges>,
+    query: axum::extract::RawQuery,
+    user: AuthenticatedUserExtractor,
+    body: Json<CreateRunRequest>,
+) -> Response {
+    create_run_on(RunRoute::Chat, state, platform, bridges, query, user, body).await
+}
+
+/// `POST /builder/runs`: the Builder copilot and onboarding.
+pub async fn create_builder_run(
+    state: Extension<Arc<AgenticState>>,
+    platform: Extension<Arc<dyn PlatformContext>>,
+    bridges: Extension<BuilderBridges>,
+    query: axum::extract::RawQuery,
+    user: AuthenticatedUserExtractor,
+    body: Json<CreateRunRequest>,
+) -> Response {
+    create_run_on(
+        RunRoute::Builder,
+        state,
+        platform,
+        bridges,
+        query,
+        user,
+        body,
+    )
+    .await
+}
+
+async fn create_run_on(
+    route: RunRoute,
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
     Extension(bridges): Extension<BuilderBridges>,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(body): Json<CreateRunRequest>,
 ) -> Response {
@@ -108,6 +232,24 @@ pub async fn create_run(
         thread_id = ?body.thread_id,
         "create_run: received request"
     );
+
+    // A Builder run edits the working copy and is driven in this process's
+    // memory. The chat route never starts one (the Factory gate does not cover
+    // it), and a process without the files (a serve replica) refuses it on the
+    // Builder route too; both before anything is written, naming the route the
+    // Factory serves.
+    if refuses_builder_start(
+        route,
+        starts_a_builder_run(&body),
+        (state.holds_working_copy)(),
+    ) {
+        tracing::info!(
+            domain = ?body.domain,
+            onboarding = body.onboarding_context.is_some(),
+            "create_run: a Builder start reached a process without the working copy"
+        );
+        return builder_needs_the_factory("A Builder or onboarding run", BUILDER_START_ROUTE);
+    }
 
     if let Some(ctx) = &body.onboarding_context
         && ctx.tables.len() > MAX_ONBOARDING_TABLES
@@ -169,6 +311,53 @@ pub async fn create_run(
         }
     }
 
+    // A plain chat is started on the queue: seeded here, driven by whichever
+    // driver claims it, so this replica may go away without taking the run
+    // with it. Which starts qualify, and why the rest stay here:
+    // `agentic_pipeline::queued_run::ChatAdmission`. Only while the host turns
+    // queued starts on (`AgenticState::queued_starts`): until then every chat is
+    // driven here, as before.
+    let admission = agentic_pipeline::queued_run::ChatAdmission {
+        builder_domain: body.domain.as_deref() == Some("builder"),
+        onboarding: body.onboarding_context.is_some(),
+        auto_accept: body.auto_accept,
+        working_copy_branch: branch_in_query(query.as_deref()),
+    };
+    let queued_for = if (state.queued_starts)() {
+        admission.queueable(&*platform)
+    } else {
+        None
+    };
+    if let Some(requester) = queued_for {
+        let chat = agentic_pipeline::queued_run::ChatStart {
+            workspace_id: platform.workspace_id(),
+            agent_id: body.agent_id.clone(),
+            question: question.clone(),
+            thread_id: thread_id_uuid,
+            thinking_mode: body.thinking_mode,
+        };
+        return match agentic_pipeline::queued_run::queue_chat(&db, &platform, chat, requester).await
+        {
+            Ok(run_id) => Json(CreateRunResponse {
+                run_id,
+                thread_id: thread_id_uuid.map(|u| u.to_string()),
+            })
+            .into_response(),
+            Err(agentic_pipeline::queued_run::QueueChatError::Agent(e)) => {
+                tracing::error!(agent_id = %body.agent_id, error = %e, "create_run: the agent cannot start");
+                pipeline_error_response(start_failure_status(&e), &e, None)
+            }
+            Err(agentic_pipeline::queued_run::QueueChatError::Seed(e)) => {
+                tracing::error!(error = %e, "create_run: could not queue the chat");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "could not start the run" })),
+                )
+                    .into_response()
+            }
+        };
+    }
+
     // Onboarding phases declare which reference cards their prompt
     // needs pre-populated; interactive (no onboarding context) runs
     // default to no cards and rely on the `lookup_reference` tool.
@@ -195,6 +384,13 @@ pub async fn create_run(
         .schema_cache(Arc::clone(&state.schema_cache))
         .knowledge_cards(knowledge_cards)
         .skip_interpreting(skip_interpreting);
+    // Who asked, on the run's own insert: whatever drives this run later
+    // without this request (recovery after a restart, a queued start's driver)
+    // builds the requester's context from it instead of running the root on
+    // its own subject-less one.
+    if let Some(requester) = platform.requester() {
+        builder = builder.run_metadata(Requester::KEY, requester.to_metadata());
+    }
 
     if let Some(allowlist) = tool_allowlist {
         builder = builder.tool_allowlist(allowlist);
@@ -298,6 +494,19 @@ pub async fn create_run(
     .into_response()
 }
 
+/// The `branch` a start's query names, if any. The workspace middleware builds
+/// the request's context on that branch's working copy and revision, and a
+/// driver elsewhere would rebuild it on the promoted one — so a branch-scoped
+/// start is not queued (`queued_run::ChatAdmission::working_copy_branch`).
+pub fn branch_in_query(query: Option<&str>) -> Option<String> {
+    query?
+        .split('&')
+        .filter_map(|pair| pair.split_once('=').or(Some((pair, ""))))
+        .find(|(key, _)| *key == "branch")
+        .map(|(_, value)| value.to_string())
+        .filter(|value| !value.is_empty())
+}
+
 // ── GET /runs/:id/events (SSE) ────────────────────────────────────────────────
 
 /// Synthesize a terminal SSE event from the run row's authoritative
@@ -318,7 +527,7 @@ pub async fn create_run(
 /// type + payload the frontend already knows how to render. Returns `None`
 /// for non-terminal statuses (the stream should stay open). Split out from
 /// the DB fetch so it can be unit-tested without a database.
-fn terminal_event_for_status(
+pub fn terminal_event_for_status(
     task_status: Option<&str>,
     error_message: Option<&str>,
     answer: Option<&str>,
@@ -842,15 +1051,51 @@ pub async fn stream_events(
 
 // ── POST /runs/:id/answer ─────────────────────────────────────────────────────
 
+/// `POST /runs/{id}/answer`: an answer to a customer's chat. Never to a Builder
+/// run (see [`RunRoute`]).
 pub async fn answer_run(
+    path: Path<RunIdPath>,
+    state: Extension<Arc<AgenticState>>,
+    platform: Extension<Arc<dyn PlatformContext>>,
+    bridges: Extension<BuilderBridges>,
+    body: Json<AnswerRequest>,
+) -> Response {
+    answer_run_on(RunRoute::Chat, path, state, platform, bridges, body).await
+}
+
+/// `POST /builder/runs/{id}/answer`: an answer to a Builder or onboarding run.
+pub async fn answer_builder_run(
+    path: Path<RunIdPath>,
+    state: Extension<Arc<AgenticState>>,
+    platform: Extension<Arc<dyn PlatformContext>>,
+    bridges: Extension<BuilderBridges>,
+    body: Json<AnswerRequest>,
+) -> Response {
+    answer_run_on(RunRoute::Builder, path, state, platform, bridges, body).await
+}
+
+async fn answer_run_on(
+    route: RunRoute,
     Path(RunIdPath { id: run_id }): Path<RunIdPath>,
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
     Extension(bridges): Extension<BuilderBridges>,
     Json(body): Json<AnswerRequest>,
 ) -> Response {
-    if let Err(resp) = run_in_workspace(&state.db, &run_id, platform.workspace_id()).await {
-        return resp;
+    let scoped = match run_in_workspace(&state.db, &run_id, platform.workspace_id()).await {
+        Ok(run) => run,
+        Err(resp) => return resp,
+    };
+    // A run's kind never changes, so the row the scope check read decides both
+    // Builder refusals below. Read from that row, not again: a second read that
+    // failed would skip the refusal.
+    let is_builder_run = resumes_only_with_the_files(scoped.source_type.as_deref());
+    // The chat route never answers a Builder run, on any process: the Factory
+    // gate does not cover it, and the Builder edits workspace files. Checked
+    // before the hot path, which would otherwise hand the answer straight to a
+    // Builder coordinator alive in this process.
+    if route == RunRoute::Chat && is_builder_run {
+        return builder_needs_the_factory("Answering a Builder run", BUILDER_ANSWER_ROUTE);
     }
     // Hot path: the coordinator is still alive in memory — deliver the
     // answer through the answer channel. The coordinator receives it via
@@ -871,9 +1116,41 @@ pub async fn answer_run(
         );
     }
 
+    let db = state.db.clone();
+
+    // A Builder run is resumed only where its files are. On a process without
+    // them the cold resume below would rebuild the Builder over a working copy
+    // that is not here; the Factory holds the run's answer channel, and its
+    // answer route reaches it.
+    if !(state.holds_working_copy)() && is_builder_run {
+        return builder_needs_the_factory("Answering a Builder run", BUILDER_ANSWER_ROUTE);
+    }
+
+    // A chat that records its requester is continued through the queue: its
+    // driver, wherever it was, is gone or parked it, and a driver on any pod
+    // resumes it from its checkpoint as the requester
+    // (`agentic_pipeline::queued_answer`). Anything else — a builder run, an
+    // onboarding run, a preview's, a chat from before the record — is rebuilt
+    // and driven here, as before.
+    //
+    // Only for a run already on the queue, or while queued starts are on
+    // (`AgenticState::queued_starts`). With the switch off, a chat driven in
+    // a request's process that lost its channel (its pod restarted) is resumed
+    // here, as before: queueing its answer would hand a Global resume to
+    // whatever driver claims it, and in a rolling deploy that can be one from
+    // before the requester record, which would run it on its own subject-less
+    // context.
+    let queue_answers = (state.queued_starts)()
+        || agentic_pipeline::queued_run::started_on_the_queue(&db, &run_id)
+            .await
+            .unwrap_or(false);
+    if queue_answers && let Some(resp) = answer_through_the_queue(&db, &scoped, &body.answer).await
+    {
+        return resp;
+    }
+
     // Cold resume: coordinator is dead (e.g. after server restart).
     // Rebuild the pipeline and drive a new coordinator.
-    let db = state.db.clone();
 
     // Retry a few times: there is a small window where the frontend sees the
     // awaiting_input SSE event but the coordinator hasn't yet persisted the
@@ -913,6 +1190,22 @@ pub async fn answer_run(
         }
     }
     let run = run.expect("loop only breaks when task_status == awaiting_input");
+
+    // A live driver in another process (a chat driven in the memory of the pod
+    // that took its start, with the queue off) still holds this run and will take
+    // its answer through its own channel. A cold resume here would be a second
+    // drive of the same run. Refuse, retryably: the client retries on
+    // `Retry-After`, and the answer reaches the driver when a retry lands on its
+    // pod, or resumes here once that driver's lease lapses.
+    if driven_elsewhere(
+        run.driver_id.as_deref(),
+        run.driver_heartbeat_at,
+        agentic_runtime::lifecycle::driver_lease::held_in_this_process(&run_id),
+        chrono::Utc::now(),
+    ) {
+        tracing::info!(run_id = %run_id, "answer_run: another process drives this run; not resuming it here");
+        return driven_elsewhere_response();
+    }
 
     let source_type = run.source_type.as_deref().unwrap_or("analytics");
 
@@ -1112,6 +1405,100 @@ pub async fn answer_run(
     Json(serde_json::json!({ "ok": true, "resumed": true })).into_response()
 }
 
+/// How often, and how far apart, an answer re-reads a run that is not yet
+/// parked. The question reaches the client as an event before its driver has
+/// written the suspension and let the run go, so an answer can arrive in that
+/// gap: a few tries over about a second covers it.
+const ANSWER_SETTLE_TRIES: u32 = 6;
+const ANSWER_SETTLE_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// The answer to an answer whose run a live driver in another process holds:
+/// `503` with `Retry-After`, which the web client retries on. That driver takes
+/// the answer through its own channel once a retry reaches its pod, and a
+/// retry here resumes the run once its lease lapses.
+fn driven_elsewhere_response() -> Response {
+    let mut response = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+            "error": "This question is still being worked on by another server. Try again in a moment.",
+            "retryable": true,
+        })),
+    )
+        .into_response();
+    response.headers_mut().insert(
+        axum::http::header::RETRY_AFTER,
+        axum::http::HeaderValue::from_static("2"),
+    );
+    response
+}
+
+/// Continue `run` with `answer` through the queue, when it is a run that
+/// goes that way: an analytics root that records its requester and is not a
+/// preview's. `None` for any other run — the caller resumes it in process.
+/// What it reads from `run` (kind, parent, metadata) is fixed at the start.
+async fn answer_through_the_queue(
+    db: &sea_orm::DatabaseConnection,
+    run: &agentic_runtime::entity::run::Model,
+    answer: &str,
+) -> Option<Response> {
+    use agentic_pipeline::queued_answer::{QueuedAnswer, queue_answer};
+
+    let run_id = run.id.as_str();
+    let queued_kind = run.source_type.as_deref() == Some("analytics")
+        && run.parent_run_id.is_none()
+        && !agentic_pipeline::platform::preview_stamp::is_stamped(run.metadata.as_ref())
+        && matches!(Requester::recorded(run.metadata.as_ref()), Ok(Some(_)));
+    if !queued_kind {
+        return None;
+    }
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        let result = queue_answer(db, run_id, answer).await;
+        // Not parked yet: its driver is still writing the suspension (the run
+        // reads `running`, or has no checkpoint), or still holds the lease it
+        // is about to release.
+        let settling = match &result {
+            Ok(QueuedAnswer::DrivenElsewhere | QueuedAnswer::NoCheckpoint) => true,
+            Ok(QueuedAnswer::NotWaiting(Some(status))) => status == "running",
+            _ => false,
+        };
+        if !settling || tries >= ANSWER_SETTLE_TRIES {
+            return Some(answer_response(run_id, result));
+        }
+        tokio::time::sleep(ANSWER_SETTLE_DELAY).await;
+    }
+}
+
+/// The response to an answer [`answer_through_the_queue`] settled.
+fn answer_response(
+    run_id: &str,
+    result: Result<agentic_pipeline::queued_answer::QueuedAnswer, sea_orm::DbErr>,
+) -> Response {
+    use agentic_pipeline::queued_answer::QueuedAnswer;
+    match result {
+        Ok(QueuedAnswer::Queued) => {
+            Json(serde_json::json!({ "ok": true, "resumed": true })).into_response()
+        }
+        Ok(QueuedAnswer::NotWaiting(status)) => (
+            StatusCode::CONFLICT,
+            format!(
+                "run is not suspended (task_status: {})",
+                status.as_deref().unwrap_or("none")
+            ),
+        )
+            .into_response(),
+        Ok(QueuedAnswer::DrivenElsewhere) => driven_elsewhere_response(),
+        Ok(QueuedAnswer::NoCheckpoint) => {
+            (StatusCode::GONE, "no suspension data found for this run").into_response()
+        }
+        Err(e) => {
+            tracing::error!(%run_id, error = %e, "answer: could not queue the continuation");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {e}")).into_response()
+        }
+    }
+}
+
 // ── POST /runs/:id/revert-file-changes ───────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -1172,31 +1559,28 @@ pub async fn cancel_run(
     if state.cancel(&run_id) {
         return Json(serde_json::json!({ "ok": true })).into_response();
     }
-    // Defensive path — see the equivalent comment in
-    // `routes/automation.rs::cancel_automation_run`. The narrow race we
-    // guard against: a `done` run whose coordinator just finished
-    // and `deregister`'d its cancel channel must NOT be rewritten
-    // to `failed("cancelled by user")` here, or a successful run
-    // would show as failed after page reload.
-    let already_terminal = match agentic_runtime::crud::get_run(&state.db, &run_id).await {
-        Ok(Some(run)) => matches!(
-            run.task_status.as_deref(),
-            Some("done") | Some("failed") | Some("cancelled") | Some("timed_out")
-        ),
-        Ok(None) => true,
-        Err(e) => {
-            tracing::warn!(%run_id, error = %e, "cancel: status lookup failed, skipping defensive write");
-            true
+    // No driver here. Close the row only when nothing can be driving it: a
+    // run with a queue entry, or whose driver lease is live in another
+    // process, is that driver's to close — it turns the flag into a proper
+    // `cancelled` within about 5 s. A run that already ended stays as it
+    // ended. What is left is a run nobody will ever close (its driver died,
+    // or it is parked on a person), and failing it is what keeps it from
+    // reading `running` for ever.
+    match agentic_pipeline::queued_answer::close_if_undriven(
+        &state.db,
+        &run_id,
+        "cancelled by user",
+    )
+    .await
+    {
+        Ok(true) => {
+            state.statuses.insert(
+                run_id.clone(),
+                RunStatus::Failed("cancelled by user".into()),
+            );
         }
-    };
-    if !already_terminal {
-        db::update_run_failed(&state.db, &run_id, "cancelled by user")
-            .await
-            .ok();
-        state.statuses.insert(
-            run_id.clone(),
-            RunStatus::Failed("cancelled by user".into()),
-        );
+        Ok(false) => {}
+        Err(e) => tracing::warn!(%run_id, error = %e, "cancel: closing an undriven run failed"),
     }
     Json(serde_json::json!({ "ok": true })).into_response()
 }
@@ -1229,7 +1613,112 @@ pub async fn update_thinking_mode(
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_pipeline_error_message, terminal_event_for_status};
+    use super::{RunRoute, driven_elsewhere, refuses_builder_start};
+
+    /// The chat route is on the customer list, so the Factory gate lets any member
+    /// through it: it must refuse a Builder start on every process, including the
+    /// Factory pod and a single-process server that hold the files.
+    #[test]
+    fn the_chat_route_never_starts_a_builder_run() {
+        for holds in [true, false] {
+            assert!(
+                refuses_builder_start(RunRoute::Chat, true, holds),
+                "holds={holds}"
+            );
+            assert!(
+                !refuses_builder_start(RunRoute::Chat, false, holds),
+                "holds={holds}"
+            );
+        }
+        // The Builder route (on the Factory list) starts one where the files are.
+        assert!(!refuses_builder_start(RunRoute::Builder, true, true));
+        assert!(refuses_builder_start(RunRoute::Builder, true, false));
+    }
+
+    /// An answer never starts a second drive of a run another process drives.
+    #[test]
+    fn an_answer_does_not_resume_a_run_another_process_is_driving() {
+        let now = chrono::Utc::now();
+        let fresh = Some((now - chrono::Duration::seconds(10)).fixed_offset());
+        let lapsed = Some((now - chrono::Duration::seconds(600)).fixed_offset());
+        assert!(driven_elsewhere(Some("direct-a"), fresh, false, now));
+        // Its own drive (the channel closed) may be resumed here.
+        assert!(!driven_elsewhere(Some("direct-a"), fresh, true, now));
+        // No driver, or one whose lease lapsed: nobody else will take it.
+        assert!(!driven_elsewhere(None, None, false, now));
+        assert!(!driven_elsewhere(Some("direct-a"), lapsed, false, now));
+    }
+
+    use super::{branch_in_query, classify_pipeline_error_message, terminal_event_for_status};
+
+    fn start(body: serde_json::Value) -> super::CreateRunRequest {
+        serde_json::from_value(body).expect("a run request")
+    }
+
+    #[test]
+    fn a_builder_or_onboarding_start_is_a_builder_run_and_a_chat_is_not() {
+        use super::starts_a_builder_run;
+        let chat = serde_json::json!({ "agent_id": "a.agentic.yml", "question": "q" });
+        assert!(!starts_a_builder_run(&start(chat)));
+        let builder = serde_json::json!({
+            "agent_id": "__builder__", "question": "q", "domain": "builder"
+        });
+        assert!(starts_a_builder_run(&start(builder)));
+        // Onboarding sends `domain: "builder"` too; its context alone decides.
+        let onboarding = serde_json::json!({
+            "agent_id": "__builder__", "question": "",
+            "onboarding_context": { "tables": ["public.orders"], "warehouse_type": "postgres" }
+        });
+        assert!(starts_a_builder_run(&start(onboarding)));
+    }
+
+    #[test]
+    fn only_a_builder_run_needs_the_files_to_resume() {
+        use super::resumes_only_with_the_files;
+        assert!(resumes_only_with_the_files(Some("builder")));
+        for other in [Some("analytics"), Some("workflow"), Some("airway"), None] {
+            assert!(!resumes_only_with_the_files(other), "{other:?}");
+        }
+    }
+
+    /// The refusal reads like the role middleware's own misroute answer, so a
+    /// client handles both the same way, and names where to go instead.
+    #[tokio::test]
+    async fn the_refusal_names_the_route_the_factory_serves() {
+        use super::{BUILDER_START_ROUTE, builder_needs_the_factory};
+        let response = builder_needs_the_factory("A Builder run", BUILDER_START_ROUTE);
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::MISDIRECTED_REQUEST
+        );
+        assert_eq!(
+            response.headers().get("x-oxy-required-role").unwrap(),
+            "ide"
+        );
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .expect("body");
+        let body: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(body["route"], BUILDER_START_ROUTE);
+        assert!(
+            body["error"]
+                .as_str()
+                .is_some_and(|e| e.contains(BUILDER_START_ROUTE))
+        );
+    }
+
+    #[test]
+    fn a_start_names_a_branch_only_through_a_non_empty_branch_param() {
+        assert_eq!(branch_in_query(None), None);
+        assert_eq!(branch_in_query(Some("")), None);
+        assert_eq!(branch_in_query(Some("branch=")), None);
+        assert_eq!(branch_in_query(Some("branches=x")), None);
+        assert_eq!(
+            branch_in_query(Some("branch=feat-x")),
+            Some("feat-x".into())
+        );
+        assert_eq!(branch_in_query(Some("a=1&branch=dev")), Some("dev".into()));
+    }
 
     #[test]
     fn failed_status_maps_to_error_event_with_message() {

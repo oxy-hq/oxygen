@@ -70,7 +70,12 @@ pub fn declared_role(method: &str, request_path: &str) -> Option<RouteRole> {
     declared_role_in(DECLARED.get()?, method, request_path)
 }
 
-fn declared_role_in(
+/// [`declared_role`] against a list the caller holds instead of the one this
+/// process installed: the most specific declaration matching `method
+/// request_path`, or `None` when none does. For a test that composes the
+/// declarations of several crates the way the server does, without racing
+/// another test in the same binary for the process-wide list.
+pub fn declared_role_in(
     declared: &[(&'static str, String, RouteRole)],
     method: &str,
     request_path: &str,

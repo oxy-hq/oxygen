@@ -25,6 +25,7 @@ use crate::platform::preview::platform_for_root;
 use crate::platform::{BuilderBridges, PlatformContext, RunPlatformResolver};
 
 mod children_done;
+mod parked;
 mod root_entry;
 
 use root_entry::RootEntry;
@@ -157,6 +158,7 @@ pub async fn recover_active_runs(
         }
     };
     let roots = leave_queued_work_for_the_fleet(&db, roots, workspace_id, policy).await;
+    let roots = parked::leave_parked_roots(&db, roots).await;
 
     if roots.is_empty() {
         return 0;
@@ -637,7 +639,12 @@ async fn recover_single_run(
     // ("incremented on each recovery"), and the coordinator already reads it
     // back expecting the recovery caller to have done this — nothing in
     // production ever did.
-    if origin == RecoveryOrigin::Loop {
+    // A root whose queued entry is the continuation from its checkpoint — an
+    // answer someone queued (`queued_answer`) — is being continued, not
+    // recovered: it spends no budget, or a chat would be retired by its
+    // fifth clarifying question.
+    let continuation = root_entry::continues(&db, &root.id).await?;
+    if origin == RecoveryOrigin::Loop && !continuation {
         match agentic_runtime::crud::increment_attempt(&db, &root.id).await {
             Ok(attempt) if recovery_budget_exhausted(attempt) => {
                 retire_exhausted_run(&db, &root.id, attempt).await;
@@ -693,6 +700,7 @@ async fn recover_single_run(
         router,
         custom_executors,
         driver_id,
+        continuation,
     )
     .await;
 
@@ -783,6 +791,9 @@ async fn recover_single_run_owned(
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
     // The lease this frame owns — the heartbeat ticker downstream renews it.
     driver_id: String,
+    // The root's entry continues it from its checkpoint: nothing was
+    // interrupted, so step 0 has nothing to clean up and nothing to announce.
+    continuation: bool,
 ) -> Result<(), String> {
     use agentic_core::transport::{CoordinatorTransport, WorkerTransport};
 
@@ -793,8 +804,14 @@ async fn recover_single_run_owned(
     let transport = DurableTransport::with_router(db.clone(), router, Some(root.id.clone()));
     // An Oxy Function's `retries` is the user's declared contract, carried as
     // the root's queue-row policy (seeded with the kind as its source type).
+    // So is a commit compile's: its policy retries only a failure the task
+    // itself marks as passing (GitHub or Postgres briefly unavailable).
     // Other roots carrying a policy keep their behaviour.
-    if root.source_type.as_deref() == Some(crate::app_function_task::APP_FUNCTION_KIND) {
+    if matches!(
+        root.source_type.as_deref(),
+        Some(crate::app_function_task::APP_FUNCTION_KIND)
+            | Some(agentic_runtime::coordinator::COMPILE_GIT_SOURCE_TYPE)
+    ) {
         transport.retry_failed_root();
     }
     // A preview run gets no builder: its bridges edit the working copy, and an
@@ -829,13 +846,14 @@ async fn recover_single_run_owned(
         .await
         .unwrap_or(-1)
         + 1;
-    let is_fresh_seed = prior_event_count == 0;
+    // A continuation (an answered question) was not interrupted either.
+    let nothing_interrupted = prior_event_count == 0 || continuation;
     tracing::debug!(target: "recovery", run_id = %root.id, attempt, prior_event_count, "starting transparent recovery");
 
     // Delete partial events: find the last completed boundary and remove
     // everything after it. This cleans up step_started events that were
     // emitted before the crash but never got their corresponding step_end.
-    if !is_fresh_seed {
+    if !nothing_interrupted {
         let all_events = agentic_runtime::crud::get_all_events(&db, &root.id)
             .await
             .unwrap_or_default();
@@ -883,8 +901,9 @@ async fn recover_single_run_owned(
     }
 
     // Also emit recovery_resumed on non-terminal child runs so their SSE
-    // streams (e.g. builder delegation panel) close interrupted steps.
-    {
+    // streams (e.g. builder delegation panel) close interrupted steps. Not on
+    // a continuation: none of its steps was interrupted.
+    if !continuation {
         let child_tree = agentic_runtime::crud::load_task_tree(&db, &root.id)
             .await
             .unwrap_or_default();
@@ -932,6 +951,14 @@ async fn recover_single_run_owned(
     let coordinator = coordinator
         .with_completion_policy(Arc::new(agentic_automation::AutomationCompletionPolicy))
         .with_delegation_resolver(Arc::new(agentic_automation::AutomationDelegationResolver));
+    // A root driven from here has no answer channel anyone can reach — the
+    // one registered in step 4 drops its receiver — so a question to a person
+    // ends this drive instead of holding it open. See `park`.
+    let coordinator = if parks_at_a_person(root) {
+        coordinator.ending_at_root_human_input()
+    } else {
+        coordinator
+    };
 
     // ── Step 2: Walk tree and classify each task ────────────────────────
     let tree = agentic_runtime::crud::load_task_tree(&db, &root.id)
@@ -1102,6 +1129,12 @@ async fn recover_single_run_owned(
         cancel_rx
     };
 
+    // Cancelled once the coordinator returns: the cancel forwarder and the
+    // lease heartbeat below end with the drive, whether the run ended or is
+    // parked on a person — a parked run would otherwise keep both for the
+    // life of the process.
+    let drive_ended = tokio_util::sync::CancellationToken::new();
+
     // Cross-process cancel forwarder (§12 FU4a). A recovered / Global run
     // is driven here, out-of-process from the API that handles the cancel
     // request — so the in-memory `state.cancel` watch may have no listener
@@ -1114,10 +1147,12 @@ async fn recover_single_run_owned(
         let cf_db = db.clone();
         let cf_run = root.id.clone();
         let mut cf_rx = cancel_rx;
+        let cf_ended = drive_ended.clone();
         spawn_with_hub(async move {
             let poll = std::time::Duration::from_secs(5);
             loop {
                 let cancelled = tokio::select! {
+                    _ = cf_ended.cancelled() => break,
                     changed = cf_rx.changed() => changed.is_ok() && *cf_rx.borrow(),
                     _ = tokio::time::sleep(poll) => {
                         agentic_runtime::crud::is_cancel_requested(&cf_db, &cf_run)
@@ -1180,9 +1215,13 @@ async fn recover_single_run_owned(
         let hb_db = db.clone();
         let hb_run_id = root.id.clone();
         let hb_driver_id = driver_id.clone();
+        let hb_ended = drive_ended.clone();
         spawn_with_hub(async move {
             loop {
-                tokio::time::sleep(interval).await;
+                tokio::select! {
+                    _ = hb_ended.cancelled() => break,
+                    _ = tokio::time::sleep(interval) => {}
+                }
                 match agentic_runtime::crud::heartbeat_driver(&hb_db, &hb_run_id, &hb_driver_id)
                     .await
                 {
@@ -1207,10 +1246,15 @@ async fn recover_single_run_owned(
     let pending_resumes = children_done.for_coordinator;
     let pending_count = pending_resumes.len();
     let retire_transport = transport.clone();
+    let park_db = db.clone();
     spawn_with_hub(async move {
         let mut coord = coordinator;
         coord.process_pending_resumes(pending_resumes).await;
         coord.run().await;
+        if let Some(root_id) = coord.parked_root() {
+            park(&park_db, &retire_transport, root_id, &driver_id).await;
+        }
+        drive_ended.cancel();
         // `coord.run()` returns only once every task in this tree is terminal,
         // so nothing can legitimately be claimed under this root again. Retire
         // the workers built on this transport instead of leaving them polling
@@ -1228,6 +1272,60 @@ async fn recover_single_run_owned(
     );
 
     Ok(())
+}
+
+/// Does a root driven by recovery stop at a question to a person, rather than
+/// hold its claim and lease while it waits?
+///
+/// An analytics root, whatever started it: a queued custom-app ask (whose
+/// surface never answers — the SDK asks again on the same thread), a chat run
+/// recovery picked up, a scheduled agent (which installs no human-input
+/// provider and never gets here). Nothing reaches the answer channel recovery
+/// registers, so holding on is all cost: the lease, a heartbeat and a 5 s
+/// cancel poll for the life of the process, and once the process is gone a
+/// queue entry requeued under a run no driver loop selects. Automation and
+/// builder roots keep today's behaviour.
+fn parks_at_a_person(root: &agentic_runtime::entity::run::Model) -> bool {
+    root.source_type.as_deref() == Some("analytics")
+}
+
+/// Leave a root that is parked on a person as its suspension describes it, and
+/// hold nothing for it: end its claim, then its driver lease.
+///
+/// After this the run is `awaiting_input` with its checkpoint on record, no
+/// queue entry a worker can claim, and no driver. A cancel then closes it
+/// (`fail_undriven_run` finds it undriven), and an answer continues it from
+/// that checkpoint. A failed write is logged and left: the claim's heartbeat is
+/// already retired, so the reaper frees the row a minute later and the root
+/// adopts it back on its next recovery; the lease lapses in its TTL.
+async fn park(
+    db: &DatabaseConnection,
+    transport: &DurableTransport,
+    root_id: &str,
+    driver_id: &str,
+) {
+    match transport.release_parked_claim(root_id).await {
+        Ok(write) => tracing::info!(
+            target: "recovery",
+            run_id = %root_id,
+            ?write,
+            "root is parked on a person; ended its claim"
+        ),
+        Err(e) => tracing::warn!(
+            target: "recovery",
+            run_id = %root_id,
+            error = %e,
+            "could not end a parked root's claim; the reaper will free it"
+        ),
+    }
+    if let Err(e) = agentic_runtime::crud::release_driver(db, root_id, driver_id).await {
+        tracing::warn!(
+            target: "recovery",
+            run_id = %root_id,
+            error = %e,
+            "could not release a parked root's driver lease; it lapses in its TTL"
+        );
+    }
 }
 
 /// Re-launch a single task from its saved state.

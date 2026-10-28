@@ -16,11 +16,10 @@ exists to put that knowledge inside the builder binary.
 | `semantic-layer-reference.md`   | `oxy-semantic-modeling/SKILL.md`                                       | authored |
 | `view-template.yml`             | `oxy-semantic-modeling/templates/view-template.yml`                    | verbatim |
 | `topic-template.yml`            | `oxy-semantic-modeling/templates/topic-template.yml`                   | verbatim |
-| `app-builder-reference.md`      | `oxy-data-apps/SKILL.md` + `references/quick-reference.md`             | authored |
 | `agentic-builder-reference.md`  | `oxy-agents/SKILL.md` + `references/quick-reference.md`                | authored |
 | `agentic-template.yml`          | `oxy-agents/templates/agentic-template.yml`                            | verbatim |
 
-The file names keep their old spellings (`semantic-layer`, `app-builder`) because
+The file names keep their old spelling (`semantic-layer`) because
 `prompts.rs` and its tests name them; the skills they come from were renamed when
 they moved into this repository.
 

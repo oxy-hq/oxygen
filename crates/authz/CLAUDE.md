@@ -33,7 +33,7 @@ the fact is missing from `PrincipalFacts`, not that the crate needs a connection
 
 ## Vocabulary
 
-- **`Action`** (34) — the closed vocabulary of things a caller can do. This is what call
+- **`Action`** (49) — the closed vocabulary of things a caller can do. This is what call
   sites name.
 - **`Ring`** — the authority level that gates an action. **Private on purpose:** a
   ring is how the model is *stated*, not a menu callers pick from. Public, it would let a
@@ -51,10 +51,18 @@ the fact is missing from `PrincipalFacts`, not that the crate needs a connection
 
 Rings, briefly: `Read` · `MemberStrict` · `OrgAdmin` · `OrgAdminStrict` · `OwnerOnly` ·
 `OrgAdminOrCreator` · `WorkspaceAdmin` · `WorkspaceAdminStrict` · `WorkspaceEdit` ·
-`AppAccess` · `WorkspaceData` · `AppAdmin` · `AppGrant` · `PartnerCap` · `StaffReach` · `PlatformAny` ·
+`AppAccess` · `WorkspaceData` · `AppAdmin` · `AppGrant` · `PartnerCap` · `StaffReach` · `Factory` · `PlatformAny` ·
 `PlatformCap` · `GlobalOwnerOnly`. `StaffReach` is `PlatformCap` on a *tenant* resource: a staff-only
 tool used inside one org (non-production app hosts, workspace previews), so the grant's scope is
 consulted.
+
+`Factory` (`Action::FactoryUse`) is the one ring where a staff term and tenant terms meet on a
+tool: Oxy staff over the org, **or** an owner or admin of the org (a person, at an admin
+ceiling; decided 2026-10-27), **or** a real member holding a per-workspace row in
+`workspace_factory_grants` (`PrincipalFacts::factory_workspaces`). It reads no workspace role,
+so a plain org member is refused without the grant, whatever their workspace role. The routes
+it guards, the switch and the operator steps are in `internal-docs/roles-and-authorization.md`
+§ The Factory.
 
 ## Staff standing is a grant, not a flag
 

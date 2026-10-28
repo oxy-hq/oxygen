@@ -31,44 +31,30 @@ describe("deriveRailState — expected files", () => {
     expect(rail.expectedFiles.find((f) => f.name.endsWith(".agent.yml"))).toBeUndefined();
   });
 
-  it("preserves config, per-table view, and app entries around the agentic entry", () => {
+  it("lists config, one view per table and the agent, and no app", () => {
     const rail = deriveRailState(baseWithTables);
-    // The second-app entry is typed "app2", not "app": its filename can't be
-    // predicted (single-topic or cross-topic dashboard), so the rail matches it
-    // against any non-overview `.app.yml`. Its `name` is only a display label —
-    // the second topic alphabetically (here: "orders" from ["customers",
-    // "orders"]), title-cased — shown until the real `title:` is read.
+    // Data Apps are retired: onboarding builds no starter dashboard, so no
+    // `.app.yml` is ever expected, whatever the number of tables.
     expect(rail.expectedFiles).toEqual([
       { name: "config.yml", type: "config" },
       { name: "orders", type: "view" },
       { name: "customers", type: "view" },
-      { name: "analytics.agentic.yml", type: "agentic" },
-      { name: "overview", type: "app" },
-      { name: "Orders", type: "app2" }
+      { name: "analytics.agentic.yml", type: "agentic" }
     ]);
+    const single = deriveRailState({ ...baseWithTables, selectedTables: ["public.orders"] });
+    expect(single.expectedFiles.some((f) => f.type === "app")).toBe(false);
   });
 
-  it("title-cases a snake_case topic for the second-app label", () => {
-    const rail = deriveRailState({
-      ...initialState,
-      step: "building",
-      selectedTables: ["public.customers", "public.order_items"]
-    });
-    expect(rail.expectedFiles.find((f) => f.type === "app2")).toEqual({
-      name: "Order Items",
-      type: "app2"
-    });
-  });
-
-  it("omits the second-app entry when the workspace has only one topic", () => {
-    const singleTopic: OnboardingState = {
-      ...initialState,
-      step: "building",
-      selectedTables: ["public.orders"]
-    };
-    const rail = deriveRailState(singleTopic);
-    const appEntries = rail.expectedFiles.filter((f) => f.type === "app" || f.type === "app2");
-    expect(appEntries).toEqual([{ name: "overview", type: "app" }]);
+  it("shows no dashboard milestone or message while building", () => {
+    const rail = deriveRailState(baseWithTables);
+    const children = rail.milestones.flatMap((m) => m.children ?? []);
+    expect(children.map((c) => c.id)).toEqual(["build-semantic", "build-agent"]);
+    const ids = deriveMessages({
+      ...baseWithTables,
+      phaseStatuses: { config: "done" }
+    }).map((m) => m.id);
+    expect(ids).not.toContain("phase_app");
+    expect(ids).not.toContain("phase_app2");
   });
 
   it("returns an empty expected-files list until tables are selected", () => {

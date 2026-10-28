@@ -48,10 +48,15 @@ interface WorldModelGraphProps {
   onExpandEntity?: (id: string | null, measure?: string | null) => void;
   onSelectEntity: (id: string) => void;
   onSelectPromotion: (from: string, to: string) => void;
-  onOpenPicker: (entityId: string, pos: { x: number; y: number }) => void;
+  /** Absent on the customer's read-only page: a click selects, and nothing opens
+   *  the instance picker (whose lookups are the Factory's). */
+  onOpenPicker?: (entityId: string, pos: { x: number; y: number }) => void;
   onClearSelection: () => void;
-  onSelectChildInstance: (entityId: string, key: string, display: string) => void;
-  onBrowseSamples: (entityId: string, position: { x: number; y: number }) => void;
+  onSelectChildInstance?: (entityId: string, key: string, display: string) => void;
+  onBrowseSamples?: (entityId: string, position: { x: number; y: number }) => void;
+  /** The customer's read-only page: cards name the entity and say, in words, how
+   *  many details and measures it has, with no grain id, depth or "obs"/"calc". */
+  plain?: boolean;
 }
 
 export function WorldModelGraph({
@@ -70,7 +75,8 @@ export function WorldModelGraph({
   onOpenPicker,
   onClearSelection,
   onSelectChildInstance,
-  onBrowseSamples
+  onBrowseSamples,
+  plain = false
 }: WorldModelGraphProps) {
   // Entity visibility is driven entirely by `.world-model.yml` (applied
   // server-side); the graph renders every entity the backend returns, including
@@ -303,7 +309,8 @@ export function WorldModelGraph({
             isContributorCard: contributorMeasures !== null,
             onExpandEntity,
             onSelectChildInstance,
-            onBrowseSamples
+            onBrowseSamples,
+            plain
           }
         };
       }) ?? null,
@@ -324,7 +331,8 @@ export function WorldModelGraph({
       instanceKey,
       onExpandEntity,
       onSelectChildInstance,
-      onBrowseSamples
+      onBrowseSamples,
+      plain
     ]
   );
 
@@ -364,7 +372,7 @@ export function WorldModelGraph({
     // First click both selects the entity and opens its instance picker — no
     // second click required.
     onSelectEntity(node.id);
-    onOpenPicker(node.id, { x: event.clientX, y: event.clientY });
+    onOpenPicker?.(node.id, { x: event.clientX, y: event.clientY });
   };
 
   const handleEdgeClick = (_event: React.MouseEvent, edge: RFEdge) => {

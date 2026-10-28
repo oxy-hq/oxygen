@@ -37,84 +37,6 @@ pub struct TaskConfig {
     pub name: String,
     #[serde(flatten)]
     pub task_type: TaskType,
-    /// Optional file export wrapper. When present, the task's result is
-    /// written to disk after the inner step completes successfully. Mirrors
-    /// the old `oxy-workflow::TaskExport` shape so existing `.automation.yml`
-    /// files keep working unchanged.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub export: Option<TaskExport>,
-    /// Optional **file-presence cache** distinct from the step-hash
-    /// cache (which keys on YAML + render_context).
-    ///
-    /// Semantics — matches the legacy `oxy-workflow::TaskCache`:
-    ///   - First run with `cache.enabled = true`: the step executes
-    ///     normally, then its answer is written to `cache.path` (jinja-
-    ///     rendered against the step's render_context).
-    ///   - Any subsequent run: if the file at `cache.path` already
-    ///     exists, **the step is skipped** and the file's contents are
-    ///     used as the step's result.
-    ///
-    /// The whole point is to let a user manually edit the cached file
-    /// (e.g. tweak an LLM-generated SQL query) and have those edits
-    /// survive every subsequent run. Deleting the file is the
-    /// invalidation; `cache.enabled = false` disables the mechanism
-    /// without removing the field.
-    ///
-    /// Independent of `export:` — if both are set, the cache write
-    /// fires on success in addition to whatever `export:` does.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cache: Option<CacheConfig>,
-}
-
-/// File export wrapper applied to a single task.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TaskExport {
-    /// Destination path, relative to the workspace root. May contain Jinja
-    /// expressions (e.g. `"out/{{ today }}.csv"`) — they're rendered against
-    /// the same render context the step itself sees.
-    pub path: String,
-    pub format: ExportFormat,
-}
-
-/// File-presence cache config. See [`TaskConfig::cache`] for semantics.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CacheConfig {
-    /// Off by default — a user adds this block *only* when they want
-    /// the file-presence behavior, so unset means no caching even when
-    /// the path field is present.
-    #[serde(default = "default_cache_enabled")]
-    pub enabled: bool,
-    /// Destination path, relative to the workspace root. May contain
-    /// Jinja expressions (e.g. `"out/{{ groupings.value }}.sql"`).
-    pub path: String,
-}
-
-fn default_cache_enabled() -> bool {
-    true
-}
-
-/// Supported export formats — kept aligned with the legacy
-/// `oxy::config::model::ExportFormat` so existing YAML still parses.
-///
-/// `Csv` / `Json` / `Sql` cover tabular outputs (`execute_sql`,
-/// `semantic_query`, `omni_query`, `looker_query`). `Txt` and `Docx`
-/// cover agent text outputs in the legacy schema; the parse path
-/// preserves them so existing `.automation.yml` files round-trip, but
-/// the agent-task export wiring isn't ported yet — see
-/// [`crate::export`] for which formats execute today.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-// `docx` was a documented variant in the legacy `oxy-workflow` schema
-// but never had a real writer — `export_formatter` just wrote raw
-// bytes to a `.docx`-suffixed file that Word refused to open. Dropping
-// the variant turns any leftover `format: docx` into a clear
-// "unknown variant `docx`, expected one of `csv`, `json`, `sql`, `txt`"
-// parse error instead of a runtime "not supported" message.
-#[serde(rename_all = "lowercase")]
-pub enum ExportFormat {
-    Csv,
-    Json,
-    Sql,
-    Txt,
 }
 
 /// Automation task types. Variants the orchestrator inspects have typed configs;
@@ -209,9 +131,7 @@ pub struct AgentTaskConfig {
     /// SQL: pre-validated paths (semantic-model, verified `.sql`
     /// files, vendor engines) skip execution entirely; LLM-generated
     /// SQL runs a `LIMIT 0` smoke check before terminating. The
-    /// terminal answer is the SQL text, ready to be written to disk
-    /// via the sibling `cache:` block and consumed by a downstream
-    /// `execute_sql` task. Applies to **analytics agents**
+    /// terminal answer is the SQL text. Applies to **analytics agents**
     /// (`.agentic.yml`); ignored for the built-in builder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<AgentOutputConfig>,
@@ -489,11 +409,12 @@ tasks:
         assert!(matches!(config.tasks[0].task_type, TaskType::Unknown));
     }
 
-    /// Legacy `cache: { enabled, path }` block round-trips through
-    /// the new schema unchanged — existing customer YAML keeps
-    /// parsing without modification.
+    /// `export:` and `cache:` wrote into the workspace directory and are
+    /// refused at compile (`oxy-compile`). A revision compiled before that
+    /// still holds them; they must not stop the run from loading, and
+    /// nothing reads them.
     #[test]
-    fn test_parse_legacy_cache_block() {
+    fn test_retired_export_and_cache_keys_are_ignored_on_load() {
         let yaml = r#"
 name: test
 tasks:
@@ -504,11 +425,15 @@ tasks:
     cache:
       enabled: true
       path: "out/cache/{{ groupings.value }}.sql"
+    export:
+      path: out/x.csv
+      format: csv
 "#;
         let config: AutomationConfig = serde_yaml::from_str(yaml).unwrap();
-        let cache = config.tasks[0].cache.as_ref().expect("cache block parsed");
-        assert!(cache.enabled);
-        assert_eq!(cache.path, "out/cache/{{ groupings.value }}.sql");
+        assert!(matches!(config.tasks[0].task_type, TaskType::Agent(_)));
+        let reserialised = serde_json::to_value(&config.tasks[0]).unwrap();
+        assert!(reserialised.get("cache").is_none());
+        assert!(reserialised.get("export").is_none());
     }
 
     /// `output: { mode: sql }` round-trips through the agent task
@@ -525,8 +450,6 @@ tasks:
     prompt: "{{ question }}"
     output:
       mode: sql
-    cache:
-      path: "out/{{ question | slugify }}.sql"
 "#;
         let config: AutomationConfig = serde_yaml::from_str(yaml).unwrap();
         let TaskType::Agent(agent) = &config.tasks[0].task_type else {
@@ -553,23 +476,5 @@ tasks:
             panic!("expected agent task");
         };
         assert!(agent.output.is_none());
-    }
-
-    /// `enabled` defaults to true when only the path is given. Matches
-    /// the legacy `default_cache_enabled` behavior.
-    #[test]
-    fn test_cache_enabled_defaults_to_true() {
-        let yaml = r#"
-name: test
-tasks:
-  - name: sql
-    type: agent
-    agent_ref: a.yml
-    prompt: "x"
-    cache:
-      path: "out/x.sql"
-"#;
-        let config: AutomationConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.tasks[0].cache.as_ref().unwrap().enabled);
     }
 }

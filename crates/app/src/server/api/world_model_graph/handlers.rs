@@ -269,7 +269,7 @@ pub async fn get_world_model_instances(
         user.id,
         role,
         &layer,
-        source.scan_path(),
+        source.scan(),
         engine,
         &q,
         None,
@@ -285,7 +285,7 @@ pub async fn get_world_model_instances(
 /// it through the agentic connector; not cached (a bounded scan, and a
 /// workspace-keyed cache wouldn't invalidate on an out-of-band working-copy
 /// change). `layer` is borrowed; `scan_path` / `workspace_path` come from the
-/// caller — the FS scan path for the IDE, the compile-boundary tempdir for the
+/// caller — the FS scan path for the IDE, the compile-boundary revision for the
 /// gate.
 /// `engine` is the caller's cached engine handle when it has one. Like
 /// [`measure_breakdown_core`], the two callers differ: the workspace handler
@@ -297,7 +297,7 @@ pub(crate) async fn instances_core<S: DiskSlot>(
     user_id: uuid::Uuid,
     role: WorkspaceRole,
     layer: &oxy_airlayer_compat::SemanticLayer,
-    scan_path: std::path::PathBuf,
+    scan: oxy::config::ScanDir,
     engine: Option<CachedEngine>,
     q: &WmInstancesQuery,
     graph: Option<&GraphScope>,
@@ -414,19 +414,13 @@ where
         Some(cached) => resolve_and_compile_cached(
             &cached.cache,
             cached.key,
-            &scan_path,
+            &scan,
             &cached.databases,
             &semantic_config,
             None,
             Some(layer_clone),
         ),
-        None => resolve_and_compile(
-            &scan_path,
-            &databases,
-            &semantic_config,
-            None,
-            Some(layer_clone),
-        ),
+        None => resolve_and_compile(&scan, &databases, &semantic_config, None, Some(layer_clone)),
     })
     .await
     .map_err(|e| {
@@ -558,7 +552,7 @@ pub async fn get_world_model_filter_instances(
         workspace_manager: workspace_manager.clone(),
         user_id: user.id,
         role: role.clone(),
-        scan_path: source.scan_path(),
+        scan: source.scan(),
         databases,
         layer: (*layer).clone(),
         engine_cache: engine_cache.cache.clone(),

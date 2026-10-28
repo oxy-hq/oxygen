@@ -233,9 +233,8 @@ mod tests {
     ///
     /// An example that does not parse as an `AutomationConfig` is skipped, not
     /// failed: the handler answers `automation_invalid_yaml` for it and it
-    /// never reaches the queue (`fruit_loop_report` declares an export format
-    /// this runner has no variant for). The floor below is what keeps a skip
-    /// from becoming the whole test.
+    /// never reaches the queue. The floor below is what keeps a skip from
+    /// becoming the whole test.
     #[test]
     fn every_shipped_automation_survives_the_queue_hop() {
         let dir =

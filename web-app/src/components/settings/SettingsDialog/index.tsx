@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import useCanUsePreviews from "@/hooks/useCanUsePreviews";
 import { useRole } from "@/hooks/useRole";
 import { cn } from "@/libs/shadcn/utils";
+import { canUseFactory } from "@/libs/utils/factoryAccess";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import useSettingsDialog from "@/stores/useSettingsDialog";
@@ -36,6 +37,7 @@ export default function SettingsDialog() {
     isOrgAdmin: is.orgAdmin,
     isWorkspaceAdmin: is.workspaceAdmin,
     isStaff,
+    canUseFactory: canUseFactory(workspace),
     billingEnabled,
     hasOrg: !!org && !!role,
     hasWorkspace: !!workspace,

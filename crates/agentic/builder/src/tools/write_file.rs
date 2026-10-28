@@ -37,6 +37,12 @@ pub fn write_file_def() -> ToolDef {
     }
 }
 
+/// True for a path with the Data App suffix, either spelling.
+pub(crate) fn is_data_app_path(file_path: &str) -> bool {
+    let lower = file_path.to_ascii_lowercase();
+    lower.ends_with(".app.yml") || lower.ends_with(".app.yaml")
+}
+
 pub async fn execute_write_file(
     workspace_root: &Path,
     params: &Value,
@@ -53,6 +59,15 @@ pub async fn execute_write_file(
         .ok_or_else(|| ToolError::BadParams("missing 'description'".into()))?;
 
     let abs = safe_path(workspace_root, file_path)?;
+    // Data Apps are retired: an existing `.app.yml` may still be rewritten, but
+    // a new one is never created.
+    if is_data_app_path(file_path) && !abs.exists() {
+        return Err(ToolError::Execution(format!(
+            "Data apps ('{file_path}') are retired and can no longer be created. \
+             A dashboard or app is a custom app: a code-first React app published \
+             with `oxyc publish`. Tell the user this instead of writing the file."
+        )));
+    }
     let old_content = tokio::fs::read_to_string(&abs).await.unwrap_or_default();
 
     suspend_or_apply(
@@ -100,6 +115,48 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(written, "name: test\nmodel: gpt-4o\n");
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn refuses_to_create_a_data_app() {
+        let dir = test_dir().await;
+        for name in ["apps/new.app.yml", "NEW.APP.YAML"] {
+            let params = json!({
+                "file_path": name,
+                "content": "tasks: []\n",
+                "description": "create a data app"
+            });
+            let result = execute_write_file(&dir, &params, &AutoAcceptInputProvider).await;
+            assert!(
+                matches!(&result, Err(ToolError::Execution(m)) if m.contains("custom app")),
+                "{name}: {result:?}"
+            );
+            assert!(!dir.join(name).exists(), "{name} was written");
+        }
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn still_rewrites_an_existing_data_app() {
+        let dir = test_dir().await;
+        tokio::fs::write(dir.join("old.app.yml"), "tasks: []\n")
+            .await
+            .unwrap();
+        let params = json!({
+            "file_path": "old.app.yml",
+            "content": "tasks: [x]\n",
+            "description": "edit"
+        });
+        execute_write_file(&dir, &params, &AutoAcceptInputProvider)
+            .await
+            .unwrap();
+        assert_eq!(
+            tokio::fs::read_to_string(dir.join("old.app.yml"))
+                .await
+                .unwrap(),
+            "tasks: [x]\n"
+        );
         tokio::fs::remove_dir_all(&dir).await.ok();
     }
 

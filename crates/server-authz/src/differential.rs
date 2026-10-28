@@ -924,6 +924,159 @@ fn workspace_preview_subtracts_only_what_the_staff_door_cannot_see() {
     assert!(allows(&here, Action::WorkspacePreview, &ws));
 }
 
+// ── Workspace creation ─────────────────────────────────────────────────────────
+//
+// `OrgWorkspaceProvisioner` asks the org-admin door and then this ring, over the
+// org. The ring is the preview ring on an org resource, so the oracle is the same
+// staff door: customers (any org role, any membership) are refused, staff pass.
+
+#[test]
+fn workspace_provision_ring_matches_the_staff_door_across_the_org_caller_shapes() {
+    let target = Resource::org(org());
+    for s in scenarios() {
+        let expected = staff_door(&s.facts);
+        let actual = allows(&s.facts, Action::WorkspaceProvision, &target);
+        assert_eq!(
+            actual, expected,
+            "ring drift for WorkspaceProvision — scenario {:?}: the staff door says \
+             {expected}, the model says {actual}",
+            s.name
+        );
+    }
+}
+
+#[test]
+fn workspace_provision_refuses_a_customers_own_org_owner() {
+    let target = Resource::org(org());
+    let owner = PrincipalFacts {
+        user_id: user(),
+        owned_orgs: vec![org()],
+        admin_orgs: vec![org()],
+        member_orgs: vec![org()],
+        ..Default::default()
+    };
+    assert!(!allows(&owner, Action::WorkspaceProvision, &target));
+}
+
+// ── The Factory ────────────────────────────────────────────────────────────────
+//
+// A new surface with NO shipped check to difference against: before this, every
+// workspace member reached every authoring route. So the oracle is the rule as it
+// is stated, spelled out independently of the ring over the same caller shapes —
+// staff reach (an all-scope Global Admin or the Global Owner), an owner or admin of the
+// org (decided 2026-10-27), or a real member of the org holding a grant for this
+// workspace — and nothing else: no plain membership, no workspace role, no partner.
+
+/// The rule, restated in plain terms over the loader's facts.
+fn factory_oracle(facts: &PrincipalFacts, ws: Uuid) -> bool {
+    let staff = facts.is_global_owner
+        || facts
+            .platform
+            .as_ref()
+            .is_some_and(|p| p.grants(Cap::OperatePlatform, org()));
+    let officer = facts.admin_orgs.contains(&org());
+    let member = facts.member_orgs.contains(&org());
+    let granted = facts.factory_workspaces.contains(&ws);
+    staff || officer || (member && granted)
+}
+
+#[test]
+fn factory_use_ring_matches_the_stated_rule_across_the_org_caller_shapes() {
+    let ws = ws_id();
+    let resource = Resource::workspace(ws, org());
+    for s in scenarios() {
+        // Each shape twice: as the loader reports it, and with the grant added.
+        for granted in [false, true] {
+            let facts = PrincipalFacts {
+                factory_workspaces: if granted { vec![ws] } else { Vec::new() },
+                ..s.facts.clone()
+            };
+            let expected = factory_oracle(&facts, ws);
+            let actual = allows(&facts, Action::FactoryUse, &resource);
+            assert_eq!(
+                actual, expected,
+                "ring drift for FactoryUse — scenario {:?} (grant held: {granted}): \
+                 the stated rule says {expected}, the model says {actual}",
+                s.name
+            );
+        }
+    }
+}
+
+#[test]
+fn factory_use_is_refused_to_every_tenant_role_below_org_admin_without_a_grant() {
+    let resource = Resource::workspace(ws_id(), org());
+    for s in scenarios() {
+        let staff = s.facts.is_global_owner || s.facts.platform.is_some();
+        let officer = s.facts.admin_orgs.contains(&org());
+        if staff || officer {
+            continue;
+        }
+        assert!(
+            !allows(&s.facts, Action::FactoryUse, &resource),
+            "scenario {:?}: no plain membership, workspace override or partner standing \
+             is the Factory",
+            s.name
+        );
+    }
+}
+
+#[test]
+fn factory_use_admits_the_orgs_owners_and_admins_without_a_grant() {
+    let resource = Resource::workspace(ws_id(), org());
+    let officers: Vec<_> = scenarios()
+        .into_iter()
+        .filter(|s| s.facts.admin_orgs.contains(&org()))
+        .collect();
+    assert!(
+        officers.iter().any(|s| s.facts.owned_orgs.contains(&org())),
+        "the scenarios must include a real org owner"
+    );
+    for s in officers {
+        assert!(
+            s.facts.factory_workspaces.is_empty(),
+            "scenario {:?} must hold no grant",
+            s.name
+        );
+        assert!(
+            allows(&s.facts, Action::FactoryUse, &resource),
+            "scenario {:?}: an owner or admin of the org reaches the Factory",
+            s.name
+        );
+    }
+}
+
+// What `GET /orgs` reports as `may_provision_workspace` is this ring over the same
+// facts, so the web app's "New workspace" control and the guard cannot disagree.
+#[test]
+fn provision_hint_admits_only_the_staff_the_ring_admits() {
+    let here = org();
+    let elsewhere = Uuid::from_u128(2);
+    let staff = |role, scope| PrincipalFacts {
+        user_id: user(),
+        platform: Some(PlatformStanding::from_role(role, scope)),
+        ..Default::default()
+    };
+    let hint = |facts: &PrincipalFacts| crate::provisionable(facts, &[here]).contains(&here);
+
+    assert!(hint(&staff(PlatformRole::GlobalAdmin, Scope::All)));
+    assert!(hint(&staff(
+        PlatformRole::GlobalAdmin,
+        Scope::Orgs(vec![here])
+    )));
+    // `is_app_admin` is true for these two; the ring refuses both.
+    assert!(!hint(&staff(PlatformRole::AppOperator, Scope::All)));
+    assert!(!hint(&staff(
+        PlatformRole::GlobalAdmin,
+        Scope::Orgs(vec![elsewhere])
+    )));
+
+    // Scope is per org: the same grant is admitted in one org and not another.
+    let scoped = staff(PlatformRole::GlobalAdmin, Scope::Orgs(vec![here]));
+    let reachable = crate::provisionable(&scoped, &[here, elsewhere]);
+    assert_eq!(reachable, std::collections::HashSet::from([here]));
+}
+
 // The sandbox agent token against the same gates, over the same caller shapes.
 #[path = "differential_sandbox.rs"]
 mod sandbox;

@@ -9,5 +9,5 @@ mod encryption;
 pub mod envelope;
 mod org_secrets;
 
-pub use encryption::get_encryption_key;
+pub use encryption::{ENCRYPTION_KEY_VAR, get_encryption_key, parse_encryption_key};
 pub use org_secrets::OrgSecretsService;

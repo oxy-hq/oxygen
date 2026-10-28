@@ -52,14 +52,6 @@ pub async fn run_automation_step(
         TaskType::Unknown => Err("unknown task type".into()),
     }?;
 
-    // Exports are written from the decision-task hook in
-    // `pipeline::executor::automation::run_decision_task` after
-    // `commit_decision` succeeds. That hook handles every step type
-    // uniformly (inline, delegated automation steps, agent steps,
-    // sub-automations) by walking the result_delta; doing it here too
-    // would double-write for inline tasks. See
-    // `pipeline/src/executor/automation.rs::write_step_exports`.
-
     serde_json::to_string(&result).map_err(|e| format!("failed to serialize result: {e}"))
 }
 
@@ -376,8 +368,8 @@ async fn execute_semantic_query(
     }
 }
 
-/// Add the executed SQL string to a query-result JSON object so the export
-/// wrapper can write it out for `format: sql`. Non-object results are
+/// Add the executed SQL string to a query-result JSON object so a later step
+/// can reference it as `{{ step.sql }}`. Non-object results are
 /// returned unchanged (defensive — every caller currently produces an
 /// object, but a future variant might not).
 fn attach_sql(result: Value, sql: &str) -> Value {

@@ -32,8 +32,7 @@
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use sea_orm::DatabaseConnection;
-use tracing::{error, instrument, warn};
+use tracing::{error, instrument};
 use uuid::Uuid;
 
 use super::super::agent_ask_staging::{ask_scope, staging_run_matches};
@@ -107,31 +106,11 @@ pub async fn cancel_ask(
     if agentic_state.runtime.cancel(&run_id) {
         return StatusCode::NO_CONTENT.into_response();
     }
-    if let Err(e) = close_if_undriven(db, &run_id).await {
+    if let Err(e) =
+        agentic_pipeline::queued_answer::close_if_undriven(db, &run_id, CANCELLED_BY_USER).await
+    {
         error!(run_id = %run_id, error = %e, "cancel: closing an undriven run failed");
         return err(StatusCode::INTERNAL_SERVER_ERROR, "cancel failed");
     }
     StatusCode::NO_CONTENT.into_response()
-}
-
-/// Fail the run if nothing can be driving it and it has not ended; otherwise
-/// write nothing. Returns whether the row was closed here.
-///
-/// The queue entry is read first and the row is closed by one guarded
-/// statement (`fail_undriven_run`: not terminal, no live lease), so a run that
-/// finishes or is claimed between the two is still never written over.
-async fn close_if_undriven(db: &DatabaseConnection, run_id: &str) -> Result<bool, sea_orm::DbErr> {
-    match agentic_runtime::crud::get_queue_entry(db, run_id).await {
-        Ok(Some(entry)) if matches!(entry.queue_status.as_str(), "queued" | "claimed") => {
-            return Ok(false);
-        }
-        Ok(_) => {}
-        // Unknown. The flag is already written and is what stops a live run;
-        // a wrong `failed` on one is not recoverable, so do not write.
-        Err(e) => {
-            warn!(%run_id, error = %e, "cancel: queue lookup failed; leaving the run row alone");
-            return Ok(false);
-        }
-    }
-    agentic_runtime::crud::fail_undriven_run(db, run_id, CANCELLED_BY_USER).await
 }

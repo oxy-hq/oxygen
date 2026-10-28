@@ -27,7 +27,7 @@
 //!   point: a node holding a working copy is `Origin::Compiled` too, so
 //!   `ConfigManager::revision_id()` returns `Some(R)` for a handler reading
 //!   `semantics_scan_path()` (the working copy) AND for one reading a
-//!   materialised tempdir of revision R. Keying on the pinned revision would
+//!   compiled scan of revision R. Keying on the pinned revision would
 //!   collide them — an IDE world-model panel whose working copy is behind the
 //!   promoted revision would serve its stale layer to the custom-app data
 //!   plane, and vice versa. So callers state their source; they never infer it.
@@ -92,7 +92,7 @@ const _: () = {
 pub enum LayerSource {
     /// The workspace files on this node's disk (`semantics_scan_path()`).
     WorkingCopy,
-    /// A compiled revision, materialised from the compile boundary.
+    /// A compiled revision, read from the compile boundary.
     Revision(Uuid),
 }
 
@@ -116,7 +116,7 @@ impl EngineKey {
         }
     }
 
-    /// An engine built from a materialised compiled revision.
+    /// An engine built from a compiled revision.
     pub fn revision(workspace_id: Uuid, revision_id: Uuid, databases: &[DatabaseConfig]) -> Self {
         Self {
             workspace_id,

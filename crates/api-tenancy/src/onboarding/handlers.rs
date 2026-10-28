@@ -3,11 +3,8 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use oxy::adapters::secrets::SecretsManager;
-use oxy::config::ConfigBuilder;
 use oxy::config::ResolveWorkspaceFile;
 use oxy::github::{GitHubClient, default_git_client, github_token_for_namespace};
-use oxy::service::retrieval::{ReindexInput, reindex};
 use oxy::service::secret_manager::SecretManagerService;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_git::GitClient;
@@ -16,7 +13,7 @@ use oxy_shared::errors::OxyError;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use oxy_app::surface::role_guards::{OrgAdmin, WorkspaceAdmin};
+use oxy_app::surface::role_guards::{OrgWorkspaceCreator, WorkspaceAdmin};
 use oxy_app::surface::{WorkspaceManagerReadOnly, WorkspacePath};
 use oxy_app_core::AppState;
 
@@ -24,9 +21,9 @@ use super::dto::*;
 use super::ops::*;
 use crate::workspace_provisioning::RepositoryOrigin;
 
-/// POST /orgs/{org_id}/onboarding/demo — copy embedded demo workspace files and trigger background reindex.
+/// POST /orgs/{org_id}/onboarding/demo — copy embedded demo workspace files.
 pub async fn setup_demo(
-    OrgAdmin(ctx): OrgAdmin,
+    OrgWorkspaceCreator(ctx): OrgWorkspaceCreator,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     body: Option<Json<DemoSetupRequest>>,
 ) -> Result<Json<OnboardingResult>, (StatusCode, String)> {
@@ -77,30 +74,6 @@ pub async fn setup_demo(
         }
     };
 
-    // Background reindex — best-effort, does not block the response
-    let dir_clone = project_dir.clone();
-    tokio::spawn(async move {
-        let result = async {
-            let config = ConfigBuilder::new()
-                .with_workspace_path(&dir_clone)?
-                .build_with_working_copy(oxy::config::Origin::Disk, oxy::config::OnMissing::Empty)
-                .await?;
-
-            let secrets_manager = SecretsManager::from_environment()?;
-
-            reindex(ReindexInput {
-                config,
-                secrets_manager,
-                drop_all_tables: true,
-            })
-            .await
-        };
-
-        if let Err(e) = result.await {
-            tracing::warn!("Background reindex after demo setup failed: {}", e);
-        }
-    });
-
     Ok(Json(OnboardingResult {
         workspace_type: "demo".to_string(),
         workspace_id,
@@ -111,7 +84,7 @@ pub async fn setup_demo(
 /// `config.yml`). The same implementation every new org's `Default` workspace
 /// comes from: `oxy_app`'s `workspace_provisioning::create_blank_workspace`.
 pub async fn setup_new(
-    OrgAdmin(ctx): OrgAdmin,
+    OrgWorkspaceCreator(ctx): OrgWorkspaceCreator,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     body: Option<Json<NewSetupRequest>>,
 ) -> Result<Json<OnboardingResult>, (StatusCode, String)> {
@@ -151,7 +124,7 @@ pub async fn setup_new(
 /// it in the background. The workspace appears in the list immediately; the clone runs
 /// asynchronously so large repositories don't hit the global request timeout.
 pub async fn setup_github(
-    OrgAdmin(ctx): OrgAdmin,
+    OrgWorkspaceCreator(ctx): OrgWorkspaceCreator,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     axum::Json(req): axum::Json<GitHubSetupRequest>,
 ) -> Result<Json<OnboardingResult>, (StatusCode, String)> {

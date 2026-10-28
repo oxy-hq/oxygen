@@ -26,7 +26,6 @@ import WorkspaceMembers from "../sections/workspace/Members";
 import Oltp from "../sections/workspace/Oltp";
 import OxyAccess from "../sections/workspace/OxyAccess";
 import Previews from "../sections/workspace/Previews";
-import Repositories from "../sections/workspace/Repositories";
 import Secrets from "../sections/workspace/Secrets";
 import NoAccessNotice from "./NoAccessNotice";
 
@@ -49,8 +48,8 @@ export type ActiveSectionProps = {
  * members.
  *
  * A section's own `Can*` wrapper is defence-in-depth on top of that, not the
- * primary gate, and coverage is uneven: General, Databases, Apps, Secrets,
- * Repositories and ApiKeys carry one; Integration, Teams and App access do not
+ * primary gate, and coverage is uneven: General, Databases, Apps, Secrets
+ * and ApiKeys carry one; Integration, Teams and App access do not
  * (they hide mutations via `viewerRole`/`canManage` instead). Billing and Oxy
  * access get their wrapper here because they have none internally. Anything
  * added below inherits the nav gate — give it a `requires` entry in `nav.ts`.
@@ -97,7 +96,6 @@ export function ActiveSection({ activeSection, org, role, workspace, close }: Ac
       {workspace && activeSection === "workspace.databases" && <Databases />}
       {workspace && activeSection === "workspace.airhouse" && <Airhouse />}
       {workspace && activeSection === "workspace.oltp" && <Oltp />}
-      {workspace && activeSection === "workspace.repositories" && <Repositories />}
       {workspace && activeSection === "workspace.previews" && (
         <Previews workspace={workspace} onOpened={close} />
       )}

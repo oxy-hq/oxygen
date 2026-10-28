@@ -170,7 +170,7 @@ pub trait WorkspaceContext: Send + Sync {
     /// Root path of the workspace/project, when this process holds one.
     ///
     /// `None` on a stateless replica. The callers that resolve a ref against it
-    /// and then OPEN the result — `export`, `sql_file`, `resolve_pipeline_ref`,
+    /// and then OPEN the result — `sql_file`, `resolve_pipeline_ref`,
     /// the builder revert — genuinely cannot run there, and saying so beats
     /// resolving against a directory that is not present and failing with
     /// "No such file or directory" on a path the customer never wrote.
@@ -331,13 +331,6 @@ pub trait WorkspaceContext: Send + Sync {
             blob: self.preagg_blob(),
             require_fresh: self.preagg_require_fresh(),
         })
-    }
-
-    /// List all `.airway.yml` pipeline files in the workspace. Default
-    /// returns empty so existing impls (test fakes) need no change; the
-    /// real host adapter overrides it.
-    async fn list_airway_files(&self) -> Result<Vec<PathBuf>, String> {
-        Ok(vec![])
     }
 
     /// Compile-boundary hook for an airway pipeline (`.airway.yml`) body,

@@ -23,7 +23,6 @@ export { GitHubApiService } from "./github";
 export { IntegrationService, type LookerIntegrationInfo } from "./integrations";
 export { ArtifactService, BuilderService, ChartService } from "./misc";
 export { OnboardingService } from "./onboarding";
-export { RepositoryService } from "./repository";
 export { TestFileService } from "./testFiles";
 export { TestProjectRunService } from "./testProjectRuns";
 export { TestRunService } from "./testRuns";

@@ -23,6 +23,14 @@ impl ProjectContext for OxyProjectContext {
         self.workspace_manager.workspace_id
     }
 
+    fn requester(&self) -> Option<agentic_pipeline::platform::Requester> {
+        self.subject
+            .map(|user_id| agentic_pipeline::platform::Requester {
+                user_id,
+                role: self.role.as_ref().map(|r| r.as_str().to_string()),
+            })
+    }
+
     /// Project timezone from `config.yml`, parsed to a [`chrono_tz::Tz`].
     ///
     /// Deliberately lenient: an unrecognized IANA name warns and falls back to

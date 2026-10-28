@@ -33,6 +33,7 @@ pub(super) fn org_response(org: &organizations::Model, role: &OrgRole) -> OrgRes
         updated_at: org.updated_at.to_rfc3339(),
         workspace_count: None,
         member_count: None,
+        may_provision_workspace: None,
     }
 }
 

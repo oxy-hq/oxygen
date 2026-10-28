@@ -319,3 +319,37 @@ describe("visibleNavGroups", () => {
     });
   });
 });
+
+describe("sections that write the workspace's config are the Factory's", () => {
+  const FACTORY_SECTIONS = ["workspace.databases", "workspace.secrets", "workspace.connections"];
+
+  /// A workspace admin of the customer's org the server will not let into the
+  /// Factory would open each of these and meet a refusal; they are not offered.
+  it("are hidden from a workspace admin the server does not let into the Factory", () => {
+    const sections = sectionsFor({
+      isOrgAdmin: true,
+      isWorkspaceAdmin: true,
+      canUseFactory: false
+    });
+    for (const hidden of FACTORY_SECTIONS) expect(sections).not.toContain(hidden);
+    // The rest of what a workspace admin has is untouched.
+    expect(sections).toContain("workspace.api_keys");
+    expect(sections).toContain("workspace.oxy_access");
+  });
+
+  it("are shown to one the server lets in, and while the answer is absent", () => {
+    for (const canUseFactory of [true, undefined]) {
+      const sections = sectionsFor({
+        isOrgAdmin: true,
+        isWorkspaceAdmin: true,
+        canUseFactory
+      });
+      for (const shown of FACTORY_SECTIONS) expect(sections).toContain(shown);
+    }
+  });
+
+  it("are not hidden in local mode, where there is no Factory to gate", () => {
+    const sections = sectionsFor({ isLocalMode: true, canUseFactory: false });
+    expect(sections).toContain("workspace.databases");
+  });
+});

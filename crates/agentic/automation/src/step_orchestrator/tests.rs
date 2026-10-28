@@ -55,8 +55,6 @@ fn test_conditional_matches_first_truthy_branch() {
                 tasks: vec![TaskConfig {
                     name: "big_task".into(),
                     task_type: TaskType::Unknown,
-                    export: None,
-                    cache: None,
                 }],
             },
             ConditionBranch {
@@ -64,8 +62,6 @@ fn test_conditional_matches_first_truthy_branch() {
                 tasks: vec![TaskConfig {
                     name: "small_task".into(),
                     task_type: TaskType::Unknown,
-                    export: None,
-                    cache: None,
                 }],
             },
         ],
@@ -89,8 +85,6 @@ fn test_conditional_falls_through_to_else() {
         else_tasks: Some(vec![TaskConfig {
             name: "fallback".into(),
             task_type: TaskType::Unknown,
-            export: None,
-            cache: None,
         }]),
     };
 
@@ -233,8 +227,6 @@ async fn test_bug_repro_answer_channel_closed_when_senders_dropped() {
         tasks: vec![TaskConfig {
             name: "s0".into(),
             task_type: TaskType::Unknown, // classify -> StepKind::Delegated
-            export: None,
-            cache: None,
         }],
         description: String::new(),
         variables: None,

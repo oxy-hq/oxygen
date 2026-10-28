@@ -1,4 +1,3 @@
-pub mod looker;
 pub mod sql;
 pub mod types;
 

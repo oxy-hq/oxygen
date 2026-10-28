@@ -32,6 +32,7 @@
 
 mod audit_and_explorer;
 mod compiles;
+mod data_apps;
 mod directories;
 mod fences;
 mod fixture;

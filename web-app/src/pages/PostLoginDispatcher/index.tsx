@@ -6,6 +6,7 @@ import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useOrgs } from "@/hooks/api/organizations";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useAllWorkspaces } from "@/hooks/api/workspaces/useWorkspaces";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { useLandingWorkspace } from "@/hooks/useLandingWorkspace";
 import { getInjectedOrg } from "@/libs/orgSubdomain";
 import { carriedSearch } from "@/libs/utils/carriedSearch";
@@ -15,6 +16,7 @@ import {
   setLastWorkspaceId
 } from "@/libs/utils/lastWorkspace";
 import ROUTES from "@/libs/utils/routes";
+import { landsInWorkspace } from "@/libs/utils/staffLanding";
 import type { Organization } from "@/types/organization";
 
 /**
@@ -26,7 +28,9 @@ import type { Organization } from "@/types/organization";
  *                                   or the admin console for staff standing
  *   has orgs, 0 workspaces        → /:slug (OrgDispatcher renders "being set up")
  *   has orgs, no navigable ws     → /:slug (every ws is still cloning)
- *   has orgs, ≥1 navigable ws     → /:slug/workspaces/:last-or-most-apps
+ *   has orgs, ≥1 navigable ws     → /:slug/home for a customer; staff (an operator
+ *                                   or a partner's staff) go to
+ *                                   /:slug/workspaces/:last-or-most-apps
  *
  * …**unless the user holds a partner role**, in which case every branch that would
  * have left them without a workspace sends them to `/partners` instead. A partner's
@@ -49,7 +53,8 @@ import type { Organization } from "@/types/organization";
  */
 export default function PostLoginDispatcher() {
   const { data: orgs, isPending: orgsPending, isError: orgsError } = useOrgs();
-  const { data: user } = useCurrentUser();
+  const { data: user, isPending: userPending } = useCurrentUser();
+  const appsFirst = useAppsFirstExperience();
   // `partner_memberships` is already on /user — no extra request.
   const isPartner = (user?.partner_memberships?.length ?? 0) > 0;
 
@@ -139,6 +144,16 @@ export default function PostLoginDispatcher() {
   }
   setLastWorkspaceId(chosenOrg.id, target.id);
 
+  // With the apps-first experience, who is landing decides where, so wait for
+  // the profile: staff work inside a workspace, a customer lands on the org's
+  // home, which loads from the same workspace. Without it, everyone goes into the
+  // workspace, as before.
+  if (appsFirst) {
+    if (userPending) return <FullPageSpinner />;
+    if (!landsInWorkspace(user)) {
+      return <Navigate to={into(ROUTES.ORG(chosenOrg.slug).HOME)} replace />;
+    }
+  }
   return <Navigate to={into(ROUTES.ORG(chosenOrg.slug).WORKSPACE(target.id).ROOT)} replace />;
 }
 

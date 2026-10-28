@@ -336,14 +336,48 @@ pub fn build_layer<P: AsRef<Path>>(paths: &[P]) -> Result<airlayer::SemanticLaye
         }
     }
 
-    inject_row_count_measures(&mut views);
+    Ok(assemble_layer(views, topics))
+}
 
+/// Build an [`airlayer::SemanticLayer`] from `.view.yml` / `.topic.yml` text
+/// that is already in memory, in the order given.
+///
+/// The same parse and the same injected `__oxy_row_count` measure as
+/// [`build_layer`] and [`load_layer_from_dir`], which read the same documents
+/// from disk, so a model loaded from a compiled revision and one loaded from a
+/// checkout cannot differ in anything but their source.
+pub fn build_layer_from_yaml<V, T>(
+    views: &[V],
+    topics: &[T],
+) -> Result<airlayer::SemanticLayer, SemanticError>
+where
+    V: AsRef<str>,
+    T: AsRef<str>,
+{
+    let views = views
+        .iter()
+        .map(|yaml| parse_view_yaml(yaml.as_ref()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let topics = topics
+        .iter()
+        .map(|yaml| parse_topic_yaml(yaml.as_ref()))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(assemble_layer(views, topics))
+}
+
+/// The tail both builders share: inject the row-count measure and wrap an empty
+/// topic list as `None`.
+fn assemble_layer(
+    mut views: Vec<airlayer::View>,
+    topics: Vec<airlayer::Topic>,
+) -> airlayer::SemanticLayer {
+    inject_row_count_measures(&mut views);
     let topic_opt = if topics.is_empty() {
         None
     } else {
         Some(topics)
     };
-    Ok(airlayer::SemanticLayer::new(views, topic_opt))
+    airlayer::SemanticLayer::new(views, topic_opt)
 }
 
 /// Inject a `_row_count: count` measure into every view so fiber-count queries
@@ -446,6 +480,29 @@ pub fn load_layer_from_dir(root: &Path) -> Result<airlayer::SemanticLayer, Seman
     // Deterministic order so engine construction is reproducible.
     paths.sort();
     build_layer(&paths)
+}
+
+/// Something an airlayer model can be loaded from: a directory of
+/// `.view.yml` / `.topic.yml` files, or a set of them already in memory.
+///
+/// Lets a caller that compiles a query take "where the model is" without
+/// caring which of the two it is, so a compiled revision can be read straight
+/// from memory and the working copy from its directory by the same code.
+pub trait LoadLayer {
+    /// Parse the model. Blocking: it parses every file.
+    fn load_layer(&self) -> Result<airlayer::SemanticLayer, SemanticError>;
+}
+
+impl LoadLayer for Path {
+    fn load_layer(&self) -> Result<airlayer::SemanticLayer, SemanticError> {
+        load_layer_from_dir(self)
+    }
+}
+
+impl LoadLayer for PathBuf {
+    fn load_layer(&self) -> Result<airlayer::SemanticLayer, SemanticError> {
+        load_layer_from_dir(self)
+    }
 }
 
 /// Parse + build the airlayer engine to surface compile/validation errors.
@@ -734,6 +791,51 @@ pub fn gate_semantic_write(root: &Path, target_abs: &Path, proposed: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ORDERS_VIEW: &str = "name: orders\ntable: orders\ndimensions:\n  - name: id\n    type: number\n    expr: id\nmeasures:\n  - name: total\n    type: sum\n    expr: amount\n";
+    const ORDERS_TOPIC: &str = "name: sales\nviews:\n  - orders\nbase_view: orders\n";
+
+    /// A model built from YAML text in memory and one loaded from the same
+    /// documents on disk are the same model, including the injected row count.
+    /// This is what lets a compiled revision be read without writing it out.
+    #[test]
+    fn a_layer_from_yaml_text_matches_the_layer_loaded_from_a_directory() {
+        let dir = std::env::temp_dir().join(format!("oxy-layer-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("views")).expect("mkdir");
+        std::fs::write(dir.join("views/orders.view.yml"), ORDERS_VIEW).expect("view");
+        std::fs::write(dir.join("views/sales.topic.yml"), ORDERS_TOPIC).expect("topic");
+
+        let from_dir = load_layer_from_dir(&dir).expect("directory loads");
+        let from_text = build_layer_from_yaml(&[ORDERS_VIEW], &[ORDERS_TOPIC]).expect("text loads");
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(
+            serde_yaml::to_string(&from_text).expect("serialise"),
+            serde_yaml::to_string(&from_dir).expect("serialise"),
+        );
+        let measures: Vec<&str> = from_text.views[0]
+            .measures
+            .iter()
+            .flatten()
+            .map(|m| m.name.as_str())
+            .collect();
+        assert_eq!(measures, ["total", "__oxy_row_count"]);
+        assert_eq!(from_text.topics.as_ref().map(Vec::len), Some(1));
+    }
+
+    /// No topic documents is `None`, not `Some(vec![])`: airlayer reads the two
+    /// differently.
+    #[test]
+    fn a_layer_with_no_topic_text_has_no_topics() {
+        let layer = build_layer_from_yaml(&[ORDERS_VIEW], &[] as &[&str]).expect("loads");
+        assert!(layer.topics.is_none());
+    }
+
+    /// A document that does not parse is the error, not a skipped file.
+    #[test]
+    fn a_layer_from_text_reports_the_document_that_does_not_parse() {
+        assert!(build_layer_from_yaml(&["name: [unclosed"], &[] as &[&str]).is_err());
+    }
 
     /// A compiled filter value carrying a backslash, a quote, the two
     /// together, and a trailing backslash: before this, a quote-only escape

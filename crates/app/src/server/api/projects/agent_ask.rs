@@ -1,25 +1,22 @@
 //! `POST /api/projects/{project_id}/agents/{agent_id}/asks` (start)
-//! `GET  /api/projects/{project_id}/agents/asks/{run_id}` (poll)
 //!
-//! One-shot natural-language entry point for custom-app bundles.
-//! The bundle starts an analytics-agent run; the server kicks off
-//! the pipeline (verified-query routing, semantic compile,
-//! interpretation) and writes events into the existing
-//! `agentic_runs` + `agentic_run_events` tables. The bundle polls
-//! the GET endpoint until the run reaches a terminal state, then
-//! renders the final answer + structured artifacts.
+//! One-shot natural-language entry point for custom-app bundles. The bundle
+//! starts an analytics-agent run and reads its events from
+//! `GET …/agents/runs/{run_id}/events` (`agent_run_stream`) until a terminal
+//! one, or a clarifying question.
 //!
-//! Shape decision — **poll, not stream** — was made deliberately in
-//! the SDK extensions spec (see customer-apps.md § "SDK extensions").
-//! SSE is offered separately via `useAgentRun` for bundles that want
-//! token-by-token streaming. One-shot polling covers ~80% of real
-//! use cases at a fraction of the SDK weight.
+//! A live ask is **queued**: this handler checks the agent can start, records
+//! the question and the caller, seeds the run with its `queued` Global entry,
+//! and returns `202`. A driver anywhere on the fleet claims it and runs the
+//! analytics pipeline (`executor`), so the replica that took the request may
+//! go away without taking the ask with it. An ask on an app's staging host is
+//! still driven in this process — see `start`.
 //!
-//! Pipeline integration: this handler reuses
-//! `agentic_pipeline::PipelineBuilder` — the SAME entry point the
-//! workspace `/runs` route uses for the IDE's analytics surface. So
-//! verified-query routing, clarification suspension, knowledge cards,
-//! tool selection are all live in custom-app land too.
+//! Pipeline integration: both paths build from `pipeline::ask_pipeline`, on
+//! `agentic_pipeline::PipelineBuilder` — the SAME entry point the workspace
+//! `/runs` route uses for the IDE's analytics surface. So verified-query
+//! routing, clarification suspension, knowledge cards, tool selection are all
+//! live in custom-app land too.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -32,9 +29,7 @@ use axum::response::{IntoResponse, Response};
 use entity::{messages, organizations, threads};
 use futures::future::BoxFuture;
 use sea_orm::{ActiveValue, DatabaseConnection, EntityTrait, Set};
-use sentry::SentryFutureExt;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, watch};
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
@@ -49,7 +44,10 @@ pub mod caller;
 mod cancel;
 pub mod executor;
 mod pipeline;
+mod start;
 pub mod task;
+
+use start::{drive_here, queue_ask};
 
 pub use cancel::cancel_ask;
 
@@ -336,129 +334,48 @@ pub async fn start_ask(
         );
     }
 
-    // 6. Build the pipeline. Analytics domain only — builder is
-    //    workspace-scoped and not exposed to bundles.
-    //
-    //    The caller is recorded on the run in the insert that creates it:
-    //    whatever drives this run later without this request (recovery, after
-    //    a restart) rebuilds the context from that record instead of running
-    //    it on its own subject-less platform — see `caller`.
-    //
-    //    `ask_pipeline` is the one definition of an ask's pipeline; a driver
-    //    that claims a queued ask builds from it too (`executor`).
-    let builder = pipeline::ask_pipeline(
-        platform.clone(),
-        project_id,
-        &req.question,
-        Some(thread_uuid),
-        Some(Arc::clone(&agentic_state.schema_cache)),
-        &agent_id,
-    )
-    .run_metadata(
-        caller::RUN_CALLER_KEY,
-        caller::RunCaller::of(&gates_ctx).to_metadata(),
-    );
-
-    // 7. Start — inside the hold too, so the run row is stamped.
-    let started = match boxed(|| scope_if(hold, builder.start(&agentic_state.db))).await {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(
-                agent_id = %agent_id,
-                error = %e,
-                "custom-app ask: pipeline start failed"
-            );
-            // Distinguish "agent not found" so the SDK can surface a
-            // sharper error than a generic 500.
-            let msg = e.to_string();
-            if msg.contains("not found") || msg.contains("No such file") {
-                return err_with_hint(
-                    StatusCode::NOT_FOUND,
-                    msg,
-                    "agent_not_found",
-                    format!(
-                        "Expected `{agent_id}.agentic.yml` in the project root. \
-                         Check the agent id matches a file under your workspace; \
-                         agentic agents end in `.agentic.yml`, classic `.agent.yml` \
-                         agents aren't reachable from custom-app bundles."
-                    ),
-                );
+    // 6. Start. A live ask is queued: a driver anywhere on the fleet claims
+    //    it, so the replica that took this request may go away without taking
+    //    the ask with it. A staging ask is driven here, in the request's
+    //    process: its platform holds every write in this process, and a
+    //    driver elsewhere has no such hold (recovery retires a stamped run).
+    let run_id = match hold {
+        None => {
+            match boxed(|| {
+                queue_ask(
+                    &agentic_state.db,
+                    &platform,
+                    &gates_ctx,
+                    &req,
+                    thread_uuid,
+                    &agent_id,
+                )
+            })
+            .await
+            {
+                Ok(run_id) => run_id,
+                Err(resp) => return resp,
             }
-            // Not compiled yet, or the compile boundary did not answer:
-            // the same ask succeeds later, so say so rather than `500`.
-            let status = if e.source.is_retryable() {
-                StatusCode::SERVICE_UNAVAILABLE
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-            return err(status, msg);
+        }
+        Some(hold) => {
+            match boxed(|| {
+                drive_here(
+                    &agentic_state,
+                    platform,
+                    &gates_ctx,
+                    &req,
+                    thread_uuid,
+                    &agent_id,
+                    hold,
+                )
+            })
+            .await
+            {
+                Ok(run_id) => run_id,
+                Err(resp) => return resp,
+            }
         }
     };
-
-    let run_id = started.run_id.clone();
-
-    // 7. Hook up answer + cancel channels.
-    //
-    // `cancel_tx` is the live wire — `cancel::cancel_ask` signals
-    // through this watch channel (`RuntimeState::cancel`) to abort the
-    // coordinator's drive loop on the same instance. Without
-    // registering it, the cancel endpoint would only stamp the DB row
-    // and the drive loop would keep burning LLM budget until natural
-    // completion. A cancel that lands on ANOTHER replica reaches it within
-    // about 5 s through the durable flag, which the drive's driver-lease
-    // ticker polls (`agentic_runtime::lifecycle::driver_lease`).
-    //
-    // `answer_tx` is registered but the custom-app surface
-    // doesn't expose a `/answer` endpoint — clarification answers
-    // go through `useAgentRun`'s re-`ask()` (new run, same
-    // thread_id) rather than resuming a suspended run. The drive
-    // path still calls `RuntimeState::take_answer_rx` and holds
-    // the receiver, so the channel must exist or the runtime
-    // panics on the missing-receiver path. The unused tx side is
-    // dropped naturally when the spawned task exits.
-    let (answer_tx, answer_rx) = mpsc::channel::<String>(1);
-    let (cancel_tx, cancel_rx) = watch::channel(false);
-    agentic_state.register(&run_id, answer_tx, cancel_tx);
-
-    // 8. Drive in background via the coordinator. Same path the
-    //    workspace `/runs` route uses; HITL answers + cancellation
-    //    flow through `RuntimeState::answer_txs` / `cancel_txs`
-    //    registered above. Builder bridges are `None` because
-    //    analytics is the only domain reachable from bundles.
-    let db = agentic_state.db.clone();
-    let runtime_state = agentic_state.runtime.clone();
-    let schema_cache = Some(agentic_state.schema_cache.clone());
-    let builder_test_runner = agentic_state.builder_test_runner.clone();
-    let builder_app_runner = agentic_state.builder_app_runner.clone();
-    let router = agentic_state.router.clone();
-    let run_id_for_drive = run_id.clone();
-    let platform_drive = platform.clone();
-    // Built in `boxed`'s frame too: the drive's future is a large one.
-    tokio::spawn(boxed(|| {
-        async move {
-            agentic_pipeline::drive_with_coordinator(
-                started,
-                db,
-                runtime_state,
-                answer_rx,
-                cancel_rx,
-                platform_drive,
-                None, // no builder bridges — analytics-only surface
-                schema_cache,
-                builder_test_runner,
-                builder_app_runner,
-                router,
-            )
-            .await;
-            tracing::debug!(run_id = %run_id_for_drive, "custom-app ask: drive finished");
-        }
-        // The drive outlives the 202 this handler returns, so the request's hub
-        // is gone by the time the pipeline runs. It carries the bundle's prompt
-        // and the warehouse errors answering it, and nothing under
-        // `agentic_pipeline` has a `custom_apps` target for barrier 1 to read,
-        // so the tag has to travel with it (`middlewares::sentry_surface`).
-        .bind_hub(sentry::Hub::current())
-    }));
 
     // The thread is always provisioned now (§5), so return its id.
     let thread_id_str = thread_uuid.to_string();

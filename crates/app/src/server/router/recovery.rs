@@ -1318,6 +1318,28 @@ async fn tick_cloud(
             })
             .await
         else {
+            // Nothing is compiled for this workspace and this node cannot
+            // compile a working copy, so no context to run its work under. A
+            // commit compile is the one thing that needs none, and it is how a
+            // workspace gets its first revision without the Factory.
+            if has_commit_compile(&pending, ws_id)
+                && let Some(ctx) = build_commit_compile_ctx(ws_id, &path, db, preagg).await
+            {
+                total += drive_pending(
+                    db,
+                    runtime,
+                    ctx,
+                    schema_cache,
+                    builder_test_runner,
+                    builder_app_runner,
+                    router,
+                    Some(ws_id),
+                    preagg,
+                    custom_tasks,
+                    COMMIT_COMPILES_ONLY,
+                )
+                .await;
+            }
             continue;
         };
         total += drive_pending(
@@ -1336,6 +1358,25 @@ async fn tick_cloud(
         .await;
     }
     total
+}
+
+/// The only kind driven for a workspace with nothing compiled.
+const COMMIT_COMPILES_ONLY: agentic_pipeline::recovery::DrivePolicy =
+    agentic_pipeline::recovery::DrivePolicy::Exactly(&[
+        agentic_runtime::coordinator::COMPILE_GIT_SOURCE_TYPE,
+    ]);
+
+/// Whether `workspace_id` has a pending commit compile this node may drive.
+/// `pending` is already filtered by the node's own policy.
+fn has_commit_compile(
+    pending: &[agentic_runtime::crud::StuckRun],
+    workspace_id: uuid::Uuid,
+) -> bool {
+    pending.iter().any(|r| {
+        r.workspace_id == workspace_id
+            && r.source_type.as_deref()
+                == Some(agentic_runtime::coordinator::COMPILE_GIT_SOURCE_TYPE)
+    })
 }
 
 /// What the latency worker should do with a workspace it has just looked up.
@@ -1495,21 +1536,29 @@ fn build_custom_task_registry(
             Arc::new(executor::ProcedureRunExecutor { db: db.clone() }),
         );
     }
-    // A custom app's ask, once its start enqueues it. Registered a release
-    // ahead of that enqueue, so that by then no driver is left that would fail
-    // the kind as unknown: nothing queues one yet. Like the procedure run it
-    // builds its own context from the caller the request authenticated — read
-    // off the run row — and never from this driver's subject-less platform.
+    // A custom app's ask: every live one is queued by its start. Like the
+    // procedure run it builds its own context from the caller the request
+    // authenticated — read off the run row — and never from this driver's
+    // subject-less platform.
     {
         use crate::server::api::projects::agent_ask::{executor, task};
         reg.register(
             task::AGENT_ASK_KIND,
             Arc::new(executor::AgentAskExecutor {
                 db: db.clone(),
-                schema_cache,
+                schema_cache: schema_cache.clone(),
             }),
         );
     }
+    // A chat run (`/analytics`): every plain chat is queued by its start. It
+    // runs as the requester the run records, never as this driver.
+    reg.register(
+        agentic_pipeline::queued_run::CHAT_RUN_KIND,
+        Arc::new(crate::server::queued_analytics::chat::ChatRunExecutor {
+            db: db.clone(),
+            schema_cache,
+        }),
+    );
     // Same shape as health eval: one executor instance, workspace context
     // rebuilt fresh per task from `workspace_id` in the payload. See
     // `preagg_executor`'s module doc for why this replaced a single
@@ -1804,6 +1853,35 @@ async fn build_cloud_project_ctx(
         .map(Arc::new)
 }
 
+/// Why [`build_requester_base_ctx`] built nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RequesterBaseError {
+    /// Nothing is compiled and this node cannot compile: a compile was
+    /// queued, and the same build succeeds once it lands.
+    NotCompiled,
+    /// The workspace manager would not build — a config that will not load
+    /// here. Waiting does not change it.
+    Build,
+}
+
+/// The workspace context a driver builds for a run it drives *as its
+/// requester* (`queued_analytics::requester`): the tick's own construction —
+/// the promoted revision, the DB-first secrets manager, the database handle —
+/// before a subject and a role are put on it. No preagg context: the request
+/// this stands in for read through the app's, which a driver does not hold;
+/// a query then reads the warehouse instead of a rollup, never a wrong answer.
+///
+/// Says which of its two refusals it is, because a caller retries one and not
+/// the other — as the build itself decided it, never from a second look at
+/// state that can change in between.
+pub(crate) async fn build_requester_base_ctx(
+    workspace_id: uuid::Uuid,
+    path: &str,
+    db: &DatabaseConnection,
+) -> Result<OxyProjectContext, RequesterBaseError> {
+    build_cloud_project_ctx_result(workspace_id, path, db, &PreaggCacheCtx::default()).await
+}
+
 /// [`build_cloud_project_ctx`] before the `Arc`, so a caller that has more to
 /// attach (`build_workspace_ctx` resolves a semantic scan root) can do it
 /// without unwrapping one.
@@ -1813,6 +1891,18 @@ async fn build_cloud_project_ctx_inner(
     db: &DatabaseConnection,
     preagg: &PreaggCacheCtx,
 ) -> Option<OxyProjectContext> {
+    build_cloud_project_ctx_result(workspace_id, path, db, preagg)
+        .await
+        .ok()
+}
+
+/// [`build_cloud_project_ctx_inner`], saying why it built nothing.
+async fn build_cloud_project_ctx_result(
+    workspace_id: uuid::Uuid,
+    path: &str,
+    db: &DatabaseConnection,
+    preagg: &PreaggCacheCtx,
+) -> Result<OxyProjectContext, RequesterBaseError> {
     // Resolve the config the same way the request middleware does: the promoted
     // compiled revision first, the working copy only on a miss.
     //
@@ -1841,9 +1931,41 @@ async fn build_cloud_project_ctx_inner(
         );
         crate::server::api::middlewares::workspace_context::enqueue_lazy_compile(db, workspace_id)
             .await;
-        return None;
+        return Err(RequesterBaseError::NotCompiled);
     }
+    assemble_cloud_project_ctx(workspace_id, path, compiled_config, db, preagg).await
+}
 
+/// The context a node that has nothing compiled for a workspace drives that
+/// workspace's pending **commit compiles** under, and nothing else.
+///
+/// A commit compile reads no config from the context: it fetches its commit,
+/// and the dispatcher resolves everything else from the database. What it does
+/// need is a context that carries a database handle (the compile dispatcher is
+/// `None` without one), so this is [`build_cloud_project_ctx_inner`] minus the
+/// refusal to build one when nothing is compiled. It is never cached and never
+/// given other work: the caller drives it under `DrivePolicy::Exactly`, because
+/// an agent or a pipeline run against this empty config would fail where it
+/// should wait for the compile.
+async fn build_commit_compile_ctx(
+    workspace_id: uuid::Uuid,
+    path: &str,
+    db: &DatabaseConnection,
+    preagg: &PreaggCacheCtx,
+) -> Option<Arc<OxyProjectContext>> {
+    assemble_cloud_project_ctx(workspace_id, path, None, db, preagg)
+        .await
+        .ok()
+        .map(Arc::new)
+}
+
+async fn assemble_cloud_project_ctx(
+    workspace_id: uuid::Uuid,
+    path: &str,
+    compiled_config: Option<uuid::Uuid>,
+    db: &DatabaseConnection,
+    preagg: &PreaggCacheCtx,
+) -> Result<OxyProjectContext, RequesterBaseError> {
     let builder_init = WorkspaceBuilder::new(workspace_id)
         .with_working_copy(path, compiled_config, oxy::config::OnMissing::Empty)
         .await;
@@ -1856,7 +1978,7 @@ async fn build_cloud_project_ctx_inner(
                 error = %e,
                 "cloud recovery: failed to resolve workspace path, skipping"
             );
-            return None;
+            return Err(RequesterBaseError::Build);
         }
     };
     // Same DB-first secrets manager as the request middleware, so a
@@ -1872,7 +1994,7 @@ async fn build_cloud_project_ctx_inner(
                 error = %e,
                 "cloud recovery: failed to build WorkspaceManager, skipping"
             );
-            return None;
+            return Err(RequesterBaseError::Build);
         }
     };
     // Wire the DB handle exactly like the HTTP workspace middleware does.
@@ -1880,11 +2002,9 @@ async fn build_cloud_project_ctx_inner(
     // context, and `compile_dispatcher()` (like the anomaly tools) is `None`
     // unless `db` is set — without it every compile fails with
     // "compile_dispatcher() returned None". See OxyProjectContext::with_db.
-    Some(
-        OxyProjectContext::new(wm)
-            .with_db(Arc::new(db.clone()))
-            .with_preagg(preagg),
-    )
+    Ok(OxyProjectContext::new(wm)
+        .with_db(Arc::new(db.clone()))
+        .with_preagg(preagg))
 }
 
 /// Reconcile per-workspace `health_eval` schedule rows on startup. Removes the

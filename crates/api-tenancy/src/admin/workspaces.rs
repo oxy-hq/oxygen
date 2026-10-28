@@ -5,11 +5,13 @@ use std::collections::HashMap;
 
 use axum::extract::{OriginalUri, Path, Query};
 use axum::http::StatusCode;
-use axum::routing::{get, patch, post};
+use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use chrono::Utc;
 use entity::workspaces::WorkspaceStatus;
-use entity::{organizations, users, workspace_members, workspaces};
+use entity::{
+    org_members, organizations, users, workspace_factory_grants, workspace_members, workspaces,
+};
 use oxy::database::client::establish_connection;
 use oxy_app_core::pagination::{self, Paged, trim_overfetch};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
@@ -22,6 +24,7 @@ use uuid::Uuid;
 
 use oxy_app::surface::admin_scope as scope;
 use oxy_app_core::AppState;
+use oxy_app_core::audit::{self, RequestActor};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -37,6 +40,14 @@ pub(crate) fn router() -> Router<AppState> {
         .route(
             "/workspaces/{workspace_id}/transfer-org",
             post(transfer_org),
+        )
+        .route(
+            "/workspaces/{workspace_id}/factory-access",
+            get(list_factory_access),
+        )
+        .route(
+            "/workspaces/{workspace_id}/factory-access/{user_id}",
+            put(grant_factory_access).delete(revoke_factory_access),
         )
 }
 
@@ -127,8 +138,7 @@ pub async fn list_workspaces(
     }
 
     if let Some(needle) = q.search.as_ref().filter(|s| !s.trim().is_empty()) {
-        let like = format!("%{}%", needle.trim());
-        query = query.filter(workspaces::Column::Name.contains(like.as_str()));
+        query = query.filter(name_matches(needle));
     }
     if let Some(status_str) = q.status.as_ref().filter(|s| !s.is_empty()) {
         let status = parse_status(status_str)?;
@@ -424,6 +434,260 @@ pub async fn transfer_org(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// One person on the Factory access list of a workspace.
+#[derive(Serialize)]
+pub struct FactoryAccessMember {
+    pub user_id: Uuid,
+    pub email: String,
+    pub name: String,
+    /// Their role in the workspace's org. `None` for a person who holds a grant
+    /// but is no longer a member: the grant opens nothing (authz ANDs it with
+    /// membership), and is listed so an operator can remove it.
+    pub org_role: Option<String>,
+    pub granted: bool,
+    /// Who granted it, as an address or name. `None` when not granted, or when the
+    /// operator's account has since been deleted.
+    pub granted_by: Option<String>,
+    pub granted_at: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct FactoryAccessList {
+    /// Whether enforcement is on. Off, the grants below change nobody's access yet:
+    /// everyone still reaches the Factory.
+    pub enforced: bool,
+    pub members: Vec<FactoryAccessMember>,
+}
+
+/// `GET /admin/workspaces/{id}/factory-access` — the people who could be let into
+/// this workspace's Factory (every member of its org), and who has been.
+pub async fn list_factory_access(
+    actor: RequestActor,
+    Path(workspace_id): Path<Uuid>,
+) -> Result<Json<FactoryAccessList>, StatusCode> {
+    let db = establish_connection().await.map_err(internal)?;
+    let ws = workspaces::Entity::find_by_id(workspace_id)
+        .one(&db)
+        .await
+        .map_err(internal)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    // Scope: keyed by the workspace's OWNING org, resolved here, like every other
+    // `/admin/workspaces/{id}` route: a bounded grant reaches its own orgs' Factory
+    // access and no other's. A workspace with no org has no members to name, so it
+    // answers the 404 a missing row gets.
+    scope::deny_out_of_scope_opt(&db, &actor, ws.org_id).await?;
+    let org_id = ws.org_id.ok_or(StatusCode::NOT_FOUND)?;
+
+    let roles: HashMap<Uuid, String> = org_members::Entity::find()
+        .filter(org_members::Column::OrgId.eq(org_id))
+        .all(&db)
+        .await
+        .map_err(internal)?
+        .into_iter()
+        .map(|m| (m.user_id, m.role.as_str().to_string()))
+        .collect();
+    let grants: HashMap<Uuid, workspace_factory_grants::Model> =
+        workspace_factory_grants::Entity::find()
+            .filter(workspace_factory_grants::Column::WorkspaceId.eq(ws.id))
+            .all(&db)
+            .await
+            .map_err(internal)?
+            .into_iter()
+            .map(|g| (g.user_id, g))
+            .collect();
+
+    // Everyone named by either table, and the granting operators, in one query.
+    let mut user_ids: Vec<Uuid> = roles.keys().chain(grants.keys()).copied().collect();
+    user_ids.extend(grants.values().filter_map(|g| g.granted_by));
+    user_ids.sort();
+    user_ids.dedup();
+    let users_by_id: HashMap<Uuid, users::Model> = users::Entity::find()
+        .filter(users::Column::Id.is_in(user_ids))
+        .all(&db)
+        .await
+        .map_err(internal)?
+        .into_iter()
+        .map(|u| (u.id, u))
+        .collect();
+
+    let mut members: Vec<FactoryAccessMember> = roles
+        .keys()
+        .chain(grants.keys().filter(|id| !roles.contains_key(id)))
+        .filter_map(|user_id| {
+            let user = users_by_id.get(user_id)?;
+            let grant = grants.get(user_id);
+            Some(FactoryAccessMember {
+                user_id: *user_id,
+                email: user.label().to_string(),
+                name: user.name.clone(),
+                org_role: roles.get(user_id).cloned(),
+                granted: grant.is_some(),
+                granted_by: grant
+                    .and_then(|g| g.granted_by)
+                    .and_then(|id| users_by_id.get(&id))
+                    .map(|u| u.label().to_string()),
+                granted_at: grant.map(|g| g.granted_at.to_rfc3339()),
+            })
+        })
+        .collect();
+    // Granted first, then by name: the list is read to see who has it.
+    members.sort_by(|a, b| {
+        b.granted
+            .cmp(&a.granted)
+            .then_with(|| a.email.to_lowercase().cmp(&b.email.to_lowercase()))
+    });
+
+    Ok(Json(FactoryAccessList {
+        enforced: oxy_app::surface::factory_access::enforced(),
+        members,
+    }))
+}
+
+/// `PUT /admin/workspaces/{id}/factory-access/{user_id}` — let a member of the
+/// workspace's org into its Factory. Idempotent: granting twice is one grant, and
+/// the first grant's author and time stand.
+///
+/// 422 `not_an_org_member` for someone who is not a member of the workspace's org:
+/// the grant would open nothing, and a row that cannot work is a trap for the next
+/// operator who reads it as access.
+pub async fn grant_factory_access(
+    actor: RequestActor,
+    Path((workspace_id, user_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let to_status = |s: StatusCode| (s, Json(serde_json::json!({})));
+    let db = establish_connection()
+        .await
+        .map_err(|e| to_status(internal(e)))?;
+    let ws = workspaces::Entity::find_by_id(workspace_id)
+        .one(&db)
+        .await
+        .map_err(|e| to_status(internal(e)))?
+        .ok_or_else(|| to_status(StatusCode::NOT_FOUND))?;
+    // Scope: keyed by the workspace's OWNING org, resolved here, like every other
+    // `/admin/workspaces/{id}` route: a bounded grant reaches its own orgs' Factory
+    // access and no other's. A workspace with no org has no members to name, so it
+    // answers the 404 a missing row gets.
+    scope::deny_out_of_scope_opt(&db, &actor, ws.org_id)
+        .await
+        .map_err(to_status)?;
+    let org_id = ws.org_id.ok_or_else(|| to_status(StatusCode::NOT_FOUND))?;
+
+    let user = users::Entity::find_by_id(user_id)
+        .one(&db)
+        .await
+        .map_err(|e| to_status(internal(e)))?
+        .ok_or_else(|| to_status(StatusCode::NOT_FOUND))?;
+    let is_member = org_members::Entity::find()
+        .filter(org_members::Column::OrgId.eq(org_id))
+        .filter(org_members::Column::UserId.eq(user_id))
+        .count(&db)
+        .await
+        .map_err(|e| to_status(internal(e)))?
+        > 0;
+    if !is_member {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "error": "not_an_org_member",
+                "message": "Only a member of the workspace's organization can be let into its Factory.",
+            })),
+        ));
+    }
+
+    let existing = workspace_factory_grants::Entity::find_by_id((ws.id, user_id))
+        .one(&db)
+        .await
+        .map_err(|e| to_status(internal(e)))?;
+    if existing.is_some() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    // A concurrent grant loses the insert race on the primary key and is the same
+    // one grant: `on_conflict … do_nothing` rather than an error to an operator
+    // who clicked twice.
+    let granted = workspace_factory_grants::ActiveModel {
+        workspace_id: Set(ws.id),
+        user_id: Set(user_id),
+        granted_by: Set(Some(actor.id)),
+        granted_at: Set(Utc::now().fixed_offset()),
+    };
+    workspace_factory_grants::Entity::insert(granted)
+        .on_conflict_do_nothing_on([
+            workspace_factory_grants::Column::WorkspaceId,
+            workspace_factory_grants::Column::UserId,
+        ])
+        .exec(&db)
+        .await
+        .map_err(|e| to_status(internal(e)))?;
+
+    audit::record_best_effort(
+        &db,
+        audit::AuditEntry::for_request(&actor, "workspace.factory_access.granted")
+            .org(org_id)
+            .workspace(ws.id)
+            .target("user", user_id.to_string(), user.label().to_string()),
+    )
+    .await;
+    tracing::info!(
+        admin_email = %actor.label(),
+        target_id = %workspace_id,
+        user_id = %user_id,
+        action = "grant_factory_access",
+        "admin tenant action"
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `DELETE /admin/workspaces/{id}/factory-access/{user_id}` — take someone out of
+/// this workspace's Factory. Idempotent, and it removes a grant whose holder has
+/// left the org too.
+pub async fn revoke_factory_access(
+    actor: RequestActor,
+    Path((workspace_id, user_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, StatusCode> {
+    let db = establish_connection().await.map_err(internal)?;
+    let ws = workspaces::Entity::find_by_id(workspace_id)
+        .one(&db)
+        .await
+        .map_err(internal)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    // Scope: keyed by the workspace's OWNING org, resolved here, like every other
+    // `/admin/workspaces/{id}` route: a bounded grant reaches its own orgs' Factory
+    // access and no other's. A workspace with no org has no members to name, so it
+    // answers the 404 a missing row gets.
+    scope::deny_out_of_scope_opt(&db, &actor, ws.org_id).await?;
+    let org_id = ws.org_id.ok_or(StatusCode::NOT_FOUND)?;
+
+    let removed = workspace_factory_grants::Entity::delete_by_id((ws.id, user_id))
+        .exec(&db)
+        .await
+        .map_err(internal)?
+        .rows_affected;
+    if removed > 0 {
+        let label = users::Entity::find_by_id(user_id)
+            .one(&db)
+            .await
+            .map_err(internal)?
+            .map(|u| u.label().to_string())
+            .unwrap_or_else(|| user_id.to_string());
+        audit::record_best_effort(
+            &db,
+            audit::AuditEntry::for_request(&actor, "workspace.factory_access.revoked")
+                .org(org_id)
+                .workspace(ws.id)
+                .target("user", user_id.to_string(), label),
+        )
+        .await;
+        tracing::info!(
+            admin_email = %actor.label(),
+            target_id = %workspace_id,
+            user_id = %user_id,
+            action = "revoke_factory_access",
+            "admin tenant action"
+        );
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn load_members(
     db: &sea_orm::DatabaseConnection,
     workspace_id: Uuid,
@@ -499,10 +763,35 @@ fn map_destructive_db_err(e: sea_orm::DbErr) -> StatusCode {
     }
 }
 
+/// The workspace-name search: a substring match that ignores case, so "ledger" finds
+/// "Legacy Ledger". Postgres `LIKE` is case-sensitive, and the staff console and the
+/// "Open Factory…" picker both send what was typed, usually in lower case.
+fn name_matches(needle: &str) -> sea_orm::sea_query::SimpleExpr {
+    use sea_orm::sea_query::{Expr, ExprTrait, Func};
+    Expr::expr(Func::lower(Expr::col((
+        workspaces::Entity,
+        workspaces::Column::Name,
+    ))))
+    .like(format!("%{}%", needle.trim().to_lowercase()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use entity::workspace_members::WorkspaceRole;
+    use sea_orm::QueryTrait;
+
+    #[test]
+    fn the_name_search_ignores_case() {
+        let sql = workspaces::Entity::find()
+            .filter(name_matches("  Ledger "))
+            .build(DatabaseBackend::Postgres)
+            .to_string();
+        assert!(
+            sql.contains(r#"LOWER("workspaces"."name") LIKE '%ledger%'"#),
+            "{sql}"
+        );
+    }
     use std::str::FromStr;
 
     #[test]

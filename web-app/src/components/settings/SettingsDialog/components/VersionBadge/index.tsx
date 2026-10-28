@@ -1,9 +1,21 @@
 import { useEffect, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
+import useCurrentUser from "@/hooks/api/users/useCurrentUser";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { buildLabel, getVersion, type VersionInfo } from "@/services/api/version";
 
 /** The running build, named by its image tag; the popover has the commit behind it. */
-export const VersionBadge = () => {
+export const VersionBadge = () =>
+  useAppsFirstExperience() ? <AppsFirstVersionBadge /> : <VersionBadgeBody showBuildDetails />;
+
+/** Apps-first: the commit behind the build is Oxy staff's business; everyone else
+ *  gets the build's name and nothing that says "commit". */
+function AppsFirstVersionBadge() {
+  const { data: user } = useCurrentUser();
+  return <VersionBadgeBody showBuildDetails={!!(user?.is_owner || user?.is_app_admin)} />;
+}
+
+function VersionBadgeBody({ showBuildDetails }: { showBuildDetails: boolean }) {
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
 
   useEffect(() => {
@@ -36,6 +48,17 @@ export const VersionBadge = () => {
       minute: "2-digit"
     });
   };
+
+  if (!showBuildDetails) {
+    return (
+      <span
+        className='select-none font-mono text-muted-foreground text-xs'
+        data-testid='version-badge'
+      >
+        {buildLabel(versionInfo)}
+      </span>
+    );
+  }
 
   return (
     <Popover>
@@ -98,4 +121,4 @@ export const VersionBadge = () => {
       </PopoverContent>
     </Popover>
   );
-};
+}

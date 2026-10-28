@@ -421,6 +421,8 @@ airhouse-up:
     @echo "  # compiled read with needs_recompile. The serve node must NOT have it (it has"
     @echo "  # no working copy; --no-workers keeps it a pure reader). Mirrors oxy-dev, where"
     @echo "  # the StatefulSet sets OXY_INPROC_GLOBAL_WORKER=1 and the serve fleet strips it."
+    @echo "  # Both nodes need a shared encryption key and the two custom-app buckets, or they refuse to start:"
+    @echo "  #   set -a; source .env.airhouse; set +a   (needs 'just airhouse-up' for MinIO)"
     @echo "  OXY_ROLE=ide   OXY_INPROC_GLOBAL_WORKER=1 cargo run -p oxy-server -- serve --enterprise  # ide node (full FS + drains compiles; main :3000, internal :3001)"
     @echo "  OXY_ROLE=serve OXY_IDE_UPSTREAM=http://localhost:3000 cargo run -p oxy-server -- serve --enterprise --no-workers --port 3002 --internal-port 0   # stateless serve node"
     @echo "  just routing-check 3002                                                   # probe serve → IdeOnly shows Forwarded-Via: serve + Served-By: ide"

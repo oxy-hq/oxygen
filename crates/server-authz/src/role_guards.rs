@@ -602,6 +602,62 @@ where
     }
 }
 
+/// Caller may create a workspace in this org (`Action::WorkspaceProvision`): an
+/// org owner or admin **and** Oxy staff whose grant carries `OperatePlatform` over
+/// the org. A customer's own org admin is the first half only and is refused;
+/// customers do not build, Oxy sets their workspaces up.
+///
+/// Both halves are asked, in this order: the org-admin door first (an operator
+/// acting as a tenant clears it with the synthetic Owner role, so staff who are
+/// not members still pass), then the staff ring.
+#[derive(Debug)]
+pub struct OrgWorkspaceProvisioner(pub OrgContext);
+
+impl<S> FromRequestParts<S> for OrgWorkspaceProvisioner
+where
+    S: Send + Sync,
+{
+    type Rejection = StatusCode;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            let ctx = org_admin(parts, ORG_ADMIN_LABEL, authz::Action::MemberSetRole).await?;
+            if may_provision(parts, &ctx).await {
+                Ok(OrgWorkspaceProvisioner(ctx))
+            } else {
+                Err(StatusCode::FORBIDDEN)
+            }
+        }
+    }
+}
+
+/// The staff half of [`OrgWorkspaceProvisioner`]. `existing_allow` is the shipped
+/// staff door (what the `/admin` console grants today); the ring subtracts an App
+/// Operator and a grant whose scope does not reach this org, as for previews.
+async fn may_provision(parts: &mut Parts, ctx: &OrgContext) -> bool {
+    let Some(caller) = crate::Caller::from_extensions(&parts.extensions) else {
+        return false;
+    };
+    let legacy = match oxy_platform::db::establish_connection().await {
+        Ok(db) => crate::globals::platform_standing(&db, &caller)
+            .await
+            .is_staff(),
+        // No database, no standing we can vouch for: creation fails closed.
+        Err(_) => false,
+    };
+    authz::enforce_guard(
+        parts,
+        "guard.org_workspace_provisioner",
+        authz::Action::WorkspaceProvision,
+        authz::Resource::org(ctx.org.id),
+        legacy,
+    )
+    .await
+}
+
 /// The [`WorkspacePreviewer`] decision as a boolean, for the request middleware
 /// that decides whether to honour a `?branch=` preview pin. One function, so the
 /// API and the pin can never disagree about who may preview.

@@ -3,7 +3,6 @@ import type {
   BulkCreateSecretsResponse,
   CreateSecretRequest,
   CreateSecretResponse,
-  EnvSecret,
   Secret,
   SecretListResponse,
   UpdateSecretRequest
@@ -71,14 +70,6 @@ export class SecretService {
    */
   static async deleteSecret(projectId: string, id: string): Promise<void> {
     await apiClient.delete(`/${projectId}/secrets/${id}`);
-  }
-
-  /**
-   * List environment-variable-referenced secrets from config.yml
-   */
-  static async listEnvSecrets(projectId: string): Promise<EnvSecret[]> {
-    const response = await apiClient.get<EnvSecret[]>(`/${projectId}/secrets/env`);
-    return response.data;
   }
 
   /**

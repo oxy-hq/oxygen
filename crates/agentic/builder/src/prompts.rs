@@ -1,7 +1,7 @@
 //! Prompt constants and shared prompt-formatting helpers for the builder
 //! agent.
 //!
-//! Domain knowledge — the shape of semantic views, topics, data apps, and
+//! Domain knowledge — the shape of semantic views, topics, and
 //! agents — lives in vendored reference documents under
 //! `crates/agentic/builder/knowledge/` and is embedded here via
 //! [`include_str!`]. Keeping it out of the task-specific prompt strings
@@ -23,10 +23,6 @@ pub(crate) const VIEW_TEMPLATE: &str = include_str!("../knowledge/view-template.
 /// Verbatim template for a semantic topic file.
 pub(crate) const TOPIC_TEMPLATE: &str = include_str!("../knowledge/topic-template.yml");
 
-/// Reference for authoring `.app.yml` files — tasks, displays, data refs.
-pub(crate) const APP_BUILDER_REFERENCE: &str =
-    include_str!("../knowledge/app-builder-reference.md");
-
 /// Reference for authoring `.agentic.yml` files — multi-step FSM agents,
 /// per-state overrides, validation rules, semantic engine wiring.
 pub(crate) const AGENTIC_BUILDER_REFERENCE: &str =
@@ -45,7 +41,6 @@ pub(crate) const AGENTIC_TEMPLATE: &str = include_str!("../knowledge/agentic-tem
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum KnowledgeCard {
     SemanticLayer,
-    AppBuilder,
     AgenticBuilder,
 }
 
@@ -55,7 +50,6 @@ impl KnowledgeCard {
     pub fn slug(self) -> &'static str {
         match self {
             KnowledgeCard::SemanticLayer => "semantic-layer",
-            KnowledgeCard::AppBuilder => "app-builder",
             KnowledgeCard::AgenticBuilder => "agentic-builder",
         }
     }
@@ -65,19 +59,14 @@ impl KnowledgeCard {
     pub fn from_slug(s: &str) -> Option<Self> {
         match s {
             "semantic-layer" => Some(KnowledgeCard::SemanticLayer),
-            "app-builder" => Some(KnowledgeCard::AppBuilder),
             "agentic-builder" => Some(KnowledgeCard::AgenticBuilder),
             _ => None,
         }
     }
 
     /// Every variant, in canonical order.
-    pub fn all() -> [KnowledgeCard; 3] {
-        [
-            KnowledgeCard::SemanticLayer,
-            KnowledgeCard::AppBuilder,
-            KnowledgeCard::AgenticBuilder,
-        ]
+    pub fn all() -> [KnowledgeCard; 2] {
+        [KnowledgeCard::SemanticLayer, KnowledgeCard::AgenticBuilder]
     }
 
     /// Section header used when the card is composed into a system
@@ -85,7 +74,6 @@ impl KnowledgeCard {
     fn section_header(self) -> &'static str {
         match self {
             KnowledgeCard::SemanticLayer => "## Semantic model reference",
-            KnowledgeCard::AppBuilder => "## Data app reference",
             KnowledgeCard::AgenticBuilder => "## Agentic agent reference",
         }
     }
@@ -106,11 +94,6 @@ impl KnowledgeCard {
                 view = strip_vendoring_header(VIEW_TEMPLATE),
                 topic = strip_vendoring_header(TOPIC_TEMPLATE),
             ),
-            KnowledgeCard::AppBuilder => format!(
-                "{header}\n\n{card}",
-                header = self.section_header(),
-                card = strip_vendoring_header(APP_BUILDER_REFERENCE),
-            ),
             KnowledgeCard::AgenticBuilder => format!(
                 "{header}\n\n{card}\n\n\
                  ### Agentic template (`*.agentic.yml`)\n\n\
@@ -123,7 +106,7 @@ impl KnowledgeCard {
     }
 }
 
-/// Always-on index of the available reference cards.  Lists the three
+/// Always-on index of the available reference cards.  Lists the
 /// cards by slug so the model knows which name to pass to
 /// `lookup_reference`.  Hand-authored — kept short on purpose.
 pub(crate) const CARD_INDEX: &str = "## Reference cards
@@ -134,9 +117,6 @@ file you have not already loaded the schema for in this conversation.
 
 - `semantic-layer` — for `*.view.yml` and `*.topic.yml`.  Entities, \
   dimensions, measures, joins, default filters.
-- `app-builder` — for `*.app.yml`.  Tasks (`semantic_query` / \
-  `execute_sql`), displays (table / chart / markdown), `view__field` \
-  column refs, dialect-specific SQL.
 - `agentic-builder` — for `*.agentic.yml`.  Multi-step FSM analytics \
   agent: clarifying / specifying / solving / executing / interpreting.";
 
@@ -153,7 +133,7 @@ here, the card wins.
   is `boolean` or `number`.  Bare booleans/numbers fail YAML \
   deserialization and break workspace load.
 - `name:` fields use `snake_case` everywhere — views, topics, \
-  dimensions, measures, entities, app tasks.
+  dimensions, measures, entities.
 - Always read an existing file before editing it; never guess content.
 - Use `write_file` for new files or full rewrites, `edit_file` (with \
   exact-match `old_string` / `new_string`) for targeted edits, and \
@@ -162,14 +142,13 @@ here, the card wins.
   way.
 - After a YAML change is accepted, call `validate_project` on the \
   modified file to confirm it is schema-valid.
-- App `display.x` / `display.y` / `display.series` reference output \
-  columns with double-underscore: `view__field` (NOT `view.field`).  \
-  Single-dot is for `tasks[].dimensions` / `measures` only.
-- When a `time_dimensions` entry sets `granularity: <g>`, the output \
-  column is `view__field__<g>` — chart `x:` must include the suffix.
-- Never put a raw UUID/FK on a chart axis.  Either declare a `foreign` \
-  entity on the FK side and pull through the joined view's name \
-  dimension, or fall back to `execute_sql` with an explicit JOIN.
+- Data Apps (`*.app.yml`) are retired.  Never create one, and never \
+  offer to: a dashboard or app is a custom app, which engineers \
+  build and publish with `oxyc publish`.  Existing `.app.yml` files \
+  may be read and, on request, edited.
+- A foreign key shown to a person needs a label: declare a `foreign` \
+  entity on the FK side and pull the joined view's name dimension, or \
+  fall back to `execute_sql` with an explicit JOIN.
 - Do not add `# yaml-language-server: $schema=...` directives. \
   Exception: `.agentic.yml` files may carry this directive on line 1 — \
   preserve it if present, but do not add it unless authoring a brand \
@@ -274,7 +253,6 @@ mod tests {
         assert!(!SEMANTIC_LAYER_REFERENCE.is_empty());
         assert!(!VIEW_TEMPLATE.is_empty());
         assert!(!TOPIC_TEMPLATE.is_empty());
-        assert!(!APP_BUILDER_REFERENCE.is_empty());
         assert!(!AGENTIC_BUILDER_REFERENCE.is_empty());
         assert!(!AGENTIC_TEMPLATE.is_empty());
 
@@ -384,7 +362,7 @@ mod tests {
         assert!(out.contains("Semantic model reference"));
         assert!(out.contains("View template"));
         assert!(out.contains("Topic template"));
-        assert!(out.contains("Data app reference"));
+        assert!(!out.contains("Data app reference"));
         assert!(out.contains("Agentic agent reference"));
         assert!(out.contains("Agentic template"));
         // Structural content survives.
@@ -431,7 +409,7 @@ mod tests {
             "edit_file",
             "delete_file",
             "validate_project",
-            "view__field",
+            ".app.yml",
             "yaml-language-server",
         ] {
             assert!(
@@ -454,7 +432,7 @@ mod tests {
         );
         assert!(out.contains("## Reference cards"));
         assert!(out.contains("## Cross-cutting rules"));
-        // None of the four full cards should bleed in.
+        // None of the full cards should bleed in.
         assert!(!out.contains("entities:"));
         assert!(!out.contains("base_view:"));
     }
@@ -467,7 +445,6 @@ mod tests {
         assert!(out.contains("entities:"));
         assert!(out.contains("base_view:"));
         // Other cards are NOT included.
-        assert!(!out.contains("## Data app reference"));
         assert!(!out.contains("## Agentic agent reference"));
     }
 
@@ -475,8 +452,8 @@ mod tests {
     fn reference_context_card_order_is_stable() {
         // Cache-stability invariant: the cached system prefix must not
         // depend on the order callers happen to pass cards in.
-        let a = reference_context(&[KnowledgeCard::AppBuilder, KnowledgeCard::SemanticLayer]);
-        let b = reference_context(&[KnowledgeCard::SemanticLayer, KnowledgeCard::AppBuilder]);
+        let a = reference_context(&[KnowledgeCard::AgenticBuilder, KnowledgeCard::SemanticLayer]);
+        let b = reference_context(&[KnowledgeCard::SemanticLayer, KnowledgeCard::AgenticBuilder]);
         assert_eq!(a, b, "reference_context must sort cards canonically");
     }
 
@@ -495,7 +472,6 @@ mod tests {
         for cards in [
             vec![],
             vec![KnowledgeCard::SemanticLayer],
-            vec![KnowledgeCard::AppBuilder],
             vec![KnowledgeCard::AgenticBuilder],
             KnowledgeCard::all().to_vec(),
         ] {

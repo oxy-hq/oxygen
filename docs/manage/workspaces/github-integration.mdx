@@ -40,7 +40,7 @@ The same GitHub App handles both user authentication and repository access. This
    | **GitHub App name** | e.g. `my-company-oxy` |
    | **Homepage URL** | Your Oxygen instance URL (e.g. `https://app.example.com`) |
    | **Callback URL** | `https://your-domain.com/github/callback` |
-   | **Webhook** | Uncheck "Active" — Oxygen does not use GitHub webhooks |
+   | **Webhook** | Optional. To compile a repository's default branch when it is pushed, tick "Active", set **Webhook URL** to `https://your-domain.com/api/webhooks/github` and **Webhook secret** to the value you will set as `GITHUB_WEBHOOK_SECRET`. Otherwise uncheck "Active" |
    | **Where can this GitHub App be installed?** | "Any account" (or "Only on this account" for org-only) |
 
 3. Click **Create GitHub App**.
@@ -68,7 +68,7 @@ After creating the app, go to **Permissions & Events** and set:
   Without **Organization → Members: Read**, only GitHub org owners and admins will be able to connect their account. Regular org members will see "GitHub App not installed" even after the app has been installed on the org. Enable this permission and re-install the app if this happens.
 </Warning>
 
-Leave all other permissions at "No access" and save.
+Leave all other permissions at "No access" and save. If you turned the webhook on, open **Subscribe to events** on the same page and tick **Push**.
 
 ---
 
@@ -115,6 +115,9 @@ GITHUB_CLIENT_SECRET=abc123...
 # HMAC secret for signing OAuth state and selection tokens
 # Generate once and store permanently — changing this invalidates all in-flight OAuth flows
 GITHUB_STATE_SECRET=$(openssl rand -hex 32)
+
+# Only if the webhook is active: the same secret as in the App's settings
+GITHUB_WEBHOOK_SECRET=$(openssl rand -hex 32)
 ```
 
 <Warning>

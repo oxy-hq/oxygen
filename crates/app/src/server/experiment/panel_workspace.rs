@@ -74,13 +74,15 @@ pub(super) async fn open(db: &DatabaseConnection, ctx: &PanelContext) -> Result<
     let scan = resolve_compiled_scan_source(&manager)
         .await
         .map_err(|e| workspace_fault("resolving the semantic model", e.message()))?;
-    let scan_path = scan.scan_path.clone();
+    // `ScanDir`: the compiled model in memory or a directory on disk (#3833).
+    let scan_dir = scan.scan.clone();
     let source_revision = scan.source_revision(&manager);
-    let layer =
-        tokio::task::spawn_blocking(move || oxy_airlayer_compat::load_layer_from_dir(&scan_path))
-            .await
-            .map_err(|e| workspace_fault("loading the semantic model", e))?
-            .map_err(|e| workspace_fault("loading the semantic model", e))?;
+    let layer = tokio::task::spawn_blocking(move || {
+        crate::server::api::metric_tree::load_layer_at(&scan_dir)
+    })
+    .await
+    .map_err(|e| workspace_fault("loading the semantic model", e))?
+    .map_err(|e| workspace_fault("loading the semantic model", format!("{e:?}")))?;
     drop(scan); // the layer is parsed; nothing reads the scan directory again
 
     let databases = workspace_databases(&manager);

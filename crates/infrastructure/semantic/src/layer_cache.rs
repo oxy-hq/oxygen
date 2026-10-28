@@ -19,7 +19,7 @@
 //! * the **working copy** — what is checked out, uncommitted edits included.
 //!   The world-model handlers scan it directly
 //!   (`config_manager.semantics_scan_path()`).
-//! * the **compile boundary** — the promoted, immutable revision materialised
+//! * the **compile boundary** — the promoted, immutable revision read
 //!   out of Postgres, which `/semantic`, metric-tree and preagg reach through
 //!   `semantic::resolve_query_scan_source`.
 //!
@@ -35,8 +35,8 @@
 //! Same trap as the engine cache: a node holding a working copy is
 //! `Origin::Compiled` too, so `ConfigManager::revision_id()` answers `Some(R)`
 //! for a handler reading `semantics_scan_path()` AND for one reading a
-//! materialised tempdir of revision R. Callers state their source; they never
-//! infer it. `ScanDir::is_materialised()` is what makes that answerable, and
+//! compiled scan of revision R. Callers state their source; they never
+//! infer it. `ScanDir::is_compiled()` is what makes that answerable, and
 //! `QueryScanSource::source_revision()` is where the query handlers get it.
 //!
 //! ## Freshness and size
@@ -84,7 +84,7 @@ impl LayerKey {
         }
     }
 
-    /// A layer read from a materialised compiled revision.
+    /// A layer read from a compiled revision.
     pub fn revision(workspace_id: Uuid, revision_id: Uuid) -> Self {
         Self {
             workspace_id,

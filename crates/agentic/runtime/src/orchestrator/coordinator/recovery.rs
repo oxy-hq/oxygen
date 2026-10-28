@@ -322,6 +322,9 @@ impl Coordinator {
                 // Coordinator before driving it.
                 completion_policy: Arc::new(super::DefaultCompletionPolicy),
                 delegation_resolver: Arc::new(super::DefaultDelegationResolver),
+                ends_at_root_human_input: false,
+                unrecorded_suspensions: Default::default(),
+                parked_root: None,
             },
             pending_resumes,
         ))

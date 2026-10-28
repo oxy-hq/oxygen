@@ -45,6 +45,10 @@ export const useAuth = () => {
   return context;
 };
 
+/** `useAuth` for code that must also run outside an `AuthProvider` (a hook a test
+ *  renders on its own): `undefined` there instead of a throw. */
+export const useOptionalAuth = () => useContext(AuthContext);
+
 interface AuthProviderProps {
   children: React.ReactNode;
   authConfig: AuthConfigResponse;

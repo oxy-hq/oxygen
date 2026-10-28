@@ -20,6 +20,8 @@
 //! | GET    | `/analytics/runs/:id/events`  | SSE stream (live + catch-up)         |
 //! | POST   | `/analytics/runs/:id/answer`  | Deliver answer to a suspended run    |
 //! | POST   | `/analytics/runs/:id/cancel`  | Cancel a running or suspended run    |
+//! | POST   | `/analytics/builder/runs`     | Start a Builder or onboarding run    |
+//! | POST   | `/analytics/builder/runs/:id/answer` | Answer a suspended Builder run |
 
 pub mod coordinator;
 pub mod db;
@@ -120,39 +122,87 @@ pub fn router_roles() -> &'static [RouteRoleDecl] {
             path: "/coordinator/queue",
             role: FleetOk,
         },
-        // Postgres rows too, but each row's status is overlaid from
-        // `RuntimeState::statuses` and the map WINS. It is right only in the
-        // process driving the run: a replica that accepted an airway submit
-        // `register`s the run `Running` and is never told it ended, so two
-        // replicas would answer differently. Pinned until the overlay goes.
+        // Postgres rows, answered from the row's own status
+        // (`user_facing_status`). They used to be overlaid from
+        // `RuntimeState::statuses`, which is right only in the process driving
+        // the run; every coordinator transition writes Postgres first, so the
+        // row is never behind but between a cancel request and the driver
+        // acknowledging it.
         RouteRoleDecl {
             method: "GET",
             path: "/coordinator/active-runs",
-            role: IdeOnly,
+            role: FleetOk,
         },
         RouteRoleDecl {
             method: "GET",
             path: "/coordinator/runs/{id}/tree",
-            role: IdeOnly,
+            role: FleetOk,
         },
-        // Writes Postgres and enqueues a `Global` task, but when an airway
-        // run's task was reaped it re-resolves the spec and reports a ref the
-        // promoted revision lacks as a 500 — where `POST /agentic-airway/runs`
-        // answers the retryable 503 and asks for a compile.
+        // Writes Postgres and enqueues a `Global` task; a reaped airway run is
+        // re-seeded through the start route's own `submit_airway_run`, so a
+        // ref the promoted revision lacks is the same retryable 503.
         RouteRoleDecl {
             method: "POST",
             path: "/coordinator/runs/{id}/retry",
-            role: IdeOnly,
+            role: FleetOk,
         },
-        // SSE over `RuntimeState::statuses` and nothing else: a replica that
-        // drives no run would stream an empty snapshot for ever.
+        // SSE tailing the workspace's active runs in `agentic_runs`.
         RouteRoleDecl {
             method: "GET",
             path: "/coordinator/live",
+            role: FleetOk,
+        },
+        // A chat: started, answered, cancelled and streamed by any pod. A run
+        // reads the promoted revision on every role (the agent, the semantic
+        // model and verified queries through the compile boundary, its context
+        // root materialised from it), so none of this needs the working copy.
+        // The start is queued while `queued_chat_and_workflow_starts` is on,
+        // and driven in this process while it is off. An answer finds the
+        // driver's channel here, or continues the run from its checkpoint; a
+        // cancel is the durable flag the driver's lease polls; the stream polls
+        // the event log when another process drives. A Builder start or a
+        // Builder answer on a process without the files is refused with the
+        // Builder route's name (`routes::run::builder_needs_the_factory`).
+        RouteRoleDecl {
+            method: "POST",
+            path: "/runs",
+            role: FleetOk,
+        },
+        RouteRoleDecl {
+            method: "POST",
+            path: "/runs/{id}/answer",
+            role: FleetOk,
+        },
+        RouteRoleDecl {
+            method: "POST",
+            path: "/runs/{id}/cancel",
+            role: FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/runs/{id}/events",
+            role: FleetOk,
+        },
+        // The Builder copilot and onboarding: they edit workspace files, and a
+        // Builder run is driven in the memory of the process that started it,
+        // so its start and its answers go to the Factory. Undoing a Builder
+        // edit writes the working copy too.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/builder/runs",
             role: IdeOnly,
         },
-        // Everything else executes a run in-process against the local connector,
-        // or streams one that is executing.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/builder/runs/{id}/answer",
+            role: IdeOnly,
+        },
+        RouteRoleDecl {
+            method: "POST",
+            path: "/runs/{id}/revert-file-changes",
+            role: IdeOnly,
+        },
+        // A route added without a declaration of its own.
         RouteRoleDecl {
             method: "*",
             path: "/{*rest}",
@@ -168,6 +218,13 @@ where
 {
     Router::new()
         .route("/runs", post(routes::create_run))
+        // The same handlers, on routes the role manifest pins to the Factory:
+        // what the IDE's Builder copilot and onboarding call. See `router_roles`.
+        .route("/builder/runs", post(routes::create_builder_run))
+        .route(
+            "/builder/runs/{id}/answer",
+            post(routes::answer_builder_run),
+        )
         .route("/runs/{id}/events", get(routes::stream_events))
         .route("/runs/{id}/answer", post(routes::answer_run))
         .route("/runs/{id}/cancel", post(routes::cancel_run))
@@ -230,8 +287,41 @@ pub fn automation_router_roles() -> &'static [RouteRoleDecl] {
             path: "/threads/{thread_id}/run",
             role: FleetOk,
         },
-        // Starting a run, cancelling one, streaming a live one, and reading
-        // automation FILES all need the node driving the run.
+        // Starting a run, cancelling one and streaming one, from any pod. The
+        // automation's YAML resolves through the compile boundary
+        // (`resolve_automation_yaml` answers from the pinned revision on every
+        // role), a start is queued while `queued_chat_and_workflow_starts` is
+        // on and driven in this process while it is off, a cancel is the
+        // durable flag, and a stream polls the event log when another process
+        // drives.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/runs",
+            role: FleetOk,
+        },
+        RouteRoleDecl {
+            method: "POST",
+            path: "/runs/{id}/cancel",
+            role: FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/runs/{id}/events",
+            role: FleetOk,
+        },
+        // The automation list and one automation's YAML, from the revision's
+        // `automation_definitions` rows on a pod with no working copy.
+        RouteRoleDecl {
+            method: "GET",
+            path: "/files",
+            role: FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/files/{path_b64}",
+            role: FleetOk,
+        },
+        // A route added without a declaration of its own.
         RouteRoleDecl {
             method: "*",
             path: "/{*rest}",
@@ -359,13 +449,6 @@ pub fn airway_router_roles() -> &'static [RouteRoleDecl] {
             path: "/resume-backfill",
             role: IdeOnly,
         },
-        // Legacy pipeline lister; the web app uses oxy-app's `FleetOk`
-        // `/airway-pipelines`, and this one 500s on a boundary fault off-disk.
-        RouteRoleDecl {
-            method: "GET",
-            path: "/files",
-            role: IdeOnly,
-        },
         // Authoring-only wizard call that dials a caller-supplied host; no
         // reason to let every public replica make that connection.
         RouteRoleDecl {
@@ -416,8 +499,6 @@ where
         // Reuse the domain-agnostic SSE handler.
         .route("/runs/{id}/events", get(routes::stream_events))
         .route("/runs/{id}/cancel", post(routes::cancel_airway_run))
-        // Populates the Schedules UI target picker for airway schedules.
-        .route("/files", get(routes::list_airway_files))
         // Live source introspection for the New Pipeline table picker.
         .route("/sources/discover", post(routes::discover_source_tables))
         // Drop a pipeline's destination tables + clear its stored schema/cursor

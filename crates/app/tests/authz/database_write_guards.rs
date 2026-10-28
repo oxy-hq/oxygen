@@ -3,7 +3,7 @@
 //! `POST /{ws}/databases/test-connection` builds a throwaway database config from
 //! the caller's request. For BigQuery that writes `<name>.key` into the working
 //! copy with the caller's content; for a password warehouse it may store a
-//! temporary secret. `POST /{ws}/databases/build` runs an Omni sync and a
+//! temporary secret. `POST /{ws}/databases/build` runs a
 //! reindex. `workspace_middleware` proves a caller may *open* the workspace, not
 //! that they may change it, and neither handler named a role guard, so any
 //! member could do either, a read-only token included.
@@ -42,8 +42,7 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-/// One local warehouse, so the working copy loads; no integrations, so the
-/// build's Omni sync has nothing to do.
+/// One local warehouse, so the working copy loads; no integrations.
 const CONFIG: &str =
     "databases:\n  - name: local\n    type: duckdb\n    dataset: .db/\nmodels: []\n";
 

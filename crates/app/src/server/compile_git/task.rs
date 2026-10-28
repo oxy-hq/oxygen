@@ -3,7 +3,9 @@
 
 use std::time::Instant;
 
-use agentic_core::delegation::TaskSpec;
+use std::time::Duration;
+
+use agentic_core::delegation::{BackoffStrategy, RetryPolicy, TaskPolicy, TaskSpec};
 use agentic_runtime::coordinator::COMPILE_GIT_SOURCE_TYPE;
 use agentic_runtime::orchestrator::crud::queue::TaskScope;
 use oxy_compile::RevisionKind;
@@ -12,7 +14,7 @@ use sea_orm::{DatabaseConnection, DbErr};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::{CommitSource, CompileGitError, FetchedTree, fetch};
+use super::{CommitSource, CompileGitError, FetchedTree, RETRYABLE_MARKER, fetch};
 
 /// Queue a compile of commit `git_sha` as a `kind` revision, for any pod to
 /// run. Returns the task id, which is also the run id.
@@ -75,6 +77,33 @@ pub async fn enqueue(
     )
     .await?;
     Ok(task_id)
+}
+
+/// How an automatically queued commit compile retries a failure that may pass:
+/// GitHub, the token mint, or Postgres being briefly unavailable.
+///
+/// The queue honours it, not a loop of ours: the failed claim goes back to
+/// `queued` behind its backoff, on the same row and run, so the compile is
+/// still "in flight" to the deduped enqueue the whole time and no trigger
+/// queues a second one beside it. Five retries after 15 s, 30 s, 1 m, 2 m and
+/// 4 m is about 8 minutes of outage ridden out; after that the task fails for
+/// good and the failure backoff of the enqueue takes over.
+///
+/// Matches only [`RETRYABLE_MARKER`]. A failure a person has to fix (no remote,
+/// a refused token, a commit GitHub does not have, an oversized tree) is final
+/// on the first attempt, and so is a compile that ran and failed.
+pub fn retry_policy() -> TaskPolicy {
+    TaskPolicy {
+        retry: Some(RetryPolicy {
+            max_retries: 5,
+            backoff: BackoffStrategy::Exponential {
+                initial_delay_ms: Duration::from_secs(15).as_millis() as u64,
+                max_delay_ms: Duration::from_secs(4 * 60).as_millis() as u64,
+            },
+            retry_on: vec![format!("{RETRYABLE_MARKER}]")],
+        }),
+        fallback_targets: Vec::new(),
+    }
 }
 
 /// Fetch the commit a claimed `compile_git` task names. `Err` is the task's

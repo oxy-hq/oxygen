@@ -327,6 +327,7 @@ impl PrincipalFacts {
         self.admin_orgs.clear();
         self.owned_orgs.clear();
         self.ws_admin_override.clear();
+        self.factory_workspaces.clear();
         self.app_memberships.clear();
         self.app_admin_memberships.clear();
         self.frontline_orgs.clear();

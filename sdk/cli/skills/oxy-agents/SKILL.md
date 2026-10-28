@@ -26,8 +26,8 @@ the pipeline. You do not define its states or its tools.
   copy one from an old workspace.
 - **There is no `kind:` field.** Every `.agentic.yml` runs the same analytics
   pipeline. A file named `app_builder.agentic.yml` is not special. Generating
-  `.app.yml` data apps, views or agent files is the in-product **Builder Agent**
-  (chat Build mode), and no `.agentic.yml` configures it.
+  views or agent files is the in-product **Builder Agent** (chat Build mode),
+  and no `.agentic.yml` configures it.
 - **Automations are a different file.** Deterministic multi-step work is an
   automation, `.automation.yml` (`.procedure.yml` still works). `.workflow.yml`
   is no longer recognised at all. An agent can *run* an automation it finds in
@@ -275,8 +275,7 @@ oxy test agents/sales.agentic.test.yml          # LLM-judged evals
   usefully resumed from the CLI, because `oxy agentic answer` only marks the
   run as running and does not deliver the text. Ask a more specific question,
   or continue in the app.
-- **`oxy build` does not check agents.** It builds search embeddings and syncs
-  integrations.
+- **`oxy build` does not check agents.** It does nothing any more.
 - **`oxy test`** runs `.test.yml` evals against an agent and scores each case
   with an LLM judge. The format and flags are in
   [references/quick-reference.md](references/quick-reference.md).

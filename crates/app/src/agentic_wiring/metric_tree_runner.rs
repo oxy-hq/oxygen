@@ -12,7 +12,6 @@
 //! type is synchronous; the wrapping `spawn_blocking` is provided by the
 //! caller (HTTP handler) so the runtime thread isn't blocked.
 
-use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use agentic_analytics::{MetricTreeRunner, MetricTreeRunnerError};
@@ -39,7 +38,7 @@ use crate::server::api::metric_tree::OPPORTUNITY_MIN_SUPPORT;
 use crate::server::preagg_context::RollupFreshness;
 use crate::server::previews::hold::Session;
 use crate::server::previews::request_hold::hold_if;
-use oxy::config::{ReadOnly, WorkingCopy};
+use oxy::config::{ReadOnly, ScanDir, WorkingCopy};
 
 /// Adapter that exposes Oxy's semantic-model + connector pool as a
 /// [`MetricTreeRunner`].
@@ -94,12 +93,11 @@ pub struct OxyMetricTreeRunner {
     preagg: RunnerPreagg,
     /// Memoized file-level `.monitor.yml` timezone, read on first use.
     default_timezone: std::sync::OnceLock<Option<String>>,
-    /// When set, the semantic model is parsed from this directory instead
-    /// of `config_manager.semantics_scan_path()`. Customer-app requests run
-    /// on the stateless serve fleet, where the workspace FS scan path does
-    /// not exist — they materialise the compiled layer from the compile
-    /// boundary into a tempdir and point the runner at it. The caller MUST
-    /// keep the tempdir guard alive for the duration of the run.
+    /// When set, the semantic model is read from this scan instead of
+    /// `config_manager.semantics_scan_path()`. Customer-app requests run on the
+    /// stateless serve fleet, where the workspace FS scan path does not exist —
+    /// they read the compiled revision's files from the compile boundary and
+    /// point the runner at that.
     scan_root: ScanRoot,
     /// The shared engine cache, when the caller could reach one.
     ///
@@ -236,12 +234,10 @@ impl OxyMetricTreeRunner {
         }
     }
 
-    /// Parse the semantic model from `scan_path` instead of the workspace FS
-    /// scan path — the compile-boundary path for the stateless serve fleet.
-    /// The `scan_path` must remain valid for the lifetime of every run (hold
-    /// the `ScanDir` tempdir guard in the caller).
-    pub fn with_scan_path(mut self, scan_path: PathBuf) -> Self {
-        self.scan_root = ScanRoot::Compiled(scan_path);
+    /// Read the semantic model from `scan` instead of the workspace FS scan
+    /// path — the compile-boundary path for the stateless serve fleet.
+    pub fn with_scan(mut self, scan: ScanDir) -> Self {
+        self.scan_root = ScanRoot::Compiled(scan);
         self
     }
 
@@ -255,11 +251,11 @@ impl OxyMetricTreeRunner {
         self
     }
 
-    /// The directory the semantic model is parsed from — see [`ScanRoot`].
+    /// Where the semantic model is read from — see [`ScanRoot`].
     /// `None` means there is nothing this runner is allowed to read.
-    fn effective_scan_path(&self) -> Option<PathBuf> {
+    fn effective_scan(&self) -> Option<ScanDir> {
         match &self.scan_root {
-            ScanRoot::Compiled(p) => Some(p.clone()),
+            ScanRoot::Compiled(scan) => Some(scan.clone()),
             ScanRoot::Unavailable => None,
             ScanRoot::WorkingCopy => self
                 .workspace_manager
@@ -274,22 +270,21 @@ impl OxyMetricTreeRunner {
                 // or directory`). That reads as a broken workspace. `None`
                 // instead, so the caller's error names the real cause: no scan
                 // root was resolved on this node.
-                .filter(|root| root.is_dir()),
+                .filter(|root| root.is_dir())
+                .map(ScanDir::Real),
         }
     }
 
-    /// Parse a semantic model from an ALREADY-RESOLVED scan root.
+    /// Parse a semantic model from an ALREADY-RESOLVED scan.
     ///
-    /// Deliberately takes the path rather than a `WorkspaceManager`: it used to
+    /// Deliberately takes the scan rather than a `WorkspaceManager`: it used to
     /// derive the root from `config_manager.semantics_scan_path()` itself, which
     /// is the workspace working copy — a directory that does not exist on a
     /// stateless serve replica, so every metric-tree call 500'd there
     /// (oxy-hq/oxygen#878). Callers now resolve the root through the compile
     /// boundary first (`semantic::resolve_query_scan_source`) and pass it in.
-    pub fn load_layer_at(
-        scan_path: &std::path::Path,
-    ) -> Result<SemanticLayer, MetricTreeRunnerError> {
-        oxy_airlayer_compat::load_layer_from_dir(scan_path)
+    pub fn load_layer_at(scan: &ScanDir) -> Result<SemanticLayer, MetricTreeRunnerError> {
+        scan.load_layer()
             .map_err(|e| MetricTreeRunnerError::LayerLoad(e.to_string()))
     }
 
@@ -317,10 +312,10 @@ impl OxyMetricTreeRunner {
 #[async_trait]
 impl MetricTreeRunner for OxyMetricTreeRunner {
     async fn load_layer(&self) -> Result<SemanticLayer, MetricTreeRunnerError> {
-        let scan_path = self.effective_scan_path().ok_or_else(|| {
+        let scan = self.effective_scan().ok_or_else(|| {
             MetricTreeRunnerError::LayerLoad(self.scan_root.unavailable_reason().to_string())
         })?;
-        oxy_airlayer_compat::load_layer_from_dir(&scan_path)
+        scan.load_layer()
             .map_err(|e| MetricTreeRunnerError::LayerLoad(e.to_string()))
     }
 
@@ -1462,10 +1457,8 @@ pub enum ScanRoot {
     /// Whatever this node has on disk. The IDE, local mode, and any caller that
     /// resolved nothing — reading the editable copy is the point.
     WorkingCopy,
-    /// A root the caller resolved through the compile boundary. Valid only
-    /// while the caller's `ScanDir` guard lives: a materialised scan is a
-    /// tempdir.
-    Compiled(PathBuf),
+    /// A scan the caller resolved through the compile boundary.
+    Compiled(ScanDir),
     /// The caller requires the compile boundary and none was available. Falling
     /// back would answer with files the caller has said it must not judge, so
     /// answer with nothing instead.
@@ -1484,7 +1477,7 @@ impl ScanRoot {
             }
             _ => {
                 "no semantic scan root on this node — resolve one through the compile boundary \
-                 (with_scan_path) or run where the working copy lives"
+                 (with_scan) or run where the working copy lives"
             }
         }
     }
@@ -1507,7 +1500,7 @@ pub fn make_runner(
         .with_preagg_ctx(preagg)
         .holding_writes(holds_writes);
     let runner = match scan_root {
-        ScanRoot::Compiled(p) => runner.with_scan_path(p),
+        ScanRoot::Compiled(scan) => runner.with_scan(scan),
         ScanRoot::Unavailable => runner.without_working_copy_fallback(),
         ScanRoot::WorkingCopy => runner,
     };

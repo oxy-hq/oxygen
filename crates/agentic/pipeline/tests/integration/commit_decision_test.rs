@@ -101,14 +101,10 @@ fn two_step_automation() -> agentic_automation::AutomationConfig {
             agentic_automation::config::TaskConfig {
                 name: "step_sql".to_string(),
                 task_type: agentic_automation::config::TaskType::Unknown,
-                export: None,
-                cache: None,
             },
             agentic_automation::config::TaskConfig {
                 name: "step_fmt".to_string(),
                 task_type: agentic_automation::config::TaskType::Unknown,
-                export: None,
-                cache: None,
             },
         ],
         description: String::new(),

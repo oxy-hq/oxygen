@@ -1,7 +1,6 @@
 import { ChevronRight, Code2 } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
-import { CreateSecretDialog } from "@/components/settings/secrets/CreateSecretDialog";
 import { DeleteSecretDialog } from "@/components/settings/secrets/SecretTable/Row/DeleteSecretDialog";
 import { EditSecretDialog } from "@/components/settings/secrets/SecretTable/Row/EditSecretDialog";
 import { Badge } from "@/components/ui/shadcn/badge";
@@ -14,12 +13,11 @@ import {
   TableRow
 } from "@/components/ui/shadcn/table";
 import { useCustomApps } from "@/hooks/api/customApps/useCustomApps";
-import useEnvSecrets from "@/hooks/api/secrets/useEnvSecrets";
 import { useDeleteSecret } from "@/hooks/api/secrets/useSecretMutations";
 import useSecrets from "@/hooks/api/secrets/useSecrets";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
-import type { EnvSecret, Secret } from "@/types/secret";
+import type { Secret } from "@/types/secret";
 import TableContentWrapper from "../../components/TableContentWrapper";
 import TableWrapper from "../../components/TableWrapper";
 import { parseAppSecretName } from "./appSecretName";
@@ -31,26 +29,14 @@ import { SOURCE_CONFIG, type UnifiedRow } from "./types";
  *  short id — still better than the full uuid inline in the variable column. */
 type AppNames = Map<string, string>;
 
-function buildRows(secrets: Secret[], envSecrets: EnvSecret[], appNames: AppNames): UnifiedRow[] {
-  const envMap = new Map<string, EnvSecret>();
-  for (const e of envSecrets) {
-    envMap.set(e.env_var, e);
-  }
-
+function buildRows(secrets: Secret[], appNames: AppNames): UnifiedRow[] {
   const rows: UnifiedRow[] = [];
-  const seen = new Set<string>();
 
-  // DB secrets first
   for (const secret of secrets) {
     // An app-scoped secret is stored as `apps/<app_id>/<KEY>`. Show it as the
     // key its app actually reads, attributed to the app — the raw storage name
     // is an implementation detail that made these rows unidentifiable.
     const scoped = parseAppSecretName(secret.name);
-    const env = envMap.get(secret.name);
-    // DB secret always shows as "Secret" — the env backing is shown via "overrides X" text.
-    // No maskedValue: a DB secret's stored value has no API-provided mask, and the
-    // underlying env var's mask can differ from what reveal returns — so showing the
-    // env mask here would preview a different value than reveal exposes. Fall back to DOTS.
     rows.push({
       key: `secret-${secret.id}`,
       name: scoped ? scoped.key : secret.name,
@@ -58,23 +44,7 @@ function buildRows(secrets: Secret[], envSecrets: EnvSecret[], appNames: AppName
         ? { id: scoped.appId, name: appNames.get(scoped.appId) ?? shortId(scoped.appId) }
         : undefined,
       source: "secret",
-      referencedBy: env?.referenced_by,
-      secretInfo: secret,
-      envInfo: env
-    });
-    seen.add(secret.name);
-  }
-
-  // Env vars not overridden by a DB secret (include unset ones so users know what's missing)
-  for (const env of envSecrets) {
-    if (seen.has(env.env_var)) continue;
-    rows.push({
-      key: `env-${env.env_var}-${env.referenced_by ?? ""}`,
-      name: env.env_var,
-      source: env.source,
-      referencedBy: env.referenced_by,
-      maskedValue: env.masked_value,
-      envInfo: env
+      secretInfo: secret
     });
   }
 
@@ -98,12 +68,6 @@ export const UnifiedSecretsTable: React.FC = () => {
     error: secretsError,
     refetch: refetchSecrets
   } = useSecrets();
-  const {
-    data: envSecrets = [],
-    isLoading: envLoading,
-    error: envError,
-    refetch: refetchEnv
-  } = useEnvSecrets();
 
   // Names for the `apps/<uuid>/` rows. Failure here is cosmetic — a missing
   // name falls back to a short id — so the table never waits on it or reports it.
@@ -114,14 +78,11 @@ export const UnifiedSecretsTable: React.FC = () => {
   const deleteSecretMutation = useDeleteSecret();
 
   const [detailRow, setDetailRow] = useState<UnifiedRow | null>(null);
-  const [createDialogName, setCreateDialogName] = useState<string | undefined>();
   const [editSecret, setEditSecret] = useState<Secret | null>(null);
   const [deleteSecret, setDeleteSecret] = useState<Secret | null>(null);
 
   const secrets = secretsResponse?.secrets ?? [];
-  const isLoading = secretsLoading || envLoading;
-  const error = secretsError || envError;
-  const rows = buildRows(secrets, envSecrets, appNames);
+  const rows = buildRows(secrets, appNames);
 
   const handleDelete = () => {
     if (!deleteSecret) return;
@@ -135,7 +96,6 @@ export const UnifiedSecretsTable: React.FC = () => {
     // TanStack refetch settles into the query's error state (shown by the table
     // through `error`); it does not reject.
     void refetchSecrets();
-    void refetchEnv();
   };
 
   const openDetail = (row: UnifiedRow) => setDetailRow(row);
@@ -157,11 +117,11 @@ export const UnifiedSecretsTable: React.FC = () => {
           <TableBody>
             <TableContentWrapper
               isEmpty={rows.length === 0}
-              loading={isLoading}
+              loading={secretsLoading}
               colSpan={3}
-              error={error?.message}
+              error={secretsError?.message}
               noFoundTitle='No secrets configured'
-              noFoundDescription='Create a secret or add environment variables to get started'
+              noFoundDescription='Create a secret to get started'
               onRetry={handleRefetch}
             >
               {rows.map((row) => {
@@ -205,11 +165,6 @@ export const UnifiedSecretsTable: React.FC = () => {
                             {row.app.name}
                           </span>
                         )}
-                        {row.referencedBy && (
-                          <span className='text-[10px] text-muted-foreground/50'>
-                            {row.secretInfo ? `overrides ${row.referencedBy}` : row.referencedBy}
-                          </span>
-                        )}
                       </div>
                     </TableCell>
 
@@ -236,18 +191,6 @@ export const UnifiedSecretsTable: React.FC = () => {
           setDetailRow(null);
           setDeleteSecret(secret);
         }}
-        onAddOverride={(name) => {
-          setDetailRow(null);
-          setCreateDialogName(name);
-        }}
-      />
-
-      <CreateSecretDialog
-        open={createDialogName !== undefined}
-        onOpenChange={(open) => !open && setCreateDialogName(undefined)}
-        initialName={createDialogName}
-        // No toast here, nor for an update below: the mutation hooks say so already.
-        onSecretCreated={() => setCreateDialogName(undefined)}
       />
 
       {editSecret && (

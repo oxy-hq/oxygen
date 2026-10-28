@@ -338,8 +338,6 @@ fn one_step_automation() -> agentic_automation::AutomationConfig {
         tasks: vec![agentic_automation::config::TaskConfig {
             name: "step0".into(),
             task_type: agentic_automation::config::TaskType::Unknown,
-            export: None,
-            cache: None,
         }],
         description: String::new(),
         variables: None,

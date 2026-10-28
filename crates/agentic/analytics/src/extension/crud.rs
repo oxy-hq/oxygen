@@ -1,14 +1,17 @@
 //! CRUD operations for the analytics run extension table.
 
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{ActiveValue::*, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveValue::*, ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
+    QueryFilter,
+};
 use serde_json::Value;
 
 use super::entity;
 
 /// Insert an analytics extension row for a run.
 pub async fn insert_extension(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     run_id: &str,
     agent_id: &str,
     thinking_mode: Option<String>,

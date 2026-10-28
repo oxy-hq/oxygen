@@ -192,6 +192,14 @@ pub struct Coordinator {
     /// [`Self::with_delegation_resolver`] to get the body/step
     /// routing the automation domain needs.
     pub(super) delegation_resolver: Arc<dyn DelegationResolver>,
+    /// Stop driving once the root is parked on a person — see
+    /// [`Self::ending_at_root_human_input`]. Off by default.
+    pub(super) ends_at_root_human_input: bool,
+    /// Tasks whose human-input suspension could not be written. A root among
+    /// them is never left parked: nothing on record would say where it is.
+    pub(super) unrecorded_suspensions: std::collections::HashSet<String>,
+    /// The root, once the loop stopped because it is parked on a person.
+    pub(super) parked_root: Option<String>,
 }
 
 impl Coordinator {
@@ -212,7 +220,34 @@ impl Coordinator {
             drain_timeout: DEFAULT_DRAIN_TIMEOUT,
             completion_policy: Arc::new(DefaultCompletionPolicy),
             delegation_resolver: Arc::new(DefaultDelegationResolver),
+            ends_at_root_human_input: false,
+            unrecorded_suspensions: Default::default(),
+            parked_root: None,
         }
+    }
+
+    /// Stop driving once the root is suspended for human input, its suspension
+    /// is on record, and nothing else in the tree is running.
+    ///
+    /// For a coordinator whose root came off the queue. Such a root has no
+    /// in-process answer channel to wait on — whoever answers it may be on any
+    /// pod — so waiting is a driver lease, a heartbeat and a cancel poll held
+    /// for as long as the process lives. The caller ends the root's claim and
+    /// lease once [`Self::run`] returns and [`Self::parked_root`] names it; an
+    /// answer continues the run from its checkpoint, not in this coordinator.
+    ///
+    /// Not for a coordinator a request drives: its answer channel is live and
+    /// an answer resumes it in place.
+    pub fn ending_at_root_human_input(mut self) -> Self {
+        self.ends_at_root_human_input = true;
+        self
+    }
+
+    /// The root, when [`Self::run`] returned because it is parked on a person
+    /// ([`Self::ending_at_root_human_input`]). `None` when it returned because
+    /// every task is terminal, or the transport closed.
+    pub fn parked_root(&self) -> Option<&str> {
+        self.parked_root.as_deref()
     }
 
     /// Set the timeout for suspended tasks (human input or delegation).

@@ -17,7 +17,8 @@
 //! Mixed three ways, and the split is in `.config/nextest.toml`:
 //!
 //! * `admin_staff_scope`, `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
-//!   `airway_compile_boundary`, `context_documents_boundary`, `anomaly_bulk_status`,
+//!   `airway_compile_boundary`, `file_credentials_at_compile`, `revision_miss_not_from_disk`,
+//!   `semantic_scan_from_memory`, `context_documents_boundary`, `anomaly_bulk_status`,
 //!   `anomaly_notify`, `workspace_health_history`, `usage_report`, `simulation_routes`,
 //!   `simulation_lifecycle`, `experiment_pricing`, `experiment_routes`, the two
 //!   `workspace_previews_*` modules, `preview_routes` and `preview_ttl` are database-backed
@@ -64,10 +65,13 @@ mod artifact_naming_agrees;
 mod build;
 mod chat_org_standing;
 mod compile;
+mod compile_first;
 mod compile_from_git;
 mod compile_oltp_promote;
+mod compile_push;
 mod compile_reconcile;
 mod compile_request;
+mod compile_self_heal;
 mod compiled_reader_is_not_a_back_door;
 mod compiled_reader_semantic;
 mod context_documents_boundary;
@@ -77,7 +81,9 @@ mod experiment_pricing;
 mod experiment_results;
 mod experiment_routes;
 mod experiment_runner;
+mod factory_access;
 mod feature_flag_refresh;
+mod file_credentials_at_compile;
 mod frontline_app_grant;
 mod frontline_pin;
 mod local_mode_router;
@@ -104,8 +110,12 @@ mod preview_ttl;
 mod previews_e2e;
 mod previews_from_git;
 mod projects_query;
+mod queued_chat_run;
+mod revision_miss_not_from_disk;
 mod run;
 mod run_routes_workspace_scope;
+mod semantic_scan_from_memory;
+mod shared_state_boot;
 mod simulation_lifecycle;
 mod simulation_router;
 mod simulation_routes;
