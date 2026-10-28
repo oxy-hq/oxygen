@@ -10,7 +10,6 @@ import { useActingSession } from "@/hooks/api/adminAssume/useActingSession";
 import useOrgCustomApps from "@/hooks/api/customApps/useOrgCustomApps";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
-import { appWindowName } from "@/libs/utils/appWindowName";
 import { canUseFactory } from "@/libs/utils/factoryAccess";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -95,16 +94,16 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       navigate(ws.THREADS);
     }
   };
-  // Apps open in their own tab, never inside the shell — see `appWindowName`
-  // for why HQ must not host an app in its own browsing context.
+  // A tile navigates this tab to the app, which owns the address bar and draws
+  // the same rail (`OxyShell`), so moving between HQ and apps reads as one
+  // product. Never hosted inside HQ: apps-first-shell.md § 4.1.
   const appItems: RailItem[] = customApps.map((app) => ({
     key: app.id,
     label: app.name,
     testId: `rail-app-${app.slug}`,
     letter: app.name.slice(0, 1).toUpperCase(),
     imageUrl: app.icon_url,
-    href: app.url,
-    newTab: appWindowName(app.org_slug, app.slug)
+    href: app.url
   }));
   // System: the intelligence substrate powering the HQ. Pinned at the
   // bottom of the nav, distinct from the operator apps above.
@@ -231,8 +230,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             <div className='w-full min-w-0 flex-1 overflow-hidden'>{children}</div>
           </main>
           {/* The Ask dock is a flex sibling — opening it compacts <main>
-              (Cursor-style) rather than floating over it. Custom apps
-              deliberately get no equivalent: they open in their own tab. */}
+              (Cursor-style) rather than floating over it. A custom app is not
+              hosted here: it opens in this tab and draws its own dock and Ask
+              (`OxyShell`). */}
           {!hideRail && <AskDock />}
         </div>
       </div>

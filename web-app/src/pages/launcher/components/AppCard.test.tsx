@@ -62,30 +62,15 @@ describe("AppCard access control", () => {
 });
 
 describe("AppCard opening behaviour", () => {
-  /// The app opens in a tab of its own — never inside HQ. That is what keeps the
-  /// app's URL in the address bar, so its query-string navigation state is
-  /// linkable and a reload reloads the app instead of returning to HQ, and what
-  /// keeps its history out of HQ's (the "Back lands two hops away" report).
-  it("targets a per-app window rather than this one", () => {
+  /// The app opens in this tab, never inside HQ: it is a document of its own,
+  /// so it owns the address bar (its query-string state is linkable, a reload
+  /// reloads the app), and Back returns to HQ. The app draws the same rail, so
+  /// the next app is one click away there. apps-first-shell.md § 4.1.
+  it("opens the app in this tab", () => {
     render(<AppCard app={app()} />);
-    const link = screen.getByRole("link", { name: /^Revenue/ });
-    // Org-scoped: slugs are unique within an org, but every org shares this
-    // origin's window-name space.
-    expect(link).toHaveAttribute("target", "oxy-app-acme-revenue");
-    // A *named* target, not `_blank`: a second click re-targets the tab that is
-    // already open instead of stacking a duplicate.
-    expect(link.getAttribute("target")).not.toBe("_blank");
-    // `rel` would defeat that reuse — a link with noopener/noreferrer is spec'd
-    // to get a fresh browsing context every time.
-    expect(link).not.toHaveAttribute("rel");
-  });
-
-  /// The card's explicit new-tab button went away with the dock, so this anchor
-  /// is the only opener — and a screen-reader user has nothing else to tell them
-  /// activating it leaves the tab.
-  it("announces that it opens in a new tab", () => {
-    render(<AppCard app={app()} />);
-    expect(screen.getByRole("link", { name: "Revenue (opens in a new tab)" })).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "Revenue" });
+    expect(link).toHaveAttribute("href", app().url);
+    expect(link).not.toHaveAttribute("target");
   });
 
   /// Nothing intercepts the click. The card is a plain anchor, so cmd-click,

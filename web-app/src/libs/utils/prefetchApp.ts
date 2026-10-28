@@ -22,9 +22,21 @@
  * three (`is_speculative_request`) before recording anything, so a hover stays
  * a hover in the Activity tab.
  *
+ * ## Speculation Rules where the browser has them
+ *
+ * Chrome and Edge get a Speculation Rules prefetch instead. Unlike
+ * `rel=prefetch`, the navigation may use that response as it is, so the
+ * document's round trip is saved as well as the chunks', which is most of what
+ * makes opening an app from the home page feel immediate. It announces itself
+ * the same way (`Sec-Purpose: prefetch`), so the serve path still records
+ * nothing for the hover; and because the server then never sees the real open,
+ * the app's own runtime reports it once the page is shown (`runtime.js`,
+ * "an open the server could not see"). A prefetch, not a prerender: a
+ * prerender would run the app, its queries and its functions, for a hover.
+ *
  * Idempotent per URL: browsers already de-duplicate prefetches, but the check
- * also keeps `<head>` from accumulating a link per hover for the life of the
- * page.
+ * also keeps `<head>` from accumulating an element per hover for the life of
+ * the page.
  */
 export function prefetchApp(url: string): void {
   if (typeof document === "undefined" || !url) return;
@@ -32,7 +44,16 @@ export function prefetchApp(url: string): void {
   // selector metacharacters; a hand-built attribute selector would throw on
   // them and take the hover handler down with it.
   const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(url) : null;
-  if (escaped && document.querySelector(`link[rel="prefetch"][href="${escaped}"]`)) return;
+  if (escaped && document.querySelector(`[data-oxy-prefetch="${escaped}"]`)) return;
+
+  if (supportsSpeculationRules()) {
+    const rules = document.createElement("script");
+    rules.type = "speculationrules";
+    rules.textContent = JSON.stringify({ prefetch: [{ source: "list", urls: [url] }] });
+    rules.dataset.oxyPrefetch = url;
+    document.head.appendChild(rules);
+    return;
+  }
 
   const link = document.createElement("link");
   link.rel = "prefetch";
@@ -41,5 +62,14 @@ export function prefetchApp(url: string): void {
   // subresource, which is what makes it honour the response's own preload
   // hints instead of parking the bytes in the prefetch cache alone.
   link.setAttribute("as", "document");
+  link.dataset.oxyPrefetch = url;
   document.head.appendChild(link);
+}
+
+function supportsSpeculationRules(): boolean {
+  return (
+    typeof HTMLScriptElement !== "undefined" &&
+    typeof HTMLScriptElement.supports === "function" &&
+    HTMLScriptElement.supports("speculationrules")
+  );
 }

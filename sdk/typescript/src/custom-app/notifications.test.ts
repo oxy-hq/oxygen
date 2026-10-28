@@ -165,7 +165,7 @@ describe("notificationTarget", () => {
     });
   });
 
-  it("opens another app's in that app's own tab", () => {
+  it("opens another app's in this tab, as the dock does", () => {
     const other = item({
       app: { id: "app-2", slug: "lists", name: "Lists" },
       href: "/customer-apps/acme/lists/lists/9"
@@ -173,20 +173,20 @@ describe("notificationTarget", () => {
     expect(notificationTarget(other, ctx)).toEqual({
       kind: "away",
       url: "/customer-apps/acme/lists/lists/9",
-      window: "oxy-app-acme-lists"
+      window: "_self"
     });
   });
 
-  it("opens a platform notice on Oxygen, against productBaseUrl when one is set", () => {
+  it("opens a platform notice on Oxygen in this tab, against productBaseUrl when one is set", () => {
     const notice = item({ app: null, link: null, href: "/settings/billing", kind: "oxy.billing" });
     expect(notificationTarget(notice, ctx)).toEqual({
       kind: "away",
       url: "/settings/billing",
-      window: null
+      window: "_self"
     });
     expect(
       notificationTarget(notice, { ...ctx, productBaseUrl: "https://app.oxygen-hq.com/" })
-    ).toEqual({ kind: "away", url: "https://app.oxygen-hq.com/settings/billing", window: null });
+    ).toEqual({ kind: "away", url: "https://app.oxygen-hq.com/settings/billing", window: "_self" });
   });
 
   it("keeps an absolute href as the server sent it", () => {

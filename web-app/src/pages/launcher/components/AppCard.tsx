@@ -7,7 +7,6 @@ import { AppAccessBadge } from "@/components/appAccess/AppAccessBadge";
 import { AppArt } from "@/components/apps/AppArt";
 import { AppMark } from "@/components/apps/AppMark";
 import { Button } from "@/components/ui/shadcn/button";
-import { appWindowName } from "@/libs/utils/appWindowName";
 import { prefetchApp } from "@/libs/utils/prefetchApp";
 import type { CustomAppSummary } from "@/types/apps";
 
@@ -53,22 +52,13 @@ export function AppCard({
             testId={`launcher-app-card-mark-${app.slug}`}
           />
           <h3 className='font-semibold text-base text-card-foreground'>
-            {/* A plain anchor with a real href and a target — no click handler.
-                Every gesture people already know (cmd-click, middle-click, "open
-                in new tab", "copy link address") stays the browser's, and the
-                plain click lands in the app's own tab (`appWindowName`). */}
+            {/* A plain anchor with a real href — no target, no click handler. The
+                app opens in this tab, the way the dock inside every app opens the
+                next one, and every gesture people already know (cmd-click,
+                middle-click, "open in new tab", "copy link address") stays the
+                browser's. See apps-first-shell.md § 4.1. */}
             <a
               href={app.url}
-              target={appWindowName(app.org_slug, app.slug)}
-              // The card's own new-tab affordance (an explicit external-link
-              // button) went away with the dock, and this anchor is now the only
-              // opener — so the warning it used to carry has to live here
-              // (WCAG G201). An `aria-label` rather than a visually-hidden
-              // suffix because the accessible-name calculation concatenates
-              // sibling text nodes without a separator, which turns a hidden
-              // " (opens in a new tab)" into "Revenueopens in a new tab". The
-              // visible name is still the start of the label, so the two agree.
-              aria-label={`${app.name} (opens in a new tab)`}
               data-testid={`launcher-app-card-${app.slug}`}
               className='after:absolute after:inset-0 after:content-[""]'
               // On the link, not the card: the stretched `::after` makes the

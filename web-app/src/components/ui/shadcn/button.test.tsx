@@ -41,7 +41,7 @@ describe("Button tooltip as accessible name", () => {
     expect(screen.getByRole("link", { name: "Open docs" })).toBeInTheDocument();
   });
 
-  // ShellRail's tiles say "(opens in a new tab)" on the <a> itself, not in the tooltip.
+  // An anchor that names itself (e.g. "(opens in a new tab)") keeps that name, not the tooltip's.
   it("keeps the name an asChild element gives itself", () => {
     render(
       <Button asChild size='icon' tooltip='Docs'>

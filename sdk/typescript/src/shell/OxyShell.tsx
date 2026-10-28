@@ -17,6 +17,7 @@ import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { useOxyApp, useResolvedManifest } from "../custom-app/react";
 import { AskDock } from "./AskDock";
 import { cx } from "./cx";
+import { useDockPrefetch } from "./dockPrefetch";
 import { OxyMark } from "./marks";
 import { ShellPortalContext, useShellPortalContainer } from "./portal";
 import { type RailItem, ShellRail } from "./ShellRail";
@@ -143,9 +144,10 @@ function buildRailGroups(
     testId: `rail-app-${app.slug}`,
     letter: app.name.slice(0, 1).toUpperCase(),
     imageUrl: abs(app.icon_url),
-    // Every app entry is a real anchor — same as the main web-app's rail.
-    // The current app gets `active` (RailEntry adds aria-current="page");
-    // re-clicking it is a same-page reload, standard anchor semantics.
+    // Every app entry is a real anchor into this tab — same as the main
+    // web-app's rail — so moving between apps is moving between documents that
+    // each own their URL. The current app gets `active` (RailEntry adds
+    // aria-current="page"); re-clicking it is a same-page reload.
     active: app.slug === currentAppSlug,
     href: abs(app.url)
   }));
@@ -192,6 +194,8 @@ export function OxyShell({
   const { manifest } = useResolvedManifest();
   const { data, loading } = useShellContext();
   const { container, setContainer } = useShellPortalContainer();
+  // The rail is the dock: its apps open in this tab, warmed on hover.
+  useDockPrefetch();
 
   // Bootstrap failed (old server / no session) → degraded: no chrome. The
   // wrapper tree stays MOUNTED in every state (loading → data/degraded) and

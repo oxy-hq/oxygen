@@ -5,6 +5,24 @@ All notable changes to the Oxy TypeScript SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The dock warms the app you are about to open.** `<OxyShell>` installs a
+  Speculation Rules prefetch for the rail's other apps on hover (Chrome and
+  Edge), so switching apps from inside one skips the page's round trip. A
+  prefetch, never a prerender: nothing runs for a hover. `useDockPrefetch` is
+  the hook behind it.
+
+### Changed
+
+- **`<NotificationsBell>` opens another app's notification, or a platform
+  notice, in this tab**, as Oxygen's home page and dock now do, instead of a
+  named tab per app (`oxy-app-<org>-<app>`). An absolute URL still opens in a
+  new tab. Marking an item read is a `keepalive` request, so leaving the page
+  does not cancel it.
+
 ## [2.21.0] - 2026-10-17
 
 ### Added

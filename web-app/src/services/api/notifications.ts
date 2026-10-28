@@ -66,8 +66,17 @@ export class NotificationsService {
     return response.data;
   }
 
+  /**
+   * Sent with `keepalive`: clicking a notification marks it read and then
+   * follows its link, which for a custom app leaves this page. Without it the
+   * browser may cancel the request as the page unloads, and the item comes back
+   * unread.
+   */
   static async markRead(id: string): Promise<void> {
-    await apiClient.post(`/notifications/${encodeURIComponent(id)}/read`);
+    await apiClient.post(`/notifications/${encodeURIComponent(id)}/read`, undefined, {
+      adapter: "fetch",
+      fetchOptions: { keepalive: true }
+    });
   }
 
   /** Everything read, or everything the filter covers. */

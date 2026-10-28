@@ -439,6 +439,9 @@ impl ServeContext {
                     user.id,
                     user.email.as_deref().unwrap_or(""),
                     &self.environment,
+                    // A page shown from a prefetch reports its own open; it is
+                    // written exactly as a served page's would be.
+                    |referrer| Some(self.record_view(referrer)),
                 )
                 .await
             }
@@ -543,7 +546,11 @@ impl ServeContext {
         self.record_serve_event(status, is_html_request);
         let rendered = status.is_success() || status == StatusCode::NOT_MODIFIED;
         if is_html_request && rendered {
-            let set_cookie = self.record_view();
+            let referrer = self
+                .headers
+                .get(header::REFERER)
+                .and_then(|v| v.to_str().ok());
+            let set_cookie = self.record_view(referrer);
             if let Ok(hv) = axum::http::HeaderValue::from_str(&set_cookie) {
                 response.headers_mut().append(header::SET_COOKIE, hv);
             }
@@ -579,7 +586,11 @@ impl ServeContext {
     /// no spawn, no connection, no read on this path), and a full queue drops
     /// it. Losing a row on overload or crash is the documented acceptable
     /// failure mode for tracking-grade data.
-    fn record_view(&self) -> String {
+    ///
+    /// `referrer` is the page's: the `Referer` of the HTML request when the
+    /// server records the view, or the one the page reports when it records
+    /// its own open through the beacon (whose own `Referer` is the app).
+    fn record_view(&self, referrer: Option<&str>) -> String {
         let headers = &self.headers;
         let host = headers
             .get(header::HOST)
@@ -596,7 +607,6 @@ impl ServeContext {
                 .unwrap_or(false);
         let (session_id, set_cookie) =
             oxy_custom_apps::tracking::session_id_for_serve(headers, secure);
-        let referrer = headers.get(header::REFERER).and_then(|v| v.to_str().ok());
         let sanitized_referrer = oxy_custom_apps::tracking::sanitize_referrer(referrer, host);
         let user_agent_class = classify_user_agent(headers.get(header::USER_AGENT));
         // The recorder needs the app row to resolve the viewer's role snapshot.
@@ -1145,6 +1155,7 @@ async fn ingest_beacon(
     user_id: Uuid,
     user_email: &str,
     environment: &AppEnvironment,
+    record_view: impl FnOnce(Option<&str>) -> Option<String>,
 ) -> Response {
     let bytes = match axum::body::to_bytes(body, crate::beacon::MAX_BODY_BYTES).await {
         Ok(b) => b,
@@ -1160,6 +1171,7 @@ async fn ingest_beacon(
         headers,
         bytes,
         environment.name(),
+        record_view,
     )
     .await
 }

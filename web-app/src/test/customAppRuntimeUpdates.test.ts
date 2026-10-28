@@ -45,6 +45,8 @@ interface Booted {
   probes: () => RequestInit[];
   rows: () => { n: string; p: Record<string, unknown> }[];
   setLive: (live: Live) => void;
+  /** The person uses the page (a click, a key): pushes from now on are theirs. */
+  act: () => void;
   setVisibility: (state: "visible" | "hidden") => void;
 }
 
@@ -56,6 +58,11 @@ interface BootOptions {
   storage?: Storage;
   source?: string;
   analytics?: boolean;
+  /** Has the person used the page yet (`navigator.userActivation`)? Default
+   *  yes: the pushes these tests make stand for navigations the person made.
+   *  Before that, the runtime turns a push into a replace (a boot-time URL
+   *  rewrite), which is never a safe moment to reload. */
+  acted?: boolean;
 }
 
 type Listener = [EventTarget, string, EventListenerOrEventListenerObject, unknown];
@@ -86,6 +93,8 @@ function boot(options: BootOptions = {}): Booted {
     updates: options.mode ?? "auto"
   };
   Object.defineProperty(navigator, "sendBeacon", { configurable: true, value: undefined });
+  const activation = { hasBeenActive: options.acted ?? true };
+  Object.defineProperty(navigator, "userActivation", { configurable: true, value: activation });
   Object.defineProperty(document, "visibilityState", {
     configurable: true,
     get: () => visibility
@@ -132,6 +141,9 @@ function boot(options: BootOptions = {}): Booted {
     },
     setLive: (next) => {
       live = next;
+    },
+    act: () => {
+      activation.hasBeenActive = true;
     },
     setVisibility: (state) => {
       visibility = state;
@@ -194,6 +206,7 @@ afterEach(() => {
   unloadPage();
   document.body.innerHTML = "";
   delete (window as unknown as Record<string, unknown>).__oxyUpdate;
+  Reflect.deleteProperty(navigator, "userActivation");
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -282,6 +295,27 @@ describe("runtime.js updates — observe never reloads", () => {
     page.setVisibility("visible");
     await vi.advanceTimersByTimeAsync(3 * MIN);
     expect(page.reload).not.toHaveBeenCalled();
+  });
+});
+
+describe("runtime.js — a push before the person has used the page", () => {
+  /// An app rewriting its URL as it boots must leave no Back entry: from the
+  /// home page or the dock it opens in the same tab, and Back has to leave it.
+  it("is made a replace, and is not a safe moment to reload", async () => {
+    focusAnInput();
+    const page = boot({ live: BUILD_B, acted: false });
+    await poll();
+    await vi.advanceTimersByTimeAsync(61_000);
+    const entries = history.length;
+    history.pushState(null, "", `${BASE}orders?month=2026-10`);
+    expect(window.location.pathname).toBe(`${BASE}orders`);
+    expect(history.length).toBe(entries);
+    expect(page.reload).not.toHaveBeenCalled();
+
+    page.act();
+    history.pushState(null, "", `${BASE}checklist`);
+    expect(history.length).toBe(entries + 1);
+    expect(page.reload).toHaveBeenCalledTimes(1);
   });
 });
 

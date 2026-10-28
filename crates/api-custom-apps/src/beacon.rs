@@ -113,6 +113,44 @@ pub const PLATFORM_EVENTS: &[&str] = &[
 /// name drifting out of one list should not silently change the other's meaning.
 pub const HEALTH_EVENTS: &[&str] = &["oxy-app-ready", "oxy-error", "oxy-update"];
 
+/// A page reporting its own open, because the server never saw it.
+///
+/// The serve path records a view when it serves a page, but skips a
+/// speculative fetch (`is_speculative_request`): a hover is not an open. When
+/// the person then opens the app, the browser can show the page it prefetched
+/// without asking the server again, and `runtime.js` sends this instead.
+///
+/// Not an event row. It is accepted here, taken out of the batch, and written
+/// as the same `custom_app_view_event` row the serve path writes, through the
+/// caller's recorder. Like that row it is never opt-out-able, and like every
+/// name on this route it is not unforgeable: an app's own script could post it,
+/// which buys it nothing a reload would not.
+pub const VIEW_EVENT: &str = "oxy-view";
+
+/// Is `name` one this route accepts at all?
+fn is_accepted(name: &str) -> bool {
+    name == VIEW_EVENT || PLATFORM_EVENTS.contains(&name)
+}
+
+/// Take the reported open out of a batch: its referrer (empty when the page had
+/// none) if the batch carries one, and the events left to record. Only the
+/// first counts; a page opens once.
+fn take_view(
+    events: Vec<(String, serde_json::Value)>,
+) -> (Option<String>, Vec<(String, serde_json::Value)>) {
+    let mut view = None;
+    let mut rest = Vec::with_capacity(events.len());
+    for (name, payload) in events {
+        if name != VIEW_EVENT {
+            rest.push((name, payload));
+        } else if view.is_none() {
+            let referrer = payload.get("referrer").and_then(|v| v.as_str());
+            view = Some(referrer.unwrap_or_default().to_string());
+        }
+    }
+    (view, rest)
+}
+
 /// Events accepted per request. Matches the client's own batch cap, so the
 /// normal path never trips it — a request over the cap is a client that has
 /// been tampered with, and truncating quietly would hide that.
@@ -216,7 +254,7 @@ fn admit(body: &[u8]) -> Result<Vec<(String, serde_json::Value)>, Response> {
     }
     let mut out = Vec::with_capacity(batch.events.len());
     for event in batch.events {
-        if !PLATFORM_EVENTS.contains(&event.n.as_str()) {
+        if !is_accepted(&event.n) {
             // One bad name fails the batch rather than being skipped. A client
             // sending a name this route doesn't know is not a client whose
             // other events are worth keeping — and failing loudly is what makes
@@ -243,6 +281,11 @@ fn admit(body: &[u8]) -> Result<Vec<(String, serde_json::Value)>, Response> {
 /// a page that is usually in the middle of unloading, and a slow insert would
 /// hold the browser's unload path open for telemetry. The write is a `try_send`
 /// onto the bounded usage queue (`custom_apps_usage_queue`).
+///
+/// `record_view` writes a reported open ([`VIEW_EVENT`]) with the page's
+/// referrer, and returns the tracking session's `Set-Cookie` when it minted one;
+/// the response carries it, so the session starts with the open, as it does
+/// when the server records the view itself.
 #[allow(clippy::too_many_arguments)]
 pub async fn handle(
     app_id: Uuid,
@@ -252,6 +295,7 @@ pub async fn handle(
     headers: &HeaderMap,
     body: axum::body::Bytes,
     environment: String,
+    record_view: impl FnOnce(Option<&str>) -> Option<String>,
 ) -> Response {
     let events = match admit(&body) {
         Ok(e) => e,
@@ -263,6 +307,9 @@ pub async fn handle(
     if would_exceed_rate(user_id, app_id) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
+    let (view, events) = take_view(events);
+    let set_cookie =
+        view.and_then(|referrer| record_view(Some(referrer.as_str()).filter(|r| !r.is_empty())));
     // The session cookie is set on the HTML response that loaded this page, so
     // it is present for every real beacon. A fresh id when it is missing keeps
     // the row rather than dropping it — an orphan session is a worse answer
@@ -337,7 +384,13 @@ pub async fn handle(
         );
     }
 
-    StatusCode::NO_CONTENT.into_response()
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    if let Some(hv) = set_cookie.and_then(|c| axum::http::HeaderValue::from_str(&c).ok()) {
+        response
+            .headers_mut()
+            .append(axum::http::header::SET_COOKIE, hv);
+    }
+    response
 }
 
 /// The build the reporting document runs, as the `app_builds.id` UUID — or
@@ -518,18 +571,51 @@ mod tests {
             let tail = &js[captured.0 + "push(\"".len()..];
             let name = tail.split('"').next().expect("quoted name");
             assert!(
-                PLATFORM_EVENTS.contains(&name),
+                is_accepted(name),
                 "client emits {name:?}, which the beacon refuses"
             );
         }
         // …and every accepted name is actually emitted, so the allowlist does
         // not accumulate entries nothing sends.
-        for name in PLATFORM_EVENTS {
+        for name in PLATFORM_EVENTS.iter().chain([&VIEW_EVENT]) {
             assert!(
                 js.contains(&format!("push(\"{name}\"")),
                 "{name:?} is accepted but never sent"
             );
         }
+    }
+
+    #[test]
+    fn a_reported_open_is_taken_out_of_the_batch_once() {
+        let events = batch(
+            r#"{"v":1,"events":[
+                {"n":"oxy-view","p":{"referrer":"https://app.example.com/"}},
+                {"n":"oxy-app-ready","p":{"how":"auto"}},
+                {"n":"oxy-view","p":{"referrer":"https://other.example.com/"}}
+            ]}"#,
+        )
+        .expect("admitted");
+        let (view, rest) = take_view(events);
+        assert_eq!(view.as_deref(), Some("https://app.example.com/"));
+        assert_eq!(rest.len(), 1, "only the event rows are left to record");
+        assert_eq!(rest[0].0, "oxy-app-ready");
+    }
+
+    #[test]
+    fn a_reported_open_without_a_referrer_still_counts() {
+        let events = batch(r#"{"v":1,"events":[{"n":"oxy-view","p":{}}]}"#).expect("admitted");
+        let (view, rest) = take_view(events);
+        assert_eq!(view.as_deref(), Some(""));
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn a_batch_with_no_reported_open_records_no_view() {
+        let events =
+            batch(r#"{"v":1,"events":[{"n":"oxy-pageview","p":{"path":"/"}}]}"#).expect("admitted");
+        let (view, rest) = take_view(events);
+        assert_eq!(view, None);
+        assert_eq!(rest.len(), 1);
     }
 
     #[test]

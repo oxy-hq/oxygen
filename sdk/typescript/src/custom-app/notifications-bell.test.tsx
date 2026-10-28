@@ -148,7 +148,7 @@ describe("NotificationsBell — following a notification", () => {
     expect(assign).toHaveBeenCalledWith("/customer-apps/acme/bookings/bookings/1");
   });
 
-  it("opens another app's in its own tab and a platform notice on Oxygen", async () => {
+  it("opens another app's and a platform notice in this tab", async () => {
     const inbox = createTestInbox({ appId: APP_ID, orgSlug: "acme" });
     const other = inbox.push({ app: { id: "app-2", slug: "lists", name: "Lists" }, link: "/l/9" });
     const notice = inbox.push({ app: null, link: null, href: "/settings/billing" });
@@ -160,15 +160,11 @@ describe("NotificationsBell — following a notification", () => {
     await click($(`oxy-notifications-item-${other.id}`));
     expect(open).toHaveBeenLastCalledWith(
       "https://app.oxygen-hq.com/customer-apps/acme/lists/l/9",
-      "oxy-app-acme-lists"
+      "_self"
     );
     await openPanel();
     await click($(`oxy-notifications-item-${notice.id}`));
-    expect(open).toHaveBeenLastCalledWith(
-      "https://app.oxygen-hq.com/settings/billing",
-      "_blank",
-      "noopener,noreferrer"
-    );
+    expect(open).toHaveBeenLastCalledWith("https://app.oxygen-hq.com/settings/billing", "_self");
   });
 
   it("only marks read, and stays open, when there is nowhere to go", async () => {

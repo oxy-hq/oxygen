@@ -2,7 +2,7 @@
  * Oxy custom-app client runtime — injected into every served HTML document,
  * next to `window.__OXY_APP__`.
  *
- * Three jobs, all of which exist so an app author has to do nothing to get them:
+ * Its jobs, all of which exist so an app author has to do nothing to get them:
  *
  *  1. **Register the platform service worker** (`__oxy/sw.js`) at the app root,
  *     which is what makes a repeat load of a published bundle near-instant.
@@ -12,6 +12,9 @@
  *     engagement time, posted to `__oxy/beacon`.
  *  4. **Notice a new build** in a tab left open for hours or days, and — in
  *     `auto` mode only — reload onto it at a safe moment. See § *updates*.
+ *  5. **Keep same-tab navigation honest.** Report an open the server could not
+ *     see (a page shown from a prefetch), and keep an app's boot-time URL
+ *     rewrites out of the Back history.
  *
  * ## Two categories, one flag
  *
@@ -176,6 +179,39 @@
     return p.slice(0, 256);
   }
 
+  // ── an open the server could not see (never opt-out-able) ─────────────────
+  //
+  // The server records a view when it serves a page, except a speculative fetch,
+  // which it skips (`is_speculative_request`) because a hover is not an open.
+  // When the person then does open the app, the browser may show the page it
+  // already fetched without asking the server again, and the open would go
+  // unrecorded. Oxygen prefetches apps on hover from the home page and from the
+  // dock (`prefetchApp`, `OxyShell`), so this is the common path, not an edge.
+  //
+  // The navigation timing entry says which happened: `deliveryType` is
+  // `navigational-prefetch` for a Speculation Rules prefetch, and
+  // `activationStart` is non-zero for a prerender. In either case this page
+  // reports its own open, and the beacon writes the same view row the server
+  // would have. Sent alone and at once, so the session cookie the beacon mints
+  // is in place before anything else posts.
+  function reportSpeculativeOpen() {
+    try {
+      var nav = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+      if (!nav || (nav.deliveryType !== "navigational-prefetch" && !(nav.activationStart > 0))) {
+        return;
+      }
+      push("oxy-view", { referrer: document.referrer || "" });
+      flush(false);
+    } catch (e) {}
+  }
+  // A prerendered page runs before anyone has opened it; it is an open only
+  // once it is shown.
+  if (document.prerendering) {
+    document.addEventListener("prerenderingchange", reportSpeculativeOpen, { once: true });
+  } else {
+    reportSpeculativeOpen();
+  }
+
   // ── app-ready (health signal, never opt-out-able) ─────────────────────────
   //
   // THE white-screen detector, and the reason a status code is not enough. A
@@ -265,20 +301,59 @@
   var onRoute = function () {};
   var onChunk = null;
 
+  // ── navigations the person did not make ───────────────────────────────────
+  //
+  // An app rewrites its own URL as it boots: a router's default redirect, a
+  // screen writing its filters into the query string. Done with `pushState`,
+  // that adds a history entry nobody asked for, so Back from the app's first
+  // screen lands on its bare URL, which redirects forward again. It reads as a
+  // Back button that does nothing, and it is what you get from the home page and
+  // the dock, which open an app in the same tab. Chrome already skips such
+  // entries on Back; Safari and Firefox do not.
+  //
+  // So until the person has done something on this page, a push is made a
+  // replace. `userActivation.hasBeenActive` is the browser's own record of that
+  // (a click, a key, a tap) and stays true for the life of the document; the
+  // listeners stand in where it is missing. A push after that is the person's,
+  // and is left alone.
+  var acted = false;
+  function hasActed() {
+    var ua = navigator.userActivation;
+    return acted || !!(ua && ua.hasBeenActive);
+  }
+  if (!navigator.userActivation) {
+    ["pointerdown", "keydown"].forEach(function (type) {
+      window.addEventListener(
+        type,
+        function () {
+          acted = true;
+        },
+        { capture: true, once: true }
+      );
+    });
+  }
+
   // History is patched rather than polled: a router calls `pushState`
   // synchronously and there is no event for it, so the alternatives are a
   // patch or a timer that is always either late or wasteful.
+  var nativeReplaceState = history.replaceState;
   ["pushState", "replaceState"].forEach(function (method) {
     var original = history[method];
     if (typeof original !== "function") return;
     history[method] = function () {
-      var result = original.apply(this, arguments);
+      var push = method === "pushState" && hasActed();
+      var result = (method === "pushState" && !push ? nativeReplaceState : original).apply(
+        this,
+        arguments
+      );
       try {
         onRouteChange();
         // Only a PUSH is a safe moment to reload onto a new build: a router
         // rewrites the URL with `replaceState` mid-render (query sync, redirects),
-        // and reloading under that would interrupt the screen being drawn.
-        onRoute(method === "pushState");
+        // and reloading under that would interrupt the screen being drawn. A
+        // boot-time push turned into a replace above is that same mid-render
+        // rewrite, so it counts as one.
+        onRoute(push);
       } catch (e) {}
       return result;
     };

@@ -4,7 +4,6 @@ import { AppMark } from "@/components/apps/AppMark";
 import { Button } from "@/components/ui/shadcn/button";
 import { buttonVariants } from "@/components/ui/shadcn/utils/button-variants";
 import { cn } from "@/libs/shadcn/utils";
-import { appWindowName } from "@/libs/utils/appWindowName";
 import { prefetchApp } from "@/libs/utils/prefetchApp";
 import type { CustomAppSummary } from "@/types/apps";
 import { appFreshnessLine } from "../../components/appFreshness";
@@ -25,8 +24,8 @@ export type HomeAppCardSize = "wide" | "regular" | "compact";
  * One app on the apps-first home: its art edge to edge across the top of the card,
  * then its mark, name and how fresh it is.
  *
- * It opens the app the way the HQ launcher's `AppCard` does (a plain anchor into
- * the app's own tab, warmed on hover and focus) and carries the same access
+ * It opens the app the way the HQ launcher's `AppCard` does (a plain anchor that
+ * opens the app in this tab, warmed on hover and focus) and carries the same access
  * control for owners and admins. A separate card because the home's layout and
  * the launcher's differ, and the launcher's card stays as it is.
  */
@@ -99,12 +98,9 @@ export function HomeAppCard({
                 compact && "line-clamp-2 break-words text-sm"
               )}
             >
+              {/* Opens in this tab, as the launcher's card does (§ 4.1). */}
               <a
                 href={app.url}
-                target={appWindowName(app.org_slug, app.slug)}
-                // The visible name starts the label; the suffix warns about the new
-                // tab (WCAG G201), as the launcher's card does.
-                aria-label={`${app.name} (opens in a new tab)`}
                 data-testid={`launcher-app-card-${app.slug}`}
                 className='after:absolute after:inset-0 after:content-[""] focus-visible:outline-none'
                 onPointerEnter={warm}

@@ -1,6 +1,5 @@
 import { useCustomAppsWithVerdict } from "@/hooks/api/customApps/useCustomApps";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
-import { appWindowName } from "@/libs/utils/appWindowName";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import { type AlertSeverity, type HqSignalSeed, healthSeeds } from "./healthSeeds";
@@ -13,11 +12,8 @@ export interface HqSignal {
   category: string;
   title: string;
   destLabel: string;
-  /** Link to a custom app (absolute, same-origin). */
+  /** Link to a custom app (absolute, same-origin), opened in this tab. */
   href?: string;
-  /** Window `href` opens in — set for app destinations only, per
-   *  `appWindowName`: an app is never hosted inside HQ's browsing context. */
-  target?: string;
   /** In-SPA route (e.g. Oxygen Factory). */
   route?: string;
 }
@@ -48,8 +44,7 @@ export function useHqAlerts(): HqSignal[] {
           {
             ...rest,
             destLabel: app.name,
-            href: app.url,
-            target: appWindowName(app.org_slug, app.slug)
+            href: app.url
           }
         ]
       : [];

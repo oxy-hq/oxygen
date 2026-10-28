@@ -1,16 +1,14 @@
-import { appWindowName } from "@/libs/utils/appWindowName";
 import type { InboxItem, NotificationLevel, SourceNode } from "@/types/notifications";
 
-const APP_PATH = /^\/customer-apps\/([^/?#]+)\/([^/?#]+)(?:[/?#]|$)/;
+const APP_PATH = /^\/customer-apps\/[^/?#]+\/[^/?#]+(?:[/?#]|$)/;
 
 /**
- * The window a notification's link opens in: the app's own named tab for a link
- * into a custom app (see `appWindowName` — an app never opens inside HQ), or
- * `null` for a path inside this SPA.
+ * Does a notification's link go into a custom app? An app is a document of its
+ * own, outside this SPA's router, so it needs a real navigation rather than a
+ * router `Link`. It opens in this tab, as every other way into an app does.
  */
-export function appWindowFor(href: string): string | null {
-  const match = APP_PATH.exec(href);
-  return match ? appWindowName(match[1], match[2]) : null;
+export function isAppHref(href: string): boolean {
+  return APP_PATH.test(href);
 }
 
 /** The implicit category of a kind that names none. Not worth a label on a row. */

@@ -1,22 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { InboxItem } from "@/types/notifications";
-import { appWindowFor, sourceLine } from "./utils";
+import { isAppHref, sourceLine } from "./utils";
 
-describe("appWindowFor", () => {
-  it("opens a link into a custom app in that app's own org-scoped tab", () => {
-    expect(appWindowFor("/customer-apps/acme/store-ops/lists/42")).toBe("oxy-app-acme-store-ops");
-    expect(appWindowFor("/customer-apps/acme/store-ops/")).toBe("oxy-app-acme-store-ops");
-    expect(appWindowFor("/customer-apps/acme/store-ops")).toBe("oxy-app-acme-store-ops");
-    expect(appWindowFor("/customer-apps/acme/store-ops?tab=overdue")).toBe(
-      "oxy-app-acme-store-ops"
-    );
+describe("isAppHref", () => {
+  it("knows a link into a custom app", () => {
+    expect(isAppHref("/customer-apps/acme/store-ops/lists/42")).toBe(true);
+    expect(isAppHref("/customer-apps/acme/store-ops/")).toBe(true);
+    expect(isAppHref("/customer-apps/acme/store-ops")).toBe(true);
+    expect(isAppHref("/customer-apps/acme/store-ops?tab=overdue")).toBe(true);
   });
 
-  it("keeps a path inside the product in this tab", () => {
-    expect(appWindowFor("/acme/workspaces/ws-1/threads")).toBeNull();
-    expect(appWindowFor("/work/1")).toBeNull();
+  it("leaves a path inside the product to the router", () => {
+    expect(isAppHref("/acme/workspaces/ws-1/threads")).toBe(false);
+    expect(isAppHref("/work/1")).toBe(false);
     // Not an app: no app segment.
-    expect(appWindowFor("/customer-apps/acme")).toBeNull();
+    expect(isAppHref("/customer-apps/acme")).toBe(false);
   });
 });
 

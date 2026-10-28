@@ -29,10 +29,10 @@ export function CriticalAlertBanner() {
               <span className='shrink-0 text-muted-foreground text-xs'>{signal.destLabel}</span>
             </>
           );
-          // A custom app gets its own tab (per `appWindowName`); Oxygen
-          // Factory is in-SPA.
+          // A custom app is a document of its own, so a plain anchor into it
+          // (same tab); Oxygen Factory is in-SPA.
           return signal.href ? (
-            <a key={signal.id} href={signal.href} target={signal.target} className={bannerClass}>
+            <a key={signal.id} href={signal.href} className={bannerClass}>
               {content}
             </a>
           ) : (

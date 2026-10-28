@@ -204,19 +204,16 @@ describe("NotificationsBell inbox", () => {
     expect(row).toHaveTextContent("Couldn't load this notification");
   });
 
-  it("opens an app's notification in that app's own tab, and marks it read", async () => {
+  it("opens an app's notification in this tab, and marks it read", async () => {
     renderBell();
     const panel = await openInbox();
     const row = await within(panel).findByTestId("notifications-item-n-app");
     expect(row).toHaveAttribute("href", "/customer-apps/acme/store-ops/lists/42");
-    expect(row).toHaveAttribute("target", "oxy-app-acme-store-ops");
-    // A named tab is reused only without `rel=noopener` — see appWindowName.
-    expect(row).not.toHaveAttribute("rel");
+    // A plain anchor, not a router link: the app is a document of its own.
+    expect(row).not.toHaveAttribute("target");
 
     await userEvent.click(row);
     await waitFor(() => expect(service.markRead).toHaveBeenCalledWith("n-app"));
-    // The app opened elsewhere; this tab stays where it was.
-    expect(screen.getByTestId("where")).toHaveTextContent("/acme/workspaces/ws-1/home");
   });
 
   it("follows a platform notice inside the product, without re-marking it read", async () => {

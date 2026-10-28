@@ -19,20 +19,6 @@ export type RailItem = {
   letter?: string;
   imageUrl?: string;
   href?: string;
-  /**
-   * Window name to open `href` in, which takes the destination out of this
-   * tab's session history entirely — the fix for a custom app (its own document,
-   * its own router, rewriting its own URL) interleaving with HQ's history and
-   * making Back land somewhere other than where you came from.
-   *
-   * A *name* rather than `_blank` so a given app gets one tab rather than a new
-   * one per click: clicking its tile again re-targets the tab that is already
-   * open. That reuse is precisely what `rel="noopener"`/`"noreferrer"` disable
-   * (a link with either is spec'd to get a fresh context), so neither is set —
-   * safe here because these are same-origin bundles we ship, already sharing
-   * this origin's cookies and storage.
-   */
-  newTab?: string;
   onSelect?: () => void;
 };
 
@@ -74,16 +60,7 @@ function RailEntry({ item }: { item: RailItem }) {
         tooltip={{ content: item.tooltip ?? item.label, side: "right" }}
         className={itemClasses(item.active)}
       >
-        <a
-          href={item.href}
-          target={item.newTab}
-          data-testid={item.testId}
-          // A tile that leaves this tab has to say so: the visible affordance is
-          // a bare icon, so a screen-reader user gets no other warning that
-          // activating it opens somewhere else (WCAG G201). The hover tooltip
-          // stays the plain label — sighted users see the tab appear.
-          aria-label={item.newTab ? `${item.label} (opens in a new tab)` : item.label}
-        >
+        <a href={item.href} data-testid={item.testId} aria-label={item.label}>
           {content}
         </a>
       </Button>

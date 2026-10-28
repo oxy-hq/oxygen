@@ -2,7 +2,7 @@
 // tapped notification goes. `useNotifications` (notifications-hooks.tsx) and
 // `<NotificationsBell />` (notifications-bell.tsx) are thin over this.
 //
-// A custom app opens in its own tab, never inside Oxygen's shell, so a person
+// A custom app is its own page, never inside Oxygen's shell, so a person
 // who lives in one app — crew on a kiosk, a single-app user — never sees
 // Oxygen's bell. The app's host forwards `/api/*` to the product API with the
 // app's own session, so the app reads the same inbox the product does
@@ -228,7 +228,10 @@ export function createInboxClient(
     return `${root}${path}${query ? `?${query}` : ""}`;
   };
   const get = { method: "GET" };
-  const post = { method: "POST" };
+  // `keepalive`: tapping a notification marks it read and then usually leaves
+  // the page (another app, or Oxygen, in this tab). Without it the browser may
+  // cancel the request on the way out, and the item comes back unread.
+  const post = { method: "POST", keepalive: true };
   return {
     unread: (filter = {}) =>
       request(fetcher, scoped("/unread", filterParams(filter)), get, async (r) =>
@@ -346,11 +349,6 @@ export function joinAppPath(base: string, link: string): string {
   return `${base.replace(/\/+$/, "")}${link}`;
 }
 
-/** The window an app's link opens in — one tab per app, as Oxygen does it. */
-export function appWindowName(orgSlug: string, appSlug: string): string {
-  return `oxy-app-${orgSlug}-${appSlug}`;
-}
-
 /**
  * Leaving the page. A seam, not an option: jsdom cannot navigate, and its
  * `location` cannot be spied on, so the bell's tests replace these.
@@ -366,7 +364,11 @@ export const pageNavigation = {
 export type NotificationTarget =
   /** This app: `link` is a path inside it, for its router. */
   | { kind: "app"; link: string }
-  /** Somewhere else: open `url` in the window named `window` (a new tab when null). */
+  /**
+   * Somewhere else: open `url` in the window named `window`. `_self` for
+   * anywhere in Oxygen, another app included, which opens in this tab as the
+   * dock does; null (a new tab) for a page outside Oxygen.
+   */
   | { kind: "away"; url: string; window: string | null }
   /** Nothing to open; tapping only marks it read. */
   | { kind: "none" };
@@ -392,9 +394,8 @@ function awayTarget(href: string | null, productBaseUrl?: string): NotificationT
   if (!href) return { kind: "none" };
   if (/^https?:\/\//i.test(href)) return { kind: "away", url: href, window: null };
   if (!safeAppPath(href)) return { kind: "none" };
-  const app = APP_HREF.exec(href);
   const url = productBaseUrl ? `${productBaseUrl.replace(/\/+$/, "")}${href}` : href;
-  return { kind: "away", url, window: app ? appWindowName(app[1], app[2]) : null };
+  return { kind: "away", url, window: "_self" };
 }
 
 /**

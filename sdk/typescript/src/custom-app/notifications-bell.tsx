@@ -150,8 +150,8 @@ export function NotificationsBell(props: NotificationsBellProps): React.JSX.Elem
 
 /**
  * Open an item; true when the person was taken somewhere. This app's open in
- * place, by `onNavigate` or under the app's base path; anything else in a new
- * tab, the one Oxygen would use.
+ * place, by `onNavigate` or under the app's base path; another app or an Oxygen
+ * page in this tab, as the dock opens them; a page outside Oxygen in a new tab.
  */
 function useFollow(props: NotificationsBellProps): (item: NotificationItem) => boolean {
   const { appId, orgSlug, appSlug, manifest } = useResolvedManifest();
@@ -161,8 +161,7 @@ function useFollow(props: NotificationsBellProps): (item: NotificationItem) => b
       const target = notificationTarget(item, { appId, productBaseUrl });
       if (target.kind === "none") return false;
       if (target.kind === "away") {
-        // A named window is the app's own tab, reused; `noopener` would defeat
-        // that, and these are this platform's own pages.
+        // `_self` is this platform's own page, opened in this tab.
         if (target.window) pageNavigation.open(target.url, target.window);
         else pageNavigation.open(target.url, "_blank", "noopener,noreferrer");
         return true;

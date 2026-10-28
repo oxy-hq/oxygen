@@ -277,8 +277,29 @@ by, so declare it with the first `ctx.notify`, not later:
   undeclared function, a misspelt field and any `oxy.` kind — every problem at
   once; a catalogue kind no function sends is a warning.
 
-The app opens in its own tab, so show the inbox **in the app** — people who
-live in it (crew on a kiosk) never see Oxygen's bell:
+**The dock.** Wrap the app in `<OxyShell>` (every `create-oxy-app` template
+does) so it shows Oxygen's rail: HQ, Chat and the viewer's other apps, each
+opening in this tab and warmed on hover. Pass `hideTopBar` if the app draws its
+own header. Link to another app with a plain `<a href>`, never `target="_blank"`;
+moving between apps is meant to feel like one product.
+
+```tsx
+import { OxyShell } from "@oxy-hq/sdk/shell";
+import "@oxy-hq/sdk/shell.css";
+
+<OxyAppProvider>
+  <OxyShell hideTopBar>
+    <App />
+  </OxyShell>
+</OxyAppProvider>
+```
+
+A `pushState` before the person has touched the page (a default redirect,
+filters written to the query string on mount) is turned into a replace by the
+platform, so Back still leaves the app; write such URL syncs as replaces anyway.
+
+The app is its own page, outside Oxygen's shell, so show the inbox **in the
+app** — people who live in it (crew on a kiosk) never see Oxygen's bell:
 
 ```tsx
 import { NotificationsBell } from "@oxy-hq/sdk";
