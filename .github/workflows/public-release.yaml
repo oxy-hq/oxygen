@@ -668,6 +668,19 @@ jobs:
             .dockerignore
           sparse-checkout-cone-mode: false
 
+      # The image's creation time is the commit's time, not the build's.
+      # oxy-dev's argocd-image-updater picks `updateStrategy: newest-build`
+      # (infrastructure: oxy-edge-image-updater.yaml), which reads this date.
+      # Stamped with the build's time, builds of commits merged seconds apart
+      # finish out of order and dev deploys whichever finished last: on
+      # 2026-10-28 dev went from #3862 back to #3858 and then #3835. With the
+      # commit's time the newest commit is the newest image, whatever order the
+      # builds finish in. BuildKit reads SOURCE_DATE_EPOCH for the image
+      # config's `created`.
+      - name: Commit time for the image's creation date
+        id: commit_time
+        run: echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+
       - name: Download pre-built binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -722,6 +735,8 @@ jobs:
 
       - name: Build and push image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.commit_time.outputs.epoch }}
         with:
           context: .
           file: Dockerfile.prebuilt
