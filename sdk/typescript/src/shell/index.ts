@@ -22,6 +22,7 @@ export type { KioskIdleOptions, KioskIdleState } from "./kioskIdle";
 export { useKioskIdle } from "./kioskIdle";
 export { workspaceLogoUrl } from "./logoUrl";
 export { OXY_MARK_PATH, OxygenFactoryMark, OxyMark } from "./marks";
+export { NavSheet } from "./NavSheet";
 export type { OxyShellProps } from "./OxyShell";
 export { OxyShell } from "./OxyShell";
 export type { ReasoningTraceProps } from "./ReasoningTrace";

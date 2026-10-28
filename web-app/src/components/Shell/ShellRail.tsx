@@ -38,19 +38,25 @@ const itemClasses = (active?: boolean) =>
       : "opacity-60 hover:opacity-100"
   );
 
-function RailEntry({ item }: { item: RailItem }) {
+/** An item's mark: the app image (falling back to its letter on a load
+ *  error), else its icon, else its letter. Shared with `ShellNavSheet`. */
+export function RailItemIcon({ item }: { item: RailItem }) {
   const [imageFailed, setImageFailed] = useState(false);
-  const content =
-    item.imageUrl && !imageFailed ? (
+  if (item.imageUrl && !imageFailed) {
+    return (
       <img
         src={item.imageUrl}
         alt=''
         onError={() => setImageFailed(true)}
         className='h-5 w-5 rounded-sm object-contain'
       />
-    ) : (
-      (item.icon ?? <span className='font-semibold text-primary text-xs'>{item.letter}</span>)
     );
+  }
+  return item.icon ?? <span className='font-semibold text-primary text-xs'>{item.letter}</span>;
+}
+
+function RailEntry({ item }: { item: RailItem }) {
+  const content = <RailItemIcon item={item} />;
   if (item.href) {
     return (
       <Button

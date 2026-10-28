@@ -27,21 +27,27 @@ export type RailItem = {
   onSelect?: () => void;
 };
 
-function RailEntry({ item }: { item: RailItem }) {
+/** An item's mark: the app image (falling back to its letter on a load
+ *  error), else its icon, else its letter. Shared with `NavSheet`. */
+export function RailItemMark({ item }: { item: RailItem }) {
   // Track the URL that failed (not a boolean) so a new imageUrl retries
   // instead of latching the letter fallback forever.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const content =
-    item.imageUrl && failedUrl !== item.imageUrl ? (
+  if (item.imageUrl && failedUrl !== item.imageUrl) {
+    return (
       <img
         src={item.imageUrl}
         alt=''
         onError={() => setFailedUrl(item.imageUrl ?? null)}
         className='oxy-rail__item-img'
       />
-    ) : (
-      (item.icon ?? <span className='oxy-rail__item-letter'>{item.letter}</span>)
     );
+  }
+  return item.icon ?? <span className='oxy-rail__item-letter'>{item.letter}</span>;
+}
+
+function RailEntry({ item }: { item: RailItem }) {
+  const content = <RailItemMark item={item} />;
   const className = cx("oxy-rail__item", item.active && "oxy-rail__item--active");
   const ariaCurrent = item.active ? ("page" as const) : undefined;
   const entry = item.href ? (

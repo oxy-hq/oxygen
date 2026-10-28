@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.0] - 2026-10-28
+
+### Changed
+
+- **`<OxyShell>` on a phone: a menu instead of the icon rail.** Below 768px
+  the 48px rail is hidden and a menu button at the start of the top bar opens
+  a left drawer with the same entries — HQ, Chat, every app — each with its
+  name, as 44px rows at full opacity, the current app marked. The rail's names
+  were hover tooltips, which a touch screen never shows. A pick, the overlay or
+  Escape closes it, and focus returns to the menu button; while open, Tab stays
+  inside it, and widening past 768px closes it. It renders after the app's
+  content, so an app's own `fixed` bar at z-index 50 sits under it. With `hideTopBar`
+  there is nowhere for the button, so the rail stays at every width. An app
+  gets this by upgrading the SDK and republishing; nothing to change in its
+  code.
+
+### Added
+
+- **`NavSheet`** (from `@oxy-hq/sdk/shell`) — that drawer as a presentational
+  component, taking `ShellRail`'s `groups` / `footerItems` / `bottom` plus a
+  `title`, for a host composing the shell pieces itself.
+
 ## [2.22.0] - 2026-10-28
 
 ### Added

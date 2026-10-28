@@ -17,6 +17,7 @@ import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import { RailUserMenu } from "./RailUserMenu";
 import { RailWorkspaceSwitch } from "./RailWorkspaceSwitch";
 import { RailWorkspaceTile } from "./RailWorkspaceTile";
+import { ShellNavSheet } from "./ShellNavSheet";
 import { type RailItem, ShellRail } from "./ShellRail";
 import { TopBar } from "./TopBar";
 
@@ -199,29 +200,50 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   if (isPartnerAdmin) footerItems.push(partner);
   if (isOperator) footerItems.push(admin);
 
+  const bottom = (
+    <>
+      {/* Apps-first drops the switcher: the home lists every app across
+          the org, and Oxy engineers move between an org's workspaces in
+          the Factory's own picker. */}
+      {!appsFirst && <RailWorkspaceSwitch />}
+      <RailUserMenu />
+    </>
+  );
+
   const layout = (
     <div className='flex min-h-0 w-full flex-1'>
+      {/* Below `md` the rail gives way to ShellNavSheet: its labels are hover
+          tooltips, which a touch screen never shows, and its 48px is an eighth
+          of a phone's width. */}
       {!hideRail && (
-        <ShellRail
-          top={<RailWorkspaceTile />}
-          groups={groups}
-          footerItems={footerItems}
-          bottom={
-            <>
-              {/* Apps-first drops the switcher: the home lists every app across
-                  the org, and Oxy engineers move between an org's workspaces in
-                  the Factory's own picker. */}
-              {!appsFirst && <RailWorkspaceSwitch />}
-              <RailUserMenu />
-            </>
-          }
-        />
+        <div className='hidden h-full md:flex'>
+          <ShellRail
+            top={<RailWorkspaceTile />}
+            groups={groups}
+            footerItems={footerItems}
+            bottom={bottom}
+          />
+        </div>
       )}
       {/* Content column. The top bar sits to the RIGHT of the rail and is the
           same height as the rail's logo cell (h-12), so the logo anchors the
           top-left corner and the two bottom borders form one continuous line. */}
       <div className='flex h-full min-w-0 flex-1 flex-col'>
-        {!hideRail && <TopBar />}
+        {!hideRail && (
+          <TopBar
+            leading={
+              <div className='flex md:hidden'>
+                <ShellNavSheet
+                  title={workspace?.name ?? ""}
+                  top={<RailWorkspaceTile />}
+                  groups={groups}
+                  footerItems={footerItems}
+                  bottom={bottom}
+                />
+              </div>
+            }
+          />
+        )}
         {/* Follows the operator INTO the tenant — this is where an unnoticed
             impersonation would actually do damage. */}
         <div className='flex min-h-0 w-full flex-1'>

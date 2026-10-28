@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { OxyMark } from "@/components/OxyMark";
 import { cn } from "@/libs/shadcn/utils";
 import useAskDock from "@/stores/useAskDock";
@@ -37,14 +38,17 @@ function AskOxygenButton() {
  * bell, and the Ask Oxygen toggle (right). Spans the content column above `<main>` and the
  * Ask dock. Hidden inside the IDE and onboarding (gated with the rail in
  * WorkspaceShell). Mirrors the rail's `bg-sidebar-background` so the two read
- * as one frame. Follow-up: lift into `@oxy-hq/sdk` for custom apps.
+ * as one frame. `leading` sits before the breadcrumb — the shell puts the
+ * mobile nav drawer's menu button there. Follow-up: lift into `@oxy-hq/sdk`
+ * for custom apps.
  */
-export function TopBar() {
+export function TopBar({ leading }: { leading?: ReactNode }) {
   return (
     <header
       data-testid='workspace-topbar'
       className='flex h-12 shrink-0 items-center gap-3 border-b bg-sidebar-background px-3'
     >
+      {leading}
       <Breadcrumb />
       <div className='ml-auto flex shrink-0 items-center gap-3'>
         <SystemIndicator />

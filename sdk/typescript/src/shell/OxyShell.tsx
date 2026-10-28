@@ -19,6 +19,7 @@ import { AskDock } from "./AskDock";
 import { cx } from "./cx";
 import { useDockPrefetch } from "./dockPrefetch";
 import { OxyMark } from "./marks";
+import { NavSheetPanel, NavSheetTrigger, useNavSheet } from "./NavSheet";
 import { ShellPortalContext, useShellPortalContainer } from "./portal";
 import { type RailItem, ShellRail } from "./ShellRail";
 import { type ShellContextData, useShellContext } from "./shellContext";
@@ -236,28 +237,33 @@ export function OxyShell({
   // `railBottom`.
   const bottom = railBottom;
 
+  const groups = data ? buildRailGroups(data, effectiveSlug, abs) : [[]];
+  const workspaceTile = data ? (
+    <WorkspaceTile name={data.workspace.name} logoUrl={data.logo_url ?? undefined} />
+  ) : (
+    <span className='oxy-workspace-tile'>
+      <OxyMark className='oxy-rail__item-img' />
+    </span>
+  );
+  // Below 768px the rail gives way to NavSheet, whose menu button lives in the
+  // top bar — so only when there is a top bar to hold it. `hideTopBar` keeps
+  // the rail at every width rather than leave a phone with no navigation.
+  const navSheet = !hideTopBar && !degraded;
+  const sheet = useNavSheet();
+
   return (
     <ShellPortalContext.Provider value={container}>
       <div
         ref={setContainer}
-        className={cx("oxy-shell-scope oxy-shell", degraded && "oxy-shell--degraded", className)}
+        className={cx(
+          "oxy-shell-scope oxy-shell",
+          degraded && "oxy-shell--degraded",
+          navSheet && "oxy-shell--navsheet",
+          className
+        )}
         style={chromeStyle}
       >
-        {!degraded && (
-          <ShellRail
-            top={
-              data ? (
-                <WorkspaceTile name={data.workspace.name} logoUrl={data.logo_url ?? undefined} />
-              ) : (
-                <span className='oxy-workspace-tile'>
-                  <OxyMark className='oxy-rail__item-img' />
-                </span>
-              )
-            }
-            groups={data ? buildRailGroups(data, effectiveSlug, abs) : [[]]}
-            bottom={bottom}
-          />
-        )}
+        {!degraded && <ShellRail top={workspaceTile} groups={groups} bottom={bottom} />}
         <div className='oxy-shell__content-col'>
           {/* The top bar renders in degraded mode too when the host passed
               its own slot content — an app that moved its header into the
@@ -266,14 +272,17 @@ export function OxyShell({
           {!hideTopBar && (!degraded || topBarLeft || topBarExtra) && (
             <TopBar
               left={
-                topBarLeft ??
-                (data ? (
-                  <Breadcrumb
-                    workspaceLabel={workspaceLabel}
-                    pageLabel={page}
-                    homeHref={abs(data.links.home) ?? data.links.home}
-                  />
-                ) : undefined)
+                <>
+                  {navSheet && <NavSheetTrigger sheet={sheet} />}
+                  {topBarLeft ??
+                    (data ? (
+                      <Breadcrumb
+                        workspaceLabel={workspaceLabel}
+                        pageLabel={page}
+                        homeHref={abs(data.links.home) ?? data.links.home}
+                      />
+                    ) : undefined)}
+                </>
               }
               right={
                 <>
@@ -312,6 +321,15 @@ export function OxyShell({
             workspaceName={data?.workspace.name}
             suggestions={askSuggestions}
             threadsHref={abs(data?.links.threads)}
+          />
+        )}
+        {navSheet && (
+          <NavSheetPanel
+            sheet={sheet}
+            title={workspaceLabel}
+            top={workspaceTile}
+            groups={groups}
+            bottom={bottom}
           />
         )}
       </div>
