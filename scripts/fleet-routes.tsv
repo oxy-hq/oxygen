@@ -106,17 +106,6 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 GET	/api/{workspace_id}/app-integrations	fleet-ok	Now	verified live 200, empty list — a legitimately empty fixture, not a failure
 POST	/api/{workspace_id}/app-integrations	ide-only	Fixture	creates a real Toast/weather/BestTime row + writes `config.yml`; disposable via the `DELETE` row above
 *	/api/{workspace_id}/app-integrations/{kind}	ide-only	Fixture	`DELETE` — fixture has zero integrations configured (verified live), so nothing to target without creating one first
-*	/api/{workspace_id}/apps	fleet-ok	Now	verified live 200 — 10 real Data Apps
-*	/api/{workspace_id}/apps/{pathb64}	ide-only	Now	`get_app_data` for any of the 10 real apps
-*	/api/{workspace_id}/apps/{pathb64}/charts/{chart_path}	fleet-ok	Fixture	needs the app to have actually been run once, to produce a chart image
-*	/api/{workspace_id}/apps/{pathb64}/data-cached	fleet-ok	Fixture	cached data only exists after a run; needs `/run` first
-*	/api/{workspace_id}/apps/{pathb64}/displays	fleet-ok	Now	reads declared display config, no run needed
-*	/api/{workspace_id}/apps/{pathb64}/publish	ide-only	Fixture	all 10 fixture apps are already `published:true` — re-publishing is low-risk but writes the working copy; prefer a disposable app if being careful
-*	/api/{workspace_id}/apps/{pathb64}/result	ide-only	Fixture	needs a `run_id` from `/run` first
-*	/api/{workspace_id}/apps/{pathb64}/run	ide-only	Fixture	executes a real Data App query against one of the 11 DB connections — the DuckDB-backed ones (`local`/`training`/`duckdb_persistent`) are the realistic candidates; the rest need real external creds
-*	/api/{workspace_id}/apps/{pathb64}/unpublish	ide-only	Destr	unpublishes a real, shared, seeded app — use a disposable app, not one of the 10
-*	/api/{workspace_id}/apps/file/{pathb64}	ide-only	Now	reads a real file behind one of the 10 apps
-*	/api/{workspace_id}/apps/source/{pathb64}	ide-only	Now	base64 one of the 10 real `.app.yml` paths (e.g. `insights.app.yml`)
 *	/api/{workspace_id}/artifacts/{id}	fleet-ok	Fixture	needs a real artifact id produced by a prior run
 *	/api/{workspace_id}/automations	fleet-ok	Now	verified live 200 — 23 real automations (alias of `/procedures`)
 *	/api/{workspace_id}/automations/{path_b64}	fleet-ok	Now	base64 one of the 23 real paths

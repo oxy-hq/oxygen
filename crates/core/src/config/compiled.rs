@@ -11,8 +11,8 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::artifacts::{
-    AgentEntry, AppEntry, ArtifactError, AutomationEntry, CompiledArtifact, PipelineEntry,
-    SimulationEntry, VerifiedQueryEntry,
+    AgentEntry, ArtifactError, AutomationEntry, CompiledArtifact, PipelineEntry, SimulationEntry,
+    VerifiedQueryEntry,
 };
 
 pub(super) async fn conn() -> Result<DatabaseConnection, ArtifactError> {
@@ -34,43 +34,6 @@ pub(super) async fn load_config_at(revision_id: Uuid) -> Result<Option<Value>, A
             .map_err(|e| ArtifactError::Backend(e.to_string()))?
             .map(|row| row.merged_config()),
     )
-}
-
-pub(super) async fn list_apps_at(
-    revision_id: Uuid,
-    published_only: bool,
-) -> Result<Vec<AppEntry>, ArtifactError> {
-    apps_at(&conn().await?, revision_id, published_only).await
-}
-
-async fn apps_at(
-    db: &DatabaseConnection,
-    revision_id: Uuid,
-    published_only: bool,
-) -> Result<Vec<AppEntry>, ArtifactError> {
-    let mut find = entity::app_definitions::Entity::find()
-        .filter(entity::app_definitions::Column::RevisionId.eq(revision_id));
-    if published_only {
-        find = find.filter(entity::app_definitions::Column::Published.eq(true));
-    }
-    Ok(find
-        .all(db)
-        .await
-        .map_err(|e| ArtifactError::Backend(e.to_string()))?
-        .into_iter()
-        .map(|m| AppEntry {
-            title: extract_title(&m.definition),
-            file_path: m.file_path,
-            name: m.name,
-            published: m.published,
-        })
-        .collect())
-}
-
-/// `title` out of the JSONB without a full struct deserialize. The strict parse
-/// already happened at compile time; a listing only wants the label.
-fn extract_title(definition: &Value) -> Option<String> {
-    extract_str(definition, "title")
 }
 
 /// One airway pipeline's compiled `definition`, by workspace-relative path.
@@ -153,23 +116,6 @@ pub(super) async fn list_automations_at(
             extension: m.extension,
         })
         .collect())
-}
-
-/// One app's compiled `definition`, keyed by workspace-relative path.
-///
-/// Path rather than name: the UI addresses apps that way (`/apps/<pathb64>`)
-/// and a workspace can carry duplicate `name`s in different folders.
-pub(super) async fn resolve_app_at(
-    revision_id: Uuid,
-    file_path: &str,
-) -> Result<Option<Value>, ArtifactError> {
-    Ok(
-        entity::app_definitions::Entity::find_by_id((revision_id, file_path.to_string()))
-            .one(&conn().await?)
-            .await
-            .map_err(|e| ArtifactError::Backend(e.to_string()))?
-            .map(|m| m.definition),
-    )
 }
 
 /// One automation's compiled `definition`, keyed by workspace-relative path.

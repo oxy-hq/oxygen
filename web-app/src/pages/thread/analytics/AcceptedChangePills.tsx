@@ -1,5 +1,4 @@
 import {
-  AppWindow,
   Workflow as Automation,
   BookOpen,
   Bot,
@@ -22,8 +21,6 @@ const getFileIcon = (filePath: string) => {
       return Automation;
     case FileType.ANALYTICS_AGENT:
       return Bot;
-    case FileType.APP:
-      return AppWindow;
     case FileType.VIEW:
       return Eye;
     case FileType.TOPIC:

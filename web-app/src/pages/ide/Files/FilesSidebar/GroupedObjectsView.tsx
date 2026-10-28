@@ -1,13 +1,6 @@
-import {
-  AppWindow,
-  Workflow as Automation,
-  ChevronDown,
-  ChevronRight,
-  Database
-} from "lucide-react";
+import { Workflow as Automation, ChevronDown, ChevronRight, Database } from "lucide-react";
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { Badge } from "@/components/ui/shadcn/badge";
 import {
   Collapsible,
   CollapsibleContent,
@@ -21,7 +14,6 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem
 } from "@/components/ui/shadcn/sidebar";
-import useApps from "@/hooks/api/apps/useApps";
 import { encodeBase64 } from "@/libs/encoding";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -112,30 +104,8 @@ const GroupedObjectsView: React.FC<GroupedObjectsViewProps> = ({
     automations: true,
     pipelines: true,
     agents: true,
-    apps: true,
     tests: true
   });
-
-  const { data: appList } = useApps();
-  const publishedByPath = React.useMemo(() => {
-    const map = new Map<string, boolean>();
-    for (const a of appList ?? []) {
-      map.set(a.path, !!a.published);
-    }
-    return map;
-  }, [appList]);
-  const appBadge = React.useCallback(
-    (file: FileTreeModel) => {
-      const published = publishedByPath.get(file.path);
-      if (published === undefined || published) return null;
-      return (
-        <Badge variant='outline' className='font-normal text-[10px] text-muted-foreground'>
-          Draft
-        </Badge>
-      );
-    },
-    [publishedByPath]
-  );
 
   const toggleGroup = (group: keyof typeof openGroups) => {
     setOpenGroups((prev) => ({ ...prev, [group]: !prev[group] }));
@@ -175,17 +145,6 @@ const GroupedObjectsView: React.FC<GroupedObjectsViewProps> = ({
         activePath={activePath}
         onToggle={() => toggleGroup("agents")}
         onFileClick={handleFileClick}
-      />
-
-      <CollapsibleGroup
-        label='Apps'
-        files={grouped.apps}
-        isOpen={openGroups.apps}
-        activePath={activePath}
-        onToggle={() => toggleGroup("apps")}
-        onFileClick={handleFileClick}
-        icon={AppWindow}
-        badgeFor={appBadge}
       />
 
       <CollapsibleGroup

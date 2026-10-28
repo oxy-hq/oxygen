@@ -14,7 +14,7 @@
 //! world model's exploration tools, onboarding setup, and the working copy's git state
 //! and config status. A route is a customer's when a surface a customer reaches calls
 //! it: the shell (what the workspace is, its members and API keys), chat and its runs, viewing and running automations and
-//! pipelines, opening a data app, the launcher's readiness reads, the world model's
+//! pipelines, the launcher's readiness reads, the world model's
 //! graph (the home's preview and the read-only page), and running a query. Reading
 //! is not the test — `GET /files` is the Factory's, `POST /sql/query` is a
 //! customer's — what the route is *for* is.
@@ -144,17 +144,6 @@ pub const CUSTOMER: &[(&str, &str)] = &[
     ("GET", "/agentic-airway/runs/{id}/events"),
     ("GET", "/agentic-schedules"),
     ("GET", "/agentic-schedules/{id}"),
-    // ── Opening a data app (publishing or reading its source is the Factory's) ─
-    ("GET", "/apps"),
-    ("GET", "/apps/{pathb64}"),
-    // A display's result file (parquet): the viewer downloads it whenever the
-    // table carries no inline rows, in the app page and in a chat artifact.
-    ("GET", "/apps/file/{pathb64}"),
-    ("GET", "/apps/{pathb64}/charts/{chart_path}"),
-    ("GET", "/apps/{pathb64}/data-cached"),
-    ("GET", "/apps/{pathb64}/displays"),
-    ("POST", "/apps/{pathb64}/result"),
-    ("POST", "/apps/{pathb64}/run"),
     // ── Asking the data a question ────────────────────────────────────────────
     ("POST", "/sql/query"),
     ("POST", "/semantic"),
@@ -236,10 +225,6 @@ pub const FACTORY: &[(&str, &str)] = &[
     // The Builder copilot and onboarding: start a Builder run, answer one.
     ("*", "/analytics/builder/{*rest}"),
     ("POST", "/analytics/runs/{id}/revert-file-changes"),
-    // ── Data apps: authoring and publishing ───────────────────────────────────
-    ("GET", "/apps/source/{pathb64}"),
-    ("POST", "/apps/{pathb64}/publish"),
-    ("POST", "/apps/{pathb64}/unpublish"),
     // ── Databases, integrations, secrets: setup that writes config ────────────
     ("*", "/databases"),
     ("*", "/databases/{*rest}"),
@@ -318,7 +303,6 @@ mod tests {
             ("PUT", "/secrets/abc"),
             ("POST", "/databases"),
             ("DELETE", "/agentic-schedules/abc"),
-            ("POST", "/apps/abc/publish"),
             ("GET", "/world-model/events"),
             ("GET", "/cameras/abc/preview/hls/a/b/c.m3u8"),
             // The shell asks for these only for a Factory user.
@@ -340,8 +324,6 @@ mod tests {
             ("POST", "/analytics/runs"),
             ("GET", "/databases"),
             ("GET", "/agentic-schedules/abc"),
-            ("GET", "/apps/abc"),
-            ("GET", "/apps/file/abc"),
             ("POST", "/sql/query"),
             ("GET", "/custom-apps"),
             ("GET", "/semantic/world-model"),

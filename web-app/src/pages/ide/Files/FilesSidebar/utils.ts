@@ -1,5 +1,4 @@
 import {
-  AppWindow,
   Workflow as Automation,
   BookOpen,
   Bot,
@@ -40,8 +39,6 @@ export const getFileTypeIcon = (fileType: FileType, fileName?: string) => {
       return Bot;
     case FileType.PIPELINE:
       return Database;
-    case FileType.APP:
-      return AppWindow;
     case FileType.VIEW:
       return Eye;
     case FileType.TOPIC:
@@ -65,7 +62,6 @@ interface GroupedObjects {
   automations: FileTreeModel[];
   pipelines: FileTreeModel[];
   agents: FileTreeModel[];
-  apps: FileTreeModel[];
   tests: FileTreeModel[];
   semanticObjects: FileTreeModel[];
 }
@@ -75,7 +71,6 @@ export const groupObjectsByType = (files: FileTreeModel[]): GroupedObjects => {
     automations: [],
     pipelines: [],
     agents: [],
-    apps: [],
     tests: [],
     semanticObjects: []
   };
@@ -94,9 +89,6 @@ export const groupObjectsByType = (files: FileTreeModel[]): GroupedObjects => {
         break;
       case FileType.ANALYTICS_AGENT:
         groups.agents.push(file);
-        break;
-      case FileType.APP:
-        groups.apps.push(file);
         break;
       case FileType.TEST:
         groups.tests.push(file);
@@ -117,7 +109,6 @@ export const groupObjectsByType = (files: FileTreeModel[]): GroupedObjects => {
   groups.automations.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
   groups.pipelines.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
   groups.agents.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
-  groups.apps.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
   groups.tests.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
   groups.semanticObjects.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
 

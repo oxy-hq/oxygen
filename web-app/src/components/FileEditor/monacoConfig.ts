@@ -102,10 +102,6 @@ export const configureMonaco = (monaco: MonacoNamespace) => {
     format: { enable: true },
     schemas: [
       {
-        fileMatch: ["**/*.app.yml", "**/*.app.yaml"],
-        uri: "https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/app.json"
-      },
-      {
         // Canonical automation files (formerly automations / automations).
         fileMatch: [
           "**/*.automation.yml",

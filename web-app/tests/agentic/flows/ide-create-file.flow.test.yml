@@ -80,8 +80,8 @@
 #
 # NON-IDEMPOTENT BY DESIGN — READ BEFORE
 # RERUNNING. This flow creates a real file, `agentic-test-scratch.md`, at
-# the workspace root. Unlike `builder-edits-app`
-# (`restore_demo_file:insights.app.yml`) there is no setup command that can
+# the workspace root. Unlike a flow that edits a
+# demo file (`restore_demo_file:`) there is no setup command that can
 # un-create a file this suite did not ship — `fixtures/reset.ts`'s surface
 # is `goto:` / `reset_test_file` / `restore_demo_file:`, none of which
 # delete an arbitrary path, and (per the section above) this suite has no

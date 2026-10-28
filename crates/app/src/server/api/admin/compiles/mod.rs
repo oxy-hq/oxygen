@@ -20,7 +20,6 @@
 pub mod backfill;
 pub mod batch;
 pub mod crud;
-pub mod data_apps;
 pub mod source;
 pub mod workspaces;
 
@@ -41,7 +40,6 @@ pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(crud::list_compiles))
         .route("/workspaces", get(workspaces::list_workspaces))
-        .route("/data-apps", get(data_apps::list_data_apps))
         .route("/{revision_id}", get(crud::get_compile))
         .route("/run", post(crud::run_compile_now))
         .route("/backfill", post(backfill::backfill_uncompiled))

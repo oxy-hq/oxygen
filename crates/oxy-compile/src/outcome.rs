@@ -123,7 +123,7 @@ pub enum FailureKind {
     /// File could not be read from disk.
     Io,
     /// The YAML parsed but required field was missing (e.g. an
-    /// `.app.yml` with no top-level structure).
+    /// automation with no top-level structure).
     Shape,
     /// Two files of the same kind compiled to the same identifier
     /// (e.g. two agents named "foo"). The failure is recorded on the

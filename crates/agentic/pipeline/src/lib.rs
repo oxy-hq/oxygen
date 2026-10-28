@@ -37,7 +37,7 @@ use std::sync::{Arc, Mutex};
 
 use agentic_analytics::SchemaCatalog;
 use agentic_analytics::config::AgentConfig;
-use agentic_builder::{BuilderAppRunner, BuilderTestRunner};
+use agentic_builder::BuilderTestRunner;
 use agentic_core::hub_task::spawn_with_hub;
 use agentic_runtime::event_registry::EventRegistry;
 use agentic_runtime::handle::{PipelineHandle, PipelineOutcome};
@@ -72,7 +72,6 @@ pub use agentic_automation::{
     AutomationMigrator, SOURCE_TYPE as WORKFLOW_SOURCE_TYPE,
     WorkspaceContext as WorkflowWorkspaceContext, WorkspaceReadError,
 };
-pub use agentic_builder::BuilderAppRunner as BuilderAppRunnerTrait;
 pub use agentic_builder::BuilderTestRunner as BuilderTestRunnerTrait;
 pub use agentic_builder::KnowledgeCard;
 pub use agentic_builder::onboarding;
@@ -129,7 +128,6 @@ pub struct PipelineBuilder {
     thinking_mode: ThinkingMode,
     schema_cache: Option<Arc<Mutex<HashMap<String, SchemaCatalog>>>>,
     builder_test_runner: Option<Arc<dyn BuilderTestRunner>>,
-    builder_app_runner: Option<Arc<dyn BuilderAppRunner>>,
     /// When set, use this run_id and skip the DB `insert_run` call.
     /// Used for delegation children where the coordinator already created
     /// the run via `insert_run_with_parent`.
@@ -298,7 +296,6 @@ impl PipelineBuilder {
             thinking_mode: ThinkingMode::Auto,
             schema_cache: None,
             builder_test_runner: None,
-            builder_app_runner: None,
             existing_run_id: None,
             starting_driver: None,
             human_input: None,
@@ -495,12 +492,6 @@ impl PipelineBuilder {
 
     pub fn test_runner(mut self, runner: Arc<dyn BuilderTestRunner>) -> Self {
         self.builder_test_runner = Some(runner);
-        self
-    }
-
-    /// Set builder app runner — backs the `run_app` tool.
-    pub fn app_runner(mut self, runner: Arc<dyn BuilderAppRunner>) -> Self {
-        self.builder_app_runner = Some(runner);
         self
     }
 
@@ -986,7 +977,6 @@ impl PipelineBuilder {
                 schema_provider: Some(bridges.schema_provider),
                 semantic_compiler: Some(bridges.semantic_compiler),
                 test_runner: self.builder_test_runner,
-                app_runner: self.builder_app_runner,
                 human_input: None,
                 secrets_provider: bridges.secrets_provider,
                 knowledge_cards: self.builder_knowledge_cards,
@@ -1105,7 +1095,6 @@ impl PipelineBuilder {
             schema_provider: Some(bridges.schema_provider),
             semantic_compiler: Some(bridges.semantic_compiler),
             test_runner: self.builder_test_runner,
-            app_runner: self.builder_app_runner,
             human_input: self.human_input,
             secrets_provider: bridges.secrets_provider,
             knowledge_cards: self.builder_knowledge_cards,
@@ -1435,7 +1424,6 @@ pub async fn drive_with_coordinator(
     builder_bridges: Option<BuilderBridges>,
     schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
     builder_test_runner: Option<Arc<dyn agentic_builder::BuilderTestRunner>>,
-    builder_app_runner: Option<Arc<dyn agentic_builder::BuilderAppRunner>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
 ) {
     use agentic_core::transport::{CoordinatorTransport, WorkerTransport};
@@ -1477,7 +1465,6 @@ pub async fn drive_with_coordinator(
         builder_bridges: builder_bridges.filter(|_| !is_preview),
         schema_cache,
         builder_test_runner: builder_test_runner.filter(|_| !is_preview),
-        builder_app_runner: builder_app_runner.filter(|_| !is_preview),
         db: db.clone(),
         state: Some(state.clone()),
         custom_executors: None,

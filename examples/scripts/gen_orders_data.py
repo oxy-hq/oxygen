@@ -42,12 +42,8 @@ Usage
 `--check` verifies the invariants against what is already on disk and writes
 nothing. Deterministic: same seed and anchor in, same bytes out.
 
-If you re-run this with a new anchor, note that a few files hard-code the
-dataset's span and will not follow it: `fruit_business_monitor.app.yml` and
-`apps/controls_demo.app.yml` pin `order_date` bounds, and `.monitor.yml`'s
-header comment quotes a reference date. A stale window there is invisible — the
-filter stays valid, the window just goes empty, and the dashboard still looks
-like it works.
+If you re-run this with a new anchor, note that `.monitor.yml`'s header comment
+quotes a reference date and will not follow it.
 """
 
 from __future__ import annotations

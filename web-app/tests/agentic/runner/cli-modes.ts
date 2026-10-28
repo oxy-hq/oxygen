@@ -179,12 +179,7 @@ function loadSurfaces(surfacesPath: string): SurfaceEntry[] {
       paths: ["src/pages/launcher/", "src/components/Ask/", "src/components/Chat/"],
       flows: ["chat-ask"]
     },
-    { surface: "ide", paths: ["src/pages/ide/"], flows: ["ide-save"] },
-    {
-      surface: "builder",
-      paths: ["src/components/BuilderDialog/"],
-      flows: ["builder-edits-app"]
-    }
+    { surface: "ide", paths: ["src/pages/ide/"], flows: ["ide-save"] }
   ];
 }
 

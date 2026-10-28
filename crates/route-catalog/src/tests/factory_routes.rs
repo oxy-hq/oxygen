@@ -123,7 +123,6 @@ fn the_landmarks_sit_where_the_plan_puts_them() {
         ("POST", "/agentic-airway/backfill"),
         ("POST", "/agentic-schedules"),
         ("GET", "/tests"),
-        ("GET", "/apps/source/{pathb64}"),
     ] {
         assert_eq!(
             surface_of(method, path),
@@ -141,8 +140,6 @@ fn the_landmarks_sit_where_the_plan_puts_them() {
         ("GET", "/api-keys"),
         ("GET", "/oxy-access"),
         ("POST", "/sql/query"),
-        // A data app's result file: opening an app or a chat artifact needs it.
-        ("GET", "/apps/file/{pathb64}"),
     ] {
         assert_eq!(
             surface_of(method, path),
@@ -171,20 +168,11 @@ fn report_the_split() {
 /// Customer routes a serve pod does not handle yet, each tied to the change
 /// that ends it. Exact `(method, path)` as on [`CUSTOMER`].
 ///
-/// - The four Data App routes: Data Apps are removed by #3835, which deletes
-///   the routes. Running a Data App reads its `.app.yml` and result files off
-///   the working copy.
-///
-/// (The four shell and launcher reads, `/git-state`, `/status`,
-/// `/onboarding-readiness` and `/onboarding/github-setup`, left this list in #3849,
-/// which moved them to the Factory list.)
-const NOT_ON_SERVE_YET: &[(&str, &str)] = &[
-    // Removed with Data Apps (#3835).
-    ("GET", "/apps/{pathb64}"),
-    ("GET", "/apps/file/{pathb64}"),
-    ("POST", "/apps/{pathb64}/result"),
-    ("POST", "/apps/{pathb64}/run"),
-];
+/// Empty: the four Data App routes were removed with Data Apps in #3835, and the four
+/// shell and launcher reads (`/git-state`, `/status`, `/onboarding-readiness`
+/// and `/onboarding/github-setup`) moved to the Factory list in #3849. An entry
+/// added here names the change that removes it.
+const NOT_ON_SERVE_YET: &[(&str, &str)] = &[];
 
 /// Every role declaration a served router installs, composed the way
 /// `oxy-server` composes it: `oxy-app`'s own, plus the workspace seam's

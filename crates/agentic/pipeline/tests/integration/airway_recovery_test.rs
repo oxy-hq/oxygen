@@ -128,7 +128,6 @@ async fn recover(s: &Stranded) {
         None,
         None,
         None,
-        None,
         Arc::new(agentic_runtime::orchestrator::router::NoopTaskRouter),
         Some(s.workspace_id),
         None,

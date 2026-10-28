@@ -302,7 +302,6 @@ impl BuilderSolver {
         let schema_provider = self.schema_provider.clone();
         let semantic_compiler = self.semantic_compiler.clone();
         let secrets_provider = self.secrets_provider.clone();
-        let app_runner = self.app_runner.clone();
         let exchanges_for_tools = Arc::clone(&exchanges);
 
         let result = self
@@ -315,14 +314,12 @@ impl BuilderSolver {
                     let workspace_root = workspace_root.clone();
                     let event_tx = event_tx.clone();
                     let test_runner = test_runner.clone();
-                    let app_runner = app_runner.clone();
                     let human_input = human_input.clone();
                     let db_provider = db_provider.clone();
                     let project_validator = project_validator.clone();
                     let schema_provider = schema_provider.clone();
                     let semantic_compiler = semantic_compiler.clone();
                     let secrets_provider = secrets_provider.clone();
-                    let app_runner = app_runner.clone();
                     let exchanges = Arc::clone(&exchanges_for_tools);
                     Box::pin(async move {
                         let result = dispatch_tool(
@@ -331,7 +328,6 @@ impl BuilderSolver {
                             &workspace_root,
                             &event_tx,
                             test_runner,
-                            app_runner,
                             human_input,
                             db_provider.as_ref(),
                             project_validator.as_ref(),

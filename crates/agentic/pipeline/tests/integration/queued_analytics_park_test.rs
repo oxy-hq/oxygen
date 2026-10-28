@@ -109,7 +109,6 @@ async fn latency_pass(db: &DatabaseConnection, ws: Uuid, state: &Arc<RuntimeStat
         None,
         None,
         None,
-        None,
         agentic_runtime::router::noop_router(),
         Some(ws),
         Some(Arc::new(registry)),

@@ -111,41 +111,6 @@
   },
   "additionalProperties": false,
   "definitions": {
-    "AppProbeTarget": {
-      "description": "One named app to run, and the control values to run it with.",
-      "type": "object",
-      "required": [
-        "app"
-      ],
-      "properties": {
-        "app": {
-          "description": "Workspace-relative path (`apps/sales.app.yml`) or bare file name (`sales.app.yml`).",
-          "type": "string"
-        },
-        "variables": {
-          "description": "Control values for this app, exactly as its Controls would supply them. Absent → the app's own defaults, which is what the `apps: true` sweep uses.\n\nValues keep their YAML type (`limit: 5` stays a number), because that is what an app's own Controls hand its tasks.",
-          "type": "object",
-          "additionalProperties": true
-        }
-      },
-      "additionalProperties": false
-    },
-    "AppsProbeConfig": {
-      "description": "How the app probe picks its targets. Same `bool | [targets]` shape as [`SemanticProbeConfig`], with `variables` per app rather than shared across all of them — two apps rarely want the same control values.\n\n```yaml apps: true                # run every task of every .app.yml apps:                     # run only these apps - app: apps/sales.app.yml variables: region: us-east - app: apps/inventory.app.yml ```",
-      "anyOf": [
-        {
-          "description": "`apps: true|false` — run every app, or none.",
-          "type": "boolean"
-        },
-        {
-          "description": "`apps: [ { app: … }, … ]` — run only the named apps.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/AppProbeTarget"
-          }
-        }
-      ]
-    },
     "BuilderAgentConfig": {
       "description": "Configuration for the built-in builder copilot agent.\n\nExample: `builder_agent: { model: \"claude-sonnet-4-6\" }`",
       "anyOf": [
@@ -2050,7 +2015,7 @@
       "additionalProperties": true
     },
     "SemanticProbeConfig": {
-      "description": "How the semantic probe picks its targets: sweep everything, or probe a list of named topics.\n\n```yaml semantic: true            # every topic, measure auto-picked from its base view semantic:                 # only these topics - topic: fruit_business measures:             # omit to auto-pick one, as the sweep does - fruits.total_count - fruits.avg_price - topic: orders ```\n\nNaming topics is the cheaper mode and the one to reach for on a real warehouse: the sweep's cost scales with *every* topic's data volume, while a named list is a bill you chose. Explicit `measures` also pin the probe to columns you know are small, instead of whatever the base view lists first.\n\n`apps` takes the same `bool | [targets]` shape — see [`AppsProbeConfig`].",
+      "description": "How the semantic probe picks its targets: sweep everything, or probe a list of named topics.\n\n```yaml semantic: true            # every topic, measure auto-picked from its base view semantic:                 # only these topics - topic: fruit_business measures:             # omit to auto-pick one, as the sweep does - fruits.total_count - fruits.avg_price - topic: orders ```\n\nNaming topics is the cheaper mode and the one to reach for on a real warehouse: the sweep's cost scales with *every* topic's data volume, while a named list is a bill you chose. Explicit `measures` also pin the probe to columns you know are small, instead of whatever the base view lists first.",
       "anyOf": [
         {
           "description": "`semantic: true|false` — sweep every topic, or run nothing.",
@@ -2141,8 +2106,11 @@
       "additionalProperties": false
     },
     "SmokeTestConfig": {
-      "description": "Which probes the workspace smoke test runs, and how often.\n\n**Only `connections` defaults on**, and the whole block defaults on when absent — so a workspace that opted into `health_check:` gets a cheap credential check for free (nothing here runs for one that didn't: the smoke run is gated inside an eval pass). The other three are opt-in even then, because they are not cheap, and the reason is not obvious from their descriptions:\n\n* `connections` — `SELECT 1`. Scans zero bytes, so it is free on a bytes-billed warehouse (BigQuery on-demand, Athena). Caveat: on Snowflake it *resumes* a suspended warehouse, which bills a 60-second minimum. At the 6h default that is four wake-ups a day. * `semantic` — one measure query per topic. `SUM(x)` over an unpartitioned fact table reads the whole column; a `LIMIT` cannot shrink an aggregate's scan. Cost scales with your *data volume*, not your topic count, and on a bytes-billed warehouse it is by far the most expensive probe here. * `apps` — every task of every `.app.yml`; a superset of `semantic`. * `agent` — a real LLM round-trip, plus whatever SQL the agent decides to run.",
+      "description": "Which probes the workspace smoke test runs, and how often.\n\n**Only `connections` defaults on**, and the whole block defaults on when absent — so a workspace that opted into `health_check:` gets a cheap credential check for free (nothing here runs for one that didn't: the smoke run is gated inside an eval pass). The other three are opt-in even then, because they are not cheap, and the reason is not obvious from their descriptions:\n\n* `connections` — `SELECT 1`. Scans zero bytes, so it is free on a bytes-billed warehouse (BigQuery on-demand, Athena). Caveat: on Snowflake it *resumes* a suspended warehouse, which bills a 60-second minimum. At the 6h default that is four wake-ups a day. * `semantic` — one measure query per topic. `SUM(x)` over an unpartitioned fact table reads the whole column; a `LIMIT` cannot shrink an aggregate's scan. Cost scales with your *data volume*, not your topic count, and on a bytes-billed warehouse it is by far the most expensive probe here. * `agent` — a real LLM round-trip, plus whatever SQL the agent decides to run.",
       "type": "object",
+      "required": [
+        "apps"
+      ],
       "properties": {
         "agent": {
           "description": "Ask an agentic agent a fixed question and assert it answers. Absent → the probe is skipped. Costs tokens on every smoke run.\n\nSingular back-compat spelling for a single probe; prefer `agents:`. Both may be set, and [`SmokeTestConfig::resolved_agents`] runs the union.",
@@ -2163,13 +2131,8 @@
           }
         },
         "apps": {
-          "description": "Run every task of every `.app.yml`. Defaults false — an app can fan out into many warehouse queries.\n\n`apps: true` runs every app; an `{ include: [...] }` block runs only the apps it names. See [`AppsProbeConfig`].",
-          "default": false,
-          "allOf": [
-            {
-              "$ref": "#/definitions/AppsProbeConfig"
-            }
-          ]
+          "description": "Ignored. Data Apps (`.app.yml`) were removed and this probe went with them. Still accepted, because `health_check` rejects unknown keys and a `config.yml` that sets `apps:` must keep loading.\n\nCompared as always equal, so a stored smoke config (which no longer records it) never reads as \"changed\" against a parsed one that still sets it.",
+          "writeOnly": true
         },
         "connections": {
           "description": "`SELECT 1` against every database in `databases:`. Defaults **true** — the one probe cheap enough to run unasked.",

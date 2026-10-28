@@ -2,7 +2,7 @@
 //!
 //! Some artifacts are written to a node's LOCAL filesystem during a
 //! request/run flow and read back by a LATER HTTP request — query-result
-//! parquet files, Data App chart PNGs. On a stateless serve fleet the read
+//! parquet files, chart PNGs. On a stateless serve fleet the read
 //! round-robins across replicas, so the node that fetches the artifact is
 //! usually NOT the one that wrote it → 404 / blank render.
 //!
@@ -31,16 +31,9 @@ pub fn result_key(workspace_id: Uuid, file_name: &str) -> String {
     format!("runtime/results/{workspace_id}/{file_name}")
 }
 
-/// S3 key for a Data App chart image.
+/// S3 key for a chart image.
 pub fn chart_key(workspace_id: Uuid, file_name: &str) -> String {
     format!("runtime/charts/{workspace_id}/{file_name}")
-}
-
-/// S3 key for a Data App's cached data (the `DataContainer` YAML). `rel_path` is
-/// the cache's workspace-relative path (it already encodes the app + tasks
-/// hash), so two apps never collide.
-pub fn app_data_key(workspace_id: Uuid, rel_path: &str) -> String {
-    format!("runtime/app_data/{workspace_id}/{rel_path}")
 }
 
 /// Best-effort mirror of a just-written artifact to S3. No-op when no bucket
@@ -114,10 +107,6 @@ mod tests {
         assert_eq!(
             chart_key(ws, "sales-0-xyz.png"),
             "runtime/charts/00000000-0000-0000-0000-000000000000/sales-0-xyz.png"
-        );
-        assert_eq!(
-            app_data_key(ws, "data/sales/abc.sales.app.data.yml"),
-            "runtime/app_data/00000000-0000-0000-0000-000000000000/data/sales/abc.sales.app.data.yml"
         );
     }
 }

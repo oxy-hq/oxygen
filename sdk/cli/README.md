@@ -1238,7 +1238,6 @@ generated from the Rust config types. No network, no token.
 | `config.yml` / `config.yaml` | `config.json` |
 | `*.automation.yml`, `*.procedure.yml`, `*.workflow.yml` | `workflow.json` |
 | `*.agentic.yml` | `agentic.json` |
-| `*.app.yml` | `app.json` |
 | `*.agent.test.yml` | `agent-test.json` |
 
 Structural checks only. `oxy validate` additionally resolves `databases:` and

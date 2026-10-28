@@ -386,7 +386,6 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
       const hasAutomation = paths.some(
         (p) => p.endsWith(".automation.yml") || p.endsWith(".procedure.yml")
       );
-      const hasApp = paths.some((p) => p.endsWith(".app.yml"));
 
       // Files are always invalidated — any accepted change writes to disk.
       queryClient.invalidateQueries({ queryKey: queryKeys.file.all(project.id, branchName) });
@@ -399,17 +398,6 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
         queryClient.invalidateQueries({
           queryKey: queryKeys.automation.list(project.id, branchName)
         });
-      }
-      if (hasApp) {
-        // Eagerly refetch display structure so the preview reflects layout changes
-        // immediately. Data queries are intentionally left alone — they're expensive
-        // and should only re-run on explicit refresh or window focus.
-        for (const sub of ["list", "getDisplays"] as const) {
-          queryClient.refetchQueries({
-            queryKey: [...queryKeys.app.all, sub, project.id, branchName],
-            type: "all"
-          });
-        }
       }
     }
   }, [isTerminal, queryClient, project.id, branchName, thread.id]);

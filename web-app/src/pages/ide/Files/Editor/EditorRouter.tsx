@@ -2,7 +2,6 @@ import { memo } from "react";
 import { FileType } from "@/utils/fileTypes";
 import AgenticAnalyticsEditor from "./AgenticAnalytics";
 import AirwayEditor from "./Airway";
-import AppEditor from "./App";
 import AutomationEditor from "./Automation";
 import { useEditorContext } from "./contexts/useEditorContext";
 import DefaultEditor from "./Default";
@@ -23,8 +22,6 @@ const EditorRouterComponent = () => {
       return <AgenticAnalyticsEditor />;
     case FileType.PIPELINE:
       return <AirwayEditor />;
-    case FileType.APP:
-      return <AppEditor />;
     case FileType.SQL:
       return <SqlEditor />;
     case FileType.VIEW:

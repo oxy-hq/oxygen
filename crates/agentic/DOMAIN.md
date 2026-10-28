@@ -328,7 +328,6 @@ const SKIP_STATES: &[&str] = &["clarifying", "specifying", "executing"];
 | `lookup_reference` | load a domain reference card | No |
 | `lookup_schema` | JSON schema for Oxy types | No |
 | `run_tests` | execute .test.yml files | No |
-| `run_app` | execute every task in a `.app.yml` end-to-end | No |
 | `execute_sql` | run SQL against connectors | No |
 | `semantic_query` | airlayer compile + execute | No |
 | `ask_user` | generic clarification | **Yes** |

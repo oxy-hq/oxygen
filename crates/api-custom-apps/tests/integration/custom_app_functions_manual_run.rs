@@ -298,7 +298,6 @@ pub(crate) fn spawn_driver(
                 None,
                 None,
                 None,
-                None,
                 router.clone(),
                 Some(demo_workspace_id()),
                 Some(registry.clone()),

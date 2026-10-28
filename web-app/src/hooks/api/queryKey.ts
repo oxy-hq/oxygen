@@ -188,20 +188,6 @@ const databaseKeys = {
     [...databaseKeys.all, "schema", projectId, branchName, dbName] as const
 };
 
-const appKeys = {
-  all: ["app"] as const,
-  list: (projectId: string, branchName: string, publishedOnly = false) =>
-    [...appKeys.all, "list", projectId, branchName, publishedOnly] as const,
-  getAppData: (projectId: string, branchName: string, appPath: string) =>
-    [...appKeys.all, "getAppData", projectId, branchName, appPath] as const,
-  getData: (projectId: string, branchName: string, appPath: string) =>
-    [...appKeys.all, "getData", projectId, branchName, appPath] as const,
-  getDisplays: (projectId: string, branchName: string, appPath: string) =>
-    [...appKeys.all, "getDisplays", projectId, branchName, appPath] as const,
-  getAppDataCached: (projectId: string, branchName: string, appPath: string) =>
-    [...appKeys.all, "getAppDataCached", projectId, branchName, appPath] as const
-};
-
 const onboardingKeys = {
   all: ["onboarding"] as const,
   githubSetup: (projectId: string) => [...onboardingKeys.all, "githubSetup", projectId] as const
@@ -1263,7 +1249,6 @@ const queryKeys = {
   chart: chartKeys,
   file: fileKeys,
   database: databaseKeys,
-  app: appKeys,
   appIntegrations: appIntegrationKeys,
   onboarding: onboardingKeys,
   settings: settingsKeys,

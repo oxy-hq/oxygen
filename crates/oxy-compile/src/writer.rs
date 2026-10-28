@@ -703,7 +703,6 @@ async fn write_compiled_rows(
     let mut agents = Vec::new();
     let mut views = Vec::new();
     let mut topics = Vec::new();
-    let mut apps = Vec::new();
     let mut automations = Vec::new();
     let mut verified = Vec::new();
     let mut schema_migrations = Vec::new();
@@ -767,13 +766,6 @@ async fn write_compiled_rows(
                     compiled_sql_blob_key: Set(blob_key),
                 })
             }
-            CompiledRow::App(a) => apps.push(entity::app_definitions::ActiveModel {
-                revision_id: Set(revision_id),
-                file_path: Set(a.file_path.clone()),
-                name: Set(a.name.clone()),
-                definition: Set(a.definition.clone()),
-                published: Set(a.published),
-            }),
             CompiledRow::Automation(p) => {
                 automations.push(entity::automation_definitions::ActiveModel {
                     revision_id: Set(revision_id),
@@ -866,11 +858,6 @@ async fn write_compiled_rows(
     }
     if !topics.is_empty() {
         entity::semantic_topics::Entity::insert_many(topics)
-            .exec(txn)
-            .await?;
-    }
-    if !apps.is_empty() {
-        entity::app_definitions::Entity::insert_many(apps)
             .exec(txn)
             .await?;
     }

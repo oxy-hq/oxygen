@@ -127,7 +127,7 @@ pub async fn resolve_compiled_config(workspace_id: uuid::Uuid) -> Option<serde_j
 ///
 /// The config arm is not an optimization — it is what keeps the tab honest. The
 /// stamp records *when* the last run happened, not *what it ran*, so without
-/// this a workspace that turns on `semantic`/`apps`/`agent` keeps serving the
+/// this a workspace that turns on `semantic`/`agent` keeps serving the
 /// old run's verdicts for up to a whole interval (6h by default) while the UI
 /// already reports the new kinds as enabled. The two disagree, and an enabled
 /// kind with no carried-forward verdicts renders as "No targets found" — a
@@ -177,7 +177,7 @@ pub fn smoke_interval(cfg: &SmokeTestConfig) -> Duration {
 mod tests {
     use super::*;
     use chrono::TimeZone;
-    use oxy::config::health_check::{AppsProbeConfig, SemanticProbeConfig};
+    use oxy::config::health_check::SemanticProbeConfig;
 
     fn utc(s: &str) -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::parse_from_rfc3339(s)
@@ -192,7 +192,6 @@ mod tests {
             "health_check": { "interval": "10m", "smoke_test": { "interval": "6h", "apps": true } }
         });
         let s = smoke_config_from_value(Some(&cfg)).expect("smoke block found");
-        assert!(s.apps.enabled());
         assert!(s.enabled);
         assert_eq!(smoke_interval(&s), Duration::from_secs(21_600));
     }
@@ -278,15 +277,14 @@ mod tests {
 
     #[test]
     fn enabling_a_probe_kind_makes_the_smoke_test_due_immediately() {
-        // The regression: a workspace turns on `semantic`/`apps`/`agent` in
+        // The regression: a workspace turns on `semantic`/`agent` in
         // config.yml. The cadence says "not for another 6h", but the tab renders
         // the new kinds as enabled *beside the old run's verdicts* — which have
-        // no semantic/app/agent checks at all, so a workspace full of topics
+        // no semantic/agent checks at all, so a workspace full of topics
         // reads as "No targets found". A changed config must re-probe now.
         let before = SmokeTestConfig::default(); // connections only
         let after = SmokeTestConfig {
             semantic: SemanticProbeConfig::Sweep(true),
-            apps: AppsProbeConfig::Sweep(true),
             ..SmokeTestConfig::default()
         };
         let now = utc("2026-07-10T00:10:00Z"); // 10m after the last smoke run
@@ -304,8 +302,8 @@ mod tests {
     #[test]
     fn editing_a_selection_re_probes_without_waiting_out_the_interval() {
         // Same reason as toggling a kind on: the stamp records *when* the last
-        // run happened, not *what* it ran. Adding a topic to the list, or
-        // changing an app's variables, means the stored verdicts no longer
+        // run happened, not *what* it ran. Adding a topic to the list
+        // means the stored verdicts no longer
         // describe the config the tab is showing.
         let before = SmokeTestConfig {
             semantic: serde_yaml::from_str("[{ topic: sales }]").unwrap(),

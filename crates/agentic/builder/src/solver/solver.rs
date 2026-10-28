@@ -11,7 +11,6 @@ use agentic_core::{
 use agentic_llm::{InitialMessages, LlmClient, ToolLoopConfig};
 
 use crate::{
-    app_runner::BuilderAppRunner,
     database::BuilderDatabaseProvider,
     events::BuilderEvent,
     prompts::{KnowledgeCard, reference_context, with_reference},
@@ -26,10 +25,9 @@ use crate::{
         execute_get_dbt_column_lineage, execute_get_dbt_lineage, execute_init_dbt_project,
         execute_list_dbt_nodes, execute_list_dbt_projects, execute_lookup_reference,
         execute_lookup_schema, execute_manage_directory, execute_parse_dbt_project,
-        execute_read_file, execute_run_app, execute_run_dbt_models, execute_run_tests,
-        execute_search_files, execute_search_text, execute_seed_dbt_project,
-        execute_semantic_query, execute_test_dbt_models, execute_validate_project,
-        execute_write_file,
+        execute_read_file, execute_run_dbt_models, execute_run_tests, execute_search_files,
+        execute_search_text, execute_seed_dbt_project, execute_semantic_query,
+        execute_test_dbt_models, execute_validate_project, execute_write_file,
     },
     types::{BuilderSpec, ConversationTurn, ToolExchange},
     validator::BuilderProjectValidator,
@@ -40,7 +38,6 @@ pub struct BuilderSolver {
     pub(crate) project_root: PathBuf,
     pub(crate) event_tx: Option<EventStream<BuilderEvent>>,
     pub(crate) test_runner: Option<Arc<dyn BuilderTestRunner>>,
-    pub(crate) app_runner: Option<Arc<dyn BuilderAppRunner>>,
     pub(crate) human_input: HumanInputHandle,
     pub(crate) suspension_data: Option<SuspendedRunData>,
     pub(crate) resume_data: Option<ResumeInput>,
@@ -75,7 +72,6 @@ impl BuilderSolver {
             project_root,
             event_tx: None,
             test_runner: None,
-            app_runner: None,
             human_input: Arc::new(DeferredInputProvider),
             suspension_data: None,
             resume_data: None,
@@ -126,11 +122,6 @@ impl BuilderSolver {
 
     pub fn with_test_runner(mut self, runner: Arc<dyn BuilderTestRunner>) -> Self {
         self.test_runner = Some(runner);
-        self
-    }
-
-    pub fn with_app_runner(mut self, runner: Arc<dyn BuilderAppRunner>) -> Self {
-        self.app_runner = Some(runner);
         self
     }
 
@@ -655,7 +646,6 @@ pub(crate) async fn dispatch_tool(
     project_root: &Path,
     event_tx: &Option<EventStream<BuilderEvent>>,
     test_runner: Option<Arc<dyn BuilderTestRunner>>,
-    app_runner: Option<Arc<dyn BuilderAppRunner>>,
     human_input: HumanInputHandle,
     db_provider: Option<&Arc<dyn BuilderDatabaseProvider>>,
     project_validator: Option<&Arc<dyn BuilderProjectValidator>>,
@@ -1039,24 +1029,6 @@ pub(crate) async fn dispatch_tool(
                 }),
             }
         }
-        "run_app" => match app_runner {
-            Some(runner) => {
-                let file_path = params["file_path"].as_str().unwrap_or("").to_string();
-                let r = execute_run_app(project_root, params, runner.clone()).await;
-                emit_tool_used(event_tx, "run_app", r, |v| {
-                    format!(
-                        "Ran app '{file_path}' — {} task(s), {} succeeded, {} failed",
-                        v["tasks_run"].as_u64().unwrap_or(0),
-                        v["tasks_succeeded"].as_u64().unwrap_or(0),
-                        v["tasks_failed"].as_u64().unwrap_or(0)
-                    )
-                })
-                .await
-            }
-            None => Err(ToolError::Execution(
-                "app runner is not configured for this builder instance".into(),
-            )),
-        },
         other => Err(ToolError::UnknownTool(other.to_string())),
     }
 }

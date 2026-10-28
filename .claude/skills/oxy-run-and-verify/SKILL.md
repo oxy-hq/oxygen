@@ -74,7 +74,6 @@ Seeded orgs: `local` (Demo `70787bb2-e11b-5488-b2c3-02e60d5fc7d3` from `./exampl
 | Chat | `W/threads` · `W/threads/<id>` |
 | Automations | `W/automations` · `W/automations/<pathb64>` (`/workflows` is an alias) |
 | Airway pipeline | `W/pipelines/<pathb64>` |
-| Data apps (`.app.yml`) | `W/apps` · `W/apps/<pathb64>` |
 | Oxygen Factory (IDE) | `W/ide` → `W/ide/world-model` |
 | IDE: files · SQL · semantic model · modeling · tests | `W/ide/files/<pathb64>` · `W/ide/database` · `W/ide/semantic` · `W/ide/modeling` · `W/ide/tests` |
 | Orchestrator · observability | `W/ide/coordinator/overview` · `W/ide/observability/traces` |
@@ -86,7 +85,7 @@ Seeded orgs: `local` (Demo `70787bb2-e11b-5488-b2c3-02e60d5fc7d3` from `./exampl
 | Custom app | `/customer-apps/local/oxy-starter/` (served by the backend through Vite's proxy) |
 | Demo fixture app (functions + a 7-day release history) | `/admin/apps/local/pulse-demo?section=builds` (also `functions`, `issues`) as `operator`; the app itself at `/customer-apps/local/pulse-demo/`. Its history (r1..r4 promoted, r4 the bad release live, r5 on staging) and the traffic before the seed are seeded rows; the runs it queues, the `*/15` `snapshot` schedule and whatever you click are real. Present once built: to reset it, `oxy seed --clear` (or delete the app) and `just up` |
 
-`<pathb64>` is standard base64 of the workspace-relative file path (`printf %s business_metrics_dashboard.app.yml | base64`). URL-encode `?` and `&` inside `next`: `next=/local/workspaces/<id>/home%3Fsettings%3Dorganization.members`.
+`<pathb64>` is standard base64 of the workspace-relative file path (`printf %s agents/analytics.agentic.yml | base64`). URL-encode `?` and `&` inside `next`: `next=/local/workspaces/<id>/home%3Fsettings%3Dorganization.members`.
 
 ## Reading what you see
 

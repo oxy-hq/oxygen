@@ -40,7 +40,7 @@ the analytics solver.
 | `runtime` | Two sub-layers: [`lifecycle`] (run row, events, suspensions, SSE plumbing — `RuntimeState`, `PipelineHandle`, `EventRegistry`) and [`orchestrator`] (durable task queue, coordinator, worker pool, transports). Top-level re-exports keep legacy flat paths working. | `lifecycle::state::RuntimeState`, `lifecycle::handle::PipelineHandle`, `lifecycle::event_registry::EventRegistry`, `orchestrator::coordinator::Coordinator`, `orchestrator::worker::Worker` |
 | `pipeline` | Pipeline setup, config resolution, type erasure | `PipelineBuilder`, `StartedPipeline`, `ThinkingMode` |
 | `analytics` | Analytics solver, semantic model, extension table | `AnalyticsSolver`, `AnalyticsEvent`, `SchemaCatalog`, `AnalyticsMigrator` |
-| `builder` | Builder solver, file tools (write/edit/delete), HITL suspensions | `BuilderSolver`, `BuilderEvent`, `BuilderTestRunner`, `BuilderAppRunner` |
+| `builder` | Builder solver, file tools (write/edit/delete), HITL suspensions | `BuilderSolver`, `BuilderEvent`, `BuilderTestRunner` |
 | `connector` | Database backends | `DatabaseConnector`, `ConnectorConfig`, `SchemaInfo` |
 | `llm` | LLM provider abstraction | `LlmClient`, `LlmProvider`, `ThinkingConfig` |
 | `http` | Axum route handlers | `AgenticState`, `router()`, route handlers |

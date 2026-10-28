@@ -133,7 +133,6 @@ pub(crate) async fn drive_with(
             None,
             None,
             None,
-            None,
             Arc::new(agentic_runtime::router::NoopTaskRouter),
             Some(fx.ws),
             None,

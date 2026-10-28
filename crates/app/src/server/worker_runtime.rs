@@ -139,9 +139,6 @@ impl WorkerRuntime {
                 .with_builder_test_runner(Arc::new(
                     crate::server::builder_test_runner::OxyTestRunner,
                 ))
-                .with_builder_app_runner(Arc::new(
-                    crate::agentic_wiring::builder_bridges::OxyBuilderAppRunner,
-                ))
                 .with_router(self.router.clone())
                 .with_queued_starts(crate::server::queued_analytics::queued_starts_enabled)
                 .with_working_copy(|| {

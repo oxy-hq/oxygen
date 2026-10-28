@@ -4,7 +4,7 @@
 //! writes the result into the compile-boundary Postgres schema
 //! introduced by migration `m20260606_000001_create_compile_boundary`.
 //! The result is a single `revisions` row plus per-entity rows
-//! (`agent_definitions`, `semantic_views`, `app_definitions`, etc.)
+//! (`agent_definitions`, `semantic_views`, etc.; `app_definitions` is no longer written)
 //! all tagged with the new `revision_id`.
 //!
 //! See `internal-docs/compile-boundary.md` for the operator runbook.

@@ -1,5 +1,3 @@
-use crate::config::model::AppConfig;
-
 use super::model::{Config, ExportFormat, TaskExport, TaskType};
 use std::{env, fmt::Display, path::PathBuf};
 
@@ -79,17 +77,8 @@ pub fn validate_env_var(env_var: &str, _: &ValidationContext) -> garde::Result {
     }
 }
 
-pub struct DataAppValidationContext {
-    pub app_config: AppConfig,
-}
-
-pub enum ValidationContextMetadata {
-    DataApp(DataAppValidationContext),
-}
-
 pub struct ValidationContext {
     pub config: Config,
-    pub metadata: Option<ValidationContextMetadata>,
 }
 
 /// The prefix a workspace-preview run scopes every side-effecting name with
@@ -234,32 +223,6 @@ fn validate_export(
     Ok(())
 }
 
-pub fn validate_task_data_reference(data_ref: &String, ctx: &ValidationContext) -> garde::Result {
-    if let Some(ValidationContextMetadata::DataApp(data_app_ctx)) = &ctx.metadata {
-        let task_names: std::collections::HashSet<String> = data_app_ctx
-            .app_config
-            .tasks
-            .iter()
-            .map(|t| t.name.clone())
-            .collect();
-
-        // For dot notation references like "workflow.task", validate the first part (automation name)
-        // The nested task part can't be validated statically since it requires loading sub-automations
-        let task_to_check = if let Some(dot_pos) = data_ref.find('.') {
-            &data_ref[..dot_pos]
-        } else {
-            data_ref.as_str()
-        };
-
-        if !task_names.contains(task_to_check) {
-            return Err(garde::Error::new(format!(
-                "Display block references task '{task_to_check}' which does not exist in the app config"
-            )));
-        }
-    }
-    Ok(())
-}
-
 pub fn validate_consistency_prompt(
     prompt: &Option<String>,
     _context: &ValidationContext,
@@ -303,7 +266,6 @@ mod tests {
                 health_check: None,
                 pre_aggregations: None,
             },
-            metadata: None,
         }
     }
 

@@ -33,8 +33,6 @@ const CUSTOMER_SCREENS: readonly string[] = [
   "pages/world-model/",
   "pages/chat/",
   "pages/automation/",
-  "pages/app/",
-  "pages/dashboards/",
   "pages/onboarding/",
   "pages/thread/automation/",
   "pages/thread/analytics/BuilderDelegationPanel/",
@@ -180,11 +178,6 @@ const FLAG_OFF_OR_FACTORY_TEXT: readonly { file: string; text: string; why: stri
     file: "components/settings/SettingsDialog/sections/workspace/Airhouse/index.tsx",
     text: "provisioned for this workspace",
     why: "The flag-off wording; with the flag on it says the Oxy team sets Airhouse up."
-  },
-  {
-    file: "pages/dashboards/index.tsx",
-    text: "in this workspace",
-    why: "The flag-off wording."
   },
   {
     file: "components/IdeUnavailableBanner/index.tsx",

@@ -65,7 +65,7 @@ Authoritative: `web-app/tests/agentic/fixtures/reset.ts:SetupCommand`.
 | Command | Mode | Notes |
 |---|---|---|
 | `reset_test_file` | local | Empties `demo_project/test.sql`. Symlink-safe. |
-| `restore_demo_file:<rel>` | local | Reverts `demo_project/<rel>` to `git show HEAD:demo_project/<rel>`. Used by flows that mutate demo files (builder editing `insights.app.yml`, semantic-builder-ask editing `sales_semantics/views/oxymart.view.yml`). Refuses paths escaping repo, containing `..`, or resolving through symlinks. |
+| `restore_demo_file:<rel>` | local | Reverts `demo_project/<rel>` to `git show HEAD:demo_project/<rel>`. Used by flows that mutate demo files (semantic-builder-ask editing `sales_semantics/views/oxymart.view.yml`). Refuses paths escaping repo, containing `..`, or resolving through symlinks. |
 | `goto:<path>` | both | Navigate to `<OXY_BASE_URL><path>`. |
 
 The set is intentionally minimal — none of these can make a network call. No UI creates orgs any more, so a cloud-mode flow that needs one runs against a backend `oxy seed`ed beforehand (`scripts/verify-all.sh` phase 4).
@@ -304,7 +304,6 @@ buckets** (not one job per flow):
 
 | Bucket | Flows | Mode |
 |---|---|---|
-| `builder` | `builder-edits-app`, `builder-rejected-suggestion` | local |
 | `semantic` | `semantic-builder-ask` | local |
 | `ask-agent` | `chat-ask`, `chat-panel-agent-switch` | local |
 | `threads` | `threads-list` | local |

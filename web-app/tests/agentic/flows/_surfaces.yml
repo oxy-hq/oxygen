@@ -30,12 +30,6 @@
     - ide-compile-error
     - ide-database-fleet
 
-- surface: builder
-  paths:
-    - "src/components/BuilderDialog/"
-  flows:
-    - builder-edits-app
-
 - surface: threads
   paths:
     - "src/pages/threads/"
@@ -93,16 +87,6 @@
     - "src/services/api/automations.ts"
   flows:
     - automations-run-from-list
-
-- surface: data-apps
-  paths:
-    - "src/pages/app/"
-    - "src/components/AppPreview/"
-    - "src/hooks/api/apps/"
-    - "src/services/api/apps.ts"
-  flows:
-    - apps-data-app-charts
-    - ide-unavailable-fleet
 
 - surface: ide-availability
   paths:

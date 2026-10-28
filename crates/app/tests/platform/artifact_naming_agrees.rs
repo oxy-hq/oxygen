@@ -12,9 +12,6 @@
 #[test]
 fn the_two_name_derivations_agree() {
     for path in [
-        "apps/a.app.yml",
-        "a/b/c.app.yml",
-        "sales.app.yml",
         "agents/foo.agentic.yml",
         "views/v.view.yml",
         "topics/t.topic.yml",

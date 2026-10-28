@@ -23,20 +23,10 @@ export function usePageName(): string {
     if (pathname.startsWith(`${ws.THREADS}/`)) return "Thread";
     if (pathname === ws.THREADS) return "Chat";
     if (pathname.startsWith(ws.WORKFLOWS)) return "Automations";
-    if (pathname.startsWith(`${ws.CUSTOMER_APPS}/`)) return "App";
-    if (pathname === ws.CUSTOMER_APPS) return "Apps";
     if (pathname.includes("/pipelines/")) return "Pipeline";
     if (pathname === ws.CONTEXT_GRAPH) return "Context Graph";
     if (appsFirst && pathname === ws.WORLD_MODEL) return "World model";
     // Home / index / anything else → the home (the HQ launcher before apps-first).
     return appsFirst ? "Home" : "HQ";
-  }, [
-    pathname,
-    appsFirst,
-    ws.THREADS,
-    ws.WORKFLOWS,
-    ws.CUSTOMER_APPS,
-    ws.CONTEXT_GRAPH,
-    ws.WORLD_MODEL
-  ]);
+  }, [pathname, appsFirst, ws.THREADS, ws.WORKFLOWS, ws.CONTEXT_GRAPH, ws.WORLD_MODEL]);
 }

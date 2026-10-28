@@ -13,15 +13,6 @@ export const useEditorQueryInvalidation = () => {
     });
   }, [queryClient, project.id, branchName]);
 
-  const invalidateAppQueries = useCallback(() => {
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.app.getAppData(project.id, branchName, pathb64)
-    });
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.app.getDisplays(project.id, branchName, pathb64)
-    });
-  }, [queryClient, project.id, branchName, pathb64]);
-
   const invalidateFileQueries = useCallback(() => {
     queryClient.invalidateQueries({
       queryKey: queryKeys.file.get(project.id, branchName, pathb64)
@@ -30,7 +21,6 @@ export const useEditorQueryInvalidation = () => {
 
   return {
     invalidateAgentQueries,
-    invalidateAppQueries,
     invalidateFileQueries
   };
 };

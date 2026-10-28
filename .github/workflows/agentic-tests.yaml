@@ -107,7 +107,6 @@ jobs:
           # the product. Adding a flow whose name extends an existing one
           # widens that bucket without touching this file; the suffix stops it.
           ALL='[
-            {"name":"builder","flows":"builder-edits-app.flow.test.yml","mode":"cloud","port":3000},
             {"name":"semantic","flows":"semantic-builder-ask.flow.test.yml","mode":"cloud","port":3000},
             {"name":"ask-agent","flows":"chat-ask.flow.test.yml chat-panel-agent-switch.flow.test.yml","mode":"cloud","port":3000},
             {"name":"threads","flows":"threads-list.flow.test.yml","mode":"cloud","port":3000},

@@ -199,7 +199,6 @@ async fn a_single_process_executes_the_run_it_queued() {
             ctx.clone(),
             None,
             None,
-            None,
             &router,
             Some(workspace_id),
             &preagg,

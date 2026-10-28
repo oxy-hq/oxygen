@@ -3,7 +3,7 @@
 //!
 //! Where the passive dimensions count rows in Postgres, this one *exercises* the
 //! workspace: pings every warehouse connection, runs a measure query through the
-//! semantic model, runs each data app, and asks an agent a fixed question. It is
+//! semantic model, and asks an agent a fixed question. It is
 //! the same shape as `reconcile` — a runner trait producing verdicts that the
 //! evaluator folds into a dimension — but it runs on its own slower cadence
 //! (default 6h) because every probe costs a warehouse round-trip and the agent
@@ -37,7 +37,9 @@ pub enum SmokeProbeKind {
     Connection,
     /// One measure query per topic, through the semantic model.
     Semantic,
-    /// Every task of one `.app.yml`.
+    /// Every task of one `.app.yml`. Data Apps are removed, so nothing produces
+    /// this any more; it stays because verdicts stored before then still carry
+    /// it and are read back as-is.
     App,
     /// A fixed question put to an agentic agent.
     Agent,
@@ -167,13 +169,12 @@ pub struct SmokeProbeStatus {
 }
 
 /// The enabled/disabled state of every probe kind, in the fixed cost order the
-/// UI renders. Always four entries — a disabled kind is present-and-false, not
+/// UI renders. Always three entries — a disabled kind is present-and-false, not
 /// omitted, so the tab can name it.
 pub fn probe_statuses(cfg: &oxy::config::health_check::SmokeTestConfig) -> Vec<SmokeProbeStatus> {
     [
         (SmokeProbeKind::Connection, cfg.connections),
         (SmokeProbeKind::Semantic, cfg.semantic.enabled()),
-        (SmokeProbeKind::App, cfg.apps.enabled()),
         (SmokeProbeKind::Agent, !cfg.resolved_agents().is_empty()),
     ]
     .into_iter()

@@ -5,8 +5,8 @@ use crate::state_dir::resolve_state_dir_with_fallback;
 use oxy_compile::context_documents::{ContextPatterns, DocumentFile};
 use oxy_shared::errors::OxyError;
 
-use super::artifacts::{AgentEntry, AppEntry, AutomationEntry, PipelineEntry, SimulationEntry};
-use super::model::{AppConfig, Automation, AutomationWithRawVariables, Config};
+use super::artifacts::{AgentEntry, AutomationEntry, PipelineEntry, SimulationEntry};
+use super::model::{Automation, AutomationWithRawVariables, Config};
 use super::naming::artifact_name;
 use super::test_config::TestFileConfig;
 
@@ -33,26 +33,6 @@ async fn yaml_root(path: &Path) -> Option<serde_yaml::Mapping> {
         .ok()
         .and_then(|yaml| serde_yaml::from_str::<serde_yaml::Value>(&yaml).ok())
         .and_then(|value| value.as_mapping().cloned())
-}
-
-async fn read_app_entry(path: &Path, relative: String) -> AppEntry {
-    let mapping = yaml_root(path).await;
-    let field = |key: &str| {
-        mapping
-            .as_ref()
-            .and_then(|m| m.get(serde_yaml::Value::String(key.to_string())).cloned())
-    };
-
-    AppEntry {
-        name: field("name")
-            .and_then(|v| v.as_str().map(str::to_string))
-            .unwrap_or_else(|| artifact_name(&relative)),
-        title: field("title").and_then(|v| v.as_str().map(str::to_string)),
-        published: field("published")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        file_path: relative,
-    }
 }
 
 const DEFAULT_CONFIG_PATH: &str = "config.yml";
@@ -87,7 +67,6 @@ pub(super) trait ConfigStorage {
     /// Join with `project_path()` if you need an absolute one; do not read
     /// `file_path` off the filesystem directly.
     async fn list_analytics_agents(&self) -> Result<Vec<AgentEntry>, OxyError>;
-    async fn list_apps(&self) -> Result<Vec<AppEntry>, OxyError>;
     async fn list_workflows(&self) -> Result<Vec<AutomationEntry>, OxyError>;
     async fn list_pipelines(&self) -> Result<Vec<PipelineEntry>, OxyError>;
     async fn list_simulations(&self) -> Result<Vec<SimulationEntry>, OxyError>;
@@ -98,10 +77,8 @@ pub(super) trait ConfigStorage {
         &self,
         patterns: &ContextPatterns,
     ) -> Result<Vec<DocumentFile>, OxyError>;
-    async fn load_app_config<P: AsRef<Path>>(&self, app_path: P) -> Result<AppConfig, OxyError>;
     async fn get_charts_dir(&self) -> Result<PathBuf, OxyError>;
     async fn get_results_dir(&self) -> Result<PathBuf, OxyError>;
-    async fn get_app_results_dir(&self) -> Result<PathBuf, OxyError>;
     async fn load_test_config<P: AsRef<Path>>(
         &self,
         test_ref: P,
@@ -684,31 +661,6 @@ impl ConfigStorage for FsStorage {
         })
     }
 
-    async fn list_apps(&self) -> Result<Vec<AppEntry>, OxyError> {
-        self.require_root()?;
-        let mut out = Vec::new();
-        for path in self.list_entity_files("app") {
-            let Ok(relative) = path.strip_prefix(&self.project_path) else {
-                continue;
-            };
-            let relative = relative.to_string_lossy().replace('\\', "/");
-            out.push(read_app_entry(&path, relative).await);
-        }
-        Ok(out)
-    }
-
-    async fn load_app_config<P: AsRef<Path>>(&self, app_path: P) -> Result<AppConfig, OxyError> {
-        let resolved_path = self.validate_path_within_project(app_path)?;
-        let agent_yml = fs::read_to_string(&resolved_path).await.map_err(|e| {
-            OxyError::ConfigurationError(format!("Failed to read agent config from file: {e}"))
-        })?;
-        let app_config: AppConfig = serde_yaml::from_str(&agent_yml).map_err(|e| {
-            OxyError::ConfigurationError(format!("Failed to deserialize agent config: {e}"))
-        })?;
-
-        Ok(app_config)
-    }
-
     async fn get_charts_dir(&self) -> Result<PathBuf, OxyError> {
         let charts_dir = self.resolve_state_dir().await?.join("charts");
         self.try_ensure_dir_exists(&charts_dir)?;
@@ -719,12 +671,6 @@ impl ConfigStorage for FsStorage {
         let results_dir = self.resolve_state_dir().await?.join("results");
         self.try_ensure_dir_exists(&results_dir)?;
         Ok(results_dir)
-    }
-
-    async fn get_app_results_dir(&self) -> Result<PathBuf, OxyError> {
-        let dir = self.resolve_state_dir().await?.join("apps").join("results");
-        self.try_ensure_dir_exists(&dir)?;
-        Ok(dir)
     }
 
     async fn load_test_config<P: AsRef<Path>>(

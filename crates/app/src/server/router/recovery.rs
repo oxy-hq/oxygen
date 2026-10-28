@@ -13,9 +13,9 @@
 use std::sync::Arc;
 
 use agentic_http::AgenticState;
+use agentic_pipeline::BuilderTestRunnerTrait;
 use agentic_pipeline::platform::{BuilderBridges, PlatformContext};
 use agentic_pipeline::recovery::{recover_active_runs, recover_stranded_runs};
-use agentic_pipeline::{BuilderAppRunnerTrait, BuilderTestRunnerTrait};
 use agentic_runtime::state::RuntimeState;
 use oxy::adapters::secrets::SecretsManager;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
@@ -379,8 +379,6 @@ pub(crate) fn spawn_recovery(
     let schema_cache = Some(agentic_state.schema_cache.clone());
     let builder_test_runner: Option<Arc<dyn BuilderTestRunnerTrait>> =
         agentic_state.builder_test_runner.clone();
-    let builder_app_runner: Option<Arc<dyn BuilderAppRunnerTrait>> =
-        agentic_state.builder_app_runner.clone();
     let router = agentic_state.router.clone();
     let shutdown = agentic_state.shutdown_token.clone();
     // §12 FU4c: long-lived cache so repeated periodic ticks (and the
@@ -415,7 +413,6 @@ pub(crate) fn spawn_recovery(
             runtime.clone(),
             schema_cache.clone(),
             builder_test_runner.clone(),
-            builder_app_runner.clone(),
             router.clone(),
             mode,
             shutdown.clone(),
@@ -452,7 +449,6 @@ pub(crate) fn spawn_recovery(
                     runtime.clone(),
                     schema_cache.clone(),
                     builder_test_runner.clone(),
-                    builder_app_runner.clone(),
                     router.clone(),
                     mode,
                     false, // one-shot startup recovery: every coordinator is dead
@@ -480,11 +476,7 @@ pub(crate) fn spawn_recovery(
                     shutdown.clone(),
                     custom_tasks.clone(),
                 );
-                let (builder_test_runner, builder_app_runner, router) = (
-                    builder_test_runner.clone(),
-                    builder_app_runner.clone(),
-                    router.clone(),
-                );
+                let (builder_test_runner, router) = (builder_test_runner.clone(), router.clone());
                 tokio::spawn(async move {
                     tokio::select! {
                         _ = shutdown.cancelled() => return,
@@ -495,7 +487,6 @@ pub(crate) fn spawn_recovery(
                         runtime,
                         schema_cache,
                         builder_test_runner,
-                        builder_app_runner,
                         router,
                         mode,
                         false,
@@ -557,7 +548,6 @@ pub(crate) fn spawn_recovery(
                         runtime.clone(),
                         schema_cache.clone(),
                         builder_test_runner.clone(),
-                        builder_app_runner.clone(),
                         router.clone(),
                         mode,
                         true, // periodic tick: stranded runs only (never poach a live interactive run)
@@ -606,7 +596,6 @@ pub(super) async fn run_recovery(
         >,
     >,
     builder_test_runner: Option<Arc<dyn BuilderTestRunnerTrait>>,
-    builder_app_runner: Option<Arc<dyn BuilderAppRunnerTrait>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     mode: ServeMode,
     // `true` = periodic global-driver tick (drive stranded runs only);
@@ -628,7 +617,6 @@ pub(super) async fn run_recovery(
                 runtime,
                 schema_cache,
                 builder_test_runner,
-                builder_app_runner,
                 router,
                 periodic,
                 ws_cache,
@@ -644,7 +632,6 @@ pub(super) async fn run_recovery(
                 runtime,
                 schema_cache,
                 builder_test_runner,
-                builder_app_runner,
                 router,
                 periodic,
                 ws_cache,
@@ -668,7 +655,6 @@ async fn recover_local(
         >,
     >,
     builder_test_runner: Option<Arc<dyn BuilderTestRunnerTrait>>,
-    builder_app_runner: Option<Arc<dyn BuilderAppRunnerTrait>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     periodic: bool,
     ws_cache: Arc<super::workspace_cache::WorkspaceContextCache>,
@@ -712,7 +698,6 @@ async fn recover_local(
             bridges,
             schema_cache.clone(),
             builder_test_runner,
-            builder_app_runner,
             router,
             Some(LOCAL_WORKSPACE_ID),
             Some(build_custom_task_registry(
@@ -781,7 +766,6 @@ async fn recover_local(
             bridges,
             schema_cache.clone(),
             builder_test_runner,
-            builder_app_runner,
             router,
             Some(LOCAL_WORKSPACE_ID),
             Some(build_custom_task_registry(
@@ -807,7 +791,6 @@ async fn recover_all_workspaces(
         >,
     >,
     builder_test_runner: Option<Arc<dyn BuilderTestRunnerTrait>>,
-    builder_app_runner: Option<Arc<dyn BuilderAppRunnerTrait>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     periodic: bool,
     ws_cache: Arc<super::workspace_cache::WorkspaceContextCache>,
@@ -871,7 +854,6 @@ async fn recover_all_workspaces(
                 bridges,
                 schema_cache.clone(),
                 builder_test_runner.clone(),
-                builder_app_runner.clone(),
                 router.clone(),
                 Some(ws.id),
                 Some(build_custom_task_registry(
@@ -921,7 +903,6 @@ async fn recover_all_workspaces(
                 bridges,
                 schema_cache.clone(),
                 builder_test_runner.clone(),
-                builder_app_runner.clone(),
                 router.clone(),
                 Some(ws.id),
                 Some(build_custom_task_registry(
@@ -1009,7 +990,6 @@ fn spawn_latency_worker(
         >,
     >,
     builder_test_runner: Option<Arc<dyn BuilderTestRunnerTrait>>,
-    builder_app_runner: Option<Arc<dyn BuilderAppRunnerTrait>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     mode: ServeMode,
     shutdown: tokio_util::sync::CancellationToken,
@@ -1060,7 +1040,6 @@ fn spawn_latency_worker(
                                     &runtime,
                                     schema_cache.as_ref(),
                                     builder_test_runner.as_ref(),
-                                    builder_app_runner.as_ref(),
                                     &router,
                                     &ws_cache,
                                     &preagg,
@@ -1075,7 +1054,6 @@ fn spawn_latency_worker(
                                     &runtime,
                                     schema_cache.as_ref(),
                                     builder_test_runner.as_ref(),
-                                    builder_app_runner.as_ref(),
                                     &router,
                                     &ws_cache,
                                     &preagg,
@@ -1135,7 +1113,6 @@ async fn tick_local(
         >,
     >,
     builder_test_runner: Option<&Arc<dyn BuilderTestRunnerTrait>>,
-    builder_app_runner: Option<&Arc<dyn BuilderAppRunnerTrait>>,
     router: &Arc<dyn agentic_runtime::router::TaskRouter>,
     ws_cache: &Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: &PreaggCacheCtx,
@@ -1159,7 +1136,6 @@ async fn tick_local(
         ctx,
         schema_cache,
         builder_test_runner,
-        builder_app_runner,
         router,
         Some(LOCAL_WORKSPACE_ID),
         preagg,
@@ -1196,7 +1172,6 @@ async fn tick_cloud(
         >,
     >,
     builder_test_runner: Option<&Arc<dyn BuilderTestRunnerTrait>>,
-    builder_app_runner: Option<&Arc<dyn BuilderAppRunnerTrait>>,
     router: &Arc<dyn agentic_runtime::router::TaskRouter>,
     ws_cache: &Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: &PreaggCacheCtx,
@@ -1331,7 +1306,6 @@ async fn tick_cloud(
                     ctx,
                     schema_cache,
                     builder_test_runner,
-                    builder_app_runner,
                     router,
                     Some(ws_id),
                     preagg,
@@ -1348,7 +1322,6 @@ async fn tick_cloud(
             ctx,
             schema_cache,
             builder_test_runner,
-            builder_app_runner,
             router,
             Some(ws_id),
             preagg,
@@ -1646,7 +1619,6 @@ async fn drive_pending(
         >,
     >,
     builder_test_runner: Option<&Arc<dyn BuilderTestRunnerTrait>>,
-    builder_app_runner: Option<&Arc<dyn BuilderAppRunnerTrait>>,
     router: &Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     preagg: &PreaggCacheCtx,
@@ -1679,7 +1651,6 @@ async fn drive_pending(
         bridges,
         schema_cache.cloned(),
         builder_test_runner.cloned(),
-        builder_app_runner.cloned(),
         router.clone(),
         workspace_id,
         custom_executors,

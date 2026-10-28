@@ -314,7 +314,7 @@ function pickBackendMode(flows: FlowTest[]): BackendMode {
     throw new Error(
       "agentic runner: cannot run flows with mixed backend_mode in a single invocation.\n" +
         "Each backend mode requires a different oxy boot configuration. Filter to one\n" +
-        "mode at a time (e.g. `pnpm test:agentic builder-edits-app`).\n\n" +
+        "mode at a time (e.g. `pnpm test:agentic chat-ask`).\n\n" +
         `Loaded flows:\n${grouped}`
     );
   }

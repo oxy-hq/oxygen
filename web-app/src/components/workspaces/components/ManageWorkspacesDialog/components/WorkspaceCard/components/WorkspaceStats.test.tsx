@@ -9,7 +9,7 @@ import { WorkspaceStats } from "./WorkspaceStats";
 // a workspace with seventeen agents looked exactly like an empty one.
 
 const workspace = (
-  counts: Pick<WorkspaceSummary, "agent_count" | "workflow_count" | "app_count">
+  counts: Pick<WorkspaceSummary, "agent_count" | "workflow_count">
 ): WorkspaceSummary =>
   ({
     id: "w1",
@@ -28,44 +28,33 @@ afterEach(cleanup);
 
 describe("WorkspaceStats", () => {
   it("says nothing was counted when the instance could not look", () => {
-    render(
-      <WorkspaceStats
-        workspace={workspace({ agent_count: null, workflow_count: null, app_count: null })}
-      />
-    );
+    render(<WorkspaceStats workspace={workspace({ agent_count: null, workflow_count: null })} />);
     expect(screen.getByTestId("workspace-stats-unknown")).toBeInTheDocument();
   });
 
   it("renders no row for a workspace that was counted and is empty", () => {
     const { container } = render(
-      <WorkspaceStats workspace={workspace({ agent_count: 0, workflow_count: 0, app_count: 0 })} />
+      <WorkspaceStats workspace={workspace({ agent_count: 0, workflow_count: 0 })} />
     );
     expect(screen.queryByTestId("workspace-stats-unknown")).not.toBeInTheDocument();
     expect(container).toBeEmptyDOMElement();
   });
 
   it("renders the counts when there are some", () => {
-    render(
-      <WorkspaceStats
-        workspace={workspace({ agent_count: 17, workflow_count: 23, app_count: 10 })}
-      />
-    );
+    render(<WorkspaceStats workspace={workspace({ agent_count: 17, workflow_count: 23 })} />);
     expect(screen.queryByTestId("workspace-stats-unknown")).not.toBeInTheDocument();
     expect(screen.getByText("17")).toBeInTheDocument();
     expect(screen.getByText("23")).toBeInTheDocument();
-    expect(screen.getByText("10")).toBeInTheDocument();
   });
 
   it("separates the two states that both mean 'no numbers to show'", () => {
     const { container: unknown } = render(
-      <WorkspaceStats
-        workspace={workspace({ agent_count: null, workflow_count: null, app_count: null })}
-      />
+      <WorkspaceStats workspace={workspace({ agent_count: null, workflow_count: null })} />
     );
     const unknownHtml = unknown.innerHTML;
     cleanup();
     const { container: empty } = render(
-      <WorkspaceStats workspace={workspace({ agent_count: 0, workflow_count: 0, app_count: 0 })} />
+      <WorkspaceStats workspace={workspace({ agent_count: 0, workflow_count: 0 })} />
     );
     expect(unknownHtml).not.toEqual(empty.innerHTML);
   });

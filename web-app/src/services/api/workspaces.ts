@@ -362,11 +362,10 @@ export interface WorkspaceSummary {
    * `null` when the serving instance holds no working copy for the workspace
    * and therefore did not count. Distinct from `0`, which means it counted and
    * found none — rendering the two the same is how a healthy workspace came to
-   * read "0 agents · 0 automations · 0 apps" on a stateless replica.
+   * read "0 agents · 0 automations" on a stateless replica.
    */
   agent_count: number | null;
   workflow_count: number | null;
-  app_count: number | null;
   git_remote: string | null;
   git_commit: string | null;
   git_updated_at: string | null;

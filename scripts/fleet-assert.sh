@@ -132,9 +132,7 @@ FLOW_EMAIL="${FLOW_EMAIL:-flow@oxy.local}"
 #                         premise, not the fleet, is what fails.
 #   admin-*             — need the staff identity; run them separately.
 FLEET_FLOWS=(
-  apps-data-app-charts
   automations-run-from-list
-  builder-edits-app
   chat-panel-agent-switch
   ide-world-model-graph-fleet
   metric-tree
@@ -793,7 +791,6 @@ step "7. Discover fixture identifiers"
 # degrades to "not discovered" (the case guarded by it is then skipped and
 # reported), never a script-ending jq error on `set -uo pipefail`.
 AGENT_PATH=$(curl -s --max-time 10 -H "Authorization: $TOKEN" "${S1_BASE}/api/${WS}/agents" | jq -r '.[0].path // empty' 2>/dev/null)
-APP_PATH=$(curl -s --max-time 10 -H "Authorization: $TOKEN" "${S1_BASE}/api/${WS}/apps" | jq -r '.[0].path // empty' 2>/dev/null)
 AUTOMATION_JSON=$(curl -s --max-time 10 -H "Authorization: $TOKEN" "${S1_BASE}/api/${WS}/automations")
 AUTOMATION_PATH=$(echo "$AUTOMATION_JSON" | jq -r '.[0].path // empty' 2>/dev/null)
 AUTOMATION_PATHB64=$(echo "$AUTOMATION_JSON" | jq -r '.[0].path_b64 // empty' 2>/dev/null)
@@ -817,8 +814,8 @@ ADMIN_COMPILE_REV=$(echo "$ADMIN_COMPILES_JSON" | jq -r '(.rows? // .items? // .
 AIRWAY_RANGES_JSON=$(curl -s --max-time 10 -H "Authorization: $TOKEN" "${S1_BASE}/api/${WS}/agentic-airway/backfill-ranges?pipeline_ref=sql_ingest")
 AIRWAY_RANGE_ID=$(echo "$AIRWAY_RANGES_JSON" | jq -r '(.items? // .) | (.[0].id // .[0].range_id // empty)' 2>/dev/null)
 
-APP_PATHB64=""
-[ -n "$APP_PATH" ] && APP_PATHB64=$(pathb64_std "$APP_PATH")
+AGENT_PATHB64=""
+[ -n "$AGENT_PATH" ] && AGENT_PATHB64=$(pathb64_std "$AGENT_PATH")
 
 # File-backed fixture params: real files on disk (workspace root = examples/).
 # Discovered by find rather than hardcoded so a renamed/moved example file
@@ -826,18 +823,10 @@ APP_PATHB64=""
 TOPIC_PATH=$(cd "$REPO_ROOT/examples" && find semantics/topics -name '*.topic.yml' 2>/dev/null | head -1)
 VIEW_PATH=$(cd "$REPO_ROOT/examples" && find semantics/views -name '*.view.yml' 2>/dev/null | head -1)
 TEST_PATH=$(cd "$REPO_ROOT/examples" && find . -name '*.test.yml' 2>/dev/null | sed 's|^\./||' | head -1)
-# get_source_file (GET /apps/source/{pathb64}) searches the workspace root AND
-# every DuckDB database's file_search_path (".db/" for "local") for a BARE
-# filename — it is a raw-data-file lookup, not an app-yml lookup, despite what
-# the inventory doc's own note suggested (untested there, it turns out wrong:
-# live-verified an app-yml path 500s here, a real CSV basename 200s). Find one
-# under .db/ the same way the handler does.
-SOURCE_FILE_PATH=$(cd "$REPO_ROOT/examples/.db" 2>/dev/null && find . -maxdepth 1 -type f \( -name '*.csv' -o -name '*.parquet' \) 2>/dev/null | sed 's|^\./||' | head -1)
-TOPIC_B64=""; VIEW_B64=""; TEST_B64=""; SOURCE_FILE_B64=""
+TOPIC_B64=""; VIEW_B64=""; TEST_B64=""
 [ -n "$TOPIC_PATH" ] && TOPIC_B64=$(pathb64_std "$TOPIC_PATH")
 [ -n "$VIEW_PATH" ]  && VIEW_B64=$(pathb64_std "$VIEW_PATH")
 [ -n "$TEST_PATH" ]  && TEST_B64=$(pathb64_std "$TEST_PATH")
-[ -n "$SOURCE_FILE_PATH" ] && SOURCE_FILE_B64=$(pathb64_std "$SOURCE_FILE_PATH")
 
 # ── Extra discovery for the Fixture-bucket additions below ─────────────────
 # A second org member (never the session's own user) to add to a disposable
@@ -847,13 +836,6 @@ TOPIC_B64=""; VIEW_B64=""; TEST_B64=""; SOURCE_FILE_B64=""
 ORG_MEMBERS_JSON=$(curl -s --max-time 10 -H "Authorization: $TOKEN" "${S1_BASE}/api/orgs/${ORG_ID}/members")
 MEMBER_USER_ID=$(echo "$ORG_MEMBERS_JSON" | jq -r --arg me "${SESSION_USER_ID:-}" \
   '[((.items? // .))[] | select(.user_id != $me)][0].user_id // ((.items? // .))[0].user_id // empty' 2>/dev/null)
-
-# A .app.yml backed by the DuckDB "local" connection with no external CSV
-# dependency (controls_demo.app.yml — verified inline VALUES, no data file).
-APPS_JSON=$(curl -s --max-time 10 -H "Authorization: $TOKEN" "${S1_BASE}/api/${WS}/apps")
-DUCKDB_APP_PATH=$(echo "$APPS_JSON" | jq -r '[.[] | select(.path | contains("controls_demo"))][0].path // empty' 2>/dev/null)
-DUCKDB_APP_PATHB64=""
-[ -n "$DUCKDB_APP_PATH" ] && DUCKDB_APP_PATHB64=$(pathb64_std "$DUCKDB_APP_PATH")
 
 # An automation with ZERO `type: agent` tasks (verified by reading its YAML) —
 # the cheapest possible real automation run: no LLM key needed, no warehouse
@@ -885,12 +867,12 @@ fi
 EVAL_TEST_B64=""
 [ -n "$EVAL_TEST_PATH" ] && EVAL_TEST_B64=$(pathb64_std "$EVAL_TEST_PATH")
 
-printf '  agent=%s app=%s automation=%s\n' "${AGENT_PATH:-<none>}" "${APP_PATH:-<none>}" "${AUTOMATION_PATH:-<none>}"
+printf '  agent=%s automation=%s\n' "${AGENT_PATH:-<none>}" "${AUTOMATION_PATH:-<none>}"
 printf '  thread=%s schedule=%s measure=%s/%s\n' "${THREAD_ID:-<none>}" "${SCHEDULE_ID:-<none>}" "${MEASURE_ID:-<none>}" "${TIME_DIM:-<none>}"
 printf '  entity=%s customer_app=%s org_app=%s admin_compile_rev=%s\n' "${ENTITY_NAME:-<none>}" "${CUSTOMER_APP_ID:-<none>}" "${ORG_APP_ID:-<none>}" "${ADMIN_COMPILE_REV:-<none>}"
 printf '  topic=%s view=%s test=%s\n' "${TOPIC_PATH:-<none>}" "${VIEW_PATH:-<none>}" "${TEST_PATH:-<none>}"
-printf '  member=%s duckdb_app=%s nollm_automation=%s wm_key=%s eval_test=%s\n' \
-  "${MEMBER_USER_ID:-<none>}" "${DUCKDB_APP_PATH:-<none>}" "${NOLLM_AUTOMATION_PATH:-<none>}" "${WM_SEED_KEY:-<none>}" "${EVAL_TEST_PATH:-<none>}"
+printf '  member=%s nollm_automation=%s wm_key=%s eval_test=%s\n' \
+  "${MEMBER_USER_ID:-<none>}" "${NOLLM_AUTOMATION_PATH:-<none>}" "${WM_SEED_KEY:-<none>}" "${EVAL_TEST_PATH:-<none>}"
 ok "discovery complete"
 
 # ══ FIXTURE CREATION (disposable, product API only) ══════════════════════════
@@ -907,7 +889,6 @@ DISPOSABLE_WS_SCRATCH_B64=""
 SCRATCH_FILE_LIVE=0; SCRATCH_FOLDER_LIVE=0
 OWM_SECRET_ID=""; BESTTIME_SECRET_ID=""
 APP_INTEGRATION_OWM_LIVE=0; APP_INTEGRATION_BESTTIME_LIVE=0
-CHART_FILE_NAME=""
 AUTOMATION_RUN_ID=""
 PROJECT_RUN_ID=""
 EVAL_TEST_RUN_INDEX=""
@@ -1379,34 +1360,6 @@ else
   fi
   rm -f "$sc_out"
 
-  step "8l. Data App run chain (controls_demo — self-contained DuckDB query, no external file)"
-  if [ -n "$DUCKDB_APP_PATHB64" ]; then
-    ro=$(mktemp)
-    rc3=$(req POST "${S1_BASE}/api/${WS}/apps/${DUCKDB_APP_PATHB64}/run" "$ro" '{}')
-    [[ "$rc3" =~ ^2 ]] && ok "apps/{pathb64}/run (controls_demo): $rc3" || bad "apps/{pathb64}/run (controls_demo): expected 2xx, got $rc3"
-    rm -f "$ro"
-    reso=$(mktemp)
-    resc=$(req POST "${S1_BASE}/api/${WS}/apps/${DUCKDB_APP_PATHB64}/result?refresh=false" "$reso" '{}')
-    if [[ "$resc" =~ ^2 ]]; then
-      ok "apps/{pathb64}/result (controls_demo): $resc"
-      CHART_FILE_NAME=$(jq -r '[.result.displays[]? | select(.file_name != null) | .file_name][0] // empty' "$reso" 2>/dev/null)
-      [ -n "$CHART_FILE_NAME" ] && ok "discovered chart file_name=$CHART_FILE_NAME" \
-                                 || skip "no chart display in the result — apps/{pathb64}/charts/{chart_path} left uncovered"
-    else
-      bad "apps/{pathb64}/result (controls_demo): expected 2xx, got $resc"
-    fi
-    rm -f "$reso"
-    # Re-publish: controls_demo is already published:true, so this is a
-    # low-risk, idempotent write of the working copy — not a state change
-    # from a viewer's perspective, still a real request through the handler.
-    pbc=$(req POST "${S1_BASE}/api/${WS}/apps/${DUCKDB_APP_PATHB64}/publish" /dev/null)
-    [[ "$pbc" =~ ^2 ]] && ok "apps/{pathb64}/publish (re-publish, idempotent): $pbc" \
-                        || bad "apps/{pathb64}/publish: expected 2xx, got $pbc"
-    mark_covered "/api/{workspace_id}/apps/{pathb64}/publish"
-  else
-    skip "no DuckDB-backed .app.yml discovered — the entire apps/run chain (run, result, data-cached, charts, publish) left uncovered"
-  fi
-
   step "8m. Automation run (enum_retrieval — zero LLM/DB tasks, just a formatter)"
   if [ -n "$NOLLM_AUTOMATION_PATH" ]; then
     aro=$(mktemp)
@@ -1613,8 +1566,8 @@ add Now  "world-model-events" GET "/api/${WS}/world-model/events"      status "/
 [ -n "$AUTOMATION_PATHB64" ] && add Now "procedures-detail" GET "/api/${WS}/procedures/${AUTOMATION_PATHB64}" body "/api/{workspace_id}/procedures/{path_b64}"
 [ -n "$THREAD_ID" ] && add Now "thread-get"      GET "/api/${WS}/threads/${THREAD_ID}"          body "/api/{workspace_id}/threads/{id}"
 [ -n "$THREAD_ID" ] && add Now "thread-messages" GET "/api/${WS}/threads/${THREAD_ID}/messages" body "/api/{workspace_id}/threads/{id}/messages"
-[ -n "$APP_PATHB64" ] && add Now "files-read-app-yml" GET "/api/${WS}/files/${APP_PATHB64}"           body "/api/{workspace_id}/files/{pathb64}"
-[ -n "$APP_PATHB64" ] && add Now "files-from-git-app-yml" GET "/api/${WS}/files/${APP_PATHB64}/from-git" body "/api/{workspace_id}/files/{pathb64}/from-git"
+[ -n "$AGENT_PATHB64" ] && add Now "files-read-agent-yml" GET "/api/${WS}/files/${AGENT_PATHB64}"           body "/api/{workspace_id}/files/{pathb64}"
+[ -n "$AGENT_PATHB64" ] && add Now "files-from-git-agent-yml" GET "/api/${WS}/files/${AGENT_PATHB64}/from-git" body "/api/{workspace_id}/files/{pathb64}/from-git"
 
 # ── Workspace: agentic run surfaces (Now) ───────────────────────────────────
 add Now  "airway-pipelines"  GET "/api/${WS}/airway-pipelines"          body "/api/{workspace_id}/airway-pipelines"
@@ -1632,7 +1585,6 @@ add Now  "schedules-list"    GET "/api/${WS}/agentic-schedules"         body "/a
 add Now  "agents-list"       GET "/api/${WS}/agents"                    body "/api/{workspace_id}/agents"
 add Now  "api-keys-list"     GET "/api/${WS}/api-keys"                  body "/api/{workspace_id}/api-keys"
 add Now  "app-integrations-list" GET "/api/${WS}/app-integrations"      body "/api/{workspace_id}/app-integrations"
-add Now  "apps-list"         GET "/api/${WS}/apps"                      body "/api/{workspace_id}/apps"
 add Now  "automations-list"  GET "/api/${WS}/automations"               body "/api/{workspace_id}/automations"
 add Now  "builder-availability" GET "/api/${WS}/builder-availability"   body "/api/{workspace_id}/builder-availability"
 addb Now "semantic-compile"  POST "/api/${WS}/semantic/compile"         body  '{}' "/api/{workspace_id}/semantic/compile"
@@ -1643,15 +1595,6 @@ add Now  "compile-status"    GET "/api/${WS}/compile/status?branch=main" body "/
 # Postgres only: a commit nothing has compiled reads `pending` on every node,
 # with the ide up or down.
 add Now  "compile-staging-status" GET "/api/${WS}/compile/staging/status?git_sha=0000000000000000000000000000000000000000" body "/api/{workspace_id}/compile/staging/status"
-[ -n "$APP_PATHB64" ] && add Now "apps-get"        GET "/api/${WS}/apps/${APP_PATHB64}"          body "/api/{workspace_id}/apps/{pathb64}"
-[ -n "$APP_PATHB64" ] && add Now "apps-displays"   GET "/api/${WS}/apps/${APP_PATHB64}/displays" body "/api/{workspace_id}/apps/{pathb64}/displays"
-[ -n "$APP_PATHB64" ] && add Now "apps-file"       GET "/api/${WS}/apps/file/${APP_PATHB64}"     body "/api/{workspace_id}/apps/file/{pathb64}"
-# ^ get_data (app::get_data) reads from the STATE DIR (a downloaded/cached
-# artifact from a prior app run), not any workspace file — an app-yml path is
-# not a valid key here without first running the app (Fixture-bucket
-# /apps/{pathb64}/run, not chased in this pass). Expect a 404 on all three
-# nodes — still a valid, agreeing, covered case, just not a 200.
-[ -n "$SOURCE_FILE_B64" ] && add Now "apps-source" GET "/api/${WS}/apps/source/${SOURCE_FILE_B64}" body "/api/{workspace_id}/apps/source/{pathb64}"
 add Now  "databases-schema-local" GET "/api/${WS}/databases/local/schema" workspace_local "/api/{workspace_id}/databases/{database_name}/schema"
 
 # The SAME two routes with a branch, which is the shape the SQL IDE actually
@@ -1877,19 +1820,6 @@ if [ "$APP_INTEGRATION_BESTTIME_LIVE" = "1" ]; then
     '[{"key":"probe","lat":37.7749,"lon":-122.4194,"radius":500}]' "/api/{workspace_id}/world-model/foot-traffic/radar"
 else
   skip "no besttime app-integration — world-model/foot-traffic/current, foot-traffic/radar left uncovered"
-fi
-
-# ── Fixture bucket: Data App run chain (controls_demo) ──────────────────────
-if [ -n "$DUCKDB_APP_PATHB64" ]; then
-  addb Fixture "apps-run"    POST "/api/${WS}/apps/${DUCKDB_APP_PATHB64}/run"              body '{}' "/api/{workspace_id}/apps/{pathb64}/run"
-  addb Fixture "apps-result" POST "/api/${WS}/apps/${DUCKDB_APP_PATHB64}/result?refresh=false" body '{}' "/api/{workspace_id}/apps/{pathb64}/result"
-  add  Fixture "apps-data-cached" GET "/api/${WS}/apps/${DUCKDB_APP_PATHB64}/data-cached"  status "/api/{workspace_id}/apps/{pathb64}/data-cached"
-  # Node-local disk cache with an S3-mirror fallback (per the written report)
-  # — status-only, since a genuinely diskless serve replica may legitimately
-  # 404 here where the ide (which just ran it) 200s. Worth watching for a
-  # tenth finding alongside the nine already documented.
-  [ -n "$CHART_FILE_NAME" ] && add Fixture "apps-chart" GET "/api/${WS}/apps/${DUCKDB_APP_PATHB64}/charts/${CHART_FILE_NAME}" \
-    status "/api/{workspace_id}/apps/{pathb64}/charts/{chart_path}"
 fi
 
 # ── Fixture bucket: automation-run-id reads + coordinator + cancel no-op ────

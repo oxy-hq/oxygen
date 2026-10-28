@@ -2,7 +2,6 @@ import { Pencil } from "lucide-react";
 import type { ReactNode } from "react";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import AppPreview from "@/components/AppPreview";
 import FileEditor from "@/components/FileEditor";
 import { FileEditorProvider } from "@/components/FileEditor/FileEditorContext";
 import { useFileEditorContext } from "@/components/FileEditor/useFileEditorContext";
@@ -70,8 +69,6 @@ const FileTypePreview = ({ filePath }: { filePath: string }) => {
     case FileType.PROCEDURE:
     case FileType.AUTOMATION:
       return <Automation pathb64={pathb64} direction='vertical' hideHeader />;
-    case FileType.APP:
-      return <AppPreview key={pathb64} appPath64={pathb64} runButton={false} />;
     case FileType.VIEW:
       return (
         <MinimalEditorProvider pathb64={pathb64} fileType={FileType.VIEW}>

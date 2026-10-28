@@ -268,7 +268,6 @@ pub(crate) async fn drive_once(
         None,
         None,
         None,
-        None,
         noop_router(),
         Some(workspace_id),
         Some(registry(db)),

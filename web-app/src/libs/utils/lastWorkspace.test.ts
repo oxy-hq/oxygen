@@ -22,7 +22,6 @@ const ws = (
   error: null,
   agent_count: null,
   workflow_count: null,
-  app_count: null,
   git_remote: null,
   git_commit: null,
   git_updated_at: null

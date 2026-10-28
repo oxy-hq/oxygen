@@ -19,13 +19,6 @@
   cold_usd: 0.50
   warm_usd: 0.005
 
-- flow: builder-edits-app
-  # Local-mode: 1 act + 1 wait_for to start, then the builder run. No
-  # cloud-mode prelude. Cold cost is dominated by the Cmd+I act and
-  # judge call (~$0.05–$0.10); warm is just the judge floor.
-  cold_usd: 0.30
-  warm_usd: 0.005
-
 - flow: ide-save
   cold_usd: 0.30
   warm_usd: 0.005
@@ -185,12 +178,6 @@
   cold_usd: 0.35
   warm_usd: 0.005
 
-- flow: apps-data-app-charts
-  # ZERO act steps — every step is a deterministic wait, so there is no LLM
-  # tool-pick loop at all. Cold and warm are both just the single judge call.
-  cold_usd: 0.10
-  warm_usd: 0.005
-
 - flow: semantic-object-detail
   # Two cases. Case 1: rail -> IDE -> Semantic Model, open a topic, select a
   # measure, run the query (5 act steps + judge). Case 2 repeats the 2-step
@@ -322,7 +309,7 @@
   # --tag ide-recovery) bracketing an external `docker compose stop/start
   # ide` — see the flow header. Case ide-down: one rail click + one chat
   # submit (one analytics run) + one judge. Case ide-recovery: ZERO act
-  # steps, pure waits, one judge — same shape as apps-data-app-charts.
+  # steps, pure waits, one judge.
   # Budgeted per-invocation, not combined, since they never run together.
   cold_usd: 0.55
   warm_usd: 0.01

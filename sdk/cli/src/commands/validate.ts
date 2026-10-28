@@ -47,7 +47,6 @@ const SCHEMA_KINDS: ReadonlyArray<readonly [stem: string, schema: string]> = [
   [".procedure", "workflow.json"],
   [".workflow", "workflow.json"],
   [".agentic", "agentic.json"],
-  [".app", "app.json"],
   [".agent.test", "agent-test.json"],
   ["config", "config.json"]
 ];
@@ -55,7 +54,7 @@ const SCHEMA_KINDS: ReadonlyArray<readonly [stem: string, schema: string]> = [
 /**
  * Both YAML spellings, because the walk accepts both and the product does too.
  *
- * The first version listed only `.yml`, so `config.yaml` and `x.app.yaml` were
+ * The first version listed only `.yml`, so `config.yaml` and `x.automation.yaml` were
  * walked, matched nothing, and skipped in silence — while the web app's Monaco
  * config validates both spellings. A workspace using `.yaml` would have been
  * reported clean without a single file being read.
@@ -127,7 +126,7 @@ export function schemaFor(path: string): string | undefined {
     // `/api/user` matching `/api/users` in the proxy.
     //
     // A dotted suffix still needs the leading `.`, so `notanapp.yml` does not
-    // match `.app.yml`.
+    // match `.automation.yml`.
     if (suffix.startsWith(".") ? basename.endsWith(suffix) : basename === suffix) return schema;
   }
   return undefined;
@@ -139,7 +138,7 @@ interface Walked {
   /**
    * Entries named like a workspace file that could not be read, and why.
    *
-   * NOT ONLY LINKS. A FIFO, socket or device named `x.app.yml` lands here too,
+   * NOT ONLY LINKS. A FIFO, socket or device named `x.automation.yml` lands here too,
    * and none of them is a symlink — the warning string and this doc both said
    * "symlink" while the bucket had already widened.
    */
@@ -157,7 +156,7 @@ interface Walked {
  *
  * The reason is CHECKED, not assumed. Reporting every `statSync` failure as
  * "the target is gone" was true for `ENOENT` and a claim about a condition
- * nobody established for the rest — `ELOOP` for `ln -s x.app.yml x.app.yml`
+ * nobody established for the rest — `ELOOP` for `ln -s x.automation.yml x.automation.yml`
  * (worth naming, on a walk that deliberately avoids needing cycle detection),
  * `EACCES` for an unreadable directory above the target, `ENOTDIR` for a link
  * through a path component that is a file.
@@ -250,7 +249,7 @@ interface SkipReason {
 export function whyUnchecked(code: SkipCode): SkipReason {
   if (code === SCHEMA_MISSING) {
     return {
-      // Worded to read after both "3 file(s) NOT checked —" and "a0.app.yml —",
+      // Worded to read after both "3 file(s) NOT checked —" and "a0.automation.yml —",
       // since `listSkipped` puts it in either place.
       reason: "the schema is not in this installation",
       remedy: "reinstall, or set OXYC_SCHEMAS_DIR at a checkout's json-schemas/"
@@ -317,12 +316,12 @@ export function whyUnreadable(code: string): SkipReason {
  *
  * - A link to a FILE is emitted under its OWN name, and `schemaFor` decides its
  *   kind from that name. `--file` was changed back to match — in an Oxy
- *   workspace the kind of a file is its name, and a link called `x.app.yml` is
+ *   workspace the kind of a file is its name, and a link called `x.automation.yml` is
  *   an app.
  * - A link to a DIRECTORY is skipped whatever it is called. Not descended into,
  *   deliberately: following one needs cycle detection, and this is the cheap way
  *   not to need it. Skipped EXPLICITLY rather than by omission, because a name
- *   like `apps.app.yml` clears the extension check and reaches `readFileSync`,
+ *   like `apps.automation.yml` clears the extension check and reaches `readFileSync`,
  *   which reports `EISDIR` as a YAML parse finding.
  * - Anything else — a broken link, a link to a FIFO, a FIFO — is collected
  *   rather than emitted. Emitted, it reached `validateFile`, whose missing-file
@@ -341,7 +340,7 @@ export function whyUnreadable(code: string): SkipReason {
  * still reached by its real path — nothing missed, only named differently —
  * UNLESS that real path is under a `SKIP` name, where it is genuinely invisible
  * and no `--file` note applies. A link pointing OUTSIDE the root is not walked,
- * while `--file apps/x.app.yml` reads straight through it. Pinned in
+ * while `--file apps/x.automation.yml` reads straight through it. Pinned in
  * `validate.test.ts`.
  */
 function walk(root: string, prefix = ""): Walked {
@@ -388,7 +387,7 @@ function walk(root: string, prefix = ""): Walked {
     } else if (!entry.isFile()) {
       // FREE — the `Dirent` already knows, so this costs no syscall. It closes
       // the last door to the whole-run abort: a FIFO, socket or device named
-      // `x.app.yml` cleared every arm above, reached `validateFile`, and took
+      // `x.automation.yml` cleared every arm above, reached `validateFile`, and took
       // its `not a file` throw and the other forty files with it. `walk` now
       // emits regular files and links to them, FULL STOP, which makes that
       // throw unreachable from here — an invariant rather than a divergence
@@ -639,7 +638,7 @@ function validateFile(
   // content problems and send the reader looking in a file for something that
   // is the file itself: "ENOENT: no such file or directory" for a path that is
   // not there, "EISDIR: illegal operation on a directory" for a directory named
-  // `apps.app.yml` or a link to one. `existsSync` answered only the first —
+  // `apps.automation.yml` or a link to one. `existsSync` answered only the first —
   // it is true for a directory — so the walk arm got this rule and `--file`
   // kept the exception until now.
   const full = join(root, rel);
@@ -648,7 +647,7 @@ function validateFile(
     stats = statSync(full);
   } catch (cause) {
     // THE REASON THE STAT GAVE, not the one that is usually true. `no such
-    // file` for every failure meant `--file loop.app.yml` on a self-referential
+    // file` for every failure meant `--file loop.automation.yml` on a self-referential
     // link answered that a link `ls` can see does not exist, and `EACCES` sent
     // the reader hunting a path that is present and unreadable — while the walk
     // branch, three hundred lines up, named both correctly. Same helper, so the
@@ -657,7 +656,7 @@ function validateFile(
 
     // AND `ENOENT` IS TWO CONDITIONS. `statSync` throws it for a path that is
     // not there and for a link whose target is not there, and only the first is
-    // "no such file" — `--file stale.app.yml` pointing into a removed worktree
+    // "no such file" — `--file stale.automation.yml` pointing into a removed worktree
     // was told a link `ls` shows you does not exist, while the walk called the
     // same entry "the target is gone". `lstat` separates them for free.
     //
@@ -693,14 +692,14 @@ function validateFile(
   if (!stats.isFile()) {
     // Unreachable from the walk, which emits regular files only — this answers
     // a `--file` argument naming something that is not one. FAILURE, not
-    // NOT_FOUND: a directory named `x.app.yml` is emphatically there.
+    // NOT_FOUND: a directory named `x.automation.yml` is emphatically there.
     throw new CliError(`not a file: ${rel}`, {
       code: ExitCode.FAILURE,
       detail: stats.isDirectory()
-        ? "it is a directory — a name ending .app.yml does not make one a workspace file"
+        ? "it is a directory — a name ending .automation.yml does not make one a workspace file"
         : whyUnreadable(ENOTFILE).reason,
       // Same rule as the sibling above. `ENOTFILE` is not a private code — a
-      // FIFO named `x.app.yml` reaches `listSkipped` through `broken` too — so
+      // FIFO named `x.automation.yml` reaches `listSkipped` through `broken` too — so
       // the day that arm grows a remedy, both printers must show it or they
       // disagree about the same file.
       hint: WHOLE_WORKSPACE_HINT,
@@ -753,8 +752,8 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
 
   // THE ARGUMENT IS NOT RESOLVED, and that is the whole point of the line.
   // `schemaFor` decides a file's KIND from its basename, so following a link
-  // here changes what the file is: `ln -s tpl/base.yml my.app.yml` becomes
-  // `base.yml`, matches nothing, and `--file my.app.yml` exits USAGE on a file
+  // here changes what the file is: `ln -s tpl/base.yml my.automation.yml` becomes
+  // `base.yml`, matches nothing, and `--file my.automation.yml` exits USAGE on a file
   // the whole-workspace walk validates happily — `walk` reads directories with
   // `withFileTypes`, and a `Dirent` does not follow links, so it sees the link's
   // own name. In an Oxy workspace the kind of a file IS its name, which makes

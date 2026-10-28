@@ -1,43 +1,16 @@
 # yaml-language-server: $schema=../../../../json-schemas/flow-test.json
 #
 # Pins the "ide dies -> the product degrades honestly" contract that
-# web-app/src/components/IdeUnavailableBanner/index.tsx:54-58 and
-# web-app/src/components/AppPreview/AppDataState.tsx:28-33 implement but that
-# NO flow asserted before this one. Two verified halves, both required:
-#   (a) what STILL works while the ide is down — browsing past chat history
-#       (FleetOk reads) and the fact that a NEW question fails CALMLY rather
-#       than hanging or crashing;
-#   (b) what visibly DEGRADES — the global outage banner
-#       ([data-testid=ide-unavailable-banner]) and an inline "restarting"
-#       notice, both on the Data App and on chat itself.
-# A flow asserting only the banner would pass even if a new question hung
-# forever with no signal; a flow that only checked "the page didn't crash"
-# would pass on a product that silently swallowed the outage.
+# web-app/src/components/IdeUnavailableBanner/index.tsx implements: what STILL
+# works while the ide is down (browsing past chat history, a FleetOk read) and
+# what visibly DEGRADES (the global outage banner and the calm "restarting" panel
+# a new chat question gets instead of a hang or a stack trace).
 #
-# ── THE HARNESS CANNOT STOP A CONTAINER — and must not invent a way to ──────
-# `web-app/tests/agentic/fixtures/reset.ts` exposes exactly three setup
-# commands (`reset_test_file`, `restore_demo_file:`, `goto:`) and
-# `runner/tool-registry.ts` exposes ten browser tools, none of them process
-# control. There is no `wait_for:` primitive for "container is down" either.
-# So this flow cannot toggle `docker compose -f docker-compose.fleet.yml stop
-# ide` / `start ide` from inside its own YAML — and per the read-only-against-
-# external-systems policy (README.md's Policy section), a NEW setup command
-# that reaches outside the workspace-under-test needs design review, not an
-# ad-hoc addition here.
-#
-# `scripts/fleet-assert.sh` already owns container control for exactly this
-# scenario (its `ide_stop`/`ide_start` functions, step "12. Kill the ide"),
-# but that script is deliberately HTTP-only ("no browser involved" — its own
-# header) — it cannot see a banner render or a panel replace a chart, which
-# is the entire subject here. So the honest split is: this flow owns what
-# the PAGE shows, `fleet-assert.sh` (or a human) owns toggling the container,
-# exactly like the `docker`-mode `ide_stop`/`ide_start` helpers do for the
-# HTTP layer. Nobody here invents a back channel.
-#
-# The two cases below are tagged `ide-down` / `ide-recovery` and MUST be run
-# as two separate invocations, bracketing the container toggle from outside
-# the runner (the CLI's `--tag` filter, cli.ts:183-184, selects one case at a
-# time from a loaded flow):
+# THE HARNESS CANNOT STOP A CONTAINER. This flow cannot toggle
+# `docker compose -f docker-compose.fleet.yml stop ide` from inside its own YAML
+# (`fixtures/reset.ts` exposes three setup commands, none of them process
+# control), so the two cases are tagged `ide-down` / `ide-recovery` and run as two
+# invocations bracketing the toggle from outside (scripts/verify-all.sh does):
 #
 #   docker compose -f docker-compose.fleet.yml stop ide
 #   pnpm test:agentic ide-unavailable-fleet --tag ide-down     --no-auto-backend
@@ -45,94 +18,15 @@
 #   # wait for :3010/api/health to return 200
 #   pnpm test:agentic ide-unavailable-fleet --tag ide-recovery --no-auto-backend
 #
-# FIXTURE (the Data App half): `examples/revenue.app.yml` (the split-fleet
-# workspace's fixture set — see ide-world-model-graph-fleet.flow.test.yml's
-# header). Every task in it declares `mode: server` explicitly, which forces
-# `AppTaskMode::Server` regardless of database (crates/core/src/config/
-# model.rs:2505, `#[default] Client`) — so `allClientMode`
-# (AppPreview/index.tsx:52-64) is false and the page's `useAppData` hook
-# actually calls `GET /apps/{id}` (`route_ide`, workspace.rs:663), the IdeOnly
-# route this flow needs. Every OTHER `.app.yml` under `examples/` either
-# declares `mode: client` or omits `mode` (which defaults to `client`), so it
-# runs entirely in the browser's own DuckDB WASM and never touches the ide at
-# all — `apps-data-app-charts.flow.test.yml`'s `oxymart_dashboard.app.yml` is
-# exactly that case, which is why it could not have been reused here.
+# A NEW chat question is pinned to the ide: `POST /analytics/runs` answers 502
+# with `x-oxy-required-role: ide`, which `useAnalyticsRun.ts` classifies and the
+# thread page renders as the same `IdeUnavailablePanel` ("Your question needs
+# Oxygen Factory, which is restarting") rather than the generic `ErrorAlert`.
+# Browsing PAST conversations is unaffected: `GET /threads` is FleetOk.
 #
-# ── VERIFIED FINDING #1: the documented cache fallback is unreachable here ──
-# AppDataState.tsx (L26-48) has TWO degraded renders for an ide-down 502:
-# `cachedAvailable` -> a calm "Showing the last saved data" notice (L28-34);
-# otherwise -> the harder `IdeUnavailablePanel` ("restarting", L40-47). It
-# would be natural to assume the calm path is reachable once an app has been
-# viewed at least once. Live, it is not — confirmed by direct curl against
-# this fleet, not just by reading the code (evidence, not inference):
-#
-#   ide UP,   GET …/data-cached?branch=main  -> 200, x-oxy-served-by: ide   (proxied)
-#   ide DOWN, GET …/data-cached?branch=main  -> 502, x-oxy-required-role: ide
-#   ide DOWN, GET …/data-cached (no branch)  -> 404, x-oxy-served-by: serve (local, not proxied)
-#
-# `data-cached` is declared `route_fleet` (workspace.rs:690) specifically so a
-# stateless replica can answer it without the ide (its own doc comment,
-# app.rs:483: "must therefore not need a working copy"). But
-# `role_middleware.rs:86-96` (`escalate_for_branch`) re-escalates ANY FleetOk
-# route to IdeOnly the moment its query string carries a non-empty `branch`
-# param — and `AppPreview`/`useAppDataCached` call it through
-# `useCurrentProjectBranch()`, which outside the IDE resolves to
-# `project.active_branch` (here: `"main"`, always non-empty). So the real
-# frontend call is ALWAYS escalated and proxied straight back to the node
-# that is down — the fallback fails exactly like the primary read, and
-# `cachedAvailable` can never become true through the app's own code path.
-# (`branch=` unset entirely reaches the local/FleetOk path, per the third
-# curl above, but the frontend never sends it that way. A SECOND, separate
-# gap on this specific deployment would still block it even if that were
-# fixed: `docker-compose.fleet.yml`'s serve containers mount no state volume
-# and this compose file wires no S3/blob bucket, so `AppCache::mirror_cache`
-# [crates/app/src/server/service/app/cache.rs:26-38] is a no-op here, meaning
-# even a same-node cache write on the ide is invisible to a replica that
-# never wrote it locally. A production deployment with a blob bucket would
-# clear that second gap; the branch-escalation gap is a code-level finding
-# independent of deployment.)
-#
-# ── VERIFIED FINDING #2: a NEW chat question is ALSO pinned to the ide — ────
-# ── but it degrades through the exact same honest panel, by design ─────────
-# The banner's own copy (index.tsx:57-58) promises "Chat … keep working."
-# Live, starting a NEW analytics run does NOT complete while the ide is
-# down: `POST /analytics/runs` is nested under `/analytics`
-# (workspace.rs:448-453) with no `route_fleet`/branch-escalation carve-out,
-# and the one thing that WOULD un-pin it — `OXY_ANALYTICS_FLEET_UNPIN=1`
-# combined with every configured database being reachable without the
-# working copy (crates/app/src/server/serve_safety.rs, `database_is_serve_
-# safe`) — is neither set on `docker-compose.fleet.yml` nor true here
-# (`revenue.app.yml`'s tasks run against `database: local`, a raw DuckDB with
-# no `s3_mirror`, which `database_is_serve_safe` explicitly treats as NOT
-# serve-safe). Confirmed live: submitting a question navigates to a new
-# `/threads/<id>` and `POST …/analytics/runs` answers `502` with
-# `x-oxy-required-role: ide` (captured from this flow's own Playwright
-# trace).
-#
-# The good news, also verified by reading `useAnalyticsRun.ts` (`start()`,
-# L469-506) and `pages/thread/analytics/index.tsx` (L783-810): this exact
-# failure is already handled on purpose. `isIdeUnavailableError` classifies
-# the `502`, and the thread page renders the SAME `IdeUnavailablePanel`
-# component the Data App uses — description "Your question needs Oxygen
-# Factory, which is restarting. It will run once it is back." — with a
-# Retry button, instead of the generic `ErrorAlert` / "Run failed" path a
-# few lines below it. So "Chat … keep working" overstates what a NEW
-# question does today on this deployment shape (it waits, like everything
-# else that needs the ide), but the degrade is exactly as calm and honest as
-# the banner promises — no hang, no raw stack trace. This flow pins BOTH
-# halves: the (overstated) claim gets a documented correction here rather
-# than a silently-wrong flow, and the actual honest-degrade behavior gets a
-# real assertion for the first time. Browsing PAST conversations, by
-# contrast, genuinely is unaffected — confirmed live: `GET …/threads`,
-# `GET …/threads/{id}`, and `GET …/analytics/threads/{id}/runs` all returned
-# `200` with the ide down, so this flow also asserts that the recent-threads
-# history renders instead of merely asserting the composer exists.
-#
-# COST: case `ide-down` — one navigation (setup `goto:`) + one rail click +
-# one chat submit (no LLM tokens spent on the run itself — it fails at the
-# `POST /analytics/runs` step, before any model call) + one judge. Case
-# `ide-recovery` — zero act steps, pure waits, one judge (same shape as
-# apps-data-app-charts).
+# COST: `ide-down` is one rail click + one chat submit (no model call: the run
+# fails at `POST /analytics/runs`) + one judge. `ide-recovery` is zero act steps
+# and one judge.
 
 name: the product degrades honestly when the ide node dies, and recovers
 target: any
@@ -143,37 +37,16 @@ settings:
   cache_actions: true
   max_steps: 20
 
-# `revenue.app.yml` base64: printf 'revenue.app.yml' | base64. Runs before
-# EACH case (README.md's setup-commands section), so both cases below land
-# on a fresh navigation to the same Data App regardless of which one is
-# selected via `--tag`.
 setup:
-  - "goto:/apps/cmV2ZW51ZS5hcHAueW1s"
+  - "goto:/threads"
 
 cases:
-  - name: ide down — chat history still works, a new question and the app both degrade calmly
+  - name: ide down — chat history still works, a new question degrades calmly
     tags: [ide-down, fleet, regression]
     steps:
-      # data-testid='app-page-root'  — web-app/src/pages/app/index.tsx:23
-      - wait_for: "selector:[data-testid=app-page-root]"
-
-      # data-testid='app-preview'  — web-app/src/components/AppPreview/index.tsx:234
-      - wait_for: "selector:[data-testid=app-preview]"
-
-      # THE DATA-APP DEGRADE. `useAppData` 502s (ide down, IdeOnly route);
-      # the `useAppDataCached` fallback ALSO 502s per Finding #1 above, so
-      # `cachedAvailable` stays false and AppDataState (L40-47) renders the
-      # panel rather than the "last saved data" notice. Generous ceiling:
-      # this is a cross-pod proxy attempt that has to fail before it shows.
-      - wait_for: "selector:[data-testid=ide-unavailable-panel];timeout_ms=60000"
-
-      # THE GLOBAL SIGNAL. IdeUnavailableBanner — mounted once in
-      # OrgGuard.tsx:132, so it persists across navigation for the rest of
-      # this case. Driven by the axios interceptor's `reportIdeUnavailable`
-      # off the SAME 502 above (ideHealth.ts's detection contract: a 502
-      # carrying `x-oxy-required-role: ide`).
-      - wait_for: "selector:[data-testid=ide-unavailable-banner];timeout_ms=30000"
-
+      # THE GLOBAL SIGNAL appears once the first ide-pinned request 502s (below),
+      # so the page starts on the Chat landing page rather than on a surface that
+      # already needs the ide.
       # data-testid='rail-chat' — web-app/src/components/Shell/WorkspaceShell.tsx:65.
       # SPA navigation (React Router, not browser_navigate) to the workspace's
       # /threads — the Chat landing page (composer + recent-threads history),
@@ -205,8 +78,8 @@ cases:
       # 502s before any SSE connection starts, so `useAnalyticsRun.ts`'s
       # `start()` catch handler (L489-502) sets `{tag:"failed",
       # ideUnavailable:true}` and the thread page (L783-791) renders the
-      # SAME `[data-testid=ide-unavailable-panel]` the Data App used above —
-      # this time with chat-specific copy. This transition happens client-
+      # `[data-testid=ide-unavailable-panel]`, with
+      # chat-specific copy. This transition happens client-
       # side off a rejected promise, not off any stream event, so gating on
       # the panel directly (rather than on a stream primitive that never
       # fires) is the correct wait here.
@@ -216,11 +89,8 @@ cases:
       # Deterministic, $0. Final state is the new thread page.
       - assert: "selector [data-testid=ide-unavailable-panel] is visible"
       - assert: "selector [data-testid=ide-unavailable-banner] is visible"
-      # Chat-specific copy (pages/thread/analytics/index.tsx:786) — distinct
-      # from the Data App's "This dashboard needs…" wording, so this line
-      # confirms it is genuinely the ANALYTICS-run failure branch that
-      # rendered, not a coincidentally-similar panel left over from the app
-      # page.
+      # Chat-specific copy (pages/thread/analytics/index.tsx:786): confirms it is
+      # the ANALYTICS-run failure branch that rendered.
       - assert: "text \"Your question needs Oxygen Factory\" is visible"
       # Proves the CALM path was taken, not the sibling `ErrorAlert` /
       # "Run failed" branch two lines below it in the same component
@@ -252,55 +122,28 @@ cases:
               "No such file or directory", "os error", or an absolute path
               such as one starting "/var/lib/oxy".
 
-  - name: ide recovers — the banner clears and the app loads live data again
+  - name: ide recovers — the banner clears and chat history loads again
     tags: [ide-recovery, fleet, regression]
-    # Same app, fresh navigation (the shared top-level `setup:` above) — run
-    # ONLY after the ide container is back and healthy (this file's header
-    # has the exact command sequence).
+    # Fresh navigation (the shared top-level `setup:` above) — run ONLY after the
+    # ide container is back and healthy (this file's header has the exact
+    # command sequence). Zero act steps: reading history is a FleetOk request,
+    # so a clean load plus an absent banner and panel is the recovery signal.
     steps:
-      - wait_for: "selector:[data-testid=app-page-root]"
-      - wait_for: "selector:[data-testid=app-preview]"
-
-      # Mirrors apps-data-app-charts.flow.test.yml's loading gate: covers the
-      # server fetch resolving through the now-healthy proxy hop.
-      - wait_for: "selector_hidden:[data-testid=app-preview-loading];timeout_ms=90000"
-
-      # testId='app-line-chart' / 'app-bar-chart' — AppPreview/Displays/
-      # LineChart.tsx:106, BarChart.tsx:106. Live series, not a definition-only
-      # empty frame — same "both halves arrived" logic apps-data-app-charts
-      # uses for its charts.
-      - wait_for: "selector:[data-testid=app-line-chart];timeout_ms=60000"
-      - wait_for: "selector:[data-testid=app-bar-chart];timeout_ms=60000"
-
-      # data-testid='app-data-table-block' — .../Displays/DataTableBlock.tsx:137.
-      - wait_for: "selector:[data-testid=app-data-table-block];timeout_ms=60000"
+      - wait_for: "selector:textarea[name=question]"
+      - wait_for: "selector:[data-testid=thread-history-list];timeout_ms=60000"
 
     expect:
-      - assert: "selector [data-testid=app-line-chart] is visible"
-      - assert: "selector [data-testid=app-bar-chart] is visible"
-      - assert: "selector [data-testid=app-data-table-block] is visible"
-      # RECOVERY, both signals: the per-surface panel AND the global banner
-      # must both have cleared, not just one of them.
       - assert: "selector [data-testid=ide-unavailable-panel] is not visible"
       - assert: "selector [data-testid=ide-unavailable-banner] is not visible"
-      # AppDataState (AppDataState.tsx:26-56) renders the stale-data notice,
-      # the panel above, or nothing — never more than one at once, and the
-      # notice carries no testid/role of its own. The panel-absence assert
-      # above plus the charts rendering below already establish the success
-      # path was taken (not the stale-data branch); the judge's fail-
-      # condition (b) is the belt-and-suspenders check on the literal text.
-
       - judge: |
-          The Revenue Dashboard shows a live-looking line chart and bar
-          chart with real plotted data (not empty frames) and a data table
-          with rows, and there is no outage banner anywhere on screen and no
-          "restarting" / "last saved data" notice.
+          The page is the Chat landing page: a question composer with a
+          "Recent threads" history below it, and there is no outage banner
+          anywhere on screen and no "restarting" notice.
 
           Fail if ANY of the following is true:
-          (a) a chart frame is present but has no plotted series;
-          (b) any restarting/outage/stale-data notice is visible;
-          (c) a loading spinner or "Loading app…" is still on screen;
-          (d) any visible text contains "retry shortly", "a compile has been
-              enqueued", "Workspace directory not found", "No such file or
-              directory", "os error", or an absolute filesystem path;
-          (e) the page is blank or shows no displays at all.
+          (a) a banner or panel says the Oxygen Factory is unavailable or
+              restarting;
+          (b) a loading spinner is still on screen with no explanation;
+          (c) any visible text contains "No such file or directory", "os
+              error", or an absolute filesystem path;
+          (d) the page is blank.

@@ -40,6 +40,7 @@ import OrgSubdomainAuthGate from "./components/OrgSubdomainAuthGate";
 import OwnerRedirect from "./components/OwnerRedirect";
 import { PreviewPending } from "./components/PreviewBar/PreviewPending";
 import ProtectedRoute from "./components/ProtectedRoute";
+import UnknownWorkspacePath from "./components/Shell/UnknownWorkspacePath";
 import { WorkspaceShell } from "./components/Shell/WorkspaceShell";
 import SettingsDialog from "./components/settings/SettingsDialog";
 import { useSettingsDeepLink } from "./components/settings/SettingsDialog/useSettingsDeepLink";
@@ -56,7 +57,6 @@ import useOauthConnectReturn from "./hooks/useOauthConnectReturn";
 import useVersionCheck from "./hooks/useVersionCheck";
 import { LOCAL_WORKSPACE_ID } from "./libs/utils/constants";
 import { setLastWorkspaceId } from "./libs/utils/lastWorkspace";
-import AppPage from "./pages/app";
 import CliAuth from "./pages/auth/CliAuth";
 import CliAuthDevice from "./pages/auth/CliAuth/Device";
 import DevLogin from "./pages/auth/DevLogin";
@@ -65,7 +65,6 @@ import MagicLinkCallback from "./pages/auth/MagicLinkCallback";
 import MobileAuth from "./pages/auth/MobileAuth";
 import OktaCallback from "./pages/auth/OktaCallback";
 import TokenLogin from "./pages/auth/TokenLogin";
-import DashboardsPage from "./pages/dashboards";
 import GitHubCallback from "./pages/github/callback";
 import InvitePage from "./pages/Invite";
 import KioskManagePage from "./pages/KioskManage";
@@ -449,11 +448,6 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
                 </FactoryGuard>
               }
             />
-            {/* NOTE: /apps now renders the Dashboards page (published .app.yml
-            Data Apps). Customer-apps discovery is handled by the launcher.
-            Individual Data Apps at /apps/:pathb64 are unaffected. */}
-            <Route path='apps' element={<DashboardsPage />} />
-            <Route path='apps/:pathb64' element={<AppPage />} />
             <Route
               path='ide'
               element={
@@ -560,7 +554,7 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
               }
             />
 
-            <Route path='*' element={<Navigate to='.' />} />
+            <Route path='*' element={<UnknownWorkspacePath />} />
           </Routes>
         )}
       </WorkspaceShell>

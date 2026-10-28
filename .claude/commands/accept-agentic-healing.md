@@ -15,7 +15,7 @@ staged Tier-2 healing recordings from `.cache/healing-staging.json` into
 the main `.cache/bespoke-actions.json`, shows the resulting diff, and
 reminds the dev to commit it.
 
-`$ARGUMENTS` is the flow stem (e.g. `chat-ask`, `builder-edits-app`).
+`$ARGUMENTS` is the flow stem (e.g. `chat-ask`, `ide-save`).
 
 **Use this only when `/fix-agentic-test` classified the failure as
 Tier-2 (staged heal).** Running `--accept-healing` against an empty

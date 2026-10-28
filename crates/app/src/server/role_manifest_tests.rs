@@ -216,11 +216,9 @@ fn ide_routes_classify_against_live_uri() {
 #[test]
 fn run_exec_surface_that_needs_the_working_copy_stays_ide_only() {
     let ws = "d9830be4-c6a4";
-    let cases: [(&str, String); 7] = [
+    let cases: [(&str, String); 5] = [
         ("POST", format!("/api/{ws}/agentic-workflows/run")),
         ("POST", format!("/api/{ws}/agentic-airway/run")),
-        ("GET", format!("/api/{ws}/apps/cGF0aA")), // data-app auto-run
-        ("POST", format!("/api/{ws}/apps/cGF0aA/run")), // data-app run
         ("POST", format!("/api/{ws}/analytics/builder/runs")),
         (
             "POST",
@@ -678,11 +676,7 @@ fn runtime_routes_are_ide_only() {
     // (A chat start is not among them since phase 3d: it reads the compiled
     // revision on every role — `chat_and_automation_runs_are_fleet_ok`. The
     // Builder's start is: it edits the working copy.)
-    let runtime: [(&str, String); 6] = [
-        ("GET", format!("/api/{ws}/apps/cGF0aA")),
-        ("POST", format!("/api/{ws}/apps/cGF0aA/run")),
-        ("POST", format!("/api/{ws}/apps/cGF0aA/result")),
-        ("GET", format!("/api/{ws}/apps/file/cGF0aA")),
+    let runtime: [(&str, String); 2] = [
         ("POST", format!("/api/{ws}/analytics/builder/runs")),
         ("POST", format!("/api/{ws}/agentic-airway/run")),
     ];
@@ -699,7 +693,6 @@ fn runtime_routes_are_ide_only() {
     // *viewing* need the ide — the HA bug the split exists to prevent.
     for (method, path) in [
         ("GET", format!("/api/{ws}/threads")),
-        ("GET", format!("/api/{ws}/apps/cGF0aA/displays")),
         // Reads `world_model_events` from Postgres — it sits under a prefix
         // full of ide-pinned streams, which is exactly why it is named here.
         ("GET", format!("/api/{ws}/world-model/events")),
@@ -885,67 +878,6 @@ fn method_wildcard_matches_any_verb() {
     );
 }
 
-#[test]
-fn app_data_and_source_file_reads_are_ide_only() {
-    // Every handler that calls `AppService::run()` (executes the inline
-    // automation's file-path SQL) is ide-pinned: get_app_data (GET
-    // /apps/{pathb64}, the auto-run on load), run_app (POST .../run) and
-    // get_app_result (POST .../result). The file/source reads
-    // (get_source_file → workspace_path; get_data → local state dir) are
-    // ide-pinned too. The non-executing surface stays fleet-served:
-    // get_displays returns SQL templates for the FE to run.
-    let ws = "/api/d9830be4-c6a4";
-    assert_eq!(
-        classify("GET", &format!("{ws}/apps/source/b3h5bWFydA")),
-        RouteRole::IdeOnly
-    );
-    assert_eq!(
-        classify("GET", &format!("{ws}/apps/file/b3h5bWFydA")),
-        RouteRole::IdeOnly
-    );
-    // get_app_data runs the inline automation on a cold cache → ide.
-    assert_eq!(
-        classify("GET", &format!("{ws}/apps/b3h5bWFydA")),
-        RouteRole::IdeOnly
-    );
-    assert_eq!(
-        classify("POST", &format!("{ws}/apps/b3h5bWFydA/run")),
-        RouteRole::IdeOnly
-    );
-    assert_eq!(
-        classify("POST", &format!("{ws}/apps/b3h5bWFydA/result")),
-        RouteRole::IdeOnly
-    );
-    // get_displays only emits SQL templates — no server-side run — so the
-    // 4-segment GET pin above must NOT shadow it; it stays fleet-served.
-    assert_eq!(
-        classify("GET", &format!("{ws}/apps/b3h5bWFydA/displays")),
-        RouteRole::FleetOk
-    );
-    // get_app_data_cached serves a dashboard's last cached data (boundary
-    // def + disk/S3 cache, no execution) — the ide-down fallback. It MUST
-    // stay FleetOk, or a serve replica would proxy it to a dead ide and
-    // defeat the whole graceful-degradation feature.
-    assert_eq!(
-        classify("GET", &format!("{ws}/apps/b3h5bWFydA/data-cached")),
-        RouteRole::FleetOk
-    );
-    // App WRITE surface mutates the working copy → IdeOnly (proxied to the
-    // ide). FleetOk here would silently drop the publish toggle
-    // on a working-copy-less replica.
-    assert_eq!(
-        classify("POST", &format!("{ws}/apps/b3h5bWFydA/publish")),
-        RouteRole::IdeOnly
-    );
-    assert_eq!(
-        classify("POST", &format!("{ws}/apps/b3h5bWFydA/unpublish")),
-        RouteRole::IdeOnly
-    );
-    // `save-from-run` created `generated/<run>.app.yml`; it is gone, and the
-    // path falls through to the `/apps/{pathb64}/…` wildcard, never a writer.
-    assert!(!include_str!("router/workspace.rs").contains("save-from-run"));
-}
-
 /// Router-DERIVED drift guard — the automated router ⇄ manifest cross-check
 /// the hand-maintained `manifest_covers_*` tests lack. Parses the route
 /// paths straight out of `router/workspace.rs` for the builders that are
@@ -1081,65 +1013,6 @@ fn assert_sub_routes_classified(
             route_set.contains(entry),
             "the ack-list for {builder} lists {entry:?} but no such route exists \
              — remove the stale entry."
-        );
-    }
-}
-
-/// Per-sub-route drift guard for the MIXED `build_app_routes()` builder —
-/// the structural backstop the file previously lacked. `fully_fs_builder_*`
-/// deliberately can't cover MIXED builders, and `every_workspace_mount_*`
-/// only sees the `/apps` NEST (its one-segment probe matches the IdeOnly
-/// `/apps/{pathb64}` pattern), so every app SUB-route was otherwise
-/// classified by reviewer attention alone — exactly how publish/unpublish/
-/// (and a since-removed save-from-run) wrote the working copy while classified FleetOk. This
-/// parses `build_app_routes()` and asserts each sub-route is EITHER IdeOnly
-/// OR on the explicit `APP_FLEET_OK` ack-list below, so a new app sub-route
-/// fails CI unless someone classifies it on purpose.
-#[test]
-fn every_app_sub_route_is_classified() {
-    let src = include_str!("router/workspace.rs");
-    // App sub-routes intentionally FleetOk: served from the compile boundary
-    // / S3 / Postgres, never the working copy. REVIEW before adding one — if
-    // a handler reads OR writes the working copy / local state dir, it
-    // belongs on `route_ide`, not here.
-    const APP_FLEET_OK: &[&str] = &[
-        "/",                              // list_apps (Postgres definitions)
-        "/{pathb64}/displays",            // get_displays (SQL templates, no run)
-        "/{pathb64}/data-cached",         // get_app_data_cached (boundary + S3)
-        "/{pathb64}/charts/{chart_path}", // get_chart_image (local + S3 fallback)
-    ];
-    let ws = "/api/d9830be4-c6a4";
-    let routes = route_paths_in_fn(src, "build_app_routes");
-    let mut checked = 0;
-    for route in &routes {
-        if APP_FLEET_OK.contains(&route.as_str()) {
-            continue; // intentional, reviewed FleetOk
-        }
-        let tail = if route == "/" { "" } else { route.as_str() };
-        let concrete = concretize(&format!("{ws}/apps{tail}"));
-        assert!(
-            ["GET", "POST", "PUT", "DELETE", "PATCH"]
-                .iter()
-                .any(|m| classify(m, &concrete) == RouteRole::IdeOnly),
-            "app sub-route {route:?} (under /apps) classifies FleetOk but is not in \
-             APP_FLEET_OK — if it reads/writes the working copy, mount it with \
-             `route_ide`; if it is genuinely stateless add it to APP_FLEET_OK. \
-             (This is the publish/unpublish gap.)",
-        );
-        checked += 1;
-    }
-    assert!(
-        checked >= 5,
-        "parsed only {checked} app sub-routes — the parser likely broke; fix it \
-         rather than weakening the guard",
-    );
-    // No stale acks: every APP_FLEET_OK entry must be a current sub-route.
-    let route_set: std::collections::HashSet<&str> = routes.iter().map(|r| r.as_str()).collect();
-    for ack in APP_FLEET_OK {
-        assert!(
-            route_set.contains(ack),
-            "APP_FLEET_OK lists {ack:?} but build_app_routes has no such route — \
-             remove the stale entry."
         );
     }
 }

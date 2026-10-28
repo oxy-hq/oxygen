@@ -10,8 +10,6 @@
 //! * (a) chat — the platform an analytics run is built on gets no automation
 //!   runner, and the branch procedure a delegation would run, run on that
 //!   platform off the request's task, sends its SELECT and never its INSERT;
-//! * (b) a data app whose task deletes is refused; one that reads renders, and
-//!   its POST task is not sent;
 //! * (c) `/sql/{path}` and `/sql/query` refuse DML and serve a SELECT;
 //! * (d) without the header, each is production as before.
 
@@ -27,12 +25,9 @@ use base64::Engine;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::fakes::FakeEgress;
-use super::fixture::{Fx, HOOK, PROCEDURE, WRITE_SQL, call, ready_preview, revision_of, setup};
+use super::fixture::{Fx, PROCEDURE, WRITE_SQL, call, ready_preview, revision_of, setup};
 use super::worker;
 
-const WRITES_APP: &str = "apps/writes.app.yml";
-const READS_APP: &str = "apps/reads.app.yml";
 const CLEANUP_SQL: &str = "queries/cleanup.sql";
 const DELETE_SQL: &str = "DELETE FROM analytics.orders WHERE 1";
 const READ_SQL: &str = "SELECT count() AS n FROM analytics.orders";
@@ -40,45 +35,17 @@ const READ_SQL: &str = "SELECT count() AS n FROM analytics.orders";
 const WRITE_VERBS: [&str; 3] = ["DELETE", "INSERT", "ALTER"];
 
 /// The branch's files this module reads, beside the fixture's procedure: a
-/// data app that deletes, one that reads (and POSTs), a `.sql` file with DML.
+/// `.sql` file with DML.
 pub(super) fn branch_files() -> Vec<(&'static str, String)> {
-    let app = |name: &str, tasks: &str| {
-        format!("name: {name}\ntasks:\n{tasks}display:\n  - type: markdown\n    content: {name}\n")
-    };
-    vec![
-        (
-            WRITES_APP,
-            app(
-                "writes",
-                &format!(
-                    "  - name: purge\n    type: execute_sql\n    database: warehouse\n    sql_query: {DELETE_SQL}\n"
-                ),
-            ),
-        ),
-        (
-            READS_APP,
-            app(
-                "reads",
-                &format!(
-                    "  - name: orders\n    type: execute_sql\n    database: warehouse\n    sql_query: {READ_SQL}\n\
-                     \x20 - name: notify\n    type: http_request\n    method: post\n    url: {HOOK}\n    body: '{{\"viewed\": true}}'\n"
-                ),
-            ),
-        ),
-        (CLEANUP_SQL, format!("{DELETE_SQL};\n")),
-    ]
+    vec![(CLEANUP_SQL, format!("{DELETE_SQL};\n"))]
 }
 
 /// Mounted beside the fixture's `/databases` behind the real workspace
 /// middleware, as `build_protected_routes` mounts them.
 pub(super) fn routes(state: &oxy_app::server::router::AppState) -> Router {
-    use oxy_app::server::api::{app, data};
-    use oxy_app::server::router::{FleetState, IdeState};
+    use oxy_app::server::api::data;
+    use oxy_app::server::router::FleetState;
     Router::new()
-        .route(
-            "/apps/{pathb64}/run",
-            post(app::run_app).with_state(IdeState(state.clone())),
-        )
         .route(
             "/sql/query",
             post(data::execute_sql_query).with_state(FleetState(state.clone())),
@@ -200,68 +167,6 @@ async fn chat_in_a_preview_cannot_delegate_a_write() {
         live.body["stamp"],
         json!({}),
         "a production run is unstamped"
-    );
-}
-
-/// (b): rendering a branch data app whose task deletes is refused and sends
-/// nothing; one that reads renders, and its POST task is not sent.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_data_app_in_a_preview_reads_and_cannot_write() {
-    let fx = setup().await;
-    let egress = FakeEgress::start().await;
-    let _proxy = egress.route_https_egress_here();
-    let _worker = worker::start(&fx).await;
-    let staging = staging(&fx).await;
-    let run = |app: &str| format!("/{}/apps/{}/run", fx.ws, b64(app));
-
-    let writes = call(
-        &fx.staff,
-        "POST",
-        run(WRITES_APP),
-        Some(json!({})),
-        Some(staging),
-    )
-    .await;
-    assert_eq!(writes.status, StatusCode::OK, "{}", writes.body);
-    let error = writes.body["error"].as_str().unwrap_or_default();
-    assert!(
-        error.contains("cannot be written in a workspace preview"),
-        "the DELETE task is refused: {}",
-        writes.body
-    );
-    assert_eq!(
-        writes_sent(&fx),
-        Vec::<String>::new(),
-        "no DELETE reached the warehouse"
-    );
-
-    let reads = call(
-        &fx.staff,
-        "POST",
-        run(READS_APP),
-        Some(json!({})),
-        Some(staging),
-    )
-    .await;
-    assert_eq!(reads.status, StatusCode::OK, "{}", reads.body);
-    assert_eq!(
-        reads.body["error"],
-        Value::Null,
-        "the reading app renders: {}",
-        reads.body
-    );
-    assert!(
-        fx.warehouse
-            .statements()
-            .iter()
-            .any(|s| s.contains(READ_SQL)),
-        "its SELECT ran: {:?}",
-        fx.warehouse.statements()
-    );
-    assert_eq!(
-        egress.tunnels(),
-        Vec::<String>::new(),
-        "its POST task was held, not sent"
     );
 }
 

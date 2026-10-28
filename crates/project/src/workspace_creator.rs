@@ -2,9 +2,8 @@ use include_dir::{Dir, include_dir};
 use std::fs;
 use tracing::error;
 
-/// A Data App (`.app.yml`). Data Apps are retired, so a new workspace is never
-/// given one, even though `demo_project/` still carries three as fixtures for
-/// the tests that view and run existing apps.
+/// A Data App (`.app.yml`). Data Apps are removed, so a new workspace is never given
+/// one; this keeps a file that reappears in the embedded demo directory out of the copy.
 fn is_data_app_file(name: &std::ffi::OsStr) -> bool {
     let name = name.to_string_lossy().to_ascii_lowercase();
     name.ends_with(".app.yml") || name.ends_with(".app.yaml")

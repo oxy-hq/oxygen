@@ -1,19 +1,11 @@
 import type { BuilderFileChange } from "@/hooks/useBuilderActivity";
 import { AutomationGraph } from "./AutomationGraph";
 import { AwGraph } from "./AwGraph";
-import { DataAppGraph } from "./DataAppGraph";
 import { GenericFileDiff } from "./GenericFileDiff";
 import { SemanticTopicGraph } from "./SemanticTopicGraph";
 import { SemanticViewGraph } from "./SemanticViewGraph";
 import { TestGraph } from "./TestGraph";
-import {
-  tryParseApp,
-  tryParseAutomation,
-  tryParseAw,
-  tryParseTest,
-  tryParseTopic,
-  tryParseView
-} from "./types";
+import { tryParseAutomation, tryParseAw, tryParseTest, tryParseTopic, tryParseView } from "./types";
 
 interface ChangeVisualizationProps {
   change: BuilderFileChange;
@@ -23,7 +15,6 @@ const ChangeVisualization = ({ change }: ChangeVisualizationProps) => {
   const p = change.filePath;
 
   const isViewFile = p.endsWith(".view.yml") || p.endsWith(".view.yaml");
-  const isAppFile = p.endsWith(".app.yml") || p.endsWith(".app.yaml");
   const isAutomationFile =
     p.endsWith(".procedure.yml") ||
     p.endsWith(".procedure.yaml") ||
@@ -38,9 +29,6 @@ const ChangeVisualization = ({ change }: ChangeVisualizationProps) => {
   const newView = isViewFile ? tryParseView(change.newContent) : null;
   const oldView = isViewFile ? tryParseView(old ?? "") : null;
 
-  const newApp = isAppFile ? tryParseApp(change.newContent) : null;
-  const oldApp = isAppFile ? tryParseApp(old ?? "") : null;
-
   const newWf = isAutomationFile ? tryParseAutomation(change.newContent) : null;
   const oldWf = isAutomationFile ? tryParseAutomation(old ?? "") : null;
 
@@ -54,7 +42,6 @@ const ChangeVisualization = ({ change }: ChangeVisualizationProps) => {
   const oldTest = isTestFile ? tryParseTest(old ?? "") : null;
 
   if (newView) return <SemanticViewGraph change={change} oldView={oldView} newView={newView} />;
-  if (newApp) return <DataAppGraph change={change} oldApp={oldApp} newApp={newApp} />;
   if (newWf) return <AutomationGraph change={change} oldWf={oldWf} newWf={newWf} />;
   if (newTopic)
     return <SemanticTopicGraph change={change} oldTopic={oldTopic} newTopic={newTopic} />;

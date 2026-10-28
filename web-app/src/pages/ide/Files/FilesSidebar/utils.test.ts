@@ -43,7 +43,6 @@ describe("groupObjectsByType", () => {
     const result = groupObjectsByType([file]);
     expect(result.agents).toContain(file);
     expect(result.automations).toHaveLength(0);
-    expect(result.apps).toHaveLength(0);
   });
 
   it("puts .agentic.yaml files into the agents group", () => {

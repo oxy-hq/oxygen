@@ -1045,27 +1045,25 @@ pub async fn list_workspaces(
         let creator_names = creator_names.clone();
         async move {
             // Gather file counts and git metadata when the path exists on disk.
-            let (agent_count, workflow_count, app_count, git_remote, git_commit, git_updated_at) =
+            let (agent_count, workflow_count, git_remote, git_commit, git_updated_at) =
                 if let Some(ref path_str) = p.path {
                     let dir = std::path::PathBuf::from(path_str);
                     if dir.exists() {
-                        let (agent_count, workflow_count, app_count) =
-                            tokio::task::spawn_blocking({
-                                let dir = dir.clone();
-                                move || {
-                                    (
-                                        Some(count_yml_suffix(&dir, "agent")),
-                                        Some(
-                                            count_yml_suffix(&dir, "automation")
-                                                + count_yml_suffix(&dir, "procedure")
-                                                + count_yml_suffix(&dir, "workflow"),
-                                        ),
-                                        Some(count_yml_suffix(&dir, "app")),
-                                    )
-                                }
-                            })
-                            .await
-                            .unwrap_or((None, None, None));
+                        let (agent_count, workflow_count) = tokio::task::spawn_blocking({
+                            let dir = dir.clone();
+                            move || {
+                                (
+                                    Some(count_yml_suffix(&dir, "agent")),
+                                    Some(
+                                        count_yml_suffix(&dir, "automation")
+                                            + count_yml_suffix(&dir, "procedure")
+                                            + count_yml_suffix(&dir, "workflow"),
+                                    ),
+                                )
+                            }
+                        })
+                        .await
+                        .unwrap_or((None, None));
                         let git = default_git_client();
                         let (remote, (sha, msg), updated_at) = tokio::join!(
                             git.get_remote_url(&dir),
@@ -1077,19 +1075,12 @@ pub async fn list_workspaces(
                         } else {
                             Some(format!("{} — {}", &sha[..sha.len().min(7)], msg))
                         };
-                        (
-                            agent_count,
-                            workflow_count,
-                            app_count,
-                            remote,
-                            commit,
-                            updated_at,
-                        )
+                        (agent_count, workflow_count, remote, commit, updated_at)
                     } else {
-                        (None, None, None, None, None, None)
+                        (None, None, None, None, None)
                     }
                 } else {
-                    (None, None, None, None, None, None)
+                    (None, None, None, None, None)
                 };
 
             WorkspaceSummary {
@@ -1102,7 +1093,6 @@ pub async fn list_workspaces(
                 created_by_name: p.created_by.and_then(|id| creator_names.get(&id).cloned()),
                 agent_count,
                 workflow_count,
-                app_count,
                 git_remote,
                 git_commit,
                 git_updated_at,

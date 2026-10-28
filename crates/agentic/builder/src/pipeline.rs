@@ -19,7 +19,6 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use crate::app_runner::BuilderAppRunner;
 use crate::database::BuilderDatabaseProvider;
 use crate::events::BuilderEvent;
 use crate::prompts::KnowledgeCard;
@@ -57,9 +56,6 @@ pub struct BuilderPipelineParams {
     pub schema_provider: Option<Arc<dyn BuilderSchemaProvider>>,
     pub semantic_compiler: Option<Arc<dyn BuilderSemanticCompiler>>,
     pub test_runner: Option<Arc<dyn BuilderTestRunner>>,
-    /// Optional runner for executing `*.app.yml` files end-to-end. Backs the
-    /// `run_app` tool used to verify apps work at runtime.
-    pub app_runner: Option<Arc<dyn BuilderAppRunner>>,
     /// Override the default [`DeferredInputProvider`] for human-in-the-loop
     /// tools (`file_change`, `ask_user`). When set to
     /// [`AutoAcceptInputProvider`], changes are applied without suspension.
@@ -134,9 +130,6 @@ pub fn start_pipeline(params: BuilderPipelineParams) -> PipelineHandle<BuilderEv
     }
     if let Some(runner) = params.test_runner {
         solver = solver.with_test_runner(runner);
-    }
-    if let Some(runner) = params.app_runner {
-        solver = solver.with_app_runner(runner);
     }
     if let Some(provider) = params.human_input {
         solver = solver.with_human_input(provider);
@@ -263,9 +256,6 @@ pub fn resume_pipeline(
     }
     if let Some(runner) = params.test_runner {
         solver = solver.with_test_runner(runner);
-    }
-    if let Some(runner) = params.app_runner {
-        solver = solver.with_app_runner(runner);
     }
     if let Some(provider) = params.human_input {
         solver = solver.with_human_input(provider);

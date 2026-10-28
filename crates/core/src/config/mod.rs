@@ -21,16 +21,16 @@ pub mod scan;
 mod storage;
 
 use anyhow;
-use model::{AppConfig, Automation, Config, Database, Model, SemanticModels};
+use model::{Automation, Config, Database, Model, SemanticModels};
 
 use parser::{parse_automation_config, parse_semantic_model_config};
 use std::{fs, io};
-use validate::{DataAppValidationContext, ValidationContext, ValidationContextMetadata};
+use validate::ValidationContext;
 
 use oxy_shared::errors::OxyError;
 
 pub use artifacts::{
-    AgentEntry, AppEntry, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocument,
+    AgentEntry, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocument,
     ContextDocuments, PipelineEntry, SimulationEntry, VerifiedQueryEntry, pipeline_source_kind,
 };
 pub use builder::{ConfigBuilder, OnMissing};
@@ -42,7 +42,6 @@ impl Config {
     pub fn validate_config(&self) -> anyhow::Result<()> {
         let context = ValidationContext {
             config: self.clone(),
-            metadata: None,
         };
         if let Err(e) = self.validate_with(&context) {
             anyhow::bail!(OxyError::ConfigurationError(format!(
@@ -56,7 +55,6 @@ impl Config {
     pub fn validate_workflow(&self, automation: &Automation) -> anyhow::Result<()> {
         let context = ValidationContext {
             config: self.clone(),
-            metadata: None,
         };
         match automation.validate_with(&context) {
             Ok(_) => Ok(()),
@@ -67,67 +65,12 @@ impl Config {
         }
     }
 
-    pub fn validate_app(&self, app: &AppConfig) -> anyhow::Result<()> {
-        let context = ValidationContext {
-            config: self.clone(),
-            metadata: Some(ValidationContextMetadata::DataApp(
-                DataAppValidationContext {
-                    app_config: app.clone(),
-                },
-            )),
-        };
-        match app.validate_with(&context) {
-            Ok(_) => Ok(()),
-            Err(e) => anyhow::bail!(OxyError::ConfigurationError(format!(
-                "Invalid app: {} \n{}",
-                app.name, e
-            ))),
-        }
-    }
-
     pub fn validate_workflows(&self) -> anyhow::Result<()> {
         for automation_file in self.list_workflows(&self.workspace_path) {
             let automation = self.load_workflow(&automation_file)?;
             self.validate_workflow(&automation)?;
         }
         Ok(())
-    }
-
-    pub fn validate_apps(&self) -> anyhow::Result<()> {
-        for app_file in self.list_apps(&self.workspace_path) {
-            let app = self.load_app(&app_file)?;
-            self.validate_app(&app)?;
-        }
-        Ok(())
-    }
-
-    pub fn load_app(&self, app_file: &PathBuf) -> Result<AppConfig, OxyError> {
-        if !app_file.exists() {
-            return Err(OxyError::ConfigurationError(format!(
-                "App configuration file not found: {app_file:?}"
-            )));
-        }
-
-        let app_content = fs::read_to_string(app_file).map_err(|e| {
-            OxyError::ArgumentError(format!(
-                "Couldn't read app file {}: {e}",
-                app_file.display()
-            ))
-        })?;
-
-        let mut app: AppConfig = serde_yaml::from_str(&app_content).map_err(|e| {
-            OxyError::ConfigurationError(format!(
-                "Couldn't parse app file {}: {e}",
-                app_file.display()
-            ))
-        })?;
-
-        // Derive name from filename if not set
-        let app_name = app_file.file_stem().unwrap().to_str().unwrap();
-        let app_name = app_name.strip_suffix(".app").unwrap_or(app_name);
-        app.name = app_name.to_string();
-
-        Ok(app)
     }
 
     fn list_by_sub_extension(&self, dir: &PathBuf, sub_extension: &str) -> Vec<PathBuf> {
@@ -159,10 +102,6 @@ impl Config {
         automations.extend(self.list_by_sub_extension(dir, "workflow"));
         automations.extend(self.list_by_sub_extension(dir, "automation"));
         automations
-    }
-
-    pub fn list_apps(&self, dir: &PathBuf) -> Vec<PathBuf> {
-        self.list_by_sub_extension(dir, "app")
     }
 
     pub fn list_agentic_agents(&self, dir: &PathBuf) -> Vec<PathBuf> {
@@ -247,7 +186,6 @@ pub fn parse_config(config_path: &PathBuf, project_path: PathBuf) -> Result<Conf
             config.workspace_path = project_path;
             let context = ValidationContext {
                 config: config.clone(),
-                metadata: None,
             };
             let validation_result = config
                 .validate_with(&context)

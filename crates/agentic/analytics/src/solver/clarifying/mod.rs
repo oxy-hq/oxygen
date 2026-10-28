@@ -463,8 +463,8 @@ impl AnalyticsSolver {
         // catalog — the same behavior the original code used on delegation
         // failure.  Flip `BUILDER_DELEGATION_ENABLED` back to `true` to restore
         // the hand-off once it is stable.  Explicit builder usage (Cmd+I file
-        // edits, `.app.yml` creation) is unaffected — those go through the
-        // builder pipeline directly, not this branch.
+        // edits) is unaffected — it goes through the builder pipeline
+        // directly, not this branch.
         //
         // When the triage LLM reports missing semantic members (measures or
         // dimensions that the catalog doesn't have) and confidence is below the

@@ -35,7 +35,6 @@ use crate::cli::commands::migrate_automations::{MigrateAutomationsArgs, migrate_
 use crate::cli::commands::run::{RunArgs, handle_run_command};
 use crate::server::service::sync::{SyncFilter, sync_databases};
 use ::oxy::adapters::secrets::SecretsManager;
-use ::oxy::config::model::AppConfig;
 use ::oxy::config::test_config::TestFileConfig;
 use ::oxy::config::*;
 use ::oxy::sentry_config;
@@ -371,8 +370,8 @@ struct GenConfigSchemaArgs {
 struct ValidateArgs {
     /// Validate a specific file instead of all configuration files
     ///
-    /// Provide a path to an automation (.automation.yml), agentic agent
-    /// (.agentic.yml), or app (.app.yml) file to validate just that file.
+    /// Provide a path to an automation (.automation.yml) or agentic agent
+    /// (.agentic.yml) file to validate just that file.
     ///
     /// Note: .agentic.yml validation is structural only — the file is parsed
     /// against the AgentConfig schema, but `databases:` entries and `llm.ref`
@@ -459,10 +458,6 @@ fn validate_single_file(file_path: &PathBuf, config: &Config) -> Result<(), Stri
                 .map(|_| ())
                 .map_err(|e| e.to_string())
         }
-        _ if file_name.ends_with(".app.yml") => {
-            let app = config.load_app(file_path).map_err(|e| e.to_string())?;
-            config.validate_app(&app).map_err(|e| e.to_string())
-        }
         _ if file_name.ends_with(".view.yml") || file_name.ends_with(".topic.yml") => {
             let parser_config = oxy_semantic::ParserConfig::new(
                 file_path
@@ -484,7 +479,7 @@ fn validate_single_file(file_path: &PathBuf, config: &Config) -> Result<(), Stri
             }
         }
         _ => Err(format!(
-            "Unknown file type: {}. Expected .automation.yml, .procedure.yml, .agentic.yml, .app.yml, .view.yml, or .topic.yml",
+            "Unknown file type: {}. Expected .automation.yml, .procedure.yml, .agentic.yml, .view.yml, or .topic.yml",
             file_path.display()
         )),
     }
@@ -536,10 +531,6 @@ pub fn config_schemas() -> Vec<(&'static str, String)> {
                 agentic_analytics::config::AgentConfig
             ))
             .unwrap_or_default(),
-        ),
-        (
-            "app.json",
-            serde_json::to_string_pretty(&schemars::schema_for!(AppConfig)).unwrap_or_default(),
         ),
         (
             "agent-test.json",
@@ -848,13 +839,6 @@ pub async fn cli(
                     match validate_single_file(&agentic_file, cfg) {
                         Ok(_) => valid_count += 1,
                         Err(e) => errors.push(format!("{}: {}", agentic_file.display(), e)),
-                    }
-                }
-
-                for app_file in cfg.list_apps(&cfg.workspace_path) {
-                    match validate_single_file(&app_file, cfg) {
-                        Ok(_) => valid_count += 1,
-                        Err(e) => errors.push(format!("{}: {}", app_file.display(), e)),
                     }
                 }
 

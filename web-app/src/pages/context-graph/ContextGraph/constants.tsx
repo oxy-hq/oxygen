@@ -1,19 +1,9 @@
-import {
-  AppWindow,
-  Workflow as AutomationIcon,
-  BookOpen,
-  Bot,
-  Box,
-  Eye,
-  FileCode,
-  Table
-} from "lucide-react";
+import { Workflow as AutomationIcon, BookOpen, Bot, Box, Eye, FileCode, Table } from "lucide-react";
 
 export const NODE_TYPE_CLASSES: Record<string, string> = {
   agent: "bg-graph-agent-bg border-graph-agent-border text-graph-agent-border",
   procedure: "bg-graph-procedure-bg border-graph-procedure-border text-graph-procedure-border",
   workflow: "bg-graph-procedure-bg border-graph-procedure-border text-graph-procedure-border",
-  app: "bg-graph-app-bg border-graph-app-border text-graph-app-border",
   automation: "bg-graph-automation-bg border-graph-automation-border text-graph-automation-border",
   topic: "bg-graph-automation-bg border-graph-automation-border text-graph-automation-border",
   view: "bg-graph-view-bg border-graph-view-border text-graph-view-border",
@@ -45,7 +35,6 @@ export const ICONS: Record<string, React.ReactNode> = {
   agent: <Bot className='h-3.5 w-3.5' />,
   procedure: <AutomationIcon className='h-3.5 w-3.5' />,
   workflow: <AutomationIcon className='h-3.5 w-3.5' />,
-  app: <AppWindow className='h-3.5 w-3.5' />,
   automation: <AutomationIcon className='h-3.5 w-3.5' />,
   topic: <BookOpen className='h-3.5 w-3.5' />,
   view: <Eye className='h-3.5 w-3.5' />,
@@ -59,7 +48,6 @@ export const TYPE_ORDER = [
   "agent",
   "procedure",
   "workflow",
-  "app",
   "automation",
   "topic",
   "view",
@@ -76,7 +64,6 @@ export const TYPE_LABEL_SINGULAR: Record<string, string> = {
   sql_query: "SQL Query",
   table: "Table",
   entity: "Entity",
-  app: "App",
   automation: "Automation"
 };
 
@@ -89,8 +76,7 @@ export const TYPE_LABELS: Record<string, string> = {
   view: "Views",
   sql_query: "SQL Queries",
   table: "Tables",
-  entity: "Entities",
-  app: "Apps"
+  entity: "Entities"
 };
 
 export type FocusType =
@@ -98,7 +84,6 @@ export type FocusType =
   | "agent"
   | "procedure"
   | "workflow"
-  | "app"
   | "automation"
   | "topic"
   | "view"
@@ -124,7 +109,6 @@ export const FOCUS_OPTIONS: Array<{ value: FocusType; label: string; icon?: Reac
     label: "Automations (.automation.yml)",
     icon: <AutomationIcon className='h-4 w-4' />
   },
-  { value: "app", label: "Apps", icon: <AppWindow className='h-4 w-4' /> },
   { value: "topic", label: "Topics", icon: <BookOpen className='h-4 w-4' /> },
   { value: "view", label: "Views", icon: <Eye className='h-4 w-4' /> },
   { value: "sql_query", label: "SQL Queries", icon: <FileCode className='h-4 w-4' /> },

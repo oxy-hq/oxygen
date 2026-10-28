@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use agentic_pipeline::platform::ThreadOwnerLookup;
-use agentic_pipeline::{AnalyticsSchemaCatalog, BuilderAppRunnerTrait, BuilderTestRunnerTrait};
+use agentic_pipeline::{AnalyticsSchemaCatalog, BuilderTestRunnerTrait};
 use agentic_runtime::event_registry::EventRegistry;
 use agentic_runtime::router::{NoopTaskRouter, TaskRouter};
 use sea_orm::DatabaseConnection;
@@ -22,7 +22,6 @@ pub struct AgenticState {
     pub runtime: Arc<RuntimeState>,
     pub schema_cache: Arc<Mutex<HashMap<String, AnalyticsSchemaCatalog>>>,
     pub builder_test_runner: Option<Arc<dyn BuilderTestRunnerTrait>>,
-    pub builder_app_runner: Option<Arc<dyn BuilderAppRunnerTrait>>,
     pub event_registry: Arc<EventRegistry>,
     pub shutdown_token: CancellationToken,
     pub db: DatabaseConnection,
@@ -70,7 +69,6 @@ impl AgenticState {
             runtime: Arc::new(RuntimeState::new()),
             schema_cache: Arc::new(Mutex::new(HashMap::new())),
             builder_test_runner: None,
-            builder_app_runner: None,
             event_registry: Arc::new(agentic_pipeline::build_event_registry()),
             shutdown_token,
             db,
@@ -83,11 +81,6 @@ impl AgenticState {
 
     pub fn with_builder_test_runner(mut self, runner: Arc<dyn BuilderTestRunnerTrait>) -> Self {
         self.builder_test_runner = Some(runner);
-        self
-    }
-
-    pub fn with_builder_app_runner(mut self, runner: Arc<dyn BuilderAppRunnerTrait>) -> Self {
-        self.builder_app_runner = Some(runner);
         self
     }
 

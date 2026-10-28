@@ -130,7 +130,7 @@ export async function runSetup(commands: string[], ctx: SetupContext): Promise<v
 
 // Restore a `demo_project/<rel>` file to its committed-in-HEAD content
 // so reruns of a flow that mutates the file (e.g. the builder editing
-// insights.app.yml) start from the same canonical state. Reads from
+// a view file) start from the same canonical state. Reads from
 // HEAD via `git show` so a developer's staged changes elsewhere are
 // untouched.
 function restoreDemoFile(rel: string): void {

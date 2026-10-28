@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use agentic_analytics::SchemaCatalog;
-use agentic_builder::{BuilderAppRunner, BuilderTestRunner};
+use agentic_builder::BuilderTestRunner;
 use agentic_core::delegation::{TaskAssignment, TaskSpec};
 use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
 use async_trait::async_trait;
@@ -30,7 +30,6 @@ pub struct PipelineTaskExecutor {
     pub builder_bridges: Option<BuilderBridges>,
     pub schema_cache: Option<Arc<Mutex<HashMap<String, SchemaCatalog>>>>,
     pub builder_test_runner: Option<Arc<dyn BuilderTestRunner>>,
-    pub builder_app_runner: Option<Arc<dyn BuilderAppRunner>>,
     pub db: DatabaseConnection,
     /// Runtime state for registering answer channels (needed by automation
     /// orchestrator tasks so the coordinator can resume them via answer channel
@@ -560,7 +559,6 @@ impl PipelineTaskExecutor {
             builder_bridges: None,
             schema_cache: None,
             builder_test_runner: None,
-            builder_app_runner: None,
             db,
             state: None,
             custom_executors: None,
@@ -635,9 +633,6 @@ impl PipelineTaskExecutor {
         if let Some(runner) = &self.builder_test_runner {
             builder = builder.test_runner(runner.clone());
         }
-        if let Some(runner) = &self.builder_app_runner {
-            builder = builder.app_runner(runner.clone());
-        }
 
         let started = builder
             .start(&self.db)
@@ -708,9 +703,6 @@ impl PipelineTaskExecutor {
         }
         if let Some(runner) = &self.builder_test_runner {
             builder = builder.test_runner(runner.clone());
-        }
-        if let Some(runner) = &self.builder_app_runner {
-            builder = builder.app_runner(runner.clone());
         }
         if let Some(tid) = run.thread_id {
             builder = builder.thread(tid);
@@ -2249,7 +2241,6 @@ mod tests {
             builder_bridges: None,
             schema_cache: None,
             builder_test_runner: None,
-            builder_app_runner: None,
             // Never queried: `resolve_airway_source_secrets` reads only the
             // platform port. A `Disconnected` handle errors on any query, so a
             // future DB read here fails the test rather than passing quietly.

@@ -116,8 +116,6 @@ const ROUTES = {
             RUN: (runId: string) => `${wsBase}/pipelines/${pathb64}/runs/${runId}`
           }),
 
-          APP: (pathb64: string) => `${wsBase}/apps/${pathb64}`,
-
           IDE: {
             ROOT: `${wsBase}/ide`,
             FILES: {
@@ -185,7 +183,6 @@ const ROUTES = {
           /** The read-only world model a customer opens from the home. The Factory's
            *  own, with its exploration tools, is `IDE.WORLD_MODEL`. */
           WORLD_MODEL: `${wsBase}/world-model`,
-          CUSTOMER_APPS: `${wsBase}/apps`,
           ONBOARDING: `${wsBase}/onboarding`
         };
       }

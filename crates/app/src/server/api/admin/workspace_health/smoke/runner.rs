@@ -226,7 +226,6 @@ async fn execute(ctx: &Arc<OxyProjectContext>, target: &Target) -> Result<(), Pr
     match target {
         Target::Connection(db_name) => probes::ping(ctx, db_name).await,
         Target::Semantic(t) => probes::query(ctx, t).await,
-        Target::App { path, variables } => probes::run(ctx, path, variables).await,
         Target::Agent {
             agent_ref, prompt, ..
         } => probes::ask(ctx, agent_ref, prompt).await,
@@ -238,7 +237,7 @@ mod tests {
     use super::*;
     use crate::server::api::admin::workspace_health::evaluator::HealthStatus;
     use crate::server::api::admin::workspace_health::smoke::config::smoke_config_from_value;
-    use oxy::config::health_check::{AppsProbeConfig, SemanticProbeConfig, SmokeAgentProbe};
+    use oxy::config::health_check::{SemanticProbeConfig, SmokeAgentProbe};
 
     fn settings(config: SmokeTestConfig, explicit: bool) -> SmokeSettings {
         SmokeSettings { config, explicit }
@@ -263,7 +262,6 @@ mod tests {
         let inert = SmokeTestConfig {
             connections: false,
             semantic: SemanticProbeConfig::Sweep(false),
-            apps: AppsProbeConfig::Sweep(false),
             agent: None,
             ..SmokeTestConfig::default()
         };
@@ -311,7 +309,7 @@ mod tests {
         let d = SmokeTestConfig::default();
         assert!(!d.is_inert(), "the default must still do something");
         assert!(d.connections);
-        assert!(!d.semantic.enabled() && !d.apps.enabled() && d.agent.is_none());
+        assert!(!d.semantic.enabled() && d.agent.is_none());
     }
 
     #[test]
@@ -351,9 +349,6 @@ mod tests {
 
         let topics = s.semantic.selection().expect("named topics");
         assert_eq!(topics[0].measures, ["orders.net", "orders.gross"]);
-        let apps = s.apps.selection().expect("named apps");
-        assert_eq!(apps[0].app, "apps/sales.app.yml");
-        assert_eq!(apps[0].variables["region"], serde_json::json!("us-east"));
 
         let agents = s.resolved_agents();
         assert_eq!(agents.len(), 2);

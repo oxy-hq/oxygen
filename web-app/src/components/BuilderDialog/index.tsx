@@ -25,7 +25,7 @@ import { Dialog, DialogContent } from "../ui/shadcn/dialog";
 
 function extractFileContext(pathname: string) {
   // `/automations` is the canonical route; `/workflows` is kept as a back-compat alias.
-  const match = pathname.match(/(?:\/ide\/files|\/apps|\/automations|\/workflows)\/([^/]+)/);
+  const match = pathname.match(/(?:\/ide\/files|\/automations|\/workflows)\/([^/]+)/);
   if (!match) return null;
   const pathb64 = match[1];
   const filePath = decodeFilePath(pathb64);

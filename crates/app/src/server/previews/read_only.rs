@@ -63,11 +63,6 @@ pub const ALLOWED: &[(&str, &str)] = &[
     ("POST", "/analytics/runs/{id}/notify"),
     ("POST", "/threads"),
     ("POST", "/threads/{id}/stop"),
-    // Rendering a data app runs the branch's tasks: task SQL that is not a
-    // read is refused at the connector, and an `http_request` task sends only
-    // GET/HEAD.
-    ("POST", "/apps/{pathb64}/run"),
-    ("POST", "/apps/{pathb64}/result"),
     // Queries. The SQL is the caller's (or a branch `.sql` file's), so a
     // statement that is not a read is refused at the connector.
     ("POST", "/sql/query"),
@@ -203,8 +198,6 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
         "/analytics/runs/{id}/revert-file-changes",
         "Reverting the Builder Agent's changes",
     ),
-    ("*", "/apps/{pathb64}/publish", "Publishing a data app"),
-    ("*", "/apps/{pathb64}/unpublish", "Unpublishing a data app"),
     ("*", "/app-integrations", "Changing an app integration"),
     (
         "*",

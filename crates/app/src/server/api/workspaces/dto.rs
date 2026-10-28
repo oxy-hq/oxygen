@@ -318,8 +318,6 @@ pub struct WorkspaceSummary {
     /// `ConfigManager::list_workflows` and the "automations" the UI labels them.
     /// `None` as above.
     pub workflow_count: Option<usize>,
-    /// Number of `.app.yml` files found (recursive). `None` as above.
-    pub app_count: Option<usize>,
     /// Git remote URL (e.g. `https://github.com/org/repo`), if set.
     pub git_remote: Option<String>,
     /// Short commit hash + message of HEAD, if available.

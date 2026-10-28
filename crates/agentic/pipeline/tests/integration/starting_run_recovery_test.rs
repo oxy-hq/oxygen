@@ -139,7 +139,6 @@ async fn the_startup_pass_leaves_a_run_that_is_still_starting_alone() {
         None,
         None,
         None,
-        None,
         Arc::new(agentic_runtime::router::NoopTaskRouter),
         Some(ws),
         None,

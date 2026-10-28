@@ -137,7 +137,6 @@ pub(super) async fn drive_here(
     let runtime_state = agentic_state.runtime.clone();
     let schema_cache = Some(agentic_state.schema_cache.clone());
     let builder_test_runner = agentic_state.builder_test_runner.clone();
-    let builder_app_runner = agentic_state.builder_app_runner.clone();
     let router = agentic_state.router.clone();
     let run_id_for_drive = run_id.clone();
     // Built in `boxed`'s frame too: the drive's future is a large one.
@@ -153,7 +152,6 @@ pub(super) async fn drive_here(
                 None, // no builder bridges — analytics-only surface
                 schema_cache,
                 builder_test_runner,
-                builder_app_runner,
                 router,
             )
             .await;

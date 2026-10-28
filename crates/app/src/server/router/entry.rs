@@ -20,7 +20,6 @@ use oxy_auth::middleware::internal_auth_middleware;
 use oxy_shared::errors::OxyError;
 use tokio_util::sync::CancellationToken;
 
-use crate::agentic_wiring::builder_bridges::OxyBuilderAppRunner;
 use crate::api::middlewares::timeout::timeout_middleware;
 use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
 use crate::server::builder_test_runner::OxyTestRunner;
@@ -656,7 +655,6 @@ async fn new_agentic_state(
     Ok(Arc::new(
         AgenticState::new(shutdown_token, db, thread_owner)
             .with_builder_test_runner(Arc::new(OxyTestRunner))
-            .with_builder_app_runner(Arc::new(OxyBuilderAppRunner))
             .with_router(router)
             .with_queued_starts(crate::server::queued_analytics::queued_starts_enabled)
             .with_working_copy(|| {

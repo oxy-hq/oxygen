@@ -56,11 +56,6 @@ const ALLOWED: &[(&str, &str)] = &[
          IdeOnly; the LIST no longer degrades to `[]` when the ide is down.",
     ),
     (
-        "src/server/api/app.rs",
-        "BACKLOG. The compiled path is capability-free; these remain in \
-         publish/unpublish, which write the working copy (IdeOnly).",
-    ),
-    (
         "src/server/api/metric_anomalies/scan.rs",
         "BACKLOG. `.monitor.yml` IS compiled and read at the pinned revision; \
          this is the FS fallback, now gated by `WorkspaceAbsent`. The handler \

@@ -42,13 +42,6 @@ const FLEET_OK_DESPITE_EXTRACTOR: &[(&str, &str)] = &[
          copy read only enriches rows with `datasets`, which now degrades to \
          `null` rather than a false empty. role_manifest states the trade.",
     ),
-    (
-        "/apps",
-        "Boundary-first (`compiled_apps`) with the filesystem fallback gated on \
-         `can_read_disk()`, which returns a retryable 503. FleetOk is correct; \
-         the `<WorkingCopy>` in the signature is what the gated arm needs to \
-         compile.",
-    ),
     // ── Boundary-first with a filesystem fallback ───────────────────────────
     // The common, correct pattern: read the compiled row, fall through to the
     // working copy on a miss. FleetOk is right — they serve from Postgres on a
@@ -342,11 +335,11 @@ fn api_sources_keeps_every_file_even_when_names_repeat() {
 
     // The collision that turned `main` red, named so a regression says which
     // handlers went missing rather than only that a count is off.
-    let app = sources
-        .get("app.rs")
-        .expect("api/app.rs is where the router's `app::` handlers live");
+    let thread = sources
+        .get("thread.rs")
+        .expect("api/thread.rs is where the router's `thread::` handlers live");
     assert!(
-        app.contains("fn get_app_data("),
-        "the `app.rs` entry is not api/app.rs, so every `/apps` handler is missing",
+        thread.contains("fn get_threads("),
+        "the `thread.rs` entry is not api/thread.rs, so every `/threads` handler is missing",
     );
 }

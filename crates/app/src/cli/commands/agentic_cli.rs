@@ -244,7 +244,6 @@ async fn cmd_run(args: RunArgs) -> Result<(), OxyError> {
             Some(bridges_for_delegation),
             None,
             None,
-            None,
             // CLI is one-shot: no long-lived listener to maintain, so
             // the no-op router is correct. Worker falls back to the 10s
             // backstop poll, which matches the CLI's typical runtime

@@ -19,7 +19,7 @@ use crate::config::validate::validate_file_path;
 use crate::config::validate::{
     ValidationContext, validate_consistency_prompt, validate_database_exists,
     validate_database_name, validate_env_var, validate_looker_integration_exists,
-    validate_omni_integration_exists, validate_task_data_reference,
+    validate_omni_integration_exists,
 };
 pub use automation::{AutomationWithRawVariables, WorkflowWithRawVariables};
 pub use duckdb::{
@@ -2511,19 +2511,6 @@ pub enum TaskType {
     Unknown,
 }
 
-/// Where a task is executed when used inside an app with interactive controls.
-/// `client` (default) — the frontend re-runs the SQL directly in DuckDB WASM on
-/// every control change; no server round-trip required.
-/// `server` — the server executes the task on every control change (required for
-/// tasks that query external databases like Snowflake or BigQuery).
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AppTaskMode {
-    #[default]
-    Client,
-    Server,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, JsonSchema)]
 #[garde(context(ValidationContext))]
 pub struct Task {
@@ -2538,10 +2525,6 @@ pub struct Task {
     pub task_type: TaskType,
     #[garde(dive)]
     pub cache: Option<TaskCache>,
-    /// Execution mode when this task is used inside a data app. Defaults to `client`.
-    #[serde(default)]
-    #[garde(skip)]
-    pub mode: AppTaskMode,
 }
 
 impl Task {
@@ -2710,11 +2693,9 @@ pub struct Automation {
 /// that, a Procedure). The canonical type is now [`Automation`].
 pub type Workflow = Automation;
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
-pub struct MarkdownDisplay {
-    pub content: String,
-}
-
+// The three chart shapes below are no longer part of any config file: Data Apps
+// (`.app.yml`) are removed. They stay because `VizParams` (a chat message block
+// persisted in thread history) carries them.
 /// How a numeric value is formatted for display.
 ///
 /// Used on chart axes / tooltips and on individual table columns. When unset,
@@ -2744,7 +2725,6 @@ pub struct LineChartDisplay {
     #[garde(skip)]
     pub y_axis_label: Option<String>,
     #[garde(length(min = 1))]
-    #[garde(custom(validate_task_data_reference))]
     #[schemars(description = "reference data output from a table using table name")]
     pub data: String,
     #[garde(skip)]
@@ -2768,7 +2748,6 @@ pub struct BarChartDisplay {
     #[garde(skip)]
     pub title: Option<String>,
     #[garde(length(min = 1))]
-    #[garde(custom(validate_task_data_reference))]
     #[schemars(description = "reference data output from a table using table name")]
     pub data: String,
     #[garde(skip)]
@@ -2790,7 +2769,6 @@ pub struct PieChartDisplay {
     #[garde(skip)]
     pub title: Option<String>,
     #[garde(length(min = 1))]
-    #[garde(custom(validate_task_data_reference))]
     #[schemars(description = "reference data output from a table using table name")]
     pub data: String,
     /// Optional formatting applied to the slice value in the tooltip.
@@ -2798,188 +2776,6 @@ pub struct PieChartDisplay {
     #[garde(skip)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value_format: Option<DisplayFormat>,
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone, Validate)]
-#[garde(context(ValidationContext))]
-pub struct TableDisplay {
-    #[garde(length(min = 1))]
-    #[garde(custom(validate_task_data_reference))]
-    pub data: String,
-    #[garde(skip)]
-    pub title: Option<String>,
-    /// Optional per-column formatting. Keys are the output column names as
-    /// they appear in the task result (e.g. `oxymart__total_weekly_sales`
-    /// for semantic_query tasks, which join view + field with `__`). Columns
-    /// omitted from the map fall back to the default numeric formatter.
-    #[garde(skip)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub formats: Option<HashMap<String, DisplayFormat>>,
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone, Validate)]
-#[serde(deny_unknown_fields)]
-#[garde(context(ValidationContext))]
-pub struct RowDisplay {
-    /// Number of equal-width columns; defaults to the number of children.
-    #[serde(default)]
-    #[garde(custom(validate_row_columns))]
-    pub columns: Option<u8>,
-    /// Child display blocks rendered side-by-side in a grid row.
-    #[garde(dive)]
-    #[garde(length(min = 1))]
-    pub children: Vec<Display>,
-}
-
-fn validate_row_columns(columns: &Option<u8>, _ctx: &ValidationContext) -> garde::Result {
-    if columns == &Some(0) {
-        return Err(garde::Error::new("columns must be at least 1"));
-    }
-    Ok(())
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone, Validate)]
-#[serde(tag = "type")]
-#[garde(context(ValidationContext))]
-pub enum Display {
-    #[serde(rename = "markdown")]
-    Markdown(#[garde(skip)] MarkdownDisplay),
-    #[serde(rename = "line_chart")]
-    LineChart(#[garde(dive)] LineChartDisplay),
-    #[serde(rename = "pie_chart")]
-    PieChart(#[garde(dive)] PieChartDisplay),
-    #[serde(rename = "bar_chart")]
-    BarChart(#[garde(dive)] BarChartDisplay),
-    #[serde(rename = "table")]
-    Table(#[garde(dive)] TableDisplay),
-    #[serde(rename = "row")]
-    Row(#[garde(dive)] RowDisplay),
-    /// A group of controls defined inline in the display list. The backend
-    /// extracts these items into the controls array before sending to clients.
-    #[serde(rename = "controls")]
-    Controls(#[garde(skip)] ControlsDisplay),
-    /// A single control defined inline in the display list. Because the Display
-    /// enum uses "type" as its discriminant, the control kind is expressed as
-    /// "control_type" instead of "type" to avoid a duplicate-key conflict:
-    ///
-    ///   display:
-    ///     - type: control
-    ///       name: region
-    ///       control_type: select
-    ///       label: Region
-    ///       options: [All, North, South]
-    #[serde(rename = "control")]
-    Control(#[garde(skip)] SingleControlDisplay),
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
-pub struct ControlsDisplay {
-    /// Interactive controls defined inline in the display list.
-    pub items: Vec<ControlConfig>,
-}
-
-/// A single control defined inline in a `display:` list.
-/// Uses `control_type` instead of `type` for the control kind because
-/// the `type` key is already consumed by the Display enum discriminant.
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
-pub struct SingleControlDisplay {
-    pub name: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    pub control_type: ControlType,
-    #[serde(default)]
-    pub source: Option<String>,
-    #[serde(default)]
-    pub options: Option<Vec<serde_json::Value>>,
-    #[serde(default)]
-    pub default: Option<serde_json::Value>,
-}
-
-impl From<SingleControlDisplay> for ControlConfig {
-    fn from(c: SingleControlDisplay) -> Self {
-        ControlConfig {
-            name: c.name,
-            label: c.label,
-            control_type: c.control_type,
-            source: c.source,
-            options: c.options,
-            default: c.default,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum ControlType {
-    Select,
-    Toggle,
-    Date,
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone, Validate)]
-#[garde(context(ValidationContext))]
-pub struct ControlConfig {
-    #[garde(length(min = 1))]
-    pub name: String,
-    #[serde(default)]
-    #[garde(skip)]
-    pub label: Option<String>,
-    #[serde(rename = "type")]
-    #[garde(skip)]
-    pub control_type: ControlType,
-    /// Task name whose first column populates dropdown options dynamically.
-    #[serde(default)]
-    #[garde(skip)]
-    pub source: Option<String>,
-    /// Static list of options (used when source is not set).
-    #[serde(default)]
-    #[garde(skip)]
-    pub options: Option<Vec<serde_json::Value>>,
-    /// Default value injected into Jinja context on initial load.
-    #[serde(default)]
-    #[garde(skip)]
-    pub default: Option<serde_json::Value>,
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone, Validate, Default)]
-#[serde(deny_unknown_fields)]
-#[garde(context(ValidationContext))]
-pub struct AppConfig {
-    /// App name. Accepted in YAML for documentation but the authoritative name
-    /// is derived from the filename (e.g., `foo.app.yml` -> name = "foo").
-    #[serde(default)]
-    #[schemars(skip)]
-    #[garde(skip)]
-    pub name: String,
-    /// Human-friendly title shown in dashboard listings. When unset, callers
-    /// fall back to a humanized form of the filename-derived name.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[garde(skip)]
-    pub title: Option<String>,
-    /// Optional description of the app.
-    #[serde(default)]
-    #[garde(skip)]
-    pub description: String,
-    /// Interactive controls (dropdowns, toggles, date pickers) whose values are
-    /// injected into task Jinja templates as `{{ controls.<name> }}`.
-    #[serde(default)]
-    #[garde(dive)]
-    pub controls: Vec<ControlConfig>,
-    #[schemars(description = "tasks to prepare the data for the app")]
-    #[garde(dive)]
-    #[garde(length(min = 1))]
-    pub tasks: Vec<Task>,
-    #[schemars(description = "display blocks to render the app")]
-    #[garde(length(min = 1))]
-    #[garde(dive)]
-    pub display: Vec<Display>,
-    /// When false (default), the app is treated as a draft and hidden from the
-    /// left sidebar. Authors can still open, edit, and run it from the IDE.
-    /// Flip to true to make the app visible to consumers.
-    #[serde(default)]
-    #[schemars(default)]
-    #[garde(skip)]
-    pub published: bool,
 }
 
 fn default_anonymizer_replacement() -> String {

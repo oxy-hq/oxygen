@@ -735,7 +735,6 @@ resources:
         None,
         None,
         None,
-        None,
         Arc::new(agentic_runtime::orchestrator::router::NoopTaskRouter),
         Some(workspace_id),
         None,

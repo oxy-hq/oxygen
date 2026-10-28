@@ -33,8 +33,6 @@ pub enum FileKind {
     SemanticView,
     /// `*.topic.yml`.
     SemanticTopic,
-    /// `*.app.yml`.
-    App,
     /// `*.procedure.yml` (back-compat), `*.automation.yml` (canonical).
     /// The exact extension is recorded so the row carries `extension`.
     Automation(AutomationKind),
@@ -168,7 +166,6 @@ pub fn discover(workspace_root: &Path) -> Result<Vec<DiscoveredFile>, CompileErr
         FileKind::SemanticTopic,
         &mut out,
     )?;
-    push_glob(workspace_root, "**/*.app.yml", FileKind::App, &mut out)?;
     push_glob(
         workspace_root,
         "**/*.procedure.yml",
@@ -383,6 +380,7 @@ mod tests {
         write(root, "agents/foo.agentic.yml", "name: foo");
         write(root, "semantics/views/orders.view.yml", "name: orders");
         write(root, "semantics/topics/sales.topic.yml", "name: sales");
+        // A Data App is no longer a compiled kind: it must be left alone.
         write(root, "apps/dash.app.yml", "name: dash");
         write(root, "workflows/x.procedure.yml", "name: x");
         write(root, "workflows/cron.automation.yml", "name: cron");
@@ -451,6 +449,10 @@ mod tests {
         );
 
         let paths: Vec<_> = by_kind.iter().map(|(p, _)| p.clone()).collect();
+        assert!(
+            !paths.iter().any(|p| p.ends_with(".app.yml")),
+            "a .app.yml was discovered: {paths:?}"
+        );
 
         // The skip rule is any-depth and kind-agnostic, so assert it that way
         // rather than one kind at a time: nothing discovered may sit under a

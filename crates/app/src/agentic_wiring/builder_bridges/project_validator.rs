@@ -73,24 +73,6 @@ impl BuilderProjectValidator for OxyBuilderProjectValidator {
             }
         }
 
-        for path in cfg.list_apps(&cfg.workspace_path) {
-            let rel = path
-                .strip_prefix(&project_path)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
-            match cfg
-                .load_app(&path)
-                .and_then(|app| cfg.validate_app(&app).map_err(Into::into))
-            {
-                Ok(()) => valid_count += 1,
-                Err(e) => errors.push(ValidatedFile {
-                    relative_path: rel,
-                    error: Some(e.to_string()),
-                }),
-            }
-        }
-
         for path in list_semantic_files(&cfg.workspace_path) {
             let rel = path
                 .strip_prefix(&project_path)
@@ -123,17 +105,12 @@ fn validate_single_file(
             .load_workflow(&abs.to_path_buf())
             .map_err(|e| e.to_string())?;
         cfg.validate_workflow(&w).map_err(|e| e.to_string())
-    } else if file_name.ends_with(".app.yml") {
-        let app = cfg
-            .load_app(&abs.to_path_buf())
-            .map_err(|e| e.to_string())?;
-        cfg.validate_app(&app).map_err(|e| e.to_string())
     } else if file_name.ends_with(".view.yml") || file_name.ends_with(".topic.yml") {
         validate_semantic_file(abs)
     } else {
         Err(format!(
             "unsupported file type: {file_name}. Expected .procedure.yml, \
-             .automation.yml, .app.yml, .view.yml, or .topic.yml"
+             .automation.yml, .view.yml, or .topic.yml"
         ))
     }
 }

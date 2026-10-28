@@ -1,6 +1,4 @@
-# App builder agent configuration.
-#
-# The app builder generates a complete .app.yml from a natural-language request.
+# An analytics agent example, named for the app builder it was first written as.
 # It follows the same YAML structure as analytics.agentic.yml.
 #
 # Database names from config.yml.  All Oxy-supported connector types work here.

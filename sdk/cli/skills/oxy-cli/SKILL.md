@@ -73,9 +73,9 @@ never sent to the server as a literal.
     oxyc guide                     # this page, to paste into a context file
 
 `oxyc validate` is the one command that works entirely offline. It checks
-`config.yml`, `.automation.yml`, `.agentic.yml`, `.app.yml` and
+`config.yml`, `.automation.yml`, `.agentic.yml` and
 `.agent.test.yml` against the schemas the Rust config types generate. It is
-STRUCTURAL only — `oxy validate` additionally checks an automation's or app's
+STRUCTURAL only — `oxy validate` additionally checks an automation's
 `database:` names against `config.yml`, but it too is structural for
 `.agentic.yml` (`databases:` and `llm.ref` are not resolved), so an agent both
 accept can still fail at run time.

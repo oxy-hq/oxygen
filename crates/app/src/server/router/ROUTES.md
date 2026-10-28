@@ -160,11 +160,10 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /integrations/       looker: list
 ├── /secrets/            list, create, bulk, get, update, delete, reveal  (admin-gated)
 ├── /tests/              test files, project-runs, runs + human-verdicts
-├── /apps/               list, get, run, result, displays, charts, file, source
 ├── /traces/             traces_routes()
 ├── /metrics/            metrics_routes()
 ├── /execution-analytics/
-├── /analytics/          agentic_router() (chart / app-builder pipeline)
+├── /analytics/          agentic_router() (chart pipeline)
 │
 ├── /members · /members/{user_id}         (put / delete role overrides)
 ├── /artifacts/{id}

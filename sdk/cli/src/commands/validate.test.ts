@@ -753,7 +753,6 @@ describe("schemaFor", () => {
   it("maps each file kind to its own schema", () => {
     expect(schemaFor("orders.automation.yml")).toBe("workflow.json");
     expect(schemaFor("analyst.agentic.yml")).toBe("agentic.json");
-    expect(schemaFor("sales.app.yml")).toBe("app.json");
     expect(schemaFor("config.yml")).toBe("config.json");
   });
 
@@ -796,12 +795,12 @@ describe("the walk", () => {
     const dir = workspace({
       "config.yml": "x: 1",
       "flows/orders.automation.yml": "x: 1",
-      "apps/sales.app.yml": "x: 1",
+      "apps/sales.automation.yml": "x: 1",
       "semantics/views/orders.view.yml": "x: 1",
       "README.md": "x"
     });
     expect(listValidatable(dir)).toEqual([
-      "apps/sales.app.yml",
+      "apps/sales.automation.yml",
       "config.yml",
       "flows/orders.automation.yml"
     ]);
@@ -835,7 +834,7 @@ describe("the .yaml spelling", () => {
     for (const [yml, yaml] of [
       ["x.automation.yml", "x.automation.yaml"],
       ["x.agentic.yml", "x.agentic.yaml"],
-      ["x.app.yml", "x.app.yaml"],
+      ["x.automation.yml", "x.automation.yaml"],
       ["x.agent.test.yml", "x.agent.test.yaml"],
       ["config.yml", "config.yaml"]
     ]) {
@@ -847,10 +846,10 @@ describe("the .yaml spelling", () => {
   it("walks a .yaml file as readily as a .yml one", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "a.app.yaml": "x",
-      "b.app.yml": "x"
+      "a.automation.yaml": "x",
+      "b.automation.yml": "x"
     });
-    expect(listValidatable(root)).toEqual(["a.app.yaml", "b.app.yml", "config.yml"]);
+    expect(listValidatable(root)).toEqual(["a.automation.yaml", "b.automation.yml", "config.yml"]);
   });
 });
 
@@ -870,22 +869,22 @@ describe("the verdict", () => {
   it("exits FAILURE on a violation, not REQUEST", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "broken.app.yml": "tasks: not-a-list\n"
+      "broken.automation.yml": "tasks: not-a-list\n"
     });
     const r = oxycValidate(root, []);
     expect(r.status).toBe(ExitCode.FAILURE);
     expect(r.status).not.toBe(ExitCode.REQUEST);
-    expect(r.stdout + r.stderr).toMatch(/broken\.app\.yml/);
+    expect(r.stdout + r.stderr).toMatch(/broken\.automation\.yml/);
   });
 
   it("reports a YAML syntax error as one finding, not as a crash", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "bad.app.yml": "tasks: [\n  unclosed\n"
+      "bad.automation.yml": "tasks: [\n  unclosed\n"
     });
     const r = oxycValidate(root, []);
     expect(r.status).toBe(ExitCode.FAILURE);
-    expect(r.stdout + r.stderr).toMatch(/bad\.app\.yml/);
+    expect(r.stdout + r.stderr).toMatch(/bad\.automation\.yml/);
   });
 });
 
@@ -893,19 +892,19 @@ describe("--file", () => {
   it("checks one file and leaves the rest of the workspace alone", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      // `app.json` requires both `display` and `tasks`.
-      "ok.app.yml": "display: []\ntasks: []\n",
-      "broken.app.yml": "tasks: not-a-list\n"
+      // `workflow.json` requires both `display` and `tasks`.
+      "ok.automation.yml": "tasks: []\n",
+      "broken.automation.yml": "tasks: not-a-list\n"
     });
-    const r = oxycValidate(root, ["--file", "ok.app.yml"]);
+    const r = oxycValidate(root, ["--file", "ok.automation.yml"]);
     expect(r.status).toBe(0);
-    expect(r.stdout + r.stderr).not.toMatch(/broken\.app\.yml/);
+    expect(r.stdout + r.stderr).not.toMatch(/broken\.automation\.yml/);
   });
 
   /**
    * A SYMLINK KEEPS ITS OWN NAME. `schemaFor` decides a file's kind from its
    * basename, so resolving the argument through the link changed what the file
-   * IS — `ln -s tpl/base.yml my.app.yml` became `base.yml`, matched nothing,
+   * IS — `ln -s tpl/base.yml my.automation.yml` became `base.yml`, matched nothing,
    * and `--file` rejected a file the whole-workspace walk validates happily.
    * Both directions are asserted here, because the bug was the DISAGREEMENT:
    * either answer alone looks reasonable.
@@ -919,11 +918,11 @@ describe("--file", () => {
   it("decides a symlinked file's kind the same way the walk does", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "tpl/base.yml": "display: []\ntasks: []\n"
+      "tpl/base.yml": "tasks: []\n"
     });
-    symlinkSync(join(root, "tpl", "base.yml"), join(root, "my.app.yml"), "file");
+    symlinkSync(join(root, "tpl", "base.yml"), join(root, "my.automation.yml"), "file");
 
-    const one = oxycValidate(root, ["--file", "my.app.yml"]);
+    const one = oxycValidate(root, ["--file", "my.automation.yml"]);
     expect(one.status, one.stderr).toBe(0);
     expect(one.stderr).not.toMatch(/does not know how to check/);
 
@@ -942,7 +941,7 @@ describe("--file", () => {
    */
   it("says NOT_FOUND for a path that does not exist", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    const r = oxycValidate(root, ["--file", "typo.app.yml"]);
+    const r = oxycValidate(root, ["--file", "typo.automation.yml"]);
     expect(r.status).toBe(ExitCode.NOT_FOUND);
     expect(r.stderr).toMatch(/no such file/);
     expect(r.stderr).not.toMatch(/ENOENT/);
@@ -953,14 +952,14 @@ describe("--file", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG, "notes.yml": "a: 1\n" });
     const r = oxycValidate(root, ["--file", "notes.yml"]);
     expect(r.status).toBe(ExitCode.USAGE);
-    expect(r.stderr).toMatch(/\.app\.yml/);
+    expect(r.stderr).toMatch(/\.automation\.yml/);
   });
 });
 
 describe("a filesystem condition is never a parse error", () => {
   /**
    * THE RULE, STATED ONCE FOR BOTH BRANCHES. The walk skips a directory link
-   * because `apps.app.yml` naming a directory reaches `readFileSync` and comes
+   * because `apps.automation.yml` naming a directory reaches `readFileSync` and comes
    * back `EISDIR`, which the YAML try then reports as a `(parse)` finding —
    * sending the reader to look INSIDE a file for a problem that is the file
    * being a directory. `--file` reached the same `readFileSync`, because
@@ -968,10 +967,10 @@ describe("a filesystem condition is never a parse error", () => {
    */
   it("refuses --file naming a real directory, rather than reporting EISDIR", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    mkdirSync(join(root, "plain.app.yml"));
+    mkdirSync(join(root, "plain.automation.yml"));
 
-    const r = oxycValidate(root, ["--file", "plain.app.yml"]);
-    // FAILURE, not NOT_FOUND: a directory named `x.app.yml` is emphatically
+    const r = oxycValidate(root, ["--file", "plain.automation.yml"]);
+    // FAILURE, not NOT_FOUND: a directory named `x.automation.yml` is emphatically
     // there, and 5 tells a caller branching on the number that it is not.
     expect(r.status).toBe(ExitCode.FAILURE);
     expect(r.stderr).toMatch(/not a file/);
@@ -983,9 +982,9 @@ describe("a filesystem condition is never a parse error", () => {
   it("refuses --file naming a link to a directory the same way", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
     const target = workspace({ "unrelated.md": "a real directory\n" });
-    symlinkSync(target, join(root, "apps.app.yml"), "dir");
+    symlinkSync(target, join(root, "apps.automation.yml"), "dir");
 
-    const r = oxycValidate(root, ["--file", "apps.app.yml"]);
+    const r = oxycValidate(root, ["--file", "apps.automation.yml"]);
     expect(r.status).toBe(ExitCode.FAILURE);
     expect(r.stdout + r.stderr).not.toMatch(/EISDIR/);
   });
@@ -1001,23 +1000,23 @@ describe("why a link could not be followed", () => {
    */
   it("names a link cycle as a cycle, not as a missing target", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    symlinkSync("loop.app.yml", join(root, "loop.app.yml"), "file");
+    symlinkSync("loop.automation.yml", join(root, "loop.automation.yml"), "file");
 
     const r = oxycValidate(root, []);
     expect(r.status, r.stderr).toBe(0);
     // One shared reason goes on the headline, so path and reason are on
     // separate lines — asserted independently, not as one concatenation.
     expect(r.stderr).toMatch(/the link points at itself, or round a cycle/);
-    expect(r.stderr).toMatch(/loop\.app\.yml/);
+    expect(r.stderr).toMatch(/loop\.automation\.yml/);
     expect(r.stderr).not.toMatch(/the target is gone/);
   });
 
   it("carries the code into --json so a caller can branch on it", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    symlinkSync("loop.app.yml", join(root, "loop.app.yml"), "file");
+    symlinkSync("loop.automation.yml", join(root, "loop.automation.yml"), "file");
 
     const r = oxycValidate(root, ["--json"]);
-    expect(JSON.parse(r.stdout).broken).toEqual([{ path: "loop.app.yml", code: "ELOOP" }]);
+    expect(JSON.parse(r.stdout).broken).toEqual([{ path: "loop.automation.yml", code: "ELOOP" }]);
   });
 });
 
@@ -1030,9 +1029,9 @@ describe("both branches answer one condition the same way", () => {
    */
   it("names a link cycle as a cycle under --file, not as a missing file", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    symlinkSync("loop.app.yml", join(root, "loop.app.yml"), "file");
+    symlinkSync("loop.automation.yml", join(root, "loop.automation.yml"), "file");
 
-    const r = oxycValidate(root, ["--file", "loop.app.yml"]);
+    const r = oxycValidate(root, ["--file", "loop.automation.yml"]);
     // The code has to agree with the message. 5 means the path does not exist
     // — returning it here tells an agent the opposite of what it just read.
     // FAILURE, not NOT_FOUND — 5 would tell a caller branching on the number
@@ -1040,7 +1039,7 @@ describe("both branches answer one condition the same way", () => {
     // forecloses 5; a second `not.toBe` would read as a guard without being
     // one, which this branch has removed several of.)
     expect(r.status).toBe(ExitCode.FAILURE);
-    expect(r.stderr).toMatch(/cannot read loop\.app\.yml/);
+    expect(r.stderr).toMatch(/cannot read loop\.automation\.yml/);
     expect(r.stderr).toMatch(/points at itself, or round a cycle/);
     expect(r.stderr).not.toMatch(/no such file/);
   });
@@ -1048,30 +1047,30 @@ describe("both branches answer one condition the same way", () => {
   /** A genuinely absent path keeps the message that fits it. */
   it("still says no such file for a path that is actually absent", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    const r = oxycValidate(root, ["--file", "typo.app.yml"]);
+    const r = oxycValidate(root, ["--file", "typo.automation.yml"]);
     expect(r.status).toBe(ExitCode.NOT_FOUND);
     expect(r.stderr).toMatch(/no such file/);
   });
 
   /**
-   * THE LAST DOOR TO THE WHOLE-RUN ABORT. A FIFO named `x.app.yml` is not a
+   * THE LAST DOOR TO THE WHOLE-RUN ABORT. A FIFO named `x.automation.yml` is not a
    * `Dirent` directory, has a `.yml` name, matches `schemaFor`, and is not a
    * symlink — so it cleared every arm, reached `validateFile`, and took its
    * `not a file` throw and every other file with it. `walk` now emits regular
    * files and links to them, full stop.
    */
-  it.skipIf(!CAN_MKFIFO)("does not let a FIFO named .app.yml abort the walk", () => {
+  it.skipIf(!CAN_MKFIFO)("does not let a FIFO named .automation.yml abort the walk", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "good.app.yml": "display: []\ntasks: []\n"
+      "good.automation.yml": "tasks: []\n"
     });
-    mkfifo(join(root, "pipe.app.yml"));
+    mkfifo(join(root, "pipe.automation.yml"));
 
     const r = oxycValidate(root, []);
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toMatch(/2 file\(s\) valid/);
     expect(r.stderr).toMatch(/not a regular file/);
-    expect(r.stderr).toMatch(/pipe\.app\.yml/);
+    expect(r.stderr).toMatch(/pipe\.automation\.yml/);
   });
 
   /**
@@ -1083,29 +1082,29 @@ describe("both branches answer one condition the same way", () => {
   it.skipIf(!CAN_MKFIFO)("does not let a link to a FIFO abort the walk either", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "good.app.yml": "display: []\ntasks: []\n"
+      "good.automation.yml": "tasks: []\n"
     });
     const pipes = workspace({});
     mkfifo(join(pipes, "pipe"));
-    symlinkSync(join(pipes, "pipe"), join(root, "linked.app.yml"), "file");
+    symlinkSync(join(pipes, "pipe"), join(root, "linked.automation.yml"), "file");
 
     const r = oxycValidate(root, []);
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toMatch(/2 file\(s\) valid/);
     expect(r.stderr).toMatch(/not a regular file/);
-    expect(r.stderr).toMatch(/linked\.app\.yml/);
+    expect(r.stderr).toMatch(/linked\.automation\.yml/);
   });
 
   /** And an errno the reader should not have to look up gets a sentence. */
   it("explains ENOTDIR rather than printing the code", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    symlinkSync("config.yml/nested", join(root, "x.app.yml"), "file");
+    symlinkSync("config.yml/nested", join(root, "x.automation.yml"), "file");
 
     const r = oxycValidate(root, []);
     // Collected, not emitted — so the run continues, which is the whole point.
     expect(r.status, r.stderr).toBe(0);
     expect(r.stderr).toMatch(/a component of the path is a file/);
-    expect(r.stderr).toMatch(/x\.app\.yml/);
+    expect(r.stderr).toMatch(/x\.automation\.yml/);
     expect(r.stderr).not.toMatch(/— ENOTDIR/);
   });
 });
@@ -1139,12 +1138,12 @@ describe("files it could not check", () => {
   it("names them instead of counting them as valid", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "dash.app.yml": "tasks: []\n"
+      "dash.automation.yml": "tasks: []\n"
     });
-    // `app.json` withheld: `dash.app.yml` maps to a schema this install lacks.
+    // `workflow.json` withheld: `dash.automation.yml` maps to a schema this install lacks.
     const r = oxycValidate(root, [], partialSchemas(["config.json"]));
     expect(r.stderr).toMatch(/1 file\(s\) NOT checked/);
-    expect(r.stderr).toMatch(/dash\.app\.yml/);
+    expect(r.stderr).toMatch(/dash\.automation\.yml/);
     // And the verdict counts only what was actually read.
     expect(r.stdout).toMatch(/1 file\(s\) valid/);
     expect(r.stdout).not.toMatch(/2 file\(s\) valid/);
@@ -1153,12 +1152,12 @@ describe("files it could not check", () => {
   it("reports the same split in --json", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "dash.app.yml": "tasks: []\n"
+      "dash.automation.yml": "tasks: []\n"
     });
     const r = oxycValidate(root, ["--json"], partialSchemas(["config.json"]));
     expect(JSON.parse(r.stdout)).toEqual({
       checked: 1,
-      unchecked: [{ path: "dash.app.yml", code: "SCHEMA_MISSING" }],
+      unchecked: [{ path: "dash.automation.yml", code: "SCHEMA_MISSING" }],
       broken: [],
       findings: []
     });
@@ -1169,16 +1168,16 @@ describe("symlinked directories in the walk", () => {
   /**
    * THE ARM THAT HAD NO TEST. `Dirent` does not follow links, so a link to a
    * directory answers `false` to `isDirectory()` and falls through to the
-   * extension check exactly as a linked FILE does. Named `apps.app.yml` it
-   * passed that check, matched `.app.yml`, and reached `readFileSync` — which
+   * extension check exactly as a linked FILE does. Named `apps.automation.yml` it
+   * passed that check, matched `.automation.yml`, and reached `readFileSync` — which
    * reported `EISDIR: illegal operation on a directory` as a YAML PARSE
    * finding. Same wrong answer the `NOT_FOUND` handling exists to prevent, in
    * through the other door.
    */
-  it("skips a directory link even when its name says .app.yml", () => {
+  it("skips a directory link even when its name says .automation.yml", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
     const target = workspace({ "unrelated.md": "a real directory\n" });
-    symlinkSync(target, join(root, "apps.app.yml"), "dir");
+    symlinkSync(target, join(root, "apps.automation.yml"), "dir");
 
     const r = oxycValidate(root, ["--json"]);
     expect(r.status, r.stderr).toBe(0);
@@ -1198,19 +1197,19 @@ describe("symlinked directories in the walk", () => {
    *
    * NOT A GUARD. The link is named `apps`, so it never had an extension to
    * clear — before the fix it was skipped at `extname`, after it at the stat,
-   * and the counts agree either way. This states the intent; the `.app.yml`
+   * and the counts agree either way. This states the intent; the `.automation.yml`
    * case above is what a mutation kills.
    */
   it("still checks a link's target when the target is inside the root", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "shared/x.app.yml": "display: []\ntasks: []\n"
+      "shared/x.automation.yml": "tasks: []\n"
     });
     symlinkSync(join(root, "shared"), join(root, "apps"), "dir");
 
     const r = oxycValidate(root, ["--json"]);
     expect(r.status, r.stderr).toBe(0);
-    // config.yml + shared/x.app.yml — once, not twice, and not zero times.
+    // config.yml + shared/x.automation.yml — once, not twice, and not zero times.
     expect(JSON.parse(r.stdout).checked).toBe(2);
   });
 
@@ -1223,13 +1222,13 @@ describe("symlinked directories in the walk", () => {
    */
   it("does not walk a link out of the root, though --file reads through it", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    const outside = workspace({ "x.app.yml": "display: []\ntasks: []\n" });
+    const outside = workspace({ "x.automation.yml": "tasks: []\n" });
     symlinkSync(outside, join(root, "apps"), "dir");
 
     const walked = oxycValidate(root, ["--json"]);
     expect(JSON.parse(walked.stdout).checked).toBe(1);
 
-    const direct = oxycValidate(root, ["--file", "apps/x.app.yml"]);
+    const direct = oxycValidate(root, ["--file", "apps/x.automation.yml"]);
     expect(direct.status, direct.stderr).toBe(0);
     expect(direct.stdout).toMatch(/1 file\(s\) valid/);
   });
@@ -1246,9 +1245,9 @@ describe("a broken symlink in the walk", () => {
   it("does not stop the run, and still checks every other file", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "good.app.yml": "display: []\ntasks: []\n"
+      "good.automation.yml": "tasks: []\n"
     });
-    symlinkSync(join(root, "gone", "target.yml"), join(root, "stale.app.yml"), "file");
+    symlinkSync(join(root, "gone", "target.yml"), join(root, "stale.automation.yml"), "file");
 
     const r = oxycValidate(root, []);
     expect(r.status, r.stderr).toBe(0);
@@ -1258,7 +1257,7 @@ describe("a broken symlink in the walk", () => {
   /** And it is NAMED — a file nothing read must never pass as valid. */
   it("names the link rather than passing over it", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    symlinkSync(join(root, "gone", "target.yml"), join(root, "stale.app.yml"), "file");
+    symlinkSync(join(root, "gone", "target.yml"), join(root, "stale.automation.yml"), "file");
 
     const r = oxycValidate(root, []);
     // One entry, so the reason REPLACES the category descriptor rather than
@@ -1268,7 +1267,7 @@ describe("a broken symlink in the walk", () => {
     // listed under it. No third assertion — `/the target is gone/` alone
     // cannot fail unless the headline match above already has.
     expect(r.stderr).toMatch(/1 file\(s\) NOT checked — the target is gone/);
-    expect(r.stderr).toMatch(/stale\.app\.yml/);
+    expect(r.stderr).toMatch(/stale\.automation\.yml/);
     // NO REMEDY ON THIS BUCKET, so no separator either. `listSkipped` spreads a
     // possibly-empty array into `log.remedy`, which makes that function's
     // emptiness guard reachable — without it this run ends on two stray blank
@@ -1278,13 +1277,13 @@ describe("a broken symlink in the walk", () => {
 
   it("reports it in --json, apart from unchecked — the fix differs", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    symlinkSync(join(root, "gone", "target.yml"), join(root, "stale.app.yml"), "file");
+    symlinkSync(join(root, "gone", "target.yml"), join(root, "stale.automation.yml"), "file");
 
     const r = oxycValidate(root, ["--json"]);
     expect(JSON.parse(r.stdout)).toEqual({
       checked: 1,
       unchecked: [],
-      broken: [{ path: "stale.app.yml", code: "ENOENT" }],
+      broken: [{ path: "stale.automation.yml", code: "ENOENT" }],
       findings: []
     });
   });
@@ -1298,11 +1297,11 @@ describe("a broken symlink in the walk", () => {
    */
   it("names a stale link as a stale link under --file, and does not claim it is absent", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    symlinkSync(join(root, "gone", "target.yml"), join(root, "stale.app.yml"), "file");
+    symlinkSync(join(root, "gone", "target.yml"), join(root, "stale.automation.yml"), "file");
 
-    const r = oxycValidate(root, ["--file", "stale.app.yml"]);
+    const r = oxycValidate(root, ["--file", "stale.automation.yml"]);
     expect(r.status).toBe(ExitCode.FAILURE);
-    expect(r.stderr).toMatch(/cannot read stale\.app\.yml/);
+    expect(r.stderr).toMatch(/cannot read stale\.automation\.yml/);
     expect(r.stderr).toMatch(/the target is gone/);
     expect(r.stderr).not.toMatch(/no such file/);
 
@@ -1311,7 +1310,7 @@ describe("a broken symlink in the walk", () => {
     // suite carrying TWO of the three — `detail: "the target is gone"` and
     // `hint: WHOLE_WORKSPACE_HINT` — so it pins `detail → hint`.
     //
-    // A first attempt pinned this from `--file typo.app.yml`, which carries a
+    // A first attempt pinned this from `--file typo.automation.yml`, which carries a
     // HINT ALONE: it asserted that a hint prints below the error line, which
     // was never in question, and swapping the hint and remedy blocks left it
     // green. `hint → remedy` still has no producer — no `CliError` in the tool
@@ -1329,7 +1328,7 @@ describe("a broken symlink in the walk", () => {
   /** A path that is genuinely absent still gets NOT_FOUND, which is 5's job. */
   it("keeps NOT_FOUND for an argument that names nothing at all", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    const r = oxycValidate(root, ["--file", "typo.app.yml"]);
+    const r = oxycValidate(root, ["--file", "typo.automation.yml"]);
     expect(r.status).toBe(ExitCode.NOT_FOUND);
     expect(r.stderr).toMatch(/no such file/);
   });
@@ -1383,11 +1382,11 @@ describe("why a file was not checked", () => {
   it("tells a file with a missing schema to reinstall", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "dash.app.yml": "display: []\ntasks: []\n"
+      "dash.automation.yml": "tasks: []\n"
     });
     const r = oxycValidate(root, [], partialSchemas(["config.json"]));
     expect(r.stderr).toMatch(/the schema is not in this installation/);
-    expect(r.stderr).toMatch(/dash\.app\.yml/);
+    expect(r.stderr).toMatch(/dash\.automation\.yml/);
     expect(r.stderr).toMatch(/OXYC_SCHEMAS_DIR/);
   });
 
@@ -1395,11 +1394,11 @@ describe("why a file was not checked", () => {
   it("carries the reason into --json, the way broken already did", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "dash.app.yml": "display: []\ntasks: []\n"
+      "dash.automation.yml": "tasks: []\n"
     });
     const r = oxycValidate(root, ["--json"], partialSchemas(["config.json"]));
     expect(JSON.parse(r.stdout).unchecked).toEqual([
-      { path: "dash.app.yml", code: "SCHEMA_MISSING" }
+      { path: "dash.automation.yml", code: "SCHEMA_MISSING" }
     ]);
   });
 
@@ -1411,14 +1410,14 @@ describe("why a file was not checked", () => {
    */
   it("prints a reason the whole bucket shares exactly once", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    symlinkSync(join(root, "gone-a.yml"), join(root, "a.app.yml"), "file");
-    symlinkSync(join(root, "gone-b.yml"), join(root, "b.app.yml"), "file");
+    symlinkSync(join(root, "gone-a.yml"), join(root, "a.automation.yml"), "file");
+    symlinkSync(join(root, "gone-b.yml"), join(root, "b.automation.yml"), "file");
 
     const r = oxycValidate(root, []);
     expect(r.stderr.match(/the target is gone/g) ?? []).toHaveLength(1);
     // The paths are still all listed — only the reason was hoisted.
-    expect(r.stderr).toMatch(/a\.app\.yml/);
-    expect(r.stderr).toMatch(/b\.app\.yml/);
+    expect(r.stderr).toMatch(/a\.automation\.yml/);
+    expect(r.stderr).toMatch(/b\.automation\.yml/);
   });
 
   /**
@@ -1427,12 +1426,12 @@ describe("why a file was not checked", () => {
    */
   it("puts a reason beside each path when the bucket disagrees", () => {
     const root = workspace({ "config.yml": MINIMAL_CONFIG });
-    symlinkSync(join(root, "gone.yml"), join(root, "stale.app.yml"), "file");
-    symlinkSync("loop.app.yml", join(root, "loop.app.yml"), "file");
+    symlinkSync(join(root, "gone.yml"), join(root, "stale.automation.yml"), "file");
+    symlinkSync("loop.automation.yml", join(root, "loop.automation.yml"), "file");
 
     const r = oxycValidate(root, []);
-    expect(r.stderr).toMatch(/stale\.app\.yml — the target is gone/);
-    expect(r.stderr).toMatch(/loop\.app\.yml — the link points at itself/);
+    expect(r.stderr).toMatch(/stale\.automation\.yml — the target is gone/);
+    expect(r.stderr).toMatch(/loop\.automation\.yml — the link points at itself/);
     // …and the headline stays a bare count, with no reason hoisted onto it.
     expect(r.stderr).toMatch(/2 file\(s\) NOT checked — could not read them\n/);
   });
@@ -1468,7 +1467,7 @@ describe("why a file was not checked", () => {
   it("warns about nothing when every file was checked", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "ok.app.yml": "display: []\ntasks: []\n"
+      "ok.automation.yml": "tasks: []\n"
     });
     const r = oxycValidate(root, []);
     expect(r.status, r.stderr).toBe(0);
@@ -1503,8 +1502,8 @@ describe("why a file was not checked", () => {
   it("puts the remedy on its own line, once, below the paths", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "a.app.yml": "display: []\ntasks: []\n",
-      "b.app.yml": "display: []\ntasks: []\n"
+      "a.automation.yml": "tasks: []\n",
+      "b.automation.yml": "tasks: []\n"
     });
     const r = oxycValidate(root, [], partialSchemas(["config.json"]));
 
@@ -1514,7 +1513,9 @@ describe("why a file was not checked", () => {
     expect(r.stderr).not.toMatch(/installation — reinstall/);
     // BELOW THE PATHS — the half the test's name promises, and the half the
     // three assertions above hold identically whether or not it is true.
-    expect(r.stderr.indexOf("OXYC_SCHEMAS_DIR")).toBeGreaterThan(r.stderr.indexOf("b.app.yml"));
+    expect(r.stderr.indexOf("OXYC_SCHEMAS_DIR")).toBeGreaterThan(
+      r.stderr.indexOf("b.automation.yml")
+    );
     // And under its own marker: `→` elaborates the line above, so a remedy
     // wearing it reads in sequence with the paths rather than apart from them.
     expect(r.stderr).toMatch(/fix: reinstall/);
@@ -1531,7 +1532,7 @@ describe("why a file was not checked", () => {
    */
   it("says how many it elided when there are more than ten", () => {
     const files: Record<string, string> = { "config.yml": MINIMAL_CONFIG };
-    for (let i = 0; i < 12; i++) files[`a${i}.app.yml`] = "display: []\ntasks: []\n";
+    for (let i = 0; i < 12; i++) files[`a${i}.automation.yml`] = "tasks: []\n";
     const r = oxycValidate(workspace(files), [], partialSchemas(["config.json"]));
     expect(r.stderr).toMatch(/12 file\(s\) NOT checked/);
     expect(r.stderr).toMatch(/… and 2 more/);
@@ -1549,9 +1550,13 @@ describe("nothing read is not success", () => {
   it("fails when --file named a file whose schema this installation lacks", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "dash.app.yml": "display: []\ntasks: []\n"
+      "dash.automation.yml": "tasks: []\n"
     });
-    const r = oxycValidate(root, ["--file", "dash.app.yml"], partialSchemas(["config.json"]));
+    const r = oxycValidate(
+      root,
+      ["--file", "dash.automation.yml"],
+      partialSchemas(["config.json"])
+    );
     // `status` IS THE GUARD. The two below pass under the bug as well — the
     // pre-fix stdout was `nothing checked`, which contains no "valid", and the
     // warning was already correct. They state the surrounding behaviour; the
@@ -1570,8 +1575,8 @@ describe("nothing read is not success", () => {
 
   it("fails when a whole workspace was walked and nothing in it could be read", () => {
     const root = workspace({
-      "a.app.yml": "display: []\ntasks: []\n",
-      "b.app.yml": "display: []\ntasks: []\n"
+      "a.automation.yml": "tasks: []\n",
+      "b.automation.yml": "tasks: []\n"
     });
     const r = oxycValidate(root, [], partialSchemas(["config.json"]));
     expect(r.status).toBe(ExitCode.FAILURE);
@@ -1579,11 +1584,13 @@ describe("nothing read is not success", () => {
   });
 
   it("reports the same verdict under --json", () => {
-    const root = workspace({ "a.app.yml": "display: []\ntasks: []\n" });
+    const root = workspace({ "a.automation.yml": "tasks: []\n" });
     const r = oxycValidate(root, ["--json"], partialSchemas(["config.json"]));
     expect(r.status).toBe(ExitCode.FAILURE);
     // The document is still emitted — the exit code is the only thing that moved.
-    expect(JSON.parse(r.stdout).unchecked).toEqual([{ path: "a.app.yml", code: "SCHEMA_MISSING" }]);
+    expect(JSON.parse(r.stdout).unchecked).toEqual([
+      { path: "a.automation.yml", code: "SCHEMA_MISSING" }
+    ]);
   });
 
   /**
@@ -1605,7 +1612,7 @@ describe("nothing read is not success", () => {
   /** A broken link is the other way in, and it counts the same. */
   it("fails when the only candidate was a link that could not be read", () => {
     const root = workspace({ "notes.md": "nothing here\n" });
-    symlinkSync(join(root, "gone.yml"), join(root, "stale.app.yml"), "file");
+    symlinkSync(join(root, "gone.yml"), join(root, "stale.automation.yml"), "file");
     const r = oxycValidate(root, []);
     expect(r.status).toBe(ExitCode.FAILURE);
     expect(r.stderr).toMatch(/1 file\(s\) NOT checked — the target is gone/);
@@ -1616,11 +1623,11 @@ describe("the workspace walk", () => {
   it("finds the root from a subdirectory", () => {
     const root = workspace({
       "config.yml": MINIMAL_CONFIG,
-      "apps/broken.app.yml": "tasks: not-a-list\n"
+      "apps/broken.automation.yml": "tasks: not-a-list\n"
     });
     const r = oxycValidate(join(root, "apps"), []);
     expect(r.status).toBe(ExitCode.FAILURE);
-    expect(r.stdout + r.stderr).toMatch(/apps\/broken\.app\.yml/);
+    expect(r.stdout + r.stderr).toMatch(/apps\/broken\.automation\.yml/);
   });
 
   /**
@@ -1844,13 +1851,7 @@ describe("scanning a schema for formats", () => {
    */
   it("finds nothing unregistered in the schemas this package ships", () => {
     const seen = new Set<string>();
-    for (const name of [
-      "config.json",
-      "app.json",
-      "workflow.json",
-      "agentic.json",
-      "agent-test.json"
-    ]) {
+    for (const name of ["config.json", "workflow.json", "agentic.json", "agent-test.json"]) {
       formatsInSchemaPosition(JSON.parse(readFileSync(join(SCHEMAS, name), "utf8")), seen);
     }
     const KNOWN = new Set([

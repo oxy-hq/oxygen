@@ -1,27 +1,13 @@
-import { AppWindow, ArrowRight, Bot, Check, ChevronDown, Eye, Network } from "lucide-react";
+import { ArrowRight, Bot, Check, ChevronDown, Eye, Network } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
-import useApps from "@/hooks/api/apps/useApps";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
-import { encodeBase64 } from "@/libs/encoding";
 import { cn } from "@/libs/shadcn/utils";
 import { markOnboardingDismissedForStorageKey } from "@/libs/utils/onboardingStorage";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import { appDisplayLabel } from "@/utils/appLabel";
 import type { Milestone, OnboardingMode, PhaseTimings } from "../types";
-
-const OVERVIEW_APP_PATH = "apps/overview.app.yml";
-
-/** Order apps so the overview dashboard renders first, then alphabetically by path. */
-function sortAppsForExplore<T extends { path: string }>(apps: T[]): T[] {
-  return [...apps].sort((a, b) => {
-    if (a.path === OVERVIEW_APP_PATH) return -1;
-    if (b.path === OVERVIEW_APP_PATH) return 1;
-    return a.path.localeCompare(b.path);
-  });
-}
 
 interface CompletionCardProps {
   sampleQuestions: string[];
@@ -32,8 +18,7 @@ interface CompletionCardProps {
   phaseTimings?: PhaseTimings;
   buildDurationMs?: number;
   fileCount?: number;
-  /** When `"github"`, the completion card reads apps from the workspace
-   *  (via `useApps`) rather than `createdFiles`, since nothing was built. */
+  /** `"github"` / `"demo"`: nothing was built, so there is no `createdFiles` summary. */
   mode?: OnboardingMode;
 }
 
@@ -66,9 +51,6 @@ export default function CompletionCard({
     if (onboardingStorageKey) markOnboardingDismissedForStorageKey(onboardingStorageKey);
   }, [onboardingStorageKey]);
 
-  // The workspace app list: in github mode it is the only source of app paths
-  // (nothing is built).
-  const { data: workspaceApps } = useApps(true, false, false);
   // Both `github` and `demo` start from a config.yml that ships agents +
   // dashboards already on disk — no semantic-model build, no warehouse
   // summary. They only differ in the ready-state copy.
@@ -77,10 +59,6 @@ export default function CompletionCard({
 
   const viewFiles = createdFiles.filter((f) => f.endsWith(".view.yml"));
 
-  // Onboarding never builds an app any more (Data Apps are retired), so only a
-  // repository that was imported with apps already in it has any to open.
-  const exploreApps = isGithub ? (workspaceApps ?? []) : [];
-  const sortedExploreApps = sortAppsForExplore(exploreApps);
   const promptCount = Math.min(3, sampleQuestions.length);
 
   const warehouseName = warehouseType
@@ -113,7 +91,7 @@ export default function CompletionCard({
           {isDemo
             ? "Your demo workspace is set up. Try the sample agents on the bundled DuckDB data."
             : isGithub
-              ? "Your repository is connected. You can start asking questions against the agents and dashboards that ship with it."
+              ? "Your repository is connected. You can start asking questions against the agents that ship with it."
               : `Connected ${warehouseName} and built ${summaryList}.`}
         </p>
         <Button
@@ -129,8 +107,8 @@ export default function CompletionCard({
         </Button>
       </div>
 
-      {/* Explore: dashboards prominent, secondary items behind "See more" */}
-      <ExploreSection apps={sortedExploreApps} routes={routes} navigate={navigate} />
+      {/* Explore */}
+      <ExploreSection routes={routes} navigate={navigate} />
 
       {/* Sample prompts — plain text, clearly secondary */}
       {promptCount > 0 && (
@@ -166,83 +144,44 @@ export default function CompletionCard({
   );
 }
 
-// ── Explore section with "See more" disclosure ─────────────────────────────
+// ── Explore section ────────────────────────────────────────────────────────
 
 function ExploreSection({
-  apps,
   routes,
   navigate
 }: {
-  apps: Array<{ path: string; name: string; title?: string }>;
   routes: ReturnType<ReturnType<(typeof ROUTES)["ORG"]>["WORKSPACE"]>;
   navigate: ReturnType<typeof useNavigate>;
 }) {
-  const [showMore, setShowMore] = useState(false);
-
   return (
     <div className='flex flex-col gap-2'>
       <p className='text-muted-foreground text-xs uppercase tracking-wider'>Explore</p>
       <div className='grid grid-cols-1 gap-1'>
-        {apps.map((app, index) => {
-          const label = appDisplayLabel(app);
-          return (
-            <button
-              key={app.path}
-              type='button'
-              data-testid={`onboarding-explore-app-${index}`}
-              onClick={() => {
-                const pathb64 = encodeBase64(app.path);
-                navigate(routes.APP(pathb64));
-              }}
-              className={cn(
-                "flex items-center gap-2.5 rounded-md border border-border px-3 py-1.5 text-left text-sm",
-                "transition-colors hover:border-primary/50 hover:bg-primary/5"
-              )}
-            >
-              <AppWindow className='h-3.5 w-3.5 text-primary' />
-              <span>{label}</span>
-              <ArrowRight className='ml-auto h-3 w-3 text-muted-foreground' />
-            </button>
-          );
-        })}
-      </div>
-
-      {!showMore ? (
         <button
           type='button'
-          onClick={() => setShowMore(true)}
-          className='text-left text-muted-foreground text-xs transition-colors hover:text-foreground'
+          onClick={() => navigate(routes.IDE.ROOT)}
+          className={cn(
+            "flex items-center gap-2.5 rounded-md border border-border px-3 py-1.5 text-left text-sm",
+            "transition-colors hover:border-primary/50 hover:bg-primary/5"
+          )}
         >
-          See more &rarr;
+          <Eye className='h-3.5 w-3.5 text-primary' />
+          <span>Semantic Model</span>
+          <ArrowRight className='ml-auto h-3 w-3 text-muted-foreground' />
         </button>
-      ) : (
-        <div className='grid grid-cols-1 gap-1'>
-          <button
-            type='button'
-            onClick={() => navigate(routes.IDE.ROOT)}
-            className={cn(
-              "flex items-center gap-2.5 rounded-md border border-border px-3 py-1.5 text-left text-sm",
-              "transition-colors hover:border-primary/50 hover:bg-primary/5"
-            )}
-          >
-            <Eye className='h-3.5 w-3.5 text-primary' />
-            <span>Semantic Model</span>
-            <ArrowRight className='ml-auto h-3 w-3 text-muted-foreground' />
-          </button>
-          <button
-            type='button'
-            onClick={() => navigate(routes.CONTEXT_GRAPH)}
-            className={cn(
-              "flex items-center gap-2.5 rounded-md border border-border px-3 py-1.5 text-left text-sm",
-              "transition-colors hover:border-primary/50 hover:bg-primary/5"
-            )}
-          >
-            <Network className='h-3.5 w-3.5 text-primary' />
-            <span>Context Graph</span>
-            <ArrowRight className='ml-auto h-3 w-3 text-muted-foreground' />
-          </button>
-        </div>
-      )}
+        <button
+          type='button'
+          onClick={() => navigate(routes.CONTEXT_GRAPH)}
+          className={cn(
+            "flex items-center gap-2.5 rounded-md border border-border px-3 py-1.5 text-left text-sm",
+            "transition-colors hover:border-primary/50 hover:bg-primary/5"
+          )}
+        >
+          <Network className='h-3.5 w-3.5 text-primary' />
+          <span>Context Graph</span>
+          <ArrowRight className='ml-auto h-3 w-3 text-muted-foreground' />
+        </button>
+      </div>
     </div>
   );
 }

@@ -42,13 +42,6 @@ const SUPPORTED_TYPES: &[&str] = &[
     // for the new runner; the schema name stays "TaskCache" so
     // existing YAML / IDE suggestions match.
     "TaskCache",
-    "AppConfig",
-    "Display",
-    "MarkdownDisplay",
-    "LineChartDisplay",
-    "BarChartDisplay",
-    "PieChartDisplay",
-    "TableDisplay",
     "Config",
     "Database",
     "DatabaseType",
@@ -103,14 +96,6 @@ impl BuilderSchemaProvider for OxyBuilderSchemaProvider {
             "LoopSequentialTask" => serde_json::to_value(schema_for!(cfg::LoopSequentialTask)),
             "ConditionalTask" => serde_json::to_value(schema_for!(cfg::ConditionalTask)),
             "TaskCache" => serde_json::to_value(schema_for!(cfg::TaskCache)),
-
-            "AppConfig" => serde_json::to_value(schema_for!(cfg::AppConfig)),
-            "Display" => serde_json::to_value(schema_for!(cfg::Display)),
-            "MarkdownDisplay" => serde_json::to_value(schema_for!(cfg::MarkdownDisplay)),
-            "LineChartDisplay" => serde_json::to_value(schema_for!(cfg::LineChartDisplay)),
-            "BarChartDisplay" => serde_json::to_value(schema_for!(cfg::BarChartDisplay)),
-            "PieChartDisplay" => serde_json::to_value(schema_for!(cfg::PieChartDisplay)),
-            "TableDisplay" => serde_json::to_value(schema_for!(cfg::TableDisplay)),
 
             "Config" => serde_json::to_value(schema_for!(cfg::Config)),
             "Database" => serde_json::to_value(schema_for!(cfg::Database)),

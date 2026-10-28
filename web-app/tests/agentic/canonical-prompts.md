@@ -34,8 +34,7 @@ default scope is `flow` (private to that flow file/case/step index).
 ### Open the builder via Cmd+I and submit a build prompt (single action)
 
 The builder dialog must be opened **and** submitted in a single `act:`
-because Meta+i toggles the dialog closed if pressed twice. See
-`builder-edits-app.flow.test.yml` for the canonical sequence.
+because Meta+i toggles the dialog closed if pressed twice.
 
 ```yaml
 - act: |

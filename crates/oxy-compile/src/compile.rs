@@ -64,7 +64,6 @@ pub enum CompiledRow {
     Agent(CompiledAgent),
     View(CompiledView),
     Topic(CompiledTopic),
-    App(CompiledApp),
     Automation(CompiledAutomation),
     VerifiedQuery(CompiledVerifiedQuery),
     SchemaMigration(CompiledSchemaMigration),
@@ -135,14 +134,6 @@ pub struct CompiledTopic {
     pub name: String,
     pub file_path: String,
     pub definition: Value,
-}
-
-#[derive(Debug, Clone)]
-pub struct CompiledApp {
-    pub file_path: String,
-    pub name: String,
-    pub definition: Value,
-    pub published: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -699,7 +690,6 @@ async fn compile_one(file: &DiscoveredFile) -> Result<Vec<CompiledRow>, FileFail
                 definition: def,
             })
         }),
-        FileKind::App => compile_app(file, &content),
         FileKind::Automation(p) => compile_automation(
             file,
             &content,
@@ -1254,35 +1244,6 @@ custom_section:
     }
 }
 
-fn compile_app(file: &DiscoveredFile, content: &str) -> Result<Vec<CompiledRow>, FileFailure> {
-    let value = parse_yaml(file, content)?;
-    let map = match &value {
-        Value::Object(m) => m,
-        _ => {
-            return Err(shape_err(
-                file,
-                "app YAML must be a mapping at the top level",
-            ));
-        }
-    };
-    let name = map
-        .get("name")
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| derive_name_from_path(&file.rel_path));
-    let published = map
-        .get("published")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    Ok(vec![CompiledRow::App(CompiledApp {
-        file_path: file.rel_path.clone(),
-        name,
-        definition: value,
-        published,
-    })])
-}
-
 fn compile_automation(
     file: &DiscoveredFile,
     content: &str,
@@ -1439,7 +1400,6 @@ pub fn derive_name_from_path(rel_path: &str) -> String {
         ".agentic.yml",
         ".view.yml",
         ".topic.yml",
-        ".app.yml",
         ".procedure.yml",
         ".automation.yml",
         ".airway.yml",
@@ -1463,7 +1423,6 @@ fn row_dedupe_key(row: &CompiledRow, _kind: &FileKind) -> Option<String> {
         CompiledRow::Agent(a) => Some(format!("agent:{}", a.name)),
         CompiledRow::View(v) => Some(format!("view:{}", v.name)),
         CompiledRow::Topic(t) => Some(format!("topic:{}", t.name)),
-        CompiledRow::App(a) => Some(format!("app:{}", a.file_path)),
         CompiledRow::Automation(p) => Some(format!("proc:{}", p.file_path)),
         CompiledRow::VerifiedQuery(q) => Some(format!("sql:{}", q.file_path)),
         CompiledRow::SchemaMigration(m) => Some(format!("schema:{}", m.file_path)),
@@ -1751,53 +1710,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn compile_one_app_extracts_name_and_published() {
-        let dir = TempDir::new().unwrap();
-        let root = dir.path();
-        write(
-            root,
-            "apps/sales.app.yml",
-            "name: Sales overview\npublished: true\ntasks: []\n",
-        );
-        let files = discover(root).unwrap();
-        let app_file = files
-            .iter()
-            .find(|f| matches!(f.kind, FileKind::App))
-            .unwrap();
-        let rows = compile_one(app_file).await.unwrap();
-        let row = &rows[0];
-        match row {
-            CompiledRow::App(a) => {
-                assert_eq!(a.name, "Sales overview");
-                assert!(a.published);
-                assert_eq!(a.file_path, "apps/sales.app.yml");
-            }
-            other => panic!("expected App, got {:?}", other),
-        }
-    }
-
-    #[tokio::test]
-    async fn compile_one_app_falls_back_to_path_name_when_unnamed() {
-        let dir = TempDir::new().unwrap();
-        let root = dir.path();
-        write(root, "apps/nameless.app.yml", "tasks: []\n");
-        let files = discover(root).unwrap();
-        let app_file = files
-            .iter()
-            .find(|f| matches!(f.kind, FileKind::App))
-            .unwrap();
-        let rows = compile_one(app_file).await.unwrap();
-        let row = &rows[0];
-        match row {
-            CompiledRow::App(a) => {
-                assert_eq!(a.name, "apps/nameless");
-                assert!(!a.published);
-            }
-            other => panic!("expected App, got {:?}", other),
-        }
-    }
-
-    #[tokio::test]
     async fn compile_one_yaml_failure_returns_structured_error() {
         let dir = TempDir::new().unwrap();
         let root = dir.path();
@@ -2012,7 +1924,6 @@ mod tests {
         );
         assert_eq!(derive_name_from_path("views/v.view.yml"), "views/v");
         assert_eq!(derive_name_from_path("topics/t.topic.yml"), "topics/t");
-        assert_eq!(derive_name_from_path("apps/a.app.yml"), "apps/a");
         assert_eq!(derive_name_from_path("p/x.procedure.yml"), "p/x");
         assert_eq!(derive_name_from_path("p/z.automation.yml"), "p/z");
         assert_eq!(derive_name_from_path("pipe/a.airway.yml"), "pipe/a");

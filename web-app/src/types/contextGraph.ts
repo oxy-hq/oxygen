@@ -6,7 +6,6 @@ export interface ContextGraphNode {
     | "topic"
     | "procedure"
     | "workflow"
-    | "app"
     | "automation"
     | "sql_query"
     | "agent"

@@ -47,7 +47,6 @@ const REQUIRED = [
   // list here has to match `SCHEMA_KINDS` in validate.ts, not a sample of it.
   "json-schemas/config.json",
   "json-schemas/agentic.json",
-  "json-schemas/app.json",
   "json-schemas/workflow.json",
   "json-schemas/agent-test.json"
 ];

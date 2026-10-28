@@ -10,13 +10,10 @@ use oxy_shared::errors::OxyError;
 
 use super::{
     artifacts::{
-        AgentEntry, AppEntry, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocuments,
+        AgentEntry, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocuments,
         PipelineEntry, SimulationEntry, VerifiedQueryEntry,
     },
-    model::{
-        AppConfig, Automation, AutomationWithRawVariables, BuilderAgentConfig, Config, Database,
-        Model,
-    },
+    model::{Automation, AutomationWithRawVariables, BuilderAgentConfig, Config, Database, Model},
     storage::{ConfigStorage, FsStorage},
     test_config::TestFileConfig,
 };
@@ -352,69 +349,6 @@ impl<S: DiskSlot> ConfigManager<S> {
         Ok(working_copy.storage())
     }
 
-    /// Every app in the workspace, from whichever source this manager reads.
-    ///
-    /// `Origin` decides; the slot is only consulted to fall back. A compiled
-    /// read that FAILS is not a miss: on a node holding a working copy it
-    /// degrades to the disk, and on one without it the error is the answer —
-    /// answering `[]` there is how a platform-side fault got reported as the
-    /// customer's configuration.
-    pub async fn list_apps(&self, published_only: bool) -> Result<Vec<AppEntry>, ArtifactError> {
-        match self.origin {
-            Origin::Compiled { revision_id, .. } => {
-                match super::compiled::list_apps_at(revision_id, published_only).await {
-                    Ok(apps) => Ok(apps),
-                    Err(e) => match self.working_copy() {
-                        Some(_) => {
-                            tracing::warn!(
-                                error = %e,
-                                "compile boundary failed; falling back to the working copy"
-                            );
-                            self.list_apps_from_disk(published_only).await
-                        }
-                        None => Err(e),
-                    },
-                }
-            }
-            Origin::Disk => self.list_apps_from_disk(published_only).await,
-        }
-    }
-
-    /// One app's config, from whichever source this manager reads.
-    ///
-    /// Same shape as the listings: `origin` chooses, the slot is only consulted
-    /// to fall back. A compiled row that will not deserialise falls through to
-    /// the working copy rather than failing the page — schema drift against an
-    /// old revision should degrade, not blank.
-    pub async fn resolve_app<P: AsRef<Path>>(
-        &self,
-        app_path: P,
-    ) -> Result<AppConfig, ArtifactError> {
-        if let Origin::Compiled { revision_id, .. } = self.origin {
-            let path = app_path.as_ref().to_string_lossy().to_string();
-            match super::compiled::resolve_app_at(revision_id, &path).await {
-                Ok(Some(definition)) => match serde_json::from_value::<AppConfig>(definition) {
-                    Ok(config) => return Ok(config),
-                    Err(e) => tracing::warn!(
-                        file_path = %path,
-                        error = %e,
-                        "compiled app did not deserialise; falling back to the working copy"
-                    ),
-                },
-                Ok(None) => {}
-                Err(e) => match self.working_copy() {
-                    Some(_) => tracing::warn!(
-                        file_path = %path,
-                        error = %e,
-                        "compile boundary failed; falling back to the working copy"
-                    ),
-                    None => return Err(e),
-                },
-            }
-        }
-        Ok(self.disk()?.load_app_config(app_path).await?)
-    }
-
     /// The compiled semantic views and topics of the revision this manager
     /// reads, for a caller that wants the ROWS and specifically wants them from
     /// the compile boundary.
@@ -564,67 +498,11 @@ impl<S: DiskSlot> ConfigManager<S> {
         ))
     }
 
-    /// Resolve a compiled read, falling back to the working copy the way every
-    /// listing does.
-    ///
-    /// Four outcomes, and the last two are why this is not `unwrap_or(None)` at
-    /// the call site:
-    ///
-    /// - compiled row found            → it
-    /// - no compiled row (not promoted, or `Origin::Disk`) → the working copy
-    /// - compiled read FAILED, disk    → the working copy, loudly
-    /// - compiled read FAILED, no disk → the error
-    ///
-    /// A DB fault is not a miss. Collapsing the two is how a transient Postgres
-    /// hiccup became "this workspace has no such file" on a node that could not
-    /// have known either way.
-    async fn definition(
-        &self,
-        compiled: impl Future<Output = Result<Option<serde_json::Value>, ArtifactError>>,
-        file_path: &str,
-    ) -> Result<Option<serde_json::Value>, ArtifactError> {
-        match self.origin {
-            Origin::Compiled { .. } => match compiled.await {
-                Ok(Some(value)) => Ok(Some(value)),
-                // The revision does not carry it. Fall back to the working
-                // copy — but only where there IS one: on a node without it the
-                // promoted revision is what this node serves, and a miss there
-                // is the answer, not a failure to look. Erroring instead made
-                // "not in the workspace" and "the boundary is down" one value,
-                // and `get_automation_file` has to answer 404 for one and 503
-                // for the other.
-                //
-                // Asking `disk()` rather than matching the read's error
-                // variant: `definition_from_disk` now reports an unreadable
-                // file as `WorkspaceUnavailable` too, and folding THAT into a
-                // miss would answer 404 for a disk fault on a node that holds
-                // the files.
-                Ok(None) => match self.disk() {
-                    Err(_) => Ok(None),
-                    Ok(_) => self.definition_from_disk(file_path).await,
-                },
-                Err(e) => match self.working_copy() {
-                    Some(_) => {
-                        tracing::warn!(
-                            file_path,
-                            error = %e,
-                            "compile boundary failed; falling back to the working copy"
-                        );
-                        self.definition_from_disk(file_path).await
-                    }
-                    None => Err(e),
-                },
-            },
-            Origin::Disk => self.definition_from_disk(file_path).await,
-        }
-    }
-
     /// One definition for a kind that is read from the promoted revision and
     /// from nothing else once a revision is pinned: automations and airway
     /// pipelines.
     ///
-    /// Unlike [`Self::definition`] this has no working-copy fallback under
-    /// `Origin::Compiled`, on any node. A miss is the revision's answer ("not in
+    /// There is no working-copy fallback under `Origin::Compiled`, on any node. A miss is the revision's answer ("not in
     /// this revision") and a failed read is an error the caller can retry; a
     /// node that happens to hold the files does not get to answer instead,
     /// because then the same request returns different YAML depending on which
@@ -643,26 +521,6 @@ impl<S: DiskSlot> ConfigManager<S> {
             Origin::Compiled { .. } => compiled.await,
             Origin::Disk => self.definition_from_disk(file_path).await,
         }
-    }
-
-    /// One app's definition, from whichever source this manager reads.
-    ///
-    /// For callers that want the JSON rather than an `AppConfig` — pulling one
-    /// key out of it, or re-serialising it to YAML. Use [`Self::resolve_app`]
-    /// when you want the parsed type.
-    pub async fn app_definition(
-        &self,
-        file_path: &str,
-    ) -> Result<Option<serde_json::Value>, ArtifactError> {
-        let compiled = async move {
-            match self.origin {
-                Origin::Compiled { revision_id, .. } => {
-                    super::compiled::resolve_app_at(revision_id, file_path).await
-                }
-                Origin::Disk => Ok(None),
-            }
-        };
-        self.definition(compiled, file_path).await
     }
 
     /// One automation's definition, from whichever source this manager reads.
@@ -705,8 +563,8 @@ impl<S: DiskSlot> ConfigManager<S> {
     /// One verified query's SQL body, from whichever source this manager reads.
     ///
     /// Unlike the `*_definition` methods this returns the raw SQL rather than a
-    /// JSONB `definition`, so it does not go through [`Self::definition`] — that
-    /// helper's disk arm reads and parses YAML. The disk arm here is the
+    /// JSONB `definition`, so it does not go through [`Self::revision_definition`] —
+    /// that helper's disk arm reads and parses YAML. The disk arm here is the
     /// caller's existing filesystem read, which stays where it is: this method
     /// answers only "is it in the compile boundary", and `Ok(None)` means
     /// "ask the working copy".
@@ -1060,17 +918,6 @@ impl<S: DiskSlot> ConfigManager<S> {
         ))
     }
 
-    async fn list_apps_from_disk(
-        &self,
-        published_only: bool,
-    ) -> Result<Vec<AppEntry>, ArtifactError> {
-        let mut apps = self.disk()?.list_apps().await?;
-        if published_only {
-            apps.retain(|app| app.published);
-        }
-        Ok(apps)
-    }
-
     /// The runtime state dir, created on the way out.
     ///
     /// The `is_dir` filter is the same guard `FsStorage::resolve_state_dir`
@@ -1199,10 +1046,6 @@ impl ConfigManager<WorkingCopy> {
 
     pub async fn get_results_dir(&self) -> Result<PathBuf, OxyError> {
         self.source.storage().get_results_dir().await
-    }
-
-    pub async fn get_app_results_dir(&self) -> Result<PathBuf, OxyError> {
-        self.source.storage().get_app_results_dir().await
     }
 
     // ── writes to config.yml ──
@@ -1391,15 +1234,15 @@ mod tests {
     #[tokio::test]
     async fn a_read_only_manager_serves_an_unpromoted_workspace() {
         let dir = tempfile::tempdir().expect("tempdir");
-        tokio::fs::create_dir_all(dir.path().join("apps"))
+        tokio::fs::create_dir_all(dir.path().join("agents"))
             .await
             .expect("mkdir");
         tokio::fs::write(
-            dir.path().join("apps/sales.app.yml"),
-            "name: sales\ntasks: []\n",
+            dir.path().join("agents/sales.agentic.yml"),
+            "llm:\n  ref: m\n",
         )
         .await
-        .expect("write app");
+        .expect("write agent");
         tokio::fs::write(dir.path().join(".monitor.yml"), "monitors: []\n")
             .await
             .expect("write monitor");
@@ -1407,11 +1250,13 @@ mod tests {
         let readonly = disk_manager(dir.path()).await.into_read_only();
         assert_eq!(readonly.origin(), Origin::Disk);
 
-        let apps = readonly.list_apps(false).await;
+        let agents = readonly.list_analytics_agents().await;
         let monitors = readonly.monitor_config().await;
-        let automation = readonly.automation_definition("apps/sales.app.yml").await;
+        let automation = readonly
+            .automation_definition("automations/sales.automation.yml")
+            .await;
 
-        assert!(apps.is_ok(), "list_apps: {apps:?}");
+        assert!(agents.is_ok(), "list_analytics_agents: {agents:?}");
         assert!(monitors.is_ok(), "monitor_config: {monitors:?}");
         assert!(automation.is_ok(), "automation_definition: {automation:?}");
     }
@@ -1571,64 +1416,18 @@ mod tests {
             charts.display()
         );
         assert!(
-            replica.list_apps(false).await.is_err(),
+            replica.list_analytics_agents().await.is_err(),
             "with the root manufactured, this answers Ok([]) — the customer \
              configured nothing, from a node that never looked"
-        );
-    }
-    /// A compiled miss on a node with no working copy is a miss, not a fault.
-    ///
-    /// The two used to be one value, which forced `get_automation_file` to pick
-    /// a single status for both: 404 said a transient boundary failure had
-    /// deleted the automation, and 503 said a genuinely absent one was worth
-    /// retrying forever.
-    ///
-    /// `definition` is exercised directly with a ready future because reaching
-    /// its `Ok(None)` arm through `automation_definition` needs a database, and
-    /// the arm under test is the one that runs when the database answered fine.
-    #[tokio::test]
-    async fn a_compiled_miss_without_a_working_copy_is_a_miss_not_an_error() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let diskless = crate::config::ConfigBuilder::new()
-            .with_workspace_path(dir.path())
-            .expect("workspace path")
-            .build_with_provided_config_and_working_copy(
-                serde_yaml::from_str("models: []\ndatabases: []\n").expect("config"),
-                Origin::Compiled {
-                    workspace_id: Uuid::new_v4(),
-                    revision_id: Uuid::new_v4(),
-                },
-            )
-            .expect("manager")
-            .without_working_copy();
-
-        let miss = diskless
-            .definition(async { Ok(None) }, "automations/nope.automation.yml")
-            .await;
-        assert!(
-            matches!(miss, Ok(None)),
-            "the revision answered, and it does not have this file: {miss:?}"
-        );
-
-        let boundary_down = diskless
-            .definition(
-                async { Err(ArtifactError::Backend("connection refused".into())) },
-                "automations/nope.automation.yml",
-            )
-            .await;
-        assert!(
-            boundary_down.is_err(),
-            "a lookup that never completed must stay distinguishable: {boundary_down:?}"
         );
     }
     /// A revision-pinned manager on a pod that HAS the file still answers from
     /// the revision, and `Origin::Disk` still reads its directory.
     ///
-    /// [`ConfigManager::definition`] (still used for apps) falls back to the
-    /// working copy on a compiled miss and on a failed compiled read; the
-    /// helper automations and pipelines use must not. The file is on disk in
-    /// every case, so an implementation that falls back returns `Some` and the
-    /// assertions fail.
+    /// The helper automations and pipelines use must not fall back to the
+    /// working copy on a compiled miss or on a failed compiled read. The file is
+    /// on disk in every case, so an implementation that falls back returns
+    /// `Some` and the assertions fail.
     #[tokio::test]
     async fn a_revision_pinned_manager_does_not_answer_from_the_files_it_holds() {
         let dir = tempfile::tempdir().expect("tempdir");

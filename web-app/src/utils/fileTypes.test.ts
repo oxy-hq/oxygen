@@ -29,8 +29,8 @@ describe("detectFileType", () => {
       expect(detectFileType("etl.workflow.yml")).toBe(FileType.DEFAULT);
     });
 
-    it("still detects .app.yml as APP", () => {
-      expect(detectFileType("dashboard.app.yml")).toBe(FileType.APP);
+    it("returns DEFAULT for the removed .app.yml extension", () => {
+      expect(detectFileType("dashboard.app.yml")).toBe(FileType.DEFAULT);
     });
 
     it("returns DEFAULT for unknown extension", () => {

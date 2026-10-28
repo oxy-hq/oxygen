@@ -5,7 +5,6 @@ export enum FileType {
   AUTOMATION = "automation",
   ANALYTICS_AGENT = "analytics_agent",
   PIPELINE = "pipeline",
-  APP = "app",
   SQL = "sql",
   VIEW = "view",
   TOPIC = "topic",
@@ -48,11 +47,6 @@ export const FILE_TYPE_CONFIGS: Record<FileType, FileTypeConfig> = {
     type: FileType.PIPELINE,
     extensions: [".airway.yml", ".airway.yaml"],
     editorComponent: "AirwayEditor"
-  },
-  [FileType.APP]: {
-    type: FileType.APP,
-    extensions: [".app.yml", ".app.yaml"],
-    editorComponent: "AppEditor"
   },
   [FileType.SQL]: {
     type: FileType.SQL,

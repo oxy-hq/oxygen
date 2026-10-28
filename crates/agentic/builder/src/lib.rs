@@ -9,7 +9,6 @@
 // query depth. Raising the limit is the fix rustc itself suggests.
 #![recursion_limit = "256"]
 
-pub mod app_runner;
 pub mod database;
 pub mod events;
 pub mod onboarding;
@@ -25,7 +24,6 @@ pub mod types;
 pub mod ui;
 pub mod validator;
 
-pub use app_runner::BuilderAppRunner;
 pub use database::BuilderDatabaseProvider;
 pub use events::BuilderEvent;
 pub use pipeline::{BuilderPipelineParams, resume_pipeline, start_pipeline};

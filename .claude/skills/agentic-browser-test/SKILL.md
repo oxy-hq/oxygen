@@ -43,7 +43,7 @@ The same dev request can map to any of the four modes. Map intent to skill route
 | Phrase | Mode | Skill route |
 |---|---|---|
 | "add a test for…", "write a flow that…", "I just built X, test it" | Create | `/test-feature` |
-| "add a case to chat-ask that covers…", "extend builder-edits-app to also…" | Update | `/agentic-test-add-case` |
+| "add a case to chat-ask that covers…", "extend chat-ask to also…" | Update | `/agentic-test-add-case` |
 | "this flow is failing in CI", "the trace shows…", "agentic/builder is red on my PR" | Run/debug | `/run-agentic-tests` for repro, then `/fix-agentic-test` for triage |
 | "the runtime staged a healing recording — what do I do?", "PR comment says healing-staging.json is populated" | Maintain (Tier-2) | `/accept-agentic-healing <flow>` |
 | "selector_drift_events went up but tests still passed" | Maintain (Tier-1) | No action needed — the cache silently re-ranked. Surface for awareness. |
@@ -95,7 +95,7 @@ Only the six state-changing tools persist into the action cache (`tests/agentic/
 | Command | Mode | Notes |
 |---|---|---|
 | `reset_test_file` | local | Empties `demo_project/test.sql`. Refuses symlinks / paths escaping repo. |
-| `restore_demo_file:<rel>` | local | Reverts `demo_project/<rel>` to `git show HEAD:demo_project/<rel>`. Used by flows that mutate a demo file (e.g. `builder-edits-app` editing `insights.app.yml`) so reruns start from the same canonical state. Refuses paths that escape the repo, contain `..`, or resolve through a symlink. Reads from HEAD without touching the index. |
+| `restore_demo_file:<rel>` | local | Reverts `demo_project/<rel>` to `git show HEAD:demo_project/<rel>`. Used by flows that mutate a demo file (e.g. a builder flow editing `sales_semantics/views/oxymart.view.yml`) so reruns start from the same canonical state. Refuses paths that escape the repo, contain `..`, or resolve through a symlink. Reads from HEAD without touching the index. |
 | `goto:<path>` | both | Navigate to `<OXY_BASE_URL><path>` before the case starts. |
 
 ### Flow settings — authoritative: `json-schemas/flow-test.json`
@@ -256,7 +256,6 @@ The agentic-tests job is a reusable workflow at `.github/workflows/agentic-tests
 
 | Bucket | Flows | Mode | Port |
 |---|---|---|---|
-| `builder` | `builder-edits-app` | cloud (enterprise) | 3000 |
 | `semantic` | `semantic-builder-ask` | cloud (enterprise) | 3000 |
 | `ask-agent` | `chat-ask`, `chat-panel-agent-switch` | cloud (enterprise) | 3000 |
 | `threads` | `threads-list` | cloud (enterprise) | 3000 |

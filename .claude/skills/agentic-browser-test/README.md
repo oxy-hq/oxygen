@@ -105,7 +105,6 @@ buckets**, not one job per flow:
 
 | Bucket | Flows in CI | Mode |
 |---|---|---|
-| `builder` | `builder-edits-app`, `builder-rejected-suggestion` | local |
 | `semantic` | `semantic-builder-ask` | local |
 | `ask-agent` | `chat-ask`, `chat-panel-agent-switch` | local |
 | `threads` | `threads-list` | local |
@@ -183,7 +182,7 @@ that:
   any of the four modes.
 - [`EXAMPLES.md`](EXAMPLES.md) — five worked examples covering the
   surfaces / patterns that ship in CI today (chat-ask shared prelude,
-  ide-save Monaco quirk, builder-edits-app compound act, threads-list shared prelude, regression
+  ide-save Monaco quirk, threads-list shared prelude, regression
   pattern).
 - [`CHEATSHEET.md`](CHEATSHEET.md) — for devs authoring flows by hand:
   schema reference, full CLI surface, action-cache contract,

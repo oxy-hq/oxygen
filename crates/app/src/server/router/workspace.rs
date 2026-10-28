@@ -12,7 +12,7 @@ use axum::routing::{delete, get, post, put};
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
 use crate::api::{
-    agent, api_keys, app, apps, artifacts, automation, chart, cohort, competitors, compile,
+    agent, api_keys, apps, artifacts, automation, chart, cohort, competitors, compile,
     compile_staging, data, database, execution_analytics, experiment, file, foot_traffic,
     integration, local_setup, metric_anomalies, metric_tree, metric_tree_probe,
     metric_tree_projection, metrics, modeling, org_subdomain, pipeline, preagg, result_files,
@@ -135,7 +135,6 @@ pub(super) fn build_workspace_routes(
         )
         .route_fleet("/org-subdomain", get(org_subdomain::get_org_subdomain))
         .route_fleet("/logo", get(workspace_logo::get_workspace_logo))
-        .nest("/apps", build_app_routes(&app_state))
         // `/source-uploads` moved to the `oxy-api-source-upload` sibling crate,
         // merged inside this nest by `oxy-server` through the workspace seam.
         .nest(
@@ -779,35 +778,6 @@ fn build_integration_routes(app_state: &AppState) -> RoleRouter {
         )
 }
 
-// MIXED role builder. IdeOnly (must reach the ide singleton): `/source` + `/file`
-// read the working copy / local state dir; `/{pathb64}` + `/run` + `/result`
-// EXECUTE the inline workflow over the local DuckDB connector; `/publish`,
-// `/unpublish` WRITE the working copy. FleetOk
-// (compile boundary + S3 + Postgres): `/` (list), `/displays`, `/data-cached`,
-// `/charts/...`. Any FS-reading/-writing route added here MUST be classified by
-// hand in `server/role_manifest.rs` — the `fully_fs_builder_routes_classify_ide_only`
-// drift test only covers FULLY-fs builders, so it can't catch a miss here.
-// Skipping it is how `/apps/source` shipped FleetOk and 404'd on the serve fleet;
-// the `every_app_sub_route_is_classified` test now backstops THIS builder so a
-// new sub-route fails CI unless it is IdeOnly or explicitly acknowledged FleetOk.
-// See `crates/app/.claude/skills/oxy-route-classification/SKILL.md`.
-fn build_app_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone())
-        .route_fleet("/", get(app::list_apps))
-        .route_ide("/{pathb64}", get(app::get_app_data))
-        .route_ide("/{pathb64}/run", post(app::run_app))
-        .route_ide("/{pathb64}/result", post(app::get_app_result))
-        .route_fleet("/{pathb64}/displays", get(app::get_displays))
-        // Read-only cached data (boundary def + disk/S3 cache, no execution), so
-        // a serve replica shows a dashboard's last data when the ide is down.
-        .route_fleet("/{pathb64}/data-cached", get(app::get_app_data_cached))
-        .route_fleet("/{pathb64}/charts/{chart_path}", get(app::get_chart_image))
-        .route_ide("/{pathb64}/publish", post(app::publish_app))
-        .route_ide("/{pathb64}/unpublish", post(app::unpublish_app))
-        .route_ide("/file/{pathb64}", get(app::get_data))
-        .route_ide("/source/{pathb64}", get(app::get_source_file))
-}
-
 fn build_test_file_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone())
         // `.test.yml` is the one workspace artifact the compile boundary
@@ -852,7 +822,7 @@ fn build_test_file_routes(app_state: &AppState) -> RoleRouter {
 
 /// World-model "Apps" configuration routes — Toast / OpenWeatherMap /
 /// BestTime integration entries surfaced in the Workspace Settings →
-/// Apps tab. Separate from `build_app_routes` (data apps).
+/// Apps tab.
 fn build_app_integration_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone())
         .route_split(

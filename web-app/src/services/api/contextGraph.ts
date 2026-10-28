@@ -178,20 +178,16 @@ export class ContextGraphService {
       });
     });
 
-    // Add procedure, automation, app, and agent nodes and link to their dependencies
+    // Add procedure, automation, and agent nodes and link to their dependencies
     automations.forEach((automation) => {
-      const isApp = automation.path.endsWith(".app.yml");
       const isProcedure =
         automation.path.endsWith(".procedure.yml") || automation.path.endsWith(".procedure.yaml");
       const isAutomation = automation.path.endsWith(".automation.yml");
 
       let nodeId: string;
-      let nodeType: "procedure" | "workflow" | "app" | "automation";
+      let nodeType: "procedure" | "workflow" | "automation";
 
-      if (isApp) {
-        nodeId = `app:${automation.path}`;
-        nodeType = "app";
-      } else if (isProcedure) {
+      if (isProcedure) {
         nodeId = `procedure:${automation.path}`;
         nodeType = "procedure";
       } else if (isAutomation) {
@@ -587,7 +583,6 @@ export class ContextGraphService {
             file.type === "agent" ||
             file.type === "procedure" ||
             file.type === "workflow" ||
-            file.type === "app" ||
             file.type === "automation"
           ) {
             const parsed = parse(content);
@@ -628,7 +623,6 @@ export class ContextGraphService {
             } else if (
               file.type === "procedure" ||
               file.type === "workflow" ||
-              file.type === "app" ||
               file.type === "automation"
             ) {
               const automationName =
@@ -686,8 +680,6 @@ export class ContextGraphService {
           files.push({ path: currentPath, type: "sql" });
         } else if (node.name.endsWith(".procedure.yml") || node.name.endsWith(".procedure.yaml")) {
           files.push({ path: currentPath, type: "procedure" });
-        } else if (node.name.endsWith(".app.yml") || node.name.endsWith(".app.yaml")) {
-          files.push({ path: currentPath, type: "app" });
         } else if (
           node.name.endsWith(".automation.yml") ||
           node.name.endsWith(".automation.yaml")

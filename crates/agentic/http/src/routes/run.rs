@@ -402,9 +402,6 @@ async fn create_run_on(
     if let Some(runner) = state.builder_test_runner.clone() {
         builder = builder.test_runner(runner);
     }
-    if let Some(runner) = state.builder_app_runner.clone() {
-        builder = builder.app_runner(runner);
-    }
 
     // Onboarding auto-accepts all file_change tool calls — no HITL.
     if body.auto_accept {
@@ -466,7 +463,6 @@ async fn create_run_on(
     let runtime_state = state.runtime.clone();
     let schema_cache = Some(state.schema_cache.clone());
     let builder_test_runner = state.builder_test_runner.clone();
-    let builder_app_runner = state.builder_app_runner.clone();
     let router = state.router.clone();
     spawn_with_hub(async move {
         agentic_pipeline::drive_with_coordinator(
@@ -479,7 +475,6 @@ async fn create_run_on(
             Some(bridges),
             schema_cache,
             builder_test_runner,
-            builder_app_runner,
             router,
         )
         .await;
@@ -1296,9 +1291,6 @@ async fn answer_run_on(
     if let Some(runner) = state.builder_test_runner.clone() {
         builder = builder.test_runner(runner);
     }
-    if let Some(runner) = state.builder_app_runner.clone() {
-        builder = builder.app_runner(runner);
-    }
 
     // Cold-resume of an onboarding builder run: rebuild the same LlmClient
     // create_run constructed, since the chosen model may not be in
@@ -1383,7 +1375,6 @@ async fn answer_run_on(
     let runtime_state = state.runtime.clone();
     let schema_cache = Some(state.schema_cache.clone());
     let builder_test_runner = state.builder_test_runner.clone();
-    let builder_app_runner = state.builder_app_runner.clone();
     let router = state.router.clone();
     spawn_with_hub(async move {
         agentic_pipeline::drive_with_coordinator(
@@ -1396,7 +1387,6 @@ async fn answer_run_on(
             Some(bridges),
             schema_cache,
             builder_test_runner,
-            builder_app_runner,
             router,
         )
         .await;

@@ -35,9 +35,6 @@ fn fixture() -> TempDir {
 
     write(root, "config.yml", "models: []\ndatabases: []\n");
 
-    write(root, "orders.app.yml", "name: orders\n");
-    write(root, "generated/scratch.app.yml", "name: scratch\n");
-
     write(root, "analyst.agentic.yml", "name: analyst\n");
     write(root, "analyst.agent.test.yml", "name: analyst-test\n");
 
@@ -143,55 +140,6 @@ async fn the_ide_holds_a_working_copy_and_a_compiled_origin_at_once() {
         },
         "but where the bytes came from is unchanged — the axes are independent"
     );
-}
-
-/// Closed deliberately. The working copy used to filter `generated/` (the
-/// `save-from-run` output directory) while the walker compiled it, so the same
-/// workspace listed different apps depending on whether it had been compiled.
-/// The compiled arm won: generated apps are listed on both sides.
-#[tokio::test]
-async fn apps_agree_including_the_generated_directory() {
-    let dir = fixture();
-    let root = dir.path();
-
-    let mut from_disk: Vec<String> = manager(root)
-        .await
-        .list_apps(false)
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|entry| entry.file_path)
-        .collect();
-    from_disk.sort();
-
-    assert_eq!(
-        from_disk,
-        vec!["generated/scratch.app.yml", "orders.app.yml"],
-        "the working copy no longer hides apps under `generated/`"
-    );
-    assert_eq!(
-        walked(root, FileKind::App),
-        from_disk,
-        "and the walker enumerates exactly the same set"
-    );
-}
-
-/// `name` is the field the two arms disagreed on for longer than the directory
-/// filter did: the walker reads the YAML `name:`, the working copy used to
-/// derive one from the filename. Both now go through the same rule.
-#[tokio::test]
-async fn app_names_come_from_the_yaml_on_both_sides() {
-    let dir = fixture();
-    let root = dir.path();
-
-    let entries = manager(root).await.list_apps(false).await.unwrap();
-    let orders = entries
-        .iter()
-        .find(|e| e.file_path == "orders.app.yml")
-        .expect("the fixture writes orders.app.yml with `name: orders`");
-
-    assert_eq!(orders.name, "orders", "`name:` from the YAML, not the stem");
-    assert!(!orders.published, "the fixture declares no `published:`");
 }
 
 /// The `.test.` rule now costs nothing at any spelling, because both arms
@@ -504,7 +452,6 @@ async fn an_absent_workspace_root_is_an_error_not_an_empty_workspace() {
         ("agents", manager.list_analytics_agents().await.is_err()),
         ("automations", manager.list_automations().await.is_err()),
         ("pipelines", manager.list_pipelines().await.is_err()),
-        ("apps", manager.list_apps(false).await.is_err()),
         ("tests", manager.list_tests().await.is_err()),
         (
             "context documents",
@@ -529,7 +476,6 @@ async fn an_empty_workspace_root_still_lists_nothing() {
     let manager = manager(dir.path()).await;
 
     assert!(manager.list_analytics_agents().await.unwrap().is_empty());
-    assert!(manager.list_apps(false).await.unwrap().is_empty());
     assert!(
         manager
             .context_documents(&["./docs/*.md".to_string()])

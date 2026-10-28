@@ -6,7 +6,6 @@ export {
   AirhouseService
 } from "./airhouse";
 
-export { AppService } from "./apps";
 export { AuthService } from "./auth";
 export { AutomationService } from "./automations";
 export {

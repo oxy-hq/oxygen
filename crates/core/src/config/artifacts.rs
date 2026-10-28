@@ -1,13 +1,5 @@
 use oxy_shared::errors::OxyError;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppEntry {
-    pub name: String,
-    pub file_path: String,
-    pub title: Option<String>,
-    pub published: bool,
-}
-
 /// An Airway pipeline as a listing row. `name` follows the same rule as every
 /// other compiled entity: the YAML `name:`, else derived from the path.
 #[derive(Debug, Clone, PartialEq, Eq)]

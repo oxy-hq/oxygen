@@ -380,7 +380,6 @@ pub fn spawn_automation_run_drive(
         builder_bridges,
         schema_cache: None,
         builder_test_runner: None,
-        builder_app_runner: None,
         db: db.clone(),
         state: Some(state.clone()),
         custom_executors: None,

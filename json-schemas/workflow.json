@@ -42,14 +42,6 @@
     }
   },
   "definitions": {
-    "AppTaskMode": {
-      "description": "Where a task is executed when used inside an app with interactive controls. `client` (default) — the frontend re-runs the SQL directly in DuckDB WASM on every control change; no server round-trip required. `server` — the server executes the task on every control change (required for tasks that query external databases like Snowflake or BigQuery).",
-      "type": "string",
-      "enum": [
-        "client",
-        "server"
-      ]
-    },
     "Condition": {
       "type": "object",
       "required": [
@@ -1817,15 +1809,6 @@
             },
             {
               "type": "null"
-            }
-          ]
-        },
-        "mode": {
-          "description": "Execution mode when this task is used inside a data app. Defaults to `client`.",
-          "default": "client",
-          "allOf": [
-            {
-              "$ref": "#/definitions/AppTaskMode"
             }
           ]
         },

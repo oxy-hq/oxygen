@@ -100,7 +100,7 @@ Routes follow the same split: `/automations/:id` is canonical;
 
 Check whether the work belongs in an automation at all. Scheduled data movement
 is usually an Airway pipeline (`.airway.yml`); a question answered from the
-semantic model is usually an agent or a Data App. Automations are for
+semantic model is usually an agent. Automations are for
 multi-step orchestration you want to run on a schedule or trigger.
 
 **But "usually a pipeline" is not "never an automation".** A `type: airway`

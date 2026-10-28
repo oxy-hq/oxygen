@@ -712,44 +712,6 @@ export const registerFromTableData = async (
 };
 
 /**
- * Download a project source file as Parquet from the server and register it in
- * DuckDB WASM under a `.parquet`-suffixed name.
- *
- * Returns { original: 'oxymart.csv', registered: 'oxymart.parquet' } so the
- * caller can rewrite SQL references before running in DuckDB WASM.
- *
- * Subsequent calls for the same path are no-ops and return the cached mapping.
- */
-const registeredSourceFiles = new Map<string, string>();
-
-export const registerSourceFile = async (
-  filePath: string,
-  projectId: string,
-  branchName: string
-): Promise<{ original: string; registered: string }> => {
-  const safeId = encodeBase64(filePath).replace(/[^a-zA-Z0-9]/g, "_");
-  const parquetName = `${safeId}.parquet`;
-
-  const cacheKey = `${projectId}:${branchName}:${filePath}`;
-  const cached = registeredSourceFiles.get(cacheKey);
-  if (cached) {
-    return { original: filePath, registered: cached };
-  }
-
-  const db = await getDuckDB();
-  const pathb64 = encodeBase64(filePath);
-  const response = await apiClient.get(`/${projectId}/apps/source/${pathb64}`, {
-    responseType: "arraybuffer",
-    params: { branch: branchName }
-  });
-  const data = new Uint8Array(response.data);
-  // Server returns Parquet bytes — register under the .parquet name.
-  await db.registerFileBuffer(parquetName, data);
-  registeredSourceFiles.set(cacheKey, parquetName);
-  return { original: filePath, registered: parquetName };
-};
-
-/**
  * Minimal Jinja-compatible renderer for SQL templates.
  * Minimal client-side Jinja renderer for app task SQL.
  *

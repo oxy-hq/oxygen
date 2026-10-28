@@ -15,7 +15,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::api::{
-    agent, api_keys, app, data, database, healthcheck, projects, thread, user, workspaces,
+    agent, api_keys, data, database, healthcheck, projects, thread, user, workspaces,
 };
 
 use super::{IdeState, build_cors_layer};
@@ -32,9 +32,6 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         .routes(routes!(api_keys::get_api_key))
         .routes(routes!(api_keys::delete_api_key))
         .routes(routes!(api_keys::extend::extend_api_key))
-        .routes(routes!(app::list_apps))
-        .routes(routes!(app::get_app_result))
-        .routes(routes!(app::get_chart_image))
         .routes(routes!(workspaces::get_workspace))
         .routes(routes!(workspaces::get_workspace_branches))
         .routes(routes!(thread::get_threads))
