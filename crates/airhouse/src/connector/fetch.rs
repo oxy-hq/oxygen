@@ -30,7 +30,15 @@ where
     Fut: Future<Output = Result<S, E>>,
     S: Stream<Item = Result<Option<T>, E>>,
 {
-    let mut messages = Box::pin(run(format!("SELECT {cast_cols} FROM ({sql}) AS _q")).await?);
+    // Fused: an empty result ends the stream inside the loop below, and `rest`
+    // then polls it again. tokio-postgres answers a poll past the end with
+    // `Error::closed()`, which turned every zero-row query into a failed one
+    // ("driver error: connection closed").
+    let mut messages = Box::pin(
+        run(format!("SELECT {cast_cols} FROM ({sql}) AS _q"))
+            .await?
+            .fuse(),
+    );
     // Wait for the first row (or the end), so an error the server reports
     // before any row fails the call, as a structured query error, rather
     // than arriving as the stream's first item.
@@ -182,5 +190,70 @@ mod tests {
         .expect("the error comes after the first row");
         let got: Vec<Result<u32, String>> = block_on(rows.collect());
         assert_eq!(got, vec![Ok(1), Ok(2), Err("boom".into())]);
+    }
+
+    /// Messages that, like tokio-postgres's `SimpleQueryStream`, must not be
+    /// polled after they end: one more poll answers "connection closed".
+    /// `stream::iter` stays quiet past its end, which is how the tests above
+    /// missed an empty result.
+    struct ClosesAfterEnd {
+        msgs: std::collections::VecDeque<Result<Option<u32>, String>>,
+        ended: bool,
+    }
+
+    impl ClosesAfterEnd {
+        fn new(msgs: Messages) -> Self {
+            Self {
+                msgs: msgs.into(),
+                ended: false,
+            }
+        }
+    }
+
+    impl Stream for ClosesAfterEnd {
+        type Item = Result<Option<u32>, String>;
+
+        fn poll_next(
+            mut self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            if self.ended {
+                return std::task::Poll::Ready(Some(Err("connection closed".into())));
+            }
+            match self.msgs.pop_front() {
+                Some(msg) => std::task::Poll::Ready(Some(msg)),
+                None => {
+                    self.ended = true;
+                    std::task::Poll::Ready(None)
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_empty_result_is_an_empty_stream() {
+        // A zero-row result: row description and command complete, no rows.
+        let msgs = ClosesAfterEnd::new(vec![Ok(None), Ok(None)]);
+        let rows = block_on(read_rows(
+            |_| std::future::ready(Ok::<_, String>(msgs)),
+            "x",
+            "SELECT x FROM t WHERE false",
+        ))
+        .expect("an empty result is not an error");
+        let got: Vec<Result<u32, String>> = block_on(rows.collect());
+        assert_eq!(got, vec![]);
+    }
+
+    #[test]
+    fn rows_from_a_driver_stream_end_cleanly() {
+        let msgs = ClosesAfterEnd::new(vec![Ok(None), Ok(Some(1)), Ok(Some(2)), Ok(None)]);
+        let rows = block_on(read_rows(
+            |_| std::future::ready(Ok::<_, String>(msgs)),
+            "x",
+            "SELECT x FROM t",
+        ))
+        .unwrap();
+        let got: Vec<Result<u32, String>> = block_on(rows.collect());
+        assert_eq!(got, vec![Ok(1), Ok(2)]);
     }
 }
