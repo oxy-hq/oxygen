@@ -1,6 +1,7 @@
 import ConditionField from "./ConditionField";
 import { FormSection, Grid, type SectionProps, SelectField, TextField } from "./fields";
 import { AutomationField } from "./pickers";
+import UnitsField from "./UnitsField";
 
 /**
  * How the treated units were chosen, and — for a change the platform switches —
@@ -32,20 +33,77 @@ export default function LeverSection(p: SectionProps) {
           ]}
         />
       </Grid>
-      {observed ? (
-        <p className='text-muted-foreground text-sm' data-testid='experiment-design-observed-note'>
-          Nothing is switched. Add the waves under Assignment below, with the units that changed and
-          the date they changed; the units you leave out are the comparison. The result is labelled
-          observational.
-        </p>
-      ) : (
-        <LeverFields {...p} />
-      )}
+      {observed ? <ObservedFields {...p} /> : <LeverFields {...p} />}
     </FormSection>
   );
 }
 
+/**
+ * A past change: nothing is switched. The changed units are compared with the
+ * rest, or — when only a few were changed, by choice — each with a synthetic
+ * control built from the rest.
+ */
+function ObservedFields(p: SectionProps) {
+  const synthetic = p.form.watch("comparison") === "synthetic_control";
+  return (
+    <>
+      <p className='text-muted-foreground text-sm' data-testid='experiment-design-observed-note'>
+        Nothing is switched. Add the waves under Assignment below, with the units that changed and
+        the date they changed; the units you leave out are the comparison. The result is labelled
+        observational.
+      </p>
+      <Grid>
+        <SelectField
+          {...p}
+          name='comparison'
+          label='Compare the changed units with'
+          choices={[
+            { value: "untreated", label: "The units that did not change" },
+            {
+              value: "synthetic_control",
+              label: "A synthetic control: a weighted mix of unchanged units that tracked each one"
+            }
+          ]}
+          hint='A synthetic control suits a change made in a few chosen units, such as a promotion on a handful of products. It needs at least 10 unchanged units and one change date.'
+        />
+        {!synthetic && <OneDateTestField {...p} />}
+      </Grid>
+      {synthetic && (
+        <UnitsField
+          {...p}
+          name='exclude'
+          label='Keep out of the comparison'
+          hint='Unchanged units the change may still have reached, such as sibling products or neighbouring stores.'
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * The test for a waves design with one switch date; several dates are always
+ * tested by permutation, and a switchback or synthetic control has its own test.
+ */
+function OneDateTestField(p: SectionProps) {
+  return (
+    <SelectField
+      {...p}
+      name='oneDateTest'
+      label='Test for one change date'
+      choices={[
+        { value: "welch", label: "Welch t-test (default)" },
+        {
+          value: "permutation",
+          label: "Permutation: read the changed units against every unchanged one"
+        }
+      ]}
+      hint='Permutation suits a handful of changed units beside many unchanged ones. Welch suits evenly split groups, however small. Several change dates are always tested by permutation.'
+    />
+  );
+}
+
 function LeverFields(p: SectionProps) {
+  const waves = p.form.watch("kind") === "waves";
   return (
     <>
       <Grid>
@@ -82,6 +140,7 @@ function LeverFields(p: SectionProps) {
             { value: "keep", label: "Left on when the experiment closes" }
           ]}
         />
+        {waves && <OneDateTestField {...p} />}
       </Grid>
       <p className='text-sm'>A switch counts as confirmed when the data shows it:</p>
       <Grid>

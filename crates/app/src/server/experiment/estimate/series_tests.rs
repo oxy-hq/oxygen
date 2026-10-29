@@ -49,6 +49,7 @@ fn waves(
         coverage_floor: 0.8,
         alpha: 0.05,
         family: 1,
+        one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
     })
 }
 
@@ -310,6 +311,7 @@ fn a_week_grain_series_dates_each_point_and_window_to_its_monday() {
         coverage_floor: 0.8,
         alpha: 0.05,
         family: 1,
+        one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
     });
     let s = daily_series("m", Grain::Week, &design, &m);
     assert_eq!(s.grain, Grain::Week);
@@ -355,6 +357,7 @@ fn an_hour_grain_series_labels_each_point_with_its_local_hour() {
         coverage_floor: 0.8,
         alpha: 0.05,
         family: 1,
+        one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
     });
     let s = daily_series("m", Grain::Hour, &design, &m);
     let v = serde_json::to_value(&s).unwrap();

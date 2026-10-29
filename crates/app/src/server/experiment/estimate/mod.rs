@@ -21,6 +21,7 @@ pub mod plan;
 pub mod retro;
 pub mod series;
 pub mod store;
+pub mod synthetic_estimate;
 pub mod target_estimate;
 
 #[cfg(test)]
@@ -37,6 +38,8 @@ mod plan_cut_tests;
 mod plan_tests;
 #[cfg(test)]
 mod series_tests;
+#[cfg(test)]
+mod synthetic_estimate_tests;
 #[cfg(test)]
 pub(crate) mod testdata;
 

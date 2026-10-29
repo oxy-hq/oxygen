@@ -489,6 +489,7 @@ pub(crate) fn built_report(
         },
         mde_unavailable: None,
         hand_assigned: false,
+        synthetic: None,
     })
 }
 

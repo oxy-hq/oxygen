@@ -14,7 +14,9 @@ use std::collections::HashMap;
 
 mod design;
 mod filters;
+mod one_date_test;
 mod registrable;
+mod synthetic;
 mod units;
 
 pub use registrable::{is_registrable, is_retrospective_ready};
@@ -159,6 +161,35 @@ pub enum ConfigError {
     ObservedNotRegistrable,
 
     #[error(
+        "design.comparison is synthetic_control, which reads a change that already happened: design.assignment must be observed"
+    )]
+    SyntheticNeedsObserved,
+
+    #[error("design.comparison is synthetic_control alongside {with}")]
+    SyntheticWith { with: &'static str },
+
+    #[error(
+        "design.comparison is synthetic_control, which needs one switch date for every treated unit; this design has {switch_dates}"
+    )]
+    SyntheticNeedsOneSwitchDate { switch_dates: usize },
+
+    #[error(
+        "design.one_date_test is permutation alongside {with}; it chooses the test for a waves design with one switch date"
+    )]
+    OneDateTestWith { with: &'static str },
+
+    #[error(
+        "design.one_date_test is permutation, but this design has {switch_dates} switch dates, and several switch dates are always tested by permutation"
+    )]
+    OneDateTestNeedsOneSwitchDate { switch_dates: usize },
+
+    #[error("design.exclude is set, but only a synthetic control has donors to keep a unit out of")]
+    ExcludeWithoutSynthetic,
+
+    #[error("unit {unit:?} is both switched in design.waves and listed in design.exclude")]
+    ExcludedUnitTreated { unit: String },
+
+    #[error(
         "{:?} (wave {}, switch_on {}) matches no name in the unit pool being checked (units, or groups under assign_by){}",
         .unit, .wave, .switch_on, suggestion_suffix(.suggestions)
     )]
@@ -261,6 +292,8 @@ pub fn validate_static(c: &ExperimentConfig) -> Vec<ConfigError> {
     check_rates(c, &mut out);
     check_windows(c, &mut out);
     check_ratio(c, &mut out);
+    synthetic::check_synthetic(c, &mut out);
+    one_date_test::check_one_date_test(c, &mut out);
     check_guardrails(c, &mut out);
     check_expressions(c, &mut out);
     filters::check_filters(c, &mut out);

@@ -214,6 +214,66 @@ describe("an observed design", () => {
     expect(toConfig(values).errors).toEqual({});
   });
 
+  it("round-trips a synthetic control and the units kept out of it", () => {
+    const synthetic = {
+      ...observed(),
+      design: {
+        ...observed().design,
+        comparison: "synthetic_control" as const,
+        exclude: ["b7", "b9"]
+      }
+    };
+    const values = toFormValues(synthetic);
+    expect(values.comparison).toBe("synthetic_control");
+    expect(values.exclude).toBe("b7, b9");
+    const { config, errors } = toConfig(values);
+    expect(errors).toEqual({});
+    expect(config.design?.comparison).toBe("synthetic_control");
+    expect(config.design?.exclude).toEqual(["b7", "b9"]);
+  });
+
+  it("sends no comparison for the default, nor for a randomised design", () => {
+    const plain = toConfig(toFormValues(observed())).config;
+    expect(plain.design).not.toHaveProperty("comparison");
+    expect(plain.design).not.toHaveProperty("exclude");
+    const randomised = toConfig({
+      ...toFormValues(definitionFixture),
+      comparison: "synthetic_control",
+      exclude: "b7"
+    }).config;
+    expect(randomised.design).not.toHaveProperty("comparison");
+    expect(randomised.design).not.toHaveProperty("exclude");
+  });
+
+  it("round-trips a permutation test for one change date, and sends nothing for Welch", () => {
+    const perm = {
+      ...observed(),
+      design: { ...observed().design, one_date_test: "permutation" as const }
+    };
+    const values = toFormValues(perm);
+    expect(values.oneDateTest).toBe("permutation");
+    const { config, errors } = toConfig(values);
+    expect(errors).toEqual({});
+    expect(config.design?.one_date_test).toBe("permutation");
+    expect(toConfig(toFormValues(observed())).config.design).not.toHaveProperty("one_date_test");
+    const synthetic = toConfig({ ...values, comparison: "synthetic_control" }).config;
+    expect(synthetic.design).not.toHaveProperty("one_date_test");
+  });
+
+  it("keeps a permutation test on a randomised draft, and drops it from a switchback", () => {
+    const randomised = {
+      ...definitionFixture,
+      design: { ...definitionFixture.design, one_date_test: "permutation" as const }
+    };
+    const values = toFormValues(randomised);
+    expect(values.assignment).toBe("randomised");
+    expect(values.kind).toBe("waves");
+    expect(values.oneDateTest).toBe("permutation");
+    expect(toConfig(values).config.design?.one_date_test).toBe("permutation");
+    const switchback = toConfig({ ...values, kind: "switchback" }).config;
+    expect(switchback.design).not.toHaveProperty("one_date_test");
+  });
+
   it("a randomised design still needs its lever", () => {
     const values = { ...toFormValues(definitionFixture), onVia: "" };
     expect(values.assignment).toBe("randomised");

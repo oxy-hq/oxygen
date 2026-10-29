@@ -88,6 +88,21 @@ export default function DefinitionView({ summary }: { summary: ExperimentListIte
                 {def.for_each ? `${assignText(def.for_each, def.assign_by ?? null)}. ` : ""}
                 Owned by {def.owner ?? "—"}.
               </p>
+              {def.design?.comparison === "synthetic_control" && (
+                <p className='text-muted-foreground text-xs' data-testid='definition-synthetic'>
+                  Each changed {noun} is compared with a synthetic control: a weighted mix of the{" "}
+                  {noun}s that did not change.
+                  {def.design.exclude?.length
+                    ? ` Kept out of the mix: ${def.design.exclude.join(", ")}.`
+                    : ""}
+                </p>
+              )}
+              {def.design?.one_date_test === "permutation" && (
+                <p className='text-muted-foreground text-xs' data-testid='definition-permutation'>
+                  Tested by permutation: the changed {noun}s are read against every {noun} that did
+                  not change.
+                </p>
+              )}
             </Block>
             <OutcomeCard def={def} past={past} />
             <LeverCard lever={def.lever} />

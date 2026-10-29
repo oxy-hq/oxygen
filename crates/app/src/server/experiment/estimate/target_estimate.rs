@@ -177,6 +177,7 @@ mod tests {
             coverage_floor: 0.9,
             alpha: 0.05,
             family: 1,
+            one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
         })
     }
 
@@ -322,6 +323,7 @@ mod dedup_tests {
             coverage_floor: 0.9,
             alpha: 0.05,
             family: 1,
+            one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
         });
         let built = [DroppedUnit {
             unit: "t9".into(),
@@ -384,6 +386,7 @@ mod ratio_missing_tests {
             coverage_floor: 0.9,
             alpha: 0.05,
             family: 1,
+            one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
         });
         let read = Read {
             lenient: true,

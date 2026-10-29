@@ -99,6 +99,50 @@ pub struct RatioIn {
     pub refusal: Option<String>,
 }
 
+/// A synthetic control's fits, beside its effect (`EffectIn`). One entry per
+/// treated unit, in the engine's order.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyntheticIn {
+    pub fits: Vec<UnitFitIn>,
+    /// The donor pool the fits drew on, by name.
+    pub donors: Vec<String>,
+    /// Placebo sets behind the p-value, and whether they were all of them.
+    pub placebo_sets: usize,
+    pub exact: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UnitFitIn {
+    pub unit: String,
+    pub effect: Option<f64>,
+    /// Holdout pre-window error over the unit's own pre-window volatility:
+    /// 0 tracks perfectly, 1 is no better than a flat line at its mean.
+    pub pre_fit: Option<f64>,
+    pub rmspe_ratio: Option<f64>,
+    pub rank_p: Option<f64>,
+    /// Non-zero weights only, largest first.
+    pub weights: Vec<DonorWeightIn>,
+    /// Pre window then post window; `day` is a period ordinal.
+    pub series: Vec<SyntheticPointIn>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DonorWeightIn {
+    pub unit: String,
+    pub weight: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyntheticPointIn {
+    pub day: i64,
+    pub actual: Option<f64>,
+    pub synthetic: Option<f64>,
+}
+
 impl Refused for EffectIn {
     fn refused(reason: String) -> Self {
         EffectIn {
@@ -114,6 +158,13 @@ impl Refused for PowerIn {
             refusal: Some(reason),
             ..Default::default()
         }
+    }
+}
+
+/// A refused synthetic control has no fits; its effect carries the reason.
+impl Refused for SyntheticIn {
+    fn refused(_reason: String) -> Self {
+        SyntheticIn::default()
     }
 }
 

@@ -151,6 +151,11 @@ export interface ExperimentDefinition {
     grain?: "day" | "week" | "month";
     /** Who chose the treated units; absent = randomised by pricing. `observed` = a past rollout, declared. */
     assignment?: "randomised" | "observed";
+    /** What the treated units are compared against; absent = the untreated units. Observed designs only. */
+    comparison?: "untreated" | "synthetic_control";
+    one_date_test?: "welch" | "permutation";
+    /** Units kept out of a synthetic control's donors; absent = none. */
+    exclude?: string[];
     waves: { switch_on: string; units: string[] }[];
     switchback: { period_days: number; periods: { from: string; state: "on" | "off" }[] } | null;
     strata: string[][] | null;
@@ -563,6 +568,8 @@ export interface ReportView {
   proportional?: boolean;
   /** Each wave's own effect, when the estimate compared more than one; absent otherwise. */
   waves?: WaveView[];
+  /** Set when the changed units were compared with a synthetic control: each unit's fit and chart. */
+  synthetic?: SyntheticView;
   ratio: {
     coefficient: number | null;
     interval: Interval;
@@ -751,4 +758,30 @@ export interface RegisterResponse {
   design_id: string;
   registered_at: string;
   frozen_at: string;
+}
+
+/** How a synthetic control was built, unit by unit, in the headline's scale. */
+export interface SyntheticView {
+  /** "Not randomised — synthetic control". */
+  label: string;
+  /** Units the fits could draw on. */
+  donors: number;
+  /** Placebo sets behind the p-value, and whether they were every one. */
+  placebo_sets: number;
+  exact: boolean;
+  fits: SyntheticFitView[];
+}
+
+export interface SyntheticFitView {
+  unit: string;
+  /** Its own mean effect per period over the post window. */
+  effect: number | null;
+  /** Pre-window tracking error over its own volatility: 0 is perfect, 1 no better than a flat line. */
+  pre_fit: number | null;
+  /** How its post/pre error ratio ranks among the donors' placebos, as a p-value. */
+  rank_p: number | null;
+  /** Donors with a non-zero weight, largest first. */
+  weights: { unit: string; weight: number }[];
+  /** Pre window then post window, in the measure's own units. */
+  series: { date: string | null; actual: number | null; synthetic: number | null }[];
 }

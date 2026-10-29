@@ -304,3 +304,48 @@ fn a_refused_judgement_carries_its_reason_in_both_forms() {
     );
     assert_eq!(j.raw["refusal"], "no history for `m` over `store`");
 }
+
+fn engine_fit() -> oxy_airlayer_compat::engine::experiment::UnitFit {
+    use oxy_airlayer_compat::engine::experiment::{DonorWeight, SeriesPoint, UnitFit};
+    UnitFit {
+        unit: "b1".into(),
+        effect: 4.0,
+        pre_rmspe: 1.0,
+        pre_fit: 0.2,
+        post_rmspe: 4.2,
+        rmspe_ratio: 4.2,
+        rank_p: 0.1,
+        weights: vec![DonorWeight {
+            unit: "b7".into(),
+            weight: 1.0,
+        }],
+        series: vec![SeriesPoint {
+            day: 739_740,
+            actual: 12.0,
+            synthetic: 8.0,
+        }],
+    }
+}
+
+/// The host serialises the synthetic block itself (`synthetic_estimate`), from the
+/// engine's own structs: the mirror must read every key those structs write.
+#[test]
+fn every_synthetic_mirror_key_is_an_engine_key() {
+    use oxy_experiment::engine_in::{DonorWeightIn, SyntheticIn, SyntheticPointIn, UnitFitIn};
+    let fit = serde_json::to_value(engine_fit()).unwrap();
+    let block = serde_json::json!({
+        "fits": [fit.clone()], "donors": ["b7"], "placebo_sets": 9, "exact": true,
+    });
+    assert_mirror_keys_in_engine::<SyntheticIn>(&block, "synthetic block");
+    assert_mirror_keys_in_engine::<UnitFitIn>(&fit, "UnitFit");
+    assert_mirror_keys_in_engine::<DonorWeightIn>(&fit["weights"][0], "DonorWeight");
+    assert_mirror_keys_in_engine::<SyntheticPointIn>(&fit["series"][0], "SeriesPoint");
+    let v = Judged::<SyntheticIn>::from_engine(&block).view;
+    let f = &v.fits[0];
+    assert_eq!(
+        (f.effect, f.pre_fit, f.rank_p),
+        (Some(4.0), Some(0.2), Some(0.1))
+    );
+    assert_eq!(f.series[0].synthetic, Some(8.0));
+    assert_eq!((v.placebo_sets, v.exact), (9, true));
+}

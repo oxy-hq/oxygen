@@ -9,6 +9,7 @@ use crate::engine_in::EffectIn;
 use super::design::{assumptions, cell, design_kind, estimand, projection, treated_total};
 use super::prior::{is_directional, prediction, ratio_view, verdict, write_back_view};
 use super::spillover::{carryover, substitution};
+use super::synthetic;
 use super::types::*;
 use super::validity::{checks, compliance, lever_note, proposals};
 use super::waves::{PROPORTIONAL_ESTIMAND, in_report_scale, is_proportional, signed_pct, waves};
@@ -59,19 +60,23 @@ pub fn build_report(i: ReportInput<'_>) -> ReportView {
         estimand: match &i.config.outcome.denominator {
             Some(_) => RATIO_ESTIMAND.to_string(),
             None if proportional => PROPORTIONAL_ESTIMAND.to_string(),
+            None if synthetic::is_synthetic(i.config) => synthetic::estimand(i.config),
             None => estimand(kind, i.config.design.grain),
         },
         directional: is_directional(alpha),
         alpha,
-        assumptions: assumptions(kind),
+        assumptions: [assumptions(kind), synthetic::assumptions(i.config)].concat(),
         headline: est.map(|e| headline(&i, e, &substitution.statement, kind)),
         // A share summed over unit-days is not a quantity: no totals for a ratio,
         // nor for a proportional change.
         treated_total: est
             .filter(|_| i.config.outcome.denominator.is_none() && !proportional)
             .and_then(|e| treated_total(&i, e, kind)),
+        // The donors were picked for tracking the treated units, not to stand for
+        // the untreated ones: there is no population to project onto.
         projection: est
             .filter(|_| i.config.outcome.denominator.is_none() && !proportional)
+            .filter(|_| !synthetic::is_synthetic(i.config))
             .and_then(|e| projection(&i, e, kind)),
         direction: direction(&i, est),
         // A promise priced in the measure's units says nothing about a share.
@@ -94,6 +99,7 @@ pub fn build_report(i: ReportInput<'_>) -> ReportView {
         share: i.config.outcome.denominator.is_some(),
         proportional,
         waves: waves(i.config, i.target, est),
+        synthetic: i.synthetic.map(|s| synthetic::view(i.config, s)),
         refusal,
         substitution,
     }

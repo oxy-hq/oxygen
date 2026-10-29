@@ -6,6 +6,7 @@ import PredictionBlock from "./PredictionBlock";
 import ReportDetails from "./ReportDetails";
 import ReportSummary from "./ReportSummary";
 import SeriesBlock from "./SeriesBlock";
+import SyntheticBlock from "./SyntheticBlock";
 import WavesBlock from "./WavesBlock";
 import WriteBackSection from "./WriteBackSection";
 
@@ -27,6 +28,7 @@ export default function ReportBody({ result }: { result: ResultResponse }) {
     >
       <ReportSummary result={result} />
       <WavesBlock report={report} />
+      <SyntheticBlock report={report} />
       {result.series && (
         <SeriesBlock
           series={result.series}

@@ -150,6 +150,25 @@ proportional` reads each value as `ln(1 + y)` and reports a % lift per unit
 differ in size by orders of magnitude. Retrospective only; refused with a
 denominator, a driver or a switchback, and on a negative value.
 
+A change made in a few **chosen** units (a promotion on three products, a
+campaign in one market) is better read against a synthetic control: on an
+observed design set `design.comparison: synthetic_control`, and list in
+`design.exclude` any unchanged unit the change may still have reached (sibling
+products, neighbouring stores). Each treated unit gets its own weighted mix of
+unchanged units that tracked it before the switch. It needs one switch date and
+at least 10 donors, and is refused with a switchback, strata, a denominator,
+carryover or hour grain. `report.synthetic` lists each unit's fit (`pre_fit`: 0
+tracks perfectly, 1 is no better than a flat line), its donor weights and its
+series; the report is labelled **Not randomised — synthetic control** and
+offers no projection.
+
+A one-date design is tested with Welch by default. For a handful of treated
+units beside many untreated ones, set `design.one_date_test: permutation`: the
+treated units are read against every untreated one, which Welch cannot do with
+two or three of them. It needs enough units for a relabelling to reach alpha (3
+vs 3 cannot), takes seconds, and is refused with several switch dates (always
+permutation), a switchback, or a synthetic control.
+
 With two or more waves, `report.waves` lists each wave's own effect and
 interval. They are not adjusted for the number of waves: quote the pooled
 headline as the answer, and a clear single wave as a lead, never a finding.

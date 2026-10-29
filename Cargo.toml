@@ -725,15 +725,21 @@ aho-corasick = "1.1"
 # `estimate_ratio_of_sums`. Nothing it adds changes an existing engine path, so
 # **no rollup hash moves** and `PREAGG_BUILDER_GENERATION` stays put.
 #
-# NOW AT 753d59d — airlayer main, the merge of PR #137
-# (`claude/project-thread-g2c606`, https://github.com/oxy-hq/airlayer/pull/137),
-# on top of 3f9dfd1; its tree is the PR head 309dd85's. Not a tag. A
-# sparse unit's missing days now cost only that unit (`from_triples_keeping_gaps`,
-# a presence mask: an absent cell reads `NaN`), `EffectResult.waves` lists each
-# wave's own effect, and `PanelMatrix::log1p` + `proportional` read an effect as
-# a share. Only `engine::experiment` changes, so **no rollup hash moves** and
+# Before that, 753d59d — airlayer main, the merge of PR #137: a sparse unit's
+# missing days cost only that unit (`from_triples_keeping_gaps`),
+# `EffectResult.waves` lists each wave's own effect, and `PanelMatrix::log1p` +
+# `proportional` read an effect as a share.
+#
+# NOW AT 5dc3444 — airlayer main, the merge of PR #138
+# (`claude/project-thread-g2c606`, https://github.com/oxy-hq/airlayer/pull/138),
+# on top of 753d59d. `estimate_synthetic` / `price_synthetic` add a synthetic
+# control for chosen units; the staggered permutation test permutes a
+# studentized statistic (the aggregate over its Welch error), so changed units
+# noisier than the rest no longer over-reject; and one switch date stays Welch
+# unless `Assignment.one_date_test` opts it into that permutation test.
+# Only `engine::experiment` changes, so **no rollup hash moves** and
 # `PREAGG_BUILDER_GENERATION` stays put.
-airlayer ={ git = "https://github.com/oxy-hq/airlayer", rev = "753d59d78c4450f24d33394f5b09c689e29e252a" }
+airlayer ={ git = "https://github.com/oxy-hq/airlayer", rev = "5dc344429ab27235f066762542e88bb20bb30b34" }
 # Anomaly detection: ETS forecasting + MSTL decomposition. augurs-ets gives
 # Holt-Winters family (with auto model selection); augurs-mstl handles
 # multi-seasonality (daily + weekly + yearly). Pulled in by oxy-metric-monitoring.
@@ -1266,9 +1272,17 @@ todo = "deny"
 # contamination. Reproducing a CI build locally will correctly show no effect.
 #
 # This is not a per-package override of anything: the `[profile.dev.package]` block
-# that used to sit above was deleted as inert (see the note above), so this glob is
-# the only per-dependency profile setting in the workspace.
+# that used to sit above was deleted as inert (see the note above). Besides this
+# glob, the one per-dependency setting is `airlayer`'s opt-level, just below.
 debug = false
+
+[profile.dev.package.airlayer]
+# The experiment estimator's permutation tests (every staggered estimate, and
+# every draw of a staggered design's pricing) run thousands of relabellings per
+# decision; at opt-level 0 one such pricing takes tens of seconds in a dev build
+# and a test that prices one takes as long. Optimising airlayer alone rebuilds only airlayer
+# and what already depends on it, which a rev bump rebuilds anyway.
+opt-level = 2
 
 [profile.dev]
 # NOTE: `split-debuginfo` is deliberately unset — do not "restore" it.

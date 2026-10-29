@@ -82,6 +82,7 @@ fn switchback_spec(eff: &ExperimentConfig, c: &SwitchbackCandidate, run: &RunPar
         iterations: run.iterations.switchback,
         history_to: Some(history_to(eff, run)),
         blocks: 0,
+        one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
     }
 }
 

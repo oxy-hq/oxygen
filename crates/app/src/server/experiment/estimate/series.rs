@@ -12,7 +12,7 @@
 
 use chrono::{NaiveDate, NaiveDateTime};
 use oxy_airlayer_compat::engine::experiment::{
-    Assignment, ExperimentDesign, PanelMatrix, SwitchbackSchedule,
+    Assignment, ExperimentDesign, PanelMatrix, SwitchbackSchedule, SyntheticSpec,
 };
 use oxy_experiment::Grain;
 use serde::Serialize;
@@ -126,12 +126,32 @@ pub fn daily_series(
     let shape = match design {
         ExperimentDesign::Waves(a) => waves(a, m, &date),
         ExperimentDesign::Switchback(s) => switchback(s, m, &date),
+        ExperimentDesign::Synthetic(s) => waves(&as_waves(s), m, &date),
     };
     DailySeries {
         measure: measure.to_string(),
         grain,
         shape,
         measured_until: None,
+    }
+}
+
+/// A synthetic control's units as one wave: treated on `start_on`, donors never.
+/// The series charts arms by mean, which is what a reader compares the fits to.
+fn as_waves(s: &SyntheticSpec) -> Assignment {
+    let treated = s.treated.iter().map(|u| (u.clone(), Some(s.start_on)));
+    let donors = s.donors.iter().flatten().filter(|u| !s.exclude.contains(u));
+    Assignment {
+        switch_day: treated.chain(donors.map(|u| (u.clone(), None))).collect(),
+        strata: None,
+        pre_days: s.pre_days,
+        post_days: s.post_days,
+        anticipation_days: s.anticipation_days,
+        washout_days: s.washout_days,
+        coverage_floor: s.coverage_floor,
+        alpha: s.alpha,
+        family: s.family,
+        one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
     }
 }
 

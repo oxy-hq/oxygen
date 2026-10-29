@@ -15,7 +15,7 @@ use oxy_airlayer_compat::engine::experiment::{
     DroppedUnit, ExperimentDesign, PanelMatrix, estimate, estimate_ratio, placebo_power,
 };
 use oxy_experiment::config::{ExperimentConfig, MeasureFilter, Scale};
-use oxy_experiment::engine_in::{EffectIn, PowerIn, RatioIn};
+use oxy_experiment::engine_in::{EffectIn, PowerIn, RatioIn, SyntheticIn};
 use oxy_experiment::report::{Seeds, SwitchbackFacts};
 use oxy_shared::errors::OxyError;
 
@@ -25,7 +25,8 @@ use super::plan::{
     assignment_units, history_end, never_treated, sibling_design_spec, switchback_facts,
 };
 use super::series::{DailySeries, daily_series};
-use crate::server::experiment::assignment::to_design;
+use super::synthetic_estimate::estimate_synthetic_target;
+use crate::server::experiment::assignment::{to_design, to_engine_design};
 use crate::server::experiment::panel::{
     GroupMembership, HistoryBounds, PanelContext, PanelOutcome, PanelRequest, is_revision_refusal,
 };
@@ -255,7 +256,10 @@ async fn load(
 /// What every engine call shares: one design, built once.
 struct Stage<'a> {
     cfg: &'a ExperimentConfig,
+    /// The waves or switchback as assigned: what the chart and the counts read.
     design: ExperimentDesign,
+    /// What the estimates read: `design`, or a synthetic control over its units.
+    engine_design: ExperimentDesign,
     seeds: Seeds,
     iterations: usize,
     read: super::target_estimate::Read<'a>,
@@ -263,6 +267,7 @@ struct Stage<'a> {
 
 struct Target {
     effect: Judged<EffectIn>,
+    synthetic: Option<Judged<SyntheticIn>>,
     n_untreated: usize,
     switchback: Option<SwitchbackFacts>,
     series: Option<DailySeries>,
@@ -275,10 +280,11 @@ pub fn run_engines(
     seeds: Seeds,
     iterations: usize,
 ) -> Engines {
-    let design = to_design(cfg, &assignment_units(cfg, pool));
+    let units = assignment_units(cfg, pool);
     let stage = Stage {
         cfg,
-        design,
+        design: to_design(cfg, &units),
+        engine_design: to_engine_design(cfg, &units),
         seeds,
         iterations,
         read: super::target_estimate::Read {
@@ -307,6 +313,7 @@ pub fn run_engines(
     Engines {
         carryover: None,
         effect: target.effect,
+        synthetic: target.synthetic,
         sibling,
         sibling_power,
         ratio,
@@ -319,14 +326,23 @@ pub fn run_engines(
 fn target_part(st: &Stage<'_>, target: &Loaded) -> Target {
     let refused = |why: String, series: Option<DailySeries>| Target {
         effect: Judged::refused(why),
+        synthetic: None,
         n_untreated: 0,
         switchback: None,
         series,
     };
     match target {
         Loaded::Panel(m) => {
-            let effect =
-                super::target_estimate::estimate_target(m, &st.design, st.seeds.effect, st.read);
+            let (effect, synthetic) = match &st.engine_design {
+                ExperimentDesign::Synthetic(spec) => {
+                    let r = estimate_synthetic_target(m, spec, st.seeds.effect, st.read);
+                    (r.effect, r.fits)
+                }
+                d => (
+                    super::target_estimate::estimate_target(m, d, st.seeds.effect, st.read),
+                    None,
+                ),
+            };
             // What was read, day by day — kept even when the estimate refuses. A
             // treated unit the estimate left out of its wave is in neither arm, so
             // the chart counts the treated units the headline does.
@@ -340,6 +356,7 @@ fn target_part(st: &Stage<'_>, target: &Loaded) -> Target {
             // engine's own `retained_on_days`, C1); lacking the count is a section refusal.
             match switchback_facts(st.cfg, &effect.view, m.units().len()) {
                 Ok(switchback) => Target {
+                    synthetic,
                     n_untreated: never_treated(&st.design, m),
                     switchback,
                     effect,
@@ -373,15 +390,25 @@ fn sibling_part(st: &Stage<'_>, sibling: &Loaded) -> (Judged<EffectIn>, Judged<P
     match sibling {
         Loaded::Unavailable(why) => (Judged::refused(why.clone()), Judged::refused(why.clone())),
         Loaded::Panel(m) => {
-            let effect = Judged::from_engine(&estimate(m, &st.design, st.seeds.effect));
-            let power = match sibling_design_spec(st.cfg, &st.design, st.iterations) {
-                Ok(spec) => Judged::from_engine(&placebo_power(m, &spec, st.seeds.placebo)),
-                Err(why) => Judged::refused(why),
+            let effect = Judged::from_engine(&estimate(m, &st.engine_design, st.seeds.effect));
+            let power = match &st.engine_design {
+                ExperimentDesign::Synthetic(_) => {
+                    Judged::refused(SYNTHETIC_NO_SIBLING_POWER.into())
+                }
+                _ => match sibling_design_spec(st.cfg, &st.design, st.iterations) {
+                    Ok(spec) => Judged::from_engine(&placebo_power(m, &spec, st.seeds.placebo)),
+                    Err(why) => Judged::refused(why),
+                },
             };
             (effect, power)
         }
     }
 }
+
+/// Why a synthetic control's substitution check carries no power: pricing a
+/// synthetic design is not built, so the sibling's MDE cannot be stated.
+pub const SYNTHETIC_NO_SIBLING_POWER: &str = "a synthetic control is not priced, so the \
+     sibling's smallest detectable change is not stated";
 
 /// Why a ratio outcome reads no driver slope, so its prediction reads unavailable.
 pub const RATIO_OUTCOME_NO_DRIVER: &str = "a ratio outcome has no first stage: the driver slope is \
@@ -393,7 +420,7 @@ fn ratio_part(st: &Stage<'_>, target: &Loaded, driver: &Loaded) -> Judged<RatioI
     let name = st.cfg.outcome.driver.as_deref().unwrap_or_default();
     let judged = match (target, driver) {
         (Loaded::Panel(t), Loaded::Panel(d)) => {
-            Judged::from_engine(&estimate_ratio(t, d, &st.design, st.seeds.ratio))
+            Judged::from_engine(&estimate_ratio(t, d, &st.engine_design, st.seeds.ratio))
         }
         (Loaded::Unavailable(why), _) | (_, Loaded::Unavailable(why)) => {
             Judged::refused(why.clone())

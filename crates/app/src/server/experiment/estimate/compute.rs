@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use oxy_experiment::compliance::{FlipOutcome, summarize};
 use oxy_experiment::config::ExperimentConfig;
-use oxy_experiment::engine_in::{EffectIn, PowerIn, RatioIn};
+use oxy_experiment::engine_in::{EffectIn, PowerIn, RatioIn, SyntheticIn};
 use oxy_experiment::patch::{
     CoefficientEdit, PatchRefusal, ViewSource, WriteBackInputs, plan_write_back,
 };
@@ -55,6 +55,9 @@ pub struct RunInputs {
 
 pub struct Engines {
     pub effect: Judged<EffectIn>,
+    /// A synthetic control's fits (`design.comparison`); `None` for every other
+    /// comparison, and when its estimate refused.
+    pub synthetic: Option<Judged<SyntheticIn>>,
     /// The effect over `design.carryover_days` after the close `off`s; `None` when the
     /// design reads none or the run was aborted.
     pub carryover: Option<EffectIn>,
@@ -88,6 +91,7 @@ pub fn refused_engines(cfg: &ExperimentConfig, why: &str) -> Engines {
     let refused = || why.to_string();
     Engines {
         effect: Judged::refused(refused()),
+        synthetic: None,
         carryover: None,
         sibling: cfg
             .substitution_check
@@ -156,6 +160,7 @@ pub fn assemble(inp: &RunInputs, e: &Engines, seeds: Seeds) -> Computed {
         seeds,
         mde_unavailable: inp.mde_unavailable.as_deref(),
         hand_assigned: inp.hand_assigned,
+        synthetic: e.synthetic.as_ref().map(|j| &j.view),
     });
     // Plain numbers, strings and options: serialising cannot fail. A silent drop
     // would break "column == report.prediction", so it must not be `.ok()`.

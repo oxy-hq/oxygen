@@ -27,6 +27,10 @@ const PATHS: [string, string, string][] = [
   ["design.compliance_floor", "complianceFloor", "Switches that must land"],
   ["design.time_dimension", "timeDimension", "Calendar date dimension"],
   ["design.timezone", "timezone", "Time zone"],
+  ["design.comparison", "comparison", "Compare the changed units with"],
+  ["design.one_date_test", "oneDateTest", "Test for one change date"],
+  ["design.assignment", "assignment", "How the treated units are chosen"],
+  ["design.exclude", "exclude", "Keep out of the comparison"],
   ["design.strata", "strata", "Blocks"],
   ["design.waves", "waves", "Waves"],
   ["design.seed", "seed", "Assignment seed"],
@@ -49,6 +53,8 @@ const PATHS: [string, string, string][] = [
 /** Words of the file format that mean nothing on a form. */
 const WORDS: [RegExp, string][] = [
   [/\bswitch_on\b/g, "switch date"],
+  [/\bsynthetic_control\b/g, "a synthetic control"],
+  [/\bmust be observed\b/g, "must be a change that already happened"],
   [/\bunder assign_by\b/g, "when groups are randomised"]
 ];
 

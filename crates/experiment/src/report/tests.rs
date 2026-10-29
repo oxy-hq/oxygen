@@ -1,7 +1,9 @@
 use super::*;
 use crate::compliance::ComplianceSummary;
 use crate::config::{Direction, ExperimentConfig};
-use crate::engine_in::{EffectIn, PowerIn, PreTrendIn, RatioIn, SizeBiasIn, WaveEffectIn};
+use crate::engine_in::{
+    EffectIn, PowerIn, PreTrendIn, RatioIn, SizeBiasIn, SyntheticIn, WaveEffectIn,
+};
 use crate::patch::{CoefficientEdit, PatchRefusal};
 use crate::test_fixtures::{compliance, config, effect, power, ratio, refused, unbounded_ratio};
 
@@ -26,6 +28,7 @@ pub(super) struct Case {
     pub(super) carryover: Option<EffectIn>,
     pub(super) mde_unavailable: Option<String>,
     pub(super) hand_assigned: bool,
+    pub(super) synthetic: Option<SyntheticIn>,
 }
 
 impl Case {
@@ -50,6 +53,7 @@ impl Case {
             carryover: None,
             mde_unavailable: None,
             hand_assigned: false,
+            synthetic: None,
         }
     }
 
@@ -81,6 +85,7 @@ impl Case {
             },
             mde_unavailable: self.mde_unavailable.as_deref(),
             hand_assigned: self.hand_assigned,
+            synthetic: self.synthetic.as_ref(),
         })
     }
 }

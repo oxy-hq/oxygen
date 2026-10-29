@@ -141,6 +141,21 @@ pub struct DesignConfig {
     /// as before.
     #[serde(default, skip_serializing_if = "Assignment::is_randomised")]
     pub assignment: Assignment,
+    /// What the treated units are compared against: the units that were not
+    /// switched (the default), or a synthetic control built for each treated
+    /// unit from them. Skipped at the default, so a design without it
+    /// serializes, and hashes, as before.
+    #[serde(default, skip_serializing_if = "Comparison::is_untreated")]
+    pub comparison: Comparison,
+    /// How a run with one switch date is tested: Welch (the default), or the
+    /// permutation test several switch dates always get. Skipped at the
+    /// default, so a design without it serializes, and hashes, as before.
+    #[serde(default, skip_serializing_if = "OneDateTest::is_welch")]
+    pub one_date_test: OneDateTest,
+    /// Units kept out of a synthetic control's donors: ones the change may have
+    /// reached too (a sibling product, a neighbouring store). Skipped when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude: Vec<String>,
     /// Empty (and no `switchback.periods`) = draft.
     #[serde(default)]
     pub waves: Vec<WaveConfig>,
@@ -188,6 +203,47 @@ pub enum Assignment {
 impl Assignment {
     pub fn is_randomised(&self) -> bool {
         matches!(self, Assignment::Randomised)
+    }
+}
+
+/// The test a run with one switch date is read with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OneDateTest {
+    /// Each unit's pre/post change, the two arms compared with Welch's t-test.
+    /// Right for a balanced randomised split however small, and instant.
+    #[default]
+    Welch,
+    /// The changed units read against every unit that was not switched, by
+    /// relabelling which units were (studentized, so it holds when the arms
+    /// spread differently). For a handful of changed units beside many
+    /// unchanged ones; needs enough units to reach alpha, and takes seconds.
+    Permutation,
+}
+
+impl OneDateTest {
+    pub fn is_welch(&self) -> bool {
+        matches!(self, OneDateTest::Welch)
+    }
+}
+
+/// What the treated units are compared against.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Comparison {
+    /// The units that were not switched: Welch on one switch date (unless
+    /// `one_date_test` says permutation), the permutation test on several.
+    #[default]
+    Untreated,
+    /// For each treated unit, a weighted mix of untreated units that tracked it
+    /// before the switch; tested by treating each donor as if it were switched.
+    /// For a handful of chosen units, read from past data.
+    SyntheticControl,
+}
+
+impl Comparison {
+    pub fn is_untreated(&self) -> bool {
+        matches!(self, Comparison::Untreated)
     }
 }
 

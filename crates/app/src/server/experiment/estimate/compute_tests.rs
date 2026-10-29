@@ -86,6 +86,7 @@ fn engines(with_ratio: bool) -> Engines {
     first_stage.significant = true;
     Engines {
         carryover: None,
+        synthetic: None,
         effect: effect(25.0),
         sibling: Some(effect(-1.0)),
         sibling_power: Some(Judged {

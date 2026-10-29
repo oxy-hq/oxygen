@@ -411,6 +411,7 @@ fn the_series_design_leaves_out_a_treated_unit_the_estimate_left_out() {
         coverage_floor: 0.9,
         alpha: 0.05,
         family: 1,
+        one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
     });
     let left = |unit: &str| DroppedUnitIn {
         unit: unit.into(),

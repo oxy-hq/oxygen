@@ -7,8 +7,10 @@
 use std::collections::HashMap;
 
 use oxy_airlayer_compat::engine::experiment::{
-    Assignment, ExperimentDesign, Period, SwitchbackSchedule,
+    Assignment, ExperimentDesign, OneDateTest, PRE_FIT_CEILING, Period, SwitchbackSchedule,
+    SyntheticSpec,
 };
+use oxy_experiment::config::Comparison;
 use oxy_experiment::{ExperimentConfig, LeverState, SwitchbackConfig};
 
 /// The design the engine estimates, by unit **name**.
@@ -35,6 +37,56 @@ pub fn to_design(c: &ExperimentConfig, units: &[String]) -> ExperimentDesign {
     }
 }
 
+/// The design the estimates read: [`to_design`]'s, or with
+/// `design.comparison: synthetic_control` a synthetic control over the same
+/// units — the treated units are the waves', the donors every other unit in
+/// `units` (the run's pinned pool), less `design.exclude`. Validation keeps a
+/// synthetic design to one switch date, so the first treated unit's day is
+/// every treated unit's. A switchback is never synthetic.
+pub fn to_engine_design(c: &ExperimentConfig, units: &[String]) -> ExperimentDesign {
+    let design = to_design(c, units);
+    if c.design.comparison != Comparison::SyntheticControl {
+        return design;
+    }
+    match &design {
+        ExperimentDesign::Waves(a) => ExperimentDesign::Synthetic(synthetic(c, a)),
+        _ => design,
+    }
+}
+
+fn synthetic(c: &ExperimentConfig, a: &Assignment) -> SyntheticSpec {
+    let mut treated: Vec<(String, i64)> = a
+        .switch_day
+        .iter()
+        .filter_map(|(u, s)| s.map(|day| (u.clone(), day)))
+        .collect();
+    treated.sort();
+    let mut donors: Vec<String> = a
+        .switch_day
+        .iter()
+        .filter(|(_, s)| s.is_none())
+        .map(|(u, _)| u.clone())
+        .collect();
+    donors.sort();
+    SyntheticSpec {
+        start_on: treated.iter().map(|(_, d)| *d).min().unwrap_or_default(),
+        treated: treated.into_iter().map(|(u, _)| u).collect(),
+        donors: Some(donors),
+        exclude: c.design.exclude.clone(),
+        pre_days: a.pre_days,
+        post_days: a.post_days,
+        anticipation_days: a.anticipation_days,
+        washout_days: a.washout_days,
+        coverage_floor: a.coverage_floor,
+        alpha: a.alpha,
+        family: a.family,
+        // A past-data reading registers nothing, so there is no threshold priced
+        // and frozen: the engine's own ceiling refuses a fit no better than a
+        // flat line.
+        max_pre_fit: PRE_FIT_CEILING,
+    }
+}
+
 fn schedule(c: &ExperimentConfig, sb: &SwitchbackConfig) -> SwitchbackSchedule {
     SwitchbackSchedule {
         periods: sb
@@ -50,6 +102,14 @@ fn schedule(c: &ExperimentConfig, sb: &SwitchbackConfig) -> SwitchbackSchedule {
         coverage_floor: c.design.coverage_floor,
         alpha: c.outcome.alpha,
         family: c.outcome.family as usize,
+    }
+}
+
+/// The file's `design.one_date_test`, as the engine's.
+pub(crate) fn engine_one_date_test(t: oxy_experiment::config::OneDateTest) -> OneDateTest {
+    match t {
+        oxy_experiment::config::OneDateTest::Welch => OneDateTest::Welch,
+        oxy_experiment::config::OneDateTest::Permutation => OneDateTest::Permutation,
     }
 }
 
@@ -75,6 +135,7 @@ fn assignment(c: &ExperimentConfig, units: &[String]) -> Assignment {
         coverage_floor: c.design.coverage_floor,
         alpha: c.outcome.alpha,
         family: c.outcome.family as usize,
+        one_date_test: engine_one_date_test(c.design.one_date_test),
     }
 }
 
@@ -82,11 +143,11 @@ fn assignment(c: &ExperimentConfig, units: &[String]) -> Assignment {
 mod tests {
     use chrono::NaiveDate;
     use oxy_airlayer_compat::engine::experiment::{
-        Assignment, ExperimentDesign, Period, day_ordinal,
+        Assignment, ExperimentDesign, OneDateTest, Period, day_ordinal,
     };
     use oxy_experiment::parse;
 
-    use super::to_design;
+    use super::{to_design, to_engine_design};
     use crate::server::experiment::testing::{
         FOUR_PERIODS, MDE, STRATA, TWO_WAVES, switchback_yaml, yaml,
     };
@@ -249,5 +310,58 @@ mod tests {
             "2026-03-02 and 2026-03-16 are two weeks apart"
         );
         assert_eq!(a.pre_days, 4, "a window count is passed through as periods");
+    }
+
+    #[test]
+    fn the_one_date_test_reaches_the_engine_assignment() {
+        let u = units(&["bondi", "manly", "cronulla"]);
+        assert_eq!(
+            waves(to_design(&config(), &u)).one_date_test,
+            OneDateTest::Welch
+        );
+        let mut c = config();
+        c.design.one_date_test = oxy_experiment::config::OneDateTest::Permutation;
+        assert_eq!(
+            waves(to_design(&c, &u)).one_date_test,
+            OneDateTest::Permutation
+        );
+    }
+
+    #[test]
+    fn an_untreated_comparison_is_the_waves_design_unchanged() {
+        let u = units(&["bondi", "manly", "cronulla"]);
+        let (a, b) = (
+            waves(to_engine_design(&config(), &u)),
+            waves(to_design(&config(), &u)),
+        );
+        assert_eq!(a.switch_day, b.switch_day);
+        assert_eq!((a.pre_days, a.post_days), (b.pre_days, b.post_days));
+    }
+
+    #[test]
+    fn a_synthetic_control_takes_the_wave_units_as_treated_and_the_rest_as_donors() {
+        let mut c = config();
+        c.design.comparison = oxy_experiment::config::Comparison::SyntheticControl;
+        c.design.exclude = vec!["coogee".into()];
+        let u = units(&["manly", "bondi", "cronulla", "coogee", "newtown"]);
+        let ExperimentDesign::Synthetic(s) = to_engine_design(&c, &u) else {
+            panic!("expected a synthetic design");
+        };
+        assert_eq!(s.treated, units(&["bondi", "manly", "newtown"]));
+        assert_eq!(s.donors, Some(units(&["coogee", "cronulla"])));
+        assert_eq!(
+            s.exclude,
+            units(&["coogee"]),
+            "the engine drops excluded donors"
+        );
+        assert_eq!(s.start_on, day_ordinal(date(2026, 3, 2)));
+        assert_eq!(
+            (s.pre_days, s.post_days, s.washout_days, s.family),
+            (56, 42, 7, 2)
+        );
+        assert_eq!(
+            s.max_pre_fit,
+            oxy_airlayer_compat::engine::experiment::PRE_FIT_CEILING
+        );
     }
 }

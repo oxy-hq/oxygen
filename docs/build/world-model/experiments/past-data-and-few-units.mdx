@@ -1,6 +1,6 @@
 ---
 title: "Past data and few-unit designs"
-description: "Analysing a design whose dates have passed, designing for a handful of markets, and the synthetic-control design that is planned but not built"
+description: "Analysing a design whose dates have passed, designing for a handful of markets, and comparing a few chosen units with a synthetic control"
 ---
 
 ## Analyse past data
@@ -38,6 +38,20 @@ The report's **Randomisation** check then reads **Observational**: the treated a
 comparison units were not drawn at random, so they may differ in ways other than
 the change. If you edit a priced design's waves by hand, the same check reads
 **Written by hand**.
+
+### A few changed units on one date
+
+With one change date, the result is tested with **Welch's t-test** by default.
+It is right for groups split evenly, however small, but it learns how much the
+changed units vary from those units alone: with two or three of them it can
+hardly ever call a result clear. When a handful of units changed beside many
+that did not, set **Test for one change date** to **Permutation**
+(`design.one_date_test: permutation`). The changed units are then read against
+every unchanged one, by asking how often a random pick of that many units moved
+as much. It allows for the changed units being busier or quieter than the rest.
+It needs enough units for a random pick to be rare (three against three is not),
+and the analysis takes seconds rather than an instant. Several change dates are
+always tested this way.
 
 ### Units with missing data
 
@@ -153,51 +167,54 @@ If no unit can be held back at all, the whole fleet can alternate. It needs
 at least six pairs of periods at a significance level of 0.05, or four at a
 directional 0.2.
 
+## Synthetic control
+
+A promotion usually runs on a few products someone chose, and a campaign in
+one or two markets. Nothing was randomised, so the units left out are not a
+fair control: they were not picked to resemble the ones that changed, and an
+average over all of them can move very differently from three best-sellers.
+
+**Synthetic control** builds the missing comparison for each changed unit
+from the units that did not change. For a promoted product, it finds a
+weighted blend of unpromoted products (say 40% product B, 35% product F, 25%
+product K) whose sales tracked the promoted product's sales closely over the
+before window. After the promotion starts, that blend shows what the product
+would probably have sold without it. The effect is the gap between the two,
+averaged over the changed units.
+
+### Setting it up
+
+It reads past data. On a design whose units were **Already changed** (under
+**Lever**), set **Compare the changed units with** to **A synthetic control**.
+Then list under **Keep out of the comparison** any unchanged unit the change
+may still have reached: a sibling product that customers switch to, or a
+neighbouring store that sees the same ads. Use one wave: every changed unit
+switched on the same date. It needs at least 10 unchanged units to blend.
+
+### Reading the report
+
+The report is labelled **Not randomised — synthetic control** and states two
+assumptions every time: the change did not reach the units in the blend, and
+nothing else changed for the changed units alone after the switch date. A
+section **Each changed unit against its synthetic control** lists, for each
+unit:
+
+- **Effect**: its own gap after the change.
+- **Tracked before**: how closely the blend followed it before the change,
+  as *Close*, *Fair* or *Loose*. A blend that did no better than a flat line
+  at the unit's average is refused rather than shown: its "effect" would be
+  the fit's error.
+- **Stands out**: the same fit is repeated pretending each unchanged unit had
+  been changed. *top 5%* means only 5% of those pretend gaps were as large as
+  this unit's.
+- **Built from**: the units in its blend and their weights.
+
+Click a unit to chart it against its blend, before and after the change. The
+headline's p-value comes from the same pretend fits, over all the changed
+units together. No projection onto other units is offered: the blend was
+chosen to follow the changed units, not to represent the rest.
+
 <Note>
-Pricing puts these side by side on your data. With few units the honest
-answer is sometimes that nothing can detect the effect you expect. Pricing
-will say so, which is far cheaper than finding out after the run.
+Synthetic control is for past data only for now. Pricing a future synthetic
+design, so it can be registered before it starts, is not built.
 </Note>
-
-## Synthetic control (designed, not built)
-
-<Warning>
-This design is a **proposal under review**. It is not available in the
-product. It is described here so stakeholders can see where few-unit and
-non-random designs are heading.
-</Warning>
-
-Every design available today needs a random element: units held back at
-random, or periods alternated at random. Two real cases have neither:
-
-1. **A campaign that runs in places someone chose.** The brand team picks
-   Denver for a launch. Nothing was randomised, so there is no control group,
-   and the business will not alternate a live campaign week by week.
-2. **A past campaign that was never registered** and was not randomised
-   either.
-
-**Synthetic control** builds the missing comparison from the units that were
-not touched. For the treated market, it finds a weighted blend of untouched
-markets (say 40% Phoenix, 35% Dallas, 25% Kansas City) whose sales tracked
-the treated market's sales closely over a long period before the campaign.
-After the campaign starts, that blend shows what the treated market would
-probably have done without it. The effect is the gap between the two.
-
-How it is planned to work:
-
-- **The fit is the evidence.** The blend is fitted on a long before window,
-  and the report shows the weights and how closely the blend tracked the
-  treated unit before the change. If no blend tracks it well, the design is
-  refused: the "effect" would just be the fit's error.
-- **Is the gap unusual?** The same fit is repeated pretending each untouched
-  market was the treated one. If the real market's gap stands out among those
-  placebo gaps, the effect is real.
-- **Pricing works as usual.** Effects of known size are planted at past dates
-  to find the smallest effect the design can detect.
-- **Clearly labelled.** A synthetic-control result would be labelled as *not
-  randomised*, and pricing would rank a randomised design above it whenever
-  both are possible. It also cannot hold when the change spills into the
-  donor markets, such as a national TV burst, and the report would say so.
-
-The first version is planned for geographic donors only; using other
-products as donors for a single-product campaign is a follow-up.

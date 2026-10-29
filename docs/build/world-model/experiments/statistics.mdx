@@ -79,6 +79,11 @@ one registered outcome there is no correction at all, which is the reward
 for writing the plan down first. Units are matched to groups **by name**,
 never by position, so the groups can never be silently swapped.
 
+With `design.one_date_test: permutation` a one-date design is instead tested
+like staggered waves (below), as a single wave: for a handful of treated units
+beside many controls, where Welch's degrees of freedom come from the treated
+units alone.
+
 Blocks and matched pairs shape **the draw** on this path: they make a lopsided
 split impossible. The analysis then compares the two groups as wholes. Under
 blocked assignment that comparison is still unbiased, and its uncertainty is,
@@ -114,6 +119,14 @@ calendar fixed and staying within blocks, and recomputes the result each
 time. If the real result is more extreme than almost all shuffles, it is
 significant. Because this mirrors exactly how the units were assigned, it
 needs no assumptions about the shape of the data.
+
+Each result is first divided by its own uncertainty, worked out the way
+Welch's test does it, before it is compared with the shuffles. Without that
+step the test is fooled when the changed units are naturally noisier than the
+rest, say a promotion on the busiest products, or when the effect differs a lot
+from unit to unit and the groups are of unequal size. In those cases it called
+a change "clear" 30–55% of the time when there was none. With it, that happens
+about 5% of the time, as the significance level promises.
 
 <Frame caption="The staggered promo, tested. Grey: the effect the analysis reports for 2,000 random reassignments of which shoppers were in wave 1, wave 2 or neither, as if the promo did nothing. Teal: the real result, +$12.30. Only 51 shuffles (orange) are as far from zero, so p ≈ 0.026.">
   <img src="../../../images/experiments/permutation-null.svg" alt="Histogram of 2,000 reshuffled effects centred on zero, mostly between −12 and +12. A vertical line marks the real result at +12.3. The few bars at least that far from zero on either side are orange; the caption says 51 of 2,000, p about 0.026." />

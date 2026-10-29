@@ -271,7 +271,19 @@ export function toConfig(
   // An observed rollout already happened: nothing is switched, so there is no lever.
   if (v.assignment !== "observed") config.lever = lever(r, v);
   config.design = schedule(r, v);
-  if (v.assignment === "observed") config.design.assignment = "observed";
+  if (v.assignment === "observed") {
+    config.design.assignment = "observed";
+    if (v.comparison === "synthetic_control") {
+      config.design.comparison = "synthetic_control";
+      const exclude = unitNames(v.exclude);
+      if (exclude.length > 0) config.design.exclude = exclude;
+    }
+  }
+  // Picks the test for one switch date, randomised or observed; a switchback and a
+  // synthetic control have their own test, so it is not written for either.
+  const synthetic = v.assignment === "observed" && v.comparison === "synthetic_control";
+  if (v.kind === "waves" && !synthetic && v.oneDateTest === "permutation")
+    config.design.one_date_test = "permutation";
   config.outcome = outcome(r, v);
   const sibling = r.optional("sibling");
   const siblingFilter = filters(r, v.siblingFilter, "siblingFilter");

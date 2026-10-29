@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::compliance::ComplianceSummary;
 use crate::config::{ExperimentConfig, PriorSource};
-use crate::engine_in::{EffectIn, PowerIn, RatioIn};
+use crate::engine_in::{EffectIn, PowerIn, RatioIn, SyntheticIn};
 use crate::patch::{CoefficientEdit, PatchRefusal, ReplacedPrior};
 
 /// Shown on every projection, whatever the size diagnostic says.
@@ -306,6 +306,54 @@ pub struct ReportView {
     /// on a report sealed before it existed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub waves: Vec<WaveView>,
+    /// Set when the treated units were compared with a synthetic control
+    /// (`design.comparison`): each treated unit's fit, its donors and its chart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synthetic: Option<SyntheticView>,
+}
+
+/// How a synthetic control was built, unit by unit, in the headline's scale.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyntheticView {
+    /// "Not randomised — synthetic control": stated on every such report.
+    pub label: String,
+    /// Units the fits could draw on.
+    pub donors: usize,
+    /// Placebo sets behind the p-value, and whether they were every one.
+    pub placebo_sets: usize,
+    pub exact: bool,
+    pub fits: Vec<SyntheticFitView>,
+}
+
+/// One treated unit against its synthetic control.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyntheticFitView {
+    pub unit: String,
+    /// Its own mean effect per period over the post window.
+    pub effect: Option<f64>,
+    /// Pre-window tracking error over the unit's own volatility: 0 is perfect,
+    /// 1 is no better than a flat line at its mean.
+    pub pre_fit: Option<f64>,
+    /// How its post/pre error ratio ranks among the donors' placebos, as a p-value.
+    pub rank_p: Option<f64>,
+    /// Donors with a non-zero weight, largest first.
+    pub weights: Vec<DonorWeightView>,
+    pub series: Vec<SyntheticPointView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DonorWeightView {
+    pub unit: String,
+    pub weight: f64,
+}
+
+/// One period of the treated-versus-synthetic chart, in the measure's own units.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyntheticPointView {
+    /// The first day of the period.
+    pub date: Option<chrono::NaiveDate>,
+    pub actual: Option<f64>,
+    pub synthetic: Option<f64>,
 }
 
 /// One wave's own effect, in the headline's scale.
@@ -357,4 +405,6 @@ pub struct ReportInput<'a> {
     /// The analysed split is not one pricing drew: the design's assignment was
     /// edited by hand after a proposal was adopted, or never adopted from one.
     pub hand_assigned: bool,
+    /// The synthetic control's fits, when `design.comparison` asked for one.
+    pub synthetic: Option<&'a SyntheticIn>,
 }

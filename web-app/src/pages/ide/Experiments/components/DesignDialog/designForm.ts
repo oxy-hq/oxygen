@@ -43,6 +43,11 @@ export interface DesignFormValues {
   assignBy: string;
   /** `observed`: a rollout that already happened, declared and analysed from past data; no lever. */
   assignment: "randomised" | "observed";
+  /** What the changed units are compared against (observed only): the rest, or a synthetic control built from them. */
+  comparison: "untreated" | "synthetic_control";
+  oneDateTest: "welch" | "permutation";
+  /** Units kept out of a synthetic control (ones the change may also have reached), as a comma list. */
+  exclude: string;
   // lever
   onVia: string;
   offVia: string;
@@ -124,6 +129,9 @@ export function emptyDesignValues(): DesignFormValues {
     forEach: "",
     assignBy: "",
     assignment: "randomised",
+    comparison: "untreated",
+    oneDateTest: "welch",
+    exclude: "",
     onVia: "",
     offVia: "",
     whenOn: "",
@@ -222,6 +230,13 @@ export function toFormValues(input: Partial<ExperimentDefinition> | Loose): Desi
     forEach: text(c.for_each),
     assignBy: text(c.assign_by),
     assignment: design.assignment === "observed" ? "observed" : "randomised",
+    comparison: oneOf(
+      design.comparison,
+      ["untreated", "synthetic_control"] as const,
+      base.comparison
+    ),
+    oneDateTest: oneOf(design.one_date_test, ["welch", "permutation"] as const, base.oneDateTest),
+    exclude: names(design.exclude),
     onVia: text(obj(lever.on).via),
     offVia: text(obj(lever.off).via),
     whenOn: text(readBack.when_on),

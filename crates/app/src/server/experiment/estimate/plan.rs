@@ -45,11 +45,17 @@ fn mix(seed: u64, salt: u64) -> u64 {
     (z ^ (z >> 31)) & SEED_MASK
 }
 
+/// The estimate reads `to_design`'s waves for its sibling, so this is reached
+/// only by a caller handing the engine design over.
+const SYNTHETIC_NO_SIBLING: &str =
+    "a synthetic control is priced by placebo-in-time over its own fits, not by a sibling placebo";
+
 /// The first day any unit is switched on, or the first switchback period starts.
 pub fn earliest_day(d: &ExperimentDesign) -> Option<i64> {
     match d {
         ExperimentDesign::Waves(a) => a.switch_day.values().flatten().copied().min(),
         ExperimentDesign::Switchback(s) => s.periods.iter().map(|p| p.from_day).min(),
+        ExperimentDesign::Synthetic(s) => Some(s.start_on),
     }
 }
 
@@ -65,6 +71,8 @@ pub fn never_treated(d: &ExperimentDesign, m: &PanelMatrix) -> usize {
             .filter(|(unit, day)| day.is_none() && m.unit_index(unit).is_some())
             .count(),
         ExperimentDesign::Switchback(_) => 0,
+        // Read only by the projection, which a synthetic control does not make.
+        ExperimentDesign::Synthetic(_) => 0,
     }
 }
 
@@ -84,6 +92,7 @@ pub fn sibling_design_spec(
     Ok(match d {
         ExperimentDesign::Waves(a) => waves_spec(cfg, a, earliest, iterations),
         ExperimentDesign::Switchback(s) => switchback_spec(cfg, s, earliest, iterations),
+        ExperimentDesign::Synthetic(_) => return Err(SYNTHETIC_NO_SIBLING.to_string()),
     })
 }
 
@@ -130,6 +139,7 @@ fn waves_spec(
         iterations,
         history_to: Some(earliest - a.anticipation_days as i64),
         blocks: a.strata.as_ref().map_or(0, Vec::len),
+        one_date_test: a.one_date_test,
     }
 }
 
@@ -157,6 +167,7 @@ fn switchback_spec(
         iterations,
         history_to: Some(earliest),
         blocks: 0,
+        one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
     }
 }
 

@@ -151,7 +151,12 @@ fn waves_spec(
                 n_treated: only.units.len(),
                 n_control: n_units - placed,
             },
-            run.iterations.common_date,
+            // Read by permutation, a common date is priced as one wave is.
+            if eff.design.one_date_test.is_welch() {
+                run.iterations.common_date
+            } else {
+                run.iterations.staggered
+            },
         )
     } else {
         (
@@ -176,6 +181,9 @@ fn waves_spec(
         iterations,
         history_to: Some(history_to(eff, run)),
         blocks: c.blocks.unwrap_or(0),
+        one_date_test: crate::server::experiment::assignment::engine_one_date_test(
+            eff.design.one_date_test,
+        ),
     }
 }
 

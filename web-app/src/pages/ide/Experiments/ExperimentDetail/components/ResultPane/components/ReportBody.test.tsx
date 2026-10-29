@@ -1333,3 +1333,55 @@ describe("ReportBody for a proportional outcome with a sibling", () => {
     expect(floor).not.toHaveTextContent("%");
   });
 });
+
+describe("ReportBody for a synthetic control", () => {
+  const fit = (unit: string, preFit: number) => ({
+    unit,
+    effect: 4.2,
+    pre_fit: preFit,
+    rank_p: 0.05,
+    weights: [
+      { unit: "b3", weight: 0.5 },
+      { unit: "b9", weight: 0.3 },
+      { unit: "b1", weight: 0.15 },
+      { unit: "b4", weight: 0.05 }
+    ],
+    series: [{ date: "2026-05-01", actual: 12, synthetic: 11 }]
+  });
+  const synthetic = {
+    label: "Not randomised — synthetic control",
+    donors: 20,
+    placebo_sets: 20,
+    exact: true,
+    fits: [fit("a1", 0.2), fit("a2", 0.7)]
+  };
+
+  it("labels the comparison and lists each unit's fit and what it is built from", () => {
+    render(<ReportBody result={result({ synthetic })} />);
+    expect(screen.getByTestId("experiment-report-synthetic-label")).toHaveTextContent(
+      "Not randomised — synthetic control"
+    );
+    const rows = screen.getAllByTestId("experiment-report-synthetic-unit");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Close");
+    expect(rows[0]).toHaveTextContent("b3 50%, b9 30%, b1 15%, and 1 more");
+    expect(rows[0]).toHaveTextContent("top 5%");
+    expect(rows[1]).toHaveTextContent("Loose");
+  });
+
+  it("charts the unit picked from the table", async () => {
+    render(<ReportBody result={result({ synthetic })} />);
+    const rows = screen.getAllByTestId("experiment-report-synthetic-unit");
+    expect(rows[0]).toHaveAttribute("data-selected", "true");
+    await userEvent.click(rows[1]);
+    expect(rows[1]).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("experiment-report-synthetic")).toHaveTextContent(
+      "a2 and its synthetic control"
+    );
+  });
+
+  it("shows nothing without one", () => {
+    render(<ReportBody result={result()} />);
+    expect(screen.queryByTestId("experiment-report-synthetic")).toBeNull();
+  });
+});
