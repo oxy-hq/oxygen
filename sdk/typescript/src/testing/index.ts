@@ -24,6 +24,8 @@ export {
   type ResolvedNotificationKind,
   resolveNotificationKind
 } from "../custom-app/notification-catalog";
+// Home widgets' publish checks, for the same kind of test.
+export { checkWidgets, type WidgetFinding } from "../custom-app/widgets";
 export {
   createTestContext,
   type HostCall,

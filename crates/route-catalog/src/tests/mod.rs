@@ -320,6 +320,11 @@ fn the_custom_app_routes_are_catalogued_on_every_seam() {
     for (method, path) in [
         ("GET", "/api/apps/mine"),
         ("GET", "/api/me/apps"),
+        ("GET", "/api/home/widgets"),
+        (
+            "POST",
+            "/api/home/widgets/{app_id}/{widget}/actions/{action}",
+        ),
         ("POST", "/api/customer-apps"),
         ("GET", "/api/customer-apps/{id}/secrets"),
         (

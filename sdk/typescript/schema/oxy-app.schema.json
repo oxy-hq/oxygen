@@ -111,6 +111,13 @@
         "notifications": {
           "$ref": "#/definitions/OxyAppNotificationsManifest",
           "description": "The notification catalogue: how each kind the app's functions send (`functions.<name>.notify.kinds`) is labelled, grouped and ranked — the tree a phone groups notifications by, and the one people mute in. Each kind sits in a category path of up to 3 segments (`operations/food-safety`; none → `general`), has a `level` (`passive` | `active` | `time_sensitive` | `critical`) and up to 3 `actions`.\n\nWhich kinds a function may send is still its own `notify.kinds`; a kind it sends that is missing here gets the defaults (category `general`, the kind humanized, `critical` when marked so). Publish refuses a malformed or unknown category, a bad level, more than 3 actions, an action naming a function the app does not declare, and an `oxy.` kind; `oxyc validate` and the Vite plugin say so first.\n\nRead by the platform at **publish time**, so it is documented here but not round-tripped through the dev-time manifest fetch."
+        },
+        "widgets": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/OxyAppWidget"
+          },
+          "description": "Home widgets: live cards on the Oxygen home (behind the apps-first home), keyed by widget id (1–32 lowercase letters, digits, `_` or `-`). Each names a `function` that returns a small JSON view and up to 3 `actions` its buttons may run, each another declared function. The home draws the view itself; no app code runs on the home. At most 3 widgets per app.\n\n```json \"widgets\": {   \"close\": {     \"title\": \"Month-end close\",     \"function\": \"close-widget\",     \"size\": \"wide\",     \"actions\": { \"post-ready\": { \"function\": \"post-ready-jes\", \"confirm\": true } }   } } ```\n\nProduction only: widgets read and act on the production build. Publish refuses a bad id, a missing or oversize title, a function the app does not declare, more than 3 widgets or actions, and an unknown key; `oxyc validate` and the Vite plugin say so first. Read by the platform at **publish time** and from the live build, so it is documented here but not round-tripped through the dev-time manifest fetch."
         }
       },
       "required": ["schemaVersion", "slug"],
@@ -651,6 +658,60 @@
       "required": ["id", "label"],
       "additionalProperties": false,
       "description": "A button on a notification."
+    },
+    "OxyAppWidget": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The card's heading, 1–40 characters.",
+          "maxLength": 40,
+          "minLength": 1
+        },
+        "function": {
+          "type": "string",
+          "description": "A function this app declares. The home calls it with `{ widget: \"<id>\" }` and expects a  {@link  WidgetView }  back."
+        },
+        "size": {
+          "$ref": "#/definitions/OxyAppWidgetSize",
+          "description": "`regular` (default) or `wide` (two columns)."
+        },
+        "actions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/OxyAppWidgetAction"
+          },
+          "description": "The buttons this widget may run, keyed by action id (1–32 lowercase letters, digits, `_` or `-`). At most 3. A button in a view naming an action missing here is dropped."
+        }
+      },
+      "required": ["title", "function"],
+      "additionalProperties": false,
+      "description": "One widget, keyed by its id in  {@link  OxyAppManifest.widgets  } ."
+    },
+    "OxyAppWidgetSize": {
+      "type": "string",
+      "enum": ["regular", "wide"],
+      "description": "How wide a widget's card is on the home: one column, or two."
+    },
+    "OxyAppWidgetAction": {
+      "type": "object",
+      "properties": {
+        "function": {
+          "type": "string",
+          "description": "A function this app declares. Pressing the button calls it as the signed-in person with `{ widget, action, input }` and an `Idempotency-Key` header."
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "The home asks before running it (the button's own `confirm` text, if any)."
+        },
+        "destructive": {
+          "type": "boolean",
+          "description": "Drawn as a destructive button."
+        }
+      },
+      "required": ["function"],
+      "additionalProperties": false,
+      "description": "A button on a widget: a declared function the home runs when it is pressed."
     }
   }
 }

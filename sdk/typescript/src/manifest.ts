@@ -69,3 +69,20 @@ export {
   type ResolvedNotificationKind,
   resolveNotificationKind
 } from "./custom-app/notification-catalog";
+
+export {
+  checkWidgets,
+  MAX_WIDGET_ACTIONS,
+  MAX_WIDGETS,
+  type OxyAppWidget,
+  type OxyAppWidgetAction,
+  type OxyAppWidgetSize,
+  type WidgetActionResult,
+  type WidgetButton,
+  type WidgetCheckId,
+  type WidgetFinding,
+  type WidgetLevel,
+  type WidgetRow,
+  type WidgetRowState,
+  type WidgetView
+} from "./custom-app/widgets";

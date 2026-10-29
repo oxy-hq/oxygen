@@ -68,6 +68,7 @@ vi.mock("./components/WorldModelCard", () => ({
     </a>
   )
 }));
+vi.mock("./components/HomeWidgets", () => ({ HomeWidgets: () => null }));
 vi.mock("./components/HomeRecentQuestions", () => ({
   HomeRecentQuestions: () => <h2 data-testid='recent-questions'>Your recent questions</h2>
 }));

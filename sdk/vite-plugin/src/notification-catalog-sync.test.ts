@@ -7,9 +7,10 @@
  * one import rather than three files.
  */
 
-import { checkNotifications } from "@oxy-hq/sdk/manifest";
+import { checkNotifications, checkWidgets } from "@oxy-hq/sdk/manifest";
 import { describe, expect, it } from "vitest";
 import { checkNotifications as sdkSource } from "../../typescript/src/custom-app/notification-catalog";
+import { checkWidgets as widgetsSource } from "../../typescript/src/custom-app/widgets";
 import { validateManifest } from "./index.js";
 
 describe("the notification catalogue's checks", () => {
@@ -25,5 +26,22 @@ describe("the notification catalogue's checks", () => {
         functions: { f: { notify: { kinds: { "oxy.anomaly": {} } } } }
       })
     ).toEqual([expect.stringMatching(/^functions\.f\.notify\.kinds\.oxy\.anomaly: /)]);
+  });
+});
+
+describe("the widget checks", () => {
+  it("are the SDK's own export, not a copy", () => {
+    expect(checkWidgets).toBe(widgetsSource);
+  });
+
+  it("run inside the plugin's manifest validation", () => {
+    expect(
+      validateManifest({
+        schemaVersion: 2,
+        slug: "x",
+        functions: { f: {} },
+        widgets: { w: { title: "W", function: "ghost" } }
+      })
+    ).toEqual([expect.stringMatching(/^widgets\.w\.function: /)]);
   });
 });

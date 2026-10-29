@@ -127,7 +127,7 @@ pub async fn openable_apps(
 /// BELONGS to — a membership, a frontline enrolment, or the service account's
 /// own org. Staff and partner reach is deliberately not here: "my apps" is not
 /// every tenant a Global Admin or a distributor could open.
-fn candidate_orgs(facts: &PrincipalFacts) -> BTreeSet<Uuid> {
+pub(crate) fn candidate_orgs(facts: &PrincipalFacts) -> BTreeSet<Uuid> {
     facts
         .member_orgs
         .iter()
@@ -142,7 +142,7 @@ fn candidate_orgs(facts: &PrincipalFacts) -> BTreeSet<Uuid> {
 /// established membership first. The resource names the workspace the app was
 /// published from, so a workspace-scoped token is capped there rather than by
 /// its best grant anywhere in the org.
-fn keep_openable(facts: &PrincipalFacts, rows: Vec<apps::Model>) -> Vec<apps::Model> {
+pub(crate) fn keep_openable(facts: &PrincipalFacts, rows: Vec<apps::Model>) -> Vec<apps::Model> {
     rows.into_iter()
         .filter(|app| {
             oxy_authz::allows(
@@ -155,7 +155,7 @@ fn keep_openable(facts: &PrincipalFacts, rows: Vec<apps::Model>) -> Vec<apps::Mo
 }
 
 /// `path` (root-relative) on `base` (scheme + host, any trailing `/`).
-fn absolute(base: &str, path: &str) -> String {
+pub(crate) fn absolute(base: &str, path: &str) -> String {
     format!("{}{path}", base.trim_end_matches('/'))
 }
 

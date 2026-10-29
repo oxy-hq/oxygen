@@ -24,6 +24,7 @@
 import { FUNCTION_NAME_RULE, SLUG_RULE } from "./manifest-rules";
 import { type ManifestSchemaNode, OXY_APP_SCHEMA } from "./manifest-schema";
 import { checkNotifications } from "./notification-catalog";
+import { checkWidgets } from "./widgets";
 
 /** One finding about a manifest. */
 export interface ManifestIssue {
@@ -111,7 +112,8 @@ export function validateOxyAppManifest(raw: unknown): ManifestIssue[] {
   // The catalogue's checks know more about `notifications` than the schema does
   // (which categories exist, which kinds a function sends), so where both speak
   // about one path the catalogue's sentence is the one kept.
-  const catalogue = checkNotifications(raw);
+  // `checkWidgets` does the same for `widgets`.
+  const catalogue = [...checkNotifications(raw), ...checkWidgets(raw)];
   const said = new Set(catalogue.map((f) => f.path));
   const kept = issues.filter((issue) => !said.has(issue.path));
   for (const f of catalogue) kept.push({ level: f.level, path: f.path, message: f.message });

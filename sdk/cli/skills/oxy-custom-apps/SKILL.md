@@ -69,7 +69,7 @@ works), but hand-rolling means owning the base-path + dev-proxy wiring yourself.
    Optional: `name` (display), `description`, `icon`, `art`, `status`
    (launcher card), `projectId` (dev-time hint), `build` (what `oxyc
    publish` runs — `install`, `command`, `outDir`; the plugin reads
-   `outDir` too), `functions`, `env`, `storage`, `notifications`, …
+   `outDir` too), `functions`, `env`, `storage`, `notifications`, `widgets`, …
 
    **One contract.** The file is validated against the JSON Schema
    `@oxy-hq/sdk` ships (`schema/oxy-app.schema.json`, generated from the
@@ -319,6 +319,73 @@ it with `--oxy-notifications-*` CSS variables. Push sign-up and mutes stay in
 Oxygen's Settings → Notifications — don't build them. In tests,
 `createTestInbox({ manifest })` from `@oxy-hq/sdk/testing` is a fake inbox to pass as
 `<OxyAppProvider fetcher={inbox.fetcher}>`.
+
+## Home widgets (a live card on the Oxygen home)
+
+A widget puts what needs doing in your app on the Oxygen home, with the button
+that does it ("19 stores ready to post" and **Post 19 ready**). It is **data, not
+a page**: a function of yours returns a small JSON view and the home draws it
+with its own components. No app code runs on the home, and the function runs as
+the person looking, so app access, rate limits and capability gates all apply.
+
+```json
+"widgets": {
+  "close": {
+    "title": "Month-end close",          // ≤ 40 characters
+    "function": "close-widget",          // declared under functions; returns the view
+    "size": "wide",                      // "regular" (default) or "wide"
+    "actions": {
+      "post-ready": { "function": "post-ready-jes", "confirm": true }  // destructive: true for red
+    }
+  }
+}
+```
+
+At most **3 widgets** per app and **3 actions** per widget; ids are lowercase
+letters, digits, `-` and `_`. `oxyc validate` and `oxyc publish` refuse an unknown
+key, a bad id, and a `function` the manifest does not declare.
+
+The widget function is called with `{ widget: "<id>" }` and returns a `WidgetView`:
+
+```ts
+import type { WidgetView } from "@oxy-hq/sdk";
+
+export default async (req, ctx) => {
+  const view: WidgetView = {
+    headline: "19 stores ready to post",   // required, ≤ 80; none = "nothing to show"
+    detail: "September · 61 of 84 posted", // ≤ 120
+    level: "attention",                    // ok | info | attention | critical
+    progress: { done: 61, total: 84 },
+    rows: [{ title: "Valencia", detail: "Not mapped", state: "blocked", link: "/settings" }], // ≤ 6
+    buttons: [{                            // ≤ 2, each naming a declared action
+      action: "post-ready", label: "Post 19 ready", input: { period: "2026-09" },
+      key: "2026-09", confirm: "Post 19 journal entries to QuickBooks?"
+    }],
+    link: "/?month=2026-09",               // "Open": app-relative, starts with / or ?
+    badge: 19,
+  };
+  return Response.json(view);
+};
+```
+
+Text past its limit is cut, lists past theirs are cut, a link that is not
+app-relative is dropped, and a button naming an action the live build does not
+declare is dropped (and refused if pressed).
+
+**Pressing a button** calls the action's function with
+`{ widget, action, input }` and an `Idempotency-Key` built from widget, action
+and the button's `key` (no `key`: a hash of `input`). A double click, a second
+tab, or a stale card pressed after the work was done replays the first answer, so
+**give every button a `key` that names the thing done** (`"2026-09"`), not a
+timestamp. What the action returns decides what the card shows: `{ view }`
+re-renders at once, `{ message }` shows that line, anything else makes the home
+read the widget again. A throw or non-2xx leaves the card as it was, with the
+reason under the button.
+
+Widgets show **in production only**, and only on the **apps-first home** (the
+feature flag that turns that home on). A staging or sandbox host is not read for
+them. A widget that should not run on every home load declares
+`cache: { ttlSeconds }` on its function; the cache is per person and build.
 
 ## Four pitfalls
 

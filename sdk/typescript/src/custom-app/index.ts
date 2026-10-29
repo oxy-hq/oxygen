@@ -208,6 +208,20 @@ export {
   readUpdateAgent,
   withClientBuild
 } from "./updates";
+// Home widgets: the manifest block's types and the view a widget function
+// returns (`import type { WidgetView } from "@oxy-hq/sdk"`). The checks are
+// `@oxy-hq/sdk/manifest`.
+export type {
+  OxyAppWidget,
+  OxyAppWidgetAction,
+  OxyAppWidgetSize,
+  WidgetActionResult,
+  WidgetButton,
+  WidgetLevel,
+  WidgetRow,
+  WidgetRowState,
+  WidgetView
+} from "./widgets";
 export type {
   UseMeasureBreakdownResult,
   UseWorldModelGraphResult,

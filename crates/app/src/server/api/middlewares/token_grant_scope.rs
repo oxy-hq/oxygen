@@ -116,6 +116,9 @@ pub fn treatment(path: &str) -> Treatment {
         ["apps", "mine"] => Treatment::Honoured,
         // Each app is decided by `AppAccess` against the token's reach.
         ["me", "apps"] => Treatment::Honoured,
+        // The same `AppAccess` decision per app, then each widget function
+        // runs on the caller's own credential through the function route.
+        ["home", "widgets", ..] => Treatment::Honoured,
         // Staff standing, which the credential bounds to its grants' orgs —
         // and drops entirely without `platform`.
         ["admin", ..] | ["customer-apps", ..] | ["assume", ..] => Treatment::Honoured,

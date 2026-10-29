@@ -20,6 +20,7 @@ import { FirstAppsOnTheirWay } from "./components/FirstAppsOnTheirWay";
 import { HomeAppGrid } from "./components/HomeAppGrid";
 import { HomeAskBox } from "./components/HomeAskBox";
 import { HomeRecentQuestions } from "./components/HomeRecentQuestions";
+import { HomeWidgets } from "./components/HomeWidgets";
 import { WorldModelCard, worldModelTitle } from "./components/WorldModelCard";
 import { homeGreeting } from "./greeting";
 import { appRow, HOME_CONTAINER, HOME_GAP, lowerRowColumns } from "./layout";
@@ -109,6 +110,9 @@ export default function CustomerHome() {
       <CriticalAlertBanner />
 
       <div className={cn(HOME_CONTAINER, "flex flex-col gap-8 pb-10")} data-testid='home-body'>
+        {/* What needs doing in each app now, above the apps themselves. */}
+        <HomeWidgets orgSlug={org?.slug} apps={apps} />
+
         <section className='flex flex-col gap-3' aria-labelledby='home-apps-heading'>
           <h2 id='home-apps-heading' className='font-medium text-base'>
             Your apps

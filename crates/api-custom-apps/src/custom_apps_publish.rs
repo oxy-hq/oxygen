@@ -1308,6 +1308,18 @@ fn check_notification_catalogue(
     })
 }
 
+/// The manifest's `widgets` block, checked (`oxy_app_core::widgets::validate`):
+/// the first problem refuses the publish as a 422 naming it.
+fn check_widgets(manifest: Option<&serde_json::Value>) -> Result<(), PublishError> {
+    oxy_app_core::widgets::validate::check(manifest).map_err(|p| {
+        PublishError::Invalid(crate::custom_apps_validate::BundleValidation::new(
+            p.check,
+            p.message,
+            p.remediation,
+        ))
+    })
+}
+
 /// Record one `app_functions` row per declared function, keyed to this build,
 /// so the `/fn/<name>` route can resolve them. Without this the bundled JS
 /// ships in the build store but the runtime can never find it (→ 404).

@@ -7,9 +7,10 @@
  * tool through one import rather than three files.
  */
 
-import { checkNotifications, validateOxyAppManifest } from "@oxy-hq/sdk/manifest";
+import { checkNotifications, checkWidgets, validateOxyAppManifest } from "@oxy-hq/sdk/manifest";
 import { describe, expect, it } from "vitest";
 import { checkNotifications as sdkSource } from "../../../typescript/src/custom-app/notification-catalog";
+import { checkWidgets as widgetsSource } from "../../../typescript/src/custom-app/widgets";
 
 describe("the notification catalogue's checks", () => {
   it("are the SDK's own export, not a copy", () => {
@@ -23,5 +24,21 @@ describe("the notification catalogue's checks", () => {
       functions: { f: { notify: { kinds: { "oxy.anomaly": {} } } } }
     });
     expect(issues.map((i) => i.path)).toEqual(["functions.f.notify.kinds.oxy.anomaly"]);
+  });
+});
+
+describe("the widget checks", () => {
+  it("are the SDK's own export, not a copy", () => {
+    expect(checkWidgets).toBe(widgetsSource);
+  });
+
+  it("run inside the manifest validator the CLI uses", () => {
+    const issues = validateOxyAppManifest({
+      schemaVersion: 2,
+      slug: "x",
+      functions: { f: {} },
+      widgets: { w: { title: "W", function: "ghost" } }
+    });
+    expect(issues.map((i) => [i.level, i.path])).toEqual([["error", "widgets.w.function"]]);
   });
 });

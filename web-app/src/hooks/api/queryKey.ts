@@ -731,6 +731,12 @@ const notificationKeys = {
   devices: () => [...notificationKeys.all, "devices"] as const
 };
 
+// Each app's live cards on the home, for the signed-in person in one org.
+const homeWidgetKeys = {
+  all: ["home-widgets"] as const,
+  list: (orgSlug: string) => [...homeWidgetKeys.all, orgSlug] as const
+};
+
 const internalJobsKeys = {
   all: ["admin", "internal-jobs"] as const,
   queueStats: () => [...internalJobsKeys.all, "queue-stats"] as const,
@@ -1214,6 +1220,7 @@ const queryKeys = {
   featureFlags: featureFlagKeys,
   usageReport: usageReportKeys,
   notifications: notificationKeys,
+  homeWidgets: homeWidgetKeys,
   internalJobs: internalJobsKeys,
   compiles: compilesKeys,
   compile: compileKeys,

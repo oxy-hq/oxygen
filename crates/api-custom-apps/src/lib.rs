@@ -91,6 +91,7 @@ pub mod custom_apps_validate;
 pub mod custom_domains;
 pub mod function_runtime;
 pub mod health;
+pub mod home_widgets;
 pub mod html_cache;
 mod invocation_placement;
 pub mod logs;
@@ -220,6 +221,12 @@ pub fn routes() -> Router<AppState> {
         .route("/apps/mine", get(admin::apps::handlers::list_my_apps))
         // The mobile home screen.
         .route("/me/apps", get(me_apps::list_openable_apps))
+        // Each app's live cards on the Oxygen home (`home_widgets`).
+        .route("/home/widgets", get(home_widgets::list))
+        .route(
+            "/home/widgets/{app_id}/{widget}/actions/{action}",
+            post(home_widgets::press),
+        )
         .nest(
             "/customer-apps",
             admin::apps::guarded(
@@ -370,6 +377,8 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
     const ROLES: &[RouteRoleDecl] = &[
         fleet("/apps/mine"),
         fleet("/me/apps"),
+        fleet("/home/widgets"),
+        fleet("/home/widgets/{app_id}/{widget}/actions/{action}"),
         fleet("/customer-apps/{*rest}"),
         fleet("/customer-apps"),
     ];

@@ -12,10 +12,11 @@
 // (`@asType integer`, `@minimum`, `@maximum`, `@pattern`, `@minLength`) are
 // read by the generator as constraints — keep them beside the field they bind.
 //
-// No imports beyond the notification catalogue (also pure types), and nothing
+// No imports beyond the notification catalogue and the widgets file (also pure types), and nothing
 // past ES2020: this module is compiled under every package's tsconfig.
 
 import type { OxyAppNotificationsManifest } from "./notification-catalog";
+import type { OxyAppWidget } from "./widgets";
 
 /**
  * Declaration of a single Oxy Function shipped in the bundle's
@@ -599,6 +600,32 @@ export interface OxyAppManifest {
    * round-tripped through the dev-time manifest fetch.
    */
   notifications?: OxyAppNotificationsManifest;
+  /**
+   * Home widgets: live cards on the Oxygen home (behind the apps-first home),
+   * keyed by widget id (1–32 lowercase letters, digits, `_` or `-`). Each names
+   * a `function` that returns a small JSON view and up to 3 `actions` its
+   * buttons may run, each another declared function. The home draws the view
+   * itself; no app code runs on the home. At most 3 widgets per app.
+   *
+   * ```json
+   * "widgets": {
+   *   "close": {
+   *     "title": "Month-end close",
+   *     "function": "close-widget",
+   *     "size": "wide",
+   *     "actions": { "post-ready": { "function": "post-ready-jes", "confirm": true } }
+   *   }
+   * }
+   * ```
+   *
+   * Production only: widgets read and act on the production build. Publish
+   * refuses a bad id, a missing or oversize title, a function the app does not
+   * declare, more than 3 widgets or actions, and an unknown key; `oxyc validate`
+   * and the Vite plugin say so first. Read by the platform at **publish time**
+   * and from the live build, so it is documented here but not round-tripped
+   * through the dev-time manifest fetch.
+   */
+  widgets?: Record<string, OxyAppWidget>;
 }
 
 /** The `build` block of `oxy-app.json`: what `oxyc publish` runs. */
