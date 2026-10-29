@@ -2,6 +2,102 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.158] - 2026-10-29
+
+### 🚀 Features
+
+- Mobile apps on the oxygen design system (#3739)
+- Release timeline and function call waterfall in the custom-app console (#3751)
+- Oxyc works headless in claude cloud sessions, from mint to promote (#3787)
+- Serve custom apps on customer-owned domains (#3786)
+- Oxyc fn dev --read-through runs a handler's reads against a deployment, writes stay stubbed (#3795)
+- Custom-app list rows carry their availability verdict, the console stops asking per app (#3798)
+- Custom-app usage reads move to airhouse once a workspace is backfilled (#3799)
+- Backfilled workspaces stop writing custom-app usage to postgres (#3802)
+- Every PR names its roadmap line, checked by a roadmap merge status (#3805)
+- The roadmap status asks the review whether behaviour changed before failing a trailer-less PR (#3810)
+- World Model "Compared to peers" — an IDE cohort route and a section that names its comparison (#3140)
+- Experiments — pre-registered experiments from design to report (#3662)
+- Mobile ask with conversations, a live reasoning trace, what moved and an answer-ready push, and its server fixes (#3784)
+- The apps-first program in one PR (W1, W2, W3, W6 and factory retirement 3a, 3c, 4) (#3848)
+- Experiments per-wave effects and % lift outcome; a sparse unit keeps its gaps to itself (#3854)
+- Apps open in the same tab, with a dock in every app (#3856)
+- Experiments list sums up each reported run's result (#3860)
+- *(secrets)* Refuse to start when the encryption key cannot open this database's sealed values (#3858)
+- A hook drafts the roadmap trailer before a PR opens, and refuses one the status would fail (#3820)
+- *(secrets)* Keep the master key in Postgres, sealed by KMS (#3861, into main) (#3865)
+
+### 🐛 Bug Fixes
+
+- Agentic-runtime every way a task ends reaches its run (#3716)
+- Canary self-test reads invocation rows from api-custom-apps, where they moved (#3742)
+- Agentic-runtime a failed oxy function is retried per its declared retries (#3782)
+- Magic-link sign-in link names only this deployment's host (#3771)
+- Workspace config writes in onboarding and database setup require a workspace admin (#3772)
+- Github installations attach only for an org admin who owns the installation (#3773)
+- The roadmap status asks what a PR is before asking for a trailer (#3809)
+- Two main test failures — the warm pool's refill thread in the Sentry guard, and usage fixtures at microsecond precision (#3816)
+- Airhouse connector reads a query once instead of paging it by OFFSET, which lost and duplicated rows (#3791)
+- Admin panel layout on narrow windows (New app clipped, topbar wrapping) (#3851)
+- Experiments report readability for unit outcomes and large retrospective runs (#3853)
+- The staff Open Factory buttons show the Oxygen Factory mark, not a terminal icon (#3857)
+- A connection *_var that names no secret is a named error, not localhost (#3859)
+- Shell nav on phones is a labeled drawer, in HQ and in custom apps (sdk 2.23.0) (#3852)
+- *(secrets)* Drop OXY_ENCRYPTION_KMS_KEY_ID; the row and the pod's namespace decide (#3869)
+- An empty Airhouse result is an empty stream, not "connection closed" (#3871)
+- A staging function call relayed to the factory keeps its staging environment (#3875)
+
+### 💼 Other
+
+- *(deps)* Bump MyAlbum/purge-cache from 2.2.0 to 3 (#3743)
+- *(deps)* Bump anthropics/claude-code-action from 1.0.235 to 1.0.253 (#3744)
+- *(deps)* Bump the prod-npm-minor-dependencies group across 2 directories with 26 updates (#3745)
+- *(deps)* Bump @sentry/vite-plugin from 5.4.1 to 11.8.0 in the prod-npm-major-dependencies group across 1 directory (#3748)
+
+### 🚜 Refactor
+
+- Oxy core sheds the omni dependency (#3703)
+- Retire dead core-agent wiring (intent classifier + metric collection) (#3737)
+- Shed oxy-oltp + airhouse from core via a managed-connection resolver port (#3749)
+- A function failure's kind is stored with it, not re-parsed from the text (#3797)
+- Retire the last custom-apps re-export shims from oxy-app (#3800)
+- Every custom-app usage read goes through one store choice (#3801)
+- The console and oxyc read availability from the list row (#3803)
+- Take the eval harness off ExecutionContext (old-executor Phase 5 step 1) (#3780)
+- Remove Data Apps: viewing, running, the compile path, the config model, the preview and the health probe (#3835)
+- Remove the Data App client methods from the sdk source and two stale agentic budgets (#3862)
+
+### 📚 Documentation
+
+- Platform roadmap opens every line with a plain-language headline anyone can read (#3747)
+- Custom-apps roadmap plans wave 4 (#3794)
+- Close the custom-apps refactor scope (#3804)
+- Apps for customers, the factory for oxy engineers (#3811)
+- Refresh ownership matrix + CODEOWNERS (weekly) (#3812)
+- Data releases (w4) and per-app data freshness (w5) designs (#3818)
+- Propose one home per org for the apps-first shell (design, two decisions open) (#3817)
+- Update product-context.md from recent changelogs (#3813)
+- Retire ExecutionContext (old-executor Phase 5) — the second-runtime convergence plan (#3750)
+
+### ⚡ Performance
+
+- Oxy functions start on pre-warmed fresh isolates, never reused (#3796)
+
+### 🧪 Testing
+
+- Approver notice tests run over the full schema, catalog test expects the access category (#3731)
+
+### ⚙️ Miscellaneous Tasks
+
+- Release @oxy-hq/cli 0.10.0, sdk 2.21.0, vite-plugin 0.4.0 and create-oxy-app 0.7.0 (#3788)
+- Release @oxy-hq/cli 0.11.0 (#3808)
+- Rust tests run only what a PR affects, sliced across up to four runners (#3831)
+- Rust binary builds beside the test archive, partitions are sized by test count, demo_project selects its embedders (#3845)
+- Release @oxy-hq/sdk 2.22.0 and @oxy-hq/create-oxy-app 0.8.0 (#3863)
+- Stop release build cache misses and move to rust 1.99.1 (#3864)
+- Reconcile builder knowledge cards with sdk/cli/skills (#3855)
+- The oxy image's creation time is its commit's time, so dev deploys the newest commit (#3866)
+
 ## [0.5.157] - 2026-10-21
 
 ### 🚀 Features
@@ -26,6 +122,7 @@ All notable changes to this project will be documented in this file.
 - Custom-app open tabs detect new builds and recover stale chunks (#3620)
 - Oxyc device-code approval for agents no browser can reach (#3724)
 - The device-code approver is told through notifications; GitHub-signed custom-app webhooks; sandbox mints by org/app (#3723)
+- A device-code request names its approver, who is told through notifications (#3728)
 
 ### 🐛 Bug Fixes
 
@@ -121,6 +218,7 @@ All notable changes to this project will be documented in this file.
 - Open-source mirror leaves out mobile/, the native apps stay internal (#3635)
 - Test job adds swap before its test-compile memory peak, and logs a memory watermark (#3632)
 - Give the test job's postgres services 1g of shared memory (#3665)
+- Release 0.5.157 (#3657)
 
 ## [0.5.156] - 2026-10-15
 
