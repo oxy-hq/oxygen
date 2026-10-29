@@ -1,11 +1,13 @@
 import { ArrowUpRight, ShieldCheck } from "lucide-react";
 import { AppAccessBadge } from "@/components/appAccess/AppAccessBadge";
 import { AppMark } from "@/components/apps/AppMark";
+import { UnreadBadge } from "@/components/Notifications/UnreadBadge";
 import { Button } from "@/components/ui/shadcn/button";
 import { buttonVariants } from "@/components/ui/shadcn/utils/button-variants";
 import { cn } from "@/libs/shadcn/utils";
 import { prefetchApp } from "@/libs/utils/prefetchApp";
 import type { CustomAppSummary } from "@/types/apps";
+import type { InboxItem } from "@/types/notifications";
 import { appFreshnessLine } from "../../components/appFreshness";
 import { HOME_GAP } from "../layout";
 import { HomeAppArt } from "./HomeAppArt";
@@ -22,7 +24,8 @@ export type HomeAppCardSize = "wide" | "regular" | "compact";
 
 /**
  * One app on the apps-first home: its art edge to edge across the top of the card,
- * then its mark, name and how fresh it is.
+ * then its mark, name and how fresh it is. Like a dock icon, it carries the app's
+ * unread count in its corner, and its newest unread notification as a banner line.
  *
  * It opens the app the way the HQ launcher's `AppCard` does (a plain anchor that
  * opens the app in this tab, warmed on hover and focus) and carries the same access
@@ -33,12 +36,18 @@ export function HomeAppCard({
   app,
   size = "regular",
   eagerArt = false,
+  unread = 0,
+  latest,
   onManageAccess
 }: {
   app: CustomAppSummary;
   size?: HomeAppCardSize;
   /** Load the art immediately: set for the cards on screen at first paint. */
   eagerArt?: boolean;
+  /** How many of this app's notifications the viewer has not read. */
+  unread?: number;
+  /** The newest of them, when the inbox's first page holds it. */
+  latest?: InboxItem;
   /** Open the access dialog for this app. Passed only for org owners and admins. */
   onManageAccess?: (app: CustomAppSummary) => void;
 }) {
@@ -46,6 +55,8 @@ export function HomeAppCard({
   const freshness = appFreshnessLine(app);
   const wide = size === "wide";
   const compact = size === "compact";
+  // Null when the org's store did not answer for its text; then the badge alone.
+  const banner = unread > 0 ? (latest?.title ?? latest?.body ?? null) : null;
 
   return (
     // A div, not an anchor, because the card holds a second action (access). The
@@ -59,6 +70,11 @@ export function HomeAppCard({
       data-testid={`home-app-card-${app.slug}`}
       data-size={size}
     >
+      <UnreadBadge
+        count={unread}
+        testId={`home-app-card-unread-${app.slug}`}
+        className='absolute top-2 right-2 z-10 h-5 min-w-5 px-1.5 shadow-sm'
+      />
       <HomeAppArt
         app={app}
         eager={eagerArt}
@@ -107,9 +123,23 @@ export function HomeAppCard({
                 onFocus={warm}
               >
                 {app.name}
+                {unread > 0 && <span className='sr-only'>, {unread} unread</span>}
               </a>
             </h3>
           </div>
+          {banner && (
+            <p
+              title={banner}
+              className={cn(
+                "flex min-w-0 items-center gap-1.5 text-foreground",
+                compact ? "text-xs" : "text-sm"
+              )}
+              data-testid={`home-app-card-banner-${app.slug}`}
+            >
+              <span aria-hidden className='size-1.5 shrink-0 rounded-full bg-destructive' />
+              <span className='truncate'>{banner}</span>
+            </p>
+          )}
           {freshness && (
             <p
               className={cn(

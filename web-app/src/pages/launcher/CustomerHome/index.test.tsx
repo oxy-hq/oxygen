@@ -4,6 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CustomAppSummary } from "@/types/apps";
+import type { InboxItem } from "@/types/notifications";
 import CustomerHome from "./index";
 import { HOME_CONTAINER, HOME_GAP } from "./layout";
 
@@ -17,6 +18,13 @@ let factoryUser = false;
 let gaps: { label: string }[] = [];
 let shouldDisableChat = false;
 let apps: CustomAppSummary[] = [];
+let unread: Record<string, number> = {};
+let latest: Record<string, Partial<InboxItem>> = {};
+
+vi.mock("@/hooks/api/notifications", () => ({
+  useAppUnreadCounts: () => unread,
+  useLatestUnreadByApp: () => latest
+}));
 
 vi.mock("@/stores/useCurrentOrg", () => ({
   default: <T,>(selector: (s: unknown) => T) =>
@@ -89,12 +97,44 @@ beforeEach(() => {
   gaps = [{ label: "Add an LLM key" }];
   shouldDisableChat = false;
   apps = [revenue];
+  unread = {};
+  latest = {};
   worldModel = { entities: [{ id: "store" }] };
 });
 
 const appsOf = (n: number): CustomAppSummary[] =>
   Array.from({ length: n }, (_, i) => ({ ...revenue, id: `app-${i}`, slug: `app-${i}` }));
 afterEach(cleanup);
+
+describe("the home's app notifications", () => {
+  it("badges an app with its unread count and shows its newest one", () => {
+    unread = { "app-1": 2 };
+    latest = { "app-1": { title: "Walk-in cooler is warm" } };
+    renderHome();
+    expect(screen.getByTestId("home-app-card-unread-revenue")).toHaveTextContent("2");
+    expect(screen.getByTestId("home-app-card-banner-revenue")).toHaveTextContent(
+      "Walk-in cooler is warm"
+    );
+    expect(screen.getByTestId("launcher-app-card-revenue")).toHaveAccessibleName(
+      "Revenue Board, 2 unread"
+    );
+  });
+
+  it("shows the badge alone when the store did not answer for the text", () => {
+    unread = { "app-1": 1 };
+    latest = { "app-1": { title: null, body: null } };
+    renderHome();
+    expect(screen.getByTestId("home-app-card-unread-revenue")).toHaveTextContent("1");
+    expect(screen.queryByTestId("home-app-card-banner-revenue")).toBeNull();
+  });
+
+  it("shows neither while nothing is unread, even with a stale newest", () => {
+    latest = { "app-1": { title: "Old news" } };
+    renderHome();
+    expect(screen.queryByTestId("home-app-card-unread-revenue")).toBeNull();
+    expect(screen.queryByTestId("home-app-card-banner-revenue")).toBeNull();
+  });
+});
 
 describe("the apps-first home", () => {
   it("greets the person by first name under the org's name", () => {

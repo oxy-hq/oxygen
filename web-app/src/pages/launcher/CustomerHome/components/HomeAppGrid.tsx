@@ -1,3 +1,4 @@
+import { useAppUnreadCounts, useLatestUnreadByApp } from "@/hooks/api/notifications";
 import { cn } from "@/libs/shadcn/utils";
 import type { CustomAppSummary } from "@/types/apps";
 import { APP_GRID_COLUMNS, type AppRow, HOME_GAP } from "../layout";
@@ -8,7 +9,8 @@ const EAGER_ART = 4;
 
 const CARD_SIZE = { one: "wide", two: "regular", many: "regular", dense: "compact" } as const;
 
-/** The home's apps, on the columns `layout.ts` gives for how many there are. */
+/** The home's apps, on the columns `layout.ts` gives for how many there are, each
+ *  with its unread badge and newest unread notification. */
 export function HomeAppGrid({
   apps,
   row,
@@ -18,6 +20,8 @@ export function HomeAppGrid({
   row: Exclude<AppRow, "none">;
   onManageAccess?: (app: CustomAppSummary) => void;
 }) {
+  const unread = useAppUnreadCounts();
+  const latest = useLatestUnreadByApp();
   return (
     <div
       className={cn("grid", HOME_GAP, APP_GRID_COLUMNS[row])}
@@ -31,6 +35,8 @@ export function HomeAppGrid({
           app={app}
           size={CARD_SIZE[row]}
           eagerArt={i < EAGER_ART}
+          unread={unread[app.id] ?? 0}
+          latest={latest[app.id]}
           onManageAccess={onManageAccess}
         />
       ))}

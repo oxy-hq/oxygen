@@ -1,5 +1,6 @@
 import { Bell } from "lucide-react";
 import { useCallback, useState } from "react";
+import { UnreadBadge } from "@/components/Notifications/UnreadBadge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/shadcn/sheet";
 import { useAuth } from "@/contexts/AuthContext";
@@ -32,14 +33,11 @@ function InboxBell() {
       className='relative flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground'
     >
       <Bell className='size-4' />
-      {badge && (
-        <span
-          data-testid='notifications-badge'
-          className='absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 font-medium text-destructive-foreground text-xs tabular-nums leading-none'
-        >
-          {badge}
-        </span>
-      )}
+      <UnreadBadge
+        count={unread}
+        testId='notifications-badge'
+        className='absolute -top-1 -right-1'
+      />
     </button>
   );
 

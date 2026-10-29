@@ -8,6 +8,7 @@ import { PreviewBar } from "@/components/PreviewBar";
 import WorkspaceStatus from "@/components/WorkspaceStatus";
 import { useActingSession } from "@/hooks/api/adminAssume/useActingSession";
 import useOrgCustomApps from "@/hooks/api/customApps/useOrgCustomApps";
+import { useAppUnreadCounts } from "@/hooks/api/notifications";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { canUseFactory } from "@/libs/utils/factoryAccess";
@@ -40,6 +41,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   // With the apps-first experience off, the current workspace's apps, as before.
   const appsFirst = useAppsFirstExperience();
   const { apps: customApps } = useOrgCustomApps(wsId, { acrossOrg: appsFirst });
+  // Apps-first only: each app's unread count as a badge on its mark, like a dock.
+  // The bell's own poll, so it costs no request.
+  const unreadByApp = useAppUnreadCounts(appsFirst);
   const { data: profile } = useCurrentUser();
   // Global Owners (`OXY_OWNER`) and Global Admins (`app_admins` table) get a
   // one-click hop into the admin console. Tenant-internal org roles never do —
@@ -104,7 +108,8 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     testId: `rail-app-${app.slug}`,
     letter: app.name.slice(0, 1).toUpperCase(),
     imageUrl: app.icon_url,
-    href: app.url
+    href: app.url,
+    badge: appsFirst ? unreadByApp[app.id] : undefined
   }));
   // System: the intelligence substrate powering the HQ. Pinned at the
   // bottom of the nav, distinct from the operator apps above.

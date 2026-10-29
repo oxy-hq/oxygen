@@ -158,6 +158,20 @@ async fn a_member_and_a_crew_member_read_their_own_inbox_on_the_app_host() {
     assert_eq!(on(APP_HOST, &fx.cookie, "GET", &badge).await.1["unread"], 1);
     let (_, all) = on(APP_HOST, &fx.cookie, "GET", "/api/notifications/unread").await;
     assert_eq!(all["unread"], 3, "without app_id, everything of theirs");
+    // Per app: the two apps, one each; the platform notice is in the total only.
+    let mut per_app: Vec<(String, u64)> = all["apps"]
+        .as_array()
+        .unwrap_or_else(|| panic!("apps in {all}"))
+        .iter()
+        .map(|a| {
+            let id = a["app_id"].as_str().expect("an app id").to_string();
+            (id, a["unread"].as_u64().expect("a count"))
+        })
+        .collect();
+    per_app.sort();
+    let mut want = vec![(app.to_string(), 1), (other_app.to_string(), 1)];
+    want.sort();
+    assert_eq!(per_app, want, "{all}");
 
     // A platform notice's web-app path goes absolute on the app host, and
     // stays relative on the product host.

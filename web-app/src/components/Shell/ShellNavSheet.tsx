@@ -1,5 +1,6 @@
 import { Menu } from "lucide-react";
 import { Fragment, type ReactNode, useEffect, useState } from "react";
+import { UnreadBadge } from "@/components/Notifications/UnreadBadge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Sheet,
@@ -28,6 +29,14 @@ function NavRow({ item }: { item: RailItem }) {
         <RailItemIcon item={item} />
       </span>
       <span className='truncate'>{item.label}</span>
+      {!!item.badge && (
+        <>
+          <span className='sr-only'>, {item.badge} unread</span>
+          <span aria-hidden='true' className='ml-auto'>
+            <UnreadBadge count={item.badge} testId={`nav-sheet-${item.testId}-unread`} />
+          </span>
+        </>
+      )}
     </>
   );
   // SheetClose closes the drawer on every pick; for an anchor it adds a click

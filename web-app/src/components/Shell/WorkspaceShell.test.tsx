@@ -48,6 +48,15 @@ vi.mock("@/hooks/api/users/useCurrentUser", () => ({
   })
 }));
 let appsFirst = false;
+// Unread per app, as the bell's poll reports it; what the hook was enabled with.
+let unreadByApp: Record<string, number> = {};
+const unreadEnabled = vi.fn();
+vi.mock("@/hooks/api/notifications", () => ({
+  useAppUnreadCounts: (enabled: boolean) => {
+    unreadEnabled(enabled);
+    return enabled ? unreadByApp : {};
+  }
+}));
 vi.mock("@/hooks/useAppsFirstExperience", () => ({ default: () => appsFirst }));
 // The dialog itself is tested on its own; here only whether the rail opens it.
 vi.mock("@/components/admin/OpenFactoryDialog", () => ({
@@ -113,6 +122,26 @@ afterEach(() => {
   operator = false;
   capabilities = ["operate_platform"];
   actingAs = null;
+  unreadByApp = {};
+});
+
+describe("the rail's unread badges", () => {
+  it("puts each app's unread count on its mark with the apps-first experience", () => {
+    appsFirst = true;
+    unreadByApp = { revenue: 3 };
+    renderAt("/acme/home");
+    expect(screen.getByTestId("rail-app-revenue-unread")).toHaveTextContent("3");
+    expect(screen.getByTestId("rail-app-revenue")).toHaveAccessibleName("revenue, 3 unread");
+    expect(screen.queryByTestId("rail-app-forecast-unread")).toBeNull();
+  });
+
+  it("draws none, and asks for none, with the flag off", () => {
+    unreadByApp = { revenue: 3 };
+    renderAt("/acme/home");
+    expect(unreadEnabled).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByTestId("rail-app-revenue-unread")).toBeNull();
+    expect(screen.getByTestId("rail-app-revenue")).toHaveAccessibleName("revenue");
+  });
 });
 
 describe("WorkspaceShell rail", () => {

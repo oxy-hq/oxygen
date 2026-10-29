@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
 import { OxyMark } from "@/components/OxyMark";
+import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { cn } from "@/libs/shadcn/utils";
 import useAskDock from "@/stores/useAskDock";
 import { Breadcrumb } from "./Breadcrumb";
+import { AppHealthItem } from "./MenuBar/AppHealthItem";
+import { ConnectionItem } from "./MenuBar/ConnectionItem";
 import { NotificationsBell } from "./NotificationsBell";
 import { SystemIndicator } from "./SystemIndicator";
 import { WorkspaceClock } from "./WorkspaceClock";
@@ -41,21 +44,38 @@ function AskOxygenButton() {
  * as one frame. `leading` sits before the breadcrumb — the shell puts the
  * mobile nav drawer's menu button there. Follow-up: lift into `@oxy-hq/sdk`
  * for custom apps.
+ *
+ * With the apps-first experience on it is the home's menu bar, macOS-style: the
+ * rail is the dock, and the right side carries status items — apps that need
+ * attention, connection, Ask (the Spotlight), the bell (Notification Center) and
+ * the day and time last.
  */
 export function TopBar({ leading }: { leading?: ReactNode }) {
+  const appsFirst = useAppsFirstExperience();
   return (
     <header
       data-testid='workspace-topbar'
+      data-menubar={appsFirst || undefined}
       className='flex h-12 shrink-0 items-center gap-3 border-b bg-sidebar-background px-3'
     >
       {leading}
       <Breadcrumb />
-      <div className='ml-auto flex shrink-0 items-center gap-3'>
-        <SystemIndicator />
-        <WorkspaceClock />
-        <NotificationsBell />
-        <AskOxygenButton />
-      </div>
+      {appsFirst ? (
+        <div className='ml-auto flex shrink-0 items-center gap-1.5' data-testid='menubar-status'>
+          <AppHealthItem />
+          <ConnectionItem />
+          <AskOxygenButton />
+          <NotificationsBell />
+          <WorkspaceClock withDate />
+        </div>
+      ) : (
+        <div className='ml-auto flex shrink-0 items-center gap-3'>
+          <SystemIndicator />
+          <WorkspaceClock />
+          <NotificationsBell />
+          <AskOxygenButton />
+        </div>
+      )}
     </header>
   );
 }

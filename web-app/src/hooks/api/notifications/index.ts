@@ -1,4 +1,5 @@
 export { useEnablePushOnThisDevice } from "./useEnablePushOnThisDevice";
+export { type LatestUnreadByApp, useLatestUnreadByApp } from "./useLatestUnreadByApp";
 export { useMarkAllNotificationsRead } from "./useMarkAllNotificationsRead";
 export { useMarkNotificationRead } from "./useMarkNotificationRead";
 export { useNotification } from "./useNotification";
@@ -10,7 +11,12 @@ export { useNotificationSettings } from "./useNotificationSettings";
 export { useRemoveNotificationDevice } from "./useRemoveNotificationDevice";
 export { useReportThisDevice } from "./useReportThisDevice";
 export { actionErrorMessage, useRunNotificationAction } from "./useRunNotificationAction";
-export { UNREAD_POLL_MS, useUnreadNotificationCount } from "./useUnreadNotificationCount";
+export {
+  type AppUnreadCounts,
+  UNREAD_POLL_MS,
+  useAppUnreadCounts,
+  useUnreadNotificationCount
+} from "./useUnreadNotificationCount";
 export { useUpdateNotificationDevice } from "./useUpdateNotificationDevice";
 export {
   SettingsConflictError,

@@ -720,6 +720,9 @@ const notificationKeys = {
   // Under `inbox()`, so whatever re-reads the bell's list re-reads the page's too.
   feed: (filter: InboxFilter, unreadOnly: boolean) =>
     [...notificationKeys.inbox(), "feed", filter, unreadOnly] as const,
+  // The home's per-app banners. Keyed by the unread total, so a new notification
+  // the badge poll sees re-reads them without polling org stores themselves.
+  latestUnread: (unread: number) => [...notificationKeys.inbox(), "latest-unread", unread] as const,
   item: (id: string) => [...notificationKeys.all, "item", id] as const,
   catalog: () => [...notificationKeys.all, "catalog"] as const,
   unread: () => [...notificationKeys.all, "unread"] as const,

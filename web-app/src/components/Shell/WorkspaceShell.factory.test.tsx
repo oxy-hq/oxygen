@@ -19,6 +19,7 @@ vi.mock("./RailUserMenu", () => ({ RailUserMenu: () => null }));
 vi.mock("./RailWorkspaceSwitch", () => ({ RailWorkspaceSwitch: () => null }));
 vi.mock("./RailWorkspaceTile", () => ({ RailWorkspaceTile: () => null }));
 vi.mock("./TopBar", () => ({ TopBar: () => null }));
+vi.mock("@/hooks/api/notifications", () => ({ useAppUnreadCounts: () => ({}) }));
 vi.mock("@/hooks/api/customApps/useCustomApps", () => ({
   useCustomApps: () => ({ data: [] })
 }));

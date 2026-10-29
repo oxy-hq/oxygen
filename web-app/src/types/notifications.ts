@@ -142,6 +142,13 @@ export interface NotificationCatalog {
 
 export interface UnreadResponse {
   unread: number;
+  /** The apps with something unread. Absent from a server that predates it. */
+  apps?: AppUnread[];
+}
+
+export interface AppUnread {
+  app_id: string;
+  unread: number;
 }
 
 export interface NotificationReach {

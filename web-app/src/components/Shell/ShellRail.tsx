@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode, useState } from "react";
+import { UnreadBadge } from "@/components/Notifications/UnreadBadge";
 import { Button } from "@/components/ui/shadcn/button";
 import { cn } from "@/libs/shadcn/utils";
 
@@ -20,6 +21,8 @@ export type RailItem = {
   imageUrl?: string;
   href?: string;
   onSelect?: () => void;
+  /** Unread notifications, drawn as a dock badge on the mark. */
+  badge?: number;
 };
 
 const itemClasses = (active?: boolean) =>
@@ -55,7 +58,28 @@ export function RailItemIcon({ item }: { item: RailItem }) {
   return item.icon ?? <span className='font-semibold text-primary text-xs'>{item.letter}</span>;
 }
 
+/** "Name, 3 unread" for a screen reader; the badge itself is drawn, not read. */
+export function itemLabel(item: RailItem): string {
+  return item.badge ? `${item.label}, ${item.badge} unread` : item.label;
+}
+
+/** The tile plus its dock badge. The badge sits outside the tile, so the idle
+ *  tile's fade does not dim it. */
 function RailEntry({ item }: { item: RailItem }) {
+  if (!item.badge) return <RailTile item={item} />;
+  return (
+    <div className='relative'>
+      <RailTile item={item} />
+      <UnreadBadge
+        count={item.badge}
+        testId={`${item.testId}-unread`}
+        className='absolute -top-1 -right-1'
+      />
+    </div>
+  );
+}
+
+function RailTile({ item }: { item: RailItem }) {
   const content = <RailItemIcon item={item} />;
   if (item.href) {
     return (
@@ -66,7 +90,7 @@ function RailEntry({ item }: { item: RailItem }) {
         tooltip={{ content: item.tooltip ?? item.label, side: "right" }}
         className={itemClasses(item.active)}
       >
-        <a href={item.href} data-testid={item.testId} aria-label={item.label}>
+        <a href={item.href} data-testid={item.testId} aria-label={itemLabel(item)}>
           {content}
         </a>
       </Button>
@@ -78,7 +102,7 @@ function RailEntry({ item }: { item: RailItem }) {
       size='icon'
       onClick={item.onSelect}
       data-testid={item.testId}
-      aria-label={item.label}
+      aria-label={itemLabel(item)}
       tooltip={{ content: item.label, side: "right" }}
       className={itemClasses(item.active)}
     >
