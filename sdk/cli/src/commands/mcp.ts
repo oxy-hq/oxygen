@@ -1,11 +1,10 @@
 /**
  * `oxyc mcp` — the Oxy API as MCP tools, over stdio.
  *
- * NOT THE SAME THING AS `oxy mcp`. That one is workspace tooling: it takes a
- * local checkout and exposes the semantic model, automations and `.sql` files
- * in it. This one takes a TOKEN and exposes the deployment's HTTP API — the
- * same surface `oxyc api` reaches, for an agent that would rather call a tool
- * than shell out. Different input, different audience, no overlap.
+ * It replaced the Rust `oxy mcp stdio|sse`, which took a local checkout and
+ * exposed the semantic model, automations and `.sql` files in it. This one
+ * takes a TOKEN and exposes the deployment's HTTP API — the same surface
+ * `oxyc api` reaches, for an agent that would rather call a tool than shell out.
  *
  * FOUR GENERIC TOOLS FOR THE WHOLE API — the design decision that makes most
  * of it affordable.

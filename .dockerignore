@@ -33,7 +33,6 @@ Dockerfile.*
 Thumbs.db
 
 docker-compose*.yml
-Dockerfile
 
 # examples, because we will mount them later
 examples/
@@ -57,7 +56,6 @@ sdk/
 # workflow has ever built this image.
 !sdk/*/package.json
 !sdk/create-oxy-app/templates/**
-oss/
 .claude/
 .husky/
 .turbo/
@@ -82,16 +80,13 @@ docs/
 *.log
 
 # config files not needed for build
-.deepsource.toml
 .env*
 .lintstagedrc.js
 .prettierignore
 .prettierrc.js
 .tool-versions
-.whitesource
 cliff.toml
 commitlint.config.js
-CONTRIBUTING.md
 CLAUDE.md
 turbo.json
 biome.json

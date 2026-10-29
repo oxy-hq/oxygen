@@ -4,12 +4,8 @@ mod airway;
 mod cameras;
 pub mod clean;
 mod compile;
-pub mod export_chart;
-mod init;
 mod intent;
 mod looker;
-mod make;
-mod mcp;
 mod migrate;
 mod migrate_automations;
 /// `pub` so integration tests can drive the seed directly (see
@@ -25,11 +21,9 @@ pub(crate) mod seed_platform_grants;
 mod seed_threads;
 pub(crate) mod serve;
 mod start;
-mod status;
 mod test;
 mod worker;
 
-use crate::cli::commands::mcp::{start_mcp_sse_server, start_mcp_stdio};
 use crate::cli::commands::migrate::migrate;
 use crate::cli::commands::migrate_automations::{MigrateAutomationsArgs, migrate_automations};
 use crate::cli::commands::run::{RunArgs, handle_run_command};
@@ -39,11 +33,8 @@ use ::oxy::config::test_config::TestFileConfig;
 use ::oxy::config::*;
 use ::oxy::sentry_config;
 use ::oxy::theme::StyledText;
-use ::oxy::theme::detect_true_color_support;
-use ::oxy::theme::get_current_theme_mode;
 use clap::CommandFactory;
 use clap::Parser;
-use make::handle_make_command;
 use model::{Automation, Config};
 use oxy_shared::errors::OxyError;
 use serve::start_server_and_web_app;
@@ -53,11 +44,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::exit;
 
-use init::init;
-
 use ::oxy::config::WorkingCopy;
-use dotenv;
-use tracing::{debug, error};
+use tracing::debug;
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -117,53 +105,7 @@ struct Args {
 }
 
 #[derive(Parser, Debug)]
-struct McpArgs {
-    #[clap(subcommand)]
-    pub transport: McpTransport,
-}
-
-#[derive(Parser, Debug)]
-enum McpTransport {
-    /// Start MCP server with stdio transport
-    ///
-    /// Launch an MCP server using standard input/output for direct
-    /// integration with local AI tools and development environments.
-    Stdio {
-        /// Path to the Oxy project directory (required)
-        ///
-        /// Specify the root directory of your Oxy project where
-        /// config.yml and other project files are located.
-        workspace_path: PathBuf,
-    },
-    /// Start MCP server with Server-Sent Events transport
-    ///
-    /// Launch a web-accessible MCP server that enables integration with
-    /// MCP-compatible AI tools and applications via HTTP/SSE.
-    Sse {
-        /// Path to the Oxy project directory (optional, defaults to current directory)
-        ///
-        /// Specify the root directory of your Oxy project where
-        /// config.yml and other project files are located.
-        workspace_path: Option<PathBuf>,
-        /// Port number for the MCP Server-Sent Events server
-        ///
-        /// Specify which port to bind the MCP SSE server for
-        /// web-based integrations. Default is 8000.
-        #[clap(long, default_value_t = 8000)]
-        port: u16,
-        /// Host address to bind the MCP SSE server
-        ///
-        /// Specify which host address to bind the MCP SSE server.
-        /// Default is 0.0.0.0 to listen on all interfaces.
-        #[clap(long, default_value = "0.0.0.0")]
-        host: String,
-    },
-}
-
-#[derive(Parser, Debug)]
 enum SubCommand {
-    /// Initialize a repository as an oxy project. Also creates a ~/.config/oxy/config.yaml file if it doesn't exist
-    Init,
     /// Execute automation (.automation.yml or .procedure.yml) or SQL (.sql) files
     ///
     /// Run SQL queries against databases or execute automations for data processing.
@@ -199,11 +141,6 @@ enum SubCommand {
     /// Check your config.yml, automation files, and agent configurations
     /// for errors and compliance with the expected schema.
     Validate(ValidateArgs),
-    /// Start MCP (Model Context Protocol) server
-    ///
-    /// Launch an MCP server with either stdio or SSE transport for
-    /// integration with AI tools and development environments.
-    Mcp(McpArgs),
     /// Migrate the database schema to the latest version
     Migrate,
     /// Migrate a customer project to the Automations naming
@@ -225,31 +162,11 @@ enum SubCommand {
     /// to be set to a PostgreSQL connection string.
     /// For automatic PostgreSQL setup, use 'oxy start' instead.
     Serve(ServeArgs),
-    /// Show status of Oxy services and Docker containers
-    ///
-    /// Display the current status of PostgreSQL, Docker, and database
-    /// connectivity along with helpful troubleshooting commands.
-    Status,
-    /// Test and preview terminal color theme support
-    ///
-    /// Display color samples and theme information to verify
-    /// terminal compatibility and appearance settings.
-    TestTheme,
     /// Generate JSON schema files for configuration validation
     ///
     /// Create or update schema files used by IDEs and tools
     /// for configuration file validation and autocompletion.
     GenConfigSchema(GenConfigSchemaArgs),
-    /// Update the Oxy CLI to the latest available version
-    ///
-    /// Download and install the newest release of Oxy,
-    /// ensuring you have access to the latest features and fixes.
-    SelfUpdate,
-    /// Execute and manage automation files with advanced options
-    ///
-    /// Run automation files with additional control over execution,
-    /// error handling, and output formatting.
-    Make(MakeArgs),
 
     /// Per-org OLTP Postgres: provision, apply schema, inspect.
     Oltp(crate::cli::commands::oltp::OltpArgs),
@@ -257,11 +174,6 @@ enum SubCommand {
     /// Database seeding commands for development and testing
     #[clap(hide = true)]
     Seed(SeedArgs),
-    /// Clean ephemeral data and reset project state
-    ///
-    /// Remove cached data, vector embeddings, and temporary files to reset
-    /// the project to a clean state. Useful for troubleshooting data corruption.
-    Clean(CleanArgs),
     /// Test Looker integrations
     ///
     /// Check that the Looker integrations configured in your project can connect.
@@ -271,11 +183,6 @@ enum SubCommand {
     /// Discover and classify user intents from agent questions using
     /// unsupervised clustering techniques (HDBSCAN) and LLM labeling.
     Intent(intent::IntentArgs),
-    /// Export ECharts configuration to PNG image
-    ///
-    /// Render ECharts charts to PNG images using server-side rendering.
-    /// Requires Node.js to be installed on the system.
-    ExportChart(export_chart::ExportChartArgs),
     /// Run and debug agentic analytics pipelines
     ///
     /// Execute agentic pipelines with interactive debugging and event streaming.
@@ -305,12 +212,6 @@ enum SubCommand {
     /// Hosts deployment-wide actions for the camera fleet (currently:
     /// device log retention sweep). Reserved for ops / cron flows.
     Cameras(cameras::CamerasArgs),
-}
-
-#[derive(Parser, Debug)]
-pub struct MakeArgs {
-    /// Path to the automation file to execute
-    file: String,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug)]
@@ -407,39 +308,6 @@ pub struct SeedArgs {
     /// and a few real runs. Local DB only; `just up` passes it.
     #[clap(long, conflicts_with = "clear")]
     pub fixtures: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct CleanArgs {
-    /// What to clean
-    #[clap(subcommand)]
-    pub target: CleanTarget,
-}
-
-#[derive(Parser, Debug)]
-pub enum CleanTarget {
-    /// Clear all ephemeral data (database artifacts, vector embeddings, and cache)
-    ///
-    /// Performs a complete cleanup of all ephemeral data including
-    /// the .databases folder (semantic models and build artifacts),
-    /// vector embeddings, and cached files.
-    All,
-    /// Clear only the .databases folder
-    ///
-    /// Removes the .databases folder which contains semantic models,
-    /// dataset schemas, and other build artifacts created during
-    /// sync and build operations. User data remains preserved.
-    DatabaseFolder,
-    /// Clear only vector embeddings and search indexes
-    ///
-    /// Removes all LanceDB vector databases and search indexes
-    /// while preserving the .databases folder and cache files.
-    Vectors,
-    /// Clear cached files and temporary data
-    ///
-    /// Removes cached chart files, logs, and other temporary data
-    /// while preserving .databases folder and vector embeddings.
-    Cache,
 }
 
 /// Validates a single file based on its extension.
@@ -655,7 +523,6 @@ pub async fn cli(
     // Add breadcrumb for CLI command
     if let Some(ref command) = args.command {
         let command_name = match command {
-            SubCommand::Init => "init",
             SubCommand::Run(_) => "run",
             SubCommand::Build(_) => "build",
             SubCommand::Compile(_) => "compile",
@@ -665,19 +532,12 @@ pub async fn cli(
             SubCommand::MigrateAutomations(_) => "migrate-automations",
             SubCommand::Start(_) => "start",
             SubCommand::Serve(_) => "serve",
-            SubCommand::Status => "status",
-            SubCommand::Mcp(_) => "mcp",
-            SubCommand::SelfUpdate => "self-update",
             SubCommand::Test(_) => "test",
-            SubCommand::TestTheme => "test-theme",
             SubCommand::GenConfigSchema(_) => "gen-config-schema",
-            SubCommand::Make(_) => "make",
             SubCommand::Oltp(_) => "oltp",
             SubCommand::Seed(_) => "seed",
-            SubCommand::Clean(_) => "clean",
             SubCommand::Looker(_) => "looker",
             SubCommand::Intent(_) => "intent",
-            SubCommand::ExportChart(_) => "export-chart",
             SubCommand::Agentic(_) => "agentic",
             SubCommand::Airway(_) => "airway",
             SubCommand::Admin(_) => "admin",
@@ -750,10 +610,6 @@ pub async fn cli(
                 }
             }
         }
-        Some(SubCommand::Init) => match init() {
-            Ok(_) => println!("{}", "Initialization complete.".success()),
-            Err(e) => eprintln!("{}", format!("Initialization failed: {e}").error()),
-        },
         Some(SubCommand::Run(run_args)) => {
             sentry_config::add_operation_context("run", Some(&run_args.file));
             handle_run_command(run_args).await?;
@@ -927,65 +783,8 @@ pub async fn cli(
                 return Err(OxyError::RuntimeError(format!("Worker failed: {e}")).into());
             }
         }
-        Some(SubCommand::Status) => {
-            if let Err(e) = status::show_status().await {
-                eprintln!("{}", format!("Failed to get status: {e}").error());
-                exit(1);
-            }
-        }
-        Some(SubCommand::Mcp(mcp_args)) => match mcp_args.transport {
-            McpTransport::Stdio { workspace_path } => {
-                let env_path = workspace_path.join(".env");
-                dotenv::from_path(env_path).ok();
-                let _ = start_mcp_stdio(workspace_path).await;
-            }
-            McpTransport::Sse {
-                workspace_path,
-                port,
-                host,
-            } => {
-                let workspace_path = match workspace_path {
-                    Some(path) => path,
-                    None => resolve_local_workspace_path()?,
-                };
-                let cancellation_token = start_mcp_sse_server(port, host, workspace_path)
-                    .await
-                    .expect("Failed to start MCP SSE server");
-
-                tokio::signal::ctrl_c().await.unwrap();
-                println!("Shutting down server...");
-                cancellation_token.cancel();
-            }
-        },
-        Some(SubCommand::SelfUpdate) => {
-            if let Err(e) = handle_check_for_updates().await {
-                error!(error = %e, "Failed to update");
-                eprintln!("{}", format!("Failed to update: {e}").error());
-                exit(1);
-            }
-        }
-        Some(SubCommand::TestTheme) => {
-            println!("Initial theme mode: {:?}", get_current_theme_mode());
-            println!("True color support: {:?}", detect_true_color_support());
-            println!("{}", "analysis".primary());
-            println!("{}", "success".success());
-            println!("{}", "warning".warning());
-            eprintln!("{}", "error".error());
-            println!("{}", "https://github.com/oxy-hq/oxygen/".secondary());
-            println!("{}", "-region".tertiary());
-            println!("{}", "Viewing repository".info());
-            println!("{}", "text".text());
-        }
-        Some(SubCommand::Make(make_args)) => {
-            handle_make_command(&make_args).await?;
-        }
-
         Some(SubCommand::Seed(seed_args)) => {
             handle_seed_command(seed_args, seams.example_apps).await?;
-        }
-
-        Some(SubCommand::Clean(clean_args)) => {
-            handle_clean_command(clean_args).await?;
         }
 
         Some(SubCommand::Looker(looker_args)) => {
@@ -993,10 +792,6 @@ pub async fn cli(
         }
         Some(SubCommand::Intent(intent_args)) => {
             intent::handle_intent_command(intent_args).await?;
-        }
-
-        Some(SubCommand::ExportChart(export_chart_args)) => {
-            export_chart::handle_export_chart_command(export_chart_args).await?;
         }
 
         Some(SubCommand::Agentic(agentic_args)) => {
@@ -1020,42 +815,6 @@ pub async fn cli(
         }
     }
 
-    Ok(())
-}
-
-async fn handle_check_for_updates() -> Result<(), OxyError> {
-    println!("{}", "Checking for updates...".info());
-
-    let target = format!(
-        "{}-{}-{}",
-        std::env::consts::ARCH,
-        std::env::consts::OS,
-        std::env::consts::FAMILY
-    );
-
-    let status = tokio::task::spawn_blocking(move || {
-        self_update::backends::github::Update::configure()
-            .repo_owner("oxy-hq")
-            .repo_name("oxy")
-            .bin_name(&format!("oxy-{target}"))
-            .show_download_progress(true)
-            .current_version(self_update::cargo_crate_version!())
-            .build()
-            .map_err(|e| OxyError::RuntimeError(format!("Update configuration failed: {e}")))?
-            .update()
-            .map_err(|e| OxyError::RuntimeError(format!("Update failed: {e}")))
-    })
-    .await
-    .map_err(|e| OxyError::RuntimeError(format!("Task join error: {e}")))??;
-
-    if status.updated() {
-        println!(
-            "{}",
-            "Update successful! Restart the application.".success()
-        );
-    } else {
-        println!("{}", "No updates available.".info());
-    }
     Ok(())
 }
 
@@ -1083,31 +842,6 @@ async fn handle_seed_command(
         };
         seed_demo_with(seed_args.workspace_path, options, example_apps).await
     }
-}
-
-async fn handle_clean_command(clean_args: CleanArgs) -> Result<(), OxyError> {
-    use clean::*;
-
-    let config_manager = ConfigBuilder::new()
-        .with_workspace_path(&resolve_local_workspace_path()?)?
-        .build_with_working_copy(Origin::Disk, OnMissing::Fail)
-        .await?;
-
-    match clean_args.target {
-        CleanTarget::All => {
-            clean_all(true, &config_manager).await?;
-        }
-        CleanTarget::DatabaseFolder => {
-            clean_database_folder(true, &config_manager).await?;
-        }
-        CleanTarget::Vectors => {
-            clean_vectors(true, &config_manager).await?;
-        }
-        CleanTarget::Cache => {
-            clean_cache(true, &config_manager).await?;
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

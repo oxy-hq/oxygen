@@ -32,9 +32,6 @@ use tower::{ServiceBuilder, service_fn};
 use tower_serve_static::ServeDir;
 use utoipa_swagger_ui::SwaggerUi;
 
-#[cfg(target_os = "windows")]
-static DIST: Dir = include_dir!("D:\\a\\oxy\\oxy\\crates\\core\\dist");
-#[cfg(not(target_os = "windows"))]
 static DIST: Dir = include_dir!("$CARGO_MANIFEST_DIR/dist");
 const ASSETS_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
@@ -50,6 +47,14 @@ pub async fn start_server_and_web_app(
     // what make the state shareable. Refuse here, before anything is built,
     // rather than boot onto this node's disk.
     crate::server::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
+    // Same reason for sign-in: a fleet process with no provider would serve
+    // every request as the guest user.
+    crate::server::auth_provider_check::check(
+        role,
+        args.local,
+        crate::server::auth_provider_check::provider_configured(),
+    )
+    .map_err(OxyError::RuntimeError)?;
 
     // Before anything is built: a composition that dropped a custom-app task
     // kind, background job or the outer mount would otherwise boot and fail
@@ -197,12 +202,8 @@ pub async fn start_server_and_web_app(
     // this override they'd reject the implicit local-guest session and the
     // bundle's data hooks would 401 in `oxy start --local`.
     {
-        let yaml_provider = !args.local
-            && oxy::config::oxy::get_oxy_config()
-                .ok()
-                .and_then(|c| c.authentication)
-                .map(|a| a.google.is_some() || a.okta.is_some() || a.magic_link.is_some())
-                .unwrap_or(false);
+        let yaml_provider =
+            !args.local && crate::server::auth_provider_check::provider_configured();
         oxy_auth::built_in::set_auth_configured(yaml_provider);
     }
 

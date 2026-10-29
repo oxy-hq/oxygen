@@ -72,14 +72,13 @@ globs = ["web-app/**"]
 mark-changed = ["oxy-app"]
 post-rule = "skip-rules"
 
-# The demo workspace is compiled into two crates through symlinks the graph
-# cannot see: crates/app/demo_project (`oxy init`'s include_dir!, and the
-# seed_compile test) and crates/project/demo_project (the workspace creator's
+# The demo workspace is compiled into oxy-project through a symlink the graph
+# cannot see: crates/project/demo_project (the workspace creator's
 # include_dir!). Without this rule a demo edit selected the whole workspace
-# (PR #3824); with it, those two and their dependents.
+# (PR #3824); with it, oxy-project and its dependents (oxy-app among them).
 [[determinator.path-rule]]
 globs = ["demo_project/**"]
-mark-changed = ["oxy-app", "oxy-project"]
+mark-changed = ["oxy-project"]
 
 # The dev-only dylib shim is excluded from the workspace and never tested.
 [[determinator.path-rule]]

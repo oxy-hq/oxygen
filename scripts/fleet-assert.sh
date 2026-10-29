@@ -91,6 +91,11 @@ SHARED_STATE_ENV=(
   AWS_ACCESS_KEY_ID=minioadmin
   AWS_SECRET_ACCESS_KEY=minioadmin
   AWS_REGION=us-east-1
+  # Any role but `all` also refuses to start with no sign-in provider
+  # (server/auth_provider_check.rs). Magic link in local-test mode, as in
+  # docker-compose.fleet.yml.
+  MAGIC_LINK_LOCAL_TEST=true
+  OXY_APP_EMAIL_LOCAL_TEST=1
 )
 # Deterministic: Uuid::new_v5(NAMESPACE_DNS, "demo.oxy.local") — see seed.rs.
 WS="${WS:-70787bb2-e11b-5488-b2c3-02e60d5fc7d3}"

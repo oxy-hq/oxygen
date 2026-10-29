@@ -12,31 +12,15 @@ use serde::{Deserialize, Serialize};
 /// All baked-in templates. Adding a new template = drop a directory
 /// under `sdk/create-oxy-app/templates/` and add the matching `include_dir!`
 /// call below.
-#[cfg(target_os = "windows")]
-static VITE_TEMPLATE: Dir<'static> =
-    include_dir!("D:\\a\\oxy\\oxy\\sdk\\create-oxy-app\\templates\\vite");
-#[cfg(not(target_os = "windows"))]
 static VITE_TEMPLATE: Dir<'static> =
     include_dir!("$CARGO_MANIFEST_DIR/../../sdk/create-oxy-app/templates/vite");
 
-#[cfg(target_os = "windows")]
-static FUNCTIONS_TEMPLATE: Dir<'static> =
-    include_dir!("D:\\a\\oxy\\oxy\\sdk\\create-oxy-app\\templates\\functions");
-#[cfg(not(target_os = "windows"))]
 static FUNCTIONS_TEMPLATE: Dir<'static> =
     include_dir!("$CARGO_MANIFEST_DIR/../../sdk/create-oxy-app/templates/functions");
 
-#[cfg(target_os = "windows")]
-static DASHBOARD_TEMPLATE: Dir<'static> =
-    include_dir!("D:\\a\\oxy\\oxy\\sdk\\create-oxy-app\\templates\\dashboard");
-#[cfg(not(target_os = "windows"))]
 static DASHBOARD_TEMPLATE: Dir<'static> =
     include_dir!("$CARGO_MANIFEST_DIR/../../sdk/create-oxy-app/templates/dashboard");
 
-#[cfg(target_os = "windows")]
-static SINGLE_STORE_TEMPLATE: Dir<'static> =
-    include_dir!("D:\\a\\oxy\\oxy\\sdk\\create-oxy-app\\templates\\single-store");
-#[cfg(not(target_os = "windows"))]
 static SINGLE_STORE_TEMPLATE: Dir<'static> =
     include_dir!("$CARGO_MANIFEST_DIR/../../sdk/create-oxy-app/templates/single-store");
 

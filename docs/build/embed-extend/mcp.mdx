@@ -1,6 +1,6 @@
 ---
 title: "MCP Server"
-description: "Learn how to use the Model Context Protocol (MCP) server in Oxygen to expose your automations, SQL files, and semantic topics to AI assistants like Claude."
+description: "Give AI assistants like Claude Desktop, Claude Code and Cursor access to your Oxygen deployment as MCP tools, with the oxyc CLI."
 ---
 import RewriteBanner from "/snippets/rewrite-banner.mdx";
 
@@ -9,26 +9,37 @@ import RewriteBanner from "/snippets/rewrite-banner.mdx";
 
 ## Overview
 
-Oxygen's MCP server exposes your data resources as tools that can be called by AI assistants and other MCP clients. This enables seamless integration between your structured data operations and conversational AI interfaces.
+`oxyc mcp` serves your Oxygen deployment's API to MCP clients over stdio. It
+authenticates to the deployment the same way every other `oxyc` command does,
+so an assistant can do what that credential can do: read the semantic model,
+run queries and automations, and work with custom apps.
 
-## Starting the MCP Server
+<Note>
+The older `oxy mcp stdio` and `oxy mcp sse` commands, which served a local
+project checkout, have been removed. Use `oxyc mcp` instead.
+</Note>
 
-Oxygen supports two transport options for the MCP server:
+## Install
 
-### SSE (Server-Sent Events)
+`oxyc` is Oxy's command-line client (Node 20+):
 
-To run the MCP SSE server use the `oxy mcp sse` command:
-
-```sh
-oxy mcp sse <project-path> --port <port>
+```bash
+npm install -g @oxy-hq/cli
 ```
 
-### Stdio
+## Starting the MCP server
 
-Start the server with stdio transport:
+The server's credential is the token in `OXY_TOKEN` and nothing else. With the
+variable unset it exits with code `4` before serving a tool, rather than running
+on whatever `oxyc login` is cached on the machine. To serve on your own login,
+start it with `--login`.
 
-```sh
-oxy mcp stdio <project-path>
+```bash
+# an agent, on its own token
+claude mcp add oxyc -e OXY_TOKEN=<token> -- npx -y @oxy-hq/cli mcp --env production
+
+# you, on your own login
+claude mcp add oxyc -- npx -y @oxy-hq/cli mcp --login --env production
 ```
 
 Example configuration for Claude Desktop:
@@ -36,242 +47,34 @@ Example configuration for Claude Desktop:
 ```json
 {
   "mcpServers": {
-    "oxy": {
-      "command": "oxy",
-      "args": ["mcp", "stdio", "/path/to/your/project"],
+    "oxyc": {
+      "command": "npx",
+      "args": ["-y", "@oxy-hq/cli", "mcp", "--env", "production"],
       "env": {
-        "OPENAI_API_KEY": "<your_model_api_key>"
+        "OXY_TOKEN": "<token>"
       }
     }
   }
 }
 ```
 
-## Configuring Resource Exposure
+## Tools
 
-By default, Oxygen exposes all automations in your project as MCP tools. You can customize which resources are exposed by adding an `mcp` section to your `config.yml`:
+Rather than one tool per endpoint, `oxyc mcp` serves four generic tools, so the
+tool list stays small and reaches endpoints added after the package shipped:
 
-```yaml
-mcp:
-  tools:
-    - semantics/topics/*.topic.yml
-    - automations/*.automation.yml
-    - data/*.sql
-```
+- `oxy_routes` — search the deployment's API routes
+- `oxy_schema` — the request and response schema of a route
+- `oxy_request` — call a route
+- `oxy_whoami` — who the credential is
 
-**Supported resource types:** automations (`.automation.yml`, `.procedure.yml`), semantic topics (`.topic.yml`), and SQL files (`.sql`). Other files matched by a pattern are skipped.
+Two groups of purpose-built tools sit alongside them, for loops an agent runs
+unsupervised: the custom-app sandbox loop (`oxy_env_*`, `oxy_publish_sandbox`,
+`oxy_fn_call`, `oxy_checks_run`, `oxy_invocations_*`, `oxy_logs`) and workspace
+previews (`oxy_preview_*`). Delete tools need `confirm: true`.
 
-**Supported patterns:**
+A sandbox agent token (`oxy_sbx_…`) is served a smaller list: the sandbox loop,
+`oxy_whoami`, the sandbox secret tools and `oxy_token_revoke`.
 
-- Direct file paths: `automations/monthly-report.automation.yml`
-- Glob patterns: `automations/*.automation.yml`, `semantics/**/*.topic.yml`
-- Multiple resource types in a single configuration
-
-**Configuration behavior:**
-
-- When `mcp.tools` is defined: Only specified resources are exposed
-- When `mcp.tools` is omitted: All automations are exposed by default
-- Empty `mcp.tools` list: No tools are exposed
-
-<Note>
-Agents are not exposed over MCP. To make an agent's work available to an MCP
-client, wrap it in an automation with an `agent` task.
-</Note>
-
-## Resource Types
-
-### Automations
-
-Automations are exposed as MCP tools that run the automation and return its results.
-
-**Tool naming:** `workflow-{name}`, where `{name}` is the automation's file name up to the first dot (`monthly-report.automation.yml` becomes `workflow-monthly-report`)
-
-**Input schema:**
-
-```json
-{
-  "variables": "object (optional) — values for the automation's variables"
-}
-```
-
-**Example:**
-
-```json
-{
-  "name": "workflow-monthly-report",
-  "arguments": {
-    "variables": {
-      "month": "2024-11",
-      "metric": "revenue"
-    }
-  }
-}
-```
-
-### SQL Files
-
-SQL files (`.sql`) can be exposed as executable tools.
-
-**Tool naming:** `sql-{filename_without_extension}`
-
-**Input schema:**
-
-```json
-{
-  "database": {
-    "type": "string",
-    "description": "Database connection to use (optional)"
-  }
-}
-```
-
-**SQL file description:**
-Add a description comment at the top of your SQL file:
-
-```sql
--- Description: Calculate monthly revenue by product category
-
-SELECT
-  category,
-  SUM(amount) as total_revenue
-FROM sales
-GROUP BY category;
-```
-
-**Example tool call:**
-
-```json
-{
-  "name": "sql-monthly-report",
-  "arguments": {
-    "database": "analytics"
-  }
-}
-```
-
-### Semantic Topics
-
-Semantic topics from your semantic model can be exposed as structured query tools.
-
-**Tool naming:** `semantic-{topic_name}`
-
-**Input schema:**
-
-```json
-{
-  "dimensions": ["string"],
-  "measures": ["string"],
-  "filters": [{ "field": "string", "op": "string", "value": "any" }],
-  "time_dimensions": [{ "dimension": "string", "granularity": "string" }],
-  "limit": "number",
-  "order_by": [{ "field": "string", "direction": "asc|desc" }],
-  "variables": { "type": "object" }
-}
-```
-
-**Example:**
-
-```json
-{
-  "name": "semantic-sales-analytics",
-  "arguments": {
-    "dimensions": ["products.category", "time.month"],
-    "measures": ["sales.total_revenue", "sales.order_count"],
-    "filters": [
-      {
-        "field": "time.year",
-        "op": "eq",
-        "value": 2024
-      }
-    ],
-    "limit": 100
-  }
-}
-```
-
-## Advanced Features
-
-### Session Filters
-
-Session filters enable row-level security and data filtering across all tool types. They are passed via the `_meta` parameter according to the MCP specification.
-
-**Example:**
-
-```json
-{
-  "name": "semantic-team-performance",
-  "arguments": {
-    "measures": ["sales.total_revenue"],
-    "dimensions": ["sales.rep_name"]
-  },
-  "_meta": {
-    "filters": {
-      "user_id": "user_123",
-      "organization_id": "org_456",
-      "region": "US"
-    }
-  }
-}
-```
-
-**Behavior:**
-
-- Filters are validated against your project's filter schema (defined in `config.yml`)
-- Invalid filter keys or types return errors before execution
-- Missing required filters cause validation errors
-- Missing optional filters use schema defaults
-- Filters apply to all data operations within the tool execution
-
-### Connection Overrides
-
-Connection overrides allow runtime modification of database connection parameters for multi-tenant applications or dynamic routing.
-
-**Example:**
-
-```json
-{
-  "name": "sql-customer-report",
-  "arguments": {
-    "variables": {
-      "customer_id": "12345"
-    }
-  },
-  "_meta": {
-    "connections": {
-      "analytics": {
-        "database": "customer_12345_db",
-        "schema": "reporting"
-      }
-    }
-  }
-}
-```
-
-### Variables via Meta
-
-Variables can be passed via `_meta` and are merged with tool arguments using a defined precedence order.
-
-**Merging order (later overrides earlier):**
-
-1. Default values from tool definition
-2. Variables from tool arguments
-3. Variables from `_meta["variables"]`
-
-**Example:**
-
-```json
-{
-  "name": "workflow-report",
-  "arguments": {
-    "variables": {
-      "include_tax": false
-    }
-  },
-  "_meta": {
-    "variables": {
-      "currency": "EUR",
-      "organization_id": "org_123"
-    }
-  }
-}
-```
+The full reference is the `oxyc` README in
+[`@oxy-hq/cli`](https://www.npmjs.com/package/@oxy-hq/cli).

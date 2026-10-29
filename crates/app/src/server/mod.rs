@@ -4,6 +4,7 @@ pub mod admission;
 pub mod anomaly_notify;
 pub mod api;
 pub mod audit_anchor;
+pub mod auth_provider_check;
 pub mod authz;
 pub mod build_identity;
 pub mod builder_test_runner;

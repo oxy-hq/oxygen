@@ -24,7 +24,7 @@
 //! channel is unbounded and nothing reads it. `oxy worker` was that process
 //! until 2026-09 — its latency worker closes a span every poll, and prod
 //! worker pods grew ~10 MiB/h until the 1 GiB limit OOM-killed them. Every
-//! other command (one-shot CLI, `oxy mcp`) never reaches a `finalize`, which
+//! other command (the one-shot CLI commands) never reaches a `finalize`, which
 //! is why `main.rs` does not give them the layer. `entry_point_tests` holds
 //! `main.rs`'s list and the `finalize` call sites together.
 //!

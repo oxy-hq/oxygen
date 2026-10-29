@@ -164,7 +164,6 @@ internal-docs/oxy-api-cli.md                       @luong-komorebi @NTtanh
 # Build / CI / the deploy train.
 # (The LLM crates that used to sit here moved to Tay's section 2026-09-28 — the
 # consolidation the old rule was waiting on landed. See there.)
-/Dockerfile                                        @luong-komorebi @nresh
 scripts/ci/                                        @luong-komorebi @nresh
 internal-docs/deploy-pipeline.md                   @luong-komorebi @nresh
 # Revert-safe migrations — the ledger tolerance a carrier release rides on (new
@@ -337,10 +336,8 @@ mobile/                                            @NTtanh @luong-komorebi
 internal-docs/mobile-app.md                        @NTtanh @luong-komorebi
 internal-docs/mobile-design-system.md              @NTtanh @luong-komorebi
 
-# Settings / context graph / data-app publish / import + invites
+# Settings / context graph / import + invites
 web-app/src/pages/context-graph/                   @NTtanh @luong-komorebi
-web-app/src/pages/app/                             @NTtanh @haitrr
-web-app/src/pages/dashboards/                      @NTtanh @haitrr
 web-app/src/pages/github/                          @NTtanh @nresh
 web-app/src/pages/Invite/                          @NTtanh @nresh
 web-app/src/pages/ide/observability/               @NTtanh @luong-komorebi

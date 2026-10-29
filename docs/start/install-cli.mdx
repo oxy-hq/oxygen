@@ -10,8 +10,8 @@ data, and start asking questions. There is nothing to install to use the
 product.
 
 The **`oxy` CLI** is an optional companion for developers who want to work
-with an Oxygen project from the terminal — scaffolding a project, running
-automations, validating config, and previewing it locally. You do **not** need
+with an Oxygen project from the terminal — running automations, validating
+config, and previewing it locally. You do **not** need
 it to use Oxygen.
 
 The CLI is the **preferred way to test local changes before they ship to
@@ -58,10 +58,10 @@ oxy --version
 
 ### Update
 
-Upgrade to the latest release in place:
+Re-run the install script to upgrade to the latest release:
 
 ```bash
-oxy self-update
+bash <(curl -sSfL https://get.oxy.tech)
 ```
 
 ## Basic commands
@@ -71,23 +71,12 @@ any subcommand. The commands you'll reach for most:
 
 | Command | What it does |
 | --- | --- |
-| `oxy init` | Scaffold a new Oxygen project in the current directory |
 | `oxy validate` | Check `config.yml`, automations, and agents for errors |
 | `oxy run <file>` | Run an automation (`.automation.yml`) or a `.sql` file |
 | `oxy start` | Start Oxygen locally with PostgreSQL in Docker (recommended) |
 | `oxy serve` | Start the Oxygen web server (requires `OXY_DATABASE_URL`) |
 | `oxy build` | Does nothing any more; kept so existing scripts do not fail |
 | `oxy test` | Run agent tests defined in `.test.yml` files |
-| `oxy mcp stdio` | Start an MCP server so editors (Cursor, Claude Desktop) can use Oxygen as a tool |
-| `oxy self-update` | Update the CLI to the latest release |
-
-### Create a project
-
-Scaffold a new Oxygen project in the current directory:
-
-```bash
-oxy init
-```
 
 ### Validate your config
 
@@ -138,17 +127,17 @@ oxy start --local --enterprise
 ```
 
 Use `oxy serve` instead if you're supplying your own database via
-`OXY_DATABASE_URL`, `oxy start --clean` for a fresh slate, `oxy start --db-only`
-to bring up the database and exit without starting the server, and
-`oxy status` to check what's running.
+`OXY_DATABASE_URL`, `oxy start --clean` for a fresh slate, and
+`oxy start --db-only` to bring up the database and exit without starting the
+server.
 
 ### Expose Oxygen to your editor over MCP
 
-Start an MCP server so MCP-compatible tools can query your project. This is the
-usual way to wire Oxygen into Cursor or Claude Desktop:
+MCP-compatible tools such as Cursor, Claude Desktop and Claude Code reach Oxygen
+through `oxyc mcp`, from Oxy's `oxyc` client (`npm install -g @oxy-hq/cli`):
 
 ```bash
-oxy mcp stdio /path/to/your/project
+claude mcp add oxyc -- npx -y @oxy-hq/cli mcp --login --env production
 ```
 
 See [MCP →](/guide/build/embed-extend/mcp) for editor configuration.

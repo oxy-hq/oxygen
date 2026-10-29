@@ -192,9 +192,6 @@ mod tests {
     }
 }
 
-#[cfg(target_os = "windows")]
-static DEMO_DIST: Dir = include_dir!("D:\\a\\oxy\\oxy\\crates\\core\\demo_project");
-#[cfg(not(target_os = "windows"))]
 static DEMO_DIST: Dir = include_dir!("$CARGO_MANIFEST_DIR/demo_project");
 
 /// Minimal contents written by `write_minimal_config_yml`. Shared between

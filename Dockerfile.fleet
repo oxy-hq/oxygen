@@ -1,12 +1,8 @@
 # ---------------------------------------------------------------------------------
-# Fleet E2E image. A copy of `Dockerfile` with ONE addition: a BuildKit secret
-# carrying a GitHub token, so the private `oxy-hq` cargo dependencies
-# (airway-internal, airlayer, airform) resolve inside the build.
-#
-# A separate file rather than an edit to `Dockerfile`, because that one is on
-# nobody's build path today (no workflow builds it) and changing a shared build
-# for a test harness is the wrong trade. If the fleet harness earns its keep,
-# fold this back.
+# Fleet E2E image. Started as a copy of the old root `Dockerfile` (deleted: no
+# workflow built it) with ONE addition: a BuildKit secret carrying a GitHub
+# token, so the private `oxy-hq` cargo dependencies (airway-internal, airlayer,
+# airform) resolve inside the build.
 #
 #   docker build -f Dockerfile.fleet --secret id=gh_token,env=GH_TOKEN .
 # ---------------------------------------------------------------------------------

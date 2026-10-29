@@ -264,6 +264,9 @@ fn print_docker_tips() {
         "{}",
         "   Access psql:      docker exec -it oxy-postgres psql -U postgres -d oxy".secondary()
     );
-    println!("{}", "   Check status:     oxy status".secondary());
+    println!(
+        "{}",
+        "   Check status:     docker ps --filter name=oxy-postgres".secondary()
+    );
     println!();
 }

@@ -65,7 +65,6 @@ exclude = [
   "tests",
   "scripts",
   "assets",
-  "oss",
   "json-schemas",
   "semantics",
   "sdk",
@@ -843,8 +842,7 @@ rayon = "1"
 # `default-tls` mean *rustls* (0.12's meant native-tls), and `rustls` pulls
 # rustls-platform-verifier — the OS trust store — where 0.12's `rustls-tls`
 # bundled webpki-roots. But native-tls is ALSO in the graph, and not from here:
-# `self_update`'s default features pull `reqwest/native-tls`, and `sentry`'s
-# `transport` pulls `reqwest/native-tls-no-alpn`. Both connectors are therefore
+# `sentry`'s `transport` pulls `reqwest/native-tls-no-alpn`. Both connectors are therefore
 # compiled, and this line alone does not determine which one a client picks —
 # nothing in `crates/` calls `.use_rustls_tls()`. That predates this bump (0.12's
 # own default-tls was native-tls and we never set `default-features = false`), so
@@ -867,10 +865,11 @@ deno_core = "0.412"
 # for deno_core 0.412.
 deno_error = "0.7"
 rkyv = "0.8.18"
-# Held at 0.10 — DELIBERATE, not lag. rmcp 1.0 deleted the SSE *server*
-# transport (`transport-sse-server`), which is what `oxy mcp-sse` serves; 3.x
-# only offers Streamable HTTP. Moving majors therefore retires an endpoint MCP
-# clients are configured against — a product decision, not a dependency bump.
+# Held at 0.10. It was held because rmcp 1.0 deleted the SSE *server*
+# transport that `oxy mcp sse` served; that command is gone (replaced by
+# `oxyc mcp`), and what is left is `oxy` core's use of rmcp's model types
+# (`crates/core/src/exec_types/output_container.rs`). A bump is now an ordinary
+# dependency change.
 rmcp = "0.10.0"
 # 0.39, not 0.40: rusqlite 0.40 wants libsqlite3-sys 0.38, sqlx-sqlite 0.9 caps
 # at `<0.38`, and libsqlite3-sys carries `links = "sqlite3"` so only one version
@@ -889,7 +888,6 @@ rustls = "0.23.43"
 schemars = "0.8.22"
 scopeguard = "1.2.0"
 secrecy = "0.10.3"
-self_update = "0.44.0"
 semver = "1.0"
 serde_arrow = "0.15.0"
 serde_jcs = "0.2.0"

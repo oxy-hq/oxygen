@@ -206,7 +206,6 @@ ece = { workspace = true }
 lazy_static = { workspace = true }
 email_address = { workspace = true }
 serde_urlencoded = { workspace = true }
-self_update = { workspace = true }
 slugify = { workspace = true }
 syntect = { workspace = true }
 tabled = { workspace = true }
@@ -231,13 +230,6 @@ oxy-slack-client = { workspace = true }
 
 # Database migration
 migration = { workspace = true }
-
-# MCP
-rmcp = { workspace = true, features = [
-    "server",
-    "transport-sse-server",
-    "transport-io",
-] }
 
 # Other dependencies from core that might be needed
 dotenv = { workspace = true }

@@ -364,10 +364,6 @@ The listen port can be overridden with `OXY_OAUTH_PROXY_PORT` (default `8429`);
 keep it in sync with the origins above and the registered callback URLs. The
 proxy only ever forwards to loopback origins, so it is safe to leave running.
 
-## Contributing
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
-
 ## Database
 
 Oxy uses PostgreSQL for data storage.

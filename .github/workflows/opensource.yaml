@@ -4,10 +4,6 @@ on:
     branches:
       - main
       - "[0-9]+.[0-9]+.x"
-  pull_request_target:
-    branches:
-      - main
-      - "[0-9]+.[0-9]+.x"
 
 permissions:
   contents: write
@@ -21,19 +17,20 @@ permissions:
 # Queued, the second run starts after the first and migrates whatever is left;
 # with nothing left, copybara reports a no-op, which the action treats as a
 # pass. A run that is still waiting when a newer one arrives is cancelled, and
-# the newer one carries its commits. PR runs get a group each.
+# the newer one carries its commits.
+#
+# Push-only: this mirrors oxygen-internal to the public oxy-hq/oxygen, which
+# production builds from. The public repo no longer imports pull requests back
+# (the old `pull_request_target` half).
 concurrency:
-  group: opensource-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+  group: opensource-${{ github.event_name }}-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   move-code:
     runs-on: "ubuntu-latest"
     timeout-minutes: 15
-    if: ${{ ((github.event_name == 'push' && github.repository ==
-      'oxy-hq/oxygen-internal') || (github.event_name == 'pull_request_target'
-      && github.repository == 'oxy-hq/oxygen' && github.actor !=
-      'dependabot[bot]' )) }}
+    if: ${{ github.repository == 'oxy-hq/oxygen-internal' }}
     steps:
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         name: Create GitHub App Token
@@ -71,8 +68,6 @@ jobs:
             .env.airhouse
             .env.clickhouse
             **/.env
-          # pr_move: |-
-          #   crates/core/dist||oss/dist||**
           committer: "${{ steps.app-token.outputs.app-slug }}[bot] <${{
             steps.get-user-id.outputs.user-id }}+${{
             steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>"

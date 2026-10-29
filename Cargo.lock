@@ -3785,7 +3785,6 @@ dependencies = [
  "cookie",
  "document-features",
  "idna",
- "indexmap 2.14.0",
  "log",
  "publicsuffix",
  "serde",
@@ -9636,14 +9635,12 @@ dependencies = [
  "rayon",
  "regex",
  "reqwest 0.13.4",
- "rmcp",
  "rustc_version_runtime",
  "rustls 0.23.43",
  "schemars 0.8.22",
  "scopeguard",
  "sea-orm",
  "secrecy",
- "self_update",
  "semver",
  "sentry",
  "serde",
@@ -12650,38 +12647,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "self-replace"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03ec815b5eab420ab893f63393878d89c90fdd94c0bcc44c07abb8ad95552fb7"
-dependencies = [
- "fastrand",
- "tempfile",
- "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "self_update"
-version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e79722b5a505d4ddc77527455a97244e9e8c4c07533ff44cf4421cce7bb6d17"
-dependencies = [
- "http 1.5.0",
- "indicatif 0.18.4",
- "log",
- "quick-xml 0.38.4",
- "regex",
- "reqwest 0.13.4",
- "self-replace",
- "semver",
- "serde",
- "serde_json",
- "tempfile",
- "ureq 3.3.0",
- "urlencoding",
-]
-
-[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15166,17 +15131,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dea7109cdcd5864d4eeb1b58a1648dc9bf520360d7af16ec26d0a9354bafcfc0"
 dependencies = [
  "base64 0.22.1",
- "cookie_store",
  "der 0.8.0",
- "encoding_rs",
  "flate2",
  "log",
  "native-tls",
  "percent-encoding",
  "rustls 0.23.43",
  "rustls-pki-types",
- "serde",
- "serde_json",
  "socks",
  "ureq-proto",
  "utf8-zero",
@@ -16256,7 +16217,6 @@ dependencies = [
  "httparse",
  "hyper 1.10.1",
  "hyper-rustls 0.27.9",
- "hyper-tls",
  "hyper-util",
  "icu_locale_core",
  "icu_provider",
