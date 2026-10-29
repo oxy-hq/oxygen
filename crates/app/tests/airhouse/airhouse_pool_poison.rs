@@ -20,7 +20,7 @@ use tokio_postgres::config::Host;
 use crate::common::{Schema, fresh_db};
 
 /// Where the stand-in listens, and who to connect as.
-struct Target {
+pub(crate) struct Target {
     host: String,
     port: u16,
     user: String,
@@ -28,7 +28,7 @@ struct Target {
     db: String,
 }
 
-fn target(url: &str) -> Target {
+pub(crate) fn target(url: &str) -> Target {
     let config: tokio_postgres::Config = url.parse().expect("a postgres url");
     let Some(Host::Tcp(host)) = config.get_hosts().first().cloned() else {
         panic!("{url}: not a TCP host");
@@ -42,16 +42,22 @@ fn target(url: &str) -> Target {
     }
 }
 
+impl Target {
+    /// A fresh connector to the stand-in, as a pool's `build` makes one.
+    pub(crate) async fn connect(&self) -> Result<Arc<AirhouseConnector>, OxyError> {
+        AirhouseConnector::new(&self.host, self.port, &self.user, &self.password, &self.db)
+            .await
+            .map(Arc::new)
+            .map_err(|e| OxyError::DBError(e.to_string()))
+    }
+}
+
 /// Check out the one slot of a transaction identity, counting builds.
 async fn checkout(target: &Arc<Target>, builds: &Arc<AtomicUsize>) -> ExclusiveLease {
     let (target, builds) = (Arc::clone(target), Arc::clone(builds));
     checkout_exclusive("preview:tx:poison-test".into(), move || async move {
         builds.fetch_add(1, Ordering::SeqCst);
-        let t = target.as_ref();
-        AirhouseConnector::new(&t.host, t.port, &t.user, &t.password, &t.db)
-            .await
-            .map(Arc::new)
-            .map_err(|e| OxyError::DBError(e.to_string()))
+        target.connect().await
     })
     .await
     .expect("a pooled connection")

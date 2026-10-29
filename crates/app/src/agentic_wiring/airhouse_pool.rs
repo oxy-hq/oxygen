@@ -16,7 +16,7 @@
 //!
 //! Cache a **small pool of up to N** live `AirhouseConnector`s per **logical
 //! identity** (`mgd:<workspace>:<subject|system>:<role>` for `airhouse_managed`,
-//! `static:<workspace>:<db>` for static airhouse) and round-robin across them.
+//! `static:<workspace>:<db>` for static airhouse).
 //! This caps an identity's concurrent DP sessions at N (default 3) instead of
 //! unbounded — collapsing the 32-session spike — while still allowing N-way
 //! query concurrency so a slow analytics query doesn't head-of-line-block the
@@ -24,8 +24,17 @@
 //! are light and serialize fine; analytics queries are heavier and benefit from
 //! the small pool.)
 //!
-//! Slots fill **lazily** as round-robin cycles through them, so a low-load
-//! identity uses fewer than N; a dead slot (DP restart, detected via the
+//! A checkout **reuses an idle open connection before opening a new one**
+//! (`pick::choose_slot`): a slot is idle when the pool holds the only
+//! reference to its connector, so no caller is still using it. Only when every
+//! open connection is in use does it open the next empty slot, and only when all
+//! N are open and in use does it share one, round-robin. So an identity holds as
+//! many connections as its peak concurrent callers since it was last swept, not
+//! N. Every open
+//! connection holds one of its tenant's connection slots on the DP whether or
+//! not it is running a query, so the old strict round-robin — which opened all N
+//! even at concurrency 1 — filled the analytics DP's connection cap at under 1%
+//! CPU (prod, 2026-10-29). A dead slot (DP restart, detected via the
 //! non-blocking [`AirhouseConnector::is_live`]) is rebuilt in place on next use.
 //! Idle identities are swept (default 5 min) so a quiet tenant returns its DP
 //! sessions, and a cap on tracked identities bounds total live sessions.
@@ -59,6 +68,8 @@ use airhouse::AirhouseConnector;
 use oxy_shared::errors::OxyError;
 use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 
+use pick::SlotState;
+
 const DEFAULT_CONNS_PER_IDENTITY: usize = 3;
 const DEFAULT_IDLE_SECS: u64 = 300;
 const DEFAULT_MAX_IDENTITIES: usize = 16;
@@ -71,11 +82,14 @@ pub(crate) const PREVIEW_KEY_PREFIX: &str = "preview:";
 const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 
 type Slot = Arc<Mutex<Option<Arc<AirhouseConnector>>>>;
+type SlotGuard = OwnedMutexGuard<Option<Arc<AirhouseConnector>>>;
 
 /// Up to N reused connections for one logical identity. Each slot is built
-/// lazily (round-robin fills them), so a low-load identity holds fewer than N.
+/// lazily, only when every open one is in use, so a low-load identity holds
+/// fewer than N.
 struct KeyPool {
     slots: Vec<Slot>,
+    /// Round-robin cursor, used only once all N are open and in use.
     next: AtomicUsize,
     /// Unix seconds of the last checkout; drives idle + LRU eviction.
     last_used: AtomicU64,
@@ -100,8 +114,8 @@ fn registry() -> &'static RwLock<HashMap<String, Arc<KeyPool>>> {
     POOL.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-/// Reuse (or lazily build) an Airhouse connector for `key`, round-robined over
-/// up to N per-identity connections.
+/// Reuse (or lazily build) an Airhouse connector for `key`, from up to N
+/// per-identity connections — an idle open one first.
 ///
 /// `build` runs **only** when the chosen slot is empty or its connection died —
 /// on a warm hit no credential is minted and no connection is opened. It
@@ -123,7 +137,7 @@ pub struct ExclusiveLease {
     conn: Arc<dyn DatabaseConnector>,
     /// The slot's lock; `None` when pooling is disabled (the connection is
     /// this caller's alone anyway).
-    slot: Option<OwnedMutexGuard<Option<Arc<AirhouseConnector>>>>,
+    slot: Option<SlotGuard>,
 }
 
 impl ExclusiveLease {
@@ -163,11 +177,17 @@ where
     pool.last_used.store(now, Ordering::Relaxed);
     ensure_sweeper();
 
-    // Round-robin a slot. Holding the per-slot lock across a build only blocks
-    // checkouts that land on the SAME slot; other slots / identities proceed,
-    // so concurrent demand grows the pool toward N distinct connections.
-    let i = pool.next.fetch_add(1, Ordering::Relaxed) % pool.slots.len();
-    let mut slot = Arc::clone(&pool.slots[i]).lock_owned().await;
+    // Holding the per-slot lock across a build only blocks checkouts that land
+    // on the SAME slot; other slots / identities proceed, so concurrent demand
+    // grows the pool toward N distinct connections.
+    let (picked, occupied) = try_pick(&pool);
+    let (i, mut slot) = match picked {
+        Some(picked) => picked,
+        None => {
+            let i = pool.next.fetch_add(1, Ordering::Relaxed) % pool.slots.len();
+            (i, Arc::clone(&pool.slots[i]).lock_owned().await)
+        }
+    };
     if let Some(conn) = slot.as_ref() {
         if conn.is_live() {
             tracing::debug!(pool_key = %key, slot = i, "airhouse pool: reuse");
@@ -181,11 +201,54 @@ where
     }
     let conn = build().await?;
     *slot = Some(Arc::clone(&conn));
-    tracing::info!(pool_key = %key, slot = i, "airhouse pool: build");
+    // `occupied` (open or locked by another checkout) at the time of the scan:
+    // a build should only happen once every occupied slot is in use.
+    tracing::info!(
+        pool_key = %key,
+        slot = i,
+        occupied,
+        width = pool.slots.len(),
+        "airhouse pool: build"
+    );
     Ok(ExclusiveLease {
         conn,
         slot: Some(slot),
     })
+}
+
+/// Lock, without waiting, the slot [`pick::choose_slot`] prefers. A slot
+/// another checkout holds (mid-build, or an exclusive lease) is skipped.
+/// `None` when every open connection is in use and none is empty: the caller
+/// then shares one. Also returns how many slots were occupied (open, or held
+/// by another checkout). No `.await` while the guards are held, so this can't
+/// deadlock against another scan.
+fn try_pick(pool: &KeyPool) -> (Option<(usize, SlotGuard)>, usize) {
+    let mut guards: Vec<Option<SlotGuard>> = pool
+        .slots
+        .iter()
+        .map(|s| Arc::clone(s).try_lock_owned().ok())
+        .collect();
+    let states: Vec<Option<SlotState>> = guards
+        .iter()
+        .map(|g| g.as_ref().map(|g| slot_state(g)))
+        .collect();
+    let occupied = states
+        .iter()
+        .filter(|s| **s != Some(SlotState::Vacant))
+        .count();
+    let picked = pick::choose_slot(&states).and_then(|i| guards[i].take().map(|g| (i, g)));
+    (picked, occupied)
+}
+
+fn slot_state(slot: &Option<Arc<AirhouseConnector>>) -> SlotState {
+    match slot {
+        None => SlotState::Vacant,
+        Some(conn) if !conn.is_live() => SlotState::Vacant,
+        // The slot's own reference is the only one: no caller still holds the
+        // connector (a caller's `Arc<dyn DatabaseConnector>` shares this count).
+        Some(conn) if Arc::strong_count(conn) == 1 => SlotState::Idle,
+        Some(_) => SlotState::InUse,
+    }
 }
 
 /// Get the identity's pool, creating it (and pruning idle/over-cap identities)
@@ -362,6 +425,8 @@ fn env_usize(var: &str, default: usize) -> usize {
         .filter(|&n| n > 0)
         .unwrap_or(default)
 }
+
+mod pick;
 
 #[cfg(test)]
 mod tests;

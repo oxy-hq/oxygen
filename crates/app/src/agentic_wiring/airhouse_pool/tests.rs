@@ -1,6 +1,44 @@
-//! Pool eviction policy.
+//! Pool eviction and slot-choice policy.
 
+use super::pick::{SlotState, choose_slot};
 use super::{Budgets, keys_to_evict, keys_to_evict_by_budget};
+
+use SlotState::{Idle, InUse, Vacant};
+
+#[test]
+fn an_idle_open_connection_is_reused_before_an_empty_slot_is_filled() {
+    // Round-robin would have landed on the empty slot 1 and opened a second
+    // connection for a caller that is alone.
+    assert_eq!(
+        choose_slot(&[Some(Idle), Some(Vacant), Some(Vacant)]),
+        Some(0)
+    );
+    assert_eq!(
+        choose_slot(&[Some(InUse), Some(Vacant), Some(Idle)]),
+        Some(2)
+    );
+}
+
+#[test]
+fn an_empty_slot_is_filled_only_when_every_open_connection_is_in_use() {
+    assert_eq!(
+        choose_slot(&[Some(InUse), Some(Vacant), Some(Vacant)]),
+        Some(1)
+    );
+}
+
+#[test]
+fn a_slot_another_checkout_holds_is_skipped() {
+    assert_eq!(choose_slot(&[None, Some(Idle)]), Some(1));
+    assert_eq!(choose_slot(&[None, Some(InUse), Some(Vacant)]), Some(2));
+}
+
+#[test]
+fn nothing_free_means_share_an_open_connection() {
+    assert_eq!(choose_slot(&[Some(InUse), Some(InUse)]), None);
+    assert_eq!(choose_slot(&[None, Some(InUse)]), None);
+    assert_eq!(choose_slot(&[]), None);
+}
 
 fn e(k: &str, last: u64) -> (String, u64) {
     (k.to_string(), last)
