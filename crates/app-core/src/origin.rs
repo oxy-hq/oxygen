@@ -16,8 +16,10 @@ pub fn cors_allow(origin: &HeaderValue, headers: &HeaderMap) -> bool {
 
 /// The host the request arrived at: `X-Forwarded-Host` when a TLS-terminating
 /// reverse proxy set one, else `Host`. Empty when neither is present, which is
-/// how a non-browser client shows up.
-fn request_host(headers: &HeaderMap) -> &str {
+/// how a non-browser client shows up. Our own hop to the Factory
+/// (`ide_proxy::preserve_public_host`) sets it too, so on the Factory this is
+/// the host the caller used, not the in-cluster Service.
+pub(crate) fn request_host(headers: &HeaderMap) -> &str {
     headers
         .get("x-forwarded-host")
         .or_else(|| headers.get(header::HOST))

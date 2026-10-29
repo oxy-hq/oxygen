@@ -6,7 +6,9 @@
 //!
 //! 1. **Host label.** `staging--<org>--<slug>.customer-apps…` is staging,
 //!    `dev-<handle>--<org>--<slug>.…` that dev slot, `<org>--<slug>.…`
-//!    production ([`crate::custom_apps_host_dispatch::parse_app_host`]).
+//!    production ([`crate::custom_apps_host_dispatch::parse_app_host`]). The
+//!    host is `X-Forwarded-Host` when set, else `Host`, so a call relayed to
+//!    the Factory keeps the environment its caller addressed.
 //! 2. **`X-Oxy-App-Env`**, on a request carrying an explicit credential (a
 //!    bearer token or an API key) and only there.
 //! 3. **Otherwise production**: the path URL on the admin host, and `/a/<slug>/`
@@ -134,10 +136,14 @@ impl EnvRequestError {
     }
 }
 
-/// The environment the request's `Host` names, when it is an app host.
+/// The environment the request's host names, when it is an app host. The host
+/// is the one the origin allowlist reads (`X-Forwarded-Host`, else `Host`): a
+/// function call a replica relays to the Factory arrives with the in-cluster
+/// Service as its `Host`, and reading that alone made every relayed staging
+/// call production. A caller that sets the header itself gains nothing: the
+/// origin check runs against whichever environment it names.
 fn host_environment(headers: &HeaderMap) -> Option<AppEnvironment> {
-    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok())?;
-    parse_app_host(host).map(|h| h.environment)
+    parse_app_host(crate::origin::request_host(headers)).map(|h| h.environment)
 }
 
 /// The environment this request addresses. See the module docs for the order.
@@ -366,6 +372,42 @@ mod tests {
             request_environment(&headers(&[("host", "app.oxygen-hq.com")])),
             Ok(AppEnvironment::Production),
             "the path URL on the admin host is production"
+        );
+    }
+
+    /// A function call a serve replica relays to the Factory
+    /// (`invocation_placement`) arrives with the in-cluster Service as its
+    /// `Host` and the caller's host in `X-Forwarded-Host` (`ide_proxy`).
+    /// Reading `Host` alone made every relayed staging call production, so the
+    /// staging page that sent it was refused as cross-environment.
+    #[test]
+    fn a_relayed_call_keeps_the_environment_its_caller_addressed() {
+        let relayed = headers(&[
+            ("host", "oxy-ide.oxy.svc.cluster.local:3000"),
+            ("x-forwarded-host", STAGING_HOST),
+            ("cookie", "oxy_session=x"),
+            ("origin", &format!("https://{STAGING_HOST}")),
+        ]);
+        let environment = request_environment(&relayed);
+        assert_eq!(environment, Ok(AppEnvironment::Staging));
+        assert_eq!(check_origin(&relayed, &environment.unwrap()), Ok(()));
+        assert_eq!(
+            guard(&Method::POST, "/customer-apps/acme/store/fn/x", &relayed)
+                .map_err(|r| r.status()),
+            Ok(AppEnvironment::Staging)
+        );
+
+        let staging_page_to_production = headers(&[
+            ("host", "oxy-ide.oxy.svc.cluster.local:3000"),
+            ("x-forwarded-host", PROD_HOST),
+            ("cookie", "oxy_session=x"),
+            ("origin", &format!("https://{STAGING_HOST}")),
+        ]);
+        let environment = request_environment(&staging_page_to_production).unwrap();
+        assert_eq!(environment, AppEnvironment::Production);
+        assert!(
+            check_origin(&staging_page_to_production, &environment).is_err(),
+            "a relayed call to production from a staging page is still refused"
         );
     }
 
