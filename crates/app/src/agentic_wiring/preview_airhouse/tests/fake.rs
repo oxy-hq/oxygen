@@ -174,6 +174,13 @@ impl DatabaseConnector for FakeConn {
         self.receive("untyped", sql).await?;
         Ok(empty_stream())
     }
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<agentic_core::result::TypedValue>>, ConnectorError> {
+        self.receive("first_row", sql).await?;
+        Ok(None)
+    }
     async fn execute_statement(&self, sql: &str) -> Result<(), ConnectorError> {
         self.receive("statement", sql).await
     }

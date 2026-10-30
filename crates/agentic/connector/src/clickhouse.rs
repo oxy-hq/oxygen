@@ -111,6 +111,12 @@ fn clickhouse_type_category(raw: &str) -> TypeCategory {
     }
 }
 
+/// What `execute_query_first_row` runs for `sql` (see
+/// [`crate::connector::plan_first_row`]).
+fn first_row_plan(sql: &str) -> crate::connector::FirstRowPlan {
+    crate::connector::plan_first_row(sql, |s| crate::connector::first_row_probe_sql(s, ""))
+}
+
 // ── Value converter ────────────────────────────────────────────────────────────
 
 /// Convert a `serde_json::Value` cell from a JSONCompact row into a [`CellValue`].
@@ -161,6 +167,43 @@ pub struct ClickHouseConnector {
 }
 
 impl ClickHouseConnector {
+    /// One request for `full_sql`, decoded into a typed row stream.
+    ///
+    /// The SQL is already wrapped (`SELECT * FROM (user_sql) …`), sent as
+    /// `FORMAT JSONCompact`.
+    async fn typed_stream_for(&self, full_sql: &str) -> Result<TypedRowStream, ConnectorError> {
+        // The response carries per-column `meta.type` strings (Nullable,
+        // LowCardinality, composites all included) and a row-major `data`
+        // array of JSON cells, which `parse_ch_raw_cell` decodes typed from
+        // their text.
+        let resp = self.http_query_raw(full_sql).await?;
+
+        let columns: Vec<ColumnSpec> = resp
+            .meta
+            .iter()
+            .map(|m| ColumnSpec {
+                name: m.name.clone(),
+                data_type: ch_type_to_typed(m.r#type.as_deref().unwrap_or("")),
+            })
+            .collect();
+        let col_count = columns.len();
+
+        let typed_rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = resp
+            .data
+            .iter()
+            .map(|row| {
+                let mut cells = Vec::with_capacity(col_count);
+                for (idx, col) in columns.iter().enumerate() {
+                    let text = row.get(idx).map_or("null", |cell| cell.get());
+                    cells.push(parse_ch_raw_cell(text, col)?);
+                }
+                Ok(cells)
+            })
+            .collect();
+
+        Ok(TypedRowStream::from_rows(columns, typed_rows))
+    }
+
     /// Build a connector that talks to ClickHouse over its HTTP interface.
     ///
     /// Does no I/O: schema is fetched lazily by `prepare_schema`, the same
@@ -582,38 +625,43 @@ impl DatabaseConnector for ClickHouseConnector {
     )]
     async fn execute_query_full(&self, sql: &str) -> Result<TypedRowStream, ConnectorError> {
         let sql = normalize_sql(sql);
-        // One request: `SELECT * FROM (user_sql) FORMAT JSONCompact`.
-        // The response carries per-column `meta.type` strings (Nullable,
-        // LowCardinality, composites all included) and a row-major `data`
-        // array of JSON cells, which `parse_ch_raw_cell` decodes typed from
-        // their text.
-        let full_sql = format!("SELECT * FROM ({sql})");
-        let resp = self.http_query_raw(&full_sql).await?;
+        self.typed_stream_for(&format!("SELECT * FROM ({sql})"))
+            .await
+    }
 
-        let columns: Vec<ColumnSpec> = resp
-            .meta
-            .iter()
-            .map(|m| ColumnSpec {
-                name: m.name.clone(),
-                data_type: ch_type_to_typed(m.r#type.as_deref().unwrap_or("")),
-            })
-            .collect();
-        let col_count = columns.len();
-
-        let typed_rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = resp
-            .data
-            .iter()
-            .map(|row| {
-                let mut cells = Vec::with_capacity(col_count);
-                for (idx, col) in columns.iter().enumerate() {
-                    let text = row.get(idx).map_or("null", |cell| cell.get());
-                    cells.push(parse_ch_raw_cell(text, col)?);
-                }
-                Ok(cells)
-            })
-            .collect();
-
-        Ok(TypedRowStream::from_rows(columns, typed_rows))
+    /// The first row of `sql`, mirroring `execute_query`: leading statements
+    /// run for their side effects, a final statement that returns no rows runs
+    /// and gives `None`, and otherwise the final statement is wrapped as the
+    /// sample path wraps it, `SELECT * FROM (\n{sql}\n) LIMIT 1`, decoded by
+    /// the same typed parse as `execute_query_full`. One query, one row.
+    #[tracing::instrument(
+        target = "agentic_connector::query",
+        name = "db.query",
+        skip_all,
+        err(level = "info", Display),
+        fields(
+            otel.name = %crate::telemetry::span_name(sql, "clickhouse"),
+            otel.kind = "client",
+            db.system.name = "clickhouse",
+            db.operation.name = %crate::telemetry::operation_name(sql),
+            db.query.text = %crate::telemetry::query_text(sql),
+            oxy.db.method = "execute_query_first_row",
+        )
+    )]
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        let plan = first_row_plan(sql);
+        for stmt in &plan.side_effects {
+            self.http_exec(stmt, &[]).await?;
+        }
+        match plan.probe {
+            Some(probe) => {
+                crate::connector::first_row_of(self.typed_stream_for(&probe).await?).await
+            }
+            None => Ok(None),
+        }
     }
 
     /// Fetch and cache the schema. Idempotent: a second call is a no-op once
@@ -782,6 +830,26 @@ fn detect_join_keys(tables: &[SchemaTableInfo]) -> Vec<(String, String, String)>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_two_statement_key_runs_the_prefix_and_probes_the_last() {
+        let plan = first_row_plan("SET max_threads = 1; SELECT max(ts) FROM t -- latest;");
+        assert_eq!(plan.side_effects, vec!["SET max_threads = 1"]);
+        assert_eq!(
+            plan.probe.as_deref(),
+            Some("SELECT * FROM (\nSELECT max(ts) FROM t -- latest\n) LIMIT 1")
+        );
+    }
+
+    #[test]
+    fn a_no_rows_final_statement_is_run_not_probed() {
+        let plan = first_row_plan("SELECT 1; INSERT INTO t VALUES (1)");
+        assert_eq!(
+            plan.side_effects,
+            vec!["SELECT 1", "INSERT INTO t VALUES (1)"]
+        );
+        assert_eq!(plan.probe, None);
+    }
 
     /// A database name is config, not caller input, but it is still written
     /// into a literal ClickHouse reads backslashes in.

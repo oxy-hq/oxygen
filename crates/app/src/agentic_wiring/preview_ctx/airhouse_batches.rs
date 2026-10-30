@@ -112,6 +112,14 @@ impl DatabaseConnector for Batches {
         self.inner.execute_query_full_untyped(sql).await
     }
 
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<agentic_core::result::TypedValue>>, ConnectorError> {
+        let _settle = self.settling(sql);
+        self.inner.execute_query_first_row(sql).await
+    }
+
     async fn begin_transaction(&self) -> Result<Box<dyn SqlTransaction>, ConnectorError> {
         self.inner.begin_transaction().await
     }

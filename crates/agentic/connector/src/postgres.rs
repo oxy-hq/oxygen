@@ -85,6 +85,99 @@ pub struct PostgresConnector {
 }
 
 impl PostgresConnector {
+    /// Prepare `sql` on `client` and read its rows as typed values, up to the
+    /// `ResultCap`. `sql` is one statement with its trailing `;` stripped.
+    async fn typed_on(&self, client: &Client, sql: &str) -> Result<TypedRowStream, ConnectorError> {
+        // Extended-protocol path: prepare the statement to get column type OIDs,
+        // then execute a cast subquery that avoids temp-table creation/teardown.
+        // Falls back to simple-query for DDL, DML, SHOW, and any statement the
+        // server refuses to prepare.
+        let stmt = match client.prepare(sql).await {
+            Ok(s) => s,
+            Err(_) => return execute_via_simple_query(client, sql).await,
+        };
+
+        // No RowDescription → DDL or DML without RETURNING. Execute the
+        // statement and return an empty stream to signal success.
+        if stmt.columns().is_empty() {
+            client
+                .execute(&stmt, &[])
+                .await
+                .map_err(|e| ConnectorError::QueryFailed(pg_query_failed(sql, &e)))?;
+            return Ok(TypedRowStream::from_rows(vec![], vec![]));
+        }
+
+        // Derive column specs and per-column cast expressions from the
+        // statement descriptor — no pg_attribute round-trip needed.
+        let pg_typnames: Vec<String> = stmt
+            .columns()
+            .iter()
+            .map(|c| c.type_().name().to_string())
+            .collect();
+        let columns: Vec<ColumnSpec> = stmt
+            .columns()
+            .iter()
+            .zip(pg_typnames.iter())
+            .map(|(c, typname)| ColumnSpec {
+                name: c.name().to_string(),
+                data_type: pg_typname_to_typed(typname),
+            })
+            .collect();
+        let cast_exprs: Vec<String> = stmt
+            .columns()
+            .iter()
+            .zip(pg_typnames.iter())
+            .map(|(c, typname)| {
+                let quoted = format!("\"{}\"", c.name().replace('"', "\"\""));
+                select_expr_for_pg_type(&quoted, typname)
+            })
+            .collect();
+
+        // Inline subquery: no temp table, casts applied to the live result set.
+        let cast_sql = format!("SELECT {} FROM ({sql}) __q", cast_exprs.join(", "));
+
+        // Stream rows via `query_raw` and stop at the `ResultCap` so an unbounded
+        // scan (an uncapped `world_model_graph` query, or 10k very wide rows)
+        // can't materialize gigabytes in the pod. Plain `query()` would buffer
+        // the whole result before we could cap it. The row that crosses the
+        // threshold is kept; everything after is dropped and the result flagged
+        // truncated.
+        use futures::{TryStreamExt, pin_mut};
+        let no_params: [&(dyn tokio_postgres::types::ToSql + Sync); 0] = [];
+        let row_stream = client
+            .query_raw(cast_sql.as_str(), no_params)
+            .await
+            .map_err(|e| ConnectorError::QueryFailed(pg_query_failed(sql, &e)))?;
+        pin_mut!(row_stream);
+
+        let cap = self.result_cap;
+        let mut typed_rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = Vec::new();
+        let mut bytes: u64 = 0;
+        let mut truncated = false;
+        while let Some(row) = row_stream
+            .try_next()
+            .await
+            .map_err(|e| ConnectorError::QueryFailed(pg_query_failed(sql, &e)))?
+        {
+            let decoded = decode_row(&row, &columns);
+            if let Ok(values) = &decoded {
+                bytes += estimate_row_bytes(values);
+            }
+            typed_rows.push(decoded);
+            if cap.exceeded(typed_rows.len() as u64, bytes) {
+                truncated = true;
+                break;
+            }
+        }
+
+        let stream = TypedRowStream::from_rows(columns, typed_rows);
+        Ok(if truncated {
+            stream.with_truncation(Arc::new(AtomicBool::new(true)))
+        } else {
+            stream
+        })
+    }
+
     /// Build a connector that will connect lazily on the first query.
     ///
     /// Never fails — connection errors surface when a query is first executed.
@@ -606,95 +699,56 @@ impl DatabaseConnector for PostgresConnector {
         )
         .await?;
         let client = guard.as_ref().unwrap();
+        self.typed_on(client, sql).await
+    }
 
-        // Extended-protocol path: prepare the statement to get column type OIDs,
-        // then execute a cast subquery that avoids temp-table creation/teardown.
-        // Falls back to simple-query for DDL, DML, SHOW, and any statement the
-        // server refuses to prepare.
-        let stmt = match client.prepare(sql).await {
-            Ok(s) => s,
-            Err(_) => return execute_via_simple_query(client, sql).await,
-        };
-
-        // No RowDescription → DDL or DML without RETURNING. Execute the
-        // statement and return an empty stream to signal success.
-        if stmt.columns().is_empty() {
+    /// The first row of `sql`, mirroring `execute_query`: on one locked
+    /// session, prefix statements (and a final statement that returns no
+    /// rows) go through `batch_execute`, then the final statement is wrapped
+    /// as `SELECT * FROM (\n{sql}\n) AS _q LIMIT 1` and read.
+    #[tracing::instrument(
+        target = "agentic_connector::query",
+        name = "db.query",
+        skip_all,
+        err(level = "info", Display),
+        fields(
+            otel.name = %crate::telemetry::span_name(sql, "postgresql"),
+            otel.kind = "client",
+            db.system.name = "postgresql",
+            db.operation.name = %crate::telemetry::operation_name(sql),
+            db.query.text = %crate::telemetry::query_text(sql),
+            oxy.db.method = "execute_query_first_row",
+        )
+    )]
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        let plan = crate::connector::plan_first_row(sql, |s| {
+            crate::connector::first_row_probe_sql(s, " AS _q")
+        });
+        let mut guard = self.client.lock().await;
+        ensure_client_connected(
+            &self.config,
+            self.verify_tls,
+            &mut guard,
+            &self.cached_schema,
+            &self.schema_error,
+        )
+        .await?;
+        let client = guard.as_ref().unwrap();
+        for stmt in &plan.side_effects {
             client
-                .execute(&stmt, &[])
+                .batch_execute(stmt)
                 .await
-                .map_err(|e| ConnectorError::QueryFailed(pg_query_failed(sql, &e)))?;
-            return Ok(TypedRowStream::from_rows(vec![], vec![]));
+                .map_err(|e| ConnectorError::QueryFailed(pg_query_failed(stmt, &e)))?;
         }
-
-        // Derive column specs and per-column cast expressions from the
-        // statement descriptor — no pg_attribute round-trip needed.
-        let pg_typnames: Vec<String> = stmt
-            .columns()
-            .iter()
-            .map(|c| c.type_().name().to_string())
-            .collect();
-        let columns: Vec<ColumnSpec> = stmt
-            .columns()
-            .iter()
-            .zip(pg_typnames.iter())
-            .map(|(c, typname)| ColumnSpec {
-                name: c.name().to_string(),
-                data_type: pg_typname_to_typed(typname),
-            })
-            .collect();
-        let cast_exprs: Vec<String> = stmt
-            .columns()
-            .iter()
-            .zip(pg_typnames.iter())
-            .map(|(c, typname)| {
-                let quoted = format!("\"{}\"", c.name().replace('"', "\"\""));
-                select_expr_for_pg_type(&quoted, typname)
-            })
-            .collect();
-
-        // Inline subquery: no temp table, casts applied to the live result set.
-        let cast_sql = format!("SELECT {} FROM ({sql}) __q", cast_exprs.join(", "));
-
-        // Stream rows via `query_raw` and stop at the `ResultCap` so an unbounded
-        // scan (an uncapped `world_model_graph` query, or 10k very wide rows)
-        // can't materialize gigabytes in the pod. Plain `query()` would buffer
-        // the whole result before we could cap it. The row that crosses the
-        // threshold is kept; everything after is dropped and the result flagged
-        // truncated.
-        use futures::{TryStreamExt, pin_mut};
-        let no_params: [&(dyn tokio_postgres::types::ToSql + Sync); 0] = [];
-        let row_stream = client
-            .query_raw(cast_sql.as_str(), no_params)
-            .await
-            .map_err(|e| ConnectorError::QueryFailed(pg_query_failed(sql, &e)))?;
-        pin_mut!(row_stream);
-
-        let cap = self.result_cap;
-        let mut typed_rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = Vec::new();
-        let mut bytes: u64 = 0;
-        let mut truncated = false;
-        while let Some(row) = row_stream
-            .try_next()
-            .await
-            .map_err(|e| ConnectorError::QueryFailed(pg_query_failed(sql, &e)))?
-        {
-            let decoded = decode_row(&row, &columns);
-            if let Ok(values) = &decoded {
-                bytes += estimate_row_bytes(values);
+        match plan.probe {
+            Some(probe) => {
+                crate::connector::first_row_of(self.typed_on(client, &probe).await?).await
             }
-            typed_rows.push(decoded);
-            if cap.exceeded(typed_rows.len() as u64, bytes) {
-                truncated = true;
-                break;
-            }
+            None => Ok(None),
         }
-
-        let stream = TypedRowStream::from_rows(columns, typed_rows);
-        Ok(if truncated {
-            stream.with_truncation(Arc::new(AtomicBool::new(true)))
-        } else {
-            stream
-        })
     }
 
     async fn prepare_schema(&self) -> Result<(), ConnectorError> {
@@ -897,5 +951,32 @@ mod tests {
                 "`{mode}` asks for the certificate to be checked"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod first_row_tests {
+    use crate::connector::{first_row_probe_sql, plan_first_row};
+
+    #[test]
+    fn a_two_statement_key_runs_the_prefix_and_wraps_the_last_with_an_alias() {
+        let plan = plan_first_row("SET search_path = s; SELECT max(ts) FROM t;", |s| {
+            first_row_probe_sql(s, " AS _q")
+        });
+        assert_eq!(plan.side_effects, vec!["SET search_path = s"]);
+        assert_eq!(
+            plan.probe.as_deref(),
+            Some("SELECT * FROM (\nSELECT max(ts) FROM t\n) AS _q LIMIT 1")
+        );
+    }
+
+    #[test]
+    fn a_no_rows_final_statement_is_executed_and_not_probed() {
+        let plan = plan_first_row("SELECT 1; CREATE INDEX i ON t (c)", |s| s.to_string());
+        assert_eq!(
+            plan.side_effects,
+            vec!["SELECT 1", "CREATE INDEX i ON t (c)"]
+        );
+        assert_eq!(plan.probe, None);
     }
 }

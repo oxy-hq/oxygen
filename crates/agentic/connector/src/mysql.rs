@@ -610,39 +610,7 @@ impl DatabaseConnector for MysqlConnector {
             return Ok(TypedRowStream::from_rows(vec![], vec![]));
         }
 
-        let mysql_typnames: Vec<String> = mysql_cols
-            .iter()
-            .map(|c| c.type_info().name().to_string())
-            .collect();
-
-        // Build cast expressions and column specs in one pass so that
-        // binary-like types (BINARY, VARBINARY, BLOB family) that are cast to
-        // CHAR in the wrapper query are advertised as Text — not Bytes —
-        // ensuring decode_cell uses try_get::<String>.
-        //
-        // For meta-statements (non-wrappable), override all types to Text
-        // because MySQL's binary protocol reports information_schema columns
-        // as BLOB even though they contain UTF-8 text.
-        let mut columns: Vec<ColumnSpec> = Vec::with_capacity(mysql_cols.len());
-        let mut cast_exprs: Vec<String> = Vec::with_capacity(mysql_cols.len());
-        for (c, tn) in mysql_cols.iter().zip(mysql_typnames.iter()) {
-            let quoted = format!("`{}`", c.name().replace('`', "``"));
-            let expr = select_expr_for_mysql_type(&quoted, tn);
-            let native = mysql_type_to_typed(tn);
-            let data_type = if !wrappable {
-                TypedDataType::Text
-            } else if matches!(native, TypedDataType::Bytes) && expr != quoted {
-                // Was cast to CHAR — decode as Text, not raw bytes.
-                TypedDataType::Text
-            } else {
-                native
-            };
-            cast_exprs.push(expr);
-            columns.push(ColumnSpec {
-                name: c.name().to_string(),
-                data_type,
-            });
-        }
+        let (columns, cast_exprs) = columns_and_casts(mysql_cols, wrappable);
 
         // Inline subquery with per-column casts — no temp table needed.
         // Stream rows via `fetch` so we never buffer the full result set in
@@ -684,9 +652,122 @@ impl DatabaseConnector for MysqlConnector {
         })
     }
 
+    /// The first row of `sql`, mirroring `execute_query`: on ONE pooled
+    /// connection (session state set by a prefix statement must be visible to
+    /// the final one), prefix statements and a final statement that returns
+    /// no rows are executed, then the final statement is prepared for its
+    /// column types and read as `SELECT <casts> FROM (\n{sql}\n) __q LIMIT 1`
+    /// (a meta-statement such as `SHOW` runs as-is and the first row is taken).
+    #[tracing::instrument(
+        target = "agentic_connector::query",
+        name = "db.query",
+        skip_all,
+        err(level = "info", Display),
+        fields(
+            otel.name = %crate::telemetry::span_name(sql, "mysql"),
+            otel.kind = "client",
+            db.system.name = "mysql",
+            db.operation.name = %crate::telemetry::operation_name(sql),
+            db.query.text = %crate::telemetry::query_text(sql),
+            oxy.db.method = "execute_query_first_row",
+        )
+    )]
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        let plan = crate::connector::plan_first_row(sql, str::to_string);
+        let mut conn = self
+            .pool
+            .acquire()
+            .await
+            .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
+        for stmt in &plan.side_effects {
+            sqlx::query(AssertSqlSafe(stmt.clone()))
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| ConnectorError::query_failed(stmt.clone(), e.to_string()))?;
+        }
+        let Some(sql) = plan.probe else {
+            return Ok(None);
+        };
+        let sql = sql.as_str();
+        let wrappable = is_wrappable_mysql(sql);
+        use sqlx::Statement;
+        let stmt = (&mut *conn)
+            .prepare(AssertSqlSafe(sql).into_sql_str())
+            .await
+            .map_err(|e| ConnectorError::query_failed(sql.to_string(), e.to_string()))?;
+        let (columns, cast_exprs) = columns_and_casts(stmt.columns(), wrappable);
+        let exec_sql = if wrappable {
+            format!(
+                "SELECT {} FROM (\n{sql}\n) __q LIMIT 1",
+                cast_exprs.join(", ")
+            )
+        } else {
+            sql.to_string()
+        };
+        let row = sqlx::query(AssertSqlSafe(exec_sql))
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(|e| ConnectorError::query_failed(sql.to_string(), e.to_string()))?;
+        match row {
+            Some(row) => Ok(Some(decode_row(&row, &columns)?)),
+            None => Ok(None),
+        }
+    }
+
     fn introspect_schema(&self) -> Result<SchemaInfo, ConnectorError> {
         Ok(self.cached_schema.clone())
     }
+}
+
+/// `true` when `sql` is a SELECT-family statement that can be a derived table.
+/// Leading whitespace and `--` / `/* */` comments are skipped, so a commented
+/// key is classified by its first real keyword.
+fn is_wrappable_mysql(sql: &str) -> bool {
+    let first_kw: String = crate::connector::strip_leading_noise(sql)
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect::<String>()
+        .to_ascii_uppercase();
+    matches!(first_kw.as_str(), "SELECT" | "WITH" | "TABLE" | "VALUES")
+}
+
+/// Column specs and per-column cast expressions for a prepared statement's
+/// columns. Binary-like types (BINARY, VARBINARY, BLOB family) cast to CHAR in
+/// the wrapper query are advertised as Text, not Bytes, so `decode_cell` uses
+/// `try_get::<String>`; for meta-statements (`wrappable == false`) every type
+/// is Text because MySQL's binary protocol reports information_schema columns
+/// as BLOB although they hold UTF-8 text.
+fn columns_and_casts(
+    mysql_cols: &[sqlx::mysql::MySqlColumn],
+    wrappable: bool,
+) -> (Vec<ColumnSpec>, Vec<String>) {
+    let mysql_typnames: Vec<String> = mysql_cols
+        .iter()
+        .map(|c| c.type_info().name().to_string())
+        .collect();
+    let mut columns: Vec<ColumnSpec> = Vec::with_capacity(mysql_cols.len());
+    let mut cast_exprs: Vec<String> = Vec::with_capacity(mysql_cols.len());
+    for (c, tn) in mysql_cols.iter().zip(mysql_typnames.iter()) {
+        let quoted = format!("`{}`", c.name().replace('`', "``"));
+        let expr = select_expr_for_mysql_type(&quoted, tn);
+        let native = mysql_type_to_typed(tn);
+        let data_type = if !wrappable {
+            TypedDataType::Text
+        } else if matches!(native, TypedDataType::Bytes) && expr != quoted {
+            TypedDataType::Text
+        } else {
+            native
+        };
+        cast_exprs.push(expr);
+        columns.push(ColumnSpec {
+            name: c.name().to_string(),
+            data_type,
+        });
+    }
+    (columns, cast_exprs)
 }
 
 // ── Schema pre-fetch ──────────────────────────────────────────────────────────
@@ -829,5 +910,40 @@ mod tests {
         assert_eq!(urlencode("normal"), "normal");
         assert_eq!(urlencode("pa:ss@word"), "pa%3Ass%40word");
         assert_eq!(urlencode("has space"), "has%20space");
+    }
+}
+
+#[cfg(test)]
+mod first_row_tests {
+    use super::is_wrappable_mysql;
+    use crate::connector::plan_first_row;
+
+    #[test]
+    fn a_commented_numeric_key_is_still_a_wrappable_select() {
+        for sql in [
+            "-- latest id\nSELECT max(id) FROM t",
+            "/* latest id */ SELECT max(id) FROM t",
+            "  /* a */ -- b\n  WITH x AS (SELECT 1) SELECT * FROM x",
+        ] {
+            assert!(is_wrappable_mysql(sql), "{sql}");
+            let plan = plan_first_row(sql, str::to_string);
+            assert!(is_wrappable_mysql(plan.probe.as_deref().unwrap()), "{sql}");
+        }
+        assert!(!is_wrappable_mysql("-- c\nSHOW TABLES"));
+        assert!(!is_wrappable_mysql("/* c */ EXPLAIN SELECT 1"));
+    }
+
+    #[test]
+    fn a_two_statement_key_runs_the_prefix_on_the_same_connection_then_the_last() {
+        let plan = plan_first_row("SET @d = 1; SELECT max(ts) FROM t;", str::to_string);
+        assert_eq!(plan.side_effects, vec!["SET @d = 1"]);
+        assert_eq!(plan.probe.as_deref(), Some("SELECT max(ts) FROM t"));
+    }
+
+    #[test]
+    fn a_no_rows_final_statement_is_executed_and_not_probed() {
+        let plan = plan_first_row("SELECT 1; DELETE FROM t", str::to_string);
+        assert_eq!(plan.side_effects, vec!["SELECT 1", "DELETE FROM t"]);
+        assert_eq!(plan.probe, None);
     }
 }

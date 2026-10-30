@@ -38,7 +38,7 @@ use agentic_connector::{
     AsArrowConnector, ConnectorError, DatabaseConnector, ExecutionResult, QueryFailedDetails,
     SchemaInfo, SqlDialect, SqlTransaction, StringLiteral,
 };
-use agentic_core::result::TypedRowStream;
+use agentic_core::result::{TypedRowStream, TypedValue};
 use async_trait::async_trait;
 use oxy::config::model::DatabaseType;
 use tokio::sync::{Mutex, MutexGuard};
@@ -301,6 +301,14 @@ impl DatabaseConnector for HoldingConnector {
     ) -> Result<TypedRowStream, ConnectorError> {
         let _turn = self.admit(sql).await?;
         self.inner.execute_query_full_untyped(sql).await
+    }
+
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        let _turn = self.admit(sql).await?;
+        self.inner.execute_query_first_row(sql).await
     }
 
     /// A transaction is a session the wrapper could not see into statement by

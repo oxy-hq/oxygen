@@ -350,6 +350,34 @@ pub(super) fn unstreamable(statements: &[Verified]) -> Option<&'static str> {
     }
 }
 
+/// Send every statement but the last, and return the last.
+async fn send_head<'a>(
+    lease: &Lease,
+    statements: &'a [Verified],
+) -> Result<&'a Verified, ConnectorError> {
+    let (last, head) = statements
+        .split_last()
+        .ok_or_else(|| ConnectorError::Other("an empty batch".into()))?;
+    for statement in head {
+        if unsent(statement, false) {
+            send_unsent(lease.connector(), statement).await?;
+        } else {
+            send_discarding(lease.connector(), statement, None).await?;
+        }
+    }
+    Ok(last)
+}
+
+/// Like [`stream`], but the last statement goes to the inner connector's
+/// `execute_query_first_row`, so its one-row bound is the connector's own.
+pub(super) async fn first_row(
+    lease: Lease,
+    statements: &[Verified],
+) -> Result<Option<Vec<agentic_core::result::TypedValue>>, ConnectorError> {
+    let last = send_head(&lease, statements).await?;
+    lease.connector().execute_query_first_row(&last.sql).await
+}
+
 /// Send all but the last statement (reads among them have their rows
 /// dropped, [`unsent`], [`send_unsent`]), then stream the last. Check
 /// [`unstreamable`] first: a streamed batch has no transaction, so its
@@ -361,16 +389,7 @@ pub(super) async fn stream(
     statements: &[Verified],
     untyped: bool,
 ) -> Result<TypedRowStream, ConnectorError> {
-    let (last, head) = statements
-        .split_last()
-        .ok_or_else(|| ConnectorError::Other("an empty batch".into()))?;
-    for statement in head {
-        if unsent(statement, false) {
-            send_unsent(lease.connector(), statement).await?;
-        } else {
-            send_discarding(lease.connector(), statement, None).await?;
-        }
-    }
+    let last = send_head(&lease, statements).await?;
     let conn = lease.connector();
     let mut streamed = if untyped {
         conn.execute_query_full_untyped(&last.sql).await?

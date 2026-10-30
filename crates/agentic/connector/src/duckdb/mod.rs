@@ -455,6 +455,50 @@ impl DatabaseConnector for DuckDbConnector {
         .map_err(|e| ConnectorError::ConnectionError(format!("blocking task panicked: {e}")))?
     }
 
+    /// The first row of `sql`, mirroring `execute_query`: on the one session
+    /// `turn_for(sql)` hands out, prefix statements (and a final statement
+    /// that returns no rows) go through `execute_batch`, then the final
+    /// statement is wrapped as `SELECT * FROM (\n{sql}\n) LIMIT 1` and read.
+    #[tracing::instrument(
+        target = "agentic_connector::query",
+        name = "db.query",
+        skip_all,
+        err(level = "info", Display),
+        fields(
+            otel.name = %crate::telemetry::span_name(sql, "duckdb"),
+            otel.kind = "client",
+            db.system.name = "duckdb",
+            db.operation.name = %crate::telemetry::operation_name(sql),
+            db.query.text = %crate::telemetry::query_text(sql),
+            oxy.db.method = "execute_query_first_row",
+        )
+    )]
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        let plan =
+            crate::connector::plan_first_row(sql, |s| crate::connector::first_row_probe_sql(s, ""));
+        let turn = self.conn.turn_for(sql).await?;
+        let cap = self.result_cap;
+        let stream = spawn_blocking_with_hub(move || {
+            let conn = turn.session()?;
+            for stmt in &plan.side_effects {
+                conn.execute_batch(stmt)
+                    .map_err(|e| ConnectorError::query_failed(stmt.clone(), e.to_string()))?;
+            }
+            plan.probe
+                .map(|probe| read_typed(&conn, &probe, cap))
+                .transpose()
+        })
+        .await
+        .map_err(|e| ConnectorError::ConnectionError(format!("blocking task panicked: {e}")))??;
+        match stream {
+            Some(stream) => crate::connector::first_row_of(stream).await,
+            None => Ok(None),
+        }
+    }
+
     #[tracing::instrument(
         target = "agentic_connector::query",
         name = "db.query",
@@ -480,63 +524,7 @@ impl DatabaseConnector for DuckDbConnector {
         // identical to `execute_statement` above.
         spawn_blocking_with_hub(move || {
             let conn = turn.session()?;
-
-            // DESCRIBE resolves column names + types at the logical plan level —
-            // no rows are fetched, no temp table needed.
-            let described = describe_query(&conn, &sql_owned).map_err(|e| {
-                ConnectorError::query_failed(format!("DESCRIBE ({sql_owned})"), e.to_string())
-            })?;
-            let columns: Vec<ColumnSpec> = described
-                .iter()
-                .map(|(name, ty)| ColumnSpec {
-                    name: name.clone(),
-                    data_type: describe_type_to_typed(ty),
-                })
-                .collect();
-            let col_count = columns.len();
-            let column_types: Vec<_> = columns.iter().map(|c| c.data_type.clone()).collect();
-
-            let mut stmt = conn
-                .prepare(&sql_owned)
-                .map_err(|e| ConnectorError::query_failed(sql_owned.clone(), e.to_string()))?;
-
-            let rows_iter = stmt
-                .query_map([], |row| {
-                    let mut cells = Vec::with_capacity(col_count);
-                    for i in 0..col_count {
-                        let v: Value = row.get(i)?;
-                        cells.push(duckdb_value_to_typed(v, &column_types[i]));
-                    }
-                    Ok(cells)
-                })
-                .map_err(|e| ConnectorError::query_failed(sql_owned.clone(), e.to_string()))?;
-
-            // Collect eagerly so we can release the Mutex and return a `'static`
-            // stream — but stop at the ResultCap so an unbounded scan can't
-            // materialize gigabytes in the pod before we hand back the stream.
-            let mut rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = Vec::new();
-            let mut bytes: u64 = 0;
-            let mut truncated = false;
-            for row in rows_iter {
-                match row {
-                    Ok(cells) => {
-                        bytes += estimate_row_bytes(&cells);
-                        rows.push(Ok(cells));
-                    }
-                    Err(e) => rows.push(Err(TypedRowError::DriverError(e.to_string()))),
-                }
-                if cap.exceeded(rows.len() as u64, bytes) {
-                    truncated = true;
-                    break;
-                }
-            }
-
-            let stream = TypedRowStream::from_rows(columns, rows);
-            Ok(if truncated {
-                stream.with_truncation(Arc::new(AtomicBool::new(true)))
-            } else {
-                stream
-            })
+            read_typed(&conn, &sql_owned, cap)
         })
         .await
         .map_err(|e| ConnectorError::ConnectionError(format!("blocking task panicked: {e}")))?
@@ -676,6 +664,99 @@ impl crate::connector::AsArrowConnector for DuckDbConnector {
             schema,
             batches: Box::pin(futures::stream::iter(batches.into_iter().map(Ok))),
         })
+    }
+}
+
+/// Describe and run `sql` on `conn`, collecting at most the `ResultCap` of
+/// typed rows. `sql` is one statement; the caller has already run any prefix.
+fn read_typed(
+    conn: &duckdb::Connection,
+    sql_owned: &str,
+    cap: ResultCap,
+) -> Result<TypedRowStream, ConnectorError> {
+    let sql_owned = sql_owned.to_string();
+    // DESCRIBE resolves column names + types at the logical plan level —
+    // no rows are fetched, no temp table needed.
+    let described = describe_query(&conn, &sql_owned).map_err(|e| {
+        ConnectorError::query_failed(format!("DESCRIBE ({sql_owned})"), e.to_string())
+    })?;
+    let columns: Vec<ColumnSpec> = described
+        .iter()
+        .map(|(name, ty)| ColumnSpec {
+            name: name.clone(),
+            data_type: describe_type_to_typed(ty),
+        })
+        .collect();
+    let col_count = columns.len();
+    let column_types: Vec<_> = columns.iter().map(|c| c.data_type.clone()).collect();
+
+    let mut stmt = conn
+        .prepare(&sql_owned)
+        .map_err(|e| ConnectorError::query_failed(sql_owned.clone(), e.to_string()))?;
+
+    let rows_iter = stmt
+        .query_map([], |row| {
+            let mut cells = Vec::with_capacity(col_count);
+            for i in 0..col_count {
+                let v: Value = row.get(i)?;
+                cells.push(duckdb_value_to_typed(v, &column_types[i]));
+            }
+            Ok(cells)
+        })
+        .map_err(|e| ConnectorError::query_failed(sql_owned.clone(), e.to_string()))?;
+
+    // Collect eagerly so we can release the Mutex and return a `'static`
+    // stream — but stop at the ResultCap so an unbounded scan can't
+    // materialize gigabytes in the pod before we hand back the stream.
+    let mut rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = Vec::new();
+    let mut bytes: u64 = 0;
+    let mut truncated = false;
+    for row in rows_iter {
+        match row {
+            Ok(cells) => {
+                bytes += estimate_row_bytes(&cells);
+                rows.push(Ok(cells));
+            }
+            Err(e) => rows.push(Err(TypedRowError::DriverError(e.to_string()))),
+        }
+        if cap.exceeded(rows.len() as u64, bytes) {
+            truncated = true;
+            break;
+        }
+    }
+
+    let stream = TypedRowStream::from_rows(columns, rows);
+    Ok(if truncated {
+        stream.with_truncation(Arc::new(AtomicBool::new(true)))
+    } else {
+        stream
+    })
+}
+
+#[cfg(test)]
+mod first_row_plan_tests {
+    use crate::connector::{first_row_probe_sql, plan_first_row};
+
+    #[test]
+    fn a_two_statement_key_runs_the_prefix_and_wraps_the_last() {
+        let plan = plan_first_row("SET threads = 1; SELECT max(ts) FROM t;", |s| {
+            first_row_probe_sql(s, "")
+        });
+        assert_eq!(plan.side_effects, vec!["SET threads = 1"]);
+        assert_eq!(
+            plan.probe.as_deref(),
+            Some("SELECT * FROM (\nSELECT max(ts) FROM t\n) LIMIT 1")
+        );
+    }
+
+    #[test]
+    fn a_no_rows_final_statement_is_executed_and_not_probed() {
+        let plan = plan_first_row("SELECT 1; CREATE INDEX i ON t (c)", |s| s.to_string());
+        assert_eq!(
+            plan.side_effects,
+            vec!["SELECT 1", "CREATE INDEX i ON t (c)"]
+        );
+        assert_eq!(plan.probe, None);
     }
 }
 

@@ -84,6 +84,10 @@ async fn call_every_sql_method(
             .await
             .map(|_| ())
             .map_err(text),
+        conn.execute_query_first_row(sql)
+            .await
+            .map(|_| ())
+            .map_err(text),
         conn.execute_statement(sql).await.map_err(text),
         conn.execute_statement_tagged(sql, "oxy_run='r'")
             .await
@@ -206,6 +210,24 @@ async fn a_write_the_run_has_not_recorded_never_reaches_airhouse() {
         .await
         .expect("a recorded relation is written");
     assert_eq!(fake.sent().len(), 1);
+}
+
+/// A first-row probe is verified, overlaid and handed to the inner
+/// connector's own `execute_query_first_row` (which bounds it to one row),
+/// not answered through the wrapper's streaming default.
+#[tokio::test]
+async fn a_first_row_probe_reaches_the_inner_override_with_the_overlay() {
+    let fake = Arc::new(FakeAirhouse::default());
+    let conn = over(&fake, shadowing(&[("toast_pos", "orders")]), opts());
+    let got = conn
+        .execute_query_first_row("SELECT max(id) FROM toast_pos.orders")
+        .await
+        .unwrap();
+    assert!(got.is_none());
+    let sent = fake.sent();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(sent[0].contains(" first_row "), "{sent:?}");
+    assert!(sent[0].contains(&q("toast_pos")), "{sent:?}");
 }
 
 #[tokio::test]

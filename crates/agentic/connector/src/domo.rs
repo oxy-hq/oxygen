@@ -541,6 +541,30 @@ impl DatabaseConnector for DomoConnector {
         })
     }
 
+    /// The first row of `sql`. `execute_query` sent `sql` raw in one REST call
+    /// (DOMO has no server-side `LIMIT` or statement splitting) and sliced the
+    /// rows client-side; this does the same call and takes the first row.
+    #[tracing::instrument(
+        target = "agentic_connector::query",
+        name = "db.query",
+        skip_all,
+        err(level = "info", Display),
+        fields(
+            otel.name = %crate::telemetry::span_name(sql, "domo"),
+            otel.kind = "client",
+            db.system.name = "domo",
+            db.operation.name = %crate::telemetry::operation_name(sql),
+            db.query.text = %crate::telemetry::query_text(sql),
+            oxy.db.method = "execute_query_first_row",
+        )
+    )]
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        crate::connector::first_row_of(self.execute_query_full(sql).await?).await
+    }
+
     #[tracing::instrument(
         target = "agentic_connector::query",
         name = "db.query",

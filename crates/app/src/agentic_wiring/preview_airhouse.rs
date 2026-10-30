@@ -61,7 +61,7 @@ use agentic_connector::{
     AsArrowConnector, ConnectorError, DatabaseConnector, ExecutionResult, SchemaInfo, SqlDialect,
     SqlTransaction, StringLiteral,
 };
-use agentic_core::result::TypedRowStream;
+use agentic_core::result::{TypedRowStream, TypedValue};
 use airhouse::preview_sql::{PreviewNamespace, Refused, RewriteOptions, ShadowMap};
 use async_trait::async_trait;
 use uuid::Uuid;
@@ -193,6 +193,21 @@ impl DatabaseConnector for PreviewAirhouseConnector {
     ) -> Result<TypedRowStream, ConnectorError> {
         let plan = self.plan(sql)?;
         self.stream(plan, true).await
+    }
+
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        let plan = self.plan(sql)?;
+        if let Some(why) = batch::unstreamable(&plan.statements) {
+            return Err(ConnectorError::Other(format!(
+                "refused in workspace preview {}: {why}. Nothing was sent.",
+                self.ns.key()
+            )));
+        }
+        let lease = self.backend.checkout(&plan.scope, plan.usage).await?;
+        batch::first_row(lease, &plan.statements).await
     }
 
     /// A pinned session this connector could not verify statement by

@@ -623,9 +623,55 @@ impl DatabaseConnector for AirhouseConnector {
         Ok(typed_row_stream_from_messages(&messages))
     }
 
+    /// The first row of `sql`, mirroring `execute_query`'s classification:
+    /// a subquery is wrapped as `SELECT * FROM (\n{sql}\n) AS _q LIMIT 1` in
+    /// one `simple_query`; DDL/DML runs and gives `None`; statement forms
+    /// (`SHOW`, `EXPLAIN`, ...) run as-is and the first row is taken (both via
+    /// `execute_query_full`, which makes the same split). `execute_query` did
+    /// not split on `;`, and neither does this.
+    #[tracing::instrument(
+        target = "agentic_connector::query",
+        name = "db.query",
+        skip_all,
+        err(level = "info", Display),
+        fields(
+            otel.name = %agentic_connector::telemetry::span_name(sql, "airhouse"),
+            otel.kind = "client",
+            db.system.name = "airhouse",
+            db.operation.name = %agentic_connector::telemetry::operation_name(sql),
+            db.query.text = %agentic_connector::telemetry::query_text(sql),
+            oxy.db.method = "execute_query_first_row",
+        )
+    )]
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        let Some(probe) = first_row_statement(sql) else {
+            return agentic_connector::first_row_of(self.execute_query_full_untyped(sql).await?)
+                .await;
+        };
+        let messages = self
+            .client
+            .lock()
+            .await
+            .simple_query(&probe)
+            .await
+            .map_err(|e| ConnectorError::QueryFailed(airhouse_query_failed(sql, &e)))?;
+        agentic_connector::first_row_of(typed_row_stream_from_messages(&messages)).await
+    }
+
     fn introspect_schema(&self) -> Result<SchemaInfo, ConnectorError> {
         Ok(self.cached_schema.clone())
     }
+}
+
+/// The one-row probe for `sql`, or `None` when it is not a relational
+/// subquery and cannot be wrapped.
+fn first_row_statement(sql: &str) -> Option<String> {
+    let sql = normalize_sql(sql);
+    (classify(sql) == StatementKind::Subquery)
+        .then(|| agentic_connector::first_row_probe_sql(sql, " AS _q"))
 }
 
 /// What shape of statement is this — for picking the right execution path?
@@ -897,7 +943,33 @@ fn detect_join_keys(tables: &[SchemaTableInfo]) -> Vec<(String, String, String)>
 
 #[cfg(test)]
 mod tests {
-    use super::{StatementKind, classify};
+    use super::{StatementKind, classify, first_row_statement};
+
+    #[test]
+    fn first_row_probe_is_wrapped_limited_and_survives_a_trailing_comment() {
+        assert_eq!(
+            first_row_statement("SELECT max(ts) FROM t;").as_deref(),
+            Some("SELECT * FROM (\nSELECT max(ts) FROM t\n) AS _q LIMIT 1")
+        );
+        let sql = first_row_statement("SELECT ts FROM t ORDER BY ts DESC -- newest").unwrap();
+        assert_eq!(
+            sql,
+            "SELECT * FROM (\nSELECT ts FROM t ORDER BY ts DESC -- newest\n) AS _q LIMIT 1"
+        );
+        assert!(sql.ends_with(") AS _q LIMIT 1"));
+    }
+
+    #[test]
+    fn first_row_probe_leaves_statement_forms_alone() {
+        assert_eq!(first_row_statement("SHOW TABLES"), None);
+        assert_eq!(first_row_statement("DROP TABLE t"), None);
+        // A script led by a non-SELECT is not wrapped (DdlDml, run as a whole,
+        // no rows), exactly as `execute_query` classified it.
+        assert_eq!(
+            first_row_statement("SET threads = 1; SELECT max(ts) FROM t"),
+            None
+        );
+    }
 
     #[test]
     fn select_family_is_subquery() {

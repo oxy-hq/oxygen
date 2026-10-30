@@ -50,6 +50,90 @@ pub struct BigQueryConnector {
 }
 
 impl BigQueryConnector {
+    /// Run each statement as its own job, for side effects.
+    async fn run_prefix(&self, stmts: &[String]) -> Result<(), ConnectorError> {
+        for stmt in stmts {
+            let req = QueryRequest {
+                query: stmt.clone(),
+                use_legacy_sql: false,
+                timeout_ms: Some(180_000),
+                ..Default::default()
+            };
+            self.client
+                .job()
+                .query(&self.project_id, req)
+                .await
+                .map_err(|e| ConnectorError::query_failed(stmt.clone(), e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Run `sql` as-is and decode the response into a typed stream.
+    /// `max_results` is BigQuery's server-side page bound; `None` for all.
+    async fn typed_stream_for(
+        &self,
+        sql: &str,
+        max_results: Option<i32>,
+    ) -> Result<TypedRowStream, ConnectorError> {
+        let request = QueryRequest {
+            query: sql.to_string(),
+            use_legacy_sql: false,
+            max_results,
+            timeout_ms: Some(180_000),
+            ..Default::default()
+        };
+
+        let response = self
+            .client
+            .job()
+            .query(&self.project_id, request)
+            .await
+            .map_err(|e| ConnectorError::query_failed(sql.to_string(), e.to_string()))?;
+
+        // Build `ColumnSpec`s directly from the BigQuery field schema
+        // (preserves REPEATED mode + RECORD nesting via the type mapper).
+        let columns: Vec<ColumnSpec> = response
+            .schema
+            .as_ref()
+            .and_then(|s| s.fields.as_ref())
+            .map(|fields| {
+                fields
+                    .iter()
+                    .map(|f| ColumnSpec {
+                        name: f.name.clone(),
+                        data_type: bq_field_to_typed(f),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut rs = gcp_bigquery_client::model::query_response::ResultSet::new_from_query_response(
+            response,
+        );
+        let cap = self.result_cap;
+        let mut typed_rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = Vec::new();
+        let mut bytes: u64 = 0;
+        let mut truncated = false;
+        while rs.next_row() {
+            let decoded = decode_bq_row(&rs, &columns);
+            if let Ok(values) = &decoded {
+                bytes += estimate_row_bytes(values);
+            }
+            typed_rows.push(decoded);
+            if cap.exceeded(typed_rows.len() as u64, bytes) {
+                truncated = true;
+                break;
+            }
+        }
+
+        let stream = TypedRowStream::from_rows(columns, typed_rows);
+        Ok(if truncated {
+            stream.with_truncation(Arc::new(AtomicBool::new(true)))
+        } else {
+            stream
+        })
+    }
+
     /// Create a new connector authenticated with a service-account JSON key file.
     pub async fn new(
         key_path: &str,
@@ -322,6 +406,42 @@ impl DatabaseConnector for BigQueryConnector {
         })
     }
 
+    /// The first row of `sql`, mirroring `execute_query`: prefix statements
+    /// (and a final statement that returns no rows) run as their own jobs; the
+    /// raw final statement then runs with `max_results: Some(1)`, so the
+    /// server bounds the response and the key keeps its own `ORDER BY`.
+    #[tracing::instrument(
+        target = "agentic_connector::query",
+        name = "db.query",
+        skip_all,
+        err(level = "info", Display),
+        fields(
+            otel.name = %crate::telemetry::span_name(sql, "gcp.bigquery"),
+            otel.kind = "client",
+            db.system.name = "gcp.bigquery",
+            db.operation.name = %crate::telemetry::operation_name(sql),
+            db.query.text = %crate::telemetry::query_text(sql),
+            oxy.db.method = "execute_query_first_row",
+        )
+    )]
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        let plan = crate::connector::plan_first_row(sql, str::to_string);
+        self.run_prefix(&plan.side_effects).await?;
+        match plan.probe {
+            Some(probe) => {
+                crate::connector::first_row_of(
+                    self.typed_stream_for(&probe, Some(FIRST_ROW_MAX_RESULTS))
+                        .await?,
+                )
+                .await
+            }
+            None => Ok(None),
+        }
+    }
+
     #[tracing::instrument(
         target = "agentic_connector::query",
         name = "db.query",
@@ -339,66 +459,10 @@ impl DatabaseConnector for BigQueryConnector {
     async fn execute_query_full(&self, sql: &str) -> Result<TypedRowStream, ConnectorError> {
         let sql = normalize_sql(sql);
         // `execute_query_full` returns the full result, bounded only by the
-        // `ResultCap` memory backstop below so an unbounded scan can't OOM the
-        // pod (the hot IDE path is also bounded upstream by the `LIMIT 10000`
-        // wrap). The `max_results` server-side cap is only used on the bounded
-        // sample path (`execute_query`).
-        let request = QueryRequest {
-            query: sql.to_string(),
-            use_legacy_sql: false,
-            timeout_ms: Some(180_000),
-            ..Default::default()
-        };
-
-        let response = self
-            .client
-            .job()
-            .query(&self.project_id, request)
-            .await
-            .map_err(|e| ConnectorError::query_failed(sql.to_string(), e.to_string()))?;
-
-        // Build `ColumnSpec`s directly from the BigQuery field schema
-        // (preserves REPEATED mode + RECORD nesting via the type mapper).
-        let columns: Vec<ColumnSpec> = response
-            .schema
-            .as_ref()
-            .and_then(|s| s.fields.as_ref())
-            .map(|fields| {
-                fields
-                    .iter()
-                    .map(|f| ColumnSpec {
-                        name: f.name.clone(),
-                        data_type: bq_field_to_typed(f),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let mut rs = gcp_bigquery_client::model::query_response::ResultSet::new_from_query_response(
-            response,
-        );
-        let cap = self.result_cap;
-        let mut typed_rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = Vec::new();
-        let mut bytes: u64 = 0;
-        let mut truncated = false;
-        while rs.next_row() {
-            let decoded = decode_bq_row(&rs, &columns);
-            if let Ok(values) = &decoded {
-                bytes += estimate_row_bytes(values);
-            }
-            typed_rows.push(decoded);
-            if cap.exceeded(typed_rows.len() as u64, bytes) {
-                truncated = true;
-                break;
-            }
-        }
-
-        let stream = TypedRowStream::from_rows(columns, typed_rows);
-        Ok(if truncated {
-            stream.with_truncation(Arc::new(AtomicBool::new(true)))
-        } else {
-            stream
-        })
+        // `ResultCap` memory backstop in `typed_stream_for` so an unbounded
+        // scan can't OOM the pod (the hot IDE path is also bounded upstream
+        // by the `LIMIT 10000` wrap).
+        self.typed_stream_for(sql, None).await
     }
 
     fn introspect_schema(&self) -> Result<SchemaInfo, ConnectorError> {
@@ -410,6 +474,9 @@ impl DatabaseConnector for BigQueryConnector {
         Ok(self.cached_schema.clone())
     }
 }
+
+/// Rows a first-row probe asks BigQuery for.
+const FIRST_ROW_MAX_RESULTS: i32 = 1;
 
 // ── Value helpers ─────────────────────────────────────────────────────────────
 
@@ -571,4 +638,47 @@ fn detect_join_keys(tables: &[SchemaTableInfo]) -> Vec<(String, String, String)>
         }
     }
     keys
+}
+
+#[cfg(test)]
+mod first_row_tests {
+    use super::FIRST_ROW_MAX_RESULTS;
+    use crate::connector::plan_first_row;
+
+    #[test]
+    fn a_key_with_a_prefix_statement_is_not_wrapped() {
+        let plan = plan_first_row(
+            "DECLARE d DATE DEFAULT CURRENT_DATE(); SELECT ts FROM t ORDER BY ts DESC;",
+            str::to_string,
+        );
+        assert_eq!(
+            plan.side_effects,
+            vec!["DECLARE d DATE DEFAULT CURRENT_DATE()"]
+        );
+        assert_eq!(
+            plan.probe.as_deref(),
+            Some("SELECT ts FROM t ORDER BY ts DESC")
+        );
+    }
+
+    #[test]
+    fn a_no_rows_final_statement_is_run_as_a_job_and_not_probed() {
+        let plan = plan_first_row("SELECT 1; CREATE TABLE x AS SELECT 1", str::to_string);
+        assert_eq!(
+            plan.side_effects,
+            vec!["SELECT 1", "CREATE TABLE x AS SELECT 1"]
+        );
+        assert_eq!(plan.probe, None);
+    }
+
+    #[test]
+    fn a_plain_key_is_sent_raw_and_the_server_bounds_it_to_one_row() {
+        let plan = plan_first_row("SELECT max(ts) FROM t -- latest", str::to_string);
+        assert!(plan.side_effects.is_empty());
+        assert_eq!(
+            plan.probe.as_deref(),
+            Some("SELECT max(ts) FROM t -- latest")
+        );
+        assert_eq!(FIRST_ROW_MAX_RESULTS, 1);
+    }
 }

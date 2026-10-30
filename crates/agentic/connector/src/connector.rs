@@ -278,6 +278,67 @@ pub fn normalize_sql(sql: &str) -> &str {
     sql.trim_end().trim_end_matches(';').trim_end()
 }
 
+/// The SQL that asks for at most one row of `sql`:
+/// `SELECT * FROM (\n{sql}\n){alias} LIMIT 1`.
+///
+/// The closing paren sits on its own line so a trailing `--` comment in `sql`
+/// cannot swallow it. A trailing `;` is stripped first with [`normalize_sql`],
+/// as every other wrapper does. `alias` is `""` or `" AS _q"`.
+pub fn first_row_probe_sql(sql: &str, alias: &str) -> String {
+    format!("SELECT * FROM (\n{}\n){alias} LIMIT 1", normalize_sql(sql))
+}
+
+/// What a first-row probe runs: the statements to execute for their side
+/// effects, in order, and the one query whose first row is wanted.
+///
+/// This is the split `execute_query` does on every connector
+/// ([`plan_sql_script`]: leading statements run for their effects, the final
+/// statement is the one sampled), so `execute_query_first_row(sql)` accepts
+/// exactly the SQL `execute_query(sql, 1)` accepts. A final statement that
+/// returns no rows ([`is_returning_statement`] false: trailing DDL/DML) is
+/// itself a side effect and `probe` is `None`: the answer is `Ok(None)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FirstRowPlan {
+    pub side_effects: Vec<String>,
+    pub probe: Option<String>,
+}
+
+/// Plan a first-row probe of `sql`. `bound` turns the (semicolon-stripped)
+/// final statement into the query that fetches at most one row the way the
+/// connector's sample path bounds rows: a `LIMIT 1` wrap where it wraps
+/// (see [`first_row_probe_sql`]), the statement unchanged where the bound is
+/// set on the request (BigQuery `max_results`) or applied to the fetched rows.
+pub fn plan_first_row(sql: &str, bound: impl FnOnce(&str) -> String) -> FirstRowPlan {
+    let script = plan_sql_script(sql);
+    let mut side_effects = script.prefix;
+    let last = normalize_sql(&script.final_stmt);
+    if is_returning_statement(last) {
+        return FirstRowPlan {
+            side_effects,
+            probe: Some(bound(last)),
+        };
+    }
+    if !last.is_empty() {
+        side_effects.push(last.to_string());
+    }
+    FirstRowPlan {
+        side_effects,
+        probe: None,
+    }
+}
+
+/// First row of a typed stream, or `None` when it is empty; the rest of the
+/// stream is dropped unread.
+pub async fn first_row_of(
+    mut stream: TypedRowStream,
+) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+    use futures::StreamExt;
+    match stream.rows.next().await {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
 // ── Multi-statement scripts ───────────────────────────────────────────────────
 
 /// A SQL script split into the statements that must run for their side
@@ -598,7 +659,7 @@ pub fn guard_row_stream(
 
 /// Strip leading whitespace and SQL comments so the first real keyword can
 /// be inspected.
-fn strip_leading_noise(sql: &str) -> &str {
+pub(crate) fn strip_leading_noise(sql: &str) -> &str {
     let mut s = sql.trim_start();
     loop {
         if let Some(rest) = s.strip_prefix("--") {
@@ -645,6 +706,55 @@ mod tests {
         assert_eq!(normalize_sql("SELECT 1;\n"), "SELECT 1");
         assert_eq!(normalize_sql("SELECT 1"), "SELECT 1");
         assert_eq!(normalize_sql("SELECT 1\nLIMIT 100;"), "SELECT 1\nLIMIT 100");
+    }
+
+    #[test]
+    fn plan_first_row_splits_a_script_like_execute_query() {
+        let plan = plan_first_row("SET x = 1; SELECT max(ts) FROM t;", |s| {
+            first_row_probe_sql(s, "")
+        });
+        assert_eq!(plan.side_effects, vec!["SET x = 1"]);
+        assert_eq!(
+            plan.probe.as_deref(),
+            Some("SELECT * FROM (\nSELECT max(ts) FROM t\n) LIMIT 1")
+        );
+    }
+
+    #[test]
+    fn plan_first_row_runs_a_no_rows_final_statement_and_probes_nothing() {
+        let plan = plan_first_row("SELECT 1; CREATE INDEX i ON t (c);", |s| s.to_string());
+        assert_eq!(
+            plan.side_effects,
+            vec!["SELECT 1", "CREATE INDEX i ON t (c)"]
+        );
+        assert_eq!(plan.probe, None);
+        assert_eq!(plan_first_row("", |s| s.to_string()).probe, None);
+    }
+
+    #[test]
+    fn plan_first_row_leaves_a_single_statement_raw_when_not_wrapping() {
+        let plan = plan_first_row("SELECT ts FROM t ORDER BY ts DESC", |s| s.to_string());
+        assert!(plan.side_effects.is_empty());
+        assert_eq!(
+            plan.probe.as_deref(),
+            Some("SELECT ts FROM t ORDER BY ts DESC")
+        );
+    }
+
+    #[test]
+    fn first_row_probe_sql_wraps_limits_and_survives_a_trailing_comment() {
+        assert_eq!(
+            first_row_probe_sql("SELECT 1;", ""),
+            "SELECT * FROM (\nSELECT 1\n) LIMIT 1"
+        );
+        assert_eq!(
+            first_row_probe_sql("SELECT 1", " AS _q"),
+            "SELECT * FROM (\nSELECT 1\n) AS _q LIMIT 1"
+        );
+        // The paren is on its own line, so the comment ends before it.
+        let sql = first_row_probe_sql("SELECT 1 -- latest", "");
+        assert_eq!(sql, "SELECT * FROM (\nSELECT 1 -- latest\n) LIMIT 1");
+        assert!(sql.lines().last().unwrap().starts_with(')'));
     }
 
     #[test]
@@ -954,6 +1064,32 @@ pub trait DatabaseConnector: Send + Sync {
         sql: &str,
     ) -> Result<TypedRowStream, ConnectorError> {
         self.execute_query_full(sql).await
+    }
+
+    /// Run `sql` as ONE query and return only its first row, with native
+    /// types, or `None` when it returns no rows. Never more than one row
+    /// crosses the wire or is held in memory.
+    ///
+    /// For callers that probe a value rather than analyse a result — a
+    /// pre-aggregation `refresh_key` reads a single cell. [`execute_query`]
+    /// is the wrong tool for that: its contract includes the full row count
+    /// and per-column statistics, which costs two or three extra statements
+    /// on ClickHouse and Airhouse.
+    ///
+    /// Extra rows the SQL would produce are ignored AND not fetched: the
+    /// connectors that read a whole response before returning (ClickHouse,
+    /// Airhouse, DuckDB, Snowflake, BigQuery) override this to send
+    /// [`first_row_probe_sql`]. The default is for streaming connectors
+    /// (Postgres, MySQL, Domo): it opens [`execute_query_full_untyped`],
+    /// takes the first row and drops the stream.
+    ///
+    /// [`execute_query`]: DatabaseConnector::execute_query
+    /// [`execute_query_full_untyped`]: DatabaseConnector::execute_query_full_untyped
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        first_row_of(self.execute_query_full_untyped(sql).await?).await
     }
 
     /// Open a multi-statement transaction on a pinned connection.

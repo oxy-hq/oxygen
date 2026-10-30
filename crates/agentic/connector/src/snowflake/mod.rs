@@ -386,6 +386,46 @@ impl DatabaseConnector for SnowflakeConnector {
         })
     }
 
+    /// The first row of `sql`, mirroring `execute_query`: each prefix
+    /// statement (and a final statement that returns no rows) is one
+    /// `api.exec`, then the raw final statement is exec'd and its first row
+    /// decoded. The driver has no server-side row bound and materialises the
+    /// result either way, as `execute_query` did; nothing is wrapped.
+    #[tracing::instrument(
+        target = "agentic_connector::query",
+        name = "db.query",
+        skip_all,
+        err(level = "info", Display),
+        fields(
+            otel.name = %crate::telemetry::span_name(sql, "snowflake"),
+            otel.kind = "client",
+            db.system.name = "snowflake",
+            db.operation.name = %crate::telemetry::operation_name(sql),
+            db.query.text = %crate::telemetry::query_text(sql),
+            oxy.db.method = "execute_query_first_row",
+        )
+    )]
+    async fn execute_query_first_row(
+        &self,
+        sql: &str,
+    ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        let plan = crate::connector::plan_first_row(sql, str::to_string);
+        let api = self.connect().await?;
+        for stmt in &plan.side_effects {
+            api.exec(stmt)
+                .await
+                .map_err(|e| ConnectorError::query_failed(stmt.clone(), e.to_string()))?;
+        }
+        let Some(probe) = plan.probe else {
+            return Ok(None);
+        };
+        let sf_result = api
+            .exec(&probe)
+            .await
+            .map_err(|e| ConnectorError::query_failed(probe.clone(), e.to_string()))?;
+        crate::connector::first_row_of(typed_stream_from(sf_result, self.result_cap, 1)).await
+    }
+
     #[tracing::instrument(
         target = "agentic_connector::query",
         name = "db.query",
@@ -408,105 +448,7 @@ impl DatabaseConnector for SnowflakeConnector {
             .await
             .map_err(|e| ConnectorError::query_failed(sql.to_string(), e.to_string()))?;
 
-        // ResultCap backstop on the row-building loops. NOTE: `api.exec` above
-        // already materialized the full result (the snowflake-api driver has no
-        // streaming exec), so this bounds the *typed-row* copy + downstream
-        // Parquet/disk and flags truncation — it does not prevent the driver's
-        // own materialization. The hot IDE path is bounded upstream by the
-        // `LIMIT 10000` wrap; pushing a server-side `ROWS_PER_RESULTSET` is the
-        // follow-up to bound `exec` itself. See the large-query design note.
-        let cap = self.result_cap;
-        let mut truncated = false;
-
-        // Arrow is the common case — Snowflake's driver decodes to
-        // `Vec<RecordBatch>` directly. JSON fallback mirrors the existing
-        // `execute_query` behaviour (coerce everything through
-        // `json_value_to_cell`).
-        let (columns, typed_rows): (Vec<ColumnSpec>, Vec<Result<Vec<TypedValue>, TypedRowError>>) =
-            match sf_result {
-                SnowflakeQueryResult::Arrow(batches) => {
-                    let columns: Vec<ColumnSpec> = batches
-                        .first()
-                        .map(|b| {
-                            b.schema()
-                                .fields()
-                                .iter()
-                                .map(|f| ColumnSpec {
-                                    name: f.name().clone(),
-                                    data_type: arrow_dtype_to_typed(f.data_type()),
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    let column_types: Vec<agentic_core::result::TypedDataType> =
-                        columns.iter().map(|c| c.data_type.clone()).collect();
-
-                    let mut rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = Vec::new();
-                    let mut bytes: u64 = 0;
-                    'arrow: for batch in &batches {
-                        for row_idx in 0..batch.num_rows() {
-                            let cells: Vec<TypedValue> = (0..batch.num_columns())
-                                .map(|col_idx| {
-                                    arrow_to_typed(
-                                        batch.column(col_idx).as_ref(),
-                                        row_idx,
-                                        &column_types[col_idx],
-                                    )
-                                })
-                                .collect();
-                            bytes += estimate_row_bytes(&cells);
-                            rows.push(Ok(cells));
-                            if cap.exceeded(rows.len() as u64, bytes) {
-                                truncated = true;
-                                break 'arrow;
-                            }
-                        }
-                    }
-                    (columns, rows)
-                }
-                SnowflakeQueryResult::Json(json_rows) => {
-                    // JSON path: no column-type metadata, so everything is
-                    // `Text` (or `Null`) — matches the fidelity users already
-                    // get from the bounded-sample path.
-                    let columns: Vec<ColumnSpec> = json_rows
-                        .schema
-                        .iter()
-                        .map(|f| ColumnSpec {
-                            name: f.name.clone(),
-                            data_type: agentic_core::result::TypedDataType::Text,
-                        })
-                        .collect();
-                    let mut rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = Vec::new();
-                    let mut bytes: u64 = 0;
-                    if let Some(outer) = json_rows.value.as_array() {
-                        'json: for r in outer.iter().filter_map(|r| r.as_array()) {
-                            let cells: Vec<TypedValue> = r
-                                .iter()
-                                .map(|v| match v {
-                                    serde_json::Value::Null => TypedValue::Null,
-                                    serde_json::Value::String(s) => TypedValue::Text(s.clone()),
-                                    other => TypedValue::Text(other.to_string()),
-                                })
-                                .collect();
-                            bytes += estimate_row_bytes(&cells);
-                            rows.push(Ok(cells));
-                            if cap.exceeded(rows.len() as u64, bytes) {
-                                truncated = true;
-                                break 'json;
-                            }
-                        }
-                    }
-                    (columns, rows)
-                }
-                SnowflakeQueryResult::Empty => (Vec::new(), Vec::new()),
-            };
-
-        let stream = TypedRowStream::from_rows(columns, typed_rows);
-        Ok(if truncated {
-            stream.with_truncation(Arc::new(AtomicBool::new(true)))
-        } else {
-            stream
-        })
+        Ok(typed_stream_from(sf_result, self.result_cap, usize::MAX))
     }
 
     fn introspect_schema(&self) -> Result<SchemaInfo, ConnectorError> {
@@ -558,3 +500,141 @@ impl crate::connector::AsArrowConnector for SnowflakeConnector {
 }
 
 // ── Helper functions ──────────────────────────────────────────────────────────
+
+/// Decode a Snowflake result into a typed stream of at most `limit` rows and
+/// the `ResultCap` backstop (`usize::MAX` for no row limit).
+fn typed_stream_from(
+    sf_result: SnowflakeQueryResult,
+    cap: ResultCap,
+    limit: usize,
+) -> TypedRowStream {
+    // ResultCap backstop on the row-building loops. NOTE: `api.exec` above
+    // already materialized the full result (the snowflake-api driver has no
+    // streaming exec), so this bounds the *typed-row* copy + downstream
+    // Parquet/disk and flags truncation — it does not prevent the driver's
+    // own materialization. The hot IDE path is bounded upstream by the
+    // `LIMIT 10000` wrap; pushing a server-side `ROWS_PER_RESULTSET` is the
+    // follow-up to bound `exec` itself. See the large-query design note.
+    let mut truncated = false;
+
+    // Arrow is the common case — Snowflake's driver decodes to
+    // `Vec<RecordBatch>` directly. JSON fallback mirrors the existing
+    // `execute_query` behaviour (coerce everything through
+    // `json_value_to_cell`).
+    let (columns, typed_rows): (Vec<ColumnSpec>, Vec<Result<Vec<TypedValue>, TypedRowError>>) =
+        match sf_result {
+            SnowflakeQueryResult::Arrow(batches) => {
+                let columns: Vec<ColumnSpec> = batches
+                    .first()
+                    .map(|b| {
+                        b.schema()
+                            .fields()
+                            .iter()
+                            .map(|f| ColumnSpec {
+                                name: f.name().clone(),
+                                data_type: arrow_dtype_to_typed(f.data_type()),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let column_types: Vec<agentic_core::result::TypedDataType> =
+                    columns.iter().map(|c| c.data_type.clone()).collect();
+
+                let mut rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = Vec::new();
+                let mut bytes: u64 = 0;
+                'arrow: for batch in &batches {
+                    for row_idx in 0..batch.num_rows() {
+                        let cells: Vec<TypedValue> = (0..batch.num_columns())
+                            .map(|col_idx| {
+                                arrow_to_typed(
+                                    batch.column(col_idx).as_ref(),
+                                    row_idx,
+                                    &column_types[col_idx],
+                                )
+                            })
+                            .collect();
+                        bytes += estimate_row_bytes(&cells);
+                        rows.push(Ok(cells));
+                        if rows.len() >= limit {
+                            break 'arrow;
+                        }
+                        if cap.exceeded(rows.len() as u64, bytes) {
+                            truncated = true;
+                            break 'arrow;
+                        }
+                    }
+                }
+                (columns, rows)
+            }
+            SnowflakeQueryResult::Json(json_rows) => {
+                // JSON path: no column-type metadata, so everything is
+                // `Text` (or `Null`) — matches the fidelity users already
+                // get from the bounded-sample path.
+                let columns: Vec<ColumnSpec> = json_rows
+                    .schema
+                    .iter()
+                    .map(|f| ColumnSpec {
+                        name: f.name.clone(),
+                        data_type: agentic_core::result::TypedDataType::Text,
+                    })
+                    .collect();
+                let mut rows: Vec<Result<Vec<TypedValue>, TypedRowError>> = Vec::new();
+                let mut bytes: u64 = 0;
+                if let Some(outer) = json_rows.value.as_array() {
+                    'json: for r in outer.iter().filter_map(|r| r.as_array()) {
+                        let cells: Vec<TypedValue> = r
+                            .iter()
+                            .map(|v| match v {
+                                serde_json::Value::Null => TypedValue::Null,
+                                serde_json::Value::String(s) => TypedValue::Text(s.clone()),
+                                other => TypedValue::Text(other.to_string()),
+                            })
+                            .collect();
+                        bytes += estimate_row_bytes(&cells);
+                        rows.push(Ok(cells));
+                        if rows.len() >= limit {
+                            break 'json;
+                        }
+                        if cap.exceeded(rows.len() as u64, bytes) {
+                            truncated = true;
+                            break 'json;
+                        }
+                    }
+                }
+                (columns, rows)
+            }
+            SnowflakeQueryResult::Empty => (Vec::new(), Vec::new()),
+        };
+
+    let stream = TypedRowStream::from_rows(columns, typed_rows);
+    if truncated {
+        stream.with_truncation(Arc::new(AtomicBool::new(true)))
+    } else {
+        stream
+    }
+}
+
+#[cfg(test)]
+mod first_row_tests {
+    use crate::connector::plan_first_row;
+
+    #[test]
+    fn a_two_statement_key_execs_the_prefix_and_the_raw_last_statement() {
+        let plan = plan_first_row(
+            "USE WAREHOUSE w; SELECT max(ts) FROM t ORDER BY 1;",
+            str::to_string,
+        );
+        assert_eq!(plan.side_effects, vec!["USE WAREHOUSE w"]);
+        assert_eq!(
+            plan.probe.as_deref(),
+            Some("SELECT max(ts) FROM t ORDER BY 1")
+        );
+    }
+
+    #[test]
+    fn a_no_rows_final_statement_is_exec_d_and_not_probed() {
+        let plan = plan_first_row("SELECT 1; DROP TABLE x", str::to_string);
+        assert_eq!(plan.side_effects, vec!["SELECT 1", "DROP TABLE x"]);
+        assert_eq!(plan.probe, None);
+    }
+}

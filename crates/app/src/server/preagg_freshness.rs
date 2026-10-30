@@ -17,6 +17,8 @@
 use std::sync::{Arc, RwLock};
 
 use agentic_automation::workspace::WorkspaceContext;
+use agentic_connector::{ConnectorError, DatabaseConnector};
+use agentic_core::result::TypedValue;
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
 use super::preagg_ledger;
@@ -191,6 +193,77 @@ fn empty_retry_interval(interval: std::time::Duration) -> std::time::Duration {
     interval.min(EMPTY_RETRY_CEILING)
 }
 
+/// Run a `sql:` refresh key and return its first cell as the string stored in
+/// the manifest, or `None` when the query returns no rows.
+///
+/// One statement, via [`DatabaseConnector::execute_query_first_row`]. This used
+/// to call `execute_query(sql, 1)`, whose contract is a bounded sample PLUS the
+/// full row count and per-column statistics: on ClickHouse that is a `count()`,
+/// a sample and a profile query for a key that is read once as a single value.
+///
+/// Only the first row and first cell are read; extra rows or columns are
+/// ignored, as before.
+async fn read_refresh_key_value(
+    connector: &dyn DatabaseConnector,
+    sql: &str,
+) -> Result<Option<String>, ConnectorError> {
+    Ok(connector
+        .execute_query_first_row(sql)
+        .await?
+        .and_then(|row| row.into_iter().next())
+        .map(|cell| render_refresh_key_cell(&cell)))
+}
+
+/// Render a typed cell the way the sampled `CellValue` path did, so a value
+/// already stored in a manifest still compares equal.
+///
+/// That path turned every number into an `f64` printed with `to_string`, read
+/// numeric-looking text (ClickHouse, Postgres and Airhouse all hand numbers
+/// back as text) the same way, and left everything else as the connector's
+/// text. Dates and timestamps are rendered as `YYYY-MM-DD` and
+/// `YYYY-MM-DD HH:MM:SS[.ffffff]`, which is what those engines print; a
+/// connector that printed something else (a time zone suffix, a fixed
+/// `DateTime64` scale) rebuilds its rollups once.
+fn render_refresh_key_cell(cell: &TypedValue) -> String {
+    fn numeric_or_text(s: &str) -> String {
+        match s.parse::<i64>() {
+            Ok(n) => (n as f64).to_string(),
+            Err(_) => s
+                .parse::<f64>()
+                .map_or_else(|_| s.to_string(), |n| n.to_string()),
+        }
+    }
+    match cell {
+        TypedValue::Null => String::new(),
+        TypedValue::Bool(b) => if *b { "1" } else { "0" }.to_string(),
+        TypedValue::Int32(n) => f64::from(*n).to_string(),
+        TypedValue::Int64(n) => (*n as f64).to_string(),
+        TypedValue::Float64(f) => f.to_string(),
+        TypedValue::Text(s) | TypedValue::Decimal(s) => numeric_or_text(s),
+        TypedValue::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
+        TypedValue::Date(days) => chrono::NaiveDate::from_num_days_from_ce_opt(
+            days.saturating_add(UNIX_EPOCH_DAYS_FROM_CE),
+        )
+        .map_or_else(|| days.to_string(), |d| d.format("%Y-%m-%d").to_string()),
+        TypedValue::Timestamp(micros) => chrono::DateTime::from_timestamp_micros(*micros)
+            .map_or_else(
+                || micros.to_string(),
+                |t| {
+                    let fmt = if micros.rem_euclid(1_000_000) == 0 {
+                        "%Y-%m-%d %H:%M:%S"
+                    } else {
+                        "%Y-%m-%d %H:%M:%S%.6f"
+                    };
+                    t.format(fmt).to_string()
+                },
+            ),
+        TypedValue::Json(v) => v.to_string(),
+    }
+}
+
+/// Days from 0001-01-01 (chrono's day 1) to 1970-01-01.
+const UNIX_EPOCH_DAYS_FROM_CE: i32 = 719_163;
+
 /// Evaluate a SQL-based refresh key by running it against the warehouse.
 ///
 /// Returns `(current_value, is_stale, error_msg)`. On connector/query error,
@@ -211,17 +284,8 @@ pub(super) async fn eval_sql_refresh_key(
         }
     };
 
-    let current = match connector.execute_query(sql, 1).await {
-        Ok(result) => result
-            .result
-            .rows
-            .first()
-            .and_then(|r| r.0.first())
-            .map(|cell| match cell {
-                agentic_core::result::CellValue::Text(s) => s.clone(),
-                agentic_core::result::CellValue::Number(n) => n.to_string(),
-                agentic_core::result::CellValue::Null => String::new(),
-            }),
+    let current = match read_refresh_key_value(&*connector, sql).await {
+        Ok(value) => value,
         Err(e) => {
             tracing::warn!("refresh_key SQL evaluation failed: {e}");
             return (None, false, Some(format!("refresh_key SQL failed: {e}")));
@@ -496,5 +560,151 @@ mod tests {
         let cache = Arc::new(RwLock::new(RefreshKeyCache::new()));
         let (_, stale) = super::eval_every_refresh_key("24h", "fresh", dir.path(), &cache);
         assert!(stale);
+    }
+
+    // ── The refresh_key probe: one query, same value ──────────────────────
+
+    use std::sync::Mutex;
+
+    use agentic_connector::{ConnectorError, DatabaseConnector, ExecutionResult, SqlDialect};
+    use agentic_core::result::{ColumnSpec, TypedDataType, TypedRowStream, TypedValue};
+    use async_trait::async_trait;
+
+    /// Answers `execute_query_full_untyped` with canned rows and counts every
+    /// statement-issuing method, so a test can say how many queries a probe
+    /// cost. `execute_query` here is the profiling path the probe must avoid.
+    struct Probe {
+        rows: Vec<Vec<TypedValue>>,
+        fail: bool,
+        calls: Mutex<Vec<String>>,
+    }
+
+    impl Probe {
+        fn new(rows: Vec<Vec<TypedValue>>) -> Self {
+            Self {
+                rows,
+                fail: false,
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+        fn calls(&self) -> Vec<String> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl DatabaseConnector for Probe {
+        fn dialect(&self) -> SqlDialect {
+            SqlDialect::Other("probe")
+        }
+        async fn execute_query(
+            &self,
+            sql: &str,
+            _: u64,
+        ) -> Result<ExecutionResult, ConnectorError> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("execute_query {sql}"));
+            Ok(ExecutionResult::empty())
+        }
+        async fn execute_query_full_untyped(
+            &self,
+            sql: &str,
+        ) -> Result<TypedRowStream, ConnectorError> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("execute_query_full_untyped {sql}"));
+            if self.fail {
+                return Err(ConnectorError::Other("warehouse down".into()));
+            }
+            let columns = (0..self.rows.first().map_or(1, Vec::len))
+                .map(|i| ColumnSpec {
+                    name: format!("c{i}"),
+                    data_type: TypedDataType::Unknown,
+                })
+                .collect();
+            Ok(TypedRowStream::from_rows(
+                columns,
+                self.rows.iter().cloned().map(Ok).collect(),
+            ))
+        }
+    }
+
+    async fn probe_value(rows: Vec<Vec<TypedValue>>) -> (Option<String>, Vec<String>) {
+        let c = Probe::new(rows);
+        let v = super::read_refresh_key_value(&c, "SELECT 1")
+            .await
+            .expect("probe");
+        (v, c.calls())
+    }
+
+    #[tokio::test]
+    async fn a_refresh_key_probe_issues_exactly_one_query() {
+        let (v, calls) = probe_value(vec![vec![TypedValue::Int64(42)]]).await;
+        assert_eq!(v.as_deref(), Some("42"));
+        assert_eq!(calls, vec!["execute_query_full_untyped SELECT 1"]);
+    }
+
+    #[tokio::test]
+    async fn the_probe_reads_the_first_cell_of_the_first_row() {
+        let (v, _) = probe_value(vec![
+            vec![TypedValue::Text("a".into()), TypedValue::Text("b".into())],
+            vec![TypedValue::Text("c".into()), TypedValue::Text("d".into())],
+        ])
+        .await;
+        assert_eq!(v.as_deref(), Some("a"));
+    }
+
+    #[tokio::test]
+    async fn an_empty_result_is_no_value() {
+        let (v, calls) = probe_value(vec![]).await;
+        assert_eq!(v, None);
+        assert_eq!(calls.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_null_cell_is_the_empty_string() {
+        let (v, _) = probe_value(vec![vec![TypedValue::Null]]).await;
+        assert_eq!(v.as_deref(), Some(""));
+    }
+
+    #[tokio::test]
+    async fn a_connector_error_surfaces_as_an_error() {
+        let mut c = Probe::new(vec![]);
+        c.fail = true;
+        let err = super::read_refresh_key_value(&c, "SELECT 1")
+            .await
+            .expect_err("error");
+        assert!(err.to_string().contains("warehouse down"), "{err}");
+        assert_eq!(c.calls().len(), 1);
+    }
+
+    /// Values stored by the sampled path must still compare equal: numbers as
+    /// `f64::to_string`, numeric-looking text read as numbers, other text and
+    /// dates as printed.
+    #[test]
+    fn cells_render_as_the_sampled_path_rendered_them() {
+        use super::render_refresh_key_cell as r;
+        assert_eq!(r(&TypedValue::Int64(1_700_000_000)), "1700000000");
+        assert_eq!(r(&TypedValue::Int32(-7)), "-7");
+        assert_eq!(r(&TypedValue::Float64(1.5)), "1.5");
+        assert_eq!(r(&TypedValue::Float64(3.0)), "3");
+        assert_eq!(r(&TypedValue::Bool(true)), "1");
+        assert_eq!(r(&TypedValue::Text("123".into())), "123");
+        assert_eq!(r(&TypedValue::Text("1.50".into())), "1.5");
+        assert_eq!(r(&TypedValue::Decimal("12.3400".into())), "12.34");
+        assert_eq!(r(&TypedValue::Text("2024-01-02".into())), "2024-01-02");
+        assert_eq!(r(&TypedValue::Text("abc".into())), "abc");
+        assert_eq!(r(&TypedValue::Date(19_724)), "2024-01-02");
+        assert_eq!(
+            r(&TypedValue::Timestamp(1_704_164_645_000_000)),
+            "2024-01-02 03:04:05"
+        );
+        assert_eq!(
+            r(&TypedValue::Timestamp(1_704_164_645_250_000)),
+            "2024-01-02 03:04:05.250000"
+        );
     }
 }
