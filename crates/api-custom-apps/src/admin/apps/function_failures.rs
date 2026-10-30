@@ -80,6 +80,11 @@ pub const DEFAULT_LIMIT: u64 = 100;
 pub const MAX_LIMIT: u64 = 500;
 /// The widest `since`..`until` one request may ask for.
 pub const MAX_WINDOW_DAYS: i64 = 7;
+/// How far past [`MAX_WINDOW_DAYS`] a window may run before it is refused. A
+/// caller asking for "the last 7 days" computes `since` from its own clock,
+/// a moment before the server's `now` that defaults `until`, so an exact
+/// 7-day cap refused exactly that request (found on dev, 2026-10-30).
+pub const WINDOW_SKEW_MINUTES: i64 = 5;
 /// The window when the caller names no `since`.
 const DEFAULT_WINDOW_HOURS: i64 = 24;
 
@@ -191,7 +196,8 @@ impl Request {
         if since >= until {
             return Err(bad("invalid_window", "since must be before until"));
         }
-        if until - since > Duration::days(MAX_WINDOW_DAYS) {
+        if until - since > Duration::days(MAX_WINDOW_DAYS) + Duration::minutes(WINDOW_SKEW_MINUTES)
+        {
             return Err(bad(
                 "invalid_window",
                 format!("since..until may span at most {MAX_WINDOW_DAYS} days"),

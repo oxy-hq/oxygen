@@ -1,7 +1,9 @@
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use uuid::Uuid;
 
-use super::{Cursor, DEFAULT_LIMIT, FailuresQuery, MAX_LIMIT, MAX_WINDOW_DAYS, Request};
+use super::{
+    Cursor, DEFAULT_LIMIT, FailuresQuery, MAX_LIMIT, MAX_WINDOW_DAYS, Request, WINDOW_SKEW_MINUTES,
+};
 
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, 29, 12, 0, 0).unwrap()
@@ -67,6 +69,27 @@ fn a_window_that_is_empty_backwards_or_too_wide_is_refused() {
     assert!(Request::from_query(&q, now()).is_ok());
 }
 
+/// "The last 7 days", computed on the caller's clock, reaches a server whose
+/// clock is a little later. With `until` defaulted to the server's now, the
+/// window is just over 7 days, and refusing it refused the obvious request.
+#[test]
+fn the_last_seven_days_from_a_clock_a_moment_behind_is_accepted() {
+    let callers_since = now() - Duration::days(MAX_WINDOW_DAYS) - Duration::seconds(3);
+    let q = query(Some(&callers_since.to_rfc3339()), None);
+    let r = Request::from_query(&q, now()).expect("the last 7 days");
+    assert_eq!(r.since, callers_since);
+    assert_eq!(r.until, now());
+
+    // Past the skew allowance it is a wider window, and refused.
+    let too_wide =
+        now() - Duration::days(MAX_WINDOW_DAYS) - Duration::minutes(WINDOW_SKEW_MINUTES + 1);
+    let q = query(Some(&too_wide.to_rfc3339()), None);
+    assert_eq!(
+        Request::from_query(&q, now()).unwrap_err().code,
+        "invalid_window"
+    );
+}
+
 #[test]
 fn a_time_that_is_not_rfc_3339_is_refused() {
     let err = Request::from_query(&query(Some("yesterday"), None), now()).unwrap_err();
@@ -124,4 +147,15 @@ fn a_cursor_this_endpoint_did_not_mint_is_refused() {
             "{raw}"
         );
     }
+}
+
+/// A caller whose clock runs ahead sends an `until` a moment in our future.
+/// Nothing compares `until` with our clock, so that is just a window.
+#[test]
+fn an_until_a_moment_in_the_future_is_accepted() {
+    let until = now() + Duration::seconds(3);
+    let since = until - Duration::days(MAX_WINDOW_DAYS);
+    let q = query(Some(&since.to_rfc3339()), Some(&until.to_rfc3339()));
+    let r = Request::from_query(&q, now()).expect("a clock ahead of ours");
+    assert_eq!(r.until, until);
 }
