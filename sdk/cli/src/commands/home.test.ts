@@ -383,6 +383,38 @@ const storesFeed = (): WidgetsFeed => {
   };
 };
 
+describe("renderHome folds calm widgets", () => {
+  it("lists a calm widget on one line after the cards with something to do", () => {
+    const feed = storesFeed();
+    const loud = feed.widgets[1];
+    if (loud?.view)
+      loud.view = {
+        ...loud.view,
+        level: "attention",
+        rows: [{ title: "Walk-in", state: "failed" }]
+      };
+    const text = renderHome(storesHome(), feed);
+    const stores = text.slice(text.indexOf("Stores"), text.indexOf("Your apps"));
+    expect(stores).toContain("store-ops/today#mission · Mission St · regular");
+    expect(stores).toContain("- [failed] Walk-in");
+    // Valencia is calm: its headline only.
+    expect(stores).toContain(
+      "store-ops/today#valencia · Valencia · compact\n    params: store=valencia\n    3 open orders [ok]"
+    );
+    expect(stores.indexOf("#mission")).toBeLessThan(stores.indexOf("#valencia"));
+  });
+
+  it("keeps a calm-looking widget whole when it offers a button", () => {
+    const feed = storesFeed();
+    const card = feed.widgets[2];
+    if (card?.view) card.view = { ...card.view, buttons: [{ label: "Remind" }] };
+    const text = renderHome(storesHome(), feed);
+    expect(text).toContain("store-ops/today#valencia · Valencia · regular");
+    // The calm Mission folds and moves after Valencia, though the layout lists it first.
+    expect(text.indexOf("#mission")).toBeGreaterThan(text.indexOf("#valencia"));
+  });
+});
+
 describe("renderHome with groups, copies and settings", () => {
   const text = renderHome(storesHome(), storesFeed());
   const lines = text.split("\n");
@@ -396,8 +428,9 @@ describe("renderHome with groups, copies and settings", () => {
   });
 
   it("draws a widget placed twice as two copies, each with its id, title, settings and view", () => {
-    expect(text).toContain("store-ops/today#mission · Mission St · regular");
-    expect(text).toContain("store-ops/today#valencia · Valencia · regular");
+    // Both copies are calm (ok, no button), so they are folded, as the home draws them.
+    expect(text).toContain("store-ops/today#mission · Mission St · compact");
+    expect(text).toContain("store-ops/today#valencia · Valencia · compact");
     expect(text).toContain("  params: store=mission");
     expect(text).toContain("  params: store=valencia");
     expect(text).toContain("12 open orders [ok]");

@@ -387,6 +387,12 @@ A widget's kind is what its view carries: `metric` makes a **KPI card** (`value`
 progress card, rows with buttons a to-do. Text and lists past their limits are cut, and a
 non-app-relative link or a button naming an undeclared action is dropped.
 
+**`level` decides the room a card gets.** An `ok` or `info` view with no button folds to one
+line on the home (its headline), after the cards that need something; `attention` and
+`critical` keep the full card. So say all-is-well in the headline alone, and raise the level
+when the rows matter. `progress` is a ring beside the headline on a `regular` card and a bar
+on a wider one, so a one-column card spends no line on it.
+
 **Pressing a button** calls the action's function with `{ widget, action, input }` and
 an `Idempotency-Key` built from widget, action and the button's `key` (none: a hash of
 `input`), so a double click or stale card replays the first answer. **Give every button

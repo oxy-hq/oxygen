@@ -22,6 +22,8 @@ export interface FeedRow {
   title?: string | null;
   detail?: string | null;
   state?: string | null;
+  /** Only whether there is one: a row with a button keeps its card whole. */
+  button?: unknown;
 }
 export interface FeedMetric {
   value?: string | null;

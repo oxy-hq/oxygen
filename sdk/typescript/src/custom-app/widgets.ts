@@ -195,8 +195,13 @@ export interface WidgetView {
   headline: string;
   /** ≤ 120 characters. */
   detail?: string;
-  /** Default `info`. */
+  /**
+   * Default `info`. Also how much room the card gets: an `ok` or `info` view with
+   * no button folds to one line (its headline) on the home; `attention` and
+   * `critical` keep the full card.
+   */
   level?: WidgetLevel;
+  /** "N of M": a ring beside the headline on a `regular` card, a bar on a wider one. */
   progress?: { done: number; total: number };
   /** A KPI card: the one number that matters. */
   metric?: WidgetMetric;

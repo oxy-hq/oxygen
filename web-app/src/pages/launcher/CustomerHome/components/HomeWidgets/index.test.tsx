@@ -207,6 +207,102 @@ describe("the home's widgets", () => {
     );
   });
 
+  it("draws progress as a ring beside the headline on a one-column card, a bar on a wider one", () => {
+    widgets = [
+      close({ size: "regular" }),
+      close({ key: "bookkeeping/close#wide", instance: "wide", size: "wide" })
+    ];
+    renderWidgets();
+    const ring = screen.getByTestId("home-widget-bookkeeping-close-progress");
+    expect(ring).toHaveAttribute("data-variant", "ring");
+    expect(ring).toHaveAttribute("aria-valuenow", "61");
+    expect(ring).toHaveTextContent("61/84");
+    expect(screen.getByTestId("home-widget-bookkeeping-close-wide-progress")).toHaveAttribute(
+      "data-variant",
+      "bar"
+    );
+  });
+
+  it("folds a calm widget to one line after the cards with something to do", () => {
+    const calm = (instance: string, level: "ok" | "info"): WidgetCard =>
+      close({
+        key: `bookkeeping/close#${instance}`,
+        instance,
+        title: instance,
+        view: {
+          ...close().view!,
+          headline: "September is closed",
+          level,
+          buttons: [],
+          rows: [],
+          progress: null
+        }
+      });
+    widgets = [calm("first", "ok"), close(), calm("last", "info")];
+    renderWidgets({
+      title: null,
+      items: ["bookkeeping/close#first", "bookkeeping/close", "bookkeeping/close#last"]
+    });
+    const strip = screen.getByTestId("home-widget-bookkeeping-close-first");
+    expect(strip).toHaveAttribute("data-compact", "true");
+    expect(strip).toHaveAttribute(
+      "href",
+      "https://poke-house--bookkeeping.apps.test/?month=2026-09"
+    );
+    expect(screen.getByTestId("home-widget-bookkeeping-close-first-headline")).toHaveTextContent(
+      "September is closed"
+    );
+    // The card with a job keeps its size and comes first; the calm two follow in the group's order.
+    expect(screen.getByTestId("home-widget-bookkeeping-close").tagName).toBe("ARTICLE");
+    const order = screen
+      .getAllByTestId(/^home-widget-bookkeeping-close(-first|-last)?$/)
+      .map((el) => el.getAttribute("data-testid"));
+    expect(order).toEqual([
+      "home-widget-bookkeeping-close",
+      "home-widget-bookkeeping-close-first",
+      "home-widget-bookkeeping-close-last"
+    ]);
+  });
+
+  it("keeps a calm widget whole when it offers a button, and a failed one too", () => {
+    widgets = [
+      close({ view: { ...close().view!, level: "ok" } }),
+      close({
+        key: "bookkeeping/close#broken",
+        instance: "broken",
+        view: null,
+        error: "Timed out."
+      })
+    ];
+    renderWidgets();
+    expect(screen.getByTestId("home-widget-bookkeeping-close").tagName).toBe("ARTICLE");
+    expect(screen.getByTestId("home-widget-bookkeeping-close-broken").tagName).toBe("ARTICLE");
+    expect(screen.queryByTestId("home-widgets-calm")).toBeNull();
+  });
+
+  it("keeps a pressed card whole when its answer turns it calm, so the answer stays in sight", () => {
+    widgets = [close({ view: { ...close().view!, buttons: [{ ...post, confirm: null }] } })];
+    answer = { ok: { ok: true, message: "Posted 19 journal entries", view: null } };
+    const { rerender } = renderWidgets();
+    fireEvent.click(screen.getByTestId("home-widget-bookkeeping-close-button-post-ready"));
+    widgets = [
+      close({
+        view: {
+          ...close().view!,
+          headline: "September is closed",
+          level: "ok",
+          buttons: [],
+          rows: []
+        }
+      })
+    ];
+    rerender(<HomeWidgets orgSlug='poke-house' apps={[]} />);
+    expect(screen.getByTestId("home-widget-bookkeeping-close").tagName).toBe("ARTICLE");
+    expect(screen.getByTestId("home-widget-bookkeeping-close-message")).toHaveTextContent(
+      "Posted 19 journal entries"
+    );
+  });
+
   it("offers a retry when the widgets could not load", () => {
     isError = true;
     renderWidgets();

@@ -4,9 +4,10 @@ import { AppMark } from "@/components/apps/AppMark";
 import { usePressWidget } from "@/hooks/api/homeWidgets/usePressWidget";
 import { cn } from "@/libs/shadcn/utils";
 import type { WidgetCard as Card, WidgetButton as WidgetButtonData } from "@/types/homeWidgets";
-import { LEVEL_DOT, pressError, ROW_STATE } from "../utils";
+import { LEVEL_DOT, pressError, ROW_STATE, widgetTestId } from "../utils";
 import { WidgetButton } from "./WidgetButton";
 import { WidgetMetric } from "./WidgetMetric";
+import { WidgetProgress } from "./WidgetProgress";
 
 /** How many of the home's columns a size takes: named sizes, packed in order. */
 const SIZE_SPAN: Record<Card["size"], string | false> = {
@@ -26,22 +27,25 @@ type Said = { kind: "message" | "error"; text: string } | null;
 export function WidgetCard({
   card,
   orgSlug,
-  iconUrl
+  iconUrl,
+  onPressed
 }: {
   card: Card;
   orgSlug: string;
   iconUrl?: string | null;
+  /** Told when a button is pressed, so the home keeps this card whole while its answer shows. */
+  onPressed?: () => void;
 }) {
   const press = usePressWidget(orgSlug);
   const [said, setSaid] = useState<Said>(null);
   const [pressing, setPressing] = useState<WidgetButtonData | null>(null);
   const view = card.view;
-  // A copy's id keeps two copies of one widget's handles apart.
-  const base = `home-widget-${card.app.slug}-${card.id}${card.instance ? `-${card.instance}` : ""}`;
+  const base = widgetTestId(card);
 
   const run = (button: WidgetButtonData) => {
     setSaid(null);
     setPressing(button);
+    onPressed?.();
     press.mutate(
       { appId: card.app.id, widget: card.id, key: card.key, button },
       {
@@ -61,6 +65,8 @@ export function WidgetCard({
     onPress: () => run(button)
   });
   const dot = view ? LEVEL_DOT[view.level] : null;
+  // A one-column card has no width to spare for a bar's own line: "N of M" is a ring beside the headline.
+  const ring = card.size === "regular" && view?.progress;
 
   return (
     <article
@@ -86,30 +92,23 @@ export function WidgetCard({
 
       {view ? (
         <>
-          <div className='flex flex-col gap-0.5'>
-            <p className='flex items-center gap-2 font-medium text-base text-card-foreground'>
-              {dot && <span aria-hidden className={cn("size-2 shrink-0 rounded-full", dot)} />}
-              <span data-testid={`${base}-headline`}>{view.headline}</span>
-            </p>
-            {view.detail && <p className='text-muted-foreground text-sm'>{view.detail}</p>}
+          <div className='flex items-center gap-3'>
+            <div className='flex min-w-0 flex-1 flex-col gap-0.5'>
+              <p className='flex items-center gap-2 font-medium text-base text-card-foreground'>
+                {dot && <span aria-hidden className={cn("size-2 shrink-0 rounded-full", dot)} />}
+                <span data-testid={`${base}-headline`}>{view.headline}</span>
+              </p>
+              {view.detail && <p className='text-muted-foreground text-sm'>{view.detail}</p>}
+            </div>
+            {ring && view.progress && (
+              <WidgetProgress {...view.progress} variant='ring' testId={`${base}-progress`} />
+            )}
           </div>
 
           {view.metric && <WidgetMetric metric={view.metric} testId={`${base}-metric`} />}
 
-          {view.progress && (
-            <div
-              role='progressbar'
-              aria-valuemin={0}
-              aria-valuemax={view.progress.total}
-              aria-valuenow={view.progress.done}
-              className='h-1.5 overflow-hidden rounded-full bg-muted'
-              data-testid={`${base}-progress`}
-            >
-              <div
-                className='h-full rounded-full bg-primary'
-                style={{ width: `${(view.progress.done / view.progress.total) * 100}%` }}
-              />
-            </div>
+          {view.progress && !ring && (
+            <WidgetProgress {...view.progress} variant='bar' testId={`${base}-progress`} />
           )}
 
           {view.rows.length > 0 && (

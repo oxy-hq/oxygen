@@ -86,19 +86,44 @@ function viewLines(live: FeedWidget | undefined, previewing: boolean): string[] 
   return lines.length > 0 ? lines : ["(nothing to show)"];
 }
 
+/**
+ * The home's own rule (`isCalm` in the web app): a view that is `ok` or `info`
+ * and offers no button is folded to one line, after the cards with something
+ * to do. A failed or missing view keeps its card.
+ */
+function isCalm(live: FeedWidget | undefined): boolean {
+  const view = live?.view;
+  if (!view || live?.error) return false;
+  const level = view.level ?? "info";
+  if (level !== "ok" && level !== "info") return false;
+  return (view.buttons ?? []).length === 0 && (view.rows ?? []).every((row) => !row.button);
+}
+
 function widgetBlock(
   item: HomeDescribedWidget,
   views: Map<string, FeedWidget>,
   previewing: boolean
 ): string[] {
   const live = views.get(item.key);
-  const head = `${item.key} · ${item.title} · ${item.size}`;
+  const calm = isCalm(live);
+  const head = `${item.key} · ${item.title} · ${calm ? "compact" : item.size}`;
   const refresh = live?.view?.refresh_after;
   const facts = [
     paramsLine(item.params),
     refresh ? `refreshes every ${every(refresh)}` : undefined
   ].filter((l): l is string => Boolean(l));
-  return [head, ...[...facts, ...viewLines(live, previewing)].map((l) => `  ${l}`)];
+  // A folded card shows its headline and nothing else.
+  const view = calm ? viewLines(live, previewing).slice(0, 1) : viewLines(live, previewing);
+  return [head, ...[...facts, ...view].map((l) => `  ${l}`)];
+}
+
+/** Cards with something to do first, calm ones after, each in the group's order: as the home draws them. */
+function drawOrder(
+  items: HomeDescribedWidget[],
+  views: Map<string, FeedWidget>
+): HomeDescribedWidget[] {
+  const calm = (item: HomeDescribedWidget) => isCalm(views.get(item.key));
+  return [...items.filter((i) => !calm(i)), ...items.filter(calm)];
 }
 
 /**
@@ -123,7 +148,7 @@ export function renderHome(
     lines.push("", heading || (SECTION_TITLES[section.kind] ?? section.kind));
     if (section.kind !== "widgets") continue;
     if (section.items.length === 0) lines.push("  (no widgets)");
-    section.items.forEach((item, i) => {
+    drawOrder(section.items, views).forEach((item, i) => {
       if (i > 0) lines.push("");
       for (const l of widgetBlock(item, views, previewing)) lines.push(`  ${l}`);
     });
