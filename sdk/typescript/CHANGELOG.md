@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.1] - 2026-10-30
+
+### Fixed
+
+- **`<OxyShell>`'s rail tooltip is readable in a dark app without a `.dark`
+  class.** The tooltip's text is the host's `--foreground`, but in the light
+  scope its box was the fixed `--zinc-200` (#e4e4e7). A dark-only app that
+  never sets `.dark` got near-white text on light grey (1.08:1, measured on
+  two production apps). The box is now the host's `--muted` in both scopes,
+  falling back to `--zinc-200` and then #e4e4e7. The web-app's light `--muted`
+  is `--zinc-200`, so the product does not change. An app gets this by
+  upgrading and republishing.
+
 ## [2.23.0] - 2026-10-28
 
 ### Changed

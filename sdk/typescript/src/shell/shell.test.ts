@@ -71,6 +71,17 @@ describe("shell.css token scheme", () => {
     }
   });
 
+  it("draws the tooltip on the host's --muted in both scopes", () => {
+    // The tooltip's text is --oxy-shell-foreground, i.e. the host's
+    // --foreground. Its box must come from the token a host pairs with that
+    // text, in both themes: a fixed light box under a dark-only host's
+    // near-white --foreground measured 1.08:1.
+    const tooltipBg = (block: string) =>
+      block.match(/--oxy-shell-tooltip-bg:\s*([^;]+);/)?.[1].trim();
+    expect(tooltipBg(lightBlock)).toMatch(/^var\(--muted,/);
+    expect(tooltipBg(darkBlock)).toMatch(/^var\(--muted,/);
+  });
+
   it("only uses namespaced selectors", () => {
     // Guard against ANY selector leaking styles into host apps: every rule
     // header (at any nesting level, e.g. inside @media) must be a comma

@@ -34,7 +34,12 @@
   --oxy-shell-ring: var(--ring, #a1a1a1);
   --oxy-shell-success: var(--success, #22c55e);
   --oxy-shell-destructive: var(--destructive, #e7000b);
-  --oxy-shell-tooltip-bg: var(--zinc-200, #e4e4e7);
+  /* `--muted`, as in the dark scope: the tooltip's text is the host's
+     `--foreground`, and `--muted` is the surface a host pairs with it. The
+     web-app's light `--muted` IS `--zinc-200`, so the product is unchanged;
+     a host whose palette is dark without a `.dark` class now gets its own
+     dark `--muted` box instead of a light one under light text (1.08:1). */
+  --oxy-shell-tooltip-bg: var(--muted, var(--zinc-200, #e4e4e7));
   --oxy-shell-link: var(--info, #2563eb);
   --oxy-shell-radius: var(--radius, 0.625rem);
   --oxy-shell-font: var(--font-inter, "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif);
