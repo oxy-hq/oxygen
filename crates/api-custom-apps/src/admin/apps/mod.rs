@@ -19,6 +19,8 @@ mod dto;
 /// The `?environment=` parameter and who may name a non-production one.
 pub mod environment_scope;
 pub mod fleet_health;
+/// Failed production invocations across every app in scope, in a time window.
+pub mod function_failures;
 mod function_run;
 pub mod functions;
 pub mod handlers;
@@ -113,6 +115,12 @@ fn core_routes() -> Router<AppState> {
         // into this one in `entry::api_router`, so the two names must differ or the
         // whole router panics at construction (#3207 shipped exactly that).
         .route("/fleet-health", get(fleet_health::get_fleet_health))
+        // Failed production invocations across every app in scope, by time:
+        // what ties one platform bug to every app it broke.
+        .route(
+            "/function-failures",
+            get(function_failures::list_function_failures),
+        )
         .route(
             "/{id}",
             get(handlers::get_app)

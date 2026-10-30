@@ -240,6 +240,7 @@ mod m20261024_000001_function_invocation_error_kind;
 mod m20261024_000002_custom_app_usage_backfill;
 mod m20261024_000003_custom_app_usage_parked_since;
 mod m20261026_000001_workspace_factory_grants;
+mod m20261030_000001_function_invocation_failure_feed_index;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
@@ -249,6 +250,7 @@ pub use m20261017_000003_app_environment_events_retained_builds::BACKFILL_SQL as
 pub use m20261019_000001_function_invocation_activity_index::ACTIVITY_PREDICATE as FUNCTION_INVOCATION_ACTIVITY_PREDICATE;
 pub use m20261020_000001_drop_app_build_pointer_columns::BACKFILL_SQL as DROP_POINTER_COLUMNS_BACKFILL_SQL;
 pub use m20261020_000001_drop_app_build_pointer_columns::RESTORE_SQL as DROP_POINTER_COLUMNS_RESTORE_SQL;
+pub use m20261030_000001_function_invocation_failure_feed_index::FAILURE_PREDICATE as FUNCTION_INVOCATION_FAILURE_PREDICATE;
 
 pub struct Migrator;
 
@@ -501,6 +503,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261024_000002_custom_app_usage_backfill::Migration),
             Box::new(m20261024_000003_custom_app_usage_parked_since::Migration),
             Box::new(m20261026_000001_workspace_factory_grants::Migration),
+            Box::new(m20261030_000001_function_invocation_failure_feed_index::Migration),
         ]
     }
 

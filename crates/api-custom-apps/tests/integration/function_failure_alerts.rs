@@ -19,6 +19,8 @@ use uuid::Uuid;
 
 use crate::common::test_db;
 
+/// The cross-app failure feed reads the same rows, across apps and orgs.
+mod feed;
 /// The Issues view reads the rows these tests insert — it shares the seeding.
 mod issues;
 
