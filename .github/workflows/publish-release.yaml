@@ -90,7 +90,7 @@ jobs:
           echo "::notice::prod serves main-${SHA} (internal ${INTERNAL:-unknown}), reporting image ${IMAGE_TAG:-not reported}"
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
         with:
           tool: git-cliff
 
