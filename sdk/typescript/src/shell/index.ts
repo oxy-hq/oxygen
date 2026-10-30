@@ -18,6 +18,7 @@ export type { AnswerChartProps, ChartBlock, ChartBlockConfig } from "./AnswerCha
 export { AnswerChart } from "./AnswerChart";
 export type { AskDockProps } from "./AskDock";
 export { AskDock } from "./AskDock";
+export { useDockPrefetch } from "./dockPrefetch";
 export type { KioskIdleOptions, KioskIdleState } from "./kioskIdle";
 export { useKioskIdle } from "./kioskIdle";
 export { workspaceLogoUrl } from "./logoUrl";

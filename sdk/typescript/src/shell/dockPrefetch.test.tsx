@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DOCK_PREFETCH_RULES, useDockPrefetch } from "./dockPrefetch";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -27,6 +27,7 @@ afterEach(() => {
   root = null;
   document.head.innerHTML = "";
   Reflect.deleteProperty(HTMLScriptElement, "supports");
+  vi.unstubAllGlobals();
 });
 
 describe("useDockPrefetch", () => {
@@ -36,12 +37,22 @@ describe("useDockPrefetch", () => {
   });
 
   describe("where the browser has them", () => {
-    // jsdom has no `HTMLScriptElement.supports`, so the test gives it one.
+    // jsdom has no `HTMLScriptElement.supports` and no navigation timing, so
+    // the test gives it both.
     beforeEach(() => {
       Object.defineProperty(HTMLScriptElement, "supports", {
         value: (type: string) => type === "speculationrules",
         configurable: true
       });
+      vi.stubGlobal("PerformanceNavigationTiming", { prototype: { deliveryType: "" } });
+    });
+
+    /// The opened app counts its own open only if its navigation entry can say
+    /// it came from a prefetch. Without that, a prefetch would lose the open.
+    it("does nothing where the opened page could not report the prefetch", () => {
+      vi.stubGlobal("PerformanceNavigationTiming", { prototype: {} });
+      mount();
+      expect(rules()).toHaveLength(0);
     });
 
     it("prefetches the dock's other apps on hover, and removes the rules with the shell", () => {

@@ -431,18 +431,18 @@ impl ServeContext {
                 .await
             }
             Reserved::Beacon => {
-                ingest_beacon(
-                    body,
-                    &self.headers,
-                    app.id,
-                    app.org_id,
-                    user.id,
-                    user.email.as_deref().unwrap_or(""),
-                    &self.environment,
-                    // A page shown from a prefetch reports its own open; it is
-                    // written exactly as a served page's would be.
-                    |referrer| Some(self.record_view(referrer)),
-                )
+                let origin = crate::beacon::BeaconOrigin {
+                    app_id: app.id,
+                    org_id: app.org_id,
+                    user_id: user.id,
+                    user_email: user.email.clone().unwrap_or_default(),
+                    environment: self.environment.name(),
+                };
+                // A page shown from a prefetch reports its own open; it is
+                // written exactly as a served page's would be.
+                ingest_beacon(body, &self.headers, origin, |referrer| {
+                    self.record_view(referrer)
+                })
                 .await
             }
             // A real object inside the build, written at publish — fall
@@ -550,7 +550,7 @@ impl ServeContext {
                 .headers
                 .get(header::REFERER)
                 .and_then(|v| v.to_str().ok());
-            let set_cookie = self.record_view(referrer);
+            let (_, set_cookie) = self.record_view(referrer);
             if let Ok(hv) = axum::http::HeaderValue::from_str(&set_cookie) {
                 response.headers_mut().append(header::SET_COOKIE, hv);
             }
@@ -580,8 +580,8 @@ impl ServeContext {
         });
     }
 
-    /// Queue the view-event row for a rendered navigation and return the
-    /// `Set-Cookie` that names its session. The cookie is minted here,
+    /// Queue the view-event row for a rendered navigation and return its
+    /// session with the `Set-Cookie` that names it. The cookie is minted here,
     /// synchronously; the row goes onto the bounded usage queue (a `try_send`:
     /// no spawn, no connection, no read on this path), and a full queue drops
     /// it. Losing a row on overload or crash is the documented acceptable
@@ -590,7 +590,7 @@ impl ServeContext {
     /// `referrer` is the page's: the `Referer` of the HTML request when the
     /// server records the view, or the one the page reports when it records
     /// its own open through the beacon (whose own `Referer` is the app).
-    fn record_view(&self, referrer: Option<&str>) -> String {
+    fn record_view(&self, referrer: Option<&str>) -> (Uuid, String) {
         let headers = &self.headers;
         let host = headers
             .get(header::HOST)
@@ -632,7 +632,7 @@ impl ServeContext {
             source_label,
             view_environment,
         );
-        set_cookie
+        (session_id, set_cookie)
     }
 }
 
@@ -1146,16 +1146,11 @@ fn monogram_icon_for(app: &entity::apps::Model) -> Response {
 /// may open the app — the beacon deliberately makes no second authorization
 /// decision, because it is dispatched from inside the gate the bundle's own
 /// bytes pass through.
-#[allow(clippy::too_many_arguments)]
 async fn ingest_beacon(
     body: axum::body::Body,
     headers: &HeaderMap,
-    app_id: Uuid,
-    org_id: Uuid,
-    user_id: Uuid,
-    user_email: &str,
-    environment: &AppEnvironment,
-    record_view: impl FnOnce(Option<&str>) -> Option<String>,
+    origin: crate::beacon::BeaconOrigin,
+    record_view: impl FnOnce(Option<&str>) -> (Uuid, String),
 ) -> Response {
     let bytes = match axum::body::to_bytes(body, crate::beacon::MAX_BODY_BYTES).await {
         Ok(b) => b,
@@ -1163,17 +1158,7 @@ async fn ingest_beacon(
         // `admit` ever sees it; that one is the second line, not the first.
         Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
     };
-    crate::beacon::handle(
-        app_id,
-        org_id,
-        user_id,
-        user_email.to_string(),
-        headers,
-        bytes,
-        environment.name(),
-        record_view,
-    )
-    .await
+    crate::beacon::handle(origin, headers, bytes, record_view).await
 }
 
 /// Did this request arrive on a `<org>--<app>.customer-apps…` host? Read once,

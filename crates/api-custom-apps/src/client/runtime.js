@@ -132,19 +132,33 @@
   var FLUSH_MS = 15000;
   var queue = [];
   var flushTimer = null;
+  // Why a batch may wait: the page is still prerendering, or the open it
+  // reports is on its way. See "an open the server could not see" below.
+  var prerendering = !!document.prerendering;
+  var openInFlight = false;
 
-  function push(name, payload) {
-    if (queue.length >= MAX_BATCH) return;
-    queue.push({ n: name, t: Date.now(), p: payload || {} });
+  /** `first` puts the event at the head of the queue, past the cap: the open a
+   *  page reports must ride the next batch whatever is already waiting. */
+  function push(name, payload, first) {
+    var event = { n: name, t: Date.now(), p: payload || {} };
+    if (first) queue.unshift(event);
+    else if (queue.length < MAX_BATCH) queue.push(event);
+    else return;
     if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
   }
 
+  /** Send one batch. Returns the request when it went by `fetch`. */
   function flush(useBeacon) {
     if (flushTimer) {
       clearTimeout(flushTimer);
       flushTimer = null;
     }
     if (!queue.length) return;
+    // A prerendered page nobody showed was never opened, so nothing it queued
+    // is sent, not even on unload. While a reported open is on its way, other
+    // batches wait for the session cookie its response sets; an unloading page
+    // sends anyway, because a batch in its own session beats a lost one.
+    if (prerendering || (openInFlight && !useBeacon)) return;
     var body = JSON.stringify({ v: 1, events: queue.splice(0, MAX_BATCH) });
     // `sendBeacon` is the only transport that survives an unload; `keepalive`
     // fetch is the one that reports failures. Use each where it fits.
@@ -157,7 +171,7 @@
       }
     }
     try {
-      fetch(ENDPOINT, {
+      return fetch(ENDPOINT, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: body,
@@ -192,16 +206,36 @@
   // `navigational-prefetch` for a Speculation Rules prefetch, and
   // `activationStart` is non-zero for a prerender. In either case this page
   // reports its own open, and the beacon writes the same view row the server
-  // would have. Sent alone and at once, so the session cookie the beacon mints
-  // is in place before anything else posts.
+  // would have. (Oxygen only prefetches where `deliveryType` exists, so that a
+  // reused prefetch can always be told apart.)
+  //
+  // The page's session starts there too. The speculative response set no
+  // tracking cookie, and the beacon that carries the open sets it, so the open
+  // goes at the head of the next batch and the server files that whole batch
+  // under the open's session. Later batches wait for its response, or for
+  // OPEN_HOLD_MS if it never comes, so they carry the cookie rather than each
+  // starting a session of its own. A prerender queues what it has to say (its
+  // `app-ready`, say) until it is shown, and it rides with the open.
+  var OPEN_HOLD_MS = 5000;
   function reportSpeculativeOpen() {
+    prerendering = false;
     try {
       var nav = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
       if (!nav || (nav.deliveryType !== "navigational-prefetch" && !(nav.activationStart > 0))) {
+        flush(false);
         return;
       }
-      push("oxy-view", { referrer: document.referrer || "" });
-      flush(false);
+      push("oxy-view", { referrer: document.referrer || "" }, true);
+      var sent = flush(false);
+      if (!sent) return;
+      openInFlight = true;
+      var release = function () {
+        if (!openInFlight) return;
+        openInFlight = false;
+        flush(false);
+      };
+      sent.then(release, release);
+      setTimeout(release, OPEN_HOLD_MS);
     } catch (e) {}
   }
   // A prerendered page runs before anyone has opened it; it is an open only
@@ -308,18 +342,33 @@
   // that adds a history entry nobody asked for, so Back from the app's first
   // screen lands on its bare URL, which redirects forward again. It reads as a
   // Back button that does nothing, and it is what you get from the home page and
-  // the dock, which open an app in the same tab. Chrome already skips such
-  // entries on Back; Safari and Firefox do not.
+  // the dock, which open an app in the same tab. Chrome skips such an entry on
+  // Back, but only until the page is first activated; Safari and Firefox never
+  // do.
   //
   // So until the person has done something on this page, a push is made a
   // replace. `userActivation.hasBeenActive` is the browser's own record of that
   // (a click, a key, a tap) and stays true for the life of the document; the
   // listeners stand in where it is missing. A push after that is the person's,
   // and is left alone.
+  //
+  // Chromium gets the replace too: by the time the person presses Back they
+  // have clicked something, so Chrome has stopped skipping the entry, and Back
+  // would land on the bare URL and redirect forward again.
+  //
+  // The price is an app that pushes on purpose before any interaction (a
+  // dialog route opened on load and closed with `history.back()`, a kiosk's
+  // Back trap): the entry does not exist, so it would leave the app instead.
+  // Such an app says so with `<meta name="oxy-history" content="native">` in
+  // its `index.html`, and its pushes are left alone.
   var acted = false;
   function hasActed() {
     var ua = navigator.userActivation;
     return acted || !!(ua && ua.hasBeenActive);
+  }
+  function keepsEarlyPushes() {
+    var meta = document.querySelector('meta[name="oxy-history"]');
+    return !!meta && meta.getAttribute("content") === "native";
   }
   if (!navigator.userActivation) {
     ["pointerdown", "keydown"].forEach(function (type) {
@@ -341,19 +390,20 @@
     var original = history[method];
     if (typeof original !== "function") return;
     history[method] = function () {
-      var push = method === "pushState" && hasActed();
-      var result = (method === "pushState" && !push ? nativeReplaceState : original).apply(
-        this,
-        arguments
-      );
+      var isPush = method === "pushState";
+      // Named for what it is, and not `push`, which is the beacon's.
+      var personsPush = isPush && hasActed();
+      var asReplace = isPush && !personsPush && !keepsEarlyPushes();
+      var result = (asReplace ? nativeReplaceState : original).apply(this, arguments);
       try {
         onRouteChange();
         // Only a PUSH is a safe moment to reload onto a new build: a router
         // rewrites the URL with `replaceState` mid-render (query sync, redirects),
         // and reloading under that would interrupt the screen being drawn. A
-        // boot-time push turned into a replace above is that same mid-render
-        // rewrite, so it counts as one.
-        onRoute(push);
+        // push before the person has done anything is that same boot-time
+        // rewrite, whether or not it was made a replace above, so it counts as
+        // one.
+        onRoute(personsPush);
       } catch (e) {}
       return result;
     };

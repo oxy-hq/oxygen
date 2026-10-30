@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prefetchApp } from "./prefetchApp";
 
 const links = () => Array.from(document.head.querySelectorAll('link[rel="prefetch"]'));
@@ -36,15 +36,28 @@ describe("prefetchApp", () => {
   });
 
   describe("where the browser has Speculation Rules", () => {
-    // jsdom has no `HTMLScriptElement.supports`, so the test gives it one.
+    // jsdom has no `HTMLScriptElement.supports` and no navigation timing, so
+    // the test gives it both.
     beforeEach(() => {
       Object.defineProperty(HTMLScriptElement, "supports", {
         value: (type: string) => type === "speculationrules",
         configurable: true
       });
+      vi.stubGlobal("PerformanceNavigationTiming", { prototype: { deliveryType: "" } });
     });
     afterEach(() => {
       Reflect.deleteProperty(HTMLScriptElement, "supports");
+      vi.unstubAllGlobals();
+    });
+
+    /// Without `deliveryType` the opened page cannot tell it came from the
+    /// prefetch, so nobody would count the open. A link's open revalidates and
+    /// the server counts it.
+    it("uses a link where the opened page could not report the prefetch", () => {
+      vi.stubGlobal("PerformanceNavigationTiming", { prototype: {} });
+      prefetchApp("/customer-apps/acme/revenue/");
+      expect(rules()).toHaveLength(0);
+      expect(links()).toHaveLength(1);
     });
 
     /// A rules prefetch lets the click reuse the document itself, not just its

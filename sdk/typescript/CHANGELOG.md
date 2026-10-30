@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`useDockPrefetch` is exported from `@oxy-hq/sdk/shell`.** 2.22.0 named it
+  as the hook behind the dock's prefetch but did not export it, so an app that
+  builds its own chrome from `ShellRail` could not use it. The dock now
+  prefetches only where the opened app can tell it came from the prefetch
+  (`deliveryType` on its navigation entry), so its open is still counted.
+  
 ## [2.23.1] - 2026-10-30
 
 ### Fixed

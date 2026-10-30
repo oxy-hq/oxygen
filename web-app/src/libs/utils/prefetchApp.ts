@@ -1,11 +1,12 @@
 /**
  * Warm a custom app's entry chunks before the user commits to opening it.
  *
- * **The document itself is not the win.** The shell is served `private,
- * no-cache`, so a prefetched copy has to be revalidated before the navigation
- * may reuse it — at best this saves a connection setup, not a round trip.
+ * **With `rel=prefetch` the document itself is not the win.** The shell is
+ * served `private, no-cache`, so a prefetched copy has to be revalidated before
+ * the navigation may reuse it — at best this saves a connection setup, not a
+ * round trip. (A Speculation Rules prefetch is different; see below.)
  *
- * What actually pays is the `Link: rel=modulepreload` header the serve path
+ * What pays either way is the `Link: rel=modulepreload` header the serve path
  * attaches to that response: the browser follows it and pulls the app's entry
  * chunks, which *are* `immutable` and therefore reusable without revalidation.
  * By the time the click lands, the expensive half is already in the HTTP cache.
@@ -31,8 +32,11 @@
  * the same way (`Sec-Purpose: prefetch`), so the serve path still records
  * nothing for the hover; and because the server then never sees the real open,
  * the app's own runtime reports it once the page is shown (`runtime.js`,
- * "an open the server could not see"). A prefetch, not a prerender: a
- * prerender would run the app, its queries and its functions, for a hover.
+ * "an open the server could not see"). That report needs the page to know it
+ * came from a prefetch (`deliveryType` on its navigation entry), so a browser
+ * with Speculation Rules but without that gets `rel=prefetch` like any other:
+ * its open revalidates, and the server counts it. A prefetch, not a prerender:
+ * a prerender would run the app, its queries and its functions, for a hover.
  *
  * Idempotent per URL: browsers already de-duplicate prefetches, but the check
  * also keeps `<head>` from accumulating an element per hover for the life of
@@ -66,10 +70,13 @@ export function prefetchApp(url: string): void {
   document.head.appendChild(link);
 }
 
+/** Speculation Rules, in a browser whose opened page can tell it was one. */
 function supportsSpeculationRules(): boolean {
   return (
     typeof HTMLScriptElement !== "undefined" &&
     typeof HTMLScriptElement.supports === "function" &&
-    HTMLScriptElement.supports("speculationrules")
+    HTMLScriptElement.supports("speculationrules") &&
+    typeof PerformanceNavigationTiming !== "undefined" &&
+    "deliveryType" in PerformanceNavigationTiming.prototype
   );
 }

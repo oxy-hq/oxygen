@@ -1,4 +1,4 @@
-import { ArrowUpRight, ShieldCheck } from "lucide-react";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 import { AppAccessBadge } from "@/components/appAccess/AppAccessBadge";
 import { AppMark } from "@/components/apps/AppMark";
 import { UnreadBadge } from "@/components/Notifications/UnreadBadge";
@@ -164,7 +164,7 @@ export function HomeAppCard({
                 className={cn(buttonVariants({ variant: "outline", size: "sm" }), "bg-card")}
               >
                 Open
-                <ArrowUpRight />
+                <ArrowRight />
               </span>
             )}
             {onManageAccess && (

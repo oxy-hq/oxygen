@@ -270,6 +270,17 @@ fn admit(body: &[u8]) -> Result<Vec<(String, serde_json::Value)>, Response> {
     Ok(out)
 }
 
+/// Who posted a batch, and into which app and environment: what the serve path
+/// already resolved behind the app's gate, handed over whole so the beacon
+/// decides nothing about access itself.
+pub struct BeaconOrigin {
+    pub app_id: Uuid,
+    pub org_id: Uuid,
+    pub user_id: Uuid,
+    pub user_email: String,
+    pub environment: String,
+}
+
 /// Handle a beacon POST.
 ///
 /// The caller has already authenticated the request and confirmed the viewer
@@ -283,19 +294,15 @@ fn admit(body: &[u8]) -> Result<Vec<(String, serde_json::Value)>, Response> {
 /// onto the bounded usage queue (`custom_apps_usage_queue`).
 ///
 /// `record_view` writes a reported open ([`VIEW_EVENT`]) with the page's
-/// referrer, and returns the tracking session's `Set-Cookie` when it minted one;
-/// the response carries it, so the session starts with the open, as it does
-/// when the server records the view itself.
-#[allow(clippy::too_many_arguments)]
+/// referrer, and returns the session it belongs to with the `Set-Cookie` that
+/// names it (`session_id_for_serve`'s pair). The rest of the batch is filed
+/// under that session and the response carries the cookie, so the session
+/// starts with the open, as it does when the server records the view itself.
 pub async fn handle(
-    app_id: Uuid,
-    org_id: Uuid,
-    user_id: Uuid,
-    user_email: String,
+    origin: BeaconOrigin,
     headers: &HeaderMap,
     body: axum::body::Bytes,
-    environment: String,
-    record_view: impl FnOnce(Option<&str>) -> Option<String>,
+    record_view: impl FnOnce(Option<&str>) -> (Uuid, String),
 ) -> Response {
     let events = match admit(&body) {
         Ok(e) => e,
@@ -304,45 +311,81 @@ pub async fn handle(
     if events.is_empty() {
         return StatusCode::NO_CONTENT.into_response();
     }
-    if would_exceed_rate(user_id, app_id) {
+    if would_exceed_rate(origin.user_id, origin.app_id) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
     let (view, events) = take_view(events);
-    let set_cookie =
-        view.and_then(|referrer| record_view(Some(referrer.as_str()).filter(|r| !r.is_empty())));
-    // The session cookie is set on the HTML response that loaded this page, so
-    // it is present for every real beacon. A fresh id when it is missing keeps
-    // the row rather than dropping it — an orphan session is a worse answer
-    // than no answer only if you were counting sessions, and the view rows
-    // (which do have the cookie) are what that count comes from.
-    let session_id =
-        oxy_custom_apps::tracking::session_id_from_headers(headers).unwrap_or_else(Uuid::new_v4);
+    let view = view.map(|referrer| record_view(Some(referrer.as_str()).filter(|r| !r.is_empty())));
+    let session_id = batch_session(view.as_ref().map(|(id, _)| *id), headers);
 
-    // Error DETAIL — message and stack — goes to its own table, not to either
-    // of the two above. See `CREATE_CUSTOM_APP_CLIENT_ERRORS_TABLE`: shorter
-    // retention and the same app-admin gate, because free text a page threw can
-    // carry application data that a count cannot.
-    for (name, payload) in &events {
-        if name != "oxy-error" {
-            continue;
-        }
+    record_error_details(&origin, session_id, headers, &events);
+    mirror_health_events(&origin, session_id, &events);
+    // Queued, not spawned: the drain validates and batch-inserts, and a full
+    // queue drops the row. Losing a telemetry row is the documented acceptable
+    // outcome, and there is nobody left on the other end of the request to tell.
+    for (name, payload) in events {
+        oxy_custom_apps::tracking::queue_event(
+            origin.app_id,
+            origin.user_id,
+            origin.user_email.clone(),
+            session_id,
+            name,
+            payload,
+            origin.environment.clone(),
+        );
+    }
+    no_content(view.map(|(_, set_cookie)| set_cookie))
+}
+
+/// The session a batch is filed under. A batch carrying the page's open is in
+/// the session that open was just written to: the page had no cookie yet (its
+/// speculative response set none), and this response is what sets it. Any other
+/// batch is in the session its cookie names — set by the HTML response that
+/// loaded the page, or by the beacon that reported its open. A fresh id when it
+/// is missing keeps the row rather than dropping it — an orphan session is a
+/// worse answer than no answer only if you were counting sessions, and the view
+/// rows (which do have the cookie) are what that count comes from.
+fn batch_session(opened: Option<Uuid>, headers: &HeaderMap) -> Uuid {
+    opened
+        .or_else(|| oxy_custom_apps::tracking::session_id_from_headers(headers))
+        .unwrap_or_else(Uuid::new_v4)
+}
+
+/// Error DETAIL — message and stack — goes to its own table, not to either
+/// of the two the other events land in. See `CREATE_CUSTOM_APP_CLIENT_ERRORS_TABLE`:
+/// shorter retention and the same app-admin gate, because free text a page
+/// threw can carry application data that a count cannot.
+fn record_error_details(
+    origin: &BeaconOrigin,
+    session_id: Uuid,
+    headers: &HeaderMap,
+    events: &[(String, serde_json::Value)],
+) {
+    for (_, payload) in events.iter().filter(|(name, _)| name == "oxy-error") {
         oxy_custom_apps::telemetry::record_client_errors(
-            org_id,
-            app_id,
-            user_id,
+            origin.org_id,
+            origin.app_id,
+            origin.user_id,
             session_id,
             payload,
             headers,
-            &environment,
+            &origin.environment,
         );
     }
+}
 
-    // Health signals are mirrored into the operational event stream as well as
-    // the Activity tab's Postgres rows. Two sinks, on purpose: the Activity tab
-    // answers "who used this app" over 90 days, and availability answers "is it
-    // working right now" over minutes. One store cannot be tuned for both, and
-    // the `oxy-app-ready` row is the half that makes a white screen visible.
-    for (name, payload) in &events {
+/// Health signals are mirrored into the operational event stream as well as
+/// the Activity tab's Postgres rows. Two sinks, on purpose: the Activity tab
+/// answers "who used this app" over 90 days, and availability answers "is it
+/// working right now" over minutes. One store cannot be tuned for both, and
+/// the `oxy-app-ready` row is the half that makes a white screen visible.
+fn mirror_health_events(
+    origin: &BeaconOrigin,
+    session_id: Uuid,
+    events: &[(String, serde_json::Value)],
+) {
+    let session_id = session_id.to_string();
+    for (name, payload) in events {
         if !HEALTH_EVENTS.contains(&name.as_str()) {
             continue;
         }
@@ -356,34 +399,23 @@ pub async fn handle(
             .and_then(|v| v.as_str())
             .unwrap_or_default();
         oxy_custom_apps::telemetry::record_client_event(oxy_custom_apps::telemetry::ClientEvent {
-            org_id,
-            app_id,
-            user_id,
-            session_id: &session_id.to_string(),
+            org_id: origin.org_id,
+            app_id: origin.app_id,
+            user_id: origin.user_id,
+            session_id: &session_id,
             event_name: name,
             path,
             outcome,
-            environment: &environment,
+            environment: &origin.environment,
             build_id: client_build(payload),
             detail: update_detail(name, payload),
         });
     }
+}
 
-    // Queued, not spawned: the drain validates and batch-inserts, and a full
-    // queue drops the row. Losing a telemetry row is the documented acceptable
-    // outcome, and there is nobody left on the other end of the request to tell.
-    for (name, payload) in events {
-        oxy_custom_apps::tracking::queue_event(
-            app_id,
-            user_id,
-            user_email.clone(),
-            session_id,
-            name,
-            payload,
-            environment.clone(),
-        );
-    }
-
+/// `204`, carrying the tracking session's `Set-Cookie` when a reported open
+/// minted or refreshed one.
+fn no_content(set_cookie: Option<String>) -> Response {
     let mut response = StatusCode::NO_CONTENT.into_response();
     if let Some(hv) = set_cookie.and_then(|c| axum::http::HeaderValue::from_str(&c).ok()) {
         response
@@ -607,6 +639,76 @@ mod tests {
         let (view, rest) = take_view(events);
         assert_eq!(view.as_deref(), Some(""));
         assert!(rest.is_empty());
+    }
+
+    fn origin() -> BeaconOrigin {
+        BeaconOrigin {
+            app_id: Uuid::new_v4(),
+            org_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            user_email: "viewer@example.com".to_string(),
+            environment: "production".to_string(),
+        }
+    }
+
+    /// The path `runtime.js` takes for a page shown from a prefetch: the open
+    /// reaches the recorder with its referrer, and the session cookie the
+    /// recorder minted comes back on the 204, which is what puts the page's
+    /// later batches in the open's session.
+    #[tokio::test]
+    async fn a_reported_open_is_recorded_and_its_session_cookie_set() {
+        let body = r#"{"v":1,"events":[
+            {"n":"oxy-view","p":{"referrer":"https://app.example.com/"}},
+            {"n":"oxy-app-ready","p":{"how":"auto"}}
+        ]}"#;
+        let session = Uuid::new_v4();
+        let mut seen = None;
+        let response = handle(origin(), &HeaderMap::new(), body.into(), |referrer| {
+            seen = Some(referrer.map(str::to_string));
+            (session, format!("oxy_custom_app_session={session}; Path=/"))
+        })
+        .await;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(seen, Some(Some("https://app.example.com/".to_string())));
+        let cookie = response
+            .headers()
+            .get(axum::http::header::SET_COOKIE)
+            .expect("the open's session cookie");
+        assert_eq!(
+            cookie.to_str().unwrap(),
+            format!("oxy_custom_app_session={session}; Path=/")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_batch_without_an_open_records_no_view_and_sets_no_cookie() {
+        let body = r#"{"v":1,"events":[{"n":"oxy-pageview","p":{"path":"/"}}]}"#;
+        let response = handle(origin(), &HeaderMap::new(), body.into(), |_| {
+            panic!("no open was reported")
+        })
+        .await;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(
+            response
+                .headers()
+                .get(axum::http::header::SET_COOKIE)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_batch_with_the_open_is_filed_under_the_open_s_session() {
+        let opened = Uuid::new_v4();
+        let cookie = Uuid::new_v4();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::COOKIE,
+            format!("oxy_custom_app_session={cookie}").parse().unwrap(),
+        );
+        assert_eq!(batch_session(Some(opened), &headers), opened);
+        assert_eq!(batch_session(None, &headers), cookie);
+        let fresh = batch_session(None, &HeaderMap::new());
+        assert!(fresh != opened && fresh != cookie);
     }
 
     #[test]

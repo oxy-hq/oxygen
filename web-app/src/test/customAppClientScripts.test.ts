@@ -435,8 +435,13 @@ describe("sw.js — navigationPreload overlaps worker boot with the fetch", () =
 
 // ── runtime.js harness ──────────────────────────────────────────────────────
 
+type Fetch = (url: string, init: RequestInit) => Promise<unknown>;
+
 /** Evaluate `runtime.js` against a jsdom window with the globals it reads. */
-function bootRuntime(app: Record<string, unknown> = {}) {
+function bootRuntime(
+  app: Record<string, unknown> = {},
+  fetchImpl: Fetch = async () => ({ ok: true })
+) {
   const sent: { n: string; p: Record<string, unknown> }[] = [];
   (window as unknown as Record<string, unknown>).__OXY_APP__ = {
     basePath: SCOPE,
@@ -465,10 +470,7 @@ function bootRuntime(app: Record<string, unknown> = {}) {
       }
     }
   );
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => ({ ok: true }))
-  );
+  vi.stubGlobal("fetch", vi.fn(fetchImpl));
 
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   new Function(readScript("runtime.js"))();
@@ -556,5 +558,157 @@ describe("runtime.js — vitals carry the screen they landed on and the build", 
     hide();
     expect(sent.filter((e) => e.n === "oxy-web-vitals")).toHaveLength(0);
     spy.mockRestore();
+  });
+});
+
+// ── same-tab navigation ─────────────────────────────────────────────────────
+
+type Row = { n: string; p: Record<string, unknown> };
+
+/** A beacon whose `fetch` answers only when the test says so, so the order of
+ *  batches against the open's response can be asserted. */
+function heldBeacon() {
+  const batches: Row[][] = [];
+  const answers: (() => void)[] = [];
+  const fetchImpl: Fetch = (_url, init) => {
+    batches.push(JSON.parse(init.body as string).events);
+    return new Promise((resolve) => answers.push(() => resolve({ ok: true })));
+  };
+  const answerAll = async () => {
+    for (const answer of answers.splice(0)) answer();
+    // The runtime's `.then` runs a microtask after the answer.
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  return { batches, fetchImpl, answerAll };
+}
+
+/** The navigation entry the browser reports for this document. */
+const navigationEntry = (entry: Record<string, unknown>) =>
+  vi
+    .spyOn(performance, "getEntriesByType")
+    .mockImplementation((type: string) =>
+      type === "navigation" ? ([entry] as unknown as PerformanceEntryList) : []
+    );
+
+/** The app says it has mounted (`window.__oxyAppReady`): jsdom lays nothing
+ *  out, so the runtime's own check never fires here. */
+const appMounted = () => (window as unknown as { __oxyAppReady?: () => void }).__oxyAppReady?.();
+
+const setPrerendering = (value: boolean) =>
+  Object.defineProperty(document, "prerendering", { configurable: true, get: () => value });
+
+describe("runtime.js — a page shown from a prefetch reports its own open", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(document, "prerendering");
+  });
+
+  it("a page the server served reports nothing", () => {
+    navigationEntry({ deliveryType: "", activationStart: 0 });
+    const beacon = heldBeacon();
+    bootRuntime({}, beacon.fetchImpl);
+    expect(beacon.batches).toHaveLength(0);
+  });
+
+  it("a prefetched page posts oxy-view first, and holds the next batch for its cookie", async () => {
+    navigationEntry({ deliveryType: "navigational-prefetch", activationStart: 0 });
+    Object.defineProperty(document, "referrer", {
+      configurable: true,
+      get: () => "https://app.example.com/"
+    });
+    const beacon = heldBeacon();
+    bootRuntime({ buildId: "b" }, beacon.fetchImpl);
+    expect(beacon.batches).toEqual([
+      [expect.objectContaining({ n: "oxy-view", p: { referrer: "https://app.example.com/" } })]
+    ]);
+
+    // The app mounts before the open's response is back: its ready signal
+    // must not go out without the session cookie that response sets.
+    appMounted();
+    expect(beacon.batches).toHaveLength(1);
+
+    await beacon.answerAll();
+    expect(beacon.batches).toHaveLength(2);
+    expect(beacon.batches[1].map((e) => e.n)).toEqual(["oxy-app-ready"]);
+    Reflect.deleteProperty(document, "referrer");
+  });
+
+  it("a prerendered page sends nothing until shown, then the open leads its queue", () => {
+    setPrerendering(true);
+    navigationEntry({ deliveryType: "", activationStart: 250 });
+    const beacon = heldBeacon();
+    bootRuntime({ buildId: "b" }, beacon.fetchImpl);
+    appMounted();
+    expect(beacon.batches).toHaveLength(0);
+
+    setPrerendering(false);
+    document.dispatchEvent(new Event("prerenderingchange"));
+    expect(beacon.batches).toHaveLength(1);
+    expect(beacon.batches[0].map((e) => e.n)).toEqual(["oxy-view", "oxy-app-ready"]);
+  });
+});
+
+describe("runtime.js — a push before the person has touched the page", () => {
+  // Each boot wraps whatever `history` holds, so the earlier tests' runtimes
+  // would decide too. Every boot here starts from the browser's own methods.
+  const browserPush = history.pushState;
+  const browserReplace = history.replaceState;
+  const activation = { hasBeenActive: false };
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    history.pushState = browserPush;
+    history.replaceState = browserReplace;
+    history.replaceState(null, "", SCOPE);
+    activation.hasBeenActive = false;
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: activation });
+  });
+  afterEach(() => {
+    history.pushState = browserPush;
+    history.replaceState = browserReplace;
+    Reflect.deleteProperty(navigator, "userActivation");
+    Reflect.deleteProperty(navigator, "userAgentData");
+    document.head.querySelector('meta[name="oxy-history"]')?.remove();
+  });
+
+  /** Did a push to `path` add a history entry? */
+  const addsAnEntry = (path: string) => {
+    const before = history.length;
+    history.pushState(null, "", `${SCOPE}${path}`);
+    expect(window.location.pathname).toBe(`${SCOPE}${path}`);
+    return history.length === before + 1;
+  };
+
+  it("is made a replace, and the person's own push is not", () => {
+    bootRuntime();
+    expect(addsAnEntry("dashboard")).toBe(false);
+    activation.hasBeenActive = true;
+    expect(addsAnEntry("orders")).toBe(true);
+  });
+
+  /// Chrome skips such an entry on Back only until the page is activated, and
+  /// by the time anyone presses Back they have clicked something; kept, the
+  /// boot redirect's bare URL would bounce Back forward again there too.
+  it("is made a replace in Chromium too", () => {
+    Object.defineProperty(navigator, "userAgentData", {
+      configurable: true,
+      value: { brands: [{ brand: "Chromium", version: "141" }] }
+    });
+    bootRuntime();
+    expect(addsAnEntry("dashboard")).toBe(false);
+  });
+
+  it("is left alone in an app that asks for the browser's own history", () => {
+    const meta = document.createElement("meta");
+    meta.name = "oxy-history";
+    meta.content = "native";
+    document.head.appendChild(meta);
+    bootRuntime();
+    expect(addsAnEntry("welcome")).toBe(true);
   });
 });

@@ -296,7 +296,11 @@ import "@oxy-hq/sdk/shell.css";
 
 A `pushState` before the person has touched the page (a default redirect,
 filters written to the query string on mount) is turned into a replace by the
-platform, so Back still leaves the app; write such URL syncs as replaces anyway.
+platform, so Back still leaves the app; write such URL syncs as replaces anyway. An app that pushes on
+purpose before any interaction (a dialog route opened on load and closed with
+`history.back()`, a kiosk's Back trap) adds
+`<meta name="oxy-history" content="native">` to its `index.html`, and its pushes
+are left alone.
 
 The app is its own page, outside Oxygen's shell, so show the inbox **in the
 app** — people who live in it (crew on a kiosk) never see Oxygen's bell:

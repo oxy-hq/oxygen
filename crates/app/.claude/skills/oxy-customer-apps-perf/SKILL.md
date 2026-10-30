@@ -122,8 +122,9 @@ expensive to retrofit under load.
   `private`-because-of-the-cookie reasoning at the same time. Add one only after
   reading both.
 - **`oxy-*` event names belong to the platform.** Only `__oxy/beacon` writes
-  them, only from `PLATFORM_EVENTS`, and the SDK's `/events` route refuses the
-  prefix. Widening the beacon from the allowlist to a prefix check turns it into
+  them, only from `PLATFORM_EVENTS` (plus `VIEW_EVENT`, `oxy-view`, which is
+  not an event row: see the next rule), and the SDK's `/events` route refuses
+  the prefix. Widening the beacon from the allowlist to a prefix check turns it into
   an open-ended write channel into the events table — the allowlist is what
   bounds the blast radius of a route that, by design, makes no second
   authorization decision. Note what this does **not** buy: an app's own JS can
@@ -131,8 +132,15 @@ expensive to retrofit under load.
   shape", not "the app could not have written it". Don't document it as
   tamper-proof.
 - **Speculative requests are not views.** `is_speculative_request` gates view
-  recording *and* the tracking `Set-Cookie`; the launcher prefetches on hover, so
-  without it a hover records an open and starts the session early.
+  recording *and* the tracking `Set-Cookie` on the serve path; the launcher and
+  the dock prefetch on hover, so without it a hover records an open and starts
+  the session early. A page the click then shows from a Speculation Rules
+  prefetch reports its own open (`oxy-view`), and the **beacon** writes that
+  view row and sets the cookie, filing the rest of its batch under the open's
+  session. So the beacon is the second writer of views and session cookies:
+  keep the two on `ServeContext::record_view`, and keep Speculation Rules gated
+  on `deliveryType` (`prefetchApp`, `useDockPrefetch`), the only way that page
+  can tell.
 
 ## Litmus test before merging
 

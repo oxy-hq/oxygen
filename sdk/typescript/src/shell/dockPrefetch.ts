@@ -5,7 +5,9 @@
 // eagerness) fetches that app's page before the click, so the browser can
 // show it without another round trip, and the response's preload hints pull
 // its entry chunks too. Chrome and Edge only; elsewhere the app's service
-// worker is what keeps a repeat open fast.
+// worker is what keeps a repeat open fast. Only where the opened page can tell
+// it came from a prefetch (`deliveryType` on its navigation entry), because
+// that is how its open gets counted; see below.
 //
 // Document rules, so it follows the rail as apps come and go without wiring a
 // handler per entry. Same-origin links only (`href_matches: "/*"`): in local
@@ -32,11 +34,14 @@ export const DOCK_PREFETCH_RULES = {
   ]
 } as const;
 
+/** Speculation Rules, in a browser whose opened page can tell it was one. */
 function supportsSpeculationRules(): boolean {
   return (
     typeof HTMLScriptElement !== "undefined" &&
     typeof HTMLScriptElement.supports === "function" &&
-    HTMLScriptElement.supports("speculationrules")
+    HTMLScriptElement.supports("speculationrules") &&
+    typeof PerformanceNavigationTiming !== "undefined" &&
+    "deliveryType" in PerformanceNavigationTiming.prototype
   );
 }
 
