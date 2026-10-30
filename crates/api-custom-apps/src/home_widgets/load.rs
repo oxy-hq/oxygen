@@ -7,6 +7,7 @@ use entity::prelude::{AppBuilds, Apps, Organizations};
 use entity::{app_builds, apps, organizations};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_app_core::custom_apps_host_dispatch::environment_url_for;
+use oxy_app_core::widgets::layout::CatalogEntry;
 use oxy_app_core::widgets::model::WidgetDef;
 use oxy_app_core::widgets::parse::widgets;
 use oxy_authz::PrincipalFacts;
@@ -36,33 +37,59 @@ pub struct AppWidgets {
     pub widgets: Vec<WidgetDef>,
 }
 
-/// The published apps in `org_slug` that `facts` may open. An org the caller
-/// does not belong to has none, however wide their staff reach: the home is
-/// "my apps", as `GET /api/me/apps` is.
-pub async fn openable_in_org(
+/// The id of the org with slug `org_slug`, when the caller belongs to it. An
+/// org they do not belong to is `None`, however wide their staff reach: the
+/// home is "my apps", as `GET /api/me/apps` is, and its layout is the org's own
+/// business.
+pub async fn member_org_id(
     db: &DatabaseConnection,
     facts: &PrincipalFacts,
     org_slug: &str,
-) -> Result<Vec<apps::Model>, DbErr> {
-    let Some(org_id) = Organizations::find()
+) -> Result<Option<Uuid>, DbErr> {
+    let org_id = Organizations::find()
         .select_only()
         .column(organizations::Column::Id)
         .filter(organizations::Column::Slug.eq(org_slug))
         .into_tuple::<Uuid>()
         .one(db)
-        .await?
-    else {
-        return Ok(vec![]);
-    };
-    if !candidate_orgs(facts).contains(&org_id) {
-        return Ok(vec![]);
-    }
+        .await?;
+    Ok(org_id.filter(|id| candidate_orgs(facts).contains(id)))
+}
+
+/// The published apps in org `org_id` that `facts` may open.
+pub async fn openable_in_org(
+    db: &DatabaseConnection,
+    facts: &PrincipalFacts,
+    org_id: Uuid,
+) -> Result<Vec<apps::Model>, DbErr> {
     let rows = Apps::find()
         .filter(apps::Column::OrgId.eq(org_id))
         .filter(apps::Column::PublishedAt.is_not_null())
         .all(db)
         .await?;
     Ok(keep_openable(facts, rows))
+}
+
+/// Every published app in `org_id`, whoever asks: the layout is the org's, so
+/// it is written and described against all of them.
+pub async fn org_apps(db: &DatabaseConnection, org_id: Uuid) -> Result<Vec<apps::Model>, DbErr> {
+    Apps::find()
+        .filter(apps::Column::OrgId.eq(org_id))
+        .filter(apps::Column::PublishedAt.is_not_null())
+        .all(db)
+        .await
+}
+
+/// The widgets a layout names, `<app>/<widget>`, in default order (app name,
+/// then manifest order), each with its app.
+pub fn catalog(apps: &[AppWidgets]) -> Vec<(CatalogEntry, &WidgetApp)> {
+    apps.iter()
+        .flat_map(|a| {
+            a.widgets
+                .iter()
+                .map(move |w| (CatalogEntry::new(&a.app.slug, w.clone()), &a.app))
+        })
+        .collect()
 }
 
 /// App `app_id`, when it is published and `facts` may open it.

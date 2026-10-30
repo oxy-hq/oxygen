@@ -5,6 +5,7 @@ manages customer workspace repos.
 
 - **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `token`, `login-link`, `tokens`, `assume`, `oltp`
 - **Experiments** — `experiments` (draft, price, register, status, interim, abort, result)
+- **Home layout** — `home` (show, get, apply, reset)
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
 - **Custom apps** — `publish`, `init-ci`, `proxy`, `apps`
 - **Checks** — `checks run`
@@ -590,6 +591,46 @@ the fixed-horizon one, so reading it early overstates confidence); `--refresh`
 asks for a fresh one and a run not in progress exits 0 with its state. `write-back` needs the deployment that holds the
 workspace's working copy. Staff reach a tenant workspace only inside an
 `oxyc assume` session.
+
+## Home layout
+
+The org's home is laid out by one document: an ordered list of sections. A `widgets`
+section is a group (it may repeat, each with an optional `title`) holding an ordered list
+of the widgets custom apps declare, each at a named size. An item may carry `params` (the
+widget's settings), a `title` and an `id`, so one widget can be placed as several copies,
+one per store, named `app/widget#id`. A widget's view may ask to be re-read with
+`refresh_after` (seconds). `oxyc home` lets an agent see what a person sees, then change it.
+
+```bash
+oxyc home show --org <slug> [--json]               # the home as text
+oxyc home get --org <slug> > layout.json           # { revision, layout }, to edit
+oxyc home apply --org <slug> -f layout.json [--dry-run] [--revision N] [--force] [--json]
+oxyc home reset --org <slug>                       # back to the default
+```
+
+`--org` takes a slug, UUID or org URL, and is optional when `--env` is an org URL.
+
+`show` combines `GET /orgs/{id}/home` and `GET /home/widgets?org=`: the sections in
+order, each widgets group under its title (`Widgets` when untitled) and, for each
+copy, `app/widget[#id] · Title · size`, a `params: store=mission` line when it has
+settings, `refreshes every 5m` when its view sets `refresh_after`, its headline with the
+level as a word (`[attention]`), detail, `progress 61/84` or the metric, up to three rows
+and its button labels, then `not shown:` for every declared widget the layout leaves
+out (`(Title, needs settings: store)` for one that needs settings a layout has not
+given). `--json` prints both answers raw as `{ home, widgets }`. `get` prints
+`{ "revision": N, "layout": … }`: the `effective_layout` (always a complete document)
+and the revision it was read at, so `get`, edit the layout, `apply` round-trips.
+
+`apply` reads that file (or a bare layout) from a path or `-` (JSON or YAML) and sends
+the revision **your edit started from**: the file's, or `--revision N`. A layout someone
+saved after your `get` is therefore **exit 8** ("the home layout changed since it was
+read") rather than an overwrite. A bare layout with no revision is refused unless you
+pass `--revision` or `--force`, which sends none and overwrites. A layout the server refuses is **exit 6**, with every problem listed at
+once as `path: message (fix)`. `--dry-run` prints the home the layout would give, as
+`show` does, and saves nothing (live views come from the saved layout, so a widget it
+does not yet draw reads "no live view until it is saved"). Writing needs an org owner
+or admin; staff need an `oxyc assume` session. Widget `sizes` and the view a widget
+returns are in the `oxy-custom-apps` skill.
 
 ## Customer workspaces
 

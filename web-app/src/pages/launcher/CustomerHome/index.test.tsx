@@ -4,6 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CustomAppSummary } from "@/types/apps";
+import type { HomeSection } from "@/types/homeWidgets";
 import type { InboxItem } from "@/types/notifications";
 import CustomerHome from "./index";
 import { HOME_CONTAINER, HOME_GAP } from "./layout";
@@ -68,7 +69,12 @@ vi.mock("./components/WorldModelCard", () => ({
     </a>
   )
 }));
-vi.mock("./components/HomeWidgets", () => ({ HomeWidgets: () => null }));
+vi.mock("./components/HomeWidgets", () => ({
+  HomeWidgets: () => <div data-testid='home-widgets-stub' />
+}));
+const W: HomeSection = { kind: "widgets", title: null, items: [] };
+let sections: HomeSection[] = [W, { kind: "apps" }, { kind: "insights" }];
+vi.mock("@/hooks/api/homeWidgets/useHomeWidgets", () => ({ useHomeSections: () => sections }));
 vi.mock("./components/HomeRecentQuestions", () => ({
   HomeRecentQuestions: () => <h2 data-testid='recent-questions'>Your recent questions</h2>
 }));
@@ -98,6 +104,7 @@ beforeEach(() => {
   gaps = [{ label: "Add an LLM key" }];
   shouldDisableChat = false;
   apps = [revenue];
+  sections = [W, { kind: "apps" }, { kind: "insights" }];
   unread = {};
   latest = {};
   worldModel = { entities: [{ id: "store" }] };
@@ -106,6 +113,35 @@ beforeEach(() => {
 const appsOf = (n: number): CustomAppSummary[] =>
   Array.from({ length: n }, (_, i) => ({ ...revenue, id: `app-${i}`, slug: `app-${i}` }));
 afterEach(cleanup);
+
+describe("the org's home layout", () => {
+  const order = () =>
+    Array.from(screen.getByTestId("home-body").children).map(
+      (el) => el.getAttribute("data-testid") ?? el.querySelector("h2")?.textContent
+    );
+
+  it("draws widgets, apps, then insights by default", () => {
+    renderHome();
+    expect(order()).toEqual(["home-widgets-stub", "Your apps", "home-lower-row"]);
+  });
+
+  it("draws one block per widgets group", () => {
+    sections = [
+      { kind: "widgets", title: null, items: ["a/x"] },
+      { kind: "apps" },
+      { kind: "widgets", title: "Stores", items: ["b/y#mission"] }
+    ];
+    renderHome();
+    expect(order()).toEqual(["home-widgets-stub", "Your apps", "home-widgets-stub"]);
+  });
+
+  it("draws the sections in the layout's order and leaves out the ones it omits", () => {
+    sections = [{ kind: "apps" }, W];
+    renderHome();
+    expect(order()).toEqual(["Your apps", "home-widgets-stub"]);
+    expect(screen.queryByTestId("home-lower-row")).toBeNull();
+  });
+});
 
 describe("the home's app notifications", () => {
   it("badges an app with its unread count and shows its newest one", () => {

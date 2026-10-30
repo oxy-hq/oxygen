@@ -117,7 +117,7 @@
           "additionalProperties": {
             "$ref": "#/definitions/OxyAppWidget"
           },
-          "description": "Home widgets: live cards on the Oxygen home (behind the apps-first home), keyed by widget id (1–32 lowercase letters, digits, `_` or `-`). Each names a `function` that returns a small JSON view and up to 3 `actions` its buttons may run, each another declared function. The home draws the view itself; no app code runs on the home. At most 3 widgets per app.\n\n```json \"widgets\": {   \"close\": {     \"title\": \"Month-end close\",     \"function\": \"close-widget\",     \"size\": \"wide\",     \"actions\": { \"post-ready\": { \"function\": \"post-ready-jes\", \"confirm\": true } }   } } ```\n\nProduction only: widgets read and act on the production build. Publish refuses a bad id, a missing or oversize title, a function the app does not declare, more than 3 widgets or actions, and an unknown key; `oxyc validate` and the Vite plugin say so first. Read by the platform at **publish time** and from the live build, so it is documented here but not round-tripped through the dev-time manifest fetch."
+          "description": "Home widgets: live cards on the Oxygen home (behind the apps-first home), keyed by widget id (1–32 lowercase letters, digits, `_` or `-`). Each names a `function` that returns a small JSON view and up to 3 `actions` its buttons may run, each another declared function. The home draws the view itself; no app code runs on the home. At most 6 widgets per app. `size` (`regular`, `wide`, `full`) is the default width; `sizes` lists the widths a home layout may choose. `params` is a small JSON Schema of the settings a layout gives each copy of the widget (at most 8 flat properties).\n\n```json \"widgets\": {   \"close\": {     \"title\": \"Month-end close\",     \"function\": \"close-widget\",     \"size\": \"wide\",     \"actions\": { \"post-ready\": { \"function\": \"post-ready-jes\", \"confirm\": true } }   } } ```\n\nProduction only: widgets read and act on the production build. Publish refuses a bad id, a missing or oversize title, a function the app does not declare, more than 6 widgets or 3 actions per widget, a bad `size`, `sizes` or `params`, and an unknown key; `oxyc validate` and the Vite plugin say so first. Read by the platform at **publish time** and from the live build, so it is documented here but not round-tripped through the dev-time manifest fetch."
         }
       },
       "required": ["schemaVersion", "slug"],
@@ -670,11 +670,22 @@
         },
         "function": {
           "type": "string",
-          "description": "A function this app declares. The home calls it with `{ widget: \"<id>\" }` and expects a  {@link  WidgetView }  back."
+          "description": "A function this app declares. The home calls it with a  {@link  WidgetInput }  (`{ widget: \"<id>\", size, params }`) and expects a  {@link  WidgetView }  back."
         },
         "size": {
           "$ref": "#/definitions/OxyAppWidgetSize",
-          "description": "`regular` (default) or `wide` (two columns)."
+          "description": "The default size: `regular` (one column, default), `wide` (two) or `full` (three)."
+        },
+        "sizes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/OxyAppWidgetSize"
+          },
+          "description": "The sizes a home layout may choose for this widget. Non-empty, distinct, and includes `size`. Default: just `size`."
+        },
+        "params": {
+          "$ref": "#/definitions/WidgetParamsSchema",
+          "description": "The settings a layout gives each copy of this widget (which store, which vendor): a small JSON Schema of at most 8 flat properties. The function receives them as `params`, with defaults filled in."
         },
         "actions": {
           "type": "object",
@@ -690,8 +701,88 @@
     },
     "OxyAppWidgetSize": {
       "type": "string",
-      "enum": ["regular", "wide"],
-      "description": "How wide a widget's card is on the home: one column, or two."
+      "enum": ["regular", "wide", "full"],
+      "description": "How wide a widget's card is on the home: one column, two, or three (the row)."
+    },
+    "WidgetParamsSchema": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "object"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/WidgetParamSchema"
+          }
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Properties a layout must set; each names one declared in `properties`."
+        }
+      },
+      "required": ["type", "properties"],
+      "additionalProperties": false,
+      "description": "A widget's settings: a small JSON Schema, an object of flat properties (at most 8). No nesting and no `$ref`."
+    },
+    "WidgetParamSchema": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/WidgetParamType"
+        },
+        "title": {
+          "type": "string",
+          "description": "What the setting is called, for a person or an agent filling it in."
+        },
+        "description": {
+          "type": "string",
+          "description": "What to put in it (`\"A store slug\"`)."
+        },
+        "default": {
+          "$ref": "#/definitions/WidgetParamValue",
+          "description": "Used when a layout leaves the setting out; matches `type` (and `enum`)."
+        },
+        "enum": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WidgetParamValue"
+          },
+          "description": "The values it may take: non-empty, each of `type`."
+        },
+        "minimum": {
+          "type": "number",
+          "description": "Numbers only."
+        },
+        "maximum": {
+          "type": "number",
+          "description": "Numbers only."
+        },
+        "minLength": {
+          "type": "number",
+          "description": "Strings only."
+        },
+        "maxLength": {
+          "type": "number",
+          "description": "Strings only."
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false,
+      "description": "One setting a layout gives a copy of a widget: a flat JSON Schema property."
+    },
+    "WidgetParamType": {
+      "type": "string",
+      "enum": ["string", "integer", "number", "boolean"],
+      "description": "The type of one widget setting."
+    },
+    "WidgetParamValue": {
+      "type": ["string", "number", "boolean"],
+      "description": "A setting's value, as a layout gives it and a widget function receives it."
     },
     "OxyAppWidgetAction": {
       "type": "object",

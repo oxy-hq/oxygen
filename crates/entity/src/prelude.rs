@@ -47,6 +47,7 @@ pub use super::oidc_trust_policies::Entity as OidcTrustPolicies;
 pub use super::oidc_trust_policy_grants::Entity as OidcTrustPolicyGrants;
 pub use super::oidc_used_jti::Entity as OidcUsedJti;
 pub use super::org_frontline_members::Entity as OrgFrontlineMembers;
+pub use super::org_home_layouts::Entity as OrgHomeLayouts;
 pub use super::org_invitations::Entity as OrgInvitations;
 pub use super::org_kiosk_devices::Entity as OrgKioskDevices;
 pub use super::org_members::Entity as OrgMembers;

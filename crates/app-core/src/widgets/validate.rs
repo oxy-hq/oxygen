@@ -66,7 +66,21 @@ fn check_widget(id: &str, def: &Value, functions: &BTreeSet<String>) -> Result<(
         ));
     }
     let obj = object(def, &at)?;
-    only_keys(obj, &at, &["title", "function", "size", "actions"])?;
+    only_keys(
+        obj,
+        &at,
+        &["title", "function", "size", "sizes", "params", "actions"],
+    )?;
+    if let Some(params) = obj.get("params") {
+        super::params::check(params).map_err(|message| {
+            problem(
+                "widget_params_invalid",
+                format!("`{at}`: {message}"),
+                "Declare settings as { \"type\": \"object\", \"properties\": { \"<name>\": { \"type\": \"string\" } } }."
+                    .into(),
+            )
+        })?;
+    }
     bounded_text(obj.get("title"), &format!("{at}.title"), MAX_TITLE_CHARS)?;
     let function = required_text(obj.get("function"), &format!("{at}.function"))?;
     if !functions.contains(function) {
@@ -76,19 +90,62 @@ fn check_widget(id: &str, def: &Value, functions: &BTreeSet<String>) -> Result<(
             format!("Declare `{function}` under `functions`, or name a declared function."),
         ));
     }
-    if let Some(size) = obj.get("size")
-        && size.as_str().and_then(Size::parse).is_none()
-    {
-        return Err(shape(
-            format!("`{at}.size` must be \"regular\" or \"wide\"."),
-            format!("Fix `{at}.size`, or leave it out for \"regular\"."),
-        ));
-    }
+    check_sizes(obj, &at)?;
     match obj.get("actions") {
         None => Ok(()),
         Some(actions) => check_actions(actions, &at, functions),
     }
 }
+
+fn check_sizes(obj: &Map<String, Value>, at: &str) -> Result<(), Problem> {
+    let size_problem = |message: String| {
+        problem(
+            "widget_size_invalid",
+            message,
+            format!(
+                "Use sizes from: {}; `sizes` lists each once and includes `size`.",
+                SIZE_NAMES
+            ),
+        )
+    };
+    let size = match obj.get("size") {
+        None => Size::Regular,
+        Some(v) => v
+            .as_str()
+            .and_then(Size::parse)
+            .ok_or_else(|| size_problem(format!("`{at}.size` is not a size.")))?,
+    };
+    let Some(sizes) = obj.get("sizes") else {
+        return Ok(());
+    };
+    let list = sizes
+        .as_array()
+        .filter(|l| !l.is_empty())
+        .ok_or_else(|| size_problem(format!("`{at}.sizes` must be a non-empty list.")))?;
+    let mut seen = Vec::new();
+    for v in list {
+        let s = v
+            .as_str()
+            .and_then(Size::parse)
+            .ok_or_else(|| size_problem(format!("`{at}.sizes` has {v}, which is not a size.")))?;
+        if seen.contains(&s) {
+            return Err(size_problem(format!(
+                "`{at}.sizes` lists \"{}\" twice.",
+                s.as_str()
+            )));
+        }
+        seen.push(s);
+    }
+    if !seen.contains(&size) {
+        return Err(size_problem(format!(
+            "`{at}.sizes` leaves out its own `size` (\"{}\").",
+            size.as_str()
+        )));
+    }
+    Ok(())
+}
+
+const SIZE_NAMES: &str = "regular, wide, full";
 
 fn check_actions(actions: &Value, at: &str, functions: &BTreeSet<String>) -> Result<(), Problem> {
     let at = format!("{at}.actions");

@@ -15,7 +15,14 @@ use super::model::WidgetDef;
 pub const MAX_HEADLINE_CHARS: usize = 80;
 pub const MAX_DETAIL_CHARS: usize = 120;
 pub const MAX_ROW_TITLE_CHARS: usize = 60;
-pub const MAX_ROWS: usize = 6;
+pub const MAX_ROWS: usize = 8;
+pub const MAX_METRIC_VALUE_CHARS: usize = 24;
+pub const MAX_METRIC_LABEL_CHARS: usize = 40;
+pub const MAX_METRIC_DELTA_CHARS: usize = 24;
+pub const MAX_SPARK_POINTS: usize = 30;
+/// The bounds of a view's `refresh_after`, in seconds.
+pub const MIN_REFRESH_SECS: u64 = 60;
+pub const MAX_REFRESH_SECS: u64 = 86_400;
 pub const MAX_BUTTONS: usize = 2;
 pub const MAX_BUTTON_LABEL_CHARS: usize = 32;
 pub const MAX_CONFIRM_CHARS: usize = 160;
@@ -51,11 +58,33 @@ pub struct View {
     pub detail: Option<String>,
     pub level: Level,
     pub progress: Option<Progress>,
+    /// A KPI: one number that matters, with how it moved.
+    pub metric: Option<Metric>,
     pub rows: Vec<Row>,
     pub buttons: Vec<Button>,
     /// Where "Open" goes: absolute, on the app.
     pub href: Option<String>,
     pub badge: Option<u64>,
+    /// Read the widget again after this many seconds, clamped to the bounds.
+    pub refresh_after: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Trend {
+    Up,
+    Down,
+    Flat,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Metric {
+    pub value: String,
+    pub label: Option<String>,
+    pub delta: Option<String>,
+    pub trend: Option<Trend>,
+    /// Drawn as a sparkline; finite numbers only, at most `MAX_SPARK_POINTS`.
+    pub spark: Vec<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -119,6 +148,7 @@ pub fn check(raw: &Value, def: &WidgetDef, app_url: &str) -> Option<View> {
             .and_then(level)
             .unwrap_or_default(),
         progress: progress(raw.get("progress")),
+        metric: metric(raw.get("metric")),
         rows,
         buttons,
         href: link(raw.get("link"), app_url),
@@ -126,6 +156,10 @@ pub fn check(raw: &Value, def: &WidgetDef, app_url: &str) -> Option<View> {
             .get("badge")
             .and_then(Value::as_u64)
             .map(|n| n.min(MAX_BADGE)),
+        refresh_after: raw
+            .get("refresh_after")
+            .and_then(Value::as_u64)
+            .map(|n| n.clamp(MIN_REFRESH_SECS, MAX_REFRESH_SECS)),
     })
 }
 
@@ -156,6 +190,37 @@ fn button(raw: &Value, def: &WidgetDef) -> Option<Button> {
         key: text(raw.get("key"), MAX_KEY_CHARS),
         confirm,
         destructive: action.destructive,
+    })
+}
+
+fn metric(raw: Option<&Value>) -> Option<Metric> {
+    let raw = raw?;
+    let spark = raw
+        .get("spark")
+        .and_then(Value::as_array)
+        .map(|points| {
+            points
+                .iter()
+                .filter_map(Value::as_f64)
+                .filter(|n| n.is_finite())
+                .take(MAX_SPARK_POINTS)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(Metric {
+        value: text(raw.get("value"), MAX_METRIC_VALUE_CHARS)?,
+        label: text(raw.get("label"), MAX_METRIC_LABEL_CHARS),
+        delta: text(raw.get("delta"), MAX_METRIC_DELTA_CHARS),
+        trend: raw
+            .get("trend")
+            .and_then(Value::as_str)
+            .and_then(|t| match t {
+                "up" => Some(Trend::Up),
+                "down" => Some(Trend::Down),
+                "flat" => Some(Trend::Flat),
+                _ => None,
+            }),
+        spark,
     })
 }
 

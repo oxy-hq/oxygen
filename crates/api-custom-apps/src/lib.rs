@@ -217,7 +217,14 @@ const fn fleet(path: &'static str) -> RouteRoleDecl {
 /// OXY_OWNER, so an App Operator can run the lifecycle without org or billing
 /// access.
 pub fn routes() -> Router<AppState> {
+    // The org's home layout (`home_widgets::layout_routes`): behind
+    // `org_middleware` alone, so it is layered on its own router, not on the
+    // flat routes beside it.
+    let org_home = Router::new()
+        .nest("/orgs/{org_id}/home", home_widgets::layout_routes::router())
+        .layer(axum::middleware::from_fn(oxy_app::surface::org_middleware));
     Router::new()
+        .merge(org_home)
         .route("/apps/mine", get(admin::apps::handlers::list_my_apps))
         // The mobile home screen.
         .route("/me/apps", get(me_apps::list_openable_apps))
@@ -379,6 +386,8 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
         fleet("/me/apps"),
         fleet("/home/widgets"),
         fleet("/home/widgets/{app_id}/{widget}/actions/{action}"),
+        fleet("/orgs/{org_id}/home"),
+        fleet("/orgs/{org_id}/home/layout"),
         fleet("/customer-apps/{*rest}"),
         fleet("/customer-apps"),
     ];

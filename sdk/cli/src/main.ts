@@ -50,6 +50,7 @@ import { runFnCall } from "./commands/fn.js";
 import { LOCAL_RUN_NOTICE, READ_THROUGH_HELP, runFnDev } from "./commands/fn-dev.js";
 import { runFnRun } from "./commands/fn-run.js";
 import { runGuide } from "./commands/guide.js";
+import { registerHome } from "./commands/home-cli.js";
 import { runInitCi } from "./commands/init-ci.js";
 import { runInvocationsHeld, runInvocationsList } from "./commands/invocations.js";
 import { runLaunch } from "./commands/launch.js";
@@ -1112,6 +1113,7 @@ function buildProgram(): Command {
   });
 
   registerExperiments(program, { withGlobals, globals, collect });
+  registerHome(program, { withGlobals, globals, collect });
 
   const preview = program
     .command("preview")

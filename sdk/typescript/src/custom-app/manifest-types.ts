@@ -605,7 +605,10 @@ export interface OxyAppManifest {
    * keyed by widget id (1–32 lowercase letters, digits, `_` or `-`). Each names
    * a `function` that returns a small JSON view and up to 3 `actions` its
    * buttons may run, each another declared function. The home draws the view
-   * itself; no app code runs on the home. At most 3 widgets per app.
+   * itself; no app code runs on the home. At most 6 widgets per app. `size`
+   * (`regular`, `wide`, `full`) is the default width; `sizes` lists the widths a
+   * home layout may choose. `params` is a small JSON Schema of the settings a
+   * layout gives each copy of the widget (at most 8 flat properties).
    *
    * ```json
    * "widgets": {
@@ -620,7 +623,7 @@ export interface OxyAppManifest {
    *
    * Production only: widgets read and act on the production build. Publish
    * refuses a bad id, a missing or oversize title, a function the app does not
-   * declare, more than 3 widgets or actions, and an unknown key; `oxyc validate`
+   * declare, more than 6 widgets or 3 actions per widget, a bad `size`, `sizes` or `params`, and an unknown key; `oxyc validate`
    * and the Vite plugin say so first. Read by the platform at **publish time**
    * and from the live build, so it is documented here but not round-tripped
    * through the dev-time manifest fetch.

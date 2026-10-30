@@ -136,6 +136,7 @@ pub mod notification_user_settings;
 pub mod notifications;
 pub mod org_billing;
 pub mod org_frontline_members;
+pub mod org_home_layouts;
 pub mod org_invitations;
 pub mod org_kiosk_devices;
 pub mod org_members;

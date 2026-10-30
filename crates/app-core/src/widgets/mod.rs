@@ -3,15 +3,20 @@
 //! An app declares widgets in its manifest (`widgets`); each names the
 //! function that returns its view and the actions its buttons may run. This
 //! module owns the declaration (`model`), its lenient runtime read (`parse`),
-//! its strict publish check (`validate`) and the check of the view a widget
-//! function returns (`view`). The routes live in `oxy-api-custom-apps`
+//! its strict publish check (`validate`), the check of the view a widget
+//! function returns (`view`), and the org's home layout (`layout`). The routes
+//! live in `oxy-api-custom-apps`
 //! (`home_widgets`). Design: `internal-docs/home-widgets.md`.
 
+pub mod layout;
 pub mod model;
+pub mod params;
 pub mod parse;
 pub mod validate;
 pub mod view;
 
+#[cfg(test)]
+mod layout_tests;
 #[cfg(test)]
 mod validate_tests;
 #[cfg(test)]

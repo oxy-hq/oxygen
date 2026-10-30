@@ -41,4 +41,34 @@ describe("the widget checks", () => {
     });
     expect(issues.map((i) => [i.level, i.path])).toEqual([["error", "widgets.w.function"]]);
   });
+
+  it("carry the size rules: sizes must include the default size", () => {
+    const issues = validateOxyAppManifest({
+      schemaVersion: 2,
+      slug: "x",
+      functions: { f: {} },
+      widgets: { w: { title: "W", function: "f", size: "full", sizes: ["wide"] } }
+    });
+    expect(issues.map((i) => [i.level, i.path])).toEqual([["error", "widgets.w.sizes"]]);
+  });
+
+  it("carry the params rules: a setting's default must match its type", () => {
+    const issues = (property: unknown) =>
+      validateOxyAppManifest({
+        schemaVersion: 2,
+        slug: "x",
+        functions: { f: {} },
+        widgets: {
+          w: {
+            title: "W",
+            function: "f",
+            params: { type: "object", properties: { store: property } }
+          }
+        }
+      });
+    expect(issues({ type: "string", default: "mission" })).toEqual([]);
+    expect(issues({ type: "string", default: 3 }).map((i) => [i.level, i.path])).toEqual([
+      ["error", "widgets.w.params.properties.store.default"]
+    ]);
+  });
 });

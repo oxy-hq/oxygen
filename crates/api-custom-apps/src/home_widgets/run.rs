@@ -14,10 +14,11 @@ use axum::http::{HeaderMap, StatusCode};
 use oxy_app_core::function_answer::{Call, Outcome, call};
 use oxy_app_core::function_seam::FunctionRuntime;
 use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
-use oxy_app_core::widgets::model::{ActionDef, WidgetDef};
+use oxy_app_core::widgets::layout::Placed;
+use oxy_app_core::widgets::model::{ActionDef, Size, WidgetDef};
 use oxy_app_core::widgets::view::{self, View};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use super::load::WidgetApp;
@@ -31,9 +32,19 @@ const MAX_MESSAGE_CHARS: usize = 160;
 #[derive(Debug, Serialize)]
 pub struct WidgetCard {
     pub app: WidgetApp,
+    /// The copy's name: `<app>/<widget>` or `<app>/<widget>#<id>`.
+    pub key: String,
     pub id: String,
+    /// The copy's id, when the layout placed more than one.
+    pub instance: Option<String>,
+    /// The layout's title for this copy, else the widget's.
     pub title: String,
-    pub size: oxy_app_core::widgets::model::Size,
+    /// The copy's settings, defaults filled in.
+    pub params: Map<String, Value>,
+    /// The size it is drawn at: the layout's, else the widget's default.
+    pub size: Size,
+    /// The sizes a layout may pick for it.
+    pub sizes: Vec<Size>,
     pub view: Option<View>,
     pub error: Option<String>,
 }
@@ -45,9 +56,19 @@ pub struct Caller<'a> {
     pub runtime: &'a dyn FunctionRuntime,
 }
 
-/// Run `def`'s function and check its view.
-pub async fn read(app: &WidgetApp, def: &WidgetDef, caller: &Caller<'_>) -> WidgetCard {
-    let body = Bytes::from(json!({ "widget": def.id }).to_string());
+/// Run a copy's function for its view at its size, which the function is told so
+/// it can say more when it has the room.
+pub async fn read(
+    app: &WidgetApp,
+    def: &WidgetDef,
+    copy: &Placed,
+    key: String,
+    caller: &Caller<'_>,
+) -> WidgetCard {
+    let size = copy.size;
+    let body = Bytes::from(
+        json!({ "widget": def.id, "size": size.as_str(), "params": copy.params }).to_string(),
+    );
     let function = Call {
         org_slug: &app.org_slug,
         app_slug: &app.slug,
@@ -78,9 +99,13 @@ pub async fn read(app: &WidgetApp, def: &WidgetDef, caller: &Caller<'_>) -> Widg
     };
     WidgetCard {
         app: app.clone(),
+        key,
         id: def.id.clone(),
-        title: def.title.clone(),
-        size: def.size,
+        instance: copy.instance.clone(),
+        title: copy.title.clone().unwrap_or_else(|| def.title.clone()),
+        params: copy.params.clone(),
+        size,
+        sizes: def.sizes.clone(),
         view,
         error,
     }

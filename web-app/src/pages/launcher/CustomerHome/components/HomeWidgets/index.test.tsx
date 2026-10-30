@@ -50,14 +50,19 @@ const close = (over: Partial<WidgetCard> = {}): WidgetCard => ({
     org_slug: "poke-house",
     url: "https://poke-house--bookkeeping.apps.test/"
   },
+  key: "bookkeeping/close",
   id: "close",
+  instance: null,
   title: "Month-end close",
+  params: {},
   size: "wide",
+  sizes: ["regular", "wide", "full"],
   view: {
     headline: "19 stores ready to post",
     detail: "September · 61 of 84 posted",
     level: "attention",
     progress: { done: 61, total: 84 },
+    metric: null,
     rows: [
       {
         title: "Valencia",
@@ -69,13 +74,15 @@ const close = (over: Partial<WidgetCard> = {}): WidgetCard => ({
     ],
     buttons: [post],
     href: "https://poke-house--bookkeeping.apps.test/?month=2026-09",
-    badge: 19
+    badge: 19,
+    refresh_after: null
   },
   error: null,
   ...over
 });
 
-const renderWidgets = () => render(<HomeWidgets orgSlug='poke-house' apps={[]} />);
+const renderWidgets = (group?: { title: string | null; items: string[] }) =>
+  render(<HomeWidgets orgSlug='poke-house' apps={[]} group={group} />);
 
 afterEach(() => {
   cleanup();
@@ -117,7 +124,12 @@ describe("the home's widgets", () => {
       "Post 19 journal entries to QuickBooks?"
     );
     fireEvent.click(screen.getByTestId(`${id}-yes`));
-    expect(mutate).toHaveBeenCalledWith({ appId: "app-1", widget: "close", button: post });
+    expect(mutate).toHaveBeenCalledWith({
+      appId: "app-1",
+      widget: "close",
+      key: "bookkeeping/close",
+      button: post
+    });
     expect(screen.getByTestId("home-widget-bookkeeping-close-message")).toHaveTextContent(
       "Posted 19 journal entries"
     );
@@ -137,6 +149,54 @@ describe("the home's widgets", () => {
     expect(screen.getByTestId("home-widget-bookkeeping-close-error")).toHaveTextContent(
       "Valencia isn't mapped"
     );
+  });
+
+  it("spans the row at full size and draws a metric", () => {
+    widgets = [
+      close({
+        size: "full",
+        view: {
+          ...close().view!,
+          metric: {
+            value: "$48,210",
+            label: "Posted this month",
+            delta: "+12%",
+            trend: "up",
+            spark: [1, 3, 2, 5]
+          }
+        }
+      })
+    ];
+    renderWidgets();
+    const card = screen.getByTestId("home-widget-bookkeeping-close");
+    expect(card).toHaveAttribute("data-size", "full");
+    expect(card.className).toContain("lg:col-span-3");
+    expect(screen.getByTestId("home-widget-bookkeeping-close-metric")).toHaveTextContent(
+      "$48,210Posted this month+12%"
+    );
+  });
+
+  it("draws a titled group's copies in its order, two copies of one widget apart", () => {
+    const copy = (instance: string, title: string): WidgetCard =>
+      close({
+        key: `bookkeeping/close#${instance}`,
+        instance,
+        title,
+        params: { store: instance }
+      });
+    widgets = [close(), copy("mission", "Mission St"), copy("valencia", "Valencia")];
+    renderWidgets({
+      title: "Stores",
+      items: ["bookkeeping/close#valencia", "bookkeeping/close#mission"]
+    });
+    expect(screen.getByRole("heading", { name: "Stores" })).toBeInTheDocument();
+    const cards = screen.getAllByTestId(/^home-widget-bookkeeping-close-(mission|valencia)$/);
+    expect(cards.map((c) => c.getAttribute("data-testid"))).toEqual([
+      "home-widget-bookkeeping-close-valencia",
+      "home-widget-bookkeeping-close-mission"
+    ]);
+    expect(cards[0]).toHaveTextContent("Bookkeeping · Valencia");
+    expect(screen.queryByTestId("home-widget-bookkeeping-close")).toBeNull();
   });
 
   it("says why a widget has no view", () => {

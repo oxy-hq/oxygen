@@ -6,6 +6,14 @@ import { cn } from "@/libs/shadcn/utils";
 import type { WidgetCard as Card, WidgetButton as WidgetButtonData } from "@/types/homeWidgets";
 import { LEVEL_DOT, pressError, ROW_STATE } from "../utils";
 import { WidgetButton } from "./WidgetButton";
+import { WidgetMetric } from "./WidgetMetric";
+
+/** How many of the home's columns a size takes: named sizes, packed in order. */
+const SIZE_SPAN: Record<Card["size"], string | false> = {
+  regular: false,
+  wide: "sm:col-span-2",
+  full: "sm:col-span-2 lg:col-span-3"
+};
 
 /** What the last press said, under the buttons. */
 type Said = { kind: "message" | "error"; text: string } | null;
@@ -28,13 +36,14 @@ export function WidgetCard({
   const [said, setSaid] = useState<Said>(null);
   const [pressing, setPressing] = useState<WidgetButtonData | null>(null);
   const view = card.view;
-  const base = `home-widget-${card.app.slug}-${card.id}`;
+  // A copy's id keeps two copies of one widget's handles apart.
+  const base = `home-widget-${card.app.slug}-${card.id}${card.instance ? `-${card.instance}` : ""}`;
 
   const run = (button: WidgetButtonData) => {
     setSaid(null);
     setPressing(button);
     press.mutate(
-      { appId: card.app.id, widget: card.id, button },
+      { appId: card.app.id, widget: card.id, key: card.key, button },
       {
         onSuccess: (answer) =>
           setSaid(answer.message ? { kind: "message", text: answer.message } : null),
@@ -57,10 +66,8 @@ export function WidgetCard({
     <article
       data-testid={base}
       data-level={view?.level}
-      className={cn(
-        "flex flex-col gap-3 rounded-lg border bg-card p-4",
-        card.size === "wide" && "sm:col-span-2"
-      )}
+      data-size={card.size}
+      className={cn("flex flex-col gap-3 rounded-lg border bg-card p-4", SIZE_SPAN[card.size])}
     >
       <header className='flex items-center gap-2 text-muted-foreground text-xs'>
         <AppMark iconUrl={iconUrl} name={card.app.name} size='sm' />
@@ -86,6 +93,8 @@ export function WidgetCard({
             </p>
             {view.detail && <p className='text-muted-foreground text-sm'>{view.detail}</p>}
           </div>
+
+          {view.metric && <WidgetMetric metric={view.metric} testId={`${base}-metric`} />}
 
           {view.progress && (
             <div

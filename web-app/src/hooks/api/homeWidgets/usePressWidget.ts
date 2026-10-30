@@ -24,8 +24,9 @@ export function usePressWidget(orgSlug: string) {
       qc.setQueryData<HomeWidgetsResponse>(key, (old) =>
         old
           ? {
+              ...old,
               widgets: old.widgets.map((w) =>
-                w.app.id === press.appId && w.id === press.widget ? { ...w, view, error: null } : w
+                w.key === press.key ? { ...w, view, error: null } : w
               )
             }
           : old

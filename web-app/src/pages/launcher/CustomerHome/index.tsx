@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppAccessDialog } from "@/components/appAccess/AppAccessDialog";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import useOrgCustomApps from "@/hooks/api/customApps/useOrgCustomApps";
+import { useHomeSections } from "@/hooks/api/homeWidgets/useHomeWidgets";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useWorldModel } from "@/hooks/api/useWorldModel";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
@@ -12,6 +13,7 @@ import ROUTES from "@/libs/utils/routes";
 import useAskDock from "@/stores/useAskDock";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import type { CustomAppSummary } from "@/types/apps";
+import type { HomeSectionKind } from "@/types/homeWidgets";
 import { CriticalAlertBanner } from "../components/CriticalAlertBanner";
 import { NeedsAttention } from "../components/NeedsAttention";
 import { ProjectSetupToast } from "../components/ProjectSetupToast";
@@ -42,6 +44,7 @@ export default function CustomerHome() {
   const factoryUser = useFactoryAccess();
   const { data: user } = useCurrentUser();
   const org = useCurrentOrg((s) => s.org);
+  const sections = useHomeSections(org?.slug);
   const orgRole = useCurrentOrg((s) => s.role);
   const location = useLocation();
   const navigate = useNavigate();
@@ -86,6 +89,40 @@ export default function CustomerHome() {
   const showWorldModel = !!worldModel && worldModel.entities.length > 0;
   const lower = lowerRowColumns(row, showWorldModel);
 
+  // Each section the org's layout may order.
+  const blocks: Record<Exclude<HomeSectionKind, "widgets">, ReactNode> = {
+    apps: (
+      <section className='flex flex-col gap-3' aria-labelledby='home-apps-heading'>
+        <h2 id='home-apps-heading' className='font-medium text-base'>
+          Your apps
+        </h2>
+        {row === "none" ? (
+          <FirstAppsOnTheirWay orgName={org?.name} />
+        ) : (
+          <HomeAppGrid
+            apps={apps}
+            row={row}
+            onManageAccess={manageableOrgId ? setManaging : undefined}
+          />
+        )}
+      </section>
+    ),
+    insights: (
+      <div className={cn("grid", HOME_GAP, lower.row)} data-testid='home-lower-row'>
+        {showWorldModel && (
+          <WorldModelCard
+            model={worldModel}
+            title={worldModelTitle(org?.name)}
+            to={worldModelTo}
+            half={row === "two" || row === "dense"}
+            className={lower.worldModel}
+          />
+        )}
+        <HomeRecentQuestions canAsk={canAsk} />
+      </div>
+    )
+  };
+
   return (
     <div className='flex h-full flex-col overflow-auto' data-testid='customer-home'>
       {factoryUser && <ProjectSetupToast gaps={readiness.gaps} />}
@@ -110,36 +147,22 @@ export default function CustomerHome() {
       <CriticalAlertBanner />
 
       <div className={cn(HOME_CONTAINER, "flex flex-col gap-8 pb-10")} data-testid='home-body'>
-        {/* What needs doing in each app now, above the apps themselves. */}
-        <HomeWidgets orgSlug={org?.slug} apps={apps} />
-
-        <section className='flex flex-col gap-3' aria-labelledby='home-apps-heading'>
-          <h2 id='home-apps-heading' className='font-medium text-base'>
-            Your apps
-          </h2>
-          {row === "none" ? (
-            <FirstAppsOnTheirWay orgName={org?.name} />
-          ) : (
-            <HomeAppGrid
+        {/* The org's layout decides the order, and a section it leaves out is not
+            drawn (internal-docs/home-widgets.md § The home layout). */}
+        {sections.map((section, i) =>
+          section.kind === "widgets" ? (
+            <HomeWidgets
+              // Groups have no id of their own; their order is the layout's.
+              // biome-ignore lint/suspicious/noArrayIndexKey: see above
+              key={`widgets-${i}`}
+              orgSlug={org?.slug}
               apps={apps}
-              row={row}
-              onManageAccess={manageableOrgId ? setManaging : undefined}
+              group={section.items.length || section.title ? section : undefined}
             />
-          )}
-        </section>
-
-        <div className={cn("grid", HOME_GAP, lower.row)} data-testid='home-lower-row'>
-          {showWorldModel && (
-            <WorldModelCard
-              model={worldModel}
-              title={worldModelTitle(org?.name)}
-              to={worldModelTo}
-              half={row === "two" || row === "dense"}
-              className={lower.worldModel}
-            />
-          )}
-          <HomeRecentQuestions canAsk={canAsk} />
-        </div>
+          ) : (
+            <Fragment key={section.kind}>{blocks[section.kind]}</Fragment>
+          )
+        )}
       </div>
 
       {/* "Needs attention" without the "Not measured" rows for a customer. */}

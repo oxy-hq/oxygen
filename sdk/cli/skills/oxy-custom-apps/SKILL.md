@@ -328,16 +328,18 @@ Oxygen's Settings → Notifications — don't build them. In tests,
 
 A widget puts what needs doing in your app on the Oxygen home, with the button
 that does it ("19 stores ready to post" and **Post 19 ready**). It is **data, not
-a page**: a function of yours returns a small JSON view and the home draws it
-with its own components. No app code runs on the home, and the function runs as
-the person looking, so app access, rate limits and capability gates all apply.
+a page**: a function of yours returns a small JSON view and the home draws it. The
+function runs as the person looking, so app access and rate limits apply.
 
 ```json
 "widgets": {
   "close": {
     "title": "Month-end close",          // ≤ 40 characters
     "function": "close-widget",          // declared under functions; returns the view
-    "size": "wide",                      // "regular" (default) or "wide"
+    "size": "wide",                      // default size: "regular" (default), "wide" or "full"
+    "sizes": ["regular", "wide", "full"], // sizes a layout may pick; default [size]; must include size
+    "params": { "type": "object", "required": ["store"], "properties": {   // settings per copy
+      "store": { "type": "string", "title": "Store", "description": "A store slug" } } },
     "actions": {
       "post-ready": { "function": "post-ready-jes", "confirm": true }  // destructive: true for red
     }
@@ -345,51 +347,88 @@ the person looking, so app access, rate limits and capability gates all apply.
 }
 ```
 
-At most **3 widgets** per app and **3 actions** per widget; ids are lowercase
-letters, digits, `-` and `_`. `oxyc validate` and `oxyc publish` refuse an unknown
-key, a bad id, and a `function` the manifest does not declare.
+At most **6 widgets** per app and **3 actions** per widget; ids are lowercase
+letters, digits, `-` and `_`. `params` is a flat JSON Schema: up to 8 properties, each
+`string`, `integer`, `number` or `boolean` with optional `title`, `description`, `default`,
+`enum`, `minimum`/`maximum` (numbers), `minLength`/`maxLength` (strings), plus `required`;
+no nesting, no `$ref`. `oxyc validate` and `oxyc publish` refuse an unknown key, a bad id,
+a bad `size`/`sizes` (`widget_size_invalid`), a bad `params` (`widget_params_invalid`) and an
+undeclared `function`.
 
-The widget function is called with `{ widget: "<id>" }` and returns a `WidgetView`:
+The function is called with `{ widget, size, params }` (`WidgetInput`; `size` is how wide
+it is drawn, so say more when `wide` or `full`; `params` are this copy's settings with
+defaults filled in, `{}` if it declares none) and returns a `WidgetView`:
 
 ```ts
-import type { WidgetView } from "@oxy-hq/sdk";
+import type { WidgetInput, WidgetView } from "@oxy-hq/sdk";
 
 export default async (req, ctx) => {
+  const { widget, size, params } = JSON.parse(req.body || "{}") as WidgetInput;  // params.store
   const view: WidgetView = {
     headline: "19 stores ready to post",   // required, ≤ 80; none = "nothing to show"
     detail: "September · 61 of 84 posted", // ≤ 120
     level: "attention",                    // ok | info | attention | critical
     progress: { done: 61, total: 84 },
-    rows: [{ title: "Valencia", detail: "Not mapped", state: "blocked", link: "/settings" }], // ≤ 6
+    metric: { value: "$48,210", label: "Posted", delta: "+12%", trend: "up", spark: [31, 35, 41, 48] },
+    rows: [{ title: "Valencia", detail: "Not mapped", state: "blocked" }],  // ≤ 8
     buttons: [{                            // ≤ 2, each naming a declared action
       action: "post-ready", label: "Post 19 ready", input: { period: "2026-09" },
       key: "2026-09", confirm: "Post 19 journal entries to QuickBooks?"
     }],
-    link: "/?month=2026-09",               // "Open": app-relative, starts with / or ?
-    badge: 19,
+    link: "/?month=2026-09", badge: 19,    // "Open" (app-relative: / or ?), and a count
+    refresh_after: 300,                    // read again after N seconds (60–86400)
   };
   return Response.json(view);
 };
 ```
 
-Text past its limit is cut, lists past theirs are cut, a link that is not
-app-relative is dropped, and a button naming an action the live build does not
-declare is dropped (and refused if pressed).
+A widget's kind is what its view carries: `metric` makes a **KPI card** (`value` ≤ 24,
+`label` ≤ 40, `delta` ≤ 24, `trend` up/down/flat, `spark` ≤ 30 points), `progress` a
+progress card, rows with buttons a to-do. Text and lists past their limits are cut, and a
+non-app-relative link or a button naming an undeclared action is dropped.
 
-**Pressing a button** calls the action's function with
-`{ widget, action, input }` and an `Idempotency-Key` built from widget, action
-and the button's `key` (no `key`: a hash of `input`). A double click, a second
-tab, or a stale card pressed after the work was done replays the first answer, so
-**give every button a `key` that names the thing done** (`"2026-09"`), not a
-timestamp. What the action returns decides what the card shows: `{ view }`
-re-renders at once, `{ message }` shows that line, anything else makes the home
-read the widget again. A throw or non-2xx leaves the card as it was, with the
-reason under the button.
+**Pressing a button** calls the action's function with `{ widget, action, input }` and
+an `Idempotency-Key` built from widget, action and the button's `key` (none: a hash of
+`input`), so a double click or stale card replays the first answer. **Give every button
+a `key` that names the thing done** (`"2026-09"`), not a timestamp. The action's return
+decides the card: `{ view }` re-renders, `{ message }` shows a line, anything else
+re-reads the widget; a throw or non-2xx leaves it as it was, with the reason shown.
+Widgets show **in production only**, on the apps-first home. One that should not run on every home load declares
+`cache: { ttlSeconds }` on its function.
 
-Widgets show **in production only**, and only on the **apps-first home** (the
-feature flag that turns that home on). A staging or sandbox host is not read for
-them. A widget that should not run on every home load declares
-`cache: { ttlSeconds }` on its function; the cache is per person and build.
+### Laying out the home
+
+The org's home is one layout document, written by an org owner or admin (not by an
+app): sections in order, and the widgets as `<app>/<widget>` at a size from that
+widget's `sizes`. No coordinates; an edit is a list move. `widgets` sections may repeat,
+each a group with an optional `title` (≤ 40); `others` goes on the first only. An item
+may add `params`, a `title` and an `id`, so one widget can appear as several copies
+(one per store), each with its own `id`.
+
+```json
+{ "version": 1, "sections": [
+  { "kind": "widgets", "items": [ { "widget": "bookkeeping/close", "size": "full" },
+      { "widget": "warehouse/receiving", "hidden": true } ], "others": "show" },
+  { "kind": "widgets", "title": "Stores", "items": [
+      { "widget": "store-ops/today", "id": "mission", "title": "Mission St",
+        "params": { "store": "mission" } } ] },
+  { "kind": "apps" }, { "kind": "insights" } ] }
+```
+
+Get, edit, preview, then apply:
+
+```bash
+oxyc home show --org acme                    # what a person sees: widgets, sizes, headlines
+oxyc home get --org acme > layout.json       # { revision, layout }: edit the layout
+oxyc home apply --org acme -f layout.json --dry-run   # resulting home as text, nothing saved
+oxyc home apply --org acme -f layout.json    # save (sends the file's revision)
+```
+
+A refused layout (exit 6) lists every problem as `path: message (fix)`; fix them all.
+Exit 8 means someone saved since your `get`: `home get` again and redo the edit
+(`--force` overwrites). `oxyc home reset` restores the default. A widget not listed
+still shows after the first group's items unless `others` is `"hide"`, except one with a
+required setting and no default: it needs an entry that sets `params`.
 
 ## Four pitfalls
 

@@ -49,7 +49,7 @@ fn the_shape_is_checked() {
     );
     assert_eq!(
         refused(json!({ "close": { "title": "C", "function": "close-widget", "size": "huge" } })),
-        "widget_invalid"
+        "widget_size_invalid"
     );
 }
 
@@ -61,8 +61,8 @@ fn too_many_widgets_are_refused() {
             json!({ "title": "W", "function": "close-widget" }),
         )
     };
-    let four: serde_json::Map<String, Value> = (0..4).map(w).collect();
-    assert_eq!(refused(Value::Object(four)), "widget_too_many");
+    let seven: serde_json::Map<String, Value> = (0..7).map(w).collect();
+    assert_eq!(refused(Value::Object(seven)), "widget_too_many");
 }
 
 #[test]
@@ -102,4 +102,64 @@ fn actions_are_checked() {
         "widget_action_invalid"
     );
     assert_eq!(with(json!({ "post": {} })), "widget_action_invalid");
+}
+
+#[test]
+fn sizes_are_checked() {
+    let with = |extra: Value| {
+        let mut w = json!({ "title": "C", "function": "close-widget" });
+        w.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        check(Some(&manifest(json!({ "close": w }))))
+    };
+    assert!(with(json!({ "size": "wide", "sizes": ["regular", "wide", "full"] })).is_ok());
+    assert!(with(json!({ "size": "full" })).is_ok());
+    for bad in [
+        json!({ "sizes": [] }),
+        json!({ "sizes": "wide" }),
+        json!({ "sizes": ["regular", "tall"] }),
+        json!({ "sizes": ["regular", "regular"] }),
+        json!({ "size": "wide", "sizes": ["regular"] }),
+    ] {
+        assert_eq!(
+            with(bad.clone()).expect_err("refused").check,
+            "widget_size_invalid",
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn six_widgets_pass_and_seven_do_not() {
+    let n = |count: u8| -> Value {
+        Value::Object(
+            (0..count)
+                .map(|i| {
+                    (
+                        format!("w{i}"),
+                        json!({ "title": "W", "function": "close-widget" }),
+                    )
+                })
+                .collect(),
+        )
+    };
+    assert!(check(Some(&manifest(n(6)))).is_ok());
+    assert_eq!(refused(n(7)), "widget_too_many");
+}
+
+#[test]
+fn a_settings_schema_is_checked_at_publish() {
+    let with = |params: Value| {
+        check(Some(&manifest(json!({ "close": {
+            "title": "C", "function": "close-widget", "params": params
+        } }))))
+    };
+    assert!(with(json!({ "type": "object", "properties": { "store": { "type": "string" } }, "required": ["store"] })).is_ok());
+    assert_eq!(
+        with(json!({ "type": "object", "properties": { "store": { "type": "object" } } }))
+            .unwrap_err()
+            .check,
+        "widget_params_invalid"
+    );
 }

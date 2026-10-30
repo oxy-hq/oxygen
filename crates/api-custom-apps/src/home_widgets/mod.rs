@@ -10,6 +10,9 @@
 //! caller's own credential through the app's function route. Production only.
 //! Design: `internal-docs/home-widgets.md`.
 
+pub mod describe;
+pub mod layout_routes;
+pub mod layout_store;
 pub mod load;
 pub mod run;
 
@@ -25,6 +28,7 @@ use oxy_app_core::AppState;
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_app_core::function_seam::FunctionRuntime;
 use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
+use oxy_app_core::widgets::layout::{CatalogEntry, Drawn, Layout, read, resolve};
 use oxy_app_core::widgets::view::{MAX_INPUT_BYTES, MAX_KEY_CHARS};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
@@ -47,6 +51,37 @@ pub struct ListQuery {
 #[derive(Debug, Serialize)]
 pub struct ListResponse {
     pub widgets: Vec<WidgetCard>,
+    /// The sections the home draws, in the org layout's order; a widgets group
+    /// lists its copies by `key`.
+    pub sections: Vec<SectionOut>,
+}
+
+/// One section of the home as the web app draws it.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum SectionOut {
+    Widgets {
+        title: Option<String>,
+        items: Vec<String>,
+    },
+    Apps,
+    Insights,
+}
+
+impl ListResponse {
+    fn empty() -> Self {
+        Self {
+            widgets: vec![],
+            sections: vec![
+                SectionOut::Widgets {
+                    title: None,
+                    items: vec![],
+                },
+                SectionOut::Apps,
+                SectionOut::Insights,
+            ],
+        }
+    }
 }
 
 /// `GET /api/home/widgets?org=<slug>`
@@ -63,7 +98,7 @@ pub async fn list(
         Err(refused) => return *refused,
         // The home links to production; a staging or sandbox host has no widgets.
         Ok(env) if env != AppEnvironment::Production => {
-            return Json(ListResponse { widgets: vec![] }).into_response();
+            return Json(ListResponse::empty()).into_response();
         }
         Ok(_) => {}
     }
@@ -71,10 +106,15 @@ pub async fn list(
         tracing::error!("home widgets asked for on a server with no function runtime");
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let apps = match widget_apps(&user, &q.org).await {
-        Ok(apps) => apps,
+    let (apps, layout) = match widget_apps(&user, &q.org).await {
+        Ok(found) => found,
         Err(status) => return status.into_response(),
     };
+    // The org's layout, resolved against what this person can open: a widget of
+    // an app they cannot open is simply not in their catalog.
+    let catalog = load::catalog(&apps);
+    let entries: Vec<CatalogEntry> = catalog.iter().map(|(e, _)| e.clone()).collect();
+    let drawn = resolve(layout.as_ref(), &entries);
     let caller = Caller {
         headers: &headers,
         preagg: preagg(&state),
@@ -83,24 +123,40 @@ pub async fn list(
     // Built up front, not mapped inside the stream: a closure over borrowed
     // items in the stream's type is not `Send` for every lifetime axum asks.
     let mut reads = Vec::new();
-    for app in &apps {
-        for def in &app.widgets {
-            reads.push(run::read(&app.app, def, &caller));
-        }
+    for placed in drawn.iter().flat_map(|d| match d {
+        Drawn::Widgets { placed, .. } => placed.as_slice(),
+        _ => &[],
+    }) {
+        let (entry, app) = &catalog[placed.index];
+        let key = placed.key(&entries);
+        reads.push(run::read(app, &entry.def, placed, key, &caller));
     }
     let widgets: Vec<WidgetCard> = futures::stream::iter(reads)
         .buffered(CONCURRENT_READS)
         .collect()
         .await;
-    Json(ListResponse { widgets }).into_response()
+    let sections = drawn.iter().map(|d| section_out(d, &entries)).collect();
+    Json(ListResponse { widgets, sections }).into_response()
 }
 
-/// The apps in `org` the caller can open that declare widgets. Unknown facts
-/// answer 503, never an empty home: "no widgets" on a blip would be a lie.
+fn section_out(drawn: &Drawn, entries: &[CatalogEntry]) -> SectionOut {
+    match drawn {
+        Drawn::Widgets { title, placed, .. } => SectionOut::Widgets {
+            title: title.clone(),
+            items: placed.iter().map(|p| p.key(entries)).collect(),
+        },
+        Drawn::Apps => SectionOut::Apps,
+        Drawn::Insights => SectionOut::Insights,
+    }
+}
+
+/// The apps in `org` the caller can open that declare widgets, and the org's
+/// layout. Unknown facts answer 503, never an empty home: "no widgets" on a
+/// blip would be a lie. A stored layout that no longer parses reads as none.
 async fn widget_apps(
     user: &AuthenticatedUser,
     org: &str,
-) -> Result<Vec<load::AppWidgets>, StatusCode> {
+) -> Result<(Vec<load::AppWidgets>, Option<Layout>), StatusCode> {
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -108,10 +164,22 @@ async fn widget_apps(
     let facts = oxy_server_authz::loader::load_principal_facts_scoped(&db, &caller, false)
         .await
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let rows = load::openable_in_org(&db, &facts, org)
+    // Not a member: no apps, and no peek at the org's layout either.
+    let Some(org_id) = load::member_org_id(&db, &facts, org)
+        .await
+        .map_err(internal)?
+    else {
+        return Ok((vec![], None));
+    };
+    let rows = load::openable_in_org(&db, &facts, org_id)
         .await
         .map_err(internal)?;
-    load::with_widgets(&db, rows).await.map_err(internal)
+    let apps = load::with_widgets(&db, rows).await.map_err(internal)?;
+    let layout = layout_store::load(&db, org_id)
+        .await
+        .map_err(internal)?
+        .and_then(|stored| read(&stored.layout));
+    Ok((apps, layout))
 }
 
 #[derive(Debug, Deserialize)]

@@ -2,28 +2,44 @@
 
 use serde::Serialize;
 
-/// At most this many widgets per app: the home is a glance, not a dashboard.
-pub const MAX_WIDGETS: usize = 3;
+/// At most this many widgets per app. The org's home layout picks which show;
+/// the home is a glance, not a dashboard.
+pub const MAX_WIDGETS: usize = 6;
 /// At most this many actions per widget.
 pub const MAX_ACTIONS: usize = 3;
 pub const MAX_TITLE_CHARS: usize = 40;
 
-/// How wide the home draws the card.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+/// How wide the home draws the card: a named size, never a coordinate. The
+/// home packs cards onto its grid in layout order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum Size {
+    /// One column.
     #[default]
     Regular,
     /// Two columns.
     Wide,
+    /// The whole row.
+    Full,
 }
 
 impl Size {
+    pub const ALL: [Size; 3] = [Size::Regular, Size::Wide, Size::Full];
+
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "regular" => Some(Self::Regular),
             "wide" => Some(Self::Wide),
+            "full" => Some(Self::Full),
             _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Regular => "regular",
+            Self::Wide => "wide",
+            Self::Full => "full",
         }
     }
 }
@@ -35,7 +51,12 @@ pub struct WidgetDef {
     pub title: String,
     /// The function that returns the widget's view.
     pub function: String,
+    /// The size it is drawn at unless a layout picks another.
     pub size: Size,
+    /// The sizes a layout may pick; always includes `size`.
+    pub sizes: Vec<Size>,
+    /// The settings a layout gives each copy, when it declares any.
+    pub params: Option<super::params::ParamsSchema>,
     pub actions: Vec<ActionDef>,
 }
 

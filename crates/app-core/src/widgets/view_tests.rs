@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
 use super::model::{ActionDef, Size, WidgetDef};
-use super::view::{Level, Progress, RowState, check, link};
+use super::view::{Level, Progress, RowState, Trend, check, link};
 
 const APP: &str = "https://acme--books.apps.example.com/";
 
@@ -11,6 +11,8 @@ fn def() -> WidgetDef {
         title: "Close".into(),
         function: "close-widget".into(),
         size: Size::Wide,
+        sizes: vec![Size::Wide],
+        params: None,
         actions: vec![
             ActionDef {
                 id: "post".into(),
@@ -121,7 +123,7 @@ fn buttons_for_undeclared_actions_and_oversized_input_are_dropped() {
 
 #[test]
 fn text_and_lists_are_cut_and_odd_values_ignored() {
-    let rows: Vec<Value> = (0..9)
+    let rows: Vec<Value> = (0..11)
         .map(|i| json!({ "title": format!("r{i}") }))
         .collect();
     let raw = json!({
@@ -141,7 +143,7 @@ fn text_and_lists_are_cut_and_odd_values_ignored() {
             total: 84
         })
     );
-    assert_eq!(view.rows.len(), 6);
+    assert_eq!(view.rows.len(), 8);
     assert_eq!(view.badge, Some(9_999));
     let zero = check(
         &json!({ "headline": "h", "progress": { "done": 1, "total": 0 } }),
@@ -149,4 +151,41 @@ fn text_and_lists_are_cut_and_odd_values_ignored() {
         APP,
     );
     assert_eq!(zero.unwrap().progress, None);
+}
+
+#[test]
+fn a_metric_comes_through_checked() {
+    let spark: Vec<Value> = (0..40).map(|i| json!(i)).collect();
+    let raw = json!({
+        "headline": "Revenue",
+        "metric": { "value": "$48,210", "label": "Posted this month", "delta": "+12%", "trend": "up", "spark": spark }
+    });
+    let m = check(&raw, &def(), APP).unwrap().metric.expect("a metric");
+    assert_eq!(m.value, "$48,210");
+    assert_eq!(m.trend, Some(Trend::Up));
+    assert_eq!(m.spark.len(), 30);
+    let no_value = json!({ "headline": "h", "metric": { "label": "x" } });
+    assert!(check(&no_value, &def(), APP).unwrap().metric.is_none());
+    let odd = json!({ "headline": "h", "metric": { "value": "1", "trend": "sideways", "spark": ["a", 2] } });
+    let m = check(&odd, &def(), APP).unwrap().metric.unwrap();
+    assert_eq!((m.trend, m.spark), (None, vec![2.0]));
+}
+
+#[test]
+fn refresh_after_is_clamped() {
+    let at = |n: u64| {
+        check(&json!({ "headline": "h", "refresh_after": n }), &def(), APP)
+            .unwrap()
+            .refresh_after
+    };
+    assert_eq!(
+        (at(5), at(300), at(999_999)),
+        (Some(60), Some(300), Some(86_400))
+    );
+    assert_eq!(
+        check(&json!({ "headline": "h" }), &def(), APP)
+            .unwrap()
+            .refresh_after,
+        None
+    );
 }

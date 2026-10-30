@@ -75,6 +75,23 @@ export type {
 // gets `unknown` from a `catch` and has to hand-roll the shape — which makes
 // the whole point of surfacing the status unreachable from the public API.
 export type { FunctionError, FunctionLog, FunctionResult } from "./function-sse";
+// The org's home layout document and the description of the home.
+export type {
+  HomeCatalogEntry,
+  HomeDescribedSection,
+  HomeDescribedWidget,
+  HomeDescription,
+  HomeLayout,
+  HomeLayoutAppsSection,
+  HomeLayoutInsightsSection,
+  HomeLayoutItem,
+  HomeLayoutProblem,
+  HomeLayoutSection,
+  HomeLayoutWidgetsSection,
+  HomeLayoutWrite,
+  HomeWidgetApp,
+  WidgetSize
+} from "./home-layout";
 export type { OxyAppEnvironment, OxyInjectedAppConfig } from "./inject";
 export { readAppEnvironment, readInjectedAppConfig } from "./inject";
 export type { OxyAppLogger, OxyAppLogLevel } from "./logger";
@@ -217,9 +234,16 @@ export type {
   OxyAppWidgetSize,
   WidgetActionResult,
   WidgetButton,
+  WidgetInput,
   WidgetLevel,
+  WidgetMetric,
+  WidgetParamSchema,
+  WidgetParamsSchema,
+  WidgetParamType,
+  WidgetParamValue,
   WidgetRow,
   WidgetRowState,
+  WidgetTrend,
   WidgetView
 } from "./widgets";
 export type {

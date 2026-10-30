@@ -5,6 +5,22 @@
 // the validator without the browser half of the SDK — the two packages that
 // used to carry byte copies of `notification-catalog.ts` now import it here.
 
+export type {
+  HomeCatalogEntry,
+  HomeDescribedSection,
+  HomeDescribedWidget,
+  HomeDescription,
+  HomeLayout,
+  HomeLayoutAppsSection,
+  HomeLayoutInsightsSection,
+  HomeLayoutItem,
+  HomeLayoutProblem,
+  HomeLayoutSection,
+  HomeLayoutWidgetsSection,
+  HomeLayoutWrite,
+  HomeWidgetApp,
+  WidgetSize
+} from "./custom-app/home-layout";
 export {
   FUNCTION_NAME_PATTERN,
   FUNCTION_NAME_RULE,
@@ -47,14 +63,12 @@ export type {
   OxyAppStorageManifest,
   OxyAppWebhookManifest
 } from "./custom-app/manifest-types";
-
 export {
   isV1Manifest,
   type ManifestIssue,
   V1_MANIFEST_MESSAGE,
   validateOxyAppManifest
 } from "./custom-app/manifest-validate";
-
 export {
   type CatalogFinding,
   checkNotifications,
@@ -69,11 +83,13 @@ export {
   type ResolvedNotificationKind,
   resolveNotificationKind
 } from "./custom-app/notification-catalog";
-
 export {
   checkWidgets,
   MAX_WIDGET_ACTIONS,
+  MAX_WIDGET_PARAMS,
+  MAX_WIDGET_REFRESH_AFTER_SECONDS,
   MAX_WIDGETS,
+  MIN_WIDGET_REFRESH_AFTER_SECONDS,
   type OxyAppWidget,
   type OxyAppWidgetAction,
   type OxyAppWidgetSize,
@@ -81,8 +97,15 @@ export {
   type WidgetButton,
   type WidgetCheckId,
   type WidgetFinding,
+  type WidgetInput,
   type WidgetLevel,
+  type WidgetMetric,
+  type WidgetParamSchema,
+  type WidgetParamsSchema,
+  type WidgetParamType,
+  type WidgetParamValue,
   type WidgetRow,
   type WidgetRowState,
+  type WidgetTrend,
   type WidgetView
 } from "./custom-app/widgets";

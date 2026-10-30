@@ -40,6 +40,18 @@ fn widget(
         None => Size::Regular,
         Some(s) => Size::parse(s)?,
     };
+    let mut sizes: Vec<Size> = match def.get("sizes").and_then(Value::as_array) {
+        None => vec![size],
+        Some(list) => list
+            .iter()
+            .filter_map(|v| v.as_str().and_then(Size::parse))
+            .collect(),
+    };
+    if !sizes.contains(&size) {
+        sizes.push(size);
+    }
+    sizes.sort();
+    sizes.dedup();
     let actions = def
         .get("actions")
         .and_then(Value::as_object)
@@ -56,6 +68,8 @@ fn widget(
         title,
         function,
         size,
+        sizes,
+        params: super::params::parse(def.get("params")),
         actions,
     })
 }
@@ -109,6 +123,7 @@ mod tests {
         let got = widgets(Some(&manifest));
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].size, Size::Wide);
+        assert_eq!(got[0].sizes, [Size::Wide], "no `sizes`: only its own size");
         assert_eq!(
             got[0].actions,
             [ActionDef {

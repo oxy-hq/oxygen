@@ -44,4 +44,32 @@ describe("the widget checks", () => {
       })
     ).toEqual([expect.stringMatching(/^widgets\.w\.function: /)]);
   });
+
+  it("carry the size rules: sizes must include the default size", () => {
+    expect(
+      validateManifest({
+        schemaVersion: 2,
+        slug: "x",
+        functions: { f: {} },
+        widgets: { w: { title: "W", function: "f", size: "full", sizes: ["wide"] } }
+      })
+    ).toEqual([expect.stringMatching(/^widgets\.w\.sizes: /)]);
+  });
+
+  it("carry the params rules: a setting's default must match its type", () => {
+    const params = (property: unknown) => ({
+      type: "object",
+      properties: { store: property }
+    });
+    const manifest = (property: unknown) => ({
+      schemaVersion: 2,
+      slug: "x",
+      functions: { f: {} },
+      widgets: { w: { title: "W", function: "f", params: params(property) } }
+    });
+    expect(validateManifest(manifest({ type: "string", default: "mission" }))).toEqual([]);
+    expect(validateManifest(manifest({ type: "string", default: 3 }))).toEqual([
+      expect.stringMatching(/^widgets\.w\.params\.properties\.store\.default: /)
+    ]);
+  });
 });

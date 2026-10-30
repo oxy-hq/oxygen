@@ -240,6 +240,7 @@ mod m20261024_000001_function_invocation_error_kind;
 mod m20261024_000002_custom_app_usage_backfill;
 mod m20261024_000003_custom_app_usage_parked_since;
 mod m20261026_000001_workspace_factory_grants;
+mod m20261029_000001_org_home_layouts;
 mod m20261030_000001_function_invocation_failure_feed_index;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
@@ -504,6 +505,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261024_000003_custom_app_usage_parked_since::Migration),
             Box::new(m20261026_000001_workspace_factory_grants::Migration),
             Box::new(m20261030_000001_function_invocation_failure_feed_index::Migration),
+            Box::new(m20261029_000001_org_home_layouts::Migration),
         ]
     }
 

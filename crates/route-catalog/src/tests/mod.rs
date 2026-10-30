@@ -325,6 +325,9 @@ fn the_custom_app_routes_are_catalogued_on_every_seam() {
             "POST",
             "/api/home/widgets/{app_id}/{widget}/actions/{action}",
         ),
+        ("GET", "/api/orgs/{org_id}/home"),
+        ("PUT", "/api/orgs/{org_id}/home/layout"),
+        ("DELETE", "/api/orgs/{org_id}/home/layout"),
         ("POST", "/api/customer-apps"),
         ("GET", "/api/customer-apps/{id}/secrets"),
         (

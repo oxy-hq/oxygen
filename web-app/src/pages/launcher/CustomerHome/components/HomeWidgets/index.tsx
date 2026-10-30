@@ -12,11 +12,15 @@ import { WidgetCard } from "./components/WidgetCard";
  */
 export function HomeWidgets({
   orgSlug,
-  apps
+  apps,
+  group
 }: {
   orgSlug: string | undefined;
   /** The home's app list, for each widget's app icon. */
   apps: CustomAppSummary[];
+  /** The layout's group this draws: its title, and its copies' keys in order.
+   *  Without one (no layout loaded yet), every copy, untitled. */
+  group?: { title: string | null; items: string[] };
 }) {
   const { data: widgets, isError, refetch, isFetching } = useHomeWidgets(orgSlug);
   if (isError) {
@@ -40,21 +44,29 @@ export function HomeWidgets({
     );
   }
   if (!orgSlug || !widgets?.length) return null;
+  const byKey = new Map(widgets.map((w) => [w.key, w]));
+  const cards = group ? group.items.flatMap((key) => byKey.get(key) ?? []) : widgets;
+  if (!cards.length) return null;
   const icons = new Map(apps.map((a) => [a.id, a.icon_url]));
+  const title = group?.title;
   return (
     <section
-      className={cn("grid sm:grid-cols-2 lg:grid-cols-3", HOME_GAP)}
-      aria-label='Widgets'
+      className='flex flex-col gap-3'
+      aria-label={title ?? "Widgets"}
       data-testid='home-widgets'
+      data-group={title ?? undefined}
     >
-      {widgets.map((card) => (
-        <WidgetCard
-          key={`${card.app.id}:${card.id}`}
-          card={card}
-          orgSlug={orgSlug}
-          iconUrl={icons.get(card.app.id)}
-        />
-      ))}
+      {title && <h2 className='font-medium text-base'>{title}</h2>}
+      <div className={cn("grid sm:grid-cols-2 lg:grid-cols-3", HOME_GAP)}>
+        {cards.map((card) => (
+          <WidgetCard
+            key={card.key}
+            card={card}
+            orgSlug={orgSlug}
+            iconUrl={icons.get(card.app.id)}
+          />
+        ))}
+      </div>
     </section>
   );
 }

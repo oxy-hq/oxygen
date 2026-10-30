@@ -510,6 +510,12 @@ const TABLES: &[(&str, Placement)] = &[
     ("oltp_tenants", Control("org database registry")),
     ("org_billing", Control("Stripe subscription state")),
     ("org_frontline_members", Control("frontline membership")),
+    (
+        "org_home_layouts",
+        Control(
+            "how Oxy's own home is laid out for an org: section order and which app widgets at what size; no org content",
+        ),
+    ),
     ("org_invitations", Control("org invitations")),
     (
         "org_kiosk_devices",
