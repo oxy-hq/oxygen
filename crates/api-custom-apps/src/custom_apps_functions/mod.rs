@@ -59,6 +59,8 @@ pub mod env_policy;
 pub(crate) mod environment_gate;
 /// Whether a failed function should page ops: new in a week, capped, once.
 pub mod failure_alert;
+/// The All Quiet copy of that page: a Minor incident ferret triages.
+mod failure_incident;
 /// The page `failure_alert` decides on: the finalization hook and Slack post.
 mod failure_page;
 /// A failed invocation's kind and fingerprint — the failure without its payload.

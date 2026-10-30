@@ -1,9 +1,10 @@
 //! Send the page `failure_alert` decides on: the finalization hook, the
-//! message, and the ops Slack channel it goes to.
+//! message, and the ops Slack channel it goes to — plus, when configured, its
+//! All Quiet copy for ferret (`failure_incident`).
 //!
 //! With no `OXY_OPS_SLACK_BOT_TOKEN` / `OXY_OPS_SLACK_CHANNEL` (the pair
-//! Workspace Health pages with) nothing is claimed or sent; the WARN line from
-//! `failure_signal` still goes out.
+//! Workspace Health pages with) nothing is claimed or sent, All Quiet included;
+//! the WARN line from `failure_signal` still goes out.
 
 use chrono::{DateTime, Utc};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
@@ -13,6 +14,7 @@ use uuid::Uuid;
 use super::failure_alert::{
     FailureKey, LOOKBACK_DAYS, PERSISTENT_AFTER_HOURS, THRESHOLD, Verdict, claim, mark_delivered,
 };
+use super::failure_incident;
 use super::failure_signal::Failure;
 
 /// The migration that added `failure_fingerprint`. Invocations from before it
@@ -71,6 +73,7 @@ pub(super) async fn observe(
         }
     };
     let text = message(app, key, invocation_id, failure, first_seen, persistent);
+    let incident = all_quiet_copy(db, app, key, invocation_id, failure, first_seen).await;
     let (db, app_id) = (db.clone(), app.id);
     let (function_name, fingerprint) = (function_name.to_string(), failure.fingerprint.clone());
     // Spawned, not a TaskSpec (a deliberate departure from
@@ -79,6 +82,13 @@ pub(super) async fn observe(
     // stale and the next failure sends it.
     tokio::spawn(
         async move {
+            // The All Quiet copy rides along and does not decide delivery: a
+            // retry re-sends it, and All Quiet folds that into one incident.
+            if let Some((url, body)) = incident
+                && let Err(error) = failure_incident::post(&url, &body, POST_TIMEOUT).await
+            {
+                tracing::warn!(target: "oxy::app_function", error, "failure alert: All Quiet post failed");
+            }
             let client = oxy_slack_client::SlackClient::new();
             let post = client.chat_post_message(&token, &channel, &text, None);
             let error = match tokio::time::timeout(POST_TIMEOUT, post).await {
@@ -109,6 +119,47 @@ pub(super) async fn observe(
         // inside the Slack client.
         .bind_hub(sentry::Hub::current()),
     );
+}
+
+/// The All Quiet webhook URL and body for this page, when one is configured.
+async fn all_quiet_copy(
+    db: &DatabaseConnection,
+    app: &entity::apps::Model,
+    key: FailureKey<'_>,
+    invocation_id: Uuid,
+    failure: &Failure,
+    first_seen: DateTime<Utc>,
+) -> Option<(String, serde_json::Value)> {
+    let url = failure_incident::webhook_url()?;
+    let org_slug = org_slug(db, app.org_id).await;
+    let body = failure_incident::payload(&failure_incident::Incident {
+        org_id: app.org_id,
+        org_slug: org_slug.as_deref(),
+        app_id: app.id,
+        app_slug: &app.slug,
+        function: key.function_name,
+        kind: failure.kind,
+        fingerprint: key.fingerprint,
+        invocation_id,
+        first_seen,
+    });
+    Some((url, body))
+}
+
+/// The org's slug for the All Quiet incident, so ferret can name the customer
+/// without a lookup. A page is rare, so this read is too; unknown sends null.
+async fn org_slug(db: &DatabaseConnection, org_id: Uuid) -> Option<String> {
+    use sea_orm::EntityTrait;
+    match entity::organizations::Entity::find_by_id(org_id)
+        .one(db)
+        .await
+    {
+        Ok(org) => org.map(|o| o.slug),
+        Err(e) => {
+            tracing::warn!(target: "oxy::app_function", error = %e, "failure alert: org slug read failed");
+            None
+        }
+    }
 }
 
 /// When invocations started carrying a fingerprint: the migration's
