@@ -1,6 +1,6 @@
 {
   "name": "@oxy-hq/sdk",
-  "version": "2.23.1",
+  "version": "2.24.0",
   "description": "React SDK for building custom-app bundles on the Oxy platform",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -28,6 +28,7 @@
       }
     },
     "./shell.css": "./dist/shell.css",
+    "./motion.css": "./dist/motion.css",
     "./email": {
       "import": {
         "types": "./dist/email.d.mts",

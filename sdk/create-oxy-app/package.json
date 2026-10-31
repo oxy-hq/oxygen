@@ -1,6 +1,6 @@
 {
   "name": "@oxy-hq/create-oxy-app",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Scaffold a new Oxy custom app from a curated template.",
   "type": "module",
   "bin": {

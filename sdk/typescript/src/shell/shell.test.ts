@@ -339,3 +339,37 @@ describe("chart pivoting", async () => {
     expect(axisDomain([0, 0])).toEqual({ lo: 0, hi: 1 });
   });
 });
+
+describe("shell.css motion", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const stripComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, "");
+  const css = stripComments(readFileSync(join(here, "shell.css"), "utf8"));
+  const motion = readFileSync(join(here, "..", "motion", "motion.css"), "utf8");
+
+  it("imports the shared motion language before any rule", () => {
+    const firstRule = css.indexOf("{");
+    const imp = css.indexOf('@import "./motion.css";');
+    expect(imp).toBeGreaterThanOrEqual(0);
+    expect(imp).toBeLessThan(firstRule);
+  });
+
+  it("times every transition and animation from the motion tokens", () => {
+    // Endless loops (the spinner, the live ping) keep literals: they are
+    // rates, not transitions between states.
+    const literals = [...css.matchAll(/(?:transition|animation)[^;{]*?\b\d*\.?\d+m?s\b[^;]*;/g)]
+      .map((m) => m[0])
+      .filter((decl) => !decl.includes("infinite"));
+    expect(literals).toEqual([]);
+  });
+
+  it("uses only tokens motion.css defines", () => {
+    const defined = new Set(
+      [...motion.matchAll(/(--oxy-(?:duration|ease)-[a-z-]+):/g)].map((m) => m[1])
+    );
+    const used = new Set(
+      [...css.matchAll(/var\((--oxy-(?:duration|ease)-[a-z-]+)\)/g)].map((m) => m[1])
+    );
+    expect(used.size).toBeGreaterThan(0);
+    for (const token of used) expect(defined).toContain(token);
+  });
+});

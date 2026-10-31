@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.24.0] - 2026-10-31
+
+### Added
+
+- **`@oxy-hq/sdk/motion.css`: Oxygen's motion language, for custom apps.**
+  The same file Oxygen's web-app loads: duration tokens
+  (`--oxy-duration-instant/fast/base/slow/focal`, 80/120/160/240/600 ms),
+  curves (`--oxy-ease-out/in/in-out`), and app-wide rules keyed on the
+  `data-slot` and `data-state` attributes shadcn/Radix render: dialogs,
+  sheets, menus, popovers, selects and tooltips arrive in 160–240 ms on an
+  expo curve and leave faster, settling out of their trigger (scale 0.97, a
+  4px nudge) rather than popping. A shadcn button gives under a press, through
+  a rule in `@layer components`, so an app's own transition and scale classes
+  on a button still win; to ease the press, include `scale` in the button's
+  transition list.
+  Reduced motion keeps the fades and drops all travel. `shell.css` imports it,
+  so an app on `<OxyShell>` gets it by upgrading. A Tailwind app maps the
+  tokens in its `@theme` (the create-oxy-app templates show how) so its own
+  `transition` and `ease-*` utilities move like Oxygen too.
+
+### Changed
+
+- **`<OxyShell>` moves on the shared tokens.** The rail, top bar, Ask dock and
+  phone drawer took their timing from ad-hoc values (0.15s, 0.2s, 0.25s,
+  `ease`); they now use `motion.css`. The rail tooltip nudges 4px instead of
+  8px. Under reduced motion the phone drawer fades instead of not animating at
+  all, the tooltip fades without travel, and the live indicator stops pulsing.
+
 ### Fixed
 
 - **`useDockPrefetch` is exported from `@oxy-hq/sdk/shell`.** 2.22.0 named it

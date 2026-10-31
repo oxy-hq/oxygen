@@ -15,6 +15,15 @@
   --color-status-success: #22c55e;
   --color-status-warning: #eab308;
   --color-status-error: #ef4444;
+
+  /* Motion: Oxygen's tokens (from @oxy-hq/sdk/motion.css, which the shell
+     stylesheet loads), so `transition`, `ease-out` and `duration-*` move
+     like Oxygen does. */
+  --ease-out: var(--oxy-ease-out);
+  --ease-in: var(--oxy-ease-in);
+  --ease-in-out: var(--oxy-ease-in-out);
+  --default-transition-duration: var(--oxy-duration-base);
+  --default-transition-timing-function: var(--oxy-ease-out);
 }
 
 html,

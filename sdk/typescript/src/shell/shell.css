@@ -15,7 +15,13 @@
    Dark mode: a `.dark` class on the scope element or any ancestor — the same
    contract as the web-app (`data-theme` is decorative there; no CSS keys on
    it). `color-scheme` is intentionally not set: the host app owns it.
+
+   Motion: every duration and curve comes from motion.css (imported below),
+   the motion language Oxygen itself uses, so the shell and the app around it
+   move alike.
 ============================================================================ */
+
+@import "./motion.css";
 
 .oxy-shell-scope {
   --oxy-shell-sidebar-bg: var(--sidebar-background, #fafafa);
@@ -202,9 +208,9 @@
   opacity: 0.6;
   outline: none;
   transition:
-    color 0.15s,
-    opacity 0.15s,
-    box-shadow 0.15s;
+    color var(--oxy-duration-fast) var(--oxy-ease-out),
+    opacity var(--oxy-duration-fast) var(--oxy-ease-out),
+    box-shadow var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-rail__item:hover {
@@ -354,7 +360,7 @@
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.8);
-  animation: oxy-navsheet-fade 0.2s ease-out;
+  animation: oxy-navsheet-fade var(--oxy-duration-slow) var(--oxy-ease-out);
 }
 
 .oxy-navsheet__panel {
@@ -369,7 +375,7 @@
   background: var(--oxy-shell-sidebar-bg);
   color: var(--oxy-shell-foreground);
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  animation: oxy-navsheet-slide 0.25s ease-out;
+  animation: oxy-navsheet-slide var(--oxy-duration-slow) var(--oxy-ease-out);
 }
 
 .oxy-navsheet__header {
@@ -506,10 +512,10 @@
   }
 }
 
+/* Reduced motion: the drawer fades in instead of sliding. */
 @media (prefers-reduced-motion: reduce) {
-  .oxy-navsheet__overlay,
   .oxy-navsheet__panel {
-    animation: none;
+    animation-name: oxy-navsheet-fade;
   }
 }
 
@@ -549,7 +555,7 @@
   font-weight: 500;
   color: var(--oxy-shell-foreground);
   text-decoration: none;
-  transition: opacity 0.15s;
+  transition: opacity var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-breadcrumb__workspace:hover {
@@ -634,6 +640,12 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .oxy-sysind__ping {
+    animation: none;
+  }
+}
+
 /* ─── Clock ─────────────────────────────────────────────────────────────── */
 
 .oxy-clock {
@@ -691,30 +703,30 @@
   box-shadow:
     0 4px 6px -1px rgb(0 0 0 / 0.1),
     0 2px 4px -2px rgb(0 0 0 / 0.1);
-  animation: oxy-shell-tooltip-in 0.15s ease-out;
+  animation: oxy-shell-tooltip-in var(--oxy-duration-base) var(--oxy-ease-out);
 }
 
-/* Side-aware entry slide (0.5rem, mirroring the web-app's
-   data-[side=*]:slide-in-from-*-2) and an exit animation — Radix keeps the
-   content mounted until the closed-state animation finishes. */
+/* Side-aware entry nudge (4px and a 0.97 scale, the travel motion.css gives
+   every Oxygen overlay) and an exit animation — Radix keeps the content
+   mounted until the closed-state animation finishes. */
 .oxy-shell-tooltip[data-side="right"] {
-  --oxy-shell-tip-slide: translateX(-0.5rem);
+  --oxy-shell-tip-slide: translateX(-4px);
 }
 
 .oxy-shell-tooltip[data-side="left"] {
-  --oxy-shell-tip-slide: translateX(0.5rem);
+  --oxy-shell-tip-slide: translateX(4px);
 }
 
 .oxy-shell-tooltip[data-side="top"] {
-  --oxy-shell-tip-slide: translateY(0.5rem);
+  --oxy-shell-tip-slide: translateY(4px);
 }
 
 .oxy-shell-tooltip[data-side="bottom"] {
-  --oxy-shell-tip-slide: translateY(-0.5rem);
+  --oxy-shell-tip-slide: translateY(-4px);
 }
 
 .oxy-shell-tooltip[data-state="closed"] {
-  animation: oxy-shell-tooltip-out 0.15s ease-in forwards;
+  animation: oxy-shell-tooltip-out var(--oxy-duration-fast) var(--oxy-ease-in) forwards;
 }
 
 @keyframes oxy-shell-tooltip-out {
@@ -725,7 +737,7 @@
 
   to {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(var(--oxy-shell-tip-scale, 0.97));
   }
 }
 
@@ -743,12 +755,22 @@
 @keyframes oxy-shell-tooltip-in {
   from {
     opacity: 0;
-    transform: var(--oxy-shell-tip-slide, none) scale(0.95);
+    transform: var(--oxy-shell-tip-slide, translate(0)) scale(var(--oxy-shell-tip-scale, 0.97));
   }
 
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* Reduced motion: the tooltip fades without travel (same specificity as the
+   side rules above, and later, so it wins). */
+@media (prefers-reduced-motion: reduce) {
+  .oxy-shell-tooltip[data-side],
+  .oxy-shell-tooltip {
+    --oxy-shell-tip-slide: translate(0);
+    --oxy-shell-tip-scale: 1;
   }
 }
 
@@ -767,9 +789,9 @@
   color: var(--oxy-shell-muted-fg);
   cursor: pointer;
   transition:
-    color 0.15s,
-    border-color 0.15s,
-    background 0.15s;
+    color var(--oxy-duration-fast) var(--oxy-ease-out),
+    border-color var(--oxy-duration-fast) var(--oxy-ease-out),
+    background var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-askbtn:hover {
@@ -831,7 +853,7 @@
   background: var(--oxy-shell-background);
   color: var(--oxy-shell-foreground);
   overflow: hidden;
-  transition: width 0.2s ease;
+  transition: width var(--oxy-duration-base) var(--oxy-ease-out);
 }
 
 .oxy-askdock--closed {
@@ -882,8 +904,8 @@
   color: var(--oxy-shell-muted-fg);
   cursor: pointer;
   transition:
-    color 0.15s,
-    background 0.15s;
+    color var(--oxy-duration-fast) var(--oxy-ease-out),
+    background var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-askdock__iconbtn:hover {
@@ -976,7 +998,7 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-askdock__history-more:hover {
@@ -996,7 +1018,7 @@
   font-family: var(--oxy-shell-font);
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-askdock__history-icon {
@@ -1068,7 +1090,7 @@
   text-align: left;
   color: var(--oxy-shell-foreground);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-askdock__chip:hover {
@@ -1103,7 +1125,7 @@
   border: 1px solid var(--oxy-shell-border);
   border-radius: var(--oxy-shell-radius);
   padding: 0.625rem;
-  transition: border-color 0.15s;
+  transition: border-color var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-askdock__composer:focus-within {
@@ -1143,7 +1165,7 @@
   background: var(--oxy-shell-primary);
   color: var(--oxy-shell-primary-fg);
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: opacity var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-askdock__send:disabled {

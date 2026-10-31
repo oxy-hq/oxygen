@@ -48,12 +48,12 @@ export default defineConfig({
     "react/jsx-runtime",
     "react-dom"
   ],
-  // shell.css is copied via `onSuccess`, which runs once after the whole
+  // shell.css and motion.css (which shell.css imports) are copied via `onSuccess`, which runs once after the whole
   // build finishes (both format passes) and also fires under `--watch`, so
   // dev/build:watch emit it too. The `copy` option can't be used here: it
   // raced the second format pass's clean and the file intermittently
   // vanished from dist.
-  onSuccess: "cp src/shell/shell.css dist/shell.css",
+  onSuccess: "cp src/shell/shell.css dist/shell.css && cp src/motion/motion.css dist/motion.css",
   outDir: "dist",
   banner: {
     js: "// @oxy/sdk - TypeScript SDK for Oxy data platform"

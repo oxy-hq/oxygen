@@ -283,6 +283,13 @@ opening in this tab and warmed on hover. Pass `hideTopBar` if the app draws its
 own header. Link to another app with a plain `<a href>`, never `target="_blank"`;
 moving between apps is meant to feel like one product.
 
+**Motion.** `shell.css` loads `@oxy-hq/sdk/motion.css` (SDK ≥ 2.24), Oxygen's
+own motion language, so shadcn dialogs, menus and tooltips already open and
+close like Oxygen's. Time your own transitions with its tokens
+(`var(--oxy-duration-fast)`, `var(--oxy-ease-out)`; the templates map them into
+Tailwind's `@theme`) rather than inventing durations, keep them short (most
+are 120–240 ms), and give every slide or zoom a `motion-reduce:` counterpart.
+
 ```tsx
 import { OxyShell } from "@oxy-hq/sdk/shell";
 import "@oxy-hq/sdk/shell.css";

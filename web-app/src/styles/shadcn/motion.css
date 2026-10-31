@@ -1,84 +1,34 @@
-/* Motion — one language for the whole app.
+/* Motion — Oxygen's motion language, shared with every custom app.
  *
- * Motion here explains: it acknowledges a press, shows where something came
- * from or went, and keeps a layout change legible. It never decorates and
- * never makes anyone wait. Durations follow distance and consequence:
+ * The language itself (tokens, overlay timing and travel, press feedback,
+ * view transitions, reduced motion) lives in the SDK, published as
+ * `@oxy-hq/sdk/motion.css`, so a custom app moves exactly like Oxygen.
+ * `sdk-motion.css` is a byte-identical copy of
+ * sdk/typescript/src/motion/motion.css (the fleet image builds the web-app
+ * without the SDK's sources); motion.test.ts fails when they drift. Edit the
+ * SDK file, then copy it here.
  *
- *   instant  100ms  press feedback
- *   fast     150ms  exits, small state changes (hover, toggle)
- *   base     200ms  menus, popovers, tooltips arriving; most transitions
- *   slow     300ms  dialogs and sheets (they travel further); content arriving
- *   focal    700ms  the one drawn moment: a progress ring filling to its value
- *
- * Arrivals decelerate (`ease-out`, an expo curve), departures accelerate
- * (`ease-in`) and run faster than arrivals. Nothing bounces.
- *
- * Reduced motion keeps every fade and colour change (they carry state) and
- * drops travel: no slide, zoom, rise or press-scale, and the ring is drawn at
- * its value.
+ * This file maps those tokens into Tailwind and adds what only Oxygen draws.
  */
 
+@import "./sdk-motion.css";
+
 @theme {
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: var(--oxy-ease-out);
+  --ease-in: var(--oxy-ease-in);
+  --ease-in-out: var(--oxy-ease-in-out);
   /* Every `transition*` utility without its own duration or easing. */
-  --default-transition-duration: 200ms;
-  --default-transition-timing-function: var(--ease-out);
+  --default-transition-duration: var(--oxy-duration-base);
+  --default-transition-timing-function: var(--oxy-ease-out);
 }
 
+/* `duration-(--duration-fast)` and friends in components. */
 :root {
-  --duration-instant: 100ms;
-  --duration-fast: 150ms;
-  --duration-base: 200ms;
-  --duration-slow: 300ms;
-  --duration-focal: 700ms;
-}
-
-/* Overlays: dialogs, sheets, menus, popovers, selects, tooltips, hover cards.
-   shadcn animates them through variant classes (`data-[state=open]:animate-in`),
-   so these rules key on the slot and the state, not on `.animate-in`. Unlayered,
-   so they win over the animate plugin's 150ms default and the ad-hoc durations
-   components carried (200, 300, 500). An element with no animation is
-   untouched: only its timing is set. */
-:is([data-slot$="-content"], [data-slot$="-overlay"]):not([data-state="closed"]) {
-  animation-duration: var(--duration-base);
-  animation-timing-function: var(--ease-out);
-}
-:is([data-slot$="-content"], [data-slot$="-overlay"])[data-state="closed"] {
-  animation-duration: var(--duration-fast);
-  animation-timing-function: var(--ease-in);
-}
-:is(
-  [data-slot="dialog-content"],
-  [data-slot="alert-dialog-content"],
-  [data-slot="sheet-content"]
-):not([data-state="closed"]) {
-  animation-duration: var(--duration-slow);
-}
-:is(
-  [data-slot="dialog-content"],
-  [data-slot="alert-dialog-content"],
-  [data-slot="sheet-content"]
-)[data-state="closed"] {
-  animation-duration: var(--duration-base);
-}
-
-/* Press feedback: a button gives under the finger. Unlayered, because each
-   button's own `transition-[color,box-shadow]` would otherwise leave `scale`
-   out and the press would snap instead of give. */
-[data-slot="button"] {
-  transition-property: color, background-color, border-color, box-shadow, opacity, scale;
-  transition-duration: var(--duration-fast);
-  transition-timing-function: var(--ease-out);
-}
-/* Only where motion is welcome: an override inside the reduced-motion block
-   would lose to this selector's `:not()` on specificity. */
-@media (prefers-reduced-motion: no-preference) {
-  [data-slot="button"]:active:not(:disabled, [aria-disabled="true"]) {
-    scale: 0.97;
-    transition-duration: var(--duration-instant);
-  }
+  --duration-instant: var(--oxy-duration-instant);
+  --duration-fast: var(--oxy-duration-fast);
+  --duration-base: var(--oxy-duration-base);
+  --duration-slow: var(--oxy-duration-slow);
+  --duration-focal: var(--oxy-duration-focal);
 }
 
 /* A progress ring fills to its value when it appears, and follows it when it
@@ -90,39 +40,12 @@
 }
 .motion-ring-arc {
   stroke-dasharray: var(--ring-fill) calc(100 - var(--ring-fill));
-  transition: --ring-fill var(--duration-focal) var(--ease-out);
+  transition: --ring-fill var(--oxy-duration-focal) var(--oxy-ease-out);
   @starting-style {
     --ring-fill: 0;
   }
 }
-
-/* View transitions (a layout change made with `document.startViewTransition`):
-   moved elements glide at the layout tempo; the rest cross-fades quickly. */
-::view-transition-group(*) {
-  animation-duration: var(--duration-slow);
-  animation-timing-function: var(--ease-out);
-}
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: var(--duration-fast);
-}
-
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-  /* Overlays fade; they no longer slide or zoom. */
-  [data-slot$="-content"],
-  [data-slot$="-overlay"] {
-    --tw-enter-translate-x: 0;
-    --tw-enter-translate-y: 0;
-    --tw-enter-scale: 1;
-    --tw-enter-rotate: 0;
-    --tw-exit-translate-x: 0;
-    --tw-exit-translate-y: 0;
-    --tw-exit-scale: 1;
-    --tw-exit-rotate: 0;
-  }
   .motion-ring-arc {
     transition: none;
   }

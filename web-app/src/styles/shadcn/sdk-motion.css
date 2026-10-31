@@ -1,0 +1,152 @@
+/* ============================================================================
+   @oxy-hq/sdk/motion.css — how Oxygen moves, for Oxygen and every custom app
+
+   One motion language. Oxygen's web-app and the SDK shell both load this
+   file (`shell.css` imports it), so a custom app moves exactly like Oxygen:
+   same durations, same curves, same reduced-motion behaviour. Plain CSS, no
+   Tailwind required; a Tailwind app maps the tokens into its `@theme` (see
+   the create-oxy-app templates' index.css).
+
+   The web-app keeps a byte-identical copy at
+   web-app/src/styles/shadcn/sdk-motion.css, because the fleet image builds the
+   web-app without the SDK's sources. web-app/src/styles/shadcn/motion.test.ts
+   fails when the two differ: edit this file, then copy it.
+
+   Motion explains: it acknowledges a press, shows where something came from,
+   and keeps a layout change legible. It is quick and quiet. It never
+   decorates, never bounces, and never makes anyone wait:
+
+     instant   80ms  press feedback
+     fast     120ms  exits, hover and other small state changes
+     base     160ms  menus, popovers, tooltips arriving; most transitions
+     slow     240ms  dialogs and sheets (they travel further); a layout change
+     focal    600ms  the one drawn moment, e.g. a progress ring filling
+
+   Arrivals decelerate hard (`--oxy-ease-out`, an expo curve: most of the
+   travel happens in the first frames, so a short animation already feels
+   there). Departures accelerate gently and are faster than arrivals.
+   Overlays travel little: a 0.97 scale and a 4px nudge from their trigger.
+
+   Reduced motion keeps every fade and colour change (they carry state) and
+   drops travel: no slide, zoom or press-scale.
+============================================================================ */
+
+:root {
+  --oxy-duration-instant: 80ms;
+  --oxy-duration-fast: 120ms;
+  --oxy-duration-base: 160ms;
+  --oxy-duration-slow: 240ms;
+  --oxy-duration-focal: 600ms;
+  --oxy-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --oxy-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --oxy-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* Overlays: dialogs, sheets, menus, popovers, selects, tooltips, hover cards,
+   as shadcn/Radix render them. shadcn animates through variant classes
+   (`data-[state=open]:animate-in`), so these rules key on the slot and the
+   state. Unlayered, so they win over the animate plugin's defaults and any
+   per-component duration. Only timing is set: an element with no animation
+   stays still. */
+:is([data-slot$="-content"], [data-slot$="-overlay"]):not([data-state="closed"]) {
+  animation-duration: var(--oxy-duration-base);
+  animation-timing-function: var(--oxy-ease-out);
+}
+:is([data-slot$="-content"], [data-slot$="-overlay"])[data-state="closed"] {
+  animation-duration: var(--oxy-duration-fast);
+  animation-timing-function: var(--oxy-ease-in);
+}
+:is(
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"],
+  [data-slot="sheet-content"]
+):not([data-state="closed"]) {
+  animation-duration: var(--oxy-duration-slow);
+}
+:is(
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"],
+  [data-slot="sheet-content"]
+)[data-state="closed"] {
+  animation-duration: var(--oxy-duration-base);
+}
+
+/* Travel. shadcn's stock values (zoom 0.95, an 8px slide) read as a pop; these
+   read as the overlay settling out of its trigger. A positioned overlay
+   (`data-side`) nudges away from the side it opened on. Only where motion is
+   welcome: the reduced-motion block below has lower specificity. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-slot$="-content"]:is(
+    [data-side],
+    [data-slot="dialog-content"],
+    [data-slot="alert-dialog-content"]
+  ) {
+    --tw-enter-scale: 0.97;
+    --tw-exit-scale: 0.97;
+  }
+  [data-slot$="-content"][data-side="bottom"] {
+    --tw-enter-translate-y: -4px;
+  }
+  [data-slot$="-content"][data-side="top"] {
+    --tw-enter-translate-y: 4px;
+  }
+  [data-slot$="-content"][data-side="right"] {
+    --tw-enter-translate-x: -4px;
+  }
+  [data-slot$="-content"][data-side="left"] {
+    --tw-enter-translate-x: 4px;
+  }
+}
+
+/* Press feedback: a button gives under the finger. Layered, unlike the rest of
+   this file: a button's look belongs to the app, so any transition or scale
+   class of its own wins (Tailwind's utilities layer, or any unlayered rule).
+   A button whose own transition list leaves out `scale` (stock shadcn's
+   `transition-[color,box-shadow]`) still gives, without easing; add `scale`
+   to that list, as Oxygen's button does, for the full press. */
+@layer components {
+  [data-slot="button"] {
+    transition-property: color, background-color, border-color, box-shadow, opacity, scale;
+    transition-duration: var(--oxy-duration-fast);
+    transition-timing-function: var(--oxy-ease-out);
+  }
+  /* Only where motion is welcome, so reduced motion never presses. */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-slot="button"]:active:not(:disabled, [aria-disabled="true"]) {
+      scale: 0.97;
+      transition-duration: var(--oxy-duration-instant);
+    }
+  }
+}
+
+/* View transitions (a change made with `document.startViewTransition`): moved
+   elements glide at the layout tempo; the rest cross-fades quickly. */
+::view-transition-group(*) {
+  animation-duration: var(--oxy-duration-slow);
+  animation-timing-function: var(--oxy-ease-out);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--oxy-duration-fast);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  /* Overlays fade; they no longer slide or zoom. */
+  [data-slot$="-content"],
+  [data-slot$="-overlay"] {
+    --tw-enter-translate-x: 0;
+    --tw-enter-translate-y: 0;
+    --tw-enter-scale: 1;
+    --tw-enter-rotate: 0;
+    --tw-exit-translate-x: 0;
+    --tw-exit-translate-y: 0;
+    --tw-exit-scale: 1;
+    --tw-exit-rotate: 0;
+  }
+  ::view-transition-group(*) {
+    animation-duration: 0s;
+  }
+}

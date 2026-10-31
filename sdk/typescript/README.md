@@ -248,6 +248,35 @@ global styles leak into your app. It follows your design tokens when present
 (`--sidebar-background`, `--foreground`, …) and falls back to the Oxygen
 defaults. Dark mode: put a `.dark` class on any ancestor.
 
+Motion: `shell.css` loads `@oxy-hq/sdk/motion.css`, the motion language
+Oxygen itself uses, so your app moves like Oxygen without doing anything:
+
+- **Tokens** on `:root`: `--oxy-duration-instant/fast/base/slow/focal`
+  (80 / 120 / 160 / 240 / 600 ms) and `--oxy-ease-out/in/in-out`. Arrivals use
+  `ease-out`; departures use `ease-in` and run faster.
+- **shadcn/Radix overlays** (dialogs, sheets, menus, popovers, selects,
+  tooltips) are timed from their `data-slot` and `data-state`, and settle out
+  of their trigger (scale 0.97, a 4px nudge). Don't add `duration-*` to them.
+  A shadcn button gives slightly under a press. That rule sits in
+  `@layer components`, so your own transition and scale classes on a button
+  win; include `scale` in the button's transition list to ease the press.
+- **Reduced motion** keeps fades and drops all travel.
+
+In a Tailwind app, map the tokens so your own utilities match (the
+`create-oxy-app` templates do this in `src/index.css`):
+
+```css
+@theme {
+  --ease-out: var(--oxy-ease-out);
+  --ease-in: var(--oxy-ease-in);
+  --ease-in-out: var(--oxy-ease-in-out);
+  --default-transition-duration: var(--oxy-duration-base);
+  --default-transition-timing-function: var(--oxy-ease-out);
+}
+```
+
+Without the shell, `import "@oxy-hq/sdk/motion.css"` on its own.
+
 ## Who is using the app
 
 Two identity surfaces, and the difference between them is the difference between

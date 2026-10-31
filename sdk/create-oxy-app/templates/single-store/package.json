@@ -10,7 +10,7 @@
     "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {
-    "@oxy-hq/sdk": "^2.22.0",
+    "@oxy-hq/sdk": "^2.24.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

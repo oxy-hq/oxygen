@@ -202,10 +202,10 @@ If you only need the project (outside the IDE), use `useCurrentProject()` from `
 
 ## Motion
 
-One motion language, defined in `src/styles/shadcn/motion.css`. Motion explains a press, a state change or a layout change; it never decorates and never makes anyone wait.
+One motion language for Oxygen and every custom app. Its source is the SDK's `sdk/typescript/src/motion/motion.css` (published as `@oxy-hq/sdk/motion.css`, loaded by the SDK shell); `src/styles/shadcn/sdk-motion.css` is a byte-identical copy that `motion.test.ts` keeps honest, so **edit the SDK file and copy it**, never the copy. `src/styles/shadcn/motion.css` maps it into Tailwind and adds what only Oxygen draws. Motion explains a press, a state change or a layout change; it is quick, never decorates and never makes anyone wait.
 
-- **Durations are tokens:** `duration-(--duration-instant|fast|base|slow|focal)` (100 / 150 / 200 / 300 / 700 ms). A bare `transition` already uses 200 ms and `ease-out`.
-- **Easing:** `ease-out` (expo deceleration) for arrivals, `ease-in` for departures, which run faster. No bounce.
+- **Durations are tokens:** `duration-(--duration-instant|fast|base|slow|focal)` (80 / 120 / 160 / 240 / 600 ms). A bare `transition` already uses 160 ms and `ease-out`.
+- **Easing:** `ease-out` (expo deceleration) for arrivals, `ease-in` for departures, which run faster. No bounce. Overlays travel little: scale 0.97 and a 4px nudge.
 - **Overlays** (dialogs, sheets, menus, popovers, tooltips) are timed centrally by `data-slot`/`data-state`; don't add `duration-*` to them.
 - **Something appearing:** `transition-[opacity,translate] duration-(--duration-slow) starting:opacity-0 starting:translate-y-1` (Tailwind's `@starting-style`), never a JS mount animation.
 - **Layout changes that move things** (the home's Today rail arriving): `document.startViewTransition`, with a `view-transition-name` on what moves (`useTransitionedFlag` in `CustomerHome/useTodayHint.ts`).
