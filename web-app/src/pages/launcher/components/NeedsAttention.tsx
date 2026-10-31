@@ -44,19 +44,26 @@ function SignalRow({ signal }: { signal: HqSignal }) {
  *  TODO(notifications): when a real notification system lands these become
  *  dismissible/stateful — do NOT add fake dismiss controls before then. */
 export function NeedsAttention({
-  includeUnmeasured = true
+  includeUnmeasured = true,
+  contained = true
 }: {
   /** Whether "Not measured" rows (`info`: no health signal, not a problem with the
    *  app) are listed. The apps-first home lists them only for Factory users, who
    *  can do something about them. */
   includeUnmeasured?: boolean;
+  /** Whether it brings the page's own container. The apps-first home draws it
+   *  inside the apps' column, which already sits in that container. */
+  contained?: boolean;
 } = {}) {
   const signals = useHqAlerts().filter(
     (s) => s.severity !== "critical" && (includeUnmeasured || s.severity !== "info")
   );
   if (signals.length === 0) return null;
   return (
-    <div className='mx-auto w-full max-w-6xl px-6 pb-8' data-testid='hq-needs-attention'>
+    <div
+      className={cn("w-full pb-8", contained && "mx-auto max-w-6xl px-6")}
+      data-testid='hq-needs-attention'
+    >
       <p className='mb-1.5 font-medium text-muted-foreground/70 text-xs uppercase tracking-wide'>
         Needs attention
       </p>

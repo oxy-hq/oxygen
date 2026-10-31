@@ -52,7 +52,7 @@ fn parse(doc: &Value, problems: &mut Vec<Problem>) -> Option<Layout> {
         problems.push(problem(
             "sections",
             "`sections` must be a list",
-            "List the sections in the order the home draws them: widgets, apps, insights.",
+            "List the widget groups in Today's order, plus apps and insights once each: widgets, apps, insights.",
         ));
         return None;
     };

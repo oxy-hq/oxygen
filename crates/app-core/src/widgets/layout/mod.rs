@@ -1,5 +1,6 @@
-//! The org's home layout: which sections the home draws, in what order, and in
-//! the widgets section which widgets, in what order, at what size.
+//! The org's home layout: Today's widget groups in order, which widgets each holds,
+//! in what order, at what size, and whether insights show. The apps always come
+//! first; the `apps` section places nothing (`internal-docs/home-widgets.md`).
 //!
 //! Placement is by order and named size, packed onto the grid by the home —
 //! never by coordinates — so an LLM or `oxyc` writing a layout has no geometry

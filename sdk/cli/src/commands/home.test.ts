@@ -257,8 +257,9 @@ describe("renderHome", () => {
   it("draws sections in order, each widget with its headline, level, progress, metric and 3 rows", () => {
     const text = renderHome(description(), FEED_BODY);
     expect(text).toContain("Poke House (poke-house) home — customized, revision 3");
-    expect(text.indexOf("Widgets")).toBeLessThan(text.indexOf("Your apps"));
-    expect(text.indexOf("Your apps")).toBeLessThan(text.indexOf("Insights"));
+    // A phone's order: the apps, Today, then insights.
+    expect(text.indexOf("Your apps")).toBeLessThan(text.indexOf("Today"));
+    expect(text.indexOf("Today")).toBeLessThan(text.indexOf("Insights"));
     expect(text).toContain("bookkeeping/close · Month-end close · full");
     expect(text).toContain("19 stores ready to post [attention]");
     expect(text).toContain("September · 61 of 84 posted");
@@ -394,7 +395,7 @@ describe("renderHome folds calm widgets", () => {
         rows: [{ title: "Walk-in", state: "failed" }]
       };
     const text = renderHome(storesHome(), feed);
-    const stores = text.slice(text.indexOf("Stores"), text.indexOf("Your apps"));
+    const stores = text.slice(text.indexOf("Stores"));
     expect(stores).toContain("store-ops/today#mission · Mission St · regular");
     expect(stores).toContain("- [failed] Walk-in");
     // Valencia is calm: its headline only.
@@ -419,12 +420,15 @@ describe("renderHome with groups, copies and settings", () => {
   const text = renderHome(storesHome(), storesFeed());
   const lines = text.split("\n");
 
-  it("titles each widgets group, and calls an untitled one Widgets", () => {
+  it("titles a group with something to do, and lists calm widgets under All clear", () => {
     expect(lines).toContain("Finance");
-    expect(lines).toContain("Stores");
-    expect(text.indexOf("Finance")).toBeLessThan(text.indexOf("Stores"));
-    expect(text.indexOf("Stores")).toBeLessThan(text.indexOf("Your apps"));
-    expect(renderHome(description(), FEED_BODY).split("\n")).toContain("Widgets");
+    // Both Stores copies are calm, so the group has no heading of its own.
+    expect(lines).not.toContain("Stores");
+    expect(lines).toContain("All clear");
+    expect(text.indexOf("Finance")).toBeLessThan(text.indexOf("All clear"));
+    expect(text.indexOf("Your apps")).toBeLessThan(text.indexOf("Finance"));
+    // An untitled group's widgets sit straight under Today.
+    expect(renderHome(description(), FEED_BODY).split("\n")).not.toContain("Widgets");
   });
 
   it("draws a widget placed twice as two copies, each with its id, title, settings and view", () => {
@@ -436,7 +440,7 @@ describe("renderHome with groups, copies and settings", () => {
     expect(text).toContain("12 open orders [ok]");
     expect(text).toContain("3 open orders [ok]");
     // A widget with no settings has no params line.
-    expect(text.slice(text.indexOf("bookkeeping/close"), text.indexOf("Stores"))).not.toContain(
+    expect(text.slice(text.indexOf("bookkeeping/close"), text.indexOf("All clear"))).not.toContain(
       "params:"
     );
   });

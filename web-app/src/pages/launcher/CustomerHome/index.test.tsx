@@ -7,7 +7,7 @@ import type { CustomAppSummary } from "@/types/apps";
 import type { HomeSection } from "@/types/homeWidgets";
 import type { InboxItem } from "@/types/notifications";
 import CustomerHome from "./index";
-import { HOME_CONTAINER, HOME_GAP } from "./layout";
+import { HOME_CONTAINER } from "./layout";
 
 /**
  * The apps-first home: what a customer sees and, as much, what they do not — no
@@ -70,11 +70,29 @@ vi.mock("./components/WorldModelCard", () => ({
   )
 }));
 vi.mock("./components/HomeWidgets", () => ({
-  HomeWidgets: () => <div data-testid='home-widgets-stub' />
+  HomeWidgets: ({ variant }: { variant: string }) => (
+    <div data-testid='home-widgets-stub' data-variant={variant} />
+  ),
+  TODAY_ANCHOR: "home-today",
+  needsCount: (w: { view?: { level?: string } }[] = []) =>
+    w.filter((c) => c.view?.level === "attention" || c.view?.level === "critical").length
 }));
 const W: HomeSection = { kind: "widgets", title: null, items: [] };
 let sections: HomeSection[] = [W, { kind: "apps" }, { kind: "insights" }];
-vi.mock("@/hooks/api/homeWidgets/useHomeWidgets", () => ({ useHomeSections: () => sections }));
+type Widgets = { data?: { view?: { level?: string } }[]; isLoading: boolean; isError: boolean };
+let widgets: Widgets = { data: [], isLoading: false, isError: false };
+const someWidgets = (...levels: string[]): Widgets => ({
+  data: levels.map((level) => ({ view: { level } })),
+  isLoading: false,
+  isError: false
+});
+vi.mock("@/hooks/api/homeWidgets/useHomeWidgets", () => ({
+  useHomeSections: () => sections,
+  useHomeWidgets: () => widgets
+}));
+// Wide (the rail) unless a test sets a phone.
+let wide = true;
+vi.mock("@/hooks/useMediaQuery", () => ({ useMediaQuery: () => wide }));
 vi.mock("./components/HomeRecentQuestions", () => ({
   HomeRecentQuestions: () => <h2 data-testid='recent-questions'>Your recent questions</h2>
 }));
@@ -105,6 +123,8 @@ beforeEach(() => {
   shouldDisableChat = false;
   apps = [revenue];
   sections = [W, { kind: "apps" }, { kind: "insights" }];
+  widgets = { data: [], isLoading: false, isError: false };
+  wide = true;
   unread = {};
   latest = {};
   worldModel = { entities: [{ id: "store" }] };
@@ -114,32 +134,77 @@ const appsOf = (n: number): CustomAppSummary[] =>
   Array.from({ length: n }, (_, i) => ({ ...revenue, id: `app-${i}`, slug: `app-${i}` }));
 afterEach(cleanup);
 
-describe("the org's home layout", () => {
-  const order = () =>
-    Array.from(screen.getByTestId("home-body").children).map(
-      (el) => el.getAttribute("data-testid") ?? el.querySelector("h2")?.textContent
+describe("the home's frame", () => {
+  it("puts Today in a rail beside the apps on a wide screen, each scrolling on its own", () => {
+    widgets = someWidgets("critical", "ok");
+    renderHome();
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "rail");
+    const rail = screen.getByTestId("home-today-rail");
+    expect(rail.tagName).toBe("ASIDE");
+    expect(rail).toHaveClass("overflow-y-auto");
+    expect(rail.querySelector("[data-testid=home-widgets-stub]")).toHaveAttribute(
+      "data-variant",
+      "rail"
     );
-
-  it("draws widgets, apps, then insights by default", () => {
-    renderHome();
-    expect(order()).toEqual(["home-widgets-stub", "Your apps", "home-lower-row"]);
+    expect(screen.getByTestId("launcher-app-grid")).toHaveAttribute("data-beside-rail", "true");
   });
 
-  it("draws one block per widgets group", () => {
-    sections = [
-      { kind: "widgets", title: null, items: ["a/x"] },
-      { kind: "apps" },
-      { kind: "widgets", title: "Stores", items: ["b/y#mission"] }
-    ];
+  it("puts the apps first and Today stacked under them on a narrow screen", () => {
+    widgets = someWidgets("critical");
+    wide = false;
     renderHome();
-    expect(order()).toEqual(["home-widgets-stub", "Your apps", "home-widgets-stub"]);
+    expect(screen.queryByTestId("home-today-rail")).toBeNull();
+    const grid = screen.getByTestId("launcher-app-grid");
+    const today = screen.getByTestId("home-widgets-stub");
+    expect(today).toHaveAttribute("data-variant", "stack");
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "stack");
+    // The apps come before Today on the page, as they do on the screen.
+    expect(grid.compareDocumentPosition(today) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("draws the sections in the layout's order and leaves out the ones it omits", () => {
-    sections = [{ kind: "apps" }, W];
+  it("gives the apps the whole width when the org has no widgets", () => {
     renderHome();
-    expect(order()).toEqual(["Your apps", "home-widgets-stub"]);
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "none");
+    expect(screen.queryByTestId("home-widgets-stub")).toBeNull();
+    expect(screen.getByTestId("launcher-app-grid")).toHaveAttribute("data-beside-rail", "false");
+  });
+
+  it("holds the rail open while the widgets load, so the apps do not reflow", () => {
+    widgets = { data: undefined, isLoading: true, isError: false };
+    renderHome();
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "rail");
+  });
+
+  it("always draws the apps; insights only while the layout keeps them", () => {
+    sections = [W];
+    renderHome();
+    expect(screen.getByTestId("launcher-app-grid")).toBeInTheDocument();
     expect(screen.queryByTestId("home-lower-row")).toBeNull();
+  });
+});
+
+describe("the line under the greeting", () => {
+  it("counts the widgets that need someone and links to Today", () => {
+    widgets = someWidgets("critical", "attention", "ok");
+    renderHome();
+    const status = screen.getByTestId("home-status");
+    expect(status).toHaveTextContent("2 things need you today");
+    expect(status).toHaveAttribute("href", "#home-today");
+  });
+
+  it("says one thing in the singular, and all clear when nothing needs anyone", () => {
+    widgets = someWidgets("attention", "ok");
+    renderHome();
+    expect(screen.getByTestId("home-status")).toHaveTextContent("1 thing needs you today");
+    cleanup();
+    widgets = someWidgets("ok", "info");
+    renderHome();
+    expect(screen.getByTestId("home-status")).toHaveTextContent("All clear today");
+  });
+
+  it("says nothing while there are no widgets", () => {
+    renderHome();
+    expect(screen.queryByTestId("home-status")).toBeNull();
   });
 });
 
@@ -174,10 +239,10 @@ describe("the home's app notifications", () => {
 });
 
 describe("the apps-first home", () => {
-  it("greets the person by first name under the org's name", () => {
+  it("greets the person by first name; the org's name is the top bar's, not repeated", () => {
     renderHome();
-    expect(screen.getByTestId("home-org-name")).toHaveTextContent("Northwind");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/, Priya$/);
+    expect(screen.queryByText("Northwind")).toBeNull();
   });
 
   it("offers the ask box when chat is usable, and not when it is not", () => {
@@ -240,107 +305,27 @@ describe("the apps-first home", () => {
   });
 });
 
-/**
- * The alignment rule: every block sits in the same container, the grids share one
- * gap, and the lower row is cut on the app row's columns, so the line between the
- * two lower cards falls on an app card's edge.
- */
-describe("the home's column system", () => {
-  const classesOf = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
-  const hasAll = (el: Element | null, classes: string) =>
-    classes.split(" ").every((c) => classesOf(el).includes(c));
-
-  it("puts the greeting, the ask box, the apps and the lower row in one container", () => {
+describe("the home's container", () => {
+  it("puts the greeting, the apps and what is under them in the one container", () => {
     renderHome();
-    const header = screen.getByTestId("home-ask-box").closest("header");
     const body = screen.getByTestId("home-body");
-    expect(hasAll(header, HOME_CONTAINER)).toBe(true);
-    expect(hasAll(body, HOME_CONTAINER)).toBe(true);
-    // Nothing between the container and a section narrows it.
-    expect(screen.getByTestId("home-ask-box").parentElement).toBe(header);
-    expect(screen.getByTestId("launcher-app-grid").parentElement?.parentElement).toBe(body);
-    expect(screen.getByTestId("home-lower-row").parentElement).toBe(body);
-    expect(hasAll(screen.getByTestId("home-ask-box"), "max-w-3xl")).toBe(false);
+    expect(body.className.split(/\s+/)).toEqual(expect.arrayContaining(HOME_CONTAINER.split(" ")));
+    expect(body.contains(screen.getByTestId("home-ask-box"))).toBe(true);
+    expect(body.contains(screen.getByTestId("launcher-app-grid"))).toBe(true);
+    expect(body.contains(screen.getByTestId("home-lower-row"))).toBe(true);
   });
 
-  it("gives the app grid and the lower row the same gap", () => {
+  it("puts every app on the one grid, however many there are", () => {
+    apps = appsOf(30);
     renderHome();
-    expect(hasAll(screen.getByTestId("launcher-app-grid"), HOME_GAP)).toBe(true);
-    expect(hasAll(screen.getByTestId("home-lower-row"), HOME_GAP)).toBe(true);
+    expect(screen.getByTestId("launcher-app-grid").children).toHaveLength(30);
   });
 
-  it("shows one app as one wide card on the thirds", () => {
-    apps = appsOf(1);
+  it("draws an app with no icon as its tinted two-letter monogram", () => {
+    apps = [{ ...revenue, icon_url: undefined }];
     renderHome();
-    expect(screen.getByTestId("launcher-app-grid")).toHaveAttribute("data-layout", "one");
-    expect(hasAll(screen.getByTestId("home-app-card-app-0"), "sm:grid-cols-3")).toBe(true);
-    expect(hasAll(screen.getByTestId("home-lower-row"), "lg:grid-cols-3")).toBe(true);
-    expect(hasAll(screen.getByTestId("world-model-card"), "lg:col-span-2")).toBe(true);
-  });
-
-  it("splits the lower row in half under two apps", () => {
-    apps = appsOf(2);
-    renderHome();
-    expect(hasAll(screen.getByTestId("launcher-app-grid"), "sm:grid-cols-2")).toBe(true);
-    expect(hasAll(screen.getByTestId("home-lower-row"), "lg:grid-cols-2")).toBe(true);
-    expect(hasAll(screen.getByTestId("world-model-card"), "lg:col-span-2")).toBe(false);
-  });
-
-  it("puts three or more apps on the thirds, with the world model card on two of them", () => {
-    apps = appsOf(5);
-    renderHome();
-    expect(hasAll(screen.getByTestId("launcher-app-grid"), "lg:grid-cols-3")).toBe(true);
-    expect(hasAll(screen.getByTestId("home-lower-row"), "lg:grid-cols-3")).toBe(true);
-    expect(hasAll(screen.getByTestId("world-model-card"), "lg:col-span-2")).toBe(true);
-  });
-
-  it.each([8, 9])(
-    "puts %i apps on quarters with compact cards, the lower row on the same edges",
-    (n) => {
-      apps = appsOf(n);
-      renderHome();
-      const grid = screen.getByTestId("launcher-app-grid");
-      expect(grid).toHaveAttribute("data-layout", "dense");
-      expect(hasAll(grid, "grid-cols-2 md:grid-cols-3 xl:grid-cols-4")).toBe(true);
-      expect(screen.getAllByTestId(/^home-app-card-app-\d+$/)).toHaveLength(n);
-      for (const card of screen.getAllByTestId(/^home-app-card-app-\d+$/)) {
-        expect(card).toHaveAttribute("data-size", "compact");
-      }
-      // Two quarters each from 1280 px; on the thirds below that, like the apps.
-      const lower = screen.getByTestId("home-lower-row");
-      expect(hasAll(lower, "lg:grid-cols-3 xl:grid-cols-2")).toBe(true);
-      expect(hasAll(screen.getByTestId("world-model-card"), "lg:col-span-2 xl:col-span-1")).toBe(
-        true
-      );
-    }
-  );
-
-  it("keeps five apps on the thirds and moves to quarters from six", () => {
-    apps = appsOf(5);
-    renderHome();
-    expect(screen.getByTestId("launcher-app-grid")).toHaveAttribute("data-layout", "many");
-    cleanup();
-    apps = appsOf(6);
-    renderHome();
-    expect(screen.getByTestId("launcher-app-grid")).toHaveAttribute("data-layout", "dense");
-  });
-
-  it("draws an app without art as its mark on the art's ground, at the same size", () => {
-    apps = appsOf(8).map((a, i) => (i === 5 ? a : { ...a, art_url: `/art-${i}.svg` }));
-    renderHome();
-    expect(screen.queryByTestId("home-app-card-placeholder-app-4")).toBeNull();
-    const placeholder = screen.getByTestId("home-app-card-placeholder-app-5");
-    expect(hasAll(placeholder, "aspect-2/1 bg-primary/10")).toBe(true);
-    expect(screen.getByTestId("launcher-app-card-app-5")).toHaveTextContent(revenue.name);
-  });
-
-  it("gives the recent questions the whole row when there is no world model", () => {
-    worldModel = { entities: [] };
-    renderHome();
-    expect(screen.queryByTestId("world-model-card")).toBeNull();
-    expect(hasAll(screen.getByTestId("home-lower-row"), "grid-cols-1")).toBe(true);
-    expect(classesOf(screen.getByTestId("home-lower-row")).some((c) => c.startsWith("lg:"))).toBe(
-      false
-    );
+    const mark = screen.getByTestId("launcher-app-card-mark-revenue");
+    expect(mark).toHaveTextContent("RB");
+    expect(mark.className).toMatch(/bg-chart-\d/);
   });
 });

@@ -197,11 +197,11 @@ export interface WidgetView {
   detail?: string;
   /**
    * Default `info`. Also how much room the card gets: an `ok` or `info` view with
-   * no button folds to one line (its headline) on the home; `attention` and
-   * `critical` keep the full card.
+   * no button folds to one line (its headline) in Today's "All clear" list, after
+   * every card that needs someone; `attention` and `critical` keep the full card.
    */
   level?: WidgetLevel;
-  /** "N of M": a ring beside the headline on a `regular` card, a bar on a wider one. */
+  /** "N of M": a ring beside the headline holding `done/total`; `detail` need not repeat it. */
   progress?: { done: number; total: number };
   /** A KPI card: the one number that matters. */
   metric?: WidgetMetric;

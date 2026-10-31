@@ -13,11 +13,7 @@ import type { FeedRow, FeedView, FeedWidget, WidgetsFeed } from "./home-client.j
 /** Rows drawn per widget; the card shows more, the text says how many it left out. */
 const ROWS_SHOWN = 3;
 
-const SECTION_TITLES: Record<string, string> = {
-  widgets: "Widgets",
-  apps: "Your apps",
-  insights: "Insights"
-};
+const SECTION_TITLES = { apps: "Your apps", insights: "Insights" } as const;
 
 /** Cards by `key` (`<app>/<widget>` or `<app>/<widget>#<id>`), from the widgets route. */
 function viewsByKey(feed: WidgetsFeed | undefined): Map<string, FeedWidget> {
@@ -117,19 +113,13 @@ function widgetBlock(
   return [head, ...[...facts, ...view].map((l) => `  ${l}`)];
 }
 
-/** Cards with something to do first, calm ones after, each in the group's order: as the home draws them. */
-function drawOrder(
-  items: HomeDescribedWidget[],
-  views: Map<string, FeedWidget>
-): HomeDescribedWidget[] {
-  const calm = (item: HomeDescribedWidget) => isCalm(views.get(item.key));
-  return [...items.filter((i) => !calm(i)), ...items.filter(calm)];
-}
-
 /**
- * The description's sections in order, each widget with its live view.
- * `previewing` is a dry run: the feed reflects the saved layout, so a widget it
- * does not draw has no view to show yet.
+ * The home in a phone's reading order: the apps (always drawn), Today, then
+ * insights while the layout keeps them. In Today, the widgets with something to
+ * do come first under their group's title, then every calm one under "All
+ * clear", as the home draws them (on a wide screen Today is a rail beside the
+ * apps, in the same order). `previewing` is a dry run: the feed reflects the
+ * saved layout, so a widget it does not draw has no view to show yet.
  */
 export function renderHome(
   home: HomeDescription,
@@ -143,15 +133,30 @@ export function renderHome(
   lines.push(
     `${home.org.name} (${home.org.slug}) home — ${state}${previewing ? " — preview" : ""}`
   );
-  for (const section of home.sections) {
-    const heading = section.kind === "widgets" ? section.title : null;
-    lines.push("", heading || (SECTION_TITLES[section.kind] ?? section.kind));
-    if (section.kind !== "widgets") continue;
-    if (section.items.length === 0) lines.push("  (no widgets)");
-    drawOrder(section.items, views).forEach((item, i) => {
+  const block = (items: HomeDescribedWidget[]) =>
+    items.forEach((item, i) => {
       if (i > 0) lines.push("");
       for (const l of widgetBlock(item, views, previewing)) lines.push(`  ${l}`);
     });
+  lines.push("", SECTION_TITLES.apps);
+  const groups = home.sections.flatMap((s) => (s.kind === "widgets" ? [s] : []));
+  const calm = (item: HomeDescribedWidget) => isCalm(views.get(item.key));
+  if (groups.some((g) => g.items.length > 0)) {
+    lines.push("", "Today");
+    for (const group of groups) {
+      const loud = group.items.filter((item) => !calm(item));
+      if (loud.length === 0) continue;
+      if (group.title) lines.push(group.title);
+      block(loud);
+    }
+    const quiet = groups.flatMap((g) => g.items.filter(calm));
+    if (quiet.length > 0) {
+      lines.push("", "All clear");
+      block(quiet);
+    }
+  }
+  if (home.sections.some((s) => s.kind === "insights")) {
+    lines.push("", SECTION_TITLES.insights);
   }
   const hidden = home.catalog.filter((c) => !c.shown);
   if (hidden.length > 0) {

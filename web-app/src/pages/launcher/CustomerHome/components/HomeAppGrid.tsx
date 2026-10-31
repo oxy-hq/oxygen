@@ -1,40 +1,39 @@
 import { useAppUnreadCounts, useLatestUnreadByApp } from "@/hooks/api/notifications";
 import { cn } from "@/libs/shadcn/utils";
 import type { CustomAppSummary } from "@/types/apps";
-import { APP_GRID_COLUMNS, type AppRow, HOME_GAP } from "../layout";
-import { HomeAppCard } from "./HomeAppCard";
+import { HomeAppTile } from "./HomeAppTile";
 
-/** How many leading cards load their art at once: the first row at the widest layout. */
-const EAGER_ART = 4;
-
-const CARD_SIZE = { one: "wide", two: "regular", many: "regular", dense: "compact" } as const;
-
-/** The home's apps, on the columns `layout.ts` gives for how many there are, each
- *  with its unread badge and newest unread notification. */
+/**
+ * The home's apps: a fixed place that widgets never push down. Four icons to a
+ * phone's row; from `sm` up, row tiles, two across beside the Today rail, up to
+ * four without it. The apps' column scrolls on its own, so the rail stays put.
+ */
 export function HomeAppGrid({
   apps,
-  row,
+  besideRail,
   onManageAccess
 }: {
   apps: CustomAppSummary[];
-  row: Exclude<AppRow, "none">;
+  /** The Today rail takes the right third: two columns of tiles, not three or four. */
+  besideRail: boolean;
   onManageAccess?: (app: CustomAppSummary) => void;
 }) {
   const unread = useAppUnreadCounts();
   const latest = useLatestUnreadByApp();
   return (
     <div
-      className={cn("grid", HOME_GAP, APP_GRID_COLUMNS[row])}
+      className={cn(
+        "grid grid-cols-4 gap-x-2 gap-y-4 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3",
+        // Beside the rail a third column would cut every name and freshness line short.
+        besideRail ? "lg:grid-cols-2" : "xl:grid-cols-4"
+      )}
       data-testid='launcher-app-grid'
-      data-layout={row}
+      data-beside-rail={besideRail}
     >
-      {apps.map((app, i) => (
-        // art_url in the key remounts the card when art changes, resetting its error fallback
-        <HomeAppCard
-          key={`${app.id}:${app.art_url ?? ""}`}
+      {apps.map((app) => (
+        <HomeAppTile
+          key={app.id}
           app={app}
-          size={CARD_SIZE[row]}
-          eagerArt={i < EAGER_ART}
           unread={unread[app.id] ?? 0}
           latest={latest[app.id]}
           onManageAccess={onManageAccess}

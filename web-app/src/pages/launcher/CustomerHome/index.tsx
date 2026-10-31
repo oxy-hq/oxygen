@@ -1,19 +1,20 @@
-import { Fragment, type ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppAccessDialog } from "@/components/appAccess/AppAccessDialog";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import useOrgCustomApps from "@/hooks/api/customApps/useOrgCustomApps";
-import { useHomeSections } from "@/hooks/api/homeWidgets/useHomeWidgets";
+import { useHomeSections, useHomeWidgets } from "@/hooks/api/homeWidgets/useHomeWidgets";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useWorldModel } from "@/hooks/api/useWorldModel";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import useFactoryAccess from "@/hooks/useFactoryAccess";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useAskDock from "@/stores/useAskDock";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import type { CustomAppSummary } from "@/types/apps";
-import type { HomeSectionKind } from "@/types/homeWidgets";
+import type { WidgetCard as WidgetCardData } from "@/types/homeWidgets";
 import { CriticalAlertBanner } from "../components/CriticalAlertBanner";
 import { NeedsAttention } from "../components/NeedsAttention";
 import { ProjectSetupToast } from "../components/ProjectSetupToast";
@@ -22,15 +23,22 @@ import { FirstAppsOnTheirWay } from "./components/FirstAppsOnTheirWay";
 import { HomeAppGrid } from "./components/HomeAppGrid";
 import { HomeAskBox } from "./components/HomeAskBox";
 import { HomeRecentQuestions } from "./components/HomeRecentQuestions";
-import { HomeWidgets } from "./components/HomeWidgets";
+import { HomeWidgets, needsCount, TODAY_ANCHOR, type WidgetGroup } from "./components/HomeWidgets";
 import { WorldModelCard, worldModelTitle } from "./components/WorldModelCard";
 import { homeGreeting } from "./greeting";
-import { appRow, HOME_CONTAINER, HOME_GAP, lowerRowColumns } from "./layout";
+import { HOME_CONTAINER, HOME_GAP, HOME_RAIL_QUERY } from "./layout";
 
 /**
  * The org's home with the apps-first experience on: the org and a greeting, an ask
  * box that hands off to the Ask dock, every app the person can open across the org,
- * how the org's data fits together, and their recent questions.
+ * how the org's data fits together, their recent questions, and Today, the apps'
+ * widgets.
+ *
+ * The apps and what is happening in them come first. Apps and widgets each have
+ * a place, so neither buries the other (`layout.ts`): from `lg` the apps' column
+ * and the Today rail scroll on their own; under it, the apps come right after the
+ * greeting and Today stacks under them. Recent questions are a
+ * short list, not a panel.
  *
  * Setup machinery is the Factory's. Someone who may not use the Factory sees none of
  * it: no setup toast, no "Not measured" rows (a gap in monitoring, not a problem with
@@ -45,6 +53,8 @@ export default function CustomerHome() {
   const { data: user } = useCurrentUser();
   const org = useCurrentOrg((s) => s.org);
   const sections = useHomeSections(org?.slug);
+  const widgets = useHomeWidgets(org?.slug);
+  const wide = useMediaQuery(HOME_RAIL_QUERY);
   const orgRole = useCurrentOrg((s) => s.role);
   const location = useLocation();
   const navigate = useNavigate();
@@ -85,88 +95,99 @@ export default function CustomerHome() {
 
   const canAsk = !readiness.shouldDisableChat;
   const worldModelTo = ROUTES.ORG(org?.slug ?? "").WORKSPACE(project?.id ?? "").WORLD_MODEL;
-  const row = appRow(apps.length);
   const showWorldModel = !!worldModel && worldModel.entities.length > 0;
-  const lower = lowerRowColumns(row, showWorldModel);
+  // The layout may leave insights out; apps always have their place.
+  const showInsights = sections.some((s) => s.kind === "insights");
+  const groups: WidgetGroup[] = sections.flatMap((s) =>
+    s.kind === "widgets" && (s.items.length > 0 || s.title) ? [s] : []
+  );
+  // Held open while the widgets load, so the apps do not reflow when they arrive.
+  const hasToday = widgets.isLoading || widgets.isError || (widgets.data?.length ?? 0) > 0;
+  const rail = wide && hasToday;
+  const today = (variant: "rail" | "stack") => (
+    <HomeWidgets orgSlug={org?.slug} apps={apps} groups={groups} variant={variant} />
+  );
 
-  // Each section the org's layout may order.
-  const blocks: Record<Exclude<HomeSectionKind, "widgets">, ReactNode> = {
-    apps: (
-      <section className='flex flex-col gap-3' aria-labelledby='home-apps-heading'>
-        <h2 id='home-apps-heading' className='font-medium text-base'>
-          Your apps
-        </h2>
-        {row === "none" ? (
-          <FirstAppsOnTheirWay orgName={org?.name} />
-        ) : (
-          <HomeAppGrid
-            apps={apps}
-            row={row}
-            onManageAccess={manageableOrgId ? setManaging : undefined}
-          />
-        )}
-      </section>
-    ),
-    insights: (
-      <div className={cn("grid", HOME_GAP, lower.row)} data-testid='home-lower-row'>
-        {showWorldModel && (
-          <WorldModelCard
-            model={worldModel}
-            title={worldModelTitle(org?.name)}
-            to={worldModelTo}
-            half={row === "two" || row === "dense"}
-            className={lower.worldModel}
-          />
-        )}
-        <HomeRecentQuestions canAsk={canAsk} />
+  // The org's name is already in the top bar's breadcrumb; the greeting stays
+  // small, and the line under it says what the day holds, linking to Today.
+  const header = (
+    <header className='flex flex-col gap-5 pt-8'>
+      <div className='flex flex-col gap-1'>
+        <h1 className='font-medium text-xl tracking-tight sm:text-2xl'>
+          {homeGreeting(user?.name)}
+        </h1>
+        <HomeStatus widgets={widgets.data} />
       </div>
-    )
-  };
+      {canAsk && <HomeAskBox orgName={org?.name} />}
+    </header>
+  );
+  const appsBlock = (
+    <section className='flex flex-col gap-3' aria-labelledby='home-apps-heading'>
+      <h2 id='home-apps-heading' className='font-medium text-base'>
+        Your apps
+      </h2>
+      {apps.length === 0 ? (
+        <FirstAppsOnTheirWay orgName={org?.name} />
+      ) : (
+        <HomeAppGrid
+          apps={apps}
+          besideRail={rail}
+          onManageAccess={manageableOrgId ? setManaging : undefined}
+        />
+      )}
+    </section>
+  );
+  const insights = showInsights && (
+    <div className={cn("flex flex-col", HOME_GAP)} data-testid='home-lower-row'>
+      <HomeRecentQuestions />
+      {showWorldModel && (
+        <WorldModelCard model={worldModel} title={worldModelTitle(org?.name)} to={worldModelTo} />
+      )}
+    </div>
+  );
+  // "Needs attention" without the "Not measured" rows for a customer.
+  const attention = <NeedsAttention includeUnmeasured={factoryUser} contained={false} />;
 
   return (
-    <div className='flex h-full flex-col overflow-auto' data-testid='customer-home'>
+    <div
+      className={cn("flex h-full flex-col", rail ? "overflow-hidden" : "overflow-auto")}
+      data-testid='customer-home'
+      data-today={rail ? "rail" : hasToday ? "stack" : "none"}
+    >
       {factoryUser && <ProjectSetupToast gaps={readiness.gaps} />}
-
-      {/* Every block below sits in HOME_CONTAINER, the banners' container too, so
-          they all share one left and one right edge. */}
-      <header className={cn(HOME_CONTAINER, "flex flex-col gap-6 pt-10 pb-8")}>
-        <div className='flex flex-col gap-1'>
-          {org?.name && (
-            <p className='text-muted-foreground text-sm' data-testid='home-org-name'>
-              {org.name}
-            </p>
-          )}
-          <h1 className='font-medium text-2xl tracking-tight sm:text-3xl'>
-            {homeGreeting(user?.name)}
-          </h1>
-        </div>
-        {canAsk && <HomeAskBox orgName={org?.name} />}
-      </header>
 
       {/* Real alerts only: an app that is down. Hidden in the calm default state. */}
       <CriticalAlertBanner />
 
-      <div className={cn(HOME_CONTAINER, "flex flex-col gap-8 pb-10")} data-testid='home-body'>
-        {/* The org's layout decides the order, and a section it leaves out is not
-            drawn (internal-docs/home-widgets.md § The home layout). */}
-        {sections.map((section, i) =>
-          section.kind === "widgets" ? (
-            <HomeWidgets
-              // Groups have no id of their own; their order is the layout's.
-              // biome-ignore lint/suspicious/noArrayIndexKey: see above
-              key={`widgets-${i}`}
-              orgSlug={org?.slug}
-              apps={apps}
-              group={section.items.length || section.title ? section : undefined}
-            />
-          ) : (
-            <Fragment key={section.kind}>{blocks[section.kind]}</Fragment>
-          )
-        )}
-      </div>
-
-      {/* "Needs attention" without the "Not measured" rows for a customer. */}
-      <NeedsAttention includeUnmeasured={factoryUser} />
+      {rail ? (
+        <div
+          className={cn(HOME_CONTAINER, "grid min-h-0 flex-1 grid-cols-3 gap-8")}
+          data-testid='home-body'
+        >
+          {/* Padded by its own negative margin, so a row's edge-to-edge hover stays inside the scroller. */}
+          <div className='col-span-2 -mx-2 flex min-h-0 flex-col gap-8 overflow-y-auto px-2 pb-10'>
+            {header}
+            {appsBlock}
+            {insights}
+            {attention}
+          </div>
+          <aside
+            aria-label='Today'
+            className='min-h-0 overflow-y-auto pt-8 pb-10'
+            data-testid='home-today-rail'
+          >
+            {today("rail")}
+          </aside>
+        </div>
+      ) : (
+        <div className={cn(HOME_CONTAINER, "flex flex-col gap-8 pb-10")} data-testid='home-body'>
+          {header}
+          {appsBlock}
+          {hasToday && today("stack")}
+          {insights}
+          {attention}
+        </div>
+      )}
 
       {manageableOrgId && (
         <AppAccessDialog
@@ -178,5 +199,34 @@ export default function CustomerHome() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * One line under the greeting: how many widgets have something to do, as a link
+ * to Today. On a phone Today is under the apps, so this is how the day's news is
+ * known before scrolling. Nothing while there are no widgets.
+ */
+function HomeStatus({ widgets }: { widgets: WidgetCardData[] | undefined }) {
+  if (!widgets?.length) return null;
+  const needs = needsCount(widgets);
+  const level = widgets.some((w) => w.view?.level === "critical")
+    ? "bg-destructive"
+    : widgets.some((w) => w.view?.level === "attention")
+      ? "bg-warning"
+      : null;
+  return (
+    <a
+      href={`#${TODAY_ANCHOR}`}
+      data-testid='home-status'
+      className='flex min-h-6 pointer-coarse:min-h-11 w-fit items-center gap-2 text-muted-foreground text-sm hover:text-foreground'
+    >
+      {needs > 0 && level && (
+        <span aria-hidden className={cn("size-2 shrink-0 rounded-full", level)} />
+      )}
+      {needs === 0
+        ? "All clear today"
+        : `${needs} ${needs === 1 ? "thing needs" : "things need"} you today`}
+    </a>
   );
 }

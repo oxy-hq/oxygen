@@ -1,4 +1,4 @@
-import { ArrowUpRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { AppMark } from "@/components/apps/AppMark";
 import { cn } from "@/libs/shadcn/utils";
 import type { WidgetCard as Card } from "@/types/homeWidgets";
@@ -28,7 +28,7 @@ export function WidgetStrip({
       data-level={view?.level}
       data-compact='true'
       aria-label={`${card.app.name} · ${card.title}: ${view?.headline ?? ""}`}
-      className='group flex min-w-0 items-center gap-2 rounded-lg border bg-card px-4 py-2.5 text-sm hover:bg-accent'
+      className='group flex min-h-11 min-w-0 items-center gap-2 rounded-lg border bg-card px-4 py-2.5 text-sm hover:bg-accent'
     >
       <AppMark iconUrl={iconUrl} name={card.app.name} size='sm' />
       <span className='shrink-0 font-medium text-card-foreground'>{card.title}</span>
@@ -39,7 +39,7 @@ export function WidgetStrip({
       <span className='min-w-0 truncate text-muted-foreground' data-testid={`${testId}-headline`}>
         {view?.headline}
       </span>
-      <ArrowUpRight className='ml-auto size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground' />
+      <ArrowRight className='ml-auto size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground' />
     </a>
   );
 }

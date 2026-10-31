@@ -1,4 +1,4 @@
-import { ArrowUpRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useState } from "react";
 import { AppMark } from "@/components/apps/AppMark";
 import { usePressWidget } from "@/hooks/api/homeWidgets/usePressWidget";
@@ -9,12 +9,12 @@ import { WidgetButton } from "./WidgetButton";
 import { WidgetMetric } from "./WidgetMetric";
 import { WidgetProgress } from "./WidgetProgress";
 
-/** How many of the home's columns a size takes: named sizes, packed in order. */
-const SIZE_SPAN: Record<Card["size"], string | false> = {
-  regular: false,
-  wide: "sm:col-span-2",
-  full: "sm:col-span-2 lg:col-span-3"
-};
+/**
+ * Rows a card shows. Every card is one column wide (the Today rail, or a card in
+ * a stacked column), so a size says how much a card shows, not how wide it is: a
+ * `regular` card is short, a `wide` or `full` one shows every row the view sent.
+ */
+const ROWS_SHOWN: Record<Card["size"], number> = { regular: 3, wide: 8, full: 8 };
 
 /** What the last press said, under the buttons. */
 type Said = { kind: "message" | "error"; text: string } | null;
@@ -65,15 +65,19 @@ export function WidgetCard({
     onPress: () => run(button)
   });
   const dot = view ? LEVEL_DOT[view.level] : null;
-  // A one-column card has no width to spare for a bar's own line: "N of M" is a ring beside the headline.
-  const ring = card.size === "regular" && view?.progress;
+  const allRows = view?.rows ?? [];
+  // A row with a button is work to do on the home: a card that has one keeps every row.
+  const rows = allRows.some((row) => row.button)
+    ? allRows
+    : allRows.slice(0, ROWS_SHOWN[card.size]);
+  const moreRows = allRows.length - rows.length;
 
   return (
     <article
       data-testid={base}
       data-level={view?.level}
       data-size={card.size}
-      className={cn("flex flex-col gap-3 rounded-lg border bg-card p-4", SIZE_SPAN[card.size])}
+      className='flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4'
     >
       <header className='flex items-center gap-2 text-muted-foreground text-xs'>
         <AppMark iconUrl={iconUrl} name={card.app.name} size='sm' />
@@ -83,10 +87,12 @@ export function WidgetCard({
         <a
           href={view?.href ?? card.app.url}
           data-testid={`${base}-open`}
-          className='ml-auto flex shrink-0 items-center gap-0.5 hover:text-foreground'
+          // Every card has an "Open"; a screen reader's list of links has to tell them apart.
+          aria-label={`Open ${card.app.name}: ${card.title}`}
+          className='-my-1 pointer-coarse:-my-3 ml-auto flex min-h-6 pointer-coarse:min-h-11 shrink-0 items-center gap-0.5 hover:text-foreground'
         >
           Open
-          <ArrowUpRight className='size-3.5' />
+          <ArrowRight className='size-3.5' />
         </a>
       </header>
 
@@ -100,20 +106,15 @@ export function WidgetCard({
               </p>
               {view.detail && <p className='text-muted-foreground text-sm'>{view.detail}</p>}
             </div>
-            {ring && view.progress && (
-              <WidgetProgress {...view.progress} variant='ring' testId={`${base}-progress`} />
-            )}
+            {/* "N of M" as a ring beside the headline: a card is one column, with no width for a bar. */}
+            {view.progress && <WidgetProgress {...view.progress} testId={`${base}-progress`} />}
           </div>
 
           {view.metric && <WidgetMetric metric={view.metric} testId={`${base}-metric`} />}
 
-          {view.progress && !ring && (
-            <WidgetProgress {...view.progress} variant='bar' testId={`${base}-progress`} />
-          )}
-
-          {view.rows.length > 0 && (
+          {rows.length > 0 && (
             <ul className='flex flex-col divide-y text-sm'>
-              {view.rows.map((row, i) => {
+              {rows.map((row, i) => {
                 const state = row.state ? ROW_STATE[row.state] : null;
                 const title = row.href ? (
                   <a href={row.href} className='hover:underline'>
@@ -145,6 +146,16 @@ export function WidgetCard({
                 );
               })}
             </ul>
+          )}
+          {moreRows > 0 && (
+            // Says what the cap left out, as `oxyc home show` does, and where to see it.
+            <a
+              href={view.href ?? card.app.url}
+              data-testid={`${base}-more`}
+              className='-mt-2 w-fit text-muted-foreground text-xs hover:text-foreground'
+            >
+              {moreRows} more in {card.app.name}
+            </a>
           )}
 
           {view.buttons.length > 0 && (

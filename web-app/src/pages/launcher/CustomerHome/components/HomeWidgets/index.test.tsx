@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WidgetCard, WidgetPressResponse } from "@/types/homeWidgets";
-import { HomeWidgets } from "./index";
+import { HomeWidgets, needsCount } from "./index";
 
 let widgets: WidgetCard[] | undefined;
 let isError = false;
@@ -81,8 +81,10 @@ const close = (over: Partial<WidgetCard> = {}): WidgetCard => ({
   ...over
 });
 
-const renderWidgets = (group?: { title: string | null; items: string[] }) =>
-  render(<HomeWidgets orgSlug='poke-house' apps={[]} group={group} />);
+const renderWidgets = (
+  groups: { title: string | null; items: string[] }[] = [],
+  variant: "rail" | "stack" = "rail"
+) => render(<HomeWidgets orgSlug='poke-house' apps={[]} groups={groups} variant={variant} />);
 
 afterEach(() => {
   cleanup();
@@ -151,7 +153,7 @@ describe("the home's widgets", () => {
     );
   });
 
-  it("spans the row at full size and draws a metric", () => {
+  it("draws a metric, and a full-size card with every row", () => {
     widgets = [
       close({
         size: "full",
@@ -168,9 +170,10 @@ describe("the home's widgets", () => {
       })
     ];
     renderWidgets();
-    const card = screen.getByTestId("home-widget-bookkeeping-close");
-    expect(card).toHaveAttribute("data-size", "full");
-    expect(card.className).toContain("lg:col-span-3");
+    expect(screen.getByTestId("home-widget-bookkeeping-close")).toHaveAttribute(
+      "data-size",
+      "full"
+    );
     expect(screen.getByTestId("home-widget-bookkeeping-close-metric")).toHaveTextContent(
       "$48,210Posted this month+12%"
     );
@@ -185,10 +188,9 @@ describe("the home's widgets", () => {
         params: { store: instance }
       });
     widgets = [close(), copy("mission", "Mission St"), copy("valencia", "Valencia")];
-    renderWidgets({
-      title: "Stores",
-      items: ["bookkeeping/close#valencia", "bookkeeping/close#mission"]
-    });
+    renderWidgets([
+      { title: "Stores", items: ["bookkeeping/close#valencia", "bookkeeping/close#mission"] }
+    ]);
     expect(screen.getByRole("heading", { name: "Stores" })).toBeInTheDocument();
     const cards = screen.getAllByTestId(/^home-widget-bookkeeping-close-(mission|valencia)$/);
     expect(cards.map((c) => c.getAttribute("data-testid"))).toEqual([
@@ -207,23 +209,49 @@ describe("the home's widgets", () => {
     );
   });
 
-  it("draws progress as a ring beside the headline on a one-column card, a bar on a wider one", () => {
-    widgets = [
-      close({ size: "regular" }),
-      close({ key: "bookkeeping/close#wide", instance: "wide", size: "wide" })
-    ];
+  it("draws progress as a ring holding done/total, and caps a regular card at three rows", () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({
+      title: `Store ${i}`,
+      detail: null,
+      state: "ready" as const,
+      href: null,
+      button: null
+    }));
+    widgets = [close({ size: "regular", view: { ...close().view!, rows } })];
     renderWidgets();
     const ring = screen.getByTestId("home-widget-bookkeeping-close-progress");
-    expect(ring).toHaveAttribute("data-variant", "ring");
     expect(ring).toHaveAttribute("aria-valuenow", "61");
     expect(ring).toHaveTextContent("61/84");
-    expect(screen.getByTestId("home-widget-bookkeeping-close-wide-progress")).toHaveAttribute(
-      "data-variant",
-      "bar"
+    expect(screen.getByTestId("home-widget-bookkeeping-close-row-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("home-widget-bookkeeping-close-row-3")).toBeNull();
+    expect(screen.getByTestId("home-widget-bookkeeping-close-more")).toHaveTextContent(
+      "2 more in Bookkeeping"
     );
   });
 
-  it("folds a calm widget to one line after the cards with something to do", () => {
+  it("keeps every row of a card whose rows carry buttons, so no button is cut", () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({
+      title: `Store ${i}`,
+      detail: null,
+      state: "ready" as const,
+      href: null,
+      button: { ...post, key: `s${i}` }
+    }));
+    widgets = [close({ size: "regular", view: { ...close().view!, rows } })];
+    renderWidgets();
+    expect(screen.getByTestId("home-widget-bookkeeping-close-row-4-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("home-widget-bookkeeping-close-more")).toBeNull();
+  });
+
+  it("names each card's Open link after its app and widget", () => {
+    widgets = [close()];
+    renderWidgets();
+    expect(screen.getByTestId("home-widget-bookkeeping-close-open")).toHaveAccessibleName(
+      "Open Bookkeeping: Month-end close"
+    );
+  });
+
+  it("puts every card that needs someone first, then every calm widget in one All clear list", () => {
     const calm = (instance: string, level: "ok" | "info"): WidgetCard =>
       close({
         key: `bookkeeping/close#${instance}`,
@@ -239,21 +267,22 @@ describe("the home's widgets", () => {
         }
       });
     widgets = [calm("first", "ok"), close(), calm("last", "info")];
-    renderWidgets({
-      title: null,
-      items: ["bookkeeping/close#first", "bookkeeping/close", "bookkeeping/close#last"]
-    });
+    // The calm one leads the first group and the card with a job sits in the second.
+    renderWidgets([
+      { title: "Stores", items: ["bookkeeping/close#first"] },
+      { title: "Back office", items: ["bookkeeping/close", "bookkeeping/close#last"] }
+    ]);
     const strip = screen.getByTestId("home-widget-bookkeeping-close-first");
     expect(strip).toHaveAttribute("data-compact", "true");
     expect(strip).toHaveAttribute(
       "href",
       "https://poke-house--bookkeeping.apps.test/?month=2026-09"
     );
-    expect(screen.getByTestId("home-widget-bookkeeping-close-first-headline")).toHaveTextContent(
-      "September is closed"
-    );
-    // The card with a job keeps its size and comes first; the calm two follow in the group's order.
-    expect(screen.getByTestId("home-widget-bookkeeping-close").tagName).toBe("ARTICLE");
+    // A group with only calm widgets has no heading of its own; they are under All clear.
+    expect(screen.queryByRole("heading", { name: "Stores" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Back office" })).toBeInTheDocument();
+    const calmBlock = screen.getByTestId("home-widgets-calm");
+    expect(calmBlock).toHaveTextContent("All clear");
     const order = screen
       .getAllByTestId(/^home-widget-bookkeeping-close(-first|-last)?$/)
       .map((el) => el.getAttribute("data-testid"));
@@ -262,6 +291,13 @@ describe("the home's widgets", () => {
       "home-widget-bookkeeping-close-first",
       "home-widget-bookkeeping-close-last"
     ]);
+  });
+
+  it("stacks in the same order under the apps on a narrow screen", () => {
+    widgets = [close()];
+    renderWidgets([], "stack");
+    expect(screen.getByTestId("home-widgets")).toHaveAttribute("data-variant", "stack");
+    expect(screen.getByTestId("home-widget-bookkeeping-close").tagName).toBe("ARTICLE");
   });
 
   it("keeps a calm widget whole when it offers a button, and a failed one too", () => {
@@ -296,11 +332,18 @@ describe("the home's widgets", () => {
         }
       })
     ];
-    rerender(<HomeWidgets orgSlug='poke-house' apps={[]} />);
+    rerender(<HomeWidgets orgSlug='poke-house' apps={[]} groups={[]} variant='rail' />);
     expect(screen.getByTestId("home-widget-bookkeeping-close").tagName).toBe("ARTICLE");
     expect(screen.getByTestId("home-widget-bookkeeping-close-message")).toHaveTextContent(
       "Posted 19 journal entries"
     );
+  });
+
+  it("counts for the status line only the widgets that need someone", () => {
+    const calm = close({ view: { ...close().view!, level: "ok", buttons: [], rows: [] } });
+    expect(needsCount([close(), calm, close({ view: null, error: "Timed out." })])).toBe(2);
+    expect(needsCount([calm])).toBe(0);
+    expect(needsCount(undefined)).toBe(0);
   });
 
   it("offers a retry when the widgets could not load", () => {

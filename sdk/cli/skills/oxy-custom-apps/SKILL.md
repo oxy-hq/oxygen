@@ -387,11 +387,13 @@ A widget's kind is what its view carries: `metric` makes a **KPI card** (`value`
 progress card, rows with buttons a to-do. Text and lists past their limits are cut, and a
 non-app-relative link or a button naming an undeclared action is dropped.
 
-**`level` decides the room a card gets.** An `ok` or `info` view with no button folds to one
-line on the home (its headline), after the cards that need something; `attention` and
-`critical` keep the full card. So say all-is-well in the headline alone, and raise the level
-when the rows matter. `progress` is a ring beside the headline on a `regular` card and a bar
-on a wider one, so a one-column card spends no line on it.
+**`level` decides the room a card gets.** Widgets live in the home's Today area (a rail
+beside the apps on a wide screen, under them on a phone), one column wide. An `ok` or `info`
+view with no button folds to one line (its headline) in an "All clear" list after every card
+that needs someone; `attention` and `critical` keep the full card. So say all-is-well in the
+headline alone, and raise the level when the rows matter. `progress` is always a ring beside
+the headline holding `done/total`, so don't repeat the count in `detail`. A `regular` card
+shows three rows, `wide` and `full` all of them: size is how much a card shows, not its width.
 
 **Pressing a button** calls the action's function with `{ widget, action, input }` and
 an `Idempotency-Key` built from widget, action and the button's `key` (none: a hash of
@@ -405,20 +407,22 @@ Widgets show **in production only**, on the apps-first home. One that should not
 ### Laying out the home
 
 The org's home is one layout document, written by an org owner or admin (not by an
-app): sections in order, and the widgets as `<app>/<widget>` at a size from that
-widget's `sizes`. No coordinates; an edit is a list move. `widgets` sections may repeat,
+app): the widget groups of Today in order, and the widgets as `<app>/<widget>` at a size
+from that widget's `sizes`. The apps always come first and are always drawn; `apps` and
+`insights` entries are accepted but place nothing, and leaving `insights` out hides it. No coordinates; an edit is a list move. `widgets` sections may repeat,
 each a group with an optional `title` (≤ 40); `others` goes on the first only. An item
 may add `params`, a `title` and an `id`, so one widget can appear as several copies
 (one per store), each with its own `id`.
 
 ```json
 { "version": 1, "sections": [
+  { "kind": "apps" },
   { "kind": "widgets", "items": [ { "widget": "bookkeeping/close", "size": "full" },
       { "widget": "warehouse/receiving", "hidden": true } ], "others": "show" },
   { "kind": "widgets", "title": "Stores", "items": [
       { "widget": "store-ops/today", "id": "mission", "title": "Mission St",
         "params": { "store": "mission" } } ] },
-  { "kind": "apps" }, { "kind": "insights" } ] }
+  { "kind": "insights" } ] }
 ```
 
 Get, edit, preview, then apply:
