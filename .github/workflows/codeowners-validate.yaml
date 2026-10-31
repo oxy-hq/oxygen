@@ -31,7 +31,8 @@ concurrency:
 jobs:
   validate:
     if: ${{ github.repository == 'oxy-hq/oxygen-internal' }}
-    runs-on: ubuntu-latest
+    # x64: the validator's ghcr.io image is published for amd64 only.
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-x64-2x' || 'ubuntu-latest' }}
     timeout-minutes: 5
 
     steps:

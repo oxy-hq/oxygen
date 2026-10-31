@@ -78,7 +78,7 @@ jobs:
     # `needs` skips its dependents — but `agentic-tests` repeats it so neither
     # job's guard depends on the other still being wired this way.
     if: github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
     # Just emits the bucket matrix JSON; sub-second work — deliberately not a
     # warp runner, since it runs no tests.
     timeout-minutes: 10

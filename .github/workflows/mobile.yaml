@@ -35,7 +35,8 @@ defaults:
 jobs:
   android:
     name: Android app (build, unit tests, lint)
-    runs-on: ubuntu-latest
+    # x64: the Android build tools (aapt2) ship for x86-64 Linux only.
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-x64-2x' || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

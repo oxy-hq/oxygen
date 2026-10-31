@@ -185,7 +185,7 @@ jobs:
     # `if` cannot read secrets, so whether a scheduled leg has a key to run
     # with is decided in the first step, not here.
     if: github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
     # Above the sum of the step timeouts below (2+5+15+10+2+35+2+15+15+2+5+5+3 =
     # 116). A hung step then hits its own timeout first, and the result step
     # still gets to label the bump PR. A job timeout would cancel it too.

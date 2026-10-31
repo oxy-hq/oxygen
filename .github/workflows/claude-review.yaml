@@ -36,7 +36,7 @@ jobs:
     # reviewed" only for the release app's pure version bump (RELEASE_AUTOMATION).
     if: ${{ github.event.pull_request.draft == false && github.repository ==
       'oxy-hq/oxygen-internal' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

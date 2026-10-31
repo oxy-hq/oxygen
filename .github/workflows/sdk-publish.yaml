@@ -86,6 +86,7 @@ concurrency:
 jobs:
   publish:
     name: Publish SDK packages
+    # Stays GitHub-hosted: npm trusted publishing (OIDC) refuses self-hosted runners.
     runs-on: ubuntu-latest
     # Build + npm/registry publish; a hung publish shouldn't bill past 20m.
     timeout-minutes: 20

@@ -82,7 +82,7 @@ jobs:
   bump:
     name: Propose the newest airway release
     if: github.repository == 'oxy-hq/oxygen-internal'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
