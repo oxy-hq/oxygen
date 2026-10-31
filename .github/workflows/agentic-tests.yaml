@@ -79,8 +79,8 @@ jobs:
     # job's guard depends on the other still being wired this way.
     if: github.repository == 'oxy-hq/oxygen-internal'
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
-    # Just emits the bucket matrix JSON; sub-second work — deliberately not a
-    # warp runner, since it runs no tests.
+    # Just emits the bucket matrix JSON; sub-second work, so the smallest warp
+    # runner (GitHub-hosted minutes draw on the org's Actions budget).
     timeout-minutes: 10
     outputs:
       flows: ${{ steps.resolve.outputs.flows }}
