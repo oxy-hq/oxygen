@@ -13,6 +13,7 @@
 // reads `process.env` at load; the isolate has no `process`, so a value import
 // would fail every run before a step starts (steps.test.ts bundles and checks).
 import type { OxyFunctionContext, OxyFunctionRow, StorageUploadUrl } from "@oxy-hq/sdk";
+import { AIRHOUSE_DATABASE, AIRHOUSE_READS, seriesMismatch } from "./airhouse-reads";
 import { runShapeZoo } from "./shape-zoo";
 
 export type StepName =
@@ -23,6 +24,7 @@ export type StepName =
   | "tx_refusal"
   | "sql_read"
   | "sql_stream"
+  | "airhouse_reads"
   | "oltp_roundtrip"
   | "oltp_transaction"
   | "shape_zoo"
@@ -40,6 +42,7 @@ export const ALL_STEPS: StepName[] = [
   "tx_refusal",
   "sql_read",
   "sql_stream",
+  "airhouse_reads",
   "oltp_roundtrip",
   "oltp_transaction",
   "shape_zoo",
@@ -109,6 +112,7 @@ export const STEP_OPS: Record<StepName, readonly HostOp[]> = {
   tx_refusal: ["tx.begin"],
   sql_read: ["query"],
   sql_stream: ["query_stream"],
+  airhouse_reads: ["warehouse.query"],
   oltp_roundtrip: ["oltp.exec", "oltp.query"],
   oltp_transaction: [
     "oltp.exec",
@@ -252,6 +256,7 @@ const STEPS: Record<StepName, (run: RunState) => Promise<void>> = {
   tx_refusal: txRefusal,
   sql_read: sqlRead,
   sql_stream: sqlStream,
+  airhouse_reads: airhouseReads,
   oltp_roundtrip: oltpRoundtrip,
   oltp_transaction: oltpTransaction,
   // Every zoo case: ClickHouse through ctx.warehouse on DATABASE, Postgres through ctx.oltp.
@@ -408,6 +413,25 @@ async function sqlStream(run: RunState): Promise<void> {
   }
   if (rows.length !== 1 || Number(rows[0].one) !== 1) {
     throw new Error(`expected one row with one = 1, got ${rows.length} rows`);
+  }
+}
+
+// ── Airhouse reads ───────────────────────────────────────────────────────────
+
+/**
+ * `ctx.warehouse.query` on `AIRHOUSE_DATABASE`, every read in `AIRHOUSE_READS`
+ * (airhouse-reads.ts): zero, one and 2,500 rows over Airhouse's Postgres wire.
+ */
+async function airhouseReads(run: RunState): Promise<void> {
+  for (const read of AIRHOUSE_READS) {
+    let rows: OxyFunctionRow[];
+    try {
+      ({ rows } = await run.ctx.warehouse.query(AIRHOUSE_DATABASE, read.sql));
+    } catch (err) {
+      throw new Error(`${read.name}: ${causeOf(err)}`, { cause: err });
+    }
+    const wrong = seriesMismatch(rows, read.rows);
+    if (wrong) throw new Error(`${read.name}: ${wrong}`);
   }
 }
 

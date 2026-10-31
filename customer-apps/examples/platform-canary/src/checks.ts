@@ -6,7 +6,9 @@
 // `useQuery`. Each check throws an error that starts with its own name, and
 // App.tsx renders the failing name as `data-canary-failed`.
 
-export type CheckName = "echo" | "sql_query_route" | "sdk_query";
+import { AIRHOUSE_DATABASE, AIRHOUSE_READS, seriesMismatch } from "../functions/airhouse-reads";
+
+export type CheckName = "echo" | "sql_query_route" | "sdk_query" | "airhouse_query_route";
 
 /** The workspace database the canary's function writes; the page reads it. */
 export const DATABASE = "canary_warehouse";
@@ -53,6 +55,44 @@ export async function checkSqlQueryRoute(): Promise<void> {
 /** The SDK's `useQuery` against the same database, settled into a promise by App.tsx. */
 export async function checkSdkQuery(settled: Promise<Row[]>): Promise<void> {
   await named("sdk_query", async () => expectOne(await settled));
+}
+
+/**
+ * Whether this page load runs `airhouse_query_route`: only when its URL says
+ * `?airhouse=1`. The check reads `canary_airhouse`, which a deployment has only
+ * once its setup added it (README.md, "Per-deployment setup"), so the URL each
+ * caller opens is where that is recorded: `.github/custom-app-checks.json` per
+ * environment, and the checkpoint's `--airhouse`.
+ */
+export function airhouseRequested(search: string): boolean {
+  return new URLSearchParams(search).get("airhouse") === "1";
+}
+
+/**
+ * `POST /api/projects/{projectId}/query`, the route the SDK's `useQuery` reads
+ * through, against `canary_airhouse`: zero, one and 2,500 rows over Airhouse's
+ * Postgres wire (functions/airhouse-reads.ts). The request is the one the SDK's
+ * `sharedQuery` sends, plus `?refresh=1`: the route keeps a successful answer
+ * for 30 seconds, and a check served from that cache never reaches Airhouse.
+ */
+export async function checkAirhouseQueryRoute(): Promise<void> {
+  await named("airhouse_query_route", async () => {
+    const { projectId, apiBaseUrl } = runtime();
+    for (const read of AIRHOUSE_READS) {
+      const res = await fetch(`${apiBaseUrl}/api/projects/${projectId}/query?refresh=1`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sql: read.sql, database: AIRHOUSE_DATABASE })
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(`${read.name}: query failed (${res.status}): ${text.slice(0, 300)}`);
+      }
+      const wrong = seriesMismatch(toRows(JSON.parse(text)), read.rows);
+      if (wrong) throw new Error(`${read.name}: ${wrong}`);
+    }
+  });
 }
 
 async function named(check: CheckName, run: () => Promise<void>): Promise<void> {

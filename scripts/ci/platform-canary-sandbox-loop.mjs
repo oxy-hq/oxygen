@@ -43,7 +43,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   ALL_STEPS_SOURCE,
   deriveCiSteps,
-  OMITTED_IN_CI,
+  omissions,
   parseAllSteps
 } from "./platform-canary-checkpoint.mjs";
 import {
@@ -797,6 +797,8 @@ const USAGE = `usage: node scripts/ci/platform-canary-sandbox-loop.mjs [options]
   --check-timeout <secs>   per-check timeout passed to oxyc (default 240)
   --omit-steps <csv>       steps sandbox A does not run here (env CANARY_SANDBOX_LOOP_OMIT);
                            CI passes storage_roundtrip
+  --airhouse               the checkpoint that published the canary ran with --airhouse,
+                           so production's CANARY_STEPS include airhouse_reads
 
 OXY_TOKEN must hold a staff session bearer — a dev-login JWT. The loop mints
 its own sandbox agent token from it and runs as that; the mint takes a session
@@ -818,7 +820,8 @@ function parseArgs(argv) {
     oxyc: OXYC,
     appDir: process.cwd(),
     checkTimeout: 240,
-    omitSteps: parseOmit(env("CANARY_SANDBOX_LOOP_OMIT"))
+    omitSteps: parseOmit(env("CANARY_SANDBOX_LOOP_OMIT")),
+    airhouse: false
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -839,6 +842,7 @@ function parseArgs(argv) {
     else if (a === "--app-dir") opts.appDir = next();
     else if (a === "--check-timeout") opts.checkTimeout = Number(next());
     else if (a === "--omit-steps") opts.omitSteps = parseOmit(next());
+    else if (a === "--airhouse") opts.airhouse = true;
     else if (a === "-h" || a === "--help") {
       process.stdout.write(USAGE);
       process.exit(0);
@@ -863,7 +867,7 @@ async function main() {
     process.exit(2);
   }
   const allSteps = parseAllSteps(readFileSync(ALL_STEPS_SOURCE, "utf8"));
-  const productionSteps = deriveCiSteps(allSteps, OMITTED_IN_CI);
+  const productionSteps = deriveCiSteps(allSteps, omissions(opts.airhouse));
   await runSandboxLoop({
     target: opts.target.replace(/\/+$/, ""),
     app: opts.app,

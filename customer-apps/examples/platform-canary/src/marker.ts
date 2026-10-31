@@ -16,6 +16,11 @@ export type Outcome = "pass" | "fail";
 /** The order the page runs its checks in. */
 export const CHECK_ORDER: CheckName[] = ["echo", "sql_query_route", "sdk_query"];
 
+/** `CHECK_ORDER`, plus `airhouse_query_route` last when the page was asked for it. */
+export function checkOrder(airhouse: boolean): CheckName[] {
+  return airhouse ? [...CHECK_ORDER, "airhouse_query_route"] : CHECK_ORDER;
+}
+
 export type PageState =
   | { manifest: "failed" }
   | { manifest: "loaded"; outcomes: Partial<Record<CheckName, Outcome>> };
@@ -26,12 +31,13 @@ export interface CanaryMarker {
   "aria-busy"?: boolean;
 }
 
-export function canaryMarker(state: PageState): CanaryMarker {
+/** `order` is the checks this page load runs: `ready` needs every one of them. */
+export function canaryMarker(state: PageState, order: CheckName[] = CHECK_ORDER): CanaryMarker {
   if (state.manifest === "failed") return { "data-canary-failed": "manifest" };
   const { outcomes } = state;
-  const failed = CHECK_ORDER.find((check) => outcomes[check] === "fail");
+  const failed = order.find((check) => outcomes[check] === "fail");
   if (failed) return { "data-canary-failed": failed, "aria-busy": false };
-  if (CHECK_ORDER.every((check) => outcomes[check] === "pass")) {
+  if (order.every((check) => outcomes[check] === "pass")) {
     return { "data-canary": "ready", "aria-busy": false };
   }
   return { "aria-busy": true };

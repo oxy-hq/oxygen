@@ -13,15 +13,21 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   ALL_STEPS_SOURCE,
   deriveCiSteps,
   OMITTED_IN_CI,
-  parseAllSteps
+  OMITTED_WITHOUT_AIRHOUSE,
+  omissions,
+  parseAllSteps,
+  withDatabase
 } from "./platform-canary-checkpoint.mjs";
 
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const source = readFileSync(ALL_STEPS_SOURCE, "utf8");
 const all = parseAllSteps(source);
 
@@ -35,8 +41,8 @@ test("the canary's ALL_STEPS parses into a non-empty list of unique step names",
 });
 
 test("every omitted name is a real step, and every omission has a reason", () => {
-  for (const [name, reason] of Object.entries(OMITTED_IN_CI)) {
-    assert.ok(all.includes(name), `OMITTED_IN_CI names ${name}, which is not in ALL_STEPS`);
+  for (const [name, reason] of Object.entries(omissions(false))) {
+    assert.ok(all.includes(name), `an omission names ${name}, which is not in ALL_STEPS`);
     assert.ok(typeof reason === "string" && reason.length > 20, `${name} has no reason`);
   }
 });
@@ -79,4 +85,42 @@ test("the parser refuses a source it cannot read exactly", () => {
 
 test("a step absent from the source cannot be omitted", () => {
   assert.throws(() => deriveCiSteps(["one", "two"], { three: "gone" }), /three/);
+});
+
+test("--airhouse runs airhouse_reads, and only it comes back", () => {
+  assert.deepEqual(Object.keys(OMITTED_WITHOUT_AIRHOUSE), ["airhouse_reads"]);
+  assert.ok(!("airhouse_reads" in OMITTED_IN_CI), "CI boots Airhouse, so it runs airhouse_reads");
+  assert.equal(omissions(true), OMITTED_IN_CI);
+  assert.deepEqual(Object.keys(omissions(false)), [
+    ...Object.keys(OMITTED_IN_CI),
+    "airhouse_reads"
+  ]);
+  assert.ok(deriveCiSteps(all, omissions(true)).includes("airhouse_reads"));
+  assert.ok(!deriveCiSteps(all, omissions(false)).includes("airhouse_reads"));
+});
+
+test("CI's checkpoint run passes --airhouse, so OMITTED_IN_CI is what it omits", () => {
+  // The job boots docker-compose.airhouse.yml for this flag. Drop the flag and
+  // airhouse_reads silently leaves CI; this is what notices.
+  const ci = readFileSync(join(REPO, ".github/workflows/ci.yaml"), "utf8");
+  const run = /node scripts\/ci\/platform-canary-checkpoint\.mjs((?:[^\n]*\\\n)*[^\n]*)/.exec(ci);
+  assert.ok(run, "ci.yaml no longer runs platform-canary-checkpoint.mjs");
+  assert.match(run[1], /\s--airhouse(\s|$)/, "ci.yaml runs the checkpoint without --airhouse");
+});
+
+test("withDatabase appends to the databases list, so the default database stays first", () => {
+  const flush = "databases:\n- name: canary_warehouse\n  type: clickhouse\nmodels: []\n";
+  assert.equal(
+    withDatabase(flush, "canary_airhouse", "airhouse_managed"),
+    "databases:\n- name: canary_warehouse\n  type: clickhouse\n- name: canary_airhouse\n  type: airhouse_managed\nmodels: []\n"
+  );
+  const indented = "databases:\n  - name: canary_warehouse\n    type: clickhouse\n\n";
+  assert.equal(
+    withDatabase(indented, "canary_airhouse", "airhouse_managed"),
+    "databases:\n  - name: canary_warehouse\n    type: clickhouse\n  - name: canary_airhouse\n    type: airhouse_managed\n"
+  );
+  assert.equal(
+    withDatabase("models: []\n", "canary_airhouse", "airhouse_managed"),
+    "models: []\ndatabases:\n  - name: canary_airhouse\n    type: airhouse_managed\n"
+  );
 });

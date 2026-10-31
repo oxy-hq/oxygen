@@ -1,20 +1,23 @@
 // Platform Canary — the page.
 //
-// Runs the three checks in src/checks.ts once on mount, in order, and renders
-// the result as the marker the release checks' browser check waits for.
+// Runs the checks in src/checks.ts once on mount, in order, and renders the
+// result as the marker the release checks' browser check waits for. The fourth,
+// `airhouse_query_route`, runs only when the URL carries `?airhouse=1`.
 // Which attributes `<main>` carries is decided in src/marker.ts.
 
 import { useFunction, useQuery } from "@oxy-hq/sdk";
 import { type CSSProperties, useEffect, useState } from "react";
 import {
+  airhouseRequested,
   type CheckName,
+  checkAirhouseQueryRoute,
   checkEcho,
   checkSdkQuery,
   checkSqlQueryRoute,
   DATABASE,
   SELECT_ONE
 } from "./checks";
-import { CHECK_ORDER, canaryMarker, type Outcome } from "./marker";
+import { canaryMarker, checkOrder, type Outcome } from "./marker";
 
 type Row = Record<string, unknown>;
 
@@ -26,6 +29,7 @@ interface Failure {
 export function App() {
   const echo = useFunction("echo");
   const sdkRows = useSettledQuery();
+  const [order] = useState(() => checkOrder(airhouseRequested(window.location.search)));
   const [outcomes, setOutcomes] = useState<Partial<Record<CheckName, Outcome>>>({});
   const [failure, setFailure] = useState<Failure | null>(null);
 
@@ -34,10 +38,11 @@ export function App() {
     const run: Record<CheckName, () => Promise<void>> = {
       echo: () => checkEcho(echo.invoke),
       sql_query_route: () => checkSqlQueryRoute(),
-      sdk_query: () => checkSdkQuery(sdkRows)
+      sdk_query: () => checkSdkQuery(sdkRows),
+      airhouse_query_route: () => checkAirhouseQueryRoute()
     };
     (async () => {
-      for (const check of CHECK_ORDER) {
+      for (const check of order) {
         try {
           await run[check]();
         } catch (err) {
@@ -53,13 +58,13 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [echo.invoke, sdkRows]);
+  }, [echo.invoke, sdkRows, order]);
 
   return (
-    <main {...canaryMarker({ manifest: "loaded", outcomes })} style={styles.main}>
+    <main {...canaryMarker({ manifest: "loaded", outcomes }, order)} style={styles.main}>
       <h1 style={styles.title}>Platform Canary</h1>
       <ul style={styles.list}>
-        {CHECK_ORDER.map((check) => (
+        {order.map((check) => (
           <li key={check}>
             {mark(outcomes[check])} {check}
           </li>

@@ -14,6 +14,7 @@ import { build } from "esbuild";
 import type { ShapeZoo, ZooCase } from "./shape-zoo";
 import zooJson from "./shape-zoo.json";
 import { describe, expect, it } from "vitest";
+import { AIRHOUSE_DATABASE, AIRHOUSE_READS } from "./airhouse-reads";
 import {
   ALL_STEPS,
   CANARY_SECRET_KEY,
@@ -66,6 +67,14 @@ function zooRows(sql: string, cases: ZooCase[], plane: "warehouse" | "oltp", cor
     throw new Error(`refused: ${String((expected as { $error: unknown }).$error)}`);
   }
   return [{ [match[1]]: corrupt ? "corrupted" : expected }];
+}
+
+/** A well-behaved Airhouse's answer to one of `AIRHOUSE_READS`: `n` = 1…N, as BIGINT text. */
+function airhouseRows(sql: string): Row[] {
+  if (/WHERE 1 = 0/.test(sql)) return [];
+  const series = /generate_series\(1, (\d+)\)/.exec(sql);
+  const count = series ? Number(series[1]) : 1;
+  return Array.from({ length: count }, (_, i) => ({ n: String(i + 1) }));
 }
 
 const PLACE = {
@@ -179,6 +188,7 @@ function makeFake() {
       },
       query: async (database: string, sql: string): Promise<unknown> => {
         record("warehouse.query", database, sql);
+        if (database === AIRHOUSE_DATABASE) return { rows: airhouseRows(sql), truncated: false };
         if (sql.includes("oxy_shape_zoo_")) {
           const rows = zooRows(sql, ZOO.engines.clickhouse.cases, "warehouse", state.corruptZoo);
           return { rows, truncated: false };
@@ -517,6 +527,53 @@ describe("runCanary", () => {
       fake.raw.queryStream = async function* () {};
       await expect(run(fake, ["sql_stream"])).rejects.toThrow(
         /^canary step sql_stream failed: expected one row with one = 1, got 0 rows/
+      );
+    });
+  });
+
+  describe("airhouse_reads", () => {
+    it("reads zero, one and 2,500 rows from the Airhouse database, nothing else", async () => {
+      const fake = makeFake();
+      await run(fake, ["airhouse_reads"]);
+      const reads = callsTo(fake, "warehouse.query");
+      expect(reads.map((call) => call.args)).toEqual(
+        AIRHOUSE_READS.map((read) => [AIRHOUSE_DATABASE, read.sql])
+      );
+      expect(AIRHOUSE_READS.map((read) => read.rows)).toEqual([0, 1, 2500]);
+    });
+
+    it("fails naming the case when a zero-row read throws, as #3791 did", async () => {
+      const fake = makeFake();
+      const query = fake.raw.warehouse.query;
+      fake.raw.warehouse.query = async (database: string, sql: string) => {
+        if (/WHERE 1 = 0/.test(sql)) {
+          throw new Error("ctx.warehouse: row stream: driver error: connection closed");
+        }
+        return query(database, sql);
+      };
+      await expect(run(fake, ["airhouse_reads"])).rejects.toThrow(
+        /^canary step airhouse_reads failed: zero rows: ctx\.warehouse: row stream: driver error: connection closed/
+      );
+    });
+
+    it("fails when a row is duplicated in place of another", async () => {
+      const fake = makeFake();
+      const query = fake.raw.warehouse.query;
+      fake.raw.warehouse.query = async (database: string, sql: string) => {
+        const result = (await query(database, sql)) as { rows: Row[] };
+        if (result.rows.length > 1) result.rows[result.rows.length - 1] = result.rows[0];
+        return result;
+      };
+      await expect(run(fake, ["airhouse_reads"])).rejects.toThrow(
+        /^canary step airhouse_reads failed: 2500 rows: expected 2500 rows, n = 1 to 2500 once each; got 2500 rows, 2499 distinct/
+      );
+    });
+
+    it("fails when an empty result comes back with a row", async () => {
+      const fake = makeFake();
+      fake.raw.warehouse.query = async () => ({ rows: [{ n: 1 }], truncated: false });
+      await expect(run(fake, ["airhouse_reads"])).rejects.toThrow(
+        /^canary step airhouse_reads failed: zero rows: expected no rows; got 1 rows, 1 distinct/
       );
     });
   });

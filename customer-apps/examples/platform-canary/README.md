@@ -32,6 +32,7 @@ stops at the first failure:
 | `tx_refusal` | Pins a refusal: `ctx.tx` on ClickHouse must be refused naming the engine (`ClickHouse does not support multi-statement transactions`), and the callback must not run | the docs' promise |
 | `sql_read` | Top-level `ctx.query`, resolving `{ rows, truncated }` | 13 functions |
 | `sql_stream` | `ctx.queryStream`, the same read through the async generator | — |
+| `airhouse_reads` | `ctx.warehouse.query` on `canary_airhouse`, an `airhouse_managed` database, so over Airhouse's Postgres wire: zero, one and 2,500 rows, each `n` = 1…N exactly once (`functions/airhouse-reads.ts`). Needs [`canary_airhouse`](#adding-the-airhouse-checks) | every app that reads Airhouse; bookkeeping's posts |
 | `oltp_roundtrip` | `ctx.oltp` write, read and delete in the canary's own schema | Store Ops (45 functions) |
 | `oltp_transaction` | `ctx.oltp.tx`: a transaction inserts a row and reads it back on its own connection, and the commit is visible afterwards; a second inserts and throws, and its row is gone. Deletes what it committed | — |
 | `shape_zoo` | Every case in `fixtures/data-shapes/zoo.json` (synced to `functions/shape-zoo.json`). The ClickHouse cases are created, filled once and read one column at a time on `canary_warehouse` with `ctx.warehouse.exec`/`query`; the Postgres cases go the same way through `ctx.oltp`. Each column must equal its case's `expect` | every app that reads a warehouse or its OLTP store |
@@ -153,6 +154,12 @@ neither. `ctx.oltp.tx` exercises the transaction bracket itself on Postgres.
 | `echo` | `useFunction("echo")` sends a nonce and gets it back: session cookie → function → SSE result |
 | `sql_query_route` | `POST /api/{projectId}/sql/query` with `SELECT 1 AS one` against `canary_warehouse`, sent and parsed the way bookkeeping's `useSqlQuery` hook does |
 | `sdk_query` | The SDK's `useQuery`, same SQL and database |
+| `airhouse_query_route` | Only with `?airhouse=1` on the page URL. `POST /api/projects/{projectId}/query`, the route `useQuery` reads through, with `airhouse_reads`' three reads against `canary_airhouse` |
+
+`?airhouse=1` is where a deployment records that it has `canary_airhouse`:
+the URL in `.github/custom-app-checks.json` for the release checks, and the
+checkpoint's `--airhouse`. Without the parameter the page runs the first three
+checks, as before.
 
 The page renders the result on `<main>`:
 
@@ -191,7 +198,11 @@ names the step.
   minus the script's `OMITTED_IN_CI`, each omission with its reason: `check_in`
   (no All Quiet monitor to check in to) and `storage_roundtrip` (its presigned
   PUT goes through `ctx.fetch`, which allows only HTTPS to a public host, and
-  the runner's object store would be MinIO on loopback). A step added here runs
+  the runner's object store would be MinIO on loopback). `airhouse_reads` runs:
+  the job boots `docker-compose.airhouse.yml` and passes `--airhouse`, which
+  also opens the page with `?airhouse=1` for `airhouse_query_route`. Without
+  `--airhouse` (a dev box with no Airhouse) the script drops `airhouse_reads`
+  too, with its reason. A step added here runs
   in CI the day it lands; `node scripts/ci/platform-canary-checkpoint.mjs
   --list-steps` prints the list, and the script's self-test fails when an
   omission names no real step. `oltp_roundtrip`, `oltp_transaction` and the
@@ -248,19 +259,23 @@ that step, it fails.
   `terraform output -json cron_checkin_urls` (setup step 2 in
   [deploy-pipeline.md § One-time setup for the checks](../../../internal-docs/deploy-pipeline.md#one-time-setup-for-the-checks)).
   Until it's set, every prod run fails `check_in`, and three failed runs page.
+  **Unset includes `airhouse_reads`**, which needs `canary_airhouse`: until
+  prod has it (steps 1–2 of [Adding the Airhouse checks](#adding-the-airhouse-checks)),
+  keep `CANARY_STEPS` an explicit list without `airhouse_reads` rather than
+  unset, or every run fails that step.
 - **Staging** has no check-in monitor yet. It gets one when Better Stack's
   escalation flag flips (design doc §5.2). Until then, staging sets
   `CANARY_STEPS` to every step except `check_in` and leaves
   `CANARY_CHECKIN_URL` unset:
 
   ```text
-  warehouse_insert,warehouse_exec,warehouse_readback,upsert_refusal,tx_refusal,sql_read,sql_stream,oltp_roundtrip,oltp_transaction,shape_zoo,org_read,storage_roundtrip,secrets_roundtrip
+  warehouse_insert,warehouse_exec,warehouse_readback,upsert_refusal,tx_refusal,sql_read,sql_stream,airhouse_reads,oltp_roundtrip,oltp_transaction,shape_zoo,org_read,storage_roundtrip,secrets_roundtrip
   ```
 
   The reason to note next to it: no staging monitor. Three things follow:
   - A step added to `ALL_STEPS` does not run on staging until this list names
     it: `CANARY_STEPS` names steps, and a name it lacks is a recorded
-    omission. The list above is current as of `oltp_transaction`; update the
+    omission. The list above is current as of `airhouse_reads`; update the
     secret when a step lands — and add `upsert_refusal` and `tx_refusal` only
     once the staging server carries the refusal classification (the paragraph
     under the step table), or every run leaves a standing `host_call` failure.
@@ -316,7 +331,8 @@ Staging runs its full list; prod doesn't yet:
   CI's checkpoint 1, not on prod.
 - **Until then, set each secret back to this table's value, not to
   "unset".** That includes after a fire drill. An unset list runs every step,
-  and on prod the ClickHouse ones fail every run.
+  and on prod the ClickHouse ones fail every run, as does `airhouse_reads`
+  until prod has `canary_airhouse`.
 
 ### Restoring the full list on prod
 
@@ -469,6 +485,8 @@ also creates its two tables. The passing run logs
 ```sh
 steps warehouse_insert,warehouse_exec,warehouse_readback,upsert_refusal,tx_refusal,sql_read,sql_stream,oltp_roundtrip,oltp_transaction,shape_zoo,org_read,storage_roundtrip,secrets_roundtrip,check_in
 oxyc5 checks run oxy-canary/platform-canary --env $ENV
+# Unset means ALL steps, airhouse_reads included. Only once this workspace has
+# canary_airhouse (steps 1-2 of "Adding the Airhouse checks"); until then stop at the list above.
 oxyc api /api/customer-apps/$APP/secrets/CANARY_STEPS --env $ENV -X DELETE   # prod: unset means all
 oxyc5 checks run oxy-canary/platform-canary --env $ENV
 rm ~/.canary-ch-pw canary-ch.sql
@@ -489,6 +507,54 @@ once both deployments run their full lists.
   the same way.
 - **Step 4:** `oxyc api /api/admin/orgs/$ORG/oltp/deprovision-writer --env $ENV -X POST --input - <<<'{"writer":"app:platform_canary"}'`.
   This drops the schema and its role, and the org's other writers stay.
+
+## Adding the Airhouse checks
+
+`airhouse_reads` and the page's `airhouse_query_route` exist because of the
+2026-10-28 P0: from #3791 (Oct 26) every Airhouse query returning zero rows
+failed, 500 `failed to convert query results` on `/query` and
+`row stream: driver error: connection closed` in functions, and a customer's
+bookkeeping posts found it two days later. #3871 fixed it. Against #3871
+reverted, both fail on the first read, `zero rows` (proof in the PR that added
+them).
+
+They read `canary_airhouse`, which a deployment has only once this is done, in
+this order — each step green before the next:
+
+1. **Airhouse tenant.** The canary workspace's, from Settings → Airhouse →
+   Provision, or `POST /api/airhouse/me/provision?workspace_id=<ws>` as an org
+   Owner. Prod's and staging's canary workspaces most likely have one already —
+   both ran `canary_warehouse` as `airhouse_managed` — so look there first.
+2. **`canary_airhouse` in `config.yml`,** appended after `canary_warehouse`,
+   which must stay first (the default `sql_read` reads), then compile and
+   promote as in step 3 of the runbook above:
+
+   ```yaml
+     - name: canary_airhouse
+       type: airhouse_managed
+   ```
+
+3. **Republish this app.** Until the bundle carrying them is published there,
+   neither check exists on that deployment.
+4. **`airhouse_reads` into `CANARY_STEPS`** (staging's list, in
+   [Per environment](#per-environment)). Where `CANARY_STEPS` is unset, the
+   step already runs from step 3 on — so on such a deployment do steps 1–2
+   before step 3, or every scheduled run fails `airhouse_reads`.
+5. **`?airhouse=1` on that environment's URL** in
+   `.github/custom-app-checks.json`. From then the release checks' browser
+   check runs `airhouse_query_route`; on staging a failure there holds the
+   promotion to prod.
+
+**Staging: done 2026-10-31.** The canary workspace already had its tenant;
+`canary_airhouse` was appended to its `config.yml`; build `c523e712` was published
+and promoted; `airhouse_reads` joined `CANARY_STEPS`; and the release checks' staging
+URL carries `?airhouse=1`. Every step and page check passed on staging after.
+**Prod: not done.**
+
+Locally, `docker-compose.airhouse.yml` is enough:
+`just custom-app-canary --airhouse --journey` against a server started with
+`.env.airhouse`'s `AIRHOUSE_*` (it provisions the tenant and adds the database
+itself).
 
 ## How a failure reaches anyone
 

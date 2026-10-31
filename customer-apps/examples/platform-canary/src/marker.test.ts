@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { CheckName } from "./checks";
-import { CHECK_ORDER, canaryMarker, type Outcome } from "./marker";
+import { CHECK_ORDER, canaryMarker, checkOrder, type Outcome } from "./marker";
 
 type Outcomes = Partial<Record<CheckName, Outcome>>;
 
@@ -63,5 +63,37 @@ describe("canaryMarker", () => {
 
   it("marks manifest when the manifest failed to load", () => {
     expect(canaryMarker({ manifest: "failed" })).toEqual({ "data-canary-failed": "manifest" });
+  });
+
+  describe("with ?airhouse=1", () => {
+    const order = checkOrder(true);
+
+    it("runs airhouse_query_route last, and only when asked", () => {
+      expect(order).toEqual(["echo", "sql_query_route", "sdk_query", "airhouse_query_route"]);
+      expect(checkOrder(false)).toEqual(CHECK_ORDER);
+    });
+
+    it("is not ready until airhouse_query_route passed too", () => {
+      const outcomes: Outcomes = { echo: "pass", sql_query_route: "pass", sdk_query: "pass" };
+      expect(canaryMarker({ manifest: "loaded", outcomes }, order)).toEqual({ "aria-busy": true });
+      outcomes.airhouse_query_route = "pass";
+      expect(canaryMarker({ manifest: "loaded", outcomes }, order)).toEqual({
+        "data-canary": "ready",
+        "aria-busy": false
+      });
+    });
+
+    it("marks airhouse_query_route when it is the check that failed", () => {
+      const outcomes: Outcomes = {
+        echo: "pass",
+        sql_query_route: "pass",
+        sdk_query: "pass",
+        airhouse_query_route: "fail"
+      };
+      expect(canaryMarker({ manifest: "loaded", outcomes }, order)).toEqual({
+        "data-canary-failed": "airhouse_query_route",
+        "aria-busy": false
+      });
+    });
   });
 });

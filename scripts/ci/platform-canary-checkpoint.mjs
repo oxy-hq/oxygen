@@ -59,6 +59,10 @@ const APP_SLUG = "platform-canary";
 /** The app's OLTP writer: the slug with hyphens as underscores, as the platform derives it. */
 const OLTP_WRITER = "app:platform_canary";
 const WAREHOUSE_NAME = "canary_warehouse";
+/** `AIRHOUSE_DATABASE` in the canary's functions/airhouse-reads.ts. */
+const AIRHOUSE_NAME = "canary_airhouse";
+/** The step and page check that read it; both need `--airhouse`. */
+const AIRHOUSE_STEP = "airhouse_reads";
 const STAFF_EMAIL = "canary-staff@oxy.test";
 const CANARY_EMAIL = "canary@oxygen-hq.com";
 
@@ -78,6 +82,8 @@ export const ALL_STEPS_SOURCE = join(CANARY_DIR, "functions", "steps.ts");
  * database in the cluster its admin URL names. `upsert_refusal` and
  * `tx_refusal` pin engine refusals the server on the same tree classes as
  * `bad_request`; the job builds the tree it tests, so they hold here.
+ * `airhouse_reads` runs too: the job boots docker-compose.airhouse.yml and
+ * passes `--airhouse` (the self-test pins the flag).
  */
 export const OMITTED_IN_CI = {
   check_in:
@@ -89,6 +95,23 @@ export const OMITTED_IN_CI = {
     "loopback, so the PUT is refused before it leaves the isolate. Runnable once the " +
     "runner has a public HTTPS bucket, or the policy takes a test-only loopback opt-in"
 };
+
+/**
+ * What a run without `--airhouse` also drops: a dev box with no Airhouse
+ * stack. CI is not such a run.
+ */
+export const OMITTED_WITHOUT_AIRHOUSE = {
+  [AIRHOUSE_STEP]:
+    "it reads an airhouse_managed database over Airhouse's Postgres wire, and this run " +
+    "was not given `--airhouse`. Boot docker-compose.airhouse.yml, start the server with " +
+    "the AIRHOUSE_* variables from .env.airhouse, and pass `--airhouse` to run it and the " +
+    "page's airhouse_query_route check, as CI does"
+};
+
+/** The omissions that apply: without `--airhouse`, `airhouse_reads` is one. */
+export function omissions(airhouse) {
+  return airhouse ? OMITTED_IN_CI : { ...OMITTED_IN_CI, ...OMITTED_WITHOUT_AIRHOUSE };
+}
 
 /**
  * `ALL_STEPS` out of the canary's steps.ts, read as text the way the manifest
@@ -115,7 +138,7 @@ export function parseAllSteps(source) {
 export function deriveCiSteps(all, omitted) {
   for (const name of Object.keys(omitted)) {
     if (!all.includes(name))
-      throw new Error(`OMITTED_IN_CI names ${name}, which is not in ALL_STEPS`);
+      throw new Error(`an omission names ${name}, which is not in ALL_STEPS`);
   }
   return all.filter((step) => !(step in omitted));
 }
@@ -132,8 +155,12 @@ const USAGE = `usage: node scripts/ci/platform-canary-checkpoint.mjs --target <u
   --clickhouse-password <pw>     (env CANARY_CLICKHOUSE_PASSWORD, default "")
   --clickhouse-database <name>   (env CANARY_CLICKHOUSE_DATABASE, default oxy_canary)
   --no-create-database           do not CREATE DATABASE on ClickHouse first
+  --airhouse                     the server has Airhouse (AIRHOUSE_* set): provision the
+                                  workspace's tenant, add ${AIRHOUSE_NAME} (airhouse_managed),
+                                  run ${AIRHOUSE_STEP}, and open the page with ?airhouse=1
   --org-slug <slug>              the canary's org (default oxy-canary)
-  --steps <csv|all>              CANARY_STEPS to set (default: ALL_STEPS minus OMITTED_IN_CI)
+  --steps <csv|all>              CANARY_STEPS to set (default: ALL_STEPS minus OMITTED_IN_CI,
+                                  and minus ${AIRHOUSE_STEP} without --airhouse)
   --list-steps                   print the derived list and the omissions, then exit
   --no-build                     reuse sdk/*/dist as built
   --keep                         leave the staged app and tarballs on disk
@@ -161,6 +188,7 @@ function parseArgs(argv) {
     clickhousePassword: env("CANARY_CLICKHOUSE_PASSWORD", ""),
     clickhouseDatabase: env("CANARY_CLICKHOUSE_DATABASE", "oxy_canary"),
     createDatabase: true,
+    airhouse: false,
     orgSlug: "oxy-canary",
     steps: undefined,
     listSteps: false,
@@ -184,6 +212,7 @@ function parseArgs(argv) {
     else if (a === "--clickhouse-password") opts.clickhousePassword = next();
     else if (a === "--clickhouse-database") opts.clickhouseDatabase = next();
     else if (a === "--no-create-database") opts.createDatabase = false;
+    else if (a === "--airhouse") opts.airhouse = true;
     else if (a === "--org-slug") opts.orgSlug = next();
     else if (a === "--steps") opts.steps = next();
     else if (a === "--list-steps") opts.listSteps = true;
@@ -520,6 +549,63 @@ async function ensureWarehouse(opts, canary, workspaceId) {
   note(`added ${WAREHOUSE_NAME} → ${opts.clickhouseDatabase}`);
 }
 
+/**
+ * `--airhouse`: the workspace's Airhouse tenant, and `canary_airhouse` in its
+ * config.yml. The databases API takes no `airhouse_managed` type, so the entry
+ * goes in the way the IDE's Airhouse panel adds it: an edit of config.yml.
+ */
+async function ensureAirhouse(opts, canary, workspaceId) {
+  step(`Airhouse tenant and workspace database ${AIRHOUSE_NAME}`);
+  // Idempotent; the canary user is the org's Owner, which provisioning needs.
+  const tenant = `canary-${workspaceId.slice(0, 8)}`;
+  const provisioned = await must(
+    opts.target,
+    canary.token,
+    "POST",
+    `/api/airhouse/me/provision?workspace_id=${workspaceId}`,
+    { tenant_name: tenant },
+    "provision Airhouse"
+  );
+  note(`tenant ${provisioned.json?.tenant_id ?? tenant}`);
+  const file = `/api/${workspaceId}/files/${Buffer.from("config.yml").toString("base64")}?branch=main`;
+  const config = await must(opts.target, canary.token, "GET", file, undefined, "read config.yml");
+  const text = typeof config.json === "string" ? config.json : config.text;
+  if (new RegExp(`name:\\s*${AIRHOUSE_NAME}\\s*$`, "m").test(text)) {
+    note("already configured; leaving it");
+    return;
+  }
+  await must(
+    opts.target,
+    canary.token,
+    "POST",
+    file,
+    { data: withDatabase(text, AIRHOUSE_NAME, "airhouse_managed") },
+    "write config.yml"
+  );
+  note(`added ${AIRHOUSE_NAME} (airhouse_managed)`);
+}
+
+/**
+ * `config` with one more entry at the END of its top-level `databases:` list,
+ * indented like the entries already there. Last, because the first database
+ * is the workspace default `sql_read` reads. Text, not a YAML round trip: the
+ * script has no YAML parser, and a round trip would rewrite the rest of the file.
+ */
+export function withDatabase(config, name, type) {
+  const lines = config.replace(/\n*$/, "").split("\n");
+  const at = lines.findIndex((line) => /^databases:\s*$/.test(line));
+  if (at < 0) return `${lines.join("\n")}\ndatabases:\n  - name: ${name}\n    type: ${type}\n`;
+  const first = lines.slice(at + 1).find((line) => line.trim() !== "");
+  const indent = /^(\s*)-/.exec(first ?? "")?.[1] ?? "  ";
+  // The list runs until the next top-level key: a line that starts with
+  // neither whitespace nor `-`.
+  let end = at + 1;
+  while (end < lines.length && !/^[^\s-]/.test(lines[end])) end++;
+  while (end > at + 1 && lines[end - 1].trim() === "") end--;
+  lines.splice(end, 0, `${indent}- name: ${name}`, `${indent}  type: ${type}`);
+  return `${lines.join("\n")}\n`;
+}
+
 async function compileAndPromote(opts, staff, canary, workspaceId) {
   step("compile and promote the workspace");
   // Not `POST /{ws}/compile`: that route ships the default branch's HEAD, and a
@@ -737,7 +823,7 @@ async function stepsRan(opts, canary, appId, runId) {
  */
 function runJourney(opts, apiKey) {
   step("browser check (app-loads.spec.ts)");
-  const url = `${opts.target}/customer-apps/${opts.orgSlug}/${APP_SLUG}/`;
+  const url = `${opts.target}/customer-apps/${opts.orgSlug}/${APP_SLUG}/${opts.airhouse ? "?airhouse=1" : ""}`;
   const targets = [
     { app: `${opts.orgSlug}/${APP_SLUG}`, url, expectSelector: '[data-canary="ready"]' }
   ];
@@ -770,15 +856,16 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (!existsSync(join(CANARY_DIR, "oxy-app.json"))) fail(`no canary at ${CANARY_DIR}`);
   const allSteps = parseAllSteps(readFileSync(ALL_STEPS_SOURCE, "utf8"));
-  const ciSteps = deriveCiSteps(allSteps, OMITTED_IN_CI);
+  const omitted = omissions(opts.airhouse);
+  const ciSteps = deriveCiSteps(allSteps, omitted);
   if (opts.listSteps) {
     process.stdout.write(
       `ALL_STEPS (${allSteps.length}, from ${ALL_STEPS_SOURCE}):\n  ${allSteps.join(", ")}\n`
     );
-    process.stdout.write(`omitted in CI (${Object.keys(OMITTED_IN_CI).length}):\n`);
-    for (const [name, reason] of Object.entries(OMITTED_IN_CI))
+    process.stdout.write(`omitted (${Object.keys(omitted).length}):\n`);
+    for (const [name, reason] of Object.entries(omitted))
       process.stdout.write(`  ${name}: ${reason}\n`);
-    process.stdout.write(`CI runs (${ciSteps.length}):\n  ${ciSteps.join(", ")}\n`);
+    process.stdout.write(`runs (${ciSteps.length}):\n  ${ciSteps.join(", ")}\n`);
     return;
   }
   opts.steps ??= ciSteps.join(",");
@@ -803,6 +890,7 @@ async function main() {
     await ensureOltp(opts, staff, orgId);
     await ensureClickHouse(opts);
     await ensureWarehouse(opts, canary, workspaceId);
+    if (opts.airhouse) await ensureAirhouse(opts, canary, workspaceId);
     await compileAndPromote(opts, staff, canary, workspaceId);
     const apiKey = await mintApiKey(opts, canary, workspaceId);
 

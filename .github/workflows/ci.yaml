@@ -1661,6 +1661,15 @@ jobs:
     # A step added to the canary runs here the day it lands; the self-test
     # below fails when an omission names no real step.
     #
+    # Airhouse is real here too: the job boots `docker-compose.airhouse.yml`
+    # (control plane, data plane, haproxy, its Postgres and MinIO; public
+    # ghcr.io images, so no `packages: read`) and passes `--airhouse`, which
+    # runs `airhouse_reads` and opens the page with `?airhouse=1` for its
+    # `airhouse_query_route` check. Both read zero, one and 2,500 rows — the
+    # 2026-10-28 incident (#3791) failed every zero-row Airhouse read for two
+    # days, and a PR that does that again fails here at `airhouse_reads: zero
+    # rows`. The self-test fails if the flag is dropped.
+    #
     # Where the binary comes from is the one fork in this job. When the `oxy`
     # filter fired, `cargo-check-and-test` built and uploaded `oxy-binary-ci`,
     # and this job downloads it. When it did not (an sdk-only or canary-only
@@ -1729,6 +1738,13 @@ jobs:
       # separate from the control plane the way `cargo-check-and-test` keeps it.
       OXY_OLTP_PROVIDER: local
       OXY_OLTP_ADMIN_URL: postgresql://postgres:postgres@localhost:15433/postgres
+      # The Airhouse stack below, as `.env.airhouse` points a dev box at it.
+      # `OXY_AIRHOUSE_OBS_INSECURE` allows plain pgwire to it (no TLS locally).
+      AIRHOUSE_BASE_URL: http://localhost:8080
+      AIRHOUSE_ADMIN_TOKEN: airhouse-local-token
+      AIRHOUSE_WIRE_HOST: localhost
+      AIRHOUSE_WIRE_PORT: "5445"
+      OXY_AIRHOUSE_OBS_INSECURE: "true"
     services:
       postgres:
         image: postgres:18-alpine
@@ -1766,6 +1782,21 @@ jobs:
           --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Airhouse boots in the background while the binary and the web toolchain
+      # arrive; "Wait for Airhouse" joins it before the server starts. Only the
+      # services the server talks to and what they depend on — not the demo
+      # tenant, the checkpoint provisions its own. Its ports (8080, 8081, 5445,
+      # 5433, 9000/9001) miss the service containers' (5432, 15433, 18123).
+      - name: Start Airhouse (background)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/airhouse"
+          docker compose version
+          # `up.rc` appears when `up` ends, holding its exit code.
+          nohup bash -c 'docker compose -f docker-compose.airhouse.yml up -d \
+              airhouse-cp airhouse-dp airhouse-haproxy; echo $? > "$0/up.rc"' \
+            "$RUNNER_TEMP/airhouse" > "$RUNNER_TEMP/airhouse/up.log" 2>&1 &
 
       # ── the binary: the artifact when the check job ran… ──────────────────
       - name: Download oxy binary
@@ -1840,6 +1871,44 @@ jobs:
         with:
           install-playwright: "true"
 
+      # A first boot can race: an init container reaches the Airhouse Postgres
+      # before it accepts connections and `up` exits non-zero; a second `up`
+      # finds it ready. So: join the background `up`, retry it if it failed,
+      # then wait for both planes' health and the wire port behind haproxy.
+      - name: Wait for Airhouse
+        run: |
+          set -uo pipefail
+          compose() { docker compose -f docker-compose.airhouse.yml "$@"; }
+          rc_file="$RUNNER_TEMP/airhouse/up.rc"
+          for i in $(seq 1 150); do [ -s "$rc_file" ] && break; sleep 2; done
+          ok=0
+          if [ "$(cat "$rc_file" 2>/dev/null)" = 0 ]; then
+            ok=1
+          else
+            echo "background docker compose up did not succeed (rc: $(cat "$rc_file" 2>/dev/null || echo none)):"
+            cat "$RUNNER_TEMP/airhouse/up.log"
+          fi
+          for attempt in 1 2 3; do
+            [ "$ok" = 1 ] && break
+            echo "docker compose up, attempt $attempt"
+            if compose up -d airhouse-cp airhouse-dp airhouse-haproxy; then ok=1; else sleep 5; fi
+          done
+          [ "$ok" = 1 ] || { echo "::error::the Airhouse stack did not come up"; compose ps -a; exit 1; }
+          for i in $(seq 1 60); do
+            if curl -sf --max-time 3 http://localhost:8080/healthz > /dev/null &&
+               curl -sf --max-time 3 http://localhost:8081/healthz > /dev/null &&
+               (exec 3<>/dev/tcp/127.0.0.1/5445) 2>/dev/null; then
+              echo "Airhouse ready after ~$((i * 2))s"
+              compose ps
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Airhouse did not answer /healthz on 8080 and 8081 and 5445 within 2 minutes"
+          compose ps -a
+          compose logs --tail 80
+          exit 1
+
       # `OXY_STATE_DIR` is set here rather than in the job's `env`, where the
       # `runner` context is not available.
       - name: Start oxy
@@ -1890,6 +1959,7 @@ jobs:
             --target http://127.0.0.1:3000 \
             --clickhouse-url http://localhost:18123 \
             --clickhouse-password clickhouse \
+            --airhouse \
             --sandbox-loop \
             --sandbox-loop-omit storage_roundtrip \
             --journey
@@ -1905,6 +1975,12 @@ jobs:
           path: ${{ runner.temp }}/custom-app-canary/oxy-server.log
           retention-days: 7
           if-no-files-found: ignore
+
+      # The planes' own logs go to the job log, so an `airhouse_reads` failure
+      # shows Airhouse's side next to the server's.
+      - name: Airhouse logs
+        if: failure()
+        run: docker compose -f docker-compose.airhouse.yml logs --tail 200 airhouse-cp airhouse-dp airhouse-haproxy || true
 
       - name: Stop oxy
         if: always()

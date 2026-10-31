@@ -8,7 +8,7 @@
     "apps": [
       {
         "app": "oxy-canary/platform-canary",
-        "url": "https://aip.staging.oxy.tech/customer-apps/oxy-canary/platform-canary/",
+        "url": "https://aip.staging.oxy.tech/customer-apps/oxy-canary/platform-canary/?airhouse=1",
         "expectSelector": "[data-canary=\"ready\"]"
       }
     ]
