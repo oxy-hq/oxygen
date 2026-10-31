@@ -7,9 +7,10 @@ import { HomeWidgets, needsCount } from "./index";
 
 let widgets: WidgetCard[] | undefined;
 let isError = false;
+let isPending = false;
 const refetch = vi.fn();
 vi.mock("@/hooks/api/homeWidgets/useHomeWidgets", () => ({
-  useHomeWidgets: () => ({ data: widgets, isError, refetch, isFetching: false })
+  useHomeWidgets: () => ({ data: widgets, isError, isPending, refetch, isFetching: false })
 }));
 
 type Callbacks = {
@@ -90,6 +91,7 @@ afterEach(() => {
   cleanup();
   widgets = undefined;
   isError = false;
+  isPending = false;
   mutate.mockReset();
   answer = { ok: { ok: true, message: null, view: null } };
 });
@@ -201,12 +203,23 @@ describe("the home's widgets", () => {
     expect(screen.queryByTestId("home-widget-bookkeeping-close")).toBeNull();
   });
 
-  it("says why a widget has no view", () => {
+  it("folds a widget that failed to answer into a quiet Couldn't load line, its reason on hover", () => {
     widgets = [close({ view: null, error: "This widget took too long to answer." })];
     renderWidgets();
-    expect(screen.getByTestId("home-widget-bookkeeping-close-error")).toHaveTextContent(
-      "This widget took too long to answer."
+    const line = screen.getByTestId("home-widget-bookkeeping-close");
+    expect(line).toHaveAttribute("data-compact", "true");
+    expect(line).toHaveAttribute("title", "This widget took too long to answer.");
+    expect(screen.getByTestId("home-widget-bookkeeping-close-headline")).toHaveTextContent(
+      "Couldn't load"
     );
+    expect(screen.getByTestId("home-widgets-failed")).toHaveTextContent("Couldn't load");
+  });
+
+  it("shows Today's shape while the widgets load", () => {
+    widgets = undefined;
+    isPending = true;
+    renderWidgets();
+    expect(screen.getByTestId("home-widgets-loading")).toHaveAttribute("aria-busy", "true");
   });
 
   it("draws progress as a ring holding done/total, and caps a regular card at three rows", () => {
@@ -300,19 +313,10 @@ describe("the home's widgets", () => {
     expect(screen.getByTestId("home-widget-bookkeeping-close").tagName).toBe("ARTICLE");
   });
 
-  it("keeps a calm widget whole when it offers a button, and a failed one too", () => {
-    widgets = [
-      close({ view: { ...close().view!, level: "ok" } }),
-      close({
-        key: "bookkeeping/close#broken",
-        instance: "broken",
-        view: null,
-        error: "Timed out."
-      })
-    ];
+  it("keeps a calm widget whole when it offers a button", () => {
+    widgets = [close({ view: { ...close().view!, level: "ok" } })];
     renderWidgets();
     expect(screen.getByTestId("home-widget-bookkeeping-close").tagName).toBe("ARTICLE");
-    expect(screen.getByTestId("home-widget-bookkeeping-close-broken").tagName).toBe("ARTICLE");
     expect(screen.queryByTestId("home-widgets-calm")).toBeNull();
   });
 
@@ -341,7 +345,8 @@ describe("the home's widgets", () => {
 
   it("counts for the status line only the widgets that need someone", () => {
     const calm = close({ view: { ...close().view!, level: "ok", buttons: [], rows: [] } });
-    expect(needsCount([close(), calm, close({ view: null, error: "Timed out." })])).toBe(2);
+    // A widget that failed to answer is its app owner's news, not a job for the reader.
+    expect(needsCount([close(), calm, close({ view: null, error: "Timed out." })])).toBe(1);
     expect(needsCount([calm])).toBe(0);
     expect(needsCount(undefined)).toBe(0);
   });

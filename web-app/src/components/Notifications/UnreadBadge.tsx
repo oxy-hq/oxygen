@@ -23,6 +23,8 @@ export function UnreadBadge({
       data-testid={testId}
       className={cn(
         "pointer-events-none flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 font-medium text-destructive-foreground text-xs tabular-nums leading-none dark:text-background",
+        // Pops in when news arrives; under reduced motion it only fades.
+        "starting:scale-50 starting:opacity-0 transition-[opacity,scale] duration-(--duration-base) motion-reduce:starting:scale-100",
         className
       )}
     >

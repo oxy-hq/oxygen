@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { cn } from "@/libs/shadcn/utils";
 
 /** The ring's circle: a circumference of 100 makes the dash length the percentage. */
@@ -36,6 +37,7 @@ export function WidgetProgress({
           strokeWidth='3.5'
           className='stroke-border'
         />
+        {/* Fills from empty to its value when it appears, then follows it (motion.css). */}
         <circle
           cx='18'
           cy='18'
@@ -43,8 +45,8 @@ export function WidgetProgress({
           fill='none'
           strokeWidth='3.5'
           strokeLinecap={percent > 0 ? "round" : "butt"}
-          strokeDasharray={`${percent} ${100 - percent}`}
-          className={cn("stroke-primary", percent === 0 && "hidden")}
+          style={{ "--ring-fill": percent } as CSSProperties}
+          className={cn("motion-ring-arc stroke-primary", percent === 0 && "hidden")}
         />
       </svg>
       <span className='absolute inset-0 flex items-center justify-center font-medium text-card-foreground text-xs tabular-nums'>

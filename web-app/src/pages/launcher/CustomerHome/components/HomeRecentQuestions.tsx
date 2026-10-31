@@ -44,7 +44,7 @@ export function HomeRecentQuestions() {
             <Link
               to={ws.THREAD(row.id)}
               data-testid='home-recent-question'
-              className='-mx-2 flex min-h-11 items-center gap-3 rounded-md px-2 text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none'
+              className='-mx-2 flex min-h-11 items-center gap-3 rounded-md px-2 text-sm transition-colors duration-(--duration-fast) hover:bg-accent focus-visible:bg-accent focus-visible:outline-none'
             >
               <span className='min-w-0 flex-1 truncate text-foreground'>{row.title}</span>
               <span className='shrink-0 text-muted-foreground text-xs'>

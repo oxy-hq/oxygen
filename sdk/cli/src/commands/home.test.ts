@@ -277,6 +277,9 @@ describe("renderHome", () => {
     const text = renderHome(description(), FEED_BODY);
     expect(text).toContain("store-ops/today · Today · regular");
     expect(text).toContain("error: function timed out");
+    // Listed last, under its own heading, as the home draws it.
+    expect(text.indexOf("Couldn't load")).toBeGreaterThan(-1);
+    expect(text.indexOf("Couldn't load")).toBeLessThan(text.indexOf("error: function timed out"));
     expect(renderHome(description(), undefined)).toContain("(no view)");
   });
 

@@ -77,7 +77,7 @@ export function WidgetCard({
       data-testid={base}
       data-level={view?.level}
       data-size={card.size}
-      className='flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4'
+      className='flex min-w-0 starting:translate-y-1.5 flex-col gap-3 rounded-lg border bg-card p-4 starting:opacity-0 transition-[opacity,translate] duration-(--duration-slow) motion-reduce:starting:translate-y-0'
     >
       <header className='flex items-center gap-2 text-muted-foreground text-xs'>
         <AppMark iconUrl={iconUrl} name={card.app.name} size='sm' />

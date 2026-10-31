@@ -7,6 +7,7 @@
 @import "./light.css";
 @import "./dark.css";
 @import "./typography.css";
+@import "./motion.css";
 
 @plugin "tailwindcss-animate";
 

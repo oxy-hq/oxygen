@@ -85,7 +85,7 @@ function viewLines(live: FeedWidget | undefined, previewing: boolean): string[] 
 /**
  * The home's own rule (`isCalm` in the web app): a view that is `ok` or `info`
  * and offers no button is folded to one line, after the cards with something
- * to do. A failed or missing view keeps its card.
+ * to do. A missing view (a preview of an unsaved layout) keeps its block.
  */
 function isCalm(live: FeedWidget | undefined): boolean {
   const view = live?.view;
@@ -93,6 +93,11 @@ function isCalm(live: FeedWidget | undefined): boolean {
   const level = view.level ?? "info";
   if (level !== "ok" && level !== "info") return false;
   return (view.buttons ?? []).length === 0 && (view.rows ?? []).every((row) => !row.button);
+}
+
+/** A widget whose function did not answer (`isUnavailable` in the web app): listed last, under "Couldn't load". */
+function isFailed(live: FeedWidget | undefined): boolean {
+  return Boolean(live && (live.error || !live.view));
 }
 
 function widgetBlock(
@@ -141,10 +146,11 @@ export function renderHome(
   lines.push("", SECTION_TITLES.apps);
   const groups = home.sections.flatMap((s) => (s.kind === "widgets" ? [s] : []));
   const calm = (item: HomeDescribedWidget) => isCalm(views.get(item.key));
+  const failed = (item: HomeDescribedWidget) => isFailed(views.get(item.key));
   if (groups.some((g) => g.items.length > 0)) {
     lines.push("", "Today");
     for (const group of groups) {
-      const loud = group.items.filter((item) => !calm(item));
+      const loud = group.items.filter((item) => !calm(item) && !failed(item));
       if (loud.length === 0) continue;
       if (group.title) lines.push(group.title);
       block(loud);
@@ -153,6 +159,11 @@ export function renderHome(
     if (quiet.length > 0) {
       lines.push("", "All clear");
       block(quiet);
+    }
+    const broken = groups.flatMap((g) => g.items.filter(failed));
+    if (broken.length > 0) {
+      lines.push("", "Couldn't load");
+      block(broken);
     }
   }
   if (home.sections.some((s) => s.kind === "insights")) {

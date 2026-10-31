@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
+import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useHomeWidgets } from "@/hooks/api/homeWidgets/useHomeWidgets";
 import { cn } from "@/libs/shadcn/utils";
 import type { WidgetCard as Card } from "@/types/homeWidgets";
 import { WidgetCard } from "./components/WidgetCard";
 import { WidgetStrip } from "./components/WidgetStrip";
-import { isCalm, widgetTestId } from "./utils";
+import { isCalm, isUnavailable, widgetTestId } from "./utils";
 
 /** A widgets group of the org's layout: its title, and its copies' keys in order. */
 export type WidgetGroup = { title: string | null; items: string[] };
@@ -19,7 +20,9 @@ export const TODAY_ANCHOR = "home-today";
  *
  * What needs someone comes first, everywhere: the widgets with something to do
  * are full cards under their layout group's heading, then every calm one
- * (`isCalm`) is a line in one "All clear" list. `rail` is the desktop column
+ * (`isCalm`) is a line in one "All clear" list, then any widget that failed to
+ * answer is a quiet "Couldn't load" line: an app's timeout is its owner's news,
+ * not the loudest thing on everyone's home. `rail` is the desktop column
  * beside the apps; `stack` is the same order under the apps on a phone or a
  * tablet, so nothing sits off-screen behind a swipe.
  *
@@ -39,7 +42,7 @@ export function HomeWidgets({
   groups: WidgetGroup[];
   variant: "rail" | "stack";
 }) {
-  const { data: widgets, isError, refetch, isFetching } = useHomeWidgets(orgSlug);
+  const { data: widgets, isError, isPending, refetch, isFetching } = useHomeWidgets(orgSlug);
   const [pressed, setPressed] = useState<ReadonlySet<string>>(new Set());
   if (isError) {
     return (
@@ -61,6 +64,7 @@ export function HomeWidgets({
       </p>
     );
   }
+  if (orgSlug && isPending) return <TodaySkeleton />;
   if (!orgSlug || !widgets?.length) return null;
 
   const byKey = new Map(widgets.map((w) => [w.key, w]));
@@ -68,11 +72,13 @@ export function HomeWidgets({
     ? groups.map((g) => ({ title: g.title, cards: g.items.flatMap((key) => byKey.get(key) ?? []) }))
     : [{ title: null, cards: widgets }];
   const folded = (card: Card) => isCalm(card) && !pressed.has(card.key);
+  const full = (card: Card) => !folded(card) && !isUnavailable(card);
   const loud = placed
-    .map((g) => ({ title: g.title, cards: g.cards.filter((c) => !folded(c)) }))
+    .map((g) => ({ title: g.title, cards: g.cards.filter(full) }))
     .filter((g) => g.cards.length > 0);
   const calm = placed.flatMap((g) => g.cards.filter(folded));
-  if (!loud.length && !calm.length) return null;
+  const failed = placed.flatMap((g) => g.cards.filter(isUnavailable));
+  if (!loud.length && !calm.length && !failed.length) return null;
 
   const icons = new Map(apps.map((a) => [a.id, a.icon_url]));
   // One column that may shrink (`grid-cols-1` is `minmax(0, 1fr)`), so a card's
@@ -132,11 +138,39 @@ export function HomeWidgets({
           </div>
         </div>
       )}
+      {failed.length > 0 && (
+        <div className='flex flex-col gap-3' data-testid='home-widgets-failed'>
+          <h3 className='font-medium text-muted-foreground text-sm'>Couldn't load</h3>
+          <div className={lineColumns}>
+            {failed.map((card) => (
+              <WidgetStrip
+                key={card.key}
+                card={card}
+                iconUrl={icons.get(card.app.id)}
+                testId={widgetTestId(card)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
 
-/** How many widgets have something to do: what the home's status line counts. */
+/** How many widgets have something to do: what the home's status line counts. A
+ *  widget that failed to answer is not a job for the person reading the home. */
 export function needsCount(widgets: Card[] | undefined): number {
-  return (widgets ?? []).filter((card) => !isCalm(card)).length;
+  return (widgets ?? []).filter((card) => !isCalm(card) && !isUnavailable(card)).length;
+}
+
+/** Today's shape while the widgets load, where this browser knows there is a Today. */
+function TodaySkeleton() {
+  return (
+    <div className='flex flex-col gap-3' aria-busy='true' data-testid='home-widgets-loading'>
+      <Skeleton className='h-5 w-16' />
+      <Skeleton className='h-32 w-full rounded-lg' />
+      <Skeleton className='h-11 w-full rounded-lg' />
+      <Skeleton className='h-11 w-full rounded-lg' />
+    </div>
+  );
 }

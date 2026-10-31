@@ -24,9 +24,11 @@ import { HomeAppGrid } from "./components/HomeAppGrid";
 import { HomeAskBox } from "./components/HomeAskBox";
 import { HomeRecentQuestions } from "./components/HomeRecentQuestions";
 import { HomeWidgets, needsCount, TODAY_ANCHOR, type WidgetGroup } from "./components/HomeWidgets";
+import { isUnavailable } from "./components/HomeWidgets/utils";
 import { WorldModelCard, worldModelTitle } from "./components/WorldModelCard";
 import { homeGreeting } from "./greeting";
 import { HOME_CONTAINER, HOME_GAP, HOME_RAIL_QUERY } from "./layout";
+import { useTodayHint, useTransitionedFlag } from "./useTodayHint";
 
 /**
  * The org's home with the apps-first experience on: the org and a greeting, an ask
@@ -54,6 +56,14 @@ export default function CustomerHome() {
   const org = useCurrentOrg((s) => s.org);
   const sections = useHomeSections(org?.slug);
   const widgets = useHomeWidgets(org?.slug);
+  // Known once the widgets load; until then, what this browser saw last time, so
+  // the frame does not change under the apps on every visit.
+  const todayHint = useTodayHint(
+    org?.slug,
+    widgets.isError ? true : widgets.data ? widgets.data.length > 0 : undefined
+  );
+  // Today appearing (or going) moves the apps: animate that, don't jump.
+  const hasToday = useTransitionedFlag(todayHint === true);
   const wide = useMediaQuery(HOME_RAIL_QUERY);
   const orgRole = useCurrentOrg((s) => s.role);
   const location = useLocation();
@@ -101,8 +111,6 @@ export default function CustomerHome() {
   const groups: WidgetGroup[] = sections.flatMap((s) =>
     s.kind === "widgets" && (s.items.length > 0 || s.title) ? [s] : []
   );
-  // Held open while the widgets load, so the apps do not reflow when they arrive.
-  const hasToday = widgets.isLoading || widgets.isError || (widgets.data?.length ?? 0) > 0;
   const rail = wide && hasToday;
   const today = (variant: "rail" | "stack") => (
     <HomeWidgets orgSlug={org?.slug} apps={apps} groups={groups} variant={variant} />
@@ -116,7 +124,8 @@ export default function CustomerHome() {
         <h1 className='font-medium text-xl tracking-tight sm:text-2xl'>
           {homeGreeting(user?.name)}
         </h1>
-        <HomeStatus widgets={widgets.data} />
+        {/* With Today, inside the same transition, so it does not push the apps first. */}
+        {hasToday && <HomeStatus widgets={widgets.data} />}
       </div>
       {canAsk && <HomeAskBox orgName={org?.name} />}
     </header>
@@ -138,7 +147,12 @@ export default function CustomerHome() {
     </section>
   );
   const insights = showInsights && (
-    <div className={cn("flex flex-col", HOME_GAP)} data-testid='home-lower-row'>
+    <div
+      className={cn("flex flex-col", HOME_GAP)}
+      data-testid='home-lower-row'
+      // Moves with the apps when Today arrives, rather than cross-fading.
+      style={{ viewTransitionName: "home-lower" }}
+    >
       <HomeRecentQuestions />
       {showWorldModel && (
         <WorldModelCard model={worldModel} title={worldModelTitle(org?.name)} to={worldModelTo} />
@@ -173,7 +187,8 @@ export default function CustomerHome() {
           </div>
           <aside
             aria-label='Today'
-            className='min-h-0 overflow-y-auto pt-8 pb-10'
+            // Eases in from the side the first time an org has a Today in this browser.
+            className='min-h-0 starting:translate-x-3 overflow-y-auto pt-8 pb-10 starting:opacity-0 transition-[opacity,translate] duration-(--duration-slow) motion-reduce:starting:translate-x-0'
             data-testid='home-today-rail'
           >
             {today("rail")}
@@ -209,7 +224,10 @@ export default function CustomerHome() {
  */
 function HomeStatus({ widgets }: { widgets: WidgetCardData[] | undefined }) {
   if (!widgets?.length) return null;
+  // Nothing answered: there is no day to report, clear or otherwise.
+  if (widgets.every(isUnavailable)) return null;
   const needs = needsCount(widgets);
+  const failed = widgets.filter(isUnavailable).length;
   const level = widgets.some((w) => w.view?.level === "critical")
     ? "bg-destructive"
     : widgets.some((w) => w.view?.level === "attention")
@@ -224,9 +242,11 @@ function HomeStatus({ widgets }: { widgets: WidgetCardData[] | undefined }) {
       {needs > 0 && level && (
         <span aria-hidden className={cn("size-2 shrink-0 rounded-full", level)} />
       )}
-      {needs === 0
-        ? "All clear today"
-        : `${needs} ${needs === 1 ? "thing needs" : "things need"} you today`}
+      {needs > 0
+        ? `${needs} ${needs === 1 ? "thing needs" : "things need"} you today`
+        : failed > 0
+          ? `All clear, but ${failed} couldn't load`
+          : "All clear today"}
     </a>
   );
 }

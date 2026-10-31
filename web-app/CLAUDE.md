@@ -200,6 +200,17 @@ If you only need the project (outside the IDE), use `useCurrentProject()` from `
 - For workspace-scoped gates, the backend's `EffectiveWorkspaceRole` already handles the org→workspace role resolution — trust server-side 403s instead of duplicating the check in the UI when possible.
 - Feature flags from `authConfig` control broader access: `authConfig.enterprise` for enterprise-only features, `authConfig.cloud` for cloud-only features.
 
+## Motion
+
+One motion language, defined in `src/styles/shadcn/motion.css`. Motion explains a press, a state change or a layout change; it never decorates and never makes anyone wait.
+
+- **Durations are tokens:** `duration-(--duration-instant|fast|base|slow|focal)` (100 / 150 / 200 / 300 / 700 ms). A bare `transition` already uses 200 ms and `ease-out`.
+- **Easing:** `ease-out` (expo deceleration) for arrivals, `ease-in` for departures, which run faster. No bounce.
+- **Overlays** (dialogs, sheets, menus, popovers, tooltips) are timed centrally by `data-slot`/`data-state`; don't add `duration-*` to them.
+- **Something appearing:** `transition-[opacity,translate] duration-(--duration-slow) starting:opacity-0 starting:translate-y-1` (Tailwind's `@starting-style`), never a JS mount animation.
+- **Layout changes that move things** (the home's Today rail arriving): `document.startViewTransition`, with a `view-transition-name` on what moves (`useTransitionedFlag` in `CustomerHome/useTodayHint.ts`).
+- **Reduced motion is required:** every transform you add gets its `motion-reduce:` counterpart (`motion-reduce:starting:translate-y-0`). Fades and colour changes stay; travel, zoom and press-scale go.
+
 ## Code Style
 
 - TypeScript strict mode is enabled — avoid `any`; use proper types or `unknown`.

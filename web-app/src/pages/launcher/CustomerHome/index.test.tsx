@@ -79,7 +79,11 @@ vi.mock("./components/HomeWidgets", () => ({
 }));
 const W: HomeSection = { kind: "widgets", title: null, items: [] };
 let sections: HomeSection[] = [W, { kind: "apps" }, { kind: "insights" }];
-type Widgets = { data?: { view?: { level?: string } }[]; isLoading: boolean; isError: boolean };
+type Widgets = {
+  data?: { view?: { level?: string } | null }[];
+  isLoading: boolean;
+  isError: boolean;
+};
 let widgets: Widgets = { data: [], isLoading: false, isError: false };
 const someWidgets = (...levels: string[]): Widgets => ({
   data: levels.map((level) => ({ view: { level } })),
@@ -125,6 +129,7 @@ beforeEach(() => {
   sections = [W, { kind: "apps" }, { kind: "insights" }];
   widgets = { data: [], isLoading: false, isError: false };
   wide = true;
+  window.localStorage.removeItem("oxy.home.today.northwind");
   unread = {};
   latest = {};
   worldModel = { entities: [{ id: "store" }] };
@@ -169,10 +174,26 @@ describe("the home's frame", () => {
     expect(screen.getByTestId("launcher-app-grid")).toHaveAttribute("data-beside-rail", "false");
   });
 
-  it("holds the rail open while the widgets load, so the apps do not reflow", () => {
+  it("draws the frame this browser saw last time while the widgets load", () => {
     widgets = { data: undefined, isLoading: true, isError: false };
     renderHome();
+    // Never seen: no rail, so an org without widgets never sees one flash in.
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "none");
+    cleanup();
+    window.localStorage.setItem("oxy.home.today.northwind", "1");
+    renderHome();
     expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "rail");
+  });
+
+  it("remembers what the widgets said, for the next visit's first paint", () => {
+    widgets = someWidgets("ok");
+    renderHome();
+    expect(window.localStorage.getItem("oxy.home.today.northwind")).toBe("1");
+    cleanup();
+    widgets = { data: [], isLoading: false, isError: false };
+    renderHome();
+    expect(window.localStorage.getItem("oxy.home.today.northwind")).toBe("0");
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "none");
   });
 
   it("always draws the apps; insights only while the layout keeps them", () => {
@@ -200,6 +221,20 @@ describe("the line under the greeting", () => {
     widgets = someWidgets("ok", "info");
     renderHome();
     expect(screen.getByTestId("home-status")).toHaveTextContent("All clear today");
+  });
+
+  it("never says all clear when nothing answered, and names failures beside a clear day", () => {
+    widgets = { data: [{ view: null }, { view: null }], isLoading: false, isError: false };
+    renderHome();
+    expect(screen.queryByTestId("home-status")).toBeNull();
+    cleanup();
+    widgets = {
+      data: [{ view: { level: "ok" } }, { view: null }],
+      isLoading: false,
+      isError: false
+    };
+    renderHome();
+    expect(screen.getByTestId("home-status")).toHaveTextContent("All clear, but 1 couldn't load");
   });
 
   it("says nothing while there are no widgets", () => {

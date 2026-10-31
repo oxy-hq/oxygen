@@ -45,8 +45,11 @@ export function HomeAppTile({
     // name's link stretches over the whole tile with `after:inset-0`; the access
     // button is its sibling, lifted above the overlay with `z-10`.
     <div
-      className='group relative flex min-w-0 flex-col items-center gap-1.5 rounded-lg text-center focus-within:ring-2 focus-within:ring-ring sm:flex-row sm:gap-3 sm:border sm:bg-card sm:p-3 sm:text-left sm:hover:border-primary/50'
+      // Gives slightly under a press (the name's link covers the tile), like a button.
+      className='group relative flex min-w-0 flex-col items-center gap-1.5 rounded-lg text-center transition-[border-color,scale] duration-(--duration-fast) focus-within:ring-2 focus-within:ring-ring has-[a:active]:scale-98 has-[a:active]:duration-(--duration-instant) motion-reduce:has-[a:active]:scale-100 sm:flex-row sm:gap-3 sm:border sm:bg-card sm:p-3 sm:text-left sm:hover:border-primary/50'
       data-testid={`home-app-card-${app.slug}`}
+      // A name of its own, so a layout change (Today arriving) moves the tile, not a cross-fade.
+      style={{ viewTransitionName: `home-app-${app.slug}` }}
     >
       <div className='relative shrink-0'>
         <AppMark

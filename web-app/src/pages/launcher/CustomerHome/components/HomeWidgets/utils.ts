@@ -31,6 +31,11 @@ export function widgetTestId(card: WidgetCard): string {
   return `home-widget-${card.app.slug}-${card.id}${card.instance ? `-${card.instance}` : ""}`;
 }
 
+/** A widget whose function did not answer: no view, only the server's reason. */
+export function isUnavailable(card: WidgetCard): boolean {
+  return !card.view;
+}
+
 /**
  * A widget with nothing to do: it says all is well (`ok`) or only informs
  * (`info`) and offers no button. The home folds it to one line; a card with a
