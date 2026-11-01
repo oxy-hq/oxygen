@@ -737,6 +737,12 @@ const homeWidgetKeys = {
   list: (orgSlug: string) => [...homeWidgetKeys.all, orgSlug] as const
 };
 
+// The signed-in person's own choices about the home in one org: hidden copies, whether Today shows.
+const homePreferenceKeys = {
+  all: ["home-preferences"] as const,
+  get: (orgSlug: string) => [...homePreferenceKeys.all, orgSlug] as const
+};
+
 const internalJobsKeys = {
   all: ["admin", "internal-jobs"] as const,
   queueStats: () => [...internalJobsKeys.all, "queue-stats"] as const,
@@ -1221,6 +1227,7 @@ const queryKeys = {
   usageReport: usageReportKeys,
   notifications: notificationKeys,
   homeWidgets: homeWidgetKeys,
+  homePreferences: homePreferenceKeys,
   internalJobs: internalJobsKeys,
   compiles: compilesKeys,
   compile: compileKeys,

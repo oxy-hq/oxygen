@@ -6,7 +6,9 @@ use std::collections::BTreeSet;
 
 use serde_json::{Map, Value};
 
-use super::{CatalogEntry, Item, LAYOUT_VERSION, Layout, Problem, Section, SectionKind, problem};
+use super::{
+    Audience, CatalogEntry, Item, LAYOUT_VERSION, Layout, Problem, Section, SectionKind, problem,
+};
 use crate::notifications::catalog::model::valid_segment;
 use crate::widgets::model::{MAX_TITLE_CHARS, Size};
 
@@ -25,10 +27,12 @@ pub fn check(doc: &Value, catalog: &[CatalogEntry]) -> Result<Layout, Vec<Proble
 
 /// A stored layout, read leniently: `None` when it no longer parses at all.
 /// What it says about widgets is settled against the catalog when drawn.
+/// A field this server does not know is read past, not fatal: a layout a newer
+/// server wrote keeps its groups, order and sizes here.
 pub fn read(doc: &Value) -> Option<Layout> {
     let mut problems = Vec::new();
     let layout = parse(doc, &mut problems)?;
-    problems.is_empty().then_some(layout)
+    problems.iter().all(|p| p.unknown_field).then_some(layout)
 }
 
 fn parse(doc: &Value, problems: &mut Vec<Problem>) -> Option<Layout> {
@@ -133,7 +137,12 @@ fn widgets_section(
     first: bool,
     problems: &mut Vec<Problem>,
 ) -> Section {
-    unknown_keys(obj, at, &["kind", "title", "items", "others"], problems);
+    unknown_keys(
+        obj,
+        at,
+        &["kind", "title", "items", "others", "for"],
+        problems,
+    );
     let title = title(obj.get("title"), &format!("{at}.title"), problems);
     let hide_others = match (obj.get("others").map(Value::as_str), first) {
         (None, _) | (Some(Some("show")), true) => false,
@@ -175,6 +184,7 @@ fn widgets_section(
         title,
         items,
         hide_others,
+        audience: Audience::parse(obj.get("for"), &format!("{at}.for"), problems),
     }
 }
 
@@ -190,7 +200,7 @@ fn item(raw: &Value, at: &str, problems: &mut Vec<Problem>) -> Option<Item> {
     unknown_keys(
         obj,
         at,
-        &["widget", "id", "title", "size", "hidden", "params"],
+        &["widget", "id", "title", "size", "hidden", "params", "for"],
         problems,
     );
     let Some(widget) = obj.get("widget").and_then(Value::as_str).map(str::trim) else {
@@ -208,6 +218,7 @@ fn item(raw: &Value, at: &str, problems: &mut Vec<Problem>) -> Option<Item> {
         size: size(obj.get("size"), &format!("{at}.size"), problems),
         hidden: flag(obj.get("hidden"), &format!("{at}.hidden"), problems),
         params: params(obj.get("params"), &format!("{at}.params"), problems),
+        audience: Audience::parse(obj.get("for"), &format!("{at}.for"), problems),
     })
 }
 
@@ -291,10 +302,13 @@ fn unknown_keys(obj: &Map<String, Value>, at: &str, allowed: &[&str], problems: 
         } else {
             format!("{at}.{key}")
         };
-        problems.push(problem(
-            path,
-            format!("`{key}` is not a field here"),
-            format!("Remove it; this takes {}.", allowed.join(", ")),
-        ));
+        problems.push(Problem {
+            unknown_field: true,
+            ..problem(
+                path,
+                format!("`{key}` is not a field here"),
+                format!("Remove it; this takes {}.", allowed.join(", ")),
+            )
+        });
     }
 }

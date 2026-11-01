@@ -39,6 +39,7 @@ pub use super::documents::Entity as Documents;
 pub use super::folders::Entity as Folders;
 pub use super::git_namespaces::Entity as GitNamespaces;
 pub use super::github_accounts::Entity as GithubAccounts;
+pub use super::home_user_preferences::Entity as HomeUserPreferences;
 pub use super::locations::Entity as Locations;
 pub use super::logs::Entity as Logs;
 pub use super::messages::Entity as Messages;

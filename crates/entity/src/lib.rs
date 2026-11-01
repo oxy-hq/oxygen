@@ -120,6 +120,7 @@ pub mod feature_flag;
 pub mod folders;
 pub mod git_namespaces;
 pub mod github_accounts;
+pub mod home_user_preferences;
 pub mod location_external_ids;
 pub mod locations;
 pub mod logs;

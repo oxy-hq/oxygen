@@ -126,11 +126,11 @@ export function SystemIndicator() {
 }
 
 /**
- * Live clock in the given IANA timezone (viewer-local when omitted or
+ * The clock's text in the given IANA timezone (viewer-local when omitted or
  * invalid). Updates each half-minute (minute precision), pausing while the
- * tab is hidden.
+ * tab is hidden. Shared by `WorkspaceClock` and the wired shell's Today clock.
  */
-export function WorkspaceClock({ timezone }: { timezone?: string }) {
+export function useClockText(timezone?: string): string {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -150,7 +150,7 @@ export function WorkspaceClock({ timezone }: { timezone?: string }) {
     };
   }, []);
 
-  const text = useMemo(() => {
+  return useMemo(() => {
     try {
       return new Intl.DateTimeFormat(undefined, {
         timeZone: timezone,
@@ -166,7 +166,11 @@ export function WorkspaceClock({ timezone }: { timezone?: string }) {
       }).format(now);
     }
   }, [now, timezone]);
+}
 
+/** Live clock in the given IANA timezone (viewer-local when omitted or invalid). */
+export function WorkspaceClock({ timezone }: { timezone?: string }) {
+  const text = useClockText(timezone);
   return (
     <span data-testid='topbar-clock' className='oxy-shell-scope oxy-clock'>
       {text}

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.25.0] - 2026-11-01
+
+### Added
+
+- **Today panel from the top-bar clock in `<OxyShell>`.** The clock is now a
+  button. It opens a "Today" panel listing the viewer's home widget cards
+  from every app they can open (`GET /api/home/widgets?org=<slug>`), so an
+  item that needs them is one click away from inside any custom app. Rows
+  that need a look come first (level `attention`/`critical`, or a card with
+  buttons), then calm ones, then cards that failed ("Couldn't load"); each
+  row shows the app icon (or initials), title, headline and a small ring
+  when the view reports progress, and is a plain link (same tab) to the
+  view's link, else the app. The footer opens Oxygen home. Nothing is
+  requested until the panel is first opened; a failed request shows
+  "Couldn't load Today." and never reaches the host app. Escape, a press
+  outside and tabbing away close it; Escape returns focus to the clock. The
+  panel arrives and leaves like Oxygen's overlays and fades only under
+  reduced motion; its styles (`oxy-today-*`) ship in `shell.css`, so
+  upgrading is enough. On a phone the clock shows as an icon and the panel
+  spans the width. No new exports; `WorkspaceClock` is unchanged, and the
+  button appears only in the wired `OxyShell` once its org is known.
+
 ## [2.24.0] - 2026-10-31
 
 ### Added

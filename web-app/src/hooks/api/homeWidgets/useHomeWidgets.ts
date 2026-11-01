@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { HomeWidgetsService } from "@/services/api/homeWidgets";
-import type { HomeSection, HomeWidgetsResponse } from "@/types/homeWidgets";
+import type { HiddenWidget, HomeSection, HomeWidgetsResponse } from "@/types/homeWidgets";
 import queryKeys from "../queryKey";
 
 /** How long a widget's view is fresh. Each read runs the app's function, so the
@@ -24,10 +24,10 @@ export function refreshEvery(data: HomeWidgetsResponse | undefined): number | fa
   return asks.length ? Math.min(...asks) * 1000 : false;
 }
 
-const homeWidgetsQuery = (orgSlug: string | undefined) => ({
+const homeWidgetsQuery = (orgSlug: string | undefined, enabled: boolean) => ({
   queryKey: queryKeys.homeWidgets.list(orgSlug ?? ""),
   queryFn: () => HomeWidgetsService.list(orgSlug ?? ""),
-  enabled: !!orgSlug,
+  enabled: !!orgSlug && enabled,
   staleTime: WIDGETS_STALE_MS,
   refetchInterval: (query: { state: { data?: HomeWidgetsResponse } }) =>
     refreshEvery(query.state.data)
@@ -37,9 +37,24 @@ const homeWidgetsQuery = (orgSlug: string | undefined) => ({
  * The widget copies the org's layout shows, of the apps the person can open in
  * `orgSlug`, each with its view or why there is none. Re-read on focus once
  * stale, on the soonest `refresh_after`, and after a button press.
+ *
+ * `enabled: false` makes no request: the home does not read widgets while the
+ * person has hidden Today. The top bar's Today panel shares this very query key.
  */
-export const useHomeWidgets = (orgSlug: string | undefined) =>
-  useQuery({ ...homeWidgetsQuery(orgSlug), select: (data: HomeWidgetsResponse) => data.widgets });
+export const useHomeWidgets = (orgSlug: string | undefined, enabled = true) =>
+  useQuery({
+    ...homeWidgetsQuery(orgSlug, enabled),
+    select: (data: HomeWidgetsResponse) => data.widgets
+  });
+
+const NONE_HIDDEN: HiddenWidget[] = [];
+const hiddenOf = (data: HomeWidgetsResponse) => data.hidden ?? NONE_HIDDEN;
+
+/** The copies the person hid (that they could otherwise open): the home's restore list. Same request. */
+export function useHiddenWidgets(orgSlug: string | undefined, enabled = true): HiddenWidget[] {
+  const { data } = useQuery({ ...homeWidgetsQuery(orgSlug, enabled), select: hiddenOf });
+  return data ?? NONE_HIDDEN;
+}
 
 // Module scope, so React Query keeps the selected list while the data is the same.
 const sectionsOf = (data: HomeWidgetsResponse) =>
@@ -47,7 +62,7 @@ const sectionsOf = (data: HomeWidgetsResponse) =>
 
 /** The sections the org's layout draws, in order: the same request as the
  *  widgets, so it costs nothing more. The default while it loads or fails. */
-export function useHomeSections(orgSlug: string | undefined): HomeSection[] {
-  const { data } = useQuery({ ...homeWidgetsQuery(orgSlug), select: sectionsOf });
+export function useHomeSections(orgSlug: string | undefined, enabled = true): HomeSection[] {
+  const { data } = useQuery({ ...homeWidgetsQuery(orgSlug, enabled), select: sectionsOf });
   return data ?? DEFAULT_SECTIONS;
 }

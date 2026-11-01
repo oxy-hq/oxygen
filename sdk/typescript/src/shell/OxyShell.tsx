@@ -23,6 +23,7 @@ import { NavSheetPanel, NavSheetTrigger, useNavSheet } from "./NavSheet";
 import { ShellPortalContext, useShellPortalContainer } from "./portal";
 import { type RailItem, ShellRail } from "./ShellRail";
 import { type ShellContextData, useShellContext } from "./shellContext";
+import { TodayClock } from "./TodayClock";
 import { Breadcrumb, SystemIndicator, TopBar, WorkspaceClock } from "./TopBar";
 import { UpdatePill } from "./UpdatePill";
 import { WorkspaceTile } from "./WorkspaceTile";
@@ -288,7 +289,12 @@ export function OxyShell({
                 <>
                   <UpdatePill />
                   <SystemIndicator />
-                  <WorkspaceClock />
+                  {data?.org?.slug ? (
+                    // The clock opens Today: this person's widgets from every app.
+                    <TodayClock orgSlug={data.org.slug} homeHref={data.links.home} resolve={abs} />
+                  ) : (
+                    <WorkspaceClock />
+                  )}
                   {topBarExtra}
                   {askAgent && !degraded && (
                     <button

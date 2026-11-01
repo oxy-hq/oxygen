@@ -242,6 +242,8 @@ mod m20261024_000003_custom_app_usage_parked_since;
 mod m20261026_000001_workspace_factory_grants;
 mod m20261029_000001_org_home_layouts;
 mod m20261030_000001_function_invocation_failure_feed_index;
+mod m20261101_000001_home_user_preferences;
+mod m20261101_000002_org_home_layouts_audiences;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
@@ -506,6 +508,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20261026_000001_workspace_factory_grants::Migration),
             Box::new(m20261030_000001_function_invocation_failure_feed_index::Migration),
             Box::new(m20261029_000001_org_home_layouts::Migration),
+            Box::new(m20261101_000001_home_user_preferences::Migration),
+            Box::new(m20261101_000002_org_home_layouts_audiences::Migration),
         ]
     }
 

@@ -421,11 +421,23 @@ each a group with an optional `title` (≤ 40); `others` goes on the first only.
 may add `params`, a `title` and an `id`, so one widget can appear as several copies
 (one per store), each with its own `id`.
 
+**Who a widget is for.** A group or an item may add `for`:
+`{ "people": ["scott@acme.com"], "teams": ["Office"] }` (emails, and org team names; at
+least one list non-empty, at most 50 each, matched case-insensitively). Only those people
+see it. It only narrows: app access applies first, and an item's `for` narrows its
+group's. Use it when someone may open the app but its widget is noise to them ("show
+Bookkeeping's cards only to Scott and Dylan"), rather than changing who can open the app.
+Widgets the layout does not list stay everyone's. Each person can also hide a widget or
+turn Today off on their own home; a layout cannot undo that.
+
 ```json
 { "version": 1, "sections": [
   { "kind": "apps" },
-  { "kind": "widgets", "items": [ { "widget": "bookkeeping/close", "size": "full" },
-      { "widget": "warehouse/receiving", "hidden": true } ], "others": "show" },
+  { "kind": "widgets", "items": [ { "widget": "warehouse/receiving", "hidden": true } ],
+    "others": "show" },
+  { "kind": "widgets", "title": "Back office",
+    "for": { "people": ["scott@acme.com", "dylan@acme.com"] },
+    "items": [ { "widget": "bookkeeping/close", "size": "full" } ] },
   { "kind": "widgets", "title": "Stores", "items": [
       { "widget": "store-ops/today", "id": "mission", "title": "Mission St",
         "params": { "store": "mission" } } ] },

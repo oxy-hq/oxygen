@@ -230,6 +230,12 @@ pub fn routes() -> Router<AppState> {
         .route("/me/apps", get(me_apps::list_openable_apps))
         // Each app's live cards on the Oxygen home (`home_widgets`).
         .route("/home/widgets", get(home_widgets::list))
+        // A person's own choices about the home: widgets hidden, Today shown.
+        .route(
+            "/home/preferences",
+            get(home_widgets::preferences::get_preferences)
+                .put(home_widgets::preferences::put_preferences),
+        )
         .route(
             "/home/widgets/{app_id}/{widget}/actions/{action}",
             post(home_widgets::press),
@@ -385,6 +391,7 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
         fleet("/apps/mine"),
         fleet("/me/apps"),
         fleet("/home/widgets"),
+        fleet("/home/preferences"),
         fleet("/home/widgets/{app_id}/{widget}/actions/{action}"),
         fleet("/orgs/{org_id}/home"),
         fleet("/orgs/{org_id}/home/layout"),

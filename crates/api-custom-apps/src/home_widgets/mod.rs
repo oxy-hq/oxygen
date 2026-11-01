@@ -4,6 +4,8 @@
 //!   can open in that org, each with its view or why there is none.
 //! - `POST /api/home/widgets/{app_id}/{widget}/actions/{action}` — press a
 //!   button.
+//! - `GET`/`PUT /api/home/preferences?org=<slug>` — a person's own choices
+//!   (`preferences`): the copies they hid, and whether Today shows.
 //!
 //! Flat, like `GET /api/me/apps`: no tenant in the path, so every app is
 //! decided here by the `AppAccess` ring, and every function then runs on the
@@ -14,7 +16,10 @@ pub mod describe;
 pub mod layout_routes;
 pub mod layout_store;
 pub mod load;
+pub mod preferences;
+pub mod preferences_store;
 pub mod run;
+pub mod viewer;
 
 use std::sync::Arc;
 
@@ -28,7 +33,9 @@ use oxy_app_core::AppState;
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_app_core::function_seam::FunctionRuntime;
 use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
-use oxy_app_core::widgets::layout::{CatalogEntry, Drawn, Layout, read, resolve};
+use oxy_app_core::widgets::layout::{
+    CatalogEntry, Drawn, Layout, Viewer, read, resolve, visible, without,
+};
 use oxy_app_core::widgets::view::{MAX_INPUT_BYTES, MAX_KEY_CHARS};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
@@ -37,6 +44,8 @@ use serde_json::{Value, json};
 use tracing::instrument;
 use uuid::Uuid;
 
+use load::WidgetApp;
+use preferences::Preferences;
 use run::{Caller, Press, Pressed, WidgetCard};
 
 /// Widgets read at once: enough that one slow app does not hold up the home,
@@ -54,6 +63,20 @@ pub struct ListResponse {
     /// The sections the home draws, in the org layout's order; a widgets group
     /// lists its copies by `key`.
     pub sections: Vec<SectionOut>,
+    /// Copies the caller hid, of those they could otherwise see: what a "show
+    /// again" list names. They are not run and not in `widgets`.
+    pub hidden: Vec<HiddenCard>,
+    /// The caller's choice about Today: `"shown"` or `"hidden"`. Echoed; the
+    /// widgets are returned either way (the top bar's panel shows them).
+    pub today: &'static str,
+}
+
+/// A copy the caller hid.
+#[derive(Debug, Serialize)]
+pub struct HiddenCard {
+    pub key: String,
+    pub title: String,
+    pub app: WidgetApp,
 }
 
 /// One section of the home as the web app draws it.
@@ -80,6 +103,8 @@ impl ListResponse {
                 SectionOut::Apps,
                 SectionOut::Insights,
             ],
+            hidden: vec![],
+            today: Preferences::default().today(),
         }
     }
 }
@@ -106,15 +131,19 @@ pub async fn list(
         tracing::error!("home widgets asked for on a server with no function runtime");
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let (apps, layout) = match widget_apps(&user, &q.org).await {
+    let home = match widget_apps(&user, &q.org).await {
         Ok(found) => found,
         Err(status) => return status.into_response(),
     };
     // The org's layout, resolved against what this person can open: a widget of
-    // an app they cannot open is simply not in their catalog.
-    let catalog = load::catalog(&apps);
+    // an app they cannot open is simply not in their catalog. Then narrowed to
+    // what it is for them (`for`) and to what they have not hidden, all before
+    // any function runs.
+    let catalog = load::catalog(&home.apps);
     let entries: Vec<CatalogEntry> = catalog.iter().map(|(e, _)| e.clone()).collect();
-    let drawn = resolve(layout.as_ref(), &entries);
+    let drawn = visible(resolve(home.layout.as_ref(), &entries), &home.viewer);
+    let hidden = hidden_cards(&drawn, &catalog, &entries, &home.prefs.hidden);
+    let drawn = without(drawn, |p| home.prefs.hidden.contains(&p.key(&entries)));
     let caller = Caller {
         headers: &headers,
         preagg: preagg(&state),
@@ -136,7 +165,37 @@ pub async fn list(
         .collect()
         .await;
     let sections = drawn.iter().map(|d| section_out(d, &entries)).collect();
-    Json(ListResponse { widgets, sections }).into_response()
+    Json(ListResponse {
+        widgets,
+        sections,
+        hidden,
+        today: home.prefs.today(),
+    })
+    .into_response()
+}
+
+/// The drawn copies whose key is in `hidden`, in the order the home draws them.
+fn hidden_cards(
+    drawn: &[Drawn],
+    catalog: &[(CatalogEntry, &WidgetApp)],
+    entries: &[CatalogEntry],
+    hidden: &[String],
+) -> Vec<HiddenCard> {
+    let placed = drawn.iter().flat_map(|d| match d {
+        Drawn::Widgets { placed, .. } => placed.as_slice(),
+        _ => &[],
+    });
+    placed
+        .filter_map(|p| {
+            let key = p.key(entries);
+            let (entry, app) = &catalog[p.index];
+            hidden.contains(&key).then(|| HiddenCard {
+                key,
+                title: p.title.clone().unwrap_or_else(|| entry.def.title.clone()),
+                app: (*app).clone(),
+            })
+        })
+        .collect()
 }
 
 fn section_out(drawn: &Drawn, entries: &[CatalogEntry]) -> SectionOut {
@@ -150,36 +209,50 @@ fn section_out(drawn: &Drawn, entries: &[CatalogEntry]) -> SectionOut {
     }
 }
 
-/// The apps in `org` the caller can open that declare widgets, and the org's
-/// layout. Unknown facts answer 503, never an empty home: "no widgets" on a
-/// blip would be a lie. A stored layout that no longer parses reads as none.
-async fn widget_apps(
-    user: &AuthenticatedUser,
-    org: &str,
-) -> Result<(Vec<load::AppWidgets>, Option<Layout>), StatusCode> {
-    let db = establish_connection()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let caller = oxy_server_authz::Caller::from_user(user);
-    let facts = oxy_server_authz::loader::load_principal_facts_scoped(&db, &caller, false)
-        .await
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+/// What one person's home is drawn from.
+struct Home {
+    /// The apps in the org the caller can open that declare widgets.
+    apps: Vec<load::AppWidgets>,
+    /// The org's layout; a stored one that no longer parses reads as none.
+    layout: Option<Layout>,
+    /// The caller, as a layout's `for` sees them.
+    viewer: Viewer,
+    /// What they chose to hide.
+    prefs: Preferences,
+}
+
+/// The home's facts for `user` in `org`. Unknown facts answer 503, never an
+/// empty home: "no widgets" on a blip would be a lie.
+async fn widget_apps(user: &AuthenticatedUser, org: &str) -> Result<Home, StatusCode> {
+    let who = viewer::asker(user, org).await?;
+    let db = &who.db;
     // Not a member: no apps, and no peek at the org's layout either.
-    let Some(org_id) = load::member_org_id(&db, &facts, org)
-        .await
-        .map_err(internal)?
-    else {
-        return Ok((vec![], None));
+    let Some(org_id) = who.org_id else {
+        return Ok(Home {
+            apps: vec![],
+            layout: None,
+            viewer: Viewer::default(),
+            prefs: Preferences::default(),
+        });
     };
-    let rows = load::openable_in_org(&db, &facts, org_id)
+    let rows = load::openable_in_org(db, &who.facts, org_id)
         .await
         .map_err(internal)?;
-    let apps = load::with_widgets(&db, rows).await.map_err(internal)?;
-    let layout = layout_store::load(&db, org_id)
+    let apps = load::with_widgets(db, rows).await.map_err(internal)?;
+    let layout = layout_store::load(db, org_id)
         .await
         .map_err(internal)?
         .and_then(|stored| read(&stored.layout));
-    Ok((apps, layout))
+    Ok(Home {
+        apps,
+        layout,
+        viewer: viewer::viewer(db, user.id, user.email.as_deref(), org_id)
+            .await
+            .map_err(internal)?,
+        prefs: preferences_store::load(db, user.id, org_id)
+            .await
+            .map_err(internal)?,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -318,5 +391,7 @@ fn internal(e: sea_orm::DbErr) -> StatusCode {
     StatusCode::INTERNAL_SERVER_ERROR
 }
 
+#[cfg(test)]
+mod hidden_tests;
 #[cfg(test)]
 mod tests;

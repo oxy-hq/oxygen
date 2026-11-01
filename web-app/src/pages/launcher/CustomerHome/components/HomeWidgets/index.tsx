@@ -1,15 +1,22 @@
+import { EyeOff } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
-import { useHomeWidgets } from "@/hooks/api/homeWidgets/useHomeWidgets";
+import { useHomePreferenceActions } from "@/hooks/api/homeWidgets/useHomePreferences";
+import { useHiddenWidgets, useHomeWidgets } from "@/hooks/api/homeWidgets/useHomeWidgets";
 import { cn } from "@/libs/shadcn/utils";
 import type { WidgetCard as Card } from "@/types/homeWidgets";
+import { HiddenWidgets } from "./components/HiddenWidgets";
 import { WidgetCard } from "./components/WidgetCard";
 import { WidgetStrip } from "./components/WidgetStrip";
 import { isCalm, isUnavailable, widgetTestId } from "./utils";
 
 /** A widgets group of the org's layout: its title, and its copies' keys in order. */
 export type WidgetGroup = { title: string | null; items: string[] };
+
+/** "Hide" is out of sight until the pointer is over Today or focus is in it; touch always sees it. */
+const REVEAL_ON_TODAY =
+  "opacity-0 group-focus-within/today:opacity-100 group-hover/today:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100";
 
 /** The anchor the home's status line jumps to. */
 export const TODAY_ANCHOR = "home-today";
@@ -33,7 +40,8 @@ export function HomeWidgets({
   orgSlug,
   apps,
   groups,
-  variant
+  variant,
+  enabled = true
 }: {
   orgSlug: string | undefined;
   /** The home's app list, for each widget's app icon. */
@@ -41,8 +49,18 @@ export function HomeWidgets({
   /** The layout's widgets groups, in order. Empty before a layout loads: every copy, untitled. */
   groups: WidgetGroup[];
   variant: "rail" | "stack";
+  /** `false` reads nothing yet (the person's preference is still loading): the skeleton shows. */
+  enabled?: boolean;
 }) {
-  const { data: widgets, isError, isPending, refetch, isFetching } = useHomeWidgets(orgSlug);
+  const {
+    data: widgets,
+    isError,
+    isPending,
+    refetch,
+    isFetching
+  } = useHomeWidgets(orgSlug, enabled);
+  const hidden = useHiddenWidgets(orgSlug, enabled);
+  const preferences = useHomePreferenceActions(orgSlug ?? "");
   const [pressed, setPressed] = useState<ReadonlySet<string>>(new Set());
   if (isError) {
     return (
@@ -65,12 +83,14 @@ export function HomeWidgets({
     );
   }
   if (orgSlug && isPending) return <TodaySkeleton />;
-  if (!orgSlug || !widgets?.length) return null;
+  // Hiding the last card leaves the line that brings them back.
+  if (!orgSlug || (!widgets?.length && !hidden.length)) return null;
 
-  const byKey = new Map(widgets.map((w) => [w.key, w]));
+  const drawn = widgets ?? [];
+  const byKey = new Map(drawn.map((w) => [w.key, w]));
   const placed = groups.length
     ? groups.map((g) => ({ title: g.title, cards: g.items.flatMap((key) => byKey.get(key) ?? []) }))
-    : [{ title: null, cards: widgets }];
+    : [{ title: null, cards: drawn }];
   const folded = (card: Card) => isCalm(card) && !pressed.has(card.key);
   const full = (card: Card) => !folded(card) && !isUnavailable(card);
   const loud = placed
@@ -78,7 +98,7 @@ export function HomeWidgets({
     .filter((g) => g.cards.length > 0);
   const calm = placed.flatMap((g) => g.cards.filter(folded));
   const failed = placed.flatMap((g) => g.cards.filter(isUnavailable));
-  if (!loud.length && !calm.length && !failed.length) return null;
+  if (!loud.length && !calm.length && !failed.length && !hidden.length) return null;
 
   const icons = new Map(apps.map((a) => [a.id, a.icon_url]));
   // One column that may shrink (`grid-cols-1` is `minmax(0, 1fr)`), so a card's
@@ -90,14 +110,30 @@ export function HomeWidgets({
   return (
     <section
       id={TODAY_ANCHOR}
-      className='flex scroll-mt-6 flex-col gap-6'
+      className='group/today flex scroll-mt-6 flex-col gap-6'
       aria-labelledby='home-today-heading'
       data-testid='home-widgets'
       data-variant={variant}
     >
-      <h2 id='home-today-heading' className='font-medium text-base'>
-        Today
-      </h2>
+      <div className='flex min-h-6 items-center justify-between gap-2'>
+        <h2 id='home-today-heading' className='font-medium text-base'>
+          Today
+        </h2>
+        <Button
+          variant='ghost'
+          size='sm'
+          data-testid='home-today-hide'
+          aria-label='Hide Today'
+          onClick={() => preferences.setToday("hidden")}
+          className={cn(
+            "-my-1 pointer-coarse:min-h-11 text-muted-foreground hover:text-foreground",
+            REVEAL_ON_TODAY
+          )}
+        >
+          <EyeOff />
+          Hide
+        </Button>
+      </div>
       {loud.map((group, i) => (
         <div
           // Groups have no id of their own; their order is the layout's.
@@ -118,6 +154,7 @@ export function HomeWidgets({
                 orgSlug={orgSlug}
                 iconUrl={icons.get(card.app.id)}
                 onPressed={() => setPressed((was) => new Set(was).add(card.key))}
+                onHide={() => preferences.hide(card)}
               />
             ))}
           </div>
@@ -133,6 +170,7 @@ export function HomeWidgets({
                 card={card}
                 iconUrl={icons.get(card.app.id)}
                 testId={widgetTestId(card)}
+                onHide={() => preferences.hide(card)}
               />
             ))}
           </div>
@@ -148,11 +186,13 @@ export function HomeWidgets({
                 card={card}
                 iconUrl={icons.get(card.app.id)}
                 testId={widgetTestId(card)}
+                onHide={() => preferences.hide(card)}
               />
             ))}
           </div>
         </div>
       )}
+      <HiddenWidgets hidden={hidden} onShow={preferences.show} />
     </section>
   );
 }

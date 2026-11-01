@@ -408,6 +408,12 @@ const TABLES: &[(&str, Placement)] = &[
     ("git_namespaces", Control("git provider installs")),
     ("github_accounts", Control("user GitHub OAuth")),
     (
+        "home_user_preferences",
+        Control(
+            "a person's own choices about Oxy's home: which widget copies they hid and whether Today shows; no org content",
+        ),
+    ),
+    (
         "location_external_ids",
         Control(
             "what each integration calls a place; the semantic binding and reach read it. Judgement call — review with the operating graph",

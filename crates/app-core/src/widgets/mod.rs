@@ -16,6 +16,8 @@ pub mod validate;
 pub mod view;
 
 #[cfg(test)]
+mod audience_tests;
+#[cfg(test)]
 mod layout_tests;
 #[cfg(test)]
 mod validate_tests;

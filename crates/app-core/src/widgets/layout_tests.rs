@@ -1,9 +1,9 @@
 use serde_json::{Value, json};
 
-use super::layout::{CatalogEntry, Drawn, Placed, check, effective, read, resolve};
+use super::layout::{CatalogEntry, Drawn, Placed, Section, check, effective, read, resolve};
 use super::model::{Size, WidgetDef};
 
-fn widget(id: &str, size: Size, sizes: &[Size]) -> WidgetDef {
+pub(super) fn widget(id: &str, size: Size, sizes: &[Size]) -> WidgetDef {
     WidgetDef {
         id: id.into(),
         title: id.into(),
@@ -16,7 +16,7 @@ fn widget(id: &str, size: Size, sizes: &[Size]) -> WidgetDef {
 }
 
 /// Default order: app name, then manifest order.
-fn catalog() -> Vec<CatalogEntry> {
+pub(super) fn catalog() -> Vec<CatalogEntry> {
     use Size::*;
     vec![
         CatalogEntry::new("bookkeeping", widget("close", Wide, &[Regular, Wide, Full])),
@@ -26,22 +26,25 @@ fn catalog() -> Vec<CatalogEntry> {
 }
 
 /// Drawn widgets, others shown after.
-fn shown(placed: Vec<Placed>) -> Drawn {
+pub(super) fn shown(placed: Vec<Placed>) -> Drawn {
     Drawn::Widgets {
         title: None,
         placed,
         hide_others: false,
+        audience: None,
     }
 }
 
 /// A copy drawn at `size`, no id, title or settings.
-fn at(index: usize, size: Size) -> Placed {
+pub(super) fn at(index: usize, size: Size) -> Placed {
     Placed {
         index,
         size,
         instance: None,
         title: None,
         params: serde_json::Map::new(),
+        audience: None,
+        ungated: false,
     }
 }
 
@@ -106,7 +109,8 @@ fn others_hide_shows_only_what_is_listed() {
         [Drawn::Widgets {
             title: None,
             hide_others: true,
-            placed: vec![at(2, Size::Regular)]
+            placed: vec![at(2, Size::Regular)],
+            audience: None,
         }]
     );
 }
@@ -172,6 +176,37 @@ fn a_stored_layout_tolerates_what_an_app_dropped_since() {
         ])]
     );
     assert!(read(&json!({ "sections": "x" })).is_none());
+}
+
+#[test]
+fn a_stored_layout_reads_past_a_field_a_newer_server_added() {
+    // A revert, or old pods mid-rollout, must not lose the org's whole layout over
+    // one field they do not know; a write still refuses it.
+    let doc = json!({ "version": 1, "sections": [
+        { "kind": "widgets", "title": "Back office", "pinned": true, "items": [
+            { "widget": "bookkeeping/close", "size": "full", "badge": "new" }
+        ] },
+        { "kind": "apps", "collapsed": true }
+    ] });
+    let layout = read(&doc).expect("an unknown field is read past");
+    assert!(matches!(
+        &layout.sections[0],
+        Section::Widgets { title: Some(t), items, .. } if t == "Back office" && items.len() == 1
+    ));
+    let refused = check(&doc, &catalog()).expect_err("a write still refuses it");
+    let paths: Vec<&str> = refused.iter().map(|p| p.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "sections[0].pinned",
+            "sections[0].items[0].badge",
+            "sections[1].collapsed"
+        ]
+    );
+    // Anything else wrong still makes a stored layout unreadable.
+    assert!(
+        read(&json!({ "sections": [{ "kind": "widgets", "items": "x", "pinned": 1 }] })).is_none()
+    );
 }
 
 #[test]

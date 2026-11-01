@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CustomAppSummary } from "@/types/apps";
@@ -70,8 +70,8 @@ vi.mock("./components/WorldModelCard", () => ({
   )
 }));
 vi.mock("./components/HomeWidgets", () => ({
-  HomeWidgets: ({ variant }: { variant: string }) => (
-    <div data-testid='home-widgets-stub' data-variant={variant} />
+  HomeWidgets: ({ variant, enabled }: { variant: string; enabled?: boolean }) => (
+    <div data-testid='home-widgets-stub' data-variant={variant} data-enabled={String(enabled)} />
   ),
   TODAY_ANCHOR: "home-today",
   needsCount: (w: { view?: { level?: string } }[] = []) =>
@@ -90,9 +90,31 @@ const someWidgets = (...levels: string[]): Widgets => ({
   isLoading: false,
   isError: false
 });
+const widgetsEnabled = vi.fn();
+let hiddenCopies: { key: string }[] = [];
 vi.mock("@/hooks/api/homeWidgets/useHomeWidgets", () => ({
-  useHomeSections: () => sections,
-  useHomeWidgets: () => widgets
+  useHomeSections: (_org: string, enabled: boolean) => {
+    widgetsEnabled(enabled);
+    return sections;
+  },
+  useHomeWidgets: (_org: string, enabled: boolean) => {
+    widgetsEnabled(enabled);
+    return widgets;
+  },
+  useHiddenWidgets: () => hiddenCopies
+}));
+// The person's own choice: Today shown unless a test hides it.
+let preferences: {
+  data?: { hidden: string[]; today: "shown" | "hidden"; sections?: HomeSection["kind"][] };
+  isPending: boolean;
+} = {
+  data: { hidden: [], today: "shown" },
+  isPending: false
+};
+const setToday = vi.fn();
+vi.mock("@/hooks/api/homeWidgets/useHomePreferences", () => ({
+  useHomePreferences: () => preferences,
+  useHomePreferenceActions: () => ({ setToday })
 }));
 // Wide (the rail) unless a test sets a phone.
 let wide = true;
@@ -128,6 +150,10 @@ beforeEach(() => {
   apps = [revenue];
   sections = [W, { kind: "apps" }, { kind: "insights" }];
   widgets = { data: [], isLoading: false, isError: false };
+  hiddenCopies = [];
+  preferences = { data: { hidden: [], today: "shown" }, isPending: false };
+  widgetsEnabled.mockReset();
+  setToday.mockReset();
   wide = true;
   window.localStorage.removeItem("oxy.home.today.northwind");
   unread = {};
@@ -362,5 +388,67 @@ describe("the home's container", () => {
     const mark = screen.getByTestId("launcher-app-card-mark-revenue");
     expect(mark).toHaveTextContent("RB");
     expect(mark.className).toMatch(/bg-chart-\d/);
+  });
+});
+
+describe("the home with Today hidden", () => {
+  it("reads no widgets, draws no Today, and offers one quiet way back", () => {
+    preferences = { data: { hidden: [], today: "hidden" }, isPending: false };
+    widgets = someWidgets("critical");
+    renderHome();
+    // Not one widgets read is allowed: both queries are told they are off.
+    expect(widgetsEnabled).toHaveBeenCalled();
+    expect(widgetsEnabled.mock.calls.every(([enabled]) => enabled === false)).toBe(true);
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "none");
+    expect(screen.queryByTestId("home-widgets-stub")).toBeNull();
+    expect(screen.queryByTestId("home-status")).toBeNull();
+    // The apps stay.
+    expect(screen.getByRole("heading", { name: "Your apps" })).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("home-today-show"));
+    expect(setToday).toHaveBeenCalledWith("shown");
+  });
+
+  it("keeps Insights out when the org layout dropped it, though the widgets are not read", () => {
+    // The disabled sections query answers the default, which has Insights.
+    preferences = { data: { hidden: [], today: "hidden", sections: ["apps"] }, isPending: false };
+    renderHome();
+    expect(widgetsEnabled.mock.calls.every(([enabled]) => enabled === false)).toBe(true);
+    expect(screen.getByTestId("launcher-app-grid")).toBeInTheDocument();
+    expect(screen.queryByTestId("home-lower-row")).toBeNull();
+  });
+
+  it("keeps Insights when the layout has it, and falls back to the default when none was named", () => {
+    preferences = {
+      data: { hidden: [], today: "hidden", sections: ["apps", "insights"] },
+      isPending: false
+    };
+    renderHome();
+    expect(screen.getByTestId("home-lower-row")).toBeInTheDocument();
+    cleanup();
+    preferences = { data: { hidden: [], today: "hidden" }, isPending: false };
+    renderHome();
+    expect(screen.getByTestId("home-lower-row")).toBeInTheDocument();
+  });
+
+  it("waits for the preference before reading widgets, and shows no way back yet", () => {
+    preferences = { data: undefined, isPending: true };
+    renderHome();
+    expect(widgetsEnabled.mock.calls.every(([enabled]) => enabled === false)).toBe(true);
+    expect(screen.queryByTestId("home-today-show")).toBeNull();
+  });
+
+  it("reads the widgets once Today is shown, and offers no Show Today", () => {
+    widgets = someWidgets("critical");
+    renderHome();
+    expect(widgetsEnabled.mock.calls.every(([enabled]) => enabled === true)).toBe(true);
+    expect(screen.getByTestId("home-widgets-stub")).toHaveAttribute("data-enabled", "true");
+    expect(screen.queryByTestId("home-today-show")).toBeNull();
+  });
+
+  it("still has a Today when every copy is hidden, so there is a way to bring them back", () => {
+    widgets = { data: [], isLoading: false, isError: false };
+    hiddenCopies = [{ key: "bookkeeping/close" }];
+    renderHome();
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "rail");
   });
 });

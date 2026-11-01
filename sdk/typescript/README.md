@@ -243,6 +243,12 @@ if the endpoint is unavailable (older server), your app renders unchromed.
 | `WorkspaceTile`, `OxyMark`, `OxygenFactoryMark` | Branding primitives. |
 | `workspaceLogoUrl(apiBaseUrl, wsId, version?)` | Workspace logo endpoint URL builder. |
 
+The top-bar clock in `OxyShell` is a button that opens **Today**: the viewer's
+widget cards from every app they can open, needs-attention first, each row a
+plain link, with a footer link to Oxygen home. It is fetched the first time the
+panel opens (`GET /api/home/widgets?org=<slug>`) and a failure only shows
+"Couldn't load Today." in the panel. Nothing to configure; `shell.css` styles it.
+
 Styling: `shell.css` is namespaced (`oxy-shell-*`) — no Tailwind required, no
 global styles leak into your app. It follows your design tokens when present
 (`--sidebar-background`, `--foreground`, …) and falls back to the Oxygen

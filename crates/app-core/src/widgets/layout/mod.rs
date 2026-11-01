@@ -12,13 +12,23 @@
 //! fix, so an agent corrects them all in one pass. `read` is the lenient read of
 //! a stored layout: a widget an app has since dropped is skipped, a size it no
 //! longer allows falls back to its default.
+//!
+//! A widgets group and an item may carry `for` (`audience`): the people and org
+//! teams a copy is for. It is stored and written back by this model, and applied
+//! with `visible` when one person's home is drawn.
 
 mod against;
+mod audience;
 mod check;
+mod narrow;
 mod resolve;
+mod stored;
 
+pub use audience::{Audience, MAX_ENTRIES as MAX_AUDIENCE_ENTRIES, Viewer};
 pub use check::{check, read};
+pub use narrow::{visible, without};
 pub use resolve::{Drawn, Placed, effective, resolve};
+pub use stored::{join as join_stored, split as split_for_storage};
 
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -93,6 +103,8 @@ pub enum Section {
         title: Option<String>,
         items: Vec<Item>,
         hide_others: bool,
+        /// `for`: who the whole group is for. Absent: everyone.
+        audience: Option<Audience>,
     },
     Apps,
     Insights,
@@ -110,6 +122,8 @@ pub struct Item {
     pub hidden: bool,
     /// This copy's settings, checked against the widget's schema.
     pub params: Option<Map<String, Value>>,
+    /// `for`: who this copy is for, on top of its group's. Absent: the group's.
+    pub audience: Option<Audience>,
 }
 
 impl Item {
@@ -132,6 +146,11 @@ pub struct Problem {
     pub path: String,
     pub message: String,
     pub fix: String,
+    /// A field this server does not know. A write refuses it; a stored layout is
+    /// read past it, so a field a newer server added never costs an older one
+    /// (a revert, or old pods mid-rollout) the whole layout.
+    #[serde(skip)]
+    pub(super) unknown_field: bool,
 }
 
 pub(super) fn problem(
@@ -143,5 +162,6 @@ pub(super) fn problem(
         path: path.into(),
         message: message.into(),
         fix: fix.into(),
+        unknown_field: false,
     }
 }

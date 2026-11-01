@@ -1,16 +1,27 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WidgetCard, WidgetPressResponse } from "@/types/homeWidgets";
+import type { HiddenWidget, WidgetCard, WidgetPressResponse } from "@/types/homeWidgets";
 import { HomeWidgets, needsCount } from "./index";
 
 let widgets: WidgetCard[] | undefined;
+let hidden: HiddenWidget[] = [];
 let isError = false;
 let isPending = false;
 const refetch = vi.fn();
+const widgetsEnabled = vi.fn();
 vi.mock("@/hooks/api/homeWidgets/useHomeWidgets", () => ({
-  useHomeWidgets: () => ({ data: widgets, isError, isPending, refetch, isFetching: false })
+  useHomeWidgets: (_org: string, enabled?: boolean) => {
+    widgetsEnabled(enabled);
+    return { data: widgets, isError, isPending, refetch, isFetching: false };
+  },
+  useHiddenWidgets: () => hidden
+}));
+const preferences = { hide: vi.fn(), show: vi.fn(), setToday: vi.fn() };
+vi.mock("@/hooks/api/homeWidgets/useHomePreferences", () => ({
+  useHomePreferenceActions: () => preferences
 }));
 
 type Callbacks = {
@@ -90,6 +101,11 @@ const renderWidgets = (
 afterEach(() => {
   cleanup();
   widgets = undefined;
+  hidden = [];
+  preferences.hide.mockReset();
+  preferences.show.mockReset();
+  preferences.setToday.mockReset();
+  widgetsEnabled.mockReset();
   isError = false;
   isPending = false;
   mutate.mockReset();
@@ -356,5 +372,106 @@ describe("the home's widgets", () => {
     renderWidgets();
     fireEvent.click(screen.getByTestId("home-widgets-retry"));
     expect(refetch).toHaveBeenCalled();
+  });
+  describe("hiding what the person does not want", () => {
+    const baseView = close().view as NonNullable<WidgetCard["view"]>;
+    const calmCopy = (instance: string): WidgetCard =>
+      close({
+        key: `bookkeeping/close#${instance}`,
+        instance,
+        title: instance,
+        view: { ...baseView, level: "ok", buttons: [], rows: [], progress: null }
+      });
+
+    it("hides a card from its More menu once its exit has played", async () => {
+      widgets = [close()];
+      renderWidgets();
+      await userEvent.click(screen.getByTestId("home-widget-bookkeeping-close-menu"));
+      await userEvent.click(await screen.findByTestId("home-widget-hide"));
+      const card = screen.getByTestId("home-widget-bookkeeping-close");
+      // It starts to leave at once, and is hidden for real when the motion ends.
+      expect(card).toHaveAttribute("data-leaving", "true");
+      expect(preferences.hide).not.toHaveBeenCalled();
+      fireEvent.transitionEnd(card, { propertyName: "opacity" });
+      expect(preferences.hide).toHaveBeenCalledWith(
+        expect.objectContaining({ key: "bookkeeping/close" })
+      );
+      expect(preferences.hide).toHaveBeenCalledTimes(1);
+    });
+
+    it("hides a folded line from its menu, which is a button beside the link, not inside it", async () => {
+      widgets = [calmCopy("first")];
+      renderWidgets();
+      const line = screen.getByTestId("home-widget-bookkeeping-close-first");
+      const menu = screen.getByTestId("home-widget-bookkeeping-close-first-menu");
+      expect(line.contains(menu)).toBe(false);
+      await userEvent.click(menu);
+      await userEvent.click(await screen.findByTestId("home-widget-hide"));
+      fireEvent.transitionEnd(screen.getByTestId("home-widget-bookkeeping-close-first-line"), {
+        propertyName: "opacity"
+      });
+      expect(preferences.hide).toHaveBeenCalledWith(
+        expect.objectContaining({ key: "bookkeeping/close#first" })
+      );
+    });
+
+    it("keeps the menu reachable without a pointer: transparent until hover or focus, never removed", () => {
+      widgets = [close()];
+      renderWidgets();
+      const menu = screen.getByTestId("home-widget-bookkeeping-close-menu");
+      expect(menu).toHaveAccessibleName("More: Bookkeeping: Month-end close");
+      expect(menu.className).toContain("group-focus-within/widget:opacity-100");
+      expect(menu.className).toContain("pointer-coarse:opacity-100");
+      expect(menu).not.toHaveAttribute("hidden");
+    });
+
+    it("says how many are hidden, and lists them with Show", async () => {
+      widgets = [close()];
+      hidden = [
+        { key: "bookkeeping/payroll", title: "Payroll", app: close().app },
+        { key: "bookkeeping/tax", title: "Tax", app: close().app }
+      ];
+      renderWidgets();
+      const line = screen.getByTestId("home-widgets-hidden");
+      expect(line).toHaveTextContent("2 hidden");
+      await userEvent.click(line);
+      const row = await screen.findByTestId("home-widget-hidden-bookkeeping/payroll");
+      expect(row).toHaveTextContent("Payroll");
+      await userEvent.click(within(row).getByTestId("home-widget-show"));
+      expect(preferences.show).toHaveBeenCalledWith("bookkeeping/payroll");
+    });
+
+    it("has no hidden line while nothing is hidden", () => {
+      widgets = [close()];
+      renderWidgets();
+      expect(screen.queryByTestId("home-widgets-hidden")).toBeNull();
+    });
+
+    it("keeps Today and the way back when every card is hidden", () => {
+      widgets = [];
+      hidden = [{ key: "bookkeeping/close", title: "Month-end close", app: close().app }];
+      renderWidgets();
+      expect(screen.getByTestId("home-widgets")).toBeInTheDocument();
+      expect(screen.getByTestId("home-widgets-hidden")).toHaveTextContent("1 hidden");
+    });
+
+    it("hides Today from its heading", async () => {
+      widgets = [close()];
+      renderWidgets();
+      const hide = screen.getByTestId("home-today-hide");
+      expect(hide).toHaveAccessibleName("Hide Today");
+      await userEvent.click(hide);
+      expect(preferences.setToday).toHaveBeenCalledWith("hidden");
+    });
+
+    it("reads nothing while told not to, and shows the skeleton meanwhile", () => {
+      widgets = undefined;
+      isPending = true;
+      render(
+        <HomeWidgets orgSlug='poke-house' apps={[]} groups={[]} variant='rail' enabled={false} />
+      );
+      expect(widgetsEnabled).toHaveBeenCalledWith(false);
+      expect(screen.getByTestId("home-widgets-loading")).toBeInTheDocument();
+    });
   });
 });

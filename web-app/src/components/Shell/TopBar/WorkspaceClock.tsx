@@ -1,6 +1,9 @@
+import { CalendarDays } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import useWorkspaceTimezone from "@/hooks/api/agents/useWorkspaceTimezone";
+import { TodayPanel } from "./TodayPanel";
 
 /**
  * Live clock in the workspace's timezone (default `America/Los_Angeles`), not
@@ -8,7 +11,10 @@ import useWorkspaceTimezone from "@/hooks/api/agents/useWorkspaceTimezone";
  * each half-minute (minute precision), pausing when the tab is hidden.
  *
  * `withDate` is the menu bar's form ("Thu, Oct 29, 3:42 PM"), the zone moved
- * into a tooltip that names it in full.
+ * into a tooltip that names it in full. It is also a button: it opens Today, the
+ * person's widgets, as a panel under the bar (the way a Mac shows its widgets from
+ * the date). On a phone, where there is no room for the text, a calendar icon
+ * stands in for it and the panel is as wide as the screen.
  */
 export function WorkspaceClock({ withDate = false }: { withDate?: boolean }) {
   const tz = useWorkspaceTimezone();
@@ -52,19 +58,7 @@ export function WorkspaceClock({ withDate = false }: { withDate?: boolean }) {
   }, [now, tz, withDate]);
 
   if (withDate) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span
-            data-testid='topbar-clock'
-            className='hidden whitespace-nowrap px-1 text-foreground text-xs tabular-nums sm:inline'
-          >
-            {text}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>{zoneLabel(now, tz)}</TooltipContent>
-      </Tooltip>
-    );
+    return <TodayClock text={text} zone={zoneLabel(now, tz)} />;
   }
 
   return (
@@ -87,4 +81,40 @@ function zoneLabel(now: Date, tz: string): string {
   } catch {
     return tz;
   }
+}
+
+/** The menu bar's clock as a button: the time (an icon on a phone), a tooltip with the zone, Today's panel. */
+function TodayClock({ text, zone }: { text: string; zone: string }) {
+  const [open, setOpen] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      {/* The tooltip steps aside while the panel is open: it would sit on top of it. */}
+      <Tooltip open={tipOpen && !open} onOpenChange={setTipOpen}>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type='button'
+              data-testid='topbar-clock'
+              aria-label={`Today, ${text}`}
+              className='flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1.5 text-foreground text-xs tabular-nums transition-colors hover:bg-sidebar-accent'
+            >
+              <CalendarDays className='size-4 sm:hidden' />
+              <span className='hidden sm:inline'>{text}</span>
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{zone}</TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align='end'
+        collisionPadding={0}
+        data-testid='topbar-today'
+        // Own scroll inside the room under the bar; a phone's panel is the screen's width.
+        className='flex max-h-(--radix-popover-content-available-height) w-90 flex-col p-0 max-sm:w-screen max-sm:rounded-t-none max-sm:border-x-0'
+      >
+        <TodayPanel onNavigate={() => setOpen(false)} />
+      </PopoverContent>
+    </Popover>
+  );
 }

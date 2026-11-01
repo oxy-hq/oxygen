@@ -1,4 +1,9 @@
-import type { HomeWidgetsResponse, WidgetPress, WidgetPressResponse } from "@/types/homeWidgets";
+import type {
+  HomePreferences,
+  HomeWidgetsResponse,
+  WidgetPress,
+  WidgetPressResponse
+} from "@/types/homeWidgets";
 import { apiClient } from "./axios";
 
 /** Each app's live cards on the home, and their buttons. Flat routes: the server
@@ -16,6 +21,22 @@ export class HomeWidgetsService {
     const response = await apiClient.post<WidgetPressResponse>(`/home/widgets/${path}`, {
       input: button.input,
       key: button.key
+    });
+    return response.data;
+  }
+
+  /** The person's own choices about their home in this org. */
+  static async preferences(orgSlug: string): Promise<HomePreferences> {
+    const response = await apiClient.get<HomePreferences>("/home/preferences", {
+      params: { org: orgSlug }
+    });
+    return response.data;
+  }
+
+  /** Store the whole set of choices; the answer is what the server kept. */
+  static async savePreferences(orgSlug: string, next: HomePreferences): Promise<HomePreferences> {
+    const response = await apiClient.put<HomePreferences>("/home/preferences", next, {
+      params: { org: orgSlug }
     });
     return response.data;
   }

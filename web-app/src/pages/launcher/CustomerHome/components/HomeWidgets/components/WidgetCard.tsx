@@ -5,7 +5,9 @@ import { usePressWidget } from "@/hooks/api/homeWidgets/usePressWidget";
 import { cn } from "@/libs/shadcn/utils";
 import type { WidgetCard as Card, WidgetButton as WidgetButtonData } from "@/types/homeWidgets";
 import { LEVEL_DOT, pressError, ROW_STATE, widgetTestId } from "../utils";
+import { EXIT_CLASSES, useExit } from "./useExit";
 import { WidgetButton } from "./WidgetButton";
+import { WidgetMenu } from "./WidgetMenu";
 import { WidgetMetric } from "./WidgetMetric";
 import { WidgetProgress } from "./WidgetProgress";
 
@@ -28,14 +30,18 @@ export function WidgetCard({
   card,
   orgSlug,
   iconUrl,
-  onPressed
+  onPressed,
+  onHide
 }: {
   card: Card;
   orgSlug: string;
   iconUrl?: string | null;
   /** Told when a button is pressed, so the home keeps this card whole while its answer shows. */
   onPressed?: () => void;
+  /** Hides this copy from the person's home. Called once the card's exit has played. */
+  onHide?: () => void;
 }) {
+  const exit = useExit(() => onHide?.());
   const press = usePressWidget(orgSlug);
   const [said, setSaid] = useState<Said>(null);
   const [pressing, setPressing] = useState<WidgetButtonData | null>(null);
@@ -77,7 +83,11 @@ export function WidgetCard({
       data-testid={base}
       data-level={view?.level}
       data-size={card.size}
-      className='flex min-w-0 starting:translate-y-1.5 flex-col gap-3 rounded-lg border bg-card p-4 starting:opacity-0 transition-[opacity,translate] duration-(--duration-slow) motion-reduce:starting:translate-y-0'
+      {...exit.exitProps}
+      className={cn(
+        "group/widget flex min-w-0 starting:translate-y-1.5 flex-col gap-3 rounded-lg border bg-card p-4 starting:opacity-0 transition-[opacity,translate] duration-(--duration-slow) motion-reduce:starting:translate-y-0",
+        EXIT_CLASSES
+      )}
     >
       <header className='flex items-center gap-2 text-muted-foreground text-xs'>
         <AppMark iconUrl={iconUrl} name={card.app.name} size='sm' />
@@ -94,6 +104,14 @@ export function WidgetCard({
           Open
           <ArrowRight className='size-3.5' />
         </a>
+        {onHide && (
+          <WidgetMenu
+            testId={`${base}-menu`}
+            label={`${card.app.name}: ${card.title}`}
+            onHide={exit.leave}
+            className='-my-1 pointer-coarse:-my-3 -mr-1'
+          />
+        )}
       </header>
 
       {view ? (

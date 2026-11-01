@@ -119,6 +119,9 @@ pub fn treatment(path: &str) -> Treatment {
         // The same `AppAccess` decision per app, then each widget function
         // runs on the caller's own credential through the function route.
         ["home", "widgets", ..] => Treatment::Honoured,
+        // A person's own choices: the org must be one the token's scoped facts
+        // list, else 404, exactly as the widgets above.
+        ["home", "preferences"] => Treatment::Honoured,
         // Staff standing, which the credential bounds to its grants' orgs —
         // and drops entirely without `platform`.
         ["admin", ..] | ["customer-apps", ..] | ["assume", ..] => Treatment::Honoured,

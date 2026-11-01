@@ -56,6 +56,7 @@
 //! | `custom_app_functions_manual_run` | admin Run now, queue, the production driver entry point and executor, run status; its children: a check run in a named environment and every refusal around one, the invocation listings and who may read which rows (a build only staging or a sandbox serves included, and an agent's draft on an app unpublished since), the held-write and run read-backs, the logs filter |
 //! | `custom_app_functions_manual_run_guards` | source scans: the executor registration and admin stack that test copies still match production |
 //! | `invocation_queries` | the SQL statements a warm function call issues before its isolate starts, counted from `sqlx::query` events and bounded above |
+//! | `home_preferences` | `home_user_preferences`: no row is nothing hidden and Today shown; a save is read back and replaced, never merged, and is one person's in one org; the org teams a layout's `for` reads are those of that org only |
 //! | `custom_app_functions_shape_zoo` | every ClickHouse, Postgres and DuckDB zoo case, read one column at a time through `ctx.warehouse.query` in a published function, against `expect.warehouse` |
 //! | `custom_app_functions_shape_zoo_oltp` | the Postgres zoo cases through `ctx.oltp` in the app's own provisioned schema, against `expect.oltp` |
 //! | `custom_app_gate_revocation` | the data-plane gate re-checks membership on every call: a revoked member is refused by the next data call on the same replica, no invalidation hook in between |
@@ -160,6 +161,7 @@ mod environment_scoped_keys;
 mod example_app_serving;
 mod function_env_rotation;
 mod function_failure_alerts;
+mod home_preferences;
 mod invocation_queries;
 mod me_apps;
 mod nonprod_function_uploads;

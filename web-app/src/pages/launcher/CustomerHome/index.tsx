@@ -1,9 +1,19 @@
+import { Eye } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppAccessDialog } from "@/components/appAccess/AppAccessDialog";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import useOrgCustomApps from "@/hooks/api/customApps/useOrgCustomApps";
-import { useHomeSections, useHomeWidgets } from "@/hooks/api/homeWidgets/useHomeWidgets";
+import { sectionsFromKinds } from "@/hooks/api/homeWidgets/preferences";
+import {
+  useHomePreferenceActions,
+  useHomePreferences
+} from "@/hooks/api/homeWidgets/useHomePreferences";
+import {
+  useHiddenWidgets,
+  useHomeSections,
+  useHomeWidgets
+} from "@/hooks/api/homeWidgets/useHomeWidgets";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useWorldModel } from "@/hooks/api/useWorldModel";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
@@ -54,13 +64,33 @@ export default function CustomerHome() {
   const factoryUser = useFactoryAccess();
   const { data: user } = useCurrentUser();
   const org = useCurrentOrg((s) => s.org);
-  const sections = useHomeSections(org?.slug);
-  const widgets = useHomeWidgets(org?.slug);
+  // Hidden Today means no widgets request at all, and nothing is read before the
+  // person's preference is known (a failed read counts as "shown").
+  const preferences = useHomePreferences(org?.slug);
+  const todayHidden = preferences.data?.today === "hidden";
+  const todayKnown = !preferences.isPending;
+  const widgetsOn = todayKnown && !todayHidden;
+  const widgetSections = useHomeSections(org?.slug, widgetsOn);
+  // With Today hidden the widgets are not read, so the org layout's sections come
+  // with the preferences: an org whose layout dropped Insights keeps it dropped.
+  const sections = widgetsOn
+    ? widgetSections
+    : (sectionsFromKinds(preferences.data?.sections) ?? widgetSections);
+  const widgets = useHomeWidgets(org?.slug, widgetsOn);
+  const hiddenWidgets = useHiddenWidgets(org?.slug, widgetsOn);
+  const { setToday } = useHomePreferenceActions(org?.slug ?? "");
   // Known once the widgets load; until then, what this browser saw last time, so
-  // the frame does not change under the apps on every visit.
+  // the frame does not change under the apps on every visit. Copies the person
+  // hid still count: Today is there to bring them back.
   const todayHint = useTodayHint(
     org?.slug,
-    widgets.isError ? true : widgets.data ? widgets.data.length > 0 : undefined
+    todayHidden
+      ? false
+      : widgets.isError
+        ? true
+        : widgets.data
+          ? widgets.data.length > 0 || hiddenWidgets.length > 0
+          : undefined
   );
   // Today appearing (or going) moves the apps: animate that, don't jump.
   const hasToday = useTransitionedFlag(todayHint === true);
@@ -113,7 +143,13 @@ export default function CustomerHome() {
   );
   const rail = wide && hasToday;
   const today = (variant: "rail" | "stack") => (
-    <HomeWidgets orgSlug={org?.slug} apps={apps} groups={groups} variant={variant} />
+    <HomeWidgets
+      orgSlug={org?.slug}
+      apps={apps}
+      groups={groups}
+      variant={variant}
+      enabled={widgetsOn}
+    />
   );
 
   // The org's name is already in the top bar's breadcrumb; the greeting stays
@@ -125,7 +161,11 @@ export default function CustomerHome() {
           {homeGreeting(user?.name)}
         </h1>
         {/* With Today, inside the same transition, so it does not push the apps first. */}
-        {hasToday && <HomeStatus widgets={widgets.data} />}
+        {todayHidden ? (
+          <ShowToday onShow={() => setToday("shown")} />
+        ) : (
+          hasToday && <HomeStatus widgets={widgets.data} />
+        )}
       </div>
       {canAsk && <HomeAskBox orgName={org?.name} />}
     </header>
@@ -214,6 +254,21 @@ export default function CustomerHome() {
         />
       )}
     </div>
+  );
+}
+
+/** With Today hidden, the one way back: small and quiet, where the day's status line would be. */
+function ShowToday({ onShow }: { onShow: () => void }) {
+  return (
+    <button
+      type='button'
+      data-testid='home-today-show'
+      onClick={onShow}
+      className='flex min-h-6 pointer-coarse:min-h-11 w-fit items-center gap-1.5 text-muted-foreground text-sm transition-colors hover:text-foreground'
+    >
+      <Eye className='size-3.5' />
+      Show Today
+    </button>
   );
 }
 

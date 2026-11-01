@@ -23,6 +23,11 @@ pub struct Model {
     pub org_id: Uuid,
     #[sea_orm(column_type = "JsonBinary")]
     pub layout: Json,
+    /// The layout's `for`s, kept out of `layout` so an older server can still read
+    /// it (`oxy_app_core::widgets::layout::split_for_storage`). Ignored unless it
+    /// names the document now in `layout`.
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub audiences: Option<Json>,
     pub revision: i64,
     pub updated_by: Option<Uuid>,
     pub updated_at: DateTimeWithTimeZone,

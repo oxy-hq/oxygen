@@ -83,9 +83,37 @@ export interface WidgetCard {
   error: string | null;
 }
 
+/** Whether Today shows on the person's own home. */
+export type TodayPreference = "shown" | "hidden";
+
+/** A copy the person hid: enough to name it in a restore list. */
+export interface HiddenWidget {
+  key: string;
+  title: string;
+  app: WidgetApp;
+}
+
+/** A person's own choices about the home, per org. No row on the server means the defaults. */
+export interface HomePreferences {
+  /** The keys of the widget copies they hid. */
+  hidden: string[];
+  today: TodayPreference;
+  /**
+   * The kinds of the org layout's sections, in the order the home draws them
+   * (`["apps", "insights"]`), answered with the preferences so the home knows
+   * whether the org kept Insights while Today is hidden and the widgets are
+   * not read. Read-only: a save never sends it. Absent from an older server.
+   */
+  sections?: HomeSectionKind[];
+}
+
 export interface HomeWidgetsResponse {
   widgets: WidgetCard[];
   sections: HomeSection[];
+  /** The copies the person hid that they could otherwise see. Absent from an older server. */
+  hidden?: HiddenWidget[];
+  /** The person's Today preference, echoed. Absent from an older server. */
+  today?: TodayPreference;
 }
 
 export interface WidgetPress {
