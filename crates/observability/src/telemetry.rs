@@ -180,7 +180,12 @@ pub fn spawn_bridge(
                         e
                     );
                 } else {
-                    tracing::error!(
+                    // WARN, not ERROR: nothing was lost — the whole batch is
+                    // back in the queue and retried on backoff. ERROR filed
+                    // every failed attempt of a short store outage as its own
+                    // Sentry event. Loss is the branch above, and stays ERROR;
+                    // an outage long enough to fill the buffer reaches it.
+                    tracing::warn!(
                         "Failed to insert spans; requeued {} for retry: {}",
                         batch_len,
                         e
