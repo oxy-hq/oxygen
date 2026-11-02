@@ -34,6 +34,8 @@ fn mobile_row(redirect_uri: &str) -> cli_auth_codes::Model {
 fn only_the_oxygen_scheme_is_a_redirect_uri() {
     for ok in [
         "oxygen://auth",
+        // The Oxygen Dev Android app's callback.
+        "oxygen://auth-dev",
         "  oxygen://auth  ",
         "oxygen://auth/callback",
         "OXYGEN://auth",

@@ -18,12 +18,15 @@ const ok = (query: string) => {
 };
 
 describe("cleanRedirectUri", () => {
-  it.each(["oxygen://auth", " oxygen://auth ", "oxygen://auth/callback", "OXYGEN://auth"])(
-    "accepts %s",
-    (uri) => {
-      expect(cleanRedirectUri(uri)).toBe(uri.trim());
-    }
-  );
+  it.each([
+    "oxygen://auth",
+    "oxygen://auth-dev",
+    " oxygen://auth ",
+    "oxygen://auth/callback",
+    "OXYGEN://auth"
+  ])("accepts %s", (uri) => {
+    expect(cleanRedirectUri(uri)).toBe(uri.trim());
+  });
 
   it.each([
     null,

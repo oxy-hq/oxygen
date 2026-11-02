@@ -13,7 +13,7 @@
 //! * `OXY_APNS_KEY_P8`   — the `.p8` file's contents (PKCS#8 PEM; `\n` escapes ok).
 //! * `OXY_APNS_KEY_ID`   — the key's 10-character id (the JWT `kid`).
 //! * `OXY_APNS_TEAM_ID`  — the 10-character Apple team id (the JWT `iss`).
-//! * `OXY_APNS_TOPIC`    — the app's bundle id; default `tech.oxy.oxygen`.
+//! * `OXY_APNS_TOPIC`    — the app's bundle id; default `com.oxygenhq.app`.
 //! * `OXY_APNS_SANDBOX`  — `true` for development builds' tokens.
 //!
 //! A sandbox token sent to the production host (or the reverse) is answered
@@ -39,7 +39,7 @@ pub(super) const PLATFORM_APNS: &str = "apns";
 const TRANSPORT: &str = "apns";
 const PRODUCTION_HOST: &str = "https://api.push.apple.com";
 const SANDBOX_HOST: &str = "https://api.sandbox.push.apple.com";
-pub(super) const DEFAULT_TOPIC: &str = "tech.oxy.oxygen";
+pub(super) const DEFAULT_TOPIC: &str = "com.oxygenhq.app";
 
 /// Provider-token lifetime before it is re-signed. Apple rejects one older than
 /// an hour (`ExpiredProviderToken`) and throttles one re-signed more often than

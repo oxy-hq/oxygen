@@ -1,0 +1,140 @@
+# Builds the two Android apps for Google Play, signed with the upload key: Oxygen
+# (com.oxygenhq.app, on production) and Oxygen Dev (com.oxygenhq.app.dev, on the dev deployment).
+# Run by hand: Actions → Mobile release → Run workflow. The bundles come out as an artifact to
+# upload in the Play Console. Each run is a new version code, 100 plus the run number, as Play
+# requires; codes below 101 are left for bundles built by hand.
+#
+# Needs (mobile/android/README.md, "Release"), in the `mobile-release` environment:
+#   secrets    OXYGEN_UPLOAD_KEYSTORE_BASE64, OXYGEN_UPLOAD_STORE_PASSWORD
+# and in the repository's Actions settings:
+#   secret     OXYGEN_FIREBASE_API_KEY
+#   variables  OXYGEN_FIREBASE_PROJECT_ID, OXYGEN_FIREBASE_SENDER_ID,
+#              OXYGEN_FIREBASE_APPLICATION_ID, OXYGEN_FIREBASE_DEV_APPLICATION_ID
+name: Mobile release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: The version people see in the store (major.minor.patch)
+        required: true
+        default: "0.1.0"
+
+concurrency:
+  group: mobile-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  android:
+    name: Android bundles for Google Play
+    # The upload key is an environment secret of `mobile-release`, whose deployment branches are
+    # `main` only: a run dispatched on another branch, whose Gradle files nobody has reviewed,
+    # never gets the key. The `if` says the same thing before the job starts.
+    if: github.ref == 'refs/heads/main'
+    environment: mobile-release
+    # x64: the Android build tools (aapt2) ship for x86-64 Linux only.
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-x64-2x' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    env:
+      OXYGEN_FIREBASE_PROJECT_ID: ${{ vars.OXYGEN_FIREBASE_PROJECT_ID }}
+      OXYGEN_FIREBASE_SENDER_ID: ${{ vars.OXYGEN_FIREBASE_SENDER_ID }}
+      OXYGEN_FIREBASE_APPLICATION_ID: ${{ vars.OXYGEN_FIREBASE_APPLICATION_ID }}
+      OXYGEN_FIREBASE_DEV_APPLICATION_ID: ${{ vars.OXYGEN_FIREBASE_DEV_APPLICATION_ID }}
+      OXYGEN_VERSION_NAME: ${{ inputs.version_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Number the version
+        run: echo "OXYGEN_VERSION_CODE=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+
+      # No Gradle cache: a store build starts from nothing a pull request could have written.
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # A store build without push, or unsigned, is worse than no build: stop before Gradle runs.
+      - name: Check the settings
+        env:
+          HAS_KEYSTORE: ${{ secrets.OXYGEN_UPLOAD_KEYSTORE_BASE64 != '' }}
+          HAS_STORE_PASSWORD: ${{ secrets.OXYGEN_UPLOAD_STORE_PASSWORD != '' }}
+          HAS_FIREBASE_API_KEY: ${{ secrets.OXYGEN_FIREBASE_API_KEY != '' }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ "$HAS_KEYSTORE" = true ] || missing+=("secret OXYGEN_UPLOAD_KEYSTORE_BASE64")
+          [ "$HAS_STORE_PASSWORD" = true ] || missing+=("secret OXYGEN_UPLOAD_STORE_PASSWORD")
+          [ "$HAS_FIREBASE_API_KEY" = true ] || missing+=("secret OXYGEN_FIREBASE_API_KEY")
+          for name in OXYGEN_FIREBASE_PROJECT_ID OXYGEN_FIREBASE_SENDER_ID \
+            OXYGEN_FIREBASE_APPLICATION_ID OXYGEN_FIREBASE_DEV_APPLICATION_ID; do
+            [ -n "${!name}" ] || missing+=("variable $name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Not set: %s\n' "${missing[@]}"
+            exit 1
+          fi
+          if ! [[ "$OXYGEN_VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version_name must look like 1.2.3, not '$OXYGEN_VERSION_NAME'"
+            exit 1
+          fi
+
+      - name: Restore the upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.OXYGEN_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+
+      - name: Build the signed bundles
+        working-directory: mobile/android
+        env:
+          OXYGEN_UPLOAD_STORE_FILE: ${{ runner.temp }}/upload.jks
+          OXYGEN_UPLOAD_STORE_PASSWORD: ${{ secrets.OXYGEN_UPLOAD_STORE_PASSWORD }}
+          OXYGEN_FIREBASE_API_KEY: ${{ secrets.OXYGEN_FIREBASE_API_KEY }}
+        run: ./gradlew --no-daemon bundleProdRelease bundleDevRelease
+
+      # Each bundle must carry the upload key's certificate: Play rejects anything else.
+      - name: Check both bundles are signed with the upload key
+        env:
+          STORE_PASSWORD: ${{ secrets.OXYGEN_UPLOAD_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sha256() { awk '/SHA256:/ && !seen { print $2; seen = 1 }'; }
+          expected="$(keytool -list -v -keystore "$RUNNER_TEMP/upload.jks" -alias upload -storepass:env STORE_PASSWORD | sha256)"
+          [ -n "$expected" ] || { echo "::error::no certificate in the upload keystore"; exit 1; }
+          {
+            echo "### Android bundles"
+            echo
+            echo "Version **$OXYGEN_VERSION_NAME** (code $OXYGEN_VERSION_CODE), upload certificate SHA-256 \`$expected\`"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          for bundle in mobile/android/app/build/outputs/bundle/{prod,dev}Release/*.aab; do
+            actual="$(keytool -printcert -jarfile "$bundle" | sha256 || true)"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::$bundle is not signed with the upload key (got '${actual:-unsigned}')"
+              exit 1
+            fi
+            echo "- \`${bundle##*/}\`: signed" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Keep the bundles
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: android-bundles-${{ inputs.version_name }}-${{ github.run_number }}
+          path: |
+            mobile/android/app/build/outputs/bundle/prodRelease/*.aab
+            mobile/android/app/build/outputs/bundle/devRelease/*.aab
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks"

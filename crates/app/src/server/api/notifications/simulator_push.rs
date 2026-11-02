@@ -147,8 +147,8 @@ mod tests {
     #[test]
     fn the_payload_is_apns_with_the_target_bundle_added() {
         let s = signal("list_overdue");
-        let body = simulator_payload(&s, "tech.oxy.oxygen");
-        assert_eq!(body["Simulator Target Bundle"], "tech.oxy.oxygen");
+        let body = simulator_payload(&s, "com.oxygenhq.app");
+        assert_eq!(body["Simulator Target Bundle"], "com.oxygenhq.app");
         let mut without = body.clone();
         without
             .as_object_mut()

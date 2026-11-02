@@ -53,10 +53,13 @@ jobs:
             mobile/android/gradle/libs.versions.toml
             mobile/android/gradle/wrapper/gradle-wrapper.properties
 
-      # No Firebase config here (OXYGEN_FIREBASE_* unset), so the app builds with push off.
-      - name: Build the debug app, run the unit tests and lint
+      # Both apps, Oxygen (prod) and Oxygen Dev (dev): the unit tests read the flavor's callback.
+      # No Firebase config here (OXYGEN_FIREBASE_* unset), so the apps build with push off.
+      - name: Build the debug apps, run the unit tests and lint
         working-directory: mobile/android
-        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest lintDebug
+        run: >-
+          ./gradlew --no-daemon assembleDebug
+          testDevDebugUnitTest testProdDebugUnitTest lintDevDebug lintProdDebug
 
       - name: Keep the test and lint reports
         if: failure()
@@ -126,6 +129,16 @@ jobs:
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
             -derivedDataPath build/ios -parallel-testing-enabled NO \
             -resultBundlePath build/ios/Oxygen.xcresult
+
+      # Oxygen Dev is the same code under the Debug Dev configuration (OXYGEN_DEV set, its own
+      # bundle id), so a build is enough to keep that configuration from breaking unseen.
+      - name: Build Oxygen Dev
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project mobile/ios/Oxygen.xcodeproj -scheme "Oxygen Dev" \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO
 
       - name: Keep the test results
         if: failure()

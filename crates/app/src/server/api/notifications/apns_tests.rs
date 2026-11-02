@@ -68,11 +68,11 @@ fn the_provider_token_is_cached_for_50_minutes_then_re_signed() {
 #[test]
 fn the_headers_are_the_alert_set_with_the_row_as_collapse_id() {
     let s = signal("list_overdue");
-    let sent = headers("tech.oxy.oxygen", "JWT", &s, 1_000);
+    let sent = headers("com.oxygenhq.app", "JWT", &s, 1_000);
     assert_eq!(
         sent,
         vec![
-            ("apns-topic", "tech.oxy.oxygen".to_string()),
+            ("apns-topic", "com.oxygenhq.app".to_string()),
             ("apns-push-type", "alert".to_string()),
             ("apns-priority", "10".to_string()),
             ("apns-expiration", (1_000 + TTL_SECONDS).to_string()),
@@ -231,15 +231,15 @@ fn configuration_is_all_or_nothing_and_checks_the_ids() {
 fn the_topic_defaults_and_sandbox_picks_the_host() {
     let (pem, _) = ec_key();
     let apns = Apns::configure(env(&pem)).ok().expect("configures");
-    assert_eq!(apns.topic, "tech.oxy.oxygen");
+    assert_eq!(apns.topic, "com.oxygenhq.app");
     assert_eq!(apns.host, "https://api.push.apple.com");
 
     let mut sandbox = env(&pem);
     sandbox.sandbox = true;
-    sandbox.topic = Some("tech.oxy.oxygen.dev".into());
+    sandbox.topic = Some("com.oxygenhq.app.dev".into());
     // An escaped PEM, as a secret store hands it over, is accepted too.
     sandbox.key_p8 = Some(pem.replace('\n', "\\n"));
     let apns = Apns::configure(sandbox).ok().expect("configures");
-    assert_eq!(apns.topic, "tech.oxy.oxygen.dev");
+    assert_eq!(apns.topic, "com.oxygenhq.app.dev");
     assert_eq!(apns.host, "https://api.sandbox.push.apple.com");
 }
