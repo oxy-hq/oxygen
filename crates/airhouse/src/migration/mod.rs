@@ -24,6 +24,7 @@ mod m20260429_000002_create_airhouse_users;
 mod m20260430_000001_airhouse_workspace_rebind;
 mod m20260507_000001_airhouse_tenants_sa;
 mod m20260508_000001_drop_airhouse_users;
+mod m20261102_000001_airhouse_tenant_deletions;
 
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use sea_orm_migration::prelude::*;
@@ -39,6 +40,7 @@ impl MigratorTrait for AirhouseMigrator {
             Box::new(m20260430_000001_airhouse_workspace_rebind::Migration),
             Box::new(m20260507_000001_airhouse_tenants_sa::Migration),
             Box::new(m20260508_000001_drop_airhouse_users::Migration),
+            Box::new(m20261102_000001_airhouse_tenant_deletions::Migration),
         ]
     }
 

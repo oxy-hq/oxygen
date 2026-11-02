@@ -90,6 +90,10 @@ pub mod post_provision;
 #[cfg(feature = "admin")]
 pub mod ensure_tenant;
 
+/// Remove the tenants of workspaces that are being deleted.
+#[cfg(feature = "admin")]
+pub mod workspace_delete;
+
 /// Load a CSV or Parquet file into a table in a workspace's tenant.
 #[cfg(feature = "import")]
 pub mod import;
@@ -130,7 +134,8 @@ pub use local_seed::ensure_local_org_seeded;
 
 #[cfg(feature = "admin")]
 pub use provisioner::{
-    ProvisionerError, RotatedServiceAccount, TenantProvisioner, tenant_name_for_workspace,
+    DetachedTenant, ProvisionerError, RotatedServiceAccount, TenantProvisioner,
+    tenant_name_for_workspace,
 };
 
 #[cfg(feature = "admin")]

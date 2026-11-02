@@ -38,7 +38,19 @@ pub enum ProvisionerError {
     TenantHasNoServiceAccount(Uuid),
     #[error("airhouse tenant name {0:?} is already taken; pick a different name")]
     TenantNameTaken(String),
+    #[error("Airhouse did not answer within {0}s")]
+    AirhouseTimeout(u64),
 }
+
+/// How long removing a deleted workspace's tenant may spend on the revokes and
+/// the tenant delete, once it holds the tenant's lock. The admin client sets no
+/// request timeout; these take well under a second.
+const DETACHED_DELETE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// How long the search for service accounts minted after the tenant was read
+/// may take. It lists every account on the deployment and only adds to what is
+/// revoked, so a slow list is given up rather than let it hold up the delete.
+const DETACHED_LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Result of a successful [`TenantProvisioner::rotate_service_account`]
 /// call. The new SA is already in `airhouse_tenants`; the old one was
@@ -57,6 +69,33 @@ pub struct RotatedServiceAccount {
 /// option).
 pub fn service_account_name_for(tenant_id: &str) -> String {
     format!("oxy-tenant-{tenant_id}")
+}
+
+/// What a workspace's tenant is in Airhouse, kept past the workspace's delete.
+///
+/// Deleting a workspace cascades its `airhouse_tenants` row away, and with it
+/// the only record of which Airhouse tenant and service account were its. So a
+/// workspace delete reads this first
+/// ([`detached_tenant`](TenantProvisioner::detached_tenant)), deletes the
+/// workspace and records the tenant in the same transaction; a worker then
+/// removes it ([`delete_detached`](TenantProvisioner::delete_detached)), see
+/// `crate::workspace_delete`. Removing it first would leave a workspace whose
+/// delete then failed with its data gone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetachedTenant {
+    pub workspace_id: Uuid,
+    pub airhouse_tenant_id: String,
+    pub service_account_id: Option<String>,
+}
+
+impl From<&airhouse_tenants::Model> for DetachedTenant {
+    fn from(row: &airhouse_tenants::Model) -> Self {
+        Self {
+            workspace_id: row.workspace_id,
+            airhouse_tenant_id: row.airhouse_tenant_id.clone(),
+            service_account_id: row.service_account_id.clone(),
+        }
+    }
 }
 
 pub struct TenantProvisioner {
@@ -146,18 +185,109 @@ impl TenantProvisioner {
             return Ok(());
         };
 
-        if let Some(sa_id) = &local.service_account_id
-            && let Err(e) = self.client.revoke_service_account(sa_id).await
-        {
-            warn!(sa_id = %sa_id, "failed to revoke airhouse SA during deprovision: {e}");
-        }
-
-        // Airhouse delete_tenant is itself idempotent (returns 204 in both cases).
-        self.client.delete_tenant(&local.airhouse_tenant_id).await?;
+        self.delete_remote(&DetachedTenant::from(&local)).await?;
         AirhouseTenants::delete_by_id(local.id)
             .exec(&self.db)
             .await?;
         info!(tenant_id = %local.airhouse_tenant_id, "deprovisioned airhouse tenant");
+        Ok(())
+    }
+
+    /// The tenant `workspace_id` has, read so it can still be removed after the
+    /// workspace is deleted. `None` when the workspace has none.
+    pub async fn detached_tenant(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Option<DetachedTenant>, ProvisionerError> {
+        Ok(AirhouseTenants::find()
+            .filter(airhouse_tenants::Column::WorkspaceId.eq(workspace_id))
+            .one(&self.db)
+            .await?
+            .as_ref()
+            .map(DetachedTenant::from))
+    }
+
+    /// Remove a deleted workspace's tenant from Airhouse: revoke its service
+    /// accounts, then delete the tenant. There is no local row left to delete —
+    /// the workspace's delete cascaded it away.
+    ///
+    /// Waits for the tenant's lock first, as long as a provision may hold it: a
+    /// workspace deleted just after it was created can have its provision still
+    /// minting the service account or running hooks. The Airhouse calls made
+    /// under the lock are bounded, since the admin client sets no timeout of
+    /// its own: the search for late service accounts by
+    /// [`DETACHED_LIST_TIMEOUT`], the revokes and the delete by
+    /// [`DETACHED_DELETE_TIMEOUT`]. Runs on a worker, from the record the
+    /// delete left, so a timeout is retried rather than lost.
+    #[instrument(skip(self), fields(workspace_id = %tenant.workspace_id, tenant_id = %tenant.airhouse_tenant_id))]
+    pub async fn delete_detached(&self, tenant: &DetachedTenant) -> Result<(), ProvisionerError> {
+        let lock = TenantLock::acquire(&self.db, tenant.workspace_id).await?;
+        let late_accounts = self.late_service_accounts(tenant).await;
+        let result = match tokio::time::timeout(DETACHED_DELETE_TIMEOUT, async {
+            for sa_id in &late_accounts {
+                if let Err(e) = self.client.revoke_service_account(sa_id).await {
+                    warn!(sa_id = %sa_id, "failed to revoke airhouse SA during deprovision: {e}");
+                }
+            }
+            self.delete_remote(tenant).await
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(ProvisionerError::AirhouseTimeout(
+                DETACHED_DELETE_TIMEOUT.as_secs(),
+            )),
+        };
+        lock.release().await;
+        result?;
+        info!("deleted the airhouse tenant of a deleted workspace");
+        Ok(())
+    }
+
+    /// The tenant's live service accounts other than the one read with it: a
+    /// provision that held the lock when the tenant was read may have minted
+    /// one since, and with the row gone nothing else records it. Empty when the
+    /// list fails or is slow — it only adds to what is revoked.
+    async fn late_service_accounts(&self, tenant: &DetachedTenant) -> Vec<String> {
+        match tokio::time::timeout(DETACHED_LIST_TIMEOUT, self.client.list_service_accounts()).await
+        {
+            Ok(Ok(accounts)) => accounts
+                .into_iter()
+                .filter(|account| {
+                    account.tenant_id == tenant.airhouse_tenant_id
+                        && account.revoked_at.is_none()
+                        && tenant.service_account_id.as_deref() != Some(account.id.as_str())
+                })
+                .map(|account| account.id)
+                .collect(),
+            Ok(Err(e)) => {
+                warn!(
+                    "could not list airhouse service accounts; revoking only the one on record: {e}"
+                );
+                Vec::new()
+            }
+            Err(_) => {
+                warn!(
+                    "listing airhouse service accounts took over {}s; revoking only the one on record",
+                    DETACHED_LIST_TIMEOUT.as_secs()
+                );
+                Vec::new()
+            }
+        }
+    }
+
+    /// Revoke the tenant's service account (logged, not fatal: the tenant's
+    /// delete makes it useless), then delete the tenant. Airhouse answers 204
+    /// whether or not the tenant still exists.
+    async fn delete_remote(&self, tenant: &DetachedTenant) -> Result<(), ProvisionerError> {
+        if let Some(sa_id) = &tenant.service_account_id
+            && let Err(e) = self.client.revoke_service_account(sa_id).await
+        {
+            warn!(sa_id = %sa_id, "failed to revoke airhouse SA during deprovision: {e}");
+        }
+        self.client
+            .delete_tenant(&tenant.airhouse_tenant_id)
+            .await?;
         Ok(())
     }
 

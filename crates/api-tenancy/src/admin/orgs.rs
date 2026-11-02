@@ -708,13 +708,30 @@ pub async fn delete_org(
     // OLTP from here is not in this change (the delete below can still 409 on
     // an FK and leave the org alive). A no-op for an org without a branch.
     crate::organizations::delete_org_oltp_branches(&db, org_id).await;
+    // The cascade below takes the org's workspaces and the rows naming their
+    // airhouse tenants, so read the tenants first and record them for removal
+    // in the delete's own transaction.
+    let workspace_ids: Vec<Uuid> = workspaces::Entity::find()
+        .filter(workspaces::Column::OrgId.eq(org_id))
+        .select_only()
+        .column(workspaces::Column::Id)
+        .into_tuple()
+        .all(&db)
+        .await
+        .map_err(internal)?;
+    let tenants = airhouse::workspace_delete::tenants_of(&db, &workspace_ids).await;
+    let txn = db.begin().await.map_err(internal)?;
     let res = organizations::Entity::delete_by_id(org_id)
-        .exec(&db)
+        .exec(&txn)
         .await
         .map_err(map_destructive_db_err)?;
     if res.rows_affected == 0 {
         return Err(StatusCode::NOT_FOUND);
     }
+    airhouse::workspace_delete::record(&txn, &tenants)
+        .await
+        .map_err(internal)?;
+    txn.commit().await.map_err(map_destructive_db_err)?;
     // Cascaded apps outlive their rows in the resolution cache — see the same
     // call in the tenant-facing `organizations::delete_org`.
     oxy_custom_apps::cache::invalidate_app_resolution_cache();

@@ -17,7 +17,7 @@ use oxy_app_core::pagination::{self, Paged, trim_overfetch};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseBackend, EntityTrait, FromQueryResult, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, Set, Statement,
+    QueryFilter, QueryOrder, QuerySelect, Set, Statement, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -358,13 +358,21 @@ pub async fn delete_workspace(
         .map_err(internal)?
         .ok_or(StatusCode::NOT_FOUND)?;
     scope::deny_out_of_scope_opt(&db, &actor, ws.org_id).await?;
+    // The delete cascades the tenant row away, not the tenant in Airhouse: record
+    // it for removal in the same transaction, so both commit or neither does.
+    let tenants = airhouse::workspace_delete::tenants_of(&db, &[workspace_id]).await;
+    let txn = db.begin().await.map_err(internal)?;
     let res = workspaces::Entity::delete_by_id(workspace_id)
-        .exec(&db)
+        .exec(&txn)
         .await
         .map_err(map_destructive_db_err)?;
     if res.rows_affected == 0 {
         return Err(StatusCode::NOT_FOUND);
     }
+    airhouse::workspace_delete::record(&txn, &tenants)
+        .await
+        .map_err(internal)?;
+    txn.commit().await.map_err(map_destructive_db_err)?;
     // Remove the deleted workspace's orphaned schedule rows (no FK cascade),
     // else its health_eval row keeps firing tasks into the dead-letter queue.
     oxy_app::server::api::workspaces::cleanup_workspace_schedules(&db, workspace_id).await;

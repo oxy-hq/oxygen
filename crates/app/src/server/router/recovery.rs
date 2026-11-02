@@ -408,6 +408,7 @@ pub(crate) fn spawn_recovery(
     if inproc_global_worker_enabled() {
         super::drive_policy::announce(policy);
         crate::server::compile_reconcile::announce();
+        spawn_airhouse_tenant_sweeper(db.clone(), shutdown.clone());
         spawn_latency_worker(
             db.clone(),
             runtime.clone(),
@@ -959,6 +960,27 @@ async fn recover_all_workspaces(
         crate::server::compile_reconcile::tick(db).await;
     }
     total
+}
+
+/// Remove the Airhouse tenants that workspace deletes recorded, every
+/// [`airhouse::workspace_delete::SWEEP_INTERVAL`]. On the nodes that drive the
+/// queue (every role but serve); several sweep at once and each claims its own
+/// rows. Not a queued run: the run driver retires every run whose workspace is
+/// gone, which is all of these — see `airhouse::workspace_delete`.
+fn spawn_airhouse_tenant_sweeper(
+    db: sea_orm::DatabaseConnection,
+    shutdown: tokio_util::sync::CancellationToken,
+) {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = shutdown.cancelled() => break,
+                _ = tokio::time::sleep(airhouse::workspace_delete::SWEEP_INTERVAL) => {
+                    airhouse::workspace_delete::sweep(&db).await;
+                }
+            }
+        }
+    });
 }
 
 // ── Per-workspace context builders (used by the cache, §12 FU4c) ───────────

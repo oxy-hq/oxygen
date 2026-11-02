@@ -7,7 +7,10 @@ use entity::prelude::*;
 use entity::workspaces;
 use oxy::database::client::establish_connection;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QuerySelect,
+    TransactionTrait,
+};
 use uuid::Uuid;
 
 use oxy_app::surface::OrgContextExtractor;
@@ -324,9 +327,9 @@ pub async fn delete_org(OrgOwner(ctx): OrgOwner) -> Result<StatusCode, StatusCod
     })?;
 
     // The org delete below cascades its workspaces away (FK ON DELETE CASCADE),
-    // so capture their ids up front — we need them both to deprovision airhouse
-    // tenants (below) and to clean up their orphaned schedule rows (after the
-    // delete), neither of which the cascade handles.
+    // so capture their ids up front — we need them both to delete their airhouse
+    // tenants and to clean up their orphaned schedule rows (after the delete),
+    // neither of which the cascade handles.
     let workspace_ids: Vec<Uuid> = match workspaces::Entity::find()
         .filter(workspaces::Column::OrgId.eq(ctx.org.id))
         .select_only()
@@ -345,35 +348,26 @@ pub async fn delete_org(OrgOwner(ctx): OrgOwner) -> Result<StatusCode, StatusCod
         }
     };
 
-    // Deprovision each of the org's workspaces before deleting the org.
-    // The airhouse_tenants table is keyed by workspace_id (since the
-    // m20260430 rebind), so passing org.id to deprovision was a no-op
-    // and the SAs leaked. The FK to workspaces is ON DELETE CASCADE so
-    // the local rows would still get cleaned up by the org delete below,
-    // but the airhouse-side service accounts wouldn't be revoked. This
-    // loop hits airhouse with each workspace's SA before we drop the
-    // local data.
-    if let Some(provisioner) = airhouse::provisioner_for(db.clone()) {
-        for workspace_id in &workspace_ids {
-            if let Err(e) = provisioner.deprovision(*workspace_id).await {
-                tracing::warn!(
-                    org_id = %ctx.org.id,
-                    workspace_id = %workspace_id,
-                    "airhouse tenant deprovisioning failed: {e}"
-                );
-            }
-        }
-    }
+    // Read, not removed: the cascade takes the rows that name each workspace's
+    // airhouse tenant, so they are recorded for removal in the org delete's
+    // own transaction and a worker removes them once it commits.
+    let tenants = airhouse::workspace_delete::tenants_of(&db, &workspace_ids).await;
 
     deprovision_org_oltp(&db, ctx.org.id).await;
 
+    let delete_failed = |e: sea_orm::DbErr| {
+        tracing::error!("Failed to delete organization: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+    let txn = db.begin().await.map_err(delete_failed)?;
     Organizations::delete_by_id(ctx.org.id)
-        .exec(&db)
+        .exec(&txn)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to delete organization: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .map_err(delete_failed)?;
+    airhouse::workspace_delete::record(&txn, &tenants)
+        .await
+        .map_err(delete_failed)?;
+    txn.commit().await.map_err(delete_failed)?;
 
     // Schedules carry a plain `workspace_id` with no FK, so the org-delete
     // cascade above leaves them behind — remove each cascaded workspace's rows

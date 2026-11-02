@@ -1234,7 +1234,7 @@ pub async fn delete_workspace(
     Query(query): Query<DeleteProjectQuery>,
     root: WorkspaceRootWorkingCopy,
 ) -> Result<StatusCode, StatusCode> {
-    use sea_orm::ModelTrait;
+    use sea_orm::{ModelTrait, TransactionTrait};
 
     let db = oxy::database::client::establish_connection()
         .await
@@ -1259,10 +1259,19 @@ pub async fn delete_workspace(
         .as_ref()
         .map(|m| m.config_manager.workspace_path().to_path_buf());
 
-    workspace.delete(&db).await.map_err(|e| {
+    // The delete cascades the tenant row away, not the tenant in Airhouse: record
+    // it for removal in the same transaction, so both commit or neither does.
+    let tenants = airhouse::workspace_delete::tenants_of(&db, &[workspace_id]).await;
+    let delete_failed = |e: sea_orm::DbErr| {
         error!("Failed to delete workspace {}: {}", workspace_id, e);
         StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    };
+    let txn = db.begin().await.map_err(delete_failed)?;
+    workspace.delete(&txn).await.map_err(delete_failed)?;
+    airhouse::workspace_delete::record(&txn, &tenants)
+        .await
+        .map_err(delete_failed)?;
+    txn.commit().await.map_err(delete_failed)?;
 
     info!("Deleted workspace {}", workspace_id);
 

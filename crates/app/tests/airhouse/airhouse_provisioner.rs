@@ -14,7 +14,8 @@ use chrono::Utc;
 use entity::organizations;
 use entity::workspaces::{self, WorkspaceStatus};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    QueryFilter, TransactionTrait,
 };
 use serde_json::{Value, json};
 use std::sync::Mutex;
@@ -536,6 +537,208 @@ async fn deprovision_removes_local_and_calls_remote() {
         .unwrap()
         .len();
     assert_eq!(count, 0);
+}
+
+/// What a workspace delete does: read the tenant, then delete the workspace
+/// and record the tenant in one transaction (the cascade takes the tenant row,
+/// the record survives it). The sweep then removes the tenant and its service
+/// account in Airhouse by what was recorded, and drops the record.
+#[tokio::test]
+async fn a_deleted_workspaces_tenant_is_removed_from_airhouse() {
+    set_test_encryption_key();
+    let db = test_db().await;
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/admin/v1/tenants"))
+        .respond_with(move |req: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&req.body).unwrap();
+            let id = body["id"].as_str().unwrap().to_string();
+            ResponseTemplate::new(201).set_body_json(tenant_body(&id, "tenants/x"))
+        })
+        .mount(&server)
+        .await;
+    mount_default_sa_mocks(&server).await;
+
+    let workspace_id = seed_workspace(&db, "gone").await;
+    let prov = make_provisioner(db.clone(), &server);
+    prov.provision(workspace_id, "gone".to_string())
+        .await
+        .unwrap();
+    let tenant = prov
+        .detached_tenant(workspace_id)
+        .await
+        .unwrap()
+        .expect("the workspace has a tenant");
+    let sa_id = tenant
+        .service_account_id
+        .clone()
+        .expect("provision minted a service account");
+
+    let txn = db.begin().await.unwrap();
+    workspaces::Entity::delete_by_id(workspace_id)
+        .exec(&txn)
+        .await
+        .unwrap();
+    airhouse::workspace_delete::record(&txn, std::slice::from_ref(&tenant))
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    assert!(
+        prov.detached_tenant(workspace_id).await.unwrap().is_none(),
+        "the workspace delete cascaded the tenant row"
+    );
+    assert_eq!(
+        pending_removals(&db).await,
+        1,
+        "the record survived the cascade"
+    );
+
+    Mock::given(method("DELETE"))
+        .and(wiremock::matchers::path(format!(
+            "/admin/v1/service-accounts/{sa_id}"
+        )))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(wiremock::matchers::path(format!(
+            "/admin/v1/tenants/{}",
+            tenant.airhouse_tenant_id
+        )))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    assert_eq!(airhouse::workspace_delete::sweep_with(&db, &prov).await, 1);
+    server.verify().await;
+    assert_eq!(
+        pending_removals(&db).await,
+        0,
+        "a removed tenant's record goes"
+    );
+    assert_eq!(
+        airhouse::workspace_delete::sweep_with(&db, &prov).await,
+        0,
+        "nothing is left to sweep"
+    );
+}
+
+/// A removal Airhouse refuses stays recorded, with the error, and is not due
+/// again until its backoff has passed.
+#[tokio::test]
+async fn a_failed_removal_stays_recorded_and_backs_off() {
+    let db = test_db().await;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/admin/v1/service-accounts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/admin/v1/tenants/oxy-ws-refused"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("down"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let tenant = airhouse::DetachedTenant {
+        workspace_id: Uuid::new_v4(),
+        airhouse_tenant_id: "oxy-ws-refused".to_string(),
+        service_account_id: None,
+    };
+    airhouse::workspace_delete::record(&db, std::slice::from_ref(&tenant))
+        .await
+        .unwrap();
+    let prov = make_provisioner(db.clone(), &server);
+
+    assert_eq!(airhouse::workspace_delete::sweep_with(&db, &prov).await, 0);
+    assert_eq!(
+        airhouse::workspace_delete::sweep_with(&db, &prov).await,
+        0,
+        "not due again before its backoff"
+    );
+    server.verify().await;
+
+    let row = db
+        .query_one_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT attempts, last_error, next_attempt_at > now() AS later \
+             FROM airhouse_tenant_deletions WHERE airhouse_tenant_id = 'oxy-ws-refused'",
+        ))
+        .await
+        .unwrap()
+        .expect("the failed removal is still recorded");
+    assert_eq!(row.try_get::<i32>("", "attempts").unwrap(), 1);
+    assert!(row.try_get::<bool>("", "later").unwrap());
+    assert!(
+        row.try_get::<Option<String>>("", "last_error")
+            .unwrap()
+            .is_some()
+    );
+}
+
+async fn pending_removals(db: &DatabaseConnection) -> i64 {
+    db.query_one_raw(sea_orm::Statement::from_string(
+        sea_orm::DatabaseBackend::Postgres,
+        "SELECT count(*) AS n FROM airhouse_tenant_deletions",
+    ))
+    .await
+    .unwrap()
+    .unwrap()
+    .try_get("", "n")
+    .unwrap()
+}
+
+/// A workspace deleted while its provision was still running: the tenant was
+/// read before the service account existed. The account minted since is found
+/// by its tenant in Airhouse and revoked; another tenant's is left alone.
+#[tokio::test]
+async fn a_service_account_minted_after_the_tenant_was_read_is_revoked() {
+    let db = test_db().await;
+    let server = MockServer::start().await;
+    let workspace_id = seed_workspace(&db, "race").await;
+    let tenant = airhouse::DetachedTenant {
+        workspace_id,
+        airhouse_tenant_id: "oxy-ws-race".to_string(),
+        service_account_id: None,
+    };
+
+    Mock::given(method("GET"))
+        .and(path("/admin/v1/service-accounts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            sa_record_body("sa_minted_late", "oxy-tenant-oxy-ws-race", "oxy-ws-race"),
+            sa_record_body("sa_other", "oxy-tenant-oxy-ws-other", "oxy-ws-other"),
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/admin/v1/service-accounts/sa_minted_late"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/admin/v1/tenants/oxy-ws-race"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    make_provisioner(db.clone(), &server)
+        .delete_detached(&tenant)
+        .await
+        .unwrap();
+    // `sa_other` has no mock: wiremock answers an unmatched call 404, and the
+    // expectations above fail if anything else was revoked or deleted.
+    server.verify().await;
+    let received = server.received_requests().await.unwrap();
+    assert!(
+        !received.iter().any(|r| r.url.path().ends_with("/sa_other")),
+        "another tenant's service account was revoked"
+    );
 }
 
 #[tokio::test]
