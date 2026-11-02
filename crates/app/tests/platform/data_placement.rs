@@ -92,6 +92,10 @@ const TABLES: &[(&str, Placement)] = &[
         },
     ),
     (
+        "airhouse_tenant_deletions",
+        Control("Airhouse tenants of deleted workspaces, still to be removed"),
+    ),
+    (
         "airhouse_tenants",
         Control("Airhouse tenant registry and sealed service account"),
     ),

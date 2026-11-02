@@ -727,10 +727,13 @@ async fn a_service_account_minted_after_the_tenant_was_read_is_revoked() {
         .mount(&server)
         .await;
 
-    make_provisioner(db.clone(), &server)
-        .delete_detached(&tenant)
-        .await
-        .unwrap();
+    assert_eq!(
+        make_provisioner(db.clone(), &server)
+            .delete_detached(&tenant)
+            .await
+            .unwrap(),
+        airhouse::TenantRemoval::Removed
+    );
     // `sa_other` has no mock: wiremock answers an unmatched call 404, and the
     // expectations above fail if anything else was revoked or deleted.
     server.verify().await;
@@ -751,6 +754,174 @@ async fn deprovision_is_noop_when_local_row_absent() {
     prov.deprovision(workspace_id).await.expect("noop");
     // No mocks registered — wiremock would reject any request, so this also
     // verifies we never called Airhouse.
+}
+
+/// Bind `to` to `from`'s tenant, service account included. The migration's
+/// unique constraint forbids two workspaces on one tenant, but a deployed table
+/// without it has been found holding exactly that, so the constraint is dropped
+/// first.
+async fn share_tenant(db: &DatabaseConnection, from: Uuid, to: Uuid) {
+    db.execute_unprepared(
+        "DO $$ DECLARE c text; BEGIN \
+           FOR c IN SELECT conname FROM pg_constraint \
+             WHERE conrelid = 'airhouse_tenants'::regclass AND contype = 'u' \
+               AND pg_get_constraintdef(oid) = 'UNIQUE (airhouse_tenant_id)' LOOP \
+             EXECUTE format('ALTER TABLE airhouse_tenants DROP CONSTRAINT %I', c); \
+           END LOOP; \
+         END $$",
+    )
+    .await
+    .unwrap();
+    db.execute_raw(sea_orm::Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Postgres,
+        "INSERT INTO airhouse_tenants (id, workspace_id, airhouse_tenant_id, bucket, prefix, \
+             status, created_at, service_account_id, bearer_ciphertext, bearer_max_role, \
+             bearer_max_ttl_secs, sa_created_at, sa_rotated_at) \
+         SELECT $1, $2, airhouse_tenant_id, bucket, prefix, status, created_at, \
+             service_account_id, bearer_ciphertext, bearer_max_role, bearer_max_ttl_secs, \
+             sa_created_at, sa_rotated_at \
+         FROM airhouse_tenants WHERE workspace_id = $3",
+        [Uuid::new_v4().into(), to.into(), from.into()],
+    ))
+    .await
+    .unwrap();
+}
+
+/// Delete `workspace_id` and record its tenant, as a workspace delete does
+/// (`workspace_delete::tenants_of` reads it through the provisioner the
+/// environment configures, which a test has none of).
+async fn delete_and_record(db: &DatabaseConnection, prov: &TenantProvisioner, workspace_id: Uuid) {
+    let tenants: Vec<_> = prov
+        .detached_tenant(workspace_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .collect();
+    let txn = db.begin().await.unwrap();
+    workspaces::Entity::delete_by_id(workspace_id)
+        .exec(&txn)
+        .await
+        .unwrap();
+    airhouse::workspace_delete::record(&txn, &tenants)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+}
+
+async fn airhouse_deletes(server: &MockServer) -> usize {
+    server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.method.to_string() == "DELETE")
+        .count()
+}
+
+/// Two workspaces on one tenant: deleting one keeps the tenant and its service
+/// account in Airhouse for the other, and drops the record. Deleting the other
+/// then removes them.
+#[tokio::test]
+async fn a_tenant_another_workspace_uses_outlives_the_first_delete() {
+    set_test_encryption_key();
+    let db = test_db().await;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/admin/v1/tenants"))
+        .respond_with(move |req: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&req.body).unwrap();
+            let id = body["id"].as_str().unwrap().to_string();
+            ResponseTemplate::new(201).set_body_json(tenant_body(&id, "tenants/x"))
+        })
+        .mount(&server)
+        .await;
+    mount_default_sa_mocks(&server).await;
+
+    let first = seed_workspace(&db, "first").await;
+    let second = seed_workspace(&db, "second").await;
+    let prov = make_provisioner(db.clone(), &server);
+    prov.provision(first, "shared".to_string()).await.unwrap();
+    share_tenant(&db, first, second).await;
+    let tenant = prov
+        .detached_tenant(first)
+        .await
+        .unwrap()
+        .expect("the workspace has a tenant");
+    let sa_id = tenant
+        .service_account_id
+        .clone()
+        .expect("provision minted a service account");
+
+    delete_and_record(&db, &prov, second).await;
+    assert_eq!(pending_removals(&db).await, 1);
+    assert_eq!(airhouse::workspace_delete::sweep_with(&db, &prov).await, 0);
+    assert_eq!(
+        airhouse_deletes(&server).await,
+        0,
+        "nothing was revoked or deleted in Airhouse"
+    );
+    assert_eq!(
+        pending_removals(&db).await,
+        0,
+        "the record of a kept tenant goes"
+    );
+    assert_eq!(
+        prov.detached_tenant(first).await.unwrap(),
+        Some(tenant.clone()),
+        "the other workspace keeps its tenant"
+    );
+
+    Mock::given(method("DELETE"))
+        .and(path(format!("/admin/v1/service-accounts/{sa_id}")))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!(
+            "/admin/v1/tenants/{}",
+            tenant.airhouse_tenant_id
+        )))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    delete_and_record(&db, &prov, first).await;
+    assert_eq!(
+        airhouse::workspace_delete::sweep_with(&db, &prov).await,
+        1,
+        "the last workspace's delete removes the tenant"
+    );
+    server.verify().await;
+}
+
+/// `deprovision` of one of two workspaces on a tenant removes only its own row.
+#[tokio::test]
+async fn deprovision_keeps_a_tenant_another_workspace_uses() {
+    set_test_encryption_key();
+    let db = test_db().await;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/admin/v1/tenants"))
+        .respond_with(move |req: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&req.body).unwrap();
+            let id = body["id"].as_str().unwrap().to_string();
+            ResponseTemplate::new(201).set_body_json(tenant_body(&id, "tenants/x"))
+        })
+        .mount(&server)
+        .await;
+    mount_default_sa_mocks(&server).await;
+
+    let first = seed_workspace(&db, "first").await;
+    let second = seed_workspace(&db, "second").await;
+    let prov = make_provisioner(db.clone(), &server);
+    prov.provision(first, "shared".to_string()).await.unwrap();
+    share_tenant(&db, first, second).await;
+
+    prov.deprovision(second).await.unwrap();
+    assert_eq!(airhouse_deletes(&server).await, 0);
+    assert!(prov.detached_tenant(second).await.unwrap().is_none());
+    assert!(prov.detached_tenant(first).await.unwrap().is_some());
 }
 
 #[tokio::test]

@@ -134,7 +134,7 @@ pub use local_seed::ensure_local_org_seeded;
 
 #[cfg(feature = "admin")]
 pub use provisioner::{
-    DetachedTenant, ProvisionerError, RotatedServiceAccount, TenantProvisioner,
+    DetachedTenant, ProvisionerError, RotatedServiceAccount, TenantProvisioner, TenantRemoval,
     tenant_name_for_workspace,
 };
 

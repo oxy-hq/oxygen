@@ -17,15 +17,18 @@
 //!
 //! The sweep only ever removes tenants this deployment recorded. Dev and
 //! staging share one Airhouse, so a sweep that removed every tenant with no
-//! workspace in this database would delete the other deployment's.
+//! workspace in this database would delete the other deployment's. Nor does it
+//! remove a recorded tenant that another workspace here still names
+//! ([`TenantRemoval::KeptForWorkspace`]); it drops the record and leaves the
+//! tenant to that workspace.
 
 use std::time::Duration;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::provisioner::{DetachedTenant, TenantProvisioner};
+use crate::provisioner::{DetachedTenant, TenantProvisioner, TenantRemoval};
 
 /// How long a claimed removal is left to the sweeper that claimed it before
 /// another may take it: longer than the lock wait (120s) and the Airhouse calls
@@ -62,7 +65,8 @@ pub async fn tenants_of(db: &DatabaseConnection, workspace_ids: &[Uuid]) -> Vec<
 }
 
 /// Record `tenants` for removal, inside the transaction that deletes their
-/// workspaces.
+/// workspaces. A tenant already recorded takes the later workspace, which is
+/// the one whose row was the last to name it.
 pub async fn record(txn: &impl ConnectionTrait, tenants: &[DetachedTenant]) -> Result<(), DbErr> {
     for tenant in tenants {
         txn.execute_raw(Statement::from_sql_and_values(
@@ -71,6 +75,7 @@ pub async fn record(txn: &impl ConnectionTrait, tenants: &[DetachedTenant]) -> R
                  (airhouse_tenant_id, workspace_id, service_account_id) \
              VALUES ($1, $2, $3) \
              ON CONFLICT (airhouse_tenant_id) DO UPDATE SET \
+                 workspace_id = EXCLUDED.workspace_id, \
                  service_account_id = COALESCE(EXCLUDED.service_account_id, \
                      airhouse_tenant_deletions.service_account_id), \
                  next_attempt_at = now()",
@@ -146,9 +151,11 @@ async fn claim(db: &DatabaseConnection) -> Result<Vec<(DetachedTenant, i32)>, Db
         .collect()
 }
 
-/// Remove one claimed tenant. On success its row goes; on failure the row is
-/// pushed back by [`retry_delay`] with the error, which the log line repeats so
-/// a removal that keeps failing is visible.
+/// Remove one claimed tenant. On success its row goes, and when another
+/// workspace still uses the tenant, its row goes unless that workspace's own
+/// delete has recorded the tenant since; on failure the row is pushed back by
+/// [`retry_delay`] with the error, which the log line repeats so a removal that
+/// keeps failing is visible. Returns whether the tenant was removed.
 async fn remove(
     db: &DatabaseConnection,
     provisioner: &TenantProvisioner,
@@ -157,11 +164,26 @@ async fn remove(
 ) -> bool {
     let result = provisioner.delete_detached(tenant).await;
     let settled = match &result {
-        Ok(()) => {
+        Ok(TenantRemoval::Removed) => {
             db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "DELETE FROM airhouse_tenant_deletions WHERE airhouse_tenant_id = $1",
                 [tenant.airhouse_tenant_id.clone().into()],
+            ))
+            .await
+        }
+        // Only while the record is still this workspace's: the other
+        // workspace's delete may have recorded the tenant since the check,
+        // and that record is what removes it on the next sweep.
+        Ok(TenantRemoval::KeptForWorkspace(_)) => {
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "DELETE FROM airhouse_tenant_deletions \
+                 WHERE airhouse_tenant_id = $1 AND workspace_id = $2",
+                [
+                    tenant.airhouse_tenant_id.clone().into(),
+                    tenant.workspace_id.into(),
+                ],
             ))
             .await
         }
@@ -188,13 +210,22 @@ async fn remove(
         );
     }
     match result {
-        Ok(()) => {
+        Ok(TenantRemoval::Removed) => {
             info!(
                 workspace_id = %tenant.workspace_id,
                 tenant_id = %tenant.airhouse_tenant_id,
                 "removed the airhouse tenant of a deleted workspace"
             );
             true
+        }
+        Ok(TenantRemoval::KeptForWorkspace(holder)) => {
+            warn!(
+                workspace_id = %tenant.workspace_id,
+                tenant_id = %tenant.airhouse_tenant_id,
+                other_workspace_id = %holder,
+                "kept the airhouse tenant of a deleted workspace: another workspace uses it"
+            );
+            false
         }
         Err(e) => {
             error!(

@@ -98,6 +98,16 @@ impl From<&airhouse_tenants::Model> for DetachedTenant {
     }
 }
 
+/// What [`TenantProvisioner::delete_detached`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TenantRemoval {
+    /// The tenant and its service accounts were removed in Airhouse.
+    Removed,
+    /// Another workspace's row still names the tenant, so Airhouse was not
+    /// called: removing it would delete that workspace's data.
+    KeptForWorkspace(Uuid),
+}
+
 pub struct TenantProvisioner {
     db: DatabaseConnection,
     client: AirhouseAdminClient,
@@ -185,7 +195,31 @@ impl TenantProvisioner {
             return Ok(());
         };
 
-        self.delete_remote(&DetachedTenant::from(&local)).await?;
+        let tenant_lock = TenantLock::for_tenant(&self.db, &local.airhouse_tenant_id).await?;
+        let result = self.deprovision_row(&local).await;
+        tenant_lock.release().await;
+        result
+    }
+
+    /// Remove `local`'s tenant, unless another workspace uses it, and then the
+    /// row, with the tenant's own [`TenantLock`] held.
+    async fn deprovision_row(
+        &self,
+        local: &airhouse_tenants::Model,
+    ) -> Result<(), ProvisionerError> {
+        let workspace_id = local.workspace_id;
+        if let Some(holder) = self
+            .other_workspace_on(&local.airhouse_tenant_id, workspace_id)
+            .await?
+        {
+            warn!(
+                tenant_id = %local.airhouse_tenant_id,
+                other_workspace_id = %holder,
+                "another workspace uses this airhouse tenant; removing only this workspace's row"
+            );
+        } else {
+            self.delete_remote(&DetachedTenant::from(local)).await?;
+        }
         AirhouseTenants::delete_by_id(local.id)
             .exec(&self.db)
             .await?;
@@ -219,11 +253,46 @@ impl TenantProvisioner {
     /// [`DETACHED_LIST_TIMEOUT`], the revokes and the delete by
     /// [`DETACHED_DELETE_TIMEOUT`]. Runs on a worker, from the record the
     /// delete left, so a timeout is retried rather than lost.
+    ///
+    /// A tenant another workspace's row still names is kept
+    /// ([`TenantRemoval::KeptForWorkspace`]): its service account is that
+    /// workspace's too, and deleting the tenant drops its catalog.
     #[instrument(skip(self), fields(workspace_id = %tenant.workspace_id, tenant_id = %tenant.airhouse_tenant_id))]
-    pub async fn delete_detached(&self, tenant: &DetachedTenant) -> Result<(), ProvisionerError> {
+    pub async fn delete_detached(
+        &self,
+        tenant: &DetachedTenant,
+    ) -> Result<TenantRemoval, ProvisionerError> {
         let lock = TenantLock::acquire(&self.db, tenant.workspace_id).await?;
+        let result = match TenantLock::for_tenant(&self.db, &tenant.airhouse_tenant_id).await {
+            Ok(tenant_lock) => {
+                let result = self.delete_detached_holding_lock(tenant).await;
+                tenant_lock.release().await;
+                result
+            }
+            Err(e) => Err(e.into()),
+        };
+        lock.release().await;
+        let removal = result?;
+        if removal == TenantRemoval::Removed {
+            info!("deleted the airhouse tenant of a deleted workspace");
+        }
+        Ok(removal)
+    }
+
+    /// [`delete_detached`](Self::delete_detached), with the deleted
+    /// workspace's [`TenantLock`] and the tenant's own held.
+    async fn delete_detached_holding_lock(
+        &self,
+        tenant: &DetachedTenant,
+    ) -> Result<TenantRemoval, ProvisionerError> {
+        if let Some(holder) = self
+            .other_workspace_on(&tenant.airhouse_tenant_id, tenant.workspace_id)
+            .await?
+        {
+            return Ok(TenantRemoval::KeptForWorkspace(holder));
+        }
         let late_accounts = self.late_service_accounts(tenant).await;
-        let result = match tokio::time::timeout(DETACHED_DELETE_TIMEOUT, async {
+        match tokio::time::timeout(DETACHED_DELETE_TIMEOUT, async {
             for sa_id in &late_accounts {
                 if let Err(e) = self.client.revoke_service_account(sa_id).await {
                     warn!(sa_id = %sa_id, "failed to revoke airhouse SA during deprovision: {e}");
@@ -233,15 +302,31 @@ impl TenantProvisioner {
         })
         .await
         {
-            Ok(result) => result,
+            Ok(result) => result.map(|()| TenantRemoval::Removed),
             Err(_) => Err(ProvisionerError::AirhouseTimeout(
                 DETACHED_DELETE_TIMEOUT.as_secs(),
             )),
-        };
-        lock.release().await;
-        result?;
-        info!("deleted the airhouse tenant of a deleted workspace");
-        Ok(())
+        }
+    }
+
+    /// A workspace other than `workspace_id` whose row names `tenant_id`.
+    ///
+    /// The migration declares `airhouse_tenant_id` unique, but a deployment's
+    /// table can be without that constraint, and one has been found with two
+    /// workspaces bound to one tenant, sharing its service account. So it is
+    /// checked here rather than assumed: removing a tenant one workspace still
+    /// uses deletes that workspace's data.
+    async fn other_workspace_on(
+        &self,
+        tenant_id: &str,
+        workspace_id: Uuid,
+    ) -> Result<Option<Uuid>, sea_orm::DbErr> {
+        Ok(AirhouseTenants::find()
+            .filter(airhouse_tenants::Column::AirhouseTenantId.eq(tenant_id))
+            .filter(airhouse_tenants::Column::WorkspaceId.ne(workspace_id))
+            .one(&self.db)
+            .await?
+            .map(|row| row.workspace_id))
     }
 
     /// The tenant's live service accounts other than the one read with it: a
@@ -669,6 +754,35 @@ const TENANT_LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '120s'";
 
 impl TenantLock {
     async fn acquire(db: &DatabaseConnection, workspace_id: Uuid) -> Result<Self, sea_orm::DbErr> {
+        Self::take(
+            db,
+            "SELECT pg_advisory_xact_lock($1)",
+            tenant_lock_key(workspace_id).into(),
+        )
+        .await
+    }
+
+    /// The lock of the Airhouse tenant itself, taken with a workspace's lock
+    /// held, around the decision to remove a tenant and the removal. Two
+    /// workspaces bound to one tenant hold different workspace locks, so
+    /// without this each could see the other's row, keep the tenant, and drop
+    /// its own row, leaving the tenant with no row at all. Keyed by Postgres's
+    /// own `hashtext` of the tenant id, in the two-key space, which does not
+    /// overlap the one-key space [`acquire`](Self::acquire) uses.
+    async fn for_tenant(db: &DatabaseConnection, tenant_id: &str) -> Result<Self, sea_orm::DbErr> {
+        Self::take(
+            db,
+            "SELECT pg_advisory_xact_lock(hashtext('airhouse_tenant'), hashtext($1))",
+            tenant_id.into(),
+        )
+        .await
+    }
+
+    async fn take(
+        db: &DatabaseConnection,
+        lock_sql: &str,
+        key: sea_orm::Value,
+    ) -> Result<Self, sea_orm::DbErr> {
         if db.get_database_backend() != DatabaseBackend::Postgres {
             return Ok(Self(None));
         }
@@ -680,8 +794,8 @@ impl TenantLock {
         .await?;
         txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT pg_advisory_xact_lock($1)",
-            [tenant_lock_key(workspace_id).into()],
+            lock_sql,
+            [key],
         ))
         .await?;
         Ok(Self(Some(txn)))
