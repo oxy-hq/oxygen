@@ -172,8 +172,9 @@ pub fn build_connector(cfg: ConnectorConfig) -> Result<Box<dyn DatabaseConnector
                 let conn = Connection::open_in_memory()
                     .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
                 for stmt in &c.init_statements {
-                    conn.execute_batch(stmt)
-                        .map_err(|e| ConnectorError::query_failed(stmt.clone(), e.to_string()))?;
+                    conn.execute_batch(stmt).map_err(|e| {
+                        ConnectorError::query_failed(c.redact(stmt), c.redact(&e.to_string()))
+                    })?;
                 }
                 Ok(Box::new(DuckDbConnector::new(conn)))
             }
@@ -200,7 +201,7 @@ pub fn build_connector(cfg: ConnectorConfig) -> Result<Box<dyn DatabaseConnector
                 } else {
                     Connection::open(&c.url)
                 }
-                .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
+                .map_err(|e| ConnectorError::ConnectionError(c.redact(&e.to_string())))?;
                 Ok(Box::new(DuckDbConnector::new(conn)))
             }
             #[cfg(not(feature = "duckdb"))]

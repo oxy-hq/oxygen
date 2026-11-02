@@ -23,8 +23,8 @@ use crate::config::validate::{
 };
 pub use automation::{AutomationWithRawVariables, WorkflowWithRawVariables};
 pub use duckdb::{
-    CatalogConfig, DuckDBOptions, DuckDbS3Mirror, DuckDbS3Table, DuckLakeConfig, S3StorageSecret,
-    StorageConfig,
+    CatalogConfig, DuckDBOptions, DuckDbS3Mirror, DuckDbS3Table, DuckLakeAttach, DuckLakeConfig,
+    S3StorageSecret, StorageConfig, redact_secret_values,
 };
 pub use oxy_llm::{
     AnthropicModelConfig, GeminiModelConfig, HeaderValue, Model, OPENAI_API_URL, OllamaModelConfig,

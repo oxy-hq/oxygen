@@ -213,10 +213,48 @@ impl DomoConfig {
 /// Use this for DuckLake (ATTACH via extension), custom extensions, or any
 /// scenario where the caller pre-resolves secrets into plain SQL before handing
 /// off to the connector layer.
-#[derive(Debug, Clone)]
+///
+/// Statements that hold a secret must list it in `secret_values`: a failed
+/// statement's error carries the statement and DuckDB's message, and both are
+/// scrubbed of those values first, since either can quote the secret.
+#[derive(Clone)]
 pub struct DuckDbRawConfig {
     /// SQL statements executed sequentially against a fresh in-memory connection.
     pub init_statements: Vec<String>,
+    /// The credentials `init_statements` carry, replaced by `***` in any error.
+    pub secret_values: Vec<String>,
+}
+
+impl DuckDbRawConfig {
+    /// `text` with each non-empty value in `secret_values` replaced by `***`,
+    /// in each spelling it can take in DuckDB text: as written, inside a SQL
+    /// literal (`'` doubled), and inside a quoted libpq value (`\` and `'`
+    /// escaped). Longest spelling first, so a shorter one leaves no tail.
+    pub fn redact(&self, text: &str) -> String {
+        let mut out = text.to_string();
+        for secret in self.secret_values.iter().filter(|s| !s.is_empty()) {
+            let mut spellings = [
+                secret.replace('\'', "''"),
+                secret.replace('\\', "\\\\").replace('\'', "\\'"),
+                secret.clone(),
+            ];
+            spellings.sort_by_key(|s| std::cmp::Reverse(s.len()));
+            for spelling in spellings {
+                out = out.replace(&spelling, "***");
+            }
+        }
+        out
+    }
+}
+
+// By hand, so neither the statements nor the secrets reach a log through `{:?}`.
+impl std::fmt::Debug for DuckDbRawConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DuckDbRawConfig")
+            .field("init_statements", &self.init_statements.len())
+            .field("secret_values", &self.secret_values.len())
+            .finish()
+    }
 }
 
 // ── DuckDB (connection URL) ──────────────────────────────────────────────────
@@ -225,13 +263,45 @@ pub struct DuckDbRawConfig {
 ///
 /// Suitable for MotherDuck (`md:mydb?motherduck_token=...`) or any DuckDB URL
 /// that `Connection::open` accepts.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DuckDbUrlConfig {
     /// Full connection URL passed to `duckdb::Connection::open`.
     pub url: String,
     /// Open the database read-only. Set for a workspace's file DuckDB on the
     /// cloud roles, where it is a fallback nothing writes into.
     pub read_only: bool,
+}
+
+impl DuckDbUrlConfig {
+    /// `text` with the value of every credential parameter in `url`
+    /// (`motherduck_token=…`, or any key naming a token, password or secret)
+    /// replaced by `***`. DuckDB echoes the URL back in some open failures.
+    pub fn redact(&self, text: &str) -> String {
+        let Some((_, query)) = self.url.split_once('?') else {
+            return text.to_string();
+        };
+        let mut out = text.to_string();
+        for (key, value) in query.split('&').filter_map(|pair| pair.split_once('=')) {
+            let key = key.to_ascii_lowercase();
+            let is_credential = ["token", "password", "secret"]
+                .iter()
+                .any(|word| key.contains(word));
+            if is_credential && !value.is_empty() {
+                out = out.replace(value, "***");
+            }
+        }
+        out
+    }
+}
+
+// By hand, so a token in the URL never reaches a log through `{:?}`.
+impl std::fmt::Debug for DuckDbUrlConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DuckDbUrlConfig")
+            .field("url", &self.redact(&self.url))
+            .field("read_only", &self.read_only)
+            .finish()
+    }
 }
 
 // ── Top-level enum ────────────────────────────────────────────────────────────

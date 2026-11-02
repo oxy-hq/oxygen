@@ -90,14 +90,17 @@ impl ConnectionStringParser for PostgresConnectionString {
             .ok_or(ConnectionStringError::MissingHost)?
             .to_string();
 
+        // `Url` hands back the user, password and path still percent-encoded:
+        // a password holding `/` is stored as `%2F`, and passed on as it is
+        // that is the wrong password. Decoded here, once, for every consumer.
         // Extract user (empty string becomes None)
         let user = if url.username().is_empty() {
             None
         } else {
-            Some(url.username().to_string())
+            Some(percent_decode(url.username())?)
         };
 
-        let password = url.password().map(|p| p.to_string());
+        let password = url.password().map(percent_decode).transpose()?;
 
         let port = url.port();
 
@@ -107,7 +110,7 @@ impl ConnectionStringParser for PostgresConnectionString {
             if path.is_empty() || path == "/" {
                 None
             } else {
-                Some(path.trim_start_matches('/').to_string())
+                Some(percent_decode(path.trim_start_matches('/'))?)
             }
         };
 
@@ -128,27 +131,46 @@ impl ConnectionStringParser for PostgresConnectionString {
     }
 }
 
+fn percent_decode(s: &str) -> Result<String, ConnectionStringError> {
+    urlencoding::decode(s)
+        .map(|decoded| decoded.into_owned())
+        .map_err(|_| ConnectionStringError::InvalidUrl("a percent-escape is not UTF-8".to_string()))
+}
+
+/// `value` as a libpq keyword/value value: bare when it can be, otherwise
+/// single-quoted with `\` and `'` escaped by a backslash, as libpq requires
+/// for an empty value or one holding whitespace, a quote or a backslash.
+fn libpq_value(value: &str) -> String {
+    let needs_quoting = value.is_empty()
+        || value
+            .chars()
+            .any(|c| c.is_whitespace() || c == '\'' || c == '\\');
+    if !needs_quoting {
+        return value.to_string();
+    }
+    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
+}
+
 impl ConnectionStringFormatter for PostgresConnectionString {
+    /// The password is deliberately left out. DuckDB and DuckLake repeat the
+    /// attach path in their own error messages (`Unable to connect to Postgres
+    /// at "<path>"`, `Failed to attach DuckLake MetaData … at path "<path>"`),
+    /// so a password in it ends up in every error. It goes in a `TYPE postgres`
+    /// secret instead, which the postgres extension adds to the connection.
     fn to_duckdb_format(&self) -> String {
-        let mut parts = vec![format!("host={}", self.host)];
+        let mut parts = vec![format!("host={}", libpq_value(&self.host))];
 
         if let Some(ref user) = self.user {
-            parts.insert(0, format!("user={}", user));
-        }
-        if let Some(ref password) = self.password {
-            parts.insert(
-                if self.user.is_some() { 1 } else { 0 },
-                format!("password={}", password),
-            );
+            parts.insert(0, format!("user={}", libpq_value(user)));
         }
         if let Some(port) = self.port {
             parts.push(format!("port={}", port));
         }
         if let Some(ref dbname) = self.dbname {
-            parts.push(format!("dbname={}", dbname));
+            parts.push(format!("dbname={}", libpq_value(dbname)));
         }
         for (key, value) in &self.options {
-            parts.push(format!("{}={}", key, value));
+            parts.push(format!("{}={}", key, libpq_value(value)));
         }
 
         format!("postgres:{}", parts.join(" "))
@@ -259,7 +281,35 @@ mod tests {
         let result = conn.to_duckdb_format();
         assert_eq!(
             result,
-            "postgres:user=ducklake password=ducklakepass host=localhost port=5432 dbname=ducklake_catalog"
+            "postgres:user=ducklake host=localhost port=5432 dbname=ducklake_catalog"
+        );
+    }
+
+    #[test]
+    fn parse_percent_decodes_user_password_and_dbname() {
+        let parsed =
+            PostgresConnectionString::parse("postgres://u%40corp:p%2Fa%25ss@localhost/cat%20db")
+                .unwrap();
+
+        assert_eq!(parsed.user, Some("u@corp".to_string()));
+        assert_eq!(parsed.password, Some("p/a%ss".to_string()));
+        assert_eq!(parsed.dbname, Some("cat db".to_string()));
+    }
+
+    #[test]
+    fn to_duckdb_format_quotes_values_libpq_cannot_take_bare() {
+        let conn = PostgresConnectionString {
+            user: Some("o'neil".to_string()),
+            password: Some("secret".to_string()),
+            host: "localhost".to_string(),
+            port: None,
+            dbname: Some("cat db".to_string()),
+            options: vec![("options".to_string(), r"-c a=\b".to_string())],
+        };
+
+        assert_eq!(
+            conn.to_duckdb_format(),
+            r"postgres:user='o\'neil' host=localhost dbname='cat db' options='-c a=\\b'"
         );
     }
 
@@ -292,7 +342,7 @@ mod tests {
         let result = conn.to_duckdb_format();
         assert_eq!(
             result,
-            "postgres:user=user password=pass host=localhost port=5432 dbname=mydb sslmode=disable"
+            "postgres:user=user host=localhost port=5432 dbname=mydb sslmode=disable"
         );
     }
 
@@ -305,7 +355,7 @@ mod tests {
 
         assert_eq!(
             formatted,
-            "postgres:user=ducklake password=ducklakepass host=localhost port=5432 dbname=ducklake_catalog sslmode=disable"
+            "postgres:user=ducklake host=localhost port=5432 dbname=ducklake_catalog sslmode=disable"
         );
     }
 }

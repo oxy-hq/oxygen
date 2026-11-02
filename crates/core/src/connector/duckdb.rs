@@ -10,12 +10,12 @@ use slugify::slugify;
 use super::duckdb_pool::{PoolKey, PoolTarget, pool};
 use super::engine::Engine;
 use crate::adapters::secrets::SecretsManager;
-use crate::config::model::{DuckDBOptions, DuckDbS3Mirror};
+use crate::config::model::{DuckDBOptions, DuckDbS3Mirror, DuckLakeAttach};
 use crate::connector::constants::{
     CREATE_CONN, CREATE_TEMP_TABLE, EXECUTE_QUERY, PREPARE_DUCKDB_STMT, SET_FILE_SEARCH_PATH,
     SET_TEMP_DIRECTORY,
 };
-use crate::connector::utils::connector_internal_error;
+use crate::connector::utils::{connector_internal_error, format_error_chain};
 use oxy_shared::errors::OxyError;
 
 #[derive(Debug)]
@@ -91,10 +91,10 @@ impl DuckDB {
         let DuckDBOptions::DuckLake(config) = &self.options else {
             unreachable!("init_ducklake called with non-DuckLake options");
         };
-        // Async: fetch secrets before entering spawn_blocking.
-        let attach_stmts = config.to_duckdb_attach_stmt(&self.secrets_manager).await?;
-        tracing::info!("Executing DuckDB attach statements: {:?}", attach_stmts);
-        tokio::task::spawn_blocking(move || init_ducklake_blocking(attach_stmts))
+        // Async: fetch secrets before entering spawn_blocking. The statements
+        // hold credentials, so they are not logged.
+        let attach = config.to_duckdb_attach_stmt(&self.secrets_manager).await?;
+        tokio::task::spawn_blocking(move || init_ducklake_blocking(&attach))
             .await
             .map_err(|e| OxyError::DBError(format!("DuckDB ducklake join error: {e}")))?
     }
@@ -103,7 +103,7 @@ impl DuckDB {
 /// Synchronous body of [`DuckDB::init_ducklake`]. Runs inside
 /// `spawn_blocking` to avoid blocking Tokio workers during `INSTALL`
 /// (which may fetch extensions from the network on first run).
-fn init_ducklake_blocking(attach_stmts: Vec<String>) -> Result<Connection, OxyError> {
+fn init_ducklake_blocking(attach: &DuckLakeAttach) -> Result<Connection, OxyError> {
     let conn =
         Connection::open_in_memory().map_err(|err| connector_internal_error(CREATE_CONN, &err))?;
     conn.execute("INSTALL ducklake", [])
@@ -114,14 +114,26 @@ fn init_ducklake_blocking(attach_stmts: Vec<String>) -> Result<Connection, OxyEr
         .map_err(|err| connector_internal_error(CREATE_CONN, &err))?;
     conn.execute("LOAD postgres", [])
         .map_err(|err| connector_internal_error(CREATE_CONN, &err))?;
-    for stmt in &attach_stmts {
-        tracing::debug!("Executing DuckDB statement: {}", stmt);
-        conn.execute(stmt, [])
-            .map_err(|err| connector_internal_error(CREATE_CONN, &err))?;
-    }
+    run_attach_statements(&conn, attach)?;
     install_icu(&conn)?;
     load_icu(&conn)?;
     Ok(conn)
+}
+
+/// Run the DuckLake attach statements in order, failing on the first.
+///
+/// Not `connector_internal_error`: that logs the raw error, and a DuckDB
+/// error can quote the statement, credentials included. The error is
+/// scrubbed of the attach's secrets before it is logged or returned.
+fn run_attach_statements(conn: &Connection, attach: &DuckLakeAttach) -> Result<(), OxyError> {
+    for stmt in &attach.statements {
+        conn.execute(stmt, []).map_err(|err| {
+            let chain = attach.redact(&format_error_chain(&err));
+            tracing::error!(error.chain = %chain, "{}", CREATE_CONN);
+            OxyError::DBError(format!("{CREATE_CONN}: {chain}"))
+        })?;
+    }
+    Ok(())
 }
 
 /// Build the connection-setup SQL for an S3-mirrored DuckDB: load `httpfs`,
@@ -631,6 +643,33 @@ mod tests {
         let path = dir.join(name);
         fs::write(&path, contents).unwrap();
         path
+    }
+
+    /// A failed DuckLake attach statement's error names no credential, even
+    /// though DuckDB's own message quotes the statement (a parser error
+    /// repeats its line). Parser errors, so no extension is downloaded.
+    #[test]
+    fn a_failed_ducklake_attach_error_carries_no_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        for stmt in [
+            "CREATE OR REPLACE SECRET (TYPE postgres PASSWORD 'hunter2-x')",
+            "ATTACH 'ducklake:postgres:password=hunter2-x host=127.0.0.1' 'x' AS ducklake",
+        ] {
+            let attach = DuckLakeAttach {
+                statements: vec![stmt.to_string()],
+                secret_values: vec!["hunter2-x".to_string()],
+            };
+
+            let err = run_attach_statements(&conn, &attach)
+                .unwrap_err()
+                .to_string();
+
+            assert!(!err.contains("hunter2"), "{err}");
+            assert!(
+                err.contains("***"),
+                "the message quoted the statement: {err}"
+            );
+        }
     }
 
     #[test]

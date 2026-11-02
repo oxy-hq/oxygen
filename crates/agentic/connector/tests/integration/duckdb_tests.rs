@@ -894,4 +894,60 @@ mod duckdb {
             assert_eq!(total_rows, 3);
         }
     }
+
+    /// A failed init statement of a `DuckDbRaw` connector (how a DuckLake is
+    /// attached) reaches the caller, and through it the HTTP response, with
+    /// its credentials scrubbed from both the echoed SQL and DuckDB's message.
+    /// The second statement is the pre-fix ATTACH, password inline; its
+    /// parser error quotes it. Parser errors, so no extension is downloaded.
+    #[test]
+    fn a_failed_init_statement_error_carries_no_secret() {
+        for stmt in [
+            "CREATE OR REPLACE SECRET (TYPE postgres PASSWORD 'hunter2-x')",
+            "ATTACH 'ducklake:postgres:password=hunter2-x host=127.0.0.1' 'x' AS ducklake",
+        ] {
+            let cfg =
+                agentic_connector::ConnectorConfig::DuckDbRaw(agentic_connector::DuckDbRawConfig {
+                    init_statements: vec![stmt.to_string()],
+                    secret_values: vec!["hunter2-x".to_string()],
+                });
+
+            let err = match agentic_connector::build_connector(cfg) {
+                Ok(_) => panic!("{stmt} should not parse"),
+                Err(e) => e,
+            };
+            let ConnectorError::QueryFailed(details) = &err else {
+                panic!("expected QueryFailed, got {err:?}");
+            };
+            let shown = err.to_string();
+
+            assert!(!shown.contains("hunter2"), "{shown}");
+            assert!(details.sql.contains("***"), "{}", details.sql);
+            assert!(
+                details.message.contains("***"),
+                "the message quoted it: {}",
+                details.message
+            );
+        }
+    }
+
+    /// A `DuckDbUrl` open failure (MotherDuck's token rides in the URL) and the
+    /// config's `Debug` both come out without the token.
+    #[test]
+    fn a_failed_url_open_error_carries_no_token() {
+        let url_cfg = agentic_connector::DuckDbUrlConfig {
+            url: "/nonexistent-dir/x.duckdb?motherduck_token=tok-12345".to_string(),
+            read_only: false,
+        };
+        assert!(!format!("{url_cfg:?}").contains("tok-12345"));
+
+        let err = match agentic_connector::build_connector(
+            agentic_connector::ConnectorConfig::DuckDbUrl(url_cfg),
+        ) {
+            Ok(_) => panic!("a file in a missing directory should not open"),
+            Err(e) => e.to_string(),
+        };
+
+        assert!(!err.contains("tok-12345"), "{err}");
+    }
 }

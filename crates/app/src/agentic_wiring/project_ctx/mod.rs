@@ -1009,6 +1009,8 @@ where
             let mirror = duck.s3_mirror.as_ref().expect("guarded by is_some()");
             Ok(Some(ConnectorConfig::DuckDbRaw(DuckDbRawConfig {
                 init_statements: oxy::connector::build_s3_mirror_sql(mirror),
+                // The pod's credential chain: the statements hold no secret.
+                secret_values: Vec::new(),
             })))
         }
         DatabaseType::DuckDB(duck) => match &duck.options {
@@ -1049,7 +1051,7 @@ where
                 })))
             }
             DuckDBOptions::DuckLake(ducklake_config) => {
-                let stmts = match ducklake_config
+                let attach = match ducklake_config
                     .to_duckdb_attach_stmt(&workspace_manager.secrets_manager)
                     .await
                 {
@@ -1064,7 +1066,8 @@ where
                     }
                 };
                 Ok(Some(ConnectorConfig::DuckDbRaw(DuckDbRawConfig {
-                    init_statements: stmts,
+                    init_statements: attach.statements,
+                    secret_values: attach.secret_values,
                 })))
             }
         },
