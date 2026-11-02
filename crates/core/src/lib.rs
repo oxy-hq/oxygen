@@ -20,7 +20,6 @@ pub mod sentry_config;
 pub mod service;
 pub mod state_dir;
 pub mod theme;
-pub mod tools;
 pub mod types;
 pub mod utils;
 pub mod workspace_fs_probe;

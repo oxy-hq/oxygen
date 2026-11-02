@@ -71,7 +71,6 @@ duckdb = { workspace = true }
 entity = { workspace = true }
 oxy-compile = { workspace = true }
 lru = { workspace = true }
-oxy-looker = { workspace = true }
 oxy-observability = { workspace = true }
 # oxy-config moved back into core/src/config to avoid circular dependency
 # The concrete LLM provider crates (anthropic/gemini/ollama/openai) are no longer

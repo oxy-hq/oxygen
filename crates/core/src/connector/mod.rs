@@ -145,7 +145,7 @@ impl Connector {
     /// the arm conservatively defaults to **Reader** — meaning any DDL/DML
     /// (`INSERT` / `UPDATE` / `CREATE` / `DROP`) issued through this
     /// connector will fail with a permission-denied at the database, even
-    /// for an Owner. Threading the real role from `ExecutionContext` is
+    /// for an Owner. Threading the real role from the caller's run context is
     /// the supported way to grant write access to Automation /
     /// agent SQL steps; the IDE Database panel does this automatically
     /// via `OxyProjectContext::build_connector_for`.

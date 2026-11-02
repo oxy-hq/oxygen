@@ -27,12 +27,11 @@ pub mod types;
 /// (the correctness-prompt template), an event writer (progress /
 /// Test-Dashboard SSE / per-run token usage), and a source for event nesting.
 ///
-/// This replaces `oxy::exec_runtime::ExecutionContext` here. Eval runs both the
-/// target agent and the judge on the agentic pipeline
-/// (`run_agentic_streaming` / `prepare_one_shot`), so it never needed the full
-/// hub's filters / connections / identity / sandbox fields. Method names mirror
-/// `ExecutionContext` so the builder call sites are unchanged — taking eval off
-/// the hub without reshaping its event plumbing.
+/// This took the eval harness off the pre-agentic tool-execution hub (since
+/// retired). Eval runs both the target agent and the judge on the agentic
+/// pipeline (`run_agentic_streaming` / `prepare_one_shot`), so it never needed
+/// the old hub's filters / connections / identity / sandbox fields — just the
+/// four fields above.
 #[derive(Clone)]
 pub(super) struct EvalRun {
     pub workspace: WorkspaceManager<WorkingCopy>,

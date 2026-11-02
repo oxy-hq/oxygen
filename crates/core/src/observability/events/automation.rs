@@ -104,52 +104,6 @@ pub mod launcher {
             );
         }
     }
-
-    pub mod launch {
-        use crate::exec_runtime::ExecutionContext;
-
-        use super::*;
-
-        pub static NAME: &str = "workflow.launcher.launch";
-        pub static TYPE: &str = "workflow";
-        pub static INPUT: &str = "workflow.launcher.launch.input";
-        pub static OUTPUT: &str = "workflow.launcher.launch.output";
-
-        pub fn input(workflow_ref: &str, retry_strategy: &str) {
-            event!(
-                Level::INFO,
-                name = INPUT,
-                is_visible = true,
-                workflow_ref = %workflow_ref,
-                retry_strategy = %retry_strategy
-            );
-        }
-
-        /// Record automation output event
-        pub fn output(
-            _execution_context: &ExecutionContext,
-            output: &crate::exec_types::OutputContainer,
-        ) {
-            event!(
-                Level::DEBUG,
-                name = OUTPUT,
-                is_visible = true,
-                status = "success",
-                output = %serde_json::to_string(output).unwrap_or_default()
-            );
-        }
-
-        /// Record automation error event and finalize metrics
-        pub fn error(_execution_context: &ExecutionContext, error: &str) {
-            event!(
-                Level::ERROR,
-                name = OUTPUT,
-                is_visible = true,
-                status = "error",
-                error = %error
-            );
-        }
-    }
 }
 
 /// Constants and logging functions for task execution spans

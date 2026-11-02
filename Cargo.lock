@@ -9497,7 +9497,6 @@ dependencies = [
  "oxy-compile",
  "oxy-git",
  "oxy-llm",
- "oxy-looker",
  "oxy-observability",
  "oxy-platform",
  "oxy-semantic",
