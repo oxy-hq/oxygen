@@ -25,17 +25,28 @@ impl MonitorScanPort for OxyProjectContext {
             "month" => Granularity::Month,
             other => return Err(format!("unknown granularity: {other:?}")),
         };
-        // `.monitor.yml` off the working copy. The compiled arm is
-        // `ConfigManager::monitor_config` + `scan::materialise_monitor_config`,
-        // which the HTTP `/scan` handler already uses; this system path has not
-        // moved yet, so it says what it cannot do instead of resolving against
-        // a directory that is not on this node.
-        let workspace_root = self.workspace_path().ok_or_else(|| {
-            "monitor scan: this node holds no workspace files, so `.monitor.yml` \
-             cannot be read"
-                .to_string()
-        })?;
-        let config_path = oxy_metric_monitoring::default_config_path(workspace_root);
+        // `.monitor.yml` from the compiled revision, materialised into a
+        // tempdir the way the HTTP `/scan` handler does, so a scheduled scan on
+        // a worker reads what was compiled rather than a working copy it does
+        // not have. `materialised_monitor` owns the tempdir for the whole scan. A
+        // manager with no revision (the CLI, single-process mode) reads the
+        // working copy's file, and a node with neither says so.
+        let materialised_monitor = crate::server::api::semantic_scan::materialise_monitor_config(
+            &self.workspace_manager.config_manager,
+        )
+        .await
+        .map_err(|e| format!("monitor scan: could not read the compiled `.monitor.yml`: {e:?}"))?;
+        let config_path = match &materialised_monitor {
+            Some(m) => m.config_path.clone(),
+            None => {
+                let workspace_root = self.workspace_path().ok_or_else(|| {
+                    "monitor scan: the workspace has no compiled `.monitor.yml` and this node \
+                     holds no workspace files"
+                        .to_string()
+                })?;
+                oxy_metric_monitoring::default_config_path(workspace_root)
+            }
+        };
         let open_events = oxy_metric_monitoring::load_open_events(db, workspace_id)
             .await
             .map_err(|e| e.to_string())?;

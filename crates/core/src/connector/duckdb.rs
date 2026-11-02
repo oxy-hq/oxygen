@@ -78,7 +78,8 @@ impl DuckDB {
             }
             DuckDBOptions::File { path } => {
                 let path = path.clone();
-                tokio::task::spawn_blocking(move || checkout_file_blocking(&path))
+                let read_only = crate::file_duckdb_limits::limits_apply();
+                tokio::task::spawn_blocking(move || checkout_file_blocking(&path, read_only))
                     .await
                     .map_err(|e| OxyError::DBError(format!("DuckDB checkout join error: {e}")))?
             }
@@ -282,7 +283,7 @@ fn checkout_local_blocking(file_search_path: &str) -> Result<Connection, OxyErro
 /// situation that bypasses OS advisory locking and causes SIGSEGV in
 /// DuckDB's native code.
 pub fn checkout_file_connection(path: &str) -> Result<Connection, OxyError> {
-    checkout_file_blocking(path)
+    checkout_file_blocking(path, crate::file_duckdb_limits::limits_apply())
 }
 
 /// Check out a pooled connection for a local directory database (CSV/Parquet
@@ -335,7 +336,12 @@ pub fn release_local_connection(dataset_dir: impl AsRef<Path>) {
 }
 
 /// Synchronous body of [`DuckDB::init_connection`] for `File` mode.
-fn checkout_file_blocking(path: &str) -> Result<Connection, OxyError> {
+///
+/// `read_only` is set on the cloud roles (`oxy::file_duckdb_limits`): there a
+/// file DuckDB is deprecated and only revisions compiled before its refusal
+/// still reach it, and opening it read-only makes a write fail at DuckDB rather
+/// than land in a file nobody else reads. The single-process role opens it read-write, as it always has.
+fn checkout_file_blocking(path: &str, read_only: bool) -> Result<Connection, OxyError> {
     // `Connection::open` on a missing path silently CREATES an empty database,
     // which then fails every query with a confusing "table not found". Catch it
     // here with an actionable message instead — this is the common shape on a
@@ -351,13 +357,24 @@ fn checkout_file_blocking(path: &str) -> Result<Connection, OxyError> {
     let key = PoolKey::file(PathBuf::from(path))?;
     let path_owned = path.to_owned();
     let entry = pool().get_or_init(key, move || {
-        let conn = Connection::open(&path_owned)
-            .map_err(|err| connector_internal_error(CREATE_CONN, &err))?;
+        let conn = open_file_database(&path_owned, read_only)?;
         install_icu(&conn)?;
         // `LOAD icu` is per-session; re-run on every clone.
         Ok((conn, vec!["LOAD icu".to_string()]))
     })?;
     entry.checkout()
+}
+
+/// Open a `.duckdb` file, read-only when `read_only` is set.
+fn open_file_database(path: &str, read_only: bool) -> Result<Connection, OxyError> {
+    if !read_only {
+        return Connection::open(path).map_err(|err| connector_internal_error(CREATE_CONN, &err));
+    }
+    let config = duckdb::Config::default()
+        .access_mode(duckdb::AccessMode::ReadOnly)
+        .map_err(|err| connector_internal_error(CREATE_CONN, &err))?;
+    Connection::open_with_flags(path, config)
+        .map_err(|err| connector_internal_error(CREATE_CONN, &err))
 }
 
 /// First-time initialization for a `Local` mode database. Builds an
@@ -1115,5 +1132,49 @@ mod tests {
                 .any(|s| s.contains("ENDPOINT 'minio.example.com'") && s.contains("USE_SSL true")),
             "https endpoint should strip scheme + trailing slash and enable SSL: {sql:?}"
         );
+    }
+
+    /// A database file with one row, written through a connection that is
+    /// closed before the test opens it again.
+    fn ledger_file(dir: &Path) -> String {
+        let path = dir.join("ledger.duckdb").display().to_string();
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE entries AS SELECT 1 AS id")
+            .unwrap();
+        drop(conn);
+        path
+    }
+
+    /// The cloud roles' open: the file answers reads and refuses writes at
+    /// DuckDB, so nothing lands in a file no other node reads.
+    #[test]
+    fn a_file_database_opened_read_only_reads_and_refuses_writes() {
+        let tmp = TempDir::new().unwrap();
+        let path = ledger_file(tmp.path());
+        let conn = open_file_database(&path, true).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM entries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+        let err = conn
+            .execute("INSERT INTO entries VALUES (2)", [])
+            .expect_err("a read-only database refuses a write");
+        assert!(
+            err.to_string().to_lowercase().contains("read-only"),
+            "{err}"
+        );
+    }
+
+    /// The single-process role (`oxy start`) still writes, as it always has.
+    #[test]
+    fn a_file_database_opened_read_write_still_writes() {
+        let tmp = TempDir::new().unwrap();
+        let path = ledger_file(tmp.path());
+        let conn = open_file_database(&path, false).unwrap();
+        conn.execute("INSERT INTO entries VALUES (2)", []).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM entries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 2);
     }
 }

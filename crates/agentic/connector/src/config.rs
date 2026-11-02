@@ -98,10 +98,13 @@ impl std::fmt::Debug for SsoUrlCallback {
 }
 
 /// Authentication mode for a Snowflake connection.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum SnowflakeAuth {
     /// Username + password.
     Password { password: String },
+    /// Key-pair authentication with the private key's PEM contents, already
+    /// read out of the secret store by the caller.
+    PrivateKey { private_key_pem: String },
     /// External browser (SSO / SAML). Token is cached in `cache_dir` across
     /// calls so subsequent connections skip the browser step.
     Browser {
@@ -110,6 +113,26 @@ pub enum SnowflakeAuth {
         /// Fired once with the redirect URL so callers can stream it to the UI.
         sso_url_callback: Option<SsoUrlCallback>,
     },
+}
+
+// By hand, so neither credential reaches a log through `{:?}`.
+impl std::fmt::Debug for SnowflakeAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SnowflakeAuth::Password { .. } => f.write_str("Password { <redacted> }"),
+            SnowflakeAuth::PrivateKey { .. } => f.write_str("PrivateKey { <redacted> }"),
+            SnowflakeAuth::Browser {
+                timeout_secs,
+                cache_dir,
+                sso_url_callback,
+            } => f
+                .debug_struct("Browser")
+                .field("timeout_secs", timeout_secs)
+                .field("cache_dir", cache_dir)
+                .field("sso_url_callback", sso_url_callback)
+                .finish(),
+        }
+    }
 }
 
 /// Already-resolved connection parameters for Snowflake.
@@ -127,15 +150,30 @@ pub struct SnowflakeConfig {
 // ── BigQuery ──────────────────────────────────────────────────────────────────
 
 /// Already-resolved connection parameters for Google BigQuery.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BigQueryConfig {
-    /// Path to a service-account JSON key file.
+    /// Path to a service-account JSON key file. Unused when `key_json` is set.
     pub key_path: String,
+    /// The service-account key JSON itself, when the caller read it out of
+    /// the secret store. Takes precedence over `key_path`; no file is read.
+    pub key_json: Option<String>,
     pub project_id: String,
     /// Datasets to expose for schema browsing. Empty means no schema browsing.
     /// Replaces the old single `dataset` field — callers should merge both
     /// `dataset` (legacy) and `datasets` (multi) from the oxy config here.
     pub datasets: Vec<String>,
+}
+
+// By hand, so the key JSON never reaches a log through `{:?}`.
+impl std::fmt::Debug for BigQueryConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BigQueryConfig")
+            .field("key_path", &self.key_path)
+            .field("key_json", &self.key_json.as_ref().map(|_| "<redacted>"))
+            .field("project_id", &self.project_id)
+            .field("datasets", &self.datasets)
+            .finish()
+    }
 }
 
 // ── DOMO ──────────────────────────────────────────────────────────────────────
@@ -191,6 +229,9 @@ pub struct DuckDbRawConfig {
 pub struct DuckDbUrlConfig {
     /// Full connection URL passed to `duckdb::Connection::open`.
     pub url: String,
+    /// Open the database read-only. Set for a workspace's file DuckDB on the
+    /// cloud roles, where it is a fallback nothing writes into.
+    pub read_only: bool,
 }
 
 // ── Top-level enum ────────────────────────────────────────────────────────────

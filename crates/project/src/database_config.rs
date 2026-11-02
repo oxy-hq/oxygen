@@ -65,6 +65,15 @@ impl DatabaseConfigBuilder {
                 }
                 "bigquery" => Self::build_bigquery_config(db_name, warehouse, repo_path).await?,
                 "duckdb" => Self::build_duckdb_config(db_name, warehouse)?,
+                // The workspace's own Airhouse: no fields, the credential is
+                // minted per caller. What onboarding registers after an upload
+                // lands there (`destination: airhouse`).
+                "airhouse_managed" => Database {
+                    name: db_name,
+                    database_type: DatabaseType::AirhouseManaged(
+                        oxy::config::model::AirhouseManaged::default(),
+                    ),
+                },
                 "snowflake" => {
                     Self::build_snowflake_config(db_name, warehouse, user_id, secrets_manager)
                         .await?
@@ -265,6 +274,24 @@ impl DatabaseConfigBuilder {
     ) -> std::result::Result<Database, StatusCode> {
         let bigquery_config = warehouse.get_bigquery_config()?;
 
+        // The key's contents live in the secret store: nothing is written to
+        // the checkout.
+        if let Some(key_json_var) = bigquery_config.key_json_var.filter(|v| !v.is_empty()) {
+            let database: Database = serde_json::from_value(serde_json::json!({
+                "name": db_name,
+                "type": "bigquery",
+                "key_json_var": key_json_var,
+                "dataset": bigquery_config.dataset,
+                "dry_run_limit": bigquery_config.dry_run_limit,
+            }))
+            .map_err(|e| {
+                error!("BigQuery config for '{}' did not build: {}", db_name, e);
+                StatusCode::BAD_REQUEST
+            })?;
+            require_kept(&database, "key_json_var")?;
+            return Ok(database);
+        }
+
         let key_content = match &bigquery_config.key {
             Some(key) => key,
             None => {
@@ -289,6 +316,7 @@ impl DatabaseConfigBuilder {
             database_type: DatabaseType::Bigquery(oxy::config::model::BigQuery {
                 key_path: Some(key_path),
                 key_path_var: None,
+                key_json_var: None,
                 dataset: bigquery_config.dataset,
                 datasets: HashMap::new(),
                 dry_run_limit: bigquery_config.dry_run_limit,
@@ -331,6 +359,19 @@ impl DatabaseConfigBuilder {
                     browser_timeout_secs: default_snowflake_browser_timeout(),
                     cache_dir: None,
                 }
+            }
+            Some("private_key") if snowflake_config.private_key_var.is_some() => {
+                // The key's contents live in the secret store.
+                let auth: oxy::config::model::SnowflakeAuthType =
+                    serde_json::from_value(serde_json::json!({
+                        "private_key_var": snowflake_config.private_key_var,
+                    }))
+                    .map_err(|e| {
+                        error!("Snowflake private_key_var auth did not build: {}", e);
+                        StatusCode::BAD_REQUEST
+                    })?;
+                require_kept(&auth, "private_key_var")?;
+                auth
             }
             Some("private_key") => {
                 // Explicit private key auth mode
@@ -408,5 +449,53 @@ impl DatabaseConfigBuilder {
             .create_secret(&key, &value, created_by)
             .await?;
         Ok(())
+    }
+}
+
+/// Refuse a config whose `field` did not survive into the typed model.
+///
+/// `key_json_var` (BigQuery) and `private_key_var` (Snowflake) are built
+/// through serde rather than a struct literal, so they are written whenever
+/// `oxy::config::model` declares them. A model that does not yet would drop
+/// the BigQuery field silently, and would read the Snowflake one as browser
+/// auth (`SnowflakeAuthType` is untagged); both are a 400 here instead.
+fn require_kept(value: &impl serde::Serialize, field: &str) -> Result<(), StatusCode> {
+    let rendered = serde_json::to_string(value).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if rendered.contains(&format!("\"{field}\"")) {
+        Ok(())
+    } else {
+        error!("this build's config model has no `{field}`; refusing a config that would drop it");
+        Err(StatusCode::BAD_REQUEST)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What onboarding posts after an upload lands in Airhouse. An unknown
+    /// type is skipped with a warning, so without this arm the database the
+    /// upload step registers would silently not be added.
+    #[tokio::test]
+    async fn airhouse_managed_registers_a_field_free_database() {
+        let form: WarehousesFormData = serde_json::from_value(serde_json::json!({
+            "warehouses": [{ "type": "airhouse_managed", "name": "uploads", "config": {} }]
+        }))
+        .unwrap();
+        let secrets = SecretsManager::from_environment().unwrap();
+        let databases = DatabaseConfigBuilder::build_configs(
+            &form,
+            Path::new("/nonexistent"),
+            Uuid::nil(),
+            &secrets,
+        )
+        .await
+        .unwrap();
+        assert_eq!(databases.len(), 1);
+        assert_eq!(databases[0].name, "uploads");
+        assert!(matches!(
+            databases[0].database_type,
+            DatabaseType::AirhouseManaged(_)
+        ));
     }
 }

@@ -22,6 +22,7 @@ import { hintToShow } from "./auth/agent-token.js";
 import { approverFrom, approverOption } from "./auth/approver.js";
 import { runExitRevokes } from "./auth/exit-revoke.js";
 import { runActivity } from "./commands/activity.js";
+import { runAirhouseProvision, runAirhouseStatus } from "./commands/airhouse.js";
 import { runApi } from "./commands/api.js";
 import {
   runAppsBuilds,
@@ -431,6 +432,41 @@ function buildProgram(): Command {
   ).action(async (opts: Record<string, unknown>) => {
     await runOltpReset(createContext(globals(opts)), opts.org as string | undefined, {
       branch: opts.branch as string | undefined,
+      yes: opts.yes as boolean | undefined,
+      json: opts.json as boolean | undefined
+    });
+  });
+
+  const airhouse = program
+    .command("airhouse")
+    .description(
+      "a workspace's Airhouse tenant (ctx.airhouse) — status and provisioning, for staff"
+    );
+
+  withGlobals(
+    airhouse
+      .command("status")
+      .description("every workspace's Airhouse tenant — or, with --workspace, one workspace's")
+      .option("--json", "emit the server's response")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runAirhouseStatus(
+      createContext(globals(opts)),
+      opts.workspace as string | undefined,
+      Boolean(opts.json)
+    );
+  });
+
+  withGlobals(
+    airhouse
+      .command("provision")
+      .description(
+        "repair or backfill a workspace's Airhouse tenant and service account (--workspace <id>); the server normally provisions it automatically"
+      )
+      // `--workspace` comes from `withGlobals`, as `--org` does for `oltp`.
+      .option("--yes", "provision without asking")
+      .option("--json", "emit the server's response")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runAirhouseProvision(createContext(globals(opts)), opts.workspace as string | undefined, {
       yes: opts.yes as boolean | undefined,
       json: opts.json as boolean | undefined
     });

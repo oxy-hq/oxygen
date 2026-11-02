@@ -146,6 +146,16 @@ fn build_api(
             password,
         )
         .map_err(|e| ConnectorError::ConnectionError(e.to_string())),
+        SnowflakeAuth::PrivateKey { private_key_pem } => SnowflakeApi::with_certificate_auth(
+            account,
+            Some(warehouse),
+            database,
+            schema_str,
+            username,
+            role,
+            private_key_pem,
+        )
+        .map_err(|e| ConnectorError::ConnectionError(e.to_string())),
         SnowflakeAuth::Browser {
             timeout_secs,
             cache_dir,

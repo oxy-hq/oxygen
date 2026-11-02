@@ -11,12 +11,14 @@ import {
 } from "@/components/ui/shadcn/resizable";
 import useSidebar from "@/components/ui/shadcn/sidebar-context";
 import { Spinner } from "@/components/ui/shadcn/spinner";
+import { useAuth } from "@/contexts/AuthContext";
 import useAgents from "@/hooks/api/agents/useAgents";
 import useDatabases from "@/hooks/api/databases/useDatabases";
 import useGithubSetup from "@/hooks/api/onboarding/useGithubSetup";
 import { sseEventToUiBlock, useAnalyticsRun } from "@/hooks/useAnalyticsRun";
 import { useBuilderActivity } from "@/hooks/useBuilderActivity";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import { bigQueryKeySecretName } from "@/libs/utils/cloudConnections";
 import {
   clearOnboardingStateForStorageKey,
   initOnboardingStateForStorageKey,
@@ -28,7 +30,11 @@ import { type OnboardingResetRequest, OnboardingService } from "@/services/api/o
 import CancelSetupButton from "./CancelSetupButton";
 import OnboardingRightRail from "./OnboardingRightRail";
 import OnboardingThread from "./OnboardingThread";
-import { getPreviousStep, useOnboardingOrchestrator } from "./orchestrator";
+import {
+  getPreviousStep,
+  type OnboardingDeployment,
+  useOnboardingOrchestrator
+} from "./orchestrator";
 import StartOverConfirmDialog from "./StartOverConfirmDialog";
 import type {
   GeneratedArtifact,
@@ -74,7 +80,10 @@ function AgenticSetupForWorkspace({ storageKey }: { storageKey: string }) {
     refetch: refetchAgents
   } = useAgents();
 
-  const orchestrator = useOnboardingOrchestrator(storageKey);
+  // A cloud deployment creates no file DuckDB and no key file
+  // (`libs/utils/cloudConnections`); the wizard's copy and configs follow.
+  const { isLocalMode } = useAuth();
+  const orchestrator = useOnboardingOrchestrator(storageKey, { cloud: !isLocalMode });
   const { initGithubFlow } = orchestrator;
 
   const publicAgentCount = (agents ?? []).filter((a) => a.public).length;
@@ -181,6 +190,7 @@ type OrchestratorHandle = ReturnType<typeof useOnboardingOrchestrator>;
 
 function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandle }) {
   const actions = useOnboardingActions(orchestrator);
+  const { isLocalMode } = useAuth();
   const { project } = useCurrentProjectBranch();
   const projectId = project?.id ?? "";
   const storageKeyForReset = project?.storage_key ?? project?.id ?? "";
@@ -784,8 +794,8 @@ function BlankOnboardingPage({ orchestrator }: { orchestrator: OrchestratorHandl
 
   const [startOverOpen, setStartOverOpen] = useState(false);
   const resetManifest = useMemo(
-    () => deriveResetManifest(orchestrator.state),
-    [orchestrator.state]
+    () => deriveResetManifest(orchestrator.state, { cloud: !isLocalMode }),
+    [orchestrator.state, isLocalMode]
   );
 
   // ── Stop / Retry in-progress build ─────────────────────────────────────────
@@ -1266,10 +1276,18 @@ function deriveCreatedFiles(
  * directory. The backend skips missing entries, so being conservative here is
  * safe.
  */
-function deriveResetManifest(state: OnboardingState): OnboardingResetRequest {
+function deriveResetManifest(
+  state: OnboardingState,
+  deployment: OnboardingDeployment
+): OnboardingResetRequest {
   const secret_names: string[] = [];
   if (state.llmProvider) {
     secret_names.push(LLM_KEY_VAR[state.llmProvider]);
+  }
+  // A cloud deployment stores a pasted BigQuery key as this secret
+  // (`useOnboardingActions`); local mode writes a key file and makes none.
+  if (state.warehouseType === "bigquery" && deployment.cloud) {
+    secret_names.push(bigQueryKeySecretName(state.warehouseType));
   }
 
   const database_names: string[] = [];
@@ -1307,7 +1325,12 @@ function deriveResetManifest(state: OnboardingState): OnboardingResetRequest {
   // DuckDB upload path: remove the directory the uploaded CSV/Parquet files
   // were written to (default `.db/`). Only include when we actually uploaded
   // — a user who typed an existing path should never have it deleted.
-  if (state.warehouseType === "duckdb" && (state.uploadedWarehouseFiles?.length ?? 0) > 0) {
+  // A cloud upload lands in Airhouse, not the checkout, so there is no directory.
+  if (
+    !deployment.cloud &&
+    state.warehouseType === "duckdb" &&
+    (state.uploadedWarehouseFiles?.length ?? 0) > 0
+  ) {
     const subdir = state.uploadedWarehouseSubdir ?? ".db";
     if (!directory_paths.includes(subdir)) {
       directory_paths.push(subdir);

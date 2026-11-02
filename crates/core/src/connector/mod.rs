@@ -17,7 +17,10 @@ use crate::{
     },
     config::{
         ConfigManager,
-        model::{ConnectionOverride, ConnectionOverrides, Database, DatabaseType, DuckDBOptions},
+        model::{
+            BigQueryKey, ConnectionOverride, ConnectionOverrides, Database, DatabaseType,
+            DuckDBOptions,
+        },
     },
 };
 use oxy_shared::errors::OxyError;
@@ -163,18 +166,27 @@ impl Connector {
     {
         let engine = match &database.database_type {
             DatabaseType::Bigquery(bigquery) => {
-                let key_path_str = bigquery.get_key_path(secrets_manager).await?;
-                let key_path = if bigquery.key_path.is_some() {
-                    config_manager.try_resolve_file(&key_path_str).await?
-                } else {
-                    key_path_str
-                };
-                tracing::debug!(key_path = %key_path, "BigQuery key path resolved");
-                EngineType::ConnectorX(ConnectorX::new(
-                    database.dialect(),
-                    key_path,
-                    dry_run_limit.or(bigquery.dry_run_limit),
-                ))
+                let dry_run_limit = dry_run_limit.or(bigquery.dry_run_limit);
+                match bigquery.get_key(secrets_manager).await? {
+                    // The key's contents, from the secret store: no file anywhere.
+                    BigQueryKey::Json(key_json) => EngineType::ConnectorX(
+                        ConnectorX::new(database.dialect(), String::new(), dry_run_limit)
+                            .with_bigquery_key_json(key_json),
+                    ),
+                    BigQueryKey::Path(key_path_str) => {
+                        let key_path = if bigquery.key_path.is_some() {
+                            config_manager.try_resolve_file(&key_path_str).await?
+                        } else {
+                            key_path_str
+                        };
+                        tracing::debug!(key_path = %key_path, "BigQuery key path resolved");
+                        EngineType::ConnectorX(ConnectorX::new(
+                            database.dialect(),
+                            key_path,
+                            dry_run_limit,
+                        ))
+                    }
+                }
             }
             DatabaseType::DuckDB(duckdb) => {
                 // When an S3 mirror is present we're on a stateless replica: the

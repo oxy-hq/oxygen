@@ -3,7 +3,8 @@
 //!
 //! `internal-docs/factory-retirement.md` Phase 3a: BigQuery `key_path` and
 //! Snowflake `private_key_path` name a file that a serving pod does not have
-//! (and that the compiler blanks from the compiled config). The process here
+//! (and that the compiler blanks from the compiled config), and a file DuckDB
+//! keeps its data in the repository. The process here
 //! has the worker role, the one a compile worker runs as, with the refusal
 //! switched on (`OXY_COMPILE_REFUSE_FILE_CREDENTIALS=1`); the single-process
 //! role is covered by the unit tests in `compile_config_gate`.
@@ -72,7 +73,7 @@ async fn a_key_file_fails_the_compile_and_the_previous_revision_keeps_serving() 
     // A secret-backed credential compiles and is promoted.
     std::fs::write(
         &config,
-        "models: []\ndatabases:\n  - name: warehouse\n    type: bigquery\n    key_path_var: BQ_KEY\n    dataset: sales\n",
+        "models: []\ndatabases:\n  - name: warehouse\n    type: bigquery\n    key_json_var: BQ_KEY_JSON\n    dataset: sales\n",
     )
     .expect("config");
     let good = compile(&db, workspace_id, dir.path()).await;
@@ -93,8 +94,8 @@ async fn a_key_file_fails_the_compile_and_the_previous_revision_keeps_serving() 
         .find(|f| f.path.ends_with("config.yml"))
         .unwrap_or_else(|| panic!("config.yml is named: {:?}", bad.failures));
     assert!(
-        failure.message.contains("`warehouse`") && failure.message.contains("cannot be served"),
-        "the message names the database and says it cannot be served yet: {}",
+        failure.message.contains("`warehouse`") && failure.message.contains("key_json_var"),
+        "the message names the database and the secret field to use: {}",
         failure.message
     );
     assert_eq!(
@@ -112,12 +113,32 @@ async fn a_key_file_fails_the_compile_and_the_previous_revision_keeps_serving() 
     let snowflake = compile(&db, workspace_id, dir.path()).await;
     assert_ne!(snowflake.promotion, Promotion::Promoted);
     assert!(
-        snowflake
-            .failures
-            .iter()
-            .any(|f| f.message.contains("private_key_path") && f.message.contains("password_var")),
+        snowflake.failures.iter().any(
+            |f| f.message.contains("private_key_path") && f.message.contains("private_key_var")
+        ),
         "{:?}",
         snowflake.failures
+    );
+    assert_eq!(promoted(&db, workspace_id).await, Some(good.revision_id));
+
+    // A file DuckDB is refused too — always on this role, switch or not — and
+    // nothing is copied to S3 for it.
+    std::fs::create_dir_all(dir.path().join(".db")).expect("dataset dir");
+    std::fs::write(dir.path().join(".db/orders.csv"), "id\n1\n").expect("dataset");
+    std::fs::write(
+        &config,
+        "models: []\ndatabases:\n  - name: local\n    type: duckdb\n    dataset: .db\n",
+    )
+    .expect("config");
+    let duckdb = compile(&db, workspace_id, dir.path()).await;
+    assert_ne!(duckdb.promotion, Promotion::Promoted);
+    assert!(
+        duckdb
+            .failures
+            .iter()
+            .any(|f| f.message.contains("`local`") && f.message.contains("airhouse_managed")),
+        "{:?}",
+        duckdb.failures
     );
     assert_eq!(promoted(&db, workspace_id).await, Some(good.revision_id));
 }

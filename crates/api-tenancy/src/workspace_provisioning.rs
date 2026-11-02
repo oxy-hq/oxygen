@@ -102,9 +102,11 @@ pub struct StagedWorkspace {
 }
 
 impl StagedWorkspace {
-    /// The row has committed: seed its health schedule and hand back its id.
+    /// The row has committed: seed its health schedule, give it its Airhouse
+    /// tenant (cloud roles), and hand back its id.
     pub async fn finish(self) -> Uuid {
         seed_health_schedule(self.id).await;
+        provision_airhouse_tenant(self.id).await;
         self.id
     }
 
@@ -338,6 +340,57 @@ pub async fn register_workspace<C: ConnectionTrait>(
         id: workspace_id,
         created: true,
     })
+}
+
+/// How long workspace creation waits for its Airhouse tenant before moving on.
+/// Short, because it sits inside the request that creates the workspace and
+/// its result is ignored. Only the wait is cut off: the provision itself runs
+/// to completion as its own task (see `provision_airhouse_tenant`). If the
+/// process dies first, everything that needs the tenant (an upload, the demo)
+/// provisions it itself, so it is not a queued task either.
+const AIRHOUSE_PROVISION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Give a just-created workspace its Airhouse tenant, where its data lives in a
+/// cloud deployment. Best-effort: a failure is logged and never fails the
+/// caller, and whatever needs the tenant first (an upload, the demo) provisions
+/// it then (`airhouse::ensure_tenant`). A local `OXY_ROLE=all` process never
+/// provisions.
+pub async fn provision_airhouse_tenant(workspace_id: Uuid) {
+    use oxy_app_core::process_role::{Role, current_process_role};
+    if current_process_role() == Role::All {
+        return;
+    }
+    let db = match establish_connection().await {
+        Ok(db) => db,
+        Err(e) => {
+            tracing::warn!(%workspace_id, error = %e, "Airhouse tenant not provisioned at workspace creation: no database connection; it is provisioned on first need");
+            return;
+        }
+    };
+    // The provision runs as its own task and only the request's wait is timed
+    // out. Dropping the provision future partway could cut it after Airhouse
+    // created the tenant and before the local `airhouse_tenants` row is saved,
+    // leaving a remote tenant under this workspace's name that no later
+    // `ensure_tenant` can adopt (`TenantNameTaken`). A spawned task always runs
+    // the create and the insert together.
+    let provision = tokio::spawn(async move { airhouse::ensure_tenant(&db, workspace_id).await });
+    match tokio::time::timeout(AIRHOUSE_PROVISION_TIMEOUT, provision).await {
+        Ok(Err(join_error)) => {
+            tracing::warn!(%workspace_id, error = %join_error, "Airhouse tenant provisioning at workspace creation did not finish; it is provisioned on first need");
+        }
+        Ok(Ok(Ok(outcome))) => {
+            tracing::info!(%workspace_id, ?outcome, "Airhouse tenant ready for new workspace");
+        }
+        Ok(Ok(Err(airhouse::EnsureTenantError::NotConfigured))) => {
+            tracing::warn!(%workspace_id, "Airhouse tenant not provisioned at workspace creation: Airhouse is not configured on this deployment");
+        }
+        Ok(Ok(Err(e))) => {
+            tracing::warn!(%workspace_id, error = %e, "Airhouse tenant not provisioned at workspace creation; it is provisioned on first need");
+        }
+        Err(_) => {
+            tracing::warn!(%workspace_id, timeout = ?AIRHOUSE_PROVISION_TIMEOUT, "Airhouse tenant provisioning is still running after workspace creation; the request stopped waiting, the provision finishes in the background");
+        }
+    }
 }
 
 /// Seed the workspace's health schedule row, **disabled**. Best-effort: never

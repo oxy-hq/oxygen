@@ -416,10 +416,9 @@ fn tenant_name_for(workspace: &entity::workspaces::Model) -> String {
 }
 
 /// The same derivation, by id — so an audit entry can record the name that was
-/// attempted without loading the workspace again.
-pub fn tenant_name_for_workspace(workspace_id: Uuid) -> String {
-    format!("oxy-ws-{workspace_id}")
-}
+/// attempted without loading the workspace again. Lives beside the provisioner,
+/// which provisions under it when a workspace is created.
+pub use crate::provisioner::tenant_name_for_workspace;
 
 #[cfg(test)]
 mod fleet_page_tests {

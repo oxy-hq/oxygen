@@ -9,6 +9,7 @@ pub mod database;
 pub mod exec_runtime;
 pub mod exec_types;
 pub mod execution_analytics;
+pub mod file_duckdb_limits;
 pub mod github;
 pub mod intent;
 pub mod metrics;

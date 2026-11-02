@@ -194,12 +194,16 @@ fn fields(database_type: &DatabaseType) -> (Field, Field) {
             lit(&c.account.to_ascii_lowercase()),
             lit(&c.username.to_ascii_lowercase()),
         ),
+        // The key the connector would use: `key_json_var` wins over a key file.
         DatabaseType::Bigquery(c) => (
             lit("bigquery"),
-            Field::of(
-                c.key_path.as_ref().and_then(|p| p.to_str()),
-                c.key_path_var.as_deref(),
-            ),
+            match c.key_json_var.as_deref().map(str::trim) {
+                Some(var) if !var.is_empty() => Field::Var(var.to_string()),
+                _ => Field::of(
+                    c.key_path.as_ref().and_then(|p| p.to_str()),
+                    c.key_path_var.as_deref(),
+                ),
+            },
         ),
         DatabaseType::DuckDB(c) => (lit("duckdb"), lit(&duckdb_location(&c.options))),
         // One MotherDuck token reaches every database its account holds, so

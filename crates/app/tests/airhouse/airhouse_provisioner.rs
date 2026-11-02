@@ -258,6 +258,129 @@ async fn provision_is_idempotent_when_local_and_remote_exist() {
     assert_eq!(count, 1, "exactly one local row per workspace");
 }
 
+/// Two provisions of one workspace at once (workspace creation's background
+/// provision and the demo, two uploads, a staff re-provision) must end with one
+/// tenant row and one service account, and must not revoke the account the
+/// other caller is still saving. `provision` holds a per-workspace advisory lock
+/// (`TenantLock`); without it the second caller lists service accounts in the
+/// first one's mint window, revokes that account as an orphan and mints its own.
+/// The mock Airhouse remembers the accounts it minted and answers slowly, so
+/// the two calls overlap.
+#[tokio::test]
+async fn concurrent_provisions_of_one_workspace_mint_one_service_account() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    set_test_encryption_key();
+    let db = test_db().await;
+    let server = MockServer::start().await;
+
+    let tenant_creates = Arc::new(AtomicUsize::new(0));
+    let creates = tenant_creates.clone();
+    Mock::given(method("POST"))
+        .and(path("/admin/v1/tenants"))
+        .respond_with(move |req: &wiremock::Request| {
+            creates.fetch_add(1, Ordering::SeqCst);
+            let body: Value = serde_json::from_slice(&req.body).unwrap();
+            let id = body["id"].as_str().unwrap().to_string();
+            ResponseTemplate::new(201)
+                .set_body_json(tenant_body(&id, "tenants/race"))
+                .set_delay(Duration::from_millis(200))
+        })
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex_admin_get())
+        .respond_with(move |req: &wiremock::Request| {
+            let id = req.url.path().rsplit('/').next().unwrap().to_string();
+            ResponseTemplate::new(200).set_body_json(tenant_body(&id, "tenants/race"))
+        })
+        .mount(&server)
+        .await;
+
+    // Service accounts Airhouse has minted and not revoked: the list a second
+    // caller would see, and revoke as orphans, in the first one's mint window.
+    let minted: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let listed = minted.clone();
+    Mock::given(method("GET"))
+        .and(path("/admin/v1/service-accounts"))
+        .respond_with(move |_: &wiremock::Request| {
+            let accounts = listed.lock().unwrap().clone();
+            ResponseTemplate::new(200).set_body_json(Value::Array(accounts))
+        })
+        .mount(&server)
+        .await;
+    let sa_creates = Arc::new(AtomicUsize::new(0));
+    let (mints, saved) = (sa_creates.clone(), minted.clone());
+    Mock::given(method("POST"))
+        .and(path("/admin/v1/service-accounts"))
+        .respond_with(move |req: &wiremock::Request| {
+            let n = mints.fetch_add(1, Ordering::SeqCst);
+            let body: Value = serde_json::from_slice(&req.body).unwrap();
+            let tenant_id = body["tenant_id"].as_str().unwrap_or_default().to_string();
+            let name = body["name"].as_str().unwrap_or_default().to_string();
+            let record = sa_record_body(&format!("sa_race_{n}"), &name, &tenant_id);
+            saved.lock().unwrap().push(record.clone());
+            let mut with_bearer = record;
+            with_bearer
+                .as_object_mut()
+                .unwrap()
+                .insert("bearer".into(), json!(format!("ahsa_race_{n}")));
+            ResponseTemplate::new(201)
+                .set_body_json(with_bearer)
+                .set_delay(Duration::from_millis(200))
+        })
+        .mount(&server)
+        .await;
+    let revokes = Arc::new(AtomicUsize::new(0));
+    let revoked = revokes.clone();
+    Mock::given(method("DELETE"))
+        .and(wiremock::matchers::path_regex(
+            r"^/admin/v1/service-accounts/[^/]+$",
+        ))
+        .respond_with(move |_: &wiremock::Request| {
+            revoked.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(204)
+        })
+        .mount(&server)
+        .await;
+
+    let workspace_id = seed_workspace(&db, "race").await;
+    let first = make_provisioner(db.clone(), &server);
+    let second = make_provisioner(db.clone(), &server);
+    let (a, b) = tokio::join!(
+        first.provision(workspace_id, "race".to_string()),
+        second.provision(workspace_id, "race".to_string()),
+    );
+    a.expect("first provision");
+    b.expect("second provision");
+
+    assert_eq!(
+        tenant_creates.load(Ordering::SeqCst),
+        1,
+        "one tenant created"
+    );
+    assert_eq!(
+        sa_creates.load(Ordering::SeqCst),
+        1,
+        "one service account minted"
+    );
+    assert_eq!(
+        revokes.load(Ordering::SeqCst),
+        0,
+        "no service account revoked"
+    );
+    let rows = AirhouseTenants::find()
+        .filter(airhouse_tenants::Column::WorkspaceId.eq(workspace_id))
+        .all(&db)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1, "exactly one local row per workspace");
+    assert_eq!(rows[0].service_account_id.as_deref(), Some("sa_race_0"));
+    assert!(rows[0].bearer_ciphertext.is_some());
+}
+
 /// Provision against an already-taken tenant name must surface a typed
 /// TenantNameTaken error rather than silently adopting the existing
 /// remote tenant — that path could grant cross-workspace data access if

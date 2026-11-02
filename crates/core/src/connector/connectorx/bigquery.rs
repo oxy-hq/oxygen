@@ -133,6 +133,33 @@ impl BigQuerySource {
         }
     }
 
+    /// [`BigQuerySource::new`] from the service-account key JSON itself (a
+    /// `key_json_var` secret) instead of a key file: nothing is written to disk.
+    #[throws(BigQuerySourceError)]
+    pub fn from_key_json(rt: Arc<Runtime>, key_json: &str, dry_run_limit: Option<u64>) -> Self {
+        let sa_key = gcp_bigquery_client::yup_oauth2::parse_service_account_key(key_json)?;
+        let client = Arc::new(rt.block_on(
+            gcp_bigquery_client::Client::from_service_account_key(sa_key, false),
+        )?);
+        let auth_json: serde_json::Value = serde_json::from_str(key_json)?;
+        let project_id = auth_json
+            .get("project_id")
+            .ok_or_else(|| anyhow!("Cannot get project_id from the service-account key"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("Cannot get project_id as string from the service-account key"))?
+            .to_string();
+        Self {
+            rt,
+            client,
+            project_id,
+            origin_query: None,
+            queries: vec![],
+            names: vec![],
+            schema: vec![],
+            dry_run_limit,
+        }
+    }
+
     #[throws(BigQuerySourceError)]
     pub fn dry_run(&mut self, query: &str) -> (Vec<RecordBatch>, SchemaRef) {
         let job = self.client.job();

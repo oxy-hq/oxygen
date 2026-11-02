@@ -101,7 +101,10 @@ interface ClickHouseConfig {
 }
 
 interface BigQueryConfig {
+  /** The key's contents. The server writes them to a key file — local mode only. */
   key?: string;
+  /** The secret holding the key's JSON — what a cloud deployment sends instead of `key`. */
+  key_json_var?: string;
   dataset?: string;
   dry_run_limit?: number;
 }
@@ -119,9 +122,15 @@ interface SnowflakeConfig {
   database?: string;
   schema?: string;
   role?: string;
+  /** A key file on the server's disk — local mode only. */
   private_key_path?: string;
+  /** The secret holding the PEM private key — what a cloud deployment sends instead. */
+  private_key_var?: string;
   auth_mode?: "password" | "browser" | "private_key";
 }
+
+/** `type: airhouse_managed` — the workspace's own Airhouse tenant; nothing to configure. */
+type AirhouseManagedConfig = Record<string, never>;
 
 export type DatabaseConfigType =
   | "postgres"
@@ -130,7 +139,8 @@ export type DatabaseConfigType =
   | "clickhouse"
   | "bigquery"
   | "duckdb"
-  | "snowflake";
+  | "snowflake"
+  | "airhouse_managed";
 
 type DatabaseConfigValue =
   | PostgresConfig
@@ -139,7 +149,8 @@ type DatabaseConfigValue =
   | ClickHouseConfig
   | BigQueryConfig
   | DuckDBConfig
-  | SnowflakeConfig;
+  | SnowflakeConfig
+  | AirhouseManagedConfig;
 
 export interface WarehouseConfig {
   type: DatabaseConfigType;

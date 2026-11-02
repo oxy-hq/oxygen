@@ -40,6 +40,7 @@ pub fn init_process_role_from_env_with_default(default: Role) -> Role {
     };
     let _ = PROCESS_ROLE.set(role);
     oxy::workspace_fs_probe::set_process_owns_workspace_files(role_owns_workspace_files(role));
+    oxy::file_duckdb_limits::set_limits_apply(file_duckdb_limits_apply(role));
     tracing::info!(role = role.as_str(), "role manifest initialised");
     role
 }
@@ -50,4 +51,11 @@ pub fn current_process_role() -> Role {
 
 pub fn role_owns_workspace_files(role: Role) -> bool {
     matches!(role, Role::Ide | Role::All)
+}
+
+/// Whether a file DuckDB (`dataset:` / `path:`) runs under the cloud limits on
+/// `role`: read-only, and read only from the compiler's S3 copy. Every role but
+/// the single-process one (`oxy::file_duckdb_limits`).
+pub fn file_duckdb_limits_apply(role: Role) -> bool {
+    role != Role::All
 }

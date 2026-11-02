@@ -1,7 +1,8 @@
 /**
  * The wire half of `oxyc oltp`: one request helper, the refusals an operator can
- * act on, and the confirmation prompt — shared by the store (`oltp.ts`) and its
- * staging branch (`oltp-branch.ts`).
+ * act on, and the confirmation prompt — shared by the store (`oltp.ts`), its
+ * staging branch (`oltp-branch.ts`), and `oxyc airhouse` (`airhouse.ts`), which
+ * passes its own refusal reasons.
  */
 
 import { createInterface } from "node:readline/promises";
@@ -11,6 +12,9 @@ import type { Context } from "../context/resolve.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 
 /** Why the server refused, in the terms an operator acts on. */
+export type RefusalReason = (status: number) => string | undefined;
+
+/** The OLTP console's refusals — the default for `call`. */
 function refusalReason(status: number): string | undefined {
   switch (status) {
     case 400:
@@ -33,9 +37,14 @@ function refusalReason(status: number): string | undefined {
   }
 }
 
-function oltpError(method: string, path: string, response: ApiResponse): CliError {
+function adminError(
+  method: string,
+  path: string,
+  response: ApiResponse,
+  reason: RefusalReason
+): CliError {
   const body = response.body.trim();
-  const detail = [refusalReason(response.status), body && body !== "{}" ? `server: ${body}` : ""]
+  const detail = [reason(response.status), body && body !== "{}" ? `server: ${body}` : ""]
     .filter((line): line is string => Boolean(line))
     .join("\n");
   return new CliError(`${method} ${path} failed (${response.status})`, {
@@ -50,7 +59,14 @@ export async function call<T>(
   ctx: Context,
   method: string,
   path: string,
-  opts: { body?: unknown; timeoutMs?: number } = {}
+  opts: {
+    body?: unknown;
+    timeoutMs?: number;
+    /** Refusal reasons for another admin console; OLTP's by default. */
+    refusal?: RefusalReason;
+    /** The `oxyc routes <area>` that lists what the deployment mounts. */
+    routesArea?: string;
+  } = {}
 ): Promise<T> {
   const response = await request({
     target: ctx.target(),
@@ -60,13 +76,15 @@ export async function call<T>(
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     timeoutMs: opts.timeoutMs
   });
-  if (response.status < 200 || response.status >= 300) throw oltpError(method, path, response);
+  if (response.status < 200 || response.status >= 300) {
+    throw adminError(method, path, response, opts.refusal ?? refusalReason);
+  }
   const parsed = parseJson(response.body);
   if (parsed === undefined || parsed === null) {
     throw new CliError(`${method} ${path} did not return JSON`, {
       code: ExitCode.FAILURE,
       detail: response.body.trim().slice(0, 500) || undefined,
-      hint: "the deployment may predate this route — `oxyc routes oltp` lists what it mounts"
+      hint: `the deployment may predate this route — \`oxyc routes ${opts.routesArea ?? "oltp"}\` lists what it mounts`
     });
   }
   return parsed as T;

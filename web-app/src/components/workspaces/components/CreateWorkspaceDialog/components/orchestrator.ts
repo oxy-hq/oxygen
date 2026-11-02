@@ -663,7 +663,46 @@ function humanizeWarehouseField(field: string, varName: string): string {
 
 // ── Messages derived from state ─────────────────────────────────────────────
 
-export function deriveMessages(state: OnboardingState): OnboardingMessage[] {
+/**
+ * What the deployment allows the wizard to create. In a cloud deployment the
+ * `duckdb` choice is "upload files", and the files land in the workspace's
+ * Airhouse instead of a file DuckDB (`libs/utils/cloudConnections`). The state
+ * keeps the `duckdb` id either way, so a wizard saved before a deploy resumes.
+ */
+export interface OnboardingDeployment {
+  cloud?: boolean;
+}
+
+/** How a warehouse choice reads to the user. */
+export function warehouseLabel(type: WarehouseType, deployment: OnboardingDeployment = {}): string {
+  if (type === "duckdb" && deployment.cloud) return "Airhouse";
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+/** The wizard's warehouse cards. */
+export function warehouseTypeOptions(deployment: OnboardingDeployment = {}): SelectionOption[] {
+  return [
+    { id: "snowflake", label: "Snowflake", description: "Cloud data platform" },
+    { id: "clickhouse", label: "ClickHouse", description: "Columnar analytics database" },
+    { id: "bigquery", label: "BigQuery", description: "Google Cloud data warehouse" },
+    deployment.cloud
+      ? {
+          id: "duckdb",
+          label: "Upload files",
+          description: "CSV or Parquet, loaded into Airhouse"
+        }
+      : {
+          id: "duckdb",
+          label: "DuckDB",
+          description: "Deprecated: file DuckDB is being retired; Airhouse replaces it"
+        }
+  ];
+}
+
+export function deriveMessages(
+  state: OnboardingState,
+  deployment: OnboardingDeployment = {}
+): OnboardingMessage[] {
   // `github` and `demo` share the same "scan config.yml, fill missing
   // secrets" thread shape — `deriveGithubMessages` already branches on
   // `state.mode === "demo"` for mode-specific copy.
@@ -797,12 +836,7 @@ export function deriveMessages(state: OnboardingState): OnboardingMessage[] {
       currentIdx === stepIndex("warehouse_type")
         ? {
             type: "selection_cards",
-            options: [
-              { id: "snowflake", label: "Snowflake", description: "Cloud data platform" },
-              { id: "clickhouse", label: "ClickHouse", description: "Columnar analytics database" },
-              { id: "bigquery", label: "BigQuery", description: "Google Cloud data warehouse" },
-              { id: "duckdb", label: "DuckDB", description: "In-process analytics database" }
-            ]
+            options: warehouseTypeOptions(deployment)
           }
         : undefined,
     userSelection: state.warehouseType,
@@ -813,7 +847,10 @@ export function deriveMessages(state: OnboardingState): OnboardingMessage[] {
     messages.push({
       id: "warehouse_type_answer",
       role: "user",
-      content: state.warehouseType.charAt(0).toUpperCase() + state.warehouseType.slice(1)
+      content:
+        state.warehouseType === "duckdb" && deployment.cloud
+          ? "Upload files"
+          : warehouseLabel(state.warehouseType, deployment)
     });
   }
 
@@ -821,7 +858,7 @@ export function deriveMessages(state: OnboardingState): OnboardingMessage[] {
 
   // Warehouse credentials
   const isDuckdb = state.warehouseType === "duckdb";
-  const warehouseFields = getWarehouseFields(state.warehouseType ?? "bigquery");
+  const warehouseFields = getWarehouseFields(state.warehouseType ?? "bigquery", deployment);
   const fileUploadField = warehouseFields.find((f) => f.type === "file_upload");
   // For DuckDB the CTA also runs the upload, so name it accordingly. Other
   // warehouses still just test a remote connection.
@@ -846,7 +883,10 @@ export function deriveMessages(state: OnboardingState): OnboardingMessage[] {
   messages.push({
     id: "warehouse_credentials",
     role: "assistant",
-    content: `Enter your ${state.warehouseType} connection details.`,
+    content:
+      isDuckdb && deployment.cloud
+        ? "Upload your CSV or Parquet files. Each one becomes a table in Airhouse."
+        : `Enter your ${state.warehouseType} connection details.`,
     inputBlock:
       currentIdx === stepIndex("warehouse_credentials")
         ? {
@@ -960,7 +1000,10 @@ export function deriveMessages(state: OnboardingState): OnboardingMessage[] {
   const ps = state.phaseStatuses ?? {};
   const vs = state.viewRunStatuses ?? {};
   const isDone = state.step === "complete";
-  const db = state.warehouseType ?? "warehouse";
+  const db =
+    state.warehouseType === "duckdb" && deployment.cloud
+      ? "Airhouse"
+      : (state.warehouseType ?? "warehouse");
 
   // Semantic model message — shown as soon as the building step starts
   if (currentIdx >= stepIndex("building")) {
@@ -1086,7 +1129,10 @@ function buildPhaseMilestones(
 
 // ── Right rail state derived from onboarding state ──────────────────────────
 
-export function deriveRailState(state: OnboardingState): OnboardingRailState {
+export function deriveRailState(
+  state: OnboardingState,
+  deployment: OnboardingDeployment = {}
+): OnboardingRailState {
   // Demo reuses the github rail (LLM keys + warehouses milestone), since
   // both flows derive their progress from `githubSetup`.
   if (state.mode === "github" || state.mode === "demo") {
@@ -1129,9 +1175,7 @@ export function deriveRailState(state: OnboardingState): OnboardingRailState {
               : currentIdx >= stepIndex("warehouse_type")
                 ? ("active" as const)
                 : ("pending" as const),
-      detail: state.warehouseType
-        ? state.warehouseType.charAt(0).toUpperCase() + state.warehouseType.slice(1)
-        : undefined
+      detail: state.warehouseType ? warehouseLabel(state.warehouseType, deployment) : undefined
     },
     {
       id: "schema",
@@ -1186,7 +1230,7 @@ export function deriveRailState(state: OnboardingState): OnboardingRailState {
   if (state.connectionStatus === "success" && state.warehouseType) {
     connectedServices.push({
       type: "warehouse" as const,
-      name: state.warehouseType.charAt(0).toUpperCase() + state.warehouseType.slice(1),
+      name: warehouseLabel(state.warehouseType, deployment),
       status: "connected" as const
     });
   }
@@ -1360,7 +1404,7 @@ export const MODEL_OPTIONS: Record<LlmProvider, ModelOption[]> = {
 
 // ── Warehouse credential field definitions ──────────────────────────────────
 
-function getWarehouseFields(type: WarehouseType) {
+function getWarehouseFields(type: WarehouseType, deployment: OnboardingDeployment = {}) {
   switch (type) {
     case "bigquery":
       return [
@@ -1459,8 +1503,9 @@ function getWarehouseFields(type: WarehouseType) {
           required: true,
           accept: ".csv,.parquet",
           multiple: true,
-          helperText:
-            "Files are uploaded to .db/ inside your workspace. DuckDB reads each file as a table named after the filename."
+          helperText: deployment.cloud
+            ? "Files are loaded into your Airhouse database. Each file becomes a table named after the filename."
+            : "Files are uploaded to .db/ inside your workspace. DuckDB reads each file as a table named after the filename."
         }
       ];
   }
@@ -1525,7 +1570,10 @@ function loadState(storageKeyId: string): OnboardingState {
   }
 }
 
-export function useOnboardingOrchestrator(storageKeyId: string) {
+export function useOnboardingOrchestrator(
+  storageKeyId: string,
+  deployment: OnboardingDeployment = {}
+) {
   const [state, dispatch] = useReducer(reducer, storageKeyId, loadState);
 
   // Persist to localStorage on state changes. Debounced because dispatches
@@ -1536,8 +1584,9 @@ export function useOnboardingOrchestrator(storageKeyId: string) {
     return () => clearTimeout(handle);
   }, [state]);
 
-  const messages = useMemo(() => deriveMessages(state), [state]);
-  const railState = useMemo(() => deriveRailState(state), [state]);
+  const cloud = deployment.cloud ?? false;
+  const messages = useMemo(() => deriveMessages(state, { cloud }), [state, cloud]);
+  const railState = useMemo(() => deriveRailState(state, { cloud }), [state, cloud]);
 
   const setLlmProvider = useCallback(
     (provider: LlmProvider) => dispatch({ type: "SET_LLM_PROVIDER", provider }),

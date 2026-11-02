@@ -1,7 +1,8 @@
 use chrono::{DateTime, FixedOffset, Utc};
 use oxy_platform::secrets::envelope;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,
+    DatabaseConnection, DatabaseTransaction, EntityTrait, QueryFilter, Statement, TransactionTrait,
 };
 use thiserror::Error;
 use tracing::{info, instrument, warn};
@@ -80,6 +81,20 @@ impl TenantProvisioner {
         tenant_name: String,
     ) -> Result<TenantRecord, ProvisionerError> {
         validate_tenant_name(&tenant_name)?;
+        let lock = TenantLock::acquire(&self.db, workspace_id).await?;
+        let result = self
+            .provision_holding_lock(workspace_id, &tenant_name)
+            .await;
+        lock.release().await;
+        result
+    }
+
+    /// [`provision`](Self::provision), with this workspace's [`TenantLock`] held.
+    async fn provision_holding_lock(
+        &self,
+        workspace_id: Uuid,
+        tenant_name: &str,
+    ) -> Result<TenantRecord, ProvisionerError> {
         info!(tenant_name = %tenant_name, "provisioning airhouse tenant for workspace");
 
         let existing_local = AirhouseTenants::find()
@@ -89,7 +104,7 @@ impl TenantProvisioner {
 
         let remote = match existing_local {
             Some(local) => self.reconcile_existing(&local).await?,
-            None => self.create_or_adopt(workspace_id, &tenant_name).await?,
+            None => self.create_or_adopt(workspace_id, tenant_name).await?,
         };
 
         self.ensure_service_account_for_workspace(workspace_id)
@@ -114,6 +129,14 @@ impl TenantProvisioner {
     /// tenant on Airhouse's side, but that's recoverable on next provision.
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
     pub async fn deprovision(&self, workspace_id: Uuid) -> Result<(), ProvisionerError> {
+        let lock = TenantLock::acquire(&self.db, workspace_id).await?;
+        let result = self.deprovision_holding_lock(workspace_id).await;
+        lock.release().await;
+        result
+    }
+
+    /// [`deprovision`](Self::deprovision), with this workspace's [`TenantLock`] held.
+    async fn deprovision_holding_lock(&self, workspace_id: Uuid) -> Result<(), ProvisionerError> {
         let local = AirhouseTenants::find()
             .filter(airhouse_tenants::Column::WorkspaceId.eq(workspace_id))
             .one(&self.db)
@@ -432,6 +455,12 @@ impl TenantProvisioner {
 ///
 /// Equivalent regex (kept here for reference only; not evaluated):
 /// `^[a-z][a-z0-9_-]{0,62}$`
+/// The Airhouse-side tenant name for a workspace: derived from its id, which
+/// is unique and already the key, so no person ever has to choose one.
+pub fn tenant_name_for_workspace(workspace_id: Uuid) -> String {
+    format!("oxy-ws-{workspace_id}")
+}
+
 fn validate_tenant_name(name: &str) -> Result<(), ProvisionerError> {
     if name.is_empty() || name.len() > 63 {
         return Err(ProvisionerError::InvalidTenantName(name.to_string()));
@@ -485,5 +514,80 @@ mod tests {
         let name = format!("a{}", "x".repeat(62));
         assert_eq!(name.len(), 63);
         assert!(validate_tenant_name(&name).is_ok());
+    }
+}
+
+/// One provision or deprovision of a workspace's tenant at a time, on any pod.
+///
+/// `provision` saves the tenant row and then mints the service account. Two
+/// callers in that window (workspace creation's background provision and the
+/// demo's own call, two uploads, a staff re-provision) each see a row with no
+/// service account; the second would revoke the first's account as an orphan
+/// and mint its own, and whichever saved its bearer last could leave a revoked
+/// one behind. Under this lock the second caller starts after the first has
+/// finished, finds the tenant and its service account, and changes nothing.
+///
+/// A Postgres transaction-scoped advisory lock on a pooled connection of its
+/// own, keyed by the workspace; ending the transaction or dropping the
+/// connection releases it. Another backend (a local SQLite test database) has
+/// no other process to race with, so it takes none.
+struct TenantLock(Option<DatabaseTransaction>);
+
+/// How long a provision waits for another of the same workspace. A provision
+/// is a few Airhouse calls plus the post-provision hooks.
+const TENANT_LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '120s'";
+
+impl TenantLock {
+    async fn acquire(db: &DatabaseConnection, workspace_id: Uuid) -> Result<Self, sea_orm::DbErr> {
+        if db.get_database_backend() != DatabaseBackend::Postgres {
+            return Ok(Self(None));
+        }
+        let txn = db.begin().await?;
+        txn.execute_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            TENANT_LOCK_TIMEOUT,
+        ))
+        .await?;
+        txn.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT pg_advisory_xact_lock($1)",
+            [tenant_lock_key(workspace_id).into()],
+        ))
+        .await?;
+        Ok(Self(Some(txn)))
+    }
+
+    /// Let the lock go. A failed rollback is moot: the connection closing
+    /// ends the transaction too.
+    async fn release(self) {
+        if let Some(txn) = self.0 {
+            let _ = txn.rollback().await;
+        }
+    }
+}
+
+/// The advisory-lock key of `workspace_id`'s tenant: the workspace id's first
+/// eight bytes, mixed with a constant so it does not collide with the plain
+/// keys other locks in the database use. A collision would only serialize two
+/// provisions, never let two run together.
+fn tenant_lock_key(workspace_id: Uuid) -> i64 {
+    const NAMESPACE: u64 = u64::from_be_bytes(*b"airhouse");
+    let bytes = workspace_id.as_bytes();
+    let head = u64::from_be_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+    ]);
+    (head ^ NAMESPACE) as i64
+}
+
+#[cfg(test)]
+mod tenant_lock_tests {
+    use super::*;
+
+    #[test]
+    fn each_workspace_has_its_own_stable_key() {
+        let a = Uuid::from_u128(0x0102_0304_0506_0708_090a_0b0c_0d0e_0f10);
+        let b = Uuid::from_u128(0x1112_1314_1516_1718_191a_1b1c_1d1e_1f20);
+        assert_eq!(tenant_lock_key(a), tenant_lock_key(a));
+        assert_ne!(tenant_lock_key(a), tenant_lock_key(b));
     }
 }

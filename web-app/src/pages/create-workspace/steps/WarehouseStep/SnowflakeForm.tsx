@@ -12,9 +12,15 @@ import type { WarehousesFormData } from "@/types/database";
 
 interface Props {
   index: number;
+  /**
+   * A cloud deployment: a private key is named by a secret holding the PEM
+   * (`private_key_var`), never a key file on the server's disk. See
+   * `libs/utils/cloudConnections`.
+   */
+  cloud?: boolean;
 }
 
-export default function SnowflakeForm({ index }: Props) {
+export default function SnowflakeForm({ index, cloud = false }: Props) {
   const { register, watch, setValue } = useFormContext<WarehousesFormData>();
 
   const authMode =
@@ -99,15 +105,29 @@ export default function SnowflakeForm({ index }: Props) {
           </div>
         </>
       )}
-      {authMode === "private_key" && (
-        <div className='space-y-2'>
-          <Label>Private Key Path</Label>
-          <Input
-            placeholder='/path/to/rsa_key.p8'
-            {...register(`warehouses.${index}.config.private_key_path` as never)}
-          />
-        </div>
-      )}
+      {authMode === "private_key" &&
+        (cloud ? (
+          <div className='space-y-2'>
+            <Label htmlFor={`warehouses-${index}-private-key-var`}>Private Key Secret</Label>
+            <Input
+              id={`warehouses-${index}-private-key-var`}
+              placeholder='SNOWFLAKE_PRIVATE_KEY'
+              {...register(`warehouses.${index}.config.private_key_var` as never)}
+            />
+            <p className='text-muted-foreground text-xs'>
+              The name of a secret holding the PEM private key. Add the key under Settings → Secrets
+              first.
+            </p>
+          </div>
+        ) : (
+          <div className='space-y-2'>
+            <Label>Private Key Path</Label>
+            <Input
+              placeholder='/path/to/rsa_key.p8'
+              {...register(`warehouses.${index}.config.private_key_path` as never)}
+            />
+          </div>
+        ))}
     </div>
   );
 }

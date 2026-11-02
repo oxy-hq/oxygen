@@ -611,21 +611,25 @@ async fn a_tree_with_no_config_at_the_workspace_root_is_refused() {
     assert_eq!(fx.promoted().await, None);
 }
 
-/// The data is on the Factory's disk and was never committed. Promoting this
-/// would leave the database pointing at nothing on every node.
+/// A file DuckDB is deprecated, and a compile on a cloud role (this one is a
+/// worker) refuses it by name, committed data or not.
 #[tokio::test]
-async fn a_duckdb_dataset_that_is_not_in_the_commit_fails_by_name() {
+async fn a_duckdb_file_database_fails_by_name() {
     let fx = Fx::new(None).await;
     let config = "databases:\n  - name: sales\n    type: duckdb\n    dataset: .db\nmodels: []\n";
-    fx.serve_commit(SHA, tarball(&[("config.yml", config)]))
-        .await;
+    fx.serve_commit(
+        SHA,
+        tarball(&[("config.yml", config), (".db/orders.csv", "id\n1\n")]),
+    )
+    .await;
 
     let message = fx.failure(SHA).await;
 
     assert!(
-        message.starts_with("compile from git failed [duckdb_data_missing]: "),
+        message.starts_with("compile from git failed [duckdb_file_database]: "),
         "{message}"
     );
+    assert!(message.contains("airhouse_managed"), "{message}");
     assert!(message.contains("\"sales\""), "{message}");
     assert_eq!(fx.revisions().await.len(), 0);
     assert_eq!(fx.promoted().await, None);

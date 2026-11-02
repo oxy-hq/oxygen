@@ -1,14 +1,16 @@
 import { useCallback, useRef } from "react";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import useBuilderAvailable from "@/hooks/api/useBuilderAvailable";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import { bigQueryKeySecretName } from "@/libs/utils/cloudConnections";
 import { AnalyticsService } from "@/services/api/analytics";
 import { DatabaseService } from "@/services/api/database";
 import { OnboardingService } from "@/services/api/onboarding";
 import { ThreadService } from "@/services/api/threads";
 import { SecretService } from "@/services/secretService";
 import type { WarehouseConfig } from "@/types/database";
-import type { useOnboardingOrchestrator } from "./orchestrator";
+import type { OnboardingDeployment, useOnboardingOrchestrator } from "./orchestrator";
 import type {
   BuildPhase,
   GithubSetupWarehouse,
@@ -54,20 +56,29 @@ function formatLlmKeyValidationError(err: unknown): string {
 
 // ── Build WarehouseConfig from user input ───────────────────────────────────
 
-/** Build config with raw passwords — used for testDatabaseConnection */
-function buildWarehouseConfig(
+/**
+ * Build config with raw passwords — used for testDatabaseConnection.
+ *
+ * A cloud deployment creates nothing that resolves against a disk
+ * (`libs/utils/cloudConnections`): the BigQuery key is named by the secret
+ * `testAndSaveWarehouse` stores it under rather than written to a key file, and
+ * the upload path is the workspace's Airhouse rather than a file DuckDB. The
+ * connection keeps the `duckdb` name there so the rest of the wizard, which
+ * names a warehouse after its type, reaches it.
+ */
+export function buildWarehouseConfig(
   type: WarehouseType,
-  credentials: Record<string, string>
+  credentials: Record<string, string>,
+  deployment: OnboardingDeployment = {}
 ): WarehouseConfig {
   switch (type) {
     case "bigquery":
       return {
         type: "bigquery",
         name: "bigquery",
-        config: {
-          key: credentials.key_json,
-          dataset: credentials.dataset
-        }
+        config: deployment.cloud
+          ? { key_json_var: bigQueryKeySecretName("bigquery"), dataset: credentials.dataset }
+          : { key: credentials.key_json, dataset: credentials.dataset }
       };
     case "snowflake":
       return {
@@ -93,6 +104,9 @@ function buildWarehouseConfig(
         }
       };
     case "duckdb":
+      if (deployment.cloud) {
+        return { type: "airhouse_managed", name: "duckdb", config: {} };
+      }
       return {
         type: "duckdb",
         name: "duckdb",
@@ -103,12 +117,44 @@ function buildWarehouseConfig(
   }
 }
 
+/**
+ * Store `value` as the workspace secret `name`, replacing an older value — a
+ * retried onboarding may have left one behind. False when neither write landed.
+ */
+async function upsertSecret(
+  projectId: string,
+  name: string,
+  value: string,
+  description: string
+): Promise<boolean> {
+  try {
+    await SecretService.createSecret(projectId, { name, value, description });
+    return true;
+  } catch (createErr) {
+    // Secret likely already exists (409) — update it with the new value
+    try {
+      const { secrets } = await SecretService.listSecrets(projectId);
+      const existing = secrets.find((s) => s.name === name);
+      if (existing) {
+        await SecretService.updateSecret(projectId, existing.id, { value });
+        return true;
+      }
+      // No existing secret found and create failed for a reason other than conflict
+      console.warn(`[onboarding] Failed to save ${name}`, createErr);
+    } catch (updateErr) {
+      console.warn(`[onboarding] Failed to save ${name}`, updateErr);
+    }
+    return false;
+  }
+}
+
 // ── Hook: wires orchestrator actions to real API calls ──────────────────────
 
 export function useOnboardingActions(orchestrator: Orchestrator) {
   const { project, branchName } = useCurrentProjectBranch();
   const projectId = project?.id ?? "";
   const { builderModel } = useBuilderAvailable();
+  const cloud = !useAuth().isLocalMode;
 
   // Keep a ref to the latest orchestrator state so callbacks can read current
   // values without invalidating their useCallback identity on every render.
@@ -117,6 +163,12 @@ export function useOnboardingActions(orchestrator: Orchestrator) {
   // re-fire in a loop and can cause cascading API calls.
   const stateRef = useRef(orchestrator.state);
   stateRef.current = orchestrator.state;
+
+  // Where the last upload's data went, as the server reports it. The server
+  // decides by its process role and the web only infers "cloud" from the auth
+  // mode, so a dev box (`just up`: auth on, `OXY_ROLE=all`) writes the files
+  // into the workspace; the database registered for them must say so.
+  const uploadDestinationRef = useRef<"airhouse" | "workspace_files" | null>(null);
 
   // Synchronous column cache keyed by "schema.table". Populated by
   // `resyncWithSelectedTables` and consumed by `startViewRun`. We can't rely
@@ -159,34 +211,14 @@ export function useOnboardingActions(orchestrator: Orchestrator) {
       }
 
       const keyVar = LLM_KEY_VAR[provider];
-      try {
-        await SecretService.createSecret(projectId, {
-          name: keyVar,
-          value: apiKey,
-          description: `${provider} API key (created during onboarding)`
-        });
-      } catch (createErr) {
-        // Secret likely already exists (409) — update it with the new value
-        try {
-          const { secrets } = await SecretService.listSecrets(projectId);
-          const existing = secrets.find((s) => s.name === keyVar);
-          if (existing) {
-            await SecretService.updateSecret(projectId, existing.id, { value: apiKey });
-          } else {
-            // No existing secret found and create failed for a reason other than conflict
-            console.warn(
-              `[onboarding] Failed to save ${keyVar} — builder may fail with an auth error`,
-              createErr
-            );
-            toast.error(`Failed to save ${keyVar}. Builder may fail with an auth error.`);
-          }
-        } catch (updateErr) {
-          console.warn(
-            `[onboarding] Failed to save ${keyVar} — builder may fail with an auth error`,
-            updateErr
-          );
-          toast.error(`Failed to save ${keyVar}. Builder may fail with an auth error.`);
-        }
+      const saved = await upsertSecret(
+        projectId,
+        keyVar,
+        apiKey,
+        `${provider} API key (created during onboarding)`
+      );
+      if (!saved) {
+        toast.error(`Failed to save ${keyVar}. Builder may fail with an auth error.`);
       }
 
       orchestrator.setLlmKey(apiKey);
@@ -202,7 +234,29 @@ export function useOnboardingActions(orchestrator: Orchestrator) {
 
       orchestrator.setWarehouseCredentials(credentials);
 
-      const warehouseConfig = buildWarehouseConfig(type, credentials);
+      const destination = type === "duckdb" ? uploadDestinationRef.current : null;
+      const warehouseConfig = buildWarehouseConfig(type, credentials, {
+        cloud: destination ? destination === "airhouse" : cloud
+      });
+
+      // The config names the key's secret, so the secret must exist before the
+      // connection test resolves it.
+      if (cloud && type === "bigquery") {
+        const secret = bigQueryKeySecretName(warehouseConfig.name ?? type);
+        const saved = await upsertSecret(
+          projectId,
+          secret,
+          credentials.key_json ?? "",
+          "BigQuery service account key (created during onboarding)"
+        );
+        if (!saved) {
+          orchestrator.setConnectionStatus(
+            "failed",
+            `Could not save the key as the secret ${secret}.`
+          );
+          return;
+        }
+      }
 
       // Helper: save database config with raw password.
       // The backend's createDatabaseConfig will:
@@ -288,7 +342,7 @@ export function useOnboardingActions(orchestrator: Orchestrator) {
         orchestrator.setConnectionStatus("failed", "Could not verify database configuration.");
       }
     },
-    [projectId, branchName, orchestrator]
+    [projectId, branchName, orchestrator, cloud]
   );
 
   // Schema-first discovery: one cheap `INFORMATION_SCHEMA.TABLES` scan returns
@@ -621,6 +675,7 @@ export function useOnboardingActions(orchestrator: Orchestrator) {
       if (!projectId || files.length === 0) return null;
       try {
         const result = await OnboardingService.uploadWarehouseFiles(projectId, files);
+        uploadDestinationRef.current = result.destination ?? null;
         orchestrator.setUploadedWarehouseFiles(
           [...(orchestrator.state.uploadedWarehouseFiles ?? []), ...result.files],
           result.subdir

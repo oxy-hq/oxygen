@@ -38,7 +38,9 @@ tokio = { workspace = true }            # tokio::spawn (fire-and-forget invite e
 tracing = { workspace = true }
 # Tenancy's own: org slugs, invitation email, OLTP branch cleanup on org delete,
 # Airhouse credential revocation on member removal, workspace provisioning.
-airhouse = { workspace = true }
+airhouse = { workspace = true, features = ["import"] }
+# Scratch files for uploads and the demo dataset on their way into Airhouse.
+tempfile = { workspace = true }
 agentic-pipeline = { workspace = true }
 oxy-oltp = { workspace = true }
 email_address = { workspace = true }
@@ -59,8 +61,11 @@ tower = { workspace = true, features = ["util"] }
 migration = { workspace = true }
 agentic-runtime = { workspace = true }
 oxy-cameras = { workspace = true }
-tempfile = { workspace = true }
 url = { workspace = true }
+# In-process stand-in for the tenant in `onboarding/airhouse_tests.rs`.
+duckdb = { workspace = true }
+async-trait = { workspace = true }
+serde_yaml = { workspace = true }
 testcontainers = { workspace = true, features = [
     "blocking",
     "reusable-containers",

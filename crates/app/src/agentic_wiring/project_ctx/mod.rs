@@ -20,7 +20,7 @@ use entity::workspace_members::WorkspaceRole;
 use oxy::adapters::header_value::HeaderValueExt;
 use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::config::WorkingCopy;
-use oxy::config::model::{DatabaseType, DuckDBOptions, Model, SnowflakeAuthType};
+use oxy::config::model::{BigQueryKey, DatabaseType, DuckDBOptions, Model, SnowflakeAuthType};
 use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
 use oxy_shared::errors::OxyError;
 
@@ -874,11 +874,11 @@ fn unresolved_var_error(
 
 /// [`connection_field`] for a field with no usable default — a Snowflake
 /// password, a BigQuery key path, a MotherDuck token. Unset is an error too.
-fn required_field(
+fn required_field<T>(
     db: &oxy::config::model::Database,
     field: &str,
-    resolved: Result<String, OxyError>,
-) -> Result<String, OxyError> {
+    resolved: Result<T, OxyError>,
+) -> Result<T, OxyError> {
     match resolved {
         Ok(v) => Ok(v),
         Err(OxyError::SecretNotFound(var)) => Err(unresolved_var_error(db, field, var.as_deref())),
@@ -983,10 +983,13 @@ where
         // absent here. The compile worker mirrored this local-file warehouse to
         // S3 and recorded an `s3_mirror` block; attach from S3 via the same
         // httpfs SQL the core connector uses, instead of resolving the
-        // (nonexistent) local path. Without this the connector silently drops
-        // the DB and the agent run fails "no databases configured" on cloud
-        // while working locally. (DuckLake / MotherDuck are already remote and
+        // (nonexistent) local path. (DuckLake / MotherDuck are already remote and
         // carry no mirror.)
+        //
+        // File DuckDB is deprecated and refused at compile on the cloud roles
+        // (`compile_config_gate.rs`), so no new revision carries a mirror; this
+        // arm serves the revisions compiled before that refusal until their
+        // workspaces move to Airhouse, and goes with them.
         //
         // Gated on the stateless roles: a node WITH the working copy (ide /
         // all-in-one) reads the SAME compiled config (which carries `s3_mirror`)
@@ -1041,6 +1044,8 @@ where
                 };
                 Ok(Some(ConnectorConfig::DuckDbUrl(DuckDbUrlConfig {
                     url: resolved,
+                    // Read-only on the cloud roles: file DuckDB is deprecated there.
+                    read_only: oxy::file_duckdb_limits::limits_apply(),
                 })))
             }
             DuckDBOptions::DuckLake(ducklake_config) => {
@@ -1210,9 +1215,21 @@ where
                 SnowflakeAuthType::PrivateKey { .. } => {
                     tracing::warn!(
                         db = %db.name,
-                        "Snowflake: private-key auth not yet supported in agentic connector"
+                        "Snowflake: private-key-file auth is not supported in the agentic \
+                         connector; hold the key in a secret with `private_key_var`"
                     );
                     return Ok(None);
+                }
+                SnowflakeAuthType::PrivateKeyVar { .. } => {
+                    let pem = sf.get_private_key_from_secret(sm).await.map_err(|e| {
+                        OxyError::ConfigurationError(format!(
+                            "database '{}' (snowflake): cannot resolve `private_key_var`: {e}",
+                            db.name
+                        ))
+                    })?;
+                    SnowflakeAuth::PrivateKey {
+                        private_key_pem: pem.expect("auth type is PrivateKeyVar"),
+                    }
                 }
                 _ => {
                     let password = required_field(db, "password", sf.get_password(sm).await)?;
@@ -1231,13 +1248,28 @@ where
         }
 
         DatabaseType::Bigquery(bq) => {
-            let key_path = required_field(db, "key_path", bq.get_key_path(sm).await)?;
-            let key_path = workspace_manager
-                .config_manager
-                .try_resolve_file(&key_path)
-                .await
-                .unwrap_or(key_path);
-            let project_id = extract_project_id_from_key(&key_path).unwrap_or_default();
+            let key_field = if bq.key_json_var.is_some() {
+                "key_json"
+            } else {
+                "key_path"
+            };
+            let (key_path, key_json) = match required_field(db, key_field, bq.get_key(sm).await)? {
+                // The key's contents, from the secret store: nothing on disk.
+                BigQueryKey::Json(json) => (String::new(), Some(json)),
+                BigQueryKey::Path(key_path) => {
+                    let key_path = workspace_manager
+                        .config_manager
+                        .try_resolve_file(&key_path)
+                        .await
+                        .unwrap_or(key_path);
+                    (key_path, None)
+                }
+            };
+            let project_id = match &key_json {
+                Some(json) => BigQueryKey::Json(json.clone()).project_id(),
+                None => BigQueryKey::Path(key_path.clone()).project_id(),
+            }
+            .unwrap_or_default();
             {
                 // Merge legacy single `dataset` + multi `datasets` map keys.
                 let mut datasets: Vec<String> = bq.datasets.keys().cloned().collect();
@@ -1248,6 +1280,7 @@ where
                 }
                 Ok(Some(ConnectorConfig::BigQuery(BigQueryConfig {
                     key_path,
+                    key_json,
                     project_id,
                     datasets,
                 })))
@@ -1260,7 +1293,10 @@ where
                 Some(db) => format!("md:{}?motherduck_token={}", db, token),
                 None => format!("md:?motherduck_token={}", token),
             };
-            Ok(Some(ConnectorConfig::DuckDbUrl(DuckDbUrlConfig { url })))
+            Ok(Some(ConnectorConfig::DuckDbUrl(DuckDbUrlConfig {
+                url,
+                read_only: false,
+            })))
         }
 
         DatabaseType::Mysql(my) => {
@@ -1302,12 +1338,6 @@ where
             ))))
         }
     }
-}
-
-fn extract_project_id_from_key(key_path: &str) -> Option<String> {
-    let contents = std::fs::read_to_string(key_path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&contents).ok()?;
-    v.get("project_id")?.as_str().map(|s| s.to_string())
 }
 
 /// Pre-build an `airhouse::AirhouseConnector` for `airhouse` /

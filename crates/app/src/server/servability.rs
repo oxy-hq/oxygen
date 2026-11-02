@@ -45,11 +45,16 @@ fn database_is_serve_safe(db: &Database) -> bool {
         DatabaseType::DuckDB(d) => {
             d.s3_mirror.is_some() || matches!(d.options, DuckDBOptions::DuckLake(_))
         }
-        // BigQuery: a local key file pins to the FS; a key_path_var (secret) or
+        // BigQuery: `key_json_var` holds the key itself, so it is serve-safe
+        // whatever else is set (it wins at runtime). `key_path` and
+        // `key_path_var` both name a key file, which only the checkout has;
         // ambient credentials are serve-safe.
-        DatabaseType::Bigquery(b) => b.key_path.is_none(),
-        // Snowflake: a PrivateKey path is a local file; password / var / browser
-        // auth are serve-safe.
+        DatabaseType::Bigquery(b) => {
+            b.key_json_var.is_some() || (b.key_path.is_none() && b.key_path_var.is_none())
+        }
+        // Snowflake: a PrivateKey path is a local file; password, browser auth
+        // and `private_key_var` (the key held in the secret store) are
+        // serve-safe.
         DatabaseType::Snowflake(s) => !matches!(s.auth_type, SnowflakeAuthType::PrivateKey { .. }),
     }
 }
@@ -268,6 +273,7 @@ mod tests {
 
     /// The refusal does not depend on how a connector happens to fail: a key
     /// file is a file in the checkout as much as a DuckDB dataset is.
+    /// `key_path_var` is one too: the secret holds a path, not the key.
     #[test]
     fn a_key_file_database_is_named_and_a_secret_backed_one_is_not() {
         let databases = vec![
@@ -275,12 +281,19 @@ mod tests {
                 "name": "bq_file", "type": "bigquery", "key_path": "key.json", "dataset": "d"
             })),
             database(serde_json::json!({
-                "name": "bq_secret", "type": "bigquery", "key_path_var": "BQ_KEY", "dataset": "d"
+                "name": "bq_path_var", "type": "bigquery", "key_path_var": "BQ_KEY", "dataset": "d"
+            })),
+            database(serde_json::json!({
+                "name": "bq_secret", "type": "bigquery", "key_json_var": "BQ_KEY_JSON", "dataset": "d"
             })),
         ];
         assert_eq!(
             first_needing_working_copy(&databases, [Some("bq_file")]),
             Some("bq_file".to_string())
+        );
+        assert_eq!(
+            first_needing_working_copy(&databases, [Some("bq_path_var")]),
+            Some("bq_path_var".to_string())
         );
         assert_eq!(
             first_needing_working_copy(&databases, [Some("bq_secret")]),

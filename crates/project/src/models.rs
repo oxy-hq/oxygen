@@ -77,6 +77,9 @@ pub struct ClickHouseConfig {
 #[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
 pub struct BigQueryConfig {
     pub key: Option<String>,
+    /// The secret holding the service-account key's JSON contents. When set,
+    /// no key file is written.
+    pub key_json_var: Option<String>,
     pub dataset: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_u64_from_string")]
     pub dry_run_limit: Option<u64>,
@@ -98,6 +101,9 @@ pub struct SnowflakeConfig {
     pub schema: Option<String>,
     pub role: Option<String>,
     pub private_key_path: Option<String>,
+    /// The secret holding the private key's contents (`auth_mode:
+    /// "private_key"`); preferred over `private_key_path`.
+    pub private_key_var: Option<String>,
     pub auth_mode: Option<String>, // "password", "browser", or "private_key"
 }
 

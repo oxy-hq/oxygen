@@ -284,6 +284,32 @@ impl Snowflake {
                     connector_internal_error(CREATE_CONN, &err)
                 })?
             }
+            SnowflakeAuthType::PrivateKeyVar { private_key_var } => {
+                tracing::info!(
+                    secret = %private_key_var,
+                    "Snowflake: using private key authentication from the secret store"
+                );
+                let private_key_content = config
+                    .get_private_key_from_secret(&self.secret_manager)
+                    .await?
+                    .expect("auth type is PrivateKeyVar");
+                SnowflakeApi::with_certificate_auth(
+                    account,
+                    Some(warehouse),
+                    Some(database),
+                    schema,
+                    &config.username,
+                    config.role.as_deref(),
+                    &private_key_content,
+                )
+                .map_err(|err| {
+                    tracing::error!(
+                        "Snowflake: failed to create connection with private key: {}",
+                        err
+                    );
+                    connector_internal_error(CREATE_CONN, &err)
+                })?
+            }
             SnowflakeAuthType::Password { .. } | SnowflakeAuthType::PasswordVar { .. } => {
                 tracing::info!("🔑 Snowflake: Using password authentication");
                 // Use password authentication

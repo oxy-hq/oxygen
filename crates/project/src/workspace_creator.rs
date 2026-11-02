@@ -82,6 +82,73 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
+    async fn the_airhouse_demo_points_local_at_airhouse_and_ships_no_dataset() {
+        let tmp = TempDir::new().expect("tempdir");
+        copy_airhouse_demo_files_to(tmp.path()).await.expect("copy");
+
+        assert!(
+            !tmp.path().join(DEMO_DATASET_DIR).exists(),
+            "the dataset is loaded into Airhouse, not written to the workspace"
+        );
+        let config_text = std::fs::read_to_string(tmp.path().join("config.yml")).unwrap();
+        let config: oxy::config::model::Config =
+            serde_yaml::from_str(&config_text).expect("config.yml still parses");
+        let local = config
+            .databases
+            .iter()
+            .find(|d| d.name == "local")
+            .expect("the database keeps its name");
+        assert!(
+            matches!(
+                local.database_type,
+                oxy::config::model::DatabaseType::AirhouseManaged(_)
+            ),
+            "local is {}",
+            local.database_type
+        );
+        assert!(!config_text.contains("type: duckdb"));
+
+        // Nothing reads the dataset by its file path any more.
+        let mut stack = vec![tmp.path().to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Ok(text) = std::fs::read_to_string(&path) {
+                    assert!(
+                        !text.contains("'oxymart.csv'"),
+                        "{} still reads oxymart.csv as a file",
+                        path.display()
+                    );
+                }
+            }
+        }
+        let sql = std::fs::read_to_string(tmp.path().join("example_sql/total_number_of_store.sql"))
+            .unwrap();
+        assert!(sql.contains("FROM oxymart.csv"), "{sql}");
+
+        // The views are the template's, byte for byte.
+        let view =
+            std::fs::read_to_string(tmp.path().join("sales_semantics/views/oxymart.view.yml"))
+                .unwrap();
+        let embedded = DEMO_DIST
+            .get_file("sales_semantics/views/oxymart.view.yml")
+            .unwrap()
+            .contents_utf8()
+            .unwrap();
+        assert_eq!(view, embedded);
+    }
+
+    #[test]
+    fn the_demo_dataset_is_embedded() {
+        let files = demo_dataset_files();
+        let names: Vec<&str> = files.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, ["oxymart.csv"]);
+        assert!(files[0].1.starts_with(b"Store,Date,Weekly_Sales"));
+    }
+
+    #[tokio::test]
     async fn write_minimal_config_yml_creates_file_with_expected_contents() {
         let tmp = TempDir::new().expect("tempdir");
         write_minimal_config_yml(tmp.path())
@@ -208,6 +275,104 @@ pub async fn write_minimal_config_yml(dir: &std::path::Path) -> std::io::Result<
 /// Copy the embedded demo project files into `target`, creating it if needed.
 pub async fn copy_demo_files_to(target: &std::path::Path) -> Result<(), axum::http::StatusCode> {
     copy_embedded_dir_recursive(&DEMO_DIST, target).await
+}
+
+/// The demo's dataset directory, which a file DuckDB reads (`dataset: .db/`).
+const DEMO_DATASET_DIR: &str = ".db";
+
+/// The `config.yml` entry for the demo's database as the template ships it: a
+/// file DuckDB over [`DEMO_DATASET_DIR`].
+const DEMO_FILE_DATABASE: &str = "  - name: local\n    dataset: .db/\n    type: duckdb\n";
+
+/// The same entry when the data lives in the workspace's Airhouse. Same name,
+/// so the views (`datasource: "local"`), the agent and `defaults.database`
+/// need no edit.
+const DEMO_AIRHOUSE_DATABASE: &str = "  - name: local\n    type: airhouse_managed\n";
+
+/// The demo's dataset files, as embedded in the binary: `(file name, bytes)`.
+/// What a deployment loads into the workspace's Airhouse, so the bytes never
+/// come from a checkout.
+pub fn demo_dataset_files() -> Vec<(&'static str, &'static [u8])> {
+    let Some(dir) = DEMO_DIST.get_dir(DEMO_DATASET_DIR) else {
+        return Vec::new();
+    };
+    dir.files()
+        .filter_map(|f| Some((f.path().file_name()?.to_str()?, f.contents())))
+        .collect()
+}
+
+/// Copy the embedded demo project into `target` for a workspace whose data
+/// lives in Airhouse, where the caller loads [`demo_dataset_files`].
+///
+/// Differs from [`copy_demo_files_to`] in three ways: the dataset directory is
+/// not written; `config.yml`'s `local` database is `type: airhouse_managed`;
+/// and SQL that reads a dataset file by its path (`FROM 'oxymart.csv'`, which
+/// DuckDB treats as a file to open) names the table instead
+/// (`FROM oxymart.csv`, which resolves to the `"oxymart"."csv"` view the load
+/// creates). The semantic views already name it that way and are copied as-is.
+pub async fn copy_airhouse_demo_files_to(target: &std::path::Path) -> std::io::Result<()> {
+    let config = DEMO_DIST
+        .get_file("config.yml")
+        .and_then(|f| f.contents_utf8())
+        .ok_or_else(|| std::io::Error::other("the embedded demo has no config.yml"))?;
+    if !config.contains(DEMO_FILE_DATABASE) {
+        return Err(std::io::Error::other(
+            "the embedded demo's config.yml no longer declares `local` as a file DuckDB over \
+             .db/, so it cannot be pointed at Airhouse",
+        ));
+    }
+    let dataset_names: Vec<&str> = demo_dataset_files().iter().map(|(n, _)| *n).collect();
+    copy_airhouse_demo_dir(&DEMO_DIST, target, &dataset_names)
+}
+
+fn copy_airhouse_demo_dir(
+    src: &Dir<'static>,
+    dst: &std::path::Path,
+    dataset_names: &[&str],
+) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in src.entries() {
+        let Some(name) = entry.path().file_name() else {
+            continue;
+        };
+        let dst_path = dst.join(name);
+        if let Some(dir) = entry.as_dir() {
+            if dir.path() == std::path::Path::new(DEMO_DATASET_DIR) {
+                continue;
+            }
+            copy_airhouse_demo_dir(dir, &dst_path, dataset_names)?;
+        } else if let Some(file) = entry.as_file() {
+            if is_data_app_file(name) {
+                continue;
+            }
+            let rel = file.path();
+            let contents = match file.contents_utf8() {
+                Some(text) if rel == std::path::Path::new("config.yml") => {
+                    text.replace(DEMO_FILE_DATABASE, DEMO_AIRHOUSE_DATABASE)
+                }
+                Some(text) if reads_dataset_files_by_path(rel) => {
+                    let mut text = text.to_string();
+                    for dataset in dataset_names {
+                        text = text.replace(&format!("'{dataset}'"), dataset);
+                    }
+                    text
+                }
+                _ => {
+                    fs::write(&dst_path, file.contents())?;
+                    continue;
+                }
+            };
+            fs::write(&dst_path, contents)?;
+        }
+    }
+    Ok(())
+}
+
+/// The demo files whose SQL names a dataset file by its path: example SQL and
+/// automations. Views name the table, never the path.
+fn reads_dataset_files_by_path(rel: &std::path::Path) -> bool {
+    let name = rel.to_string_lossy();
+    name.ends_with(".sql") || name.ends_with(".automation.yml")
 }
 
 async fn copy_embedded_dir_recursive(

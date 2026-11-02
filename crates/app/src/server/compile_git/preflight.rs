@@ -8,18 +8,21 @@
 //! workspace that lives in `analytics/` can arrive here pointing at the root.
 //! The compiler would walk the whole repository and promote it.
 //!
-//! **Every local-file DuckDB database is in the commit.** The compiler mirrors
-//! a local DuckDB dataset to S3 and records where (`s3_mirror`), which is the
-//! only way a pod with no working copy can query it. That step is best-effort:
-//! a dataset that is not on disk is skipped without a word. On the node with
-//! the working copy the data is there and the worst case is a workspace only
-//! that node can serve. Here the tree is deleted when the compile ends, so a
-//! skipped mirror is a database that points at nothing — on every node.
+//! **No file DuckDB on a cloud role.** A `type: duckdb` database with
+//! `dataset:` or `path:` keeps its data in the repository. It is deprecated: a
+//! compile for the cloud roles refuses it, naming the database and pointing at
+//! Airhouse — the same rule the config gate applies to every compile
+//! (`compile_config_gate.rs`), stated here first so a commit compile stops
+//! before it starts. A database path that leaves the tree is refused on every
+//! role, ahead of that.
 //!
-//! So a commit compile refuses the tree instead, naming the database. Carrying
-//! the previous revision's mirror forward would be the gentler rule, but the
-//! mirror is written inside `oxy-compile`, which this path deliberately leaves
-//! untouched (`internal-docs/factory-retirement.md`, phase 1).
+//! **On the single-process role, every local-file DuckDB database is in the
+//! commit.** There the compiler still mirrors a local DuckDB dataset to S3 when
+//! a bucket is configured and records where (`s3_mirror`). That step is
+//! best-effort: a dataset that is not on disk is skipped without a word, and
+//! here the tree is deleted when the compile ends, so a skipped mirror is a
+//! database that points at nothing. So the compile refuses the tree instead,
+//! naming the database.
 
 use std::path::{Component, Path};
 
@@ -27,11 +30,16 @@ use serde_yaml::Value;
 
 use super::CompileGitError;
 
-/// Check the tree rooted at `workspace_root`. `mirror_configured` is whether
-/// the compile has an S3 bucket to mirror into
-/// (`oxy_compile::blob_store::bucket()`); it is a parameter so the rule can be
-/// tested without the environment.
-pub(super) fn check(workspace_root: &Path, mirror_configured: bool) -> Result<(), CompileGitError> {
+/// Check the tree rooted at `workspace_root`. `cloud_role` is whether this
+/// process runs a role other than `OXY_ROLE=all`; `mirror_configured` is
+/// whether the compile has an S3 bucket to mirror into
+/// (`oxy_compile::blob_store::bucket()`). Both are parameters so the rules can
+/// be tested without the environment.
+pub(super) fn check(
+    workspace_root: &Path,
+    cloud_role: bool,
+    mirror_configured: bool,
+) -> Result<(), CompileGitError> {
     let config = workspace_root.join("config.yml");
     let Ok(text) = std::fs::read_to_string(&config) else {
         return Err(CompileGitError::NoConfig);
@@ -43,7 +51,7 @@ pub(super) fn check(workspace_root: &Path, mirror_configured: bool) -> Result<()
     };
     let databases = parsed.get("databases").and_then(Value::as_sequence);
     for database in databases.into_iter().flatten() {
-        check_duckdb(workspace_root, database, mirror_configured)?;
+        check_duckdb(workspace_root, database, cloud_role, mirror_configured)?;
     }
     Ok(())
 }
@@ -54,6 +62,7 @@ pub(super) fn check(workspace_root: &Path, mirror_configured: bool) -> Result<()
 fn check_duckdb(
     workspace_root: &Path,
     database: &Value,
+    cloud_role: bool,
     mirror_configured: bool,
 ) -> Result<(), CompileGitError> {
     let field = |key: &str| database.get(key).and_then(Value::as_str);
@@ -80,6 +89,9 @@ fn check_duckdb(
         // DuckLake, MotherDuck, an `s3://` path: nothing local to mirror.
         _ => return Ok(()),
     };
+    if cloud_role {
+        return Err(CompileGitError::DuckDbFileDatabase { database: name });
+    }
     if !present {
         return Err(CompileGitError::DuckDbDataMissing {
             database: name,
@@ -137,7 +149,7 @@ mod tests {
     fn a_tree_with_no_config_at_its_root_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         assert!(matches!(
-            check(dir.path(), true),
+            check(dir.path(), false, true),
             Err(CompileGitError::NoConfig)
         ));
     }
@@ -145,9 +157,9 @@ mod tests {
     #[test]
     fn a_committed_dataset_passes() {
         let dir = tree(LOCAL_DATASET, &[".db/orders.parquet"]);
-        assert!(check(dir.path(), true).is_ok());
+        assert!(check(dir.path(), false, true).is_ok());
         let dir = tree(LOCAL_FILE, &["data/ledger.duckdb"]);
-        assert!(check(dir.path(), true).is_ok());
+        assert!(check(dir.path(), false, true).is_ok());
     }
 
     /// The case the rule exists for: the data is on the Factory's disk and was
@@ -161,7 +173,7 @@ mod tests {
             (LOCAL_FILE, &[][..], "ledger", "data/ledger.duckdb"),
         ] {
             let dir = tree(config, files);
-            match check(dir.path(), true) {
+            match check(dir.path(), false, true) {
                 Err(CompileGitError::DuckDbDataMissing {
                     database: d,
                     path: p,
@@ -184,7 +196,7 @@ mod tests {
             let config =
                 format!("databases:\n  - name: sales\n    type: duckdb\n    {key}: {outside}\n");
             let dir = tree(&config, &[]);
-            match check(dir.path(), true) {
+            match check(dir.path(), false, true) {
                 Err(CompileGitError::DuckDbPathOutsideTree { database, path }) => {
                     assert_eq!((database.as_str(), path.as_str()), ("sales", outside));
                 }
@@ -197,7 +209,7 @@ mod tests {
     fn committed_data_with_nowhere_to_mirror_it_is_refused_by_name() {
         let dir = tree(LOCAL_DATASET, &[".db/orders.csv"]);
         assert!(matches!(
-            check(dir.path(), false),
+            check(dir.path(), false, false),
             Err(CompileGitError::DuckDbMirrorUnconfigured { database }) if database == "sales"
         ));
     }
@@ -208,13 +220,49 @@ mod tests {
             - name: lake\n    type: duckdb\n    dataset: s3://bucket/lake\n  \
             - name: wh\n    type: postgres\n    host: db.internal\n";
         let dir = tree(config, &[]);
-        assert!(check(dir.path(), false).is_ok());
-        assert!(check(tree("databases: []\n", &[]).path(), false).is_ok());
+        assert!(check(dir.path(), false, false).is_ok());
+        assert!(check(tree("databases: []\n", &[]).path(), false, false).is_ok());
+    }
+
+    /// A cloud role refuses a file DuckDB by name, committed data or not and
+    /// bucket or not; a remote DuckDB and other databases pass.
+    #[test]
+    fn a_cloud_role_refuses_a_file_duckdb_by_name() {
+        for (config, files, database) in [
+            (LOCAL_DATASET, &[".db/orders.parquet"][..], "sales"),
+            (LOCAL_DATASET, &[][..], "sales"),
+            (LOCAL_FILE, &["data/ledger.duckdb"][..], "ledger"),
+        ] {
+            let dir = tree(config, files);
+            for mirror_configured in [true, false] {
+                match check(dir.path(), true, mirror_configured) {
+                    Err(CompileGitError::DuckDbFileDatabase { database: d }) => {
+                        assert_eq!(d, database)
+                    }
+                    other => panic!("expected DuckDbFileDatabase for {database}, got {other:?}"),
+                }
+            }
+        }
+        let remote = "databases:\n  \
+            - name: lake\n    type: duckdb\n    dataset: s3://bucket/lake\n  \
+            - name: wh\n    type: postgres\n    host: db.internal\n";
+        assert!(check(tree(remote, &[]).path(), true, false).is_ok());
+    }
+
+    /// A path that leaves the tree is named as that on a cloud role too.
+    #[test]
+    fn a_path_outside_the_tree_is_still_named_first_on_a_cloud_role() {
+        let config =
+            "databases:\n  - name: sales\n    type: duckdb\n    path: /proc/self/environ\n";
+        assert!(matches!(
+            check(tree(config, &[]).path(), true, true),
+            Err(CompileGitError::DuckDbPathOutsideTree { .. })
+        ));
     }
 
     #[test]
     fn a_config_that_does_not_parse_is_left_for_the_compiler_to_report() {
         let dir = tree("databases: [unterminated\n", &[]);
-        assert!(check(dir.path(), true).is_ok());
+        assert!(check(dir.path(), false, true).is_ok());
     }
 }

@@ -3,7 +3,7 @@
 `oxyc` — a `gh api`-shaped client for the Oxy HTTP API, plus the tooling that
 manages customer workspace repos.
 
-- **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `token`, `login-link`, `tokens`, `assume`, `oltp`
+- **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `token`, `login-link`, `tokens`, `assume`, `oltp`, `airhouse`
 - **Experiments** — `experiments` (draft, price, register, status, interim, abort, result)
 - **Home layout** — `home` (show, get, apply, reset)
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
@@ -544,6 +544,33 @@ shows its age and calls it stale past 30 days; nothing resets it on a timer.
 `reset --branch staging` re-copies it from production, discarding every app's
 staging data in the org, so it lists those apps and asks first (`--yes`
 without a terminal).
+
+## Airhouse tenants
+
+Staff can see a workspace's Airhouse tenant — the warehouse behind
+`ctx.airhouse` and `type: airhouse_managed` — and repair it, without the admin
+console. The server provisions a workspace's tenant itself; `provision` is the
+repair and backfill tool, for a workspace that predates that or whose tenant or
+service account did not come up.
+
+```bash
+oxyc airhouse status [--workspace <id>] [--json]
+oxyc airhouse provision --workspace <id> [--yes] [--json]
+```
+
+`status` lists every workspace, with a tenant or without; with `--workspace` it
+shows that workspace's tenant and whether its service account is bound. The
+fleet read is capped, and the cap falls on workspaces without a tenant, so a
+workspace missing from a capped page is reported as possibly cut rather than
+nonexistent. No credential is ever printed.
+
+`provision` prints what it will create and asks first, because the tenant name
+(`oxy-ws-<workspace id>`) is global and cannot be reused; without a terminal it
+refuses unless `--yes`. It is idempotent — an existing tenant is reconciled
+(a missing service account is bound), not duplicated. `--workspace` takes the
+workspace's UUID. A 404 can be a workspace outside your staff grant's scope, a
+503 is a deployment with no Airhouse configured, and an active `assume` session
+closes `/admin`.
 
 ## Experiments
 

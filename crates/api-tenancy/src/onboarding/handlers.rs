@@ -8,7 +8,7 @@ use oxy::github::{GitHubClient, default_git_client, github_token_for_namespace};
 use oxy::service::secret_manager::SecretManagerService;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_git::GitClient;
-use oxy_project::copy_demo_files_to;
+use oxy_project::{copy_airhouse_demo_files_to, copy_demo_files_to};
 use oxy_shared::errors::OxyError;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -35,8 +35,21 @@ pub async fn setup_demo(
         (status, msg)
     })?;
 
-    if let Err(e) = copy_demo_files_to(&project_dir).await {
-        error!("Failed to copy demo workspace files: {:?}", e);
+    // A cloud role keeps the demo's data in the workspace's Airhouse: the
+    // checkout gets no `.db/`, and `local` is `type: airhouse_managed`.
+    let in_airhouse =
+        super::airhouse::data_in_airhouse(oxy_app_core::process_role::current_process_role());
+    let copied = if in_airhouse {
+        copy_airhouse_demo_files_to(&project_dir)
+            .await
+            .map_err(|e| e.to_string())
+    } else {
+        copy_demo_files_to(&project_dir)
+            .await
+            .map_err(|e| e.to_string())
+    };
+    if let Err(e) = copied {
+        error!("Failed to copy demo workspace files: {e}");
         let _ = std::fs::remove_dir_all(&project_dir);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -73,6 +86,37 @@ pub async fn setup_demo(
             return Err((status, msg));
         }
     };
+
+    if in_airhouse {
+        // Registering gave the workspace its tenant when it could; the load
+        // provisions it if that did not happen.
+        let db = oxy::database::client::establish_connection()
+            .await
+            .map_err(|e| {
+                let msg = format!("Database connection failed: {e}");
+                error!("{}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, msg)
+            })?;
+        let importer = airhouse::import::TenantImporter::new(db);
+        if let Err(e) = super::airhouse::load_demo_dataset(&importer, workspace_id).await {
+            let msg = format!(
+                "The demo workspace was created, but its data could not be loaded into \
+                 Airhouse: {e}"
+            );
+            error!(%workspace_id, "{}", msg);
+            // Shown on the workspace, as a failed GitHub import is.
+            if let Err(status_err) = update_workspace_status(
+                workspace_id,
+                entity::workspaces::WorkspaceStatus::Failed,
+                Some(msg.clone()),
+            )
+            .await
+            {
+                error!(%workspace_id, "could not mark the demo workspace failed: {status_err}");
+            }
+            return Err((super::airhouse::import_status(&e), msg));
+        }
+    }
 
     Ok(Json(OnboardingResult {
         workspace_type: "demo".to_string(),
@@ -727,12 +771,18 @@ pub async fn reset_onboarding(
     Ok(Json(response))
 }
 
-/// POST /workspaces/{id}/onboarding/upload-warehouse-files — stream uploaded
-/// CSV/Parquet files into `<workspace_root>/<subdir>/` (default `.db/`).
+/// POST /workspaces/{id}/onboarding/upload-warehouse-files — take uploaded
+/// CSV/Parquet files as the workspace's data.
 ///
-/// Backs the DuckDB file-upload onboarding step. The onboarding client is
-/// expected to then submit a warehouse config with `file_search_path = subdir`,
-/// which the connector will scan for the just-uploaded files.
+/// On a cloud role each file is loaded into the workspace's Airhouse
+/// (`destination: airhouse`, see `super::airhouse::upload_into_airhouse`), and
+/// the client then registers `type: airhouse_managed`. That needs no working
+/// copy, so a serve pod answers it.
+///
+/// On `OXY_ROLE=all` the files are streamed into `<workspace_root>/<subdir>/`
+/// (default `.db/`, `destination: workspace_files`), and the client then
+/// submits a warehouse config with `file_search_path = subdir`, which the
+/// connector scans for the just-uploaded files.
 pub async fn upload_warehouse_files(
     // An upload exists only to feed the next step, `POST /databases` with
     // `dataset` pointed at it, which is `WorkspaceAdmin`: an Editor who could
@@ -744,6 +794,19 @@ pub async fn upload_warehouse_files(
     AuthenticatedUserExtractor(_user): AuthenticatedUserExtractor,
     mut multipart: axum::extract::Multipart,
 ) -> Result<(StatusCode, Json<UploadWarehouseFilesResponse>), (StatusCode, String)> {
+    if super::airhouse::data_in_airhouse(oxy_app_core::process_role::current_process_role()) {
+        let db = oxy::database::client::establish_connection()
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Database connection failed: {e}"),
+                )
+            })?;
+        let importer = airhouse::import::TenantImporter::new(db);
+        return super::airhouse::upload_into_airhouse(&importer, workspace_id, multipart).await;
+    }
+
     let workspace_root = workspace_manager
         .config_manager
         .workspace_file_resolver()
@@ -894,6 +957,8 @@ pub async fn upload_warehouse_files(
             subdir: resolved_subdir,
             files: files_out,
             skipped,
+            destination: UploadDestination::WorkspaceFiles,
+            tables: Vec::new(),
         }),
     ))
 }

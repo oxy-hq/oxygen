@@ -193,8 +193,14 @@ pub fn build_connector(cfg: ConnectorConfig) -> Result<Box<dyn DatabaseConnector
                 use crate::duckdb::DuckDbConnector;
                 use ::duckdb::Connection;
 
-                let conn = Connection::open(&c.url)
-                    .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
+                let conn = if c.read_only {
+                    ::duckdb::Config::default()
+                        .access_mode(::duckdb::AccessMode::ReadOnly)
+                        .and_then(|config| Connection::open_with_flags(&c.url, config))
+                } else {
+                    Connection::open(&c.url)
+                }
+                .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
                 Ok(Box::new(DuckDbConnector::new(conn)))
             }
             #[cfg(not(feature = "duckdb"))]
@@ -290,7 +296,12 @@ pub async fn build_connector_async(
 
         #[cfg(feature = "bigquery")]
         ConnectorConfig::BigQuery(c) => {
-            let conn = BigQueryConnector::new(&c.key_path, c.project_id, c.datasets).await?;
+            let conn = match c.key_json {
+                Some(key_json) => {
+                    BigQueryConnector::from_key_json(&key_json, c.project_id, c.datasets).await?
+                }
+                None => BigQueryConnector::new(&c.key_path, c.project_id, c.datasets).await?,
+            };
             Ok(Box::new(conn))
         }
 

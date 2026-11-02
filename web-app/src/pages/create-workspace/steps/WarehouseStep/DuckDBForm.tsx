@@ -12,6 +12,10 @@ export default function DuckDBForm({ index }: Props) {
 
   return (
     <div className='space-y-4'>
+      {/* Offered only in local mode (`libs/utils/cloudConnections`), and on its way out. */}
+      <p role='note' className='rounded-md border border-border bg-muted px-3 py-2 text-xs'>
+        File DuckDB is deprecated and will be removed. Use Airhouse instead (Settings → Airhouse).
+      </p>
       <div className='space-y-2'>
         <Label>File Search Path</Label>
         <Input

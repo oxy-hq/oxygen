@@ -16,6 +16,12 @@
 //! not depend on the automation crate, and the compiled definition is stored
 //! as the same JSON the file held.
 //!
+//! A compile for the cloud roles (`ide`, `serve`, `worker`; the gate says,
+//! [`crate::ConfigGate::compiles_for_cloud_roles`]) refuses the two writes,
+//! `export:` and `cache:`, always: there is no workspace directory there for
+//! them to write into. The Builder step, and both writes on a single-process
+//! compile (`OXY_ROLE=all`), follow the switch below.
+//!
 //! With [`REFUSE_RETIRED_STEPS_ENV`] set, a failed file fails the revision
 //! (it is recorded as a [`FailureKind::Validation`] failure), so the previous
 //! revision keeps serving. That is the point: the alternative is promoting a
@@ -53,6 +59,9 @@ pub(crate) struct RetiredFeature {
     pub task: Option<String>,
     /// Why it is refused, as one sentence for the author.
     pub reason: &'static str,
+    /// Whether the step writes into the workspace directory (`export:`,
+    /// `cache:`), which a cloud compile refuses whatever the switch says.
+    pub writes_workspace: bool,
 }
 
 impl RetiredFeature {
@@ -64,12 +73,13 @@ impl RetiredFeature {
     }
 }
 
-const EXPORT_REASON: &str = "`export:` writes into the workspace directory, which the platform no \
-     longer keeps. Remove it; to hand a result to another system use an `http_request` step, or \
-     keep the result in the warehouse with an `execute_sql` or `airway` step";
+const EXPORT_REASON: &str = "`export:` writes a file into the workspace directory, which the \
+     platform no longer keeps. Remove it; keep the result in the workspace's Airhouse with an \
+     `execute_sql` or `airway` step, or hand it to S3 or another system with an `http_request` step";
 
 const CACHE_REASON: &str = "`cache:` reads and writes a file in the workspace directory, which the \
-     platform no longer keeps. Remove it; a result worth keeping belongs in the warehouse";
+     platform no longer keeps. Remove it; a result worth keeping belongs in the workspace's \
+     Airhouse or in S3";
 
 const BUILDER_REASON: &str = "`agent_ref: __builder__` runs the file-editing Builder, which has no \
      working copy to edit once the IDE is gone. Remove the step; content is edited in the \
@@ -90,18 +100,40 @@ pub(crate) fn retired_features(automation: &Value) -> Vec<RetiredFeature> {
 }
 
 /// The failure message for a file, or `None` when it uses none of them.
+#[cfg(test)]
 pub(crate) fn failure_message(automation: &Value) -> Option<String> {
+    describe_all(retired_features(automation).iter())
+}
+
+fn describe_all<'a>(found: impl Iterator<Item = &'a RetiredFeature>) -> Option<String> {
+    let described: Vec<String> = found.map(RetiredFeature::describe).collect();
+    (!described.is_empty()).then(|| described.join("; "))
+}
+
+/// What a compile does with an automation's retired steps: the ones that fail
+/// it, and the ones it only warns about.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Verdict {
+    pub refused: Option<String>,
+    pub warned: Option<String>,
+}
+
+/// Split `automation`'s retired steps into refused and warned.
+/// `refuse_retired_steps` is [`REFUSE_RETIRED_STEPS_ENV`]; `refuse_workspace_writes`
+/// is a cloud compile, which refuses `export:` and `cache:` regardless.
+pub(crate) fn judge(
+    automation: &Value,
+    refuse_retired_steps: bool,
+    refuse_workspace_writes: bool,
+) -> Verdict {
     let found = retired_features(automation);
-    if found.is_empty() {
-        return None;
+    let refused = |f: &&RetiredFeature| {
+        refuse_retired_steps || (refuse_workspace_writes && f.writes_workspace)
+    };
+    Verdict {
+        refused: describe_all(found.iter().filter(refused)),
+        warned: describe_all(found.iter().filter(|f| !refused(f))),
     }
-    Some(
-        found
-            .iter()
-            .map(RetiredFeature::describe)
-            .collect::<Vec<_>>()
-            .join("; "),
-    )
 }
 
 fn walk_tasks(tasks: &Value, location: &str, found: &mut Vec<RetiredFeature>) {
@@ -114,25 +146,26 @@ fn walk_tasks(tasks: &Value, location: &str, found: &mut Vec<RetiredFeature>) {
             continue;
         };
         let name = map.get("name").and_then(Value::as_str).map(str::to_string);
-        let mut refuse = |reason: &'static str| {
+        let mut refuse = |reason: &'static str, writes_workspace: bool| {
             found.push(RetiredFeature {
                 location: here.clone(),
                 task: name.clone(),
                 reason,
+                writes_workspace,
             });
         };
         if map.get("export").is_some_and(|v| !v.is_null()) {
-            refuse(EXPORT_REASON);
+            refuse(EXPORT_REASON, true);
         }
         if map.get("cache").is_some_and(|v| !v.is_null()) {
-            refuse(CACHE_REASON);
+            refuse(CACHE_REASON, true);
         }
         if map
             .get("agent_ref")
             .and_then(Value::as_str)
             .is_some_and(|r| r.trim() == BUILDER_AGENT_REF)
         {
-            refuse(BUILDER_REASON);
+            refuse(BUILDER_REASON, false);
         }
 
         if let Some(nested) = map.get("tasks") {
@@ -213,6 +246,73 @@ tasks:
         );
         let msg = failure_message(&v).expect("refused");
         assert!(msg.contains("`cache:`"), "{msg}");
+    }
+
+    const EXPORT_CACHE_AND_BUILDER: &str = r#"
+tasks:
+  - name: dump
+    type: execute_sql
+    database: db
+    sql_query: select 1
+    export:
+      path: out/x.csv
+      format: csv
+  - name: gen
+    type: agent
+    agent_ref: agents/a.agentic.yml
+    prompt: x
+    cache:
+      path: out/x.sql
+  - name: edit
+    type: agent
+    agent_ref: __builder__
+    prompt: fix the file
+"#;
+
+    /// A cloud compile refuses the two writes whatever the switch says, naming
+    /// each step and pointing at Airhouse or S3; the Builder step still only
+    /// warns without the switch.
+    #[test]
+    fn a_cloud_compile_refuses_the_writes_regardless_of_the_switch() {
+        let v = yaml(EXPORT_CACHE_AND_BUILDER);
+        let verdict = judge(&v, false, true);
+        let refused = verdict.refused.expect("the writes are refused");
+        assert!(
+            refused.contains("step 'dump'") && refused.contains("`export:`"),
+            "{refused}"
+        );
+        assert!(
+            refused.contains("step 'gen'") && refused.contains("`cache:`"),
+            "{refused}"
+        );
+        assert!(
+            refused.contains("Airhouse") && refused.contains("S3"),
+            "{refused}"
+        );
+        assert!(!refused.contains("__builder__"), "{refused}");
+        let warned = verdict.warned.expect("the Builder step warns");
+        assert!(warned.contains("step 'edit'"), "{warned}");
+    }
+
+    /// A single-process compile (`oxy start`) is unchanged: everything warns
+    /// without the switch, and everything is refused with it.
+    #[test]
+    fn a_single_process_compile_follows_the_switch() {
+        let v = yaml(EXPORT_CACHE_AND_BUILDER);
+        let off = judge(&v, false, false);
+        assert_eq!(off.refused, None);
+        assert_eq!(off.warned, failure_message(&v));
+        let on = judge(&v, true, false);
+        assert_eq!(on.refused, failure_message(&v));
+        assert_eq!(on.warned, None);
+    }
+
+    #[test]
+    fn a_plain_automation_has_nothing_to_judge() {
+        let v = yaml(
+            "tasks:\n  - name: q\n    type: execute_sql\n    database: db\n    sql_query: select 1\n",
+        );
+        assert_eq!(judge(&v, true, true), Verdict::default());
     }
 
     #[test]

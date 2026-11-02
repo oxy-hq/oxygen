@@ -37,9 +37,9 @@ const Airhouse: React.FC = () => {
   // guest is always Owner server-side (and the provision endpoint enforces
   // that regardless), so treat local mode as always able to provision.
   const isLocal = authConfig?.mode === "local";
-  // With the apps-first experience on, setting Airhouse up is the Oxy team's work
-  // (the Factory's): an owner or admin who may not use the Factory reads the
-  // connection details and is told who sets it up.
+  // The server provisions a workspace's tenant itself; the prompt below is a
+  // manual retry. With the apps-first experience on, only a Factory user sees
+  // it: everyone else reads the connection details, or that it is on its way.
   const appsFirst = useAppsFirstExperience();
   const canProvision =
     isLocal ||
@@ -85,9 +85,8 @@ const Airhouse: React.FC = () => {
       if (!canProvision) {
         return (
           <p className='text-muted-foreground text-sm'>
-            {appsFirst
-              ? "Airhouse isn't set up yet. Your Oxy team sets it up."
-              : "Airhouse hasn't been provisioned for this workspace yet. Ask an Owner or Admin to complete setup."}
+            {/* The server provisions the tenant itself, so nobody has to be asked. */}
+            Airhouse isn't ready yet. It is set up automatically — check back in a few minutes.
           </p>
         );
       }

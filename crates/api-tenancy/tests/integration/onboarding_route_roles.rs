@@ -1,6 +1,8 @@
 //! Every route this crate mounts touches a working copy, so every one must be
-//! IdeOnly — asserted here rather than in `oxy-app`'s `global_route_roles.rs`,
-//! which is where these three used to live.
+//! IdeOnly — but one: `upload-warehouse-files` loads into the workspace's
+//! Airhouse on a cloud role and needs no checkout, so it is FleetOk. Asserted
+//! here rather than in `oxy-app`'s `global_route_roles.rs`, which is where the
+//! org-scoped three used to live.
 //!
 //! They moved because the routes did. `oxy-app` cannot depend on this crate
 //! (the dependency runs the other way), so its test harness builds a
@@ -63,10 +65,6 @@ fn every_workspace_scoped_route_reaches_the_ide() {
         ("GET", format!("/api/{WORKSPACE}/onboarding/github-setup")),
         ("POST", format!("/api/{WORKSPACE}/onboarding/reset")),
         ("POST", format!("/api/{WORKSPACE}/onboarding/test-llm-key")),
-        (
-            "POST",
-            format!("/api/{WORKSPACE}/onboarding/upload-warehouse-files"),
-        ),
     ] {
         assert_eq!(
             classify(method, &path),
@@ -74,6 +72,15 @@ fn every_workspace_scoped_route_reaches_the_ide() {
             "{method} {path} reads or writes the workspace working copy",
         );
     }
+}
+
+/// On a cloud role the upload loads into Airhouse and writes no checkout, so a
+/// serve pod answers it rather than proxying a 500 MiB body to the ide.
+#[test]
+fn the_warehouse_upload_is_served_by_the_fleet() {
+    install();
+    let path = format!("/api/{WORKSPACE}/onboarding/upload-warehouse-files");
+    assert_eq!(classify("POST", &path), RouteRole::FleetOk, "POST {path}");
 }
 
 /// The declaration list is the only thing naming these routes, so a route added
@@ -87,11 +94,15 @@ fn the_declaration_list_covers_every_mounted_route() {
         5,
         "workspace-scoped routes changed",
     );
-    assert!(
-        route_roles()
-            .iter()
-            .chain(workspace_route_roles())
-            .all(|d| d.role == RouteRole::IdeOnly),
-        "this crate mounts nothing a stateless replica can serve",
+    let fleet: Vec<&str> = route_roles()
+        .iter()
+        .chain(workspace_route_roles())
+        .filter(|d| d.role != RouteRole::IdeOnly)
+        .map(|d| d.path)
+        .collect();
+    assert_eq!(
+        fleet,
+        ["/onboarding/upload-warehouse-files"],
+        "this crate mounts nothing else a stateless replica can serve",
     );
 }

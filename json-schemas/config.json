@@ -161,6 +161,13 @@
               "format": "uint64",
               "minimum": 0.0
             },
+            "key_json_var": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "key_path": {
               "default": null,
               "type": [
@@ -267,6 +274,17 @@
               ],
               "properties": {
                 "private_key_path": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "private_key_var"
+              ],
+              "properties": {
+                "private_key_var": {
                   "type": "string"
                 }
               }

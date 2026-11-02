@@ -175,18 +175,50 @@ pub struct OnboardingResetResponse {
     pub warnings: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct SkippedUpload {
     pub name: String,
     pub reason: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct UploadWarehouseFilesResponse {
-    /// The resolved subdir, relative to the workspace root (e.g. ".db").
+    /// `workspace_files`: the resolved subdir, relative to the workspace root
+    /// (e.g. ".db"). `airhouse`: empty — nothing was written to the workspace.
     pub subdir: String,
-    /// Paths of files successfully written, relative to the workspace root.
+    /// `workspace_files`: paths of files written, relative to the workspace
+    /// root. `airhouse`: the names of the files loaded.
     pub files: Vec<String>,
     /// Files that were rejected (unsupported extension, oversize, etc.).
     pub skipped: Vec<SkippedUpload>,
+    /// Where the files went, and so which database the next step registers.
+    pub destination: UploadDestination,
+    /// `airhouse`: one entry per file loaded. `workspace_files`: empty.
+    pub tables: Vec<UploadedTable>,
+}
+
+/// Where `upload-warehouse-files` put the files.
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UploadDestination {
+    /// Written under `subdir` in the working copy (`OXY_ROLE=all`). The next
+    /// step registers `type: duckdb` with `file_search_path = subdir`.
+    WorkspaceFiles,
+    /// Loaded into the workspace's Airhouse (every cloud role). The next step
+    /// registers `type: airhouse_managed`.
+    Airhouse,
+}
+
+/// One uploaded file, as a table in the workspace's Airhouse.
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct UploadedTable {
+    /// The file name as uploaded (`orders.csv`).
+    pub file: String,
+    /// Where the rows are: `main` and the slugged stem (`orders`).
+    pub schema: String,
+    pub table: String,
+    /// Views over it under the names a file DuckDB gives the file:
+    /// `main.orders.csv` (the quoted identifier) and `orders.csv`.
+    pub aliases: Vec<String>,
+    pub rows: u64,
 }

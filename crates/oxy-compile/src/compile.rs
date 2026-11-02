@@ -181,6 +181,20 @@ pub struct CompiledReference {
 pub trait ConfigGate: Send + Sync {
     /// `Ok(())` to accept, `Err(message)` to reject (operator-facing reason).
     fn check(&self, cfg: &CompiledConfig) -> Result<(), String>;
+
+    /// Whether this compile is for the cloud roles (`ide`, `serve`, `worker`)
+    /// rather than a single process that serves from the directory it
+    /// compiled (`OXY_ROLE=all`). This crate cannot read the role, so the gate
+    /// says. On a cloud compile:
+    ///
+    /// - no file DuckDB is copied to S3: [`ConfigGate::check`] refuses file
+    ///   DuckDB there, so a copy would be uploaded for a revision that fails;
+    /// - automation steps that write into the workspace directory
+    ///   (`export:`, `cache:`) fail the compile, whatever
+    ///   `OXY_COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS` says.
+    fn compiles_for_cloud_roles(&self) -> bool {
+        false
+    }
 }
 
 /// Public inputs to a compile run.
@@ -446,7 +460,7 @@ struct CompileBatch {
 /// it into a structured per-file failure. The failure is recorded on the later
 /// file (discovery is sorted by `rel_path`) and its message names the file that
 /// declared the identifier first, so the operator sees both paths.
-async fn compile_files(files: &[DiscoveredFile]) -> CompileBatch {
+async fn compile_files(files: &[DiscoveredFile], refuse_workspace_writes: bool) -> CompileBatch {
     let mut batch = CompileBatch {
         rows: Vec::new(),
         failures: Vec::new(),
@@ -455,7 +469,7 @@ async fn compile_files(files: &[DiscoveredFile]) -> CompileBatch {
     let mut first_seen: HashMap<(FileKind, String), String> = HashMap::new();
 
     for file in files {
-        match compile_one(file).await {
+        match compile_one_with(file, refuse_workspace_writes).await {
             Ok(produced) => {
                 for row in produced {
                     if let Some(key) = row_dedupe_key(&row, &file.kind) {
@@ -494,18 +508,23 @@ async fn drive_compile(
 ) -> Result<CompileOutcome, CompileError> {
     let files = discover(workspace_path)?;
     debug!(file_count = files.len(), "files discovered");
+    let for_cloud_roles = config_gate.is_some_and(|gate| gate.compiles_for_cloud_roles());
 
     let CompileBatch {
         mut rows,
         mut failures,
         compiled,
-    } = compile_files(&files).await;
+    } = compile_files(&files, for_cloud_roles).await;
 
     // Mirror local-file DuckDB warehouses to S3 so the stateless fleet can
     // query them (no-op without OXY_COMPILE_BLOB_S3_BUCKET). Only on an
     // otherwise-clean revision — a Failed revision won't be promoted, so
-    // there's nothing to serve and no point uploading its data.
+    // there's nothing to serve and no point uploading its data. Never on a
+    // cloud compile: the gate refuses file DuckDB there, so no new copy is
+    // written; the copies already in S3 keep serving the revisions compiled
+    // before that refusal.
     if failures.is_empty()
+        && !for_cloud_roles
         && let Some(CompiledRow::Config(cfg)) = rows
             .iter_mut()
             .find(|r| matches!(r, CompiledRow::Config(_)))
@@ -655,9 +674,19 @@ async fn stored_schema_migration_count(
     Ok(n as u32)
 }
 
-/// Per-file compile. Returns one or more rows on success, a structured
-/// failure on parse / shape errors.
+/// [`compile_one_with`] for a single-process compile.
+#[cfg(test)]
 async fn compile_one(file: &DiscoveredFile) -> Result<Vec<CompiledRow>, FileFailure> {
+    compile_one_with(file, false).await
+}
+
+/// Per-file compile. Returns one or more rows on success, a structured
+/// failure on parse / shape errors. `refuse_workspace_writes` is
+/// [`ConfigGate::compiles_for_cloud_roles`].
+async fn compile_one_with(
+    file: &DiscoveredFile,
+    refuse_workspace_writes: bool,
+) -> Result<Vec<CompiledRow>, FileFailure> {
     let bytes = tokio::fs::read(&file.abs_path)
         .await
         .map_err(|e| FileFailure {
@@ -695,6 +724,7 @@ async fn compile_one(file: &DiscoveredFile) -> Result<Vec<CompiledRow>, FileFail
             &content,
             p,
             crate::automation_check::refusal_enabled(),
+            refuse_workspace_writes,
         ),
         FileKind::AirwayPipeline => compile_named_yaml(file, &content, |name, file_path, def| {
             CompiledRow::Pipeline(CompiledPipeline {
@@ -1249,19 +1279,24 @@ fn compile_automation(
     content: &str,
     automation_kind: AutomationKind,
     refuse_retired_steps: bool,
+    refuse_workspace_writes: bool,
 ) -> Result<Vec<CompiledRow>, FileFailure> {
     let value = parse_yaml(file, content)?;
     // Refused here, not at run time: a step that writes into the workspace
     // directory, or edits it, only ever worked on the one process that held a
-    // working copy. Off, it only warns. See `automation_check`.
-    if let Some(message) = crate::automation_check::failure_message(&value) {
-        if refuse_retired_steps {
-            return Err(FileFailure {
-                path: file.rel_path.clone(),
-                kind: FailureKind::Validation,
-                message,
-            });
-        }
+    // working copy. A cloud compile refuses the writes (`export:`, `cache:`)
+    // always; everything else only with the env switch, and otherwise warns.
+    // See `automation_check`.
+    let verdict =
+        crate::automation_check::judge(&value, refuse_retired_steps, refuse_workspace_writes);
+    if let Some(message) = verdict.refused {
+        return Err(FileFailure {
+            path: file.rel_path.clone(),
+            kind: FailureKind::Validation,
+            message,
+        });
+    }
+    if let Some(message) = verdict.warned {
         warn!(
             path = %file.rel_path,
             %message,
@@ -1632,7 +1667,7 @@ mod tests {
         let root = dir.path();
         write(root, "agents/a.agentic.yml", "name: foo\n");
         write(root, "agents/b.agentic.yml", "name: foo\n");
-        let batch = compile_files(&discover(root).unwrap()).await;
+        let batch = compile_files(&discover(root).unwrap(), false).await;
         assert_eq!(batch.failures.len(), 1, "{:?}", batch.failures);
         let f = &batch.failures[0];
         assert!(
@@ -1760,12 +1795,12 @@ mod tests {
             let FileKind::Automation(kind) = file.kind else {
                 unreachable!()
             };
-            let err = compile_automation(file, body, kind, true).unwrap_err();
+            let err = compile_automation(file, body, kind, true, false).unwrap_err();
             assert!(matches!(err.kind, FailureKind::Validation), "{rel}");
             assert_eq!(err.path, rel);
             assert!(err.message.contains(expect), "{rel}: {}", err.message);
 
-            let rows = compile_automation(file, body, kind, false)
+            let rows = compile_automation(file, body, kind, false, false)
                 .unwrap_or_else(|e| panic!("{rel} with the refusal off: {}", e.message));
             assert!(matches!(rows[..], [CompiledRow::Automation(_)]), "{rel}");
         }

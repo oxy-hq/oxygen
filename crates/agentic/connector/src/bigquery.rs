@@ -143,7 +143,29 @@ impl BigQueryConnector {
         let client = Client::from_service_account_key_file(key_path)
             .await
             .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
+        Ok(Self::with_client(client, project_id, datasets).await)
+    }
 
+    /// [`BigQueryConnector::new`] from the service-account key JSON itself (a
+    /// `key_json_var` secret) instead of a key file: nothing is written to disk.
+    pub async fn from_key_json(
+        key_json: &str,
+        project_id: String,
+        datasets: Vec<String>,
+    ) -> Result<Self, ConnectorError> {
+        let sa_key =
+            gcp_bigquery_client::yup_oauth2::parse_service_account_key(key_json).map_err(|e| {
+                ConnectorError::ConnectionError(format!(
+                    "the BigQuery service-account key is not valid key JSON: {e}"
+                ))
+            })?;
+        let client = Client::from_service_account_key(sa_key, false)
+            .await
+            .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
+        Ok(Self::with_client(client, project_id, datasets).await)
+    }
+
+    async fn with_client(client: Client, project_id: String, datasets: Vec<String>) -> Self {
         let (cached_schema, schema_error) =
             match fetch_schema(&client, &project_id, &datasets).await {
                 Ok(schema) => (schema, None),
@@ -155,13 +177,13 @@ impl BigQueryConnector {
                 }
             };
 
-        Ok(Self {
+        Self {
             client,
             project_id,
             cached_schema,
             schema_error,
             result_cap: ResultCap::default(),
-        })
+        }
     }
 
     /// Override the [`ResultCap`] memory backstop. Primarily for tests.

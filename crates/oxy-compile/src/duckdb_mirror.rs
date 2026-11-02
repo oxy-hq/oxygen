@@ -9,6 +9,13 @@
 //! when it sees that block. Local/IDE reads come from `config.yml` (no
 //! `s3_mirror`), so they're unaffected.
 //!
+//! **No longer runs on a cloud compile** (2026-10-29): file DuckDB is
+//! deprecated and the config gate refuses it on the `ide`, `serve` and
+//! `worker` roles ([`crate::ConfigGate::compiles_for_cloud_roles`]), so this
+//! writes no new copy there. The copies already in S3 keep serving the
+//! revisions compiled before that until those workspaces move to Airhouse;
+//! the read side (`build_s3_mirror_sql`) goes with them, and this module too.
+//!
 //! Gated on `OXY_COMPILE_BLOB_S3_BUCKET`; a no-op without it. Credentials are
 //! the pod's instance role (S3 `credential_chain`), so nothing sensitive is
 //! stored. **Interim bridge** — isolated in this one module so it can be

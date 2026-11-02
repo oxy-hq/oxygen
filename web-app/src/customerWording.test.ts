@@ -175,11 +175,6 @@ const FLAG_OFF_OR_FACTORY_TEXT: readonly { file: string; text: string; why: stri
     why: "Rendered only where canProvision: with the flag on, a Factory user."
   },
   {
-    file: "components/settings/SettingsDialog/sections/workspace/Airhouse/index.tsx",
-    text: "provisioned for this workspace",
-    why: "The flag-off wording; with the flag on it says the Oxy team sets Airhouse up."
-  },
-  {
     file: "components/IdeUnavailableBanner/index.tsx",
     text: "File editing, Git, and live app runs are paused",
     why: "The Factory wording: flag off, or a Factory user. Otherwise it says live data is paused."

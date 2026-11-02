@@ -21,9 +21,16 @@
 //!   Requires `admin`.
 //! - **`sql-rules`** feature — what SQL a custom app may send to its own
 //!   schema (`sql_rules`).
+//! - **`import`** feature — implies `admin` and `connector`. Loads a CSV or
+//!   Parquet file into a table in a workspace's tenant (`import`), reading it
+//!   with DuckDB in this process.
 //! - **`preview-sql`** feature — implies `sql-rules`. The AST rewrite and the
 //!   independent verifier that keep a workspace preview's Airhouse writes in
 //!   `preview_<key>__<schema>` (`preview_sql`).
+
+// `TenantImporter::import` awaits the provisioner and the broker inside one
+// `async_trait` future, whose layout exceeds the default query depth.
+#![recursion_limit = "256"]
 
 #[cfg(feature = "connector")]
 pub mod connector;
@@ -79,6 +86,14 @@ pub mod provisioner;
 #[cfg(feature = "admin")]
 pub mod post_provision;
 
+/// Give a workspace its tenant when it has none (idempotent).
+#[cfg(feature = "admin")]
+pub mod ensure_tenant;
+
+/// Load a CSV or Parquet file into a table in a workspace's tenant.
+#[cfg(feature = "import")]
+pub mod import;
+
 #[cfg(feature = "rest")]
 pub mod api;
 
@@ -114,4 +129,9 @@ pub use post_provision::{HookError, PostProvisionHook, register_post_provision_h
 pub use local_seed::ensure_local_org_seeded;
 
 #[cfg(feature = "admin")]
-pub use provisioner::{ProvisionerError, RotatedServiceAccount, TenantProvisioner};
+pub use provisioner::{
+    ProvisionerError, RotatedServiceAccount, TenantProvisioner, tenant_name_for_workspace,
+};
+
+#[cfg(feature = "admin")]
+pub use ensure_tenant::{EnsureTenantError, EnsuredTenant, ensure_tenant};

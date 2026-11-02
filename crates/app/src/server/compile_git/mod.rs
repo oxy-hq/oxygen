@@ -93,6 +93,13 @@ pub enum CompileGitError {
          fetched tree is gone"
     )]
     DuckDbMirrorUnconfigured { database: String },
+    #[error(
+        "DuckDB database {database:?} is a file database (`dataset:` or `path:`), which a cloud \
+         deployment no longer supports: its data is files in the repository. Move the data to \
+         the workspace's Airhouse and declare the database as `type: airhouse_managed` under \
+         the same name"
+    )]
+    DuckDbFileDatabase { database: String },
     #[error("database error: {0}")]
     Database(String),
     #[error("could not prepare a directory for the fetched commit: {0}")]
@@ -132,6 +139,7 @@ impl CompileGitError {
             Self::DuckDbDataMissing { .. } => "duckdb_data_missing",
             Self::DuckDbPathOutsideTree { .. } => "duckdb_path_outside_tree",
             Self::DuckDbMirrorUnconfigured { .. } => "duckdb_mirror_unconfigured",
+            Self::DuckDbFileDatabase { .. } => "duckdb_file_database",
             Self::Database(_) => "database",
         }
     }
@@ -315,7 +323,12 @@ pub async fn fetch(source: &CommitSource) -> Result<FetchedTree, CompileGitError
     let tree = dir.path().join("tree");
     let unpacked = unpack_blocking(dir.clone(), archive, tree.clone()).await?;
     let workspace_path = workspace_root_in(&tree, source.repo_subdir.as_deref())?;
-    preflight::check(&workspace_path, oxy_compile::blob_store::bucket().is_some())?;
+    preflight::check(
+        &workspace_path,
+        crate::server::role_manifest::current_process_role()
+            != crate::server::role_manifest::Role::All,
+        oxy_compile::blob_store::bucket().is_some(),
+    )?;
     Ok(FetchedTree {
         workspace_path,
         unpacked,

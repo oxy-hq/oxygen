@@ -5,8 +5,11 @@
 //! - [`dto`]: request/response serde types shared across handlers.
 //! - [`ops`]: internal database, filesystem, and multipart helpers plus the
 //!   upload size constants.
+//! - [`airhouse`]: on a cloud role, uploads and the demo dataset load into
+//!   the workspace's Airhouse instead of its checkout.
 //! - [`handlers`]: the HTTP handler functions themselves.
 
+mod airhouse;
 mod dto;
 mod handlers;
 mod ops;
@@ -51,12 +54,16 @@ pub use ops::MAX_UPLOAD_BODY_BYTES;
 /// `router_roles()`. Paths are absolute: both seams MERGE this crate rather than
 /// nesting it, so there is no prefix to join against.
 ///
-/// All IdeOnly, and none of it is a judgement call. `demo`/`new`/`github` clone
-/// a repository and scaffold `config.yml` through raw `std::fs` and git; reset
-/// rewrites that checkout; the readiness and key checks read it; and uploads
-/// write warehouse files into it. Not one of them can be answered by a replica
-/// with no working copy, and the failure would be silent — a clone into a
-/// directory the process does not own.
+/// IdeOnly, all but one, and none of it is a judgement call. `demo`/`new`/
+/// `github` clone a repository and scaffold `config.yml` through raw `std::fs`
+/// and git; reset rewrites that checkout; the readiness and key checks read it.
+/// None of them can be answered by a replica with no working copy, and the
+/// failure would be silent — a clone into a directory the process does not own.
+///
+/// The exception is `upload-warehouse-files`: on a cloud role it loads the
+/// files into the workspace's Airhouse and writes nothing to a checkout, so a
+/// serve pod answers it (FleetOk). It writes into the working copy only on
+/// `OXY_ROLE=all`, which serves every route itself.
 pub fn route_roles() -> &'static [RouteRoleDecl] {
     const IDE: RouteRole = RouteRole::IdeOnly;
     &[
@@ -82,6 +89,7 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
 /// are relative to that nest, which is where the seam merges them.
 pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
     const IDE: RouteRole = RouteRole::IdeOnly;
+    const FLEET: RouteRole = RouteRole::FleetOk;
     &[
         RouteRoleDecl {
             method: "GET",
@@ -106,7 +114,7 @@ pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
         RouteRoleDecl {
             method: "POST",
             path: "/onboarding/upload-warehouse-files",
-            role: IDE,
+            role: FLEET,
         },
     ]
 }

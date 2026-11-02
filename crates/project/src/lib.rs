@@ -18,5 +18,6 @@ pub use database_config::DatabaseConfigBuilder;
 pub use database_operations::{DatabaseOperations, ValidationUtils};
 pub use model_config::ModelConfigBuilder;
 pub use workspace_creator::{
-    DemoCopyResult, copy_demo_files_to, copy_demo_files_to_with_skip, write_minimal_config_yml,
+    DemoCopyResult, copy_airhouse_demo_files_to, copy_demo_files_to, copy_demo_files_to_with_skip,
+    demo_dataset_files, write_minimal_config_yml,
 };

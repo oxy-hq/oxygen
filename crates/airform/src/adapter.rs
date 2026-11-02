@@ -14,8 +14,8 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use oxy::adapters::secrets::SecretsManager;
 use oxy::config::ConfigManager;
 use oxy::config::model::{
-    BigQuery, ClickHouse, Database, DatabaseType, DuckDB, DuckDBOptions, MotherDuck, Mysql,
-    Postgres, Redshift, Snowflake,
+    BigQuery, BigQueryKey, ClickHouse, Database, DatabaseType, DuckDB, DuckDBOptions, MotherDuck,
+    Mysql, Postgres, Redshift, Snowflake,
 };
 use oxy::connector::checkout_file_connection;
 
@@ -40,6 +40,7 @@ pub async fn build_adapter_from_db(
             Ok(Box::new(BigQueryAdapter::from_target(&target)?))
         }
         DatabaseType::DuckDB(duckdb) => {
+            refuse_file_duckdb_target(&db.name, duckdb, oxy::file_duckdb_limits::limits_apply())?;
             let target = duckdb_to_dbt_target(duckdb, config_manager, target_schema).await?;
             // For file-backed DuckDB, reuse the process-wide pool connection
             // rather than opening a fresh `duckdb_database` handle. Two
@@ -90,6 +91,28 @@ pub async fn build_adapter_from_db(
             db.database_type_name()
         ),
     }
+}
+
+/// Refuse, on a cloud role (`limits_apply`), an Airform target that is a file
+/// DuckDB (`dataset:` / `path:`): there it is a read-only fallback, and the
+/// models would land in a file no other node reads. The compile refuses the
+/// mapping too (`compile_config_gate.rs`); this covers a run that reaches the
+/// adapter anyway. The single-process role writes into it, as it always has.
+fn refuse_file_duckdb_target(
+    database: &str,
+    duckdb: &DuckDB,
+    limits_apply: bool,
+) -> anyhow::Result<()> {
+    let is_file = matches!(
+        duckdb.options,
+        DuckDBOptions::Local { .. } | DuckDBOptions::File { .. }
+    );
+    if limits_apply && is_file {
+        return Err(anyhow::anyhow!(
+            oxy::file_duckdb_limits::write_refused_error(database, "an Airform run").to_string()
+        ));
+    }
+    Ok(())
 }
 
 /// Full lookup chain: profile target → oxy.yml mapping → Oxy database → adapter.
@@ -182,15 +205,22 @@ async fn bigquery_to_dbt_target(
     secrets_manager: &SecretsManager,
     target_schema: &str,
 ) -> anyhow::Result<DbtTarget> {
-    let key_path = bq
-        .get_key_path(secrets_manager)
+    let key = bq
+        .get_key(secrets_manager)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to resolve BigQuery key path: {e}"))?;
-
-    let key_json = std::fs::read_to_string(&key_path)
-        .map_err(|e| anyhow::anyhow!("Failed to read BigQuery key file '{key_path}': {e}"))?;
+        .map_err(|e| anyhow::anyhow!("Failed to resolve BigQuery key: {e}"))?;
+    let (key_json, source) = match key {
+        // The key's contents, from the secret store (`key_json_var`).
+        BigQueryKey::Json(json) => (json, "the key_json_var secret".to_string()),
+        BigQueryKey::Path(key_path) => (
+            std::fs::read_to_string(&key_path).map_err(|e| {
+                anyhow::anyhow!("Failed to read BigQuery key file '{key_path}': {e}")
+            })?,
+            format!("key file '{key_path}'"),
+        ),
+    };
     let key_value: serde_json::Value = serde_json::from_str(&key_json)
-        .map_err(|e| anyhow::anyhow!("Failed to parse BigQuery key file '{key_path}': {e}"))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse BigQuery key from {source}: {e}"))?;
     let project_id = key_value["project_id"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("BigQuery key file missing 'project_id'"))?
@@ -609,6 +639,7 @@ mod tests {
         let bq = BigQuery {
             key_path: Some(f.path().to_path_buf()),
             key_path_var: None,
+            key_json_var: None,
             dataset: Some("my_dataset".to_string()),
             datasets: Default::default(),
             dry_run_limit: None,
@@ -620,6 +651,34 @@ mod tests {
         assert_eq!(target.adapter_type, "bigquery");
         assert_eq!(target.database.as_deref(), Some("my-gcp-project"));
         assert_eq!(target.schema.as_deref(), Some("dbt_dev"));
+    }
+
+    /// On a cloud role a file DuckDB target is refused by name; on the
+    /// single-process role (`oxy start`) Airform still writes into it.
+    #[test]
+    fn a_file_duckdb_target_is_refused_only_on_a_cloud_role() {
+        let file = DuckDB {
+            options: DuckDBOptions::File {
+                path: "models.duckdb".to_string(),
+            },
+            s3_mirror: None,
+        };
+        let local = DuckDB {
+            options: DuckDBOptions::Local {
+                file_search_path: ".db".to_string(),
+            },
+            s3_mirror: None,
+        };
+        for duckdb in [&file, &local] {
+            let err = refuse_file_duckdb_target("warehouse", duckdb, true)
+                .expect_err("refused on a cloud role")
+                .to_string();
+            assert!(
+                err.contains("`warehouse`") && err.contains("Airhouse"),
+                "{err}"
+            );
+            assert!(refuse_file_duckdb_target("warehouse", duckdb, false).is_ok());
+        }
     }
 
     #[tokio::test]
@@ -1006,6 +1065,7 @@ mod tests {
             database_type: DatabaseType::Bigquery(BigQuery {
                 key_path: Some(key_file.path().to_path_buf()),
                 key_path_var: None,
+                key_json_var: None,
                 dataset: Some("dbt_dev".to_string()),
                 datasets: Default::default(),
                 dry_run_limit: None,

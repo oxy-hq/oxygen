@@ -57,6 +57,9 @@ admin = [
 ]
 # Axum HTTP handlers for `/airhouse/me/*`. Always implies `admin`.
 rest = ["admin", "dep:axum"]
+# Load a CSV or Parquet file into a table in a workspace's tenant (`import`):
+# DuckDB reads the file in-process, the rows go over the pgwire connection.
+import = ["admin", "connector", "dep:duckdb", "dep:slugify"]
 # The SQL a custom app may send to its own Airhouse schema (`sql_rules`).
 sql-rules = ["dep:sqlparser", "dep:thiserror"]
 # The rewrite and verifier that keep a workspace preview's Airhouse writes in
@@ -88,6 +91,10 @@ thiserror = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 
+# import feature deps
+duckdb = { workspace = true, optional = true }
+slugify = { workspace = true, optional = true }
+
 # REST feature deps
 axum = { workspace = true, optional = true }
 
@@ -110,8 +117,10 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 wiremock = { workspace = true }
-# In-process stand-in for Airhouse in `tests/integration/preview_sql_duckdb.rs`.
+# In-process stand-in for Airhouse in `tests/integration/preview_sql_duckdb.rs`
+# and `src/import_tests.rs`.
 duckdb = { workspace = true }
+tempfile = { workspace = true }
 
 [[test]]
 name = "integration"

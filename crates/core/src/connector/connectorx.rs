@@ -21,11 +21,26 @@ use super::{
 mod bigquery;
 mod bigquery_transport;
 
-#[derive(Debug)]
 pub(super) struct ConnectorX {
     dialect: String,
     db_path: String,
     dry_run_limit: Option<u64>,
+    /// BigQuery only: the service-account key JSON, when it came from the
+    /// secret store (`key_json_var`). Set, it is used instead of reading a key
+    /// file at `db_path`.
+    bigquery_key_json: Option<Arc<str>>,
+}
+
+impl std::fmt::Debug for ConnectorX {
+    // By hand: `db_path` is a path for BigQuery but `user:password@host` for
+    // the Postgres-wire dialects, and the key JSON is a credential.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectorX")
+            .field("dialect", &self.dialect)
+            .field("dry_run_limit", &self.dry_run_limit)
+            .field("bigquery_key_json", &self.bigquery_key_json.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ConnectorX {
@@ -34,6 +49,31 @@ impl ConnectorX {
             dialect,
             db_path,
             dry_run_limit,
+            bigquery_key_json: None,
+        }
+    }
+
+    /// Authenticate BigQuery with the key's contents rather than a key file.
+    pub fn with_bigquery_key_json(mut self, key_json: String) -> Self {
+        self.bigquery_key_json = Some(Arc::from(key_json));
+        self
+    }
+
+    /// The BigQuery source for one query: from the key JSON when there is
+    /// one, else from the key file named in the connection string.
+    fn bigquery_source(
+        &self,
+        rt: Arc<tokio::runtime::Runtime>,
+        dry_run_limit: Option<u64>,
+    ) -> impl FnOnce() -> Result<BigQuerySource, OxyError> + Send + 'static {
+        let conn_string = format!("{}://{}", self.dialect, self.db_path);
+        let key_json = self.bigquery_key_json.clone();
+        move || {
+            match key_json {
+                Some(json) => BigQuerySource::from_key_json(rt, &json, dry_run_limit),
+                None => BigQuerySource::new(rt, &conn_string, dry_run_limit),
+            }
+            .map_err(|err| connector_internal_error(CREATE_CONN, &err))
         }
     }
 }
@@ -42,16 +82,15 @@ impl Engine for ConnectorX {
     async fn dry_run(&self, query: &str) -> Result<(Vec<RecordBatch>, SchemaRef), OxyError> {
         match self.dialect.as_str() {
             BIGQUERY_DIALECT => {
-                let conn_string = format!("{}://{}", self.dialect, self.db_path);
                 let rt =
                     Arc::new(tokio::runtime::Runtime::new().map_err(|err| {
                         connector_internal_error(FAILED_TO_RUN_BLOCKING_TASK, &err)
                     })?);
                 let query = query.to_string();
+                let source = self.bigquery_source(rt, None);
 
                 tokio::task::spawn_blocking(move || {
-                    let mut source = BigQuerySource::new(rt, &conn_string, None)
-                        .map_err(|err| connector_internal_error(CREATE_CONN, &err))?;
+                    let mut source = source()?;
                     source
                         .dry_run(&query)
                         .map_err(|err| connector_internal_error(EXECUTE_QUERY, &err))
@@ -90,15 +129,22 @@ impl Engine for ConnectorX {
         let conn_string = format!("{}://{}", self.dialect, self.db_path);
         let query = query.to_string();
         let dialect = self.dialect.clone();
+        // Prepared here because it borrows `self`; it is built on the blocking
+        // thread like the rest.
+        let bigquery_source = if dialect == BIGQUERY_DIALECT {
+            let rt = Arc::new(
+                tokio::runtime::Runtime::new()
+                    .map_err(|err| connector_internal_error(FAILED_TO_RUN_BLOCKING_TASK, &err))?,
+            );
+            Some(self.bigquery_source(rt, dry_run_limit))
+        } else {
+            None
+        };
         let result = tokio::task::spawn_blocking(move || {
             let destination = match dialect.as_str() {
                 BIGQUERY_DIALECT => {
                     let mut destination = ArrowDestination::new();
-                    let rt = Arc::new(tokio::runtime::Runtime::new().map_err(|err| {
-                        connector_internal_error(FAILED_TO_RUN_BLOCKING_TASK, &err)
-                    })?);
-                    let source = BigQuerySource::new(rt, &conn_string, dry_run_limit)
-                        .map_err(|err| connector_internal_error(CREATE_CONN, &err))?;
+                    let source = bigquery_source.expect("built for the bigquery dialect")()?;
                     let queries = &[query.as_str()];
                     let dispatcher = Dispatcher::<_, _, BigQueryArrowTransport>::new(
                         source,

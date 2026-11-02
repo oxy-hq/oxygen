@@ -210,6 +210,11 @@ pub enum SystemPurpose {
     /// (`oxy_custom_apps::usage_reads`). Always a Reader, and its own audit
     /// segment so a person opening the tab never reads as the drain's writes.
     UsageRead,
+    /// Loading an uploaded CSV or Parquet file, or the demo dataset, into a
+    /// table (`crate::import`). An Admin: DuckLake refuses `CREATE TABLE` to
+    /// a Writer. Its own audit segment, so an onboarding upload never reads
+    /// as an app's or a pipeline's writes.
+    FileImport,
 }
 
 impl SystemPurpose {
@@ -224,6 +229,7 @@ impl SystemPurpose {
             SystemPurpose::PreviewDdl => "preview-ddl",
             SystemPurpose::UsageIngest => "custom-app-usage",
             SystemPurpose::UsageRead => "custom-app-usage-read",
+            SystemPurpose::FileImport => "file-import",
         }
     }
 }

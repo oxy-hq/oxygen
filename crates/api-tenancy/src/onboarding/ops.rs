@@ -59,9 +59,9 @@ pub(super) async fn unique_display_name(
         .map_err(Into::into)
 }
 
-/// Register the workspace in the DB and seed its health schedule. Returns the
-/// workspace's UUID. Does NOT activate the workspace. `repository` is `None`
-/// for a workspace with no git remote.
+/// Register the workspace in the DB, seed its health schedule and (cloud roles)
+/// give it its Airhouse tenant. Returns the workspace's UUID. Does NOT activate
+/// the workspace. `repository` is `None` for a workspace with no git remote.
 pub(super) async fn register_project(
     project_dir: &std::path::Path,
     name: &str,
@@ -82,6 +82,7 @@ pub(super) async fn register_project(
     let registered = provisioning::register_workspace(&db, project_dir, workspace_id, row).await?;
     if registered.created {
         provisioning::seed_health_schedule(registered.id).await;
+        provisioning::provision_airhouse_tenant(registered.id).await;
     }
     Ok(registered.id)
 }

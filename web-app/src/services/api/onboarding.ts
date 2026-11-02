@@ -76,6 +76,12 @@ export interface UploadWarehouseFilesResponse {
   files: string[];
   /** Files that were rejected (unsupported extension, hidden name, etc.). */
   skipped: { name: string; reason: string }[];
+  /**
+   * Where the server put the data: loaded into the workspace's Airhouse (a
+   * cloud role), or written into the workspace's files (`OXY_ROLE=all`). The
+   * database registered for the upload follows this, not the auth mode.
+   */
+  destination?: "airhouse" | "workspace_files";
 }
 
 export class OnboardingService {

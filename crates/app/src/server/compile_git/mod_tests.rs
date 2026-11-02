@@ -193,6 +193,12 @@ fn every_failure_a_person_has_to_fix_is_not_retryable() {
             },
             "duckdb_path_outside_tree",
         ),
+        (
+            CompileGitError::DuckDbFileDatabase {
+                database: "sales".into(),
+            },
+            "duckdb_file_database",
+        ),
     ];
     for (error, code) in needs_a_person {
         assert_eq!(error.code(), code);

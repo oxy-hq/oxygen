@@ -14,8 +14,10 @@ import {
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import { Spinner } from "@/components/ui/shadcn/spinner";
+import { useAuth } from "@/contexts/AuthContext";
 import { useCreateDatabaseConfig } from "@/hooks/api/databases/useCreateDatabaseConfig";
 import { useTestDatabaseConnection } from "@/hooks/api/databases/useTestDatabaseConnection";
+import { offeredDatabaseTypes } from "@/libs/utils/cloudConnections";
 import { cn } from "@/libs/utils/cn";
 import BigQueryForm from "@/pages/create-workspace/steps/WarehouseStep/BigQueryForm";
 import ClickHouseForm from "@/pages/create-workspace/steps/WarehouseStep/ClickHouseForm";
@@ -32,6 +34,9 @@ interface WarehouseOption {
   label: string;
   icon?: React.ReactNode;
 }
+
+/** File DuckDB: local mode only, and deprecated there — Airhouse replaces it. */
+const DEPRECATED_TYPES: ReadonlySet<DatabaseConfigType> = new Set(["duckdb"]);
 
 const warehouseOptions: WarehouseOption[] = [
   {
@@ -77,6 +82,10 @@ interface AddDatabaseFormProps {
 }
 
 export function AddDatabaseForm({ onSuccess, onCancel }: AddDatabaseFormProps) {
+  // A cloud deployment offers no connection that resolves against a disk: no
+  // file DuckDB, and key fields that name a secret rather than a file.
+  const { isLocalMode } = useAuth();
+  const options = offeredDatabaseTypes(warehouseOptions, isLocalMode);
   const createMutation = useCreateDatabaseConfig();
   const testConnection = useTestDatabaseConnection();
 
@@ -163,11 +172,11 @@ export function AddDatabaseForm({ onSuccess, onCancel }: AddDatabaseFormProps) {
   const renderWarehouseForm = (index: number, warehouseType: DatabaseConfigType) => {
     switch (warehouseType) {
       case "bigquery":
-        return <BigQueryForm index={index} />;
+        return <BigQueryForm index={index} cloud={!isLocalMode} />;
       case "duckdb":
         return <DuckDBForm index={index} />;
       case "snowflake":
-        return <SnowflakeForm index={index} />;
+        return <SnowflakeForm index={index} cloud={!isLocalMode} />;
       case "postgres":
         return <PostgresForm index={index} />;
       case "redshift":
@@ -238,12 +247,22 @@ export function AddDatabaseForm({ onSuccess, onCancel }: AddDatabaseFormProps) {
                   </div>
 
                   <div className='flex flex-wrap gap-4'>
-                    {warehouseOptions.map((option) => (
+                    {options.map((option) => (
                       <Button
                         key={option.type}
                         type='button'
                         variant='outline'
                         size='icon'
+                        aria-label={
+                          DEPRECATED_TYPES.has(option.type)
+                            ? `${option.label} (deprecated)`
+                            : option.label
+                        }
+                        title={
+                          DEPRECATED_TYPES.has(option.type)
+                            ? `${option.label} (deprecated)`
+                            : option.label
+                        }
                         onClick={() => handleTypeChange(index, option.type)}
                         className={cn(
                           "px-8 py-4",

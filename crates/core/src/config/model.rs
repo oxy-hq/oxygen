@@ -1029,12 +1029,27 @@ pub struct Defaults {
 #[derive(Serialize, Deserialize, Debug, Validate, Clone, JsonSchema)]
 #[garde(context(ValidationContext))]
 pub struct BigQuery {
+    // Plain comments, not doc comments, on these three: a doc comment becomes
+    // a `description` in the committed json-schemas/config.json.
+    //
+    // `key_path`: a service-account key file in the workspace. Read only where
+    // the process holds the checkout (`OXY_ROLE=all`); the cloud compile warns
+    // about it. Use `key_json_var` instead.
     #[garde(skip)]
     #[serde(default)]
     pub key_path: Option<PathBuf>,
+    // `key_path_var` (deprecated): the name of a secret whose value is a *path*
+    // to a key file, so it reads a file just as `key_path` does.
     #[garde(skip)]
     #[serde(default)]
     pub key_path_var: Option<String>,
+    // `key_json_var`: the name of a secret whose value is the service-account
+    // key JSON itself. Resolved like every `*_var` (the workspace's encrypted
+    // secret store first, then the process environment). Takes precedence over
+    // `key_path` and `key_path_var`.
+    #[garde(skip)]
+    #[serde(default)]
+    pub key_json_var: Option<String>,
     #[garde(length(min = 1))]
     pub dataset: Option<String>,
     #[serde(default)]
@@ -1044,7 +1059,57 @@ pub struct BigQuery {
     pub dry_run_limit: Option<u64>,
 }
 
+/// Where a BigQuery service-account key comes from.
+#[derive(Clone, PartialEq, Eq)]
+pub enum BigQueryKey {
+    /// A path to a key file (`key_path`, or the value of `key_path_var`).
+    Path(String),
+    /// The key JSON itself (the value of `key_json_var`).
+    Json(String),
+}
+
+impl std::fmt::Debug for BigQueryKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BigQueryKey::Path(path) => f.debug_tuple("Path").field(path).finish(),
+            BigQueryKey::Json(_) => f.write_str("Json(<redacted>)"),
+        }
+    }
+}
+
+impl BigQueryKey {
+    /// The `project_id` the key names, read from the key itself.
+    pub fn project_id(&self) -> Option<String> {
+        let json = match self {
+            BigQueryKey::Path(path) => std::fs::read_to_string(path).ok()?,
+            BigQueryKey::Json(json) => json.clone(),
+        };
+        serde_json::from_str::<serde_json::Value>(&json)
+            .ok()?
+            .get("project_id")?
+            .as_str()
+            .map(str::to_string)
+    }
+}
+
 impl BigQuery {
+    /// The key, resolved in the order the hosted platform needs: the key's
+    /// contents from the secret store (`key_json_var`) first, then a key file
+    /// (`key_path`, then the deprecated `key_path_var`).
+    pub async fn get_key(&self, secret_manager: &SecretsManager) -> Result<BigQueryKey, OxyError> {
+        if let Some(key_json_var) = &self.key_json_var {
+            return match secret_manager.resolve_secret(key_json_var).await? {
+                Some(json) if !json.trim().is_empty() => Ok(BigQueryKey::Json(json)),
+                _ => Err(OxyError::SecretNotFound(Some(key_json_var.clone()))),
+            };
+        }
+        self.get_key_path(secret_manager)
+            .await
+            .map(BigQueryKey::Path)
+    }
+
+    /// The key file path. A key held in `key_json_var` has no path: use
+    /// [`BigQuery::get_key`].
     pub async fn get_key_path(&self, secret_manager: &SecretsManager) -> Result<String, OxyError> {
         if let Some(key_path) = &self.key_path {
             return Ok(key_path.to_string_lossy().to_string());
@@ -1057,7 +1122,7 @@ impl BigQuery {
             }
         } else {
             Err(OxyError::ConfigurationError(
-                "BigQuery key_path or key_path_var must be specified".to_string(),
+                "BigQuery key_json_var, key_path or key_path_var must be specified".to_string(),
             ))
         }
     }
@@ -1093,6 +1158,16 @@ pub enum SnowflakeAuthType {
     PrivateKey {
         #[garde(custom(validate_file_path))]
         private_key_path: PathBuf,
+    },
+    // Key-pair authentication with the private key's contents (PEM) held in a
+    // secret: `private_key_var` names it, and it resolves like every `*_var`
+    // (the encrypted secret store, then the process environment). Must stay
+    // before `BrowserAuth`, whose fields are all optional and so match any
+    // input in this untagged enum. (A plain comment: a doc comment would become
+    // a `description` in json-schemas/config.json.)
+    PrivateKeyVar {
+        #[garde(length(min = 1))]
+        private_key_var: String,
     },
     BrowserAuth {
         #[serde(default = "default_snowflake_browser_timeout")]
@@ -1150,6 +1225,21 @@ pub struct Snowflake {
 }
 
 impl Snowflake {
+    /// The private key's PEM contents for `private_key_var` auth; `None` for
+    /// every other auth type.
+    pub async fn get_private_key_from_secret(
+        &self,
+        secret_manager: &SecretsManager,
+    ) -> Result<Option<String>, OxyError> {
+        let SnowflakeAuthType::PrivateKeyVar { private_key_var } = &self.auth_type else {
+            return Ok(None);
+        };
+        match secret_manager.resolve_secret(private_key_var).await? {
+            Some(pem) if !pem.trim().is_empty() => Ok(Some(pem)),
+            _ => Err(OxyError::SecretNotFound(Some(private_key_var.clone()))),
+        }
+    }
+
     pub async fn get_password(&self, secret_manager: &SecretsManager) -> Result<String, OxyError> {
         secret_manager
             .resolve_config_value(
@@ -2894,6 +2984,112 @@ fn default_loop_concurrency() -> usize {
 
 fn default_consistency_concurrency() -> usize {
     10
+}
+
+#[cfg(test)]
+mod key_secret_tests {
+    use super::{BigQuery, BigQueryKey, DatabaseType, Snowflake, SnowflakeAuthType};
+    use crate::adapters::secrets::SecretsManager;
+
+    fn database_type(yaml: &str) -> DatabaseType {
+        serde_yaml::from_str(yaml).expect("a database entry")
+    }
+
+    fn bigquery(yaml: &str) -> BigQuery {
+        match database_type(yaml) {
+            DatabaseType::Bigquery(b) => b,
+            other => panic!("expected bigquery, got {other:?}"),
+        }
+    }
+
+    fn snowflake(yaml: &str) -> Snowflake {
+        match database_type(yaml) {
+            DatabaseType::Snowflake(s) => s,
+            other => panic!("expected snowflake, got {other:?}"),
+        }
+    }
+
+    /// The key's contents come out of the secret store (here the process
+    /// environment, the store's fallback), and win over a key file.
+    #[tokio::test]
+    async fn a_bigquery_key_resolves_from_the_secret_named_by_key_json_var() {
+        // SAFETY: nextest runs each test in its own process.
+        unsafe {
+            std::env::set_var(
+                "KJV_TEST_BQ_KEY",
+                r#"{"type":"service_account","project_id":"acme-analytics"}"#,
+            );
+        }
+        let sm = SecretsManager::from_environment().unwrap();
+        let bq = bigquery(
+            "type: bigquery\nkey_json_var: KJV_TEST_BQ_KEY\nkey_path: ignored.json\ndataset: d\n",
+        );
+        let key = bq.get_key(&sm).await.unwrap();
+        assert!(matches!(key, BigQueryKey::Json(ref json) if json.contains("acme-analytics")));
+        assert_eq!(key.project_id().as_deref(), Some("acme-analytics"));
+        // The key never appears in a debug print.
+        assert_eq!(format!("{key:?}"), "Json(<redacted>)");
+    }
+
+    #[tokio::test]
+    async fn a_bigquery_key_json_var_with_no_secret_is_named() {
+        let sm = SecretsManager::from_environment().unwrap();
+        let bq = bigquery("type: bigquery\nkey_json_var: KJV_TEST_BQ_MISSING\ndataset: d\n");
+        let err = bq.get_key(&sm).await.expect_err("no such secret");
+        assert!(err.to_string().contains("KJV_TEST_BQ_MISSING"), "{err}");
+    }
+
+    /// Without `key_json_var` the key is a path, as it always was.
+    #[tokio::test]
+    async fn a_bigquery_key_path_still_resolves_to_a_path() {
+        let sm = SecretsManager::from_environment().unwrap();
+        let bq = bigquery("type: bigquery\nkey_path: keys/sa.json\ndataset: d\n");
+        assert_eq!(
+            bq.get_key(&sm).await.unwrap(),
+            BigQueryKey::Path("keys/sa.json".to_string())
+        );
+    }
+
+    /// `private_key_var` parses as its own auth type (not as browser auth,
+    /// whose all-optional fields match anything) and resolves to the PEM.
+    #[tokio::test]
+    async fn a_snowflake_private_key_resolves_from_the_secret_named_by_private_key_var() {
+        // SAFETY: nextest runs each test in its own process.
+        unsafe {
+            std::env::set_var("PKV_TEST_SF_KEY", "-----BEGIN PRIVATE KEY-----\nabc\n");
+        }
+        let sm = SecretsManager::from_environment().unwrap();
+        let sf = snowflake(
+            "type: snowflake\naccount: a\nusername: u\nwarehouse: w\ndatabase: d\n\
+             private_key_var: PKV_TEST_SF_KEY\n",
+        );
+        assert!(matches!(
+            sf.auth_type,
+            SnowflakeAuthType::PrivateKeyVar { ref private_key_var } if private_key_var == "PKV_TEST_SF_KEY"
+        ));
+        let pem = sf.get_private_key_from_secret(&sm).await.unwrap();
+        assert!(pem.is_some_and(|p| p.starts_with("-----BEGIN PRIVATE KEY-----")));
+    }
+
+    #[tokio::test]
+    async fn the_other_snowflake_auth_types_are_unchanged() {
+        let sm = SecretsManager::from_environment().unwrap();
+        let file = snowflake(
+            "type: snowflake\naccount: a\nusername: u\nwarehouse: w\ndatabase: d\n\
+             private_key_path: keys/svc.p8\n",
+        );
+        assert!(matches!(
+            file.auth_type,
+            SnowflakeAuthType::PrivateKey { .. }
+        ));
+        assert_eq!(file.get_private_key_from_secret(&sm).await.unwrap(), None);
+        let browser =
+            snowflake("type: snowflake\naccount: a\nusername: u\nwarehouse: w\ndatabase: d\n");
+        assert!(matches!(
+            browser.auth_type,
+            SnowflakeAuthType::BrowserAuth { .. }
+        ));
+    }
 }
 
 #[cfg(test)]
