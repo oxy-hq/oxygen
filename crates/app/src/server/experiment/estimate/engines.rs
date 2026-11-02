@@ -129,6 +129,8 @@ fn panel_request(
 
 /// The target read on past the registered end, to `carryover_end`: the carryover
 /// window's own panel, so the registered estimate reads exactly what it always did.
+/// `lenient` (a reading of past data) reads it with the unit floor, as [`load_panels_for`],
+/// and returns the units that floor left out, so the report can name them.
 pub async fn load_carryover(
     src: &dyn PanelSource,
     ctx: &PanelContext,
@@ -136,7 +138,11 @@ pub async fn load_carryover(
     membership: Option<&GroupMembership>,
     restrict_to: Option<&[String]>,
     carryover_end: NaiveDate,
-) -> Result<Loaded, OxyError> {
+    lenient: bool,
+) -> Result<(Loaded, Vec<DroppedUnit>), OxyError> {
+    // As the registered read (`load`): on past data a sparse unit drops itself,
+    // such as one that sold out once a promotion ended.
+    let floor = (lenient && membership.is_none()).then_some(cfg.design.coverage_floor);
     let req = panel_request(
         cfg,
         &cfg.outcome.target,
@@ -144,9 +150,9 @@ pub async fn load_carryover(
         membership,
         restrict_to,
         carryover_end,
-        None,
+        floor,
     );
-    fetch(src, ctx, &req).await
+    fetch_dropping(src, ctx, &req).await
 }
 
 /// An `Err` is infrastructure (the job fails); an empty or unsummable measure, or a

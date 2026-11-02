@@ -139,6 +139,14 @@ draw (a hand-edited split is reported as written by hand). A retrospective whose
 estimate refused (a unit with no rows, coverage) leaves the design editable: fix
 it, then `retrospective` again.
 
+To read what happened after a past change ended (a promotion's pull-forward),
+give an observed design's wave `switch_off` (the first day it was off) and set
+`design.carryover_days`; carryover on an observed design is refused without it.
+`switch_off` must not fall inside the post window (end `post_days` at it), and the
+retrospective is refused until the carryover window's last day is over.
+Use the real end date: a promotion stopped early but exported with its planned
+end reads the wrong days.
+
 A retrospective leaves out a unit with too little data, or listed with none,
 and names it under the report's dropped units; it does not refuse the run. A
 unit missing a few days keeps the rest and costs no other unit anything; one

@@ -16,6 +16,7 @@ mod design;
 mod filters;
 mod one_date_test;
 mod registrable;
+mod switch_off;
 mod synthetic;
 mod units;
 
@@ -258,6 +259,34 @@ pub enum ConfigError {
     #[error("design.carryover_days is 0; leave it out to read no carryover")]
     CarryoverZero,
 
+    #[error(
+        "design.waves[{wave}].switch_off declares when a past change ended, so it needs design.assignment: observed; a registered run turns its levers off at close"
+    )]
+    SwitchOffNeedsObserved { wave: usize },
+
+    #[error(
+        "design.waves[{wave}].switch_off ({switch_off}) is not after its switch_on ({switch_on})"
+    )]
+    SwitchOffNotAfterSwitchOn {
+        wave: usize,
+        switch_on: Moment,
+        switch_off: Moment,
+    },
+
+    #[error(
+        "design.waves[{wave}].switch_off ({switch_off}) falls inside its post window, which runs until {post_end}: the days after the change would be read as during it and after it both; end post_days at the switch_off"
+    )]
+    SwitchOffInsidePostWindow {
+        wave: usize,
+        switch_off: Moment,
+        post_end: Moment,
+    },
+
+    #[error(
+        "design.carryover_days reads the days after the change ended, but nothing was switched: declare the switch_off it ended on"
+    )]
+    CarryoverNeedsSwitchOff,
+
     /// A measure filter names a dimension of another view. The filter would join
     /// that view in and fan the measure out, so v1 keeps it to the measure's own.
     #[error(
@@ -294,6 +323,7 @@ pub fn validate_static(c: &ExperimentConfig) -> Vec<ConfigError> {
     check_ratio(c, &mut out);
     synthetic::check_synthetic(c, &mut out);
     one_date_test::check_one_date_test(c, &mut out);
+    switch_off::check_switch_off(c, &mut out);
     check_guardrails(c, &mut out);
     check_expressions(c, &mut out);
     filters::check_filters(c, &mut out);

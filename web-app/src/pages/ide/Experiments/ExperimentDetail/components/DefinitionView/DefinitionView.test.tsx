@@ -71,6 +71,22 @@ describe("DefinitionView", () => {
     expect(t).toContain("Keeps reading 14 days after the lever turns off");
   });
 
+  it("shows when a past change ended and reads on after that, not after a lever", () => {
+    const t = view({
+      ...definitionFixture,
+      lever: null,
+      design: {
+        ...definitionFixture.design,
+        assignment: "observed",
+        carryover_days: 7,
+        waves: [{ switch_on: "2026-05-06", switch_off: "2026-05-18", units: ["kit"] }]
+      }
+    }).textContent;
+    expect(t).toContain("Ended on");
+    expect(t).toContain("2026-05-18");
+    expect(t).toContain("Keeps reading 7 days after the change ended");
+  });
+
   it("says in words which rows a filtered outcome and sibling read", () => {
     const t = view({
       ...definitionFixture,

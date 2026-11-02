@@ -723,6 +723,46 @@ fn a_significant_effect_after_the_lever_turned_off_reads_as_lingering() {
 }
 
 #[test]
+fn a_retrospective_carryover_reads_after_the_change_ended_not_a_lever() {
+    // Nothing was switched: the window starts at the declared `switch_off`.
+    let mut c = with_carryover(effect(-7.0, 3.0));
+    c.retrospective = true;
+    let statement = c.build().carryover.unwrap().statement;
+    assert!(
+        statement.starts_with("after the change ended the outcome moved the other way over the 14 days after the change ended"),
+        "{statement}"
+    );
+    assert!(!statement.contains("lever"), "{statement}");
+}
+
+#[test]
+fn a_carryover_names_the_units_it_left_out_that_the_headline_kept() {
+    // A unit that sold out after the deal is too sparse for the carryover read only: the
+    // after effect is on a different set, so the report says which units it lacks.
+    let mut e = effect(2.0, 6.0);
+    e.dropped_units = vec![
+        crate::engine_in::DroppedUnitIn {
+            unit: "s05".into(),
+            reason: "too few days".into(),
+        },
+        crate::engine_in::DroppedUnitIn {
+            unit: "s09".into(),
+            reason: "no rows".into(),
+        },
+    ];
+    let mut c = with_carryover(e);
+    c.target.dropped_units = vec![crate::engine_in::DroppedUnitIn {
+        unit: "s09".into(),
+        reason: "no rows".into(),
+    }];
+    let statement = c.build().carryover.unwrap().statement;
+    assert!(
+        statement.ends_with("; read without s05, left out of this window for too little data"),
+        "{statement}"
+    );
+}
+
+#[test]
 fn an_undistinguishable_carryover_says_none_was_measurable() {
     let c = with_carryover(effect(2.0, 6.0)).build().carryover.unwrap();
     assert!(!c.lingered);

@@ -254,6 +254,12 @@ pub struct WaveConfig {
     pub switch_on: Moment,
     /// Unit names, matched by exact string equality — never by position.
     pub units: Vec<String>,
+    /// When a past change ended (exclusive: the first day it was off). Observed
+    /// designs only, where nothing was switched, so the carryover window has an
+    /// off to start from. Skipped when absent, so a wave without one serializes,
+    /// and hashes, as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub switch_off: Option<Moment>,
 }
 
 /// A paired switchback: consecutive `period_days` periods, in pairs of one on and

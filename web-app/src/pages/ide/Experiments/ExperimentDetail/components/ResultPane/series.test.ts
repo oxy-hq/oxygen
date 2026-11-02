@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { DailySeries } from "@/types/experiment";
 import { rollingMean, seriesChartOptions, seriesRows, seriesSummary } from "./series";
 
-const colors = { treated: "#t", control: "#c", band: "#b" };
+const colors = {
+  treated: "#t",
+  control: "#c",
+  band: "#b",
+  preBand: "#p",
+  afterBand: "#a",
+  marker: "#m"
+};
 
 const waves: DailySeries = {
   measure: "store_days.revenue",
@@ -130,6 +137,46 @@ describe("seriesChartOptions", () => {
     });
   });
 
+  it("shades a single wave's pre window apart from its post window", () => {
+    const o = seriesChartOptions(waves, colors);
+    const series = o.series as { markArea?: unknown }[];
+    expect(series[1].markArea).toMatchObject({
+      itemStyle: { color: "#p" },
+      // It runs on to the switch-side edge so no unshaded strip sits between the two bands.
+      data: [[{ xAxis: "2026-03-02", name: "Pre window" }, { xAxis: "2026-03-04" }]]
+    });
+  });
+
+  it("marks each wave's switch date with a labelled vertical line", () => {
+    const single = seriesChartOptions(waves, colors);
+    expect((single.series as { markLine?: unknown }[])[0].markLine).toMatchObject({
+      lineStyle: { color: "#m" },
+      data: [{ xAxis: "2026-03-05", label: { formatter: "Switch 2026-03-05" } }]
+    });
+    const days = ["2026-03-03", "2026-03-04", "2026-03-05"].map((date) => ({
+      date,
+      treated: 1,
+      control: 1,
+      on_units: 1
+    }));
+    const two = seriesChartOptions({ ...staggered, days }, colors);
+    expect((two.series as { markLine?: { data: unknown[] } }[])[0].markLine?.data).toEqual([
+      expect.objectContaining({
+        xAxis: "2026-03-03",
+        label: expect.objectContaining({ formatter: "Wave 1 switch" })
+      }),
+      expect.objectContaining({
+        xAxis: "2026-03-05",
+        label: expect.objectContaining({ formatter: "Wave 2 switch" })
+      })
+    ]);
+  });
+
+  it("leaves several waves' pre windows unshaded, since they overlap other waves' posts", () => {
+    const o = seriesChartOptions(staggered, colors);
+    expect((o.series as { markArea?: unknown }[])[1].markArea).toBeUndefined();
+  });
+
   it("staggers the labels of several waves' post windows so close ones do not overprint", () => {
     const three = {
       ...waves,
@@ -253,5 +300,37 @@ describe("seriesRows on a retrospective", () => {
   it("shows the lever as never switched, not On or Off", () => {
     const rows = seriesRows(waves, { retrospective: true });
     expect(rows.map((r) => r.lever)).toEqual(["—", "—", "—", "—"]);
+  });
+});
+
+describe("a series with a carryover window", () => {
+  const carried: DailySeries = {
+    ...waves,
+    carryover: { from: "2026-03-08", to: "2026-03-10" },
+    days: [
+      ...(waves as Extract<DailySeries, { design: "waves" }>).days,
+      { date: "2026-03-08", treated: 4, control: 10, on_units: 0 },
+      { date: "2026-03-09", treated: 6, control: 10, on_units: 0 }
+    ]
+  } as DailySeries;
+
+  it("shades the days after the change ended and marks the end date", () => {
+    const o = seriesChartOptions(carried, colors);
+    const series = o.series as { markArea?: { data: unknown[] }; markLine?: { data: unknown[] } }[];
+    expect(series[2].markArea).toMatchObject({
+      itemStyle: { color: "#a" },
+      data: [[{ xAxis: "2026-03-08", name: "After it ended" }, { xAxis: "2026-03-09" }]]
+    });
+    expect(series[0].markLine?.data).toContainEqual(
+      expect.objectContaining({
+        xAxis: "2026-03-08",
+        label: expect.objectContaining({ formatter: "Ended 2026-03-08" })
+      })
+    );
+  });
+
+  it("labels those days in the table", () => {
+    const rows = seriesRows(carried, { retrospective: true });
+    expect(rows[rows.length - 1].window).toBe("After it ended");
   });
 });

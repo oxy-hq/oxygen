@@ -16,7 +16,7 @@
 use chrono::{DateTime, Utc};
 use entity::{experiment_runs, experiments};
 use oxy_experiment::ExperimentConfig;
-use oxy_experiment::timeline::{last_post_window_end_date, today_in};
+use oxy_experiment::timeline::{last_read_end_date, today_in};
 use oxy_experiment::validate::is_retrospective_ready;
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement, TransactionTrait,
@@ -35,13 +35,14 @@ pub enum Retrospective {
 }
 
 /// The design alone, at `now`: a draft, a window not yet past, or ready. Its last day
-/// must have ended in `design.timezone` — a window still open is a registration.
+/// must have ended in `design.timezone` — a window still open is a registration —
+/// including a carryover window read after a declared `switch_off`.
 pub fn judge(c: &ExperimentConfig, now: DateTime<Utc>) -> Retrospective {
     if let Err(errors) = is_retrospective_ready(c) {
         let problems = errors.iter().map(ToString::to_string).collect();
         return Retrospective::Draft { problems };
     }
-    let Some(end) = last_post_window_end_date(c) else {
+    let Some(end) = last_read_end_date(c) else {
         return Retrospective::Draft {
             problems: vec!["the design has no post window".into()],
         };
@@ -131,4 +132,40 @@ async fn insert(
         .await?
         .rows_affected()
         == 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    const OBSERVED: &str = r#"
+experiment: deal_retro
+hypothesis: "A deal lifted units"
+owner: ops
+for_each: sku
+design:
+  timezone: UTC
+  assignment: observed
+  waves:
+    - { switch_on: 2026-05-11, switch_off: 2026-05-25, units: [a] }
+  pre_days: 28
+  post_days: 14
+  carryover_days: 14
+outcome:
+  target: sku_days.units
+  direction: increase
+"#;
+
+    #[test]
+    fn a_retrospective_waits_for_its_carryover_window_to_be_over() {
+        let c = oxy_experiment::config::parse(OBSERVED).unwrap();
+        // The post window ended 05-25; the carryover window runs to 06-08.
+        let on = |d: u32, m: u32| Utc.with_ymd_and_hms(2026, m, d, 12, 0, 0).unwrap();
+        match judge(&c, on(3, 6)) {
+            Retrospective::Refused { reason } => assert!(reason.contains("2026-06-08"), "{reason}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(judge(&c, on(8, 6)), Retrospective::Ready);
+    }
 }

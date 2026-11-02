@@ -5,7 +5,7 @@ use oxy_airlayer_compat::engine::experiment::{
     Assignment, ExperimentDesign, PanelMatrix, Period, SwitchbackSchedule, day_ordinal,
 };
 
-use super::series::{PeriodSpan, SeriesShape, daily_series};
+use super::series::{PeriodSpan, SeriesShape, daily_series, with_carryover};
 
 /// A day-grain point or window edge.
 fn day(s: &str) -> super::series::Moment {
@@ -365,4 +365,98 @@ fn an_hour_grain_series_labels_each_point_with_its_local_hour() {
     assert_eq!(v["waves"][0]["post_from"], "2026-03-05T01:00");
     assert_eq!(v["days"][0]["date"], "2026-03-04T22:00");
     assert_eq!(v["days"][5]["date"], "2026-03-05T03:00");
+}
+
+#[test]
+fn a_carryover_window_extends_the_series_past_the_post_window_from_its_own_panel() {
+    // Switch 03-05, post window 03-06..03-08. Off on 03-08, carryover read to 03-10:
+    // the series gains 03-08 and 03-09 from the carryover panel, lever off, and states
+    // the window.
+    let design = waves(&[("a", Some("2026-03-05")), ("c", None)], 2, 2, 1);
+    let main = panel(&[
+        ("a", "2026-03-01", &[1.0; 7]),
+        ("c", "2026-03-01", &[10.0; 7]),
+    ]);
+    let carry = panel(&[
+        (
+            "a",
+            "2026-03-01",
+            &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 4.0, 6.0],
+        ),
+        ("c", "2026-03-01", &[10.0; 9]),
+    ]);
+    let s = daily_series("m", oxy_experiment::Grain::Day, &design, &main);
+    let s = with_carryover(s, &design, &carry, d("2026-03-08").into(), d("2026-03-10"));
+    let SeriesShape::Waves { days, .. } = &s.shape else {
+        panic!("waves");
+    };
+    let tail: Vec<_> = days.iter().rev().take(2).rev().collect();
+    assert_eq!(tail[0].date, day("2026-03-08"));
+    assert_eq!(tail[0].treated, Some(4.0));
+    assert_eq!(
+        tail[0].on_units, 0,
+        "the lever is off in the carryover window"
+    );
+    assert_eq!(tail[1].date, day("2026-03-09"));
+    assert_eq!(tail[1].treated, Some(6.0));
+    let window = s.carryover.expect("the window is stated");
+    assert_eq!(
+        (window.from, window.to),
+        (day("2026-03-08"), day("2026-03-10"))
+    );
+    let dates: Vec<_> = days.iter().map(|w| w.date).collect();
+    let mut sorted = dates.clone();
+    sorted.dedup();
+    assert_eq!(dates, sorted, "no day appears twice");
+}
+
+#[test]
+fn at_hour_grain_the_carryover_hours_follow_the_last_charted_hour_without_repeating_it() {
+    use oxy_experiment::Grain;
+    let at = |s: &str| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M").unwrap();
+    let h = |s: &str| Grain::Hour.ordinal_at(at(s));
+    let hours = |n: i64| {
+        PanelMatrix::from_triples((0..n).flat_map(|i| {
+            [
+                ("a".to_string(), h("2026-03-04 22:00") + i, 1.0 + i as f64),
+                ("c".to_string(), h("2026-03-04 22:00") + i, 2.0),
+            ]
+        }))
+    };
+    let design = ExperimentDesign::Waves(Assignment {
+        switch_day: HashMap::from([
+            ("a".to_string(), Some(h("2026-03-05 00:00"))),
+            ("c".to_string(), None),
+        ]),
+        strata: None,
+        pre_days: 2,
+        post_days: 3,
+        anticipation_days: 0,
+        washout_days: 1,
+        coverage_floor: 0.8,
+        alpha: 0.05,
+        family: 1,
+        one_date_test: oxy_airlayer_compat::engine::experiment::OneDateTest::Welch,
+    });
+    // The registered panel runs to 03:00; the carryover panel to 06:00, off at 04:00.
+    let s = daily_series("m", Grain::Hour, &design, &hours(6));
+    let off = oxy_experiment::Moment(at("2026-03-05 04:00"));
+    let s = with_carryover(s, &design, &hours(9), off, d("2026-03-06"));
+    let v = serde_json::to_value(&s).unwrap();
+    let dates: Vec<&str> = v["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["date"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        &dates[5..],
+        [
+            "2026-03-05T03:00",
+            "2026-03-05T04:00",
+            "2026-03-05T05:00",
+            "2026-03-05T06:00"
+        ]
+    );
+    assert_eq!(v["carryover"]["from"], "2026-03-05T04:00");
 }

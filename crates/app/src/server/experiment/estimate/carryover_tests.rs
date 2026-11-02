@@ -60,6 +60,20 @@ fn no_window_without_carryover_days_an_off_or_when_aborted() {
     );
 }
 
+#[test]
+fn a_retrospective_starts_the_window_at_the_declared_switch_off() {
+    // Nothing was switched, so no flip went out: the off is the one the design declares.
+    let mut c = cfg(Some(14));
+    c.design.assignment = oxy_experiment::config::Assignment::Observed;
+    c.design.waves[0].switch_off = Some(d(5, 5).into());
+    assert_eq!(
+        carryover_window(&c, false, &[]),
+        Some((d(5, 5).into(), d(5, 19)))
+    );
+    c.design.waves[0].switch_off = None;
+    assert_eq!(carryover_window(&c, false, &[]), None, "no off declared");
+}
+
 /// Six stores, switched on 2 March (s01..s03 treated), off on 5 May. Treated stores sit +20
 /// while on and +8 for the carryover window after the off, controls flat at 100.
 fn panel(c: &oxy_experiment::ExperimentConfig, off: NaiveDate, carry: u32) -> PanelMatrix {
@@ -91,13 +105,28 @@ fn the_carryover_effect_reads_the_days_after_the_off_against_the_same_baseline()
     let pool: Vec<String> = ["s07", "s08", "s09"].map(String::from).to_vec();
     let design = to_design(&c, &super::plan::assignment_units(&c, &pool));
     let off = d(5, 5);
-    let e = carryover_effect(&c, &design, &panel(&c, off, 14), off.into(), 7);
+    let e = carryover_effect(&c, &design, &panel(&c, off, 14), off.into(), 7, false);
     assert!(e.refusal.is_none(), "{:?}", e.refusal);
     let est = e.estimate.expect("an estimate");
     assert!(
         (est - 8.0).abs() < 1.5,
         "the carryover lift, not the on-lift: {est}"
     );
+}
+
+#[test]
+fn a_retrospective_carryover_drops_a_pinned_unit_the_panel_lacks_instead_of_refusing() {
+    // s99 is in the control pool but has no rows: the registered read drops it, so must this.
+    let c = cfg(Some(14));
+    let pool: Vec<String> = ["s07", "s08", "s09", "s99"].map(String::from).to_vec();
+    let design = to_design(&c, &super::plan::assignment_units(&c, &pool));
+    let off = d(5, 5);
+    let m = panel(&c, off, 14);
+    let strict = carryover_effect(&c, &design, &m, off.into(), 7, false);
+    assert!(strict.refusal.is_some(), "a registered run still refuses");
+    let e = carryover_effect(&c, &design, &m, off.into(), 7, true);
+    assert!(e.refusal.is_none(), "{:?}", e.refusal);
+    assert!((e.estimate.expect("an estimate") - 8.0).abs() < 1.5);
 }
 
 fn at(s: &str) -> oxy_experiment::Moment {
@@ -166,7 +195,7 @@ fn at_hour_grain_the_carryover_effect_reads_the_hours_after_a_mid_day_off() {
     let pool: Vec<String> = ["s07", "s08", "s09"].map(String::from).to_vec();
     let design = to_design(&c, &super::plan::assignment_units(&c, &pool));
     let off = at("2026-03-17T12:00");
-    let e = carryover_effect(&c, &design, &hour_panel(off), off, 7);
+    let e = carryover_effect(&c, &design, &hour_panel(off), off, 7, false);
     assert!(e.refusal.is_none(), "{:?}", e.refusal);
     let est = e.estimate.expect("an estimate");
     assert!(

@@ -150,6 +150,18 @@ pub fn last_post_window_end_date(c: &ExperimentConfig) -> Option<NaiveDate> {
     last_post_window_end(c).map(Moment::ceil_date)
 }
 
+/// The exclusive end of every day a reading of past data reads: the last post window,
+/// or, when the design reads a carryover after a declared `switch_off`, that window's
+/// end if later. A retrospective waits for it, as a registered run waits in `closing`.
+pub fn last_read_end_date(c: &ExperimentConfig) -> Option<NaiveDate> {
+    let post = last_post_window_end_date(c);
+    let carryover = c.design.carryover_days.and_then(|days| {
+        let off = c.design.waves.iter().filter_map(|w| w.switch_off).min()?;
+        c.design.grain.later(off, days).map(Moment::ceil_date)
+    });
+    post.max(carryover)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,6 +181,7 @@ mod tests {
         WaveConfig {
             switch_on: date(y, m, d).into(),
             units: vec!["u".into()],
+            switch_off: None,
         }
     }
 
@@ -417,5 +430,20 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
         assert_eq!(registration_deadline(&c), Some(expected));
+    }
+
+    #[test]
+    fn a_declared_carryover_after_the_post_window_is_read_too() {
+        let mut c = crate::test_fixtures::observed();
+        // switch 03-04, washout 0, post 7 -> post window ends 03-11.
+        assert_eq!(last_read_end_date(&c), Some(date(2026, 3, 11)));
+        c.design.waves[0].switch_off = Some(date(2026, 3, 20).into());
+        assert_eq!(
+            last_read_end_date(&c),
+            Some(date(2026, 3, 11)),
+            "no carryover window, no wait"
+        );
+        c.design.carryover_days = Some(14);
+        assert_eq!(last_read_end_date(&c), Some(date(2026, 4, 3)));
     }
 }

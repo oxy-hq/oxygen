@@ -309,7 +309,12 @@ describe("unit lists", () => {
   it("offer the entity's instances and write them as a comma list", async () => {
     const user = userEvent.setup();
     render(
-      <Harness values={{ forEach: "customer", waves: [{ switchOn: "2026-03-02", units: "c-1" }] }}>
+      <Harness
+        values={{
+          forEach: "customer",
+          waves: [{ switchOn: "2026-03-02", switchOff: "", units: "c-1" }]
+        }}
+      >
         {(p) => <PricingSection {...p} />}
       </Harness>
     );

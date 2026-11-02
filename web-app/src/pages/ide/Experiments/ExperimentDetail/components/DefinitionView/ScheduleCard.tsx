@@ -5,15 +5,18 @@ import { orDash, type SafeDefinition } from "./safe";
 import { Block, Chip, LabelledChip } from "./shared";
 
 type Design = NonNullable<SafeDefinition["design"]>;
-type Wave = { switch_on: string; units: string[] };
+type Wave = { switch_on: string; switch_off?: string; units: string[] };
 
 function Waves({ waves, noun }: { waves: Wave[]; noun: string }) {
+  // A past change may declare when it ended; a registered run's end is its close.
+  const ended = waves.some((w) => w.switch_off);
   return (
     <table className='w-full text-left'>
       <thead className='text-muted-foreground'>
         <tr>
           <th className='py-1 pr-4 font-normal'>Wave</th>
           <th className='py-1 pr-4 font-normal'>Switches on</th>
+          {ended && <th className='py-1 pr-4 font-normal'>Ended on</th>}
           <th className='py-1 font-normal'>Covers</th>
         </tr>
       </thead>
@@ -22,6 +25,7 @@ function Waves({ waves, noun }: { waves: Wave[]; noun: string }) {
           <tr key={w.switch_on} className='border-t align-top'>
             <td className='py-1 pr-4'>{i + 1}</td>
             <td className='py-1 pr-4'>{w.switch_on}</td>
+            {ended && <td className='py-1 pr-4'>{w.switch_off ?? "—"}</td>}
             <td className='py-1'>
               <details>
                 <summary className='cursor-pointer'>{plural(w.units.length, noun)}</summary>
@@ -74,8 +78,8 @@ export default function ScheduleCard({
       )}
       {d.carryover_days ? (
         <p className='text-sm' data-testid='definition-carryover'>
-          Keeps reading {countOf(d.carryover_days, grain)} after the lever turns off, for the effect
-          that lingers.
+          Keeps reading {countOf(d.carryover_days, grain)} after{" "}
+          {past ? "the change ended" : "the lever turns off"}, for the effect that lingers.
         </p>
       ) : null}
       <div className='flex flex-wrap items-center gap-1.5'>

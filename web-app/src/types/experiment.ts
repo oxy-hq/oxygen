@@ -156,7 +156,7 @@ export interface ExperimentDefinition {
     one_date_test?: "welch" | "permutation";
     /** Units kept out of a synthetic control's donors; absent = none. */
     exclude?: string[];
-    waves: { switch_on: string; units: string[] }[];
+    waves: { switch_on: string; switch_off?: string; units: string[] }[];
     switchback: { period_days: number; periods: { from: string; state: "on" | "off" }[] } | null;
     strata: string[][] | null;
     seed: number | null;
@@ -641,6 +641,8 @@ export type DailySeries = {
   /** Each point covers one of these; absent on a result sealed before grains = day. */
   grain?: "day" | "week" | "month";
   measured_until: string | null;
+  /** The carryover window `[from, to)`: days read after the change ended, appended after the post window. */
+  carryover?: { from: string; to: string } | null;
 } & (
   | {
       design: "waves";

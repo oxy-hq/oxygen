@@ -17,6 +17,7 @@ fn one_wave(units: &[&str]) -> ExperimentConfig {
     c.design.waves = vec![WaveConfig {
         switch_on: date(2026, 3, 2).into(),
         units: names(units),
+        switch_off: None,
     }];
     c
 }
@@ -159,6 +160,7 @@ fn grouped(groups: &[&[&str]]) -> ExperimentConfig {
         .map(|(i, g)| WaveConfig {
             switch_on: date(2026, 3, 2 + 14 * i as u32).into(),
             units: names(g),
+            switch_off: None,
         })
         .collect();
     c

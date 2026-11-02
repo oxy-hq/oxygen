@@ -400,6 +400,30 @@ describe("ReportBody", () => {
     expect(screen.queryByTestId("experiment-report-carryover")).toBeNull();
   });
 
+  it("titles a retrospective's carryover by when the change ended, not a lever", () => {
+    render(
+      <ReportBody
+        result={result({
+          status: { kind: "retrospective" },
+          carryover: {
+            days: 14,
+            effect: {
+              estimate: -0.33,
+              interval: { low: -1.12, high: 0.46 },
+              significant: false,
+              refusal: null
+            },
+            lingered: false,
+            statement: "no effect was measurable over the 14 days after the change ended"
+          }
+        })}
+      />
+    );
+    const row = screen.getByTestId("experiment-report-carryover");
+    expect(row).toHaveTextContent("After the change ended (14 days)");
+    expect(row).not.toHaveTextContent("lever");
+  });
+
   it("warns below the compliance floor and restates the design's floor", () => {
     render(<ReportBody result={result()} />);
 

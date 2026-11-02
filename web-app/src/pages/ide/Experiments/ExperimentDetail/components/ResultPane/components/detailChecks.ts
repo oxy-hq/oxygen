@@ -84,7 +84,8 @@ export function detailChecks(result: ResultResponse): DetailCheck[] {
       out.push({
         id: "carryover",
         testId: "experiment-report-carryover",
-        title: `After the lever turned off (${periods(carry.days, grainOf(report.grain))})`,
+        // A retrospective switched nothing: its window starts at the declared end date.
+        title: `After ${report.status.kind === "retrospective" ? "the change ended" : "the lever turned off"} (${periods(carry.days, grainOf(report.grain))})`,
         status,
         tone: carry.lingered ? "success" : carry.effect.significant ? "warning" : "neutral",
         lines: [carry.statement]

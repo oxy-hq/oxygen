@@ -90,7 +90,7 @@ describe("toConfig", () => {
   it("splits unit names on commas and new lines and refuses a bad date", () => {
     const values = {
       ...emptyDesignValues(),
-      waves: [{ switchOn: "2026-02-31", units: "a, b\nc,\n" }]
+      waves: [{ switchOn: "2026-02-31", switchOff: "", units: "a, b\nc,\n" }]
     };
     const { config, errors } = toConfig(values);
 

@@ -1,4 +1,9 @@
-import type { EChartsOption, MarkAreaComponentOption, SeriesOption } from "echarts";
+import type {
+  EChartsOption,
+  MarkAreaComponentOption,
+  MarkLineComponentOption,
+  SeriesOption
+} from "echarts";
 import { formatAmount } from "@/pages/ide/Experiments/format";
 import { type Grain, grainOf, periods, periodWord } from "@/pages/ide/Experiments/grain";
 import type { DailySeries, SeriesPeriod, SeriesWave } from "@/types/experiment";
@@ -18,6 +23,12 @@ export interface SeriesColors {
   treated: string;
   control: string;
   band: string;
+  /** The pre window's shade, quieter than the post window's. */
+  preBand: string;
+  /** The shade of the days read after the change ended (the carryover window). */
+  afterBand: string;
+  /** The switch-date line. */
+  marker: string;
 }
 
 type WavesSeries = Extract<DailySeries, { design: "waves" }>;
@@ -72,7 +83,10 @@ export function seriesRows(s: DailySeries, opts: { retrospective?: boolean } = {
     difference: d.treated !== null && d.control !== null ? d.treated - d.control : null,
     fleet: null,
     lever: lever(leverLabel(d.on_units, s.treated_units)),
-    window: windowLabel(d.date, s.waves)
+    window:
+      s.carryover && within(d.date, s.carryover.from, s.carryover.to)
+        ? AFTER_IT_ENDED
+        : windowLabel(d.date, s.waves)
   }));
 }
 
@@ -152,6 +166,45 @@ function markArea(data: unknown[], color: string): MarkAreaComponentOption {
   };
 }
 
+/** The days read after the change ended: its band, its table rows. */
+const AFTER_IT_ENDED = "After it ended";
+
+/**
+ * A dashed vertical line on each wave's switch date, and on the date the change ended
+ * when the run read on past it, labelled at the top.
+ */
+function switchLines(
+  waves: SeriesWave[],
+  dates: string[],
+  color: string,
+  ended?: string
+): MarkLineComponentOption {
+  const off =
+    ended && dates.includes(ended)
+      ? [{ xAxis: ended, label: { formatter: `Ended ${ended}` } }]
+      : [];
+  const on = waves.flatMap((w, i) =>
+    dates.includes(w.switch_on)
+      ? [
+          {
+            xAxis: w.switch_on,
+            label: {
+              formatter: waves.length === 1 ? `Switch ${w.switch_on}` : `Wave ${i + 1} switch`
+            }
+          }
+        ]
+      : []
+  );
+  const data = [...on, ...off];
+  return {
+    silent: true,
+    symbol: "none",
+    lineStyle: { color, type: "dashed", width: 1 },
+    label: { position: "insideEndTop" },
+    data
+  };
+}
+
 /** A day's raw line, faded so the trend drawn over it reads first. */
 function dailyLine(name: string, data: (number | null)[], color: string): SeriesOption {
   return {
@@ -194,15 +247,30 @@ function wavesSeries(s: WavesSeries, dates: string[], c: SeriesColors): SeriesOp
           to
         ])
   );
+  // Several waves' pre windows overlap other waves' posts, so only a single wave's is shaded.
+  const [only] = s.waves;
+  // The pre band runs on to the first day past it when the chart has that day, so it
+  // meets the post band (or the switch line) instead of stopping a day short.
+  const pre =
+    s.waves.length === 1
+      ? band(dates, only.pre_from, only.pre_to, "Pre window").map(([from, to]) => [
+          from,
+          dates.includes(only.pre_to) ? { xAxis: only.pre_to } : to
+        ])
+      : [];
   const treated = s.days.map((d) => d.treated);
   const control = s.days.map((d) => d.control);
+  const controlLine = dailyLine(`Control (${plural(s.control_units, "unit")})`, control, c.control);
+  const treatedTrend = trendLine("Treated", dates, treated, c.treated, grainOf(s.grain));
+  const after = s.carryover ? band(dates, s.carryover.from, s.carryover.to, AFTER_IT_ENDED) : [];
   return [
     {
       ...dailyLine(`Treated (${plural(s.treated_units, "unit")})`, treated, c.treated),
-      markArea: markArea(posts, c.band)
+      markArea: markArea(posts, c.band),
+      markLine: switchLines(s.waves, dates, c.marker, s.carryover?.from)
     },
-    dailyLine(`Control (${plural(s.control_units, "unit")})`, control, c.control),
-    trendLine("Treated", dates, treated, c.treated, grainOf(s.grain)),
+    pre.length > 0 ? { ...controlLine, markArea: markArea(pre, c.preBand) } : controlLine,
+    after.length > 0 ? { ...treatedTrend, markArea: markArea(after, c.afterBand) } : treatedTrend,
     trendLine("Control", dates, control, c.control, grainOf(s.grain))
   ];
 }

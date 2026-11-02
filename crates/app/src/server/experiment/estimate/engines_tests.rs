@@ -363,6 +363,32 @@ async fn a_ratio_denominator_is_read_leniently_and_its_sparse_unit_listed_once()
 }
 
 #[tokio::test]
+async fn a_retrospective_carryover_is_read_with_the_unit_floor() {
+    // After a promotion a unit may sell out: a reading of past data drops it from the
+    // carryover read, as from the registered one, instead of refusing the window.
+    let cfg = parse(CONFIG_YAML).unwrap();
+    let end = chrono::NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
+    for (lenient, floor) in [(true, Some(cfg.design.coverage_floor)), (false, None)] {
+        let src = ThinnedFor::default();
+        super::engines::load_carryover(&src, &ctx(), &cfg, None, None, end, lenient)
+            .await
+            .expect("loads");
+        let seen = src.seen.lock().unwrap();
+        assert_eq!(seen[0].unit_floor, floor, "lenient = {lenient}");
+    }
+    // The units the floor left out come back, so the report can name them.
+    let src = ThinnedFor {
+        sparse: BTreeMap::from([(cfg.outcome.target.clone(), "s05".to_string())]),
+        ..Default::default()
+    };
+    let (_, dropped) = super::engines::load_carryover(&src, &ctx(), &cfg, None, None, end, true)
+        .await
+        .expect("loads");
+    let units: Vec<&str> = dropped.iter().map(|d| d.unit.as_str()).collect();
+    assert_eq!(units, ["s05"]);
+}
+
+#[tokio::test]
 async fn a_ratio_outcome_reads_no_driver_slope() {
     // The headline is a share; the driver slope is read on the numerator's levels, so
     // "predicted against measured" would compare two different quantities.

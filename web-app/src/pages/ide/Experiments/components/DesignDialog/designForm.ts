@@ -12,6 +12,8 @@ type GuardrailKind = "anomaly" | "trigger";
 
 export interface WaveRow {
   switchOn: string;
+  /** When a past change ended (observed only): the first day it was off. Empty = not declared. */
+  switchOff: string;
   /** Unit (or group) names, separated by commas or new lines. */
   units: string;
 }
@@ -107,7 +109,7 @@ export const DEFAULTS = {
   power: 0.8
 } as const;
 
-export const newWave = (): WaveRow => ({ switchOn: "", units: "" });
+export const newWave = (): WaveRow => ({ switchOn: "", switchOff: "", units: "" });
 export const newStratum = (): StratumRow => ({ units: "" });
 export const newPeriod = (): PeriodRow => ({ from: "", state: "on" });
 export const newFilter = (): FilterRow => ({ dimension: "", op: "equals", values: [] });
@@ -258,6 +260,7 @@ export function toFormValues(input: Partial<ExperimentDefinition> | Loose): Desi
     complianceFloor: percent(design.compliance_floor, base.complianceFloor),
     waves: list(design.waves).map((w) => ({
       switchOn: text(obj(w).switch_on),
+      switchOff: text(obj(w).switch_off),
       units: names(obj(w).units)
     })),
     strata: list(design.strata).map((s) => ({ units: names(s) })),

@@ -37,7 +37,10 @@ export default function SeriesBlock({
       seriesChartOptions(series, {
         treated: resolveColor("--chart-1"),
         control: resolveColor("--chart-2"),
-        band: resolveColorWithAlpha("--chart-1", 0.08)
+        band: resolveColorWithAlpha("--chart-1", 0.08),
+        preBand: resolveColorWithAlpha("--muted-foreground", 0.06),
+        afterBand: resolveColorWithAlpha("--chart-2", 0.08),
+        marker: resolveColor("--muted-foreground")
       }),
     [series]
   );

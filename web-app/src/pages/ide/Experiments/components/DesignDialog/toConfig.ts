@@ -149,7 +149,15 @@ function schedule(r: Reader, v: DesignFormValues) {
       out.waves = v.waves.map((w, i) => {
         const units = unitNames(w.units);
         if (units.length === 0) r.errors[`waves.${i}.units`] = "List at least one name.";
-        return { switch_on: r.date(`waves.${i}.switchOn`, w.switchOn, v.grain), units };
+        const wave: Record<string, unknown> = {
+          switch_on: r.date(`waves.${i}.switchOn`, w.switchOn, v.grain)
+        };
+        // Only a past change declares its end; a registered run turns its levers off at close.
+        if (v.assignment === "observed" && w.switchOff.trim()) {
+          wave.switch_off = r.date(`waves.${i}.switchOff`, w.switchOff, v.grain);
+        }
+        wave.units = units;
+        return wave;
       });
     }
     if (v.strata.length > 0) {

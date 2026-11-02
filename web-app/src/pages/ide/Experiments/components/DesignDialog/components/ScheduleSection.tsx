@@ -97,7 +97,7 @@ export default function ScheduleSection(p: SectionProps) {
               type='number'
               min={1}
               step={1}
-              hint='Measures the effect that lingers once the lever is off, such as ads seen before a purchase. Needs one switch date.'
+              hint='Measures the effect that lingers once the lever is off, such as ads seen before a purchase, or sales pulled forward by a promotion. Needs one switch date; on past data, also the date it ended.'
             />
           </Grid>
         ) : (

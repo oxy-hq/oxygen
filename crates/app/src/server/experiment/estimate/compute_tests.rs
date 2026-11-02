@@ -435,6 +435,7 @@ fn the_series_is_stored_with_the_abort_cut_and_absent_when_never_read() {
             days: vec![],
         },
         measured_until: None,
+        carryover: None,
     });
     let mut inp = inputs(true, None, true);
     inp.measured_until = NaiveDate::from_ymd_opt(2026, 4, 1);
@@ -457,6 +458,7 @@ fn a_ratio_outcome_stores_no_series_of_its_numerator() {
             days: vec![],
         },
         measured_until: None,
+        carryover: None,
     });
     let mut inp = inputs(false, None, true);
     let mut cfg = (*inp.config).clone();

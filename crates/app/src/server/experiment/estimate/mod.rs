@@ -194,6 +194,7 @@ pub(crate) async fn engine_stage(
                 membership.as_ref(),
                 restrict_to.as_deref(),
                 end,
+                run.retrospective,
             )
             .await
             .map_err(|e| format!("load the carryover panel: {e}"))?,
@@ -201,22 +202,60 @@ pub(crate) async fn engine_stage(
         None => None,
     };
     let cfg = Arc::clone(&inputs.config);
+    let retrospective = run.retrospective;
+    let carry_end = inputs.carryover.map(|(_, end)| end);
     tokio::task::spawn_blocking(move || {
         let mut e = engines::run_engines(&cfg, &pool, &loaded, seeds, settings.placebo_iterations);
-        e.carryover = carry.map(|(off, panel)| carryover_part(&cfg, &pool, &panel, off, seeds));
+        // The chart runs on through the carryover window, from that window's own panel.
+        if let (Some((off, (engines::Loaded::Panel(m), _))), Some(end)) = (&carry, carry_end) {
+            let design = crate::server::experiment::assignment::to_design(
+                &cfg,
+                &plan::assignment_units(&cfg, &pool),
+            );
+            e.series = e
+                .series
+                .take()
+                .map(|s| series::with_carryover(s, &design, m, *off, end));
+        }
+        e.carryover = carry.map(|(off, (panel, dropped))| {
+            let mut effect = carryover_part(&cfg, &pool, &panel, off, seeds, retrospective);
+            listed_first(&mut effect.dropped_units, &dropped);
+            effect
+        });
         e
     })
     .await
     .map_err(|e| format!("estimate task panicked: {e}"))
 }
 
-/// The carryover effect, or the reason its panel could not be read.
+/// The units the panel builder left out, listed before the engine's own: the engine
+/// names such a unit again as having no rows, so it keeps the builder's reason, once
+/// (as `target_estimate::estimate_target` does for the registered read).
+fn listed_first(
+    units: &mut Vec<oxy_experiment::engine_in::DroppedUnitIn>,
+    built: &[oxy_airlayer_compat::engine::experiment::DroppedUnit],
+) {
+    units.retain(|d| !built.iter().any(|b| b.unit == d.unit));
+    units.splice(
+        0..0,
+        built
+            .iter()
+            .map(|b| oxy_experiment::engine_in::DroppedUnitIn {
+                unit: b.unit.clone(),
+                reason: b.reason.clone(),
+            }),
+    );
+}
+
+/// The carryover effect, or the reason its panel could not be read. A reading of past
+/// data (`lenient`) drops a pinned unit the panel lacks, as its registered read does.
 fn carryover_part(
     cfg: &oxy_experiment::config::ExperimentConfig,
     pool: &[String],
     panel: &engines::Loaded,
     off: oxy_experiment::moment::Moment,
     seeds: Seeds,
+    lenient: bool,
 ) -> oxy_experiment::engine_in::EffectIn {
     match panel {
         engines::Loaded::Panel(m) => {
@@ -224,7 +263,7 @@ fn carryover_part(
                 cfg,
                 &plan::assignment_units(cfg, pool),
             );
-            carryover::carryover_effect(cfg, &design, m, off, seeds.effect)
+            carryover::carryover_effect(cfg, &design, m, off, seeds.effect, lenient)
         }
         engines::Loaded::Unavailable(why) => mirror::Judged::refused(why.clone()).view,
     }
@@ -314,5 +353,35 @@ mod seed_tests {
         let mut c = design();
         c.design.seed = None;
         assert!(estimate_seed(&c, "abc").is_err());
+    }
+}
+
+#[cfg(test)]
+mod listed_first_tests {
+    use oxy_airlayer_compat::engine::experiment::DroppedUnit;
+    use oxy_experiment::engine_in::DroppedUnitIn;
+
+    #[test]
+    fn the_builders_units_come_first_and_each_unit_once() {
+        let mut units = vec![
+            DroppedUnitIn {
+                unit: "a".into(),
+                reason: "no rows".into(),
+            },
+            DroppedUnitIn {
+                unit: "b".into(),
+                reason: "no rows".into(),
+            },
+        ];
+        let built = [DroppedUnit {
+            unit: "b".into(),
+            reason: "sparse".into(),
+        }];
+        super::listed_first(&mut units, &built);
+        let got: Vec<(&str, &str)> = units
+            .iter()
+            .map(|d| (d.unit.as_str(), d.reason.as_str()))
+            .collect();
+        assert_eq!(got, [("b", "sparse"), ("a", "no rows")]);
     }
 }

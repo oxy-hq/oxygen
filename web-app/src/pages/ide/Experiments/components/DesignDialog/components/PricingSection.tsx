@@ -62,6 +62,15 @@ export default function PricingSection(p: SectionProps) {
                     label='Switches on'
                     type={switchType}
                   />
+                  {observed && (
+                    <TextField
+                      {...p}
+                      name={`waves.${i}.switchOff`}
+                      label='Ended on (optional)'
+                      type={switchType}
+                      hint='The first day the change was off, such as the day after a promotion ended. Needed to keep reading after it ended; set the days measured after each switch to end here.'
+                    />
+                  )}
                   <UnitsField
                     {...p}
                     name={`waves.${i}.units`}

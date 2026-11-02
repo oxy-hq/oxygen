@@ -39,6 +39,25 @@ comparison units were not drawn at random, so they may differ in ways other than
 the change. If you edit a priced design's waves by hand, the same check reads
 **Written by hand**.
 
+### What happened after it ended
+
+A promotion can look like it worked while it only moved purchases earlier:
+shoppers stock up during the deal and buy less afterwards. To read the days
+after a past change ended, give its wave **Ended on**, the first day it was off
+(`switch_off` on the wave), and set **Keep reading after it turns off** to the
+number of days to read. The report then reads those days against the same
+before window and says whether the effect
+[lingered, was not measurable, or reversed as pull-forward](/guide/build/world-model/experiments/report#after-the-lever-turned-off).
+
+It needs one change date, and the after window must not overlap the one
+measured during the change: **Ended on** can't fall before the after-switch
+window ends, so set that window to run up to the end date (a deal from 11 to
+24 May reads 14 days after its switch and ends on 25 May). **Analyse past data**
+is offered once the last of those days is over. **Ended on** is offered only
+under **Already changed**: a registered run's lever turns off when it closes. Use the date the
+change really ended. A promotion stopped early but recorded with its planned
+end date reads the wrong days.
+
 ### A few changed units on one date
 
 With one change date, the result is tested with **Welch's t-test** by default.

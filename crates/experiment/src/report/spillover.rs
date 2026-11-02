@@ -19,7 +19,13 @@ pub(super) fn carryover(
     let e = i.carryover?;
     let effect = summary(e);
     let g = i.config.design.grain.as_str();
-    let window = format!("the {days} {g}s after the lever turned off");
+    // A retrospective switched nothing: its window starts at the declared `switch_off`.
+    let ended = if i.retrospective {
+        "the change ended"
+    } else {
+        "the lever turned off"
+    };
+    let window = format!("the {days} {g}s after {ended}");
     let level = pct(1.0 - i.config.outcome.alpha);
     let ci = |est: f64| match (effect.interval.low, effect.interval.high) {
         (Some(l), Some(h)) => format!("{est:+.2}, {level} CI {l:+.2} to {h:+.2}"),
@@ -44,20 +50,36 @@ pub(super) fn carryover(
             true,
             match (effect.interval.low, effect.interval.high) {
                 (Some(l), Some(h)) => format!(
-                    "the effect lingered after the lever turned off: {est:+.2} per {cell} over the next {days} {g}s ({level} CI {l:+.2} to {h:+.2})"
+                    "the effect lingered after {ended}: {est:+.2} per {cell} over the next {days} {g}s ({level} CI {l:+.2} to {h:+.2})"
                 ),
                 _ => format!(
-                    "the effect lingered after the lever turned off: {est:+.2} per {cell} over the next {days} {g}s"
+                    "the effect lingered after {ended}: {est:+.2} per {cell} over the next {days} {g}s"
                 ),
             },
         ),
         (None, Some(est)) => (
             false,
             format!(
-                "after the lever turned off the outcome moved the other way over {window} ({}): pull-forward, the effect brought sales earlier rather than adding them",
+                "after {ended} the outcome moved the other way over {window} ({}): pull-forward, the effect brought sales earlier rather than adding them",
                 ci(est)
             ),
         ),
+    };
+    // A unit the headline kept but this window lacks (one that sold out once a promotion
+    // ended): the after effect is on a different set of units, so say which.
+    let missing: Vec<&str> = e
+        .dropped_units
+        .iter()
+        .filter(|d| !i.target.dropped_units.iter().any(|t| t.unit == d.unit))
+        .map(|d| d.unit.as_str())
+        .collect();
+    let statement = if missing.is_empty() {
+        statement
+    } else {
+        format!(
+            "{statement}; read without {}, left out of this window for too little data",
+            missing.join(", ")
+        )
     };
     Some(CarryoverView {
         days,

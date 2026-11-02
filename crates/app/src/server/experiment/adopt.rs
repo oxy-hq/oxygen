@@ -116,6 +116,7 @@ pub fn with_output_keys(
                 .map(|w| WaveConfig {
                     switch_on: w.switch_on,
                     units: w.units,
+                    switch_off: None,
                 })
                 .collect();
             c.design.switchback = None;
