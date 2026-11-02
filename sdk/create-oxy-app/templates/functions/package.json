@@ -12,10 +12,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p functions/tsconfig.json"
   },
   "dependencies": {
-    "@oxy-hq/sdk": "^2.24.0",
+    "@oxy-hq/sdk": "^2.26.0",
     "clsx": "^2.1.1",
-    "preact": "^10.29.7",
-    "preact-render-to-string": "^6.7.0",
+    "preact": "^11.0.2",
+    "preact-render-to-string": "^6.8.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.6.0"

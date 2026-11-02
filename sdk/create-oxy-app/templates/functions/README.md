@@ -62,6 +62,8 @@ schedule's configured `input` instead of inferring.
 Email templates are **preact** components, not React — preact runs inside the
 Functions isolate and react-dom does not. `@oxy-hq/sdk/email`'s
 `render(Component, props)` turns one into HTML.
+Give a prop its default with a default parameter (`{ name = "friend" }`):
+preact 11 ignores `defaultProps` on a function component, without an error.
 
 Locally, set `OXY_APP_EMAIL_LOCAL_TEST=1` on your dev server to preview the
 rendered email in the browser instead of sending it through SES.

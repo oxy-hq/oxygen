@@ -104,7 +104,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.131.0",
+    "@anthropic-ai/sdk": "^1.3.0",
     "@playwright/mcp": "0.0.83",
     "@playwright/test": "^1.63.0",
     "@testing-library/jest-dom": "^7.0.1",

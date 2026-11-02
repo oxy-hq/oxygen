@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.26.0] - 2026-11-02
+
+### Added
+
+- **preact 11 for `@oxy-hq/sdk/email`.** The `preact` peer range is now
+  `^10.0.0 || ^11.0.0`, so an app can move its email templates to preact 11
+  without a peer warning; the `functions` template from create-oxy-app 0.10.0
+  starts on it. `render(Component, props)` is unchanged and the HTML is the
+  same on both majors, with one exception that comes from preact itself:
+  **preact 11 ignores `defaultProps` on a function component**, without an
+  error (it moved to `preact/compat`), so a template that set
+  `Greeting.defaultProps = { name: "friend" }` renders the prop as missing.
+  Give the default as a default parameter (`function Greeting({ name =
+  "friend" })`), which works on both. Numeric styles still render with `px`
+  (`padding: 24` → `padding:24px`): preact 11 dropped that from its DOM
+  renderer, but email HTML is serialized by preact-render-to-string, which
+  keeps it. A new test bundles the renderer as `oxyc publish` does and runs
+  it in a bare V8 context with no Node globals, so a later preact release
+  that needs a timer or `TextEncoder` fails CI instead of failing in the
+  Functions isolate.
+
 ## [2.25.0] - 2026-11-01
 
 ### Added
