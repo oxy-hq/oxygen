@@ -122,7 +122,40 @@ export interface OltpCredentials {
   writable: boolean;
 }
 
+/** What one probe of an org's database found (`oxy_oltp::api::probe`). */
+export interface OltpConnectionTest {
+  /** A session opened and `SELECT 1` answered. */
+  ok: boolean;
+  /** Where it stopped; `null` when `ok`. */
+  stage: "resolve" | "connect" | "query" | "timeout" | null;
+  /** What stopped it, in the server's, the network's or the resolver's words. */
+  error: string | null;
+  /** The role it connected as — always the read-only analyst. */
+  role: string | null;
+  host: string | null;
+  elapsed_ms: number;
+}
+
 export const AdminOltpService = {
+  /**
+   * Open one session to the org's database as its analyst and run `SELECT 1`.
+   * POST: it wakes a suspended compute, so it is an act, never a prefetch. A
+   * database that refuses is a 200 with `ok: false` — the refusal is the answer.
+   */
+  async testConnection(orgId: string): Promise<OltpConnectionTest> {
+    const response = await apiClient.post(`/admin/orgs/${orgId}/oltp/test-connection`);
+    const data: unknown = response.data;
+    // The SPA catch-all answers an unknown path with index.html and a 200; read
+    // as a result, that would render as a probe that found nothing wrong.
+    if (typeof data !== "object" || data === null || !("ok" in data)) {
+      throw new Error(
+        `POST /admin/orgs/${orgId}/oltp/test-connection did not return a result. The server ` +
+          "is probably running a build without this route — restart it."
+      );
+    }
+    return data as OltpConnectionTest;
+  },
+
   /** Status for any org. Same shape as the member view, same server code. */
   async getStatus(orgId: string): Promise<OltpConnectionInfo> {
     const response = await apiClient.get(`/admin/orgs/${orgId}/oltp`);

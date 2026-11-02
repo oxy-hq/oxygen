@@ -152,3 +152,34 @@ describe("invocation call waterfall", () => {
     expect(screen.queryByTestId("admin-app-invocation-calls")).toBeNull();
   });
 });
+
+describe("invocation error text", () => {
+  // The 2026-10-21 outage: the cause sat past the truncation on every row.
+  const OUTAGE =
+    "function threw: HostError: ctx.oltp: could not open a transaction: connection error: " +
+    "connect failed: error connecting to server\n    at oxy:bootstrap:154:19";
+
+  it("opens the whole message with the row and closes it with the row", () => {
+    showRow(invocation({ status: "error", failed: true, error: OUTAGE }));
+    expect(screen.queryByTestId("admin-app-function-invocation-error-full")).toBeNull();
+
+    const toggle = screen.getByTestId("admin-app-invocation-toggle");
+    fireEvent.click(toggle);
+
+    const full = screen.getByTestId("admin-app-function-invocation-error-full");
+    // Whole, newlines and all — the stack is part of what an operator reads.
+    expect(full.textContent).toBe(OUTAGE);
+    // Beside the calls, not instead of them.
+    expect(screen.getByTestId("admin-app-invocation-calls")).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("admin-app-function-invocation-error-full")).toBeNull();
+  });
+
+  it("opens no error block on a row without an error", () => {
+    showRow(invocation({ failed: false }));
+    fireEvent.click(screen.getByTestId("admin-app-invocation-toggle"));
+    expect(screen.getByTestId("admin-app-invocation-calls")).toBeTruthy();
+    expect(screen.queryByTestId("admin-app-function-invocation-error-full")).toBeNull();
+  });
+});

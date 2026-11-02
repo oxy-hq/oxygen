@@ -241,7 +241,7 @@ pub(super) fn reply_json(what: &str, result: Result<serde_json::Value, HostError
         // `Display` is the text, byte for byte, so the JS-visible message and
         // the audit rows are what they were when this was a `String`.
         Err(error) => serde_json::json!({
-            "__oxyError": "HostError",
+            "__oxyError": super::super::host_error::HOST_ERROR_NAME,
             "message": format!("{what}: {error}"),
         })
         .to_string(),

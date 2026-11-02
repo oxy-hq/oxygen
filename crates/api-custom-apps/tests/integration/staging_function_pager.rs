@@ -142,6 +142,7 @@ async fn a_failing_staging_function_neither_pages_nor_claims_productions_slot() 
         app_id: published.app_id,
         function_name: FUNCTION,
         fingerprint: &fingerprint,
+        host_call: false,
     };
     let verdict = claim(
         &t.db,

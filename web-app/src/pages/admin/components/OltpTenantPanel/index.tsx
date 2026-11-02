@@ -5,9 +5,11 @@ import {
   useDeprovisionOltp,
   useOltpCredentials,
   useProvisionOltp,
-  useSetOltpVisibility
+  useSetOltpVisibility,
+  useTestOltpConnection
 } from "@/hooks/api/oltp/useAdminOltp";
 import { AdminEmptyState } from "@/pages/admin/components/AdminEmptyState";
+import { OltpConnectionTest } from "./components/OltpConnectionTest";
 import { OltpConnectPanel } from "./components/OltpConnectPanel";
 import { OltpDangerZone } from "./components/OltpDangerZone";
 import { OltpIdentityBar } from "./components/OltpIdentityBar";
@@ -35,13 +37,23 @@ import { OltpUnprovisioned } from "./components/OltpUnprovisioned";
  * see it". Gating the whole panel on `is_provisioned` rendered "No OLTP
  * database" with a Provision button over a tenant that has one, and hid the
  * danger zone in precisely the two states it exists for.
+ *
+ * **One instance per org.** Both callers re-render the panel in place when the
+ * operator picks another org, and a mutation's result belongs to the instance,
+ * not to `orgId`: org A's Test connection verdict — or A's minted credentials —
+ * stayed on screen under org B's heading. Keying by org gives each its own.
  */
-export const OltpTenantPanel = ({ orgId }: { orgId: string }) => {
+export const OltpTenantPanel = ({ orgId }: { orgId: string }) => (
+  <TenantPanel key={orgId} orgId={orgId} />
+);
+
+const TenantPanel = ({ orgId }: { orgId: string }) => {
   const { data, isPending, isError, error } = useAdminOltpStatus(orgId);
   const provision = useProvisionOltp(orgId);
   const credentials = useOltpCredentials(orgId);
   const visibility = useSetOltpVisibility(orgId);
   const deprovision = useDeprovisionOltp(orgId);
+  const probe = useTestOltpConnection(orgId);
 
   if (isPending) return <Skeleton className='h-24 w-full' />;
   if (isError) {
@@ -61,6 +73,10 @@ export const OltpTenantPanel = ({ orgId }: { orgId: string }) => {
   return (
     <div className='flex flex-col gap-3' data-testid='admin-org-oltp'>
       <OltpIdentityBar data={data} />
+
+      {/* Right under the identity line: the status there is Oxy's record, and
+          this is the database's own answer to the same question. */}
+      <OltpConnectionTest probe={probe} />
 
       {!data.is_provisioned && (
         <p className='text-xs' data-testid='admin-org-oltp-not-active'>

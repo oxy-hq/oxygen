@@ -71,7 +71,22 @@ export const InvocationRow = ({ appId, iv }: { appId: string; iv: FunctionInvoca
         )}
       </button>
       {open && (
-        <div id={callsId} className='pb-2 pl-5'>
+        <div id={callsId} className='flex flex-col gap-2 pb-2 pl-5'>
+          {/* The error is the most important text in the row and the one the row
+              has least room for. Truncated with only a `title`, its cause sat past
+              the cut on every row of the 2026-10-21 outage (`… could not open a
+              tr…`), and a tooltip is unreadable for a stack and uncopyable. */}
+          {iv.error && (
+            <pre
+              className={cn(
+                "max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 px-3 py-2 font-mono text-xs leading-relaxed",
+                ADMIN_TONE.danger.text
+              )}
+              data-testid='admin-app-function-invocation-error-full'
+            >
+              {iv.error}
+            </pre>
+          )}
           <InvocationCalls appId={appId} invocationId={iv.id} />
         </div>
       )}

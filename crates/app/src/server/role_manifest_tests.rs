@@ -1788,6 +1788,12 @@ fn tenant_data_plane_routes_are_fleet_ok() {
         // a `route_layer` (Action::PlatformOltp); placement is orthogonal
         // to it, and neither touches node-local disk.
         ("GET", format!("/api/admin/orgs/{org}/oltp")),
+        // One session to the tenant's database as its analyst: Postgres over
+        // the network, nothing node-local, so any replica answers it.
+        (
+            "POST",
+            format!("/api/admin/orgs/{org}/oltp/test-connection"),
+        ),
         ("POST", format!("/api/admin/orgs/{org}/oltp/provision")),
         ("POST", format!("/api/admin/orgs/{org}/oltp/credentials")),
         // Added with the admin UI. Both are org-keyed writes against

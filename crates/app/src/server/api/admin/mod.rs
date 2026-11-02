@@ -125,6 +125,7 @@ use crate::server::router::{AdminSection, AppState};
 ///   - POST   /admin/workspaces/{workspace_id}/airhouse/provision
 ///   - GET    /admin/oltp
 ///   - GET    /admin/orgs/{org_id}/oltp
+///   - POST   /admin/orgs/{org_id}/oltp/test-connection
 ///   - POST   /admin/orgs/{org_id}/oltp/provision
 ///   - POST   /admin/orgs/{org_id}/oltp/credentials
 ///   - POST   /admin/orgs/{org_id}/oltp/visibility
@@ -531,6 +532,7 @@ mod tests {
             // took over the mount.
             ("GET", "/oltp".to_string()),
             ("GET", format!("/orgs/{org}/oltp")),
+            ("POST", format!("/orgs/{org}/oltp/test-connection")),
             ("POST", format!("/orgs/{org}/oltp/provision")),
             ("POST", format!("/orgs/{org}/oltp/credentials")),
             ("POST", format!("/orgs/{org}/oltp/visibility")),

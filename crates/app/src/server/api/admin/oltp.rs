@@ -44,6 +44,10 @@ where
     Router::new()
         .route("/oltp", get(list_tenants))
         .route("/orgs/{org_id}/oltp", get(get_status))
+        // A POST although it changes nothing: it opens a session to the
+        // tenant's database, which wakes a suspended compute, so it is an act
+        // an operator takes, never a read a page load or a prefetch may make.
+        .route("/orgs/{org_id}/oltp/test-connection", post(test_connection))
         .route("/orgs/{org_id}/oltp/provision", post(provision))
         .route("/orgs/{org_id}/oltp/credentials", post(credentials))
         .route("/orgs/{org_id}/oltp/visibility", post(set_visibility))
@@ -117,6 +121,18 @@ pub async fn get_status(
     let db = conn().await?;
     scope::deny_out_of_scope(&db, &user, org_id).await?;
     inner::get_status(AuthenticatedUserExtractor(user), Path(org_id)).await
+}
+
+/// Open one session to the org's database as its analyst and report what the
+/// server answered (`oxy_oltp::api::probe`). Not audited, as `get_status` is
+/// not: it reads, and it hands the caller nothing it could not already see.
+pub async fn test_connection(
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    Path(org_id): Path<Uuid>,
+) -> Result<Json<oxy_oltp::api::probe::ConnectionTestResponse>, StatusCode> {
+    let db = conn().await?;
+    scope::deny_out_of_scope(&db, &user, org_id).await?;
+    oxy_oltp::api::probe::test_connection(AuthenticatedUserExtractor(user), Path(org_id)).await
 }
 
 pub async fn provision(

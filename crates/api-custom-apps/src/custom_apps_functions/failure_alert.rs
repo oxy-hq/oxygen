@@ -28,6 +28,12 @@
 //! route.
 //!
 //! **Held back** (recorded as `suppressed:<reason>`):
+//! - `cause_rate` — the failure is a failed `ctx.*` call, and the same
+//!   fingerprint already paged on another function of the app in the last
+//!   [`FUNCTION_PAGE_WINDOW_HOURS`] hours. One refused database is one page,
+//!   not one per function that queries it: on 2026-10-21 a Neon project over
+//!   its quota paged thirteen times, once per function, until the hourly cap
+//!   ran out. Like a page, it lasts the week;
 //! - `function_rate` — the function already paged in the last
 //!   [`FUNCTION_PAGE_WINDOW_HOURS`] hours;
 //! - `platform_rate` — [`PAGES_PER_HOUR`] pages already went out this hour;
@@ -102,6 +108,13 @@ pub struct FailureKey<'a> {
     pub app_id: Uuid,
     pub function_name: &'a str,
     pub fingerprint: &'a str,
+    /// Whether the fingerprint names a failed `ctx.*` call — the failure
+    /// carries a `host_call` (`failure_signal::Failure`). Only then is the
+    /// same fingerprint on another function of the app the same cause, held
+    /// back as `cause_rate` once one of them paged. A timeout, a 5xx and a heap
+    /// kill also share a fingerprint across functions, but there it is the
+    /// shape of the failure, not one cause. Not part of the alert row's key.
+    pub host_call: bool,
 }
 
 /// What a failure calls for.
@@ -426,10 +439,15 @@ async fn reached_threshold(
     Ok(n >= threshold)
 }
 
-/// The two caps, over the last [`FUNCTION_PAGE_WINDOW_HOURS`] of the alerts
+/// The three caps, over the last [`FUNCTION_PAGE_WINDOW_HOURS`] of the alerts
 /// table (indexed on `claimed_at`). A page counts once it was sent or may
 /// still be sending. A claim that went stale unsent does not — or retrying it
 /// would be held back by its own unsent claim.
+///
+/// `cause_rate` comes first: a failure whose cause already paged is covered,
+/// which is the truer reason even when the function or the hour is also full.
+/// It is written delivered and is not in [`reclaimable`]'s list, so it lasts
+/// the week, as the page it defers to does.
 async fn rate_limited(
     db: &impl ConnectionTrait,
     key: FailureKey<'_>,
@@ -438,12 +456,14 @@ async fn rate_limited(
     let Some(row) = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "WITH pages AS (SELECT app_id, function_name, claimed_at \
+            "WITH pages AS (SELECT app_id, function_name, failure_fingerprint, claimed_at \
                               FROM app_function_failure_alerts \
                              WHERE outcome = 'paged' AND claimed_at >= $4 \
                                AND (delivered_at IS NOT NULL OR claimed_at >= $3)) \
              SELECT EXISTS (SELECT 1 FROM pages WHERE app_id = $1 AND function_name = $2) \
                       AS function_paged, \
+                    ($7 AND EXISTS (SELECT 1 FROM pages WHERE app_id = $1 \
+                       AND failure_fingerprint = $6 AND function_name <> $2)) AS cause_paged, \
                     (SELECT count(*) FROM pages WHERE claimed_at >= $5) AS paged_last_hour",
             [
                 key.app_id.into(),
@@ -451,12 +471,17 @@ async fn rate_limited(
                 at(grace_cutoff(now)),
                 at(now - Duration::hours(FUNCTION_PAGE_WINDOW_HOURS)),
                 at(now - Duration::hours(1)),
+                key.fingerprint.into(),
+                key.host_call.into(),
             ],
         ))
         .await?
     else {
         return Ok(None);
     };
+    if row.try_get::<bool>("", "cause_paged")? {
+        return Ok(Some("suppressed:cause_rate"));
+    }
     if row.try_get::<bool>("", "function_paged")? {
         return Ok(Some("suppressed:function_rate"));
     }

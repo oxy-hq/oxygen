@@ -46,6 +46,15 @@ impl Seeded {
             app_id: self.app_id,
             function_name: function,
             fingerprint,
+            host_call: false,
+        }
+    }
+
+    /// [`Seeded::key_for`] for a failure that is a failed `ctx.*` call.
+    fn host_call_key(&self, function: &'static str) -> FailureKey<'static> {
+        FailureKey {
+            host_call: true,
+            ..self.key_for(function, FINGERPRINT)
         }
     }
 }
@@ -457,6 +466,128 @@ async fn another_function_or_fingerprint_is_a_separate_signal() {
             .await
             .unwrap()
     ));
+}
+
+/// The 2026-10-21 shape: one database refused every connection, and every
+/// function that queried it failed with the same fingerprint. Once the first
+/// paged, the rest are held back as `cause_rate` — and stay held for the week,
+/// as the page they defer to does, rather than paging when the window passes.
+#[tokio::test]
+async fn a_failed_host_call_pages_once_for_every_function_it_breaks() {
+    const OTHER: &str = "list-due";
+    let db = test_db().await;
+    let s = seed(&db).await;
+    for _ in 0..THRESHOLD {
+        failed(&db, &s, Duration::minutes(2)).await;
+        failed_as(&db, &s, OTHER, Some(FINGERPRINT), Duration::minutes(1)).await;
+    }
+    let now = Utc::now();
+    assert!(is_page(
+        &claim(
+            &db,
+            s.invocation,
+            s.host_call_key(FUNCTION),
+            now,
+            long_ago()
+        )
+        .await
+        .unwrap()
+    ));
+    assert_eq!(
+        claim(&db, s.invocation, s.host_call_key(OTHER), now, long_ago())
+            .await
+            .unwrap(),
+        Verdict::Suppressed("suppressed:cause_rate")
+    );
+    for later in [
+        Duration::hours(FUNCTION_PAGE_WINDOW_HOURS + 1),
+        Duration::days(LOOKBACK_DAYS - 1),
+    ] {
+        failed_as(&db, &s, OTHER, Some(FINGERPRINT), Duration::zero()).await;
+        assert_eq!(
+            claim(
+                &db,
+                s.invocation,
+                s.host_call_key(OTHER),
+                now + later,
+                long_ago()
+            )
+            .await
+            .unwrap(),
+            Verdict::Quiet,
+            "the hold stands {later:?} on"
+        );
+    }
+}
+
+/// A timeout, a 5xx and a heap kill share one fingerprint across every
+/// function, but that is the shape of the failure, not one cause: two
+/// functions timing out are two signals, and each still pages.
+#[tokio::test]
+async fn a_shared_fingerprint_that_is_not_a_host_call_pages_per_function() {
+    const OTHER: &str = "list-due";
+    let db = test_db().await;
+    let s = seed(&db).await;
+    for _ in 0..THRESHOLD {
+        failed(&db, &s, Duration::minutes(2)).await;
+        failed_as(&db, &s, OTHER, Some(FINGERPRINT), Duration::minutes(1)).await;
+    }
+    let now = Utc::now();
+    for function in [FUNCTION, OTHER] {
+        let verdict = claim(
+            &db,
+            s.invocation,
+            s.key_for(function, FINGERPRINT),
+            now,
+            long_ago(),
+        )
+        .await
+        .unwrap();
+        assert!(is_page(&verdict), "{function}: {verdict:?}");
+    }
+}
+
+/// The hold names a cause in one app. Another app failing with the same
+/// fingerprint is another tenant's outage, and pages for itself.
+#[tokio::test]
+async fn a_host_call_that_paged_in_one_app_does_not_hold_another() {
+    const OTHER: &str = "list-due";
+    let db = test_db().await;
+    let s = seed(&db).await;
+    let elsewhere = seed(&db).await;
+    for _ in 0..THRESHOLD {
+        failed(&db, &s, Duration::minutes(2)).await;
+        failed_as(
+            &db,
+            &elsewhere,
+            OTHER,
+            Some(FINGERPRINT),
+            Duration::minutes(1),
+        )
+        .await;
+    }
+    let now = Utc::now();
+    assert!(is_page(
+        &claim(
+            &db,
+            s.invocation,
+            s.host_call_key(FUNCTION),
+            now,
+            long_ago()
+        )
+        .await
+        .unwrap()
+    ));
+    let verdict = claim(
+        &db,
+        elsewhere.invocation,
+        elsewhere.host_call_key(OTHER),
+        now,
+        long_ago(),
+    )
+    .await
+    .unwrap();
+    assert!(is_page(&verdict), "{verdict:?}");
 }
 
 #[tokio::test]

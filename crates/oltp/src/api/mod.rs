@@ -12,6 +12,7 @@ pub mod admin;
 pub mod branches;
 pub mod erd;
 pub mod handlers;
+pub mod probe;
 
 use axum::Router;
 use axum::http::StatusCode;

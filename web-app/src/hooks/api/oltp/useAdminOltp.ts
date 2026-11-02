@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import queryKeys from "@/hooks/api/queryKey";
-import { AdminOltpService, listOltpTenants, type OltpCredentials } from "@/services/api/oltp";
+import {
+  AdminOltpService,
+  listOltpTenants,
+  type OltpConnectionTest,
+  type OltpCredentials
+} from "@/services/api/oltp";
 import { errMessage } from "../errMessage";
 
 // `web-app/CLAUDE.md` is a hard rule: every key comes from `queryKey.ts`. The
@@ -36,6 +41,21 @@ export function useProvisionOltp(orgId: string | undefined) {
       toast.success(`Provisioned ${data.database}`);
     },
     onError: (err) => toast.error(errMessage(err, "Could not provision OLTP"))
+  });
+}
+
+/**
+ * Probe the org's database on demand.
+ *
+ * A mutation, like `useOltpCredentials`: it is never cached or refetched,
+ * because each call opens a real session and wakes a suspended compute. A
+ * refusal is data (`ok: false`), not an error — `onError` is for the probe
+ * itself failing.
+ */
+export function useTestOltpConnection(orgId: string | undefined) {
+  return useMutation<OltpConnectionTest, unknown, void>({
+    mutationFn: () => AdminOltpService.testConnection(orgId as string),
+    onError: (err) => toast.error(errMessage(err, "Could not test the connection"))
   });
 }
 

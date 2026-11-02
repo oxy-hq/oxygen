@@ -961,7 +961,9 @@ async fn a_caught_host_call_failure_is_noted_on_the_host() {
     assert!(resp.body.contains("connection refused"), "{}", resp.body);
     assert_eq!(
         host.host_call_failures(),
-        vec![("query", "host_call_failed")],
+        // `connection refused` is the connection never opening: the kind
+        // that names it (`host_call_attrs::is_unreachable`), not the catch-all.
+        vec![("query", "unreachable")],
         "exactly one note, for the one failed call"
     );
     assert_eq!(
@@ -1012,10 +1014,7 @@ async fn a_retried_host_call_reports_its_success_under_the_same_op() {
     .await
     .expect("the retry answered");
     assert_eq!(resp.status, 200, "{}", resp.body);
-    assert_eq!(
-        host.host_call_failures(),
-        vec![("query", "host_call_failed")]
-    );
+    assert_eq!(host.host_call_failures(), vec![("query", "unreachable")]);
     assert_eq!(host.host_call_successes(), vec!["query"]);
     // `ctx.query` names no target, so the note is keyed by op alone.
     assert_eq!(host.host_call_failure_targets(), vec![None]);
@@ -1192,8 +1191,8 @@ async fn caught_airhouse_and_oltp_tx_failures_are_noted_by_name() {
     assert_eq!(
         host.host_call_failures(),
         vec![
-            ("airhouse.append", "host_call_failed"),
-            ("tx.begin_oltp", "host_call_failed"),
+            ("airhouse.append", "unreachable"),
+            ("tx.begin_oltp", "unreachable"),
         ]
     );
 }

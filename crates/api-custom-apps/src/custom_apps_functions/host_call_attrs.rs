@@ -131,6 +131,12 @@ pub(super) fn classify_host_error(message: &str) -> &'static str {
 /// and some of them echo a value the caller sent (`unknown op '<op>'`,
 /// `unknown encoding '<encoding>'`), which must not get to pick the kind.
 ///
+/// `quota_exceeded` and `unreachable` name the two ways a backend refuses
+/// before any statement runs. They were `host_call_failed`, and on 2026-10-21
+/// that hid a Neon project over its quota behind thirteen pages that each said
+/// `threw` and named no cause: finding it took a `psql` session with the app's
+/// own credential. A connect that timed out stays `timeout`, as it was.
+///
 /// `environment_labels` is whether the host's environment policy decides —
 /// outside production, or a production run refused for reading a branch. Only
 /// there is a `HeldInStaging` / `EnvironmentRefused` label the policy's own: a
@@ -145,8 +151,12 @@ pub(super) fn classify_host_error_for(message: &str, environment_labels: bool) -
     let m = message.to_ascii_lowercase();
     if is_caller_error(&m) {
         "bad_request"
+    } else if is_quota_refusal(&m) {
+        "quota_exceeded"
     } else if m.contains("timed out") || m.contains("timeout") || m.contains("deadline") {
         "timeout"
+    } else if is_unreachable(&m) {
+        "unreachable"
     } else if m.contains("permission") || m.contains("denied") || m.contains("forbidden") {
         "permission_denied"
     } else if m.contains("not allowed") || m.contains("blocked") || m.contains("capability") {
@@ -172,6 +182,45 @@ fn environment_decision_kind(message: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// A backend turned the call away for a quota or a plan limit, read from the
+/// refusal's own phrasing and never from the bare word: `quota` alone also
+/// matched the names an app chooses and the host echoes back — a missing
+/// table `quota_targets`, a storage key `reports/quota-2026.csv` — and paged
+/// an ordinary `not_found` as `quota_exceeded`. Neon says `exceeded the
+/// quota` and names the one it hit in between (`exceeded the data transfer
+/// quota`, `exceeded the compute time quota`); the storage hard limit
+/// (`oxy_custom_apps::storage::quota`) says `storage quota exceeded`.
+fn is_quota_refusal(m: &str) -> bool {
+    m.contains("quota exceeded")
+        || m.match_indices("exceeded the ").any(|(at, head)| {
+            m[at + head.len()..]
+                .split_whitespace()
+                .take(4)
+                .any(|word| word.trim_end_matches(['.', ',', ';', ':']) == "quota")
+        })
+}
+
+/// The connection never opened: nothing answered at the address, or the name
+/// did not resolve. Read from the phrasing of the two clients behind the host
+/// ops — `tokio-postgres` (`error connecting to server`, which is also how
+/// `agentic-connector`'s `pg_connect` reports an address it could not reach)
+/// and `reqwest`/`hyper` (`dns error`, `connection refused`). Not
+/// `connect failed`: that prefix also carries a server's refusal after the
+/// connection opened, and an authentication failure is not this.
+fn is_unreachable(m: &str) -> bool {
+    [
+        "error connecting to server",
+        "connection refused",
+        "network is unreachable",
+        "no route to host",
+        "could not resolve",
+        "failed to lookup address",
+        "dns error",
+    ]
+    .iter()
+    .any(|marker| m.contains(marker))
 }
 
 /// The host refused the call's arguments before doing anything with them: a
@@ -411,10 +460,18 @@ fn is_caller_error_label(label: &str) -> bool {
 /// `not_found` is ordinary control flow (a `storage.head` probe for an object
 /// not written yet), `bad_request` is the app's own argument error
 /// ([`is_caller_error`]), and `cancelled` is someone asking the run to stop.
+///
+/// `quota_exceeded` and `unreachable` count: they were `host_call_failed`
+/// until they had names, and a name must not take a page away.
 pub(super) fn counts_toward_paging(kind: &str) -> bool {
     matches!(
         kind,
-        "host_call_failed" | "timeout" | "permission_denied" | "not_allowed"
+        "host_call_failed"
+            | "timeout"
+            | "permission_denied"
+            | "not_allowed"
+            | "quota_exceeded"
+            | "unreachable"
     )
 }
 
@@ -548,6 +605,80 @@ mod tests {
         assert_eq!(classify_host_error("something odd"), "host_call_failed");
     }
 
+    /// The two messages the 2026-10-21 Neon outage produced, before and after
+    /// `pg_connect` (#3729) learned to report the server's refusal, and the
+    /// fetch-side phrasing of the same "nothing answered".
+    #[test]
+    fn a_backend_that_refuses_before_any_statement_names_why() {
+        assert_eq!(
+            classify_host_error(
+                "could not open a transaction: connection error: connect failed: \
+                 db error: ERROR: Your account or project has exceeded the quota. \
+                 Upgrade your plan to increase limits."
+            ),
+            "quota_exceeded"
+        );
+        // Neon names the quota it hit between the two words.
+        for which in ["data transfer", "compute time"] {
+            let message = format!(
+                "connect failed: db error: ERROR: Your project has exceeded the {which} quota. \
+                 Upgrade your plan to increase limits."
+            );
+            assert_eq!(classify_host_error(&message), "quota_exceeded", "{message}");
+        }
+        // The word in a name the app chose is not a refusal: these were
+        // `not_found` and `permission_denied` before the kind existed.
+        assert_eq!(
+            classify_host_error("relation \"quota_targets\" does not exist"),
+            "not_found"
+        );
+        assert_eq!(
+            classify_host_error(
+                "storage object not found: copy source 'reports/quota-2026.csv' does not exist"
+            ),
+            "not_found"
+        );
+        assert_eq!(
+            classify_host_error("permission denied for table quota_overrides"),
+            "permission_denied"
+        );
+        // An org over its own storage hard limit is the same shape of refusal
+        // (`oxy_custom_apps::storage::quota`); it was `host_call_failed` too.
+        assert_eq!(
+            classify_host_error(
+                "storage quota exceeded: this organization is using 51 GiB of its \
+                 50 GiB hard limit, so new uploads are paused"
+            ),
+            "quota_exceeded"
+        );
+        for message in [
+            "could not open a transaction: connection error: connect failed: \
+             error connecting to server",
+            "connect failed: error connecting to server: Network is unreachable \
+             (os error 101) (first of 2 addresses tried: [2600::1]:5432, 52.0.0.1:5432)",
+            "error sending request for url (api.example.com/?): error trying to connect: \
+             tcp connect error: Connection refused (os error 111)",
+            "error sending request for url (api.example.com/?): error trying to connect: \
+             dns error: failed to lookup address information",
+            "connect failed: error connecting to server: could not resolve db.example.com",
+        ] {
+            assert_eq!(classify_host_error(message), "unreachable", "{message}");
+        }
+        // Reaching the server and being turned away is not unreachable.
+        assert_eq!(
+            classify_host_error(
+                "connect failed: db error: FATAL: password authentication failed \
+                 for user \"app_x_rw\""
+            ),
+            "host_call_failed"
+        );
+        // A connect that timed out stays a timeout, as it always was.
+        assert_eq!(
+            classify_host_error("connect failed: error connecting to server: timed out"),
+            "timeout"
+        );
+    }
+
     #[test]
     fn only_platform_side_host_errors_count_toward_paging() {
         for kind in [
@@ -555,6 +686,8 @@ mod tests {
             "timeout",
             "permission_denied",
             "not_allowed",
+            "quota_exceeded",
+            "unreachable",
         ] {
             assert!(counts_toward_paging(kind), "{kind}");
         }

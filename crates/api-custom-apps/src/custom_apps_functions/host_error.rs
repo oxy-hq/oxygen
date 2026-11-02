@@ -27,7 +27,11 @@ use super::env_policy::{HELD_LABEL, REFUSED_LABEL};
 
 /// What a function sees when the isolate's own code threw, ahead of the
 /// message (`RuntimeError::Js`).
-const THREW_HEAD: &str = "function threw:";
+pub(super) const THREW_HEAD: &str = "function threw:";
+/// The JS `name` of the error a failed `ctx.*` call throws into the isolate
+/// (`runtime::ops::reply_json`). Behind [`THREW_HEAD`] it says the handler let
+/// a platform call's failure escape rather than raising one of its own.
+pub(super) const HOST_ERROR_NAME: &str = "HostError";
 /// What a runtime failure that is the platform's, not the app's, says first
 /// (`RuntimeError::Internal`); the classifier has always matched it without
 /// the colon.

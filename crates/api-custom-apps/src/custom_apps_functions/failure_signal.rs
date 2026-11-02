@@ -33,10 +33,12 @@ pub(super) struct Failure {
     pub kind: &'static str,
     /// See [`fingerprint`].
     pub fingerprint: String,
-    /// The call behind a `host_call` failure, by op and kind; `None` for every
-    /// other kind. Carried because that row's `error` is NULL — the app caught
-    /// the message — so these two closed-list values are what the page and the
-    /// log line can name.
+    /// The call behind a `host_call` failure, by op and kind — and behind a
+    /// `threw` whose error was a failed `ctx.*` call the handler let escape;
+    /// `None` for every other failure. Carried because a `host_call` row's
+    /// `error` is NULL — the app caught the message — and because a `threw`
+    /// row's message names no cause in a word the pager may print, so these
+    /// two closed-list values are what the page and the log line can name.
     pub host_call: Option<HostCallFailure>,
 }
 
@@ -231,7 +233,9 @@ impl Failure {
     /// It decides the kind of an `error` status when it names one of the four
     /// labels that status can carry; the prefix of `error` is read only when it
     /// is `None` — a row written before the column — or names none of them.
-    /// The fingerprint is always of the text.
+    /// The fingerprint is of the text, except for a `threw` that is the run's
+    /// noted `ctx.*` call let escape, which takes the call's fingerprint
+    /// ([`Failure::escaped_host_call`]).
     pub fn of(
         status: &str,
         http_status: u16,
@@ -265,6 +269,13 @@ impl Failure {
                 let kind = error_kind
                     .and_then(stored_error_kind)
                     .unwrap_or_else(|| kind_of_error(message));
+                // The escaped call is a `threw`; a stored kind that says
+                // otherwise is not the app's code throwing it.
+                if kind == "threw"
+                    && let Some(hc) = host_call.filter(|hc| escaped_noted_call(message, hc))
+                {
+                    return Some(Self::escaped_host_call(hc));
+                }
                 (kind, fingerprint(message))
             }
         };
@@ -273,6 +284,25 @@ impl Failure {
             fingerprint,
             host_call: None,
         })
+    }
+
+    /// A `threw` whose error was a failed `ctx.*` call the handler did not
+    /// catch: the app's code threw, so the kind stays `threw`, but the cause is
+    /// the call, and the fingerprint is the call's — the one a handler that
+    /// caught it would have paged under.
+    ///
+    /// Digesting the thrown message instead gave one cause a fingerprint per
+    /// call site. Past the host's text the message is the stack, and the
+    /// handler's frame is inside [`FINGERPRINT_PREFIX`]: on 2026-10-21 one
+    /// Neon refusal reached the pager as six fingerprints across thirteen
+    /// functions, and "the same fingerprint on other functions" — the page's
+    /// own test for a platform fault — could not see it.
+    fn escaped_host_call(hc: &HostCallFailure) -> Self {
+        Self {
+            kind: "threw",
+            fingerprint: hc.fingerprint(),
+            host_call: Some(hc.clone()),
+        }
     }
 
     /// The fingerprint every timeout shares, for the reaper, which marks
@@ -396,6 +426,33 @@ fn stored_error_kind(label: &str) -> Option<&'static str> {
 /// gives the kind each typed constructor has.
 fn kind_of_error(message: &str) -> &'static str {
     kind_of_host_error(&HostError::from(message))
+}
+
+/// Whether an `error` row is the run's noted `ctx.*` call, let escape by the
+/// handler — `function threw: HostError: ctx.oltp: <what the host said>`,
+/// where what the host said is what the note kept. Only then does the note
+/// name the cause. A handler that caught a failed call and later threw its
+/// own `Error` is failing in its own way; so is one that let a *different*
+/// call escape — a caught `ctx.fetch` timeout, then an uncaught
+/// `ctx.storage.copy` conflict, which is never noted. Each keeps the
+/// fingerprint of what it threw.
+fn escaped_noted_call(message: &str, hc: &HostCallFailure) -> bool {
+    use super::host_error::{HOST_ERROR_NAME, THREW_HEAD};
+    message
+        .strip_prefix(THREW_HEAD)
+        .and_then(|rest| rest.trim_start().strip_prefix(HOST_ERROR_NAME))
+        .and_then(|rest| rest.strip_prefix(':'))
+        // `reply_json` puts the surface first (`ctx.oltp: `); the note holds
+        // the host's message without it.
+        .and_then(|rest| rest.trim_start().split_once(": "))
+        .is_some_and(|(_surface, said)| {
+            // The stack follows the host's words after a newline, which
+            // normalizes to a space; a note cut at the digest's bound leaves
+            // nothing after it, since `said` was cut there too.
+            let said = normalized_prefix(said);
+            said.strip_prefix(hc.message.as_str())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+        })
 }
 
 /// Chars of normalized message that feed the digest — chars, not bytes, so
@@ -1403,6 +1460,162 @@ mod tests {
         assert_eq!(Failure::of("cancelled", 0, None, None, Some(&hc)), None);
     }
 
+    /// Two of the thirteen functions the 2026-10-21 Neon outage paged on: the
+    /// same failed `ctx.oltp` call, let escape from two different handlers.
+    fn escaped_from(frame: &str) -> String {
+        format!(
+            "function threw: HostError: ctx.oltp: could not open a transaction: connection \
+             error: connect failed: error connecting to server\n    at oxy:bootstrap:154:19\n    \
+             at async Object.query (oxy:bootstrap:321:17)\n    at async {frame} \
+             (oxy:function:102:16)\n    at async wrapped (oxy:function:416:13)"
+        )
+    }
+
+    fn oltp_unreachable() -> HostCallFailure {
+        HostCallFailure::noted(
+            None,
+            "oltp.query",
+            "unreachable",
+            "could not open a transaction: connection error: connect failed: \
+             error connecting to server",
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_escaped_host_call_failure_is_fingerprinted_by_the_call_not_the_stack() {
+        let hc = oltp_unreachable();
+        let list_due =
+            Failure::of("error", 0, Some(&escaped_from("handler")), None, Some(&hc)).unwrap();
+        let notify = Failure::of(
+            "error",
+            0,
+            Some(&escaped_from("loadOverdueSettings")),
+            None,
+            Some(&hc),
+        )
+        .unwrap();
+        assert_eq!(list_due.kind, "threw", "the app's code still threw");
+        assert_eq!(
+            list_due.host_call,
+            Some(hc.clone()),
+            "the page names the call"
+        );
+        assert_eq!(
+            list_due.fingerprint, notify.fingerprint,
+            "one cause, one fingerprint, whichever handler let it escape"
+        );
+        assert_eq!(
+            list_due.fingerprint,
+            Failure::of("success", 200, None, None, Some(&hc))
+                .unwrap()
+                .fingerprint,
+            "the fingerprint a handler that caught it would have paged under"
+        );
+
+        // Without the note, the message is all there is, and the stack splits it.
+        let unnoted = |frame| {
+            Failure::of("error", 0, Some(&escaped_from(frame)), None, None)
+                .unwrap()
+                .fingerprint
+        };
+        assert_ne!(unnoted("handler"), unnoted("loadOverdueSettings"));
+    }
+
+    #[test]
+    fn a_handler_that_threw_its_own_error_keeps_its_own_fingerprint() {
+        let hc = oltp_unreachable();
+        // It caught the failed call and then raised something of its own: that
+        // is the handler failing its own way, whatever the run noted earlier.
+        let own =
+            "function threw: Error: no settings row for store\n    at handler (oxy:function:9:3)";
+        let f = Failure::of("error", 0, Some(own), None, Some(&hc)).unwrap();
+        assert_eq!(f.kind, "threw");
+        assert_eq!(f.host_call, None);
+        assert_eq!(f.fingerprint, fingerprint(own));
+        // A name that merely starts like it is not it.
+        let lookalike = "function threw: HostErrorish: x";
+        assert_eq!(
+            Failure::of("error", 0, Some(lookalike), None, Some(&hc))
+                .unwrap()
+                .host_call,
+            None
+        );
+        // The platform's own failures are not the app's code throwing at all.
+        let internal = Failure::of(
+            "error",
+            0,
+            Some("internal runtime error: x"),
+            None,
+            Some(&hc),
+        )
+        .unwrap();
+        assert_eq!(internal.kind, "internal");
+        assert_eq!(internal.host_call, None);
+    }
+
+    /// One run, two failed calls: a `ctx.fetch` timeout the handler caught,
+    /// which was noted, and then a `ctx.storage.copy` conflict it did not,
+    /// which escaped. The row is the conflict, and must not page as the
+    /// timeout — under `cause_rate` that would also hold it for the week
+    /// behind a page about a different call.
+    #[test]
+    fn an_escaped_host_error_takes_the_note_only_when_it_is_the_noted_call() {
+        let caught = HostCallFailure::noted(
+            None,
+            "fetch",
+            "timeout",
+            "error sending request for url (https://vendor.example.com/v1/orders): \
+             operation timed out",
+            Some("vendor.example.com"),
+        )
+        .unwrap();
+        let other = "function threw: HostError: ctx.storage: storage conflict: copy \
+                     target 'reports/day.csv' exists\n    at oxy:bootstrap:154:19";
+        let f = Failure::of("error", 0, Some(other), None, Some(&caught)).unwrap();
+        assert_eq!(f.host_call, None, "the escaped call is not the noted one");
+        assert_eq!(f.fingerprint, fingerprint(other));
+
+        // A message that merely starts with the note's words is not it either.
+        let hc = oltp_unreachable();
+        // Nor is a row whose stored kind says the app's code did not throw:
+        // the column decides the kind, and an escaped call is a `threw`.
+        let internal = Failure::of(
+            "error",
+            0,
+            Some(&escaped_from("handler")),
+            Some("internal"),
+            Some(&hc),
+        )
+        .unwrap();
+        assert_eq!(internal.kind, "internal");
+        assert_eq!(internal.host_call, None);
+        let longer = "function threw: HostError: ctx.oltp: could not open a transaction: \
+                      connection error: connect failed: error connecting to server: \
+                      tls handshake eof\n    at oxy:bootstrap:154:19";
+        assert_eq!(
+            Failure::of("error", 0, Some(longer), None, Some(&hc))
+                .unwrap()
+                .host_call,
+            None
+        );
+
+        // A note cut at the digest's bound still matches its own escape.
+        let long_words = format!("could not open a transaction: {}", "detail ".repeat(60));
+        let long =
+            HostCallFailure::noted(None, "oltp.query", "unreachable", &long_words, None).unwrap();
+        let escaped = format!(
+            "function threw: HostError: ctx.oltp: {long_words}\n    at oxy:bootstrap:154:19"
+        );
+        assert_eq!(
+            Failure::of("error", 0, Some(&escaped), None, Some(&long))
+                .unwrap()
+                .host_call,
+            Some(long)
+        );
+    }
+
     /// Load shedding is the platform working as designed. Through the generic
     /// `error` path it raised a `Failure`, which marks the invocation span
     /// ERROR, writes a WARN on `oxy::app_function` and **pages** — reporting a
@@ -1511,7 +1724,7 @@ mod tests {
         assert_eq!(
             stored.fingerprint,
             fingerprint("workspace not found"),
-            "the fingerprint is always of the text"
+            "the stored kind does not move the fingerprint off the text"
         );
         for unusable in ["timeout", "host_call", "http_5xx", "", "no_such_kind"] {
             let failure = Failure::of("error", 0, text, Some(unusable), None).unwrap();

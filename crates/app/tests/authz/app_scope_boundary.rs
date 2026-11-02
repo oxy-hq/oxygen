@@ -568,6 +568,9 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
             "crates/app/src/server/api/admin/oltp.rs",
             &[
                 "get_status",
+                // Opens a session to the tenant's database: it names the host
+                // and what the server said, for an org the caller may not reach.
+                "test_connection",
                 "provision",
                 "set_visibility",
                 "deprovision",

@@ -196,7 +196,7 @@ pub fn pg_detail(e: &tokio_postgres::Error) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use tokio_postgres::config::SslMode;
 
     /// The whole design rests on `sslmode` surviving into the parsed config, so
@@ -236,11 +236,12 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    const QUOTA: &str = "Your account or project has exceeded the quota";
+    pub(crate) const QUOTA: &str = "Your account or project has exceeded the quota";
 
     /// A Postgres server that answers the first `refusals` startup packets with
     /// an `ErrorResponse` carrying [`QUOTA`], then accepts. Returns its port.
-    async fn fake_server(refusals: usize) -> u16 {
+    /// `api::probe`'s tests stand on it too.
+    pub(crate) async fn fake_server(refusals: usize) -> u16 {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let seen = Arc::new(AtomicUsize::new(0));

@@ -13,6 +13,7 @@ import { RetainedBuilds } from "../AppDetail/components/BuildHistory/RetainedBui
 import { CustomDomains } from "../AppDetail/components/CustomDomains";
 import { Environments } from "../AppDetail/components/Environments";
 import { Functions } from "../AppDetail/components/Functions";
+import { Issues, IssuesBadge } from "../AppDetail/components/Issues";
 import { Publishers } from "../AppDetail/components/Publishers";
 import { Releases } from "../AppDetail/components/Releases";
 import { Secrets } from "../AppDetail/components/Secrets";
@@ -61,6 +62,16 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
   // re-derived one of the two forms and silently picked the wrong one for any app with
   // a subdomain — which `AppInfo`, two panels over, labels "(recommended)".
   const servedAt = app.url_subdomain ?? resolveBundleUrl(app.url);
+  // An issue names a function; following it lands on that function's history —
+  // its own row, not the top of a list that can run to sixty functions.
+  const openFunction = (name: string) => {
+    patch({ fn: name });
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-testid="admin-app-function-${CSS.escape(name)}"]`)
+        ?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  };
 
   return (
     <div className='min-h-0 flex-1 overflow-auto' data-testid='apps-console'>
@@ -134,6 +145,23 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
               <div className='flex flex-col gap-3'>
                 <Availability app={app} />
                 <Activity appId={app.id} />
+              </div>
+            </ConsolePanel>
+
+            {/* The failures, grouped the way the pager groups them, with each one's
+                message in full. This console shipped without it — it lived only in
+                the dossier this page replaced — so on 2026-10-21 the pager quoted
+                fingerprints that nothing on this page could be matched against, and
+                the cause sat past the truncation of each Functions row. */}
+            <ConsolePanel
+              id='issues'
+              title='Issues'
+              question='Q1 — what is failing'
+              actions={<IssuesBadge appId={app.id} />}
+            >
+              {/* The list runs edge to edge and owns its gutter. */}
+              <div className='-mx-3 -mb-3'>
+                <Issues app={app} onOpenFunction={openFunction} />
               </div>
             </ConsolePanel>
 
