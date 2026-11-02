@@ -27,8 +27,7 @@ retries = 0
 # `[test-groups]` entry instead of serializing all ~2,900 tests.
 
 # Exclude auto-generated crates (no meaningful test coverage) from the default
-# run so local and CI behave identically. Coverage report exclusion is handled
-# separately via `cargo llvm-cov report --exclude`.
+# run so local and CI behave identically.
 default-filter = "not package(=migration) and not package(=entity)"
 
 # Per-test timings, which CI turns into each partition's "slowest tests" job
@@ -197,7 +196,7 @@ retries = 2
 #     it rewrites belong to the agentic-runtime/pipeline tests.
 #
 # They all skip when `OXY_DATABASE_URL` is unset, so a laptop run looks clean and
-# only CI (ci.yaml sets it at the `test` and coverage jobs) would have shown it —
+# only CI (ci.yaml sets it at the `test` jobs) would have shown it —
 # and it would have shown up as a flake in agentic-runtime, not here.
 #
 # `tests/authz/shared_db_registry.rs` fails the build if this list drifts from

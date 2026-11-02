@@ -57,8 +57,11 @@ defaults:
     shell: bash
 
 jobs:
+  # Every other job needs this one, so the repository gate here keeps the public
+  # oxy-hq/oxygen mirror from re-running CI on commits oxygen-internal already tested.
   changesets:
     if: |
+      github.repository == 'oxy-hq/oxygen-internal' &&
       !(github.event_name == 'push' &&
         github.ref == 'refs/heads/main' &&
         startsWith(github.event.head_commit.message, 'chore: release')) &&

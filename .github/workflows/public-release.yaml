@@ -48,7 +48,6 @@ permissions:
   pull-requests: read
   attestations: write
   id-token: write
-  security-events: write
 
 jobs:
   # ============================================================================

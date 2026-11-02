@@ -1,21 +1,16 @@
 name: Security Scan
 
+# Pull requests on oxygen-internal only. The public oxy-hq/oxygen mirror gets no
+# scan of its own: every commit it receives was scanned here first.
 on:
   pull_request:
     paths-ignore:
       - "docs/**"
       - "internal-docs/**"
-  push:
-    paths-ignore:
-      - "docs/**"
-      - "internal-docs/**"
-  schedule:
-    - cron: "0 2 * * 1" # Weekly on Monday at 2am UTC
   workflow_dispatch:
 
 permissions:
   contents: read
-  security-events: write
   actions: read
 
 defaults:
@@ -27,9 +22,8 @@ jobs:
     name: Trivy Dependency Vulnerability Scan
     if: |
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/')) &&
-      (github.repository == 'oxy-hq/oxygen' ||
-       (github.repository == 'oxy-hq/oxygen-internal' && github.event_name == 'pull_request'))
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
+      github.repository == 'oxy-hq/oxygen-internal'
+    runs-on: warp-ubuntu-latest-arm64-2x
     # Trivy fs scan of the repo; a stuck DB download shouldn't bill > 20m.
     timeout-minutes: 20
     steps:
@@ -44,12 +38,10 @@ jobs:
           scanners: vuln
           severity: CRITICAL,HIGH
           exit-code: "0"
-          format: ${{ github.repository == 'oxy-hq/oxygen' && 'sarif' || 'table' }}
-          output: ${{ github.repository == 'oxy-hq/oxygen' && 'trivy-vuln-results.sarif'
-            || 'trivy-vuln-results.txt' }}
+          format: table
+          output: trivy-vuln-results.txt
 
       - name: Publish vulnerability results to workflow summary
-        if: github.repository != 'oxy-hq/oxygen'
         run: |
           if [[ -s trivy-vuln-results.txt ]]; then
             {
@@ -66,20 +58,12 @@ jobs:
             echo "No CRITICAL or HIGH vulnerabilities found." >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Upload vulnerability results to GitHub Security tab
-        if: github.repository == 'oxy-hq/oxygen'
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
-        with:
-          sarif_file: trivy-vuln-results.sarif
-          category: trivy-vulnerability
-
   secret-scan:
     name: Trivy Secret Scan
     if: |
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/')) &&
-      (github.repository == 'oxy-hq/oxygen' ||
-       (github.repository == 'oxy-hq/oxygen-internal' && github.event_name == 'pull_request'))
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
+      github.repository == 'oxy-hq/oxygen-internal'
+    runs-on: warp-ubuntu-latest-arm64-2x
     # Secret scan of the tree; bounded well under 15m.
     timeout-minutes: 15
     steps:
@@ -97,12 +81,11 @@ jobs:
           # .env.example files contain placeholder values, not real credentials.
           skip-files: "localhost+2-key.pem,localhost+2.pem,**/.env.example"
           trivyignores: .trivyignore.yaml
-          format: ${{ github.repository == 'oxy-hq/oxygen' && 'sarif' || 'table' }}
-          output: ${{ github.repository == 'oxy-hq/oxygen' && 'trivy-secret-results.sarif'
-            || 'trivy-secret-results.txt' }}
+          format: table
+          output: trivy-secret-results.txt
 
       - name: Publish secret scan results to workflow summary
-        if: github.repository != 'oxy-hq/oxygen' && always()
+        if: always()
         run: |
           if [[ -s trivy-secret-results.txt ]]; then
             {
@@ -118,11 +101,3 @@ jobs:
             echo "### Secret Scan" >> $GITHUB_STEP_SUMMARY
             echo "No secrets detected." >> $GITHUB_STEP_SUMMARY
           fi
-
-      - name: Upload secret scan results to GitHub Security tab
-        if: github.repository == 'oxy-hq/oxygen'
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
-        with:
-          sarif_file: trivy-secret-results.sarif
-          category: trivy-secret
-

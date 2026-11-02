@@ -35,6 +35,7 @@ defaults:
 jobs:
   android:
     name: Android app (build, unit tests, lint)
+    if: github.repository == 'oxy-hq/oxygen-internal'
     # x64: the Android build tools (aapt2) ship for x86-64 Linux only.
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-x64-2x' || 'ubuntu-latest' }}
     timeout-minutes: 30
@@ -73,6 +74,7 @@ jobs:
 
   ios:
     name: iOS app (build, unit tests)
+    if: github.repository == 'oxy-hq/oxygen-internal'
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
