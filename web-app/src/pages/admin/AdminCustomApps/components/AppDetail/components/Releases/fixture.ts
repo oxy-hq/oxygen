@@ -1,7 +1,7 @@
 import type { Release, ReleaseTimeline } from "@/types/appReleases";
 
 /** Test fixtures shaped like the server's answer: r3 healthy, r4 red and live. */
-export const build = (n: number) => ({
+const build = (n: number) => ({
   id: `build-${n}`,
   build_id: `pulse-r${n}-0123456789ab`,
   commit_sha: null,
@@ -44,7 +44,7 @@ export const release = (over: Partial<Release> = {}): Release => ({
   ...over
 });
 
-export const RED = release({
+const RED = release({
   index: 1,
   build: build(4),
   current: true,

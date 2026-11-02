@@ -29,7 +29,7 @@ export function osStatus(device: NotificationDevice): string | null {
 }
 
 /** The floor select's value: `all` for no floor. */
-export const ALL = "all";
+const ALL = "all";
 
 export function floorValue(level: NotificationLevel | null): string {
   return level === null || level === "passive" ? ALL : level;

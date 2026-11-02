@@ -11,13 +11,13 @@ import type { Candidate, PriceRequest } from "@/types/experiment";
 /** A request prices 1 to this many candidates (index C5), counted after the α preset is expanded. */
 export const MAX_CANDIDATES = 6;
 /** The server's candidate bounds (`candidate.rs`): a request over them is refused after the round trip. */
-export const MAX_WAVES = 52;
-export const MAX_SPACING_DAYS = 366;
-export const MAX_PERIOD_DAYS = 56;
-export const MAX_PAIRS = 26;
-export const STANDARD_ALPHA = 0.05;
+const MAX_WAVES = 52;
+const MAX_SPACING_DAYS = 366;
+const MAX_PERIOD_DAYS = 56;
+const MAX_PAIRS = 26;
+const STANDARD_ALPHA = 0.05;
 /** The directional preset: a looser α registered BEFORE the switch (spec, "Directional experiments"). */
-export const DIRECTIONAL_ALPHA = 0.2;
+const DIRECTIONAL_ALPHA = 0.2;
 
 export type CandidateShape = "waves" | "switchback";
 /** `both` prices the same design twice, at 0.05 and at 0.2, so the trade is read off two numbers. */
@@ -60,7 +60,7 @@ export interface PriceFormContext {
 const many = (ctx: PriceFormContext) => periodWord(ctx.grain ?? "day", { plural: true });
 
 export type CandidateField = Exclude<keyof CandidateFormValues, "shape" | "alpha">;
-export type CandidateErrors = Partial<Record<CandidateField, string>>;
+type CandidateErrors = Partial<Record<CandidateField, string>>;
 
 export interface PriceFormResult {
   /** Parallel to `values.candidates`; `{}` for a row with nothing wrong. */
@@ -75,7 +75,7 @@ export interface PriceFormResult {
  * 2^n arrangements, so its smallest two-sided p-value is 2/2^n (6 pairs for 0.05,
  * 4 for 0.2). The engine refuses fewer; the form says so before a job is queued.
  */
-export function minPairs(alpha: number): number {
+function minPairs(alpha: number): number {
   let n = 1;
   while (2 / 2 ** n > alpha) n += 1;
   return n;
@@ -102,7 +102,7 @@ export function newCandidate(shape: CandidateShape = "waves"): CandidateFormValu
   };
 }
 
-export function alphasOf(choice: AlphaChoice): number[] {
+function alphasOf(choice: AlphaChoice): number[] {
   return choice === "both" ? [STANDARD_ALPHA, DIRECTIONAL_ALPHA] : [Number(choice)];
 }
 

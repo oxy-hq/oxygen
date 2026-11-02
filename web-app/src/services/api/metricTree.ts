@@ -39,7 +39,7 @@ function rethrow(error: unknown): never {
  * state — and it is indistinguishable from a real failure once the code is
  * dropped. Matching on the message text instead would bind the UI to prose.
  */
-export class ApiCodedError extends Error {
+class ApiCodedError extends Error {
   readonly code?: string;
 
   constructor(message: string, code?: string) {

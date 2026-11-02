@@ -23,7 +23,7 @@ const RANK_HINT =
   "Each unchanged unit is also given a synthetic control, as if it had been changed. This is the share of them whose before/after gap was at least as large as this unit's: small means this unit's gap stands out.";
 
 /** A plain word for the pre-period fit: 0 tracks perfectly, 1 is no better than a flat line. */
-export function fitWord(preFit: number | null): { label: string; tone: Tone } {
+function fitWord(preFit: number | null): { label: string; tone: Tone } {
   if (preFit === null) return { label: NOT_AVAILABLE, tone: "neutral" };
   if (preFit < 0.3) return { label: "Close", tone: "success" };
   if (preFit < 0.6) return { label: "Fair", tone: "warning" };
@@ -31,7 +31,7 @@ export function fitWord(preFit: number | null): { label: string; tone: Tone } {
 }
 
 /** `b3 70%, b9 30%`: the donors a unit's synthetic control is made of, largest first. */
-export function builtFrom(f: SyntheticFitView, shown = 3): string {
+function builtFrom(f: SyntheticFitView, shown = 3): string {
   const top = f.weights
     .slice(0, shown)
     .map((w) => `${w.unit} ${Math.round(w.weight * 100)}%`)

@@ -4,7 +4,7 @@ import type { InboxFilter } from "@/types/notifications";
 import queryKeys from "../queryKey";
 
 /** How many notifications one page of the notifications page holds. */
-export const FEED_PAGE_SIZE = 50;
+const FEED_PAGE_SIZE = 50;
 
 /**
  * The notifications page's list: newest first, narrowed by `filter`, and paged

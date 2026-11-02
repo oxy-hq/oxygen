@@ -4,7 +4,7 @@ export type AlertSeverity = "critical" | "warning" | "info";
 
 /** Where a signal is addressed: a custom app, or Oxygen Factory (the system
  *  layer — for data/source/pipeline issues). */
-export type SignalTarget = { app: string } | { core: true };
+type SignalTarget = { app: string } | { core: true };
 
 /** An unresolved signal — the shape a real monitors/anomalies feed will emit,
  *  and the shape the demo set conforms to. `useHqAlerts` resolves the `target`

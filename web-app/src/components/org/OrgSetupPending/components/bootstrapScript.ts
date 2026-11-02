@@ -9,7 +9,7 @@ export function shellQuote(value: string): string {
 }
 
 /** The repo name the commands suggest: `<org slug>-oxy`, the naming `oxyc new` documents. */
-export function suggestedRepo(org: Pick<Organization, "slug">): string {
+function suggestedRepo(org: Pick<Organization, "slug">): string {
   return `${org.slug}-oxy`;
 }
 

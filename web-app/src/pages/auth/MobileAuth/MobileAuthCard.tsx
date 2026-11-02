@@ -3,7 +3,7 @@ import type React from "react";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/shadcn/card";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 
-export type MobileAuthStatus = "working" | "confirm" | "done" | "error";
+type MobileAuthStatus = "working" | "confirm" | "done" | "error";
 
 interface Props {
   status: MobileAuthStatus;

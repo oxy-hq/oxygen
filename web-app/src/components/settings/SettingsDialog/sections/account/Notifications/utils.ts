@@ -29,16 +29,16 @@ export const FLOORS: { value: NotificationLevel; label: string }[] = [
 ];
 
 /** A floor in words; `active` is not offered here but a phone may have set it. */
-export function floorLabel(level: NotificationLevel): string {
+function floorLabel(level: NotificationLevel): string {
   if (level === "active") return "Active and above";
   return FLOORS.find((f) => f.value === level)?.label ?? "Everything";
 }
 
 /** What a row writes: a whole source or a category (`scope`), or one kind. */
-export type PrefTarget = { scope: string } | { kind: string };
+type PrefTarget = { scope: string } | { kind: string };
 
 /** One channel of one row, as the switch shows it. */
-export interface ChannelState {
+interface ChannelState {
   on: boolean;
   /** Set at this row itself, so it can be reset to inherit. */
   explicit: boolean;

@@ -10,7 +10,7 @@ export interface Awaiting {
   startedAt: number;
 }
 
-export type PricingStatus = "idle" | "waiting" | "timed_out" | "settled";
+type PricingStatus = "idle" | "waiting" | "timed_out" | "settled";
 
 export interface PricingView {
   status: PricingStatus;

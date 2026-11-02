@@ -123,7 +123,7 @@ const ROW_REFRESH_MS = 60_000;
  * `retry: false` and a null for a row the caller cannot see: the caller keeps the row it
  * already holds rather than blanking the panel.
  */
-export const useAdminAppRow = (id: string | undefined) =>
+const useAdminAppRow = (id: string | undefined) =>
   useQuery({
     queryKey: queryKeys.customApps.row(id ?? ""),
     queryFn: async () => (await CustomAppsService.list({ id, limit: 1 })).items[0] ?? null,

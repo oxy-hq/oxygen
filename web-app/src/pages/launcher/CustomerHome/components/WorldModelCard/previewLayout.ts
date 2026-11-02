@@ -1,7 +1,7 @@
 import type { WorldModel } from "@/types/worldModel";
 
 /** A node of the home's small world model map, placed in percent of the drawing. */
-export interface PreviewNode {
+interface PreviewNode {
   id: string;
   label: string;
   /** Percent of the drawing's width / height. */
@@ -9,7 +9,7 @@ export interface PreviewNode {
   y: number;
 }
 
-export interface PreviewEdge {
+interface PreviewEdge {
   key: string;
   from: PreviewNode;
   to: PreviewNode;

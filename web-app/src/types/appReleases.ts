@@ -6,9 +6,9 @@
  */
 
 export type ReleaseLaneName = "production" | "staging" | "sandboxes";
-export type PartState = "ok" | "unavailable";
+type PartState = "ok" | "unavailable";
 
-export interface ReleaseBuildRef {
+interface ReleaseBuildRef {
   /** `app_builds.id`. */
   id: string;
   /** The publish's build id. */
@@ -31,12 +31,12 @@ export interface ReleaseLaneEvent {
   agent_built: boolean;
 }
 
-export interface ReleaseLane {
+interface ReleaseLane {
   lane: ReleaseLaneName;
   events: ReleaseLaneEvent[];
 }
 
-export interface ReleaseMetrics {
+interface ReleaseMetrics {
   calls: number;
   failed: number;
   shed: number;
@@ -57,14 +57,14 @@ export interface ReleaseScreenVitals {
   cls_p75: number | null;
 }
 
-export interface ReleaseMigration {
+interface ReleaseMigration {
   store: string;
   filename: string;
   applied_at: string;
   build_id: string | null;
 }
 
-export interface ReleaseNewIssue {
+interface ReleaseNewIssue {
   function_name: string;
   fingerprint: string;
   first_seen: string;
@@ -82,14 +82,14 @@ export interface VerdictReason {
   rule: string;
 }
 
-export interface ReleaseVerdict {
+interface ReleaseVerdict {
   kind: VerdictKind;
   reasons: VerdictReason[];
   /** Set for `not_comparable`: why it could not be judged. */
   why: string | null;
 }
 
-export interface ReleaseRollback {
+interface ReleaseRollback {
   offered: boolean;
   /** The build a rollback goes back to: the release this one was compared with. */
   to: ReleaseBuildRef | null;

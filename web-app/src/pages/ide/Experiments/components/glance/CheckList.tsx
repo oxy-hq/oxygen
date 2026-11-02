@@ -12,7 +12,7 @@ export interface CheckItem {
   lines: ReactNode[];
 }
 
-export function CheckRow({ check }: { check: CheckItem }) {
+function CheckRow({ check }: { check: CheckItem }) {
   return (
     <li
       className='grid grid-cols-[auto_1fr] gap-x-3 px-4 py-3'

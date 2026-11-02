@@ -4,7 +4,7 @@ import type { UnreadResponse } from "@/types/notifications";
 import queryKeys from "../queryKey";
 
 /** How often the badge re-reads its count while the tab is visible. */
-export const UNREAD_POLL_MS = 60_000;
+const UNREAD_POLL_MS = 60_000;
 
 /** The one polled read both the bell and the app badges select from. */
 const unreadQuery = {

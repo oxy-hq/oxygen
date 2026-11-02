@@ -29,7 +29,7 @@ function BigFigure({ text, testId }: { text: string; testId: string }) {
  * The server's label without its shouted lead (`RETROSPECTIVE — `, `ABORTED RUN — `):
  * the band's title already says which it is. The rest starts with a capital.
  */
-export function bandText(label: string): string {
+function bandText(label: string): string {
   const rest = label.replace(/^[A-Z][A-Z ]+ — /, "");
   return rest.charAt(0).toUpperCase() + rest.slice(1);
 }

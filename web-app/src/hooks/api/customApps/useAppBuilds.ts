@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { CustomAppsService } from "@/services/api/customApps";
 import queryKeys from "../queryKey";
@@ -12,21 +12,5 @@ export function useAppBuilds(id: string | undefined) {
     queryKey: queryKeys.customApps.builds(id ?? ""),
     queryFn: () => CustomAppsService.listBuilds(id as string),
     enabled: !!id
-  });
-}
-
-/**
- * Roll the published channel back to a retained build. Invalidates the
- * app list (published pointer changed) and this app's build history.
- */
-export function useRollbackApp() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, buildId }: { id: string; buildId: string }) =>
-      CustomAppsService.rollback(id, buildId),
-    onSuccess: (_data, { id }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.customApps.all() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.customApps.builds(id) });
-    }
   });
 }

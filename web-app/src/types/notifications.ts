@@ -8,7 +8,7 @@ export type NotificationChannel = "push" | "email" | "slack";
 export type NotificationLevel = "passive" | "active" | "time_sensitive" | "critical";
 
 /** The custom app a notification came from. */
-export interface NotificationApp {
+interface NotificationApp {
   id: string;
   slug: string;
   name: string;
@@ -27,7 +27,7 @@ export interface NotificationAction {
 }
 
 /** Where a notification sits in its source's tree. */
-export interface NotificationCategoryRef {
+interface NotificationCategoryRef {
   /** `operations/food-safety`; `general` for a kind with no category. */
   path: string;
   /** Root → leaf, e.g. `["Store operations", "Food safety"]`. */
@@ -146,12 +146,12 @@ export interface UnreadResponse {
   apps?: AppUnread[];
 }
 
-export interface AppUnread {
+interface AppUnread {
   app_id: string;
   unread: number;
 }
 
-export interface NotificationReach {
+interface NotificationReach {
   push_devices: number;
   email: boolean;
 }
@@ -183,7 +183,7 @@ export interface RegisterDeviceInput {
 // that turned it off.
 
 /** Why a kind is, or is not, delivered on a channel (the server's `decide`). */
-export type NotificationReason =
+type NotificationReason =
   | null
   | "paused"
   | "quiet_hours"
@@ -219,7 +219,7 @@ export interface NodeSettings {
   min_level: NotificationLevel | null;
 }
 
-export interface EffectiveChannel {
+interface EffectiveChannel {
   on: boolean;
   reason: NotificationReason;
   /** The label of the node that decided it. */

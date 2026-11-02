@@ -1,7 +1,6 @@
 import type {
   DevicePatch,
   InboxFilter,
-  InboxItem,
   InboxResponse,
   NotificationActionResult,
   NotificationCatalog,
@@ -51,12 +50,6 @@ export class NotificationsService {
         ...(before ? { before } : {})
       }
     });
-    return response.data;
-  }
-
-  /** One notification of mine. */
-  static async item(id: string): Promise<InboxItem> {
-    const response = await apiClient.get<InboxItem>(`/notifications/${encodeURIComponent(id)}`);
     return response.data;
   }
 

@@ -59,7 +59,7 @@ export function RailItemIcon({ item }: { item: RailItem }) {
 }
 
 /** "Name, 3 unread" for a screen reader; the badge itself is drawn, not read. */
-export function itemLabel(item: RailItem): string {
+function itemLabel(item: RailItem): string {
   return item.badge ? `${item.label}, ${item.badge} unread` : item.label;
 }
 

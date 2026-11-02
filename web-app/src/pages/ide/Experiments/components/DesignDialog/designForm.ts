@@ -6,9 +6,9 @@ import type { ExperimentDefinition } from "@/types/experiment";
  * fixed choice); `toConfig` turns it into the config the server takes. Field
  * names here are the form's own — the config's keys are never shown.
  */
-export type DesignKind = "waves" | "switchback";
-export type LeverState = "on" | "off";
-export type GuardrailKind = "anomaly" | "trigger";
+type DesignKind = "waves" | "switchback";
+type LeverState = "on" | "off";
+type GuardrailKind = "anomaly" | "trigger";
 
 export interface WaveRow {
   switchOn: string;
@@ -119,7 +119,7 @@ export const newGuardrail = (): GuardrailRow => ({
 });
 
 /** A share (0.9) as the percentage text the form shows ("90"), without float noise. */
-export const toPercentText = (share: number) => String(Number((share * 100).toPrecision(12)));
+const toPercentText = (share: number) => String(Number((share * 100).toPrecision(12)));
 
 export function emptyDesignValues(): DesignFormValues {
   return {

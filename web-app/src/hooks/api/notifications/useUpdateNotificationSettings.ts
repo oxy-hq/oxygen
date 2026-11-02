@@ -15,7 +15,7 @@ import {
 const MUTATION_KEY = [...queryKeys.notifications.settings(), "update"] as const;
 
 /** Settings changed elsewhere and this change no longer applies; `current` is what the server has. */
-export class SettingsConflictError extends Error {
+class SettingsConflictError extends Error {
   constructor(readonly current: NotificationSettings) {
     super("Notification settings changed elsewhere");
     this.name = "SettingsConflictError";
@@ -35,7 +35,7 @@ function staleDocument(err: unknown): NotificationSettings | null {
  * once more against that version; already true there, that document is the
  * answer; otherwise it is a conflict.
  */
-export async function saveSettings(
+async function saveSettings(
   patch: NotificationSettingsPatch,
   version: string | undefined
 ): Promise<NotificationSettings> {

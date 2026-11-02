@@ -13,7 +13,7 @@ import { type Match, PickerField, type PickerGroup } from "./PickerField";
  * exactly. A value that reaches nobody (no match, or a team with no members)
  * still notifies the org's owners and admins, so it is a warning, not an error.
  */
-export function ownerMatch(
+function ownerMatch(
   owner: string,
   members: OrgMember[] | undefined,
   teams: Team[] | undefined

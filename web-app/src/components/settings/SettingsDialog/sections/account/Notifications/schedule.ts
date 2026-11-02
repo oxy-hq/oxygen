@@ -79,7 +79,7 @@ export function quietHoursError(quiet: QuietHours): string | null {
 }
 
 /** This browser's IANA time zone; UTC when it will not say. */
-export function browserTimeZone(): string {
+function browserTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 

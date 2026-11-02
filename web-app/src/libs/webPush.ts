@@ -18,16 +18,13 @@
 import type { OsPermission } from "@/types/notifications";
 
 /** Served as-is from `web-app/public`. */
-export const PUSH_WORKER_URL = "/oxy-push-sw.js";
+const PUSH_WORKER_URL = "/oxy-push-sw.js";
 
 /** Worker → page: open the inbox (a notification was clicked). Mirrored in the worker. */
 export const OPEN_INBOX_MESSAGE = "oxy:open-notifications";
 
 /** Worker → page: a push arrived, so the badge is stale. Mirrored in the worker. */
 export const INBOX_CHANGED_MESSAGE = "oxy:inbox-changed";
-
-/** Where a push with no `href` of its own lands. Mirrored in the worker. */
-export const NOTIFICATIONS_PATH = "/notifications";
 
 /** What Settings and the inbox say on an iPhone or iPad in a browser tab. */
 export const HOME_SCREEN_HINT =

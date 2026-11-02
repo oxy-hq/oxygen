@@ -1,5 +1,5 @@
 /** "Good morning" / "Good afternoon" / "Good evening" for the hour of `now`. */
-export function partOfDayGreeting(now: Date = new Date()): string {
+function partOfDayGreeting(now: Date = new Date()): string {
   const hour = now.getHours();
   if (hour < 12) return "Good morning";
   if (hour < 18) return "Good afternoon";

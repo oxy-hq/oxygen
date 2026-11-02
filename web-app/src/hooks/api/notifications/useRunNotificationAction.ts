@@ -16,7 +16,7 @@ export interface RunNotificationAction {
  * What to say when an action did not run. A refusal of the app's function
  * (`403 FunctionRefused`) and any other say the server's own words.
  */
-export function actionErrorMessage(err: unknown): string {
+function actionErrorMessage(err: unknown): string {
   if (isAxiosError(err)) {
     const status = err.response?.status;
     if (status === 409) return "This action is no longer available";

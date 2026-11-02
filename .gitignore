@@ -9,6 +9,8 @@
 # Local-only development coordination artifacts
 SESSION_HANDOFF.md
 .claude/settings.local.json
+# The backup a Claude Code run leaves of settings.json; nothing loads it.
+.claude/settings.json.bak
 .superpowers/
 .pnpm-store/
 

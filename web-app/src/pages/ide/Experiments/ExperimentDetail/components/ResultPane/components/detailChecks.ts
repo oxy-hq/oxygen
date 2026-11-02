@@ -176,7 +176,7 @@ export function detailChecks(result: ResultResponse): DetailCheck[] {
  * into one line that names a few. A panel can drop a hundred control units for the
  * same missing data; listing each one buries the reasons that differ.
  */
-export function groupDroppedUnits(units: string[]): string[] {
+function groupDroppedUnits(units: string[]): string[] {
   const byReason = new Map<string, string[]>();
   for (const line of units) {
     const at = line.indexOf(": ");

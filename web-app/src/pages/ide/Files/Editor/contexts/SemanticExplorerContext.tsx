@@ -73,8 +73,7 @@ type SemanticExplorerContextType = {
   executionTime: number | null;
 };
 
-export const SemanticExplorerContext = createContext<SemanticExplorerContextType | null>(null);
-export type { SemanticExplorerContextType };
+const SemanticExplorerContext = createContext<SemanticExplorerContextType | null>(null);
 
 type SemanticExplorerProviderProps = {
   children: ReactNode;

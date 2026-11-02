@@ -69,13 +69,17 @@ jobs:
       - name: Update lockfile
         run: pnpm install --no-frozen-lockfile
 
-      # biome --write (imports only): remove unused imports that knip left behind.
-      # We do NOT run biome --unsafe here because it renames dead locals to _Foo
-      # instead of deleting them, which still triggers TypeScript noUnusedLocals.
+      # Remove the unused imports knip left behind, then format. Biome's unused-import
+      # fix is an unsafe one, so it runs alone (`--only`). Never a blanket `--unsafe`:
+      # that renames dead locals to `_Foo` instead of deleting them (still a TypeScript
+      # noUnusedLocals error), and its noFocusedTests fix rewrites any local helper
+      # named `fit` / `fdescribe` into `it` / `describe`, which once broke a test file.
       # Claude handles full deletion in the next step.
-      - name: Run biome --write (unused imports + format)
+      - name: Run biome (unused imports + format)
         working-directory: web-app
-        run: pnpm exec biome check --write .
+        run: |
+          pnpm exec biome lint --write --unsafe --only=correctness/noUnusedImports .
+          pnpm exec biome check --write .
 
       # Claude deletes dead local declarations (const/function/type/interface) that
       # knip left behind after stripping their export keywords, then verifies the
@@ -107,8 +111,10 @@ jobs:
             Steps:
             1. Run `pnpm run compile 2>&1 | grep "error TS"` in web-app/ to find dead locals
             2. For each error, open the file, read the full declaration, delete it entirely
-            3. Run `pnpm exec biome check --write --unsafe .` in web-app/ to remove any
-               unused imports that the deletions exposed (biome correctly removes imports)
+            3. Run `pnpm exec biome lint --write --unsafe --only=correctness/noUnusedImports .`
+               in web-app/ to remove any unused imports that the deletions exposed. Never
+               run `--unsafe` without `--only`: its other fixes rename locals to `_Foo`
+               and rewrite a helper named `fit` into the test call `it`.
             4. Repeat compile until zero TS errors
             5. Run `pnpm run build` in web-app/ — this is the final gate.
                If build fails, fix errors and re-run until it exits 0.
@@ -140,9 +146,9 @@ jobs:
             **Tools used (in order):**
             1. [`knip --fix`](https://knip.dev) — deletes unused source files, removes unused npm packages from `package.json`, strips `export` keywords from unused symbols
             2. `pnpm install` — syncs `pnpm-lock.yaml` after package removals
-            3. `biome check --write --unsafe` — removes unused local variables and imports left over after `knip` de-exported them
+            3. `biome lint --write --unsafe --only=correctness/noUnusedImports` — removes imports left unused by `knip`'s deletions (only that rule's unsafe fix, never all of them)
             4. `biome check --write` — enforces consistent formatting
-            5. Claude Code Action (if needed) — resolves any remaining TypeScript errors that automated tools can't fix (e.g. hook-rule violations from biome's `_Foo` renaming)
+            5. Claude Code Action — deletes the declarations `knip` left as dead locals, then verifies `pnpm run build`
 
             **Checklist before merging:**
             - [ ] TypeScript compiles: `pnpm run compile` in `web-app/`
@@ -150,5 +156,10 @@ jobs:
             - [ ] Dev server starts: `pnpm dev` in `web-app/`
             - [ ] Spot-check Home, Thread, IDE, Workflows, Apps pages
 
+          # Only what this job is meant to change: the web app and the lockfile. A tool
+          # run can leave other files behind (a Claude run's .claude/settings.json.bak).
+          add-paths: |
+            web-app
+            pnpm-lock.yaml
           delete-branch: true
           labels: "automated,chore"

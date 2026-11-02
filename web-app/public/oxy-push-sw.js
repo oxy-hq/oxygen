@@ -16,7 +16,8 @@
 // worker does not know shows the generic line, as before.
 // No fetch handler on purpose — this worker never sits between a page and the network.
 //
-// The message types and NOTIFICATIONS_PATH are mirrored in src/libs/webPush.ts.
+// The message types are mirrored in src/libs/webPush.ts; NOTIFICATIONS_PATH is
+// mirrored in crates/app/src/server/api/notifications/web_push_payload.rs.
 
 const OPEN_INBOX_MESSAGE = "oxy:open-notifications";
 const INBOX_CHANGED_MESSAGE = "oxy:inbox-changed";

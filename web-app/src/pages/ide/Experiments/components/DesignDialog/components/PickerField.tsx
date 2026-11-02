@@ -14,7 +14,7 @@ export interface Match {
   text: string;
 }
 
-export interface PickerOption {
+interface PickerOption {
   value: string;
   label: string;
   detail?: string;
@@ -70,7 +70,7 @@ function Group({
 }
 
 /** The groups that match what is typed. A value that is itself an option shows the whole list. */
-export function filterGroups(groups: PickerGroup[], typed: string): PickerGroup[] {
+function filterGroups(groups: PickerGroup[], typed: string): PickerGroup[] {
   const q = typed.trim().toLowerCase();
   const isOption = groups.some((g) => g.options.some((o) => o.value === typed));
   if (!q || isOption) return groups.filter((g) => g.options.length > 0);

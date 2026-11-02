@@ -112,11 +112,9 @@ describe("NotificationsService writes", () => {
 });
 
 describe("NotificationsService reads", () => {
-  it("reads the catalogue and one notification", async () => {
+  it("reads the catalogue", async () => {
     await NotificationsService.catalog();
-    await NotificationsService.item("n-1");
-    expect(api.get).toHaveBeenNthCalledWith(1, "/notifications/catalog");
-    expect(api.get).toHaveBeenNthCalledWith(2, "/notifications/n-1");
+    expect(api.get).toHaveBeenCalledWith("/notifications/catalog");
   });
 
   it("reads the settings document and the devices", async () => {

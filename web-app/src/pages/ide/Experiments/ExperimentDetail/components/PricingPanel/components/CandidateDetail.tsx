@@ -53,10 +53,10 @@ export interface AdoptControl {
 }
 
 /** The note shown in place of "Use this design" once the draft changed after pricing. */
-export const STALE_NOTE = "The draft changed after this was priced. Price it again to use it.";
+const STALE_NOTE = "The draft changed after this was priced. Price it again to use it.";
 
 /** Why a done proposal cannot be adopted, or null when it can. */
-export function adoptBlockedReason(adopt: AdoptControl): string | null {
+function adoptBlockedReason(adopt: AdoptControl): string | null {
   if (!adopt.canWrite) return "Viewers cannot change a design.";
   return null;
 }

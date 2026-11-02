@@ -5,7 +5,7 @@ export interface FileTreeModel {
   children: FileTreeModel[];
 }
 
-export interface RepoSection {
+interface RepoSection {
   name: string;
   sync_status: "ready" | "cloning";
   git_url?: string;

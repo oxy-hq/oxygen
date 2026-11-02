@@ -5,13 +5,13 @@ import HowCalculated from "../../ResultPane/components/HowCalculated";
 import Section from "../../Section";
 import { summariseUnits } from "../operations";
 
-export const GUARDRAIL_LABEL: Record<GuardrailState, string> = {
+const GUARDRAIL_LABEL: Record<GuardrailState, string> = {
   ok: "OK",
   breached: "Breached",
   not_checked: "Not checked yet",
   refused: "Could not be evaluated"
 };
-export const GUARDRAIL_TONE: Record<GuardrailState, Tone> = {
+const GUARDRAIL_TONE: Record<GuardrailState, Tone> = {
   ok: "success",
   breached: "danger",
   not_checked: "neutral",

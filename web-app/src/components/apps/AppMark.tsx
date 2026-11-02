@@ -31,7 +31,7 @@ function tintOf(name: string): string {
 }
 
 /** "Store Ops" -> "SO", "Warehouse" -> "W": two words' initials, else the first letter. */
-export function monogram(name: string, letters: 1 | 2): string {
+function monogram(name: string, letters: 1 | 2): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   const first = words[0]?.[0] ?? "?";
   const second = letters === 2 && words.length > 1 ? (words[1]?.[0] ?? "") : "";

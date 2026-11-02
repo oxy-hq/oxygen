@@ -1,7 +1,7 @@
 import { isAxiosError } from "axios";
 
 /** The HTTP status a failed request answered with, when it got that far. */
-export function httpStatus(error: unknown): number | undefined {
+function httpStatus(error: unknown): number | undefined {
   return isAxiosError(error) ? error.response?.status : undefined;
 }
 

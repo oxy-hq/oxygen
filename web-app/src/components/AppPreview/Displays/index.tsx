@@ -63,23 +63,3 @@ export function DisplayBlock({
       return <pre>{JSON.stringify(display)}</pre>;
   }
 }
-
-export const Displays = ({ displays, data }: { displays: Display[]; data?: DataContainer }) => (
-  <div className='flex flex-col gap-4'>
-    {displays.map((display, idx) => (
-      <ErrorBoundary
-        // biome-ignore lint/suspicious/noArrayIndexKey: display items have no stable id
-        key={idx}
-        resetKeys={[display, data]}
-        fallback={
-          <ErrorAlert
-            title='Display Error'
-            message={`Error: Failed to render display of type ${display.type}`}
-          />
-        }
-      >
-        <DisplayBlock display={display} data={data} idx={idx} />
-      </ErrorBoundary>
-    ))}
-  </div>
-);

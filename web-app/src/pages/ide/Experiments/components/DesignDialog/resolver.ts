@@ -3,7 +3,7 @@ import type { DesignFormValues } from "./designForm";
 import { type DesignErrors, toConfig } from "./toConfig";
 
 /** Flat `waves.0.units` keys as the nested shape React Hook Form reads errors from. */
-export function nestErrors(flat: DesignErrors): FieldErrors<DesignFormValues> {
+function nestErrors(flat: DesignErrors): FieldErrors<DesignFormValues> {
   const root: Record<string, unknown> = {};
   for (const [path, message] of Object.entries(flat)) {
     const parts = path.split(".");

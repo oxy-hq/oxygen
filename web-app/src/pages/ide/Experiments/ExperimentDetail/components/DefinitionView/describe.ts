@@ -21,7 +21,7 @@ export function measureLabel(ref: string): string {
 }
 
 /** Values joined with "or"; a long list names its first three and counts the rest. */
-export function valueList(values: string[]): string {
+function valueList(values: string[]): string {
   if (values.length <= 5) return values.join(" or ");
   return `${values.slice(0, 3).join(", ")} or ${values.length - 3} more`;
 }

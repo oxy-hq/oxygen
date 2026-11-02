@@ -7,7 +7,7 @@ import { useViewDetails } from "./useSemanticQuery";
 import useViewFiles from "./useViewFiles";
 
 /** How many distinct values a filter's value list offers. */
-export const DIMENSION_VALUE_LIMIT = 500;
+const DIMENSION_VALUE_LIMIT = 500;
 
 /** The dimensions of the view a `<view>.<measure>` is read from: what a filter on it may name. */
 export function useMeasureDimensions(measure: string) {

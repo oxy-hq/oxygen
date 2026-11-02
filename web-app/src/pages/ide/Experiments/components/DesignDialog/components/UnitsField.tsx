@@ -7,7 +7,7 @@ import { DesignField, fieldId, type SectionProps, TextField } from "./fields";
 import { PickerInput } from "./PickerField";
 
 /** The names a unit list holds, split the way `toConfig` splits them. */
-export const splitUnits = (raw: string) =>
+const splitUnits = (raw: string) =>
   raw
     .split(/[\n,]/)
     .map((u) => u.trim())

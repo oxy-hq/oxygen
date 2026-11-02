@@ -20,7 +20,7 @@ const REQUIRED_LISTS = new Set(["tasks", "conditions", "fields"]);
 const DATA_KEYS = new Set(["variables", "values"]);
 
 /** Task keys where `cleanObject`'s stripping changes what the backend reads. */
-export const preserveTaskKeys: NonNullable<CleanOptions["preserve"]> = (key, value) => {
+const preserveTaskKeys: NonNullable<CleanOptions["preserve"]> = (key, value) => {
   if (DATA_KEYS.has(key) && value !== null && typeof value === "object") return "verbatim";
   if (REQUIRED_LISTS.has(key) && Array.isArray(value)) return "keep";
   // A semantic filter's `value` is required and `null` means IS NULL. The form

@@ -712,66 +712,6 @@ export const registerFromTableData = async (
 };
 
 /**
- * Minimal Jinja-compatible renderer for SQL templates.
- * Minimal client-side Jinja renderer for app task SQL.
- *
- * Supported patterns (only these are handled — anything else is unsupported):
- *   {% if controls.x %}...{% endif %}     — conditional block (truthy check only)
- *   {{ controls.x | default('v') }}       — substitution with string fallback
- *   {{ controls.x }}                      — raw value substitution
- *
- * Single quotes inside substituted values are escaped to prevent SQL injection.
- *
- * If any Jinja tokens remain after rendering ({% ... %} or {{ ... }}), the
- * template uses unsupported syntax. This function throws in that case so the
- * caller can fall back to the server rather than silently producing wrong SQL.
- */
-export function renderJinja(template: string, controls: Record<string, unknown>): string {
-  let result = template;
-
-  // {% if controls.x %}...{% endif %}
-  result = result.replace(
-    /\{%-?\s*if\s+controls\.(\w+)\s*-?%\}([\s\S]*?)\{%-?\s*endif\s*-?%\}/g,
-    (_, name: string, body: string) => (controls[name] ? body : "")
-  );
-
-  // {{ controls.x | sqlquote }} — wraps value in single quotes with internal quotes escaped.
-  //
-  // Doubling the quote is the whole escape here, and only here. This SQL has
-  // one destination — `runSqlInDuckDB` below, DuckDB WASM in the browser — and
-  // DuckDB reads `''` as a quote and a backslash as an ordinary character. The
-  // server's `sqlquote` cannot do the same: its SQL goes to the task's
-  // `database`, and ClickHouse, MySQL, Snowflake, Redshift and BigQuery read a
-  // backslash as an escape, so it escapes by that engine's rule. If this
-  // renderer's output is ever sent anywhere but DuckDB, it needs that rule too.
-  result = result.replace(
-    /\{\{-?\s*controls\.(\w+)\s*\|\s*sqlquote\s*-?\}\}/g,
-    (_, name: string) => `'${toText(controls[name]).replace(/'/g, "''")}'`
-  );
-
-  // {{ controls.x | default('fallback') }}
-  result = result.replace(
-    /\{\{-?\s*controls\.(\w+)\s*\|\s*default\(['"]([^'"]*)['"]\)\s*-?\}\}/g,
-    (_, name: string, fallback: string) => toText(controls[name] ?? fallback).replace(/'/g, "''")
-  );
-
-  // {{ controls.x }}
-  result = result.replace(/\{\{-?\s*controls\.(\w+)\s*-?\}\}/g, (_, name: string) =>
-    toText(controls[name]).replace(/'/g, "''")
-  );
-
-  // Detect any remaining Jinja tokens — unsupported syntax.
-  if (/\{[{%]/.test(result)) {
-    throw new Error(
-      "renderJinja: unsupported Jinja syntax detected after rendering. " +
-        "Only {% if %}...{% endif %}, {{ x }}, {{ x | sqlquote }}, and {{ x | default('v') }} are supported client-side."
-    );
-  }
-
-  return result;
-}
-
-/**
  * One cell of a task run in the browser, as the JSON that `read_json_auto`
  * reads back as the type the cell had: the result is registered from it.
  *

@@ -700,7 +700,7 @@ export interface OpportunityRequest {
  *  carries a computed comparison. Every exclusion has a reason and a UI MUST
  *  render it: the predecessor implementation simply dropped such a store from
  *  the list with no screen saying why, and that is the failure this replaces. */
-export interface ExcludedCohortSubject {
+interface ExcludedCohortSubject {
   /** For a NULL entity key, a synthesized stable id of the form
    *  `"(null) [<require values>]"` rather than an empty string. */
   key: string;

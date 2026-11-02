@@ -732,7 +732,7 @@ export interface ClientError {
 }
 
 /** Whether the customer has proven they own the domain (`DomainView.status`). */
-export type CustomDomainStatus = "pending" | "verified";
+type CustomDomainStatus = "pending" | "verified";
 
 /** One customer-owned domain an app is served on (`DomainView`). */
 export interface CustomDomain {

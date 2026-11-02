@@ -21,7 +21,7 @@ import {
 export type { FactoryTarget, PickerScope } from "./components/WorkspacePicker";
 
 /** The Factory of `target`, which an assumed session lands on. */
-export function factoryPath(target: FactoryTarget): string {
+function factoryPath(target: FactoryTarget): string {
   return ROUTES.ORG(target.orgSlug).WORKSPACE(target.workspaceId).IDE.ROOT;
 }
 

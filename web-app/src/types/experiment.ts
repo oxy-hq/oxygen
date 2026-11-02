@@ -16,12 +16,12 @@ export type RunState = "registered" | "live" | "closing" | "reported" | "aborted
 /** Every experiment has a status; only some have a run — `RunState` is a subset. */
 export type ExperimentStatus = "draft" | "registrable" | "registration_refused" | RunState;
 
-export type ProposalStatus = "pending" | "done" | "refused" | "failed";
+type ProposalStatus = "pending" | "done" | "refused" | "failed";
 
 // ---- POST /price, GET /proposals, GET /experiments (index C5) ----------------
 
 /** A staggered design: waves of units, or of groups under `assign_by`. */
-export type WavesCandidate = {
+type WavesCandidate = {
   shape: "waves";
   wave_sizes: number[];
   first_switch_on: string;
@@ -37,7 +37,7 @@ export type WavesCandidate = {
 };
 
 /** The whole fleet alternates on and off over `pairs` consecutive pairs of `period_days`. */
-export type SwitchbackCandidate = {
+type SwitchbackCandidate = {
   shape: "switchback";
   first_period_on: string;
   period_days: number;
@@ -59,19 +59,19 @@ export interface PriceResponse {
   proposal_ids: string[];
 }
 
-export interface ProposedWave {
+interface ProposedWave {
   switch_on: string;
   units: string[];
 }
 
-export interface ProposedPeriod {
+interface ProposedPeriod {
   from: string;
   state: "on" | "off";
 }
 
 export type PriorSource = "declared" | "fitted";
 
-export interface PriorCoefficient {
+interface PriorCoefficient {
   value: number;
   source: PriorSource;
 }
@@ -112,12 +112,12 @@ export interface Proposal {
   stale: boolean;
 }
 
-export type ProposalSummary = Pick<
+type ProposalSummary = Pick<
   Proposal,
   "id" | "request_id" | "status" | "created_at" | "mde" | "mde_unit_day" | "refusal"
 >;
 
-export type LeverRef = { via: string };
+type LeverRef = { via: string };
 
 /**
  * The compiled `ExperimentConfig` (crates/experiment/src/config.rs) as JSON, defaults filled in.
@@ -267,7 +267,7 @@ export interface FlipCounts {
   cancelled: number;
 }
 
-export interface FailedFlip {
+interface FailedFlip {
   unit: string;
   /** The flip's own state string from the server (a free string on the wire). */
   state: string;
@@ -380,13 +380,13 @@ export interface RunStatus {
 
 // ---- GET /result (PR 5 Task 8) ------------------------------------------------
 
-export type Interval = { low: number | null; high: number | null };
-export type Direction = "increase" | "decrease";
+type Interval = { low: number | null; high: number | null };
+type Direction = "increase" | "decrease";
 
-export type ReportDesign = "units" | "groups" | "switchback";
+type ReportDesign = "units" | "groups" | "switchback";
 
 /** Audit only: the seeds each random step used. */
-export interface Seeds {
+interface Seeds {
   effect: number;
   placebo: number;
   ratio: number;
@@ -408,7 +408,7 @@ export interface Prediction {
   statement: string;
 }
 
-export interface EffectSummary {
+interface EffectSummary {
   estimate: number | null;
   interval: Interval;
   significant: boolean;
@@ -416,13 +416,13 @@ export interface EffectSummary {
 }
 
 /** What the World Model held when pricing froze it, and the edge's own coefficient at the registering revision. */
-export interface ReplacedPrior {
+interface ReplacedPrior {
   value: number;
   source: PriorSource;
   edge_coefficient: number | null;
 }
 
-export interface CoefficientEdit {
+interface CoefficientEdit {
   file_path: string;
   target_measure: string;
   driver_measure: string;
@@ -610,7 +610,7 @@ export interface SeriesWave {
 }
 
 /** One retained day of a waves design: unweighted arm means; `null` when the arm holds no unit. */
-export interface SeriesWaveDay {
+interface SeriesWaveDay {
   date: string;
   treated: number | null;
   control: number | null;
@@ -624,7 +624,7 @@ export interface SeriesPeriod {
   on: boolean;
 }
 
-export interface SeriesSwitchbackDay {
+interface SeriesSwitchbackDay {
   date: string;
   fleet: number;
   on: boolean;
@@ -761,7 +761,7 @@ export interface RegisterResponse {
 }
 
 /** How a synthetic control was built, unit by unit, in the headline's scale. */
-export interface SyntheticView {
+interface SyntheticView {
   /** "Not randomised — synthetic control". */
   label: string;
   /** Units the fits could draw on. */

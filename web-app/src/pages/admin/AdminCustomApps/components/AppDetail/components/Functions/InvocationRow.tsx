@@ -6,14 +6,14 @@ import type { FunctionInvocation } from "@/types/apps";
 import { InvocationCalls } from "../CallWaterfall/InvocationCalls";
 
 /** Tooltip on a `success` the platform counted as a failure. */
-export const FAILED_SUCCESS_HINT =
+const FAILED_SUCCESS_HINT =
   "Returned without throwing, but the platform counted it as a failure — it answered 5xx or caught a failed ctx call.";
 
 /** The status word's tone. A `success` that answered 5xx or caught a failed
  *  ctx call is a failure to the pager; showing it green is how a week of
  *  refused writes looked fine. Anything else the platform did not count as a
  *  failure (a cancel, a shed) is muted, not red. */
-export function invocationTone(iv: Pick<FunctionInvocation, "status" | "failed">): string {
+function invocationTone(iv: Pick<FunctionInvocation, "status" | "failed">): string {
   if (iv.status === "success") return iv.failed ? ADMIN_TONE.danger.text : ADMIN_TONE.ok.text;
   if (iv.status === "running") return ADMIN_TONE.info.text;
   return iv.failed ? ADMIN_TONE.danger.text : ADMIN_TONE.muted.text;

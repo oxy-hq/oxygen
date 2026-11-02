@@ -1335,7 +1335,8 @@ describe("ReportBody for a proportional outcome with a sibling", () => {
 });
 
 describe("ReportBody for a synthetic control", () => {
-  const fit = (unit: string, preFit: number) => ({
+  // Not `fit`: Biome reads `fit(` as a focused test and its unsafe fix rewrites it to `it(`.
+  const unitFit = (unit: string, preFit: number) => ({
     unit,
     effect: 4.2,
     pre_fit: preFit,
@@ -1353,7 +1354,7 @@ describe("ReportBody for a synthetic control", () => {
     donors: 20,
     placebo_sets: 20,
     exact: true,
-    fits: [fit("a1", 0.2), fit("a2", 0.7)]
+    fits: [unitFit("a1", 0.2), unitFit("a2", 0.7)]
   };
 
   it("labels the comparison and lists each unit's fit and what it is built from", () => {

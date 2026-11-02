@@ -92,7 +92,7 @@ function fieldOf(sentence: string): string | null {
 }
 
 /** The sentence with every key it names replaced by the label the form shows. */
-export function plainSentence(sentence: string): string {
+function plainSentence(sentence: string): string {
   let out = sentence.replace(GUARDRAIL, (_, i: string) => `guardrail ${Number(i) + 1}`);
   for (const [path, , label] of PATHS) out = out.replace(tokenFor(path), `"${label}"`);
   for (const [re, word] of WORDS) out = out.replace(re, word);

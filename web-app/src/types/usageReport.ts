@@ -18,7 +18,7 @@ export type UsageHighlightKind =
   | "first_week"
   | "unused";
 
-export type UsageHighlightTone = "attention" | "good" | "idle";
+type UsageHighlightTone = "attention" | "good" | "idle";
 
 export interface UsageHighlight {
   kind: UsageHighlightKind;

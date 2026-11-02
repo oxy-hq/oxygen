@@ -101,7 +101,7 @@ export function formatAlpha(alpha: number | null): string {
   return String(Number(alpha.toPrecision(3)));
 }
 
-export const formatSignedGroupDay = (value: number | null, grain: Grain = "day"): string => {
+const formatSignedGroupDay = (value: number | null, grain: Grain = "day"): string => {
   if (!isNumber(value)) return NOT_AVAILABLE;
   return `${value > 0 ? "+" : ""}${formatGroupDay(value, grain)}`;
 };

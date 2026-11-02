@@ -1,7 +1,7 @@
 import type { ExperimentDefinition } from "@/types/experiment";
 
 /** Older stored designs may lack any key, so every read of the definition goes through this shape. */
-export type DeepPartial<T> = T extends readonly unknown[]
+type DeepPartial<T> = T extends readonly unknown[]
   ? T
   : T extends object
     ? { [K in keyof T]?: DeepPartial<T[K]> }

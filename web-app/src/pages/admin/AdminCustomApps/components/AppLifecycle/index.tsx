@@ -18,7 +18,6 @@ import {
 } from "./LifecycleCard";
 import { movePreflight } from "./movePreflight";
 
-export { LifecycleCard } from "./LifecycleCard";
 export { LifecycleConfirm } from "./LifecycleConfirm";
 export { LifecycleVerdictPill } from "./LifecycleVerdictPill";
 export { LIFECYCLE_COPY } from "./lifecycleCopy";
@@ -133,7 +132,7 @@ export const PartnerAppLifecycle = ({
 };
 
 /** A lifecycle built from the one fact the partner API returns. */
-export function partnerLifecycle(published: boolean): Lifecycle {
+function partnerLifecycle(published: boolean): Lifecycle {
   return {
     liveBuild: null,
     draftBuild: null,

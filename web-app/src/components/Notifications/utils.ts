@@ -12,7 +12,7 @@ export function isAppHref(href: string): boolean {
 }
 
 /** The implicit category of a kind that names none. Not worth a label on a row. */
-export const GENERAL_CATEGORY = "general";
+const GENERAL_CATEGORY = "general";
 
 /**
  * Where a notification came from, for its row: "Store Ops · Food safety". Just

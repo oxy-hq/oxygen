@@ -1,7 +1,7 @@
 /** Home widgets: each app's live cards on the home (`internal-docs/home-widgets.md`). */
 
 export type WidgetLevel = "ok" | "info" | "attention" | "critical";
-export type WidgetSize = "regular" | "wide" | "full";
+type WidgetSize = "regular" | "wide" | "full";
 /** The home's sections, in the order the org's layout draws them. */
 export type HomeSectionKind = "widgets" | "apps" | "insights";
 /** One section as the org's layout draws it: a widgets group lists its copies by key. */
@@ -9,7 +9,7 @@ export type HomeSection =
   | { kind: "widgets"; title: string | null; items: string[] }
   | { kind: "apps" }
   | { kind: "insights" };
-export type WidgetParams = Record<string, string | number | boolean>;
+type WidgetParams = Record<string, string | number | boolean>;
 export type WidgetRowState = "done" | "ready" | "blocked" | "failed" | "pending";
 
 /** A button, as the server checked it. Its `input` and `key` go back with the press. */
@@ -23,7 +23,7 @@ export interface WidgetButton {
   destructive: boolean;
 }
 
-export interface WidgetRow {
+interface WidgetRow {
   title: string;
   detail: string | null;
   state: WidgetRowState | null;
@@ -42,7 +42,7 @@ export interface WidgetMetric {
   spark: number[];
 }
 
-export interface WidgetView {
+interface WidgetView {
   headline: string;
   detail: string | null;
   level: WidgetLevel;
@@ -57,7 +57,7 @@ export interface WidgetView {
   refresh_after: number | null;
 }
 
-export interface WidgetApp {
+interface WidgetApp {
   id: string;
   slug: string;
   name: string;

@@ -50,7 +50,7 @@ export interface AppLifecycle {
 /** How many held rows the console asks for — the list reads as a floor at this length.
  *  Mirrors `STAGING_HELD_LIMIT`, restated here so this module stays free of the
  *  service layer and testable without a window. */
-export const HELD_LIMIT = 100;
+const HELD_LIMIT = 100;
 
 export interface DeriveLifecycleInput {
   app: LifecycleAppRef;

@@ -59,8 +59,8 @@ export interface AgentAsk {
 }
 
 export type PkceRequest = Extract<CliAuthRequest, { kind: "pkce" }>;
-export type MintRequest = Extract<CliAuthRequest, { kind: "mint" }>;
-export type AgentMintRequest = Extract<CliAuthRequest, { kind: "agent_mint" }>;
+type MintRequest = Extract<CliAuthRequest, { kind: "mint" }>;
+type AgentMintRequest = Extract<CliAuthRequest, { kind: "agent_mint" }>;
 export type LegacyRequest = Extract<CliAuthRequest, { kind: "legacy" }>;
 /** Either token request: the two share the session check, the handoff and the sheet. */
 export type TokenRequest = MintRequest | AgentMintRequest;

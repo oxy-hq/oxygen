@@ -5,10 +5,10 @@ import queryKeys from "../queryKey";
 
 /** How long a widget's view is fresh. Each read runs the app's function, so the
  *  home does not re-run every widget on every render or tab switch. */
-export const WIDGETS_STALE_MS = 60_000;
+const WIDGETS_STALE_MS = 60_000;
 
 /** The home's sections when the org has no layout, and while it loads. */
-export const DEFAULT_SECTIONS: HomeSection[] = [
+const DEFAULT_SECTIONS: HomeSection[] = [
   { kind: "widgets", title: null, items: [] },
   { kind: "apps" },
   { kind: "insights" }
