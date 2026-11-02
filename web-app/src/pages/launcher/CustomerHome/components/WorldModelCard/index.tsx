@@ -27,12 +27,15 @@ export function WorldModelCard({
   title,
   to,
   half = false,
+  compact = false,
   className
 }: {
   model: WorldModel;
   title: string;
   /** The card takes half the row (under two apps, or two of four columns) rather than two thirds. */
   half?: boolean;
+  /** The home's side column: the two-column drawing at every width, with less padding. */
+  compact?: boolean;
   /** The read-only world model page. */
   to: string;
   className?: string;
@@ -66,11 +69,21 @@ export function WorldModelCard({
         />
       }
     >
-      <div className='flex flex-1 items-center px-6 py-4'>
-        <WorldModelPreview layout={wide} labelChars={half ? 14 : 18} className='hidden sm:block' />
-        <WorldModelPreview layout={narrow} labelChars={14} className='sm:hidden' />
+      <div className={cn("flex flex-1 items-center", compact ? "px-4 py-3" : "px-6 py-4")}>
+        {compact ? (
+          <WorldModelPreview layout={narrow} labelChars={14} />
+        ) : (
+          <>
+            <WorldModelPreview
+              layout={wide}
+              labelChars={half ? 14 : 18}
+              className='hidden sm:block'
+            />
+            <WorldModelPreview layout={narrow} labelChars={14} className='sm:hidden' />
+          </>
+        )}
       </div>
-      <WorldModelCounts model={model} className='border-t px-4 py-3' />
+      <WorldModelCounts model={model} className={cn("border-t px-4 py-3", compact && "gap-x-4")} />
     </HomePanel>
   );
 }

@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 
-const key = (orgSlug: string) => `oxy.home.today.${orgSlug}`;
+/** What the home remembers about its own frame, per org: whether it had a Today, and
+ *  whether it had a side column. */
+type FramePart = "today" | "side";
 
-function read(orgSlug: string | undefined): boolean | null {
+const key = (part: FramePart, orgSlug: string) => `oxy.home.${part}.${orgSlug}`;
+
+function read(part: FramePart, orgSlug: string | undefined): boolean | null {
   if (!orgSlug) return null;
   try {
-    const value = window.localStorage.getItem(key(orgSlug));
+    const value = window.localStorage.getItem(key(part, orgSlug));
     return value === "1" ? true : value === "0" ? false : null;
   } catch {
     return null;
@@ -23,24 +27,38 @@ function read(orgSlug: string | undefined): boolean | null {
  * time. `null` while neither this browser nor the server has said.
  */
 export function useTodayHint(orgSlug: string | undefined, known: boolean | undefined) {
-  const [hint, setHint] = useState<boolean | null>(() => read(orgSlug));
-  useEffect(() => setHint(read(orgSlug)), [orgSlug]);
+  return useFrameHint("today", orgSlug, known);
+}
+
+/**
+ * Whether this org's home had a side column the last time this browser drew it.
+ * The side column holds Today, recent questions and the data map, and the last two
+ * load after the apps: without the hint, the apps would paint full width and then
+ * reflow into the narrower grid on every visit. Same contract as `useTodayHint`.
+ */
+export function useSideHint(orgSlug: string | undefined, known: boolean | undefined) {
+  return useFrameHint("side", orgSlug, known);
+}
+
+function useFrameHint(part: FramePart, orgSlug: string | undefined, known: boolean | undefined) {
+  const [hint, setHint] = useState<boolean | null>(() => read(part, orgSlug));
+  useEffect(() => setHint(read(part, orgSlug)), [part, orgSlug]);
   useEffect(() => {
     if (!orgSlug || known === undefined) return;
     try {
-      window.localStorage.setItem(key(orgSlug), known ? "1" : "0");
+      window.localStorage.setItem(key(part, orgSlug), known ? "1" : "0");
     } catch {
       // Private mode or full storage: the next visit just has no hint.
     }
-  }, [orgSlug, known]);
+  }, [part, orgSlug, known]);
   return known ?? hint;
 }
 
 /**
  * `value`, but a change to it is applied inside a view transition, so the
- * page's layout change animates: when an org's first widget arrives, each app
- * tile glides from its place in four columns to its place beside the Today rail
- * instead of jumping. Plain where the browser has no view transitions or the
+ * page's layout change animates: when an org's first widget arrives, Today eases
+ * into the side column and what was there moves down, or, where the side column
+ * is new, each app tile glides to its narrower grid instead of jumping. Plain where the browser has no view transitions or the
  * person asked for reduced motion.
  */
 export function useTransitionedFlag(value: boolean): boolean {

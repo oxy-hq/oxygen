@@ -322,6 +322,19 @@ describe("the home's widgets", () => {
     ]);
   });
 
+  it("leaves out the All clear heading when every widget is calm", () => {
+    const calm = close({
+      view: { ...close().view!, level: "ok", buttons: [], rows: [], progress: null }
+    });
+    widgets = [calm];
+    renderWidgets();
+    expect(screen.getByTestId("home-widgets-calm")).not.toHaveTextContent("All clear");
+    expect(screen.getByTestId("home-widget-bookkeeping-close")).toHaveAttribute(
+      "data-compact",
+      "true"
+    );
+  });
+
   it("stacks in the same order under the apps on a narrow screen", () => {
     widgets = [close()];
     renderWidgets([], "stack");

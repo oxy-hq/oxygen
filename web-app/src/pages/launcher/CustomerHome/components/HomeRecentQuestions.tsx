@@ -7,18 +7,14 @@ import useCurrentOrg from "@/stores/useCurrentOrg";
 
 const RECENT_LIMIT = 3;
 
-/**
- * The person's three latest questions, one line each, newest first: a shortcut
- * back into a thread, not a section of its own. The apps are what the home is
- * for, so this takes no room it has not earned: nothing while it loads, and
- * nothing when there are no questions yet.
- */
-export function HomeRecentQuestions() {
-  const { project } = useCurrentProjectBranch();
-  const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  const ws = ROUTES.ORG(orgSlug).WORKSPACE(project.id);
-  const { data } = useThreads({ page: 1, limit: RECENT_LIMIT });
+export type RecentQuestion = { id: string; title: string; timestamp: string };
 
+/** The person's three latest questions, newest first, and whether the answer is in
+ *  (`settled`, also on an error). The home reads it to know whether the side column
+ *  has anything to hold; the list draws the rows. */
+export function useRecentQuestions(): { rows: RecentQuestion[]; settled: boolean } {
+  // `isLoading`, not `isPending`: a query that never runs is settled, not waiting.
+  const { data, isLoading } = useThreads({ page: 1, limit: RECENT_LIMIT });
   const rows = (data?.threads ?? [])
     .map((t) => ({
       id: t.id,
@@ -27,6 +23,18 @@ export function HomeRecentQuestions() {
     }))
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, RECENT_LIMIT);
+  return { rows, settled: !isLoading };
+}
+
+/**
+ * The person's latest questions, one line each: a shortcut back into a thread,
+ * not a section of its own. It takes no room it has not earned: nothing while
+ * it loads, and nothing when there are no questions yet.
+ */
+export function HomeRecentQuestions({ rows }: { rows: RecentQuestion[] }) {
+  const { project } = useCurrentProjectBranch();
+  const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
+  const ws = ROUTES.ORG(orgSlug).WORKSPACE(project.id);
   if (rows.length === 0) return null;
 
   return (

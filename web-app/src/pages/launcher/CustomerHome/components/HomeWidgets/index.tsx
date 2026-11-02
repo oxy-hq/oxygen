@@ -162,7 +162,10 @@ export function HomeWidgets({
       ))}
       {calm.length > 0 && (
         <div className='flex flex-col gap-3' data-testid='home-widgets-calm'>
-          <h3 className='font-medium text-muted-foreground text-sm'>All clear</h3>
+          {/* Alone under Today, the heading would only repeat the greeting's "All clear today". */}
+          {(loud.length > 0 || failed.length > 0) && (
+            <h3 className='font-medium text-muted-foreground text-sm'>All clear</h3>
+          )}
           <div className={lineColumns}>
             {calm.map((card) => (
               <WidgetStrip

@@ -32,13 +32,13 @@ import useWorkspaceReadiness from "../useWorkspaceReadiness";
 import { FirstAppsOnTheirWay } from "./components/FirstAppsOnTheirWay";
 import { HomeAppGrid } from "./components/HomeAppGrid";
 import { HomeAskBox } from "./components/HomeAskBox";
-import { HomeRecentQuestions } from "./components/HomeRecentQuestions";
+import { HomeRecentQuestions, useRecentQuestions } from "./components/HomeRecentQuestions";
 import { HomeWidgets, needsCount, TODAY_ANCHOR, type WidgetGroup } from "./components/HomeWidgets";
 import { isUnavailable } from "./components/HomeWidgets/utils";
 import { WorldModelCard, worldModelTitle } from "./components/WorldModelCard";
 import { homeGreeting } from "./greeting";
 import { HOME_CONTAINER, HOME_GAP, HOME_RAIL_QUERY } from "./layout";
-import { useTodayHint, useTransitionedFlag } from "./useTodayHint";
+import { useSideHint, useTodayHint, useTransitionedFlag } from "./useTodayHint";
 
 /**
  * The org's home with the apps-first experience on: the org and a greeting, an ask
@@ -47,10 +47,10 @@ import { useTodayHint, useTransitionedFlag } from "./useTodayHint";
  * widgets.
  *
  * The apps and what is happening in them come first. Apps and widgets each have
- * a place, so neither buries the other (`layout.ts`): from `lg` the apps' column
- * and the Today rail scroll on their own; under it, the apps come right after the
- * greeting and Today stacks under them. Recent questions are a
- * short list, not a panel.
+ * a place, so neither buries the other (`layout.ts`): from `lg` the apps fill the
+ * main column and a side column holds Today, recent questions and the data map;
+ * under it, one column, the apps right after the greeting. The page is the one
+ * scroller: nothing scrolls inside it.
  *
  * Setup machinery is the Factory's. Someone who may not use the Factory sees none of
  * it: no setup toast, no "Not measured" rows (a gap in monitoring, not a problem with
@@ -82,16 +82,14 @@ export default function CustomerHome() {
   // Known once the widgets load; until then, what this browser saw last time, so
   // the frame does not change under the apps on every visit. Copies the person
   // hid still count: Today is there to bring them back.
-  const todayHint = useTodayHint(
-    org?.slug,
-    todayHidden
-      ? false
-      : widgets.isError
-        ? true
-        : widgets.data
-          ? widgets.data.length > 0 || hiddenWidgets.length > 0
-          : undefined
-  );
+  const todayAnswer = todayHidden
+    ? false
+    : widgets.isError
+      ? true
+      : widgets.data
+        ? widgets.data.length > 0 || hiddenWidgets.length > 0
+        : undefined;
+  const todayHint = useTodayHint(org?.slug, todayAnswer);
   // Today appearing (or going) moves the apps: animate that, don't jump.
   const hasToday = useTransitionedFlag(todayHint === true);
   const wide = useMediaQuery(HOME_RAIL_QUERY);
@@ -99,8 +97,24 @@ export default function CustomerHome() {
   const location = useLocation();
   const navigate = useNavigate();
   const openAsk = useAskDock((s) => s.open);
-  // Read here, not only in the card: whether there is a model changes the row's columns.
-  const { data: worldModel } = useWorldModel();
+  // Read here, not only in their cards: whether there is anything for the side column decides it.
+  const { data: worldModel, isLoading: worldModelLoading } = useWorldModel();
+  const { rows: recent, settled: recentSettled } = useRecentQuestions();
+  // Whether the side column holds anything besides Today, once both reads are in.
+  const insightsAnswer = !sections.some((s) => s.kind === "insights")
+    ? false
+    : recentSettled && !worldModelLoading
+      ? recent.length > 0 || (worldModel?.entities.length ?? 0) > 0
+      : undefined;
+  const sideAnswer =
+    todayAnswer === true || insightsAnswer === true
+      ? true
+      : todayAnswer === false && insightsAnswer === false
+        ? false
+        : undefined;
+  // Remembered, so the apps' grid has its final width on the first paint instead of
+  // reflowing when the reads land; a change animates, like Today's arrival.
+  const hasSide = useTransitionedFlag(useSideHint(org?.slug, sideAnswer) === true);
 
   // The same access gate as the HQ launcher: owners and admins manage an app's
   // access from its card; the server re-checks.
@@ -141,7 +155,11 @@ export default function CustomerHome() {
   const groups: WidgetGroup[] = sections.flatMap((s) =>
     s.kind === "widgets" && (s.items.length > 0 || s.title) ? [s] : []
   );
-  const rail = wide && hasToday;
+  const hasInsights = showInsights && (recent.length > 0 || showWorldModel);
+  // The side column, from `lg`, whenever it has something to hold (or held something
+  // last time, while the reads are out). With it, the apps keep their place when
+  // Today arrives: only the side column changes.
+  const side = wide && hasSide;
   const today = (variant: "rail" | "stack") => (
     <HomeWidgets
       orgSlug={org?.slug}
@@ -171,31 +189,34 @@ export default function CustomerHome() {
     </header>
   );
   const appsBlock = (
-    <section className='flex flex-col gap-3' aria-labelledby='home-apps-heading'>
+    // The container the grid's columns are measured against (`@container`).
+    <section className='@container flex flex-col gap-3' aria-labelledby='home-apps-heading'>
       <h2 id='home-apps-heading' className='font-medium text-base'>
         Your apps
       </h2>
       {apps.length === 0 ? (
         <FirstAppsOnTheirWay orgName={org?.name} />
       ) : (
-        <HomeAppGrid
-          apps={apps}
-          besideRail={rail}
-          onManageAccess={manageableOrgId ? setManaging : undefined}
-        />
+        <HomeAppGrid apps={apps} onManageAccess={manageableOrgId ? setManaging : undefined} />
       )}
     </section>
   );
-  const insights = showInsights && (
+  const insights = hasInsights && (
     <div
       className={cn("flex flex-col", HOME_GAP)}
       data-testid='home-lower-row'
-      // Moves with the apps when Today arrives, rather than cross-fading.
+      // Moves when Today arrives above it, rather than cross-fading.
       style={{ viewTransitionName: "home-lower" }}
     >
-      <HomeRecentQuestions />
+      <HomeRecentQuestions rows={recent} />
       {showWorldModel && (
-        <WorldModelCard model={worldModel} title={worldModelTitle(org?.name)} to={worldModelTo} />
+        <WorldModelCard
+          model={worldModel}
+          // The org's name is in the breadcrumb; in the side column it would cut the title.
+          title={worldModelTitle(side ? undefined : org?.name)}
+          to={worldModelTo}
+          compact={side}
+        />
       )}
     </div>
   );
@@ -204,45 +225,37 @@ export default function CustomerHome() {
 
   return (
     <div
-      className={cn("flex h-full flex-col", rail ? "overflow-hidden" : "overflow-auto")}
+      // The page is the one scroller, so its scrollbar is the window's edge, never
+      // a bar between the apps and Today.
+      className='flex h-full flex-col overflow-y-auto'
       data-testid='customer-home'
-      data-today={rail ? "rail" : hasToday ? "stack" : "none"}
+      data-today={side && hasToday ? "rail" : hasToday ? "stack" : "none"}
     >
       {factoryUser && <ProjectSetupToast gaps={readiness.gaps} />}
 
       {/* Real alerts only: an app that is down. Hidden in the calm default state. */}
       <CriticalAlertBanner />
 
-      {rail ? (
-        <div
-          className={cn(HOME_CONTAINER, "grid min-h-0 flex-1 grid-cols-3 gap-8")}
-          data-testid='home-body'
-        >
-          {/* Padded by its own negative margin, so a row's edge-to-edge hover stays inside the scroller. */}
-          <div className='col-span-2 -mx-2 flex min-h-0 flex-col gap-8 overflow-y-auto px-2 pb-10'>
-            {header}
-            {appsBlock}
-            {insights}
-            {attention}
-          </div>
-          <aside
-            aria-label='Today'
-            // Eases in from the side the first time an org has a Today in this browser.
-            className='min-h-0 starting:translate-x-3 overflow-y-auto pt-8 pb-10 starting:opacity-0 transition-[opacity,translate] duration-(--duration-slow) motion-reduce:starting:translate-x-0'
-            data-testid='home-today-rail'
-          >
-            {today("rail")}
-          </aside>
-        </div>
-      ) : (
-        <div className={cn(HOME_CONTAINER, "flex flex-col gap-8 pb-10")} data-testid='home-body'>
+      <div className={cn(HOME_CONTAINER, "flex items-start gap-10 pb-10")} data-testid='home-body'>
+        <div className='flex min-w-0 flex-1 flex-col gap-8'>
           {header}
           {appsBlock}
-          {hasToday && today("stack")}
-          {insights}
+          {!side && hasToday && today("stack")}
+          {!side && insights}
           {attention}
         </div>
-      )}
+        {side && (
+          <aside
+            aria-label={hasToday ? "Today" : "Recent"}
+            // Eases in from the side the first time an org has a Today in this browser.
+            className='flex w-80 shrink-0 starting:translate-x-3 flex-col gap-8 pt-8 starting:opacity-0 transition-[opacity,translate] duration-(--duration-slow) motion-reduce:starting:translate-x-0 xl:w-96'
+            data-testid='home-side'
+          >
+            {hasToday && today("rail")}
+            {insights}
+          </aside>
+        )}
+      </div>
 
       {manageableOrgId && (
         <AppAccessDialog

@@ -1,34 +1,27 @@
 import { useAppUnreadCounts, useLatestUnreadByApp } from "@/hooks/api/notifications";
-import { cn } from "@/libs/shadcn/utils";
 import type { CustomAppSummary } from "@/types/apps";
 import { HomeAppTile } from "./HomeAppTile";
 
 /**
- * The home's apps: a fixed place that widgets never push down. Four icons to a
- * phone's row; from `sm` up, row tiles, two across beside the Today rail, up to
- * four without it. The apps' column scrolls on its own, so the rail stays put.
+ * The home's apps: a fixed place that widgets never push down. The columns follow
+ * the room the grid has, not the screen (container queries: the section around it
+ * is the container), so it fills its column beside the side column or the whole
+ * width without one, with no flag passed down. Four icons to a row on a phone;
+ * from 24rem, row tiles: two, three from 42rem, four from 64rem.
  */
 export function HomeAppGrid({
   apps,
-  besideRail,
   onManageAccess
 }: {
   apps: CustomAppSummary[];
-  /** The Today rail takes the right third: two columns of tiles, not three or four. */
-  besideRail: boolean;
   onManageAccess?: (app: CustomAppSummary) => void;
 }) {
   const unread = useAppUnreadCounts();
   const latest = useLatestUnreadByApp();
   return (
     <div
-      className={cn(
-        "grid grid-cols-4 gap-x-2 gap-y-4 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3",
-        // Beside the rail a third column would cut every name and freshness line short.
-        besideRail ? "lg:grid-cols-2" : "xl:grid-cols-4"
-      )}
+      className='grid @2xl:grid-cols-3 @5xl:grid-cols-4 @sm:grid-cols-2 grid-cols-4 @sm:gap-3 gap-x-2 gap-y-4'
       data-testid='launcher-app-grid'
-      data-beside-rail={besideRail}
     >
       {apps.map((app) => (
         <HomeAppTile
