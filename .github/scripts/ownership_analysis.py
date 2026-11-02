@@ -89,6 +89,10 @@ AREAS = [
     ("crates/simulation",                                 "Metric-tree scenario simulation"),
     ("web-app/src/pages/ide/MetricTree",                  "Metric Tree (UI)"),
     ("web-app/src/pages/ide/SemanticLayer/AnomaliesInbox", "Anomalies Inbox (UI)"),
+    # Experiments (new 2026-10, #3662) — crate, API and the IDE page, one row.
+    ("crates/experiment",                                 "Experiments"),
+    ("crates/app/src/server/api/experiment",              "Experiments"),
+    ("web-app/src/pages/ide/Experiments",                 "Experiments"),
     ("crates/airform",                                    "Airform (modeling)"),
     ("crates/cameras",                                    "Cameras / edge / video"),
     ("crates/airhouse",                                   "Airhouse (warehouse+connector)"),
@@ -109,7 +113,10 @@ AREAS = [
     ("crates/platform",                                   "Platform services"),
     ("crates/server-authz",                               "Server-authz plumbing"),
     ("crates/migration-tolerance",                        "Revert-safe migrations"),
+    # The shell spans two trees: the home in pages/launcher and the top bar, rail
+    # and nav sheet in components/Shell. Two prefixes, one row.
     ("web-app/src/pages/launcher",                        "Web shell / HQ launcher"),
+    ("web-app/src/components/Shell",                      "Web shell / HQ launcher"),
     ("crates/api-tenancy/src/onboarding",                 "Onboarding (backend)"),
     ("web-app/src/pages/onboarding",                      "Onboarding (UI)"),
     ("web-app/src/pages/create-workspace",               "Create workspace (UI)"),

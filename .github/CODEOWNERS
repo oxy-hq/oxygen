@@ -10,10 +10,10 @@
 #
 #   Handle            Person   Primary area
 #   ----------------  -------  --------------------------------------------------
-#   @luong-komorebi   Luong    Platform · custom apps · admin · authz · fleet · CI
-#   @haitrr           Hai      Semantic model · world model · metrics & monitoring
+#   @luong-komorebi   Luong    Platform · custom apps · admin · authz · fleet · web shell · CI
+#   @haitrr           Hai      Semantic model · world model · metrics & monitoring · experiments
 #   @hotay            Tay      Cameras/video · airhouse · airway · agentic runtime
-#   @nresh            Nick     Web shell · onboarding · browser tests · sources
+#   @nresh            Nick     Onboarding · browser tests · sources
 #   @NTtanh           Mars     Billing · multi-tenancy · secrets · IDE/git · client shell
 #
 # Onboarding map + what each area is: internal-docs/team-ownership-matrix.md
@@ -172,6 +172,17 @@ internal-docs/deploy-pipeline.md                   @luong-komorebi @nresh
 crates/migration-tolerance/                        @luong-komorebi @NTtanh
 internal-docs/revert-safe-migrations.md            @luong-komorebi @NTtanh
 
+# Apps-first web shell — the home (pages/launcher) and the top bar, rail and nav
+# sheet (components/Shell, uncovered until 2026-11-02). Moved from Nick 2026-11-02:
+# Nick built the shell (#2497, #2597), but every commit in both dirs since
+# 2026-09-15 is Luong's — the one-home design (#3817), the apps-first program
+# (#3848), the dock (#3856) and home widgets (#3881 → #3902). Mars backs up: the
+# phone nav drawer (#3852) is his. components/Shell is a feature leaf inside the
+# shared components/ tree, like Crew/.
+web-app/src/pages/launcher/                        @luong-komorebi @NTtanh
+web-app/src/components/Shell/                      @luong-komorebi @NTtanh
+internal-docs/apps-first-shell.md                  @luong-komorebi @NTtanh
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Hai (@haitrr) primary
@@ -211,6 +222,14 @@ crates/app/src/server/health_eval_executor.rs      @haitrr @luong-komorebi
 
 # Airform (dbt-style modeling)
 crates/airform/                                    @haitrr @luong-komorebi
+
+# Experiments (new 2026-10, #3662) — pre-registered experiments from design to
+# report. All Hai's. Luong backs up on the semantic-model reasoning above; his one
+# commit here is a dead-code sweep, so this is a generalist backup.
+crates/experiment/                                 @haitrr @luong-komorebi
+crates/app/src/server/api/experiment/              @haitrr @luong-komorebi
+web-app/src/pages/ide/Experiments/                 @haitrr @luong-komorebi
+internal-docs/experiments*.md                      @haitrr @luong-komorebi
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -275,9 +294,7 @@ crates/infrastructure/llm/                         @hotay @luong-komorebi
 # Nick (@nresh) primary
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Apps-first web shell
-web-app/src/pages/launcher/                        @nresh @NTtanh
-internal-docs/apps-first-shell.md                  @nresh @NTtanh
+# (The apps-first web shell moved to Luong's section 2026-11-02 — see there.)
 
 # Workspace onboarding (feature owner; files also churned by high-volume committers)
 crates/api-tenancy/src/onboarding/                 @nresh @luong-komorebi
