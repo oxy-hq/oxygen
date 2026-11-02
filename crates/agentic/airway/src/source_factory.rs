@@ -366,12 +366,18 @@ fn build_ubereats(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError> 
 
 // ── filesystem ───────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FilesystemParams {
-    /// Base path or URL (`/data`, `s3://bucket/prefix`, `gs://...`, `az://...`).
+    /// Base path or URL (`/data`, `s3://bucket/prefix`, `gs://...`, `az://...`,
+    /// `sftp://host[:port]/dir`). May instead be named by `base_path_var`,
+    /// which the executor resolves into this field from the secret manager.
+    /// That is for a value kept outside the repo — a vendor's drop directory
+    /// recorded only beside its login — not for secrecy: the path is not a
+    /// credential, and it appears in the resource description, in errors and
+    /// in the file-history keys as written.
     base_path: String,
-    /// Glob pattern (e.g. `*.jsonl`, `**/*.csv`).
+    /// Filename glob (e.g. `*.jsonl`, `startDate*_endDate*.csv`).
     pattern: String,
     /// `json` | `jsonl` | `csv`.
     format: FilesystemFormatLabel,
@@ -381,6 +387,124 @@ struct FilesystemParams {
     /// JSON path to records inside each JSON document (e.g. `data.items`).
     #[serde(default)]
     json_path: Option<String>,
+
+    // ── SFTP login, for an `sftp://` base path only ────────────────────────
+    //
+    // The executor resolves `username_var` / `password_var` / `private_key_var`
+    // / `private_key_passphrase_var` into these from the secret manager before
+    // dispatch (`resolve_airway_source_secrets`), so the `_var` forms are not
+    // accepted here — the same arrangement as `ClickHouseParams::password`.
+    /// SFTP user. An identifier, but accepted as `username_var` too, because
+    /// vendors hand it out beside the password and it is stored the same way.
+    #[serde(default)]
+    username: Option<String>,
+    #[serde(default)]
+    password: Option<String>,
+    /// OpenSSH or PEM private key text. Multi-line: whatever backs the secret
+    /// must preserve newlines.
+    #[serde(default)]
+    private_key: Option<String>,
+    #[serde(default)]
+    private_key_passphrase: Option<String>,
+    /// The server's host key as `ssh-keygen -lf` prints it (`SHA256:…`).
+    /// An SFTP source needs this or `insecure_accept_any_host_key: true`.
+    #[serde(default)]
+    host_key_fingerprint: Option<String>,
+    /// Trust whatever host key the server presents, warned on every run. Only
+    /// with no `host_key_fingerprint`; see airway's `SftpAuth`.
+    #[serde(default)]
+    insecure_accept_any_host_key: bool,
+    /// Largest file an SFTP read accepts; airway's default (256 MiB) when
+    /// absent. A file over it fails the run, naming the file.
+    #[serde(default)]
+    max_file_bytes: Option<u64>,
+
+    // ── How rows land ─────────────────────────────────────────────────────
+    /// `append` (default) | `merge` | `replacing`. `replace` is refused by
+    /// the source: with per-file history it would truncate to one run's files.
+    #[serde(default)]
+    write_disposition: WriteDispositionLabel,
+    /// Row identity for `merge` / `replacing`.
+    #[serde(default)]
+    primary_key: Vec<String>,
+    /// Landed column the destination's version guard compares across runs.
+    #[serde(default)]
+    version_column: Option<String>,
+    /// String cells meaning NULL, case-insensitive (e.g. `["null"]`).
+    #[serde(default)]
+    null_values: Vec<String>,
+    /// Columns read as UTC instants and normalised to RFC 3339.
+    #[serde(default)]
+    timestamp_columns: Vec<String>,
+    /// Column stamped with each row's source file name.
+    #[serde(default)]
+    file_name_column: Option<String>,
+    /// Declared column types (`text`, `bigint`, `double`, `bool`,
+    /// `timestamp`, `date`), so a column null in every row of the first
+    /// file is still created, and a first load cannot pick a wrong type that
+    /// additive schema evolution would then never undo.
+    #[serde(default)]
+    column_types: std::collections::HashMap<String, ColumnTypeLabel>,
+}
+
+/// The column types a `filesystem` config can declare. Its own labels rather
+/// than airway's `DataType` wire names, which spell BIGINT `big_int`.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ColumnTypeLabel {
+    Text,
+    Bigint,
+    Double,
+    Bool,
+    Timestamp,
+    Date,
+}
+
+impl From<ColumnTypeLabel> for airway::types::DataType {
+    fn from(label: ColumnTypeLabel) -> Self {
+        match label {
+            ColumnTypeLabel::Text => Self::Text,
+            ColumnTypeLabel::Bigint => Self::BigInt,
+            ColumnTypeLabel::Double => Self::Double,
+            ColumnTypeLabel::Bool => Self::Bool,
+            ColumnTypeLabel::Timestamp => Self::Timestamp,
+            ColumnTypeLabel::Date => Self::Date,
+        }
+    }
+}
+
+/// Hand-written so a `tracing::debug!(?params)` cannot print the SFTP login.
+impl std::fmt::Debug for FilesystemParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let redacted = |v: &Option<String>| v.as_ref().map(|_| "<redacted>");
+        f.debug_struct("FilesystemParams")
+            .field("base_path", &self.base_path)
+            .field("pattern", &self.pattern)
+            .field("format", &self.format)
+            .field("table_name", &self.table_name)
+            .field("json_path", &self.json_path)
+            .field("username", &self.username)
+            .field("password", &redacted(&self.password))
+            .field("private_key", &redacted(&self.private_key))
+            .field(
+                "private_key_passphrase",
+                &redacted(&self.private_key_passphrase),
+            )
+            .field("host_key_fingerprint", &self.host_key_fingerprint)
+            .field(
+                "insecure_accept_any_host_key",
+                &self.insecure_accept_any_host_key,
+            )
+            .field("max_file_bytes", &self.max_file_bytes)
+            .field("write_disposition", &self.write_disposition)
+            .field("primary_key", &self.primary_key)
+            .field("version_column", &self.version_column)
+            .field("null_values", &self.null_values)
+            .field("timestamp_columns", &self.timestamp_columns)
+            .field("file_name_column", &self.file_name_column)
+            .field("column_types", &self.column_types)
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -405,6 +529,30 @@ fn build_filesystem(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError
     let params: FilesystemParams = serde_json::from_value(raw.clone())
         .map_err(|e| AirwayError::Other(format!("invalid filesystem config: {e}")))?;
 
+    let is_sftp = airway::connector::sftp::SftpLocation::is_sftp_url(&params.base_path);
+    // An offline build (`crate::placeholder`) turns `base_path_var` into the
+    // placeholder literal, so the scheme is unknowable there. It builds
+    // without the login rather than being refused: construction does no I/O,
+    // and `resources()` / `contracts()` do not depend on the backend.
+    let base_is_placeholder = params.base_path == crate::placeholder::PLACEHOLDER_SECRET;
+    let has_login = params.username.is_some()
+        || params.password.is_some()
+        || params.private_key.is_some()
+        || params.private_key_passphrase.is_some()
+        || params.host_key_fingerprint.is_some()
+        || params.insecure_accept_any_host_key
+        || params.max_file_bytes.is_some();
+    if has_login && !is_sftp && !base_is_placeholder {
+        // Refused rather than ignored: a login on an S3 or local path would
+        // sit in the resolved spec doing nothing, which reads as working.
+        return Err(AirwayError::Other(
+            "invalid filesystem config: username, password, private_key, \
+             host_key_fingerprint, insecure_accept_any_host_key and max_file_bytes \
+             apply only to an sftp:// base_path"
+                .into(),
+        ));
+    }
+
     let mut source =
         FilesystemSource::new(&params.base_path, &params.pattern, params.format.into());
     if let Some(name) = params.table_name.as_deref() {
@@ -413,6 +561,45 @@ fn build_filesystem(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError
     if let Some(jp) = params.json_path.as_deref() {
         source = source.with_json_path(jp);
     }
+    if is_sftp {
+        let auth = airway::connector::sftp::SftpAuth {
+            username: params.username.unwrap_or_default(),
+            password: params.password,
+            private_key: params.private_key,
+            private_key_passphrase: params.private_key_passphrase,
+            host_key_fingerprint: params.host_key_fingerprint,
+            insecure_accept_any_host_key: params.insecure_accept_any_host_key,
+        };
+        // At build, not first connect: an unpinned login without the explicit
+        // flag (or a malformed pin) is a config error a preview should show,
+        // not a run failure. Construction still does no I/O.
+        auth.validate()
+            .map_err(|e| AirwayError::Other(format!("invalid filesystem config: {e}")))?;
+        source = source.with_sftp_auth(auth);
+        if let Some(max) = params.max_file_bytes {
+            source = source.with_max_file_bytes(max);
+        }
+    }
+    let source = source
+        .with_keys(
+            params.write_disposition.into(),
+            params.primary_key,
+            params.version_column,
+        )
+        .map_err(|e| AirwayError::Other(format!("invalid filesystem config: {e}")))?
+        .with_null_values(params.null_values)
+        .with_timestamp_columns(params.timestamp_columns)
+        .with_column_types(
+            params
+                .column_types
+                .into_iter()
+                .map(|(column, label)| (column, label.into()))
+                .collect(),
+        );
+    let source = match params.file_name_column.as_deref() {
+        Some(column) => source.with_file_name_column(column),
+        None => source,
+    };
     Ok(Box::new(source))
 }
 
@@ -2362,6 +2549,200 @@ mod tests {
         assert!(
             err.to_string().contains("invalid ubereats config"),
             "got: {err}"
+        );
+    }
+
+    fn sftp_config(extra: Value) -> Value {
+        let mut base = json!({
+            "base_path": "sftp://sftp.example.com:22/acct___brand/reviews/reviews",
+            "pattern": "startDate*_endDate*.csv",
+            "format": "csv",
+            "table_name": "reviews",
+            "username": "acct",
+            "password": "hunter2",
+            "host_key_fingerprint": "SHA256:3o7x/758TzQjEU3aGup2kaR1cAIJ0qRnF6SXL+FZDLc",
+        });
+        for (k, v) in extra.as_object().expect("object") {
+            base[k] = v.clone();
+        }
+        base
+    }
+
+    /// The Momos shape: an SFTP drop merged on `review_id`, guarded by its
+    /// update timestamp. Building opens no connection.
+    #[test]
+    fn filesystem_builds_an_sftp_merge_source() {
+        let source = build(&cfg(
+            "filesystem",
+            sftp_config(json!({
+                "host_key_fingerprint": "SHA256:abc",
+                "write_disposition": "merge",
+                "primary_key": ["review_id"],
+                "version_column": "review_updated_time_utc",
+                "null_values": ["null"],
+                "timestamp_columns": ["review_created_time_utc", "review_updated_time_utc"],
+                "file_name_column": "source_file",
+                "column_types": { "message_translated": "text", "rating": "bigint" },
+            })),
+        ))
+        .expect("build");
+        assert_eq!(source.name(), "filesystem");
+        let info = &source.resources()[0];
+        assert_eq!(info.name, "reviews");
+        assert_eq!(info.write_disposition, WriteDisposition::Merge);
+        assert_eq!(info.primary_key, Some(vec!["review_id".to_string()]));
+        assert_eq!(
+            source.contract_for("reviews").version_column(),
+            Some("review_updated_time_utc")
+        );
+        let hints = &source.column_hints()["reviews"];
+        assert_eq!(
+            hints["message_translated"].data_type,
+            Some(airway::types::DataType::Text)
+        );
+        assert_eq!(
+            hints["rating"].data_type,
+            Some(airway::types::DataType::BigInt)
+        );
+        assert_eq!(
+            hints["review_updated_time_utc"].data_type,
+            Some(airway::types::DataType::Timestamp)
+        );
+    }
+
+    #[test]
+    fn filesystem_refuses_a_login_on_a_non_sftp_path() {
+        let err = build(&cfg(
+            "filesystem",
+            json!({
+                "base_path": "s3://bucket/prefix",
+                "pattern": "*.csv",
+                "format": "csv",
+                "password": "hunter2",
+            }),
+        ))
+        .err()
+        .expect("a login on s3 must be refused");
+        let msg = err.to_string();
+        assert!(msg.contains("only to an sftp://"), "{msg}");
+        assert!(!msg.contains("hunter2"), "{msg}");
+    }
+
+    #[test]
+    fn filesystem_refuses_merge_without_a_key_and_replace() {
+        for extra in [
+            json!({ "write_disposition": "merge" }),
+            json!({ "write_disposition": "replace", "primary_key": ["review_id"] }),
+        ] {
+            let err = build(&cfg("filesystem", sftp_config(extra.clone())))
+                .err()
+                .unwrap_or_else(|| panic!("{extra} must be refused"));
+            assert!(
+                err.to_string().contains("invalid filesystem config"),
+                "{err}"
+            );
+        }
+    }
+
+    /// The `_var` forms are resolved by the executor and stripped; one that
+    /// reaches the factory is a config error, not a silently ignored key.
+    #[test]
+    fn filesystem_refuses_an_unresolved_password_var() {
+        let err = build(&cfg(
+            "filesystem",
+            sftp_config(json!({ "password_var": "MOMOS_SFTP_PASSWORD" })),
+        ))
+        .err()
+        .expect("unknown field");
+        assert!(err.to_string().contains("password_var"), "{err}");
+    }
+
+    /// A spec whose base path is a secret (`base_path_var`) still builds
+    /// offline: the placeholder substitution makes it a non-URL literal, which
+    /// must not trip the login-on-a-non-SFTP-path refusal.
+    #[test]
+    fn filesystem_with_base_path_var_builds_offline() {
+        let mut config = json!({
+            "base_path_var": "MOMOS_SFTP_BASE_PATH",
+            "pattern": "startDate*_endDate*.csv",
+            "format": "csv",
+            "table_name": "reviews",
+            "username_var": "MOMOS_SFTP_USERNAME",
+            "password_var": "MOMOS_SFTP_PASSWORD",
+            "write_disposition": "merge",
+            "primary_key": ["review_id"],
+        });
+        crate::placeholder::substitute_secret_vars(&mut config);
+        let source = build(&cfg("filesystem", config)).expect("builds offline");
+        assert_eq!(source.resources()[0].name, "reviews");
+        assert_eq!(
+            source.resources()[0].primary_key,
+            Some(vec!["review_id".to_string()])
+        );
+    }
+
+    /// H1 at build: an SFTP source with neither a pinned host key nor the
+    /// explicit flag is a config error, as is giving both.
+    #[test]
+    fn filesystem_sftp_needs_a_pin_or_the_insecure_flag() {
+        let mut unpinned = sftp_config(json!({}));
+        unpinned
+            .as_object_mut()
+            .unwrap()
+            .remove("host_key_fingerprint");
+        let err = build(&cfg("filesystem", unpinned.clone()))
+            .err()
+            .expect("unpinned without the flag");
+        assert!(
+            err.to_string().contains("insecure_accept_any_host_key"),
+            "{err}"
+        );
+
+        unpinned["insecure_accept_any_host_key"] = json!(true);
+        build(&cfg("filesystem", unpinned.clone())).expect("the explicit flag builds");
+
+        unpinned["host_key_fingerprint"] = json!("SHA256:abc");
+        assert!(
+            build(&cfg("filesystem", unpinned)).is_err(),
+            "both contradict"
+        );
+    }
+
+    #[test]
+    fn filesystem_takes_max_file_bytes_on_sftp_only() {
+        build(&cfg(
+            "filesystem",
+            sftp_config(json!({ "max_file_bytes": 1048576 })),
+        ))
+        .expect("sftp takes a cap");
+        let err = build(&cfg(
+            "filesystem",
+            json!({
+                "base_path": "s3://bucket/prefix",
+                "pattern": "*.csv",
+                "format": "csv",
+                "max_file_bytes": 1048576,
+            }),
+        ))
+        .err()
+        .expect("not on s3");
+        assert!(err.to_string().contains("only to an sftp://"), "{err}");
+    }
+
+    #[test]
+    fn filesystem_params_debug_redacts_the_login() {
+        let params: FilesystemParams = serde_json::from_value(sftp_config(json!({
+            "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----",
+            "private_key_passphrase": "swordfish",
+        })))
+        .expect("parse");
+        let shown = format!("{params:?}");
+        for secret in ["hunter2", "BEGIN OPENSSH", "swordfish"] {
+            assert!(!shown.contains(secret), "{shown}");
+        }
+        assert!(
+            shown.contains("acct"),
+            "the username is an identifier: {shown}"
         );
     }
 

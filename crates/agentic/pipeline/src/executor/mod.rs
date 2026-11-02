@@ -1263,11 +1263,48 @@ impl PipelineTaskExecutor {
             // BestTime private API key → POSTed as `api_key_private` query
             // param to `/forecasts` (every call). Same pattern as `weather`.
             "besttime" => &[("api_key", "api_key_var")],
+            // An SFTP login for a `filesystem` source with an `sftp://` base
+            // path (S3 / GCS / Azure and local paths authenticate from the
+            // ambient environment and carry none of these). `username` is an
+            // identifier, accepted as a secret because vendors issue it beside
+            // the password. `private_key` is multi-line, like `netsuite`'s.
+            //
+            // `base_path` too: not a credential, but a value kept outside the
+            // repo — a vendor's drop directory recorded only beside its login —
+            // so the YAML cannot spell it and a literal would be a guess. It is
+            // not treated as secret: it appears in descriptions, errors and
+            // file-history keys as written.
+            //
+            // For every pair, giving the literal and the `_var` is refused, and
+            // a secret that resolves empty is an error naming it — not the
+            // "empty means unset" the other kinds use, which here would fall
+            // through to a missing-field error far from its cause.
+            //
+            // Independent of `fill_upload_zone`, which runs first and only for
+            // uploadable kinds (`ubereats`): `filesystem` is not one, so no
+            // derived `base_path` can meet a `base_path_var` here.
+            "filesystem" => &[
+                ("base_path", "base_path_var"),
+                ("username", "username_var"),
+                ("password", "password_var"),
+                ("private_key", "private_key_var"),
+                ("private_key_passphrase", "private_key_passphrase_var"),
+            ],
             _ => return Ok(()),
         };
         let Some(obj) = spec.source.config.as_object_mut() else {
             return Ok(());
         };
+        let strict = kind == "filesystem";
+        if strict {
+            for (field, var_key) in pairs {
+                if obj.contains_key(*field) && obj.contains_key(*var_key) {
+                    return Err(format!(
+                        "airway filesystem: give `{field}` or `{var_key}`, not both"
+                    ));
+                }
+            }
+        }
         for (field, var_key) in pairs {
             let Some(var_val) = obj.get(*var_key) else {
                 continue;
@@ -1290,6 +1327,11 @@ impl PipelineTaskExecutor {
             // ClickHouse must send no `X-ClickHouse-Key`, not an empty one —
             // see `clickhouse_conn` in agentic-airway). The `var_key` is
             // still removed so the rendered spec never leaks the indirection.
+            if secret.is_empty() && strict {
+                return Err(format!(
+                    "airway {kind}: secret `{var_name}` (referenced by `{var_key}`) is empty"
+                ));
+            }
             if !secret.is_empty() {
                 obj.insert((*field).to_string(), serde_json::Value::String(secret));
             }
@@ -2296,6 +2338,182 @@ mod tests {
         );
         // Untouched neighbours: the arm resolves one field, not the block.
         assert_eq!(spec.source.config["backend"], "postgres");
+    }
+
+    /// An SFTP `filesystem` source names its password by secret; the literal
+    /// lands under `password` and the `_var` key is stripped, because
+    /// `FilesystemParams` is `deny_unknown_fields`. A literal `username`, the
+    /// base path and the landing options pass through untouched.
+    #[tokio::test]
+    async fn filesystem_sftp_password_var_is_resolved_and_stripped() {
+        let executor = executor_knowing("MOMOS_SFTP_PASSWORD", "hunter2");
+        let mut spec = spec_with_source(
+            "filesystem",
+            serde_json::json!({
+                "base_path": "sftp://sftp.example.com/acct/reviews/reviews",
+                "pattern": "startDate*_endDate*.csv",
+                "format": "csv",
+                "username": "acct",
+                "password_var": "MOMOS_SFTP_PASSWORD",
+                "write_disposition": "merge",
+                "primary_key": ["review_id"],
+            }),
+        );
+
+        executor
+            .resolve_airway_source_secrets(&mut spec)
+            .await
+            .expect("the secret is resolvable");
+
+        assert_eq!(spec.source.config["password"], "hunter2");
+        assert!(spec.source.config.get("password_var").is_none());
+        assert_eq!(spec.source.config["username"], "acct");
+        assert_eq!(spec.source.config["write_disposition"], "merge");
+    }
+
+    /// The drop directory can be a secret: `base_path_var` resolves into
+    /// `base_path` and is stripped, like the login keys.
+    #[tokio::test]
+    async fn filesystem_base_path_var_is_resolved_and_stripped() {
+        let executor = executor_knowing(
+            "MOMOS_SFTP_BASE_PATH",
+            "sftp://sftp.example.com:22/acct___brand/reviews/reviews/",
+        );
+        let mut spec = spec_with_source(
+            "filesystem",
+            serde_json::json!({
+                "base_path_var": "MOMOS_SFTP_BASE_PATH",
+                "pattern": "startDate*_endDate*.csv",
+                "format": "csv",
+            }),
+        );
+        executor
+            .resolve_airway_source_secrets(&mut spec)
+            .await
+            .expect("the secret is resolvable");
+        assert_eq!(
+            spec.source.config["base_path"],
+            "sftp://sftp.example.com:22/acct___brand/reviews/reviews/"
+        );
+        assert!(spec.source.config.get("base_path_var").is_none());
+    }
+
+    /// Both forms is ambiguous: refused, naming both keys, before any secret
+    /// is read.
+    #[tokio::test]
+    async fn filesystem_base_path_and_base_path_var_together_are_refused() {
+        let executor = executor_knowing("MOMOS_SFTP_BASE_PATH", "sftp://h/d");
+        let mut spec = spec_with_source(
+            "filesystem",
+            serde_json::json!({
+                "base_path": "sftp://h/other",
+                "base_path_var": "MOMOS_SFTP_BASE_PATH",
+                "pattern": "*.csv",
+                "format": "csv",
+            }),
+        );
+        let err = executor
+            .resolve_airway_source_secrets(&mut spec)
+            .await
+            .expect_err("both forms must be refused");
+        assert!(
+            err.contains("base_path") && err.contains("base_path_var"),
+            "{err}"
+        );
+        assert_eq!(
+            spec.source.config["base_path"], "sftp://h/other",
+            "untouched"
+        );
+    }
+
+    /// L1: every filesystem secret pair refuses its literal and its `_var`
+    /// together, before any secret is read.
+    #[tokio::test]
+    async fn filesystem_refuses_a_literal_and_its_var_together_for_every_pair() {
+        for (field, var_key) in [
+            ("username", "username_var"),
+            ("password", "password_var"),
+            ("private_key", "private_key_var"),
+            ("private_key_passphrase", "private_key_passphrase_var"),
+        ] {
+            let executor = executor_knowing("SECRET", "value");
+            let mut config = serde_json::json!({
+                "base_path": "sftp://h/d",
+                "pattern": "*.csv",
+                "format": "csv",
+            });
+            config[field] = serde_json::json!("literal");
+            config[var_key] = serde_json::json!("SECRET");
+            let mut spec = spec_with_source("filesystem", config);
+            let err = executor
+                .resolve_airway_source_secrets(&mut spec)
+                .await
+                .expect_err("both forms must be refused");
+            assert!(err.contains(&format!("`{field}` or `{var_key}`")), "{err}");
+            assert_eq!(spec.source.config[field], "literal", "untouched");
+        }
+    }
+
+    /// L1: a secret that resolves empty is an error naming it — not a
+    /// silent fall-through to a missing field.
+    #[tokio::test]
+    async fn filesystem_empty_secret_is_an_error_naming_it() {
+        let executor = executor_knowing("MOMOS_SFTP_PASSWORD", "");
+        let mut spec = spec_with_source(
+            "filesystem",
+            serde_json::json!({
+                "base_path": "sftp://h/d",
+                "pattern": "*.csv",
+                "format": "csv",
+                "username": "u",
+                "password_var": "MOMOS_SFTP_PASSWORD",
+            }),
+        );
+        let err = executor
+            .resolve_airway_source_secrets(&mut spec)
+            .await
+            .expect_err("an empty secret must fail");
+        assert!(
+            err.contains("MOMOS_SFTP_PASSWORD") && err.contains("empty"),
+            "{err}"
+        );
+    }
+
+    /// `base_path_var` is a `filesystem` key only. On `ubereats` the secret
+    /// table has no arm, so nothing resolves it and the config is left as
+    /// written — the upload-zone derivation stays the only thing that ever
+    /// fills an `ubereats` base path.
+    #[tokio::test]
+    async fn base_path_var_is_not_resolved_for_ubereats() {
+        let executor = executor_knowing("ZONE", "s3://somewhere/else");
+        let mut spec = spec_with_source("ubereats", serde_json::json!({ "base_path_var": "ZONE" }));
+        executor
+            .resolve_airway_source_secrets(&mut spec)
+            .await
+            .expect("no arm, no error");
+        assert!(spec.source.config.get("base_path").is_none());
+        assert_eq!(spec.source.config["base_path_var"], "ZONE");
+    }
+
+    /// An unresolvable SFTP secret fails the run by name, rather than
+    /// connecting with no password.
+    #[tokio::test]
+    async fn filesystem_sftp_missing_secret_is_named() {
+        let executor = executor_knowing("SOMETHING_ELSE", "x");
+        let mut spec = spec_with_source(
+            "filesystem",
+            serde_json::json!({
+                "base_path": "sftp://sftp.example.com/d",
+                "pattern": "*.csv",
+                "format": "csv",
+                "username_var": "MOMOS_SFTP_USERNAME",
+            }),
+        );
+        let err = executor
+            .resolve_airway_source_secrets(&mut spec)
+            .await
+            .expect_err("an absent secret must fail the run");
+        assert!(err.contains("MOMOS_SFTP_USERNAME"), "{err}");
     }
 
     /// `postgres_cdc` rides the same arm because it takes the same flat

@@ -18,6 +18,9 @@ workspace = true
 
 ### BEGIN HAKARI SECTION
 [dependencies]
+aead = { version = "0.6", default-features = false, features = ["alloc", "getrandom"] }
+aes = { version = "0.9", default-features = false, features = ["zeroize"] }
+aes-gcm = { version = "0.11", features = ["zeroize"] }
 ahash = { version = "0.8", default-features = false, features = ["runtime-rng"] }
 aho-corasick = { version = "1" }
 approx = { version = "0.5" }
@@ -54,8 +57,10 @@ bstr = { version = "1" }
 bytemuck = { version = "1", default-features = false, features = ["derive"] }
 byteorder = { version = "1" }
 bytes = { version = "1", features = ["serde"] }
+chacha20 = { version = "0.10", default-features = false, features = ["legacy", "rng", "zeroize"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = { version = "0.10", features = ["serde"] }
+cipher = { version = "0.5", default-features = false, features = ["block-padding", "rand_core", "stream-wrapper"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
 comfy-table = { version = "7" }
@@ -66,13 +71,14 @@ crossbeam-channel = { version = "0.5" }
 crossbeam-utils = { version = "0.8" }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["getrandom"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["std"] }
+ctutils = { version = "0.4", default-features = false, features = ["subtle"] }
 data-encoding = { version = "2" }
 der = { version = "0.7", default-features = false, features = ["derive", "flagset", "oid", "pem", "std"] }
 deranged = { version = "0.5", features = ["powerfmt", "serde"] }
 derive_more = { version = "2", features = ["debug", "is_variant"] }
 df-interchange = { version = "0.3", default-features = false, features = ["arrow_54", "arrow_56", "arrow_57", "arrow_58"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "oid", "std"] }
-digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
 flate2 = { version = "1", features = ["zlib", "zlib-rs"] }
 form_urlencoded = { version = "1" }
@@ -87,10 +93,12 @@ futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng", "wasm_js"] }
 half = { version = "2", default-features = false, features = ["bytemuck", "num-traits"] }
 hashbrown-3575ec1268b04181 = { package = "hashbrown", version = "0.15" }
 hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17" }
 httparse = { version = "1" }
+hybrid-array = { version = "0.4", default-features = false, features = ["alloc", "ctutils", "extra-sizes", "subtle", "zeroize"] }
 hyper = { version = "1", features = ["full"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto", "server-graceful", "service"] }
@@ -98,6 +106,7 @@ icu_locale_core = { version = "2", default-features = false, features = ["alloc"
 icu_provider = { version = "2", default-features = false, features = ["alloc", "baked"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
+inout = { version = "0.2", default-features = false, features = ["block-padding"] }
 lazy_static = { version = "1", default-features = false, features = ["spin_no_std"] }
 libc = { version = "0.2" }
 liblzma = { version = "0.4", features = ["static"] }
@@ -175,7 +184,7 @@ sqlx-core = { version = "0.9", features = ["_rt-tokio", "_tls-rustls-ring-webpki
 sqlx-mysql = { version = "0.9", default-features = false, features = ["any", "chrono", "json", "migrate", "offline", "rust_decimal", "time", "uuid"] }
 sqlx-postgres = { version = "0.9", default-features = false, features = ["any", "chrono", "migrate", "offline", "rust_decimal", "time", "uuid"] }
 stable_deref_trait = { version = "1" }
-subtle = { version = "2" }
+subtle = { version = "2", features = ["const-generics"] }
 testcontainers = { version = "0.27", features = ["blocking", "http_wait", "reusable-containers"] }
 testcontainers-modules = { version = "0.15", features = ["clickhouse", "mysql", "postgres"] }
 thiserror = { version = "2" }
@@ -218,18 +227,21 @@ bitflags = { version = "2", default-features = false, features = ["serde"] }
 byteorder = { version = "1" }
 bytes = { version = "1", features = ["serde"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+chacha20 = { version = "0.10", default-features = false, features = ["legacy", "rng", "zeroize"] }
 chrono = { version = "0.4", features = ["serde"] }
+cipher = { version = "0.5", default-features = false, features = ["block-padding", "rand_core", "stream-wrapper"] }
 concurrent-queue = { version = "2" }
 const-oid = { version = "0.9", default-features = false, features = ["db", "std"] }
 crossbeam-utils = { version = "0.8" }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["getrandom"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["std"] }
+ctutils = { version = "0.4", default-features = false, features = ["subtle"] }
 darling = { version = "0.20" }
 darling_core = { version = "0.20", default-features = false, features = ["suggestions"] }
 deranged = { version = "0.5", features = ["powerfmt", "serde"] }
 derive_more-impl = { version = "2", features = ["debug", "is_variant"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "oid", "std"] }
-digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
 flate2 = { version = "1", features = ["zlib", "zlib-rs"] }
 form_urlencoded = { version = "1" }
@@ -242,12 +254,15 @@ futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng", "wasm_js"] }
 hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17" }
 httparse = { version = "1" }
+hybrid-array = { version = "0.4", default-features = false, features = ["alloc", "ctutils", "extra-sizes", "subtle", "zeroize"] }
 icu_locale_core = { version = "2", default-features = false, features = ["alloc", "zerovec"] }
 icu_provider = { version = "2", default-features = false, features = ["alloc", "baked"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
+inout = { version = "0.2", default-features = false, features = ["block-padding"] }
 libc = { version = "0.2" }
 litemap = { version = "0.8", default-features = false, features = ["alloc"] }
 log = { version = "0.4", default-features = false, features = ["kv_unstable", "std"] }
@@ -296,7 +311,7 @@ sqlx-macros-core = { version = "0.9", features = ["_rt-tokio", "_tls-rustls-ring
 sqlx-mysql = { version = "0.9", default-features = false, features = ["any", "chrono", "json", "migrate", "offline", "rust_decimal", "time", "uuid"] }
 sqlx-postgres = { version = "0.9", default-features = false, features = ["any", "chrono", "migrate", "offline", "rust_decimal", "time", "uuid"] }
 stable_deref_trait = { version = "1" }
-subtle = { version = "2" }
+subtle = { version = "2", features = ["const-generics"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "full", "visit-mut"] }
 syn-dff4ba8e3ae991db = { package = "syn", version = "1", features = ["fold", "full"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
@@ -325,11 +340,11 @@ zerovec = { version = "0.11", default-features = false, features = ["alloc", "de
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossterm = { version = "0.29" }
-getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy-system"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "xdp"] }
 mio = { version = "1", features = ["net", "os-ext"] }
+nix = { version = "0.31", features = ["mman", "poll"] }
 object = { version = "0.37", default-features = false, features = ["read", "std"] }
 openssl = { version = "0.10", features = ["vendored"] }
 openssl-sys = { version = "0.9", default-features = false, features = ["vendored"] }
@@ -345,7 +360,6 @@ async-compression = { version = "0.4", default-features = false, features = ["br
 bitflags = { version = "2", default-features = false, features = ["std"] }
 brotli = { version = "8" }
 compression-codecs = { version = "0.4", default-features = false, features = ["brotli", "bzip2", "gzip", "xz", "zstd"] }
-getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["full"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "server-auto", "server-graceful", "service"] }
@@ -368,11 +382,11 @@ zstd-sys = { version = "2", default-features = false, features = ["legacy", "std
 [target.aarch64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossterm = { version = "0.29" }
-getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy-system"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "xdp"] }
 mio = { version = "1", features = ["net", "os-ext"] }
+nix = { version = "0.31", features = ["mman", "poll"] }
 object = { version = "0.37", default-features = false, features = ["read", "std"] }
 openssl = { version = "0.10", features = ["vendored"] }
 openssl-sys = { version = "0.9", default-features = false, features = ["vendored"] }
@@ -387,7 +401,6 @@ async-compression = { version = "0.4", default-features = false, features = ["br
 bitflags = { version = "2", default-features = false, features = ["std"] }
 brotli = { version = "8" }
 compression-codecs = { version = "0.4", default-features = false, features = ["brotli", "bzip2", "gzip", "xz", "zstd"] }
-getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["full"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "server-auto", "server-graceful", "service"] }
@@ -410,10 +423,10 @@ zstd-sys = { version = "2", default-features = false, features = ["legacy", "std
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossterm = { version = "0.29" }
 errno = { version = "0.3" }
-getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy-system"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
+nix = { version = "0.31", features = ["mman", "poll"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["CFArray", "CFBase", "CFData", "CFDictionary", "CFError", "CFPlugInCOM", "CFRunLoop", "CFString", "CFURL", "CFUUID", "std"] }
 object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "stdio", "termios", "time"] }
@@ -429,7 +442,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 brotli = { version = "8" }
 compression-codecs = { version = "0.4", default-features = false, features = ["brotli", "bzip2", "gzip", "xz", "zstd"] }
 errno = { version = "0.3" }
-getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["full"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "server-auto", "server-graceful", "service"] }
