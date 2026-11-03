@@ -2,7 +2,9 @@ import { ArrowRight } from "lucide-react";
 import { AppMark } from "@/components/apps/AppMark";
 import { cn } from "@/libs/shadcn/utils";
 import type { WidgetCard as Card } from "@/types/homeWidgets";
+import type { Since } from "../../../useSinceLastVisit";
 import { LEVEL_DOT } from "../utils";
+import { SinceMark } from "./SinceMark";
 import { EXIT_CLASSES, useExit } from "./useExit";
 import { WidgetMenu } from "./WidgetMenu";
 
@@ -15,11 +17,14 @@ import { WidgetMenu } from "./WidgetMenu";
 export function WidgetStrip({
   card,
   iconUrl,
+  since,
   testId,
   onHide
 }: {
   card: Card;
   iconUrl?: string | null;
+  /** News since the person's last visit. */
+  since?: Since;
   testId: string;
   /** Hides this copy from the person's home. Called once the line's exit has played. */
   onHide?: () => void;
@@ -31,6 +36,8 @@ export function WidgetStrip({
     // The line is one link; its menu sits beside it (a button cannot live inside a link).
     <div
       data-testid={`${testId}-line`}
+      // What grows into the app's launch screen when the line opens it.
+      data-app-launch-origin
       {...exit.exitProps}
       className={cn(
         "group/widget relative flex min-w-0 starting:translate-y-1 starting:opacity-0 transition-[opacity,translate] duration-(--duration-slow) motion-reduce:starting:translate-y-0",
@@ -42,7 +49,7 @@ export function WidgetStrip({
         data-testid={testId}
         data-level={view?.level}
         data-compact='true'
-        aria-label={`${card.app.name} · ${card.title}: ${view?.headline ?? "Couldn't load"}`}
+        aria-label={`${card.app.name} · ${card.title}: ${view?.headline ?? "Couldn't load"}${since ? `, ${since}` : ""}`}
         // A failed widget's reason, for whoever owns the app; the line itself stays calm.
         title={view ? undefined : (card.error ?? undefined)}
         className='group flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg border bg-card px-4 py-2.5 text-sm transition-[background-color] hover:bg-accent'
@@ -56,6 +63,7 @@ export function WidgetStrip({
         <span className='min-w-0 truncate text-muted-foreground' data-testid={`${testId}-headline`}>
           {view ? view.headline : "Couldn't load"}
         </span>
+        {since && <SinceMark since={since} testId={`${testId}-since`} />}
         {/* Where the menu appears, so the two never overlap. */}
         <ArrowRight
           className={cn(

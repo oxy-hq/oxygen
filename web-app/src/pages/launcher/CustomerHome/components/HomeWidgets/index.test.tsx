@@ -335,6 +335,31 @@ describe("the home's widgets", () => {
     );
   });
 
+  it("marks a widget that changed since the last visit, and one the home did not show then", () => {
+    const calm = close({
+      key: "calm",
+      id: "calm",
+      view: { ...close().view!, level: "ok", buttons: [], rows: [], progress: null }
+    });
+    widgets = [close(), calm];
+    render(
+      <HomeWidgets
+        orgSlug='poke-house'
+        apps={[]}
+        groups={[]}
+        variant='rail'
+        since={
+          new Map([
+            [close().key, "updated"],
+            ["calm", "new"]
+          ])
+        }
+      />
+    );
+    expect(screen.getByTestId("home-widget-bookkeeping-close-since")).toHaveTextContent("Updated");
+    expect(screen.getByTestId("home-widget-bookkeeping-calm-since")).toHaveTextContent("New");
+  });
+
   it("stacks in the same order under the apps on a narrow screen", () => {
     widgets = [close()];
     renderWidgets([], "stack");

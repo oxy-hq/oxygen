@@ -49,6 +49,8 @@ export function HomeAppTile({
       // Gives slightly under a press (the name's link covers the tile), like a button.
       className='group relative flex min-w-0 @sm:flex-row flex-col items-center @sm:gap-3 gap-1.5 rounded-lg @sm:border @sm:bg-card @sm:p-3 @sm:text-left text-center transition-[border-color,scale] duration-(--duration-fast) focus-within:ring-2 focus-within:ring-ring @sm:hover:border-primary/50 has-[a:active]:scale-98 has-[a:active]:duration-(--duration-instant) motion-reduce:has-[a:active]:scale-100'
       data-testid={`home-app-card-${app.slug}`}
+      // What grows into the app's launch screen when the tile is pressed.
+      data-app-launch-origin
       // A name of its own, so a layout change (Today arriving) moves the tile, not a cross-fade.
       style={{ viewTransitionName: `home-app-${app.slug}` }}
     >

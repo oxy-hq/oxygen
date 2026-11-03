@@ -50,3 +50,47 @@
     transition: none;
   }
 }
+
+/* An app's launch screen, once the wait runs long: a bar that keeps moving
+   along the top, saying the app is still coming (`CustomerHome/AppLaunch`). */
+@keyframes launch-progress {
+  from {
+    translate: -100% 0;
+  }
+  to {
+    translate: 250% 0;
+  }
+}
+.motion-launch-progress {
+  animation: launch-progress calc(var(--oxy-duration-focal) * 2) var(--oxy-ease-in-out) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-launch-progress {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
+/* An app opening from the home (`CustomerHome/AppLaunch`): the pressed tile's
+   rectangle grows into the launch screen, and shrinks back into the tile on the
+   way back. Both pictures fill the rectangle, cropped rather than stretched, so
+   the launch screen's icon grows out of the tile instead of a screenshot of the
+   tile being blown up. Opening, the tile's picture is gone at once and the launch
+   screen is solid from the first frame (a card that grows, not a cross-fade);
+   closing, the tile's picture arrives at the end. */
+::view-transition-old(app-launch),
+::view-transition-new(app-launch) {
+  height: 100%;
+  object-fit: cover;
+}
+html[data-app-launch="open"]::view-transition-old(app-launch) {
+  display: none;
+}
+html[data-app-launch="open"]::view-transition-new(app-launch) {
+  animation: none;
+}
+html[data-app-launch="close"]::view-transition-new(app-launch) {
+  animation-delay: var(--oxy-duration-base);
+  animation-duration: var(--oxy-duration-fast);
+}

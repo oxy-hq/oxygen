@@ -15,6 +15,9 @@
  *  5. **Keep same-tab navigation honest.** Report an open the server could not
  *     see (a page shown from a prefetch), and keep an app's boot-time URL
  *     rewrites out of the Back history.
+ *  6. **Finish the launch Oxygen's home started.** An app opened from the home
+ *     shows the home's launch screen as its first frame, until it has drawn
+ *     itself. See § *launch screen*.
  *
  * ## Two categories, one flag
  *
@@ -53,6 +56,105 @@
   if (!app || typeof app !== "object") return;
 
   var base = (app.basePath || "/").replace(/\/*$/, "/");
+
+  // ── launch screen ─────────────────────────────────────────────────────────
+  //
+  // Oxygen's home opens an app the way a phone does: the pressed tile grows into
+  // a launch screen (the app's icon and name on the home's ground) that holds
+  // while the app loads. The browser keeps the home painted until this document
+  // draws its first frame, so for the hand-over to be seamless that frame must be
+  // the same launch screen; then it lifts once the app has drawn itself, instead
+  // of cutting from the launch screen to a blank page and then to the app.
+  //
+  // The home leaves a note in `sessionStorage` (`oxy.launch`, written by
+  // `CustomerHome/components/AppLaunch/handoff.ts`) with everything to draw,
+  // measured from the home as drawn. Same origin and same tab only, which is the
+  // case it is for. The note is taken on read, and ignored when stale or for
+  // another app, so a reload, a deep link or a new tab draws nothing here.
+  //
+  // Drawn with pseudo-elements on `<html>`, not DOM: this runs in `<head>` before
+  // `<body>` exists, it leaves the app's own DOM untouched, and `looksMounted`
+  // below (which walks `<body>`) cannot mistake it for the app. The geometry is
+  // the home's launch screen: a 64px icon 12px above a 14px name, the pair
+  // centred. Change one and change both.
+  //
+  // It cannot outstay the app: it lifts as soon as anything has laid out in
+  // `<body>`, or after LAUNCH_MAX_MS whatever happens, and it never takes a click.
+  var LAUNCH_KEY = "oxy.launch";
+  var LAUNCH_FRESH_MS = 15000;
+  var LAUNCH_MAX_MS = 5000;
+  var LAUNCH_CSS =
+    "html[data-oxy-launch]::before,html[data-oxy-launch]::after{position:fixed;z-index:2147483647;" +
+    "box-sizing:border-box;pointer-events:none;transition:opacity 160ms ease-out}" +
+    "html[data-oxy-launch]::before{content:attr(data-oxy-launch);inset:0;display:flex;" +
+    "align-items:center;justify-content:center;padding:76px 24px 0;" +
+    "background:var(--oxy-launch-bg,Canvas);color:var(--oxy-launch-fg,CanvasText);" +
+    "font:500 14px/20px var(--oxy-launch-font,system-ui),system-ui,sans-serif;white-space:nowrap}" +
+    "html[data-oxy-launch]::after{content:attr(data-oxy-launch-mark);left:calc(50% - 32px);" +
+    "top:calc(50% - 48px);width:64px;height:64px;display:flex;align-items:center;" +
+    "justify-content:center;border:1px solid var(--oxy-launch-line,transparent);" +
+    "border-radius:16px;color:var(--oxy-launch-fg,CanvasText);" +
+    "font:600 20px/1 var(--oxy-launch-font,system-ui),system-ui,sans-serif;" +
+    "background:var(--oxy-launch-icon,none) center/contain no-repeat,var(--oxy-launch-tint,transparent)}" +
+    "html[data-oxy-launch-state=out]::before,html[data-oxy-launch-state=out]::after{opacity:0}";
+  var LAUNCH_VARS = ["bg", "fg", "line", "font", "tint", "icon"];
+
+  function takeLaunchNote() {
+    var note = null;
+    try {
+      note = JSON.parse(sessionStorage.getItem(LAUNCH_KEY) || "null");
+      sessionStorage.removeItem(LAUNCH_KEY);
+    } catch (e) {
+      return null;
+    }
+    if (!note || typeof note !== "object") return null;
+    if (!(Date.now() - note.at < LAUNCH_FRESH_MS)) return null;
+    if (typeof note.root !== "string" || !note.root) return null;
+    if ((location.pathname + "/").indexOf(note.root.replace(/\/*$/, "/")) !== 0) return null;
+    return note;
+  }
+
+  function showLaunchScreen(note) {
+    var html = document.documentElement;
+    var style = document.createElement("style");
+    style.textContent = LAUNCH_CSS;
+    (document.head || html).appendChild(style);
+    var icon = typeof note.icon === "string" && !/["\\\n\r]/.test(note.icon) ? note.icon : "";
+    var set = function (name, value) {
+      if (typeof value === "string" && value) html.style.setProperty("--oxy-launch-" + name, value);
+    };
+    set("bg", note.bg);
+    set("fg", note.fg);
+    set("line", note.line);
+    set("font", note.font);
+    if (icon) set("icon", 'url("' + icon + '")');
+    else set("tint", note.tint);
+    html.setAttribute("data-oxy-launch", String(note.name || ""));
+    html.setAttribute("data-oxy-launch-mark", icon ? "" : String(note.mark || ""));
+
+    var started = Date.now();
+    function lift() {
+      html.setAttribute("data-oxy-launch-state", "out");
+      setTimeout(function () {
+        html.removeAttribute("data-oxy-launch");
+        html.removeAttribute("data-oxy-launch-mark");
+        html.removeAttribute("data-oxy-launch-state");
+        LAUNCH_VARS.forEach(function (name) {
+          html.style.removeProperty("--oxy-launch-" + name);
+        });
+        if (style.parentNode) style.parentNode.removeChild(style);
+      }, 200);
+    }
+    (function watch() {
+      if (looksMounted() || Date.now() - started > LAUNCH_MAX_MS) return lift();
+      setTimeout(watch, 50);
+    })();
+  }
+
+  try {
+    var launchNote = takeLaunchNote();
+    if (launchNote) showLaunchScreen(launchNote);
+  } catch (e) {}
 
   // ── service worker ────────────────────────────────────────────────────────
   //

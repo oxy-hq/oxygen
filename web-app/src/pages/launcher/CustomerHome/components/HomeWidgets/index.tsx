@@ -6,6 +6,7 @@ import { useHomePreferenceActions } from "@/hooks/api/homeWidgets/useHomePrefere
 import { useHiddenWidgets, useHomeWidgets } from "@/hooks/api/homeWidgets/useHomeWidgets";
 import { cn } from "@/libs/shadcn/utils";
 import type { WidgetCard as Card } from "@/types/homeWidgets";
+import type { Since } from "../../useSinceLastVisit";
 import { HiddenWidgets } from "./components/HiddenWidgets";
 import { WidgetCard } from "./components/WidgetCard";
 import { WidgetStrip } from "./components/WidgetStrip";
@@ -40,6 +41,7 @@ export function HomeWidgets({
   orgSlug,
   apps,
   groups,
+  since,
   variant,
   enabled = true
 }: {
@@ -48,6 +50,8 @@ export function HomeWidgets({
   apps: { id: string; icon_url?: string | null }[];
   /** The layout's widgets groups, in order. Empty before a layout loads: every copy, untitled. */
   groups: WidgetGroup[];
+  /** The widgets with news since the person's last visit, marked so a return says where to look. */
+  since?: ReadonlyMap<string, Since>;
   variant: "rail" | "stack";
   /** `false` reads nothing yet (the person's preference is still loading): the skeleton shows. */
   enabled?: boolean;
@@ -153,6 +157,7 @@ export function HomeWidgets({
                 card={card}
                 orgSlug={orgSlug}
                 iconUrl={icons.get(card.app.id)}
+                since={since?.get(card.key)}
                 onPressed={() => setPressed((was) => new Set(was).add(card.key))}
                 onHide={() => preferences.hide(card)}
               />
@@ -172,6 +177,7 @@ export function HomeWidgets({
                 key={card.key}
                 card={card}
                 iconUrl={icons.get(card.app.id)}
+                since={since?.get(card.key)}
                 testId={widgetTestId(card)}
                 onHide={() => preferences.hide(card)}
               />
@@ -188,6 +194,7 @@ export function HomeWidgets({
                 key={card.key}
                 card={card}
                 iconUrl={icons.get(card.app.id)}
+                since={since?.get(card.key)}
                 testId={widgetTestId(card)}
                 onHide={() => preferences.hide(card)}
               />

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CustomAppSummary } from "@/types/apps";
@@ -83,13 +83,19 @@ vi.mock("./components/HomeWidgets", () => ({
 const W: HomeSection = { kind: "widgets", title: null, items: [] };
 let sections: HomeSection[] = [W, { kind: "apps" }, { kind: "insights" }];
 type Widgets = {
-  data?: { view?: { level?: string } | null }[];
+  data?: {
+    key?: string;
+    view?: { level?: string; headline?: string; rows?: unknown[]; buttons?: unknown[] } | null;
+  }[];
   isLoading: boolean;
   isError: boolean;
 };
 let widgets: Widgets = { data: [], isLoading: false, isError: false };
 const someWidgets = (...levels: string[]): Widgets => ({
-  data: levels.map((level) => ({ view: { level } })),
+  data: levels.map((level, i) => ({
+    key: `w${i}`,
+    view: { level, headline: `Widget ${i}`, rows: [], buttons: [] }
+  })),
   isLoading: false,
   isError: false
 });
@@ -169,6 +175,8 @@ beforeEach(() => {
   recentSettled = true;
   worldModelLoading = false;
   window.localStorage.removeItem("oxy.home.side.northwind");
+  window.localStorage.removeItem("oxy.home.seen.northwind");
+  window.sessionStorage.clear();
 });
 
 const appsOf = (n: number): CustomAppSummary[] =>
@@ -322,7 +330,7 @@ describe("the line under the greeting", () => {
     expect(screen.queryByTestId("home-status")).toBeNull();
     cleanup();
     widgets = {
-      data: [{ view: { level: "ok" } }, { view: null }],
+      data: [...(someWidgets("ok").data ?? []), { key: "w1", view: null }],
       isLoading: false,
       isError: false
     };
@@ -518,5 +526,68 @@ describe("the home with Today hidden", () => {
     hiddenCopies = [{ key: "bookkeeping/close" }];
     renderHome();
     expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "rail");
+  });
+});
+
+describe("opening an app", () => {
+  // jsdom cannot navigate; the browser would leave the page here.
+  const stay = (event: Event) => event.preventDefault();
+  beforeEach(() => window.addEventListener("click", stay));
+  afterEach(() => window.removeEventListener("click", stay));
+
+  it("grows the tile into the app's launch screen and leaves the app a note to finish it", () => {
+    renderHome();
+    fireEvent.click(screen.getByTestId("launcher-app-card-revenue"));
+    const launch = screen.getByTestId("app-launch");
+    expect(launch).toHaveAttribute("data-app", "revenue");
+    expect(launch).toHaveTextContent("Revenue Board");
+    const note = JSON.parse(window.sessionStorage.getItem("oxy.launch") ?? "null");
+    expect(note).toMatchObject({
+      root: "/customer-apps/northwind/revenue/",
+      name: "Revenue Board",
+      mark: "RB"
+    });
+    expect(Date.now() - note.at).toBeLessThan(1000);
+  });
+
+  it("gives the home back, and takes the note back, when Back restores the page", () => {
+    renderHome();
+    fireEvent.click(screen.getByTestId("launcher-app-card-revenue"));
+    act(() => {
+      window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }));
+    });
+    expect(screen.queryByTestId("app-launch")).toBeNull();
+    expect(window.sessionStorage.getItem("oxy.launch")).toBeNull();
+  });
+
+  it("leaves a press that opens a new tab alone", () => {
+    renderHome();
+    fireEvent.click(screen.getByTestId("launcher-app-card-revenue"), { metaKey: true });
+    expect(screen.queryByTestId("app-launch")).toBeNull();
+    expect(window.sessionStorage.getItem("oxy.launch")).toBeNull();
+  });
+});
+
+describe("since the last visit", () => {
+  it("says how many widgets changed while the person was away", () => {
+    widgets = someWidgets("ok", "ok");
+    window.localStorage.setItem(
+      "oxy.home.seen.northwind",
+      JSON.stringify({ w0: "something-else", w1: "also-different" })
+    );
+    renderHome();
+    expect(screen.getByTestId("home-status-since")).toHaveTextContent(
+      "2 updates since your last visit"
+    );
+  });
+
+  it("says nothing on a first visit, and remembers this one for the next", () => {
+    widgets = someWidgets("ok");
+    const { unmount } = renderHome();
+    expect(screen.queryByTestId("home-status-since")).toBeNull();
+    unmount();
+    expect(
+      JSON.parse(window.localStorage.getItem("oxy.home.seen.northwind") ?? "{}")
+    ).toHaveProperty("w0");
   });
 });

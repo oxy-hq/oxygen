@@ -4,7 +4,9 @@ import { AppMark } from "@/components/apps/AppMark";
 import { usePressWidget } from "@/hooks/api/homeWidgets/usePressWidget";
 import { cn } from "@/libs/shadcn/utils";
 import type { WidgetCard as Card, WidgetButton as WidgetButtonData } from "@/types/homeWidgets";
+import type { Since } from "../../../useSinceLastVisit";
 import { LEVEL_DOT, pressError, ROW_STATE, widgetTestId } from "../utils";
+import { SinceMark } from "./SinceMark";
 import { EXIT_CLASSES, useExit } from "./useExit";
 import { WidgetButton } from "./WidgetButton";
 import { WidgetMenu } from "./WidgetMenu";
@@ -30,12 +32,15 @@ export function WidgetCard({
   card,
   orgSlug,
   iconUrl,
+  since,
   onPressed,
   onHide
 }: {
   card: Card;
   orgSlug: string;
   iconUrl?: string | null;
+  /** News since the person's last visit. */
+  since?: Since;
   /** Told when a button is pressed, so the home keeps this card whole while its answer shows. */
   onPressed?: () => void;
   /** Hides this copy from the person's home. Called once the card's exit has played. */
@@ -83,6 +88,8 @@ export function WidgetCard({
       data-testid={base}
       data-level={view?.level}
       data-size={card.size}
+      // What grows into the app's launch screen when a link in the card opens it.
+      data-app-launch-origin
       {...exit.exitProps}
       className={cn(
         "group/widget flex min-w-0 starting:translate-y-1.5 flex-col gap-3 rounded-lg border bg-card p-4 starting:opacity-0 transition-[opacity,translate] duration-(--duration-slow) motion-reduce:starting:translate-y-0",
@@ -94,6 +101,7 @@ export function WidgetCard({
         <span className='min-w-0 truncate'>
           {card.app.name} · {card.title}
         </span>
+        {since && <SinceMark since={since} testId={`${base}-since`} />}
         <a
           href={view?.href ?? card.app.url}
           data-testid={`${base}-open`}

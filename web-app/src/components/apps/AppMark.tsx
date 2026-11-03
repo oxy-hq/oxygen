@@ -31,7 +31,7 @@ function tintOf(name: string): string {
 }
 
 /** "Store Ops" -> "SO", "Warehouse" -> "W": two words' initials, else the first letter. */
-function monogram(name: string, letters: 1 | 2): string {
+export function monogram(name: string, letters: 1 | 2): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   const first = words[0]?.[0] ?? "?";
   const second = letters === 2 && words.length > 1 ? (words[1]?.[0] ?? "") : "";
@@ -64,6 +64,7 @@ export function AppMark({
     return (
       <span
         aria-hidden
+        data-slot='app-mark'
         data-testid={testId}
         className={cn(
           // The letters stay in the foreground colour: a chart hue as text fails contrast.
@@ -85,6 +86,7 @@ export function AppMark({
       // Admin lists render one per app, most of them off-screen.
       loading='lazy'
       decoding='async'
+      data-slot='app-mark'
       data-testid={testId}
       onError={() => setFailed(true)}
       className={cn("shrink-0 rounded-md border object-contain", box, className)}

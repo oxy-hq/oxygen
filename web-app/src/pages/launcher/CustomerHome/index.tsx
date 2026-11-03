@@ -29,6 +29,7 @@ import { CriticalAlertBanner } from "../components/CriticalAlertBanner";
 import { NeedsAttention } from "../components/NeedsAttention";
 import { ProjectSetupToast } from "../components/ProjectSetupToast";
 import useWorkspaceReadiness from "../useWorkspaceReadiness";
+import { AppLaunchScreen, useAppLaunch } from "./components/AppLaunch";
 import { FirstAppsOnTheirWay } from "./components/FirstAppsOnTheirWay";
 import { HomeAppGrid } from "./components/HomeAppGrid";
 import { HomeAskBox } from "./components/HomeAskBox";
@@ -38,6 +39,7 @@ import { isUnavailable } from "./components/HomeWidgets/utils";
 import { WorldModelCard, worldModelTitle } from "./components/WorldModelCard";
 import { homeGreeting } from "./greeting";
 import { HOME_CONTAINER, HOME_GAP, HOME_RAIL_QUERY } from "./layout";
+import { type Since, useSinceLastVisit } from "./useSinceLastVisit";
 import { useSideHint, useTodayHint, useTransitionedFlag } from "./useTodayHint";
 
 /**
@@ -78,6 +80,8 @@ export default function CustomerHome() {
     : (sectionsFromKinds(preferences.data?.sections) ?? widgetSections);
   const widgets = useHomeWidgets(org?.slug, widgetsOn);
   const hiddenWidgets = useHiddenWidgets(org?.slug, widgetsOn);
+  const since = useSinceLastVisit(org?.slug, widgets.data);
+  const launch = useAppLaunch(apps);
   const { setToday } = useHomePreferenceActions(org?.slug ?? "");
   // Known once the widgets load; until then, what this browser saw last time, so
   // the frame does not change under the apps on every visit. Copies the person
@@ -165,6 +169,7 @@ export default function CustomerHome() {
       orgSlug={org?.slug}
       apps={apps}
       groups={groups}
+      since={since}
       variant={variant}
       enabled={widgetsOn}
     />
@@ -182,7 +187,7 @@ export default function CustomerHome() {
         {todayHidden ? (
           <ShowToday onShow={() => setToday("shown")} />
         ) : (
-          hasToday && <HomeStatus widgets={widgets.data} />
+          hasToday && <HomeStatus widgets={widgets.data} since={since} />
         )}
       </div>
       {canAsk && <HomeAskBox orgName={org?.name} />}
@@ -224,12 +229,16 @@ export default function CustomerHome() {
   const attention = <NeedsAttention includeUnmeasured={factoryUser} contained={false} />;
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: a delegate, not a control: it sees the clicks of the links inside, which keep their own roles and keys
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Enter on a link is a click, so the keyboard launches too
     <div
       // The page is the one scroller, so its scrollbar is the window's edge, never
       // a bar between the apps and Today.
       className='flex h-full flex-col overflow-y-auto'
       data-testid='customer-home'
       data-today={side && hasToday ? "rail" : hasToday ? "stack" : "none"}
+      // Any link in here that opens an app opens it with its launch screen.
+      onClick={launch.onClick}
     >
       {factoryUser && <ProjectSetupToast gaps={readiness.gaps} />}
 
@@ -256,6 +265,8 @@ export default function CustomerHome() {
           </aside>
         )}
       </div>
+
+      <AppLaunchScreen app={launch.launching} name={launch.launchName} grown={launch.grown} />
 
       {manageableOrgId && (
         <AppAccessDialog
@@ -288,9 +299,16 @@ function ShowToday({ onShow }: { onShow: () => void }) {
 /**
  * One line under the greeting: how many widgets have something to do, as a link
  * to Today. On a phone Today is under the apps, so this is how the day's news is
- * known before scrolling. Nothing while there are no widgets.
+ * known before scrolling, and how many widgets changed since the person was last
+ * here (`useSinceLastVisit`). Nothing while there are no widgets.
  */
-function HomeStatus({ widgets }: { widgets: WidgetCardData[] | undefined }) {
+function HomeStatus({
+  widgets,
+  since
+}: {
+  widgets: WidgetCardData[] | undefined;
+  since: ReadonlyMap<string, Since>;
+}) {
   if (!widgets?.length) return null;
   // Nothing answered: there is no day to report, clear or otherwise.
   if (widgets.every(isUnavailable)) return null;
@@ -315,6 +333,15 @@ function HomeStatus({ widgets }: { widgets: WidgetCardData[] | undefined }) {
         : failed > 0
           ? `All clear, but ${failed} couldn't load`
           : "All clear today"}
+      {/* What changed while the person was away, so a return visit says why to look. */}
+      {since.size > 0 && (
+        <>
+          <span aria-hidden className='size-1 shrink-0 rounded-full bg-muted-foreground/50' />
+          <span data-testid='home-status-since'>
+            {since.size} {since.size === 1 ? "update" : "updates"} since your last visit
+          </span>
+        </>
+      )}
     </a>
   );
 }

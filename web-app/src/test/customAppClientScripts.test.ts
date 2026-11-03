@@ -712,3 +712,84 @@ describe("runtime.js — a push before the person has touched the page", () => {
     expect(addsAnEntry("welcome")).toBe(true);
   });
 });
+
+describe("runtime.js — finishes the launch the home started", () => {
+  const html = document.documentElement;
+  const note = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      root: SCOPE,
+      name: "Store Ops",
+      icon: "https://app.example.com/customer-apps/acme/sales/icon.svg",
+      mark: "SO",
+      tint: "transparent",
+      bg: "rgb(255, 255, 255)",
+      fg: "rgb(10, 10, 10)",
+      line: "#e5e5e5",
+      font: "Inter, sans-serif",
+      at: Date.now(),
+      ...over
+    });
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", `${SCOPE}orders`);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    window.sessionStorage.clear();
+    html.removeAttribute("data-oxy-launch");
+    html.removeAttribute("data-oxy-launch-mark");
+    html.removeAttribute("data-oxy-launch-state");
+    document.body.innerHTML = "";
+  });
+
+  it("draws the home's launch screen as the first frame, and takes the note", () => {
+    window.sessionStorage.setItem("oxy.launch", note());
+    bootRuntime();
+    expect(html.getAttribute("data-oxy-launch")).toBe("Store Ops");
+    // An icon, so no monogram over it.
+    expect(html.getAttribute("data-oxy-launch-mark")).toBe("");
+    expect(html.style.getPropertyValue("--oxy-launch-icon")).toContain("icon.svg");
+    expect(window.sessionStorage.getItem("oxy.launch")).toBeNull();
+  });
+
+  it("lifts it once the app has drawn itself", () => {
+    window.sessionStorage.setItem("oxy.launch", note());
+    bootRuntime();
+    const root = document.createElement("div");
+    root.getBoundingClientRect = () => ({ height: 40 }) as DOMRect;
+    document.body.appendChild(root);
+    vi.advanceTimersByTime(60);
+    expect(html.getAttribute("data-oxy-launch-state")).toBe("out");
+    vi.advanceTimersByTime(250);
+    expect(html.hasAttribute("data-oxy-launch")).toBe(false);
+    expect(html.style.getPropertyValue("--oxy-launch-bg")).toBe("");
+  });
+
+  it("never outstays an app that draws nothing", () => {
+    window.sessionStorage.setItem("oxy.launch", note());
+    bootRuntime();
+    vi.advanceTimersByTime(5100);
+    expect(html.getAttribute("data-oxy-launch-state")).toBe("out");
+  });
+
+  it("draws the monogram on its tint for an app with no icon", () => {
+    window.sessionStorage.setItem("oxy.launch", note({ icon: null, tint: "rgb(1, 2, 3)" }));
+    bootRuntime();
+    expect(html.getAttribute("data-oxy-launch-mark")).toBe("SO");
+    expect(html.style.getPropertyValue("--oxy-launch-tint")).toBe("rgb(1, 2, 3)");
+  });
+
+  it("ignores a stale note, and one left for another app", () => {
+    window.sessionStorage.setItem("oxy.launch", note({ at: Date.now() - 60_000 }));
+    bootRuntime();
+    expect(html.hasAttribute("data-oxy-launch")).toBe(false);
+
+    window.sessionStorage.setItem("oxy.launch", note({ root: "/customer-apps/acme/sale/" }));
+    bootRuntime();
+    expect(html.hasAttribute("data-oxy-launch")).toBe(false);
+    // Taken either way, so a reload draws nothing.
+    expect(window.sessionStorage.getItem("oxy.launch")).toBeNull();
+  });
+});
