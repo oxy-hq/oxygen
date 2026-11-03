@@ -6,19 +6,20 @@
 //! baseline, a post window moved to start at the off — `washout` becomes the days
 //! from the switch to the off, `post_days` the carryover length. Only a design
 //! with one switch date reads one (`validate::check_carryover`), so that shift is
-//! the same for every treated unit.
+//! the same for every treated unit. Read on the registered scale (`outcome.scale`)
+//! through [`estimate_target`], so a proportional outcome's carryover is a share
+//! like its headline; a ratio outcome reads none (`validate::check_ratio`).
 
 use chrono::NaiveDate;
-use oxy_airlayer_compat::engine::experiment::{
-    ExperimentDesign, PanelMatrix, estimate, estimate_effect_dropping_missing,
-};
-use oxy_experiment::config::ExperimentConfig;
+use oxy_airlayer_compat::engine::experiment::{ExperimentDesign, PanelMatrix};
+use oxy_experiment::config::{ExperimentConfig, Scale};
 use oxy_experiment::engine_in::EffectIn;
 use oxy_experiment::moment::Moment;
 use oxy_experiment::run::LeverState;
 
 use super::mirror::Judged;
 use super::plan::FlipDay;
+use super::target_estimate::{Read, estimate_target};
 
 /// `[off, off + carryover_days)` (periods of `design.grain`): from the earliest close `off` that was sent
 /// (or, on a retrospective, the declared `switch_off`),
@@ -70,14 +71,17 @@ pub fn carryover_effect(
     let Some(days) = cfg.design.carryover_days else {
         return refused("the design reads no carryover window");
     };
+    if cfg.outcome.denominator.is_some() {
+        return refused("a ratio outcome reads no carryover window");
+    }
     let mut shifted = a.clone();
     shifted.washout_days = usize::try_from(cfg.design.grain.ordinal_of(off) - switch).unwrap_or(0);
     shifted.post_days = days as usize;
     // A reading of past data drops a pinned unit the panel lacks, as its registered read does.
-    let r = if lenient {
-        estimate_effect_dropping_missing(panel, &shifted, seed)
-    } else {
-        estimate(panel, &ExperimentDesign::Waves(shifted), seed)
+    let read = Read {
+        lenient,
+        proportional: cfg.outcome.scale == Scale::Proportional,
+        ..Read::STRICT
     };
-    Judged::<EffectIn>::from_engine(&r).view
+    estimate_target(panel, &ExperimentDesign::Waves(shifted), seed, read).view
 }

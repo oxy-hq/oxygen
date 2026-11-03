@@ -85,11 +85,25 @@ export function windowsText(
   return `${s.charAt(0).toUpperCase()}${s.slice(1)}.`;
 }
 
-export function guardrailText(g: Guardrail): string {
+/**
+ * A guardrail in words. An anomaly guardrail with no `direction` watches, on the outcome
+ * itself, only the side against the prediction (the server's default); `outcome` says which.
+ */
+export function guardrailText(
+  g: Guardrail,
+  outcome?: { target?: string; direction?: "increase" | "decrease" }
+): string {
   const c = g.criteria;
-  return c.type === "anomaly"
-    ? `Aborts the run if ${measureLabel(c.measure)} looks anomalous (significance ${c.significance}).`
-    : "Aborts the run when:";
+  if (c.type !== "anomaly") return "Aborts the run when:";
+  const how = {
+    increase: "spikes anomalously",
+    decrease: "drops anomalously",
+    both: "looks anomalous"
+  };
+  const against = outcome?.direction === "increase" ? "decrease" : "increase";
+  const side =
+    c.direction ?? (outcome?.direction && c.measure === outcome.target ? against : "both");
+  return `Aborts the run if ${measureLabel(c.measure)} ${how[side]} (significance ${c.significance}).`;
 }
 
 export const periodsText = (s: NonNullable<Design["switchback"]>, grain: Grain = "day") =>

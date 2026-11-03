@@ -151,15 +151,36 @@ describe("numbers are constrained", () => {
     expect(field("prior-value").step).toBe("any");
   });
 
-  it("the significance of an anomaly guardrail, between 0 and 1", () => {
-    render(
-      <Harness
-        values={{ guardrails: [{ kind: "anomaly", measure: "", significance: "0.05", when: "" }] }}
-      >
+  it("an anomaly guardrail's sensitivity is three named bands, and keeps a stored custom one", () => {
+    const row = (significance: string) => ({
+      kind: "anomaly" as const,
+      measure: "",
+      significance,
+      direction: "" as const,
+      when: ""
+    });
+    const { unmount } = render(
+      <Harness values={{ guardrails: [row("0.9973")] }}>
         {(p) => <GuardrailsSection {...p} />}
       </Harness>
     );
-    expectNumber("guardrails-0-significance", "0", "1", "any");
+    const select = field("guardrails-0-significance");
+    expect(select.tagName).toBe("SELECT");
+    expect(optionValues(select)).toEqual(["0.9545", "0.9973", "0.9999994"]);
+    expect(select.value).toBe("0.9973");
+    expect(optionValues(field("guardrails-0-direction"))).toEqual([
+      "",
+      "decrease",
+      "increase",
+      "both"
+    ]);
+    unmount();
+    render(
+      <Harness values={{ guardrails: [row("0.05")] }}>
+        {(p) => <GuardrailsSection {...p} />}
+      </Harness>
+    );
+    expect(optionValues(field("guardrails-0-significance"))).toContain("0.05");
   });
 });
 
@@ -252,9 +273,16 @@ describe("the measures, entities and automations", () => {
               kind: "trigger",
               measure: "",
               significance: "0.05",
+              direction: "",
               when: "{{orders.total_order_value}} < 5"
             },
-            { kind: "anomaly", measure: "orders.total_order_value", significance: "0.05", when: "" }
+            {
+              kind: "anomaly",
+              measure: "orders.total_order_value",
+              significance: "0.05",
+              direction: "",
+              when: ""
+            }
           ]
         }}
       >

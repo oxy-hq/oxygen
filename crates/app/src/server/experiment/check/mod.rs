@@ -8,6 +8,7 @@ pub mod periods;
 pub mod pin;
 pub mod read_back;
 pub mod reader;
+pub mod universe;
 
 use chrono::{DateTime, Utc};
 use entity::experiment_runs;
@@ -18,12 +19,15 @@ use sea_orm::{DatabaseConnection, DbErr};
 use self::guardrails::GuardrailInputs;
 use self::read_back::ReadBackInputs;
 use self::reader::{AnomalyScan, Membership, UnitDays};
+use self::universe::UnitUniverse;
 use super::store::{self, Observations};
 
 pub struct Readers<'a> {
     pub days: &'a dyn UnitDays,
     pub anomalies: &'a dyn AnomalyScan,
     pub groups: &'a dyn Membership,
+    /// The units a pin draws from: the design's pre window.
+    pub units: &'a dyn UnitUniverse,
 }
 
 /// Guardrails while `live` only: the effect is fixed once the run closes.
@@ -63,7 +67,7 @@ pub async fn run_check(
         ..store::observations(run)
     };
     let flips = store::flips_of(db, run.id).await.map_err(e)?;
-    let pinned = pin::pin_all(db, run, &c, readers, &mut obs)
+    let pinned = pin::pin_all(db, run, &c, readers, today, &mut obs)
         .await
         .map_err(e)?;
     let inp = ReadBackInputs {

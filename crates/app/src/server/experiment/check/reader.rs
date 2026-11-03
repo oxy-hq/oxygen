@@ -17,6 +17,7 @@ use oxy_airlayer_compat::SemanticLayer;
 use oxy_airlayer_compat::engine::query::{FilterOperator, QueryFilter};
 use oxy_experiment::Moment;
 use oxy_experiment::compliance::Sampling;
+use oxy_experiment::config::GuardDirection;
 use oxy_metric_monitoring::MonitorEntry;
 use oxy_metric_monitoring::service::scan_one;
 
@@ -74,8 +75,6 @@ pub trait UnitDays: Send + Sync {
             Sampling::Hourly(_) => Err(format!("this reader cannot read `{measure}` per hour")),
         }
     }
-    /// Units with `measure` rows in the last `since_days` days.
-    async fn units(&self, measure: &str, since_days: u32) -> Result<Vec<String>, String>;
 }
 
 #[async_trait]
@@ -105,6 +104,8 @@ pub struct AnomalyQuery<'a> {
     pub measure: &'a str,
     pub members: &'a [String],
     pub significance: f64,
+    /// The side of the band that counts: the guardrail's resolved direction.
+    pub direction: GuardDirection,
     pub since: NaiveDate,
     pub now: DateTime<Utc>,
 }
@@ -166,22 +167,6 @@ pub fn unit_axis(layer: &SemanticLayer, axis: &Axis, measure: &str) -> Result<Un
         unit_member: spec.key_dimension,
         time_member: spec.time_dimension,
     })
-}
-
-/// The listed units, named as the panel names them (`panel_rows::render_key`).
-/// The listing has already turned each value into text, so a warehouse that types
-/// an integer key as a double lists `12.0`; the panel, and every design, says `12`.
-pub fn unit_names(listed: Vec<String>) -> Vec<String> {
-    let mut names: Vec<String> = listed
-        .into_iter()
-        .map(|s| match s.strip_suffix(".0") {
-            Some(int) if int.parse::<i64>().is_ok() => int.to_string(),
-            _ => s,
-        })
-        .collect();
-    names.sort();
-    names.dedup();
-    names
 }
 
 pub struct RunnerUnitDays {
@@ -293,15 +278,6 @@ impl UnitDays for RunnerUnitDays {
             .filter(|(m, _)| m.date() >= from && m.date() <= to)
             .collect())
     }
-
-    async fn units(&self, measure: &str, since_days: u32) -> Result<Vec<String>, String> {
-        let axis = unit_axis(&self.layer, &self.axis, measure)?;
-        self.runner
-            .get_dimension_values(axis.unit_member, measure.to_string(), since_days)
-            .await
-            .map(unit_names)
-            .map_err(|e| format!("listing the units of `{measure}`: {e:?}"))
-    }
 }
 
 /// A `MonitorEntry` scanning `q.measure` over exactly `q.members` — what
@@ -317,6 +293,7 @@ pub fn monitor_entry(
         "time_dimension": axis.time_member,
         "granularity": "day",
         "sensitivity": super::guardrails::sensitivity_for(q.significance)?,
+        "direction": q.direction.as_str(),
         "filters": [{ "member": axis.unit_member, "values": q.members }],
         "timezone": tz.name(),
     }))
@@ -401,16 +378,6 @@ measures:
     }
 
     #[test]
-    fn a_listed_integer_key_is_named_as_the_panel_names_it() {
-        // DuckDB types an integer key as a double; the listing renders `1.0`, the
-        // panel `1`. A pool pinned as `1.0` names units the estimate never reads.
-        let listed = ["1.0", "10.0", "22", "bondi", "2.5", "-3.0"]
-            .map(String::from)
-            .to_vec();
-        assert_eq!(unit_names(listed), ["-3", "1", "10", "2.5", "22", "bondi"]);
-    }
-
-    #[test]
     fn the_unit_is_the_entity_key_and_the_day_is_the_views_date_dimension() {
         assert_eq!(
             unit_axis(&layer(VIEW), &axis("store"), "store_days.promo_active").unwrap(),
@@ -467,6 +434,7 @@ measures:
             measure: "store_days.refund_rate",
             members: &members,
             significance: 0.95,
+            direction: GuardDirection::Decrease,
             since: "2026-03-02".parse().unwrap(),
             now: "2026-03-10T00:00:00Z".parse().unwrap(),
         };
@@ -476,6 +444,11 @@ measures:
         assert_eq!(entry.time_dimension, "store_days.day");
         assert_eq!(entry.granularity, oxy_metric_monitoring::Granularity::Day);
         assert_eq!(entry.sensitivity, oxy_metric_monitoring::Sensitivity::High);
+        assert_eq!(
+            entry.direction,
+            oxy_metric_monitoring::Direction::Decrease,
+            "only the side that hurts is flagged"
+        );
         assert_eq!(
             entry.group_by, None,
             "the runner expands it, over exactly the treated units"

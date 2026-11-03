@@ -12,7 +12,8 @@
 
 use chrono::NaiveDate;
 use oxy_airlayer_compat::engine::experiment::{
-    DroppedUnit, ExperimentDesign, PanelMatrix, estimate, estimate_ratio, placebo_power,
+    DroppedUnit, ExperimentDesign, PanelMatrix, estimate, estimate_effect_dropping_missing,
+    estimate_ratio, placebo_power,
 };
 use oxy_experiment::config::{ExperimentConfig, MeasureFilter, Scale};
 use oxy_experiment::engine_in::{EffectIn, PowerIn, RatioIn, SyntheticIn};
@@ -241,8 +242,13 @@ async fn load(
         }
         None => None,
     };
+    // The sibling is read like the target, so on past data its sparse units drop too.
     let sibling = match &cfg.substitution_check {
-        Some(s) => Some(fetch(src, ctx, &request(&s.sibling, &s.filter, None)).await?),
+        Some(s) => Some(
+            fetch_dropping(src, ctx, &request(&s.sibling, &s.filter, floor))
+                .await?
+                .0,
+        ),
         None => None,
     };
     let driver = match &outcome.driver {
@@ -391,12 +397,19 @@ pub(super) fn without_left_out_treated(d: &ExperimentDesign, e: &EffectIn) -> Ex
 }
 
 /// The sibling's own estimate, and its placebo power — bounded before the first
-/// switch (see `plan::sibling_design_spec`).
+/// switch (see `plan::sibling_design_spec`). A reading of past data drops a pinned unit
+/// the sibling's panel lacks, as the target's read does, instead of refusing.
 fn sibling_part(st: &Stage<'_>, sibling: &Loaded) -> (Judged<EffectIn>, Judged<PowerIn>) {
     match sibling {
         Loaded::Unavailable(why) => (Judged::refused(why.clone()), Judged::refused(why.clone())),
         Loaded::Panel(m) => {
-            let effect = Judged::from_engine(&estimate(m, &st.engine_design, st.seeds.effect));
+            let r = match &st.engine_design {
+                ExperimentDesign::Waves(a) if st.read.lenient => {
+                    estimate_effect_dropping_missing(m, a, st.seeds.effect)
+                }
+                d => estimate(m, d, st.seeds.effect),
+            };
+            let effect = Judged::from_engine(&r);
             let power = match &st.engine_design {
                 ExperimentDesign::Synthetic(_) => {
                     Judged::refused(SYNTHETIC_NO_SIBLING_POWER.into())

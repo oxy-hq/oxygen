@@ -180,7 +180,9 @@ async fn an_anomaly_breach_is_recorded_from_the_scan_and_names_the_unit() {
     let run = fx.run().await;
     let breach = run.guardrail_breach.clone().expect("a breach");
     assert!(
-        breach.starts_with("anomaly on `store_days.refund_rate` at `bondi` on 2026-03-02: "),
+        breach.starts_with(
+            "anomaly on `store_days.refund_rate` at `bondi` on 2026-03-02 through 2026-03-03: "
+        ),
         "{breach}"
     );
     assert!(breach.ends_with(detail));

@@ -45,16 +45,29 @@ async fn missing_lever_automation_fails_the_flip_loudly() {
     );
     assert_eq!(fx.run().await.state, "live", "the run continues");
 
-    // The lever comes back; the next wave dispatches; nothing repeats.
+    assert!(
+        notices
+            .iter()
+            .all(|n| n.body.as_deref().unwrap().contains("attempt 1; retried")),
+        "a notice says the flip is retried: {notices:?}"
+    );
+    assert!(fx.flip("bondi", "on").await.failed_at.is_some());
+
+    // The lever comes back; the next tick sends the next wave and resends the
+    // failed `on`s, each once.
     fx.promote(utc("2026-03-10T00:00:00Z"), DESIGN, LEVERS)
         .await;
     fx.tick(switch_at("2026-03-16")).await;
     assert_eq!(fx.lever_runs("manly", "on").await, 1);
-    assert_eq!(
-        fx.flip("bondi", "on").await.status,
-        "failed",
-        "a failed flip is not retried"
-    );
+    for unit in ["bondi", "newtown"] {
+        let f = fx.flip(unit, "on").await;
+        assert_eq!(f.status, "dispatched", "a failed flip is resent");
+        assert_eq!(f.attempts, 2);
+        assert_eq!(fx.lever_runs(unit, "on").await, 1);
+    }
+    fx.tick(switch_at("2026-03-16") + Duration::minutes(5))
+        .await;
+    assert_eq!(fx.lever_runs("bondi", "on").await, 1, "never twice");
     assert_eq!(fx.notices().await.len(), 2);
 }
 

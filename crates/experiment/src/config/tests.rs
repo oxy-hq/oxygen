@@ -103,7 +103,7 @@ fn the_specs_full_example_parses() {
     assert_eq!(c.guardrails.len(), 2);
     assert!(matches!(
         &c.guardrails[0].criteria,
-        GuardrailCriteria::Anomaly { measure, significance }
+        GuardrailCriteria::Anomaly { measure, significance, direction: None }
             if measure == "store_days.refund_rate" && *significance == 0.95
     ));
     assert!(matches!(
@@ -217,6 +217,49 @@ fn an_unknown_key_inside_a_guardrail_is_an_error() {
     let yaml = FULL_YAML.replace("type: trigger,", "type: trigger, extra: 1,");
     let message = parse_error(&yaml);
     assert!(message.contains("extra"), "{message}");
+}
+
+#[test]
+fn an_anomaly_guardrail_parses_an_explicit_direction() {
+    let yaml = FULL_YAML.replace(
+        "significance: 0.95 }",
+        "significance: 0.95, direction: increase }",
+    );
+    let c = parse(&yaml).expect("parses");
+    assert!(matches!(
+        &c.guardrails[0].criteria,
+        GuardrailCriteria::Anomaly {
+            direction: Some(GuardDirection::Increase),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn an_anomaly_guardrail_without_a_direction_serializes_as_before() {
+    let c = full();
+    let yaml = serde_yaml::to_string(&c.guardrails[0].criteria).unwrap();
+    assert!(!yaml.contains("direction"), "{yaml}");
+}
+
+#[test]
+fn an_anomaly_guardrail_on_the_target_watches_the_side_that_hurts_by_default() {
+    let mut c = full();
+    let target = c.outcome.target.clone();
+    assert_eq!(c.outcome.direction, Direction::Increase);
+    assert_eq!(c.anomaly_direction(&target, None), GuardDirection::Decrease);
+    c.outcome.direction = Direction::Decrease;
+    assert_eq!(c.anomaly_direction(&target, None), GuardDirection::Increase);
+    assert_eq!(
+        c.anomaly_direction("store_days.refund_rate", None),
+        GuardDirection::Both,
+        "another measure has no known good side"
+    );
+    assert_eq!(
+        c.anomaly_direction(&target, Some(GuardDirection::Both)),
+        GuardDirection::Both,
+        "an explicit direction wins"
+    );
 }
 
 #[test]

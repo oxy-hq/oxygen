@@ -129,6 +129,35 @@ fn a_retrospective_carryover_drops_a_pinned_unit_the_panel_lacks_instead_of_refu
     assert!((e.estimate.expect("an estimate") - 8.0).abs() < 1.5);
 }
 
+#[test]
+fn a_proportional_outcomes_carryover_is_read_on_the_log_scale() {
+    // +8 on ~102 is ln(110/102) ≈ 0.076 on the log scale; the raw read would be ~8.
+    let mut c = cfg(Some(14));
+    c.outcome.scale = oxy_experiment::config::Scale::Proportional;
+    let pool: Vec<String> = ["s07", "s08", "s09"].map(String::from).to_vec();
+    let design = to_design(&c, &super::plan::assignment_units(&c, &pool));
+    let off = d(5, 5);
+    let e = carryover_effect(&c, &design, &panel(&c, off, 14), off.into(), 7, false);
+    assert!(e.refusal.is_none(), "{:?}", e.refusal);
+    let est = e.estimate.expect("an estimate");
+    assert!((est - 0.076).abs() < 0.02, "the log-scale lift: {est}");
+}
+
+#[test]
+fn a_ratio_outcome_reads_no_carryover() {
+    let mut c = cfg(Some(14));
+    c.outcome.denominator = Some("store_days.orders".into());
+    let pool: Vec<String> = ["s07", "s08", "s09"].map(String::from).to_vec();
+    let design = to_design(&c, &super::plan::assignment_units(&c, &pool));
+    let off = d(5, 5);
+    let e = carryover_effect(&c, &design, &panel(&c, off, 14), off.into(), 7, false);
+    assert!(
+        e.refusal.as_deref().is_some_and(|r| r.contains("ratio")),
+        "never the numerator alone: {:?}",
+        e.refusal
+    );
+}
+
 fn at(s: &str) -> oxy_experiment::Moment {
     oxy_experiment::Moment::parse(s).unwrap()
 }

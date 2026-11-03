@@ -63,3 +63,34 @@ fn a_proportional_scale_refuses_a_share_a_switchback_and_a_driver() {
         );
     }
 }
+
+#[test]
+fn a_ratio_outcome_refuses_what_its_estimator_does_not_read() {
+    let mut c = observed();
+    c.outcome.denominator = Some("listing_days.units".into());
+    assert!(
+        !validate_static(&c)
+            .iter()
+            .any(|e| matches!(e, ConfigError::RatioWith { .. })),
+        "one switch date, unstratified, Welch: {:?}",
+        validate_static(&c)
+    );
+    c.design.one_date_test = crate::config::OneDateTest::Permutation;
+    c.design.strata = Some(vec![vec!["a1".into()]]);
+    c.design.carryover_days = Some(14);
+    let mut later = c.design.waves[0].clone();
+    later.switch_on = later.switch_on + chrono::Days::new(7);
+    c.design.waves.push(later);
+    let errs = validate_static(&c);
+    for with in [
+        "design.one_date_test: permutation",
+        "design.strata",
+        "more than one switch date",
+        "design.carryover_days",
+    ] {
+        assert!(
+            errs.contains(&ConfigError::RatioWith { with }),
+            "{with}: {errs:?}"
+        );
+    }
+}

@@ -132,6 +132,16 @@ pub struct FlipFact {
     /// It was cancelled and never sent (`experiment_flips.status = 'cancelled'`):
     /// it records no lever state, so it never stands in for another flip.
     pub cancelled: bool,
+    /// Its last send failed (`experiment_flips.status = 'failed'`). It still stands
+    /// for its identity — no second row is recorded — and [`retries`] resends it.
+    pub failure: Option<Failure>,
+}
+
+/// A failed flip's attempts so far and the local hour the last one failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Failure {
+    pub attempts: u32,
+    pub at: Moment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,6 +155,13 @@ pub enum RunAction {
         unit: String,
         state: LeverState,
         wave: usize,
+        due_at: Moment,
+    },
+    /// Resend the failed flip of this identity: the host resets its row to unsent
+    /// (one more attempt), only while it is still `failed`.
+    RetryFlip {
+        unit: String,
+        state: LeverState,
         due_at: Moment,
     },
     EnqueueEstimate,
@@ -168,7 +185,7 @@ pub fn step(c: &ExperimentConfig, state: RunState, f: &RunFacts) -> Transition {
     match state {
         RunState::Registered | RunState::Live => step_active(c, state, f),
         RunState::Closing => step_closing(c, f),
-        RunState::Reported => to(RunState::Reported, Vec::new()),
+        RunState::Reported => to(RunState::Reported, close_retries(c, f)),
         RunState::Aborted => step_aborted(c, f),
     }
 }
@@ -182,7 +199,7 @@ pub fn step(c: &ExperimentConfig, state: RunState, f: &RunFacts) -> Transition {
 /// already running records a breach afterwards: the run no longer manages its units.
 fn step_aborted(c: &ExperimentConfig, f: &RunFacts) -> Transition {
     let mut actions = match f.abort_levers {
-        AbortLevers::Off => abort_offs(c, f),
+        AbortLevers::Off => [abort_offs(c, f), retries(c, f, false)].concat(),
         AbortLevers::Keep => Vec::new(),
     };
     if !f.estimate_done {
@@ -210,7 +227,7 @@ fn to(next: RunState, actions: Vec<RunAction>) -> Transition {
 fn step_active(c: &ExperimentConfig, state: RunState, f: &RunFacts) -> Transition {
     if let Some(reason) = abort_reason(f) {
         let mut actions = match abort_levers(f) {
-            AbortLevers::Off => abort_offs(c, f),
+            AbortLevers::Off => [abort_offs(c, f), retries(c, f, false)].concat(),
             AbortLevers::Keep => Vec::new(),
         };
         actions.push(RunAction::NotifyOwner { reason });
@@ -220,7 +237,10 @@ fn step_active(c: &ExperimentConfig, state: RunState, f: &RunFacts) -> Transitio
     if state == RunState::Live && last_post_window_end(c).is_some_and(|end| f.now >= end) {
         // The levers go off on entering `closing`: the estimate may never
         // finish, and a lever left on silently is worse than a late report.
-        return to(RunState::Closing, close_offs(c, f));
+        return to(
+            RunState::Closing,
+            [close_offs(c, f), close_retries(c, f)].concat(),
+        );
     }
     let started = switch_moments(c).first().is_some_and(|day| *day <= f.now);
     let next = if state == RunState::Live || started {
@@ -228,7 +248,7 @@ fn step_active(c: &ExperimentConfig, state: RunState, f: &RunFacts) -> Transitio
     } else {
         RunState::Registered
     };
-    to(next, scheduled_flips(c, f))
+    to(next, [scheduled_flips(c, f), retries(c, f, true)].concat())
 }
 
 fn abort_reason(f: &RunFacts) -> Option<String> {
@@ -263,10 +283,6 @@ pub fn units_on(c: &ExperimentConfig, flips: &[FlipFact]) -> Vec<String> {
         .collect()
 }
 
-/// `closing` keeps emitting any `on_close: off` still owed (`needs_off` makes
-/// it idempotent: an off that was never recorded — a crash between the decision
-/// and the write — is re-emitted here. A recorded `off` counts as done even if
-/// its send later failed, so a failed one is not retried by this step).
 /// A retrospective run's step: the design was written after its data existed, so the
 /// run moved no lever and owes no `off`, and its last window is history, so it waits on
 /// no coverage. It is created `closing`; it estimates at once and is reported when the
@@ -279,8 +295,12 @@ pub fn step_retrospective(state: RunState, f: &RunFacts) -> Transition {
     }
 }
 
+/// `closing` keeps emitting any `on_close: off` still owed (`needs_off` makes
+/// it idempotent: an off that was never recorded — a crash between the decision
+/// and the write — is re-emitted here). A recorded `off` whose send failed is not
+/// recorded again: [`retries`] resends that row.
 fn step_closing(c: &ExperimentConfig, f: &RunFacts) -> Transition {
-    let mut actions = close_offs(c, f);
+    let mut actions = [close_offs(c, f), close_retries(c, f)].concat();
     if f.estimate_done {
         return to(RunState::Reported, actions);
     }
@@ -409,7 +429,7 @@ fn last_ons<'a>(c: &'a ExperimentConfig, flips: &'a [FlipFact]) -> Vec<(usize, &
 /// No `off` recorded for `unit` on or after `since`, its last `on`'s day. A
 /// terminal `off` is dated the day it was decided, so "already off" is this,
 /// never a match on one date. A cancelled `off` was never sent: it counts for
-/// nothing.
+/// nothing. A failed one counts: it is resent ([`retries`]), never recorded twice.
 fn needs_off(flips: &[FlipFact], unit: &str, since: Moment) -> bool {
     !flips
         .iter()
@@ -447,6 +467,10 @@ fn close_offs(c: &ExperimentConfig, f: &RunFacts) -> Vec<RunAction> {
         .map(|(wave, unit, _)| flip(unit, LeverState::Off, wave, f.now))
         .collect()
 }
+
+mod retry;
+pub use retry::{MAX_ON_ATTEMPTS, RETRY_BASE_HOURS, RETRY_MAX_HOURS, owes_off_retry};
+use retry::{close_retries, retries};
 
 #[cfg(test)]
 mod tests;

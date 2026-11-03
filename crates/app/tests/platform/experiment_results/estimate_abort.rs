@@ -127,6 +127,8 @@ async fn flip(
     experiment_flips::ActiveModel {
         id: Set(Uuid::new_v4()),
         created_at: Set(now()),
+        attempts: Set(1),
+        failed_at: Set(None),
         run_id: Set(run),
         unit: Set(unit.into()),
         target_state: Set(state.into()),

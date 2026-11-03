@@ -24,6 +24,8 @@ pub struct Batch {
     pub ids: Vec<Uuid>,
     /// Sorted, so a task's `units` and the stamp's `RETURNING` compare equal.
     pub units: Vec<String>,
+    /// The most sends any of its rows has had (1 unless one is a retry).
+    pub attempts: i32,
 }
 
 /// Ordered by due day, so after a clock jump the earlier periods go first.
@@ -43,7 +45,9 @@ pub fn batches(c: &ExperimentConfig, unsent: &[&experiment_flips::Model]) -> Vec
             due_at: Moment(f.due_at),
             ids: Vec::new(),
             units: Vec::new(),
+            attempts: 1,
         });
+        b.attempts = b.attempts.max(f.attempts);
         b.ids.push(f.id);
         b.units.push(f.unit.clone());
     }
@@ -154,6 +158,8 @@ mod tests {
             confirmed_on: None,
             reason: None,
             created_at: Utc::now().fixed_offset(),
+            attempts: 1,
+            failed_at: None,
         }
     }
 

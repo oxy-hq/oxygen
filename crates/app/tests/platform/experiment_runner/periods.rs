@@ -83,7 +83,7 @@ async fn an_empty_fleet_read_is_not_pinned_and_retries() {
     let problems = store::observations(&run).problems;
     assert!(
         problems.iter().any(|p| p.contains(
-            "no rows for store_days.beverages_revenue in the last 28 days; fleet not pinned yet"
+            "pinning the switchback's fleet: the warehouse holds no `store_days.beverages_revenue` rows"
         )),
         "{problems:?}"
     );

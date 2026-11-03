@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { definitionFixture } from "../../fixtures";
-import { emptyDesignValues, toFormValues } from "./designForm";
+import { emptyDesignValues, newGuardrail, toFormValues } from "./designForm";
 import { designResolver } from "./resolver";
 import { placeServerError } from "./serverErrors";
 import { nameProblem, toConfig } from "./toConfig";
@@ -65,8 +65,20 @@ describe("toConfig", () => {
     const values = {
       ...emptyDesignValues(),
       guardrails: [
-        { kind: "trigger" as const, measure: "", significance: "", when: "{{o.x}} > 1" },
-        { kind: "anomaly" as const, measure: "", significance: "2", when: "" }
+        {
+          kind: "trigger" as const,
+          measure: "",
+          significance: "",
+          direction: "" as const,
+          when: "{{o.x}} > 1"
+        },
+        {
+          kind: "anomaly" as const,
+          measure: "",
+          significance: "2",
+          direction: "" as const,
+          when: ""
+        }
       ]
     };
     const { config, errors } = toConfig(values);
@@ -77,6 +89,35 @@ describe("toConfig", () => {
     });
     expect(errors["guardrails.1.measure"]).toBe("Enter the measure to watch.");
     expect(errors["guardrails.1.significance"]).toBe("Significance must be above 0 and below 1.");
+  });
+
+  it("sends an anomaly guardrail's direction only when one is chosen, and reads it back", () => {
+    const anomaly = (direction: "" | "increase") => ({
+      ...emptyDesignValues(),
+      guardrails: [
+        {
+          kind: "anomaly" as const,
+          measure: "o.refund_rate",
+          significance: "0.9973",
+          direction,
+          when: ""
+        }
+      ]
+    });
+    expect(toConfig(anomaly("")).config.guardrails?.[0].criteria).toEqual({
+      type: "anomaly",
+      measure: "o.refund_rate",
+      significance: 0.9973
+    });
+    const { config } = toConfig(anomaly("increase"));
+    expect(config.guardrails?.[0].criteria).toMatchObject({ direction: "increase" });
+    expect(toFormValues({ guardrails: config.guardrails }).guardrails[0].direction).toBe(
+      "increase"
+    );
+  });
+
+  it("a new anomaly guardrail is watched at 3σ", () => {
+    expect(newGuardrail().significance).toBe("0.9973");
   });
 
   it("keeps a pricing seed of up to 53 bits exactly", () => {

@@ -159,3 +159,26 @@ fn a_switchbacks_estimand_is_the_short_run_effect_of_alternation() {
     );
     assert!(v.headline.unwrap().text.contains("per unit-day"));
 }
+
+#[test]
+fn a_retrospective_group_design_says_its_membership_is_current() {
+    let mut c = Case::new();
+    c.cfg.assign_by = Some("store.region".into());
+    assert!(
+        !c.build()
+            .assumptions
+            .iter()
+            .any(|a| a.contains("assign_by")),
+        "a live run pinned its groups when it began"
+    );
+    c.retrospective = true;
+    let report = c.build();
+    assert!(
+        report
+            .assumptions
+            .iter()
+            .any(|a| a.contains("`assign_by: store.region`") && a.contains("today")),
+        "{:?}",
+        report.assumptions
+    );
+}

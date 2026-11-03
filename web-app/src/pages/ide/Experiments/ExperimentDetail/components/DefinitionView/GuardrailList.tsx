@@ -45,7 +45,8 @@ export default function GuardrailList({ def }: { def: SafeDefinition }) {
           <ul className='space-y-1 text-sm'>
             {guardrails.map((g) => (
               <li key={JSON.stringify(g.criteria)}>
-                {guardrailText(g)} {g.criteria.type === "trigger" && <Chip>{g.criteria.when}</Chip>}
+                {guardrailText(g, def.outcome ?? undefined)}{" "}
+                {g.criteria.type === "trigger" && <Chip>{g.criteria.when}</Chip>}
                 {g.criteria.type === "anomaly" && <Chip>{g.criteria.measure}</Chip>}
               </li>
             ))}

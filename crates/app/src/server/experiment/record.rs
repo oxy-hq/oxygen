@@ -280,6 +280,8 @@ mod tests {
             confirmed_on: on.map(d).map(|d| d.and_hms_opt(0, 0, 0).unwrap()),
             reason: None,
             created_at: Utc::now().fixed_offset(),
+            attempts: 1,
+            failed_at: None,
         }
     }
 

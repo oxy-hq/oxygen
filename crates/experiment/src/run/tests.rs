@@ -52,6 +52,7 @@ fn fact(unit: &str, state: LeverState, dispatched: bool) -> FlipFact {
         due_at: due_at.into(),
         dispatched,
         cancelled: false,
+        failure: None,
     }
 }
 
@@ -62,6 +63,7 @@ fn at(unit: &str, state: LeverState, due: &str, dispatched: bool) -> FlipFact {
         due_at: d(due).into(),
         dispatched,
         cancelled: false,
+        failure: None,
     }
 }
 
@@ -1058,4 +1060,198 @@ fn a_wave_switching_at_two_in_the_afternoon_is_not_due_at_one() {
     };
     assert_eq!(t("2026-03-02T13:00").next, RunState::Registered);
     assert_eq!(t("2026-03-02T14:00").next, RunState::Live);
+}
+
+/// `x`, its last send failed at `at` after `attempts` sends.
+fn failed(x: FlipFact, attempts: u32, at: &str) -> FlipFact {
+    FlipFact {
+        failure: Some(Failure {
+            attempts,
+            at: d(at).into(),
+        }),
+        ..x
+    }
+}
+
+fn retry(unit: &str, state: LeverState, due: NaiveDate) -> RunAction {
+    RunAction::RetryFlip {
+        unit: unit.to_string(),
+        state,
+        due_at: due.into(),
+    }
+}
+
+fn hours_after(day: &str, h: i64) -> Moment {
+    Moment(d(day).and_hms_opt(0, 0, 0).unwrap() + chrono::Duration::hours(h))
+}
+
+#[test]
+fn a_failed_on_is_resent_once_its_backoff_has_passed() {
+    let mut flips = all_on();
+    flips[0] = failed(fact("bondi", On, true), 1, "2026-03-03");
+    let early = RunFacts {
+        flips: flips.clone(),
+        now: hours_after("2026-03-03", 0),
+        ..facts(d("2026-03-03"))
+    };
+    assert!(
+        step(&cfg(), RunState::Live, &early).actions.is_empty(),
+        "within the first hour's backoff"
+    );
+    let later = RunFacts {
+        flips,
+        now: hours_after("2026-03-03", 1),
+        ..facts(d("2026-03-03"))
+    };
+    assert_eq!(
+        step(&cfg(), RunState::Live, &later).actions,
+        vec![retry("bondi", On, wave_day(0))]
+    );
+}
+
+#[test]
+fn the_backoff_doubles_and_is_capped() {
+    let at = |attempts| {
+        Failure {
+            attempts,
+            at: d("2026-03-03").into(),
+        }
+        .retry_at()
+    };
+    assert_eq!(at(1), hours_after("2026-03-03", 1));
+    assert_eq!(at(2), hours_after("2026-03-03", 2));
+    assert_eq!(at(3), hours_after("2026-03-03", 4));
+    assert_eq!(at(4), hours_after("2026-03-03", 8));
+    assert_eq!(at(40), hours_after("2026-03-03", RETRY_MAX_HOURS));
+}
+
+#[test]
+fn an_on_stops_being_resent_after_its_last_attempt() {
+    let mut flips = all_on();
+    flips[0] = failed(fact("bondi", On, true), MAX_ON_ATTEMPTS, "2026-03-03");
+    let f = RunFacts {
+        flips,
+        ..facts(d("2026-03-10"))
+    };
+    assert!(step(&cfg(), RunState::Live, &f).actions.is_empty());
+}
+
+#[test]
+fn a_failed_close_off_is_resent_whatever_its_attempts_while_closing_and_reported() {
+    let today = end() + Days::new(5);
+    let mut f = closing(today, None);
+    let bondi = f
+        .flips
+        .iter_mut()
+        .find(|x| x.unit == "bondi" && x.state == Off)
+        .unwrap();
+    *bondi = failed(bondi.clone(), 40, "2026-03-20");
+    let want = vec![retry("bondi", Off, d(OFF_DAY))];
+    assert_eq!(step(&cfg(), RunState::Closing, &f).actions, want);
+    f.estimate_done = true;
+    assert_eq!(step(&cfg(), RunState::Reported, &f).actions, want);
+    assert!(
+        owes_off_retry(&cfg(), RunState::Reported, &f),
+        "a settled run stays on the short cadence"
+    );
+}
+
+#[test]
+fn a_run_that_keeps_its_levers_owes_no_off_retry() {
+    let mut f = closing(end() + Days::new(5), None);
+    let bondi = f
+        .flips
+        .iter_mut()
+        .find(|x| x.unit == "bondi" && x.state == Off)
+        .unwrap();
+    *bondi = failed(bondi.clone(), 1, "2026-03-20");
+    let mut keep = cfg();
+    keep.lever.as_mut().unwrap().on_close = crate::config::OnClose::Keep;
+    assert!(
+        !owes_off_retry(&keep, RunState::Reported, &f),
+        "on_close: keep"
+    );
+    assert!(owes_off_retry(&cfg(), RunState::Aborted, &f));
+    f.abort_levers = AbortLevers::Keep;
+    assert!(
+        !owes_off_retry(&cfg(), RunState::Aborted, &f),
+        "an abort that kept the levers"
+    );
+}
+
+#[test]
+fn a_failed_on_is_not_resent_once_the_run_stops_treating() {
+    let mut f = closing(end() + Days::new(5), None);
+    let bondi = f
+        .flips
+        .iter_mut()
+        .find(|x| x.unit == "bondi" && x.state == On)
+        .unwrap();
+    *bondi = failed(bondi.clone(), 1, "2026-03-03");
+    assert!(
+        !step(&cfg(), RunState::Closing, &f)
+            .actions
+            .iter()
+            .any(|a| matches!(a, RunAction::RetryFlip { .. }))
+    );
+}
+
+#[test]
+fn an_abort_that_keeps_the_levers_resends_no_failed_off() {
+    let mut flips = all_on();
+    flips.push(failed(fact("bondi", Off, true), 1, "2026-03-20"));
+    let f = RunFacts {
+        flips,
+        abort_levers: AbortLevers::Keep,
+        estimate_done: true,
+        ..facts(d("2026-03-25"))
+    };
+    assert!(step(&cfg(), RunState::Aborted, &f).actions.is_empty());
+    let off = RunFacts {
+        abort_levers: AbortLevers::Off,
+        ..f
+    };
+    assert!(
+        step(&cfg(), RunState::Aborted, &off)
+            .actions
+            .contains(&retry("bondi", Off, d(OFF_DAY))),
+        "turning the levers off resends the off that failed"
+    );
+}
+
+#[test]
+fn a_failed_period_flip_is_not_resent_once_a_later_one_replaces_it_or_its_period_ends() {
+    let mut flips = sb_recorded_through(1);
+    // bondi's period-1 off failed, then period 2 began: still an off period, so
+    // the off is resent; glebe's period-0 on failed and its period has ended.
+    let k = flips
+        .iter()
+        .position(|x| x.unit == "bondi" && x.due_at == Moment::from(d("2026-03-09")))
+        .unwrap();
+    flips[k] = failed(flips[k].clone(), 1, "2026-03-09");
+    let g = flips
+        .iter()
+        .position(|x| x.unit == "glebe" && x.due_at == Moment::from(d("2026-03-02")))
+        .unwrap();
+    flips[g] = failed(flips[g].clone(), 1, "2026-03-02");
+    let f = sb_facts("2026-03-10", flips.clone());
+    assert_eq!(
+        step(&sb_cfg(), RunState::Live, &f).actions,
+        vec![retry("bondi", Off, d("2026-03-09"))],
+        "glebe's on is replaced by its period-1 off"
+    );
+    // Once period 3's on is recorded, bondi's failed off is replaced.
+    let mut later = sb_recorded_through(3);
+    let k = later
+        .iter()
+        .position(|x| x.unit == "bondi" && x.due_at == Moment::from(d("2026-03-09")))
+        .unwrap();
+    later[k] = failed(later[k].clone(), 1, "2026-03-09");
+    let f = sb_facts("2026-03-24", later);
+    assert!(
+        !step(&sb_cfg(), RunState::Live, &f)
+            .actions
+            .iter()
+            .any(|a| matches!(a, RunAction::RetryFlip { .. }))
+    );
 }

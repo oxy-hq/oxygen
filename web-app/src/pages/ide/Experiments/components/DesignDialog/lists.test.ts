@@ -97,6 +97,28 @@ describe("entities and their dimensions", () => {
   });
 });
 
+describe("an entity on several views", () => {
+  const SPLIT = [
+    entity("store", "stores", ["region"]),
+    entity("store", "store_days", ["format", "region"]),
+    entity("customer", "customers", ["tier"])
+  ];
+
+  it("is listed once", () => {
+    expect(entityGroups(SPLIT)[0].options.map((o) => o.value)).toEqual(["customer", "store"]);
+  });
+
+  it("offers every view's dimensions, each once", () => {
+    expect(dimensionGroups("store", SPLIT)[0].options.map((o) => o.value)).toEqual([
+      "format",
+      "region"
+    ]);
+    expect(dimensionMatch("format", "store", SPLIT)?.tone).toBe("success");
+    expect(dimensionMatch("store_days.format", "store", SPLIT)?.tone).toBe("success");
+    expect(dimensionMatch("stores.region", "store", SPLIT)?.tone).toBe("success");
+  });
+});
+
 describe("time dimensions", () => {
   const byView = { orders: ["orders.order_date", "orders.shipped_at"], refunds: ["refunds.day"] };
 

@@ -36,10 +36,10 @@ mod interim_tests;
 mod test_fixtures;
 
 pub use config::{
-    Assignment, DesignConfig, Direction, ExperimentConfig, FilterOp, Guardrail, GuardrailAction,
-    GuardrailCriteria, LeverConfig, LeverPer, LeverState, MeasureFilter, OnClose, OutcomeConfig,
-    PeriodConfig, PriorCoefficient, PriorSource, ReadBack, SubstitutionCheck, SwitchbackConfig,
-    ViaRef, WaveConfig, parse,
+    Assignment, DesignConfig, Direction, ExperimentConfig, FilterOp, GuardDirection, Guardrail,
+    GuardrailAction, GuardrailCriteria, LeverConfig, LeverPer, LeverState, MeasureFilter, OnClose,
+    OutcomeConfig, PeriodConfig, PriorCoefficient, PriorSource, ReadBack, SubstitutionCheck,
+    SwitchbackConfig, ViaRef, WaveConfig, parse,
 };
 pub use grain::Grain;
 pub use moment::Moment;

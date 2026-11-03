@@ -1,6 +1,8 @@
 //! Guardrails: safety stops watched per treated unit while the effect stays
 //! sealed. `anomaly` runs the monitor detector (`scan_one`) once per watched
-//! unit over its own series — or a group's pinned members — and `trigger`
+//! unit over its own series — or a group's pinned members — on the side of the
+//! band that hurts, and breaches only on [`SUSTAINED_DAYS`] consecutive flagged
+//! treated days: one flag is a chance event across many units and days. `trigger`
 //! tests the `{{measure}}` comparison against each unit's latest returned
 //! treated day, reading through YESTERDAY: today is still loading, so a
 //! partial total is never evidence. Any one unit breaching is the breach, and
@@ -11,7 +13,7 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use entity::experiment_flips;
 use oxy_experiment::Moment;
-use oxy_experiment::config::{GuardrailCriteria, SwitchbackConfig};
+use oxy_experiment::config::{GuardDirection, GuardrailCriteria, SwitchbackConfig};
 use oxy_experiment::expr::{Trigger, parse_trigger};
 use oxy_experiment::run::LeverState;
 use oxy_experiment::{ExperimentConfig, Grain};
@@ -22,6 +24,10 @@ use crate::server::experiment::panel::GroupMembership;
 use crate::server::experiment::store::{GuardrailState, GuardrailStatus, UnitGuardrail};
 
 pub const TRIGGER_LOOKBACK_DAYS: u64 = 7;
+/// Consecutive flagged treated days a unit needs before `anomaly` breaches. At
+/// 2σ a day is flagged by chance about one time in twenty, so 40 units over a
+/// month flag one day almost surely; two in a row at one unit is ~1 in 400 a day.
+pub const SUSTAINED_DAYS: u64 = 2;
 /// Two-sided coverage of ±3σ and ±5σ — the detector's `medium` and `low` cutoffs.
 const SIG_3_SIGMA: f64 = 0.9973;
 const SIG_5_SIGMA: f64 = 0.999_999_4;
@@ -160,7 +166,11 @@ pub async fn evaluate(
             GuardrailCriteria::Anomaly {
                 measure,
                 significance,
-            } => anomaly(inp, readers, measure, *significance).await,
+                direction,
+            } => {
+                let direction = inp.c.anomaly_direction(measure, *direction);
+                anomaly(inp, readers, measure, *significance, direction).await
+            }
             GuardrailCriteria::Trigger { when } => trigger(inp, readers, when).await,
         };
         if status.status == GuardrailState::Breached && breach.is_none() {
@@ -223,8 +233,12 @@ async fn anomaly(
     readers: &Readers<'_>,
     measure: &str,
     significance: f64,
+    direction: GuardDirection,
 ) -> GuardrailStatus {
-    let criteria = format!("anomaly on {measure} at significance {significance}");
+    let criteria = format!(
+        "anomaly on {measure} at significance {significance} ({})",
+        direction.as_str()
+    );
     if let Err(e) = sensitivity_for(significance) {
         return refused(criteria, e);
     }
@@ -235,22 +249,50 @@ async fn anomaly(
             measure,
             members: &w.members,
             significance,
+            direction,
             since,
             now: inp.now,
         };
         units.push(match readers.anomalies.flagged(&q).await {
-            Ok(flags) => match flags.into_iter().find(|(day, _)| w.treats(*day)) {
-                Some((day, detail)) => {
-                    let detail =
-                        format!("anomaly on `{measure}` at `{}` on {day}: {detail}", w.unit);
-                    unit(w, GuardrailState::Breached, Some(detail))
-                }
-                None => unit(w, GuardrailState::Ok, None),
-            },
+            Ok(flags) => anomaly_unit(w, measure, &flags),
             Err(e) => unit(w, GuardrailState::NotChecked, Some(e)),
         });
     }
     roll_up(criteria, units)
+}
+
+/// One unit's anomaly verdict from its flagged days: breached on the first run of
+/// [`SUSTAINED_DAYS`] consecutive flagged treated days; a shorter run is ok, and
+/// says so, since the next day may complete it.
+fn anomaly_unit(w: &Watched, measure: &str, flags: &[(NaiveDate, String)]) -> UnitGuardrail {
+    let flagged: BTreeMap<NaiveDate, &str> = flags
+        .iter()
+        .filter(|(day, _)| w.treats(*day))
+        .map(|(day, detail)| (*day, detail.as_str()))
+        .collect();
+    let sustained = flagged.keys().find(|day| {
+        (1..SUSTAINED_DAYS).all(|k| {
+            day.checked_add_days(Days::new(k))
+                .is_some_and(|next| flagged.contains_key(&next))
+        })
+    });
+    match (sustained, flagged.iter().next_back()) {
+        (Some(from), _) => {
+            let last = *from + Days::new(SUSTAINED_DAYS - 1);
+            let detail = format!(
+                "anomaly on `{measure}` at `{}` on {from} through {last}: {}",
+                w.unit, flagged[&last]
+            );
+            unit(w, GuardrailState::Breached, Some(detail))
+        }
+        (None, Some((day, detail))) => {
+            let detail = format!(
+                "flagged on {day} ({detail}); trips on {SUSTAINED_DAYS} flagged days in a row"
+            );
+            unit(w, GuardrailState::Ok, Some(detail))
+        }
+        (None, None) => unit(w, GuardrailState::Ok, None),
+    }
 }
 
 async fn trigger(inp: &GuardrailInputs<'_>, readers: &Readers<'_>, when: &str) -> GuardrailStatus {
@@ -313,130 +355,5 @@ async fn trigger_values(
 }
 
 #[cfg(test)]
-mod tests {
-    use chrono::Utc;
-    use std::collections::BTreeMap;
-    use uuid::Uuid;
-
-    use super::*;
-    use crate::server::experiment::test_design::{design, switchback};
-
-    fn d(s: &str) -> NaiveDate {
-        s.parse().unwrap()
-    }
-
-    fn flip(unit: &str, state: &str, due: &str, status: &str) -> experiment_flips::Model {
-        experiment_flips::Model {
-            id: Uuid::new_v4(),
-            run_id: Uuid::nil(),
-            unit: unit.into(),
-            target_state: state.into(),
-            due_at: d(due).and_hms_opt(0, 0, 0).unwrap(),
-            wave: 0,
-            task_id: Some(Uuid::nil()),
-            agentic_run_id: Some(Uuid::nil()),
-            lever_revision_id: None,
-            status: status.into(),
-            confirmed_on: None,
-            reason: None,
-            created_at: Utc::now().fixed_offset(),
-        }
-    }
-
-    #[test]
-    fn significance_selects_the_most_sensitive_cutoff_it_does_not_undercut() {
-        assert_eq!(sensitivity_for(0.95).unwrap(), "high");
-        assert_eq!(sensitivity_for(0.99).unwrap(), "high");
-        assert_eq!(sensitivity_for(0.9973).unwrap(), "medium");
-        assert_eq!(sensitivity_for(0.999).unwrap(), "medium");
-        assert_eq!(sensitivity_for(0.999_999_9).unwrap(), "low");
-    }
-
-    #[test]
-    fn significance_outside_the_open_unit_interval_is_refused() {
-        for bad in [0.0, 1.0, -0.5, f64::NAN] {
-            let err = sensitivity_for(bad).unwrap_err();
-            assert!(err.contains("not in (0, 1)"), "{bad}: {err}");
-        }
-    }
-
-    #[test]
-    fn a_waves_unit_is_watched_from_its_switch_day_while_its_on_stands() {
-        let flips = [
-            flip("bondi", "on", "2026-03-02", "confirmed"),
-            flip("newtown", "on", "2026-03-02", "failed"),
-            flip("manly", "on", "2026-03-16", "dispatched"),
-            flip("manly", "off", "2026-03-20", "pending"),
-        ];
-        let w = watched(&design(), &flips, None, None, d("2026-03-21"));
-        assert_eq!(
-            w.iter().map(|w| w.unit.as_str()).collect::<Vec<_>>(),
-            vec!["bondi"]
-        );
-        assert_eq!(w[0].members, vec!["bondi"]);
-        assert!(w[0].treats(d("2026-03-02")) && !w[0].treats(d("2026-03-01")));
-    }
-
-    #[test]
-    fn a_group_is_watched_over_its_pinned_members() {
-        let flips = [flip("east", "on", "2026-03-02", "confirmed")];
-        let pinned = GroupMembership(BTreeMap::from([(
-            "east".to_string(),
-            vec!["bondi".to_string(), "coogee".to_string()],
-        )]));
-        let w = watched(&design(), &flips, Some(&pinned), None, d("2026-03-05"));
-        assert_eq!(
-            (w[0].unit.as_str(), w[0].members.clone()),
-            ("east", vec!["bondi".to_string(), "coogee".to_string()])
-        );
-    }
-
-    #[test]
-    fn a_switchback_unit_is_treated_on_its_begun_on_periods_only() {
-        let fleet = ["bondi".to_string(), "glebe".to_string()];
-        assert!(
-            watched(&switchback(), &[], None, Some(&fleet), d("2026-03-01")).is_empty(),
-            "nothing has begun"
-        );
-        let flips: Vec<_> = ["bondi", "glebe"]
-            .into_iter()
-            .flat_map(|u| {
-                [
-                    flip(u, "on", "2026-03-02", "confirmed"),
-                    flip(u, "on", "2026-03-23", "dispatched"),
-                ]
-            })
-            .collect();
-        let w = watched(&switchback(), &flips, None, Some(&fleet), d("2026-03-24"));
-        assert_eq!(w.len(), 2, "every fleet unit");
-        assert!(w[0].treats(d("2026-03-08")), "period 0 is on");
-        assert!(
-            !w[0].treats(d("2026-03-09")) && !w[0].treats(d("2026-03-22")),
-            "periods 1 and 2 are off"
-        );
-        assert!(w[0].treats(d("2026-03-23")), "period 3 is on and has begun");
-    }
-
-    #[test]
-    fn a_switchback_on_period_whose_on_never_went_out_is_not_watched() {
-        // glebe's first `on` was cancelled (its period ended before dispatch) and bondi's
-        // second failed: neither is a treated day, so a trigger there cannot abort the run.
-        let fleet = ["bondi".to_string(), "glebe".to_string()];
-        let mut cancelled = flip("glebe", "on", "2026-03-02", "cancelled");
-        cancelled.task_id = None;
-        cancelled.reason = Some(crate::server::experiment::send::PERIOD_ENDED.into());
-        let flips = [
-            flip("bondi", "on", "2026-03-02", "confirmed"),
-            cancelled,
-            flip("bondi", "on", "2026-03-23", "failed"),
-            flip("glebe", "on", "2026-03-23", "dispatched"),
-        ];
-        let w = watched(&switchback(), &flips, None, Some(&fleet), d("2026-03-24"));
-        let bondi = w.iter().find(|w| w.unit == "bondi").expect("bondi");
-        assert!(bondi.treats(d("2026-03-02")));
-        assert!(!bondi.treats(d("2026-03-23")), "its on failed");
-        let glebe = w.iter().find(|w| w.unit == "glebe").expect("glebe");
-        assert!(!glebe.treats(d("2026-03-02")), "its on was never sent");
-        assert!(glebe.treats(d("2026-03-23")));
-    }
-}
+#[path = "guardrails_tests.rs"]
+mod tests;

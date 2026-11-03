@@ -7,7 +7,9 @@ use crate::config::{Assignment, Direction, measure_label};
 use crate::engine_in::EffectIn;
 
 use super::design::{assumptions, cell, design_kind, estimand, projection, treated_total};
-use super::prior::{is_directional, prediction, ratio_view, verdict, write_back_view};
+use super::prior::{
+    alpha_per_outcome, is_directional, prediction, ratio_view, verdict, write_back_view,
+};
 use super::spillover::{carryover, substitution};
 use super::synthetic;
 use super::types::*;
@@ -65,7 +67,13 @@ pub fn build_report(i: ReportInput<'_>) -> ReportView {
         },
         directional: is_directional(alpha),
         alpha,
-        assumptions: [assumptions(kind), synthetic::assumptions(i.config)].concat(),
+        alpha_per_outcome: alpha_per_outcome(alpha, i.config.outcome.family),
+        assumptions: [
+            assumptions(kind),
+            synthetic::assumptions(i.config),
+            super::design::current_membership(i.config, i.retrospective),
+        ]
+        .concat(),
         headline: est.map(|e| headline(&i, e, &substitution.statement, kind)),
         // A share summed over unit-days is not a quantity: no totals for a ratio,
         // nor for a proportional change.
@@ -194,7 +202,7 @@ fn headline(i: &ReportInput<'_>, est: f64, substitution: &str, kind: DesignKind)
     };
     let half_width = half_width.filter(|_| !proportional);
     let alpha = i.config.outcome.alpha;
-    let verdict = verdict(t.significant, alpha);
+    let verdict = verdict(t.significant, alpha, i.config.outcome.family);
     // A ratio is one number per unit and window, not per unit-day.
     let per = match &i.config.outcome.denominator {
         Some(_) => "unit".to_string(),

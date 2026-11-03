@@ -180,6 +180,7 @@ fn guardrail_significance_outside_the_open_unit_interval_is_refused() {
             c.guardrails[0].criteria = GuardrailCriteria::Anomaly {
                 measure: "store_days.refund_rate".into(),
                 significance: bad,
+                direction: None,
             };
         }));
         assert!(

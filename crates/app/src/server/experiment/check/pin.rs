@@ -5,24 +5,30 @@
 
 use std::collections::HashSet;
 
+use chrono::NaiveDate;
+
 use entity::experiment_runs;
 use oxy_experiment::ExperimentConfig;
 use oxy_experiment::validate::validate_against_units;
 use sea_orm::{DatabaseConnection, DbErr};
 
 use super::Readers;
-use super::reader::{Membership, UnitDays};
+use super::reader::Membership;
+use super::universe::{UnitUniverse, fleet_window, pre_window, pre_window_open};
 use crate::server::experiment::panel::GroupMembership;
 use crate::server::experiment::store::Observations;
 use crate::server::experiment::{notify, store};
 
 /// The pinned control pool: this check's pin if it is the first, else the one
 /// already pinned. `None` (with a problem) when the units cannot be read.
+/// The units are those with history in the design's pre window — the panel the
+/// estimate reads — so the pool is the one a retrospective run would pin.
 pub async fn control_pool(
     db: &DatabaseConnection,
     run: &experiment_runs::Model,
     c: &ExperimentConfig,
-    days: &dyn UnitDays,
+    universe: &dyn UnitUniverse,
+    today: NaiveDate,
     problems: &mut Vec<String>,
 ) -> Result<Option<Vec<String>>, DbErr> {
     if let Some(pool) = store::control_pool(run) {
@@ -32,21 +38,24 @@ pub async fn control_pool(
         problems.push("pinning the control pool: the pinned design has no pre_days".into());
         return Ok(None);
     };
-    // `units` looks back in calendar days; the pre window is `pre_days` periods.
-    let lookback = c.design.grain.days_spanned(pre_days);
-    let units = match days.units(&c.outcome.target, lookback).await {
+    // A registered run is checked before its pre window ends: wait for the whole window,
+    // since the pin is write-once. Nothing reads the pool before the first switch.
+    if pre_window_open(c, pre_days, today) {
+        return Ok(None);
+    }
+    let Some(window) = pre_window(c, pre_days) else {
+        problems.push("pinning the control pool: the pinned design has no first switch".into());
+        return Ok(None);
+    };
+    // An empty read is an error too: a warehouse that has not loaded is not a
+    // fleet of nobody, and an empty pin would be permanent. Retried next check.
+    let units = match universe.units(c, window).await {
         Ok(units) => units,
         Err(e) => {
             problems.push(format!("pinning the control pool: {e}"));
             return Ok(None);
         }
     };
-    if units.is_empty() {
-        // A warehouse that has not loaded is not a fleet of nobody: pinning
-        // an empty pool would be permanent. Retried on the next check.
-        problems.push("pinning the control pool: the warehouse returned no units yet".into());
-        return Ok(None);
-    }
     let pool = untreated_pool(c, &units);
     if !store::pin_control_pool(db, run.id, &pool, None).await? {
         // Another check pinned it first; that one stands, and it reported.
@@ -118,18 +127,19 @@ pub async fn pin_all(
     run: &experiment_runs::Model,
     c: &ExperimentConfig,
     readers: &Readers<'_>,
+    today: NaiveDate,
     obs: &mut Observations,
 ) -> Result<Pinned, DbErr> {
     if c.design.switchback.is_some() {
         return Ok(Pinned {
-            fleet: fleet(db, run, c, readers.days, &mut obs.problems).await?,
+            fleet: fleet(db, run, c, readers.units, today, &mut obs.problems).await?,
             ..Pinned::default()
         });
     }
     match c.assign_by.as_deref() {
         Some(dimension) => groups(db, run, c, dimension, readers.groups, &mut obs.problems).await,
         None => Ok(Pinned {
-            pool: control_pool(db, run, c, readers.days, &mut obs.problems).await?,
+            pool: control_pool(db, run, c, readers.units, today, &mut obs.problems).await?,
             ..Pinned::default()
         }),
     }
@@ -188,19 +198,30 @@ async fn groups(
 pub const FLEET_LOOKBACK_DAYS: u32 = 28;
 
 /// A switchback's fleet: this check's pin if it is the first, else the one
-/// already pinned. An empty read is a `problem`, never a pin (the next check
-/// retries). No `validate_against_units`: a switchback names no units.
+/// already pinned: the units with history in the [`FLEET_LOOKBACK_DAYS`] before
+/// the first period, as a retrospective switchback pins it. An empty read is a
+/// `problem`, never a pin: the pin is write-once and would stand for the whole
+/// run, so the next check retries. No `validate_against_units`: a switchback
+/// names no units.
 async fn fleet(
     db: &DatabaseConnection,
     run: &experiment_runs::Model,
     c: &ExperimentConfig,
-    days: &dyn UnitDays,
+    universe: &dyn UnitUniverse,
+    today: NaiveDate,
     problems: &mut Vec<String>,
 ) -> Result<Option<Vec<String>>, DbErr> {
     if let Some(fleet) = store::fleet(run) {
         return Ok(Some(fleet));
     }
-    let mut fleet = match days.units(&c.outcome.target, FLEET_LOOKBACK_DAYS).await {
+    let lookback = c.design.grain.periods_covering(FLEET_LOOKBACK_DAYS);
+    // The flips wait on the fleet, so it cannot wait for its lookback to end: before
+    // then it is read over a full lookback ending today ([`fleet_window`]).
+    let Some(window) = fleet_window(c, lookback, today) else {
+        problems.push("pinning the switchback's fleet: the design has no first period".into());
+        return Ok(None);
+    };
+    let mut fleet = match universe.units(c, window).await {
         Ok(units) => units,
         Err(e) => {
             problems.push(format!("pinning the switchback's fleet: {e}"));
@@ -209,15 +230,6 @@ async fn fleet(
     };
     fleet.sort();
     fleet.dedup();
-    if fleet.is_empty() {
-        // Never pin an empty fleet: the pin is write-once and would stand for
-        // the whole run. The run stays unpinned, so the next check retries.
-        problems.push(format!(
-            "no rows for {} in the last {FLEET_LOOKBACK_DAYS} days; fleet not pinned yet",
-            c.outcome.target
-        ));
-        return Ok(None);
-    }
     if store::pin_fleet(db, run.id, &fleet).await? {
         return Ok(Some(fleet));
     }

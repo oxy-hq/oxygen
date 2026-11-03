@@ -1,11 +1,14 @@
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Mutex;
 
 use async_trait::async_trait;
 use chrono::{Days, Duration, NaiveDate};
 use oxy_app::server::experiment::check::reader::{AnomalyQuery, AnomalyScan, Membership, UnitDays};
+use oxy_app::server::experiment::check::universe::UnitUniverse;
 use oxy_app::server::experiment::check::{Readers, run_check};
 use oxy_app::server::experiment::panel::GroupMembership;
 use oxy_app::server::experiment::store;
+use oxy_experiment::ExperimentConfig;
 use oxy_experiment::timeline::last_post_window_end_date;
 
 use super::fixture::*;
@@ -28,6 +31,8 @@ pub(crate) struct FakeDays {
     values: HashMap<(String, String), BTreeMap<NaiveDate, f64>>,
     units: Vec<String>,
     groups: BTreeMap<String, Vec<String>>,
+    /// The `[from, to)` windows a pin asked for.
+    pub(crate) asked: Mutex<Vec<(NaiveDate, NaiveDate)>>,
 }
 
 impl FakeDays {
@@ -106,8 +111,23 @@ impl UnitDays for FakeDays {
     ) -> Result<BTreeMap<NaiveDate, f64>, String> {
         self.values(measure, &units.join("+"), from, to).await
     }
+}
 
-    async fn units(&self, _measure: &str, _since_days: u32) -> Result<Vec<String>, String> {
+/// The pre window's units, as `PanelUnits` answers: an empty read is an error.
+#[async_trait]
+impl UnitUniverse for FakeDays {
+    async fn units(
+        &self,
+        c: &ExperimentConfig,
+        window: (NaiveDate, NaiveDate),
+    ) -> Result<Vec<String>, String> {
+        self.asked.lock().unwrap().push(window);
+        if self.units.is_empty() {
+            return Err(format!(
+                "the warehouse holds no `{}` rows in the design's pre window, so there are no units to compare yet",
+                c.outcome.target
+            ));
+        }
         Ok(self.units.clone())
     }
 }
@@ -119,7 +139,8 @@ impl Membership for FakeDays {
     }
 }
 
-/// The detector: `Some(detail)` flags every scanned unit on its `since` day.
+/// The detector: `Some(detail)` flags every scanned unit on its `since` day and
+/// the next, the consecutive run an anomaly guardrail needs to breach.
 pub(crate) struct Scan(pub Option<String>);
 
 #[async_trait]
@@ -128,7 +149,9 @@ impl AnomalyScan for Scan {
         Ok(self
             .0
             .iter()
-            .map(|detail| (q.since, detail.clone()))
+            .flat_map(|detail| {
+                [q.since, q.since.succ_opt().unwrap()].map(|day| (day, detail.clone()))
+            })
             .collect())
     }
 }
@@ -144,6 +167,7 @@ pub(crate) async fn check(
         days,
         anomalies: scan,
         groups: days,
+        units: days,
     };
     run_check(&fx.db, &run, &readers, at)
         .await
@@ -215,15 +239,38 @@ async fn read_back_waits_on_a_day_the_warehouse_has_not_loaded() {
 }
 
 #[tokio::test]
+async fn the_control_pool_waits_for_the_pre_window_to_end() {
+    // Switch 2026-03-02, anticipation 3: the pre window's last day is 26 February.
+    let fx = Fx::seed(DESIGN).await;
+    fx.register().await;
+    let days = FakeDays::new(ALL);
+    check(&fx, &days, &Scan(None), utc("2026-02-26T12:00:00Z")).await;
+    assert_eq!(
+        store::control_pool(&fx.run().await),
+        None,
+        "its last day is still loading"
+    );
+    assert!(
+        days.asked.lock().unwrap().is_empty(),
+        "nothing is read early"
+    );
+    check(&fx, &days, &Scan(None), utc("2026-02-27T12:00:00Z")).await;
+    assert_eq!(
+        store::control_pool(&fx.run().await),
+        Some(vec!["glebe".into(), "paddington".into()])
+    );
+}
+
+#[tokio::test]
 async fn the_control_pool_is_pinned_once_and_excludes_treated_units() {
     let fx = live().await;
-    check(
-        &fx,
-        &FakeDays::new(ALL),
-        &Scan(None),
-        switch_at("2026-03-03"),
-    )
-    .await;
+    let days = FakeDays::new(ALL);
+    check(&fx, &days, &Scan(None), switch_at("2026-03-03")).await;
+    assert_eq!(
+        *days.asked.lock().unwrap(),
+        vec![(d("2026-01-02"), d("2026-02-27"))],
+        "read over the design's pre window: 56 days before the anticipation window"
+    );
     assert_eq!(
         store::control_pool(&fx.run().await),
         Some(vec!["glebe".into(), "paddington".into()])

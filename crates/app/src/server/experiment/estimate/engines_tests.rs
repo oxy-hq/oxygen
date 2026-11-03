@@ -459,3 +459,43 @@ fn the_series_design_leaves_out_a_treated_unit_the_estimate_left_out() {
         "t2 was compared nowhere; c1 may be compared in another wave"
     );
 }
+
+/// Each unit flat at 100 (plus a little noise) for 120 days either side of the switch.
+fn flat_panel(cfg: &oxy_experiment::ExperimentConfig, units: &[&str]) -> super::engines::Loaded {
+    use oxy_airlayer_compat::engine::experiment::{PanelMatrix, day_ordinal};
+    let switch = cfg.design.waves[0].switch_on.date();
+    let mut triples = Vec::new();
+    for (i, unit) in units.iter().enumerate() {
+        let mut day = switch - chrono::Days::new(120);
+        while day < switch + chrono::Days::new(120) {
+            let noise = ((day_ordinal(day) * 7 + i as i64 * 13) % 5) as f64;
+            triples.push((unit.to_string(), day_ordinal(day), 100.0 + noise));
+            day = day + chrono::Days::new(1);
+        }
+    }
+    super::engines::Loaded::Panel(PanelMatrix::from_triples(triples))
+}
+
+#[test]
+fn a_retrospective_sibling_read_drops_a_pinned_unit_its_panel_lacks() {
+    let cfg = parse(CONFIG_YAML).unwrap();
+    let all = ["s01", "s02", "s03", "s07", "s08", "s09"];
+    let panels = |lenient| super::engines::Panels {
+        target: flat_panel(&cfg, &all),
+        // s09 is pinned but sold no entrees.
+        sibling: Some(flat_panel(&cfg, &all[..5])),
+        driver: None,
+        denominator: None,
+        lenient,
+        dropped: vec![],
+    };
+    let strict = run_engines(&cfg, &pool(), &panels(false), derive_seeds(1), 20);
+    assert!(
+        strict.sibling.unwrap().view.refusal.is_some(),
+        "a registered run still refuses"
+    );
+    let e = run_engines(&cfg, &pool(), &panels(true), derive_seeds(1), 20);
+    let sibling = e.sibling.unwrap().view;
+    assert!(sibling.refusal.is_none(), "{:?}", sibling.refusal);
+    assert!(sibling.dropped_units.iter().any(|d| d.unit == "s09"));
+}

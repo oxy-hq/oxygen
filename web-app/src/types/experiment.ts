@@ -189,7 +189,12 @@ export interface ExperimentDefinition {
   substitution_check: { sibling: string; filter?: MeasureFilter[] } | null;
   guardrails: {
     criteria:
-      | { type: "anomaly"; measure: string; significance: number }
+      | {
+          type: "anomaly";
+          measure: string;
+          significance: number;
+          direction?: "increase" | "decrease" | "both";
+        }
       | { type: "trigger"; when: string };
     action: "abort";
   }[];
@@ -472,6 +477,8 @@ export interface ReportView {
   directional: boolean;
   /** The registered α. */
   alpha: number;
+  /** The bar each outcome was decided at under `outcome.family` > 1 (Šidák α′); absent when it is `alpha`. */
+  alpha_per_outcome?: number | null;
   /** What the design cannot identify (a switchback's carryover and pull-forward); render every one, every time. */
   assumptions: string[];
   headline: {

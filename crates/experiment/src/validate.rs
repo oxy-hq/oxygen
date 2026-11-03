@@ -147,6 +147,11 @@ pub enum ConfigError {
     RatioOnSwitchback,
 
     #[error(
+        "outcome.denominator is set alongside {with}; a ratio outcome is read on one switch date, unstratified, with Welch's test"
+    )]
+    RatioWith { with: &'static str },
+
+    #[error(
         "outcome.scale is proportional, which is read from past data only: pricing cannot size one yet"
     )]
     ProportionalNotRegistrable,
@@ -403,6 +408,25 @@ fn check_rates(c: &ExperimentConfig, out: &mut Vec<ConfigError>) {
 fn check_ratio(c: &ExperimentConfig, out: &mut Vec<ConfigError>) {
     if c.outcome.denominator.is_some() && c.design.switchback.is_some() {
         out.push(ConfigError::RatioOnSwitchback);
+    }
+    if c.outcome.denominator.is_some() {
+        // The ratio-of-sums estimator reads neither, and the carryover window reads
+        // the target alone: refused here rather than ignored or refused at estimate.
+        let switches: std::collections::BTreeSet<_> =
+            c.design.waves.iter().map(|w| w.switch_on).collect();
+        for (set, with) in [
+            (
+                c.design.one_date_test == crate::config::OneDateTest::Permutation,
+                "design.one_date_test: permutation",
+            ),
+            (c.design.strata.is_some(), "design.strata"),
+            (switches.len() > 1, "more than one switch date"),
+            (c.design.carryover_days.is_some(), "design.carryover_days"),
+        ] {
+            if set {
+                out.push(ConfigError::RatioWith { with });
+            }
+        }
     }
     if c.outcome.scale == crate::config::Scale::Proportional {
         // A share has no log of its own to take; a switchback's pairs and a driver's

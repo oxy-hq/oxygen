@@ -97,6 +97,8 @@ async fn the_days_after_the_off_are_reported_as_carryover_beside_the_registered_
         experiment_flips::ActiveModel {
             id: Set(Uuid::new_v4()),
             created_at: Set(now()),
+            attempts: Set(1),
+            failed_at: Set(None),
             run_id: Set(run),
             unit: Set(unit.into()),
             target_state: Set("off".into()),

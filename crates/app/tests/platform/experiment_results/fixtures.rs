@@ -324,6 +324,8 @@ pub async fn seed_flip(db: &DatabaseConnection, f: FlipSeed<'_>) {
     experiment_flips::ActiveModel {
         id: Set(Uuid::new_v4()),
         created_at: Set(now()),
+        attempts: Set(1),
+        failed_at: Set(None),
         run_id: Set(f.run),
         unit: Set(f.unit.into()),
         target_state: Set(f.state.into()),

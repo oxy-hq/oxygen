@@ -41,10 +41,29 @@ export function measureMatch(value: string, nodes: MetricNode[] | undefined): Ma
 
 // ---- entities and dimensions --------------------------------------------------
 
+/**
+ * One entry per entity id. The world model lists an entity once per view that keys it,
+ * so `store` on `stores` and on `store_days` is one choice with both views' dimensions.
+ */
+function uniqueEntities(entities: WorldModelEntity[]): WorldModelEntity[] {
+  const byId = new Map<string, WorldModelEntity>();
+  for (const e of entities) {
+    const seen = byId.get(e.id);
+    if (!seen) {
+      byId.set(e.id, { ...e, dimensions: [...e.dimensions] });
+      continue;
+    }
+    const names = new Set(seen.dimensions.map((d) => d.name));
+    seen.dimensions.push(...e.dimensions.filter((d) => !names.has(d.name)));
+    seen.description ||= e.description;
+  }
+  return [...byId.values()];
+}
+
 export function entityGroups(entities: WorldModelEntity[]): PickerGroup[] {
   return [
     {
-      options: [...entities]
+      options: uniqueEntities(entities)
         .sort((a, b) => a.id.localeCompare(b.id))
         .map((e) => ({
           value: e.id,
@@ -69,7 +88,7 @@ export function dimensionGroups(
   entityId: string,
   entities: WorldModelEntity[] | undefined
 ): PickerGroup[] {
-  const e = entities?.find((x) => x.id === entityId.trim());
+  const e = uniqueEntities(entities ?? []).find((x) => x.id === entityId.trim());
   if (!e) return [];
   return [
     {
@@ -90,13 +109,17 @@ export function dimensionMatch(
   entities: WorldModelEntity[] | undefined
 ): Match | null {
   const v = value.trim();
-  const e = entities?.find((x) => x.id === entityId.trim());
-  if (!v || !e) return null;
+  const id = entityId.trim();
+  const views = (entities ?? []).filter((x) => x.id === id);
+  if (!v || views.length === 0) return null;
   const [first, rest] = v.split(/\.(.*)/s);
-  const name = rest !== undefined && first === e.view ? rest : v;
-  return e.dimensions.some((d) => d.name === name)
-    ? { tone: "success", text: `Dimension of ${e.id}` }
-    : { tone: "warning", text: `Not a dimension of ${e.id}` };
+  const known = views.some((e) => {
+    const name = rest !== undefined && first === e.view ? rest : v;
+    return e.dimensions.some((d) => d.name === name);
+  });
+  return known
+    ? { tone: "success", text: `Dimension of ${id}` }
+    : { tone: "warning", text: `Not a dimension of ${id}` };
 }
 
 // ---- time dimensions ------------------------------------------------------------

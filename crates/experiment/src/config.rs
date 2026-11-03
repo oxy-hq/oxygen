@@ -432,8 +432,61 @@ pub struct Guardrail {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum GuardrailCriteria {
-    Anomaly { measure: String, significance: f64 },
-    Trigger { when: String },
+    Anomaly {
+        measure: String,
+        significance: f64,
+        /// Which side of the expected band trips the stop. Absent = the side that
+        /// hurts ([`ExperimentConfig::anomaly_direction`]); skipped when absent, so
+        /// a design without one serializes, and hashes, as before.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        direction: Option<GuardDirection>,
+    },
+    Trigger {
+        when: String,
+    },
+}
+
+/// The side of an anomaly guardrail's expected band that trips it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuardDirection {
+    /// Only a spike above the band.
+    Increase,
+    /// Only a drop below the band.
+    Decrease,
+    /// Either side.
+    Both,
+}
+
+impl GuardDirection {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GuardDirection::Increase => "increase",
+            GuardDirection::Decrease => "decrease",
+            GuardDirection::Both => "both",
+        }
+    }
+}
+
+impl ExperimentConfig {
+    /// The side an anomaly guardrail on `measure` watches: `explicit` when set;
+    /// else, on the outcome's own target, the side opposite the hoped-for
+    /// direction (a lever meant to lift sales must not abort for lifting them);
+    /// else both, since nothing says which side of another measure is bad.
+    pub fn anomaly_direction(
+        &self,
+        measure: &str,
+        explicit: Option<GuardDirection>,
+    ) -> GuardDirection {
+        match explicit {
+            Some(d) => d,
+            None if measure == self.outcome.target => match self.outcome.direction {
+                Direction::Increase => GuardDirection::Decrease,
+                Direction::Decrease => GuardDirection::Increase,
+            },
+            None => GuardDirection::Both,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

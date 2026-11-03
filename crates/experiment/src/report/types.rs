@@ -264,6 +264,10 @@ pub struct ReportView {
     /// Registered alpha above 0.05: the headline says "directional", never "significant".
     pub directional: bool,
     pub alpha: f64,
+    /// The bar each outcome was decided at when `outcome.family` > 1 (Šidák α′); `None`
+    /// when it is `alpha` itself. Absent on a report sealed before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha_per_outcome: Option<f64>,
     /// A design's own assumptions, stated every time — a switchback's carryover and pull-forward.
     pub assumptions: Vec<String>,
     /// Set when the target estimate was refused: the page renders this, not numbers.

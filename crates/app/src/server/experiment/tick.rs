@@ -9,7 +9,8 @@ use entity::experiment_flips;
 use entity::experiment_runs;
 use oxy_experiment::Moment;
 use oxy_experiment::run::{
-    FlipFact, LeverState, RunFacts, RunState, abort_levers, step, step_retrospective,
+    Failure, FlipFact, LeverState, RunFacts, RunState, abort_levers, owes_off_retry, step,
+    step_retrospective,
 };
 use oxy_experiment::timeline::local_hour_in;
 use sea_orm::{DatabaseConnection, DbErr};
@@ -105,7 +106,7 @@ async fn advance(
         t.next,
         local,
         now,
-        pending.deferred > 0 || estimate_owed,
+        pending.deferred > 0 || estimate_owed || owes_off_retry(&c, t.next, &facts),
     );
     // On the way into `aborted`, what the abort does with the levers is fixed: a breach
     // turns them off whatever the owner asked, and a later breach changes nothing.
@@ -241,9 +242,64 @@ pub(super) fn flip_facts(flips: &[experiment_flips::Model]) -> Vec<FlipFact> {
                 state: LeverState::parse(&f.target_state)?,
                 dispatched: f.task_id.is_some(),
                 cancelled: f.status == "cancelled",
+                // Only a failure this release recorded is resent: a row that failed before
+                // `failed_at` existed may belong to a run long over, whose levers must not move.
+                failure: f
+                    .failed_at
+                    .filter(|_| f.status == "failed")
+                    .map(|at| Failure {
+                        attempts: u32::try_from(f.attempts).unwrap_or(1),
+                        at: Moment(at),
+                    }),
                 due_at: Moment(f.due_at),
                 unit: f.unit.clone(),
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn row(status: &str, failed_at: Option<&str>) -> experiment_flips::Model {
+        let at = |s: &str| s.parse::<chrono::NaiveDateTime>().unwrap();
+        experiment_flips::Model {
+            id: Uuid::new_v4(),
+            run_id: Uuid::nil(),
+            unit: "bondi".into(),
+            target_state: "off".into(),
+            due_at: at("2026-03-20T00:00:00"),
+            wave: 0,
+            task_id: Some(Uuid::nil()),
+            agentic_run_id: Some(Uuid::nil()),
+            lever_revision_id: None,
+            status: status.into(),
+            confirmed_on: None,
+            reason: None,
+            created_at: Utc::now().fixed_offset(),
+            attempts: 2,
+            failed_at: failed_at.map(at),
+        }
+    }
+
+    #[test]
+    fn only_a_failure_with_its_time_recorded_is_resent() {
+        let facts = flip_facts(&[
+            row("failed", Some("2026-03-20T05:00:00")),
+            row("failed", None),
+            row("confirmed", Some("2026-03-20T05:00:00")),
+        ]);
+        let failure = facts[0].failure.expect("a recorded failure");
+        assert_eq!(failure.attempts, 2);
+        assert_eq!(failure.at.at().to_string(), "2026-03-20 05:00:00");
+        assert_eq!(
+            facts[1].failure, None,
+            "a row failed before `failed_at` existed is never resent"
+        );
+        assert_eq!(facts[2].failure, None);
+    }
 }

@@ -246,3 +246,20 @@ fn the_prediction_round_trips_through_json() {
     let back: ReportView = serde_json::from_str(&serde_json::to_string(&v).unwrap()).unwrap();
     assert_eq!(back, v);
 }
+
+#[test]
+fn a_family_of_outcomes_names_the_per_outcome_bar_it_was_decided_at() {
+    use super::prior::{alpha_per_outcome, verdict};
+    assert_eq!(alpha_per_outcome(0.05, 1), None);
+    let a = alpha_per_outcome(0.05, 4).unwrap();
+    assert!((a - 0.012_741_455).abs() < 1e-9, "Šidák: {a}");
+    assert_eq!(verdict(true, 0.05, 1), "significant at α = 0.05");
+    assert_eq!(
+        verdict(false, 0.05, 4),
+        "not distinguishable from zero at α′ = 0.01274 per outcome (α = 0.05 over 4)"
+    );
+    assert_eq!(
+        verdict(true, 0.2, 2),
+        "directional at α′ = 0.1056 per outcome (α = 0.2 over 2)"
+    );
+}

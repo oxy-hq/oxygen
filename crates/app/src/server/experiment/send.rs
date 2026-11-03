@@ -232,9 +232,9 @@ async fn fail_batch(
 ) -> Result<(), DbErr> {
     let changed = db
         .execute_raw(exec(
-            "UPDATE experiment_flips SET status = 'failed', reason = $1 \
+            "UPDATE experiment_flips SET status = 'failed', reason = $1, failed_at = $3 \
              WHERE id = ANY($2) AND task_id IS NULL AND status = 'pending'",
-            vec![reason.into(), b.ids.clone().into()],
+            vec![reason.into(), b.ids.clone().into(), ctx.local.at().into()],
         ))
         .await?
         .rows_affected();
@@ -244,10 +244,11 @@ async fn fail_batch(
     );
     if changed > 0 {
         let notice = format!(
-            "the {} flip due {} at {} failed: {reason}",
+            "the {} flip due {} at {} failed ({}): {reason}",
             b.state.as_str(),
             b.due_at,
-            named(&b.units)
+            named(&b.units),
+            super::dispatch::retry_note(b.state.as_str(), b.attempts)
         );
         notify::notify_owner(db, ctx.run, &ctx.c.owner, &notice).await;
     }

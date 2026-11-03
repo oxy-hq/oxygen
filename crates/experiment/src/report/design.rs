@@ -52,6 +52,20 @@ pub fn estimand(kind: DesignKind, grain: Grain) -> String {
 }
 
 /// Stated every time, whatever the estimator said: neither is identifiable inside the design.
+/// A retrospective run under `assign_by` pins its groups when it is estimated: the
+/// dimension is read as it stands today, never as it stood in the pre window, so a
+/// unit that has since changed group is counted in its new one. Stated, not hidden.
+pub fn current_membership(c: &crate::config::ExperimentConfig, retrospective: bool) -> Vec<String> {
+    match (&c.assign_by, retrospective) {
+        (Some(dim), true) => vec![format!(
+            "group membership (`assign_by: {dim}`) is as the warehouse holds it today, not as \
+             it stood during the experiment: a unit that changed group since is counted in its \
+             current one"
+        )],
+        _ => Vec::new(),
+    }
+}
+
 pub fn assumptions(kind: DesignKind) -> Vec<String> {
     match kind {
         DesignKind::Switchback => vec![CARRYOVER.to_string(), PULL_FORWARD.to_string()],

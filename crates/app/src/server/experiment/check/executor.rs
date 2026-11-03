@@ -18,9 +18,11 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::reader::{Axis, MonitorAnomalyScan, PanelGroups, RunnerUnitDays};
+use super::universe::PanelUnits;
 use super::{Readers, run_check};
 use crate::server::experiment::jobs::CHECK_KIND;
 use crate::server::experiment::panel::PanelContext;
+use crate::server::experiment::source::WorkspacePanelSource;
 use crate::server::experiment::store;
 use crate::server::router::recovery::build_workspace_ctx;
 
@@ -125,14 +127,21 @@ async fn check_workspace(
         axis: Axis::of(&c),
         tz: c.design.timezone,
     };
+    let ctx = panel_context(db, run.workspace_id).await?;
     let groups = PanelGroups {
         db: db.clone(),
-        ctx: panel_context(db, run.workspace_id).await?,
+        ctx,
+    };
+    let panels = WorkspacePanelSource { db: db.clone() };
+    let units = PanelUnits {
+        panels: &panels,
+        ctx,
     };
     let readers = Readers {
         days: &days,
         anomalies: &anomalies,
         groups: &groups,
+        units: &units,
     };
     run_check(db, &run, &readers, now).await
 }

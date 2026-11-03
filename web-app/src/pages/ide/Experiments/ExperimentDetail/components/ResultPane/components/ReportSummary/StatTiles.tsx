@@ -14,13 +14,19 @@ import type { ReportView } from "@/types/experiment";
 import { alphaInWords, confidencePct, verdictTone } from "./badges";
 import { HINTS } from "./hints";
 
+/** Three decimals, and below that a bound: `p = 0.000` reads as impossible. */
+const formatP = (p: number) => (p < 0.001 ? "p < 0.001" : `p = ${p.toFixed(3)}`);
+
 /** The numbers a reader looks for first, each under a plain label. The projection is always tagged an assumption. */
 export default function StatTiles({ report }: { report: ReportView }) {
   const { headline: h, treated_total: treated, projection, compliance: c } = report;
   const compliance = complianceLabel(c);
   const grain = grainOf(report.grain);
   const interim = report.status.kind === "interim";
-  const bar = confidencePct(report.alpha) ?? `α = ${formatAlpha(report.alpha)}`;
+  // Under a family of outcomes the engine decided at the per-outcome α′, not α.
+  const decidedAt = report.alpha_per_outcome ?? report.alpha;
+  const pct = confidencePct(decidedAt) ?? `α = ${formatAlpha(decidedAt)}`;
+  const bar = report.alpha_per_outcome == null ? pct : `per-outcome ${pct}`;
   const complianceTone: Tone = !compliance.measured
     ? "neutral"
     : c.below_floor
@@ -40,7 +46,7 @@ export default function StatTiles({ report }: { report: ReportView }) {
               : `${h.significant ? "Passes" : "Misses"} the ${bar} bar`
           }
           sub={[
-            h.p_value === null ? "p-value not available" : `p = ${h.p_value.toFixed(3)}`,
+            h.p_value === null ? "p-value not available" : formatP(h.p_value),
             interim ? `${bar} bar` : null
           ]
             .filter(Boolean)

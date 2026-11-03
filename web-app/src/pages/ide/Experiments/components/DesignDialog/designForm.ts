@@ -30,10 +30,13 @@ export interface FilterRow {
   op: "equals" | "not_equals";
   values: string[];
 }
+/** The side of an anomaly guardrail's band that trips it; "" = the server's default (the side that hurts). */
+export type GuardDirection = "" | "increase" | "decrease" | "both";
 export interface GuardrailRow {
   kind: GuardrailKind;
   measure: string;
   significance: string;
+  direction: GuardDirection;
   when: string;
 }
 
@@ -116,7 +119,9 @@ export const newFilter = (): FilterRow => ({ dimension: "", op: "equals", values
 export const newGuardrail = (): GuardrailRow => ({
   kind: "anomaly",
   measure: "",
-  significance: "0.05",
+  // 3σ: at 2σ a day is flagged by chance one time in twenty.
+  significance: "0.9973",
+  direction: "",
   when: ""
 });
 
@@ -207,6 +212,7 @@ function guardrailRow(g: unknown): GuardrailRow {
     kind: oneOf(c.type, ["anomaly", "trigger"] as const, "anomaly"),
     measure: text(c.measure),
     significance: text(c.significance),
+    direction: oneOf(c.direction, ["increase", "decrease", "both"] as const, ""),
     when: text(c.when)
   };
 }

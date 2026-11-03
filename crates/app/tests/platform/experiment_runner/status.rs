@@ -33,6 +33,12 @@ async fn status_of_a_live_run_reports_flips_and_compliance_so_far() {
         [newtown.to_string().into()],
     )
     .await;
+    // Its last attempt: it stays failed rather than being resent by a later tick.
+    fx.exec(
+        "UPDATE experiment_flips SET attempts = 3 WHERE agentic_run_id = $1",
+        [newtown.into()],
+    )
+    .await;
     fx.tick(switch_at("2026-03-02") + Duration::minutes(5))
         .await;
     let days = FakeDays::new(ALL)

@@ -529,6 +529,8 @@ mod tests {
             confirmed_on: None,
             reason: None,
             created_at: Utc::now().fixed_offset(),
+            attempts: 1,
+            failed_at: None,
         };
         let flips = [
             row("bondi", "on", "2026-03-02", "confirmed"),

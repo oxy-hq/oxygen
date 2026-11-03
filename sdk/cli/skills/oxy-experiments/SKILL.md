@@ -156,7 +156,17 @@ denominator`): retrospective only, and pricing refuses it. `outcome.scale:
 proportional` reads each value as `ln(1 + y)` and reports a % lift per unit
 (`report.proportional`, the headline as a share, 0.12 = +12%): use it when units
 differ in size by orders of magnitude. Retrospective only; refused with a
-denominator, a driver or a switchback, and on a negative value.
+denominator, a driver or a switchback, and on a negative value. A denominator is
+also refused with `design.one_date_test: permutation`, `design.strata`,
+`design.carryover_days` or more than one switch date: the ratio is read on one
+switch date with Welch's test. A proportional outcome's carryover is a share too.
+
+An `anomaly` guardrail's `significance` picks the detector's band: `0.9545`
+(±2σ; anything below `0.9973` reads as this), `0.9973` (±3σ) or `0.9999994`
+(±5σ). It trips only on **two consecutive** flagged treated days at one unit.
+`direction: increase | decrease | both` picks the side; absent, a guardrail on
+`outcome.target` watches the side against `outcome.direction` and any other
+measure both.
 
 A change made in a few **chosen** units (a promotion on three products, a
 campaign in one market) is better read against a synthetic control: on an
@@ -188,7 +198,8 @@ before passing `--yes` — say which design (`design <name>` prints its hash).
 ## Watching, aborting, reporting
 
 - `status` shows flip counts (`sent` overlaps `confirmed`/`unconfirmed`/`failed`),
-  failed flips by unit, guardrail standing, compliance (not measured until a
+  failed flips by unit (a failed flip is resent after a backoff of 1h, doubling to
+  8h: an `on` up to 3 attempts, an `off` until one lands), guardrail standing, compliance (not measured until a
   treated flip is decided) and the estimate job. `NOT ADVANCING` means the
   driver has not moved the run: that is a platform problem to report, not
   something to fix from the CLI.

@@ -116,7 +116,8 @@ function guardrail(r: Reader, g: GuardrailRow, i: number) {
     criteria: {
       type: "anomaly" as const,
       measure: g.measure.trim(),
-      significance: significance ?? 0
+      significance: significance ?? 0,
+      ...(g.direction === "" ? {} : { direction: g.direction })
     },
     action: "abort" as const
   };

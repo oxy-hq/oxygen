@@ -63,6 +63,27 @@ describe("describe", () => {
       })
     ).toBe("Aborts the run if Refund rate looks anomalous (significance 0.01).");
     expect(
+      guardrailText({
+        criteria: {
+          type: "anomaly",
+          measure: "orders.refund_rate",
+          significance: 0.9973,
+          direction: "increase"
+        },
+        action: "abort"
+      })
+    ).toBe("Aborts the run if Refund rate spikes anomalously (significance 0.9973).");
+    const onTarget = {
+      criteria: { type: "anomaly" as const, measure: "orders.revenue", significance: 0.9973 },
+      action: "abort" as const
+    };
+    expect(guardrailText(onTarget, { target: "orders.revenue", direction: "increase" })).toBe(
+      "Aborts the run if Revenue drops anomalously (significance 0.9973)."
+    );
+    expect(guardrailText(onTarget, { target: "orders.margin", direction: "increase" })).toBe(
+      "Aborts the run if Revenue looks anomalous (significance 0.9973)."
+    );
+    expect(
       guardrailText({ criteria: { type: "trigger", when: "{{a.b}} > 1" }, action: "abort" })
     ).toBe("Aborts the run when:");
   });

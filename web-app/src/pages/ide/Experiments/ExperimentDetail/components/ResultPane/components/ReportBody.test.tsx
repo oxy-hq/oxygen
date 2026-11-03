@@ -928,7 +928,7 @@ describe("ReportBody — at a glance", () => {
     const tile = () => screen.getByTestId("experiment-stat-confidence");
     expect(tile()).toHaveTextContent("Passes the 95% bar");
     expect(tile()).toHaveAttribute("data-tone", "success");
-    expect(tile()).toHaveTextContent("p = 0.000");
+    expect(tile()).toHaveTextContent("p < 0.001");
     expect(screen.queryByTestId("experiment-stat-p-value")).toBeNull();
 
     rerender(
@@ -953,6 +953,18 @@ describe("ReportBody — at a glance", () => {
     expect(tile()).toHaveTextContent("Misses the 95% bar");
     expect(tile()).toHaveAttribute("data-tone", "neutral");
     expect(tile()).toHaveTextContent("p = 0.652");
+
+    // A family of outcomes is decided at the per-outcome bar, which the tile names.
+    rerender(
+      <ReportBody
+        result={result({
+          alpha_per_outcome: 0.01274,
+          headline: { ...report().headline!, significant: false, p_value: 0.03 }
+        })}
+      />
+    );
+    expect(tile()).toHaveTextContent("Misses the per-outcome 98.7% bar");
+    expect(tile()).toHaveTextContent("p = 0.030");
   });
 
   it("shows the key numbers as stat tiles in plain labels", () => {

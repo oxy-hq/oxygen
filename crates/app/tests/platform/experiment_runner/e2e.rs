@@ -14,6 +14,7 @@ use entity::automation_definitions;
 use oxy_airlayer_compat::engine::query::{FilterOperator, QueryFilter, QueryRequest};
 use oxy_airlayer_compat::{DatasourceDialectMap, SemanticEngine, SemanticLayer};
 use oxy_app::server::experiment::check::reader::{Axis, Membership, UnitDays, unit_axis};
+use oxy_app::server::experiment::check::universe::UnitUniverse;
 use oxy_app::server::experiment::check::{Readers, run_check};
 use oxy_app::server::experiment::panel::GroupMembership;
 use oxy_app::server::experiment::status::run_status;
@@ -237,13 +238,20 @@ impl UnitDays for Reader {
         })
         .collect()
     }
+}
 
-    async fn units(&self, _measure: &str, _since_days: u32) -> Result<Vec<String>, String> {
+/// The design has no `assign_by`, so a check never asks.
+#[async_trait]
+impl UnitUniverse for Reader {
+    async fn units(
+        &self,
+        _c: &oxy_experiment::ExperimentConfig,
+        _window: (NaiveDate, NaiveDate),
+    ) -> Result<Vec<String>, String> {
         Ok(STORES.iter().map(|s| s.to_string()).collect())
     }
 }
 
-/// The design has no `assign_by`, so a check never asks.
 #[async_trait]
 impl Membership for Reader {
     async fn groups(&self, _entity: &str, dimension: &str) -> Result<GroupMembership, String> {
@@ -311,6 +319,7 @@ async fn check_at(fx: &Fx, days: &Reader, at: chrono::DateTime<chrono::Utc>) {
             days,
             anomalies: &Scan(None),
             groups: days,
+            units: days,
         },
         at,
     )

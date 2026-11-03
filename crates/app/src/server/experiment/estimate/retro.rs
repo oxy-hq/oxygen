@@ -4,17 +4,13 @@
 //! it holds today, so a store opened after the experiment cannot drift into an arm.
 //! Write-once, like the first check's pin (`check::pin`): a later estimate keeps it.
 
-use chrono::NaiveDate;
 use entity::experiment_runs;
-use oxy_experiment::ExperimentConfig;
-use oxy_experiment::timeline::first_switch;
 use sea_orm::DatabaseConnection;
 
 use crate::server::experiment::check::executor::panel_context;
 use crate::server::experiment::check::pin::{FLEET_LOOKBACK_DAYS, untreated_pool};
 use crate::server::experiment::check::reader::{Membership, PanelGroups};
-use crate::server::experiment::panel::{HistoryBounds, PanelContext, PanelOutcome, PanelRequest};
-use crate::server::experiment::reads::time_dimension_for;
+use crate::server::experiment::check::universe::pre_window_units;
 use crate::server::experiment::source::PanelSource;
 use crate::server::experiment::store as runs;
 
@@ -62,57 +58,4 @@ pub async fn pin_retrospective(
 /// What the design's shape needs pinned, already pinned.
 fn pinned(run: &experiment_runs::Model) -> bool {
     runs::fleet(run).is_some() || runs::control_pool(run).is_some()
-}
-
-/// `[first switch − anticipation − days, first switch − anticipation)`, in periods of
-/// `design.grain`: the pre window a live run's first check would have pinned from.
-pub fn pre_window(c: &ExperimentConfig, days: u32) -> Option<(NaiveDate, NaiveDate)> {
-    let grain = c.design.grain;
-    let first = first_switch(c)?.date();
-    let to = grain.sub_covering(first, c.design.anticipation_days)?;
-    Some((grain.sub_covering(to, days)?, to))
-}
-
-/// Every unit with `outcome.target` rows in the pre window. An empty answer fails the
-/// job (retried, then the owner is told): an empty pin would stand for good.
-async fn pre_window_units(
-    panels: &dyn PanelSource,
-    ctx: &PanelContext,
-    c: &ExperimentConfig,
-    days: u32,
-) -> Result<Vec<String>, String> {
-    let (from, to) = pre_window(c, days).ok_or("the design has no first switch day")?;
-    let target = &c.outcome.target;
-    let request = PanelRequest {
-        entity: c.for_each.clone(),
-        measure: target.clone(),
-        time_dimension: time_dimension_for(c.design.time_dimension.as_deref(), target)
-            .map(str::to_string),
-        grain: c.design.grain,
-        timezone: Some(c.design.timezone.name().to_string()),
-        history: HistoryBounds {
-            from: Some(from),
-            to_exclusive: to,
-        },
-        membership: None,
-        restrict_to: None,
-        unit_floor: None,
-        filters: vec![],
-    };
-    let units = match panels
-        .load(ctx, &request)
-        .await
-        .map_err(|e| format!("read the units of `{target}`: {e}"))?
-    {
-        PanelOutcome::Panel(m) | PanelOutcome::Thinned { panel: m, .. } => m.units().to_vec(),
-        PanelOutcome::NoHistory { .. } => Vec::new(),
-        PanelOutcome::Refused { reason } => return Err(reason),
-    };
-    if units.is_empty() {
-        return Err(format!(
-            "the warehouse holds no `{target}` rows from {from} to before {to}, the design's \
-             pre window, so a retrospective run has no units to compare"
-        ));
-    }
-    Ok(units)
 }

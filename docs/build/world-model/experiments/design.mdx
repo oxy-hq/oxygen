@@ -192,12 +192,19 @@ change is turned off.
 | Field | What it means |
 | --- | --- |
 | **Trips when** | **A measure looks anomalous** (judged against each unit's own history), or **A condition holds** (one threshold, such as "refund rate above 5%"). |
-| **Measure to watch** and **Significance** | For an anomaly guardrail: the measure, and how unusual a reading must be before it trips. |
+| **Measure to watch** | For an anomaly guardrail: the measure. |
+| **Trips on a day** | For an anomaly guardrail: how unusual a day must be to count — **Normal** (outside ±2σ of the unit's own range), **Unusual** (±3σ, the default) or **Extreme** (±5σ). In YAML, `significance` is the band's two-sided coverage: `0.9545`, `0.9973` or `0.9999994`; any value below `0.9973` reads as ±2σ. |
+| **Watch for** | For an anomaly guardrail: **A drop**, **A spike** or **Either** (`direction: decrease`, `increase` or `both`). Left at its default, a guardrail on the outcome itself watches only the side against your prediction — a change meant to lift sales never aborts for lifting them — and any other measure watches both sides. |
 | **Condition** | For a condition guardrail. You can divide by a second measure to compare a ratio, such as ad spend over attributed sales. |
 
 **Every guardrail is checked at every treated unit separately.** One store's
 refunds tripling would barely move the average across the treated stores, so
 an average would miss exactly the case a guardrail exists for.
+
+**An anomaly guardrail trips on two unusual days in a row at one unit.** With
+many units watched over many days, a single unusual day somewhere is expected
+by chance — at ±2σ one day in twenty is — so one day alone never aborts the
+run. The run's status names a unit with one flagged day, so you can look.
 
 <Tip>
 Use **A measure looks anomalous** for anything whose size follows the unit's

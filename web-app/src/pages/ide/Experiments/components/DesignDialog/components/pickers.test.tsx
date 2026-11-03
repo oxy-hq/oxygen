@@ -202,7 +202,11 @@ describe("MeasureField", () => {
     const user = userEvent.setup();
     render(
       <Harness
-        values={{ guardrails: [{ kind: "anomaly", measure: "", significance: "0.05", when: "" }] }}
+        values={{
+          guardrails: [
+            { kind: "anomaly", measure: "", significance: "0.05", direction: "", when: "" }
+          ]
+        }}
       >
         {(p) => <MeasureField {...p} name='guardrails.0.measure' label='Measure to watch' />}
       </Harness>

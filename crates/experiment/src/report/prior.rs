@@ -17,14 +17,30 @@ pub fn is_directional(alpha: f64) -> bool {
     alpha > DIRECTIONAL_ABOVE_ALPHA
 }
 
-/// What the headline calls the result. A directional result that clears its bar is never plain
-/// "significant"; a result that does not clear it is not directional either.
-pub fn verdict(significant: bool, alpha: f64) -> String {
+/// The bar each of `family` outcomes is judged at so the family keeps `alpha` (Šidák):
+/// `1 − (1 − α)^(1/family)`. `None` for a family of one, whose bar is `alpha` itself.
+pub fn alpha_per_outcome(alpha: f64, family: u32) -> Option<f64> {
+    (family > 1).then(|| 1.0 - (1.0 - alpha).powf(1.0 / f64::from(family)))
+}
+
+/// What the headline calls the result, at the bar the engine decided it at: under a family
+/// of outcomes that is the per-outcome α′, named with the α it keeps. A directional result
+/// that clears its bar is never plain "significant"; one that does not is not directional.
+pub fn verdict(significant: bool, alpha: f64, family: u32) -> String {
+    let bar = match alpha_per_outcome(alpha, family) {
+        Some(a) => format!("α′ = {} per outcome (α = {alpha} over {family})", sig4(a)),
+        None => format!("α = {alpha}"),
+    };
     match (significant, is_directional(alpha)) {
-        (true, true) => format!("directional at α = {alpha}"),
-        (true, false) => format!("significant at α = {alpha}"),
-        (false, _) => format!("not distinguishable from zero at α = {alpha}"),
+        (true, true) => format!("directional at {bar}"),
+        (true, false) => format!("significant at {bar}"),
+        (false, _) => format!("not distinguishable from zero at {bar}"),
     }
+}
+
+/// Four significant figures, without float noise: 0.012741455 → "0.01274".
+fn sig4(x: f64) -> String {
+    format!("{}", format!("{x:.3e}").parse::<f64>().unwrap_or(x))
 }
 
 fn source_word(s: PriorSource) -> &'static str {

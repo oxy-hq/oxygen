@@ -30,6 +30,10 @@ pub struct Model {
     pub confirmed_on: Option<DateTime>,
     pub reason: Option<String>,
     pub created_at: DateTimeWithTimeZone,
+    /// Sends so far: 1, plus one per retry of a failed flip.
+    pub attempts: i32,
+    /// The local hour (like `due_at`) its last send failed; `None` if it never has.
+    pub failed_at: Option<DateTime>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

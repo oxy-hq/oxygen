@@ -40,6 +40,13 @@ pub async fn apply(db: &DatabaseConnection, ctx: &RunCtx<'_>, t: &Transition) ->
     for action in &t.actions {
         match action {
             RunAction::DispatchFlip { .. } => {}
+            RunAction::RetryFlip {
+                unit,
+                state,
+                due_at,
+            } => {
+                retry_flip(db, ctx.run.id, unit, *state, *due_at).await?;
+            }
             RunAction::EnqueueEstimate => {
                 jobs::enqueue_estimate(db, ctx.run).await?;
             }
@@ -120,6 +127,44 @@ async fn record_flips(
     txn.commit().await
 }
 
+/// A failed flip back to unsent, one attempt more: the next `dispatch_pending` sends
+/// it as any recorded flip. Only from `failed`, so two replicas reset it once.
+async fn retry_flip(
+    db: &DatabaseConnection,
+    run_id: Uuid,
+    unit: &str,
+    state: LeverState,
+    due_at: oxy_experiment::Moment,
+) -> Result<(), DbErr> {
+    db.execute_raw(exec(
+        "UPDATE experiment_flips SET status = 'pending', task_id = NULL, agentic_run_id = NULL, \
+           lever_revision_id = NULL, reason = NULL, attempts = attempts + 1 \
+         WHERE run_id = $1 AND unit = $2 AND target_state = $3 AND due_at = $4 \
+           AND status = 'failed'",
+        vec![
+            run_id.into(),
+            unit.into(),
+            state.as_str().into(),
+            due_at.at().into(),
+        ],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// What a failure notice says comes next: the retry, or that an `on` is given up.
+pub(super) fn retry_note(state: &str, attempts: i32) -> String {
+    let attempts = u32::try_from(attempts).unwrap_or(1);
+    if state == LeverState::On.as_str() && attempts >= oxy_experiment::run::MAX_ON_ATTEMPTS {
+        format!(
+            "attempt {attempts} of {}; not retried",
+            oxy_experiment::run::MAX_ON_ATTEMPTS
+        )
+    } else {
+        format!("attempt {attempts}; retried after a backoff")
+    }
+}
+
 /// On the way into `aborted`: an `on` that never left must never leave.
 pub async fn cancel_undispatched_on(db: &DatabaseConnection, run_id: Uuid) -> Result<(), DbErr> {
     db.execute_raw(exec(
@@ -138,6 +183,7 @@ struct Ended {
     unit: String,
     target_state: String,
     due_at: chrono::NaiveDateTime,
+    attempts: i32,
     task_status: Option<String>,
     error_message: Option<String>,
 }
@@ -146,7 +192,8 @@ struct Ended {
 /// flip, and the owner hears once per run, naming its units.
 pub async fn sync_lever_outcomes(db: &DatabaseConnection, ctx: &RunCtx<'_>) -> Result<(), DbErr> {
     let ended = Ended::find_by_statement(exec(
-        "SELECT f.agentic_run_id, f.unit, f.target_state, f.due_at, r.task_status, r.error_message \
+        "SELECT f.agentic_run_id, f.unit, f.target_state, f.due_at, f.attempts, r.task_status, \
+           r.error_message \
          FROM experiment_flips f JOIN agentic_runs r ON r.id = f.agentic_run_id::text \
          WHERE f.run_id = $1 AND f.status = 'dispatched' \
            AND r.task_status IN ('failed', 'cancelled', 'timed_out') ORDER BY f.unit",
@@ -167,19 +214,25 @@ pub async fn sync_lever_outcomes(db: &DatabaseConnection, ctx: &RunCtx<'_>) -> R
         );
         let changed = db
             .execute_raw(exec(
-                "UPDATE experiment_flips SET status = 'failed', reason = $1 \
+                "UPDATE experiment_flips SET status = 'failed', reason = $1, failed_at = $4 \
                  WHERE run_id = $2 AND agentic_run_id = $3 AND status = 'dispatched'",
-                vec![reason.clone().into(), ctx.run.id.into(), lever_run.into()],
+                vec![
+                    reason.clone().into(),
+                    ctx.run.id.into(),
+                    lever_run.into(),
+                    ctx.local.at().into(),
+                ],
             ))
             .await?
             .rows_affected();
         if changed > 0 {
             let units: Vec<String> = rows.iter().map(|e| e.unit.clone()).collect();
             let notice = format!(
-                "the {} flip due {} at {} failed: {reason}",
+                "the {} flip due {} at {} failed ({}): {reason}",
                 first.target_state,
                 oxy_experiment::Moment(first.due_at),
-                super::send::named(&units)
+                super::send::named(&units),
+                retry_note(&first.target_state, first.attempts)
             );
             notify::notify_owner(db, ctx.run, &ctx.c.owner, &notice).await;
         }

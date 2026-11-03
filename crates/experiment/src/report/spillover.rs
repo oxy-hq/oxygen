@@ -16,7 +16,8 @@ pub(super) fn carryover(
     target_estimate: Option<f64>,
 ) -> Option<CarryoverView> {
     let days = i.config.design.carryover_days?;
-    let e = i.carryover?;
+    // On the headline's scale: a proportional outcome's carryover is a share too.
+    let e = &super::waves::in_report_scale(i.config, i.carryover?);
     let effect = summary(e);
     let g = i.config.design.grain.as_str();
     // A retrospective switched nothing: its window starts at the declared `switch_off`.
@@ -27,9 +28,18 @@ pub(super) fn carryover(
     };
     let window = format!("the {days} {g}s after {ended}");
     let level = pct(1.0 - i.config.outcome.alpha);
+    // A proportional outcome's numbers are shares: written as signed percentages.
+    let proportional = super::waves::is_proportional(i.config);
+    let n = |x: f64| {
+        if proportional {
+            super::waves::signed_pct(x)
+        } else {
+            format!("{x:+.2}")
+        }
+    };
     let ci = |est: f64| match (effect.interval.low, effect.interval.high) {
-        (Some(l), Some(h)) => format!("{est:+.2}, {level} CI {l:+.2} to {h:+.2}"),
-        _ => format!("{est:+.2}, interval unbounded"),
+        (Some(l), Some(h)) => format!("{}, {level} CI {} to {}", n(est), n(l), n(h)),
+        _ => format!("{}, interval unbounded", n(est)),
     };
     let cell = cell(design_kind(i.config), i.config.design.grain);
     let target_up = target_estimate
@@ -50,10 +60,14 @@ pub(super) fn carryover(
             true,
             match (effect.interval.low, effect.interval.high) {
                 (Some(l), Some(h)) => format!(
-                    "the effect lingered after {ended}: {est:+.2} per {cell} over the next {days} {g}s ({level} CI {l:+.2} to {h:+.2})"
+                    "the effect lingered after {ended}: {} per {cell} over the next {days} {g}s ({level} CI {} to {})",
+                    n(est),
+                    n(l),
+                    n(h)
                 ),
                 _ => format!(
-                    "the effect lingered after {ended}: {est:+.2} per {cell} over the next {days} {g}s"
+                    "the effect lingered after {ended}: {} per {cell} over the next {days} {g}s",
+                    n(est)
                 ),
             },
         ),
