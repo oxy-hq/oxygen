@@ -101,7 +101,7 @@ pub async fn clear_demo() -> Result<(), OxyError> {
 }
 
 /// The fixture the integration tests are built on: the demo seed's rows and the
-/// example apps, no compile and no LLM keys. `oxy-app`'s `seed_demo` seeds the
+/// example apps, no compile, no LLM keys and no Airhouse tenants. `oxy-app`'s `seed_demo` seeds the
 /// rows alone.
 pub async fn seed_demo(workspace_path: Option<std::path::PathBuf>) -> Result<(), OxyError> {
     oxy_app::surface::seed::seed_demo_with(
@@ -110,6 +110,7 @@ pub async fn seed_demo(workspace_path: Option<std::path::PathBuf>) -> Result<(),
             compile: false,
             llm_keys: false,
             fixtures: false,
+            airhouse: false,
         },
         Some(example_apps()),
     )

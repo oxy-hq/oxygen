@@ -11,7 +11,8 @@
 //!   Owner of Local org, so OAuth login (GitHub / Google) lands in a
 //!   workspace already without the user clicking through a setup wizard.
 //!
-//! Then, from the CLI ([`SeedOptions`]): LLM provider keys from the environment
+//! Then, from the CLI ([`SeedOptions`]): every seeded workspace gets its
+//! Airhouse tenant (`seed_airhouse`), LLM provider keys from the environment
 //! become workspace secrets (`seed_llm_keys`), and every seeded workspace is
 //! compiled + promoted (`seed_compile`) so it serves on the first request.
 //!
@@ -60,6 +61,8 @@ pub struct SeedOptions {
     /// Build the demo fixture app after the compile (`--fixtures`; local DB
     /// only). `ExampleAppsSeam::fixtures`.
     pub fixtures: bool,
+    /// Give every seeded workspace its Airhouse tenant (`seed_airhouse`).
+    pub airhouse: bool,
 }
 
 /// Seed rows only — the fixture integration tests drive. See [`seed_demo_with`].
@@ -68,6 +71,7 @@ pub async fn seed_demo(workspace_path: Option<PathBuf>) -> Result<(), OxyError> 
         compile: false,
         llm_keys: false,
         fixtures: false,
+        airhouse: false,
     };
     seed_demo_with(workspace_path, rows_only, None).await
 }
@@ -88,11 +92,17 @@ pub async fn seed_demo_with(
     let resolved = resolve_workspace_path(workspace_path)?;
     let resolved_str = resolved.to_string_lossy().to_string();
     let workspace_id = demo_workspace_id();
+    if options.airhouse {
+        super::seed_airhouse::find_local_airhouse().await;
+    }
     let conn = seed_rows(workspace_id, &resolved_str, example_apps).await?;
 
     let mut compiled = Ok(());
-    if options.compile || options.llm_keys {
+    if options.compile || options.llm_keys || options.airhouse {
         let targets = super::seed_compile::seeded_workspaces(&conn, workspace_id).await?;
+        if options.airhouse {
+            super::seed_airhouse::provision_tenants(&conn, &targets).await;
+        }
         // Warns instead of failing: chat without a key is a clear, fixable error
         // in the product, and the rest of the seed is what a developer needs.
         if options.llm_keys

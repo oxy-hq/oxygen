@@ -213,7 +213,9 @@ and CI fails if it grows. Where the code is right and the rule is not, say so at
 - **DB**: there is no embedded Postgres — `oxy serve` refuses to boot without `OXY_DATABASE_URL`.
   `oxy start` runs one in Docker (via `bollard`, not docker-compose): container `oxy-postgres` on
   `localhost:15432` (postgres/postgres, db `oxy`), volume `oxy-postgres-data`, and sets the URL
-  for its own process only; `--clean` for a fresh slate. Migrations run on startup
+  for its own process only; `--clean` for a fresh slate. It also runs a local Airhouse
+  (`oxy-airhouse-{cp,dp,minio}`, admin `localhost:8080`, wire `localhost:5445`, catalogs in
+  `oxy-postgres`) where workspace data lives, as in the cloud; `--no-airhouse` skips it. Migrations run on startup
   (`cargo run --bin migration` to force). Entities in `entity`, migrations in `migration`.
 - **Local development runs the production path** — `oxy serve --enterprise`, or `oxy start`
   for a Docker-Postgres dev box. Use it for tests, demos, role-split, S3/worker-fleet, and

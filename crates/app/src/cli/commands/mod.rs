@@ -14,6 +14,7 @@ mod migrate_automations;
 pub mod oltp;
 pub mod run;
 pub mod seed;
+mod seed_airhouse;
 mod seed_compile;
 mod seed_llm_keys;
 pub(crate) mod seed_partners;
@@ -839,6 +840,7 @@ async fn handle_seed_command(
             compile: !seed_args.no_compile,
             llm_keys: seed_args.llm_keys,
             fixtures: seed_args.fixtures,
+            airhouse: true,
         };
         seed_demo_with(seed_args.workspace_path, options, example_apps).await
     }

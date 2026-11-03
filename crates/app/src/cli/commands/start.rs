@@ -58,6 +58,9 @@ pub async fn start_database_and_server(
         start_clickhouse().await?;
     }
 
+    // 3c. Airhouse, where workspace data lives, as in the cloud.
+    let airhouse_line = start_airhouse(args.no_airhouse, args.clean).await?;
+
     // 4. Show helpful Docker commands
     print_docker_tips();
 
@@ -155,10 +158,95 @@ pub async fn start_database_and_server(
     println!("   {}", oltp_line.text());
     println!();
 
+    println!("{}", "🔗 Airhouse".text());
+    println!("   {}", airhouse_line.text());
+    println!();
+
     // 7. Start the web server (runs on host, not in Docker). Its in-process
     // worker drains the queue; it drains on SIGINT/SIGTERM on its own.
     println!("{}", "🚀 Starting Oxygen server...".text());
     start_server_and_web_app(args.serve, seams).await
+}
+
+/// Start the local Airhouse and point this process at it, unless the
+/// developer opted out or `AIRHOUSE_*` already names one. Returns the summary
+/// line.
+///
+/// The vars set here are the ones `airhouse::config::autodetect_local_airhouse`
+/// would set, so another process on this machine (`oxy seed`, `serve --local`)
+/// finds the same Airhouse without them.
+async fn start_airhouse(skip: bool, clean: bool) -> Result<String, OxyError> {
+    use docker::airhouse::{self, LocalAirhouse};
+    if skip {
+        return Ok("not started (--no-airhouse); workspaces have no Airhouse".to_string());
+    }
+    if ::airhouse::REQUIRED_VARS.iter().any(|k| env_nonempty(k)) {
+        return Ok(format!(
+            "{} (from your env)",
+            std::env::var(::airhouse::AIRHOUSE_BASE_URL_VAR).unwrap_or_default()
+        ));
+    }
+
+    println!("{}", "🐳 Starting the local Airhouse...".text());
+    println!(
+        "{}",
+        format!(
+            "   Containers: {}, {}, {}",
+            airhouse::MINIO_CONTAINER_NAME,
+            airhouse::CP_CONTAINER_NAME,
+            airhouse::DP_CONTAINER_NAME
+        )
+        .tertiary()
+    );
+    let started = airhouse::start().await.map_err(|e| {
+        OxyError::InitializationError(format!(
+            "{e}\n\nRun `oxy start --no-airhouse` to start without it."
+        ))
+    })?;
+    match started {
+        LocalAirhouse::Started => println!("{}", "✓ Airhouse ready\n".success()),
+        LocalAirhouse::AlreadyRunning => {
+            println!(
+                "{}",
+                format!(
+                    "✓ An Airhouse is already answering at {}; using it\n",
+                    airhouse::admin_url()
+                )
+                .success()
+            );
+            // `--clean` wiped the tenant records in oxy-postgres, but not this
+            // Airhouse, so the seeded workspaces' tenants still exist there and
+            // provisioning them again fails with "already taken".
+            if clean {
+                println!(
+                    "{}",
+                    format!(
+                        "⚠️ --clean does not reset an Airhouse oxy start did not start. \
+                         Reset it with `{}` before `oxy seed`.\n",
+                        airhouse::RESET_EXTERNAL_HINT
+                    )
+                    .warning()
+                );
+            }
+        }
+    }
+
+    // Safety: nothing reads these until `start_server_and_web_app`, which runs
+    // after this on the same task (as for OXY_DATABASE_URL below).
+    unsafe {
+        std::env::set_var(::airhouse::AIRHOUSE_BASE_URL_VAR, airhouse::admin_url());
+        std::env::set_var(::airhouse::AIRHOUSE_ADMIN_TOKEN_VAR, airhouse::ADMIN_TOKEN);
+        std::env::set_var(::airhouse::AIRHOUSE_WIRE_HOST_VAR, "localhost");
+        std::env::set_var(
+            ::airhouse::AIRHOUSE_WIRE_PORT_VAR,
+            airhouse::WIRE_PORT.to_string(),
+        );
+    }
+    Ok(format!(
+        "local — admin {}, wire localhost:{} (`oxy start --no-airhouse` to skip)",
+        airhouse::admin_url(),
+        airhouse::WIRE_PORT
+    ))
 }
 
 /// A `OXY_*` var that is set to a non-blank value.
@@ -269,4 +357,22 @@ fn print_docker_tips() {
         "   Check status:     docker ps --filter name=oxy-postgres".secondary()
     );
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use oxy::database::docker::airhouse;
+
+    /// `oxy start`'s Airhouse is where other processes look for one.
+    #[test]
+    fn the_local_airhouse_is_where_autodetect_looks() {
+        use ::airhouse::config::{
+            LOCAL_DEFAULT_ADMIN_TOKEN, LOCAL_DEFAULT_BASE_URL, LOCAL_DEFAULT_WIRE_HOST,
+            LOCAL_DEFAULT_WIRE_PORT,
+        };
+        assert_eq!(airhouse::admin_url(), LOCAL_DEFAULT_BASE_URL);
+        assert_eq!(airhouse::ADMIN_TOKEN, LOCAL_DEFAULT_ADMIN_TOKEN);
+        assert_eq!(LOCAL_DEFAULT_WIRE_HOST, "localhost");
+        assert_eq!(airhouse::WIRE_PORT.to_string(), LOCAL_DEFAULT_WIRE_PORT);
+    }
 }

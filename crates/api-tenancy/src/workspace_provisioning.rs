@@ -353,11 +353,14 @@ const AIRHOUSE_PROVISION_TIMEOUT: std::time::Duration = std::time::Duration::fro
 /// Give a just-created workspace its Airhouse tenant, where its data lives in a
 /// cloud deployment. Best-effort: a failure is logged and never fails the
 /// caller, and whatever needs the tenant first (an upload, the demo) provisions
-/// it then (`airhouse::ensure_tenant`). A local `OXY_ROLE=all` process never
-/// provisions.
+/// it then (`airhouse::ensure_tenant`). A local `OXY_ROLE=all` process
+/// provisions too when it has an Airhouse (`oxy start` runs one), and says
+/// nothing when it has none.
 pub async fn provision_airhouse_tenant(workspace_id: Uuid) {
     use oxy_app_core::process_role::{Role, current_process_role};
-    if current_process_role() == Role::All {
+    if current_process_role() == Role::All
+        && airhouse::AirhouseConfig::cached().as_runtime().is_none()
+    {
         return;
     }
     let db = match establish_connection().await {

@@ -8,8 +8,8 @@
 //! takes a per-workspace lock, so callers racing converge on one tenant and one
 //! service account.
 //!
-//! The caller decides whether this process may provision at all: a local
-//! `OXY_ROLE=all` process never does (it is not a cloud deployment).
+//! It provisions wherever Airhouse is configured, a local `oxy start` included,
+//! which runs one of its own.
 
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use thiserror::Error;

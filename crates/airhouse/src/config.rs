@@ -222,8 +222,9 @@ pub fn analytics_wire_endpoint() -> Option<WireEndpoint> {
 
 // ── Local-mode autodetect ─────────────────────────────────────────────────────
 
-/// In `--local` mode, wire Oxy to a running local Airhouse stack
-/// (`docker-compose.airhouse.yml`) without manual env configuration.
+/// In `--local` mode and `oxy seed`, wire Oxy to a running local Airhouse —
+/// the one `oxy start` runs, or `docker-compose.airhouse.yml` — without manual
+/// env configuration.
 ///
 /// If none of the `AIRHOUSE_*` vars are set, probe the compose stack's
 /// control-plane health endpoint. When it responds, inject the well-known
@@ -259,8 +260,8 @@ pub async fn autodetect_local_airhouse() -> bool {
     if !reachable {
         tracing::info!(
             "local Airhouse not detected at {LOCAL_DEFAULT_BASE_URL} — integration \
-             stays disabled. Run `docker compose -f docker-compose.airhouse.yml up -d` \
-             to enable per-workspace provisioning in local mode."
+             stays disabled. `oxy start` runs one, or run \
+             `docker compose -f docker-compose.airhouse.yml up -d`."
         );
         return false;
     }

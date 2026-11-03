@@ -142,6 +142,14 @@ pub struct StartArgs {
     /// own compose file to keep in sync.
     #[clap(long, default_value_t = false)]
     pub db_only: bool,
+
+    /// Do not start the local Airhouse.
+    ///
+    /// `oxy start` runs one beside Postgres, where workspace data lives as it
+    /// does in the cloud. Skipped as well when `AIRHOUSE_BASE_URL` is set: that
+    /// names the Airhouse to use.
+    #[clap(long, default_value_t = false)]
+    pub no_airhouse: bool,
 }
 
 #[cfg(test)]

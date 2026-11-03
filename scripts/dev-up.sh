@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # `just up` / `just down` / `just status` — the whole local stack, one idempotent command.
 #
-#   up       `oxy start --enterprise` (Docker Postgres, API :3000, no-auth internal :3001),
+#   up       `oxy start --enterprise` (Docker Postgres + a local Airhouse, API :3000, no-auth internal :3001),
 #            `oxy seed --fixtures` (compiles + promotes every seeded workspace, then builds the
 #            local/pulse-demo fixture app once), Vite on 127.0.0.1:5173.
 #            Reuses whatever is ours and healthy; restarts the backend only when the binary
@@ -13,7 +13,8 @@
 #              --no-seed      skip `oxy seed`
 #              --no-frontend  API only, no Vite
 #              --restart      restart backend + Vite even when healthy
-#              --clean        `oxy start --clean`: wipe the Postgres/ClickHouse volumes first
+#              --clean        `oxy start --clean`: wipe the Postgres/ClickHouse/Airhouse volumes first
+#              --no-airhouse  `oxy start --no-airhouse`: no local Airhouse (:8080 admin, :5445 wire)
 #
 # Cloud/enterprise mode only — never `--local`. Sign in with /dev-login?as=<persona>.
 # Guide: .claude/skills/oxy-run-and-verify/SKILL.md
@@ -215,6 +216,11 @@ preflight_ports() {
     port_ok 8123 "" "oxy-clickhouse" "ClickHouse HTTP" || bad=1
     port_ok 9000 "" "oxy-clickhouse" "ClickHouse native" || bad=1
   fi
+  # An Airhouse already answering (`just airhouse-up`) is one `oxy start` uses, not a clash.
+  if [ -z "$AIRHOUSE_FLAG" ] && ! http_ok "http://localhost:8080/healthz"; then
+    port_ok 8080 "" "oxy-airhouse-cp" "Airhouse admin API" || bad=1
+    port_ok 5445 "" "oxy-airhouse-dp" "Airhouse wire" || bad=1
+  fi
   if [ "$NO_FRONTEND" != 1 ]; then port_ok "$FRONTEND_PORT" "$fg" "" "Vite" || bad=1; fi
   [ "$bad" = 0 ] || die "free the ports above (a stack you started by hand? stop it), then re-run"
 }
@@ -285,12 +291,12 @@ backend() {
     MAGIC_LINK_LOCAL_TEST="${MAGIC_LINK_LOCAL_TEST:-true}" \
     OXY_APP_EMAIL_LOCAL_TEST="${OXY_APP_EMAIL_LOCAL_TEST:-1}" \
     "$BIN" start --enterprise --port "$BACKEND_PORT" --internal-port "$INTERNAL_PORT" \
-    ${CLEAN_FLAG:+"$CLEAN_FLAG"}) || die "could not launch $BIN"
+    ${CLEAN_FLAG:+"$CLEAN_FLAG"} ${AIRHOUSE_FLAG:+"$AIRHOUSE_FLAG"}) || die "could not launch $BIN"
   rset backend.pid "$pid"
   rset backend.fingerprint "$fp"
   rset backend.log "$log"
   note "oxy start --enterprise  pid $pid  (log: $(rel "$log"))"
-  # First run also pulls the Postgres (and ClickHouse) images before the server binds.
+  # First run also pulls the Postgres, Airhouse (and ClickHouse) images before the server binds.
   wait_http "$BACKEND_URL/api/ready" "${OXY_DEV_UP_READY_SECS:-240}" "$pid" "$log" "backend"
   note "ready"
 }
@@ -402,14 +408,14 @@ status() {
   return "$code"
 }
 
-usage() { sed -n '2,18p' "$0" | sed -E 's/^# ?//'; }
+usage() { sed -n '2,19p' "$0" | sed -E 's/^# ?//'; }
 
 # ── main ─────────────────────────────────────────────────────────────────────
 CMD=up
 case "${1:-}" in
   up | down | status | help) CMD="$1" && shift ;;
 esac
-NO_BUILD=0 NO_SEED=0 NO_FRONTEND=0 RESTART=0 CLEAN=0 DB=0 CLEAN_FLAG=""
+NO_BUILD=0 NO_SEED=0 NO_FRONTEND=0 RESTART=0 CLEAN=0 DB=0 CLEAN_FLAG="" AIRHOUSE_FLAG=""
 for arg in "$@"; do
   case "$arg" in
     --no-build) NO_BUILD=1 ;;
@@ -417,6 +423,7 @@ for arg in "$@"; do
     --no-frontend) NO_FRONTEND=1 ;;
     --restart) RESTART=1 ;;
     --clean) CLEAN=1 CLEAN_FLAG="--clean" ;;
+    --no-airhouse) AIRHOUSE_FLAG="--no-airhouse" ;;
     --db) DB=1 ;;
     -h | --help)
       usage
@@ -449,7 +456,7 @@ case "$CMD" in
     rm -f "$STATE_JSON"
     if [ "$DB" = 1 ]; then
       running=" $(docker ps --format '{{.Names}}' 2>/dev/null | tr '\n' ' ' || true) "
-      for c in oxy-postgres oxy-clickhouse; do
+      for c in oxy-postgres oxy-clickhouse oxy-airhouse-dp oxy-airhouse-cp oxy-airhouse-minio; do
         case "$running" in
           *" $c "*)
             note "docker stop $c"

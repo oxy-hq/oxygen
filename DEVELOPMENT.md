@@ -87,12 +87,13 @@ just down      # stop the backend + Vite; `just down --db` also stops the Postgr
 `just up` (`scripts/dev-up.sh`) does, in order:
 
 1. `cargo build -p oxy-server` — an incremental no-op when nothing changed.
-2. `oxy start --enterprise` — Docker Postgres on `localhost:15432`, the API on `:3000`, and
-   the no-auth internal API on `127.0.0.1:3001`. Reused while it is healthy and the binary is
+2. `oxy start --enterprise` — Docker Postgres on `localhost:15432`, a local Airhouse (admin
+   API `localhost:8080`, wire `localhost:5445`), the API on `:3000`, and the no-auth internal
+   API on `127.0.0.1:3001`. Reused while it is healthy and the binary is
    unchanged; restarted when the build produced a new binary.
 3. `oxy seed --workspace-path ./examples` — the `local` org with the Demo workspace and the
    `oxy-starter` custom app, plus the tenant orgs (`acme`, `northwind`, `globex`, …), every
-   workspace compiled and promoted. Idempotent.
+   workspace given its Airhouse tenant, compiled and promoted. Idempotent.
 4. Vite on `http://127.0.0.1:5173`, proxying `/api` and `/customer-apps` to `:3000`. Web-app
    edits hot-reload; nothing restarts it unless you pass `--restart`.
 
@@ -103,6 +104,7 @@ just down      # stop the backend + Vite; `just down --db` also stops the Postgr
 | `--no-frontend` | API only |
 | `--restart` | restart the backend and Vite even when healthy (e.g. after editing `.env`) |
 | `--clean` | `oxy start --clean`: wipe the database volumes first |
+| `--no-airhouse` | `oxy start --no-airhouse`: no local Airhouse |
 
 It needs a running Docker daemon and uses fixed ports, so it is one stack per machine (for
 side-by-side checkouts, see below). It refuses to start when a port it needs is held by a
@@ -383,6 +385,25 @@ through `bollard` rather than docker-compose:
 sets `OXY_DATABASE_URL` for its own process only — a separate `oxy seed` or `oxy compile`
 needs it passed explicitly. Open a shell with
 `docker exec -it oxy-postgres psql -U postgres -d oxy`.
+
+### Airhouse
+
+Workspace data lives in Airhouse, locally as in the cloud, so `oxy start` runs one beside
+Postgres. It is `docker-compose.airhouse.yml` without its HAProxy and its own Postgres:
+
+| | |
+| - | - |
+| Containers | `oxy-airhouse-cp` (control plane), `oxy-airhouse-dp` (data plane), `oxy-airhouse-minio` (its files) |
+| Admin API | `http://localhost:8080`, token `airhouse-local-token` |
+| Wire | `localhost:5445` (Postgres protocol, DuckDB SQL) |
+| Catalogs | the `airhouse_cp` and `airhouse` databases in `oxy-postgres`, and one database per tenant |
+| Data | the `oxy-airhouse-minio-data` volume and the Postgres volume — `--clean` wipes both |
+
+New workspaces get a tenant when they are created and `oxy seed` gives every seeded one its
+tenant. A separate `oxy seed`, `oxy compile` or `oxy serve --local` finds this Airhouse on
+its own: with no `AIRHOUSE_*` set, it looks at `localhost:8080`. When an Airhouse already
+answers there (`just airhouse-up`), `oxy start` uses it instead of starting its own. Set
+`AIRHOUSE_*` to use another one, or pass `--no-airhouse` to run without.
 
 ### Production/Custom PostgreSQL
 

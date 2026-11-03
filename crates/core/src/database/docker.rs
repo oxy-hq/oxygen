@@ -16,8 +16,13 @@ use std::collections::HashMap;
 use std::default::Default;
 use tracing::{info, warn};
 
+pub mod airhouse;
 mod ownership;
 pub use ownership::{ShutdownCleanup, cleanup_owned_containers};
+
+/// The network `oxy-postgres` and the local Airhouse share, so the Airhouse
+/// containers reach Postgres by its container name.
+const NETWORK: &str = "oxy-local";
 
 /// Docker PostgreSQL configuration constants
 const POSTGRES_CONTAINER_NAME: &str = "oxy-postgres";
@@ -209,9 +214,11 @@ pub async fn start_postgres_container() -> Result<String, OxyError> {
     // See: https://hub.docker.com/_/postgres ("PGDATA" section for 18+)
     let binds = vec![format!("{}:/var/lib/postgresql", POSTGRES_VOLUME)];
 
+    airhouse::ensure_network(&docker).await?;
     let host_config = HostConfig {
         port_bindings: Some(port_bindings),
         binds: Some(binds),
+        network_mode: Some(NETWORK.to_string()),
         ..Default::default()
     };
 
@@ -380,6 +387,43 @@ async fn probe_host_tcp(host: &str, port: u16) -> bool {
     }
 }
 
+/// Run `cmd` in `container` and return its exit code and its output, stdout
+/// and stderr together.
+async fn exec_in(container: &str, cmd: Vec<&str>) -> Result<(i64, String), OxyError> {
+    let docker = get_docker_client().await?;
+    let exec = docker
+        .create_exec(
+            container,
+            CreateExecOptions {
+                cmd: Some(cmd),
+                attach_stdout: Some(true),
+                attach_stderr: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|e| OxyError::InitializationError(format!("exec in '{container}': {e}")))?;
+    let mut output = Vec::new();
+    if let StartExecResults::Attached {
+        output: mut stream, ..
+    } = docker
+        .start_exec(&exec.id, None)
+        .await
+        .map_err(|e| OxyError::InitializationError(format!("exec in '{container}': {e}")))?
+    {
+        while let Some(Ok(msg)) = stream.next().await {
+            output.extend_from_slice(&msg.into_bytes());
+        }
+    }
+    let code = docker
+        .inspect_exec(&exec.id)
+        .await
+        .map_err(|e| OxyError::InitializationError(format!("exec in '{container}': {e}")))?
+        .exit_code
+        .unwrap_or(-1);
+    Ok((code, String::from_utf8_lossy(&output).into_owned()))
+}
+
 /// Stop the PostgreSQL container (handles non-existent/stopped containers gracefully)
 pub async fn stop_postgres_container() -> Result<(), OxyError> {
     let docker = get_docker_client().await?;
@@ -450,6 +494,9 @@ pub async fn cleanup_containers() {
 
     remove_container(&docker, POSTGRES_CONTAINER_NAME).await;
     remove_container(&docker, CLICKHOUSE_CONTAINER_NAME).await;
+    for name in airhouse::CONTAINER_NAMES {
+        remove_container(&docker, name).await;
+    }
 }
 
 /// Remove a container by name or by ID — the runtime accepts either (force remove,
@@ -501,6 +548,13 @@ pub async fn clean_all() -> Result<(), OxyError> {
     // Remove clickhouse container + volume (no-op if they don't exist)
     remove_container(&docker, CLICKHOUSE_CONTAINER_NAME).await;
     remove_volume(&docker, CLICKHOUSE_VOLUME).await?;
+
+    // The local Airhouse's catalogs are in the Postgres volume above; its
+    // files are in MinIO's.
+    for name in airhouse::CONTAINER_NAMES {
+        remove_container(&docker, name).await;
+    }
+    remove_volume(&docker, airhouse::MINIO_VOLUME).await?;
 
     Ok(())
 }
