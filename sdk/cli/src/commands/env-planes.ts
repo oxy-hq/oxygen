@@ -82,7 +82,7 @@ export async function envUpdate(
   ) {
     throw usageError(
       "env update needs at least one --plane, --destination or --fetch-host",
-      "e.g. --plane storage=own, --plane storage=default to clear a key, or --destination clickhouse=clickhouse_dev"
+      "e.g. --plane storage=empty, --plane storage=default to clear a key, or --destination clickhouse=clickhouse_dev"
     );
   }
   const creds = staffCreds(ctx);

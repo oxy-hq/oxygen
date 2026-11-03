@@ -703,7 +703,7 @@ function buildProgram(): Command {
       .option("--preset <preset>", "light (the default) or full: how many planes start isolated")
       .option(
         "--plane <key=mode>",
-        "set one plane's mode, e.g. storage=own or semantic=branch:<git branch> (repeatable; wins over --preset)",
+        "set one plane's mode, e.g. storage=empty or semantic=branch:<git branch> (repeatable; wins over --preset)",
         collect,
         []
       )

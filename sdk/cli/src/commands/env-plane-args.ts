@@ -24,7 +24,7 @@ export const PRESETS = ["light", "full"] as const;
 export type Preset = (typeof PRESETS)[number];
 
 const PLANE_KEY_RE = /^[a-z][a-z0-9_-]*$/;
-const PLANE_HINT = "e.g. --plane storage=own --plane oltp=schema";
+const PLANE_HINT = "e.g. --plane storage=empty --plane oltp=schema";
 
 function requirePlaneKey(key: string, flag: string): string {
   if (!PLANE_KEY_RE.test(key)) {
