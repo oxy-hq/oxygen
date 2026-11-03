@@ -49,7 +49,8 @@ jobs:
     name: Roll up deploy metrics
     if: github.repository == 'oxy-hq/oxygen-internal'
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
-    # A few hundred API reads at most; 15m is hang insurance.
+    # ~500 API reads (the staging history is most of them), about two minutes;
+    # 15m is hang insurance.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -71,8 +72,8 @@ jobs:
           private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
           owner: oxy-hq
           repositories: infrastructure
-          # Commits, file contents and the PR a commit merged through. Nothing
-          # here writes, so nothing here may.
+          # Commits, file contents, the PR a commit merged through, and the prod
+          # bump PRs' label timelines. Nothing here writes, so nothing here may.
           permission-contents: read
           permission-pull-requests: read
 

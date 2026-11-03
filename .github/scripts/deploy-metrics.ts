@@ -131,6 +131,62 @@ interface WindowMetrics {
     restores: { rollback: string; at: string; undid: string | null; ms: number | null }[];
     why: string | null;
   };
+  staging: {
+    /** Moves of the staging pin in the window: how often staging takes new code. */
+    pins: number;
+    /** Per release: its pin's first arrival on staging → the prod change. */
+    medianMs: number | null;
+    maxMs: number | null;
+    measured: number;
+    /** Releases whose pin was not on staging in the STAGE_LOOKBACK_DAYS before. */
+    skipped: string[];
+    why: string | null;
+  };
+  releaseChecks: {
+    checked: number;
+    passed: number;
+    failed: number;
+    held: number;
+    why: string | null;
+  };
+  infraChanges: {
+    /** Commits that changed production's infrastructure without moving the image. */
+    total: number;
+    /** Of those, the ones their author typed `fix` or `revert`. */
+    fixes: { sha: string; at: string; title: string }[];
+    why: string | null;
+  };
+}
+
+/** When a pin first reached the staging values file. */
+interface StagingPin {
+  pin: string;
+  at: string;
+}
+
+/** A verdict label put on the prod bump PR (release-checks-gate.yaml on infra). */
+interface GateEvent {
+  pr: number;
+  at: string;
+  verdict: "passed" | "failed" | "hold";
+}
+
+/** A commit on infra main under one of the customer-facing prod product directories. */
+interface InfraCommit {
+  sha: string;
+  at: string;
+  title: string;
+}
+
+/**
+ * What infra main records beside the prod pin. Each is null when it could not be
+ * read, with the reason in `why`, so a failed read is "not measured", never 0.
+ */
+interface Signals {
+  staging: StagingPin[] | null;
+  gate: GateEvent[] | null;
+  infra: InfraCommit[] | null;
+  why: { staging?: string; gate?: string; infra?: string };
 }
 
 interface Report {
@@ -149,6 +205,35 @@ const API = "https://api.github.com";
 
 export const PROD_VALUES =
   "oxy-workload/664267706513/us-west-2/oxy-prod/products/oxy/gitops/values/oxy.yaml";
+
+/** Staging runs in the dev account; promote.ts pins it, and prod later takes the same pin. */
+export const STAGING_VALUES =
+  "oxy-workload/575455576647/us-west-2/oxy-dev/products/oxy/gitops/values/oxy-staging.yaml";
+
+/**
+ * What customers use in prod: the oxy app, Airhouse and Pokehouse (ClickHouse).
+ * Monitoring, ferret, logging and the account's terraform sit beside them and
+ * are left out: an alert tuned or an internal tool fixed is not a repair to
+ * what customers run.
+ */
+export const PROD_PRODUCT_DIRS = ["oxy", "airhouse", "pokehouse"].map(
+  (p) => `oxy-workload/664267706513/us-west-2/oxy-prod/products/${p}`
+);
+
+/**
+ * The branch public-image-bump.yaml force-pushes each release candidate to; one
+ * PR on it carries many candidates, each judged by a fresh verdict label.
+ */
+const BUMP_BRANCH = "chore/bump-oxy-prod-image";
+
+/**
+ * How long before a release its pin is looked for on staging. Past it the
+ * release counts as having skipped staging. Bump PRs have sat open for six days.
+ */
+const STAGE_LOOKBACK_DAYS = 14;
+
+/** Commit reads in flight at once; a 44-day staging history is ~350 of them. */
+const READ_CONCURRENCY = 8;
 
 const DAY_MS = 86_400_000;
 
@@ -175,7 +260,10 @@ const FLAGS = ["days", "now", "json", "format", "summary-file", "self-test"];
 const BASIS =
   "lead time = committer date of each newly shipped commit on oxygen-internal main → " +
   "the infra change's merged_at (committer date for a direct push); deploys and rollbacks " +
-  "are commits on infra main that move imageTag in the prod values file";
+  "are commits on infra main that move imageTag in the prod values file; time on staging = " +
+  "the release's pin first reaching the staging values file → the prod change; release checks = " +
+  "verdict labels on the prod bump PR; infrastructure fixes = commits under the prod oxy, airhouse and pokehouse directories " +
+  "that are not a release (by sha or PR number) and are typed fix or revert";
 
 // ── Pure: recognising a deploy ──────────────────────────────────────────────
 
@@ -446,7 +534,116 @@ export function timeToRestore(changes: ProdChange[], w: Window): WindowMetrics["
   return { medianMs: percentile(samples, 0.5), restores, why };
 }
 
-export function windowMetrics(changes: ProdChange[], w: Window): WindowMetrics {
+/**
+ * How long each release in the window sat on staging first: its pin's earliest
+ * arrival on staging in the STAGE_LOOKBACK_DAYS before → the prod change. A
+ * release whose pin was never there skipped staging, and is named. Rollbacks go
+ * to code that already ran, so they are not asked.
+ */
+export function stagingDwell(
+  changes: ProdChange[],
+  staging: StagingPin[] | null,
+  w: Window,
+  why?: string
+): WindowMetrics["staging"] {
+  if (!staging)
+    return {
+      pins: 0,
+      medianMs: null,
+      maxMs: null,
+      measured: 0,
+      skipped: [],
+      why: why ?? "not read"
+    };
+  const samples: number[] = [];
+  const skipped: string[] = [];
+  for (const change of changes) {
+    if (change.kind !== "deploy" || !within(change, w)) continue;
+    const at = Date.parse(change.at);
+    const pin = pinLabel(change.to);
+    const arrivals = staging
+      .filter((s) => s.pin === pin)
+      .map((s) => Date.parse(s.at))
+      .filter((t) => t <= at && t >= at - STAGE_LOOKBACK_DAYS * DAY_MS);
+    if (arrivals.length) samples.push(at - Math.min(...arrivals));
+    else skipped.push(pin);
+  }
+  return {
+    pins: staging.filter((s) => within(s, w)).length,
+    medianMs: percentile(samples, 0.5),
+    maxMs: samples.length ? Math.max(...samples) : null,
+    measured: samples.length,
+    skipped,
+    why: samples.length
+      ? null
+      : skipped.length
+        ? "no release's pin was on staging first"
+        : "no releases in the window"
+  };
+}
+
+/**
+ * The release checks' verdicts on the prod bump PR in the window. Each candidate
+ * force-pushed to the PR gets a fresh `release-checks-*` label, so a verdict
+ * label is one candidate judged; `release-hold` is a person stopping one.
+ */
+export function releaseChecks(
+  gate: GateEvent[] | null,
+  w: Window,
+  why?: string
+): WindowMetrics["releaseChecks"] {
+  if (!gate) return { checked: 0, passed: 0, failed: 0, held: 0, why: why ?? "not read" };
+  const inWindow = gate.filter((g) => within(g, w));
+  const count = (verdict: GateEvent["verdict"]) =>
+    inWindow.filter((g) => g.verdict === verdict).length;
+  const passed = count("passed");
+  const failed = count("failed");
+  return {
+    checked: passed + failed,
+    passed,
+    failed,
+    held: count("hold"),
+    why: passed + failed ? null : "no release candidate was checked in the window"
+  };
+}
+
+/** Whether a commit title types itself a fix or a revert (conventional commits, or git's revert). */
+export function isFixTitle(title: string): boolean {
+  return /^(?:fix|revert)(?:\([^)]*\))?!?:/i.test(title) || /^Revert "/.test(title);
+}
+
+/**
+ * Changes to production that are not releases: commits under PROD_PRODUCT_DIRS,
+ * minus the ones that moved the image (those are deploys, matched by
+ * sha or by the PR number in a squash title). The `fix`/`revert` ones are
+ * repairs made outside a release, which the rollback count cannot see.
+ */
+export function infraChanges(
+  infra: InfraCommit[] | null,
+  changes: ProdChange[],
+  w: Window,
+  why?: string
+): WindowMetrics["infraChanges"] {
+  if (!infra) return { total: 0, fixes: [], why: why ?? "not read" };
+  const deployShas = new Set(changes.map((c) => c.sha));
+  const deployPrs = new Set(changes.flatMap((c) => (c.pr === null ? [] : [c.pr])));
+  const others = infra.filter((c) => {
+    if (!within(c, w) || deployShas.has(c.sha)) return false;
+    const pr = /\(#(\d+)\)$/.exec(c.title)?.[1];
+    return !(pr && deployPrs.has(Number(pr)));
+  });
+  return {
+    total: others.length,
+    fixes: others.filter((c) => isFixTitle(c.title)),
+    why: null
+  };
+}
+
+export function windowMetrics(
+  changes: ProdChange[],
+  w: Window,
+  signals: Signals | null = null
+): WindowMetrics {
   const moves = changes.filter((c) => within(c, w));
   return {
     start: w.start.toISOString(),
@@ -458,7 +655,10 @@ export function windowMetrics(changes: ProdChange[], w: Window): WindowMetrics {
     viaPush: moves.filter((c) => c.pr === null).length,
     leadTime: leadTimes(changes, w),
     changeFailureRate: changeFailureRate(changes, w),
-    timeToRestore: timeToRestore(changes, w)
+    timeToRestore: timeToRestore(changes, w),
+    staging: stagingDwell(changes, signals?.staging ?? null, w, signals?.why.staging),
+    releaseChecks: releaseChecks(signals?.gate ?? null, w, signals?.why.gate),
+    infraChanges: infraChanges(signals?.infra ?? null, changes, w, signals?.why.infra)
   };
 }
 
@@ -511,6 +711,35 @@ function windowLines(m: WindowMetrics, b: (s: string) => string): string[] {
   ];
 }
 
+/**
+ * What infra main says around the four: the staging stage inside lead time, the
+ * gate in front of prod, and changes to prod that were not releases. Same voice.
+ */
+function aroundLines(m: WindowMetrics, b: (s: string) => string): string[] {
+  const st = m.staging;
+  const rc = m.releaseChecks;
+  const ic = m.infraChanges;
+  const skipped = st.skipped.length
+    ? `; ${plural(st.skipped.length, "release")} went out without reaching staging first (${st.skipped.join(", ")})`
+    : "";
+  const notRead = (why: string | null) => why === null || /^(?:not read|could not read)/.test(why);
+  const fixes = ic.fixes
+    .slice(0, 3)
+    .map((f) => f.title.replace(/\s+\(#\d+\)$/, ""))
+    .join("; ");
+  return [
+    st.medianMs === null
+      ? `${b("Time on staging first")}: not measured — ${st.why}${skipped}`
+      : `${b("Time on staging first")}: typically ${human(st.medianMs)}, longest ${human(st.maxMs)} (${plural(st.measured, "release")}; staging took new code ${plural(st.pins, "time")})${skipped}`,
+    rc.checked === 0
+      ? `${b("Release checks on staging")}: ${notRead(rc.why) ? `not measured — ${rc.why}` : "none run"}${rc.held ? `; ${rc.held} held by a person` : ""}`
+      : `${b("Release checks on staging")}: ${plural(rc.checked, "candidate")} checked, ${rc.failed ? `${rc.failed} failed` : "all passed"}${rc.held ? `; ${rc.held} held by a person` : ""}`,
+    ic.why !== null
+      ? `${b("Other changes to production")}: not measured — ${ic.why}`
+      : `${b("Other changes to production")}: ${ic.total ? `${plural(ic.total, "infrastructure change")}, ${ic.fixes.length ? `${ic.fixes.length} of them fixes (${fixes}${ic.fixes.length > 3 ? "; …" : ""})` : "none of them fixes"}` : "none"}`
+  ];
+}
+
 /** "24 hours", or "n/a" when there is nothing to say. */
 const human = (ms: number | null) => (ms === null ? "n/a" : humanDuration(ms / 60000));
 
@@ -531,8 +760,11 @@ export function render(report: Report, format: "slack" | "markdown"): string {
     new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
   const head = `${b(`Releases to production, last ${w.days} days`)} (${day(w.start)} – ${day(w.end)})`;
   const lines = [head, ...windowLines(w, b).map((l) => `${bullet} ${l}`)];
+  lines.push(`${b("Around the releases")}`, ...aroundLines(w, b).map((l) => `${bullet} ${l}`));
   if (report.context) lines.push(`_${contextLine(report.context)}_`);
-  lines.push("_The four DORA delivery measures: deploy frequency, lead time, change failure rate, time to restore._");
+  lines.push(
+    "_The first four are the DORA delivery measures: deploy frequency, lead time, change failure rate, time to restore. The rest are read from oxy-hq/infrastructure._"
+  );
   return `${lines.join("\n")}\n`;
 }
 
@@ -574,11 +806,11 @@ async function prodCommits(tokens: Tokens, since: Date, until: Date): Promise<st
   }
 }
 
-/** The prod file's `imageTag` at a ref, for when the commit API leaves the patch out. */
-async function imageTagAt(ref: string, tokens: Tokens): Promise<string | null> {
+/** A values file's `imageTag` at a ref, for when the commit API leaves the patch out. */
+async function imageTagAt(ref: string, tokens: Tokens, path = PROD_VALUES): Promise<string | null> {
   try {
     const file = await gh<{ content?: string }>(
-      `/repos/${INFRA}/contents/${PROD_VALUES}?ref=${ref}`,
+      `/repos/${INFRA}/contents/${path}?ref=${ref}`,
       tokens.infra
     );
     return imageTagOf(Buffer.from(file.content ?? "", "base64").toString("utf8"));
@@ -762,16 +994,156 @@ async function history(
   return out;
 }
 
-export function buildReport(changes: ProdChange[], now: Date, days: number): Report {
+/** `fn` over `items`, at most `limit` at a time, results in input order. */
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+/** Commits on infra main under `path` from `since` to `until`, newest first. */
+async function infraCommits(
+  path: string,
+  tokens: Tokens,
+  since: Date,
+  until: Date
+): Promise<InfraCommit[]> {
+  const out: InfraCommit[] = [];
+  for (let page = 1; ; page++) {
+    const batch = await gh<
+      { sha: string; commit: { message: string; committer: { date: string } } }[]
+    >(
+      `/repos/${INFRA}/commits?sha=main&path=${path}&since=${since.toISOString()}` +
+        `&until=${until.toISOString()}&per_page=100&page=${page}`,
+      tokens.infra
+    );
+    out.push(
+      ...batch.map((c) => ({
+        sha: c.sha,
+        at: c.commit.committer.date,
+        title: c.commit.message.split("\n")[0] ?? ""
+      }))
+    );
+    if (batch.length < 100) return out;
+  }
+}
+
+/**
+ * Every move of the staging pin from `since` to `until`. Read from each commit's
+ * diff, like prod's, falling back to the file at the commit and its parent.
+ */
+async function stagingPins(tokens: Tokens, since: Date, until: Date): Promise<StagingPin[]> {
+  const commits = await infraCommits(STAGING_VALUES, tokens, since, until);
+  const pins = await mapLimit(commits, READ_CONCURRENCY, async (c) => {
+    const commit = await gh<{
+      parents: { sha: string }[];
+      files?: { filename: string; patch?: string }[];
+    }>(`/repos/${INFRA}/commits/${c.sha}`, tokens.infra);
+    let patch = commit.files?.find((f) => f.filename === STAGING_VALUES)?.patch;
+    if (!patch) {
+      const parent = commit.parents[0]?.sha;
+      const before = parent ? await imageTagAt(parent, tokens, STAGING_VALUES) : null;
+      const after = await imageTagAt(c.sha, tokens, STAGING_VALUES);
+      patch = `-imageTag: ${before ?? ""}\n+imageTag: ${after ?? ""}\n`;
+    }
+    const move = imageTagMove(patch);
+    return move ? { pin: pinLabel(move.to), at: c.at } : null;
+  });
+  return pins.filter((p): p is StagingPin => p !== null);
+}
+
+/** Commits under any of PROD_PRODUCT_DIRS, once each, newest first. */
+async function productCommits(tokens: Tokens, since: Date, until: Date): Promise<InfraCommit[]> {
+  const perDir = await Promise.all(
+    PROD_PRODUCT_DIRS.map((dir) => infraCommits(dir, tokens, since, until))
+  );
+  const seen = new Map(perDir.flat().map((c) => [c.sha, c]));
+  return [...seen.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+
+/** The verdict labels put on prod bump PRs from `since` on. */
+async function gateEvents(tokens: Tokens, since: Date): Promise<GateEvent[]> {
+  const prs = await gh<{ number: number; updated_at: string }[]>(
+    `/repos/${INFRA}/pulls?head=oxy-hq:${BUMP_BRANCH}&state=all&sort=updated&direction=desc&per_page=100`,
+    tokens.infra
+  );
+  const verdicts: Record<string, GateEvent["verdict"]> = {
+    "release-checks-passed": "passed",
+    "release-checks-failed": "failed",
+    "release-hold": "hold"
+  };
+  const recent = prs.filter((p) => Date.parse(p.updated_at) >= since.getTime());
+  const perPr = await mapLimit(recent, READ_CONCURRENCY, async (pr) => {
+    const events: GateEvent[] = [];
+    for (let page = 1; ; page++) {
+      const batch = await gh<{ event: string; created_at: string; label?: { name: string } }[]>(
+        `/repos/${INFRA}/issues/${pr.number}/timeline?per_page=100&page=${page}`,
+        tokens.infra
+      );
+      for (const e of batch) {
+        const verdict = e.event === "labeled" ? verdicts[e.label?.name ?? ""] : undefined;
+        if (verdict && Date.parse(e.created_at) >= since.getTime())
+          events.push({ pr: pr.number, at: e.created_at, verdict });
+      }
+      if (batch.length < 100) return events;
+    }
+  });
+  return perPr.flat();
+}
+
+/**
+ * Everything infra main records beside the prod pin, from `since` to `now`. A
+ * read that fails is reported as not measured, with why; it never stops the
+ * report, which existed before these did.
+ */
+async function readSignals(tokens: Tokens, since: Date, now: Date): Promise<Signals> {
+  const signals: Signals = { staging: null, gate: null, infra: null, why: {} };
+  const why = (e: unknown) =>
+    `could not read infra (${(e as GhError).status ?? (e as Error).message})`;
+  const stageSince = new Date(since.getTime() - STAGE_LOOKBACK_DAYS * DAY_MS);
+  await Promise.all([
+    stagingPins(tokens, stageSince, now).then(
+      (s) => (signals.staging = s),
+      (e) => (signals.why.staging = why(e))
+    ),
+    gateEvents(tokens, since).then(
+      (g) => (signals.gate = g),
+      (e) => (signals.why.gate = why(e))
+    ),
+    productCommits(tokens, since, now).then(
+      (c) => (signals.infra = c),
+      (e) => (signals.why.infra = why(e))
+    )
+  ]);
+  return signals;
+}
+
+export function buildReport(
+  changes: ProdChange[],
+  now: Date,
+  days: number,
+  signals: Signals | null = null
+): Report {
   const back = (n: number) => new Date(now.getTime() - n * DAY_MS);
   return {
     generatedAt: now.toISOString(),
     basis: BASIS,
-    window: windowMetrics(changes, { start: back(days), end: now }),
+    window: windowMetrics(changes, { start: back(days), end: now }, signals),
     context:
       days === CONTEXT_DAYS
         ? null
-        : windowMetrics(changes, { start: back(CONTEXT_DAYS), end: now }),
+        : windowMetrics(changes, { start: back(CONTEXT_DAYS), end: now }, signals),
     changes
   };
 }
@@ -1101,6 +1473,123 @@ function selfTest(): void {
   );
   is("a compare past the cap is counted as truncated", truncated.leadTime.truncatedDeploys, 1);
 
+  // ── What infra main says around the releases ──────────────────────────────
+  // The week's deploys are 0.5.3 (ago 5) and 0.5.4 (ago 2); 0.5.3 was rolled back.
+  const signals: Signals = {
+    staging: [
+      { pin: "0.5.4", at: ago(30) }, // too long before its release to count
+      { pin: "0.5.3", at: ago(6) }, // first arrival: a day before prod
+      { pin: "0.5.3", at: ago(5, -30) }, // again, 30m before prod; the first arrival counts
+      { pin: "0.5.4", at: ago(1) } // after its release: not "staging first"
+    ],
+    gate: [
+      { pr: 11, at: ago(10), verdict: "failed" }, // before the week
+      { pr: 11, at: ago(6), verdict: "passed" },
+      { pr: 11, at: ago(4), verdict: "failed" },
+      { pr: 11, at: ago(4, 30), verdict: "hold" },
+      { pr: 11, at: ago(3), verdict: "passed" }
+    ],
+    infra: [
+      { sha: "0.5.2-0.5.4", at: ago(2), title: "chore(oxy-prod): bump oxy image (#11)" },
+      { sha: "x1", at: ago(2), title: "chore(oxy-prod): bump oxy image, earlier commit (#11)" },
+      { sha: "x2", at: ago(3), title: "fix(airhouse-prod): connection caps 48 → 96 (#20)" },
+      { sha: "x3", at: ago(4), title: "feat(airhouse-prod): bigger nodes (#21)" },
+      { sha: "x4", at: ago(9), title: "fix(oxy): before the week (#22)" }
+    ],
+    why: {}
+  };
+  const around = windowMetrics(history, week, signals);
+  is(
+    "time on staging is the pin's first arrival there → prod",
+    [around.staging.measured, around.staging.medianMs],
+    [1, DAY_MS]
+  );
+  is(
+    "a release whose pin was not on staging before it is named as skipping it",
+    around.staging.skipped,
+    ["0.5.4"]
+  );
+  is("staging's own moves in the week are counted", around.staging.pins, 3);
+  is("release checks count the week's verdicts, a hold apart", around.releaseChecks, {
+    checked: 3,
+    passed: 2,
+    failed: 1,
+    held: 1,
+    why: null
+  });
+  is(
+    "other changes leave out the release's own commits, by sha and by PR",
+    around.infraChanges.total,
+    2
+  );
+  is(
+    "...and the fixes among them are the ones typed fix",
+    around.infraChanges.fixes.map((f) => f.sha),
+    ["x2"]
+  );
+  for (const [title, fix] of [
+    ["fix(airhouse-prod): caps (#1)", true],
+    ["fix: plain", true],
+    ["fix!: breaking", true],
+    ['Revert "feat: a thing"', true],
+    ["revert(oxy): b", true],
+    ["feat: fix the thing", false],
+    ["fixup! squash me", false],
+    ["chore(oxy-prod): bump oxy image", false]
+  ] as const)
+    is(`${JSON.stringify(title)} is ${fix ? "" : "not "}a fix`, isFixTitle(title), fix);
+
+  const aroundShown = render(
+    { generatedAt: now.toISOString(), basis: BASIS, window: around, context: null, changes: [] },
+    "slack"
+  );
+  for (const want of [
+    "*Time on staging first*: typically 24 hours, longest 24 hours (1 release; staging took new code 3 times); 1 release went out without reaching staging first (0.5.4)",
+    "*Release checks on staging*: 3 candidates checked, 1 failed; 1 held by a person",
+    "*Other changes to production*: 2 infrastructure changes, 1 of them fixes (fix(airhouse-prod): connection caps 48 → 96)"
+  ])
+    is(`rendered: ${want.slice(0, 40)}…`, aroundShown.includes(want), true);
+
+  // Unread is "not measured", never a zero, and a failed read says why.
+  const unread = windowMetrics(history, week, {
+    staging: null,
+    gate: null,
+    infra: null,
+    why: { staging: "could not read infra (403)" }
+  });
+  is(
+    "an unread staging history keeps its reason",
+    unread.staging.why,
+    "could not read infra (403)"
+  );
+  const unreadShown = render(
+    { generatedAt: now.toISOString(), basis: BASIS, window: unread, context: null, changes: [] },
+    "slack"
+  );
+  is(
+    "...and says so instead of a number",
+    [
+      unreadShown.includes("Time on staging first*: not measured — could not read infra (403)"),
+      unreadShown.includes("Release checks on staging*: not measured — not read"),
+      unreadShown.includes("Other changes to production*: not measured — not read")
+    ],
+    [true, true, true]
+  );
+  is(
+    "a week with no candidates checked says none ran, not that it could not tell",
+    render(
+      {
+        generatedAt: now.toISOString(),
+        basis: BASIS,
+        window: windowMetrics(history, week, { ...signals, gate: [] }),
+        context: null,
+        changes: []
+      },
+      "slack"
+    ).includes("Release checks on staging*: none run"),
+    true
+  );
+
   // Flags and formatting.
   is("--days takes a whole number", parseDays("7"), 7);
   for (const bad of ["0", "-1", "7.5", "abc", "", "400"])
@@ -1169,12 +1658,16 @@ async function main(): Promise<void> {
   }
   const tokens = { gh: token, infra: process.env.INFRA_TOKEN || token };
   const span = Math.max(days, CONTEXT_DAYS);
-  const changes = await history(tokens, {
-    since: new Date(now.getTime() - (span + LOOKBACK_DAYS) * DAY_MS),
-    now,
-    earliestWindow: new Date(now.getTime() - span * DAY_MS)
-  });
-  const report = buildReport(changes, now, days);
+  const earliestWindow = new Date(now.getTime() - span * DAY_MS);
+  const [changes, signals] = await Promise.all([
+    history(tokens, {
+      since: new Date(now.getTime() - (span + LOOKBACK_DAYS) * DAY_MS),
+      now,
+      earliestWindow
+    }),
+    readSignals(tokens, earliestWindow, now)
+  ]);
+  const report = buildReport(changes, now, days, signals);
   const summaryFile = arg("summary-file");
   if (summaryFile) await appendFile(summaryFile, render(report, "markdown"));
   if (process.argv.includes("--json")) console.log(JSON.stringify(report, null, 2));
