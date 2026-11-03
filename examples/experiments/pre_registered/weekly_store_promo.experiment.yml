@@ -1,0 +1,35 @@
+# Pre-registered: week grain (`design.grain: week`).
+#
+# One reading is a store's revenue over one Monday-to-Sunday week, and every
+# count in the design is in weeks: `pre_days: 8` is eight weeks. Every date must
+# be a Monday; pricing refuses another first date and names the next Monday.
+# Use week or month when most days are empty, the measure does not add up over
+# days, or dates must line up with how the business runs.
+#
+# Price `{shape: waves, wave_sizes: [16], blocks: 4}` with a Monday as
+# `first_switch_on`. The answer is $/store-week. The read-back borrows the
+# double-points flag only because the example data has no flyer flag: point it
+# at the measure that records your own change.
+experiment: weekly_store_promo
+hypothesis: "A weekly flyer promo lifts revenue per store-week"
+owner: ops
+for_each: exp_store
+
+lever:
+  on: { via: exp_lever_unit }
+  off: { via: exp_lever_unit }
+  read_back:
+    when_on: "{{exp_store_days.double_points_live_days}} > 0"
+    when_off: "{{exp_store_days.double_points_live_days}} == 0"
+    grace_days: 3
+
+design:
+  timezone: UTC
+  time_dimension: exp_store_days.business_date
+  grain: week
+  pre_days: 8
+  post_days: 6
+
+outcome:
+  target: exp_store_days.revenue
+  direction: increase

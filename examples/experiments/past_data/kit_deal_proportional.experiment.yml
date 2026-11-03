@@ -1,0 +1,31 @@
+# Past data, a proportional outcome (`outcome.scale: proportional`).
+#
+# SKU sizes span orders of magnitude here (the comparison runs from a few units
+# a day to a few hundred), and a mean of unit changes is dominated by the
+# biggest. A proportional outcome reads each value as ln(1 + y) and reports a
+# % lift per unit, so a slow SKU weighs like a fast one. The headline is a
+# share: 0.40 = +40%.
+#
+# Past data only; refused with a denominator, a driver or a switchback, and on
+# a negative value. No treated total or projection.
+#
+# Planted truth: +40% conversion on every kit, so expect about +0.40.
+experiment: kit_deal_proportional
+hypothesis: "The Labor Day deal lifted each kit's units sold by a similar share"
+owner: ops
+for_each: exp_sku
+
+design:
+  timezone: UTC
+  time_dimension: exp_sku_days.sale_date
+  assignment: observed
+  one_date_test: permutation
+  waves:
+    - { switch_on: 2026-09-07, units: [KIT-02, KIT-07, KIT-11] }
+  pre_days: 28
+  post_days: 14
+
+outcome:
+  target: exp_sku_days.units
+  scale: proportional
+  direction: increase

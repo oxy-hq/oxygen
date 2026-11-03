@@ -1,0 +1,36 @@
+# Pre-registered: one switch date tested by permutation (`one_date_test:
+# permutation`).
+#
+# A planned deal on a handful of SKUs, chosen at random by pricing this time.
+# Welch would learn the treated spread from those few SKUs alone; permutation
+# reads them against every untreated SKU. It is priced through the staggered
+# placebo, needs enough units for a relabelling to reach alpha (3 vs 3
+# cannot), and is refused with a switchback, a synthetic control or several
+# switch dates.
+#
+# Price `{shape: waves, wave_sizes: [5]}` against the same candidate on a copy
+# without `one_date_test` to see what permutation buys.
+experiment: kit_deal_one_date_plan
+hypothesis: "A two-week deal lifts units sold per SKU-day on the SKUs it covers"
+owner: ops
+for_each: exp_sku
+
+lever:
+  on: { via: exp_lever_unit }
+  off: { via: exp_lever_unit }
+  read_back:
+    when_on: "{{exp_sku_days.promo_days}} > 0"
+    when_off: "{{exp_sku_days.promo_days}} == 0"
+    grace_days: 2
+
+design:
+  timezone: UTC
+  time_dimension: exp_sku_days.sale_date
+  one_date_test: permutation
+  pre_days: 28
+  post_days: 14
+  washout_days: 1
+
+outcome:
+  target: exp_sku_days.units
+  direction: increase

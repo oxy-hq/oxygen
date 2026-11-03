@@ -1,0 +1,34 @@
+# Pre-registered: a switchback DRAFT. The fleet alternates on and off.
+#
+# For a change that cannot be given to some stores and not others (a
+# fleet-wide loyalty offer). `switchback.period_days` is the owner's; pricing
+# draws which period of each pair is 'on' and writes `periods` and `seed`.
+# `lever.per: wave` makes one automation run per period and state, carrying
+# every store in `{{ units }}`.
+#
+# Price `{shape: switchback, period_days: 7, pairs: 6}` at alpha 0.05 and again
+# with `alpha: 0.2`: a few pairs cannot reach 0.05 by sign flip, and pricing
+# says so. A run registered at 0.2 can only ever read "directional".
+experiment: double_points_switchback_plan
+hypothesis: "Double-points weeks lift revenue per store-day"
+owner: ops
+for_each: exp_store
+
+lever:
+  on: { via: exp_lever_wave }
+  off: { via: exp_lever_wave }
+  per: wave
+  read_back:
+    when_on: "{{exp_store_days.double_points_live_days}} > 0"
+    when_off: "{{exp_store_days.double_points_live_days}} == 0"
+    grace_days: 1
+
+design:
+  timezone: UTC
+  time_dimension: exp_store_days.business_date
+  switchback: { period_days: 7 }
+  washout_days: 1
+
+outcome:
+  target: exp_store_days.revenue
+  direction: increase

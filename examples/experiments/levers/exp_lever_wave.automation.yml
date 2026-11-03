@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/workflow.json
+
+# The lever of the switchback examples (`lever.per: wave`): one run per period
+# and state, carrying every unit it switches in `{{ units }}`, as a rate-limited
+# vendor API would want. Records the call only; see exp_lever_unit.
+name: exp_lever_wave
+description: Example experiment lever that switches a list of units on or off in one call.
+tasks:
+  - name: flip
+    type: execute_sql
+    database: local
+    sql_query: |
+      SELECT '{{ experiment }}' AS experiment,
+             '{{ units }}' AS units,
+             '{{ state }}' AS state

@@ -1,0 +1,37 @@
+name: exp_store_hours
+description: |
+  One row per store per hour, 2026-09-01 00:00 to 2026-11-01 23:00, for the
+  hour-grain experiment example. Nothing is planted here: it is the history an
+  hourly switchback is priced against.
+datasource: local
+table: exp_store_hours.csv
+
+entities:
+- name: exp_store
+  type: foreign
+  description: The store this hour belongs to
+  key: store_code
+
+dimensions:
+- name: store_code
+  type: string
+  description: Store code
+  expr: store_code
+- name: hour_start
+  type: datetime
+  description: Start of the hour, store-local
+  expr: hour_start
+
+measures:
+- name: revenue
+  type: sum
+  description: Revenue in the hour ($)
+  expr: revenue
+- name: transactions
+  type: sum
+  description: Transactions in the hour
+  expr: transactions
+- name: kiosk_prompt_live_hours
+  type: sum
+  description: Store-hours with the kiosk prompt live; the hourly lever's read-back
+  expr: kiosk_prompt_live

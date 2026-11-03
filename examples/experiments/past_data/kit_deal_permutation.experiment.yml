@@ -1,0 +1,31 @@
+# Past data, one switch date, the permutation test (`one_date_test: permutation`).
+#
+# The same deal as kit_deal_welch. Permutation reads the three kits against
+# every SKU that was not switched, by relabelling which units were (the
+# studentized statistic, so noisier treated units do not over-reject). With a
+# handful of treated units beside many untreated ones it has the power Welch
+# lacks. It takes a few seconds to estimate.
+#
+# Planted truth: +40% conversion on the three kits (about +32 units per
+# SKU-day). Expect a clear increase.
+# The two cannibalised siblings (KIT-03, KIT-08) sit in the comparison and pull
+# it down a little, which biases the effect up slightly; kit_deal_synthetic_control
+# shows how to keep them out.
+experiment: kit_deal_permutation
+hypothesis: "The Labor Day deal lifted units sold per SKU-day on the three kits"
+owner: ops
+for_each: exp_sku
+
+design:
+  timezone: UTC
+  time_dimension: exp_sku_days.sale_date
+  assignment: observed
+  one_date_test: permutation
+  waves:
+    - { switch_on: 2026-09-07, units: [KIT-02, KIT-07, KIT-11] }
+  pre_days: 28
+  post_days: 14
+
+outcome:
+  target: exp_sku_days.units
+  direction: increase

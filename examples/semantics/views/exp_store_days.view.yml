@@ -1,0 +1,57 @@
+name: exp_store_days
+description: |
+  One row per store per day, 2025-11-03 to 2026-11-01: the panel the store
+  experiments in examples/experiments/ estimate on. Effects are planted at known
+  sizes (examples/scripts/gen_experiments_data.py): a spring sale lifts twelve
+  stores' in-store revenue 10% for two weeks and pulls 6% forward from the
+  two after it, self-checkout lifts in-store revenue 6% from each of its three
+  wave dates, and double-points weeks lift every store's revenue 6% on the
+  'on' weeks of a switchback.
+datasource: local
+table: exp_store_days.csv
+
+entities:
+- name: exp_store
+  type: foreign
+  description: The store this day belongs to
+  key: store_code
+
+dimensions:
+- name: store_code
+  type: string
+  description: Store code
+  expr: store_code
+- name: business_date
+  type: date
+  description: The store's business date
+  expr: business_date
+
+measures:
+- name: revenue
+  type: sum
+  description: In-store plus online revenue ($)
+  expr: instore_revenue + online_revenue
+- name: instore_revenue
+  type: sum
+  description: Revenue rung at the store's tills ($)
+  expr: instore_revenue
+- name: online_revenue
+  type: sum
+  description: Online orders attributed to the store ($)
+  expr: online_revenue
+- name: transactions
+  type: sum
+  description: In-store transactions
+  expr: transactions
+- name: refunds
+  type: sum
+  description: Refunds issued ($)
+  expr: refunds
+- name: self_checkout_live_days
+  type: sum
+  description: Store-days with self-checkout live; the self-checkout lever's read-back
+  expr: self_checkout_live
+- name: double_points_live_days
+  type: sum
+  description: Store-days with double loyalty points live; the double-points lever's read-back
+  expr: double_points_live

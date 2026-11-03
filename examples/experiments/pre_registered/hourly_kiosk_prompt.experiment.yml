@@ -1,0 +1,35 @@
+# Pre-registered: hour grain (`design.grain: hour`), a switchback within days.
+#
+# One reading is a store's revenue over one hour. Hour grain needs a datetime
+# time dimension (exp_store_hours.hour_start), and the read-back measure must
+# have a time of day too, or no switch inside a day could be confirmed. Every
+# moment is a whole local hour, written `2026-11-16T08:00`.
+#
+# `period_days: 12` is twelve hours: each pair holds the same hours of the day
+# in both halves, which matters because hourly revenue swings hard across the
+# day. Price `{shape: switchback, first_period_on: <a future midnight>,
+# period_days: 12, pairs: 14}`. `grace_days` stays in days at every grain and
+# must be shorter than one period, so a 12-hour period allows no grace: 0.
+experiment: hourly_kiosk_prompt
+hypothesis: "A kiosk upsell prompt lifts revenue per store-hour"
+owner: ops
+for_each: exp_store
+
+lever:
+  on: { via: exp_lever_wave }
+  off: { via: exp_lever_wave }
+  per: wave
+  read_back:
+    when_on: "{{exp_store_hours.kiosk_prompt_live_hours}} > 0"
+    when_off: "{{exp_store_hours.kiosk_prompt_live_hours}} == 0"
+    grace_days: 0
+
+design:
+  timezone: UTC
+  time_dimension: exp_store_hours.hour_start
+  grain: hour
+  switchback: { period_days: 12 }
+
+outcome:
+  target: exp_store_hours.revenue
+  direction: increase

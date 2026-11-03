@@ -1,0 +1,29 @@
+# Past data, one switch date, Welch (the default one-date test).
+#
+# Three kits ran a Labor Day deal from 2026-09-07. The deal was chosen, not
+# drawn, so the assignment is `observed`: the wave is the units that changed
+# and when, and every other SKU with pre-window history is the comparison.
+#
+# Planted truth (examples/scripts/gen_experiments_data.py): +40% conversion on
+# KIT-02, KIT-07 and KIT-11, about +32 units per SKU-day across the three.
+# Welch learns the treated arm's spread from those three SKUs alone, so its
+# interval rests on three numbers and swings from one draw of data to the
+# next. Compare it with kit_deal_permutation and kit_deal_synthetic_control,
+# which read the same deal: that contrast is the point of the three files.
+experiment: kit_deal_welch
+hypothesis: "The Labor Day deal lifted units sold per SKU-day on the three kits"
+owner: ops
+for_each: exp_sku
+
+design:
+  timezone: UTC
+  time_dimension: exp_sku_days.sale_date
+  assignment: observed
+  waves:
+    - { switch_on: 2026-09-07, units: [KIT-02, KIT-07, KIT-11] }
+  pre_days: 28
+  post_days: 14
+
+outcome:
+  target: exp_sku_days.units
+  direction: increase

@@ -1,0 +1,33 @@
+# Past data, a ratio outcome (`outcome.denominator`).
+#
+# A "best seller" search badge went on ten tools and power SKUs on 2026-06-15.
+# A badge changes how many visitors buy, not how many arrive, so the outcome is
+# conversion: Σ units / Σ page views per SKU and window, collapsed to post − pre
+# and compared with Welch. A SKU with no page views in a window is listed, never
+# zeroed.
+#
+# Waves only, past data only: pricing refuses a ratio and it is never
+# registrable. The report labels the target "units ÷ page_views" and states no
+# treated total.
+#
+# Planted truth: conversion x1.15 on the ten SKUs (+0.009 on a base near
+# 0.06), traffic unchanged. Expect a clear increase.
+experiment: search_badge_conversion
+hypothesis: "The search badge raised conversion on the badged SKUs"
+owner: ops
+for_each: exp_sku
+
+design:
+  timezone: UTC
+  time_dimension: exp_sku_days.sale_date
+  assignment: observed
+  waves:
+    - switch_on: 2026-06-15
+      units: [TOL-01, TOL-04, TOL-06, TOL-09, TOL-12, PWR-02, PWR-05, PWR-08, PWR-11, PWR-14]
+  pre_days: 28
+  post_days: 28
+
+outcome:
+  target: exp_sku_days.units
+  denominator: exp_sku_days.page_views
+  direction: increase

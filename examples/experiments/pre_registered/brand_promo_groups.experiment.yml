@@ -1,0 +1,37 @@
+# Pre-registered: groups of units (`assign_by`).
+#
+# SKU-level tests rarely reach significance: most SKUs sell a little, so the
+# variance is set by the few that sell a lot, and a promo on one SKU takes
+# sales from its siblings. Randomising whole brands puts the spill inside one
+# arm and steadies each unit. Each of the 18 brands is one unit of the design:
+# its day is the sum of its five SKUs, so the target must be a sum or count.
+#
+# The lever receives the brand as `{{ unit }}` and its pinned SKUs as
+# `{{ members }}`. The MDE is per brand-day, so do not compare it raw with a
+# per-SKU candidate's: rank on mde/unit-day.
+#
+# Price `{shape: waves, wave_sizes: [9], assign_by: exp_skus.brand, blocks: 3}`
+# beside the ungrouped `{shape: waves, wave_sizes: [45]}` to see the trade.
+experiment: brand_promo_groups
+hypothesis: "A brand-wide promo lifts units sold"
+owner: ops
+for_each: exp_sku
+
+lever:
+  on: { via: exp_lever_group }
+  off: { via: exp_lever_group }
+  read_back:
+    when_on: "{{exp_sku_days.promo_days}} > 0"
+    when_off: "{{exp_sku_days.promo_days}} == 0"
+    grace_days: 2
+
+design:
+  timezone: UTC
+  time_dimension: exp_sku_days.sale_date
+  pre_days: 28
+  post_days: 14
+  washout_days: 1
+
+outcome:
+  target: exp_sku_days.units
+  direction: increase

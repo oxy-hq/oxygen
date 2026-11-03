@@ -1,0 +1,55 @@
+# Pre-registered: a DRAFT to price, register and run, with every optional
+# piece a store rollout tends to need.
+#
+# Everything but `design.waves`, `design.seed`, `design.strata` and
+# `outcome.mde_at_proposal` is here; pricing writes those. Price candidates side
+# by side (examples/experiments/README.md has the commands), then `use` the one
+# to run and `register` it before its first switch date.
+#
+# What each part shows:
+#   lever       one automation run per store and state (`per: unit`), and a
+#               read-back over the warehouse that confirms each flip landed.
+#               exp_lever_unit only records the call, so on this example every
+#               flip reads back unconfirmed: plug in a real lever to run it.
+#   driver      what the lever moves (transactions), which lets a reported run
+#               propose a write-back onto the World Model.
+#   substitution_check  online revenue, watched for cannibalisation.
+#   guardrails  per treated store: an anomaly on refunds, and a trigger.
+#
+# Good candidates: a staggered rollout `{shape: waves, wave_sizes: [8, 8, 8],
+# spacing_days: 14, blocks: 4}`, one date `{shape: waves, wave_sizes: [24]}`, and
+# matched pairs `{shape: waves, pairs: true}`. Rank them on mde/unit-day.
+experiment: self_checkout_rollout
+hypothesis: "Self-checkout lifts in-store revenue per store-day"
+owner: ops
+for_each: exp_store
+
+lever:
+  on: { via: exp_lever_unit }
+  off: { via: exp_lever_unit }
+  read_back:
+    when_on: "{{exp_store_days.self_checkout_live_days}} > 0"
+    when_off: "{{exp_store_days.self_checkout_live_days}} == 0"
+    grace_days: 2
+  on_close: keep
+
+design:
+  timezone: UTC
+  time_dimension: exp_store_days.business_date
+  pre_days: 28
+  post_days: 28
+  anticipation_days: 3
+  washout_days: 7
+
+outcome:
+  target: exp_store_days.instore_revenue
+  driver: exp_store_days.transactions
+  direction: increase
+
+substitution_check: { sibling: exp_store_days.online_revenue }
+
+guardrails:
+  - criteria: { type: anomaly, measure: exp_store_days.refunds, significance: 0.95 }
+    action: abort
+  - criteria: { type: trigger, when: "{{exp_store_days.refunds}} > 400" }
+    action: abort

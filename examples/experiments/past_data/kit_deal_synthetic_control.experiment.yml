@@ -1,0 +1,45 @@
+# Past data, a synthetic control (`comparison: synthetic_control`).
+#
+# The same deal again. For each kit the estimate builds a weighted mix of the
+# unchanged SKUs that tracked it over the pre window, and reads the gap after
+# the switch. The p-value is placebo-in-space: every donor is fitted as if it
+# had been treated.
+#
+# `exclude` keeps out of the donors the SKUs the deal may also have reached.
+# KIT-03 and KIT-08 were cannibalised (planted -10% conversion while the deal
+# ran); as donors they would make the synthetic kit look worse than it was and
+# inflate the effect.
+#
+# Needs: assignment observed, one switch date, at least 10 donors; refused with
+# a switchback, strata, a denominator, carryover or hour grain. The report is
+# labelled "Not randomised — synthetic control", charts each kit against its
+# synthetic twin, and offers no projection.
+#
+# The pre window is longer than the other kit files' (56 days, not 28): the
+# fit is checked on a holdout at the end of the pre window, and with 85 donors
+# a short window fits noise and fails that check ("no combination of donors
+# tracks KIT-02 closely enough").
+#
+# Planted truth: +40% conversion on each kit (about +32 units per SKU-day).
+# Expect pre-fits around 0.5 to 0.75 (0 tracks perfectly, 1 is no better than a
+# flat line; every SKU shares the week's shape, which the donors track) and a
+# clear increase.
+experiment: kit_deal_synthetic_control
+hypothesis: "The Labor Day deal lifted units sold per SKU-day on the three kits"
+owner: ops
+for_each: exp_sku
+
+design:
+  timezone: UTC
+  time_dimension: exp_sku_days.sale_date
+  assignment: observed
+  comparison: synthetic_control
+  exclude: [KIT-03, KIT-08]
+  waves:
+    - { switch_on: 2026-09-07, units: [KIT-02, KIT-07, KIT-11] }
+  pre_days: 56
+  post_days: 14
+
+outcome:
+  target: exp_sku_days.units
+  direction: increase

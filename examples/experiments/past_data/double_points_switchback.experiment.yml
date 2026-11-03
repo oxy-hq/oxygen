@@ -1,0 +1,46 @@
+# Past data, a switchback: the whole fleet alternated on and off.
+#
+# Double loyalty points ran fleet-wide in alternating weeks: four pairs of
+# 7-day periods from 2026-09-07, one 'on' and one 'off' in each pair. A
+# switchback has no control stores; the calendar is what was randomised, and the
+# report tests it with a sign flip over the pairs. A switchback design takes no
+# pre_days or post_days.
+#
+# A randomised design needs the `seed` that drew it. This schedule was written
+# by hand to match the data, so the report says the split was not priced by
+# the platform; a real one comes from pricing (see
+# pre_registered/double_points_switchback_plan.experiment.yml). Four pairs
+# cannot reach alpha = 0.05 by sign flip (the smallest p is 2/16), so the
+# directional alpha = 0.2 is registered: the result can read "directional",
+# never "significant".
+#
+# The report's assumptions (no carryover between periods, no pull-forward) are
+# part of the result: repeat them when you quote it.
+#
+# Planted truth: +6% revenue in every 'on' week (about +210 $/store-day).
+experiment: double_points_switchback
+hypothesis: "Double-points weeks lift revenue per store-day"
+owner: ops
+for_each: exp_store
+
+design:
+  timezone: UTC
+  time_dimension: exp_store_days.business_date
+  switchback:
+    period_days: 7
+    periods:
+      - { from: 2026-09-07, state: "on" }
+      - { from: 2026-09-14, state: "off" }
+      - { from: 2026-09-21, state: "off" }
+      - { from: 2026-09-28, state: "on" }
+      - { from: 2026-10-05, state: "on" }
+      - { from: 2026-10-12, state: "off" }
+      - { from: 2026-10-19, state: "off" }
+      - { from: 2026-10-26, state: "on" }
+  seed: 4417
+  washout_days: 1
+
+outcome:
+  target: exp_store_days.revenue
+  direction: increase
+  alpha: 0.2

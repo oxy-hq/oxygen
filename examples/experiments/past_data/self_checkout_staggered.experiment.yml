@@ -1,0 +1,35 @@
+# Past data, a staggered rollout: several switch dates, observed.
+#
+# Self-checkout went into four stores at a time, four weeks apart. With several
+# switch dates each wave is compared with the stores not yet treated (and the
+# never-treated), and the pooled effect is tested by permutation; a one-date
+# test choice does not apply. With two or more waves, the report also lists each
+# wave's own effect and interval, not adjusted for the number of waves: quote
+# the pooled headline as the answer.
+#
+# `substitution_check` watches online revenue for cannibalisation. It is less
+# sensitive than the target, so the report is gross with a floor, never net.
+#
+# Planted truth: +6% in-store revenue from each store's wave date (about +170
+# $/store-day), and nothing on online revenue.
+experiment: self_checkout_staggered
+hypothesis: "Self-checkout lifted in-store revenue per store-day"
+owner: ops
+for_each: exp_store
+
+design:
+  timezone: UTC
+  time_dimension: exp_store_days.business_date
+  assignment: observed
+  waves:
+    - { switch_on: 2026-07-06, units: [S03, S11, S19, S27] }
+    - { switch_on: 2026-08-03, units: [S05, S13, S21, S29] }
+    - { switch_on: 2026-08-31, units: [S07, S15, S23, S31] }
+  pre_days: 28
+  post_days: 28
+
+outcome:
+  target: exp_store_days.instore_revenue
+  direction: increase
+
+substitution_check: { sibling: exp_store_days.online_revenue }
