@@ -128,6 +128,7 @@ impl ProjectFunctionHost {
             statements: 1,
             op: None,
             note: None,
+            sent: None,
         })
         .await;
     }

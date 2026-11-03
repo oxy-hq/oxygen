@@ -1,7 +1,8 @@
 //! The preview schema registry (`workspace_preview_schemas`) and shadow map
-//! (`workspace_preview_tables`, [`shadow`]): which Airhouse schemas a preview
-//! may have, until when, and which relations it created in them. Plain
-//! Postgres; safe on any pod.
+//! (`workspace_preview_tables`, which lives in `airhouse::preview_sql::registry`
+//! and is re-exported here): which Airhouse schemas a preview may have, until
+//! when, and which relations it created in them. Plain Postgres; safe on any
+//! pod.
 //!
 //! **Registry first, and never adopt.** A preview schema is created only by
 //! [`ensure_schema`]: it writes the schema's row, and only then sends a
@@ -58,8 +59,6 @@
 //! `refused_at` / `refused_reason` and set `schema_created_at = now()` so the
 //! TTL drop takes it (`internal-docs/airhouse-integration.md`).
 
-mod shadow;
-
 use std::time::Duration;
 
 use airhouse::preview_sql::{PreviewNamespace, Refused};
@@ -69,7 +68,11 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-pub use shadow::{load_shadow, parse_state, record_step, shadow_changes, state_str, upsert_shadow};
+// The shadow map moved to the `airhouse` crate so the custom-app surface can
+// use it too (`airhouse::preview_sql::registry`); these are its old paths.
+pub use airhouse::preview_sql::registry::{
+    clear_shadow, load_shadow, parse_state, record_step, shadow_changes, state_str, upsert_shadow,
+};
 
 use super::ddl::{PreviewDdlError, SchemaCreator, well_formed};
 

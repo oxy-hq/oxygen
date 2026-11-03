@@ -74,14 +74,45 @@ impl Prelude {
         let Prelude::CopyOnWrite { live, .. } = self else {
             return None;
         };
-        let in_catalog = catalog.map_or(String::new(), |c| {
-            format!("table_catalog = {} AND ", literal(c))
-        });
+        Some(table_probe(catalog, live))
+    }
+
+    /// For a refill: [`Prelude::live_table_probe`] for the preview side, a
+    /// query counting 1 when the table the copy would fill already exists.
+    /// A custom-app environment's sibling table does when its migrations ran,
+    /// and then the copy is a refill ([`Prelude::refill_plans`]) rather than
+    /// [`Prelude::copy_plan`]'s `CREATE OR REPLACE`.
+    pub fn preview_table_probe(&self, catalog: Option<&str>) -> Option<String> {
+        let Prelude::CopyOnWrite { preview, .. } = self else {
+            return None;
+        };
+        Some(table_probe(catalog, preview))
+    }
+
+    /// For a refill: one query returning the `column_name` of every column of
+    /// the preview table that the live table also has (compared
+    /// case-insensitively), in the preview table's `ordinal_position`. The
+    /// host passes the names, as returned, to [`Prelude::refill_plans`].
+    pub fn shared_columns_probe(&self, catalog: Option<&str>) -> Option<String> {
+        let Prelude::CopyOnWrite { live, preview } = self else {
+            return None;
+        };
+        let columns = |alias: &str, (schema, table): &(String, String)| {
+            format!(
+                "FROM information_schema.columns {alias} WHERE {}\
+                 lower({alias}.table_schema) = {} AND lower({alias}.table_name) = {}",
+                catalog.map_or(String::new(), |c| {
+                    format!("{alias}.table_catalog = {} AND ", literal(c))
+                }),
+                literal(schema),
+                literal(table)
+            )
+        };
         Some(format!(
-            "SELECT count(*) FROM information_schema.tables WHERE {in_catalog}\
-             lower(table_schema) = {} AND lower(table_name) = {}",
-            literal(&live.0),
-            literal(&live.1)
+            "SELECT p.column_name {} AND EXISTS (SELECT 1 {} AND \
+             lower(l.column_name) = lower(p.column_name)) ORDER BY p.ordinal_position",
+            columns("p", preview),
+            columns("l", live)
         ))
     }
 
@@ -140,6 +171,66 @@ impl Prelude {
     }
 }
 
+impl Prelude {
+    /// For a copy into a table that **already exists**: empty it, then fill
+    /// it from the live table. `columns` are the ones
+    /// [`Prelude::shared_columns_probe`] returned. Returns the statements to
+    /// run in order, both naming the same `live` table and ending in the same
+    /// `state`:
+    ///
+    /// 1. `DELETE FROM <preview>`;
+    /// 2. when `live_rows <= cap` and there are shared columns,
+    ///    `INSERT INTO <preview> ("c", …) SELECT "c", … FROM <live>`, and the
+    ///    table is [`ShadowState::Shadow`]; otherwise only the `DELETE`, and
+    ///    it is [`ShadowState::Partial`].
+    ///
+    /// Why not [`Prelude::copy_plan`]: `CREATE OR REPLACE TABLE … AS SELECT *`
+    /// would replace the columns the sibling's migrations made with the live
+    /// table's, and a sandbox exists to try a migration that is not live yet.
+    /// Naming the shared columns keeps every other column (empty, or its
+    /// default). `INSERT … BY NAME` would spare the column list but a
+    /// schema-scoped Airhouse Writer refuses it. `None` unless this is a
+    /// [`Prelude::CopyOnWrite`].
+    pub fn refill_plans(
+        &self,
+        catalog: Option<&str>,
+        live_rows: u64,
+        cap: u64,
+        columns: &[String],
+    ) -> Option<Vec<CopyPlan>> {
+        let Prelude::CopyOnWrite { live, preview } = self else {
+            return None;
+        };
+        let cat = catalog_prefix(catalog);
+        let into = format!("{cat}{}.{}", quote(&preview.0), quote(&preview.1));
+        let whole = live_rows <= cap && !columns.is_empty();
+        let state = if whole {
+            ShadowState::Shadow
+        } else {
+            ShadowState::Partial
+        };
+        let plan = |statement: String| CopyPlan {
+            live: live.clone(),
+            statement,
+            state,
+        };
+        let mut plans = vec![plan(format!("DELETE FROM {into}"))];
+        if whole {
+            let list = columns
+                .iter()
+                .map(|c| quote(c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            plans.push(plan(format!(
+                "INSERT INTO {into} ({list}) SELECT {list} FROM {cat}{}.{}",
+                quote(&live.0),
+                quote(&live.1)
+            )));
+        }
+        Some(plans)
+    }
+}
+
 impl CopyPlan {
     /// The same copy, refusing to replace a table already there (`CREATE
     /// TABLE`, not `CREATE OR REPLACE TABLE`). For a copy planned again
@@ -180,6 +271,20 @@ impl ShadowMap {
             self.0.insert(live.clone(), settled);
         }
     }
+}
+
+/// A query counting 1 when `(schema, table)` exists, else 0 (see
+/// [`Prelude::live_table_probe`] for the catalog filter).
+fn table_probe(catalog: Option<&str>, (schema, table): &(String, String)) -> String {
+    let in_catalog = catalog.map_or(String::new(), |c| {
+        format!("table_catalog = {} AND ", literal(c))
+    });
+    format!(
+        "SELECT count(*) FROM information_schema.tables WHERE {in_catalog}\
+         lower(table_schema) = {} AND lower(table_name) = {}",
+        literal(schema),
+        literal(table)
+    )
 }
 
 fn quote(ident: &str) -> String {

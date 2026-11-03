@@ -339,6 +339,7 @@ mod tests {
             "custom_app_sandbox_teardown",
             "custom_app_sandbox_migrations",
             "custom_app_sandbox_oltp",
+            "custom_app_env_oltp_branch",
         ] {
             insert_run(&db, ws, "failed", Some(kind)).await;
         }

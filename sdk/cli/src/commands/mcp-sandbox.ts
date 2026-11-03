@@ -122,7 +122,11 @@ export const SANDBOX_AGENT_TOOLS: ToolDef[] = [
 
 /** A sandbox tool as this credential must call it: the environment is not optional. */
 function forSandboxAgent(tool: ToolDef): ToolDef {
-  if (tool.name === "oxy_env_show") {
+  if (
+    tool.name === "oxy_env_show" ||
+    tool.name === "oxy_env_update" ||
+    tool.name === "oxy_env_reset"
+  ) {
     return {
       ...tool,
       inputSchema: {

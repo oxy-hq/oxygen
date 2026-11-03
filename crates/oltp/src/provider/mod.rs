@@ -19,7 +19,8 @@ pub use local::{LocalProvider, database_name_for, host_from_dsn};
 pub use mock::MockProvider;
 pub use neon::NeonProvider;
 pub use types::{
-    Branch, BranchRequest, CreateProjectRequest, DatabaseInfo, Project, ProjectBranch, Role,
+    Branch, BranchInit, BranchRequest, CreateProjectRequest, DatabaseInfo, Project, ProjectBranch,
+    Role,
 };
 
 /// Role that owns a tenant database.
@@ -236,6 +237,27 @@ pub trait OltpProvider: Send + Sync {
         &self,
         req: &BranchRequest,
         branch_id: &str,
+    ) -> Result<(), ProviderError>;
+
+    /// The id of the branch carrying `req.name` in this project, if there is
+    /// one. How a caller finds a branch it created but never recorded (the
+    /// answer was lost, or recording it failed): the name is derived, so a match
+    /// is ours — the same argument `create_branch` adopts on. The caller deletes
+    /// by id through [`Self::delete_branch`], which proves the id is not
+    /// production.
+    async fn find_branch_id(&self, req: &BranchRequest) -> Result<Option<String>, ProviderError>;
+
+    /// Move `branch_id`'s provider-side expiry to `expires_at`.
+    ///
+    /// A restore in place keeps the branch (and its expiry), so a reset that
+    /// moves the recorded fork point must move this too, or the provider reaps
+    /// the branch at the old date. A provider with no expiry (`LocalProvider`)
+    /// does nothing. [`ProviderError::BranchNotFound`] when the branch is gone.
+    async fn set_branch_expiry(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), ProviderError>;
 
     /// Whether `delete_project` takes the project's branches with it.

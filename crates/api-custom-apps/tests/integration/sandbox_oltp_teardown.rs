@@ -34,7 +34,7 @@ const IDS: [&str; 3] = ["ids", "query", "select id from orders order by id"];
 
 /// Mark `dev-<handle>` deleting, as a `DELETE` does, and hand back the
 /// teardown it queued.
-async fn begin_delete(
+pub(crate) async fn begin_delete(
     app: &OltpApp,
     row: &entity::apps::Model,
     handle: &str,
@@ -227,7 +227,8 @@ async fn a_sandbox_with_no_recorded_schema_has_nothing_to_drop() {
         publish(&app, "a1", "a-1", &[]).await;
         let task = begin_delete(&app, &row, "a1").await;
         let summary = teardown::run(&app.t.db, &task).await.expect("the teardown");
-        assert!(summary.ends_with("no OLTP schema"), "{summary}");
+        assert!(summary.contains("no OLTP schema"), "{summary}");
+        assert!(summary.ends_with("no OLTP branch"), "{summary}");
         assert!(sandbox_row(&app, row.id, "a1").await.is_none());
         let kept = app_environments::Entity::find()
             .filter(app_environments::Column::AppId.eq(row.id))

@@ -1,10 +1,11 @@
 //! The mock's branches, shaped like Neon's: each has its own id, endpoint and
-//! owner password; a branch already carrying the name is adopted; a reset keeps
+//! owner password; a branch already carrying the name is adopted (in the shape
+//! asked for only, as on Neon); a reset keeps
 //! the id; the project's default branch cannot be deleted.
 
 use super::{MockProvider, State};
 use crate::provider::ProviderError;
-use crate::provider::types::{BranchRequest, DatabaseInfo, ProjectBranch, Role};
+use crate::provider::types::{BranchInit, BranchRequest, DatabaseInfo, ProjectBranch, Role};
 
 impl MockProvider {
     /// Every branch id `delete_branch` was asked to delete, in order —
@@ -17,10 +18,76 @@ impl MockProvider {
             .clone()
     }
 
+    /// Every request `create_branch` received, in order — failed ones included,
+    /// since what the caller asked for is the fact, not whether it landed.
+    pub fn branch_create_requests(&self) -> Vec<BranchRequest> {
+        self.state
+            .lock()
+            .expect("mock lock")
+            .branch_create_requests
+            .clone()
+    }
+
     /// Make every `create_branch` wait this long before answering — the width
     /// of the race a concurrency test needs two provisions to share.
     pub fn delay_branch_creates(&self, delay: std::time::Duration) {
         self.state.lock().expect("mock lock").branch_create_delay = Some(delay);
+    }
+
+    /// Every `(branch id, expires_at)` `set_branch_expiry` was asked for, in
+    /// order.
+    pub fn branch_expiry_updates(&self) -> Vec<(String, chrono::DateTime<chrono::Utc>)> {
+        self.state
+            .lock()
+            .expect("mock lock")
+            .branch_expiry_updates
+            .clone()
+    }
+
+    /// The init a live branch was created with — `SchemaOnly` is a branch
+    /// that holds none of its parent's rows. `None` once it is deleted.
+    pub fn branch_init(&self, branch_id: &str) -> Option<BranchInit> {
+        self.state
+            .lock()
+            .expect("mock lock")
+            .branch_inits
+            .get(branch_id)
+            .copied()
+    }
+
+    pub(super) fn find_branch_id_impl(
+        &self,
+        req: &BranchRequest,
+    ) -> Result<Option<String>, ProviderError> {
+        let mut state = self.state.lock().expect("mock lock");
+        if let Some(f) = state.take_fault() {
+            return Err(f);
+        }
+        Ok(state
+            .branches
+            .iter()
+            .find(|((p, _), b)| p == &req.project_id && b.name == req.name)
+            .map(|((_, id), _)| id.clone()))
+    }
+
+    pub(super) fn set_branch_expiry_impl(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), ProviderError> {
+        let mut state = self.state.lock().expect("mock lock");
+        if let Some(f) = state.take_fault() {
+            return Err(f);
+        }
+        let key = (req.project_id.clone(), branch_id.to_string());
+        if !state.branches.contains_key(&key) {
+            return Err(ProviderError::BranchNotFound(branch_id.to_string()));
+        }
+        state
+            .branch_expiry_updates
+            .push((branch_id.to_string(), expires_at));
+        Ok(())
     }
 
     pub(super) fn create_branch_impl(
@@ -28,6 +95,7 @@ impl MockProvider {
         req: &BranchRequest,
     ) -> Result<ProjectBranch, ProviderError> {
         let mut state = self.state.lock().expect("mock lock");
+        state.branch_create_requests.push(req.clone());
         if let Some(f) = state.take_fault() {
             return Err(f);
         }
@@ -39,6 +107,9 @@ impl MockProvider {
             .iter()
             .find(|((p, _), b)| p == &req.project_id && b.name == req.name)
             .map(|(_, b)| b.clone());
+        if let Some(found) = &adopted {
+            refuse_other_shape(&state, req, found)?;
+        }
         let n = state.next();
         let branch = adopted.unwrap_or_else(|| ProjectBranch {
             id: format!("br-{n}"),
@@ -57,6 +128,7 @@ impl MockProvider {
         state
             .branches
             .insert((req.project_id.clone(), branch.id.clone()), branch.clone());
+        state.branch_inits.insert(branch.id.clone(), req.init);
         Ok(disclose_owner(&mut state, &req.project_id, branch, n))
     }
 
@@ -105,11 +177,39 @@ impl MockProvider {
         state
             .branches
             .remove(&(project_id.to_string(), branch_id.to_string()));
+        state.branch_inits.remove(branch_id);
         state
             .roles
             .retain(|(p, b, _), _| !(p == project_id && b == branch_id));
         Ok(())
     }
+}
+
+/// Neon's adopt rule: a same-named branch is adopted only in the shape asked
+/// for. A data branch has production as its parent and a schema-only one has
+/// none, so the other shape answers as a parent mismatch.
+fn refuse_other_shape(
+    state: &State,
+    req: &BranchRequest,
+    found: &ProjectBranch,
+) -> Result<(), ProviderError> {
+    let init = state
+        .branch_inits
+        .get(&found.id)
+        .copied()
+        .unwrap_or_default();
+    if init == req.init {
+        return Ok(());
+    }
+    let parent = match init {
+        BranchInit::ParentData => found.parent_id.clone(),
+        BranchInit::SchemaOnly => String::new(),
+    };
+    Err(ProviderError::BranchParentMismatch {
+        name: req.name.clone(),
+        parent,
+        expected: req.parent_branch_id.clone(),
+    })
 }
 
 /// Mint a fresh owner password on `branch`, record it, and disclose it once —

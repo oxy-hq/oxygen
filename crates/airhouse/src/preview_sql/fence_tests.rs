@@ -15,6 +15,7 @@ fn opts() -> RewriteOptions {
     RewriteOptions {
         catalog: Some("lake".into()),
         read_live_only: false,
+        pin: None,
     }
 }
 

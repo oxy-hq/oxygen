@@ -28,6 +28,44 @@ pub async fn connector(
     schema: &str,
 ) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
     let key = pool_key(workspace_id, app_slug, schema);
+    connect(
+        key,
+        workspace_id,
+        app_slug,
+        schema,
+        airhouse::UserRole::Writer,
+    )
+    .await
+}
+
+/// Connect as `app_slug` with a Reader: unscoped, because a Reader writes
+/// nothing to confine. `ctx.airhouse.query` takes it under the `snapshot`
+/// mode, whose time-travel reads (`AT (TIMESTAMP => …)`) Airhouse refuses on
+/// a schema-scoped Writer — it checks a scoped credential's SQL with a parser
+/// that has no table versioning. `schema` names the app's audit subject only.
+pub async fn reader(
+    workspace_id: Uuid,
+    app_slug: &str,
+    schema: &str,
+) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
+    let key = format!("{}:reader", pool_key(workspace_id, app_slug, schema));
+    connect(
+        key,
+        workspace_id,
+        app_slug,
+        schema,
+        airhouse::UserRole::Reader,
+    )
+    .await
+}
+
+async fn connect(
+    key: String,
+    workspace_id: Uuid,
+    app_slug: &str,
+    schema: &str,
+    role: airhouse::UserRole,
+) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
     let (slug, schema) = (app_slug.to_string(), schema.to_string());
     super::airhouse_pool::get_or_build(key, || async move {
         let endpoint = airhouse::wire_endpoint().ok_or_else(|| {
@@ -47,12 +85,12 @@ pub async fn connector(
                 workspace_id,
                 &slug,
                 &schema,
-                airhouse::UserRole::Writer,
+                role,
                 airhouse::DEFAULT_INTERNAL_TTL,
             )
             .await
             .map_err(OxyError::from)?;
-        if cred.write_schemas.is_none() {
+        if role == airhouse::UserRole::Writer && cred.write_schemas.is_none() {
             tracing::warn!(
                 %workspace_id,
                 app = %slug,
@@ -97,5 +135,14 @@ mod tests {
         let staging = pool_key(ws, "store-ops", "app_store_ops__staging");
         assert_ne!(production, staging);
         assert!(production.starts_with("app:") && staging.starts_with("app:"));
+    }
+
+    #[test]
+    fn the_reader_is_pooled_apart_from_the_writer() {
+        let ws = Uuid::nil();
+        let writer = pool_key(ws, "store-ops", "app_store_ops");
+        let reader = format!("{writer}:reader");
+        assert_ne!(writer, reader);
+        assert!(reader.starts_with("app:"));
     }
 }

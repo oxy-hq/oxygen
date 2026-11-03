@@ -1,4 +1,4 @@
-import { ExternalLink, FlaskConical, Trash2 } from "lucide-react";
+import { FlaskConical } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
@@ -9,12 +9,10 @@ import {
   useDeleteAppEnvironment
 } from "@/hooks/api/customApps/useAppEnvironments";
 import { isForbidden } from "@/hooks/api/httpStatus";
-import { cn } from "@/libs/shadcn/utils";
-import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { AppEnvironment } from "@/services/api/customApps";
 import { LifecycleConfirm } from "../../../AppLifecycle";
-import { shortBuildId } from "../../../AppLifecycle/lifecycleCopy";
-import { relativeTime } from "../Activity/relativeTime";
+import { EnvironmentDrawer } from "./components/EnvironmentDrawer";
+import { EnvironmentRow } from "./components/EnvironmentRow";
 
 /**
  * The app's environments — production, staging, and each developer's or agent's dev
@@ -32,6 +30,7 @@ export const Environments = ({ appId }: { appId: string }) => {
   const remove = useDeleteAppEnvironment(appId);
   const [name, setName] = useState("");
   const [deleting, setDeleting] = useState<AppEnvironment | null>(null);
+  const [opened, setOpened] = useState<string | null>(null);
 
   if (isLoading) return <Skeleton className='h-20 w-full' />;
   if (isForbidden(error)) {
@@ -61,7 +60,12 @@ export const Environments = ({ appId }: { appId: string }) => {
     <div className='flex flex-col gap-3' data-testid='admin-app-environments'>
       <ul className='flex flex-col divide-y divide-border/50 rounded-md border'>
         {(data ?? []).map((env) => (
-          <EnvironmentRow key={env.name} env={env} onDelete={() => setDeleting(env)} />
+          <EnvironmentRow
+            key={env.name}
+            env={env}
+            onDelete={() => setDeleting(env)}
+            onDetails={() => setOpened(env.name)}
+          />
         ))}
       </ul>
 
@@ -87,6 +91,12 @@ export const Environments = ({ appId }: { appId: string }) => {
         </Button>
       </form>
 
+      <EnvironmentDrawer
+        appId={appId}
+        env={(data ?? []).find((e) => e.name === opened) ?? null}
+        onClose={() => setOpened(null)}
+      />
+
       <LifecycleConfirm
         testId='admin-app-env-confirm'
         copy={
@@ -106,56 +116,5 @@ export const Environments = ({ appId }: { appId: string }) => {
         onCancel={() => setDeleting(null)}
       />
     </div>
-  );
-};
-
-const EnvironmentRow = ({ env, onDelete }: { env: AppEnvironment; onDelete: () => void }) => {
-  const sandbox = env.kind === "dev";
-  const deletingNow = env.status === "deleting";
-  return (
-    <li
-      className='flex items-center gap-3 px-3 py-2 text-xs'
-      data-testid={`admin-app-env-row-${env.name}`}
-    >
-      <div className='flex min-w-0 flex-1 flex-col gap-0.5'>
-        <div className='flex items-center gap-2'>
-          <span className='font-medium font-mono'>{env.name}</span>
-          <span className='text-muted-foreground'>{env.kind}</span>
-          {deletingNow && <span className={cn(ADMIN_TONE.warn.text)}>deleting</span>}
-        </div>
-        <span className='truncate text-muted-foreground'>
-          {env.build_id ? `build ${shortBuildId(env.build_id)}` : "nothing published"}
-          {env.owner?.email ? ` · ${env.owner.email}` : ""}
-          {env.last_activity_at ? ` · active ${relativeTime(env.last_activity_at)}` : ""}
-          {env.expires_at ? ` · expires ${relativeTime(env.expires_at).replace(" ago", "")}` : ""}
-        </span>
-      </div>
-      {env.url && (
-        <Button asChild variant='ghost' size='sm' className='h-6 gap-1 px-1.5 text-[11px]'>
-          <a
-            href={env.url}
-            target='_blank'
-            rel='noreferrer'
-            data-testid={`admin-app-env-open-${env.name}`}
-          >
-            Open
-            <ExternalLink className='size-3' />
-          </a>
-        </Button>
-      )}
-      {sandbox && (
-        <Button
-          variant='ghost'
-          size='sm'
-          className='h-6 gap-1 px-1.5 text-[11px] text-muted-foreground'
-          disabled={deletingNow}
-          onClick={onDelete}
-          data-testid={`admin-app-env-delete-${env.name}`}
-        >
-          <Trash2 className='size-3' />
-          Delete
-        </Button>
-      )}
-    </li>
   );
 };

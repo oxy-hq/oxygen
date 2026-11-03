@@ -53,6 +53,8 @@ use axum::response::Response;
 use oxy::adapters::secrets::SecretsManager;
 use oxy::adapters::workspace::{builder::WorkspaceBuilder, effective_workspace_path};
 use oxy_custom_apps::gate::GateError;
+#[cfg(test)]
+use oxy_custom_apps::staging_pin::PinNotReady;
 use serde::Deserialize;
 use tracing::error;
 use uuid::Uuid;
@@ -95,8 +97,17 @@ impl CustomAppContextExt for CustomAppContext {
 use oxy_app_core::gate_response::{err, err_with_code};
 
 /// The response for a refusal or failure the decision half reports.
-fn gate_error_response(e: GateError) -> Response {
-    oxy_app_core::gate_response::refusal(e.status(), e.message(), e.code())
+fn gate_error_response(e: &GateError) -> Response {
+    let fix = e.pin_not_ready().map(|p| p.fix());
+    let not_ready = e.pin_not_ready().zip(fix.as_deref()).map(|(p, fix)| {
+        oxy_app_core::gate_response::NotReady {
+            environment: &p.environment,
+            git_sha: p.git_sha(),
+            fix,
+            planes_unreadable: p.is_planes_unreadable(),
+        }
+    });
+    oxy_app_core::gate_response::gate_refusal(e.status(), e.message(), e.code(), not_ready)
 }
 
 /// Run the gate chain (`oxy_custom_apps::gate::check_custom_app_gates`).
@@ -109,7 +120,7 @@ pub async fn check_custom_app_gates(
 ) -> Result<CustomAppContext, Response> {
     oxy_custom_apps::gate::check_custom_app_gates(headers, project_id)
         .await
-        .map_err(gate_error_response)
+        .map_err(|e| gate_error_response(&e))
 }
 
 /// Parse a custom-app endpoint's JSON body, enforcing the
@@ -414,6 +425,10 @@ mod tests {
     use serde::Deserialize;
     use serde_json::json;
 
+    fn pin_not_ready() -> PinNotReady {
+        PinNotReady::branch("staging", "feat-x".into(), Some("abc123".into()))
+    }
+
     /// The decision half states a status, a message and a code as plain values;
     /// the response built from them must put exactly those on the wire, in the
     /// `{ message, code? }` envelope the SDK reads.
@@ -453,9 +468,20 @@ mod tests {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 json!({ "message": "org membership check failed", "code": "database_unreachable" }),
             ),
+            (
+                GateError::SemanticBranchNotReady(pin_not_ready()),
+                StatusCode::SERVICE_UNAVAILABLE,
+                json!({
+                    "error": "semantic_branch_not_ready",
+                    "environment": "staging",
+                    "message": pin_not_ready().fix(),
+                    "git_sha": "abc123",
+                    "fix": pin_not_ready().fix(),
+                }),
+            ),
         ];
         for (error, status, body) in cases {
-            let response = gate_error_response(error);
+            let response = gate_error_response(&error);
             assert_eq!(response.status(), status, "{error:?}");
             let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await

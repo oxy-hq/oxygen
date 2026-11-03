@@ -51,6 +51,19 @@ async fn sandbox_serving(
     ops::create(&t.db, app, &sandbox(handle), &t.guest())
         .await
         .expect("create the sandbox");
+    publish_into_sandbox(t, app, handle, build_id, functions, env).await;
+}
+
+/// Publish `functions` (with `env` in the manifest) to the sandbox `handle`,
+/// which already exists, as build `build_id` — through the real publish.
+pub(crate) async fn publish_into_sandbox(
+    t: &Tenant,
+    app: &apps::Model,
+    handle: &str,
+    build_id: &str,
+    functions: &[FunctionSpec],
+    env: Value,
+) {
     let declared: serde_json::Map<String, Value> = functions
         .iter()
         .map(|f| (f.name.to_string(), f.manifest.clone()))
@@ -95,7 +108,7 @@ async fn sandbox_serving(
         .expect("publish to the sandbox");
 }
 
-async fn app_row(t: &Tenant, id: uuid::Uuid) -> apps::Model {
+pub(crate) async fn app_row(t: &Tenant, id: uuid::Uuid) -> apps::Model {
     apps::Entity::find_by_id(id)
         .one(&t.db)
         .await

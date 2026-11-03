@@ -6,8 +6,10 @@
 
 use std::time::Duration;
 
+use oxy_oltp::branches::{BranchCut, CutScope, still_current};
 use oxy_oltp::entity::branch_roles::Entity as BranchRoles;
 use oxy_oltp::entity::branches::{self as oltp_branches, BranchStatus, Entity as OltpBranches};
+use oxy_oltp::entity::env_branches::{self, EnvBranchMode, EnvBranchStatus};
 use oxy_oltp::provider::{BranchRequest, OltpProvider};
 use oxy_oltp::resolver::ResolveError;
 use oxy_oltp::{OltpBranch, ProvisionerError};
@@ -177,13 +179,13 @@ async fn resolution_refuses_a_row_that_names_production() {
 /// which the reset writes only after taking it.
 async fn a_slow_re_cut_begins(n: &Neon, row: &oltp_branches::Model) {
     let tenant = n.tenant().await;
-    let req = BranchRequest {
-        project_id: tenant.project_id.clone(),
-        parent_branch_id: tenant.branch_id.clone(),
-        name: STAGING.provider_name().into(),
-        database_name: tenant.database_name.clone(),
-        owner_role: tenant.owner_role.clone(),
-    };
+    let req = BranchRequest::staging(
+        tenant.project_id.as_str(),
+        tenant.branch_id.as_str(),
+        STAGING.provider_name(),
+        tenant.database_name.as_str(),
+        tenant.owner_role.as_str(),
+    );
     n.provider
         .delete_branch(&req, &row.provider_branch_id)
         .await
@@ -257,4 +259,91 @@ async fn releasing_an_app_waits_for_a_reset_and_drops_it_on_the_new_copy() {
             .all(|r| !r.role_name.contains("store_ops")),
         "no branch credential outlives the app"
     );
+}
+
+/// An environment's cut is current only while its own row is serving and has
+/// not been re-cut since: a reset moves `last_reset_at`, a re-cut changes the
+/// provider id, and a reset in flight is not serving at all. A row that only
+/// records an intent has no cut.
+#[tokio::test]
+async fn an_env_cut_is_not_current_once_its_row_is_re_cut() {
+    let n = neon().await;
+    let tenant = n.tenant().await;
+    let now = chrono::Utc::now().fixed_offset();
+    let row = env_branches::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        tenant_row_id: ActiveValue::Set(tenant.id),
+        app_id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        env_name: ActiveValue::Set("dev-a1".into()),
+        mode: ActiveValue::Set(EnvBranchMode::Branch),
+        status: ActiveValue::Set(EnvBranchStatus::Cutting),
+        error: ActiveValue::Set(None),
+        provider_branch_id: ActiveValue::Set(None),
+        parent_branch_id: ActiveValue::Set(tenant.branch_id.clone()),
+        host: ActiveValue::Set(None),
+        database_name: ActiveValue::Set(None),
+        owner_role: ActiveValue::Set(None),
+        owner_password_ciphertext: ActiveValue::Set(None),
+        fork_at: ActiveValue::Set(now),
+        expires_at: ActiveValue::Set(now + chrono::Duration::days(7)),
+        created_at: ActiveValue::Set(now),
+        last_reset_at: ActiveValue::Set(None),
+        updated_at: ActiveValue::Set(now),
+    }
+    .insert(&n.db)
+    .await
+    .expect("seed env branch");
+    assert!(
+        BranchCut::of_env(&row).is_none(),
+        "no cut before the provider has answered"
+    );
+
+    let mut cut_row: env_branches::ActiveModel = row.into();
+    cut_row.provider_branch_id = ActiveValue::Set(Some("br-env-1".into()));
+    cut_row.host = ActiveValue::Set(Some("ep-env-1.example.test".into()));
+    cut_row.database_name = ActiveValue::Set(Some(tenant.database_name.clone()));
+    cut_row.owner_role = ActiveValue::Set(Some("env_owner".into()));
+    cut_row.status = ActiveValue::Set(EnvBranchStatus::Ready);
+    let row = cut_row.update(&n.db).await.unwrap();
+    let cut = BranchCut::of_env(&row).expect("a cut once the provider answered");
+    assert_eq!(cut.scope, CutScope::Environment);
+    assert!(still_current(&n.db, &cut).await.unwrap());
+
+    let set_status = |status: EnvBranchStatus| {
+        let mut m: env_branches::ActiveModel = row.clone().into();
+        m.status = ActiveValue::Set(status);
+        m.update(&n.db)
+    };
+    set_status(EnvBranchStatus::Migrating).await.unwrap();
+    assert!(
+        still_current(&n.db, &cut).await.unwrap(),
+        "the migration apply asks while the row is migrating"
+    );
+    set_status(EnvBranchStatus::Resetting).await.unwrap();
+    assert!(!still_current(&n.db, &cut).await.unwrap());
+
+    let mut reset: env_branches::ActiveModel = row.clone().into();
+    reset.last_reset_at = ActiveValue::Set(Some(now + chrono::Duration::minutes(5)));
+    reset.status = ActiveValue::Set(EnvBranchStatus::Ready);
+    reset.update(&n.db).await.unwrap();
+    assert!(
+        !still_current(&n.db, &cut).await.unwrap(),
+        "a reset moved the cut"
+    );
+
+    let mut recut: env_branches::ActiveModel = row.clone().into();
+    recut.provider_branch_id = ActiveValue::Set(Some("br-env-2".into()));
+    recut.update(&n.db).await.unwrap();
+    assert!(
+        !still_current(&n.db, &cut).await.unwrap(),
+        "a re-cut changed the provider id"
+    );
+
+    // The same row id in the org-branch scope reads `oltp_branches`, where it
+    // is not: a cut never crosses tables.
+    let misscoped = BranchCut {
+        scope: CutScope::OrgBranch,
+        ..cut
+    };
+    assert!(!still_current(&n.db, &misscoped).await.unwrap());
 }

@@ -1473,7 +1473,11 @@ fn wrap_outer_service(
         .layer(sentry::integrations::tower::NewSentryLayer::<
             axum::extract::Request,
         >::new_from_top())
-        .layer(axum::middleware::from_fn(
+        .layer(axum::middleware::from_fn_with_state(
+            std::sync::Arc::new(
+                crate::server::api::projects::workspace_actions::PlanesWorkspaceActions,
+            )
+                as std::sync::Arc<dyn oxy_app_core::custom_app_env_request::WorkspaceActions>,
             oxy_app_core::custom_app_env_request::environment_guard_middleware,
         ))
         .layer(axum::middleware::from_fn(

@@ -114,7 +114,7 @@ fn has_every_class(s: &str) -> bool {
 /// Quote a literal for SQL. Passwords come from [`generate_password`] so they
 /// contain no quotes, but this is the one place a generated value reaches SQL
 /// text and `CREATE ROLE` has no parameter binding.
-fn quote_literal(s: &str) -> String {
+pub(crate) fn quote_literal(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 

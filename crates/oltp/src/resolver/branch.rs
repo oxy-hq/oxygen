@@ -16,14 +16,14 @@ use uuid::Uuid;
 
 use super::{AnalystConnection, ResolveError, WriterConnection, open, split_host_port};
 use crate::OltpBranch;
-use crate::entity::branch_roles::{self as branch_roles, Entity as BranchRoles};
 use crate::entity::branches::{self as oltp_branches, BranchStatus};
 use crate::entity::roles::{self as oltp_roles, Entity as OltpRoles};
 use crate::entity::tenants::{self as oltp_tenants, TenantStatus};
+use crate::provisioner::BranchSite;
 use crate::schema::{self, GrantLevel, WriterRef};
 
 // Whether a row names production, by id or by endpoint in any spelling.
-mod guard;
+pub(super) mod guard;
 
 /// A writable connection for `writer` on the org's `branch`.
 ///
@@ -183,7 +183,12 @@ pub(crate) async fn resolve_branch_owner(
     };
     let password = open(sealed)?;
     Ok(Some(BranchOwner {
-        dsn: crate::provisioner::branch_dsn(&tenant.provider, &row, &row.owner_role, &password),
+        dsn: crate::provisioner::branch_dsn(
+            &tenant.provider,
+            &BranchSite::of_org_branch(&row),
+            &row.owner_role,
+            &password,
+        ),
         owner_role: row.owner_role.clone(),
         cut: crate::branches::BranchCut::of(&row),
         tenant,
@@ -217,7 +222,12 @@ async fn active_branch(
     };
     // Checked on every resolve, not only where rows are written: this is the
     // last point before a staging caller holds a connection.
-    if guard::names_production(&tenant, &row) {
+    if guard::names_production(
+        &tenant,
+        &row.provider_branch_id,
+        &row.host,
+        &row.database_name,
+    ) {
         return Err(ResolveError::BranchIsProduction(org_id, branch));
     }
     if row.status != BranchStatus::Active {
@@ -245,17 +255,16 @@ async fn branch_password(
     if schema::shares_role_namespace(&tenant.provider) {
         return open(production_sealed);
     }
-    let found = BranchRoles::find()
-        .filter(branch_roles::Column::BranchRowId.eq(row.id))
-        .filter(branch_roles::Column::RoleName.eq(role))
-        .one(db)
+    let sealed = BranchSite::of_org_branch(row)
+        .roles
+        .password_of(db, role)
         .await?
         .ok_or_else(|| ResolveError::BranchCredentialMissing {
             org_id: tenant.org_id,
             branch: row.kind,
             role: role.to_string(),
         })?;
-    open(&found.password_ciphertext)
+    open(&sealed)
 }
 
 #[cfg(test)]

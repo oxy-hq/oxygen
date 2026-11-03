@@ -48,7 +48,7 @@ agentic-connector = { workspace = true, features = [
 # Airhouse writes in its own schemas. Enabled here (not only where it is used)
 # so the workspace test run builds airhouse with it and runs its I1 tests.
 # `import`: `oxy seed` loads the demo workspace's data files into its tenant.
-airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "preview-sql", "import"] }
+airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "preview-sql", "preview-registry", "import"] }
 # `server::previews::sql_kind` classifies warehouse SQL per statement for the
 # workspace-preview hold. Same version as airhouse's `sql-rules`, whose
 # `is_read_only` it shares, so both read one AST.

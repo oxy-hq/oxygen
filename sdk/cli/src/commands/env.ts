@@ -20,6 +20,18 @@ import { isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 import { out } from "../ui/tty.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
+import {
+  applyDestinations,
+  applyFetchHosts,
+  describePlanesSet,
+  type PlaneValue,
+  parseDestinationFlags,
+  parseFetchHosts,
+  parsePlaneFlags,
+  requireForkAt,
+  requirePreset,
+  validatePlaneMap
+} from "./env-plane-args.js";
 import { confirm } from "./oltp-client.js";
 
 /** The sandbox-management surface's wire shape — snake_case, printed verbatim. */
@@ -41,6 +53,32 @@ export interface Environment {
    * has queued it; `null` otherwise, and absent from a server older than it.
    */
   oltp_schema?: OltpSchema | null;
+  /**
+   * A sandbox's own OLTP branch (`oltp=branch` or `oltp=empty`); `null` on
+   * `schema` mode, production and staging, and absent from a server older
+   * than it.
+   */
+  oltp_branch?: OltpBranch | null;
+  /**
+   * The environment this one branched from, when it is one — `null` for
+   * production, and absent from a server older than branches.
+   */
+  parent?: string | null;
+  /** RFC 3339: when this environment forked from `parent`. */
+  fork_at?: string | null;
+  /**
+   * Each plane's mode (`build=own`, `oltp=schema`, …), keyed by plane. `null`
+   * for production, and when `planes_error` says they could not be read.
+   */
+  planes?: Record<string, string> | null;
+  /**
+   * Only the planes someone set explicitly, as stored (`{}` when none) — what
+   * `env update` merges into. `null` for production, and absent from a server
+   * older than it.
+   */
+  planes_set?: Record<string, unknown> | null;
+  /** Why `planes` could not be read; `null` when it could. */
+  planes_error?: string | null;
 }
 
 /** `ctx.oltp`'s home in a sandbox: its schema, and whether it can be used yet. */
@@ -60,18 +98,30 @@ export interface OltpSchema {
   error: string | null;
 }
 
+/** A sandbox's own Neon branch of the org's OLTP database. */
+export interface OltpBranch {
+  /** `branch`: a copy of production as of `fork_at`. `empty`: its schema, no rows. */
+  mode: "branch" | "empty" | string;
+  /** Only `ready` serves `ctx.oltp`. */
+  status: "cutting" | "migrating" | "ready" | "resetting" | "failed" | string;
+  fork_at: string;
+  /** When the provider reaps it and the sandbox is torn down; `null` for `empty`. */
+  expires_at: string | null;
+  error: string | null;
+}
+
 interface Deleting {
   name: string;
   status: string;
   teardown_run_id?: string;
 }
 
-function environmentsPath(appId: string, name?: string): string {
+export function environmentsPath(appId: string, name?: string): string {
   const base = `/api/customer-apps/${appId}/environments`;
   return name === undefined ? base : `${base}/${encodeURIComponent(name)}`;
 }
 
-function printEnvironment(env: unknown, asJson: boolean): void {
+export function printEnvironment(env: unknown, asJson: boolean): void {
   if (asJson) {
     process.stdout.write(`${JSON.stringify(env)}\n`);
     return;
@@ -80,7 +130,55 @@ function printEnvironment(env: unknown, asJson: boolean): void {
   const build = e.build_id ? `build ${e.build_id}` : "no build yet";
   process.stdout.write(`${e.name} (${e.kind}) — ${e.status}, ${build}\n`);
   if (e.url) process.stdout.write(`  ${e.url}\n`);
+  const planes = describePlanes(e);
+  if (planes) process.stdout.write(`  ${planes}\n`);
+  const set = describePlanesSet(e.planes_set);
+  if (set) process.stdout.write(`  set: ${set}\n`);
   if (e.oltp_schema) process.stdout.write(`  ${describeOltpSchema(e.oltp_schema)}\n`);
+  if (e.oltp_branch) process.stdout.write(`  ${describeOltpBranch(e.oltp_branch)}\n`);
+}
+
+/**
+ * The order `describePlanes` prints planes in. The server sends them
+ * alphabetically (a map), which is no way to read them; this is the order a
+ * developer thinks in. A later phase's new plane is added here.
+ */
+export const PLANE_ORDER: readonly string[] = [
+  "build",
+  "semantic",
+  "reads",
+  "oltp",
+  "airhouse",
+  "warehouse",
+  "storage",
+  "secrets",
+  "messages",
+  "fetch",
+  "schedules",
+  "workspace-actions"
+];
+
+/**
+ * One line for the human output: where the environment branched from and each
+ * plane's mode. `null` when the server sent nothing (production, or an older
+ * server).
+ */
+export function describePlanes(
+  env: Pick<Environment, "parent" | "fork_at" | "planes" | "planes_error">
+): string | null {
+  if (env.planes_error) {
+    const from = env.parent ? `from ${env.parent} · ` : "";
+    return `${from}planes: unreadable — ${env.planes_error}`;
+  }
+  const planes = env.planes;
+  if (!planes) return null;
+  const known = PLANE_ORDER.filter((key) => key in planes);
+  const extra = Object.keys(planes)
+    .filter((key) => !PLANE_ORDER.includes(key))
+    .sort();
+  const modes = [...known, ...extra].map((key) => `${key}=${planes[key]}`).join(" ");
+  if (!modes) return env.parent ? `from ${env.parent}` : null;
+  return env.parent ? `from ${env.parent} · ${modes}` : modes;
 }
 
 /** One line for the human output: the schema, its state, and what to do. */
@@ -105,20 +203,87 @@ export function describeOltpSchema(oltp: OltpSchema): string {
   }
 }
 
+/** One line for the human output: the branch, its state, and what to do. */
+export function describeOltpBranch(branch: OltpBranch): string {
+  const head = `OLTP branch (${branch.mode}) — ${branch.status}`;
+  const forked = `forked ${branch.fork_at}`;
+  switch (branch.status) {
+    case "ready": {
+      const ends = branch.expires_at
+        ? `, expires ${branch.expires_at} (the sandbox goes with it)`
+        : ", no expiry";
+      return `${head} (${forked}${ends})`;
+    }
+    case "failed":
+      return `${head}: ${branch.error ?? "no reason recorded"}; oxyc env reset <app> <env> --plane oltp cuts it again`;
+    case "cutting":
+    case "migrating":
+    case "resetting":
+      return `${head} (${forked}); ctx.oltp is refused until it is ready`;
+    default:
+      return head;
+  }
+}
+
 /**
  * The request-building core of each verb, with no printing — shared by the
  * `oxyc env` CLI wrapper below and the `oxyc mcp` sandbox tools, so neither is
  * a second implementation of the request or its validation.
  */
-export async function envCreate(ctx: Context, app: string, name: string): Promise<Environment> {
+/** What `env create` may carry beyond the name: where to branch from, and how. */
+export interface EnvCreateOptions {
+  /** The environment to branch from: production, staging, or an active sandbox. */
+  from?: string;
+  /** Branch from the parent as of this instant (any date `Date` reads). */
+  at?: string;
+  preset?: string;
+  /** Plane key to mode, or `{mode, …settings}` — wins over the preset's. */
+  planes?: Record<string, PlaneValue>;
+  /** Warehouse overrides (production database to the one this environment writes). */
+  destinations?: Record<string, string>;
+  /** The fetch plane's host list (registered provider sandboxes); implies `fetch=allow`. */
+  fetchHosts?: readonly string[];
+}
+
+/** The POST body for a create: `name`, and each option only when given. */
+export function createBody(sandbox: string, opts: EnvCreateOptions): Record<string, unknown> {
+  const body: Record<string, unknown> = { name: sandbox };
+  if (opts.from !== undefined) body.from = parseAppEnv(opts.from);
+  if (opts.at !== undefined) body.at = requireForkAt(opts.at);
+  if (opts.preset !== undefined) body.preset = requirePreset(opts.preset);
+  if (opts.planes !== undefined) {
+    const planes = validatePlaneMap(opts.planes);
+    if (Object.keys(planes).length > 0) body.planes = planes;
+  }
+  const overrides = opts.destinations ?? {};
+  if (Object.keys(overrides).length > 0) {
+    const planes = applyDestinations((body.planes as Record<string, unknown>) ?? {}, {
+      set: overrides,
+      clear: []
+    });
+    body.planes = planes;
+  }
+  const planes = (body.planes as Record<string, unknown> | undefined) ?? {};
+  const withHosts = applyFetchHosts(planes, opts.fetchHosts ?? []);
+  if (withHosts !== planes) body.planes = withHosts;
+  return body;
+}
+
+export async function envCreate(
+  ctx: Context,
+  app: string,
+  name: string,
+  opts: EnvCreateOptions = {}
+): Promise<Environment> {
   const sandbox = requireSandboxName(name);
+  const body = createBody(sandbox, opts);
   const creds = staffCreds(ctx);
   const resolved = await resolveApp(creds, app);
   const response = await request({
     target: creds.target,
     path: environmentsPath(resolved.appId),
     method: "POST",
-    body: JSON.stringify({ name: sandbox }),
+    body: JSON.stringify(body),
     bearer: creds.bearer,
     headers: creds.headers
   });
@@ -182,9 +347,28 @@ export async function runEnvCreate(
   ctx: Context,
   app: string,
   name: string,
-  opts: { json: boolean }
+  opts: {
+    json: boolean;
+    from?: string;
+    at?: string;
+    preset?: string;
+    plane?: string[];
+    destination?: string[];
+    fetchHost?: string[];
+  }
 ): Promise<void> {
-  printEnvironment(await envCreate(ctx, app, name), opts.json);
+  const planes = opts.plane?.length ? parsePlaneFlags(opts.plane) : undefined;
+  const destinations = parseDestinationFlags(opts.destination ?? [], []).set;
+  const fetchHosts = parseFetchHosts(opts.fetchHost ?? []);
+  const created = await envCreate(ctx, app, name, {
+    from: opts.from,
+    at: opts.at,
+    preset: opts.preset,
+    planes,
+    destinations,
+    fetchHosts
+  });
+  printEnvironment(created, opts.json);
 }
 
 export async function runEnvList(

@@ -51,6 +51,7 @@ async fn a_caller_without_reach_and_a_publish_token_are_refused_by_every_handler
     let request = |name: &str| {
         Json(CreateEnvironmentRequest {
             name: name.to_string(),
+            ..Default::default()
         })
     };
     let named = || Path((app, "dev-a1".to_string()));
@@ -65,6 +66,7 @@ async fn a_caller_without_reach_and_a_publish_token_are_refused_by_every_handler
         refusal(
             handlers::create(
                 RequestActor::session(tenant().0),
+                None,
                 None,
                 Path(app),
                 request("dev-b2")
@@ -101,6 +103,7 @@ async fn a_caller_without_reach_and_a_publish_token_are_refused_by_every_handler
             handlers::create(
                 RequestActor::session(staff().0),
                 token(),
+                None,
                 Path(app),
                 request("dev-b2")
             )
@@ -278,6 +281,9 @@ fn the_routes_are_mounted_inside_the_console_guards() {
     for route in [
         position("\"/{id}/environments\","),
         position("\"/{id}/environments/{name}\","),
+        position("\"/{id}/environments/{name}/planes\","),
+        position("\"/{id}/environments/{name}/reset\","),
+        position("\"/{id}/environments/{name}/outbox\","),
     ] {
         assert!(
             open < route && route < close,
@@ -287,4 +293,6 @@ fn the_routes_are_mounted_inside_the_console_guards() {
     for handler in ["list", "create", "show", "delete"] {
         position(&format!("custom_apps_sandboxes::handlers::{handler})"));
     }
+    position("custom_apps_sandboxes::planes::set)");
+    position("custom_apps_sandboxes::reset::reset)");
 }

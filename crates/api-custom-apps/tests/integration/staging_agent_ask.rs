@@ -15,6 +15,10 @@
 //! - **the run** — the stamp `start_analytics` applies, on a real
 //!   `agentic_runs` row, then the startup recovery entry point.
 //!
+//! A sandbox follows its `workspace-actions` plane: held by default, in its
+//! own scope (its thread source, run stamp and held rows are the sandbox's,
+//! never staging's); refused, when its row says so, as before.
+//!
 //! The environment guard's allowance (only the ask routes, staging only) is
 //! unit-tested beside it in `oxy-app-core`.
 
@@ -33,7 +37,9 @@ use oxy_app::surface::testing::previews::request_hold::{HoldScope, scope_if};
 use oxy_app::surface::testing::projects::agent_ask::caller::{
     CallerRunResolver, RUN_CALLER_KEY, RunCaller,
 };
-use oxy_app::surface::testing::projects::agent_ask_staging::ask_scope;
+use oxy_app::surface::testing::projects::agent_ask_staging::{
+    ask_scope, staging_run_matches, thread_source,
+};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
@@ -43,7 +49,9 @@ use uuid::Uuid;
 
 use crate::common::demo_workspace_id;
 use crate::custom_app_functions_fixture::{Tenant, publish_build, seeded_tenant};
-use crate::staging_functions::{held_rows, make_guest_staff, production_host, staging_host};
+use crate::staging_functions::{
+    create_sandbox, held_rows, make_guest_staff, production_host, sandbox_host, staging_host,
+};
 
 /// A file DuckDB in [`working_copy`]: a database the held platform builds a
 /// connector for with no service behind it. The examples' databases are
@@ -365,4 +373,144 @@ async fn the_staging_host_names_the_ask_app_over_the_header() {
         .flatten()
         .expect("a staging hold");
     assert_eq!(hold.app_id(), Some(host_app));
+}
+
+/// The ask hold of sandbox `dev-a1` on `slug`.
+async fn sandbox_hold(t: &Tenant, slug: &str) -> HoldScope {
+    ask_scope(
+        &t.db,
+        &on_host(&sandbox_host(t, slug, "a1")),
+        &guest(t),
+        demo_workspace_id(),
+    )
+    .await
+    .unwrap_or_else(|r| panic!("staff may ask in their sandbox: {}", r.status()))
+    .expect("a sandbox ask runs held")
+}
+
+#[tokio::test]
+async fn a_sandbox_ask_is_held_in_its_own_scope() {
+    let t = seeded_tenant().await;
+    let slug = "sbx-ask-held";
+    let app_id = app(&t, slug).await;
+    create_sandbox(&t, app_id, "a1", None).await;
+    make_guest_staff();
+
+    let hold = sandbox_hold(&t, slug).await;
+    assert_eq!(hold.app_id(), Some(app_id));
+    let staging = ask_scope(
+        &t.db,
+        &on_host(&staging_host(&t, slug)),
+        &guest(&t),
+        demo_workspace_id(),
+    )
+    .await
+    .ok()
+    .flatten()
+    .expect("a staging hold");
+    assert_ne!(
+        thread_source(Some(&hold)),
+        thread_source(Some(&staging)),
+        "its history is its own"
+    );
+    assert!(thread_source(Some(&hold)).contains("dev-a1"));
+
+    // The platform: held, a preview (no runner, no bridges, Airway refused),
+    // and the stamp names the sandbox.
+    let root = working_copy();
+    let ctx = platform(&t, Some(hold.clone()), root.path()).await;
+    assert!(ctx.holds_writes() && ctx.is_workspace_preview());
+    assert_eq!(ctx.staging_app_id(), Some(app_id));
+    assert_eq!(ctx.sandbox_environment().as_deref(), Some("dev-a1"));
+    let mut metadata = json!({ "agent_id": "analytics" });
+    stamp(ctx.as_ref(), &mut metadata);
+    assert_eq!(metadata[RUN_STAMP]["app_id"], json!(app_id), "{metadata}");
+    assert_eq!(metadata[RUN_STAMP]["environment"], "dev-a1", "{metadata}");
+    assert!(staging_run_matches(&hold, Some(&metadata)));
+    assert!(
+        !staging_run_matches(&staging, Some(&metadata)),
+        "staging cannot cancel a sandbox's run"
+    );
+    let mut staging_metadata = json!({ "agent_id": "analytics" });
+    stamp(
+        platform(&t, Some(staging.clone()), root.path())
+            .await
+            .as_ref(),
+        &mut staging_metadata,
+    );
+    assert!(staging_run_matches(&staging, Some(&staging_metadata)));
+    assert!(
+        !staging_run_matches(&hold, Some(&staging_metadata)),
+        "a sandbox cannot cancel staging's run"
+    );
+
+    // A write is held and listed under the sandbox, not staging.
+    let conn = ctx
+        .resolve_pre_built_connector(DATABASE)
+        .await
+        .expect("a held platform pre-builds every database, held");
+    let err = conn
+        .execute_statement("CREATE TABLE sbx_ask_scratch AS SELECT 1 AS x")
+        .await
+        .expect_err("DDL is held")
+        .to_string();
+    assert!(err.contains("this app's sandbox"), "{err}");
+    let audit = held_rows(&t).await;
+    assert_eq!(audit.len(), 1);
+    assert_eq!(audit[0].environment, "dev-a1");
+    assert_eq!(audit[0].metadata["mode"], "agent");
+}
+
+#[tokio::test]
+async fn a_sandbox_set_to_refused_keeps_the_refusal() {
+    let t = seeded_tenant().await;
+    let slug = "sbx-ask-refused";
+    let app_id = app(&t, slug).await;
+    create_sandbox(
+        &t,
+        app_id,
+        "a1",
+        Some(json!({"workspace-actions": "refused"})),
+    )
+    .await;
+    make_guest_staff();
+
+    let refused = ask_scope(
+        &t.db,
+        &on_host(&sandbox_host(&t, slug, "a1")),
+        &guest(&t),
+        demo_workspace_id(),
+    )
+    .await
+    .expect_err("refused");
+    assert_eq!(refused.status(), StatusCode::NOT_FOUND);
+    let refused = body(refused).await;
+    assert_eq!(refused["error"], "EnvironmentRefused", "{refused}");
+    assert_eq!(refused["environment"], "dev-a1");
+    assert!(held_rows(&t).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_sandbox_with_unreadable_planes_refuses_the_ask() {
+    let t = seeded_tenant().await;
+    let slug = "sbx-ask-unreadable";
+    let app_id = app(&t, slug).await;
+    create_sandbox(
+        &t,
+        app_id,
+        "a1",
+        Some(json!({"workspace-actions": "teleport"})),
+    )
+    .await;
+    make_guest_staff();
+
+    let refused = ask_scope(
+        &t.db,
+        &on_host(&sandbox_host(&t, slug, "a1")),
+        &guest(&t),
+        demo_workspace_id(),
+    )
+    .await
+    .expect_err("unreadable");
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
 }

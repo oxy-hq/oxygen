@@ -22,6 +22,7 @@ use crate::entity::branches::{self as oltp_branches, BranchStatus, Entity as Olt
 use crate::entity::tenants as oltp_tenants;
 use crate::provider::{BranchRequest, ProviderError};
 
+use super::branch_site::BranchSite;
 use super::{OltpProvisioner, ProvisionerError};
 
 impl OltpProvisioner {
@@ -162,8 +163,9 @@ impl OltpProvisioner {
         self.delete_tenant_branches(&tenant, Strict::Always).await
     }
 
-    /// Delete every branch of `tenant` at the provider, then its row and
-    /// ledger. `deprovision`'s first step, and `delete_branches`' only one.
+    /// Delete every branch of `tenant` at the provider — the staging branch,
+    /// then each custom-app environment's — then its row and ledger.
+    /// `deprovision`'s first step, and `delete_branches`' only one.
     pub(super) async fn delete_tenant_branches(
         &self,
         tenant: &oltp_tenants::Model,
@@ -198,7 +200,7 @@ impl OltpProvisioner {
                 }
             }
         }
-        Ok(())
+        self.delete_tenant_env_branches(tenant, strict).await
     }
 
     async fn delete_one_branch(
@@ -231,8 +233,9 @@ impl OltpProvisioner {
         refuse_production(tenant, &row)?;
         // Roles before grants: a writer provisioned after the cut does not
         // exist on a Neon branch until its credential is minted there.
-        self.mint_branch_credentials(tenant, &row).await?;
-        self.converge_branch_writers(tenant, &row).await?;
+        let site = BranchSite::of_org_branch(&row);
+        self.mint_branch_credentials(tenant, &site).await?;
+        self.converge_branch_writers(tenant, &site).await?;
         if row.status == BranchStatus::Active {
             return Ok(row);
         }
@@ -240,7 +243,7 @@ impl OltpProvisioner {
     }
 
     /// The tenant a branch may be taken from: active, and on this provider.
-    async fn branchable_tenant(
+    pub(super) async fn branchable_tenant(
         &self,
         org_id: Uuid,
     ) -> Result<oltp_tenants::Model, ProvisionerError> {
@@ -251,7 +254,7 @@ impl OltpProvisioner {
 
     /// `deprovision`'s guard, for the same reason: ids are not portable across
     /// providers, and a branch op on the wrong one acts on nothing it can see.
-    fn assert_provider_matches(
+    pub(super) fn assert_provider_matches(
         &self,
         tenant: &oltp_tenants::Model,
     ) -> Result<(), ProvisionerError> {
@@ -277,13 +280,13 @@ pub(super) enum Strict {
 }
 
 pub(super) fn branch_request(tenant: &oltp_tenants::Model, kind: OltpBranch) -> BranchRequest {
-    BranchRequest {
-        project_id: tenant.project_id.clone(),
-        parent_branch_id: tenant.branch_id.clone(),
-        name: kind.provider_name().to_string(),
-        database_name: tenant.database_name.clone(),
-        owner_role: tenant.owner_role.clone(),
-    }
+    BranchRequest::staging(
+        tenant.project_id.as_str(),
+        tenant.branch_id.as_str(),
+        kind.provider_name(),
+        tenant.database_name.as_str(),
+        tenant.owner_role.as_str(),
+    )
 }
 
 /// Refuse a branch row whose id names production — the tenant's own branch on

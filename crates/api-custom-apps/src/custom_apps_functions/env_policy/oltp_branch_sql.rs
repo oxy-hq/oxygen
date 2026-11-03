@@ -130,10 +130,15 @@ pub fn admit_branch_statement(sql: &str) -> Result<(), NotSent> {
     runs_unread_code(sql).map_err(NotSent::Held)
 }
 
-/// The error a statement held on the branch throws.
+/// The error a statement held on the staging branch throws.
 pub fn branch_held_statement_message(op: HostOp, why: &str) -> String {
+    held_at(op, "the org's staging branch", why)
+}
+
+/// The held-statement error, naming `place` as where the statement was bound.
+pub(super) fn held_at(op: HostOp, place: &str, why: &str) -> String {
     format!(
-        "{HELD_LABEL}: ctx.{op} was not performed. On the org's staging branch a statement \
+        "{HELD_LABEL}: ctx.{op} was not performed. On {place} a statement \
          whose SQL is decided only when it runs — a DO block, CALL, a function or procedure \
          definition, or a call that runs SQL given as text — is held, because nothing can \
          check what it will do. This statement {why}. Ship functions and procedures as \

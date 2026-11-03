@@ -75,6 +75,8 @@ pub mod retention;
 pub mod s3;
 pub mod silo;
 #[cfg(test)]
+mod silo_empty_tests;
+#[cfg(test)]
 mod silo_tests;
 pub mod sweeper;
 #[cfg(test)]
@@ -87,8 +89,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 pub use ops::{
-    copy, delete, delete_app_assets, delete_environment_assets, get, get_download_url,
-    get_upload_url, head, list, put,
+    copy, delete, delete_app_assets, delete_environment_assets, delete_environment_prefix, get,
+    get_download_url, get_upload_url, head, list, put,
 };
 pub use retention::{RetentionPolicy, RetentionRule};
 pub use silo::Silo;

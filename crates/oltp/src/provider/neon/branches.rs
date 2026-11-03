@@ -11,10 +11,11 @@
 //!
 //! | call | endpoint |
 //! | --- | --- |
-//! | create | `POST /projects/{p}/branches` `{branch:{name,parent_id}, endpoints:[{type:"read_write"}]}` |
+//! | create | `POST /projects/{p}/branches` `{branch:{name,parent_id[,parent_timestamp][,expires_at][,init_source]}, endpoints:[{type:"read_write"}]}` |
 //! | find by name | `GET /projects/{p}/branches` |
 //! | endpoint | `GET /projects/{p}/branches/{b}/endpoints`, else `POST /projects/{p}/endpoints` |
 //! | reset | `POST /projects/{p}/branches/{b}/restore` `{source_branch_id: <parent>}` — Neon's "reset from parent" |
+//! | expiry | `PATCH /projects/{p}/branches/{b}` `{branch:{expires_at}}` |
 //! | delete | `GET /projects/{p}/branches/{b}` (must be a non-default, unprotected child of production), then `DELETE` it |
 //!
 //! **Only ever exercised against a stub** speaking those shapes (`tests.rs`
@@ -27,7 +28,9 @@ use tracing::warn;
 
 use super::{NeonProvider, WireBranch, WireEndpoint};
 use crate::provider::ProviderError;
-use crate::provider::types::{BranchRequest, DatabaseInfo, ProjectBranch};
+use crate::provider::types::{
+    BranchInit, BranchRequest, DatabaseInfo, ProjectBranch, SCHEMA_ONLY_RESET_REFUSAL,
+};
 
 #[cfg(test)]
 mod tests;
@@ -53,10 +56,13 @@ impl NeonProvider {
             Some(found) => {
                 let id = found.id.clone();
                 refuse_production(req, &id)?;
-                // Only OUR half-finished branch is adoptable: one cut from
-                // production. A same-named branch cut from anywhere else would
-                // serve staging from someone else's data.
-                if found.parent_id.as_deref() != Some(req.parent_branch_id.as_str()) {
+                // Only OUR half-finished branch is adoptable, in the shape
+                // asked for: a data branch cut from production, or — for a
+                // schema-only request — one with no parent at all. A
+                // same-named branch cut from anywhere else would serve staging
+                // from someone else's data, and a data branch adopted for a
+                // schema-only request would serve production's rows.
+                if !adoptable_parent(req, found.parent_id.as_deref()) {
                     return Err(ProviderError::BranchParentMismatch {
                         name: req.name.clone(),
                         parent: found.parent_id.unwrap_or_default(),
@@ -85,6 +91,14 @@ impl NeonProvider {
         // Before any request: restoring production "from its parent" is not a
         // reset of anything, and nothing on Neon's side stops the call.
         refuse_production(req, branch_id)?;
+        // A schema-only branch has no parent to restore from, so a restore body
+        // naming one would be Neon's error at best and the wrong data at worst.
+        if req.init == BranchInit::SchemaOnly {
+            return Err(ProviderError::Api {
+                status: 400,
+                message: SCHEMA_ONLY_RESET_REFUSAL.into(),
+            });
+        }
         let path = format!("/projects/{}/branches/{branch_id}/restore", req.project_id);
         let body = serde_json::json!({ "source_branch_id": req.parent_branch_id });
         let raw = self
@@ -122,10 +136,55 @@ impl NeonProvider {
         Ok(())
     }
 
+    pub(super) async fn find_branch_id_impl(
+        &self,
+        req: &BranchRequest,
+    ) -> Result<Option<String>, ProviderError> {
+        Ok(self
+            .find_branch(&req.project_id, &req.name)
+            .await?
+            .map(|b| b.id))
+    }
+
+    /// `PATCH /projects/{p}/branches/{b}` `{branch:{expires_at}}`. Restore does
+    /// not move a branch's expiry, so a reset in place that re-dates the fork
+    /// calls this.
+    pub(super) async fn set_branch_expiry_impl(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), ProviderError> {
+        refuse_production(req, branch_id)?;
+        let path = format!("/projects/{}/branches/{branch_id}", req.project_id);
+        let body = serde_json::json!({ "branch": { "expires_at": rfc3339(expires_at) } });
+        let raw = self
+            .send(reqwest::Method::PATCH, &path, Some(body))
+            .await?
+            .ok_or_else(|| ProviderError::BranchNotFound(branch_id.to_string()))?;
+        self.await_operations(&req.project_id, &raw).await
+    }
+
     async fn post_branch(&self, req: &BranchRequest) -> Result<(String, String), ProviderError> {
         let path = format!("/projects/{}/branches", req.project_id);
+        let mut branch = serde_json::json!({
+            "name": req.name,
+            "parent_id": req.parent_branch_id,
+        });
+        // Only what was asked for: an absent key is Neon's default (the head,
+        // no expiry, the parent's data), and `null` is not documented to mean
+        // the same.
+        if let Some(at) = req.parent_timestamp {
+            branch["parent_timestamp"] = rfc3339(at).into();
+        }
+        if let Some(at) = req.expires_at {
+            branch["expires_at"] = rfc3339(at).into();
+        }
+        if req.init == BranchInit::SchemaOnly {
+            branch["init_source"] = "schema-only".into();
+        }
         let body = serde_json::json!({
-            "branch": { "name": req.name, "parent_id": req.parent_branch_id },
+            "branch": branch,
             "endpoints": [{ "type": "read_write" }],
         });
         let raw = self
@@ -299,7 +358,7 @@ fn described_as_deletable(
     if described.default || described.primary || described.protected {
         return Err(ProviderError::BranchIsProduction(branch_id.to_string()));
     }
-    if described.parent_id.as_deref() != Some(req.parent_branch_id.as_str()) {
+    if !parent_matches(req, described.parent_id.as_deref()) {
         return Err(ProviderError::BranchParentMismatch {
             name: branch_id.to_string(),
             parent: described.parent_id.unwrap_or_default(),
@@ -307,6 +366,38 @@ fn described_as_deletable(
         });
     }
     Ok(())
+}
+
+/// Whether a branch's reported parent makes it ours to delete.
+///
+/// A data branch is cut from production, so its parent is production. A
+/// schema-only branch is created without a parent, so Neon reports none — and
+/// that is accepted **only** for a schema-only request: a data branch with no
+/// parent is a root branch somebody else made, not ours. A schema-only request
+/// still deletes a same-named branch cut from production: it is ours either
+/// way, and gone is what the caller wants.
+fn parent_matches(req: &BranchRequest, parent: Option<&str>) -> bool {
+    match parent {
+        Some(p) => p == req.parent_branch_id,
+        None => req.init == BranchInit::SchemaOnly,
+    }
+}
+
+/// Whether a same-named branch may be adopted for `req`: the shape asked for,
+/// exactly. A data request adopts only a branch cut from production; a
+/// schema-only request only a parentless one — a branch with a parent holds
+/// that parent's rows, and adopting it as schema-only would serve them.
+fn adoptable_parent(req: &BranchRequest, parent: Option<&str>) -> bool {
+    match (req.init, parent) {
+        (BranchInit::ParentData, Some(p)) => p == req.parent_branch_id,
+        (BranchInit::SchemaOnly, None) => true,
+        _ => false,
+    }
+}
+
+/// Neon's timestamp shape: RFC 3339, UTC, whole seconds.
+fn rfc3339(at: chrono::DateTime<chrono::Utc>) -> String {
+    at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 /// A branch operation must never land on the branch it was cut from.

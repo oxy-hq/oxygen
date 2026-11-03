@@ -28,6 +28,23 @@ pub enum SqlError {
 #[async_trait]
 pub trait TenantSqlExecutor: Send + Sync {
     async fn execute_batch(&self, dsn: &str, statements: &[String]) -> Result<(), SqlError>;
+
+    /// Run one `SELECT` and return every row as text (`NULL` is `None`), for the
+    /// few places that copy a small bookkeeping table from one database to
+    /// another. Callers cast non-text columns in the query.
+    ///
+    /// An executor that cannot read refuses, rather than answering "no rows":
+    /// a copy that silently copied nothing would look like an empty ledger.
+    async fn query_text_rows(
+        &self,
+        _dsn: &str,
+        statement: &str,
+    ) -> Result<Vec<Vec<Option<String>>>, SqlError> {
+        Err(SqlError::Statement {
+            statement: statement.to_string(),
+            source_message: "this executor cannot read rows".to_string(),
+        })
+    }
 }
 
 /// Runs statements against a real Postgres.
@@ -61,6 +78,34 @@ impl TenantSqlExecutor for PgSqlExecutor {
                 })?;
         }
         Ok(())
+    }
+
+    async fn query_text_rows(
+        &self,
+        dsn: &str,
+        statement: &str,
+    ) -> Result<Vec<Vec<Option<String>>>, SqlError> {
+        let client = crate::connect::connect(dsn, "tenant read")
+            .await
+            .map_err(|e| SqlError::Connect(crate::connect::pg_detail(&e)))?;
+        let messages = client
+            .simple_query(statement)
+            .await
+            .map_err(|e| SqlError::Statement {
+                statement: statement.to_string(),
+                source_message: crate::connect::pg_detail(&e),
+            })?;
+        Ok(messages
+            .into_iter()
+            .filter_map(|m| match m {
+                tokio_postgres::SimpleQueryMessage::Row(row) => Some(
+                    (0..row.len())
+                        .map(|i| row.get(i).map(str::to_string))
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .collect())
     }
 }
 

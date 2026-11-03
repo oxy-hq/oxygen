@@ -140,6 +140,40 @@ async fn a_staging_hold_tells_its_sink_and_names_staging() {
     assert!(hold.refusal("Secret `X`").contains("staging environment"));
 }
 
+/// A sandbox's hold is staging's hold in its own scope: the same refusal of
+/// every write, worded for a sandbox, naming the sandbox as its environment.
+#[tokio::test]
+async fn a_sandbox_hold_is_staging_s_in_its_own_scope() {
+    use oxy_app_core::custom_app_environment::AppEnvironment;
+
+    let heard = Arc::new(Heard::default());
+    let app = uuid::Uuid::new_v4();
+    let sandbox = AppEnvironment::parse("dev-a1").expect("a sandbox");
+    let hold = HoldScope::in_environment(app, sandbox.clone(), heard.clone());
+    assert_eq!(hold.app_id(), Some(app));
+    assert_eq!(hold.environment(), Some(&sandbox));
+    assert_eq!(
+        HoldScope::staging(app, heard.clone()).environment(),
+        Some(&AppEnvironment::Staging)
+    );
+
+    let held = hold_in(
+        Some(&hold),
+        Arc::new(Recorder::default()),
+        "warehouse",
+        Session::ReadOnly,
+    );
+    let err = held
+        .execute_query("DELETE FROM orders WHERE 1", 1)
+        .await
+        .expect_err("held")
+        .to_string();
+    assert!(err.contains("this app's sandbox"), "{err}");
+    assert!(!err.contains("staging"), "{err}");
+    assert_eq!(heard.0.lock().unwrap().len(), 1, "its sink heard it");
+    assert!(hold.refusal("Secret `X`").contains("sandbox"));
+}
+
 /// The scope carries its hold to everything built inside it; `hold_if` there
 /// uses the scope's sink.
 #[tokio::test]

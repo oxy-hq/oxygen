@@ -105,8 +105,14 @@ export async function runInvocationsHeld(
 interface HeldWrite {
   op: string;
   plane: string;
+  namespace?: string;
+  verb?: string;
   table?: string;
   note?: string;
+  statements?: number;
+  /** Set on a call that was sent to a provider sandbox rather than held. */
+  path?: string | null;
+  status?: number | null;
 }
 
 /** A table cell: the value when it is a string or number, else the fallback. */
@@ -143,8 +149,15 @@ function printHeld(
     return;
   }
   for (const h of held) {
-    process.stdout.write(
-      `${h.op} (${h.plane}${h.table ? `, ${h.table}` : ""}) — ${h.note ?? "held"}\n`
-    );
+    process.stdout.write(`${heldLine(h)}\n`);
   }
+}
+
+/** A held call, or (it has a `path`) one that was sent to a provider sandbox. */
+function heldLine(h: HeldWrite): string {
+  if (h.path == null) {
+    return `${h.op} (${h.plane}${h.table ? `, ${h.table}` : ""}) — ${h.note ?? "held"}`;
+  }
+  const count = (h.statements ?? 1) > 1 ? ` ×${h.statements}` : "";
+  return `${h.op} ${h.verb ?? ""} ${h.namespace ?? ""}${h.path} → ${h.status ?? "no response"} (sent)${count}`;
 }

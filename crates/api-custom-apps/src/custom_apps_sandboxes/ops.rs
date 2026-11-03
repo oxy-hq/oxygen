@@ -18,10 +18,14 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
+use super::branch::{self, NewBranch};
+use super::copy_build;
 pub use super::delete::{Deletion, Expect, begin_delete, delete, delete_if};
 use super::view::{View, is_sandbox};
 use super::{EnvironmentDto, MAX_SANDBOXES_PER_APP, MAX_SANDBOXES_PER_TOKEN, SandboxError};
+use crate::custom_apps_env_branch::planes as branch_planes;
 use crate::custom_apps_env_resolve::load_environment_builds;
+use crate::custom_apps_environments::{EnvAction, record_move};
 use crate::custom_apps_migrations::{AirhouseHome, schema_owner};
 
 /// `environment`, when it is a sandbox; `NotASandbox` for production and
@@ -45,16 +49,41 @@ pub async fn create(
     environment: &AppEnvironment,
     owner: &audit::RequestActor,
 ) -> Result<app_environments::Model, SandboxError> {
+    create_with(db, app, environment, owner, NewBranch::default()).await
+}
+
+/// [`create`], recording where the sandbox was cut from and the planes it
+/// chose (`from` must name production, staging or an active sandbox of this
+/// app: `InvalidParent` otherwise). The caller has already been asked whether
+/// it may open `from` (the create handler's `may_fork_from`); this checks only
+/// that the parent exists. The planes arrive already validated
+/// (`PlaneSpec::validate`). With `from`, the sandbox starts on the build its
+/// parent serves, and that build's migrations are queued for it
+/// ([`copy_build`]); a parent with no build gives a sandbox with none.
+pub async fn create_with(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    environment: &AppEnvironment,
+    owner: &audit::RequestActor,
+    branch: NewBranch,
+) -> Result<app_environments::Model, SandboxError> {
     require_sandbox(environment)?;
     let txn = db.begin().await.map_err(|e| SandboxError::db("begin", e))?;
     let creator = Creator {
         user_id: owner.user.id,
         token_id: agent_token(owner),
     };
-    let created = insert_within_limit(&txn, app.id, environment, creator).await?;
+    let created = insert_within_limit(&txn, app.id, environment, creator, &branch).await?;
+    // A sandbox created asking for an OLTP branch is created with the cut.
+    branch_planes::queue_for_change(&txn, app, &created, &serde_json::json!({}))
+        .await
+        .map_err(|e| SandboxError::db("queue the OLTP branch cut", e))?;
     txn.commit()
         .await
         .map_err(|e| SandboxError::db("commit", e))?;
+    if let Some(build_pk) = created.build_id {
+        copy_build::queue_copied_migrations(db, app, environment, build_pk).await;
+    }
     let entry = audit::AuditEntry::for_request(owner, "app.environment.created");
     audit::record_best_effort(db, scoped(entry, app, environment)).await;
     Ok(created)
@@ -107,12 +136,14 @@ async fn within_token_limit<C: ConnectionTrait>(
 }
 
 /// Under a lock on the app row: refuse a taken name and a full app, else
-/// insert the row.
+/// insert the row — pointed at its parent's build when `branch.from` names a
+/// parent that serves one.
 async fn insert_within_limit<C: ConnectionTrait>(
     txn: &C,
     app_id: Uuid,
     environment: &AppEnvironment,
     creator: Creator,
+    branch: &NewBranch,
 ) -> Result<app_environments::Model, SandboxError> {
     let owner = creator.user_id;
     let app = apps::Entity::find_by_id(app_id)
@@ -137,6 +168,10 @@ async fn insert_within_limit<C: ConnectionTrait>(
     if sandboxes.len() as u64 >= MAX_SANDBOXES_PER_APP {
         return Err(SandboxError::Limit(MAX_SANDBOXES_PER_APP));
     }
+    let parent = match &branch.from {
+        Some(from) => Some(branch::check_parent(from, &sandboxes, creator.token_id)?),
+        None => None,
+    };
     if let Some(token_id) = creator.token_id {
         within_token_limit(txn, token_id).await?;
     }
@@ -146,10 +181,46 @@ async fn insert_within_limit<C: ConnectionTrait>(
             app: owner,
         });
     }
+    let mut created = new_row(app_id, environment, creator, branch, parent.as_deref())
+        .insert(txn)
+        .await
+        .map_err(|e| SandboxError::db("insert the sandbox", e))?;
+    if let Some(parent) = &parent
+        && let Some(build) = copy_build::parent_build(txn, &app, parent, &sandboxes).await?
+    {
+        // The pointer the way a publish moves it, in the create's own
+        // transaction: the sandbox is never visible without its build.
+        let moved = record_move(
+            txn,
+            app_id,
+            environment,
+            Some(build),
+            EnvAction::Publish,
+            Some(owner),
+        );
+        moved
+            .await
+            .map_err(|e| SandboxError::db("point the sandbox at its parent's build", e))?;
+        created.build_id = Some(build);
+    }
+    Ok(created)
+}
+
+/// The row a create inserts: no build, owned by the creator, and the branch
+/// facts the request named (else the column defaults: the kind's default
+/// parent and fork point, and `{}` planes).
+fn new_row(
+    app_id: Uuid,
+    environment: &AppEnvironment,
+    creator: Creator,
+    branch: &NewBranch,
+    parent: Option<&str>,
+) -> app_environments::ActiveModel {
+    let owner = creator.user_id;
     let now = Utc::now().fixed_offset();
     app_environments::ActiveModel {
         app_id: ActiveValue::Set(app_id),
-        name: ActiveValue::Set(name),
+        name: ActiveValue::Set(environment.name()),
         kind: ActiveValue::Set(AppEnvironmentKind::Dev.as_str().to_string()),
         owner_user_id: ActiveValue::Set(Some(owner)),
         build_id: ActiveValue::Set(None),
@@ -164,10 +235,20 @@ async fn insert_within_limit<C: ConnectionTrait>(
         created_by_token_id: ActiveValue::Set(creator.token_id),
         // A new sandbox fires no schedule until staff turn it on.
         schedules_enabled: ActiveValue::NotSet,
+        parent_name: parent.map_or(ActiveValue::NotSet, |name| {
+            ActiveValue::Set(Some(name.to_string()))
+        }),
+        fork_at: branch
+            .fork_at
+            .map_or(ActiveValue::NotSet, |at| ActiveValue::Set(Some(at))),
+        planes: branch
+            .planes
+            .clone()
+            .map_or(ActiveValue::NotSet, ActiveValue::Set),
+        // The semantic pin is written by `env_pins`, never at create.
+        semantic_revision_id: ActiveValue::NotSet,
+        semantic_git_sha: ActiveValue::NotSet,
     }
-    .insert(txn)
-    .await
-    .map_err(|e| SandboxError::db("insert the sandbox", e))
 }
 
 /// The other app of the workspace whose own Airhouse schema carries the name

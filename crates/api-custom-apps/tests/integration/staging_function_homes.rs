@@ -197,7 +197,7 @@ async fn a_staging_function_works_in_its_own_silo_and_never_touches_productions(
 
 // ── Email ────────────────────────────────────────────────────────────────────
 
-const EMAIL_JS: &str = r#"
+pub(crate) const EMAIL_JS: &str = r#"
 export default async (req, ctx) =>
   Response.json(await ctx.email.send({
     to: ["cfo@customer.example"], cc: "controller@customer.example", bcc: ["audit@customer.example"],
@@ -207,7 +207,7 @@ export default async (req, ctx) =>
 
 /// SES answered by a local mock, so the envelope SES would deliver to is read
 /// back from the request itself.
-async fn mock_ses() -> wiremock::MockServer {
+pub(crate) async fn mock_ses() -> wiremock::MockServer {
     use wiremock::matchers::{method, path};
     let server = wiremock::MockServer::start().await;
     wiremock::Mock::given(method("POST"))
@@ -236,7 +236,7 @@ async fn mock_ses() -> wiremock::MockServer {
 /// Only SES's own requests: `AWS_ENDPOINT_URL` is every AWS client's endpoint,
 /// so where `OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET` is set (CI) the seeded apps'
 /// S3 storage uploads land on this mock too, raw file bytes as their bodies.
-async fn ses_sends(server: &wiremock::MockServer) -> Vec<(Vec<String>, String)> {
+pub(crate) async fn ses_sends(server: &wiremock::MockServer) -> Vec<(Vec<String>, String)> {
     use base64::Engine as _;
     let requests = server.received_requests().await.unwrap_or_default();
     requests

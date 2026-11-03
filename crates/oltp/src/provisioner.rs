@@ -105,6 +105,10 @@ pub enum ProvisionerError {
     },
     #[error("org {0}'s {1} OLTP branch has no stored owner password; reset the branch")]
     BranchOwnerPasswordMissing(Uuid, crate::OltpBranch),
+    /// [`Self::BranchOwnerPasswordMissing`] for a branch that is not the org's
+    /// shared one, named by its label.
+    #[error("org {0}'s {1} OLTP branch has no stored owner password; reset the branch")]
+    BranchSiteOwnerPasswordMissing(Uuid, String),
     /// The row was not in the status this operation read it in — something
     /// else moved it. Refused rather than overwritten, so a stale write can
     /// never flip a `resetting` branch back to `active`.
@@ -114,6 +118,60 @@ pub enum ProvisionerError {
     )]
     BranchStateChanged {
         branch: crate::OltpBranch,
+        expected: &'static str,
+        found: &'static str,
+    },
+    /// A requested fork point the database cannot serve: in the future, or
+    /// older than the history it keeps. The text says which.
+    #[error("{0}")]
+    ForkOutsideHistory(String),
+    /// The org already holds as many environment branches as it may. The text
+    /// is `env_branches::cap_refusal`'s: the same sentence the request-time
+    /// check gives, from the cut that re-checked it under the tenant's lock.
+    #[error("{0}")]
+    EnvBranchCap(String),
+    /// The environment has no branch to reset. Cut it first.
+    #[error("org {org_id}'s environment {env_name:?} has no OLTP branch; cut it first")]
+    EnvBranchNotCut { org_id: Uuid, env_name: String },
+    /// An environment's branch that is not in a state this operation takes:
+    /// a reset is in flight, so a cut waits for it to finish.
+    #[error(
+        "org {org_id}'s environment {env_name:?} OLTP branch is {status}; finish it by \
+         resetting the environment's branch"
+    )]
+    EnvBranchNotReady {
+        org_id: Uuid,
+        env_name: String,
+        status: &'static str,
+    },
+    /// An environment branch id that names production. Never acted on.
+    #[error(
+        "org {org_id}'s environment {env_name:?} branch is recorded as {branch_id:?}, which is \
+         its production database — refusing to touch it"
+    )]
+    EnvBranchIsProduction {
+        org_id: Uuid,
+        env_name: String,
+        branch_id: String,
+    },
+    /// An environment branch id that names the org's shared staging branch.
+    /// Never acted on.
+    #[error(
+        "org {org_id}'s environment {env_name:?} branch is recorded as {branch_id:?}, which is \
+         its shared OLTP staging branch — refusing to touch it"
+    )]
+    EnvBranchIsStaging {
+        org_id: Uuid,
+        env_name: String,
+        branch_id: String,
+    },
+    /// [`Self::BranchStateChanged`] for an environment's branch.
+    #[error(
+        "the {env_name:?} OLTP branch changed under this operation (expected {expected}, found \
+         {found}); another cut or reset ran — re-run once it finishes"
+    )]
+    EnvBranchStateChanged {
+        env_name: String,
         expected: &'static str,
         found: &'static str,
     },
@@ -195,12 +253,20 @@ pub fn is_derived_project_name(name: &str) -> bool {
 // so this needs no `#[path]` attribute and no invented `_parts` suffix.
 mod branch_ledger;
 mod branch_roles;
+mod branch_site;
 mod branch_state;
 mod branches;
 mod credentials;
+mod env_branch_meta;
+mod env_branches;
+mod env_branches_cap;
+mod env_branches_delete;
+mod env_branches_reset;
+mod env_branches_state;
 
 // The branch owner's DSN shape, for the owner resolve in `resolver::branch`.
 pub(crate) use branch_roles::branch_dsn;
+pub(crate) use branch_site::BranchSite;
 
 pub struct OltpProvisioner {
     db: DatabaseConnection,

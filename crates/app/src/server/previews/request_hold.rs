@@ -40,6 +40,7 @@ use agentic_automation::HttpReview;
 use agentic_connector::{DatabaseConnector, SqlDialect};
 use async_trait::async_trait;
 use futures::future::Either;
+use oxy_app_core::custom_app_environment::AppEnvironment;
 use uuid::Uuid;
 
 use super::hold::{HoldingConnector, Session};
@@ -64,8 +65,8 @@ pub trait HeldSink: Send + Sync {
 }
 
 /// What a held request is, beyond "it writes nothing": a workspace preview
-/// (the default), or a custom app's staging environment, which names the app
-/// and where its held statements go.
+/// (the default), or a custom app's staging environment or sandbox, which
+/// names the app, the environment and where its held statements go.
 #[derive(Clone, Default)]
 pub struct HoldScope {
     staging: Option<StagingHold>,
@@ -74,6 +75,8 @@ pub struct HoldScope {
 #[derive(Clone)]
 struct StagingHold {
     app_id: Uuid,
+    /// Staging, or the sandbox whose ask this is. Never production.
+    environment: AppEnvironment,
     sink: Arc<dyn HeldSink>,
 }
 
@@ -89,14 +92,35 @@ impl HoldScope {
     /// A custom app's staging environment: every write held, each held
     /// statement told to `sink`.
     pub fn staging(app_id: Uuid, sink: Arc<dyn HeldSink>) -> Self {
+        Self::in_environment(app_id, AppEnvironment::Staging, sink)
+    }
+
+    /// A custom app's non-production `environment` (staging, or a sandbox
+    /// whose `workspace-actions` plane is `held`): every write held, each held
+    /// statement told to `sink`. A sandbox's scope is its own: its threads, its
+    /// runs and its held rows are never staging's.
+    pub fn in_environment(
+        app_id: Uuid,
+        environment: AppEnvironment,
+        sink: Arc<dyn HeldSink>,
+    ) -> Self {
         Self {
-            staging: Some(StagingHold { app_id, sink }),
+            staging: Some(StagingHold {
+                app_id,
+                environment,
+                sink,
+            }),
         }
     }
 
-    /// The custom app whose staging environment this is.
+    /// The custom app whose staging environment or sandbox this is.
     pub fn app_id(&self) -> Option<Uuid> {
         self.staging.as_ref().map(|s| s.app_id)
+    }
+
+    /// The environment of that app: staging, or a sandbox.
+    pub fn environment(&self) -> Option<&AppEnvironment> {
+        self.staging.as_ref().map(|s| &s.environment)
     }
 
     pub fn sink(&self) -> Option<Arc<dyn HeldSink>> {
@@ -105,8 +129,9 @@ impl HoldScope {
 
     /// Where the write was held, as a refusal names it.
     pub fn place(&self) -> &'static str {
-        match self.staging {
-            Some(_) => "this app's staging environment",
+        match &self.staging {
+            Some(h) if h.environment == AppEnvironment::Staging => "this app's staging environment",
+            Some(_) => "this app's sandbox",
             None => "a workspace preview",
         }
     }
@@ -114,10 +139,14 @@ impl HoldScope {
     /// The refusal for a write this hold cannot hold and so does not make (a
     /// secret, a pipeline destination).
     pub fn refusal(&self, what: &str) -> String {
-        match self.staging {
-            Some(_) => format!(
+        match &self.staging {
+            Some(h) if h.environment == AppEnvironment::Staging => format!(
                 "{what} is not written in this app's staging environment; promote the build to \
                  run it"
+            ),
+            Some(_) => format!(
+                "{what} is not written in this app's sandbox; publish the build to staging and \
+                 promote it to run it"
             ),
             None => refusal(what),
         }

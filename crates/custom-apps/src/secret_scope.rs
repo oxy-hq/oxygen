@@ -77,6 +77,17 @@ pub struct EnvEntry {
     pub through_fallback: bool,
 }
 
+/// How far `ctx.env` looks for a key (the secrets plane's mode).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EnvLookup {
+    /// The environment's own path, then the fallbacks below. Today's
+    /// behaviour, and production's only mode.
+    Chain,
+    /// The environment's own path alone: no staging layer for a sandbox, and
+    /// no production `shared` layer for anyone.
+    OwnOnly,
+}
+
 /// Which stored secrets `ctx.env` resolves for a run in `environment`, given
 /// every stored name of the project and the build's `shared` keys. Pure, so
 /// the overlay rules are testable without a database.
@@ -90,10 +101,12 @@ pub struct EnvEntry {
 /// 3. outside production, production's path, for a `shared` key only.
 ///
 /// Everything from layers 2 and 3 is `through_fallback`: the run did not store
-/// it, and `ctx.secrets.set` refuses to write it.
+/// it, and `ctx.secrets.set` refuses to write it. With
+/// [`EnvLookup::OwnOnly`] there are no layers 2 and 3.
 pub fn plan_env(
     app_id: Uuid,
     environment: &AppEnvironment,
+    lookup: EnvLookup,
     shared: &BTreeSet<String>,
     stored_names: &[String],
 ) -> Vec<EnvEntry> {
@@ -111,6 +124,10 @@ pub fn plan_env(
         }
     };
     take(layer(environment), false);
+    if lookup == EnvLookup::OwnOnly {
+        plan.sort_by(|a, b| a.key.cmp(&b.key));
+        return plan;
+    }
     if matches!(environment, AppEnvironment::Dev { .. }) {
         take(layer(&AppEnvironment::Staging), true);
     }
@@ -142,6 +159,10 @@ fn keys_under(prefix: &str, stored_names: &[String]) -> Vec<(String, String)> {
 }
 
 #[cfg(test)]
+#[path = "secret_scope_own_only_tests.rs"]
+mod own_only_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -171,6 +192,7 @@ mod tests {
         let plan = plan_env(
             app(),
             &AppEnvironment::Production,
+            EnvLookup::Chain,
             &shared(&["API_KEY"]),
             &names(&["API_KEY", "TOKEN", "staging/TOKEN", "dev-luong/TOKEN"]),
         );
@@ -183,6 +205,7 @@ mod tests {
         let plan = plan_env(
             app(),
             &AppEnvironment::Staging,
+            EnvLookup::Chain,
             &shared(&["API_KEY", "ONLY_SHARED_NAME"]),
             &names(&["API_KEY", "TOKEN", "UNSHARED", "staging/TOKEN"]),
         );
@@ -200,6 +223,7 @@ mod tests {
         let plan = plan_env(
             app(),
             &AppEnvironment::Staging,
+            EnvLookup::Chain,
             &shared(&["API_KEY"]),
             &names(&["API_KEY", "staging/API_KEY"]),
         );
@@ -236,6 +260,7 @@ mod tests {
         let plan = plan_env(
             app(),
             &sandbox("a1"),
+            EnvLookup::Chain,
             &shared(&["SHARED", "SHARED_STG", "SHARED_OWN"]),
             &names(&[
                 // In all three: the sandbox's own wins.
@@ -281,15 +306,23 @@ mod tests {
         let staging = plan_env(
             app(),
             &AppEnvironment::Staging,
+            EnvLookup::Chain,
             &shared(&["TOKEN"]),
             &stored,
         );
         assert!(sources(&staging).is_empty(), "{staging:?}");
-        let other = plan_env(app(), &sandbox("b2"), &shared(&["TOKEN"]), &stored);
+        let other = plan_env(
+            app(),
+            &sandbox("b2"),
+            EnvLookup::Chain,
+            &shared(&["TOKEN"]),
+            &stored,
+        );
         assert!(sources(&other).is_empty(), "{other:?}");
         let production = plan_env(
             app(),
             &AppEnvironment::Production,
+            EnvLookup::Chain,
             &BTreeSet::new(),
             &stored,
         );
@@ -353,6 +386,7 @@ mod tests {
         let only_staging = plan_env(
             app(),
             &AppEnvironment::Production,
+            EnvLookup::Chain,
             &BTreeSet::new(),
             &[staging],
         );

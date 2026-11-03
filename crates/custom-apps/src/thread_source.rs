@@ -18,3 +18,35 @@ pub fn staging_thread_source(app_id: Option<Uuid>) -> String {
         app_id.map(|a| a.to_string()).unwrap_or_default()
     )
 }
+
+/// The `threads.source` of an ask on sandbox `environment` of `app_id`: the
+/// sandbox's own history, never staging's or production's. Scoped to the app
+/// and to the sandbox, so one developer's sandbox never reads another's.
+pub fn sandbox_thread_source(app_id: Option<Uuid>, environment: &str) -> String {
+    format!(
+        "custom-app-sandbox:{}:{environment}",
+        app_id.map(|a| a.to_string()).unwrap_or_default()
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_environment_files_under_its_own_source() {
+        let app = Uuid::from_u128(7);
+        let sources = [
+            PRODUCTION_THREAD_SOURCE.to_string(),
+            staging_thread_source(Some(app)),
+            sandbox_thread_source(Some(app), "dev-a1"),
+            sandbox_thread_source(Some(app), "dev-b2"),
+            sandbox_thread_source(Some(Uuid::from_u128(8)), "dev-a1"),
+        ];
+        for (i, a) in sources.iter().enumerate() {
+            for b in &sources[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+    }
+}

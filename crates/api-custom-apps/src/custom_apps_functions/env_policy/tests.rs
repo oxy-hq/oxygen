@@ -116,6 +116,11 @@ pub(super) fn isolated_writes() -> Vec<(HostOp, Target)> {
         .collect()
 }
 
+/// Whether production's run of `op` changes something outside the invocation.
+pub(super) fn is_write(op: HostOp) -> bool {
+    ROWS.iter().any(|row| row.op == op && row.writes)
+}
+
 #[test]
 fn every_host_op_has_exactly_one_row() {
     let rows: Vec<HostOp> = ROWS.iter().map(|r| r.op).collect();
@@ -166,7 +171,7 @@ fn staging_isolates_holds_or_refuses_every_write_and_reads_production() {
     }
 }
 
-fn sandbox() -> EnvPolicy {
+pub(super) fn sandbox() -> EnvPolicy {
     EnvPolicy::for_environment(AppEnvironment::Dev {
         handle: "luong".into(),
     })
@@ -460,13 +465,14 @@ fn production_and_a_preview_never_take_an_oltp_branch() {
     assert_eq!(staging_on_branch().oltp_home(), &home);
 }
 
-fn sandbox_home() -> OltpHome {
+pub(super) fn sandbox_home() -> OltpHome {
     let writer = oxy_oltp::WriterRef::app("store").expect("a writer");
     OltpHome::SandboxSchema(SandboxHome {
         cut: oxy_oltp::branches::BranchCut {
             row_id: uuid::Uuid::from_u128(1),
             provider_branch_id: "br-staging".into(),
             cut_at: chrono::Utc::now().into(),
+            scope: oxy_oltp::branches::CutScope::OrgBranch,
         },
         schema: oxy_oltp::sandbox_schema::SandboxSchema::for_writer(&writer, "dev_a1")
             .expect("a schema"),

@@ -178,6 +178,9 @@ pub enum Handled {
     /// `matched` workspaces were on this repository and branch; for
     /// `queued` of them the head was neither served nor already compiled, so
     /// a compile went to the deduped enqueue (which may still decline it).
+    /// `queued` also counts the workspaces whose custom-app environments are
+    /// pinned to the branch and had a compile queued for them
+    /// ([`super::env_pins::on_branch_push`]), which need not be `matched`.
     Matched { matched: usize, queued: usize },
 }
 
@@ -235,6 +238,15 @@ pub async fn handle(db: &DatabaseConnection, push: &PushEvent) -> Result<Handled
                 );
                 failed.get_or_insert(e);
             }
+        }
+    }
+    // Environments pinned to this branch follow it too, whether or not it is
+    // a workspace's default. After the loop above, so a default-branch commit
+    // already queued there is joined rather than compiled twice.
+    match super::env_pins::on_branch_push(db, push, branch).await {
+        Ok(pinned) => queued += pinned,
+        Err(e) => {
+            failed.get_or_insert(e);
         }
     }
     // One workspace's failure must not hide the others' compiles, but the

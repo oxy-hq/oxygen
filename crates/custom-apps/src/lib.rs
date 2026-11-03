@@ -45,6 +45,9 @@
 //!   invocation as a timed record (the console's waterfall), and its table.
 //! - `custom_domains`: customer-owned hostnames for an app — claim, DNS proof,
 //!   removal — and the sign-in handoff that gives a browser a session on one.
+//! - `planes`: the planes of a custom app, the modes an environment's row chooses for them,
+//!   and the one read that resolves them (`environment_planes`), for `oxy-app` as well as the
+//!   surface crate.
 //! - `updates`: how a long-open tab picks up a new build (the platform mode,
 //!   an app's `autoUpdate`, the `/fn` build handshake headers).
 
@@ -73,6 +76,7 @@ pub mod github_oidc_keys;
 pub mod manifest;
 pub mod non_production;
 pub mod org_directory;
+pub mod planes;
 pub mod precompress;
 pub mod publish_authz;
 pub mod reach;
@@ -97,4 +101,5 @@ pub mod usage_queue;
 pub mod usage_reads;
 pub mod usage_rows;
 pub mod usage_writes;
+pub mod workspace_actions;
 pub mod write_record;

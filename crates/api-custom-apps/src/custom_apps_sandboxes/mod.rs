@@ -11,7 +11,12 @@
 //! module owns only what staging never needed: the row's lifecycle.
 //!
 //! * here — the limits, the [`EnvironmentDto`] the API returns, [`SandboxError`];
-//! * [`ops`] — create, list and get;
+//! * [`ops`] — create, list and get; [`branch`] the facts a create may record
+//!   (`from`, `at`, `planes`);
+//! * [`oltp_branch_dto`] — a sandbox's own OLTP branch, as `env show` reports it;
+//! * [`env_diff`] — `GET …/diff`: a sandbox's OLTP branch against production;
+//! * [`planes`] and [`reset`] — `PUT …/planes` and `POST …/reset`: choose the
+//!   modes of an environment's planes, and put a plane back;
 //! * [`delete`] — the first half of a delete, under the sandbox's row lock;
 //! * [`activity`] — when a sandbox was last used, and so when it expires;
 //! * `view` — rows to the [`EnvironmentDto`], with the builds, owners and
@@ -25,8 +30,9 @@
 //!   [`oltp_state`] what the row records of it;
 //! * [`retention`] — which builds a publish may prune, sandbox builds apart;
 //! * [`teardown`] — the second half of a delete, on the worker fleet;
-//! * [`maintenance`] — the loop that expires idle sandboxes and retries
-//!   teardowns that did not finish; [`token_ended`] its pass over the
+//! * [`maintenance`] — the loop that expires idle sandboxes (and those 30 days
+//!   past a fork that copied production rows) and retries teardowns that did
+//!   not finish; [`token_ended`] its pass over the
 //!   sandboxes of a sandbox agent token that ended.
 //!
 //! **Who.** Every route requires `Action::AppNonProduction` over the app
@@ -37,23 +43,38 @@
 pub mod activity;
 pub mod agent_draft;
 pub(crate) mod agent_publish;
+pub mod airhouse_overlay;
+pub mod branch;
+mod copy_build;
 pub mod delete;
+pub mod env_diff;
 mod expiry_audit;
 pub mod handlers;
 pub mod lock;
 pub mod maintenance;
 pub mod migrations_task;
+pub mod oltp_branch_dto;
 pub mod oltp_home;
 pub mod oltp_state;
 pub mod oltp_task;
 pub mod ops;
+mod orphan_branches;
+pub mod outbox;
 pub(crate) mod own;
+pub mod planes;
+pub(crate) mod planes_pin;
 pub(crate) mod publish;
+pub mod reset;
+mod reset_arms;
+mod reset_oltp;
 pub(crate) mod retention;
 pub mod teardown;
+mod teardown_branch;
 mod teardown_executor;
 pub mod token_ended;
 mod view;
+
+use std::collections::BTreeMap;
 
 use axum::Json;
 use axum::http::StatusCode;
@@ -61,6 +82,8 @@ use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
+
+use crate::custom_apps_functions::env_policy::EnvBranchUnready;
 
 /// The most sandboxes one app may have. Rows still being torn down count, so
 /// creating and deleting in a loop cannot outrun the teardowns.
@@ -124,6 +147,29 @@ pub struct EnvironmentDto {
     /// A sandbox's own schema on the org's OLTP staging branch, once a
     /// publish has queued it; `null` otherwise.
     pub oltp_schema: Option<oltp_state::OltpSchemaDto>,
+    /// A sandbox's own OLTP branch (`planes.oltp` `branch` or `empty`), from
+    /// the moment its cut is recorded; `null` for a sandbox on `schema`, for
+    /// production and for staging.
+    pub oltp_branch: Option<oltp_branch_dto::OltpBranchDto>,
+    /// The environment this one was cut from. Always `null` for production;
+    /// otherwise its row's `parent_name`, else `production` for staging and
+    /// `staging` for a sandbox.
+    pub parent: Option<String>,
+    /// The point on the parent it was cut at: its row's `fork_at`, else when
+    /// the row was created. `null` for production and for a fixed environment
+    /// with no row.
+    pub fork_at: Option<DateTime<Utc>>,
+    /// Plane key → mode, over the defaults for the kind. `null` for
+    /// production, and when `planes_error` is set.
+    pub planes: Option<BTreeMap<String, String>>,
+    /// Why the row's `planes` could not be read (an unknown plane or mode);
+    /// `null` when it could, and for production.
+    pub planes_error: Option<String>,
+    /// The row's own `planes` object, as stored: the choices made, not the
+    /// modes they resolve to (`{}` when nothing is set). `null` for production
+    /// and for a fixed environment with no row. A client that changes one
+    /// plane reads this, merges into it and `PUT`s the whole object back.
+    pub planes_set: Option<serde_json::Value>,
 }
 
 /// Why a sandbox is being torn down.
@@ -138,6 +184,9 @@ pub enum TeardownReason {
     /// The sandbox agent token that created it was revoked or expired more
     /// than [`token_ended::grace`] ago.
     TokenEnded,
+    /// It is 30 days past its fork point and a plane of it copies production
+    /// rows (`maintenance::expires_from_fork`).
+    BranchExpired,
 }
 
 impl TeardownReason {
@@ -147,6 +196,7 @@ impl TeardownReason {
             Self::Expired => "expired",
             Self::Retried => "retried",
             Self::TokenEnded => "token_ended",
+            Self::BranchExpired => "oltp_branch_expired",
         }
     }
 }
@@ -197,6 +247,47 @@ pub enum SandboxError {
          pick another handle"
     )]
     Reserved { name: String, app: String },
+    /// `from` names no environment this one may be cut from.
+    #[error(
+        "{0:?} is not an environment to fork from: name production, staging, or an active \
+         sandbox of this app"
+    )]
+    InvalidParent(String),
+    /// `at` is not an RFC 3339 time, or is in the future.
+    #[error("{0}")]
+    InvalidForkAt(String),
+    /// A `planes` choice, a `preset` or a `planes` list that cannot be used.
+    #[error("{0}")]
+    InvalidPlanes(String),
+    #[error("production has no planes: only staging and sandboxes choose their planes' modes")]
+    ProductionHasNoPlanes,
+    /// A fixed environment with no `app_environments` row. Inserting one with
+    /// no build would stop it serving the build its legacy column names.
+    #[error(
+        "{0} has no environment row yet, so it runs every plane in its default mode and has \
+         nothing to change"
+    )]
+    EnvironmentHasNoRow(String),
+    /// A plane with no reset in this release, or in the mode it runs in.
+    #[error(
+        "the {0} plane cannot be reset: it has no reset in this release, or none in the mode it \
+         runs in"
+    )]
+    PlaneNotResettable(String),
+    /// The semantic pin port refused (or is not installed): its own status and
+    /// code, so a `503` stays a `503` and GitHub being down is not a `500`.
+    #[error("{}", .0.message)]
+    Pin(oxy_app_core::semantic_pin_seam::PinRefusal),
+    /// `env diff` of a sandbox whose OLTP branch cannot be read yet.
+    #[error("{}", .0.fix())]
+    OltpBranchUnready(EnvBranchUnready),
+    /// A plane that resets elsewhere but not on this environment; the message
+    /// says why.
+    #[error("{0}")]
+    PlaneNotResettableHere(String),
+    /// Another teardown, migration or reset of the sandbox holds its lock.
+    #[error("another teardown, migration or reset of {0} is still running; try again shortly")]
+    Busy(String),
     #[error("internal error")]
     Internal(String),
 }
@@ -204,14 +295,25 @@ pub enum SandboxError {
 impl SandboxError {
     pub fn status(&self) -> StatusCode {
         match self {
-            Self::InvalidName(_) | Self::NotASandbox(_) => StatusCode::BAD_REQUEST,
+            Self::InvalidName(_)
+            | Self::NotASandbox(_)
+            | Self::InvalidParent(_)
+            | Self::InvalidForkAt(_)
+            | Self::InvalidPlanes(_) => StatusCode::BAD_REQUEST,
             Self::PublishToken | Self::NotStaff => StatusCode::FORBIDDEN,
             Self::AppNotFound | Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Exists(_)
             | Self::Deleting(_)
             | Self::Limit(_)
             | Self::TokenLimit(_)
-            | Self::Reserved { .. } => StatusCode::CONFLICT,
+            | Self::Reserved { .. }
+            | Self::ProductionHasNoPlanes
+            | Self::EnvironmentHasNoRow(_)
+            | Self::PlaneNotResettable(_)
+            | Self::PlaneNotResettableHere(_)
+            | Self::OltpBranchUnready(_)
+            | Self::Busy(_) => StatusCode::CONFLICT,
+            Self::Pin(refusal) => refusal.status,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -230,6 +332,15 @@ impl SandboxError {
             Self::Limit(_) => "environment_limit",
             Self::TokenLimit(_) => "token_sandbox_limit",
             Self::Reserved { .. } => "environment_reserved",
+            Self::InvalidParent(_) => "invalid_parent",
+            Self::InvalidForkAt(_) => "invalid_fork_at",
+            Self::InvalidPlanes(_) => "invalid_planes",
+            Self::ProductionHasNoPlanes => "production_has_no_planes",
+            Self::EnvironmentHasNoRow(_) => "environment_has_no_row",
+            Self::PlaneNotResettable(_) | Self::PlaneNotResettableHere(_) => "plane_not_resettable",
+            Self::OltpBranchUnready(_) => "oltp_branch_unready",
+            Self::Busy(_) => "environment_busy",
+            Self::Pin(refusal) => refusal.code,
             Self::Internal(_) => "internal",
         }
     }
@@ -249,134 +360,5 @@ impl IntoResponse for SandboxError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The contract's table (`internal-docs/custom-app-sandboxes.md` §5.1):
-    /// one status and one code per refusal, and no two refusals share a code.
-    #[test]
-    fn every_refusal_has_its_status_and_code() {
-        let table = [
-            (
-                SandboxError::InvalidName("x".into()),
-                400,
-                "invalid_environment_name",
-            ),
-            (
-                SandboxError::NotASandbox("staging".into()),
-                400,
-                "not_a_sandbox",
-            ),
-            (SandboxError::PublishToken, 403, "publish_token_refused"),
-            (SandboxError::NotStaff, 403, "non_production_refused"),
-            (SandboxError::AppNotFound, 404, "app_not_found"),
-            (
-                SandboxError::NotFound("dev-a".into()),
-                404,
-                "environment_not_found",
-            ),
-            (
-                SandboxError::Exists("dev-a".into()),
-                409,
-                "environment_exists",
-            ),
-            (
-                SandboxError::Deleting("dev-a".into()),
-                409,
-                "environment_deleting",
-            ),
-            (SandboxError::Limit(20), 409, "environment_limit"),
-            (SandboxError::TokenLimit(3), 409, "token_sandbox_limit"),
-            (
-                SandboxError::Reserved {
-                    name: "dev-a".into(),
-                    app: "x--dev-a".into(),
-                },
-                409,
-                "environment_reserved",
-            ),
-            (SandboxError::Internal("boom".into()), 500, "internal"),
-        ];
-        let mut codes = std::collections::BTreeSet::new();
-        for (error, status, code) in table {
-            assert_eq!(error.status().as_u16(), status, "{error:?}");
-            assert_eq!(error.code(), code, "{error:?}");
-            assert!(codes.insert(code), "{code} names two refusals");
-        }
-        assert_eq!(codes.len(), 12);
-    }
-
-    #[tokio::test]
-    async fn a_refusal_answers_error_and_message() {
-        let response = SandboxError::Limit(20).into_response();
-        assert_eq!(response.status(), StatusCode::CONFLICT);
-        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
-            .await
-            .expect("body");
-        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
-        assert_eq!(body["error"], "environment_limit");
-        assert!(body["message"].as_str().unwrap().contains("20 sandboxes"));
-        assert_eq!(body.as_object().unwrap().len(), 2, "error and message only");
-    }
-
-    /// An internal failure's detail is logged, never answered.
-    #[test]
-    fn an_internal_error_does_not_leak_its_detail() {
-        let error = SandboxError::Internal("relation \"apps\" does not exist".into());
-        assert_eq!(error.to_string(), "internal error");
-    }
-
-    /// One week by default; the override is whole days, never under one.
-    /// nextest runs each test in its own process, so the env writes are its own.
-    #[test]
-    fn idle_ttl_is_a_week_unless_overridden_and_never_under_a_day() {
-        // SAFETY: nextest runs each test in its own process.
-        unsafe { std::env::remove_var(IDLE_DAYS_ENV) };
-        assert_eq!(idle_ttl(), chrono::Duration::days(7));
-        for (raw, days) in [("3", 3), (" 14 ", 14), ("0", 1), ("-5", 1), ("soon", 7)] {
-            unsafe { std::env::set_var(IDLE_DAYS_ENV, raw) };
-            assert_eq!(idle_ttl(), chrono::Duration::days(days), "{raw:?}");
-        }
-    }
-
-    #[test]
-    fn the_environment_object_always_carries_every_field() {
-        let now = Utc::now();
-        let dto = EnvironmentDto {
-            name: "dev-a1".into(),
-            kind: "dev".into(),
-            status: "active".into(),
-            build_id: None,
-            build_uuid: None,
-            semantic_revision_id: None,
-            owner: None,
-            created_at: now,
-            updated_at: now,
-            last_activity_at: None,
-            expires_at: None,
-            url: None,
-            oltp_schema: None,
-        };
-        let json = serde_json::to_value(&dto).expect("json");
-        let object = json.as_object().expect("an object");
-        for field in [
-            "name",
-            "kind",
-            "status",
-            "build_id",
-            "build_uuid",
-            "semantic_revision_id",
-            "owner",
-            "created_at",
-            "updated_at",
-            "last_activity_at",
-            "expires_at",
-            "url",
-            "oltp_schema",
-        ] {
-            assert!(object.contains_key(field), "{field} is missing");
-        }
-        assert_eq!(object.len(), 13);
-        assert!(json["build_id"].is_null(), "null, not omitted");
-    }
-}
+#[path = "mod_tests.rs"]
+mod tests;

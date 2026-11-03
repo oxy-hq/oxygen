@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 use super::migrations_task::{self, SandboxMigrationsTask};
 use super::oltp_task::{self, SandboxOltpTask};
+use crate::custom_apps_env_branch::publish::queue_branch_migrations;
 use crate::custom_apps_env_resolve::may_open_environment;
 use crate::custom_apps_environments::{EnvAction, record_move};
 use crate::custom_apps_migrations::DeclaredMigration;
@@ -260,15 +261,20 @@ pub(crate) struct SandboxBuild<'a> {
 
 /// The last thing a sandbox publish does: queue the sandbox's own OLTP schema
 /// on the org's staging branch — seeded if need be, then migrated with the
-/// build's OLTP files — and the build's Airhouse migrations for the sandbox's
-/// sibling. The warnings are the publish's.
+/// build's OLTP files — or, for a sandbox whose planes ask for an OLTP branch
+/// of its own, the migration of that branch instead
+/// (`custom_apps_env_branch::publish`); and the build's Airhouse migrations
+/// for the sandbox's sibling. The warnings are the publish's.
 pub(crate) async fn queue_migrations(
     db: &DatabaseConnection,
     build: SandboxBuild<'_>,
     oltp: &[DeclaredMigration],
     airhouse: &[DeclaredMigration],
 ) -> Vec<String> {
-    let mut warnings = queue_oltp_schema(db, build, oltp).await;
+    let mut warnings = match queue_branch_migrations(db, build).await {
+        Some(warnings) => warnings,
+        None => queue_oltp_schema(db, build, oltp).await,
+    };
     if airhouse.is_empty() {
         return warnings;
     }

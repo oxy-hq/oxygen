@@ -300,6 +300,7 @@ async fn a_sandbox_data_request_reads_the_pin_of_the_sandboxs_own_build() {
                 workspace,
             )
             .await
+            .expect("a ready or unpinned environment is never refused")
         }
     };
 
@@ -323,7 +324,8 @@ async fn a_sandbox_data_request_reads_the_pin_of_the_sandboxs_own_build() {
         &oxy_server_authz::Caller::without_credential(Uuid::new_v4(), "customer@example.com"),
         workspace,
     )
-    .await;
+    .await
+    .expect("a ready or unpinned environment is never refused");
     assert_eq!(customer, None, "a sandbox is Oxy staff's");
     let elsewhere = pin_for(
         &conn,
@@ -331,6 +333,7 @@ async fn a_sandbox_data_request_reads_the_pin_of_the_sandboxs_own_build() {
         &oxy_server_authz::Caller::without_credential(staff, STAFF),
         Uuid::new_v4(),
     )
-    .await;
+    .await
+    .expect("a ready or unpinned environment is never refused");
     assert_eq!(elsewhere, None, "the app must be this workspace's");
 }

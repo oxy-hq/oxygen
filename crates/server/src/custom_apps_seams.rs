@@ -1,5 +1,5 @@
 //! The custom-app work this composition root hands `oxy-app` through
-//! [`SurfaceSeams`](oxy_app::server::router::SurfaceSeams): the six task kinds
+//! [`SurfaceSeams`](oxy_app::server::router::SurfaceSeams): the seven task kinds
 //! the worker fleet runs, the process-lifetime background jobs, the outer
 //! `/customer-apps/{*path}` mount, the function runtime for the `oxy-app`
 //! handlers that run a function, and the `oxy migrate` and `oxy seed` halves.
@@ -18,6 +18,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::routing::any;
 use oxy_api_custom_apps::app_function_executor::{APP_FUNCTION_KIND, AppFunctionTaskExecutor};
+use oxy_api_custom_apps::custom_apps_env_branch::task as env_branch_task;
 use oxy_api_custom_apps::custom_apps_nonproduction::{staging_task, staging_task_executor};
 use oxy_api_custom_apps::custom_apps_sandboxes::{
     maintenance, migrations_task, oltp_task, teardown,
@@ -26,8 +27,10 @@ use oxy_api_custom_apps::custom_apps_usage_backfill::{self, USAGE_BACKFILL_KIND}
 use oxy_api_custom_apps::serve as custom_apps_serve;
 use oxy_app::server::api::middlewares::workspace_context::PreaggCacheCtx;
 use oxy_app::server::api::projects::query::DataPlaneQueryExecutor;
+use oxy_app::server::compile_reconcile::env_pinner::EnvPinner;
 use oxy_app::server::router::{BackgroundSeam, TaskSeam};
 use oxy_app_core::function_seam::{FunctionQueryExecutor, FunctionRuntime};
+use oxy_app_core::semantic_pin_seam::SemanticPinner;
 use oxy_custom_apps::storage::{retention, sweeper};
 use oxy_custom_apps::{tracking as custom_apps_tracking, usage_queue as custom_apps_usage_queue};
 use tower::ServiceBuilder;
@@ -93,6 +96,16 @@ pub(crate) fn tasks() -> Vec<TaskSeam> {
                 })
             },
         },
+        // A sandbox's own OLTP branch, cut, reset and migrated (`planes.oltp`
+        // `branch` or `empty`).
+        TaskSeam {
+            kind: env_branch_task::ENV_OLTP_BRANCH_KIND,
+            build: |deps| {
+                Arc::new(env_branch_task::EnvBranchExecutor {
+                    db: deps.db.clone(),
+                })
+            },
+        },
         // A workspace's custom-app usage history copied from Postgres into its
         // Airhouse, queued by the backfill sweep below. `oxy-app` queues none
         // of these, so the kind is not in `CUSTOM_APP_TASK_KINDS`.
@@ -118,6 +131,15 @@ pub(crate) fn function_runtime() -> Arc<dyn FunctionRuntime> {
 /// The staff console's publish and unpublish, for the partner console to call.
 pub(crate) fn app_lifecycle() -> Arc<dyn oxy_app_core::app_lifecycle::AppLifecycle> {
     Arc::new(oxy_api_custom_apps::app_lifecycle::Lifecycle)
+}
+
+/// The pin a planes write calls to point an environment's semantic plane at a
+/// workspace branch (`PUT …/planes`, `POST …/environments`). The routes are
+/// `oxy-api-custom-apps`'s and cannot name `oxy-app`, which holds the branch
+/// lookup, the compile and the pin columns; they find this on the request as an
+/// `Extension`, and answer `503` to a `branch:` choice when it is missing.
+pub(crate) fn semantic_pinner() -> Arc<dyn SemanticPinner> {
+    Arc::new(EnvPinner)
 }
 
 /// What `oxy migrate` prints after the migrations: the functions preflight.
@@ -361,13 +383,14 @@ mod tests {
     /// worker can run, so it is spelled out rather than derived from the
     /// constants it is built from.
     #[test]
-    fn the_task_kinds_are_exactly_these_six() {
+    fn the_task_kinds_are_exactly_these_seven() {
         let mut kinds: Vec<&str> = tasks().iter().map(|t| t.kind).collect();
         kinds.sort_unstable();
         assert_eq!(
             kinds,
             [
                 "app_function",
+                "custom_app_env_oltp_branch",
                 "custom_app_sandbox_migrations",
                 "custom_app_sandbox_oltp",
                 "custom_app_sandbox_teardown",

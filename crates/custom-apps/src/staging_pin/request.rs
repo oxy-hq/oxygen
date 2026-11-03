@@ -33,13 +33,16 @@ use oxy_app_core::custom_app_environment::AppEnvironment;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
+use super::PinNotReady;
 pub use super::resolve::{AppRef, find_app};
 
 /// Header the SDK sends on data-plane calls to name the calling app.
 pub const APP_HEADER: &str = "x-oxy-app";
 
-/// The pin a non-production data-plane request should read, or `None` for
-/// every other request. Cheap for a production request (no DB work).
+/// The pin a non-production data-plane request should read, or `Ok(None)` for
+/// every other request. Cheap for a production request (no DB work). `Err`
+/// when the environment follows a semantic branch with no ready compile
+/// (`PinNotReady`): the gate answers `503 semantic_branch_not_ready`.
 ///
 /// A non-production request is one addressed to the staging host
 /// (`staging--<org>--<slug>.…`, environments design §3.2), a sandbox's host
@@ -47,18 +50,24 @@ pub const APP_HEADER: &str = "x-oxy-app";
 /// bearer or API-key request — never a cookie. The viewer must be allowed to
 /// open non-production (`may_open_non_production`, the rule that serves them
 /// that environment's HTML), and the pin is read from the build **that
-/// environment** serves. A sandbox whose build pins nothing reads the promoted
-/// model; it never borrows staging's pin.
+/// environment** serves, else the environment's own pin. A sandbox whose
+/// build and environment pin nothing reads the promoted model; it never
+/// borrows staging's pin.
 pub async fn staging_pin_for_data_request(
     db: &DatabaseConnection,
     headers: &HeaderMap,
     caller: &oxy_server_authz::Caller,
     project_id: Uuid,
-) -> Option<Uuid> {
-    let non_production = oxy_app_core::custom_app_env_request::request_environment(headers)
+) -> Result<Option<Uuid>, PinNotReady> {
+    let Some(non_production) = oxy_app_core::custom_app_env_request::request_environment(headers)
         .ok()
-        .filter(|environment| *environment != AppEnvironment::Production)?;
-    let app = app_ref(headers)?;
+        .filter(|environment| *environment != AppEnvironment::Production)
+    else {
+        return Ok(None);
+    };
+    let Some(app) = app_ref(headers) else {
+        return Ok(None);
+    };
     super::resolve::pin_for_environment(db, caller, project_id, &app, &non_production).await
 }
 

@@ -312,6 +312,15 @@ pub trait ProjectContext: Send + Sync {
     fn staging_app_id(&self) -> Option<uuid::Uuid> {
         None
     }
+
+    /// The name of the sandbox (`dev-<handle>`) whose ask this platform holds
+    /// writes for, when [`Self::staging_app_id`] names an app and the ask is
+    /// not staging's. `None` for staging's own ask and everywhere else. It
+    /// only scopes the run's stamp ([`preview_stamp`]) so a sandbox's run is
+    /// never taken for staging's.
+    fn sandbox_environment(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Who owns a conversation thread, and which workspace it belongs to.

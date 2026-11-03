@@ -60,6 +60,7 @@ use uuid::Uuid;
 
 use crate::auth::{is_org_member, is_oxy_locked_down, user_cache_key};
 use crate::cache::{cached_model_term, cached_user, remember_model_term, set_cached_user};
+use crate::staging_pin::PinNotReady;
 
 /// Resolved context produced by the gate chain. The handler unpacks whichever
 /// fields it needs; the struct is the minimum set of state every custom-app
@@ -114,7 +115,7 @@ impl CustomAppContext {
 /// mid-handshake, while warm ones kept serving. That is `database_unreachable`
 /// on the wire — a different thing to go looking at than
 /// `database_query_failed`, which is ours.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GateError {
     /// The credential names no user. Never cached.
     UserNotFound,
@@ -137,11 +138,17 @@ pub enum GateError {
     DatabaseUnavailable { code: &'static str },
     /// The caller may not read the owning organization's data.
     NotAMember,
+    /// The request's environment follows a semantic branch whose head has no
+    /// ready compile. Retryable (`503` + `Retry-After`): the plane's home is
+    /// not ready, and the request is refused rather than read from another
+    /// model. The body names the commit and the way out
+    /// ([`PinNotReady::fix`]).
+    SemanticBranchNotReady(PinNotReady),
 }
 
 impl GateError {
     /// The HTTP status code of the response.
-    pub fn status(self) -> u16 {
+    pub fn status(&self) -> u16 {
         match self {
             GateError::UserNotFound | GateError::AuthenticationRequired => 401,
             GateError::ProjectNotFound => 404,
@@ -152,11 +159,12 @@ impl GateError {
             | GateError::WorkspaceLookupFailed { .. }
             | GateError::MembershipCheckFailed { .. }
             | GateError::DatabaseUnavailable { .. } => 500,
+            GateError::SemanticBranchNotReady(_) => 503,
         }
     }
 
     /// The `message` field of the response body.
-    pub fn message(self) -> &'static str {
+    pub fn message(&self) -> &'static str {
         match self {
             GateError::UserNotFound => "user not found",
             GateError::UserLookupFailed { .. } => "user lookup failed",
@@ -168,16 +176,27 @@ impl GateError {
             GateError::OriginNotAllowed => "origin not allowed",
             GateError::DatabaseUnavailable { .. } => "database unavailable",
             GateError::NotAMember => "not a member of the owning organization",
+            GateError::SemanticBranchNotReady(_) => "the semantic branch is not ready",
+        }
+    }
+
+    /// The refusal behind a `503 semantic_branch_not_ready`, whose body also
+    /// names the commit and the fix.
+    pub fn pin_not_ready(&self) -> Option<&PinNotReady> {
+        match self {
+            GateError::SemanticBranchNotReady(refusal) => Some(refusal),
+            _ => None,
         }
     }
 
     /// The `code` field of the response body, when there is one.
-    pub fn code(self) -> Option<&'static str> {
+    pub fn code(&self) -> Option<&'static str> {
         match self {
             GateError::UserLookupFailed { code }
             | GateError::WorkspaceLookupFailed { code }
             | GateError::MembershipCheckFailed { code }
-            | GateError::DatabaseUnavailable { code } => Some(code),
+            | GateError::DatabaseUnavailable { code } => Some(*code),
+            GateError::SemanticBranchNotReady(_) => Some("semantic_branch_not_ready"),
             GateError::UserNotFound
             | GateError::ProjectNotFound
             | GateError::NoOwningOrganization
@@ -280,10 +299,12 @@ pub async fn check_custom_app_gates(
     // revision an already authorized request reads, never whether it may
     // read. Never cached: it is a property of this request's host and
     // headers, and a production request answers it from them alone.
+    // A branch with no ready compile is refused, not read from another model.
     let staging_pin = crate::staging_pin::request::staging_pin_for_data_request(
         &db, headers, &caller, project_id,
     )
-    .await;
+    .await
+    .map_err(GateError::SemanticBranchNotReady)?;
 
     Ok(CustomAppContext {
         user,

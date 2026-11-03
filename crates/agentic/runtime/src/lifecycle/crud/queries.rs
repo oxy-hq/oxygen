@@ -41,6 +41,8 @@ use super::visibility::{in_customer_feed, in_production, in_production_sql};
 /// migrations and its own OLTP schema (each queued by a publish to it) and its
 /// teardown (queued by a delete or an expiry) —
 /// `server::api::custom_apps_sandboxes`: staff work on a staff surface.
+/// `custom_app_env_oltp_branch` cuts, resets and migrates a sandbox's own OLTP
+/// branch (`oxy-api-custom-apps` `custom_apps_env_branch`): the same.
 /// `custom_app_usage_backfill` copies a workspace's custom-app usage history to
 /// its Airhouse (`oxy-api-custom-apps` `custom_apps_usage_backfill`), queued by
 /// a sweep.
@@ -53,6 +55,7 @@ pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "custom_app_staging_migrations",
     "custom_app_sandbox_migrations",
     "custom_app_sandbox_oltp",
+    "custom_app_env_oltp_branch",
     "custom_app_sandbox_teardown",
     "custom_app_usage_backfill",
 ];

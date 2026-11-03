@@ -6,7 +6,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "../context/resolve.js";
 import { CliError, ExitCode } from "../util/errors.js";
-import { describeOltpSchema, runEnvCreate, runEnvDelete, runEnvList, runEnvShow } from "./env.js";
+import {
+  describeOltpBranch,
+  describeOltpSchema,
+  describePlanes,
+  PLANE_ORDER,
+  runEnvCreate,
+  runEnvDelete,
+  runEnvList,
+  runEnvShow
+} from "./env.js";
 
 const TARGET = "https://oxy.test";
 const APP_ID = "a1a1a1a1-2222-3333-4444-555555555555";
@@ -344,6 +353,116 @@ describe("runEnvShow", () => {
     }
   });
 
+  it("prints a sandbox's oltp_branch verbatim with --json, and as an OLTP branch line without", async () => {
+    const oltp_branch = {
+      mode: "branch",
+      status: "ready",
+      fork_at: "2026-11-02T09:00:00Z",
+      expires_at: "2026-12-02T09:00:00Z",
+      error: null
+    };
+    stubFetch(
+      {
+        ...appsRoutes(),
+        [`GET /api/customer-apps/${APP_ID}/environments/dev-a1`]: () => ({
+          status: 200,
+          body: { ...ENVIRONMENT, oltp_branch }
+        })
+      },
+      calls
+    );
+    for (const json of [true, false]) {
+      let printed = "";
+      const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+        printed += String(chunk);
+        return true;
+      });
+      await runEnvShow(fakeContext({ bearer: "tok" }), "acme/store", "dev-a1", { json });
+      write.mockRestore();
+      if (json) expect(JSON.parse(printed.trim()).oltp_branch).toEqual(oltp_branch);
+      else
+        expect(printed).toContain(
+          "OLTP branch (branch) — ready (forked 2026-11-02T09:00:00Z, expires 2026-12-02T09:00:00Z (the sandbox goes with it))"
+        );
+    }
+  });
+
+  it("passes parent, fork_at, planes and planes_error through --json unchanged", async () => {
+    const branch = {
+      parent: "staging",
+      fork_at: "2026-10-02T09:00:00Z",
+      planes: { build: "own", oltp: "schema" },
+      planes_error: null
+    };
+    stubFetch(
+      {
+        ...appsRoutes(),
+        [`GET /api/customer-apps/${APP_ID}/environments/dev-a1`]: () => ({
+          status: 200,
+          body: { ...ENVIRONMENT, ...branch }
+        })
+      },
+      calls
+    );
+    let printed = "";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      printed += String(chunk);
+      return true;
+    });
+    await runEnvShow(fakeContext({ bearer: "tok" }), "acme/store", "dev-a1", { json: true });
+    write.mockRestore();
+    const parsed = JSON.parse(printed.trim());
+    expect(parsed.parent).toBe(branch.parent);
+    expect(parsed.fork_at).toBe(branch.fork_at);
+    expect(parsed.planes).toEqual(branch.planes);
+    expect(parsed.planes_error).toBeNull();
+  });
+
+  it("prints the planes line after the URL without --json", async () => {
+    stubFetch(
+      {
+        ...appsRoutes(),
+        [`GET /api/customer-apps/${APP_ID}/environments/dev-a1`]: () => ({
+          status: 200,
+          body: { ...ENVIRONMENT, parent: "staging", planes: { build: "own", oltp: "schema" } }
+        })
+      },
+      calls
+    );
+    let printed = "";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      printed += String(chunk);
+      return true;
+    });
+    await runEnvShow(fakeContext({ bearer: "tok" }), "acme/store", "dev-a1", { json: false });
+    write.mockRestore();
+    expect(printed).toContain("\n  from staging · build=own oltp=schema\n");
+  });
+
+  it("says what an OLTP branch is doing, and what to do when it failed", () => {
+    const base = {
+      mode: "branch",
+      fork_at: "2026-11-02T09:00:00Z",
+      expires_at: "2026-12-02T09:00:00Z",
+      error: null
+    };
+    expect(describeOltpBranch({ ...base, status: "ready" })).toBe(
+      "OLTP branch (branch) — ready (forked 2026-11-02T09:00:00Z, expires 2026-12-02T09:00:00Z (the sandbox goes with it))"
+    );
+    expect(describeOltpBranch({ ...base, mode: "empty", expires_at: null, status: "ready" })).toBe(
+      "OLTP branch (empty) — ready (forked 2026-11-02T09:00:00Z, no expiry)"
+    );
+    for (const status of ["cutting", "migrating", "resetting"]) {
+      expect(describeOltpBranch({ ...base, status })).toBe(
+        `OLTP branch (branch) — ${status} (forked 2026-11-02T09:00:00Z); ctx.oltp is refused until it is ready`
+      );
+    }
+    expect(describeOltpBranch({ ...base, status: "failed", error: "migration 0002 failed" })).toBe(
+      "OLTP branch (branch) — failed: migration 0002 failed; oxyc env reset <app> <env> --plane oltp cuts it again"
+    );
+    expect(describeOltpBranch({ ...base, status: "failed" })).toContain("no reason recorded");
+  });
+
   it("says what to do for a schema that failed or went stale", () => {
     const base = {
       schema: "app_store__dev_a1",
@@ -538,5 +657,118 @@ describe("runEnvDelete", () => {
     }).catch((e: unknown) => e as CliError);
     expect((err as CliError).code).toBe(ExitCode.USAGE);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("describePlanes", () => {
+  it("is null for an older server that sends none of the fields", () => {
+    expect(describePlanes({})).toBeNull();
+  });
+
+  it("is null for production, where all four are null", () => {
+    expect(
+      describePlanes({ parent: null, fork_at: null, planes: null, planes_error: null })
+    ).toBeNull();
+  });
+
+  it("names the parent, then each plane's mode in the fixed order, whatever order the server sent", () => {
+    const line = describePlanes({
+      parent: "staging",
+      fork_at: "2026-10-02T09:00:00Z",
+      // Alphabetical, as a BTreeMap serialises.
+      planes: {
+        airhouse: "write-only",
+        build: "own",
+        fetch: "held-writes",
+        messages: "invoker",
+        oltp: "schema",
+        reads: "live",
+        schedules: "switch",
+        secrets: "inherit",
+        semantic: "build-pin",
+        storage: "branch",
+        warehouse: "mapped",
+        "workspace-actions": "refused"
+      },
+      planes_error: null
+    });
+    expect(line).toBe(
+      "from staging · build=own semantic=build-pin reads=live oltp=schema airhouse=write-only " +
+        "warehouse=mapped storage=branch secrets=inherit messages=invoker fetch=held-writes " +
+        "schedules=switch workspace-actions=refused"
+    );
+  });
+
+  it("renders the exact payload the server sends for a dev-a1 sandbox", () => {
+    const sandbox = {
+      parent: "staging",
+      fork_at: "2026-11-02T08:15:00Z",
+      planes: {
+        airhouse: "write-only",
+        build: "own",
+        fetch: "held-writes",
+        messages: "invoker",
+        oltp: "schema",
+        reads: "live",
+        schedules: "switch",
+        secrets: "inherit",
+        semantic: "build-pin",
+        storage: "branch",
+        warehouse: "mapped",
+        "workspace-actions": "refused"
+      },
+      planes_error: null
+    };
+    expect(Object.keys(sandbox.planes)).toEqual([...Object.keys(sandbox.planes)].sort());
+    expect(describePlanes(sandbox)).toBe(
+      "from staging · build=own semantic=build-pin reads=live oltp=schema airhouse=write-only " +
+        "warehouse=mapped storage=branch secrets=inherit messages=invoker fetch=held-writes " +
+        "schedules=switch workspace-actions=refused"
+    );
+  });
+
+  it("puts a plane the CLI does not know after the known ones, alphabetically", () => {
+    const line = describePlanes({
+      parent: "staging",
+      planes: { zeta: "x", build: "own", alpha: "y", "workspace-actions": "refused" }
+    });
+    expect(line).toBe("from staging · build=own workspace-actions=refused alpha=y zeta=x");
+    expect(PLANE_ORDER[0]).toBe("build");
+    expect(PLANE_ORDER[PLANE_ORDER.length - 1]).toBe("workspace-actions");
+  });
+
+  it("omits the from-prefix rather than print null when there is no parent", () => {
+    expect(describePlanes({ parent: null, planes: { build: "own" } })).toBe("build=own");
+    expect(describePlanes({ planes: { build: "own" } })).toBe("build=own");
+  });
+
+  it("prints only the parent for an empty planes object, and nothing without one", () => {
+    expect(describePlanes({ parent: "staging", planes: {}, planes_error: null })).toBe(
+      "from staging"
+    );
+    expect(describePlanes({ parent: null, planes: {}, planes_error: null })).toBeNull();
+    expect(describePlanes({ planes: {} })).toBeNull();
+  });
+
+  it("says the planes are unreadable, and why, when the server could not read them", () => {
+    expect(
+      describePlanes({
+        parent: "staging",
+        fork_at: null,
+        planes: null,
+        planes_error: "unknown plane olpt"
+      })
+    ).toBe("from staging · planes: unreadable — unknown plane olpt");
+  });
+
+  it("says the planes are unreadable without a parent prefix when there is no parent", () => {
+    expect(
+      describePlanes({
+        parent: null,
+        fork_at: null,
+        planes: null,
+        planes_error: "unknown plane olpt"
+      })
+    ).toBe("planes: unreadable — unknown plane olpt");
   });
 });

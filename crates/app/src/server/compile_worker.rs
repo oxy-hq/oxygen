@@ -328,6 +328,7 @@ async fn drive(
                     .await;
                 }
                 queue_preview_check(&db, &spec, o.revision_id).await;
+                move_environment_pins(&db, &spec, o.revision_id).await;
                 TaskOutcome::Done {
                     answer,
                     metadata: Some(summarise_outcome(&o, &settled)),
@@ -688,6 +689,38 @@ async fn queue_preview_check(db: &DatabaseConnection, spec: &CompileSpec, revisi
         revision_id,
     )
     .await;
+}
+
+/// After a `Ready` compile: move every custom-app environment that is waiting
+/// on this commit onto the new revision. Best-effort; a failure is logged and
+/// never fails the compile, because the revision is good either way and the
+/// pin's own settle step (`env_pins::settle_pending_pin`) can still land it.
+///
+/// **Only a compile of a commit fetched from git moves a pin** (`from_git`):
+/// "the pin follows the branch's commits" is about commits. A working-copy
+/// compile (the IDE's Compile button) reads the files on disk, uncommitted
+/// edits included, under the branch's head sha, so it must not stand in for
+/// that commit.
+async fn move_environment_pins(db: &DatabaseConnection, spec: &CompileSpec, revision_id: Uuid) {
+    if !spec.from_git {
+        return;
+    }
+    let Some(git_sha) = spec.git_sha.as_deref() else {
+        return;
+    };
+    if let Err(e) = crate::server::compile_reconcile::env_pins::move_after_compile(
+        db,
+        spec.workspace_id,
+        git_sha,
+        revision_id,
+    )
+    .await
+    {
+        tracing::warn!(
+            workspace_id = %spec.workspace_id, %git_sha, %revision_id, error = %e,
+            "could not move custom-app environments onto a finished compile"
+        );
+    }
 }
 
 fn summarise_outcome(o: &CompileOutcome, settled: &crate::server::compile_oltp::Settled) -> Value {

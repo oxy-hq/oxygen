@@ -161,10 +161,15 @@ fn the_admin_app_mount_wears_the_one_stack_the_manual_run_tests_call() {
          `admin::apps::guarded(admin::apps::router()…)`"
     );
     let main = code("crates/server/src/main.rs");
+    // Merged bare, or with the seams the composition root layers onto it (the
+    // semantic pin port): either way `routes()` is the merged router.
+    let seam_body = fn_body(&main, "api_seam_routes");
+    let merges_routes = seam_body.contains(".merge(oxy_api_custom_apps::routes())")
+        || seam_body.contains(".merge(oxy_api_custom_apps::routes().layer(");
     assert!(
-        fn_body(&main, "api_seam_routes").contains(".merge(oxy_api_custom_apps::routes())"),
-        "`api_seam_routes` no longer merges `oxy_api_custom_apps::routes()`, the only mount of \
-         the admin app handlers"
+        merges_routes,
+        "`api_seam_routes` no longer merges `oxy_api_custom_apps::routes()` (bare, or with \
+         `.layer(…)` on it), the only mount of the admin app handlers"
     );
     let global = code("crates/app/src/server/router/global.rs");
     assert!(

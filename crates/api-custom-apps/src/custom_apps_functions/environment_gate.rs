@@ -30,18 +30,23 @@
 //! that decision; this gate adds no entrance for it.
 //!
 //! What an environment's policy *does* lands in `env_policy`, not here. The
-//! one fact it needs from the database is decided here, once per admitted
-//! run: where its `ctx.oltp` lands ([`with_oltp_home`], P4b). The org has at
-//! most one OLTP staging branch; staging runs in the app's schema there, and
-//! a sandbox in a schema of its own, when its row records one ready
-//! (`custom_apps_sandboxes::oltp_state`).
+//! facts it needs from the database are decided here, once per admitted run:
+//! the modes of its planes ([`with_planes`]), then where its `ctx.oltp` lands
+//! ([`with_oltp_home`], P4b). The org has at most one OLTP staging branch;
+//! staging runs in the app's schema there, and a sandbox in a schema of its
+//! own, when its row records one ready (`custom_apps_sandboxes::oltp_state`).
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use entity::app_environments;
 use oxy_app_core::custom_app_environment::AppEnvironment;
+use sea_orm::{DbErr, EntityTrait};
 
 use super::env_policy::{EnvPolicy, OltpHome, SandboxUnready};
+use crate::custom_apps_env_branch::home::{home_for, own_branch_mode};
 use crate::custom_apps_env_resolve::{ResolvedEnvironment, may_open_non_production};
+use crate::custom_apps_planes::{ResolvedPlanes, planes_from_row};
+use crate::custom_apps_staging_pin::PinNotReady;
 
 /// How a run reached the gate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +86,16 @@ pub(crate) enum RefusedReason {
     /// A sandbox agent token, anywhere but a sandbox it created — or, for a
     /// token granted an app's staging, that staging.
     NotOwnSandbox,
+    /// The environment follows a semantic branch whose head has no ready
+    /// compile: the plane's home is not ready, so the run is refused rather
+    /// than read from another model. [`EnvironmentRefused::pin_not_ready`]
+    /// names the commit.
+    SemanticPinNotReady,
+    /// The environment's `planes` could not be read (an unknown plane or
+    /// mode), so what it may do is not known. Never answered with the
+    /// defaults: a run on modes nobody chose is not the run that was asked
+    /// for. [`EnvironmentRefused::detail`] holds the parse error.
+    PlanesUnreadable,
 }
 
 /// A function run refused because of the environment it would run in.
@@ -88,12 +103,22 @@ pub(crate) enum RefusedReason {
 pub(crate) struct EnvironmentRefused {
     pub environment: AppEnvironment,
     pub reason: RefusedReason,
+    /// Set exactly when `reason` is `SemanticPinNotReady`.
+    pub pin_not_ready: Option<PinNotReady>,
+    /// What the reason adds to its message: for
+    /// [`RefusedReason::PlanesUnreadable`], the parse error. `None` otherwise.
+    pub detail: Option<String>,
 }
 
 impl EnvironmentRefused {
     pub(crate) fn message(&self) -> String {
         let env = &self.environment;
         match self.reason {
+            RefusedReason::SemanticPinNotReady => self
+                .pin_not_ready
+                .as_ref()
+                .map(PinNotReady::fix)
+                .unwrap_or_else(|| format!("the {env} environment's semantic branch is not ready")),
             RefusedReason::NotStaff => format!(
                 "functions in the {env} environment run for Oxy staff only; call the function \
                  in production"
@@ -105,19 +130,33 @@ impl EnvironmentRefused {
             RefusedReason::NotOwnSandbox => {
                 "a sandbox agent token runs functions only in a sandbox it created".to_string()
             }
+            RefusedReason::PlanesUnreadable => format!(
+                "the {env} environment's planes cannot be read ({}); fix them with `oxyc env \
+                 update <app> {env} --plane <key>=<mode>`",
+                self.detail.as_deref().unwrap_or("unreadable")
+            ),
         }
     }
 
     /// `403` with the reason — except to a sandbox agent token, which is
     /// answered as an unknown app is: `404 not_found` in the token's one body
     /// (`custom_apps_agent_body`), the same bytes, so it learns nothing of
-    /// production, staging or another creator's sandbox.
+    /// production, staging or another creator's sandbox. Unreadable planes are
+    /// `409`: the caller may open the environment, and its state is the
+    /// obstacle.
     pub(crate) fn into_response(self) -> Response {
         if self.reason == RefusedReason::NotOwnSandbox {
             return crate::custom_apps_agent_body::Refusal::not_found().into_response();
         }
+        if self.reason == RefusedReason::SemanticPinNotReady {
+            return self.not_ready_response();
+        }
+        let status = match self.reason {
+            RefusedReason::PlanesUnreadable => StatusCode::CONFLICT,
+            _ => StatusCode::FORBIDDEN,
+        };
         (
-            StatusCode::FORBIDDEN,
+            status,
             axum::Json(serde_json::json!({
                 "error": "EnvironmentRefused",
                 "environment": self.environment.name(),
@@ -137,6 +176,8 @@ pub(crate) fn admit(
     let refused = |reason| EnvironmentRefused {
         environment: resolved.environment.clone(),
         reason,
+        pin_not_ready: None,
+        detail: None,
     };
     use AppEnvironment::{Dev, Production, Staging};
     match (&resolved.environment, entrance) {
@@ -175,17 +216,89 @@ pub(crate) fn admit(
     }
 }
 
+/// Why [`with_planes`] did not admit a run: a lookup failed, or the
+/// environment's planes cannot be read.
+#[derive(Debug)]
+pub(crate) enum GateError {
+    /// A database failure: the caller refuses the run rather than start it on
+    /// a policy it could not finish, as for every other lookup outside
+    /// production.
+    Db(DbErr),
+    /// The row's `planes` do not parse; see [`RefusedReason::PlanesUnreadable`].
+    Refused(EnvironmentRefused),
+}
+
+impl From<DbErr> for GateError {
+    fn from(error: DbErr) -> Self {
+        Self::Db(error)
+    }
+}
+
+impl From<EnvironmentRefused> for GateError {
+    fn from(refused: EnvironmentRefused) -> Self {
+        Self::Refused(refused)
+    }
+}
+
+/// `admission`, with the modes of its planes read from the environment's
+/// `app_environments` row — once, here, for the whole invocation, and before
+/// [`with_oltp_home`]. Production has no planes and pays no lookup. Outside
+/// it, one primary-key read ([`planes_for`]); a row whose `planes` cannot be
+/// read **refuses** the run ([`RefusedReason::PlanesUnreadable`]) and never
+/// falls back to the defaults.
+pub(crate) async fn with_planes(
+    db: &sea_orm::DatabaseConnection,
+    mut admission: Admission,
+    app: &entity::apps::Model,
+) -> Result<Admission, GateError> {
+    if admission.policy.is_production() {
+        return Ok(admission);
+    }
+    let environment = admission.policy.environment();
+    let row = app_environments::Entity::find_by_id((app.id, environment.name()))
+        .one(db)
+        .await?;
+    if let Some(planes) = planes_for(row.as_ref(), environment)? {
+        admission.policy = admission.policy.with_planes(planes);
+    }
+    Ok(admission)
+}
+
+/// The planes `environment` runs with, from its `row`
+/// (`crate::custom_apps_planes::planes_from_row`, the one rule `oxy-app`'s
+/// readers share): the row's choices over the defaults for its kind, none for
+/// production. A row whose `planes` do not parse is refused with the parse
+/// error as its detail.
+fn planes_for(
+    row: Option<&app_environments::Model>,
+    environment: &AppEnvironment,
+) -> Result<Option<ResolvedPlanes>, EnvironmentRefused> {
+    planes_from_row(row, environment).map_err(|detail| EnvironmentRefused {
+        environment: environment.clone(),
+        reason: RefusedReason::PlanesUnreadable,
+        pin_not_ready: None,
+        detail: Some(detail),
+    })
+}
+
 /// `admission`, with where its `ctx.oltp` lands decided — once, here, for the
 /// whole invocation (env design §4.2; `env_policy::OltpHome`). Production
 /// always writes its own database and pays no lookup. Outside production, one
 /// lookup of the org's staging branch ([`oltp_home_for`]); a sandbox in an
-/// org that has one also reads its own row ([`sandbox_oltp_home`]).
+/// org that has one also reads its own row ([`sandbox_oltp_home`]). A sandbox
+/// whose planes ask for an OLTP branch of its own (`home::own_branch_mode`) skips
+/// the staging lookup and takes `custom_apps_env_branch::home::home_for`.
 pub(crate) async fn with_oltp_home(
     db: &sea_orm::DatabaseConnection,
     mut admission: Admission,
     app: &entity::apps::Model,
 ) -> Result<Admission, sea_orm::DbErr> {
     if admission.policy.is_production() {
+        return Ok(admission);
+    }
+    if let Some(mode) = own_branch_mode(&admission.policy) {
+        let home = home_for(db, app, admission.policy.environment(), mode).await?;
+        admission.policy = admission.policy.with_oltp_home(home);
         return Ok(admission);
     }
     let (_, branch) =
@@ -272,22 +385,6 @@ pub(crate) async fn route_entrance(
     }
 }
 
-/// `policy`, reading the semantic model `build_id` pins (#3370,
-/// `custom_apps_staging_pin`) when it is not production's. Production never
-/// looks: a promoted build always reads `workspaces.current_revision_id`.
-#[cfg(feature = "custom-app-functions")]
-pub(crate) async fn with_build_pin(
-    db: &sea_orm::DatabaseConnection,
-    policy: EnvPolicy,
-    build_id: uuid::Uuid,
-) -> EnvPolicy {
-    if policy.is_production() {
-        return policy;
-    }
-    let pin = crate::custom_apps_staging_pin::pinned_revision_for(db, build_id).await;
-    policy.with_semantic_pin(pin)
-}
-
 #[cfg(test)]
 #[path = "environment_gate_tests.rs"]
 mod tests;
@@ -295,3 +392,7 @@ mod tests;
 #[cfg(test)]
 #[path = "environment_gate_staging_tests.rs"]
 mod staging_tests;
+
+#[cfg(test)]
+#[path = "environment_gate_planes_tests.rs"]
+mod planes_tests;

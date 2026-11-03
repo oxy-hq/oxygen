@@ -262,6 +262,68 @@ describe("runInvocationsHeld", () => {
     expect(JSON.parse(printed.trim())).toEqual(HELD);
   });
 
+  async function printedHeld(held: unknown[]): Promise<string> {
+    stubFetch(
+      {
+        ...appsRoutes(),
+        [`GET /api/customer-apps/${APP_ID}/invocations/inv-1/held`]: () => ({
+          status: 200,
+          body: { ...HELD, held }
+        })
+      },
+      calls
+    );
+    let printed = "";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      printed += String(chunk);
+      return true;
+    });
+    await runInvocationsHeld(fakeContext({ bearer: "tok" }), "acme/store", "inv-1", {
+      json: false
+    });
+    write.mockRestore();
+    return printed;
+  }
+
+  it("prints a held call as before", async () => {
+    expect(await printedHeld(HELD.held)).toBe("oltp.exec (oltp, orders) — no staging branch\n");
+  });
+
+  it("prints a sent provider-sandbox call with its path and status", async () => {
+    const sent = {
+      plane: "fetch",
+      namespace: "api.stripe.com",
+      verb: "POST",
+      table: "",
+      op: "fetch",
+      statements: 1,
+      rows: null,
+      note: "sent: a registered provider sandbox",
+      path: "/v1/charges",
+      status: 200
+    };
+    expect(await printedHeld([sent])).toBe("fetch POST api.stripe.com/v1/charges → 200 (sent)\n");
+    expect(await printedHeld([{ ...sent, status: undefined, statements: 3 }])).toBe(
+      "fetch POST api.stripe.com/v1/charges → no response (sent) ×3\n"
+    );
+  });
+
+  it("prints a held call whose path is null as held, not sent", async () => {
+    const held = {
+      plane: "fetch",
+      namespace: "api.stripe.com",
+      verb: "POST",
+      table: "",
+      op: "fetch",
+      note: "the host is not in this environment's fetch allow-list",
+      path: null,
+      status: null
+    };
+    expect(await printedHeld([held])).toBe(
+      "fetch (fetch) — the host is not in this environment's fetch allow-list\n"
+    );
+  });
+
   it("maps 404 invocation_not_found to exit 5", async () => {
     stubFetch(
       {

@@ -31,13 +31,18 @@
 //! fetch client follows no redirect (`host::fetch_client`), so the bytes go to
 //! the minted URL or nowhere.
 //!
+//! A call to a provider's sandbox (`provider_fetch`) is the other mutating
+//! fetch that can be sent, and is decided there.
+//!
 //! Production is `Allow`, as for every op, and never reads the list. A
 //! production run reading a branch has no silo of its own: its `getUploadUrl`
 //! is held, nothing is minted for it, and its fetch holds.
 
+use std::collections::BTreeSet;
+
 use uuid::Uuid;
 
-use super::{Decision, EnvPolicy, HostOp, Target};
+use super::{Decision, EnvPolicy, FetchCall, HostOp, Target, provider_refusal};
 
 /// The method an upload URL is signed for.
 const UPLOAD_METHOD: &str = "PUT";
@@ -63,24 +68,44 @@ impl MintedUpload {
 }
 
 impl EnvPolicy {
-    /// [`Self::decide`] for a mutating `ctx.fetch` of `method` to `url`, given
-    /// the uploads this invocation minted: a request the op alone holds is
-    /// `Isolate(Target::StorageSilo)` when it is an upload into this
-    /// environment's own silo ([`Self::is_own_upload`]). The only decision
-    /// that turns a `Hold` into an isolated write; it never answers `Allow`
-    /// outside production.
+    /// [`Self::decide`] for a `ctx.fetch` `call`, given the uploads this
+    /// invocation minted ([`Self::narrow_on_fetch`]). The note is why a
+    /// provider-sandbox call was held, for the held-write log.
     pub fn decide_on_fetch(
         &self,
         app_id: Uuid,
-        method: &str,
-        url: &url::Url,
-        minted: &[MintedUpload],
-    ) -> Decision {
-        match self.decide(HostOp::Fetch) {
-            Decision::Hold if self.is_own_upload(app_id, method, url, minted) => {
-                Decision::Isolate(Target::StorageSilo)
+        call: &FetchCall,
+    ) -> (Decision, Option<&'static str>) {
+        let none = BTreeSet::new();
+        let listed = self.planes().map_or(&none, |planes| &planes.fetch_hosts);
+        self.narrow_on_fetch(self.decide(HostOp::Fetch), app_id, call, listed)
+    }
+
+    /// The op-level decision `op` for `call`, narrowed: a request the op
+    /// alone holds is `Isolate(Target::StorageSilo)` when it is an upload into
+    /// this environment's own silo ([`Self::is_own_upload`]). An
+    /// `Isolate(Target::ProviderSandbox)` stays only when `call` passes
+    /// [`provider_refusal`] against `listed`, and is `Hold` otherwise, with the
+    /// refusal's note. It never answers `Allow` outside production, and never
+    /// widens a `Hold` to anything but the silo.
+    fn narrow_on_fetch(
+        &self,
+        op: Decision,
+        app_id: Uuid,
+        call: &FetchCall,
+        listed: &BTreeSet<String>,
+    ) -> (Decision, Option<&'static str>) {
+        match op {
+            Decision::Hold | Decision::Isolate(Target::ProviderSandbox)
+                if self.is_own_upload(app_id, call.method, call.url, call.minted) =>
+            {
+                (Decision::Isolate(Target::StorageSilo), None)
             }
-            decided => decided,
+            Decision::Isolate(Target::ProviderSandbox) => match provider_refusal(listed, call) {
+                None => (op, None),
+                Some(note) => (Decision::Hold, Some(note)),
+            },
+            decided => (decided, None),
         }
     }
 

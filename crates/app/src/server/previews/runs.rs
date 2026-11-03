@@ -22,8 +22,9 @@
 //!    platform (`previews::runtime::PreviewRunResolver`).
 //! 4. [`sweep`], on the driver's periodic tick, retires runs past the
 //!    wall-clock ceiling ([`retire_overdue`], `OXY_PREVIEW_RUN_MAX_MINUTES`),
-//!    finishes rows whose run is terminal ([`mark_finished`]) and advances
-//!    each workspace's queue.
+//!    finishes rows whose run is terminal ([`mark_finished`]), settles the poll
+//!    row of a custom app's automation run that ran as a preview
+//!    (`settle_custom_app_runs`) and advances each workspace's queue.
 //!
 //! Gated by `OXY_PREVIEW_RUNS`: every runs route answers `404
 //! preview_runs_disabled` without it, and the sweep starts nothing. Enable it
@@ -272,6 +273,13 @@ pub async fn sweep(db: &DatabaseConnection) {
         }
         Ok(_) => {}
         Err(e) => tracing::warn!(target: "preview", error = %e, "could not finish preview runs"),
+    }
+    // A custom app's automation run that ran as a preview: its poll row reads
+    // the outcome now that the run is finished.
+    if let Err(e) =
+        crate::server::api::projects::automation_run::preview_mode::settle_custom_app_runs(db).await
+    {
+        tracing::warn!(target: "preview", error = %e, "could not settle custom-app preview runs");
     }
     // A transform build that just finished gets its compare this tick.
     if let Err(e) = super::compare::enqueue_compares(db).await {

@@ -514,6 +514,14 @@ const TABLES: &[(&str, Placement)] = &[
         Control("org staging-branch registry: endpoint and sealed owner"),
     ),
     (
+        "oltp_env_branch_roles",
+        Control("sealed role credentials on an app environment's OLTP branch"),
+    ),
+    (
+        "oltp_env_branches",
+        Control("app environment OLTP-branch registry: endpoint, fork point, sealed owner"),
+    ),
+    (
         "oltp_roles",
         Control("org database writer roles and sealed passwords"),
     ),

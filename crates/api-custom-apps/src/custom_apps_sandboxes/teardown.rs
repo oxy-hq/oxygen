@@ -7,7 +7,8 @@
 //! and the request never waits on an object store or on Airhouse. The task
 //! then removes the sandbox's homes — its storage silo, its secrets, its
 //! function schedules, its Airhouse sibling and its own schema on the org's
-//! OLTP staging branch — and, last, the row, which is what frees the name.
+//! OLTP staging branch, then its own OLTP branch if it has one — and, last, the
+//! row, which is what frees the name.
 //!
 //! **Each step is idempotent**, and the row goes last: a run that fails in
 //! storage, the secret store, Airhouse or the OLTP branch leaves the row
@@ -31,6 +32,7 @@
 
 use agentic_core::delegation::TaskSpec;
 use agentic_runtime::orchestrator::crud::queue::TaskScope;
+use airhouse::preview_sql::registry::clear_shadow;
 use entity::{app_environments, apps};
 use oxy_app_core::custom_app_environment::{AppEnvironment, AppEnvironmentKind};
 use sea_orm::{
@@ -46,6 +48,7 @@ use super::lock::SandboxLock;
 pub use super::teardown_executor::SandboxTeardownExecutor;
 use super::{oltp_home, oltp_state};
 use crate::custom_apps_env_schedules::reconcile::retire_environment;
+use crate::custom_apps_functions::env_policy::airhouse_overlay::overlay_key;
 use crate::custom_apps_migrations::{
     AirhouseDrop, DropOutcome, MigrationError, SandboxOltpDrop, drop_environment_schema,
 };
@@ -71,7 +74,8 @@ pub struct SandboxTeardownTask {
     pub workspace_id: Uuid,
     /// The sandbox's full name, `dev-<handle>`.
     pub environment: String,
-    /// `deleted`, `expired`, `retried` or `token_ended` (`TeardownReason::as_str`).
+    /// `deleted`, `expired`, `retried`, `token_ended` or `oltp_branch_expired`
+    /// (`TeardownReason::as_str`).
     pub reason: String,
     /// When the row was marked, in microseconds since the epoch: what tells
     /// one request to delete from the next, and so one run from the next.
@@ -179,7 +183,8 @@ pub(super) async fn enqueue<C: ConnectionTrait>(
 }
 
 /// Tear the sandbox down: its storage silo, its secrets, its Airhouse sibling
-/// and ledger rows, its OLTP schema and ledger rows, then its row. `Ok(what was removed)`, or `Err(why it was
+/// and ledger rows, its OLTP schema and ledger rows, its own OLTP branch, then
+/// its row. `Ok(what was removed)`, or `Err(why it was
 /// not)` — and then the row is still there, still `deleting`.
 ///
 /// Waits [`BUSY_RETRY_DELAYS`] for the sandbox's lock; see [`run_with`].
@@ -254,14 +259,20 @@ async fn tear_down(
     let dropped = drop_sibling(db, task, environment)
         .await
         .map_err(|e| not_torn_down(task, "Airhouse", e.to_string()))?;
+    let overlay = clear_overlay(db, task, environment)
+        .await
+        .map_err(|e| not_torn_down(task, "Airhouse overlay", e.to_string()))?;
     let oltp = drop_oltp_schema(db, task, environment)
         .await
         .map_err(|e| not_torn_down(task, "OLTP schema", e.to_string()))?;
+    let branch = super::teardown_branch::delete_env_branch(db, task)
+        .await
+        .map_err(|e| not_torn_down(task, "OLTP branch", e))?;
     let rows = remove_row(db, task)
         .await
         .map_err(|e| not_torn_down(task, "remove its row", e.to_string()))?;
     Ok(format!(
-        "{}, {schedules} schedules retired, {}",
+        "{}, {schedules} schedules retired, {overlay} overlay tables forgotten, {}, {branch}",
         summary(task, secrets, &dropped, rows),
         oltp_summary(&oltp)
     ))
@@ -360,6 +371,21 @@ async fn drop_sibling(
         })
     };
     retry_busy(&BUSY_RETRY_DELAYS, attempt).await
+}
+
+/// Forget the tables the sandbox's Airhouse overlay held (`branch` and
+/// `snapshot` modes), once its sibling is dropped. The tables went with the
+/// sibling, so only the control-plane rows remain; a row left would send the
+/// next sandbox of the name to read a table that is not there.
+async fn clear_overlay(
+    db: &DatabaseConnection,
+    task: &SandboxTeardownTask,
+    environment: &AppEnvironment,
+) -> Result<u64, DbErr> {
+    let key = overlay_key(task.app_id, environment);
+    let cleared = clear_shadow(db, task.workspace_id, &key).await?;
+    tracing::info!(app_id = %task.app_id, %environment, cleared, "Airhouse overlay forgotten");
+    Ok(cleared)
 }
 
 /// Remove the row — only one still marked, so a sandbox created again under

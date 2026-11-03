@@ -14,15 +14,20 @@
 //! (`user_id`), so `Cache-Control: private, no-store` and no shared cache
 //! (`oxy-customer-apps-perf`).
 //!
-//! Both read only the request's environment ([`request_thread_source`]): production threads on the production host, this app's
-//! staging threads on its staging host — a staging ask never surfaces in
-//! production's history. A dev slot, or a caller who may not open staging,
-//! gets the ask's `404 EnvironmentRefused`.
+//! Both read only the request's environment ([`request_thread_scope`]):
+//! production threads on the production host, this app's staging threads on
+//! its staging host, a sandbox's own threads on that sandbox — a staging or
+//! sandbox ask never surfaces in production's history. A sandbox is decided
+//! as the ask is (`oxy_custom_apps::workspace_actions`): the caller must be
+//! one who may open it and its `workspace-actions` plane must be `held`, the
+//! only case an ask writes a thread there. Otherwise, or for a caller who may
+//! not open the environment, the answer is the ask's `404 EnvironmentRefused`.
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use chrono::{DateTime, Utc};
 use entity::prelude::{Messages, Threads};
 use entity::{messages, threads};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
@@ -30,41 +35,113 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::admin::apps::agent_scope::token_of;
 use crate::custom_apps_gates::check_custom_app_gates;
+use crate::custom_apps_sandbox_instance::{is_of_instance, own_since};
 use crate::custom_apps_staging_pin::request::staging_app_for;
 use oxy_app_core::AppState;
-use oxy_app_core::custom_app_env_request::environment_refused;
 use oxy_app_core::custom_app_env_request::request_environment;
+use oxy_app_core::custom_app_env_request::{environment_refused, planes_unreadable};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::types::AuthenticatedUser;
+use oxy_custom_apps::planes::WorkspaceActionsMode;
+use oxy_custom_apps::workspace_actions::{non_production_app, workspace_actions_mode};
 use sea_orm::DatabaseConnection;
 
 const HISTORY_LIMIT: u64 = 40;
 
-pub use oxy_custom_apps::thread_source::{PRODUCTION_THREAD_SOURCE, staging_thread_source};
+pub use oxy_custom_apps::thread_source::{
+    PRODUCTION_THREAD_SOURCE, sandbox_thread_source, staging_thread_source,
+};
 
-/// The `threads.source` this request's environment reads: production's on
-/// the production host, the named app's staging on its staging host. Anything
-/// else — a sandbox, an app that does not resolve, a caller who may not open
-/// staging — is the agent ask's own `404 EnvironmentRefused`.
-async fn request_thread_source(
+/// Which threads this request's environment reads: their `threads.source`,
+/// and, for a sandbox agent token, the instant its sandbox came to be.
+struct ThreadScope {
+    source: String,
+    /// Only for a sandbox agent token (`custom_apps_sandbox_instance`): a
+    /// sandbox recreated under the same name must not show the threads of the
+    /// one it replaced, so older threads are not the token's to read.
+    since: Option<DateTime<Utc>>,
+}
+
+impl ThreadScope {
+    fn source(source: String) -> Self {
+        Self {
+            source,
+            since: None,
+        }
+    }
+
+    fn admits(&self, created_at: DateTime<Utc>) -> bool {
+        self.since
+            .is_none_or(|since| is_of_instance(created_at, since))
+    }
+}
+
+/// The threads this request's environment reads: production's on the
+/// production host, the named app's staging on its staging host, a sandbox's
+/// own on that sandbox. Anything else — an app that does not resolve, a caller
+/// who may not open the environment, a `refused` plane — is the agent ask's
+/// own `404 EnvironmentRefused`; a plane that cannot be read is its `409`.
+async fn request_thread_scope(
     db: &DatabaseConnection,
     headers: &HeaderMap,
     user: &AuthenticatedUser,
     project_id: Uuid,
-) -> Result<String, Response> {
+) -> Result<ThreadScope, Response> {
     let environment = request_environment(headers).map_err(|e| e.into_response())?;
-    match environment {
-        AppEnvironment::Production => Ok(PRODUCTION_THREAD_SOURCE.to_string()),
+    match &environment {
+        AppEnvironment::Production => Ok(ThreadScope::source(PRODUCTION_THREAD_SOURCE.to_string())),
         AppEnvironment::Staging => {
             let caller = oxy_server_authz::Caller::from_user(user);
             staging_app_for(db, headers, &caller, project_id)
                 .await
-                .map(|app| staging_thread_source(Some(app.id)))
+                .map(|app| ThreadScope::source(staging_thread_source(Some(app.id))))
                 .ok_or_else(|| environment_refused(&environment, "chat history"))
         }
-        other => Err(environment_refused(&other, "chat history")),
+        AppEnvironment::Dev { .. } => {
+            sandbox_thread_scope(db, headers, user, project_id, &environment).await
+        }
     }
+}
+
+/// A sandbox's threads, readable exactly when an ask there may write them:
+/// the app resolves from this workspace, the caller may open this sandbox (a
+/// sandbox agent token only its own), and the `workspace-actions` plane is
+/// `held`.
+async fn sandbox_thread_scope(
+    db: &DatabaseConnection,
+    headers: &HeaderMap,
+    user: &AuthenticatedUser,
+    project_id: Uuid,
+    environment: &AppEnvironment,
+) -> Result<ThreadScope, Response> {
+    let refused = || environment_refused(environment, "chat history");
+    let app = non_production_app(db, headers, user, project_id, environment)
+        .await
+        .ok_or_else(refused)?;
+    let mode = workspace_actions_mode(db, app.id, environment)
+        .await
+        .map_err(|detail| planes_unreadable(environment, &detail))?;
+    if mode != WorkspaceActionsMode::Held {
+        return Err(refused());
+    }
+    let since = match token_of(user) {
+        None => None,
+        Some(token) => Some(
+            own_since(db, app.id, environment, token)
+                .await
+                .map_err(|e| {
+                    tracing::error!("sandbox instance lookup failed: {e}");
+                    (StatusCode::INTERNAL_SERVER_ERROR, "sandbox lookup failed").into_response()
+                })?
+                .ok_or_else(refused)?,
+        ),
+    };
+    Ok(ThreadScope {
+        source: sandbox_thread_source(Some(app.id), &environment.name()),
+        since,
+    })
 }
 
 #[derive(Serialize)]
@@ -88,16 +165,20 @@ pub async fn list_threads(Path(project_id): Path<Uuid>, headers: HeaderMap) -> R
         Err(r) => return r,
     };
     // Only this environment's threads: production's on the production host,
-    // this app's staging threads on its staging host.
-    let source = match request_thread_source(&ctx.db, &headers, &ctx.user, project_id).await {
+    // this app's staging threads on its staging host, a sandbox's own.
+    let scope = match request_thread_scope(&ctx.db, &headers, &ctx.user, project_id).await {
         Ok(s) => s,
         Err(r) => return r,
     };
 
-    let rows = match Threads::find()
+    let mut query = Threads::find()
         .filter(threads::Column::UserId.eq(Some(ctx.user.id)))
         .filter(threads::Column::ProjectId.eq(project_id))
-        .filter(threads::Column::Source.eq(source))
+        .filter(threads::Column::Source.eq(scope.source));
+    if let Some(since) = scope.since {
+        query = query.filter(threads::Column::CreatedAt.gte(since.fixed_offset()));
+    }
+    let rows = match query
         .order_by_desc(threads::Column::CreatedAt)
         .limit(HISTORY_LIMIT)
         .all(&ctx.db)
@@ -150,7 +231,7 @@ pub async fn get_thread_transcript(
         Ok(c) => c,
         Err(r) => return r,
     };
-    let source = match request_thread_source(&ctx.db, &headers, &ctx.user, project_id).await {
+    let scope = match request_thread_scope(&ctx.db, &headers, &ctx.user, project_id).await {
         Ok(s) => s,
         Err(r) => return r,
     };
@@ -169,10 +250,12 @@ pub async fn get_thread_transcript(
     // run i), which only holds for custom-app threads — main-app
     // threads can have more messages than runs (clarification resume). And
     // only this environment's: a staging host never reads a production
-    // thread, nor the reverse (`thread_source`).
+    // thread, nor the reverse (`thread_source`), and a sandbox never reads
+    // another's — nor, for its agent token, a predecessor's of the same name.
     if thread.project_id != project_id
         || thread.user_id != Some(ctx.user.id)
-        || thread.source != source
+        || thread.source != scope.source
+        || !scope.admits(thread.created_at.with_timezone(&Utc))
     {
         return (StatusCode::NOT_FOUND, "thread not found").into_response();
     }

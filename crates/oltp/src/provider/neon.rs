@@ -741,6 +741,20 @@ impl OltpProvider for NeonProvider {
         self.delete_branch_impl(req, branch_id).await
     }
 
+    async fn find_branch_id(&self, req: &BranchRequest) -> Result<Option<String>, ProviderError> {
+        self.find_branch_id_impl(req).await
+    }
+
+    async fn set_branch_expiry(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), ProviderError> {
+        self.set_branch_expiry_impl(req, branch_id, expires_at)
+            .await
+    }
+
     /// A branch lives inside its project on Neon.
     fn project_delete_takes_branches(&self) -> bool {
         true

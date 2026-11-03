@@ -383,4 +383,13 @@ impl ProjectContext for OxyProjectContext {
     fn staging_app_id(&self) -> Option<uuid::Uuid> {
         self.hold_scope()?.app_id()
     }
+
+    /// The sandbox whose ask this context holds for; `None` for staging's.
+    fn sandbox_environment(&self) -> Option<String> {
+        let scope = self.hold_scope()?;
+        scope
+            .environment()
+            .filter(|e| **e != oxy_app_core::custom_app_environment::AppEnvironment::Staging)
+            .map(|e| e.name())
+    }
 }

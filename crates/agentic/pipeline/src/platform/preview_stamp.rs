@@ -21,7 +21,9 @@ use super::PlatformContext;
 
 /// The key a stamped run carries in `agentic_runs.metadata`:
 /// `{"workspace_preview": {"revision_id": <the revision it read>}}`, plus
-/// `"app_id"` for a custom app's staging ask. Recovery keys on the key's
+/// `"app_id"` for a custom app's staging ask, and `"environment"` (the
+/// sandbox's name) when that ask is a sandbox's; a stamp with no
+/// `"environment"` is staging's. Recovery keys on the key's
 /// presence ([`is_stamped`]), never on what it holds — a staging ask's
 /// `revision_id` may be null.
 ///
@@ -46,17 +48,28 @@ pub fn stamp(platform: &dyn PlatformContext, metadata: &mut serde_json::Value) {
     if let Some(map) = metadata.as_object_mut() {
         map.insert(
             RUN_STAMP.to_string(),
-            stamp_body(platform.compiled_revision(), platform.staging_app_id()),
+            stamp_body(
+                platform.compiled_revision(),
+                platform.staging_app_id(),
+                platform.sandbox_environment().as_deref(),
+            ),
         );
     }
 }
 
-/// The stamp's value: the revision the run read, and the custom app when the
-/// run is a staging ask.
-fn stamp_body(revision_id: Option<uuid::Uuid>, app_id: Option<uuid::Uuid>) -> serde_json::Value {
+/// The stamp's value: the revision the run read, the custom app when the run
+/// is a staging or sandbox ask, and the sandbox when it is a sandbox's.
+fn stamp_body(
+    revision_id: Option<uuid::Uuid>,
+    app_id: Option<uuid::Uuid>,
+    sandbox: Option<&str>,
+) -> serde_json::Value {
     let mut body = serde_json::json!({ "revision_id": revision_id });
     if let Some(app_id) = app_id {
         body["app_id"] = serde_json::json!(app_id);
+        if let Some(sandbox) = sandbox {
+            body["environment"] = serde_json::json!(sandbox);
+        }
     }
     body
 }
@@ -129,14 +142,30 @@ mod tests {
     #[test]
     fn a_staging_ask_preview_stamp_names_its_app() {
         let app = uuid::Uuid::new_v4();
-        let staging = stamp_body(None, Some(app));
+        let staging = stamp_body(None, Some(app), None);
         assert_eq!(staging, json!({ "revision_id": null, "app_id": app }));
         assert!(is_stamped(Some(&json!({ RUN_STAMP: staging }))));
         let revision = uuid::Uuid::new_v4();
         assert_eq!(
-            stamp_body(Some(revision), None),
+            stamp_body(Some(revision), None, None),
             json!({ "revision_id": revision }),
             "a workspace preview's stamp carries no app"
+        );
+    }
+
+    /// A sandbox ask's stamp names the sandbox too, so its run is not mistaken
+    /// for staging's; staging's own stamp is unchanged.
+    #[test]
+    fn a_sandbox_ask_preview_stamp_names_its_sandbox() {
+        let app = uuid::Uuid::new_v4();
+        assert_eq!(
+            stamp_body(None, Some(app), Some("dev-a1")),
+            json!({ "revision_id": null, "app_id": app, "environment": "dev-a1" })
+        );
+        assert_eq!(
+            stamp_body(None, None, Some("dev-a1")),
+            json!({ "revision_id": null }),
+            "a sandbox is named only next to its app"
         );
     }
 

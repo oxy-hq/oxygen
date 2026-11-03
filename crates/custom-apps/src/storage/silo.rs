@@ -41,6 +41,9 @@ pub struct Silo {
     /// `None` for production; otherwise the environment's name (`staging`,
     /// `dev-<handle>`), as `AppEnvironment::name` spells it.
     environment: Option<String>,
+    /// Whether a read that misses falls back to production's key (see
+    /// [`Silo::fallback`]). Always true unless [`Silo::without_fallback`].
+    reads_through: bool,
 }
 
 impl Silo {
@@ -49,6 +52,7 @@ impl Silo {
         Self {
             app_id,
             environment: None,
+            reads_through: true,
         }
     }
 
@@ -59,6 +63,7 @@ impl Silo {
             other => Self {
                 app_id,
                 environment: Some(other.name()),
+                reads_through: true,
             },
         }
     }
@@ -79,10 +84,23 @@ impl Silo {
         }
     }
 
+    /// This silo with no fallback read: a key that exists only in production
+    /// reads as absent here (the storage plane's `empty` mode). Writes, `list`
+    /// and the re-rooting of a production-spelled key are unchanged.
+    #[must_use]
+    pub fn without_fallback(mut self) -> Self {
+        // Production has no fallback to drop; leave it equal to itself.
+        if !self.is_production() {
+            self.reads_through = false;
+        }
+        self
+    }
+
     /// Where a read that misses here falls back to: production's silo of the
-    /// same app, read-only. `None` in production.
+    /// same app, read-only. `None` in production, and in a silo that has
+    /// none ([`Silo::without_fallback`]).
     pub fn fallback(&self) -> Option<Silo> {
-        (!self.is_production()).then(|| Silo::production(self.app_id))
+        (!self.is_production() && self.reads_through).then(|| Silo::production(self.app_id))
     }
 
     /// The app-relative part of `key` when it names an object of this silo —
@@ -90,7 +108,8 @@ impl Silo {
     /// `None` for a key of any other silo or app.
     pub(super) fn relative<'k>(&self, key: &'k str) -> Option<&'k str> {
         key.strip_prefix(self.prefix().as_str()).or_else(|| {
-            self.fallback()
+            (!self.is_production())
+                .then(|| Silo::production(self.app_id))
                 .and_then(|production| key.strip_prefix(production.prefix().as_str()))
         })
     }

@@ -32,6 +32,7 @@
 use std::sync::atomic::Ordering;
 
 use super::super::env_policy::{self, Decision, HostOp, Target};
+use super::provider_fetch::{self, FetchGate};
 use super::*;
 
 pub(super) use super::super::env_policy::HeldTarget;
@@ -177,32 +178,45 @@ impl ProjectFunctionHost {
             statements: 1,
             op: Some(op.name()),
             note,
+            sent: None,
         };
         let (trace_id, _) = Self::trace_context();
         self.held.note(record, trace_id).await;
     }
 
-    /// A `ctx.fetch` outside production is sent when it is a read method
-    /// carrying no body, or this invocation's own upload into its
-    /// environment's storage silo (`EnvPolicy::decide_on_fetch`); anything
-    /// else answers 409, like `oxyc proxy`. `None`: send it.
-    pub(super) async fn held_fetch(
+    /// What the host does with a `ctx.fetch` (`FetchGate`). Outside
+    /// production it is sent when it is a read method carrying no body, this
+    /// invocation's own upload into its environment's storage silo, or a call
+    /// to a registered provider sandbox the environment allows
+    /// (`EnvPolicy::decide_on_fetch`, decided from `provider_fetch`'s facts);
+    /// anything else answers 409, like `oxyc proxy`. A provider-sandbox call
+    /// the policy narrowed to a hold is noted with the reason.
+    pub(super) async fn gate_fetch(
         &self,
         method: &str,
         url: &reqwest::Url,
-        has_body: bool,
-    ) -> Option<serde_json::Value> {
-        let read = env_policy::is_read_method(method) && !has_body;
-        if read || !holds(self.decide_fetch(method, url)) {
-            return None;
+        init: &serde_json::Value,
+    ) -> FetchGate {
+        let has_body = !matches!(init.get("body"), None | Some(serde_json::Value::Null));
+        if env_policy::is_read_method(method) && !has_body {
+            return FetchGate::Send;
+        }
+        let facts = provider_fetch::fetch_call_facts(&self.fallback_secrets, url, init);
+        let companies = self.companies_for(url).await;
+        let (decided, note) = self.decide_fetch(method, url, &facts, companies);
+        match decided {
+            Decision::Isolate(Target::ProviderSandbox) => return FetchGate::SendToSandbox,
+            decided if !holds(decided) => return FetchGate::Send,
+            _ => {}
         }
         let host = url.host_str();
-        self.note_held(
+        self.note_held_with(
             HostOp::Fetch,
             ("fetch", host.unwrap_or_default(), method, ""),
+            note,
         )
         .await;
-        Some(env_policy::held_fetch_response(
+        FetchGate::Held(env_policy::held_fetch_response(
             method,
             host,
             &self.held_error(HostOp::Fetch),

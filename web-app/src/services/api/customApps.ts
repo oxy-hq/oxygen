@@ -465,6 +465,28 @@ export const CustomAppsService = {
     return response.data;
   },
 
+  /** What a `capture` environment kept instead of sending (`GET …/outbox`). */
+  async environmentOutbox(id: string, name: string, limit = 50): Promise<EnvironmentOutbox> {
+    const response = await apiClient.get<EnvironmentOutbox>(
+      `${appPath(id)}/environments/${encodeURIComponent(name)}/outbox`,
+      { params: { limit } }
+    );
+    return response.data;
+  },
+
+  /** Put `planes` back to a clean copy of their source (`POST …/reset`). */
+  async resetEnvironmentPlanes(
+    id: string,
+    name: string,
+    planes: string[]
+  ): Promise<EnvironmentReset> {
+    const response = await apiClient.post<EnvironmentReset>(
+      `${appPath(id)}/environments/${encodeURIComponent(name)}/reset`,
+      { planes }
+    );
+    return response.data;
+  },
+
   // ── Trusted publishers (GitHub OIDC) ─────────────────────────────────────
 
   /** The workflows allowed to OIDC-publish this app (`GET /customer-apps/{id}/publishers`). */
@@ -545,6 +567,65 @@ export interface AppEnvironment {
   /** The environment's host; `null` without a custom-apps zone. */
   url: string | null;
   oltp_schema: unknown | null;
+  /**
+   * The environment this one was cut from; `null` for production, and absent
+   * from a server older than branches.
+   */
+  parent?: string | null;
+  /** RFC 3339: when it was cut from `parent`; `null` for production. */
+  fork_at?: string | null;
+  /**
+   * Each plane's mode, keyed by plane (`oltp: "schema"`). `null` for
+   * production, and when `planes_error` says they could not be read.
+   */
+  planes?: Record<string, string> | null;
+  /** Why `planes` could not be read; `null` when it could. */
+  planes_error?: string | null;
+  /**
+   * The choices stored on the row, before defaults (`{}` when none). `null` for
+   * production. A plane's value is a mode, or an object for `fetch` (`{mode, hosts}`)
+   * and `warehouse` (`{mode, destinations}`).
+   */
+  planes_set?: Record<string, unknown> | null;
+  /** A sandbox's own OLTP branch (`oltp` `branch` or `empty`); `null` otherwise. */
+  oltp_branch?: EnvironmentOltpBranch | null;
+}
+
+/** A sandbox's own OLTP database branch, cut from production. */
+export interface EnvironmentOltpBranch {
+  /** `branch` (production's rows as of `fork_at`) | `empty` (structure only). */
+  mode: string;
+  /** `cutting` | `migrating` | `ready` | `resetting` | `failed`; only `ready` serves. */
+  status: string;
+  fork_at: string;
+  /** When the branch, and the sandbox with it, is deleted; `null` for `empty`. */
+  expires_at: string | null;
+  error: string | null;
+}
+
+/** One email or notification a `capture` environment kept instead of sending. */
+export interface OutboxMessage {
+  kind: string;
+  /** Who the call named: nobody was reached. */
+  to: unknown;
+  subject?: string;
+  title?: string;
+  body: string | null;
+  invocation_id: string;
+  function: string;
+  captured_at: string;
+}
+
+/** `GET …/environments/{name}/outbox`, newest first. */
+export interface EnvironmentOutbox {
+  messages: OutboxMessage[];
+  has_more: boolean;
+}
+
+/** `POST …/environments/{name}/reset`: one outcome per plane. */
+export interface EnvironmentReset {
+  name: string;
+  planes: { plane: string; status: string; run_id: string | null }[];
 }
 
 /** `DELETE …/environments/{name}` answers 202 with the queued teardown. */
@@ -639,4 +720,8 @@ export interface StagingHeldWrite {
   table: string;
   op: string | null;
   note: string | null;
+  /** Present only on a call that was *sent* to a provider sandbox (never held):
+   *  its path (no query) and the status it answered, `null` for no response. */
+  path?: string;
+  status?: number | null;
 }

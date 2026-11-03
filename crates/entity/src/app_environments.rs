@@ -47,6 +47,28 @@ pub struct Model {
     /// it on per environment (`custom_apps_env_schedules`); `false` by
     /// default, and never read for `production`, whose schedules always run.
     pub schedules_enabled: bool,
+    /// The environment this one was cut from. `None` means the default parent
+    /// for the kind (a sandbox's is `staging`, staging's is `production`),
+    /// and always for `production`, which has none.
+    pub parent_name: Option<String>,
+    /// The point on the parent this environment was cut at. `None` means the
+    /// default for the kind: when the environment was created.
+    pub fork_at: Option<DateTimeWithTimeZone>,
+    /// Per-plane mode choices for this environment, keyed by plane. Never
+    /// null; `{}` means every plane uses the default for the kind.
+    #[sea_orm(column_type = "JsonBinary")]
+    pub planes: Json,
+    /// The compiled revision this environment's semantic plane reads when its
+    /// build pins nothing of its own. Served while it is a `ready` revision of
+    /// the app's workspace, even after `semantic_git_sha` has moved on. `None`
+    /// means no environment pin, and always for `production`. No foreign key:
+    /// an id with no ready revision behind it reads as "not pinned".
+    pub semantic_revision_id: Option<Uuid>,
+    /// The commit the environment's semantic branch points at. With no ready
+    /// revision pinned, a set value means the plane's home is not ready, and
+    /// the environment is refused (`503 semantic_branch_not_ready`) rather
+    /// than routed to another model.
+    pub semantic_git_sha: Option<String>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

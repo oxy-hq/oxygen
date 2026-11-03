@@ -11,13 +11,19 @@
 //! the same server, so there the database name alone decides, whatever the
 //! host says.
 
-use crate::entity::branches as oltp_branches;
 use crate::entity::tenants as oltp_tenants;
 use crate::host::server;
 use crate::schema;
 
-/// Whether `row` points a staging caller at `tenant`'s production database.
-pub(super) fn names_production(tenant: &oltp_tenants::Model, row: &oltp_branches::Model) -> bool {
+/// Whether a branch recorded as `provider_branch_id` on `host`/`database_name`
+/// points a staging caller at `tenant`'s production database. Takes the three
+/// facts rather than a row so a branch in any table asks the same question.
+pub(crate) fn names_production(
+    tenant: &oltp_tenants::Model,
+    provider_branch_id: &str,
+    host: &str,
+    database_name: &str,
+) -> bool {
     same_database(
         schema::shares_role_namespace(&tenant.provider),
         Target {
@@ -26,9 +32,9 @@ pub(super) fn names_production(tenant: &oltp_tenants::Model, row: &oltp_branches
             database: &tenant.database_name,
         },
         Target {
-            branch_id: &row.provider_branch_id,
-            host: &row.host,
-            database: &row.database_name,
+            branch_id: provider_branch_id,
+            host,
+            database: database_name,
         },
     )
 }

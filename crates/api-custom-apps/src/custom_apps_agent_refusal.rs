@@ -56,10 +56,12 @@ pub const REFUSED_WRITES: &[(&str, &str)] = &[
 ///
 /// A token **granted an app's staging** is admitted to that staging by two of
 /// them and no more: P1 for a draft (`agent_draft::admit_agent_draft`, never a
-/// promote) and C2 for a check. The other five stay a sandbox's alone, each
+/// promote) and C2 for a check. The other seven stay a sandbox's alone, each
 /// by its own check and not by the model: E2 and E3 never create or delete
-/// staging (`handlers::opens`, `ops::require_sandbox`), and S1 and S2 touch a
-/// `dev-*` environment's secrets only (`secrets::agent::authorize`).
+/// staging (`handlers::opens`, `ops::require_sandbox`), E4 and E5 take the
+/// delete door, which refuses a token production and staging by name, and S1
+/// and S2 touch a `dev-*` environment's secrets only
+/// (`secrets::agent::authorize`).
 pub const ENVIRONMENT_DECIDED: &[(&str, &str, &str)] = &[
     (
         "POST",
@@ -70,6 +72,16 @@ pub const ENVIRONMENT_DECIDED: &[(&str, &str, &str)] = &[
         "DELETE",
         "/customer-apps/{id}/environments/{name}",
         "E3: sandboxes::handlers admit, then the row lock",
+    ),
+    (
+        "PUT",
+        "/customer-apps/{id}/environments/{name}/planes",
+        "E4: sandboxes::handlers admit (the delete door), then the row lock",
+    ),
+    (
+        "POST",
+        "/customer-apps/{id}/environments/{name}/reset",
+        "E5: sandboxes::handlers admit (the delete door)",
     ),
     (
         "POST",

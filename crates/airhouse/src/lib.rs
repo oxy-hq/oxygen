@@ -26,7 +26,10 @@
 //!   with DuckDB in this process.
 //! - **`preview-sql`** feature — implies `sql-rules`. The AST rewrite and the
 //!   independent verifier that keep a workspace preview's Airhouse writes in
-//!   `preview_<key>__<schema>` (`preview_sql`).
+//!   `preview_<key>__<schema>` (`preview_sql`), and the same overlay for a
+//!   custom-app environment's sibling schema.
+//! - **`preview-registry`** feature — implies `preview-sql`. The Postgres
+//!   store of which tables an overlay holds (`preview_sql::registry`).
 
 // `TenantImporter::import` awaits the provisioner and the broker inside one
 // `async_trait` future, whose layout exceeds the default query depth.

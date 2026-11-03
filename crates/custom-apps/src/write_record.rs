@@ -43,6 +43,40 @@ pub fn plane_for_dialect(dialect: agentic_connector::SqlDialect) -> &'static str
     }
 }
 
+/// Why a held-log entry is a call that was *sent* rather than held: a
+/// mutating `ctx.fetch` to a registered provider sandbox ran for real, and is
+/// noted in the log so the read-back lists it beside the held ones.
+pub const SENT_NOTE: &str = "sent: a registered provider sandbox";
+
+/// The most bytes of a sent call's path that are recorded.
+const SENT_PATH_CAP: usize = 256;
+
+/// A call that was sent to a registered provider sandbox. The path only —
+/// never the query string, headers or body.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct SentCall {
+    pub path: String,
+    /// The response status; `None` when the call got no response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+}
+
+impl SentCall {
+    /// A sent call, its path cut at the first `?` or `#` (a query string is
+    /// never recorded) and capped at 256 bytes on a char boundary.
+    pub fn new(path: &str, status: Option<u16>) -> Self {
+        let path = path.split(['?', '#']).next().unwrap_or_default();
+        let mut end = path.len().min(SENT_PATH_CAP);
+        while !path.is_char_boundary(end) {
+            end -= 1;
+        }
+        Self {
+            path: path[..end].to_string(),
+            status,
+        }
+    }
+}
+
 /// One write, as the audit row describes it.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct WriteRecord {
@@ -70,6 +104,11 @@ pub struct WriteRecord {
     /// (`env_policy::NO_BRANCH_NOTE`). On `app.staging.held` rows only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<&'static str>,
+    /// Set when the call was sent to a registered provider sandbox rather than
+    /// held: its `path` and `status` serialize at the top level of the record.
+    /// Absent (no keys) on every other record, which serializes as before.
+    #[serde(flatten)]
+    pub sent: Option<SentCall>,
 }
 
 impl WriteRecord {
@@ -119,3 +158,67 @@ pub fn with_first_target(e: AuditEntry, writes: &[WriteRecord]) -> AuditEntry {
 /// to production?" is one audit query. Never written in production. Written
 /// only by `custom_apps_staging_held::record_held`.
 pub const ACTION_STAGING_HELD: &str = "app.staging.held";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(sent: Option<SentCall>) -> WriteRecord {
+        WriteRecord {
+            plane: "oltp",
+            namespace: "app_x".into(),
+            verb: "INSERT".into(),
+            table: "orders".into(),
+            rows: Some(1),
+            statements: 1,
+            op: None,
+            note: None,
+            sent,
+        }
+    }
+
+    #[test]
+    fn a_record_without_a_sent_call_serializes_byte_identically() {
+        assert_eq!(
+            serde_json::to_string(&record(None)).unwrap(),
+            r#"{"plane":"oltp","namespace":"app_x","verb":"INSERT","table":"orders","rows":1,"statements":1}"#
+        );
+    }
+
+    #[test]
+    fn a_sent_call_serializes_path_and_status_at_the_top_level() {
+        let mut r = record(Some(SentCall::new("/v1/charges", Some(200))));
+        r.op = Some("fetch");
+        r.note = Some(SENT_NOTE);
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["path"], "/v1/charges");
+        assert_eq!(v["status"], 200);
+        assert_eq!(v["note"], SENT_NOTE);
+        let no_response = serde_json::to_value(record(Some(SentCall::new("/v1", None)))).unwrap();
+        assert_eq!(no_response["path"], "/v1");
+        assert!(no_response.get("status").is_none());
+    }
+
+    #[test]
+    fn a_long_path_is_capped_on_a_char_boundary() {
+        let long = format!("/{}", "a".repeat(1024));
+        assert_eq!(SentCall::new(&long, None).path.len(), 256);
+        // 255 ASCII bytes, then a 2-byte char straddling the cap.
+        let straddle = format!("{}é{}", "a".repeat(255), "b".repeat(10));
+        let capped = SentCall::new(&straddle, None).path;
+        assert_eq!(capped.len(), 255);
+        assert!(capped.chars().all(|c| c == 'a'));
+    }
+
+    #[test]
+    fn the_query_and_fragment_are_never_recorded() {
+        for given in [
+            "/v1/charges?api_key=sk_test_x",
+            "/v1/charges#frag",
+            "/v1/charges?a=b#frag",
+        ] {
+            assert_eq!(SentCall::new(given, Some(200)).path, "/v1/charges");
+        }
+        assert_eq!(SentCall::new("?only=query", None).path, "");
+    }
+}

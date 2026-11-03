@@ -176,6 +176,17 @@ fn supported(kind: RevisionKind) -> Result<(), Refusal> {
     }
 }
 
+/// Where `branch` points now, without queueing anything: the commit
+/// [`compile`] would compile for `Target::Branch(branch)`, or the same
+/// [`Refusal`] it would answer. For a caller that must validate a branch name
+/// before it writes anything that names it (`compile_reconcile::env_pins`).
+pub async fn resolve_branch(
+    workspace: &entity::workspaces::Model,
+    branch: &str,
+) -> Result<String, Refusal> {
+    Ok(resolve(workspace, Target::Branch(branch)).await?.git_sha)
+}
+
 async fn resolve(
     workspace: &entity::workspaces::Model,
     target: Target<'_>,

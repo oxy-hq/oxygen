@@ -9,6 +9,12 @@
 //! design doc's first sketch) would instead need every caller to rewrite its
 //! `search_path` and would still let a schema-qualified name reach production.
 //!
+//! A schema-only request ([`BranchInit::SchemaOnly`]) is the same copy with
+//! every table then truncated — the local stand-in for Neon's `init_source:
+//! schema-only`. A requested fork point is ignored (with a warning) and so is an
+//! expiry: a loopback cluster has no history to read and no scheduler to delete
+//! a branch for it.
+//!
 //! Three differences from Neon, all consequences of one cluster:
 //!
 //! - **Roles are cluster-global**, so the branch shares production's roles and
@@ -27,7 +33,9 @@ use tracing::warn;
 
 use super::LocalProvider;
 use crate::provider::ProviderError;
-use crate::provider::types::{BranchRequest, DatabaseInfo, ProjectBranch, Role};
+use crate::provider::types::{
+    BranchInit, BranchRequest, DatabaseInfo, ProjectBranch, Role, SCHEMA_ONLY_RESET_REFUSAL,
+};
 use crate::schema::{MAX_NAME_LEN, validate_name};
 
 /// Tries of the copy before a busy template is reported rather than retried.
@@ -55,6 +63,12 @@ impl LocalProvider {
         let branch = branch_database_name(&req.database_name, &req.name);
         checked(req, &branch)?;
         self.only_on_loopback()?;
+        if req.parent_timestamp.is_some() {
+            warn!(
+                database = %branch,
+                "a loopback cluster cannot time-travel; the branch copies the parent's head"
+            );
+        }
         // Absent, ours, or someone else's — the same three-way answer
         // `create_project` reads, for the same reason: a derived name is
         // adoptable only when Oxy's owner owns it.
@@ -62,13 +76,35 @@ impl LocalProvider {
         match owner {
             None => {
                 self.copy_database(&req.database_name, &branch, &req.owner_role)
-                    .await?
+                    .await?;
+                if req.init == BranchInit::SchemaOnly
+                    && let Err(e) = self.empty_tables(&branch).await
+                {
+                    // A populated copy left under the derived name would be
+                    // adopted by the next create as if it were what was asked
+                    // for. Best effort: the error worth reporting is the
+                    // emptying one, and the adopt path empties it again anyway.
+                    if let Err(drop_err) = self.drop_branch_database(&branch).await {
+                        warn!(
+                            database = %branch,
+                            "could not drop a branch copy that failed to empty: {drop_err}"
+                        );
+                    }
+                    return Err(e);
+                }
             }
-            Some(actual) if actual == req.owner_role => warn!(
-                database = %branch,
-                "adopting an existing OLTP branch database: derived name, owned by the \
-                 tenant's owner"
-            ),
+            Some(actual) if actual == req.owner_role => {
+                warn!(
+                    database = %branch,
+                    "adopting an existing OLTP branch database: derived name, owned by the \
+                     tenant's owner"
+                );
+                // Idempotent, and what makes a copy left populated by an
+                // interrupted earlier attempt safe to adopt as schema-only.
+                if req.init == BranchInit::SchemaOnly {
+                    self.empty_tables(&branch).await?;
+                }
+            }
             Some(actual) => {
                 return Err(ProviderError::ProjectNotOwned {
                     name: branch,
@@ -79,12 +115,39 @@ impl LocalProvider {
         Ok(describe(req, branch, &self.host))
     }
 
+    /// The derived branch database, if the cluster has it and the tenant's
+    /// owner owns it (the adopt rule); one someone else owns is an error.
+    pub(super) async fn find_branch_id_impl(
+        &self,
+        req: &BranchRequest,
+    ) -> Result<Option<String>, ProviderError> {
+        let branch = branch_database_name(&req.database_name, &req.name);
+        checked(req, &branch)?;
+        self.only_on_loopback()?;
+        match self.scalar_string(&owner_of_sql(&branch)).await? {
+            None => Ok(None),
+            Some(actual) if actual == req.owner_role => Ok(Some(branch)),
+            Some(actual) => Err(ProviderError::ProjectNotOwned {
+                name: branch,
+                owner: actual,
+            }),
+        }
+    }
+
     pub(super) async fn reset_branch_impl(
         &self,
         req: &BranchRequest,
         branch_id: &str,
     ) -> Result<ProjectBranch, ProviderError> {
         checked(req, branch_id)?;
+        // Before any connection, and the same answer as Neon: the re-copy
+        // below would hand a schema-only branch production's rows.
+        if req.init == BranchInit::SchemaOnly {
+            return Err(ProviderError::Api {
+                status: 400,
+                message: SCHEMA_ONLY_RESET_REFUSAL.into(),
+            });
+        }
         self.only_on_loopback()?;
         // No restore-in-place here: drop the copy and take a fresh one. WITH
         // (FORCE) because a staging function holding a connection would
@@ -108,8 +171,13 @@ impl LocalProvider {
         // derived name may be dropped.
         checked(req, branch_id)?;
         self.only_on_loopback()?;
+        self.drop_branch_database(branch_id).await
+    }
+
+    /// `branch` must already have passed [`checked`].
+    async fn drop_branch_database(&self, branch: &str) -> Result<(), ProviderError> {
         self.exec(&format!(
-            "DROP DATABASE IF EXISTS \"{branch_id}\" WITH (FORCE)"
+            "DROP DATABASE IF EXISTS \"{branch}\" WITH (FORCE)"
         ))
         .await
     }
@@ -145,6 +213,38 @@ impl LocalProvider {
             }
         }
         Ok(())
+    }
+
+    /// Empty every table of `database`, keeping the tables.
+    ///
+    /// Runs on the branch's own database — a connection to the admin database
+    /// cannot see another database's catalog — and only ever after
+    /// [`Self::copy_database`] made it, so it can never reach the tenant's.
+    async fn empty_tables(&self, database: &str) -> Result<(), ProviderError> {
+        let mut config: tokio_postgres::Config =
+            self.admin_dsn.parse().map_err(|e: tokio_postgres::Error| {
+                ProviderError::Transport(format!("parse the admin DSN: {e}"))
+            })?;
+        config.dbname(database);
+        let (client, connection) = config
+            .connect(tokio_postgres::NoTls)
+            .await
+            .map_err(|e| ProviderError::Transport(format!("connect as admin: {e}")))?;
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                warn!("local provider admin connection closed: {e}");
+            }
+        });
+        client
+            .batch_execute(&truncate_all_tables_sql())
+            .await
+            .map_err(|e| ProviderError::Api {
+                status: 500,
+                message: format!(
+                    "{} (while emptying {database})",
+                    crate::connect::pg_detail(&e)
+                ),
+            })
     }
 
     /// `CREATE DATABASE … TEMPLATE`, then the state that command leaves behind.
@@ -216,6 +316,34 @@ fn checked(req: &BranchRequest, branch: &str) -> Result<(), ProviderError> {
     Ok(())
 }
 
+/// `TRUNCATE … RESTART IDENTITY CASCADE` every table outside the system schemas
+/// and [`crate::platform::META_SCHEMA`], in one statement so a foreign key
+/// between two of them cannot order the work wrongly. `RESTART IDENTITY` so the
+/// sequences start fresh, as on a Neon schema-only branch. A database with no
+/// user tables is a no-op rather than an empty `TRUNCATE`.
+///
+/// `oxy_meta` is the platform migration ledger, not org data, so it is kept:
+/// emptying it would make the branch look unmigrated. **On Neon the two differ**
+/// — a schema-only branch there has an empty `oxy_meta` ledger, and the
+/// environment-branch cut (a later step) copies the ledger back. Locally the
+/// ledger just survives the truncate, which leaves the same end state.
+fn truncate_all_tables_sql() -> String {
+    format!(
+        "DO $oxy_empty$ \
+         DECLARE tables text; \
+         BEGIN \
+           SELECT string_agg(format('%I.%I', schemaname, tablename), ', ') INTO tables \
+             FROM pg_tables \
+            WHERE schemaname NOT IN ('pg_catalog', 'information_schema', '{meta}') \
+              AND schemaname NOT LIKE 'pg\\_toast%' AND schemaname NOT LIKE 'pg\\_temp%'; \
+           IF tables IS NOT NULL THEN \
+             EXECUTE 'TRUNCATE ' || tables || ' RESTART IDENTITY CASCADE'; \
+           END IF; \
+         END $oxy_empty$",
+        meta = crate::platform::META_SCHEMA,
+    )
+}
+
 fn owner_of_sql(database: &str) -> String {
     format!("SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '{database}'")
 }
@@ -280,179 +408,4 @@ pub(super) fn copy_database_state_sql(src: &str, dst: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const TENANT: &str = "oxy_org_11111111_2222_3333_4444_555555555555";
-
-    #[test]
-    fn a_branch_database_is_a_valid_identifier_within_the_name_cap() {
-        let name = branch_database_name(TENANT, "oxy-staging");
-        assert!(name.len() <= MAX_NAME_LEN, "{name} is {} chars", name.len());
-        assert!(validate_name(&name).is_ok(), "{name}");
-        assert!(
-            name.starts_with(TENANT),
-            "readable as this tenant's: {name}"
-        );
-        assert_ne!(name, TENANT);
-        assert_eq!(
-            name,
-            branch_database_name(TENANT, "oxy-staging"),
-            "derived, so an orphan can be found again"
-        );
-    }
-
-    #[test]
-    fn the_suffix_separates_branches_and_survives_truncation() {
-        assert_ne!(
-            branch_database_name(TENANT, "oxy-staging"),
-            branch_database_name(TENANT, "oxy-dev")
-        );
-        // Two long tenants sharing everything the cap keeps still differ,
-        // because the hash covers the whole name and is never the part trimmed.
-        let a = format!("{}_aaaaaaaaaaaaaaaaaaaa", "x".repeat(40));
-        let b = format!("{}_bbbbbbbbbbbbbbbbbbbb", "x".repeat(40));
-        let (na, nb) = (
-            branch_database_name(&a, "oxy-staging"),
-            branch_database_name(&b, "oxy-staging"),
-        );
-        assert_ne!(na, nb);
-        assert!(na.len() <= MAX_NAME_LEN && nb.len() <= MAX_NAME_LEN);
-        assert!(validate_name(&na).is_ok() && validate_name(&nb).is_ok());
-    }
-
-    fn staging(database: &str) -> BranchRequest {
-        BranchRequest {
-            project_id: database.into(),
-            parent_branch_id: "local".into(),
-            name: "oxy-staging".into(),
-            database_name: database.into(),
-            owner_role: format!("{database}_owner"),
-        }
-    }
-
-    #[test]
-    fn only_the_derived_branch_database_may_be_touched() {
-        let req = staging(TENANT);
-        let err = checked(&req, TENANT).unwrap_err();
-        assert!(matches!(err, ProviderError::BranchIsProduction(_)), "{err}");
-
-        // Another org's database — a valid identifier, not the tenant's, and
-        // exactly what a corrupted row would name. Must not be dropped.
-        let other = "oxy_org_99999999_2222_3333_4444_555555555555";
-        assert!(checked(&req, other).is_err(), "another org's database");
-        let other_branch = branch_database_name(other, "oxy-staging");
-        assert!(
-            checked(&req, &other_branch).is_err(),
-            "another org's branch"
-        );
-        assert!(checked(&req, "bad\"; DROP DATABASE x; --").is_err());
-
-        assert!(checked(&req, &branch_database_name(TENANT, "oxy-staging")).is_ok());
-    }
-
-    /// A shared box behind `OXY_OLTP_PROVIDER=local`: no branch copy, reset or
-    /// drop — refused before a connection is even attempted (the hosts below
-    /// do not resolve, so reaching one would fail differently).
-    #[tokio::test]
-    async fn branch_operations_refuse_a_cluster_that_is_not_loopback() {
-        let req = staging(TENANT);
-        let branch = branch_database_name(TENANT, "oxy-staging");
-        for (admin, host) in [
-            (
-                "postgres://postgres:pw@db.internal.invalid:5432/postgres",
-                "db.internal.invalid:5432",
-            ),
-            // Statements on loopback, clients sent elsewhere — still not a dev cluster.
-            (
-                "postgres://postgres:pw@localhost:5432/postgres",
-                "10.0.0.5:5432",
-            ),
-            (
-                "postgres://postgres:pw@10.0.0.5:5432/postgres",
-                "localhost:5432",
-            ),
-        ] {
-            let remote = LocalProvider::new(admin, host);
-            let refusals = [
-                remote.create_branch_impl(&req).await.map(|_| ()),
-                remote.reset_branch_impl(&req, &branch).await.map(|_| ()),
-                remote.delete_branch_impl(&req, &branch).await,
-            ];
-            for out in refusals {
-                let err = out.expect_err("a non-loopback cluster must refuse");
-                assert!(
-                    err.to_string().contains("loopback cluster"),
-                    "{admin}: {err}"
-                );
-            }
-        }
-        for (admin, host) in [
-            (
-                "postgres://postgres:pw@localhost:15432/postgres",
-                "localhost:15432",
-            ),
-            (
-                "postgres://postgres:p@ss@127.0.0.1:32768/postgres",
-                "127.0.0.1:32768",
-            ),
-            ("postgres://postgres:pw@[::1]:5432/postgres", "[::1]:5432"),
-        ] {
-            assert!(
-                LocalProvider::new(admin, host).only_on_loopback().is_ok(),
-                "{admin}"
-            );
-        }
-    }
-
-    /// A unix-socket admin DSN names no TCP host at all, so `host_from_dsn`
-    /// answers `""`: correctly refused (not loopback), but the message must
-    /// say why the host is empty rather than reading like a bug.
-    #[test]
-    fn a_dsn_naming_no_tcp_host_gets_a_clarifying_refusal() {
-        let admin = "postgres:///oxy?host=/var/run/postgresql";
-        assert_eq!(super::super::host_from_dsn(admin), "");
-        let err = LocalProvider::new(admin, "localhost:15432")
-            .only_on_loopback()
-            .expect_err("an empty host is not loopback");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("on \"\" (the DSN names no TCP host):"),
-            "{msg}"
-        );
-        assert!(msg.contains("loopback cluster"), "{msg}");
-
-        // A named, merely non-loopback host gets no such suffix.
-        let named = LocalProvider::new(
-            "postgres://postgres:pw@db.internal.invalid:5432/postgres",
-            "localhost:15432",
-        )
-        .only_on_loopback()
-        .expect_err("a non-loopback host is refused");
-        assert!(!named.to_string().contains("names no TCP host"), "{named}");
-    }
-
-    #[test]
-    fn only_object_in_use_counts_as_a_busy_template() {
-        let busy = ProviderError::Api {
-            status: 500,
-            message: "[55006] source database \"x\" is being accessed by other users".into(),
-        };
-        let other = ProviderError::Api {
-            status: 500,
-            message: "[42P04] database \"y\" already exists".into(),
-        };
-        assert!(is_template_busy(&busy));
-        assert!(!is_template_busy(&other));
-    }
-
-    #[test]
-    fn the_state_replay_names_both_databases_and_never_grants_public_blindly() {
-        let sql = copy_database_state_sql("oxy_org_a", "oxy_org_a_1234abcd");
-        assert!(sql.contains("WHERE datname = 'oxy_org_a'"));
-        assert!(sql.contains("REVOKE ALL ON DATABASE %I FROM PUBLIC', 'oxy_org_a_1234abcd'"));
-        // PUBLIC is re-granted only what the SOURCE granted it (grantee 0).
-        assert!(sql.contains("IF a.grantee = 0 THEN"));
-        assert!(sql.contains("SET %s FROM CURRENT"));
-    }
-}
+mod tests;

@@ -11,17 +11,17 @@
 //!
 //! Everything here runs as the branch's own owner against the branch database.
 
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use tracing::{info, warn};
-use uuid::Uuid;
 
-use crate::entity::branch_roles::{self as branch_roles, Entity as BranchRoles};
 use crate::entity::branches as oltp_branches;
+use crate::entity::env_branches::EnvBranchStatus;
 use crate::entity::roles::WriterKind;
 use crate::entity::roles::{self as oltp_roles, Entity as OltpRoles, GrantLevel as DbGrantLevel};
 use crate::entity::tenants as oltp_tenants;
 use crate::schema::{self, GrantLevel, WriterRef};
 
+use super::branch_site::BranchSite;
 use super::{OltpProvisioner, ProvisionerError, open, seal, sslmode_for};
 
 impl OltpProvisioner {
@@ -32,19 +32,13 @@ impl OltpProvisioner {
     pub(super) async fn mint_branch_credentials(
         &self,
         tenant: &oltp_tenants::Model,
-        row: &oltp_branches::Model,
+        site: &BranchSite,
     ) -> Result<(), ProvisionerError> {
         if schema::shares_role_namespace(&tenant.provider) {
             return Ok(());
         }
-        let owner_dsn = self.branch_owner_dsn(tenant, row)?;
-        let minted: Vec<String> = BranchRoles::find()
-            .filter(branch_roles::Column::BranchRowId.eq(row.id))
-            .all(&self.db)
-            .await?
-            .into_iter()
-            .map(|r| r.role_name)
-            .collect();
+        let owner_dsn = self.branch_owner_dsn(tenant, site)?;
+        let minted = site.roles.minted(&self.db).await?;
 
         for role in self.roles_on_branch(tenant).await? {
             if minted.contains(&role) {
@@ -58,16 +52,8 @@ impl OltpProvisioner {
             batch.push(crate::roles::grant_connect_sql(&role)?);
             self.sql.execute_batch(&owner_dsn, &batch).await?;
 
-            branch_roles::ActiveModel {
-                id: ActiveValue::Set(Uuid::new_v4()),
-                branch_row_id: ActiveValue::Set(row.id),
-                role_name: ActiveValue::Set(role.clone()),
-                password_ciphertext: ActiveValue::Set(seal(&password)?),
-                created_at: ActiveValue::Set(chrono::Utc::now().into()),
-            }
-            .insert(&self.db)
-            .await?;
-            info!(role = %role, "minted OLTP branch credential");
+            site.roles.insert(&self.db, &role, seal(&password)?).await?;
+            info!(branch = %site.label, role = %role, "minted OLTP branch credential");
         }
         Ok(())
     }
@@ -82,9 +68,9 @@ impl OltpProvisioner {
     pub(super) async fn converge_branch_writers(
         &self,
         tenant: &oltp_tenants::Model,
-        row: &oltp_branches::Model,
+        site: &BranchSite,
     ) -> Result<(), ProvisionerError> {
-        let owner_dsn = self.branch_owner_dsn(tenant, row)?;
+        let owner_dsn = self.branch_owner_dsn(tenant, site)?;
         let writers = OltpRoles::find()
             .filter(oltp_roles::Column::TenantRowId.eq(tenant.id))
             .all(&self.db)
@@ -100,7 +86,7 @@ impl OltpProvisioner {
                 DbGrantLevel::ReadOnly => GrantLevel::ReadOnly,
             };
             let mut batch =
-                schema::ensure_writer_sql(&writer, grant, &row.owner_role, &w.role_name)?;
+                schema::ensure_writer_sql(&writer, grant, &site.owner_role, &w.role_name)?;
             if matches!(writer, WriterRef::Pipeline(_)) {
                 batch.push(crate::roles::grant_schema_creation_sql(&w.role_name)?);
             }
@@ -110,7 +96,7 @@ impl OltpProvisioner {
         }
         schemas.sort();
         schemas.dedup();
-        let search_path = schema::database_search_path_sql(&row.database_name, &schemas)?;
+        let search_path = schema::database_search_path_sql(&site.database_name, &schemas)?;
         self.sql.execute_batch(&owner_dsn, &search_path).await?;
         Ok(())
     }
@@ -141,8 +127,58 @@ impl OltpProvisioner {
             let lock = self.lock_branch(tenant.id, kind).await?;
             let out = match self.find_branch(tenant, kind).await {
                 Ok(Some(row)) => {
-                    self.drop_writer_on_branch(tenant, &row, role_name, drop_schema, plan)
+                    let skip = (row.status != oltp_branches::BranchStatus::Active)
+                        .then(|| row.status.as_str());
+                    let site = BranchSite::of_org_branch(&row);
+                    self.drop_writer_on_site(tenant, &site, skip, role_name, drop_schema, plan)
                         .await
+                }
+                Ok(None) => Ok(()),
+                Err(e) => Err(e),
+            };
+            lock.release().await;
+            out?;
+        }
+        self.drop_writer_on_env_branches(tenant, role_name, drop_schema, plan)
+            .await
+    }
+
+    /// [`Self::drop_writer_on_branches`]' second half: each custom-app
+    /// environment's branch holds its own copy of the app's schema and role
+    /// too, and a release must not leave them behind. Each under its own lock,
+    /// on the row as it is once held.
+    async fn drop_writer_on_env_branches(
+        &self,
+        tenant: &oltp_tenants::Model,
+        role_name: &str,
+        drop_schema: &[String],
+        plan: &crate::roles::RoleDropPlan,
+    ) -> Result<(), ProvisionerError> {
+        for (app_id, env_name) in self.env_branch_keys(tenant).await? {
+            let lock = self.lock_env_branch(tenant.id, app_id, &env_name).await?;
+            let out = match self.find_env_row(tenant, app_id, &env_name).await {
+                Ok(Some(row)) => {
+                    // Cut and credentialed from `migrating` on; before that,
+                    // or after a failure, there is nothing coherent to drop.
+                    let usable = matches!(
+                        row.status,
+                        EnvBranchStatus::Migrating | EnvBranchStatus::Ready
+                    );
+                    let skip = (!usable).then(|| row.status.as_str());
+                    match BranchSite::of_env(&row) {
+                        Some(site) => {
+                            self.drop_writer_on_site(
+                                tenant,
+                                &site,
+                                skip,
+                                role_name,
+                                drop_schema,
+                                plan,
+                            )
+                            .await
+                        }
+                        None => Ok(()),
+                    }
                 }
                 Ok(None) => Ok(()),
                 Err(e) => Err(e),
@@ -153,10 +189,13 @@ impl OltpProvisioner {
         Ok(())
     }
 
-    async fn drop_writer_on_branch(
+    /// Drop the writer on one branch. `skip` is `Some(status)` for a branch a
+    /// failed or unfinished operation left mid-way.
+    async fn drop_writer_on_site(
         &self,
         tenant: &oltp_tenants::Model,
-        row: &oltp_branches::Model,
+        site: &BranchSite,
+        skip: Option<&'static str>,
         role_name: &str,
         drop_schema: &[String],
         plan: &crate::roles::RoleDropPlan,
@@ -168,16 +207,17 @@ impl OltpProvisioner {
         // than let a broken branch block the release. Where roles are shared
         // the drop below is what lets production's DROP ROLE succeed at all,
         // so there it stays strict.
-        if !shared && row.status != crate::entity::branches::BranchStatus::Active {
+        if let (false, Some(status)) = (shared, skip) {
             warn!(
-                branch = %row.kind,
-                status = row.status.as_str(),
+                branch = %site.label,
+                status,
                 role = %role_name,
                 "skipping the writer drop on a branch that is not active"
             );
-            return self.forget_branch_credential(row, role_name).await;
+            site.roles.forget(&self.db, role_name).await?;
+            return Ok(());
         }
-        let branch_dsn = self.branch_owner_dsn(tenant, row)?;
+        let branch_dsn = self.branch_owner_dsn(tenant, site)?;
         // Membership first, on whichever connection can grant it: the cluster
         // admin where roles are shared, the branch's own owner where the
         // branch is its own cluster.
@@ -203,21 +243,8 @@ impl OltpProvisioner {
                 .execute_batch(&branch_dsn, &tolerant(&plan.admin_post))
                 .await?;
         }
-        self.forget_branch_credential(row, role_name).await?;
-        info!(branch = %row.kind, role = %role_name, "dropped OLTP writer on branch");
-        Ok(())
-    }
-
-    async fn forget_branch_credential(
-        &self,
-        row: &oltp_branches::Model,
-        role_name: &str,
-    ) -> Result<(), ProvisionerError> {
-        BranchRoles::delete_many()
-            .filter(branch_roles::Column::BranchRowId.eq(row.id))
-            .filter(branch_roles::Column::RoleName.eq(role_name))
-            .exec(&self.db)
-            .await?;
+        site.roles.forget(&self.db, role_name).await?;
+        info!(branch = %site.label, role = %role_name, "dropped OLTP writer on branch");
         Ok(())
     }
 
@@ -244,44 +271,34 @@ impl OltpProvisioner {
 
     /// The branch owner's DSN: the branch's sealed password where it has one,
     /// the tenant's where the branch shares the tenant's owner.
-    fn branch_owner_dsn(
+    pub(crate) fn branch_owner_dsn(
         &self,
         tenant: &oltp_tenants::Model,
-        row: &oltp_branches::Model,
+        site: &BranchSite,
     ) -> Result<String, ProvisionerError> {
-        let password = match &row.owner_password_ciphertext {
+        let password = match &site.owner_password_ciphertext {
             Some(sealed) => open(sealed)?,
             None if schema::shares_role_namespace(&tenant.provider) => {
                 self.owner_password(tenant, tenant.org_id)?
             }
-            None => {
-                return Err(ProvisionerError::BranchOwnerPasswordMissing(
-                    tenant.org_id,
-                    row.kind,
-                ));
-            }
+            None => return Err(site.owner_password_missing(tenant.org_id)),
         };
         Ok(branch_dsn(
             &tenant.provider,
-            row,
-            &row.owner_role,
+            site,
+            &site.owner_role,
             &password,
         ))
     }
 }
 
 /// [`super::dsn_for`]'s shape, aimed at the branch's endpoint and database.
-pub(crate) fn branch_dsn(
-    provider: &str,
-    row: &oltp_branches::Model,
-    role: &str,
-    password: &str,
-) -> String {
+pub(crate) fn branch_dsn(provider: &str, site: &BranchSite, role: &str, password: &str) -> String {
     format!(
         "postgres://{role}:{password}@{host}/{db}?sslmode={ssl}",
         password = crate::roles::encode_userinfo(password),
-        host = row.host,
-        db = row.database_name,
+        host = site.host,
+        db = site.database_name,
         ssl = sslmode_for(provider),
     )
 }

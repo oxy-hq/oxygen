@@ -347,6 +347,41 @@ pub async fn delete_app_assets(app_id: Uuid) -> Result<(), StorageError> {
     Ok(())
 }
 
+/// Delete every asset under `sub_prefix` of one **non-production**
+/// environment's silo (a sandbox's, or staging's): a messages reset's
+/// `_outbox/`. Only that prefix: the rest of the silo, production's silo and
+/// every other environment's stay, and the slash the prefix is closed with
+/// keeps `_outbox/` from taking `_outbox-kept/`. Idempotent.
+///
+/// Refused, deleting nothing: production's silo, an empty prefix (that is the
+/// whole silo, [`delete_environment_assets`]'s job) and a prefix that climbs
+/// out. The guard is this function's own, whatever its caller checked.
+pub async fn delete_environment_prefix(
+    app_id: Uuid,
+    environment: &oxy_app_core::custom_app_environment::AppEnvironment,
+    sub_prefix: &str,
+) -> Result<(), StorageError> {
+    let silo = Silo::for_environment(app_id, environment);
+    if silo.is_production() {
+        return Err(StorageError::Denied(format!(
+            "refusing to delete under app {app_id}'s production storage: only an environment's \
+             silo has a prefix removed on its own"
+        )));
+    }
+    let sub = sub_prefix.trim().trim_matches('/');
+    if sub.is_empty() {
+        return Err(StorageError::Invalid(
+            "a prefix to delete under is required: an empty one is the whole silo".to_string(),
+        ));
+    }
+    let prefix = super::list_prefix_in(&silo, Some(&format!("{sub}/")))?;
+    match bucket() {
+        Some(bucket) => s3::delete_prefix(&bucket, &prefix).await?,
+        None => local::delete_prefix(&prefix).await?,
+    }
+    Ok(())
+}
+
 /// Delete every asset of one **non-production** environment of an app — its
 /// sibling silo, `customer-app-storage/<app_id>~<env>/` — used when a sandbox
 /// is torn down (`custom_apps_sandboxes::teardown`). Idempotent: a silo that

@@ -37,7 +37,9 @@ use uuid::Uuid;
 
 use crate::common::demo_workspace_id;
 use crate::custom_app_functions_fixture::{Tenant, publish_build, seeded_tenant};
-use crate::staging_functions::{make_guest_staff, production_host, staging_host};
+use crate::staging_functions::{
+    create_sandbox, make_guest_staff, production_host, sandbox_host, staging_host,
+};
 
 fn state(t: &Tenant) -> AppState {
     let agentic = agentic_http::AgenticState::new(
@@ -428,6 +430,83 @@ async fn staging_history_refuses_a_caller_who_may_not_open_staging() {
     app(&t, slug).await;
     let resp = list_threads(Path(demo_workspace_id()), on_host(&staging_host(&t, slug))).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+/// A sandbox ask writes `custom-app-sandbox:<app_id>:<name>` threads while the
+/// sandbox's `workspace-actions` plane is `held`; the bundle's history list and
+/// thread fetch serve exactly those, and only that sandbox's. A `refused`
+/// plane is the ask's own 404, an unreadable one its 409.
+#[tokio::test]
+async fn sandbox_chat_history_follows_the_workspace_actions_plane() {
+    let t = seeded_tenant().await;
+    let slug = "sbx-ask-history";
+    let app_id = app(&t, slug).await;
+    create_sandbox(&t, app_id, "a1", None).await;
+    create_sandbox(&t, app_id, "a2", None).await;
+    make_guest_staff();
+    let (sandbox, staging, production) = (
+        sandbox_host(&t, slug, "a1"),
+        staging_host(&t, slug),
+        production_host(&t, slug),
+    );
+
+    let own = guest_thread(&t, &format!("custom-app-sandbox:{app_id}:dev-a1")).await;
+    let sibling = guest_thread(&t, &format!("custom-app-sandbox:{app_id}:dev-a2")).await;
+    let other_app =
+        guest_thread(&t, &format!("custom-app-sandbox:{}:dev-a1", Uuid::new_v4())).await;
+    let staged = guest_thread(&t, &format!("custom-app-staging:{app_id}")).await;
+    let prod = guest_thread(&t, "custom-app").await;
+
+    let on_sandbox = listed(&sandbox).await;
+    assert!(on_sandbox.contains(&own), "the sandbox's own history");
+    for foreign in [sibling, other_app, staged, prod] {
+        assert!(!on_sandbox.contains(&foreign), "{foreign} in the sandbox");
+        assert_eq!(
+            transcript(&t, &sandbox, foreign).await,
+            StatusCode::NOT_FOUND
+        );
+    }
+    assert_eq!(transcript(&t, &sandbox, own).await, StatusCode::OK);
+
+    // And the sandbox's thread surfaces nowhere else.
+    for host in [&staging, &production] {
+        assert!(!listed(host).await.contains(&own), "sandbox thread leaked");
+        assert_eq!(transcript(&t, host, own).await, StatusCode::NOT_FOUND);
+    }
+}
+
+#[tokio::test]
+async fn a_refused_or_unreadable_sandbox_serves_no_chat_history() {
+    let t = seeded_tenant().await;
+    let slug = "sbx-ask-history-refused";
+    let app_id = app(&t, slug).await;
+    create_sandbox(
+        &t,
+        app_id,
+        "r1",
+        Some(json!({"workspace-actions": "refused"})),
+    )
+    .await;
+    create_sandbox(
+        &t,
+        app_id,
+        "u1",
+        Some(json!({"workspace-actions": "teleport"})),
+    )
+    .await;
+    make_guest_staff();
+
+    for (handle, expected) in [("r1", StatusCode::NOT_FOUND), ("u1", StatusCode::CONFLICT)] {
+        let thread = guest_thread(&t, &format!("custom-app-sandbox:{app_id}:dev-{handle}")).await;
+        let host = sandbox_host(&t, slug, handle);
+        let resp = list_threads(Path(demo_workspace_id()), on_host(&host)).await;
+        assert_eq!(resp.status(), expected, "{handle} list");
+        assert_eq!(
+            transcript(&t, &host, thread).await,
+            expected,
+            "{handle} transcript"
+        );
+    }
 }
 
 /// A staging ask writes a `custom-app-staging:<app_id>` thread; its follow-up

@@ -6,15 +6,17 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use axum::routing::get;
-use axum::{Router, middleware};
+use axum::routing::{get, post, put};
+use axum::{Extension, Router, middleware};
 use oxy_api_custom_apps::admin::apps::guarded;
-use oxy_api_custom_apps::custom_apps_sandboxes::handlers;
 use oxy_api_custom_apps::custom_apps_sandboxes::teardown::SANDBOX_TEARDOWN_KIND;
+use oxy_api_custom_apps::custom_apps_sandboxes::{handlers, outbox, planes, reset};
+use oxy_app_core::semantic_pin_seam::SemanticPinner;
 use oxy_auth::middleware::{AuthState, auth_middleware};
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
+use std::sync::{Arc, OnceLock};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -25,23 +27,50 @@ use crate::custom_app_functions_fixture::{
 
 const APP: &str = "sbx";
 
-/// The four routes as `router::global` mounts them in the `/customer-apps`
+/// The routes as `router::global` mounts them in the `/customer-apps`
 /// nest, behind `admin::apps::guarded` — the one stack production wears — and
 /// under `auth_middleware` (`build_global_routes` is `pub(super)`, hence the
 /// copy of the routes). [`the_routes_are_mounted_inside_the_console_guards`]
 /// fails when production stops mounting them so.
 pub(crate) fn console() -> Router {
-    let nest = guarded(
-        Router::new()
-            .route(
-                "/{id}/environments",
-                get(handlers::list).post(handlers::create),
-            )
-            .route(
-                "/{id}/environments/{name}",
-                get(handlers::show).delete(handlers::delete),
-            ),
-    );
+    let routes = routes();
+    // The composition root layers the semantic pin port onto these routes
+    // (`oxy-server`'s `api_seam_routes`). A test that needs one installs it
+    // (`install_pinner`); each nextest test is its own process, so a global is
+    // per test, like the env vars `staffed_app` sets.
+    let routes = match PINNER.get() {
+        Some(pinner) => routes.layer(Extension(pinner.clone())),
+        None => routes,
+    };
+    with_console_layers(routes)
+}
+
+/// The semantic pin port this test process's console carries, if any.
+static PINNER: OnceLock<Arc<dyn SemanticPinner>> = OnceLock::new();
+
+/// Give this test's console a pin port. Call before the first request.
+pub(crate) fn install_pinner(pinner: Arc<dyn SemanticPinner>) {
+    assert!(PINNER.set(pinner).is_ok(), "one pinner per test process");
+}
+
+fn routes() -> Router {
+    Router::new()
+        .route(
+            "/{id}/environments",
+            get(handlers::list).post(handlers::create),
+        )
+        .route(
+            "/{id}/environments/{name}",
+            get(handlers::show).delete(handlers::delete),
+        )
+        .route("/{id}/environments/{name}/diff", get(handlers::diff))
+        .route("/{id}/environments/{name}/planes", put(planes::set))
+        .route("/{id}/environments/{name}/reset", post(reset::reset))
+        .route("/{id}/environments/{name}/outbox", get(outbox::list))
+}
+
+fn with_console_layers(routes: Router) -> Router {
+    let nest = guarded(routes);
     Router::new()
         .nest("/api/customer-apps", nest)
         .layer(middleware::from_fn_with_state(
@@ -140,7 +169,7 @@ async fn queued_teardowns(db: &DatabaseConnection, app: Uuid) -> i64 {
     .await
 }
 
-async fn audit_rows(db: &DatabaseConnection, app: Uuid, action: &str) -> i64 {
+pub(crate) async fn audit_rows(db: &DatabaseConnection, app: Uuid, action: &str) -> i64 {
     count(
         db,
         &format!(

@@ -112,6 +112,12 @@ async fn upsert_fixed<C: ConnectionTrait>(
         // Never moved by a pointer write: a fixed environment's first row
         // takes the default (off), and a later move leaves the switch alone.
         schedules_enabled: ActiveValue::NotSet,
+        // Branch facts: nothing writes them yet, so the row takes the defaults.
+        parent_name: ActiveValue::NotSet,
+        fork_at: ActiveValue::NotSet,
+        planes: ActiveValue::NotSet,
+        semantic_revision_id: ActiveValue::NotSet,
+        semantic_git_sha: ActiveValue::NotSet,
     })
     .on_conflict(
         OnConflict::columns([

@@ -24,12 +24,16 @@
 //!   on an app host, so a staging bundle's direct calls — procedure runs, agent
 //!   asks, threads, events — reach the ordinary API, which has no environment
 //!   to isolate them into. Reads stay allowed, and so do the data plane's
-//!   read-only `POST`s ([`is_read_only_post`]). On the **staging** host three
-//!   named surfaces are let through as well ([`is_staging_write`]):
-//!   starting and cancelling an agent ask, which `start_ask` runs with every
-//!   data write held, and starting an automation run, which
-//!   `start_automation_run` refuses with a `409` logged as held rather than
-//!   running (`projects::automation_run::staging_hold`).
+//!   read-only `POST`s ([`is_read_only_post`]). Three named surfaces are let
+//!   through as well ([`is_held_workspace_action`]) in an environment whose
+//!   `workspace-actions` plane is `held`: starting and cancelling an agent ask,
+//!   which `start_ask` runs with every data write held, and starting an
+//!   automation run, which `start_automation_run` refuses with a `409` logged
+//!   as held rather than running (`projects::automation_run::staging_hold`).
+//!   Staging holds by default and so does a sandbox; one set to `refused` keeps
+//!   the 403. The plane is read from the environment's row by the middleware's
+//!   [`WorkspaceActions`] lookup, only for those three `POST`s outside
+//!   production ([`guard_with_actions`] takes the answer).
 //! - **A cookie-authenticated write whose `Origin` belongs to another
 //!   environment** answers 403. Every app host shares the `.oxygen-hq.com`
 //!   `SameSite=Lax` session cookie, so without this a staging page could post
@@ -41,13 +45,20 @@
 //! outside production is the seam the hold layer will replace), using
 //! [`request_environment`] and [`check_origin`] from here.
 
-use axum::extract::Request;
+use std::sync::Arc;
+
+use axum::extract::{Request, State};
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
 use crate::custom_app_environment::AppEnvironment;
 use crate::custom_apps_host_dispatch::parse_app_host;
+
+#[path = "custom_app_env_request_workspace_actions.rs"]
+mod workspace_actions;
+use workspace_actions::actions_open;
+pub use workspace_actions::{NoWorkspaceActions, WorkspaceActions, planes_unreadable};
 
 /// The header a bearer-authenticated caller (`oxyc dev`) names an environment
 /// with.
@@ -246,22 +257,23 @@ pub fn is_read_only_post(path: &str) -> bool {
             .is_some_and(|op| !op.is_empty() && !op.contains('/'))
 }
 
-/// The writes a page on an app's **staging** host may make: start an ask
-/// (`POST /api/projects/{p}/agents/{agent}/asks`), cancel one
+/// The workspace actions an environment's `workspace-actions` plane can hold:
+/// start an ask (`POST /api/projects/{p}/agents/{agent}/asks`), cancel one
 /// (`POST /api/projects/{p}/agents/asks/{run}/cancel`), and start an
 /// automation run (`POST /api/projects/{p}/procedures/{procedure}/runs`,
 /// `router/public.rs`'s route for `start_automation_run`). Ask streams are a
-/// `GET`; an automation run's poll and cancel are not named here — they stay
-/// refused, same as every other write.
+/// `GET`; an automation run's poll is a `GET` too, and its cancel is
+/// [`is_preview_run_cancel`], opened only where the plane is `preview`.
 ///
 /// Not [`is_read_only_post`]: each writes a thread, message, run or run-row.
 /// They are allowed because the handler itself decides what happens next —
 /// `start_ask` runs its write held (`previews::request_hold`), refusing a
-/// caller who may not open staging; `start_automation_run` refuses every
-/// staging caller with a `409`, logged as held for one it may open
-/// (`projects::automation_run::staging_hold`). Staging only — a dev slot's
-/// write is refused like any other.
-pub fn is_staging_write(method: &Method, path: &str) -> bool {
+/// caller who may not open the environment; `start_automation_run` refuses
+/// every such caller with a `409`, logged as held for one it may open
+/// (`projects::automation_run::staging_hold`). Only in an environment whose
+/// plane is `held` ([`guard_with_actions`]): staging by default, a sandbox by
+/// default too, either one `refused` when its row says so.
+pub fn is_held_workspace_action(method: &Method, path: &str) -> bool {
     if *method != Method::POST {
         return false;
     }
@@ -278,10 +290,53 @@ pub fn is_staging_write(method: &Method, path: &str) -> bool {
     }
 }
 
+/// Cancelling an automation run (`POST
+/// /api/projects/{p}/procedures/runs/{run}/cancel`). Under `held` no bundle run
+/// exists to cancel, so it stays refused; under `preview` the bundle's run is
+/// real, so the guard lets its cancel through, and `cancel_automation_run`
+/// cancels only that environment's own preview runs
+/// (`automation_run::preview_mode::cancel`).
+pub fn is_preview_run_cancel(method: &Method, path: &str) -> bool {
+    if *method != Method::POST {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/projects/") else {
+        return false;
+    };
+    match rest.split('/').collect::<Vec<_>>().as_slice() {
+        [project, "procedures", "runs", run, "cancel"] => !project.is_empty() && !run.is_empty(),
+        _ => false,
+    }
+}
+
+/// What an environment's `workspace-actions` plane opens to the guard, as the
+/// middleware's lookup read it for this request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActionsOpen {
+    /// Nothing: the plane is `refused`, or nothing was asked.
+    Refused,
+    /// The plane is `held`: the three surfaces of [`is_held_workspace_action`].
+    Held,
+    /// The plane is `preview`: those three, and an automation run's cancel
+    /// ([`is_preview_run_cancel`]), since the bundle's runs are real there.
+    Preview,
+}
+
 /// Whether `guard` lets this `/api` write through in `environment`.
-fn write_allowed_in(environment: &AppEnvironment, method: &Method, path: &str) -> bool {
+fn write_allowed_in(
+    environment: &AppEnvironment,
+    method: &Method,
+    path: &str,
+    open: ActionsOpen,
+) -> bool {
     *environment == AppEnvironment::Production
-        || (*environment == AppEnvironment::Staging && is_staging_write(method, path))
+        || match open {
+            ActionsOpen::Refused => false,
+            ActionsOpen::Held => is_held_workspace_action(method, path),
+            ActionsOpen::Preview => {
+                is_held_workspace_action(method, path) || is_preview_run_cancel(method, path)
+            }
+        }
 }
 
 fn is_api_path(path: &str) -> bool {
@@ -308,17 +363,31 @@ fn json_refusal(status: StatusCode, error: &str, message: String) -> Response {
         .into_response()
 }
 
-/// The decision [`environment_guard_middleware`] makes, as a pure function of
-/// the request line and headers. `Ok(env)` lets the request through carrying
-/// `env` as an extension.
+/// [`guard_with_actions`] for a caller that knows nothing of the environment's
+/// planes: the three held workspace actions are refused outside production
+/// like every other write. The right answer for a route that is not one of
+/// them.
 pub fn guard(
     method: &Method,
     path: &str,
     headers: &HeaderMap,
 ) -> Result<AppEnvironment, Box<Response>> {
+    guard_with_actions(method, path, headers, ActionsOpen::Refused)
+}
+
+/// The decision [`environment_guard_middleware`] makes, as a pure function of
+/// the request line, headers and what the environment's `workspace-actions`
+/// plane opens (`open`). `Ok(env)` lets the request through carrying `env` as
+/// an extension.
+pub fn guard_with_actions(
+    method: &Method,
+    path: &str,
+    headers: &HeaderMap,
+    open: ActionsOpen,
+) -> Result<AppEnvironment, Box<Response>> {
     let environment = request_environment(headers).map_err(|e| Box::new(e.into_response()))?;
     if is_api_path(path) && is_write_method(method) && !is_read_only_post(path) {
-        if !write_allowed_in(&environment, method, path) {
+        if !write_allowed_in(&environment, method, path, open) {
             return Err(Box::new(api_write_refused(&environment)));
         }
         check_origin(headers, &environment).map_err(|e| Box::new(e.into_response()))?;
@@ -331,9 +400,32 @@ pub fn guard(
 ///
 /// Runs outermost, before the host rewrite, so it sees the `Host` and path the
 /// client sent. Cheap: a few header reads and no allocation on the common
-/// path (no header, production host, a read).
-pub async fn environment_guard_middleware(mut request: Request, next: Next) -> Response {
-    match guard(request.method(), request.uri().path(), request.headers()) {
+/// path (no header, production host, a read). The one read it can make is the
+/// environment's planes, for the three held workspace actions outside
+/// production ([`WorkspaceActions`]); a plane that cannot be read refuses the
+/// request.
+pub async fn environment_guard_middleware(
+    State(actions): State<Arc<dyn WorkspaceActions>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let open = match actions_open(
+        actions.as_ref(),
+        request.method(),
+        request.uri().path(),
+        request.headers(),
+    )
+    .await
+    {
+        Ok(open) => open,
+        Err(refusal) => return *refusal,
+    };
+    match guard_with_actions(
+        request.method(),
+        request.uri().path(),
+        request.headers(),
+        open,
+    ) {
         Ok(environment) => {
             request.extensions_mut().insert(environment);
             next.run(request).await
@@ -564,7 +656,16 @@ mod tests {
         }
     }
 
+    /// The status `guard` refuses with, for an environment whose
+    /// `workspace-actions` plane is `held`.
     fn status_of(method: Method, path: &str, h: &HeaderMap) -> Option<StatusCode> {
+        guard_with_actions(&method, path, h, ActionsOpen::Held)
+            .err()
+            .map(|r| r.status())
+    }
+
+    /// The same, for an environment whose plane is `refused` (or unknown).
+    fn status_of_refused(method: Method, path: &str, h: &HeaderMap) -> Option<StatusCode> {
         guard(&method, path, h).err().map(|r| r.status())
     }
 
@@ -698,34 +799,62 @@ mod tests {
         }
     }
 
+    /// A sandbox that refuses workspace actions keeps today's 403 on all three
+    /// held surfaces, as does a staging whose row says `refused`.
     #[test]
-    fn a_dev_slot_automation_run_is_still_refused() {
+    fn an_environment_that_refuses_workspace_actions_answers_403() {
         let dev = headers(&[
             ("host", "app.oxygen-hq.com"),
             ("authorization", "Bearer t"),
             (ENV_HEADER, "dev-luong"),
         ]);
-        assert_eq!(
-            status_of(
-                Method::POST,
-                "/api/projects/p1/procedures/weekly/runs",
-                &dev
-            ),
-            Some(StatusCode::FORBIDDEN)
-        );
+        let staging = headers(&[("host", STAGING_HOST), ("cookie", "oxy_session=x")]);
+        for path in [
+            "/api/projects/p1/procedures/weekly/runs",
+            "/api/projects/p1/agents/analyst/asks",
+            "/api/projects/p1/agents/asks/run-1/cancel",
+        ] {
+            for h in [&dev, &staging] {
+                assert_eq!(
+                    status_of_refused(Method::POST, path, h),
+                    Some(StatusCode::FORBIDDEN),
+                    "{path}"
+                );
+            }
+        }
     }
 
+    /// A sandbox whose plane is `held` is let through on the three surfaces
+    /// the way staging is, and on nothing else.
     #[test]
-    fn a_dev_slot_ask_is_still_refused() {
+    fn a_sandbox_that_holds_workspace_actions_gets_the_three_surfaces_only() {
         let dev = headers(&[
             ("host", "app.oxygen-hq.com"),
             ("authorization", "Bearer t"),
             (ENV_HEADER, "dev-luong"),
         ]);
-        assert_eq!(
-            status_of(Method::POST, "/api/projects/p1/agents/analyst/asks", &dev),
-            Some(StatusCode::FORBIDDEN)
-        );
+        for path in [
+            "/api/projects/p1/procedures/weekly/runs",
+            "/api/projects/p1/agents/analyst/asks",
+            "/api/projects/p1/agents/asks/run-1/cancel",
+        ] {
+            assert_eq!(status_of(Method::POST, path, &dev), None, "{path}");
+        }
+        for (method, path) in [
+            (Method::POST, "/api/projects/p1/threads"),
+            (Method::POST, "/api/customer-apps/a1/events"),
+            (
+                Method::POST,
+                "/api/projects/p1/procedures/runs/run-1/cancel",
+            ),
+            (Method::DELETE, "/api/threads/t1"),
+        ] {
+            assert_eq!(
+                status_of(method.clone(), path, &dev),
+                Some(StatusCode::FORBIDDEN),
+                "{method} {path}"
+            );
+        }
     }
 
     /// The allowance is staging's own: it does not excuse the origin check, so

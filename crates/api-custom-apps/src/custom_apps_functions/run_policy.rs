@@ -12,65 +12,89 @@
 //!
 //! **Production asks nothing.** Every one of these is ignored by a production
 //! policy (`with_semantic_pin`, `with_shared_env`, `with_destinations`,
-//! `environment_gate::with_oltp_home`), so production returns its admission's
+//! `environment_gate::with_planes`, `environment_gate::with_oltp_home`), so production returns its admission's
 //! policy as it stands, with no query — the hottest path stays exactly as it
 //! was, and a database blip there cannot fail a production run.
 //!
 //! **Outside production a lookup failure is an error**, never a fallback: the
-//! caller refuses the run rather than start it under a thinner policy.
+//! caller refuses the run rather than start it under a thinner policy. So is a
+//! row whose planes cannot be read, and an environment whose semantic branch
+//! has not compiled (both `GateError::Refused`): a plane whose home is not
+//! ready is refused, never routed elsewhere.
+
+use std::collections::BTreeSet;
 
 use entity::{app_builds, apps};
-use sea_orm::{DatabaseConnection, DbErr};
+use sea_orm::DatabaseConnection;
 
-use super::env_policy::EnvPolicy;
-use super::environment_gate::{self, Admission};
+use super::env_policy::{EnvPolicy, SecretsHome};
+use super::environment_gate::{self, Admission, GateError};
 use crate::custom_apps_nonproduction::destinations_from_build_manifest;
 use crate::custom_apps_secrets::shared_env::effective_shared_env;
 
 /// The policy `admission`'s run of `build` executes under.
 ///
-/// Production: the admission's own policy. Otherwise, in order: the org's
-/// OLTP staging branch, the build's semantic pin, the `env` keys both this
-/// build and production's mark `shared`, and the build's
+/// Production: the admission's own policy. Otherwise, in order: the modes of
+/// the environment's planes, the org's OLTP staging branch, the effective
+/// semantic pin (the build's own, else the environment's), the `env` keys both
+/// this build and production's mark `shared`, and the build's
 /// `nonProduction.destinations`.
 pub(crate) async fn build(
     db: &DatabaseConnection,
     admission: Admission,
     app: &apps::Model,
     build: &app_builds::Model,
-) -> Result<EnvPolicy, DbErr> {
+) -> Result<EnvPolicy, GateError> {
     if admission.policy.is_production() {
         return Ok(admission.policy);
     }
+    // The planes first: the one place both are called, so every path that
+    // runs a function reads the row before it asks where `ctx.oltp` lands.
+    let admission = environment_gate::with_planes(db, admission, app).await?;
     let admission = environment_gate::with_oltp_home(db, admission, app).await?;
     let manifest = build.manifest_json.as_ref();
-    let shared = effective_shared_env(db, app, admission.policy.environment(), manifest).await;
-    Ok(with_build_pin(db, admission.policy, build)
-        .await
+    // An environment on its own secrets path reads nothing from production,
+    // so there is no build of production's to consult.
+    let own_only = admission
+        .policy
+        .homes()
+        .is_some_and(|homes| homes.secrets == SecretsHome::OwnOnly);
+    let shared = if own_only {
+        BTreeSet::new()
+    } else {
+        effective_shared_env(db, app, admission.policy.environment(), manifest).await
+    };
+    Ok(with_effective_pin(db, admission.policy, app, build)
+        .await?
         .with_shared_env(shared)
         // Where a non-production write to a customer warehouse lands, from the
         // manifest that shipped with this build.
         .with_destinations(destinations_from_build_manifest(manifest, app.id)))
 }
 
-/// `policy`, reading the semantic model `build` pins. Only a node built with
-/// the isolate reads the pin; one built without it never runs the function.
+/// `policy`, reading the semantic model `build` (or, failing that, the
+/// environment) pins. Only a node built with the isolate reads the pin; one
+/// built without it never runs the function.
 #[cfg(feature = "custom-app-functions")]
-async fn with_build_pin(
+async fn with_effective_pin(
     db: &DatabaseConnection,
     policy: EnvPolicy,
+    app: &apps::Model,
     build: &app_builds::Model,
-) -> EnvPolicy {
-    environment_gate::with_build_pin(db, policy, build.id).await
+) -> Result<EnvPolicy, GateError> {
+    super::pin_gate::with_effective_pin(db, policy, app.id, build.id)
+        .await
+        .map_err(GateError::Refused)
 }
 
 #[cfg(not(feature = "custom-app-functions"))]
-async fn with_build_pin(
+async fn with_effective_pin(
     _db: &DatabaseConnection,
     policy: EnvPolicy,
+    _app: &apps::Model,
     _build: &app_builds::Model,
-) -> EnvPolicy {
-    policy
+) -> Result<EnvPolicy, GateError> {
+    Ok(policy)
 }
 
 #[cfg(test)]

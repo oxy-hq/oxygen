@@ -136,6 +136,7 @@ pub async fn compare(
         RewriteOptions {
             catalog: limits.catalog.clone(),
             read_live_only: true,
+            pin: None,
         },
     );
     let held_before = held_before(&build.options);

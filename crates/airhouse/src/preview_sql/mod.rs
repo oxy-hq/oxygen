@@ -30,11 +30,21 @@
 //! Engine and session statements (`ATTACH`, `SET`, `COPY`, `CALL`, `PRAGMA`,
 //! `INSTALL`, `DROP SCHEMA`, …) and table functions that can write around these
 //! rules (`postgres_*`, `ducklake_*`, `query`, …) are refused outright.
+//!
+//! The same machinery serves a custom-app **environment**
+//! ([`PreviewNamespace::for_environment`]), whose namespace stands in for one
+//! schema only, the app's own `app_<writer>`, with its sibling
+//! `app_<writer>__<env>`; a write to any other schema is refused. There the
+//! host may also set [`RewriteOptions::pin`], and every read that stays live
+//! carries `AT (TIMESTAMP => …)`: [`SnapshotPin`].
 
 mod copy;
 mod names;
 mod namespace;
 mod overlay;
+mod pin;
+#[cfg(feature = "preview-registry")]
+pub mod registry;
 mod rewrite;
 mod rewrite_ddl;
 mod transactions;
@@ -47,6 +57,7 @@ pub use copy::{
     COW_MAX_ROWS_VAR, CopyPlan, DEFAULT_COW_MAX_ROWS, Prelude, cow_max_rows, parse_cow_max_rows,
 };
 pub use namespace::PreviewNamespace;
+pub use pin::SnapshotPin;
 
 use crate::sql_parse::on_sql_stack;
 use crate::sql_rules::{is_read_only, leading_keyword};
@@ -95,6 +106,11 @@ pub struct RewriteOptions {
     /// Read live tables even where the preview has a copy (the run option
     /// `read_live_only`). Writes are redirected regardless.
     pub read_live_only: bool,
+    /// Pin every table read that stays live to this point in time (`AT
+    /// (TIMESTAMP => …)`), for [`overlay_reads`] and the reads inside a
+    /// [`rewrite`]d statement. Never a write target, a redirected read, a CTE,
+    /// a table function or a system schema. `None` reads live as of now.
+    pub pin: Option<SnapshotPin>,
 }
 
 /// A step's SQL, redirected into the preview.
@@ -139,7 +155,10 @@ pub fn rewrite(
 
 /// The read half of [`rewrite`], for SQL the preview connector sends on behalf
 /// of agents and semantic queries: every statement must be a read, and reads
-/// the preview has a copy of go to the copy. Idempotent.
+/// the preview has a copy of go to the copy. Idempotent: its output, parsed
+/// and overlaid again, is unchanged. Not so for a statement the options
+/// [pin](RewriteOptions::pin): the DuckDB dialect cannot parse `AT (…)`, so
+/// the pinned SQL is final, and is sent, never read back.
 pub fn overlay_reads(
     sql: &str,
     ns: &PreviewNamespace,
@@ -218,6 +237,10 @@ pub fn verify_statements(
     })
 }
 
+#[cfg(test)]
+mod copy_refill_tests;
+#[cfg(test)]
+mod env_tests;
 #[cfg(test)]
 mod fence_tests;
 #[cfg(test)]

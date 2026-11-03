@@ -150,6 +150,16 @@ fn notify_recipients(policy: &EnvPolicy) -> BTreeSet<String> {
     }
 }
 
+/// Where a captured message lands: the outbox prefix of the environment's
+/// silo (`host::outbox`). Production has none, so it names nothing.
+fn outbox_writes(policy: &EnvPolicy) -> BTreeSet<String> {
+    policy
+        .outbox_silo(APP)
+        .map(|silo| format!("{}{}", silo.prefix(), crate::custom_apps_outbox::PREFIX))
+        .into_iter()
+        .collect()
+}
+
 fn written(policy: &EnvPolicy, op: HostOp, target: Target) -> BTreeSet<String> {
     match target {
         Target::MappedDestination => databases(policy, op),
@@ -159,6 +169,13 @@ fn written(policy: &EnvPolicy, op: HostOp, target: Target) -> BTreeSet<String> {
         Target::InvokerEmail => email_recipients(policy),
         Target::InvokerNotify => notify_recipients(policy),
         Target::OltpBranch => oltp_databases(policy, op),
+        // `ctx.airhouse.query` through the overlay: a read, which writes nothing.
+        Target::AirhouseOverlay | Target::AirhouseSnapshot => BTreeSet::new(),
+        // A third party's sandbox, not a store of ours, with no write of ours
+        // to compare. The `Fetch` row isolates to it only under `fetch: allow`,
+        // which `plane_tests` covers call by call.
+        Target::ProviderSandbox => BTreeSet::new(),
+        Target::Outbox => outbox_writes(policy),
     }
 }
 
@@ -178,6 +195,10 @@ fn oltp_databases(policy: &EnvPolicy, op: HostOp) -> BTreeSet<String> {
             home.cut.provider_branch_id, home.schema
         )]
         .into(),
+        // The sandbox's own branch: a database of its own, by provider id.
+        (Decision::Isolate(Target::OltpBranch), OltpHome::EnvironmentBranch(home)) => {
+            [format!("branch:{}", home.cut.provider_branch_id)].into()
+        }
         _ => BTreeSet::new(),
     }
 }
@@ -270,6 +291,16 @@ fn every_isolated_write_of_a_sandbox_is_disjoint_from_production_and_its_neighbo
                 assert_eq!(in_a, BTreeSet::from([format!("user:{INVOKER}")]), "{op:?}");
             }
             Target::OltpBranch => unreachable!("no row isolates to the branch without one"),
+            // A read under an overlay mode; the default mode reads production.
+            Target::AirhouseOverlay | Target::AirhouseSnapshot => {
+                unreachable!("airhouse.query is `Allow` under the default mode")
+            }
+            // These policies carry the default planes, under which `Fetch`
+            // holds; it isolates here only under `fetch: allow` (`plane_tests`).
+            Target::ProviderSandbox => {
+                unreachable!("no row isolates to a provider sandbox under the default planes")
+            }
+            Target::Outbox => unreachable!("no default row captures; plane_homes_tests holds it"),
         }
     }
     assert_eq!(
@@ -493,6 +524,7 @@ fn a_sandboxs_oltp_touches_its_own_schema_and_no_other_environments() {
         row_id: uuid::Uuid::from_u128(1),
         provider_branch_id: "br-staging".into(),
         cut_at: chrono::Utc::now().into(),
+        scope: oxy_oltp::branches::CutScope::OrgBranch,
     };
     let writer = oxy_oltp::WriterRef::app("store").expect("a writer");
     let on = |handle: &str| {

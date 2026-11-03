@@ -595,6 +595,20 @@ impl OltpProvider for LocalProvider {
     ) -> Result<(), ProviderError> {
         self.delete_branch_impl(req, branch_id).await
     }
+
+    async fn find_branch_id(&self, req: &BranchRequest) -> Result<Option<String>, ProviderError> {
+        self.find_branch_id_impl(req).await
+    }
+
+    /// A loopback cluster has no scheduler to reap a branch: nothing to move.
+    async fn set_branch_expiry(
+        &self,
+        _req: &BranchRequest,
+        _branch_id: &str,
+        _expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), ProviderError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

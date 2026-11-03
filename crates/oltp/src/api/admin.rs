@@ -45,9 +45,10 @@ pub(crate) fn provisioner_status(e: crate::provisioner::ProvisionerError) -> (St
     use crate::provisioner::ProvisionerError as P;
     let code = match &e {
         P::NotConfigured(_) => StatusCode::SERVICE_UNAVAILABLE,
-        P::OrgNotFound(_) | P::NotProvisioned(_) | P::BranchNotProvisioned(..) => {
-            StatusCode::NOT_FOUND
-        }
+        P::OrgNotFound(_)
+        | P::NotProvisioned(_)
+        | P::BranchNotProvisioned(..)
+        | P::EnvBranchNotCut { .. } => StatusCode::NOT_FOUND,
         // Operator error, not an Oxy fault: a state the caller has to resolve
         // (deprovision first, wait for the tenant to settle, rename a writer,
         // finish a reset). `ProviderMismatch` in particular read as a bug when
@@ -58,6 +59,12 @@ pub(crate) fn provisioner_status(e: crate::provisioner::ProvisionerError) -> (St
         | P::BranchNotReady { .. }
         | P::BranchIsProduction { .. }
         | P::BranchStateChanged { .. }
+        | P::EnvBranchNotReady { .. }
+        | P::EnvBranchIsProduction { .. }
+        | P::EnvBranchIsStaging { .. }
+        | P::EnvBranchStateChanged { .. }
+        | P::ForkOutsideHistory(_)
+        | P::EnvBranchCap(_)
         | P::Provider(crate::provider::ProviderError::BranchParentMismatch { .. })
         | P::Provider(crate::provider::ProviderError::BranchIsProduction(_)) => {
             StatusCode::CONFLICT

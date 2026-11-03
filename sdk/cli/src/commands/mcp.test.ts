@@ -238,7 +238,7 @@ describe("the tool list", () => {
   /**
    * FOUR GENERIC TOOLS, PLUS TWO NAMED EXCEPTIONS — pinned by name so a fifth
    * generic tool or a stray addition to either loop is a decision, not a
-   * drift. `SANDBOX_TOOLS` (12) and `PREVIEW_TOOLS` (8) exist because the
+   * drift. `SANDBOX_TOOLS` (15) and `PREVIEW_TOOLS` (8) exist because the
    * sandbox and workspace-previews loops are meant to run unsupervised, which
    * needs per-operation validation (the dev-<handle> grammar, a confirm gate
    * before a delete, a hard refusal of a non-sandbox publish) that the four
@@ -252,8 +252,11 @@ describe("the tool list", () => {
       "oxy_env_create",
       "oxy_env_delete",
       "oxy_env_list",
+      "oxy_env_outbox",
+      "oxy_env_reset",
       "oxy_env_schedules",
       "oxy_env_show",
+      "oxy_env_update",
       "oxy_fn_call",
       "oxy_fn_run",
       "oxy_invocations_held",
@@ -284,11 +287,13 @@ describe("the tool list", () => {
    * shipped — that principle is intact for the ~660 routes NOT in the
    * sandbox or previews loop.
    *
-   * The 24-tool list above costs ~16 KB, not a couple — raised from the
+   * The 27-tool list above costs ~18.5 KB, not a couple — raised from the
    * original 8 KB on purpose, because the sandbox/previews tools trade
    * minimalism for validation an agent needs to drive either loop
    * unsupervised (see the tool-list test above and `mcp.ts`'s module doc).
-   * Ceiling set to 17 KB, not a round 20 KB: close enough to the ~14.7 KB
+   * Ceiling set to 18.7 KB (it was 17 KB until `oxy_env_update` / `oxy_env_reset`
+   * and create's branch arguments, 18 KB until `oxy_env_outbox`, and 18.4 KB until
+   * `oxy_env_reset`'s OLTP `at`), not a round 20 KB: close enough to the
    * actual that a tool added without trimming anything still trips it, but
    * with enough headroom that a wording tweak to an existing description
    * does not. The ceiling still catches erosion: it is not "whatever the
@@ -299,7 +304,7 @@ describe("the tool list", () => {
     const frames = await rpc([INIT, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }]);
     const tools = frames.find((f) => f.id === 2)?.result?.tools;
     const bytes = JSON.stringify(tools).length;
-    expect(bytes).toBeLessThan(17_000);
+    expect(bytes).toBeLessThan(18_700);
   });
 
   it("tells the model to discover before it guesses", async () => {
@@ -596,6 +601,26 @@ describe("sandbox tools — client-side validation before any request", () => {
     expect(isError).toBe(true);
     expect(body).toMatch(/not a valid environment/);
     expect(body).toMatch(/\[exit 2 USAGE\]/);
+  });
+
+  /** The plane arguments are checked by the same code the CLI flags use, before any credential. */
+  it("oxy_env_create, oxy_env_update and oxy_env_reset refuse malformed plane arguments", async () => {
+    const cases: [string, Record<string, unknown>, RegExp][] = [
+      ["oxy_env_create", { app: "a/b", name: "dev-a1", preset: "heavy" }, /not a preset/],
+      ["oxy_env_create", { app: "a/b", name: "dev-a1", at: "never" }, /not a date/],
+      ["oxy_env_create", { app: "a/b", name: "dev-a1", planes: ["storage"] }, /object of plane/],
+      ["oxy_env_update", { app: "a/b", name: "dev-a1", planes: {} }, /missing|at least one/],
+      ["oxy_env_update", { app: "a/b", name: "dev-a1", planes: { storage: 1 } }, /mode string/],
+      ["oxy_env_reset", { app: "a/b", name: "dev-a1", planes: "storage" }, /array of plane keys/],
+      ["oxy_env_reset", { app: "a/b", name: "dev-a1", planes: [] }, /at least one plane/],
+      ["oxy_env_reset", { app: "a/b", name: "dev-a1" }, /needs planes/]
+    ];
+    for (const [tool, args, message] of cases) {
+      const { isError, body } = await callTool(tool, args);
+      expect(isError, tool).toBe(true);
+      expect(body, tool).toMatch(message);
+      expect(body, tool).toMatch(/\[exit 2 USAGE\]/);
+    }
   });
 
   /** There is no terminal inside an MCP server to confirm on — confirm=true is mandatory. */
@@ -937,6 +962,97 @@ describe("the credential — fail closed unless --login", () => {
   });
 });
 
+describe("plane tools — the same requests as the CLI verbs", () => {
+  const WORKSPACE = "11111111-2222-3333-4444-555555555555";
+  const APP_ID = "a1a1a1a1-2222-3333-4444-555555555555";
+  const ENVS = `/api/customer-apps/${APP_ID}/environments`;
+  const APPS = {
+    "GET /api/customer-apps?limit=100&offset=0": {
+      items: [{ id: APP_ID, slug: "store", org_slug: "acme" }],
+      next_offset: null
+    }
+  };
+  const ENVIRONMENT = { name: "dev-a1", kind: "dev", status: "active", planes_set: { a: "x" } };
+
+  const at = (url: string) => ({ target: url, token: "tok", workspace: WORKSPACE });
+
+  it("oxy_env_create, oxy_env_update and oxy_env_reset return the server's documents", async () => {
+    const { url, close } = await fakeServer({
+      ...APPS,
+      [`POST ${ENVS}`]: ENVIRONMENT,
+      [`GET ${ENVS}/dev-a1`]: ENVIRONMENT,
+      [`PUT ${ENVS}/dev-a1/planes`]: { ...ENVIRONMENT, planes_set: { a: "x", b: "y" } },
+      [`POST ${ENVS}/dev-a1/reset`]: {
+        name: "dev-a1",
+        planes: [{ plane: "storage", status: "done", run_id: null }]
+      }
+    });
+    try {
+      const created = await callToolAt(at(url), "oxy_env_create", {
+        app: "acme/store",
+        name: "dev-a1",
+        from: "staging",
+        preset: "light",
+        planes: { a: "x" }
+      });
+      expect(created).toMatchObject({ isError: false, document: { name: "dev-a1" } });
+      const updated = await callToolAt(at(url), "oxy_env_update", {
+        app: "acme/store",
+        name: "dev-a1",
+        planes: { b: "y" }
+      });
+      expect(updated).toMatchObject({
+        isError: false,
+        document: { planes_set: { a: "x", b: "y" } }
+      });
+      const reset = await callToolAt(at(url), "oxy_env_reset", {
+        app: "acme/store",
+        name: "dev-a1",
+        planes: ["storage"]
+      });
+      expect(reset.document).toMatchObject({ planes: [{ plane: "storage", status: "done" }] });
+    } finally {
+      await close();
+    }
+  });
+
+  it("carries the server's refusal, with its code, as an error result", async () => {
+    const { url, close } = await fakeServer({
+      ...APPS,
+      [`POST ${ENVS}/staging/reset`]: {
+        $status: 409,
+        $body: { error: "plane_not_resettable", message: "storage cannot be reset yet" }
+      }
+    });
+    try {
+      const frames = await rpc(
+        [
+          INIT,
+          {
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: {
+              name: "oxy_env_reset",
+              arguments: { app: "acme/store", name: "staging", planes: ["storage"] }
+            }
+          }
+        ],
+        20_000,
+        undefined,
+        at(url)
+      );
+      const result = frames.find((f) => f.id === 2)?.result;
+      const body = ((result?.content ?? []) as { text: string }[])[0]?.text ?? "";
+      expect(result?.isError).toBe(true);
+      expect(body).toMatch(/^409 /);
+      expect(body).toMatch(/\[exit 6 REQUEST\]/);
+    } finally {
+      await close();
+    }
+  });
+});
+
 /**
  * THE SECOND PINNED LIST. A sandbox agent token (`oxy_sbx_…`) is served the
  * sandbox loop, `oxy_whoami`, and four tools that exist only for it — and none
@@ -969,7 +1085,7 @@ describe("a sandbox agent token", () => {
     }
   };
 
-  it("is served exactly these sixteen tools — never the schedules switch", async () => {
+  it("is served exactly these nineteen tools — never the schedules switch", async () => {
     const { frames, code } = await served([INIT, LIST], A1);
     expect(code).toBe(0);
     const tools = (frames.find((f) => f.id === 2)?.result?.tools ?? []) as { name: string }[];
@@ -978,10 +1094,13 @@ describe("a sandbox agent token", () => {
       "oxy_env_create",
       "oxy_env_delete",
       "oxy_env_list",
+      "oxy_env_outbox",
+      "oxy_env_reset",
       "oxy_env_secret_delete",
       "oxy_env_secret_list",
       "oxy_env_secret_set",
       "oxy_env_show",
+      "oxy_env_update",
       "oxy_fn_call",
       "oxy_fn_run",
       "oxy_invocations_held",
@@ -999,7 +1118,8 @@ describe("a sandbox agent token", () => {
     const bytes = (frames: Frame[]) =>
       JSON.stringify(frames.find((f) => f.id === 2)?.result?.tools).length;
     expect(bytes(mine.frames)).toBeLessThan(bytes(theirs));
-    expect(bytes(mine.frames)).toBeLessThan(12_000);
+    // 12.9 KB until `oxy_env_reset`'s OLTP `at` joined `oxy_env_outbox`.
+    expect(bytes(mine.frames)).toBeLessThan(13_200);
   });
 
   it("requires the sandbox on every tool that defaults to production for staff", async () => {
@@ -1017,6 +1137,31 @@ describe("a sandbox agent token", () => {
     ]) {
       expect(tools.find((t) => t.name === name)?.inputSchema.required).toContain("appEnv");
     }
+  });
+
+  it("holds update and reset to the token's own sandbox, in the schema and before any request", async () => {
+    const { frames } = await served(
+      [
+        INIT,
+        LIST,
+        call(3, "oxy_env_update", { app: "acme/store", name: "staging", planes: { a: "b" } }),
+        call(4, "oxy_env_reset", { app: "acme/store", name: "production", planes: ["storage"] })
+      ],
+      A1
+    );
+    const tools = (frames.find((f) => f.id === 2)?.result?.tools ?? []) as {
+      name: string;
+      inputSchema: { properties: { name?: { description: string } } };
+    }[];
+    for (const name of ["oxy_env_update", "oxy_env_reset"]) {
+      const tool = tools.find((t) => t.name === name);
+      expect(tool?.inputSchema.properties.name?.description).toMatch(
+        /a sandbox this token created/
+      );
+    }
+    expect(textOf(frames, 3)).toMatch(/cannot update staging/);
+    expect(textOf(frames, 4)).toMatch(/cannot reset production/);
+    expect(textOf(frames, 3)).toMatch(/\[exit 2 USAGE\]/);
   });
 
   it("refuses a dropped tool called by name anyway — the list is the surface", async () => {

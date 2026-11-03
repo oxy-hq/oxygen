@@ -244,6 +244,9 @@ mod m20261029_000001_org_home_layouts;
 mod m20261030_000001_function_invocation_failure_feed_index;
 mod m20261101_000001_home_user_preferences;
 mod m20261101_000002_org_home_layouts_audiences;
+mod m20261102_000001_app_environment_branch_columns;
+mod m20261102_000005_app_environment_semantic_pin;
+mod m20261102_000030_app_environment_airhouse_pin;
 mod m20261103_000001_experiment_flips_retry;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
@@ -511,6 +514,9 @@ impl MigratorTrait for Migrator {
             Box::new(m20261029_000001_org_home_layouts::Migration),
             Box::new(m20261101_000001_home_user_preferences::Migration),
             Box::new(m20261101_000002_org_home_layouts_audiences::Migration),
+            Box::new(m20261102_000001_app_environment_branch_columns::Migration),
+            Box::new(m20261102_000005_app_environment_semantic_pin::Migration),
+            Box::new(m20261102_000030_app_environment_airhouse_pin::Migration),
             Box::new(m20261103_000001_experiment_flips_retry::Migration),
         ]
     }

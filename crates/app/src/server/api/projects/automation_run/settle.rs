@@ -230,6 +230,12 @@ async fn abandoned_close(db: &DatabaseConnection, run_id: Uuid) -> Option<ProcRu
         Some("cancelled") => cancelled(),
         _ => return None,
     };
+    // A preview run's terminal state is `preview_mode::settle_custom_app_runs`'s
+    // to write, from the run's own error: closing it here would label a run
+    // that legitimately failed as orphaned.
+    if super::preview_mode::owns_run(db, run_id).await {
+        return None;
+    }
     match task_is_held(db, run_id).await {
         Ok(false) => {}
         Ok(true) => {

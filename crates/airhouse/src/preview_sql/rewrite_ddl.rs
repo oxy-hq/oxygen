@@ -67,7 +67,9 @@ impl Rewriter<'_> {
     }
 
     /// `TRUNCATE S.t` empties the preview's copy, making an empty one from
-    /// the live table's columns when there is none.
+    /// the live table's columns when there is none. An environment's sibling
+    /// already has the table its migrations made, so there it is truncated in
+    /// place: replacing it would lose the sibling's newer migrated columns.
     pub(super) fn truncate(&mut self, truncate: &Truncate) -> Result<(), Refused> {
         if truncate.cascade.is_some() || truncate.partitions.is_some() {
             return Err(not_allowed("TRUNCATE with CASCADE, RESTRICT or PARTITION"));
@@ -77,6 +79,7 @@ impl Rewriter<'_> {
             let target = self.target(&mut preview, "TRUNCATE")?;
             let state = self.shadow.state(&target.live);
             match state {
+                None if self.ns.is_environment() => self.sent.push(format!("TRUNCATE {preview}")),
                 None => self.sent.push(format!(
                     "CREATE OR REPLACE TABLE {preview} AS SELECT * FROM {} LIMIT 0",
                     target.live_name

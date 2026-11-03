@@ -7,10 +7,14 @@
 
 pub mod branch_roles;
 pub mod branches;
+pub mod env_branch_roles;
+pub mod env_branches;
 pub mod roles;
 pub mod tenants;
 
 pub use branch_roles::Entity as BranchRoles;
 pub use branches::Entity as Branches;
+pub use env_branch_roles::Entity as EnvBranchRoles;
+pub use env_branches::Entity as EnvBranches;
 pub use roles::Entity as Roles;
 pub use tenants::Entity as Tenants;

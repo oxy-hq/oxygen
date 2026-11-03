@@ -64,6 +64,15 @@
 //! would have written, so a function that uploads through a presigned URL
 //! can be exercised outside production. It never becomes `Allow`.
 //!
+//! **A provider's sandbox is the other home a fetch can reach.** An
+//! environment whose `planes.fetch` is `allow` lists provider sandbox hosts
+//! (`custom_apps_planes::PROVIDER_SANDBOXES`), and a call to one of them is
+//! `Isolate(Target::ProviderSandbox)`: sent to the third party's sandbox, which
+//! has no production data to reach. The op-level decision names the home;
+//! [`EnvPolicy::decide_on_fetch`] checks the call itself against the registry
+//! (`provider_fetch`) and narrows the answer to `Hold` when it fails any check.
+//! So it still never becomes `Allow`.
+//!
 //! **Phase 5a** gives three homes (§4.2): `ctx.storage` works in the
 //! environment's own silo ([`Target::StorageSilo`]; its reads fall back to
 //! production's same key, read-only), `ctx.email.send` delivers to the invoking
@@ -84,15 +93,31 @@
 //! where a statement naming another schema is refused as well
 //! (`oltp_sandbox_sql`); while that schema is not ready they are refused.
 
+pub mod airhouse_overlay;
+#[cfg(test)]
+mod airhouse_overlay_tests;
+mod decide;
+#[cfg(test)]
+mod destination_override_tests;
 pub mod destination_sql;
 #[cfg(test)]
 mod differential;
+#[cfg(test)]
+mod env_branch_tests;
+#[cfg(test)]
+mod golden;
 mod held;
 pub mod homes;
 mod oltp_branch_sql;
 mod oltp_home;
 mod oltp_sandbox_sql;
 mod oltp_sql;
+mod plane_homes;
+#[cfg(test)]
+mod plane_homes_tests;
+#[cfg(test)]
+mod plane_tests;
+mod provider_fetch;
 #[cfg(test)]
 mod tests;
 mod upload;
@@ -105,12 +130,24 @@ pub use held::{
 pub use oltp_branch_sql::{
     NotSent, admit_branch_statement, branch_held_statement_message, branch_statement_message,
 };
-pub use oltp_home::{BRANCH_REFUSED_FIX, NO_BRANCH_NOTE, OltpHome, SandboxHome, SandboxUnready};
+pub use oltp_home::{
+    BRANCH_REFUSED_FIX, ENV_BRANCH_REFUSED_FIX, EnvBranchHome, EnvBranchUnready, NO_BRANCH_NOTE,
+    OltpHome, SandboxHome, SandboxUnready, env_branch_held_statement_message,
+    env_branch_statement_message,
+};
 pub use oltp_sandbox_sql::{
     SANDBOX_REFUSED_FIX, SandboxFence, admit_sandbox_statement, sandbox_statement_message,
     schema_named_in,
 };
 pub use oltp_sql::{HeldStatement, admit_oltp_statement};
+pub use plane_homes::{
+    FetchHome, MessagesHome, PlaneHomes, SecretsHome, StorageHome, WorkspaceActionsHome,
+};
+pub use provider_fetch::{
+    FetchCall, NOTE_DUPLICATE_AUTHORIZATION, NOTE_FALLBACK_CREDENTIAL, NOTE_HOST_OVERRIDE,
+    NOTE_NO_TEST_KEY, NOTE_NOT_LISTED, NOTE_NOT_PLAIN_HTTPS, NOTE_NOT_REGISTERED,
+    NOTE_UNREGISTERED_COMPANY, provider_refusal,
+};
 pub use upload::MintedUpload;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -119,11 +156,14 @@ use oxy_app_core::custom_app_environment::AppEnvironment;
 use uuid::Uuid;
 
 use super::host_error::HostError;
+use crate::custom_apps_planes::{PlaneSpec, ResolvedPlanes};
+use decide::{non_production, production_on_branch};
 
 /// The registry — one row per op, read by the policy below and by the broker
 /// (`runtime::host_call`), which enforces each row's capability and, for an
 /// op that holds by not running, its environment decision.
 mod op_kinds;
+mod planes;
 mod registry;
 pub use op_kinds::{Capability, Family, HoldBy, HostOpSpec, Staged, Verb};
 pub use registry::{AIRWAY_FIX, HostOp};
@@ -161,12 +201,32 @@ pub enum Target {
     InvokerNotify,
     /// The environment's secret path, `apps/<id>/<env>/<KEY>`.
     EnvSecrets,
+    /// The environment's outbox, `_outbox/` in its storage silo: a captured
+    /// email or notification is written there and sent to nobody
+    /// ([`EnvPolicy::outbox_silo`]). The messages plane's `capture` home.
+    Outbox,
     /// The org's OLTP staging branch (P4a): a copy of production's database,
     /// reached with the branch's own writer credential
     /// (`oxy_oltp::resolver::resolve_branch_writer_connection_for_org`), whose
     /// resolver refuses a row that names production. Staging runs in the
     /// app's schema there; a sandbox in its own ([`OltpHome::SandboxSchema`]).
     OltpBranch,
+    /// `ctx.airhouse.query` under the `branch` mode: a table the
+    /// environment's overlay holds is read from its sibling
+    /// `app_<writer>__<env>`, every other table live from production
+    /// (`airhouse_overlay`). The overlay's copies are made by the
+    /// environment's own writes, on its sibling's credential.
+    AirhouseOverlay,
+    /// `ctx.airhouse.query` under the `snapshot` mode: as
+    /// [`Target::AirhouseOverlay`], with every table the overlay does not hold
+    /// read at the environment's pinned DuckLake point in time, on an app
+    /// Reader credential, which cannot write anywhere.
+    AirhouseSnapshot,
+    /// A registered provider sandbox the environment lists (`fetch: allow`):
+    /// the call is sent to the third party's sandbox, never production
+    /// (`provider_fetch`). Only [`EnvPolicy::decide_on_fetch`] keeps it, once
+    /// the call passes every check.
+    ProviderSandbox,
 }
 
 /// What the host does with one op in one environment.
@@ -194,9 +254,10 @@ pub struct EnvPolicy {
     /// scope where the run's host was built — a production-admitted run
     /// started inside a workspace preview (previews S9, I9).
     semantic_pin: Option<Uuid>,
-    /// The running build's `nonProduction.destinations`: production database
-    /// → the database a non-production write to it lands in. Empty in
-    /// production, which writes where it is told.
+    /// The running build's `nonProduction.destinations` under the
+    /// environment's warehouse overrides (`planes.warehouse.destinations`):
+    /// production database → the database a non-production write to it lands
+    /// in. Empty in production, which writes where it is told.
     destinations: BTreeMap<String, String>,
     /// Keys the running build's manifest marks `"shared": true`: the only
     /// ones whose `ctx.env` value may fall back to production's outside
@@ -212,6 +273,16 @@ pub struct EnvPolicy {
     /// (`environment_gate::with_oltp_home`): production's own database until
     /// a staging admission finds the org's branch.
     oltp: OltpHome,
+    /// The modes the environment's planes run in, decided once at admission
+    /// (`environment_gate::with_planes`): its row's choices over the defaults
+    /// for its kind. `None` in production, which has no planes. A policy built
+    /// by [`Self::for_environment`] carries the defaults, so a test policy has
+    /// today's modes.
+    planes: Option<ResolvedPlanes>,
+    /// The homes those planes put the environment in (`plane_homes`): where
+    /// storage, secrets, messages and workspace actions land. Always set with
+    /// `planes`, so `None` in production.
+    homes: Option<PlaneHomes>,
 }
 
 /// `Refuse` fix for `ctx.airway.run` in a production-admitted run that reads a
@@ -234,6 +305,10 @@ impl EnvPolicy {
     /// decides whether a run may happen there at all; public so a test can
     /// state what an environment's policy is.
     pub fn for_environment(environment: AppEnvironment) -> Self {
+        let planes = PlaneSpec::default().resolve(&environment);
+        let homes = planes
+            .as_ref()
+            .and_then(|planes| PlaneHomes::resolve(planes, &environment));
         Self {
             environment,
             semantic_pin: None,
@@ -241,6 +316,8 @@ impl EnvPolicy {
             shared_env: BTreeSet::new(),
             read_through_fallback: BTreeSet::new(),
             oltp: OltpHome::Production,
+            planes,
+            homes,
         }
     }
 
@@ -294,7 +371,12 @@ impl EnvPolicy {
         match &self.environment {
             AppEnvironment::Production if self.semantic_pin.is_some() => production_on_branch(op),
             AppEnvironment::Production => Decision::Allow,
-            AppEnvironment::Staging | AppEnvironment::Dev { .. } => non_production(op, &self.oltp),
+            AppEnvironment::Staging | AppEnvironment::Dev { .. } => non_production(
+                op,
+                &self.oltp,
+                self.homes.as_ref(),
+                self.planes.as_ref().map(|planes| planes.airhouse),
+            ),
         }
     }
 
@@ -308,45 +390,6 @@ impl EnvPolicy {
             AppEnvironment::Production => production_on_branch(op),
             _ => self.decide(op),
         }
-    }
-}
-
-/// A production-admitted run reading a branch (previews S9, I9) is a preview:
-/// it decides as staging does — its writes held, not live — and
-/// `ctx.airway.run` is refused with the reason that applies to it. No caller
-/// runs a function on a branch today; one that does later is held, not live.
-///
-/// It has no environment of its own, so none of staging's isolated homes: a
-/// silo, a secret path or a sibling resolved for a production policy would be
-/// production's. So an op staging isolates is held here, except the storage
-/// reads, which read production's silo as they did before it had a sibling.
-/// Its `ctx.oltp` is production's, with no OLTP branch: held as above.
-fn production_on_branch(op: HostOp) -> Decision {
-    use HostOp::*;
-    match op {
-        AirwayRun => Decision::Refuse {
-            fix: BRANCH_AIRWAY_FIX,
-        },
-        StorageGetDownloadUrl | StorageGet | StorageHead | StorageList => Decision::Allow,
-        _ => match non_production(op, &OltpHome::Production) {
-            Decision::Isolate(_) => Decision::Hold,
-            decided => decided,
-        },
-    }
-}
-
-/// Staging and every sandbox — one table for every non-production
-/// environment, read from the registry (`registry::HostOp::spec`):
-/// production data read, a write with an isolated home performed there (the
-/// app's OLTP store on the org's staging branch when it has one), every
-/// other write held, Airway refused. The table names *which kind* of home;
-/// *whose* is the environment's (`homes`: its own silo, secret path and
-/// Airhouse sibling). A new [`HostOp`] fails to compile until its row states
-/// what it does here.
-fn non_production(op: HostOp, oltp: &OltpHome) -> Decision {
-    match op.spec().staging {
-        Staged::Decided(decided) => decided,
-        Staged::ByOltpHome => oltp.decision(),
     }
 }
 

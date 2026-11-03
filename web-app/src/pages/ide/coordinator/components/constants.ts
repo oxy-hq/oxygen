@@ -214,6 +214,7 @@ const SYSTEM_SOURCE_TYPES: readonly string[] = [
   "custom_app_staging_migrations",
   "custom_app_sandbox_migrations",
   "custom_app_sandbox_oltp",
+  "custom_app_env_oltp_branch",
   "custom_app_sandbox_teardown",
   "custom_app_usage_backfill"
 ];

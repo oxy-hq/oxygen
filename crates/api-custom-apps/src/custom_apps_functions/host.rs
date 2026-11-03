@@ -30,18 +30,23 @@ use agentic_connector::SqlTransaction;
 use agentic_connector::{SqlDialect, StringLiteral};
 
 mod airhouse_ops;
+mod airhouse_overlay;
+mod airhouse_overlay_copy;
 mod config_source;
 mod connector_cache;
 mod destinations;
 mod email_idempotency;
 mod env_guard;
 mod env_homes;
+mod fallback_secrets;
 mod held_log;
 mod notify_op;
 mod oltp_guard;
 mod oltp_home;
 mod oltp_ops;
+mod outbox;
 pub mod platform_facts;
+mod provider_fetch;
 mod semantic_op;
 mod tx_ops;
 mod uploads;
@@ -181,6 +186,13 @@ pub struct ProjectFunctionHost {
     /// into its environment's silo — what a `ctx.fetch` PUT outside
     /// production is matched against (`uploads`). Empty in production.
     minted_uploads: uploads::MintedUploads,
+    /// The values of the `ctx.env` keys this invocation read through a
+    /// fallback — what a provider-sandbox `ctx.fetch` is checked not to carry
+    /// (`provider_fetch`). Empty in production. Never printed.
+    fallback_secrets: provider_fetch::FallbackSecrets,
+    /// The workspace's registered QuickBooks sandbox companies, read at most
+    /// once per invocation, and only for a QuickBooks sandbox call.
+    sandbox_companies: tokio::sync::OnceCell<std::collections::BTreeSet<String>>,
 }
 
 /// The audit state of one open transaction.
@@ -439,6 +451,8 @@ impl ProjectFunctionHost {
             on_branch: std::sync::atomic::AtomicBool::new(false),
             environment_meter: Default::default(),
             minted_uploads: Default::default(),
+            fallback_secrets: Default::default(),
+            sandbox_companies: Default::default(),
             policy,
             identity,
             tx_writes: tokio::sync::Mutex::new(std::collections::HashMap::new()),
@@ -464,6 +478,17 @@ impl ProjectFunctionHost {
             host_call_failure: std::sync::Mutex::new(None),
             http: fetch_client(),
         }
+    }
+
+    /// This host with the values of the `ctx.env` keys the run read through a
+    /// fallback (staging's, or production's shared keys): a provider-sandbox
+    /// `ctx.fetch` carrying one is held. Ignored in production, which sends
+    /// every fetch and never checks.
+    pub fn with_fallback_secrets(mut self, values: Vec<String>) -> Self {
+        if !self.policy.is_production() {
+            self.fallback_secrets = provider_fetch::FallbackSecrets::new(values);
+        }
+        self
     }
 
     /// Resolve the database `ctx.query` runs against: the project's
@@ -603,6 +628,7 @@ impl ProjectFunctionHost {
                 statements: 1,
                 op: None,
                 note: None,
+                sent: None,
             };
             data_audit::coalesce(&mut audit.writes, write);
         }
@@ -885,10 +911,11 @@ impl FunctionHost for ProjectFunctionHost {
         // Outside production anything but a bodiless read method answers 409
         // unsent — except this invocation's own upload into its environment's
         // silo (`env_guard`); a read is sent as ever.
-        let has_body = !matches!(init.get("body"), None | Some(serde_json::Value::Null));
-        if let Some(held) = self.held_fetch(&method, &parsed, has_body).await {
-            return Ok(held);
-        }
+        let sandbox = match self.gate_fetch(&method, &parsed, &init).await {
+            provider_fetch::FetchGate::Held(held) => return Ok(held),
+            provider_fetch::FetchGate::Send => None,
+            provider_fetch::FetchGate::SendToSandbox => Some(parsed.clone()),
+        };
         let mut req = self
             .http
             .request(
@@ -918,7 +945,14 @@ impl FunctionHost for ProjectFunctionHost {
             req = req.body(body);
         }
 
-        let mut resp = req.send().await.map_err(|e| format!("fetch failed: {e}"))?;
+        let sent = req.send().await;
+        // A call sent to a provider sandbox is recorded whether or not it got
+        // an answer, before any error is raised (`provider_fetch`).
+        if let Some(url) = &sandbox {
+            let status = sent.as_ref().ok().map(|r| r.status().as_u16());
+            self.note_sent(&method, url, status).await;
+        }
+        let mut resp = sent.map_err(|e| format!("fetch failed: {e}"))?;
         let status = resp.status().as_u16();
 
         // A function may raise this via `fetch.maxResponseBytes`, clamped to the
@@ -1175,6 +1209,7 @@ impl FunctionHost for ProjectFunctionHost {
                 statements: 1,
                 op: None,
                 note: None,
+                sent: None,
             })
             .await;
         }

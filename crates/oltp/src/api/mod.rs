@@ -30,10 +30,13 @@ pub(crate) fn resolve_status(e: crate::resolver::ResolveError) -> (StatusCode, S
         | R::NoAnalystCredential(_)
         | R::WriterNotProvisioned { .. }
         | R::BranchCredentialMissing { .. }
-        | R::BranchOwnerCredentialMissing(..) => StatusCode::NOT_FOUND,
-        R::NotActive(..) | R::BranchNotActive(..) | R::BranchIsProduction(..) => {
-            StatusCode::CONFLICT
-        }
+        | R::BranchOwnerCredentialMissing(..)
+        | R::EnvBranchCredentialMissing { .. } => StatusCode::NOT_FOUND,
+        R::NotActive(..)
+        | R::BranchNotActive(..)
+        | R::BranchIsProduction(..)
+        | R::EnvBranchNotReady { .. }
+        | R::EnvBranchIsProduction { .. } => StatusCode::CONFLICT,
         R::Db(_) | R::Crypto(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (code, e.to_string())

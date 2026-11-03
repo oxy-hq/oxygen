@@ -75,6 +75,12 @@ impl ProjectFunctionHost {
                 &self.held_error(HostOp::Notify),
             ));
         }
+        // Captured, not sent: nobody is resolved and no store is written, so an
+        // org with none can still try its notifications.
+        let home = self.isolated_home(HostOp::Notify);
+        if home == Some(Target::Outbox) {
+            return self.capture_notify(&parsed).await;
+        }
         // Before anyone is resolved: an org with no store to keep the content
         // in cannot notify anyone, and saying so costs one control-plane read.
         oxy_oltp::inbox::ensure_writable(&self.db, self.org_id)
@@ -83,8 +89,19 @@ impl ProjectFunctionHost {
                 true => format!("NotifyStoreMissing: {e}"),
                 false => format!("NotifyFailed: {e}"),
             })?;
+        self.notify_in_home(home, parsed, critical).await
+    }
+
+    /// Send where the policy's home for `ctx.notify` says: as asked in
+    /// production, to the invoking user elsewhere.
+    async fn notify_in_home(
+        &self,
+        home: Option<Target>,
+        parsed: NotifyInput,
+        critical: bool,
+    ) -> Result<Value, String> {
         let target = ("notify", "", "SEND", "");
-        match self.isolated_home(HostOp::Notify) {
+        match home {
             None => self.notify_as_asked(parsed, critical).await,
             Some(Target::InvokerNotify) if !self.policy.is_production() => {
                 let Some(invoker) = self.identity.user_id else {

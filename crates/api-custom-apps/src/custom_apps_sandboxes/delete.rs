@@ -85,6 +85,10 @@ pub enum Expect {
         created_at: DateTime<Utc>,
         token: Uuid,
     },
+    /// The sweep's fork expiry: still active, and its fork point — its row's
+    /// `fork_at`, else when it was created — still before the cutoff. A reset
+    /// moves the fork point, so one that ran since saves the sandbox.
+    ForkedBefore(DateTime<Utc>),
 }
 
 /// [`begin_delete`], saying what it did.
@@ -216,7 +220,7 @@ async fn lock_sandbox<C: ConnectionTrait>(
 /// when the request was admitted; by now that sandbox may have finished its
 /// teardown and a colleague created another under the same name. Such a row
 /// is answered as if it did not exist. A person and the sweep are not bound.
-fn refuse_unless_own(
+pub(super) fn refuse_unless_own(
     row: &app_environments::Model,
     actor: Option<&audit::RequestActor>,
 ) -> Result<(), SandboxError> {
@@ -254,7 +258,13 @@ async fn still_expected<C: ConnectionTrait>(
                 .deleting_at
                 .is_some_and(|marked| marked.with_timezone(&Utc) < marked_before)),
         Expect::CreatedBy { created_at, token } => Ok(is_live_row_of(row, created_at, token)),
+        Expect::ForkedBefore(cutoff) => Ok(row.deleting_at.is_none() && forked_at(row) < cutoff),
     }
+}
+
+/// Where `row` forked: its `fork_at`, else when it was created.
+pub(super) fn forked_at(row: &app_environments::Model) -> DateTime<Utc> {
+    row.fork_at.unwrap_or(row.created_at).with_timezone(&Utc)
 }
 
 /// Whether `row` is still active, still the row created at `created_at`, and
@@ -336,6 +346,11 @@ mod tests {
             oltp_schema: None,
             created_by_token_id,
             schedules_enabled: false,
+            parent_name: None,
+            fork_at: None,
+            planes: serde_json::json!({}),
+            semantic_revision_id: None,
+            semantic_git_sha: None,
         }
     }
 

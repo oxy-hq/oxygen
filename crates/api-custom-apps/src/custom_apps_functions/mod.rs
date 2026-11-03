@@ -88,6 +88,9 @@ pub mod limits;
 /// This run's lines to a live tail of its environment (`custom_apps_tail`).
 #[cfg(feature = "custom-app-functions")]
 mod live_tail;
+/// The semantic-pin half of that gate: which model a non-production run reads
+/// and the `503` when it is not ready.
+pub(crate) mod pin_gate;
 /// The stages every invocation walks — admit, prepare, record — shared by
 /// the route and the queue, which only differ in how they enter and answer.
 mod pipeline;
@@ -2483,38 +2486,44 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
         }
     };
 
-    let host = host::into_arc(host::ProjectFunctionHost::new(
-        // The project context behind its trait (`resolve_project_context`).
-        proj_ctx,
-        args.query_exec.clone(),
-        args.db.clone(),
-        args.write_destinations.clone(),
-        args.app.project_id,
-        args.app.id,
-        args.org_id,
-        args.user_id,
-        args.app.name.clone(),
-        args.caps.clone(),
-        args.preagg.clone(),
-        // The same reach `ctx.user` carries, so `ctx.semantic.query({ scope:
-        // "reach" })` pins to what the function itself was told.
-        reach.clone(),
-        data_audit::InvocationIdentity {
-            invocation_id: args.invocation_id,
-            function_name: args.function_name.to_string(),
-            mode: args.mode.to_string(),
-            request_id: args.request_id,
-            app_slug: args.app.slug.clone(),
-            user_id: human.then_some(args.user_id),
-            user_email: if human { args.user_email.clone() } else { None },
-            credential_token_id: args.credential_token_id,
-        },
-        // The keys `ctx.env` took from production through the shared
-        // fallback travel with the policy: `ctx.secrets.set` refuses them.
-        args.policy
-            .clone()
-            .with_read_through_fallback(env.read_through_fallback),
-    ));
+    // The values of the keys `ctx.env` read through a fallback: a provider
+    // sandbox `ctx.fetch` carrying one is held (`host::provider_fetch`).
+    let fallback_values = env.fallback_values();
+    let host = host::into_arc(
+        host::ProjectFunctionHost::new(
+            // The project context behind its trait (`resolve_project_context`).
+            proj_ctx,
+            args.query_exec.clone(),
+            args.db.clone(),
+            args.write_destinations.clone(),
+            args.app.project_id,
+            args.app.id,
+            args.org_id,
+            args.user_id,
+            args.app.name.clone(),
+            args.caps.clone(),
+            args.preagg.clone(),
+            // The same reach `ctx.user` carries, so `ctx.semantic.query({ scope:
+            // "reach" })` pins to what the function itself was told.
+            reach.clone(),
+            data_audit::InvocationIdentity {
+                invocation_id: args.invocation_id,
+                function_name: args.function_name.to_string(),
+                mode: args.mode.to_string(),
+                request_id: args.request_id,
+                app_slug: args.app.slug.clone(),
+                user_id: human.then_some(args.user_id),
+                user_email: if human { args.user_email.clone() } else { None },
+                credential_token_id: args.credential_token_id,
+            },
+            // The keys `ctx.env` took from production through the shared
+            // fallback travel with the policy: `ctx.secrets.set` refuses them.
+            args.policy
+                .clone()
+                .with_read_through_fallback(env.read_through_fallback),
+        )
+        .with_fallback_secrets(fallback_values),
+    );
 
     let ctx = runtime::InvocationCtx {
         // `ctx.channel`: the environment this run was admitted to.

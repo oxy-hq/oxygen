@@ -3,6 +3,7 @@
 //! password, adoption by name) is pinned here rather than taken on trust.
 
 use super::*;
+use crate::provider::BranchInit;
 
 async fn project(p: &MockProvider) -> Project {
     p.create_project(CreateProjectRequest {
@@ -15,13 +16,13 @@ async fn project(p: &MockProvider) -> Project {
 }
 
 fn staging(project: &Project) -> BranchRequest {
-    BranchRequest {
-        project_id: project.id.clone(),
-        parent_branch_id: project.branch.id.clone(),
-        name: "oxy-staging".into(),
-        database_name: project.database.name.clone(),
-        owner_role: project.owner_role.name.clone(),
-    }
+    BranchRequest::staging(
+        project.id.as_str(),
+        project.branch.id.as_str(),
+        "oxy-staging",
+        project.database.name.as_str(),
+        project.owner_role.name.as_str(),
+    )
 }
 
 #[tokio::test]
@@ -126,4 +127,52 @@ async fn deleting_the_project_takes_its_branches() {
     p.create_branch(&staging(&proj)).await.unwrap();
     p.delete_project(&proj.id).await.unwrap();
     assert_eq!(p.branch_count(), 0);
+}
+
+#[tokio::test]
+async fn the_mock_records_each_create_request() {
+    let p = MockProvider::new();
+    let proj = project(&p).await;
+    let plain = staging(&proj);
+    let mut sandbox = staging(&proj);
+    sandbox.name = "oxy-sandbox".into();
+    sandbox.parent_timestamp = Some("2026-11-01T09:00:00Z".parse().unwrap());
+    sandbox.expires_at = Some("2026-12-01T09:00:00Z".parse().unwrap());
+    sandbox.init = BranchInit::SchemaOnly;
+
+    p.create_branch(&plain).await.unwrap();
+    p.create_branch(&sandbox).await.unwrap();
+
+    assert_eq!(
+        p.branch_create_requests(),
+        vec![plain, sandbox],
+        "every request, in order, with the fork point, expiry and init intact"
+    );
+}
+
+/// As on Neon: a same-named branch is adopted only in the shape asked for, so a
+/// data branch is never handed back for a schema-only request, nor the reverse.
+#[tokio::test]
+async fn adoption_refuses_a_branch_of_the_other_shape() {
+    for (first, then) in [
+        (BranchInit::ParentData, BranchInit::SchemaOnly),
+        (BranchInit::SchemaOnly, BranchInit::ParentData),
+    ] {
+        let p = MockProvider::new();
+        let proj = project(&p).await;
+        let mut req = staging(&proj);
+        req.init = first;
+        let made = p.create_branch(&req).await.unwrap();
+        assert_eq!(p.branch_init(&made.id), Some(first));
+
+        req.init = then;
+        let err = p.create_branch(&req).await.unwrap_err();
+        assert!(
+            matches!(err, ProviderError::BranchParentMismatch { .. }),
+            "{first:?} then {then:?}: {err}"
+        );
+        assert_eq!(p.branch_count(), 1, "nothing new under the name");
+        p.delete_branch(&req, &made.id).await.unwrap();
+        assert_eq!(p.branch_init(&made.id), None);
+    }
 }

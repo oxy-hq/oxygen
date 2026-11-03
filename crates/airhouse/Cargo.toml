@@ -65,6 +65,9 @@ sql-rules = ["dep:sqlparser", "dep:thiserror"]
 # The rewrite and verifier that keep a workspace preview's Airhouse writes in
 # its own schemas (`preview_sql`). Pure: no connector, no platform deps.
 preview-sql = ["sql-rules", "dep:uuid", "dep:sha2", "dep:hex"]
+# The shadow-map store of `preview_sql` (`workspace_preview_tables`): which
+# tables a preview, or a custom-app environment's overlay, holds a copy of.
+preview-registry = ["preview-sql", "dep:sea-orm"]
 
 [dependencies]
 # Connector feature deps

@@ -1,12 +1,24 @@
-//! A preview's shadow map (`workspace_preview_tables`): which live tables it
-//! holds a copy of in its own schemas, and in what state. It doubles as the
-//! record of every relation the preview made, which is what the TTL drop is
-//! allowed to drop (`previews::drop`) — so it is written **before** a step's
-//! SQL is sent ([`record_step`]), never after.
+//! A namespace's shadow map (`workspace_preview_tables`): which live tables it
+//! holds a copy of in its own schemas, and in what state. For a preview it
+//! doubles as the record of every relation the preview made, which is what the
+//! TTL drop is allowed to drop (`previews::drop`) — so it is written **before**
+//! a step's SQL is sent ([`record_step`]), never after.
+//!
+//! It also holds a custom-app **environment** overlay's map, under the key
+//! `env:<app_id>:<env>` ([`super::PreviewNamespace::for_environment`]). The two never
+//! collide: a preview key is `[a-z0-9_]` only, and the preview drop reads only
+//! keys it claimed in `workspace_preview_schemas`, which an environment never
+//! has a row in. [`clear_shadow`] forgets an environment's map (a reset, or the
+//! environment's teardown).
+//!
+//! This lives in the `airhouse` crate, not beside the previews that first used
+//! it, so the custom-app surface can reach it without depending on `oxy-app`;
+//! `oxy-app`'s `server::previews::registry` re-exports it.
 
-use airhouse::preview_sql::{CopyPlan, Rewrite, ShadowMap, ShadowState};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 use uuid::Uuid;
+
+use super::{CopyPlan, Rewrite, ShadowMap, ShadowState};
 
 /// Record what a step is about to do to the preview, before any of its SQL is
 /// sent (host flow step 5, `registry` module doc): the map after the step
@@ -92,6 +104,25 @@ pub async fn load_shadow<C: ConnectionTrait>(
         map.0.insert(live, state);
     }
     Ok(map)
+}
+
+/// Forget everything the namespace `key` holds in `workspace_id`: delete every
+/// row of its shadow map. Returns how many there were. For an environment's
+/// reset or teardown, after the sibling's tables are emptied or dropped; a
+/// preview's rows are the TTL drop's to remove, never this.
+pub async fn clear_shadow<C: ConnectionTrait>(
+    db: &C,
+    workspace_id: Uuid,
+    key: &str,
+) -> Result<u64, DbErr> {
+    let result = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM workspace_preview_tables WHERE workspace_id = $1 AND preview_key = $2",
+            [workspace_id.into(), key.into()],
+        ))
+        .await?;
+    Ok(result.rows_affected())
 }
 
 /// What a step changed in the shadow map: every entry of `after` that is new
@@ -210,7 +241,7 @@ mod tests {
     /// `last_run_id`).
     #[test]
     fn a_table_written_again_is_recorded_again() {
-        use airhouse::preview_sql::{PreviewNamespace, RewriteOptions, rewrite};
+        use super::super::{PreviewNamespace, RewriteOptions, rewrite};
         let ns = PreviewNamespace::from_key("feat_x_abc123").unwrap();
         let t = |s: &str, n: &str| (s.to_string(), n.to_string());
         let mut before = ShadowMap::default();

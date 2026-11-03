@@ -21,4 +21,5 @@ mod query_params;
 pub mod result_cache;
 pub mod semantic_boundary;
 pub mod semantic_query;
+pub mod workspace_actions;
 pub mod world_model;

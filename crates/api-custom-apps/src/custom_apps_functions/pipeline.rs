@@ -36,7 +36,7 @@ use super::super::custom_apps_env_resolve::{
 use super::super::custom_apps_telemetry::{self, FunctionEvent, InvocationMeters};
 use super::check_run::QueuedError;
 use super::env_policy::EnvPolicy;
-use super::environment_gate::{self, Admission, EnvironmentRefused};
+use super::environment_gate::{self, Admission, EnvironmentRefused, GateError};
 use super::queued_admission::{self, QueuedRefused, QueuedTrigger};
 use super::{
     FunctionManifestEntry, LogLine, RunOutcome, artifact_cache, check_run, failure_page,
@@ -168,11 +168,12 @@ impl PrepareError {
                 "the build this app points at no longer exists; re-publish the app",
             ),
             Self::Policy(e) => {
-                error!("OLTP staging branch lookup failed: {e}");
+                error!("environment policy lookup failed: {e}");
                 json_error(
                     S::INTERNAL_SERVER_ERROR,
                     "EnvironmentLookupFailed",
-                    "could not read the org's OLTP staging branch; retry shortly",
+                    "could not read the environment's policy (its planes or the org's OLTP \
+                     staging branch); retry shortly",
                 )
             }
             Self::BuildStore(e) => {
@@ -294,7 +295,10 @@ pub(super) async fn prepare(
     // and where its warehouse writes are mapped. Production asks nothing.
     let policy = run_policy::build(db, admission, app, &build)
         .await
-        .map_err(|e| PrepareError::Policy(e.to_string()))?;
+        .map_err(|e| match e {
+            GateError::Refused(refused) => PrepareError::Refused(refused),
+            GateError::Db(e) => PrepareError::Policy(e.to_string()),
+        })?;
     let artifact_rel = format!("functions/{function_name}.js");
     let artifact = artifact_cache::get(app.id, &build.build_id, &artifact_rel)
         .await

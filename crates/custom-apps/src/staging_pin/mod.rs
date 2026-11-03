@@ -2,10 +2,13 @@
 //! staging requests read (`internal-docs/customer-apps-staging.md` D4,
 //! mechanics in `internal-docs/compile-boundary.md` § "Staging revisions").
 //!
-//! Three modules here, and two parts that live in other crates:
+//! Four modules here, and two parts that live in other crates:
 //!
 //! * here — read a build's pin ([`pinned_revision_for`]) and validate one at
 //!   publish ([`validate_pin_for_publish`], [`check_pinnable`]);
+//! * [`environment`] — an environment's own pin
+//!   ([`environment::environment_pin`]) and how it combines with a build's
+//!   ([`effective_pin`]); a branch with no ready compile is refused;
 //! * [`resolve`] — name the app a request is for and resolve the pin a
 //!   non-production request for it reads ([`resolve::pin_for_environment`]);
 //! * [`drift`] — the promote notice: which semantic views/topics differ between
@@ -21,6 +24,7 @@
 //! stays a pointer move.
 
 pub mod drift;
+pub mod environment;
 pub mod request;
 pub mod resolve;
 
@@ -28,6 +32,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait,
 use uuid::Uuid;
 
 pub use drift::{SemanticPinNotice, pin_drift};
+pub use environment::{EnvironmentPin, NotReadyCause, PinNotReady, effective_pin, environment_pin};
 
 /// The semantic revision `build_id` (an `app_builds.id`) pins, if any.
 ///

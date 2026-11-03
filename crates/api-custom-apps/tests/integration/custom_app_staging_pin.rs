@@ -251,7 +251,8 @@ async fn a_staging_request_reads_the_pinned_revision_and_live_reads_the_promoted
         &oxy_server_authz::Caller::without_credential(Uuid::new_v4(), STAFF),
         w.workspace,
     )
-    .await;
+    .await
+    .expect("a ready or unpinned environment is never refused");
     assert_eq!(
         pin,
         Some(w.staging),
@@ -309,7 +310,8 @@ async fn the_preview_cookie_no_reach_or_another_workspace_means_no_pin() {
             &oxy_server_authz::Caller::without_credential(Uuid::new_v4(), STAFF),
             w.workspace,
         )
-        .await;
+        .await
+        .expect("a ready or unpinned environment is never refused");
         assert_eq!(
             pin, None,
             "off the staging host, with or without oxy_preview_draft, reads the live revision"
@@ -322,7 +324,8 @@ async fn the_preview_cookie_no_reach_or_another_workspace_means_no_pin() {
         &oxy_server_authz::Caller::without_credential(Uuid::new_v4(), "customer@example.com"),
         w.workspace,
     )
-    .await;
+    .await
+    .expect("a ready or unpinned environment is never refused");
     assert_eq!(
         member, None,
         "staging without DevelopApps reach pins nothing"
@@ -335,7 +338,8 @@ async fn the_preview_cookie_no_reach_or_another_workspace_means_no_pin() {
         &oxy_server_authz::Caller::without_credential(Uuid::new_v4(), STAFF),
         other_ws,
     )
-    .await;
+    .await
+    .expect("a ready or unpinned environment is never refused");
     assert_eq!(
         elsewhere, None,
         "the named app must be published from the request's workspace"
@@ -360,7 +364,8 @@ async fn a_staging_host_request_reads_the_staging_builds_pin() {
         &oxy_server_authz::Caller::without_credential(Uuid::new_v4(), STAFF),
         w.workspace,
     )
-    .await;
+    .await
+    .expect("a ready or unpinned environment is never refused");
     assert_eq!(staff, Some(w.staging), "the staging build's pin, no cookie");
 
     let customer = staging_pin_for_data_request(
@@ -369,7 +374,8 @@ async fn a_staging_host_request_reads_the_staging_builds_pin() {
         &oxy_server_authz::Caller::without_credential(Uuid::new_v4(), "customer@example.com"),
         w.workspace,
     )
-    .await;
+    .await
+    .expect("a ready or unpinned environment is never refused");
     assert_eq!(customer, None, "staging is Oxy staff's");
 
     let production = staging_pin_for_data_request(
@@ -378,7 +384,8 @@ async fn a_staging_host_request_reads_the_staging_builds_pin() {
         &oxy_server_authz::Caller::without_credential(Uuid::new_v4(), STAFF),
         w.workspace,
     )
-    .await;
+    .await
+    .expect("a ready or unpinned environment is never refused");
     assert_eq!(production, None, "production reads the promoted revision");
 }
 
@@ -588,4 +595,180 @@ async fn ctx_airway_run_is_refused_under_a_staging_pin() {
         .await
         .expect("query audit_events");
     assert!(held.is_empty(), "no held row for a branch read: {held:?}");
+}
+
+/// An environment's own pin (`app_environments.semantic_revision_id`) is read
+/// when the build it serves pins nothing: served while ready — even with a
+/// newer commit recorded — and refused when only a commit with no ready
+/// revision is recorded. A build's own pin always wins.
+#[tokio::test]
+async fn an_environments_own_pin_applies_when_its_build_pins_nothing() {
+    use oxy_api_custom_apps::custom_apps_staging_pin::PinNotReady;
+    let db = test_db().await;
+    let w = seed_world(&db).await;
+    let host = staging_host_of(&db, w.app).await;
+    let request = |db: DatabaseConnection| {
+        let headers = on_host(w.app, &host, false);
+        async move {
+            staging_pin_for_data_request(
+                &db,
+                &headers,
+                &oxy_server_authz::Caller::without_credential(Uuid::new_v4(), STAFF),
+                w.workspace,
+            )
+            .await
+        }
+    };
+    let set_env_pin = |revision: Option<Uuid>, sha: Option<&'static str>| {
+        let db = db.clone();
+        async move {
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "UPDATE app_environments SET semantic_revision_id = $2, semantic_git_sha = $3, \
+                        planes = '{\"semantic\": \"branch:feat-x\"}'::jsonb \
+                 WHERE app_id = $1 AND name = 'staging'",
+                [w.app.into(), revision.into(), sha.map(String::from).into()],
+            ))
+            .await
+            .expect("set the environment pin");
+        }
+    };
+
+    // Staging serves the live build, which pins nothing.
+    crate::app_environments::point(&db, w.app, Some(w.live_build), Some(w.live_build)).await;
+    assert_eq!(request(db.clone()).await, Ok(None), "no pin anywhere");
+
+    set_env_pin(Some(w.staging), Some("sha-feat")).await;
+    assert_eq!(request(db.clone()).await, Ok(Some(w.staging)), "ready");
+
+    set_env_pin(Some(w.staging), Some("sha-newer-still-compiling")).await;
+    assert_eq!(
+        request(db.clone()).await,
+        Ok(Some(w.staging)),
+        "the last ready revision is served while a newer commit compiles"
+    );
+
+    set_env_pin(Some(Uuid::new_v4()), Some("sha-newer")).await;
+    assert_eq!(
+        request(db.clone()).await,
+        Err(PinNotReady::branch(
+            "staging",
+            "feat-x".into(),
+            Some("sha-newer".into())
+        )),
+        "a commit with no ready revision is refused, not read from the promoted model"
+    );
+
+    set_env_pin(None, Some("sha-first-compile")).await;
+    assert_eq!(
+        request(db.clone()).await,
+        Err(PinNotReady::branch(
+            "staging",
+            "feat-x".into(),
+            Some("sha-first-compile".into())
+        ))
+    );
+
+    // The draft build pins `w.staging` itself: that wins over a refusal.
+    crate::app_environments::point(&db, w.app, Some(w.draft_build), Some(w.live_build)).await;
+    assert_eq!(request(db.clone()).await, Ok(Some(w.staging)));
+}
+
+/// The reader follows the environment's semantic **mode**, in both directions
+/// (`app_environments.planes`): a `branch` mode with no pin is refused (`503`,
+/// naming the branch) and never served another model, and a mode that is not
+/// `branch` ignores whatever pin columns the row still holds. Production is not
+/// read at all.
+#[tokio::test]
+async fn the_reader_follows_the_planes_mode_in_both_directions() {
+    let db = test_db().await;
+    let w = seed_world(&db).await;
+    let (org_slug, app_slug) = short_slugs(&db, w.app).await;
+    let host = staging_host_of(&db, w.app).await;
+    let production_host = format!("{org_slug}--{app_slug}.customer-apps.oxygen-hq.com");
+    let request = |host: String| {
+        let db = db.clone();
+        let headers = on_host(w.app, &host, false);
+        async move {
+            staging_pin_for_data_request(
+                &db,
+                &headers,
+                &oxy_server_authz::Caller::without_credential(Uuid::new_v4(), STAFF),
+                w.workspace,
+            )
+            .await
+        }
+    };
+    let set_row = |planes: serde_json::Value, revision: Option<Uuid>, sha: Option<&'static str>| {
+        let db = db.clone();
+        async move {
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "UPDATE app_environments \
+                 SET planes = $2, semantic_revision_id = $3, semantic_git_sha = $4 \
+                 WHERE app_id = $1 AND name = 'staging'",
+                [
+                    w.app.into(),
+                    planes.into(),
+                    revision.into(),
+                    sha.map(String::from).into(),
+                ],
+            ))
+            .await
+            .expect("set the row");
+        }
+    };
+    crate::app_environments::point(&db, w.app, Some(w.live_build), Some(w.live_build)).await;
+    let branch = json!({ "semantic": "branch:feat-x" });
+
+    // (a) Branch mode and no pin at all: refused, and the refusal names the
+    // branch (there is no commit to name).
+    set_row(branch.clone(), None, None).await;
+    let refused = request(host.clone()).await.expect_err("branch, unpinned");
+    assert!(refused.fix().contains("feat-x"), "{}", refused.fix());
+    assert_eq!(refused.git_sha(), "", "no commit recorded yet");
+
+    // Once the branch's revision is pinned it is served.
+    set_row(branch.clone(), Some(w.staging), Some("sha-feat")).await;
+    assert_eq!(request(host.clone()).await, Ok(Some(w.staging)));
+
+    // (b) A mode that is not `branch` ignores the columns it still holds: a
+    // failed clear, or a missing pin port, never serves an old branch.
+    for planes in [json!({}), json!({ "semantic": "build-pin" })] {
+        set_row(planes.clone(), Some(w.staging), Some("sha-feat")).await;
+        assert_eq!(request(host.clone()).await, Ok(None), "{planes}");
+        set_row(planes.clone(), None, Some("sha-compiling")).await;
+        assert_eq!(request(host.clone()).await, Ok(None), "{planes}");
+    }
+
+    // Production is never read. Its **own** row names a branch with no pin,
+    // which is what a reader that wrongly consulted production's environment
+    // would refuse on; the staging row is left in the same mode so the two
+    // cannot be confused.
+    set_row(branch.clone(), None, None).await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO app_environments (app_id, name, kind, planes) \
+         VALUES ($1, 'production', 'production', $2) \
+         ON CONFLICT (app_id, name) DO UPDATE SET planes = EXCLUDED.planes, \
+             semantic_revision_id = NULL, semantic_git_sha = NULL",
+        [w.app.into(), branch.clone().into()],
+    ))
+    .await
+    .expect("give production a branch plane and no pin");
+    assert_eq!(request(production_host).await, Ok(None));
+    assert!(
+        request(host.clone()).await.is_err(),
+        "the same row shape on staging is refused: the assertion above can fail"
+    );
+
+    // (c) Planes that do not parse are refused, not read as "no branch": the
+    // request never falls back to the build's or production's model.
+    set_row(json!({ "semantic": "branch:a..b" }), None, None).await;
+    let unreadable = request(host).await.expect_err("unreadable planes");
+    assert!(
+        unreadable.fix().contains("could not be read"),
+        "{}",
+        unreadable.fix()
+    );
 }

@@ -13,7 +13,7 @@ use axum::http::{Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
 
-use crate::provider::{BranchRequest, NeonProvider, OltpProvider, ProviderError};
+use crate::provider::{BranchInit, BranchRequest, NeonProvider, OltpProvider, ProviderError};
 
 // Delete and its guards, in their own file to keep this one readable.
 mod guards;
@@ -147,6 +147,12 @@ fn route(s: &Stub, method: &str, parts: &[&str]) -> Response {
             "parent_id": (*b != "br-main").then_some("br-main"),
             "default": *b == "br-main", "protected": s.protected
         }})),
+        ("PATCH", ["projects", _, "branches", _]) if s.restore_missing => {
+            StatusCode::NOT_FOUND.into_response()
+        }
+        ("PATCH", ["projects", _, "branches", b]) => ok(json!({
+            "branch": { "id": b }, "operations": op("op-patch")
+        })),
         ("DELETE", ["projects", _, "branches", _]) if s.delete_missing => {
             StatusCode::NOT_FOUND.into_response()
         }
@@ -168,13 +174,13 @@ async fn serve(stub: Arc<Stub>) -> NeonProvider {
 }
 
 fn staging() -> BranchRequest {
-    BranchRequest {
-        project_id: "cold-sky-123".into(),
-        parent_branch_id: "br-main".into(),
-        name: "oxy-staging".into(),
-        database_name: "neondb".into(),
-        owner_role: "oxy_owner".into(),
-    }
+    BranchRequest::staging(
+        "cold-sky-123",
+        "br-main",
+        "oxy-staging",
+        "neondb",
+        "oxy_owner",
+    )
 }
 
 #[tokio::test]
@@ -357,5 +363,135 @@ async fn a_failed_operation_fails_the_create() {
     assert!(
         err.to_string().contains("branch compute never started"),
         "{err}"
+    );
+}
+
+#[tokio::test]
+async fn create_sends_the_fork_point_expiry_and_init_source() {
+    let stub = Arc::new(Stub::default());
+    let mut req = staging();
+    req.parent_timestamp = Some("2026-11-01T09:00:00Z".parse().unwrap());
+    req.expires_at = Some("2026-12-01T09:00:00Z".parse().unwrap());
+    req.init = BranchInit::SchemaOnly;
+    serve(stub.clone())
+        .await
+        .create_branch(&req)
+        .await
+        .expect("create");
+
+    let post = stub
+        .has("POST", "/projects/cold-sky-123/branches")
+        .expect("a branch was requested");
+    let branch = &post.body["branch"];
+    assert_eq!(branch["parent_timestamp"], "2026-11-01T09:00:00Z");
+    assert_eq!(branch["expires_at"], "2026-12-01T09:00:00Z");
+    assert_eq!(branch["init_source"], "schema-only");
+    assert_eq!(
+        branch["parent_id"], "br-main",
+        "still named: the fork point is a time on THIS parent"
+    );
+}
+
+#[tokio::test]
+async fn create_with_defaults_sends_none_of_them() {
+    let stub = Arc::new(Stub::default());
+    serve(stub.clone())
+        .await
+        .create_branch(&staging())
+        .await
+        .expect("create");
+
+    let post = stub
+        .has("POST", "/projects/cold-sky-123/branches")
+        .expect("a branch was requested");
+    let branch = post.body["branch"].as_object().expect("a branch object");
+    for key in ["parent_timestamp", "expires_at", "init_source"] {
+        assert!(
+            !branch.contains_key(key),
+            "{key} must be absent: {branch:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn reset_of_a_schema_only_branch_is_refused_before_any_request() {
+    let stub = Arc::new(Stub::default());
+    let mut req = staging();
+    req.init = BranchInit::SchemaOnly;
+    let err = serve(stub.clone())
+        .await
+        .reset_branch(&req, "br-stg")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, ProviderError::Api { status: 400, ref message } if message.contains("schema-only")),
+        "{err}"
+    );
+    assert!(
+        stub.seen().is_empty(),
+        "nothing may reach Neon: {:?}",
+        stub.seen()
+    );
+}
+
+#[tokio::test]
+async fn a_branch_is_found_by_its_derived_name_or_not_at_all() {
+    let stub = Arc::new(Stub {
+        orphan: true,
+        ..Default::default()
+    });
+    let found = serve(stub.clone()).await.find_branch_id(&staging()).await;
+    assert_eq!(found.expect("find").as_deref(), Some("br-orphan"));
+
+    let none = serve(Arc::new(Stub::default()))
+        .await
+        .find_branch_id(&staging())
+        .await;
+    assert_eq!(none.expect("find"), None, "main is not named oxy-staging");
+}
+
+#[tokio::test]
+async fn an_expiry_is_patched_onto_the_branch_and_awaited() {
+    let stub = Arc::new(Stub::default());
+    let at = chrono::DateTime::parse_from_rfc3339("2026-12-02T10:00:00Z")
+        .unwrap()
+        .to_utc();
+
+    serve(stub.clone())
+        .await
+        .set_branch_expiry(&staging(), "br-stg", at)
+        .await
+        .expect("patch");
+
+    let patch = stub
+        .has("PATCH", "/projects/cold-sky-123/branches/br-stg")
+        .expect("the branch was patched");
+    assert_eq!(patch.body["branch"]["expires_at"], "2026-12-02T10:00:00Z");
+    assert!(
+        stub.has("GET", "/projects/cold-sky-123/operations/op-patch")
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn an_expiry_on_a_missing_branch_is_not_found_and_on_production_is_refused() {
+    let stub = Arc::new(Stub {
+        restore_missing: true,
+        ..Default::default()
+    });
+    let provider = serve(stub.clone()).await;
+    let at = chrono::Utc::now();
+
+    let gone = provider.set_branch_expiry(&staging(), "br-gone", at).await;
+    assert!(
+        matches!(gone, Err(ProviderError::BranchNotFound(_))),
+        "{gone:?}"
+    );
+
+    let main = provider.set_branch_expiry(&staging(), "br-main", at).await;
+    assert!(main.is_err(), "production's expiry is never moved");
+    assert!(
+        stub.has("PATCH", "/projects/cold-sky-123/branches/br-main")
+            .is_none()
     );
 }

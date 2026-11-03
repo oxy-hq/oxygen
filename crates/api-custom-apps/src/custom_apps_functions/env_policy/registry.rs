@@ -18,6 +18,7 @@
 
 use super::op_kinds::{Capability, Family, HoldBy, HostOpSpec, Staged, Verb};
 use super::{Decision, Target};
+use crate::custom_apps_planes::Plane;
 
 /// Declares [`HostOp`], its closed list [`HostOp::ALL`] and one
 /// [`HostOpSpec`] per variant, so the list cannot miss a row.
@@ -90,11 +91,14 @@ host_ops! {
         family: QueryStream, capability: None, staging: ALLOW,
         holds: by_not_running("warehouse", "QUERY"),
     },
-    /// A read method is still sent; a mutating one answers 409 unsent,
-    /// unless it is this invocation's own upload into its environment's
-    /// silo (`EnvPolicy::decide_on_fetch`).
+    /// A read method is still sent. A mutating one answers 409 unsent, unless
+    /// it is this invocation's own upload into its environment's silo, or the
+    /// environment's `planes.fetch` is `allow` and the call passes the
+    /// provider-sandbox checks (`EnvPolicy::decide_on_fetch`). The row says
+    /// which: `held-writes` (the default) holds, `allow` names the sandbox.
     Fetch = "fetch" {
-        family: Fetch, capability: None, staging: HOLD, holds: HoldBy::Host,
+        family: Fetch, capability: None, staging: Staged::ByHome(Plane::Fetch),
+        holds: HoldBy::Host,
     },
     SemanticQuery = "semantic.query" {
         family: Semantic("query"), capability: None, staging: ALLOW,
@@ -134,7 +138,7 @@ host_ops! {
     // `ctx.oltp.tx` handle follows where its `begin` went
     // (`EnvPolicy::decide_on_handle`); a held commit rolls back.
     TxBeginOltp = "tx.begin_oltp" {
-        family: Tx("begin_oltp"), capability: Oltp, staging: Staged::ByOltpHome,
+        family: Tx("begin_oltp"), capability: Oltp, staging: Staged::ByHome(Plane::Oltp),
         holds: HoldBy::Host,
     },
     TxQuery = "tx.query" {
@@ -151,16 +155,18 @@ host_ops! {
         family: Tx("rollback"), capability: None, staging: ALLOW, holds: HoldBy::Host,
     },
     OltpQuery = "oltp.query" {
-        family: Oltp("query"), capability: Oltp, staging: Staged::ByOltpHome,
+        family: Oltp("query"), capability: Oltp, staging: Staged::ByHome(Plane::Oltp),
         holds: HoldBy::Host,
     },
     OltpExec = "oltp.exec" {
-        family: Oltp("exec"), capability: Oltp, staging: Staged::ByOltpHome,
+        family: Oltp("exec"), capability: Oltp, staging: Staged::ByHome(Plane::Oltp),
         holds: HoldBy::Host,
     },
-    /// Reads stay on production's schema.
+    /// Reads production's schema under `write-only`; under `branch` and
+    /// `snapshot`, through the environment's overlay (`airhouse_overlay`).
     AirhouseQuery = "airhouse.query" {
-        family: Airhouse("query"), capability: Airhouse, staging: ALLOW,
+        family: Airhouse("query"), capability: Airhouse,
+        staging: Staged::ByHome(Plane::Airhouse),
         holds: HoldBy::Host,
     },
     // The app schema's sibling, `app_<writer>__<env>` (P5b); a schema that
@@ -177,50 +183,50 @@ host_ops! {
     // at production's same key, read-only; `list` is the silo alone.
     StorageGetUploadUrl = "storage.getUploadUrl" {
         family: Storage("getUploadUrl"), capability: StorageWrite,
-        staging: isolate(Target::StorageSilo), holds: STORAGE_HOLD,
+        staging: Staged::ByHome(Plane::Storage), holds: STORAGE_HOLD,
     },
     StorageGetDownloadUrl = "storage.getDownloadUrl" {
         family: Storage("getDownloadUrl"), capability: StorageRead,
-        staging: isolate(Target::StorageSilo), holds: STORAGE_HOLD,
+        staging: Staged::ByHome(Plane::Storage), holds: STORAGE_HOLD,
     },
     StoragePut = "storage.put" {
         family: Storage("put"), capability: StorageWrite,
-        staging: isolate(Target::StorageSilo), holds: STORAGE_HOLD,
+        staging: Staged::ByHome(Plane::Storage), holds: STORAGE_HOLD,
     },
     StorageGet = "storage.get" {
         family: Storage("get"), capability: StorageRead,
-        staging: isolate(Target::StorageSilo), holds: STORAGE_HOLD,
+        staging: Staged::ByHome(Plane::Storage), holds: STORAGE_HOLD,
     },
     StorageHead = "storage.head" {
         family: Storage("head"), capability: StorageRead,
-        staging: isolate(Target::StorageSilo), holds: STORAGE_HOLD,
+        staging: Staged::ByHome(Plane::Storage), holds: STORAGE_HOLD,
     },
     StorageList = "storage.list" {
         family: Storage("list"), capability: StorageRead,
-        staging: isolate(Target::StorageSilo), holds: STORAGE_HOLD,
+        staging: Staged::ByHome(Plane::Storage), holds: STORAGE_HOLD,
     },
     StorageDelete = "storage.delete" {
         family: Storage("delete"), capability: StorageWrite,
-        staging: isolate(Target::StorageSilo), holds: STORAGE_HOLD,
+        staging: Staged::ByHome(Plane::Storage), holds: STORAGE_HOLD,
     },
     StorageCopy = "storage.copy" {
         family: Storage("copy"), capability: StorageReadAndWrite,
-        staging: isolate(Target::StorageSilo), holds: STORAGE_HOLD,
+        staging: Staged::ByHome(Plane::Storage), holds: STORAGE_HOLD,
     },
     /// The environment's secret path (P5a).
     SecretsSet = "secrets.set" {
         family: Secrets("set"), capability: SecretsWrite,
-        staging: isolate(Target::EnvSecrets), holds: by_not_running("secrets", "SET"),
+        staging: Staged::ByHome(Plane::Secrets), holds: by_not_running("secrets", "SET"),
     },
     /// Invoker-only email (P5a); where held, resolves `{ held: true }`.
     EmailSend = "email.send" {
         family: Email("send"), capability: EmailSend,
-        staging: isolate(Target::InvokerEmail), holds: HoldBy::Host,
+        staging: Staged::ByHome(Plane::Messages), holds: HoldBy::Host,
     },
     /// The invoking user alone; where held, answered rather than thrown.
     Notify = "notify" {
         family: Notify, capability: Notify,
-        staging: isolate(Target::InvokerNotify), holds: HoldBy::Host,
+        staging: Staged::ByHome(Plane::Messages), holds: HoldBy::Host,
     },
     OrgPeople = "org.people" {
         family: Org("people"), capability: OrgRead, staging: ALLOW,

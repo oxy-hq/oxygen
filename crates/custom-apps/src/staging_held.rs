@@ -113,6 +113,7 @@ mod tests {
                 statements: 1,
                 op: Some("fetch"),
                 note: None,
+                sent: None,
             }],
             invocation_id: Some(Uuid::from_u128(4)),
             trace_id: Some("t".into()),

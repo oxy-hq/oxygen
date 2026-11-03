@@ -298,6 +298,7 @@ mod tests {
                 .with_ymd_and_hms(2026, 10, 2, 9, minute, 0)
                 .unwrap()
                 .into(),
+            scope: oxy_oltp::branches::CutScope::OrgBranch,
         }
     }
 

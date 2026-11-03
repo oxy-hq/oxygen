@@ -9,28 +9,48 @@
 //! allowed to open its non-production environments (`Action::AppNonProduction`
 //! — the rule that opens staging).
 
+use std::sync::Arc;
+
 use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::{Extension, Json};
+use chrono::Utc;
 use entity::apps;
 use oxy::database::client::establish_connection;
 use oxy_app_core::audit::RequestActor;
 use oxy_app_core::custom_app_environment::AppEnvironment;
+use oxy_app_core::semantic_pin_seam::SemanticPinner;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::{AppPublishTokenAuth, AuthenticatedUser};
 use sea_orm::{DatabaseConnection, EntityTrait};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::branch::{self, NewBranch};
+use super::copy_build;
+use super::env_diff::{EnvDiffDto, environment_diff};
+use super::planes_pin::{self, Pinner};
 use super::{EnvironmentDto, SandboxError, TeardownReason, ops};
 use crate::custom_apps_env_resolve::{
     may_open_environment, may_open_new_sandbox, may_open_non_production,
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct CreateEnvironmentRequest {
     /// The full name, `dev-<handle>`.
     pub name: String,
+    /// The environment to cut the sandbox from: production, staging, or an
+    /// active sandbox of this app, among those the caller may open (a sandbox
+    /// agent token: only a sandbox it created). Default: the default parent of
+    /// the kind.
+    pub from: Option<String>,
+    /// The fork point on the parent, RFC 3339 and not in the future. Default:
+    /// when the sandbox is created.
+    pub at: Option<String>,
+    /// `light` (every default) or `full` (`PRESET_FULL`), under `planes`.
+    pub preset: Option<String>,
+    /// Plane key → mode, over the preset.
+    pub planes: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -178,9 +198,12 @@ pub async fn list(
 }
 
 /// `POST /api/customer-apps/{id}/environments` — `201` with the new sandbox.
+/// Optionally cut from an environment (`from`, `at`) and with planes chosen
+/// (`preset`, `planes`); see [`CreateEnvironmentRequest`].
 pub async fn create(
     actor: RequestActor,
     marker: Option<Extension<AppPublishTokenAuth>>,
+    pinner: Option<Extension<Arc<dyn SemanticPinner>>>,
     Path(id): Path<Uuid>,
     Json(body): Json<CreateEnvironmentRequest>,
 ) -> Result<(StatusCode, Json<EnvironmentDto>), SandboxError> {
@@ -191,9 +214,90 @@ pub async fn create(
         own,
     } = admit(&actor.user, marker, id, Door::New).await?;
     let environment = parse(&body.name)?;
-    ops::create(&db, &app, &environment, &actor).await?;
+    let pinner = pinner.as_ref().map(|Extension(pinner)| pinner);
+    let caller = oxy_server_authz::Caller::from_user(&actor.user);
+    let (branch, semantic_branch) =
+        requested_branch(&db, &caller, &app, &environment, &body, pinner).await?;
+    ops::create_with(&db, &app, &environment, &actor, branch).await?;
+    // A new sandbox holds no pin, so only a branch choice calls the port.
+    let after = planes_pin::PinAfter::Create;
+    planes_pin::settle(
+        pinner,
+        &app,
+        &environment,
+        semantic_branch.as_deref(),
+        after,
+    )
+    .await?;
     let created = ops::get_for(&db, &app, &org_slug, &environment, own).await?;
     Ok((StatusCode::CREATED, Json(created)))
+}
+
+/// What a create asked for beyond its name, checked: the planes parse and
+/// validate (`400 invalid_planes`, a `semantic` branch found in the workspace),
+/// and `at` is a past RFC 3339 time (`400 invalid_fork_at`). `from` must be an
+/// environment the caller may open (see [`may_fork_from`]); that it exists is
+/// checked by the create itself, under the app's lock. Either way the answer
+/// is `400 invalid_parent`. Also the `semantic` branch to pin once the sandbox
+/// exists.
+async fn requested_branch(
+    db: &DatabaseConnection,
+    caller: &oxy_server_authz::Caller,
+    app: &apps::Model,
+    environment: &AppEnvironment,
+    body: &CreateEnvironmentRequest,
+    pinner: Pinner<'_>,
+) -> Result<(NewBranch, Option<String>), SandboxError> {
+    if let Some(from) = &body.from {
+        may_fork_from(db, caller, app, from).await?;
+    }
+    let fork_at = body
+        .at
+        .as_deref()
+        .map(|at| branch::parse_fork_at(at, Utc::now()))
+        .transpose()?;
+    let asked = body.preset.is_some() || body.planes.is_some();
+    let (planes, semantic_branch) = if asked {
+        let ask = (body.preset.as_deref(), body.planes.as_ref());
+        let build = match &body.from {
+            Some(from) => copy_build::forked_build(db, app, from).await?,
+            None => None,
+        };
+        let at = fork_at.map(|at| at.with_timezone(&Utc));
+        let requested =
+            planes_pin::requested(db, app, environment, ask, (build, at), pinner).await?;
+        let semantic_branch = requested.spec.semantic_branch().map(str::to_string);
+        (Some(requested.stored), semantic_branch)
+    } else {
+        (None, None)
+    };
+    let new = NewBranch {
+        from: body.from.clone(),
+        fork_at,
+        planes,
+    };
+    Ok((new, semantic_branch))
+}
+
+/// A sandbox starts on its parent's build and copies its configuration, so a
+/// caller forks only from an environment it may open. A sandbox agent token's
+/// reach is the `dev-*` sandboxes it created: production, staging and a
+/// colleague's sandbox are refused, and answered as a parent that does not
+/// exist, so a token learns nothing about them. A person is asked the same
+/// question as the door (`may_open_non_production`). A name that does not
+/// parse is left to the create's own `invalid_parent`.
+async fn may_fork_from(
+    db: &DatabaseConnection,
+    caller: &oxy_server_authz::Caller,
+    app: &apps::Model,
+    from: &str,
+) -> Result<(), SandboxError> {
+    match AppEnvironment::parse(from) {
+        Some(parent) if !may_open_environment(db, caller, app, &parent).await => {
+            Err(SandboxError::InvalidParent(from.to_string()))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// `GET /api/customer-apps/{id}/environments/{name}`
@@ -212,6 +316,19 @@ pub async fn show(
     Ok(Json(
         ops::get_for(&db, &app, &org_slug, &environment, own).await?,
     ))
+}
+
+/// `GET /api/customer-apps/{id}/environments/{name}/diff` — the OLTP schema
+/// difference between the environment's own branch and production, under the
+/// same door as [`show`].
+pub async fn diff(
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    marker: Option<Extension<AppPublishTokenAuth>>,
+    Path((id, name)): Path<(Uuid, String)>,
+) -> Result<Json<EnvDiffDto>, SandboxError> {
+    let Admitted { db, app, .. } = admit(&user, marker, id, Door::Named(&name)).await?;
+    let environment = parse(&name)?;
+    Ok(Json(environment_diff(&db, &app, &environment).await?))
 }
 
 /// `DELETE /api/customer-apps/{id}/environments/{name}` — `202`; also when

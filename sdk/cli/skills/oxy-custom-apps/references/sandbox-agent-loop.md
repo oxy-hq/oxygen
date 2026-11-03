@@ -145,7 +145,11 @@ Reads hit production data. A write lands in a home of the sandbox's own, or it
 is *held*: recorded in `invocations held` and not performed. A held write is
 the expected answer outside production. Report it. Unless the task asks for
 it, do not edit `nonProduction` in the manifest to make the write land:
-staging and every other sandbox share that map. A sandbox's schedules are off
+staging and every other sandbox share that map. To make it land in this
+sandbox alone, override the destination (`env update --destination`, below). A mutating `ctx.fetch` is held
+the same way unless staff set the environment's `fetch` plane to `allow` for
+registered provider sandboxes (`env update --fetch-host <host>`); a call sent that way shows in `invocations held`
+as `(sent)`. Do not set it yourself. A sandbox's schedules are off
 unless staff turned them on, and your token cannot turn them on: to test a
 scheduled function, run it once as its schedule would — `oxyc fn run
 <org>/<app> <function> --app-env dev-x --as-schedule --env <deployment>
@@ -266,10 +270,11 @@ cases:
 
 If your runtime speaks MCP, `oxyc mcp --env <deployment>` serves the same loop
 as tools — `oxy_env_create` / `oxy_env_list` / `oxy_env_show` /
-`oxy_env_delete`, `oxy_publish_sandbox`, `oxy_fn_call`, `oxy_checks_run`,
+`oxy_env_delete`, `oxy_env_update`, `oxy_env_reset`, `oxy_env_outbox`,
+`oxy_publish_sandbox`, `oxy_fn_call`, `oxy_fn_run`, `oxy_checks_run`,
 `oxy_invocations_list` / `oxy_invocations_held`, `oxy_logs`. It reads its
 credential from `OXY_TOKEN` and nowhere else (a person on their own login
-adds `--login`). With a sandbox agent token the list is those ten,
+adds `--login`). With a sandbox agent token the list is those fourteen,
 `oxy_whoami`, `oxy_env_secret_list` / `_set` / `_delete` and
 `oxy_token_revoke` (`confirm: true`) — and no `oxy_request`. Prefer them to
 shelling out: each calls its verb's own request-building code, so the result
@@ -281,6 +286,46 @@ on the exit code. `oxy_fn_call` and `oxy_checks_run` set `isError` when the
 function or a check failed, with the full document still in the result.
 `oxy_env_delete` needs `confirm: true`. `oxy_publish_sandbox` takes only a
 `dev-<handle>` and cannot reach staging or production.
+
+## Planes, the outbox, reset and `--from`
+
+A sandbox's planes say how isolated it is (every plane, mode and refusal is in [environment-branches.md](environment-branches.md)). Every
+command below takes `--env <deployment> --token-env OXY_TOKEN` like the rest.
+
+- **Read what a `capture` sandbox would have sent:** `oxyc env outbox <app> dev-x
+  [--limit N] [--json]` (over MCP `oxy_env_outbox`), newest first, 50 by default,
+  200 at most. Each message has `kind` (`email` or `notify`), `to`, `subject` or
+  `title`, `body`, `invocation_id`, `function`, `captured_at`. Your token sees
+  only what was captured since *this* sandbox began, so a name you re-create
+  starts empty. Assert on it after `fn call`.
+- **Write to a database of its own:** `env update <app> dev-x --destination
+  <db>=<mapped>` writes `<mapped>` instead of production's `<db>` in this sandbox
+  only, over the manifest's `nonProduction.destinations` (`--clear-destination
+  <db>` removes it; both repeat, and `env create` takes `--destination`). The
+  mapped name may not be the production database or itself overridden: `400
+  invalid_planes`. Prefer this to editing the manifest, which every non-production
+  environment shares. Over MCP, pass `planes: {"warehouse": {"mode": "mapped",
+  "destinations": {"<db>": "<mapped>"}}}`.
+- **Start clean:** `env reset <app> dev-x --plane storage,secrets,messages` empties
+  those planes; each answers `done`. `--plane oltp [--at <ts>]` re-cuts a sandbox's
+  own OLTP branch (`oltp=branch|empty`) from production: it answers `queued` with a
+  `run_id`, not `done`, so poll `env show` for `oltp_branch.status == "ready"` before
+  the next call. A sandbox on the default `oltp=schema` has nothing to reset
+  (`409 plane_not_resettable`): publish again to re-seed it. A second reset while
+  a teardown or migration holds the sandbox is `409 environment_busy`: retry. On `staging` only `messages`
+  resets (`409 plane_not_resettable` for the others: the team shares them).
+- **Start on a build:** `env create dev-x --from <env>` points the new sandbox at
+  the parent's build and queues that build's migrations, so you can `fn call`
+  without publishing. A parent with no build gives a sandbox with none. Your token
+  may fork only from a sandbox it created, or from staging if it was minted with
+  the staging option: `--from production` (and `--from staging` without that
+  option) answers `400 invalid_parent`, as does a name that does not exist. A person can
+  fork any environment they may open.
+
+Over MCP these are `oxy_env_outbox`, `oxy_env_update`, `oxy_env_reset` and
+`oxy_env_create` (`from`, `at`, `preset`, `planes`). An outbox only fills when
+the sandbox's `messages` plane is `capture`: check `oxyc env show` (`set:`)
+before you read an empty one as "nothing was sent".
 
 ## A sandbox isolates the app, not the workspace
 
@@ -304,4 +349,8 @@ when what it waited for ended `failed` or `cancelled`, `7` past its deadline.
 Over MCP the same verbs are `oxy_preview_create` / `_list` / `_show` /
 `_delete` (`confirm: true`) / `_checks` / `_run` / `_runs_list` / `_run_show`.
 To make a sandbox read the branch's semantic model, publish to it with
-`--semantic-branch <branch>`.
+`--semantic-branch <branch>`, or pin the environment itself with
+`oxyc env update <app> dev-<handle> --plane semantic=branch:<branch>` (it
+recompiles on a push; `503 semantic_branch_not_ready` until the first compile
+lands — retry). To run an automation your bundle starts as a dry run, set
+`--plane workspace-actions=preview`. `release:staging` is not available.

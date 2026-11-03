@@ -13,6 +13,11 @@
 //!   (`env_policy::admit_sandbox_statement`). While that schema is not ready
 //!   every OLTP op is refused before anything connects
 //!   ([`ProjectFunctionHost::refuse_unready_sandbox`]).
+//! - **On a sandbox's own branch** (`OltpHome::EnvironmentBranch`): the staging
+//!   branch's rule, unchanged — it is also a copy of production's database
+//!   (or an empty one), so a statement that reaches outside it is refused.
+//!   While the branch is not ready every OLTP op is refused, as for an
+//!   unready schema ([`ProjectFunctionHost::refuse_unready_sandbox`]).
 //! - **Held on production** (no branch): a statement is sent only when it is
 //!   one read calling no side-effect function
 //!   (`env_policy::admit_oltp_statement`), on a session whose
@@ -73,18 +78,27 @@ impl ProjectFunctionHost {
         sql: &str,
         namespace: &str,
     ) -> Result<(), String> {
+        let own_branch = matches!(
+            self.policy.oltp_home(),
+            env_policy::OltpHome::EnvironmentBranch(_)
+        );
         let (statement, message) = match env_policy::admit_branch_statement(sql) {
             Ok(()) => return self.admit_in_sandbox_schema(op, sql, namespace).await,
             Err(env_policy::NotSent::Refused(statement)) => {
-                let message = env_policy::branch_statement_message(
-                    op,
-                    self.policy.environment(),
-                    &statement.why,
-                );
+                let environment = self.policy.environment();
+                let message = match own_branch {
+                    true => {
+                        env_policy::env_branch_statement_message(op, environment, &statement.why)
+                    }
+                    false => env_policy::branch_statement_message(op, environment, &statement.why),
+                };
                 (statement, message)
             }
             Err(env_policy::NotSent::Held(statement)) => {
-                let message = env_policy::branch_held_statement_message(op, &statement.why);
+                let message = match own_branch {
+                    true => env_policy::env_branch_held_statement_message(op, &statement.why),
+                    false => env_policy::branch_held_statement_message(op, &statement.why),
+                };
                 (statement, message)
             }
         };

@@ -1,9 +1,13 @@
 //! The read half: every table a statement reads resolves to the preview's
-//! copy when there is one, and stays live otherwise.
+//! copy when there is one, and stays live otherwise. With a
+//! [`SnapshotPin`](super::SnapshotPin), a read that stays live is pinned to a
+//! DuckLake point in time.
 
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{Expr, ObjectName, Query, Statement, TableFactor, VisitMut, VisitorMut};
+use sqlparser::ast::{
+    Expr, ObjectName, Query, Statement, TableFactor, TableVersion, VisitMut, VisitorMut,
+};
 
 use super::names::{Name, table_factor};
 use super::{PreviewNamespace, Refused, RewriteOptions, ShadowMap};
@@ -32,6 +36,7 @@ pub(super) fn apply(
     // `DESCRIBE S.t` and `SHOW COLUMNS FROM S.t` read a table outside any FROM.
     if let Some(table) = described_table_mut(statement) {
         check_relation(table)?;
+        // No FROM item to carry a version, so a described table is never pinned.
         overlay.read(table)?;
     }
     match statement.visit(&mut overlay) {
@@ -102,8 +107,11 @@ impl VisitorMut for Overlay<'_> {
         }
         flow(match factor {
             TableFactor::Table {
-                name, args: None, ..
-            } => self.read(name),
+                name,
+                args: None,
+                version,
+                ..
+            } => self.read(name).map(|read| self.pin(read, version)),
             other => table_factor(other),
         })
     }
@@ -141,30 +149,60 @@ fn flow(result: Result<(), Refused>) -> ControlFlow<Refused> {
     }
 }
 
+/// Where one table read resolved.
+enum Read {
+    /// Not a stored table of production's: a CTE, a table of the namespace's
+    /// own, or the preview's copy.
+    Elsewhere,
+    /// A production table, read as it is now unless pinned.
+    Live { system: bool },
+}
+
 impl Overlay<'_> {
     /// Resolve one table read, redirecting it when the preview has a copy.
-    fn read(&mut self, name: &mut ObjectName) -> Result<(), Refused> {
+    fn read(&mut self, name: &mut ObjectName) -> Result<Read, Refused> {
         let resolved = Name::resolve(name, "a read of", self.opts)?;
         if resolved.unqualified().is_some_and(|t| self.in_cte_scope(t)) {
-            return Ok(());
+            return Ok(Read::Elsewhere);
         }
         let live = resolved.live();
         if self.ns.owns_schema(&live.0) {
-            return Ok(());
+            return Ok(Read::Elsewhere);
         }
-        let preview_schema = self.ns.schema_for(&live.0)?;
+        let system = is_system_schema(&live.0);
+        let Some(stand_in) = self.ns.schema_for_read(&live.0)? else {
+            return Ok(Read::Live { system });
+        };
         if self.opts.read_live_only || self.shadow.state(&live).is_none() {
-            return Ok(());
+            return Ok(Read::Live { system });
         }
-        *name = resolved.in_schema(&preview_schema);
+        *name = resolved.in_schema(&stand_in);
         if !self.redirected.contains(&live) {
             self.redirected.push(live);
         }
-        Ok(())
+        Ok(Read::Elsewhere)
+    }
+
+    /// Pin a read that stayed live to the snapshot, unless the tree already
+    /// carries a version (which is what makes applying the overlay twice the
+    /// same as once) or it reads a system catalog, which has no history.
+    fn pin(&self, read: Read, version: &mut Option<TableVersion>) {
+        let (Read::Live { system: false }, None) = (read, &*version) else {
+            return;
+        };
+        if let Some(pin) = &self.opts.pin {
+            *version = Some(pin.table_version());
+        }
     }
 
     fn in_cte_scope(&self, table: &str) -> bool {
         let table = table.to_ascii_lowercase();
         self.ctes.iter().flatten().any(|cte| *cte == table)
     }
+}
+
+/// `information_schema` and `pg_catalog` describe the catalog as it is: they
+/// have no history to read at a point in time.
+fn is_system_schema(schema: &str) -> bool {
+    matches!(schema, "information_schema" | "pg_catalog")
 }

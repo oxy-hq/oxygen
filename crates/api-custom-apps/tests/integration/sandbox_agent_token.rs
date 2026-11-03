@@ -33,6 +33,9 @@
 //! - `tail`: the token tails a sandbox it created (row T1), and is answered
 //!   `404 environment_not_found` for production, staging without the grant
 //!   and a colleague's sandbox, as on the other environment routes.
+//! - `diff`: the token diffs a sandbox it created (row E3), and is answered
+//!   `404 environment_not_found` for production, staging without the grant
+//!   and a colleague's sandbox.
 //! - `sandbox_promote`: a token's **sandbox** build is marked too, and
 //!   neither *promote latest* nor a rollback ships it, while a person's
 //!   sandbox build ships on both as before; the sandbox still serves its own
@@ -40,6 +43,7 @@
 //!
 //! **Needs** Postgres only.
 
+mod diff;
 pub(crate) mod fixture;
 mod instance;
 mod ownership;

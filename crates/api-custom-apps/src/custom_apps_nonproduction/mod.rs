@@ -26,6 +26,7 @@
 //!   warehouse — the safe direction.
 
 mod identity;
+mod overrides;
 pub mod publish;
 pub mod staging_task;
 pub mod staging_task_executor;
@@ -39,6 +40,7 @@ use uuid::Uuid;
 pub use identity::{
     Identity, Unresolved, configured_database, configured_names, identity, mapping_refusal,
 };
+pub use overrides::check_overrides;
 
 /// The `nonProduction` block. Unknown keys are ignored, so a later
 /// `schedules` list is additive.
@@ -126,7 +128,34 @@ pub async fn check_mapping(
     let Some(config) = config(manifest_json)? else {
         return Ok(());
     };
-    if config.destinations.is_empty() {
+    check_destinations(project_id, &config.destinations).await
+}
+
+/// [`check_mapping`] for a mapping already read: the manifest's.
+pub async fn check_destinations(
+    project_id: Uuid,
+    destinations: &BTreeMap<String, String>,
+) -> Result<(), MappingRefusal> {
+    check_entries(project_id, destinations, destinations).await
+}
+
+/// [`check_destinations`] for `entries` — the pairs to check — read as part of
+/// the whole `mapping` the host will hold them against. An environment's
+/// warehouse overrides are `entries`, the build's mapping under them is
+/// `mapping` ([`check_overrides`]): a chain through a key only the build maps
+/// is a chain at run time, and the host refuses every write it covers.
+///
+/// Two scopes. The per-name and credential checks run on `entries` only: the
+/// build's own pairs passed them at publish. The chain check runs on **every**
+/// pair of `mapping` ([`first_chain`]), because an override can make a pair it
+/// does not contain a chain: `pg_staging -> pg_other` turns the build's
+/// `pg -> pg_staging` into one.
+async fn check_entries(
+    project_id: Uuid,
+    mapping: &BTreeMap<String, String>,
+    entries: &BTreeMap<String, String>,
+) -> Result<(), MappingRefusal> {
+    if entries.is_empty() {
         return Ok(());
     }
     let databases = workspace_databases(project_id).await?;
@@ -136,10 +165,9 @@ pub async fn check_mapping(
     .map_err(|e| {
         MappingRefusal::Unchecked(format!("could not read the workspace's secrets: {e}"))
     })?;
-    for (from, to) in &config.destinations {
+    for (from, to) in entries {
         configured(&databases, from)?;
         configured(&databases, to)?;
-        let mapping = &config.destinations;
         if let Some(refusal) = chain_refusal(
             mapping,
             from,
@@ -153,7 +181,31 @@ pub async fn check_mapping(
             return Err(MappingRefusal::Author(refusal));
         }
     }
-    Ok(())
+    match first_chain(mapping) {
+        Some(chain) => Err(MappingRefusal::Author(chain)),
+        None => Ok(()),
+    }
+}
+
+/// The first pair of `mapping` that is a chain ([`chain_message`]), or `None`.
+/// Reads nothing.
+fn first_chain(mapping: &BTreeMap<String, String>) -> Option<String> {
+    mapping
+        .iter()
+        .find_map(|(from, to)| chain_message(mapping, from, to))
+}
+
+/// Why `from -> to` is a chain in `mapping`: `to` is itself a key (a
+/// production database written as another's staging copy), and not `from`
+/// mapped onto itself, which the credential check names instead.
+fn chain_message(mapping: &BTreeMap<String, String>, from: &str, to: &str) -> Option<String> {
+    (to != from && mapping.contains_key(to)).then(|| {
+        format!(
+            "nonProduction.destinations maps `{from}` to `{to}`, which the same block maps as a \
+             production database of its own — staging would write a production database. Map \
+             `{from}` to a database no mapping starts from"
+        )
+    })
 }
 
 /// Why staging may not write `to` in place of `from` under the whole
@@ -173,12 +225,8 @@ pub async fn chain_refusal(
     secrets: &oxy::adapters::secrets::SecretsManager,
     unresolved: Unresolved,
 ) -> Option<String> {
-    if to != from && mapping.contains_key(to) {
-        return Some(format!(
-            "nonProduction.destinations maps `{from}` to `{to}`, which the same block maps as a \
-             production database of its own — staging would write a production database. Map \
-             `{from}` to a database no mapping starts from"
-        ));
+    if let Some(chain) = chain_message(mapping, from, to) {
+        return Some(chain);
     }
     let find = |name: &str| databases.iter().find(|d| d.name == name);
     let Some(staging) = find(to) else {
@@ -238,6 +286,35 @@ async fn workspace_databases(project_id: Uuid) -> Result<Vec<Database>, MappingR
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// An override can turn a pair it does not contain into a chain: the
+    /// build's `pg -> pg_staging` under the override `pg_staging -> pg_other`.
+    #[test]
+    fn a_chain_is_found_on_any_pair_of_the_merged_map() {
+        let merged = map(&[("pg", "pg_staging"), ("pg_staging", "pg_other")]);
+        let message = first_chain(&merged).expect("a chain");
+        assert!(message.contains("maps `pg` to `pg_staging`"), "{message}");
+        assert!(message.contains("production database of its own"));
+    }
+
+    #[test]
+    fn a_map_with_no_chain_has_none() {
+        assert_eq!(first_chain(&BTreeMap::new()), None);
+        assert_eq!(first_chain(&map(&[("pg", "pg_staging")])), None);
+        assert_eq!(
+            first_chain(&map(&[("a", "a_staging"), ("b", "b_staging")])),
+            None
+        );
+        // Onto itself is the credential check's refusal, not a chain.
+        assert_eq!(first_chain(&map(&[("pg", "pg")])), None);
+    }
 
     #[test]
     fn an_absent_or_null_block_maps_nothing() {

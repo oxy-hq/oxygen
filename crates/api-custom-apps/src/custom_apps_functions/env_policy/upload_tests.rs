@@ -6,7 +6,9 @@ use oxy_app_core::custom_app_environment::AppEnvironment;
 use uuid::Uuid;
 
 use super::MintedUpload;
-use crate::custom_apps_functions::env_policy::{Decision, EnvPolicy, HostOp, Target};
+use crate::custom_apps_functions::env_policy::{
+    Decision, EnvPolicy, FetchCall, HostOp, NOTE_NO_TEST_KEY, NOTE_NOT_LISTED, Target,
+};
 use crate::custom_apps_storage::Silo;
 
 const SENT: Decision = Decision::Isolate(Target::StorageSilo);
@@ -53,7 +55,18 @@ fn own(policy: &EnvPolicy) -> (String, MintedUpload) {
 
 fn decide(policy: &EnvPolicy, method: &str, url: &str, minted: &[MintedUpload]) -> Decision {
     let url = url::Url::parse(url).expect("a URL");
-    policy.decide_on_fetch(app(), method, &url, minted)
+    let companies = std::collections::BTreeSet::new();
+    let call = FetchCall {
+        method,
+        url: &url,
+        minted,
+        carries_fallback_secret: false,
+        api_key: None,
+        overrides_host: false,
+        duplicate_authorization: false,
+        sandbox_companies: &companies,
+    };
+    policy.decide_on_fetch(app(), &call).0
 }
 
 #[test]
@@ -251,4 +264,112 @@ fn production_allows_every_fetch_and_a_preview_holds_every_mutating_one() {
 #[test]
 fn a_url_that_does_not_parse_is_never_kept() {
     assert_eq!(MintedUpload::new("not a url", "k"), None);
+}
+
+/// A call that would pass every provider-sandbox check still never leaves a
+/// `Hold` as anything but the upload exception: staging's op-level decision
+/// is `Hold` (these policies carry the default planes, not `fetch: allow`),
+/// and production's is `Allow`.
+#[test]
+fn a_provider_sandbox_call_is_held_in_staging_and_allowed_in_production() {
+    let url = url::Url::parse("https://connect.squareupsandbox.com/v2/payments").expect("a URL");
+    let companies = std::collections::BTreeSet::new();
+    let call = FetchCall {
+        method: "POST",
+        url: &url,
+        minted: &[],
+        carries_fallback_secret: false,
+        api_key: None,
+        overrides_host: false,
+        duplicate_authorization: false,
+        sandbox_companies: &companies,
+    };
+    for policy in [staging(), sandbox("a1")] {
+        assert_eq!(policy.decide_on_fetch(app(), &call), (Decision::Hold, None));
+    }
+    assert_eq!(
+        EnvPolicy::production().decide_on_fetch(app(), &call),
+        (Decision::Allow, None)
+    );
+}
+
+const PS: Decision = Decision::Isolate(Target::ProviderSandbox);
+
+fn listed(hosts: &[&str]) -> std::collections::BTreeSet<String> {
+    hosts.iter().map(|host| host.to_string()).collect()
+}
+
+/// `narrow_on_fetch` of `op` for a `method` request to `url` with `api_key`
+/// and the given minted uploads, `connect.squareupsandbox.com` and
+/// `api.stripe.com` listed.
+fn narrow(
+    policy: &EnvPolicy,
+    op: Decision,
+    (method, url, api_key): (&str, &str, Option<&str>),
+    minted: &[MintedUpload],
+) -> (Decision, Option<&'static str>) {
+    let url = url::Url::parse(url).expect("a URL");
+    let companies = std::collections::BTreeSet::new();
+    let call = FetchCall {
+        method,
+        url: &url,
+        minted,
+        carries_fallback_secret: false,
+        api_key,
+        overrides_host: false,
+        duplicate_authorization: false,
+        sandbox_companies: &companies,
+    };
+    let listed = listed(&["connect.squareupsandbox.com", "api.stripe.com"]);
+    policy.narrow_on_fetch(op, app(), &call, &listed)
+}
+
+const SQUARE: (&str, &str, Option<&str>) = (
+    "POST",
+    "https://connect.squareupsandbox.com/v2/payments",
+    None,
+);
+
+#[test]
+fn a_provider_call_that_passes_every_check_keeps_its_home() {
+    assert_eq!(narrow(&staging(), PS, SQUARE, &[]), (PS, None));
+}
+
+#[test]
+fn a_provider_call_that_fails_a_check_is_held_with_the_note() {
+    let live = (
+        "POST",
+        "https://api.stripe.com/v1/charges",
+        Some("sk_live_abc"),
+    );
+    assert_eq!(
+        narrow(&staging(), PS, live, &[]),
+        (Decision::Hold, Some(NOTE_NO_TEST_KEY))
+    );
+    let unlisted = ("POST", "https://api.squareup.com/v2/payments", None);
+    assert_eq!(
+        narrow(&staging(), PS, unlisted, &[]),
+        (Decision::Hold, Some(NOTE_NOT_LISTED))
+    );
+}
+
+#[test]
+fn an_own_upload_is_the_silo_even_when_the_op_says_provider_sandbox() {
+    let (url, upload) = own(&staging());
+    assert_eq!(
+        narrow(&staging(), PS, ("PUT", &url, None), &[upload]),
+        (SENT, None)
+    );
+}
+
+#[test]
+fn a_held_op_never_becomes_a_provider_sandbox_and_allow_is_untouched() {
+    assert_eq!(
+        narrow(&staging(), Decision::Hold, SQUARE, &[]),
+        (Decision::Hold, None)
+    );
+    assert_eq!(
+        narrow(&EnvPolicy::production(), Decision::Allow, SQUARE, &[]),
+        (Decision::Allow, None)
+    );
 }

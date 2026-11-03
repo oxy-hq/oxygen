@@ -123,6 +123,10 @@ impl ProjectFunctionHost {
                 }
                 Ok(sent)
             }
+            // Nobody is mailed: the rendered message is kept in the outbox.
+            Some(Target::Outbox) if !self.policy.is_production() => {
+                self.capture_email(&emailer, parsed).await
+            }
             Some(_) => Err(self.misrouted(HostOp::EmailSend)),
         }
     }

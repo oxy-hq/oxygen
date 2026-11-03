@@ -13,9 +13,11 @@
 //! with one `host call isolated` event — and is **not** noted in the
 //! held-write log: it is not a held write.
 
+use std::collections::BTreeSet;
 use std::sync::{Mutex, PoisonError};
 
-use super::super::env_policy::{Decision, HostOp, MintedUpload, Target};
+use super::super::env_policy::{Decision, FetchCall, HostOp, MintedUpload, Target};
+use super::provider_fetch::CallFacts;
 use super::*;
 use crate::custom_apps_storage::{Silo, UploadUrl};
 
@@ -39,7 +41,7 @@ impl MintedUploads {
     }
 
     /// `decide` over the uploads kept so far. Never held across an await.
-    fn decide(&self, decide: impl FnOnce(&[MintedUpload]) -> Decision) -> Decision {
+    fn decide<R>(&self, decide: impl FnOnce(&[MintedUpload]) -> R) -> R {
         decide(&self.0.lock().unwrap_or_else(PoisonError::into_inner))
     }
 }
@@ -63,13 +65,29 @@ impl ProjectFunctionHost {
 
     /// What the policy decides for a mutating `ctx.fetch` of `method` to
     /// `url` (`EnvPolicy::decide_on_fetch`), given what this invocation
-    /// minted.
-    pub(super) fn decide_fetch(&self, method: &str, url: &reqwest::Url) -> Decision {
+    /// minted, the call's credential `facts` and the registered sandbox
+    /// `companies`, and the note of a provider-sandbox call it held.
+    pub(super) fn decide_fetch(
+        &self,
+        method: &str,
+        url: &reqwest::Url,
+        facts: &CallFacts,
+        companies: &BTreeSet<String>,
+    ) -> (Decision, Option<&'static str>) {
         let decided = self.minted_uploads.decide(|minted| {
-            self.policy
-                .decide_on_fetch(self.app_id, method, url, minted)
+            let call = FetchCall {
+                method,
+                url,
+                minted,
+                carries_fallback_secret: facts.carries_fallback_secret,
+                api_key: facts.api_key.as_deref(),
+                overrides_host: facts.overrides_host,
+                duplicate_authorization: facts.duplicate_authorization,
+                sandbox_companies: companies,
+            };
+            self.policy.decide_on_fetch(self.app_id, &call)
         });
-        if decided == Decision::Isolate(Target::StorageSilo) {
+        if decided.0 == Decision::Isolate(Target::StorageSilo) {
             tracing::info!(
                 op = HostOp::Fetch.name(),
                 environment = %self.policy.environment(),

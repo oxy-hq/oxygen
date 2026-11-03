@@ -111,6 +111,7 @@ mod sandbox_schema;
 mod stored;
 mod types;
 
+pub(crate) use airhouse::connect_as_app;
 pub(super) use airhouse::{AirhouseRun, apply_airhouse_on_promote, apply_airhouse_to_environment};
 pub use airhouse::{airhouse_lock_key, apply_airhouse_over, apply_airhouse_over_until};
 pub(crate) use airhouse_drop::drop_environment_schema;
@@ -120,6 +121,7 @@ pub use airhouse_home::AirhouseHome;
 pub(crate) use airhouse_home::schema_owner;
 pub(super) use apply::apply_on_promote;
 pub use apply::read_ledger;
+pub(crate) use branch::BRANCH_APPLY_TIMEOUT;
 #[doc(hidden)]
 pub use branch::apply_to_resolved_branch;
 pub(super) use branch::{apply_to_staging_branch, branch_warning};

@@ -64,9 +64,30 @@ pub const SANDBOX_ALLOWED: &[Allowed] = &[
     row("E2", "POST", "/customer-apps/{id}/environments"),
     row("E3", "GET", "/customer-apps/{id}/environments/{name}"),
     row("E3", "DELETE", "/customer-apps/{id}/environments/{name}"),
+    // The OLTP schema diff of a sandbox against production: show's door.
+    row("E3", "GET", "/customer-apps/{id}/environments/{name}/diff"),
+    // Choose the modes of a sandbox's planes, and put planes back: the delete
+    // door, so only a sandbox the token created.
+    row(
+        "E4",
+        "PUT",
+        "/customer-apps/{id}/environments/{name}/planes",
+    ),
+    row(
+        "E5",
+        "POST",
+        "/customer-apps/{id}/environments/{name}/reset",
+    ),
     // The live tail of a sandbox it created: what L1 reads, as it happens.
     // The handler asks what `/logs` asks (`custom_apps_tail::admission`).
     row("T1", "GET", "/customer-apps/{id}/environments/{name}/tail"),
+    // The email and notifications a sandbox it created captured instead of
+    // sending: the tail's door, for the same output read later.
+    row(
+        "T2",
+        "GET",
+        "/customer-apps/{id}/environments/{name}/outbox",
+    ),
     row("P1", "POST", "/customer-apps/publish"),
     row("C1", "GET", "/customer-apps/{id}/functions"),
     row("C2", "POST", "/customer-apps/{id}/functions/{name}/runs"),

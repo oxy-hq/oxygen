@@ -55,6 +55,12 @@ pub struct HeldWrite {
     pub table: String,
     pub op: Option<String>,
     pub note: Option<String>,
+    /// A sent provider-sandbox call's path (never its query) and response
+    /// status; absent on a held call, and left out of the JSON then.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
 }
 
 type Failure = (StatusCode, String);
@@ -170,5 +176,33 @@ mod tests {
         assert_eq!(w.plane, "oltp");
         assert_eq!(w.table, "");
         assert_eq!(w.op, None);
+        assert_eq!((w.path, w.status), (None, None));
+    }
+
+    #[test]
+    fn a_sent_call_lists_with_its_path_and_status() {
+        let w: HeldWrite = serde_json::from_value(json!({
+            "plane": "fetch", "namespace": "api.stripe.com", "verb": "POST",
+            "op": "fetch", "path": "/v1/charges", "status": 200
+        }))
+        .unwrap();
+        assert_eq!(w.path.as_deref(), Some("/v1/charges"));
+        assert_eq!(w.status, Some(200));
+    }
+
+    #[test]
+    fn a_held_call_serializes_without_path_or_status_and_a_sent_one_with() {
+        let held = serde_json::to_value(HeldWrite::default()).unwrap();
+        assert!(held.get("path").is_none() && held.get("status").is_none());
+        let sent = serde_json::to_value(HeldWrite {
+            path: Some("/v1/charges".into()),
+            status: Some(200),
+            ..HeldWrite::default()
+        })
+        .unwrap();
+        assert_eq!(
+            (sent["path"].as_str(), sent["status"].as_u64()),
+            (Some("/v1/charges"), Some(200))
+        );
     }
 }

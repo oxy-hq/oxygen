@@ -36,6 +36,7 @@
 //! | `custom_app_staging_held` | the console's held list returns a staging invoker its own `app.staging.held` rows (app and actor stamped), `[]` to another developer who may open staging, 404 to a caller who may not; production adds none; a row from before `app_id` was stamped is found by slug within the org |
 //! | `staging_agent_ask` | a staging-host agent ask (staff only, else 404 `EnvironmentRefused`) builds its platform inside the hold: held from the drive's spawned task, DDL through its connector is refused and listed in `…/staging/held` as `agent`, the run is stamped with the app and startup recovery retires it; production asks are unchanged (no hold, no stamp) |
 //! | `staging_agent_ask_handlers` | the real `start_ask` on the staging host refuses a non-staff caller (404 `EnvironmentRefused`) before writing a thread, and reaches the pipeline for staff (`agent_not_found`); the staging `cancel_ask` reaches only this app's stamped staging runs, production's is unchanged |
+//! | `preview_automation_run_handlers` | an automation run from a staging host whose `workspace-actions` plane is `preview` queues a workspace-preview dry run (poll row and `workspace_preview_runs` row under one id, on the pin or the promoted revision), answers `409 preview_runs_disabled` without `OXY_PREVIEW_RUNS`, and settles its poll row from `agentic_runs` on the preview sweep |
 //! | `staging_automation_run_handlers` | the real `start_automation_run` on the staging host answers `409 held_in_staging` before any run row and logs it held as `automation`; a non-staff caller gets the same `404 EnvironmentRefused` an ask refuses with; production starts the run unaffected |
 //! | `secrets_audit` | a production app-secret set or delete leaves a `custom_app.secret.*` audit row naming `production`, on the staff mount and the tenant (workspace) mount alike |
 //! | `secrets_promote_and_copy` | `?build=` on the staff secrets list reconciles production's keys against a named build (the promote warning), another app's build 404s; `copy_from` copies a value server-side only downhill (production → staging or a sandbox, staging → a sandbox), refused uphill, to a caller who may not open the target, and on the tenant mount; a copy is audited as `custom_app.secret.copied` |
@@ -74,12 +75,20 @@
 //! | `sandbox_oltp_isolation` | with the org's OLTP staging branch, two sandboxes of one app and staging each read and write their own `orders` through the real publish, queued task and serve route, and production is untouched; a sandbox's migration adds a column only that sandbox has, under its own ledger target, and a file naming staging's schema fails the task; a statement naming another schema or changing the search path is refused and listed; before the schema is seeded, and after a branch reset until the next publish, `ctx.oltp` is refused rather than run in staging's schema; with no branch it is held as before |
 //! | `sandbox_oltp_teardown` | a teardown drops that sandbox's OLTP schema and ledger rows and leaves staging's and the other sandbox's; one that cannot confirm the drop (the branch mid-reset) fails and keeps the row, then finishes once the branch is back; a state this build cannot read still gets its schema dropped; a sandbox whose row records no schema connects to nothing |
 //! | `sandbox_oltp_seed` | a sandbox's schema on the org's OLTP staging branch is created by the branch owner and seeded as the app's writer: every table's structure, the rows under the cap, sequences at staging's position behind re-pointed defaults, foreign keys on the copies; the drop removes that schema alone; a name that is a writer's own schema is never created over or dropped; no branch, nothing |
+//! | `env_oltp_branch` | the `custom_app_env_oltp_branch` task cuts a sandbox's own OLTP branch on a `LocalProvider` cluster: a cut with a build applies its OLTP files under `branch:<id>` and is `ready` (queued and run by the registered executor too), a cut with no build is `ready` with nothing applied, a deleted sandbox gets nothing, a failing migration leaves the branch `failed` and refused, and a migrate applies only the build the sandbox serves |
 //! | `sandbox_publish` | a publish with `environment` moves that sandbox's pointer and leaves the app row, staging, production and the schedules byte-identical; a semantic pin rides the sandbox's build |
 //! | `draft_publish_retention` | builds production served are kept in a retention window of their own: twelve drafts after three promotes leave every rollback target and prune the drafts' own two oldest; ten sandbox publishes after that prune nothing, and the eleventh prunes the oldest sandbox build alone |
 //! | `sandbox_publish_migrations` | a sandbox publish queues its Airhouse migrations under their own kind and applies no OLTP file; the task applies nothing for a sandbox that is locked, deleted or serving another build; sandbox builds are pruned in a window of their own |
 //! | `sandbox_publish_refusals` | what a sandbox publish refuses, each leaving no build row or bytes: `promote`, no reach, an unknown app or sandbox, a deleting one; a machine or app-scoped token, refused by the sandbox itself past `authorize_publish`; a sandbox deleted after admission — `409`, the stored build rolled back |
 //! | `sandbox_publish_route` | the `environment` multipart field through the real publish handler: the sandbox, the two new response fields on every publish, the plain-text refusals, a publish token refused |
 //! | `sandbox_routes` | create / list / show / delete through the staff console's guards: the Environment object; a duplicate, a name still tearing down, `staging` and a malformed name refused with their codes; a second `DELETE` answers the run on its way |
+//! | `sandbox_outbox` | a sandbox created with `messages=capture`, through the real serve route and the console's routes: `ctx.email.send` and `ctx.notify` send nothing (SES stays silent) and are kept as `_outbox/<inverted millis>-<time>-<id>.json` in its own silo, read back by `GET …/outbox` newest first with `limit` and `has_more`; a bad limit `400 invalid_limit`, production `409 production_has_no_planes`, a missing sandbox `404`; an invoker sandbox keeps no outbox and production still sends; a capture past the silo's cap fails the way a refused storage put does and sends nothing in its place |
+//! | `sandbox_outbox_instance` | a sandbox agent token reads the outbox of the sandbox instance it created and no earlier one: messages captured before the instance began are dropped before the limit, so a page is never short because of them, while a person reads them all; a token reads no outbox but its own sandbox's |
+//! | `sandbox_planes_routes` | `PUT …/planes` replaces the stored object (set `{a}`, then `{b}`: the row is exactly `{b}`) and is audited; production answers `409 production_has_no_planes`, staging with no row `409 environment_has_no_row`, a bad choice `400 invalid_planes` with the row untouched; a create records `from`, `at`, `preset` and `planes` (`invalid_parent`, `invalid_fork_at`); `POST …/reset` validates, and refuses a plane with no reset `409 plane_not_resettable` |
+//! | `sandbox_planes_semantic` | the `semantic` plane through those routes and the pin port: an unknown branch is `400 invalid_planes` naming it with nothing stored; a known one is stored as written (`planes_set` shows `branch:<b>`, or the object form as sent) and pinned; a non-branch choice clears a held pin and asks for no clear when there is none; a pin that fails after the store is answered with its own status and a retry pins, and one that fails after a create names the planes write that pins it; a create pins its branch, a create naming none asks the pinner nothing, and `preset: full` on an org with no OLTP database is `400 invalid_planes`; without the port a branch is `503 semantic_pin_unavailable` |
+//! | `sandbox_create_from_build` | a create with `from` points the new sandbox at its parent's build (staging's, production's or a sandbox's) with a `publish` event and queues that build's migrations under the sandbox task kind; a parent with no build, and a create with no `from`, give no build and queue nothing; a sandbox agent token forks from its own sandbox (the copied build is not marked as the token's) and gets `400 invalid_parent` from staging, production and a missing parent, with no row and nothing queued |
+//! | `sandbox_warehouse_overrides` | `planes.warehouse = {mode, destinations}`: stored as sent and read back by the runtime, whose policy sends a `ctx.warehouse` write to the mapped database; an override a publish would refuse (production's host and user, itself, an unknown database, a blank name, a chain, including one through a key only the build's `nonProduction.destinations` maps) is `400 invalid_planes` with the row untouched, on `PUT …/planes` and on create; the bare `"mapped"` reads no workspace, and an override in a workspace with nothing compiled is not stored |
+//! | `sandbox_reset` | `POST …/reset` for `storage`, `secrets` and `messages`: each empties its own home and nothing else (a storage reset keeps the secrets, a messages reset keeps the other objects), in the order asked, stopping at the first refusal; staging's storage and secrets answer `409 plane_not_resettable` (shared by the team) while its outbox resets; a held sandbox lock is `409 environment_busy`; a deleting sandbox is not found; a sandbox agent token resets only a sandbox it created |
 //! | `sandbox_routes_guards` | every handler refuses a caller without non-production reach and a publish token; the console's layers refuse a non-staff caller and answer an operator scoped to another org `404`; production mounts the routes inside those layers |
 //! | `sandbox_routes_limit` | the 21st sandbox is refused and one being torn down counts; every create waits for the app row's lock, so racing creates cannot pass the limit |
 //! | `sandbox_schema_collision` | a legacy `--` slug's own schema is never another app's sibling: a sandbox of that name is not created or dropped, and an apply into it — staging's or a sandbox's — fails naming the collision instead of ending "nothing to apply" |
@@ -113,6 +122,7 @@ mod notification_fixture;
 mod oltp_fx;
 
 mod admin_app_workspace_in_org;
+mod airhouse_overlay;
 mod app_environments;
 mod app_environments_phase_1b;
 mod app_preflight;
@@ -154,6 +164,7 @@ mod custom_apps_publish_workspace;
 mod custom_domains;
 mod demo_fixture;
 mod draft_publish_retention;
+mod env_oltp_branch;
 mod env_schedules;
 mod env_schedules_tenant;
 mod env_webhooks;
@@ -167,6 +178,7 @@ mod me_apps;
 mod nonprod_function_uploads;
 mod notification_function_action;
 mod platform_facts;
+mod preview_automation_run_handlers;
 mod preview_read_only_session;
 mod promote_rollback;
 mod public_routes;
@@ -174,6 +186,7 @@ mod publish_audit;
 mod release_timeline;
 mod route_roles;
 mod sandbox_agent_token;
+mod sandbox_create_from_build;
 mod sandbox_environments;
 mod sandbox_isolation;
 mod sandbox_isolation_airhouse;
@@ -181,10 +194,15 @@ mod sandbox_loop;
 mod sandbox_oltp_isolation;
 mod sandbox_oltp_seed;
 mod sandbox_oltp_teardown;
+mod sandbox_outbox;
+mod sandbox_outbox_instance;
+mod sandbox_planes_routes;
+mod sandbox_planes_semantic;
 mod sandbox_publish;
 mod sandbox_publish_migrations;
 mod sandbox_publish_refusals;
 mod sandbox_publish_route;
+mod sandbox_reset;
 mod sandbox_routes;
 mod sandbox_routes_guards;
 mod sandbox_routes_limit;
@@ -198,6 +216,7 @@ mod sandbox_teardown;
 mod sandbox_teardown_failures;
 mod sandbox_teardown_races;
 mod sandbox_teardown_task;
+mod sandbox_warehouse_overrides;
 mod secrets_audit;
 mod secrets_promote_and_copy;
 mod seed_example_app;

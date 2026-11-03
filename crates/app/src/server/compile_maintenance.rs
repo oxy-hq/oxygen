@@ -41,7 +41,9 @@ const DELETE_BATCH: i64 = 1000;
 ///
 /// * a workspace serves it (`workspaces.current_revision_id`), or
 /// * a custom-app build pins it (`app_builds.semantic_revision_id`, the staging
-///   pin — "never delete a revision a build pins").
+///   pin — "never delete a revision a build pins"), or
+/// * a custom-app environment pins it (`app_environments.semantic_revision_id`,
+///   the environment's own semantic pin).
 ///
 /// A SQL predicate over `revisions r`; a delete keeps every row it matches. One
 /// statement of the rule, so an early release can never be looser than retention.
@@ -49,6 +51,8 @@ pub const REVISION_IN_USE: &str = "(EXISTS ( \
          SELECT 1 FROM workspaces w WHERE w.current_revision_id = r.revision_id \
      ) OR EXISTS ( \
          SELECT 1 FROM app_builds b WHERE b.semantic_revision_id = r.revision_id \
+     ) OR EXISTS ( \
+         SELECT 1 FROM app_environments e WHERE e.semantic_revision_id = r.revision_id \
      ))";
 
 #[derive(Clone, Copy, Debug)]
@@ -172,5 +176,23 @@ pub async fn prune_old_revisions(db: &DatabaseConnection, retention_days: u64) {
         ),
         Ok(_) => {}
         Err(e) => tracing::warn!(?e, "compile_maintenance: retention sweep failed"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::REVISION_IN_USE;
+
+    #[test]
+    fn retention_keeps_env_pinned_revision() {
+        assert!(
+            REVISION_IN_USE.contains(
+                "SELECT 1 FROM app_environments e WHERE e.semantic_revision_id = r.revision_id"
+            ),
+            "{REVISION_IN_USE}"
+        );
+        // The older two terms stay.
+        assert!(REVISION_IN_USE.contains("workspaces w"));
+        assert!(REVISION_IN_USE.contains("app_builds b"));
     }
 }

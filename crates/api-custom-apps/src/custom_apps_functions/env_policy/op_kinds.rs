@@ -5,6 +5,7 @@
 //! [`HostOpSpec`].
 
 use super::{Decision, HostOp};
+use crate::custom_apps_planes::Plane;
 
 /// The surface a call arrives on — one per `HostCall` variant, and so per
 /// `op_ctx_*` op in the bootstrap. A family with sub-ops (`warehouse`,
@@ -170,10 +171,11 @@ impl Capability {
 pub enum Staged {
     /// The decision, whatever the org.
     Decided(Decision),
-    /// Decided at admission by where the org's `ctx.oltp` lands
-    /// (`OltpHome::decision`): the staging branch, a sandbox schema on it,
-    /// or held on production.
-    ByOltpHome,
+    /// Decided at admission by where the op's plane lands. [`Plane::Oltp`]
+    /// decides by its [`OltpHome`](super::OltpHome) (the staging branch, a
+    /// sandbox schema on it, or held on production); storage, secrets and
+    /// messages by their [`PlaneHomes`](super::PlaneHomes).
+    ByHome(Plane),
 }
 
 /// How an op outside production is kept from running when the policy holds

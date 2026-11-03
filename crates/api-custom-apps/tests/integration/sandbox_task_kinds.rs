@@ -1,5 +1,6 @@
-//! The three task kinds a sandbox queues, `custom_app_sandbox_teardown`,
-//! `custom_app_sandbox_migrations` and `custom_app_sandbox_oltp`: each is
+//! The four task kinds a sandbox queues, `custom_app_sandbox_teardown`,
+//! `custom_app_sandbox_migrations`, `custom_app_sandbox_oltp` and
+//! `custom_app_env_oltp_branch`: each is
 //! handed to the worker fleet by `oxy-server`,
 //! and each is filed as a platform daemon wherever a daemon is told from the
 //! tenant's own work. Source scans — the registry and two of the three lists
@@ -31,6 +32,7 @@ fn handed_in_tasks() -> String {
 /// failed teardown must never mark a customer's workspace unhealthy.
 #[test]
 fn the_sandbox_task_kinds_are_platform_daemons_in_every_list() {
+    use oxy_api_custom_apps::custom_apps_env_branch::task::ENV_OLTP_BRANCH_KIND;
     use oxy_api_custom_apps::custom_apps_sandboxes::migrations_task::SANDBOX_MIGRATIONS_KIND;
     use oxy_api_custom_apps::custom_apps_sandboxes::oltp_task::SANDBOX_OLTP_KIND;
     use oxy_api_custom_apps::custom_apps_sandboxes::teardown::SANDBOX_TEARDOWN_KIND;
@@ -59,6 +61,7 @@ fn the_sandbox_task_kinds_are_platform_daemons_in_every_list() {
             SANDBOX_TEARDOWN_KIND,
             SANDBOX_MIGRATIONS_KIND,
             SANDBOX_OLTP_KIND,
+            ENV_OLTP_BRANCH_KIND,
         ] {
             assert!(
                 body.contains(&format!("\"{kind}\"")),
@@ -95,6 +98,21 @@ fn the_oltp_schema_executor_is_registered_for_its_kind() {
         ),
         "`custom_apps_seams::tasks` no longer hands in \
          the executor for SANDBOX_OLTP_KIND"
+    );
+}
+
+/// The worker fleet cuts, resets and migrates a sandbox's own OLTP branch only
+/// if `oxy-server` hands in its kind.
+#[test]
+fn the_env_branch_executor_is_registered_for_its_kind() {
+    let squeezed = handed_in_tasks();
+    assert!(
+        squeezed.contains(
+            "TaskSeam{kind:env_branch_task::ENV_OLTP_BRANCH_KIND,\
+             build:|deps|{Arc::new(env_branch_task::EnvBranchExecutor{db:deps.db.clone(),})},}"
+        ),
+        "`custom_apps_seams::tasks` no longer hands in \
+         the executor for ENV_OLTP_BRANCH_KIND"
     );
 }
 

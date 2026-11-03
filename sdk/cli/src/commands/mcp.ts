@@ -73,6 +73,8 @@ import {
 import { runChecksCore } from "./checks.js";
 import { comparablePath } from "./discover.js";
 import { envCreate, envDelete, envList, envShow } from "./env.js";
+import { envOutbox } from "./env-outbox.js";
+import { envReset, envUpdate } from "./env-planes.js";
 import { envSchedules } from "./env-schedules.js";
 import { secretDelete, secretList, secretSet } from "./env-secrets.js";
 import { fnCall } from "./fn.js";
@@ -250,6 +252,12 @@ const TOOLS = [
  * checks_run → invocations_list / invocations_held / logs → iterate from
  * publish_sandbox → env_delete.
  */
+const PLANES_ARG = {
+  type: "object",
+  description:
+    'Plane key to mode, e.g. {"semantic": "branch:<git branch>"}; "default" clears a key.'
+};
+
 const SANDBOX_TOOLS = [
   {
     name: "oxy_env_create",
@@ -265,7 +273,64 @@ const SANDBOX_TOOLS = [
         name: {
           type: "string",
           description: "dev-<handle> — 1-12 lowercase letters, digits and single hyphens."
+        },
+        from: { type: "string", description: "Parent: production, staging or a sandbox." },
+        at: { type: "string", description: "Fork time, RFC 3339, not in the future." },
+        preset: { type: "string", enum: ["light", "full"] },
+        planes: PLANES_ARG
+      },
+      required: ["app", "name"]
+    }
+  },
+  {
+    name: "oxy_env_update",
+    description:
+      "Set plane modes on staging or a dev-<handle> sandbox, keeping those already set " +
+      "(replace=true: exactly `planes`). Returns the Environment.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        name: { type: "string", description: "staging or dev-<handle>." },
+        planes: PLANES_ARG,
+        replace: { type: "boolean" }
+      },
+      required: ["app", "name", "planes"]
+    }
+  },
+  {
+    name: "oxy_env_reset",
+    description:
+      "Reset planes of staging or a dev-<handle> sandbox to a clean copy of the parent's. " +
+      "Returns {name, planes: [{plane, status, run_id}]}.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        name: { type: "string", description: "staging or dev-<handle>." },
+        planes: { type: "array", items: { type: "string" }, description: "Plane keys." },
+        at: {
+          type: "string",
+          description:
+            "Optional RFC 3339 time to reset the OLTP branch from the parent as of " +
+            "(not in the future, within the last 24 hours); default: the parent as it is now."
         }
+      },
+      required: ["app", "name", "planes"]
+    }
+  },
+  {
+    name: "oxy_env_outbox",
+    description:
+      "Email and notifications a staging or dev-<handle> environment CAPTURED instead of " +
+      "sending (messages plane `capture`), newest first — read it after oxy_fn_call. Returns " +
+      "{messages: [{kind, to, subject|title, body, invocation_id, function}], has_more}.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        name: { type: "string", description: "staging or dev-<handle>." },
+        limit: { type: "number", description: "Default 50, at most 200." }
       },
       required: ["app", "name"]
     }
@@ -691,6 +756,12 @@ function fieldPairs(fields: Record<string, unknown> | undefined): string[] {
  * no `path` matched every path and returned the whole OpenAPI document, and
  * `oxy_request` with none built a request to `/api/`.
  */
+function optionalString(name: string, value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  throw usageError(`${name} must be a string`);
+}
+
 function requireArgs(name: string, args: Record<string, unknown>, required: string[]): void {
   const missing = required.filter((k) => {
     const v = args[k];
@@ -888,7 +959,46 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
 
     case "oxy_env_create": {
       requireArgs("oxy_env_create", args, ["app", "name"]);
-      return jsonResult(await envCreate(ctx, String(args.app), String(args.name)));
+      return jsonResult(
+        await envCreate(ctx, String(args.app), String(args.name), {
+          from: optionalString("from", args.from),
+          at: optionalString("at", args.at),
+          preset: optionalString("preset", args.preset),
+          planes: args.planes as Record<string, string> | undefined
+        })
+      );
+    }
+
+    case "oxy_env_update": {
+      requireArgs("oxy_env_update", args, ["app", "name", "planes"]);
+      return jsonResult(
+        await envUpdate(ctx, String(args.app), String(args.name), {
+          planes: args.planes as Record<string, string>,
+          replace: args.replace === true
+        })
+      );
+    }
+
+    case "oxy_env_reset": {
+      requireArgs("oxy_env_reset", args, ["app", "name", "planes"]);
+      if (!Array.isArray(args.planes) || args.planes.some((p) => typeof p !== "string")) {
+        throw usageError("planes must be an array of plane keys", 'e.g. ["storage", "oltp"]');
+      }
+      return jsonResult(
+        await envReset(
+          ctx,
+          String(args.app),
+          String(args.name),
+          args.planes as string[],
+          optionalString("at", args.at)
+        )
+      );
+    }
+
+    case "oxy_env_outbox": {
+      requireArgs("oxy_env_outbox", args, ["app", "name"]);
+      const limit = args.limit === undefined ? undefined : Number(args.limit);
+      return jsonResult(await envOutbox(ctx, String(args.app), String(args.name), { limit }));
     }
 
     case "oxy_env_list": {

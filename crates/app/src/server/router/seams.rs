@@ -241,13 +241,14 @@ pub struct SurfaceSeams {
 ///
 /// The strings, not the constants that name them in `oxy-api-custom-apps`: the
 /// executors are in that crate and `oxy-app` cannot name it. A test there
-/// (`task_kinds_are_the_five_the_fleet_knew`) holds each constant to its string.
-pub const CUSTOM_APP_TASK_KINDS: [&str; 5] = [
+/// (`task_kinds_are_the_six_the_fleet_knew`) holds each constant to its string.
+pub const CUSTOM_APP_TASK_KINDS: [&str; 6] = [
     "app_function",
     "custom_app_staging_migrations",
     "custom_app_sandbox_teardown",
     "custom_app_sandbox_migrations",
     "custom_app_sandbox_oltp",
+    "custom_app_env_oltp_branch",
 ];
 
 /// The background jobs a serve process needs for custom apps (usage rows,
@@ -357,10 +358,10 @@ mod tests {
         }
     }
 
-    /// The persisted task-queue contract: these five strings are in
+    /// The persisted task-queue contract: these six strings are in
     /// `agentic_task_queue` rows, so a change here strands queued work.
     #[test]
-    fn the_required_task_kinds_are_the_five_the_fleet_knew() {
+    fn the_required_task_kinds_are_the_six_the_fleet_knew() {
         assert_eq!(
             CUSTOM_APP_TASK_KINDS,
             [
@@ -369,6 +370,7 @@ mod tests {
                 "custom_app_sandbox_teardown",
                 "custom_app_sandbox_migrations",
                 "custom_app_sandbox_oltp",
+                "custom_app_env_oltp_branch",
             ]
         );
     }

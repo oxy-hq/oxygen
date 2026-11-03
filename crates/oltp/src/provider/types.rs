@@ -71,8 +71,30 @@ impl Role {
     }
 }
 
+/// What a new branch is cut from: the parent's data, or only its tables.
+///
+/// A sandbox branch of an app that holds customer rows should be able to carry
+/// the schema without the data, so a developer's migration can be tried against
+/// the real table shapes while no customer record leaves production.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BranchInit {
+    /// The parent's schema **and** rows — a copy-on-write fork, what staging is.
+    #[default]
+    ParentData,
+    /// The parent's schema with every table empty. On Neon the branch has no
+    /// parent at all (`init_source: schema-only`), which is why it cannot be
+    /// reset from one.
+    SchemaOnly,
+}
+
+/// What every provider answers (400) to a reset of a [`BranchInit::SchemaOnly`]
+/// branch: there is no parent data to re-copy, and handing back production's
+/// rows would be the opposite of what the branch was cut to avoid.
+pub(crate) const SCHEMA_ONLY_RESET_REFUSAL: &str =
+    "a schema-only branch cannot be reset from its parent; cut it again";
+
 /// What to branch, and from where. Shared by `create_branch` and
-/// `reset_branch`, which need the same four facts.
+/// `reset_branch`, which need the same facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BranchRequest {
     pub project_id: String,
@@ -88,6 +110,40 @@ pub struct BranchRequest {
     /// its own copy of every role, this is the one whose password is reset on
     /// the branch, so production's owner credential stops opening it.
     pub owner_role: String,
+    /// Cut the branch from the parent as it was at this instant rather than at
+    /// its head. `None` is the head, which is all staging ever wants.
+    ///
+    /// A provider that cannot time-travel (`LocalProvider`) copies the head and
+    /// says so; it never fails the create over it.
+    pub parent_timestamp: Option<chrono::DateTime<chrono::Utc>>,
+    /// When the provider should delete the branch by itself, so a sandbox that
+    /// nobody cleaned up stops costing compute. `None` is never.
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Whether the branch carries the parent's rows or only its tables.
+    pub init: BranchInit,
+}
+
+impl BranchRequest {
+    /// A branch cut from the parent's head with its data and no expiry — what
+    /// the org's staging branch is, and the base the other requests tweak.
+    pub fn staging(
+        project_id: impl Into<String>,
+        parent_branch_id: impl Into<String>,
+        name: impl Into<String>,
+        database_name: impl Into<String>,
+        owner_role: impl Into<String>,
+    ) -> Self {
+        Self {
+            project_id: project_id.into(),
+            parent_branch_id: parent_branch_id.into(),
+            name: name.into(),
+            database_name: database_name.into(),
+            owner_role: owner_role.into(),
+            parent_timestamp: None,
+            expires_at: None,
+            init: BranchInit::ParentData,
+        }
+    }
 }
 
 /// A copy-on-write branch of a tenant's database, cut from production's head.

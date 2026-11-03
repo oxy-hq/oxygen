@@ -28,20 +28,37 @@ use airhouse::sql_rules::{self, Access};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use uuid::Uuid;
 
-use super::{Decision, EnvPolicy, HostOp, MISROUTED_FIX, Target, held_message};
+use super::{
+    Decision, EnvPolicy, HostOp, MISROUTED_FIX, SecretsHome, StorageHome, Target, held_message,
+};
 use crate::custom_apps_storage::Silo;
 
 /// The P5b half of the policy: the homes a call's names pick, and the
 /// decisions that depend on them. None turns an `Isolate` row into `Allow`;
 /// a name with no home turns it into `Hold`.
 impl EnvPolicy {
-    /// The same policy with the running build's `nonProduction.destinations`.
-    /// Ignored in production.
+    /// The same policy with the running build's `nonProduction.destinations`,
+    /// under the environment's own warehouse overrides: each override replaces
+    /// the manifest's mapping for that database, and the manifest's other keys
+    /// stay. Ignored in production.
     pub fn with_destinations(mut self, destinations: BTreeMap<String, String>) -> Self {
         if !self.is_production() {
             self.destinations = destinations;
+            self.overlay_warehouse_overrides();
         }
         self
+    }
+
+    /// Lay the planes' warehouse overrides over `destinations`. Idempotent, so
+    /// it runs from both `with_destinations` and `with_planes` and the order
+    /// they are applied in does not matter.
+    pub(super) fn overlay_warehouse_overrides(&mut self) {
+        let Some(planes) = &self.planes else {
+            return;
+        };
+        for (from, to) in &planes.warehouse.destinations {
+            self.destinations.insert(from.clone(), to.clone());
+        }
     }
 
     /// Where a non-production write to `database` lands: its mapping, when the
@@ -119,9 +136,13 @@ impl EnvPolicy {
 /// (`host::env_homes`), and so does the differential test.
 impl EnvPolicy {
     /// The same policy with the manifest's `shared` keys. Ignored in
-    /// production.
+    /// production, and where the secrets home is the environment's own path
+    /// alone: nothing is read through from production there.
     pub fn with_shared_env(mut self, keys: impl IntoIterator<Item = String>) -> Self {
-        if !self.is_production() {
+        let own_only = self
+            .homes
+            .is_some_and(|homes| homes.secrets == SecretsHome::OwnOnly);
+        if !self.is_production() && !own_only {
             self.shared_env = keys.into_iter().collect();
         }
         self
@@ -147,9 +168,21 @@ impl EnvPolicy {
     }
 
     /// The silo an op isolated to [`Target::StorageSilo`] works in:
-    /// `customer-app-storage/<app_id>~<env>/`.
+    /// `customer-app-storage/<app_id>~<env>/`, reading through to
+    /// production's same key unless the storage home is the silo alone.
     pub fn storage_silo(&self, app_id: Uuid) -> Silo {
-        Silo::for_environment(app_id, &self.environment)
+        let silo = Silo::for_environment(app_id, &self.environment);
+        match self.homes.map(|homes| homes.storage) {
+            Some(StorageHome::SiloOnly) => silo.without_fallback(),
+            Some(StorageHome::SiloWithFallback) | None => silo,
+        }
+    }
+
+    /// The silo a message captured under [`Target::Outbox`] is written to: the
+    /// environment's own, with no fallback, so an outbox read never sees a
+    /// production object. `None` in production, which has no outbox.
+    pub fn outbox_silo(&self, app_id: Uuid) -> Option<Silo> {
+        (!self.is_production()).then(|| self.storage_silo(app_id).without_fallback())
     }
 
     /// The secret-path segment an op isolated to [`Target::EnvSecrets`]

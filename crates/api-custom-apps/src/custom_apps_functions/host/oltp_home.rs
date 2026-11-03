@@ -14,17 +14,23 @@
 //! writer there with that schema as the only `search_path` entry
 //! (`oxy_oltp::sandbox_schema`), and only on the cut the admission found the
 //! schema ready on: a branch reset since replaced the database it was in.
+//!
+//! A sandbox admitted to a branch of its own (`oxy_oltp::env_branches`)
+//! resolves the writer there in its usual schema, and only on the cut the
+//! admission found ready: a reset in flight or finished since fails the call
+//! ([`env_branch_connection`]).
 
 use oxy_oltp::OltpBranch;
 use oxy_oltp::resolver::{
-    WriterConnection, resolve_branch_writer_for_org, resolve_writer_connection_for_org,
+    EnvBranchAccept, ResolveError, WriterConnection, resolve_branch_writer_for_org,
+    resolve_env_branch_writer_for_org, resolve_writer_connection_for_org,
 };
 use oxy_oltp::sandbox_schema::resolve_branch_sandbox_writer_for_org;
 use oxy_oltp::schema::WriterRef;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use super::super::env_policy::{OltpHome, REFUSED_LABEL, SandboxHome};
+use super::super::env_policy::{EnvBranchHome, OltpHome, REFUSED_LABEL, SandboxHome};
 
 /// The app writer `writer_name`'s connection in `org_id`, on `home`. Public so
 /// the environments' differential test resolves both homes exactly as the
@@ -52,9 +58,50 @@ pub async fn writer_connection(
             branch_connection(db, org_id, writer_name, &writer, admitted).await
         }
         OltpHome::SandboxSchema(home) => sandbox_connection(db, org_id, &writer, home).await,
+        OltpHome::EnvironmentBranch(home) => env_branch_connection(db, org_id, &writer, home).await,
         // Every op is refused before it connects (`oltp_guard`); a path that
         // reaches here anyway gets no connection, never staging's schema.
         OltpHome::SandboxUnready(why) => Err(format!("{REFUSED_LABEL}: {}.", why.fix())),
+        OltpHome::EnvironmentBranchUnready(why) => Err(format!("{REFUSED_LABEL}: {}.", why.fix())),
+    }
+}
+
+/// The writer on the environment's own branch — only while it is still the
+/// cut the admission found ready. A reset in flight, or finished since, fails
+/// the call: the data it was admitted to went with the old copy, and nothing
+/// follows to the new one or to any other home.
+async fn env_branch_connection(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    writer: &WriterRef,
+    home: &EnvBranchHome,
+) -> Result<WriterConnection, String> {
+    let env = &home.env_name;
+    let resolved = resolve_env_branch_writer_for_org(
+        db,
+        org_id,
+        home.app_id,
+        env,
+        writer,
+        EnvBranchAccept::Ready,
+    )
+    .await;
+    match resolved {
+        Ok(Some(branch)) if branch.cut == home.cut => Ok(branch.connection),
+        Ok(Some(_)) => Err(format!(
+            "the OLTP branch of {env} was reset or re-cut since this invocation was admitted; \
+             nothing was sent. Call the function again"
+        )),
+        Ok(None) => Err(format!(
+            "this invocation was admitted to the OLTP branch of {env}, which no longer exists; \
+             nothing was sent"
+        )),
+        Err(ResolveError::EnvBranchNotReady { status, .. }) => Err(format!(
+            "the OLTP branch of {env} is no longer ready since this invocation was admitted \
+             (status: {status}: it is being reset, migrated or failed); nothing was sent. Call \
+             the function again once it is ready"
+        )),
+        Err(e) => Err(format!("the OLTP branch of {env} cannot be used: {e}")),
     }
 }
 

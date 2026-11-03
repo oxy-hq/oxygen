@@ -655,6 +655,9 @@ const customAppKeys = {
   stagingHeld: (id: string) => ["customApps", "stagingHeld", id] as const,
   /** The app's environments: production, staging and every dev sandbox. */
   environments: (id: string) => ["customApps", "environments", id] as const,
+  /** What one `capture` environment kept instead of sending. */
+  environmentOutbox: (id: string, name: string) =>
+    ["customApps", "environments", id, name, "outbox"] as const,
   /** The GitHub workflows allowed to OIDC-publish this app. */
   publishers: (id: string) => ["customApps", "publishers", id] as const,
   /** The customer-owned domains the app is served on, with the CNAME target. */

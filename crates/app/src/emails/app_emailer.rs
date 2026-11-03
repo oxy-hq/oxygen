@@ -11,7 +11,9 @@ use aws_sdk_sesv2::types::{Destination, EmailContent, RawMessage};
 use serde::Deserialize;
 
 mod redirect;
+mod render;
 pub use redirect::IgnoredRecipients;
+pub use render::RenderedEmail;
 
 /// Max combined `to` + `cc` + `bcc` recipients per `ctx.email.send` call
 /// (Cloudflare's number). Bounds fan-out from a single send.

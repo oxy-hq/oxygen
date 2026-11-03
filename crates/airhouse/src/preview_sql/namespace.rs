@@ -1,9 +1,12 @@
-//! A preview's namespace: live schema `S` ↔ `preview_<key>__S`.
+//! A namespace the overlay stands in: a preview's (live schema `S` ↔
+//! `preview_<key>__S`), or a custom-app environment's (the app's own schema ↔
+//! its sibling `app_<writer>__<env>`).
 
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::Refused;
+use crate::app_schema::environment_schema;
 
 /// The readable half of a key is capped so the key, and every schema named
 /// after it, stays well inside identifier limits.
@@ -11,13 +14,32 @@ const SLUG_MAX: usize = 24;
 /// Hex characters of `sha256(workspace_id ‖ 0x00 ‖ branch)` in a key.
 const HASH_LEN: usize = 6;
 
-/// One preview's Airhouse namespace. Every schema it may write is
-/// `preview_<key>__<live schema>`, and the mapping is one-to-one: a key never
-/// contains `__`, and a live schema that contains `__` or starts with
-/// `preview_` has no preview schema at all.
+/// An Airhouse namespace the overlay redirects writes into. Two kinds, with
+/// one set of questions ([`Self::schema_for`], [`Self::owns_schema`]):
+///
+/// - **A preview's** ([`Self::for_branch`], [`Self::from_key`]). Every schema
+///   it may write is `preview_<key>__<live schema>`, and the mapping is
+///   one-to-one: a key never contains `__`, and a live schema that contains
+///   `__` or starts with `preview_` has no preview schema at all.
+/// - **A custom-app environment's** ([`Self::for_environment`]). It stands in
+///   for exactly one schema, the app's own `app_<writer>`, with that
+///   environment's sibling `app_<writer>__<env>`. Every other schema has no
+///   stand-in, so a write to it is refused; a read of it stays live.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PreviewNamespace {
-    key: String,
+    scheme: Scheme,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Scheme {
+    Preview {
+        key: String,
+    },
+    /// Both lowercase: `sibling` is `<live>__<label>`.
+    Environment {
+        live: String,
+        sibling: String,
+    },
 }
 
 impl PreviewNamespace {
@@ -31,8 +53,12 @@ impl PreviewNamespace {
         hasher.update([0u8]);
         hasher.update(branch.as_bytes());
         let digest = hex::encode(hasher.finalize());
+        Self::preview(format!("{}_{}", slug(branch), &digest[..HASH_LEN]))
+    }
+
+    fn preview(key: String) -> Self {
         Self {
-            key: format!("{}_{}", slug(branch), &digest[..HASH_LEN]),
+            scheme: Scheme::Preview { key },
         }
     }
 
@@ -53,37 +79,119 @@ impl PreviewNamespace {
         if !slug_ok || !hash_ok || key.contains("__") {
             return Err(bad());
         }
-        Ok(Self { key: key.into() })
+        Ok(Self::preview(key.into()))
     }
 
+    /// The namespace of a custom-app environment: writes to `app_schema` go
+    /// to `sibling` and nowhere else. Both lowercase, and `sibling` the name
+    /// [`environment_schema`] gives `app_schema` for its label, so it is
+    /// `<app_schema>__<label>`: the host builds it that way and a
+    /// hand-written one is refused.
+    pub fn for_environment(app_schema: &str, sibling: &str) -> Result<Self, Refused> {
+        let bad = |why: &str| {
+            Refused(format!(
+                "{sibling:?} is not an environment sibling of {app_schema:?}: {why}"
+            ))
+        };
+        if app_schema.is_empty() || app_schema.to_ascii_lowercase() != app_schema {
+            return Err(bad("both names must be lowercase and non-empty"));
+        }
+        if sibling == app_schema {
+            return Err(bad("the sibling is the app's own schema"));
+        }
+        let label = sibling
+            .strip_prefix(app_schema)
+            .and_then(|rest| rest.strip_prefix("__"))
+            .ok_or_else(|| bad("a sibling is <app schema>__<label>"))?;
+        if environment_schema(app_schema, label).as_deref() != Some(sibling) {
+            return Err(bad("it is not the name the app's environment would get"));
+        }
+        Ok(Self {
+            scheme: Scheme::Environment {
+                live: app_schema.into(),
+                sibling: sibling.into(),
+            },
+        })
+    }
+
+    /// A preview's key, **preview-only**: every previews caller holds a
+    /// preview namespace, where this is the key its schemas are named after. For an environment namespace there is no key; it returns
+    /// the sibling schema's name, which is what identifies it.
     pub fn key(&self) -> &str {
-        &self.key
+        match &self.scheme {
+            Scheme::Preview { key } => key,
+            Scheme::Environment { sibling, .. } => sibling,
+        }
     }
 
     /// `preview_<key>__`, the prefix of every schema this preview owns.
+    /// **Preview-only**: an environment owns a single schema and no prefix, so
+    /// for one this returns the sibling's name (not a prefix of anything else).
     pub fn prefix(&self) -> String {
-        format!("preview_{}__", self.key)
+        match &self.scheme {
+            Scheme::Preview { key } => format!("preview_{key}__"),
+            Scheme::Environment { sibling, .. } => sibling.clone(),
+        }
     }
 
-    /// The preview schema standing in for `live_schema`, lowercased the way
-    /// DuckDB compares identifiers.
+    /// The schema standing in for `live_schema`, lowercased the way DuckDB
+    /// compares identifiers: a preview's `preview_<key>__S`, or, for an
+    /// environment, the sibling when `live_schema` is the app's own schema.
+    /// Refused where there is none.
     pub fn schema_for(&self, live_schema: &str) -> Result<String, Refused> {
         let live = live_schema.to_ascii_lowercase();
-        if let Some(why) = not_a_live_schema(&live) {
-            return Err(Refused(format!(
-                "schema {live_schema:?} {why}, so a preview has no schema standing in for it"
-            )));
+        match &self.scheme {
+            Scheme::Preview { .. } => {
+                if let Some(why) = not_a_live_schema(&live) {
+                    return Err(Refused(format!(
+                        "schema {live_schema:?} {why}, so a preview has no schema standing in \
+                         for it"
+                    )));
+                }
+                Ok(format!("{}{live}", self.prefix()))
+            }
+            Scheme::Environment { live: app, sibling } => {
+                if live != *app {
+                    return Err(Refused(format!(
+                        "schema {live_schema:?} is not {app:?}; an environment overlay stands in \
+                         for the app's own schema only"
+                    )));
+                }
+                Ok(sibling.clone())
+            }
         }
-        Ok(format!("{}{live}", self.prefix()))
     }
 
-    /// Whether `schema` is one of this preview's: its prefix followed by a
-    /// name [`Self::schema_for`] would accept.
+    /// [`Self::schema_for`] for a **read**. A preview refuses a schema it has
+    /// no stand-in for even when reading, as it always has. An environment
+    /// reads every other schema live, so there it is `None`, not a refusal.
+    pub(super) fn schema_for_read(&self, live_schema: &str) -> Result<Option<String>, Refused> {
+        match &self.scheme {
+            Scheme::Preview { .. } => self.schema_for(live_schema).map(Some),
+            Scheme::Environment { live, .. } if live_schema.eq_ignore_ascii_case(live) => {
+                self.schema_for(live_schema).map(Some)
+            }
+            Scheme::Environment { .. } => Ok(None),
+        }
+    }
+
+    /// Whether this is an environment's namespace, whose sibling the app's
+    /// migrations already made, rather than a preview's, which starts empty.
+    pub(super) fn is_environment(&self) -> bool {
+        matches!(self.scheme, Scheme::Environment { .. })
+    }
+
+    /// Whether `schema` is one of this namespace's: for a preview, its prefix
+    /// followed by a name [`Self::schema_for`] would accept; for an
+    /// environment, the sibling.
     pub fn owns_schema(&self, schema: &str) -> bool {
         let schema = schema.to_ascii_lowercase();
-        schema
-            .strip_prefix(&self.prefix())
-            .is_some_and(|live| not_a_live_schema(live).is_none())
+        match &self.scheme {
+            Scheme::Preview { .. } => schema
+                .strip_prefix(&self.prefix())
+                .is_some_and(|live| not_a_live_schema(live).is_none()),
+            Scheme::Environment { sibling, .. } => schema == *sibling,
+        }
     }
 }
 

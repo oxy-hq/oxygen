@@ -37,7 +37,9 @@ fn app_host_stack() -> Router {
         .layer(axum::middleware::from_fn(
             oxy_app_core::custom_apps_host_dispatch::subdomain_rewrite_middleware,
         ))
-        .layer(axum::middleware::from_fn(
+        .layer(axum::middleware::from_fn_with_state(
+            std::sync::Arc::new(oxy_app_core::custom_app_env_request::NoWorkspaceActions)
+                as std::sync::Arc<dyn oxy_app_core::custom_app_env_request::WorkspaceActions>,
             oxy_app_core::custom_app_env_request::environment_guard_middleware,
         ))
 }

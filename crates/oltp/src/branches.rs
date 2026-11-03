@@ -15,6 +15,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::entity::branches::{self as oltp_branches, Entity as OltpBranches, OltpBranch};
+use crate::entity::env_branches::{self, Entity as EnvBranches};
 use crate::entity::roles::{self as oltp_roles, Entity as OltpRoles, WriterKind};
 use crate::entity::tenants::{self as oltp_tenants, Entity as OltpTenants};
 
@@ -151,6 +152,16 @@ pub(crate) fn match_affected(
     out
 }
 
+/// Which table a [`BranchCut`]'s row is in — and so which row
+/// [`still_current`] re-reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CutScope {
+    /// `oltp_branches`: the org's shared staging branch.
+    OrgBranch,
+    /// `oltp_env_branches`: one custom-app environment's own branch.
+    Environment,
+}
+
 /// One cut of a branch: the row, the provider's branch id, and when its data
 /// was copied (`last_reset_at`, else `created_at`). A reset changes the cut;
 /// a re-cut under a new id changes the id too.
@@ -159,6 +170,7 @@ pub struct BranchCut {
     pub row_id: Uuid,
     pub provider_branch_id: String,
     pub cut_at: DateTime<FixedOffset>,
+    pub scope: CutScope,
 }
 
 impl BranchCut {
@@ -168,11 +180,27 @@ impl BranchCut {
             row_id: row.id,
             provider_branch_id: row.provider_branch_id.clone(),
             cut_at: row.last_reset_at.unwrap_or(row.created_at),
+            scope: CutScope::OrgBranch,
         }
+    }
+
+    /// The cut an environment's branch `row` describes now. `None` while the
+    /// row only records an intent: the provider's branch (id, endpoint,
+    /// database, owner) is not there yet, so there is nothing to have cut.
+    pub fn of_env(row: &env_branches::Model) -> Option<Self> {
+        if row.host.is_none() || row.database_name.is_none() || row.owner_role.is_none() {
+            return None;
+        }
+        Some(Self {
+            row_id: row.id,
+            provider_branch_id: row.provider_branch_id.clone()?,
+            cut_at: row.last_reset_at.unwrap_or(row.created_at),
+            scope: CutScope::Environment,
+        })
     }
 }
 
-/// Whether the branch is still `cut`, and `active` — read `FOR SHARE`, so a
+/// Whether the branch is still `cut`, and serving — read `FOR SHARE`, so a
 /// reset's status change waits for the caller's transaction to finish. A
 /// caller recording what it applied to a branch (the staging migration
 /// apply) runs this in the same transaction as the record: a branch reset or
@@ -183,13 +211,31 @@ pub async fn still_current<C: sea_orm::ConnectionTrait>(
     cut: &BranchCut,
 ) -> Result<bool, DbErr> {
     use sea_orm::QuerySelect;
-    let row = OltpBranches::find_by_id(cut.row_id)
-        .lock_shared()
-        .one(conn)
-        .await?;
-    Ok(row.is_some_and(|row| {
-        row.status == oltp_branches::BranchStatus::Active && BranchCut::of(&row) == *cut
-    }))
+    match cut.scope {
+        CutScope::OrgBranch => {
+            let row = OltpBranches::find_by_id(cut.row_id)
+                .lock_shared()
+                .one(conn)
+                .await?;
+            Ok(row.is_some_and(|row| {
+                row.status == oltp_branches::BranchStatus::Active && BranchCut::of(&row) == *cut
+            }))
+        }
+        // `Migrating` serves the migration apply, which is what asks; a
+        // function call is not served in it, and that is the caller's gate.
+        CutScope::Environment => {
+            let row = EnvBranches::find_by_id(cut.row_id)
+                .lock_shared()
+                .one(conn)
+                .await?;
+            Ok(row.is_some_and(|row| {
+                matches!(
+                    row.status,
+                    env_branches::EnvBranchStatus::Ready | env_branches::EnvBranchStatus::Migrating
+                ) && BranchCut::of_env(&row).as_ref() == Some(cut)
+            }))
+        }
+    }
 }
 
 /// The org's tenant and its `kind` branch, whichever exist.

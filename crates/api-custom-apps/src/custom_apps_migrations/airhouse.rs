@@ -290,7 +290,7 @@ async fn run_file(
 /// Airhouse supports it, otherwise an Admin for the same app subject. Shared
 /// with the sibling drop (`airhouse_drop`), which connects scoped to the
 /// sibling it removes.
-pub(super) async fn connect_as_app(
+pub(crate) async fn connect_as_app(
     workspace_id: Uuid,
     app_slug: &str,
     schema: &str,

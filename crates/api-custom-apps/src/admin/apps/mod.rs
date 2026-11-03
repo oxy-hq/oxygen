@@ -14,7 +14,7 @@
 pub mod access;
 /// A sandbox agent token on the verify and read-back routes: an own sandbox
 /// is required, everything else is a not-found.
-mod agent_scope;
+pub(crate) mod agent_scope;
 mod dto;
 /// The `?environment=` parameter and who may name a non-production one.
 pub mod environment_scope;

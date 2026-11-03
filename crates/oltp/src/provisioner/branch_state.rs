@@ -51,8 +51,25 @@ const IDLE_TIMEOUT_OFF: &str = "SET LOCAL idle_in_transaction_session_timeout = 
 /// One lock per `(tenant, kind)`, spread over Postgres' bigint key space. A
 /// collision only serializes two unrelated branch operations.
 fn lock_key(tenant_row_id: Uuid, kind: OltpBranch) -> i64 {
+    fnv_key(&format!("oxy-oltp-branch/{tenant_row_id}/{kind}"))
+}
+
+/// One lock per `(tenant, app, environment)`, in the same key space.
+fn env_lock_key(tenant_row_id: Uuid, app_id: Uuid, env_name: &str) -> i64 {
+    fnv_key(&format!(
+        "oxy-oltp-env-branch/{tenant_row_id}/{app_id}/{env_name}"
+    ))
+}
+
+/// One lock per tenant for the count-then-record of an environment cut, so
+/// two cuts cannot both see room for the last branch.
+fn env_cap_lock_key(tenant_row_id: Uuid) -> i64 {
+    fnv_key(&format!("oxy-oltp-env-branch-cap/{tenant_row_id}"))
+}
+
+fn fnv_key(text: &str) -> i64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in format!("oxy-oltp-branch/{tenant_row_id}/{kind}").bytes() {
+    for b in text.bytes() {
         h ^= b as u64;
         h = h.wrapping_mul(0x100_0000_01b3);
     }
@@ -66,13 +83,38 @@ impl OltpProvisioner {
         tenant_row_id: Uuid,
         kind: OltpBranch,
     ) -> Result<BranchLock, ProvisionerError> {
+        self.lock_on(lock_key(tenant_row_id, kind)).await
+    }
+
+    /// Wait for, and take, the lock on one environment's branch.
+    pub(super) async fn lock_env_branch(
+        &self,
+        tenant_row_id: Uuid,
+        app_id: Uuid,
+        env_name: &str,
+    ) -> Result<BranchLock, ProvisionerError> {
+        self.lock_on(env_lock_key(tenant_row_id, app_id, env_name))
+            .await
+    }
+
+    /// Wait for, and take, the lock that serializes the tenant's environment
+    /// cuts' cap check. Taken **after** the environment's own lock and held
+    /// only for the count and the row it records, never across the provider.
+    pub(super) async fn lock_env_cap(
+        &self,
+        tenant_row_id: Uuid,
+    ) -> Result<BranchLock, ProvisionerError> {
+        self.lock_on(env_cap_lock_key(tenant_row_id)).await
+    }
+
+    async fn lock_on(&self, key: i64) -> Result<BranchLock, ProvisionerError> {
         let txn = self.db.begin().await?;
         // Idle by design while the provider works — see the module header.
         txn.execute_unprepared(IDLE_TIMEOUT_OFF).await?;
         txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT pg_advisory_xact_lock($1)",
-            [lock_key(tenant_row_id, kind).into()],
+            [key.into()],
         ))
         .await?;
         Ok(BranchLock(txn))
@@ -232,6 +274,14 @@ fn apply_cut(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_environment_lock_is_per_app_and_environment() {
+        let (t, a, b) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        assert_eq!(env_lock_key(t, a, "dev-x"), env_lock_key(t, a, "dev-x"));
+        assert_ne!(env_lock_key(t, a, "dev-x"), env_lock_key(t, a, "dev-y"));
+        assert_ne!(env_lock_key(t, a, "dev-x"), env_lock_key(t, b, "dev-x"));
+    }
 
     #[test]
     fn the_lock_is_per_tenant_and_stable() {

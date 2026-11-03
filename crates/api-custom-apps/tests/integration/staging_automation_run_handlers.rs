@@ -8,6 +8,10 @@
 //!   "automation"`, a single `writes` entry: `plane: "automation", verb:
 //!   "RUN", namespace: <automation id>`);
 //! - production starts the run as before;
+//! - a sandbox follows its `workspace-actions` plane, not its kind: held by
+//!   default (the same `409`, the held row under the sandbox's own name),
+//!   `404 EnvironmentRefused` when its row says `refused`, `409` when the row
+//!   cannot be read; so does a staging whose row says `refused`;
 //! - a caller who may not open staging gets the same `404 EnvironmentRefused`
 //!   a staging ask refuses with, and no run row either.
 
@@ -35,7 +39,9 @@ use uuid::Uuid;
 
 use crate::common::{demo_workspace_id, examples_path};
 use crate::custom_app_functions_fixture::{Tenant, publish_build, seeded_tenant};
-use crate::staging_functions::{held_rows, make_guest_staff, production_host, staging_host};
+use crate::staging_functions::{
+    create_sandbox, held_rows, make_guest_staff, production_host, sandbox_host, staging_host,
+};
 
 /// A automation declared in `examples/procedures/anonymize.automation.yml`,
 /// whose file stem (not its `name:`) is the id this route takes.
@@ -214,4 +220,143 @@ async fn staging_refuses_a_caller_who_may_not_open_it() {
         held_rows(&t).await.is_empty(),
         "a refusal this caller cannot open logs nothing"
     );
+}
+
+/// The audit rows' environments, oldest first.
+async fn held_environments(t: &Tenant) -> Vec<String> {
+    let mut rows = held_rows(t).await;
+    rows.sort_by_key(|r| r.seq);
+    rows.into_iter().map(|r| r.environment).collect()
+}
+
+/// A sandbox's default is staging's: the run is held, never started, and the
+/// held row names the sandbox.
+#[tokio::test]
+async fn a_sandbox_holds_by_default_like_staging() {
+    let t = seeded_tenant().await;
+    let slug = "sbx-automation-409";
+    let app_id = app(&t, slug).await;
+    create_sandbox(&t, app_id, "a1", None).await;
+    make_guest_staff();
+    let before = run_count(&t).await;
+
+    let (status, body) = start(&t, &sandbox_host(&t, slug, "a1"), AUTOMATION_ID).await;
+
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["error"], "held_in_staging", "{body}");
+    assert_eq!(body["surface"], "automation", "{body}");
+    assert_eq!(run_count(&t).await, before, "no run row was created");
+    assert_eq!(held_environments(&t).await, ["dev-a1"]);
+    let rows = held_rows(&t).await;
+    assert_eq!(rows[0].metadata["mode"], "automation");
+}
+
+/// A sandbox set to `refused` keeps today's answer.
+#[tokio::test]
+async fn a_sandbox_set_to_refused_keeps_todays_refusal() {
+    let t = seeded_tenant().await;
+    let slug = "sbx-automation-refused";
+    let app_id = app(&t, slug).await;
+    create_sandbox(
+        &t,
+        app_id,
+        "a1",
+        Some(json!({"workspace-actions": "refused"})),
+    )
+    .await;
+    make_guest_staff();
+    let before = run_count(&t).await;
+
+    let (status, body) = start(&t, &sandbox_host(&t, slug, "a1"), AUTOMATION_ID).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], "EnvironmentRefused", "{body}");
+    assert_eq!(body["environment"], "dev-a1", "{body}");
+    assert_eq!(run_count(&t).await, before);
+    assert!(
+        held_rows(&t).await.is_empty(),
+        "nothing is held, nothing is logged"
+    );
+}
+
+/// The plane decides, not the kind: a staging whose row says `refused` is
+/// refused like a refusing sandbox.
+#[tokio::test]
+async fn a_staging_set_to_refused_is_refused() {
+    let t = seeded_tenant().await;
+    let slug = "stg-automation-refused";
+    let app_id = app(&t, slug).await;
+    make_guest_staff();
+    set_staging_planes(&t, app_id, json!({"workspace-actions": "refused"})).await;
+
+    let (status, body) = start(&t, &staging_host(&t, slug), AUTOMATION_ID).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], "EnvironmentRefused", "{body}");
+    assert!(held_rows(&t).await.is_empty());
+}
+
+/// A plane nobody can read refuses the run (`409`) and never falls back to
+/// the default that would have held it.
+#[tokio::test]
+async fn an_unreadable_plane_refuses_the_run() {
+    let t = seeded_tenant().await;
+    let slug = "sbx-automation-unreadable";
+    let app_id = app(&t, slug).await;
+    create_sandbox(
+        &t,
+        app_id,
+        "a1",
+        Some(json!({"workspace-actions": "teleport"})),
+    )
+    .await;
+    make_guest_staff();
+    let before = run_count(&t).await;
+
+    let (status, body) = start(&t, &sandbox_host(&t, slug, "a1"), AUTOMATION_ID).await;
+
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["error"], "EnvironmentRefused", "{body}");
+    assert!(
+        body["message"].as_str().unwrap_or("").contains("planes"),
+        "{body}"
+    );
+    assert_eq!(run_count(&t).await, before);
+    assert!(held_rows(&t).await.is_empty());
+}
+
+/// A caller who may not open the sandbox learns nothing of its planes: the
+/// same `404` as for staging.
+#[tokio::test]
+async fn a_sandbox_refuses_a_caller_who_may_not_open_it() {
+    let t = seeded_tenant().await;
+    let slug = "sbx-automation-404";
+    let app_id = app(&t, slug).await;
+    create_sandbox(
+        &t,
+        app_id,
+        "a1",
+        Some(json!({"workspace-actions": "teleport"})),
+    )
+    .await;
+
+    let (status, body) = start(&t, &sandbox_host(&t, slug, "a1"), AUTOMATION_ID).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], "EnvironmentRefused", "{body}");
+}
+
+/// Store `planes` on staging's row, creating the row as a publish would.
+async fn set_staging_planes(t: &Tenant, app_id: Uuid, planes: serde_json::Value) {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let changed =
+        t.db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE app_environments SET planes = $2 WHERE app_id = $1 AND name = 'staging'",
+            [app_id.into(), planes.into()],
+        ))
+        .await
+        .expect("store the planes")
+        .rows_affected();
+    assert_eq!(changed, 1, "the publish created staging's row");
 }

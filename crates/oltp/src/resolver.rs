@@ -85,6 +85,40 @@ pub enum ResolveError {
          Run: oxyc oltp provision --org {0} --branch {1}"
     )]
     BranchOwnerCredentialMissing(Uuid, crate::OltpBranch),
+    /// The environment has no branch row serving yet: it is still being cut,
+    /// is mid-reset, or failed. Refused rather than served — its credentials
+    /// may not exist, or may be the ones a reset is replacing. A function call
+    /// is served only in `ready`.
+    #[error(
+        "app {app_id}'s environment {env_name} has no OLTP branch ready to serve \
+         (status: {status})"
+    )]
+    EnvBranchNotReady {
+        app_id: Uuid,
+        env_name: String,
+        status: &'static str,
+    },
+    /// The environment's branch row names production — its branch id, or its
+    /// exact host and database. As [`ResolveError::BranchIsProduction`]: it is
+    /// refused here as well as wherever the row is written, because serving it
+    /// would hand a sandbox a writable production connection.
+    #[error(
+        "app {app_id}'s environment {env_name} OLTP branch is recorded as production's own \
+         database; refusing to resolve it"
+    )]
+    EnvBranchIsProduction { app_id: Uuid, env_name: String },
+    /// The environment's branch has no sealed credential for a role production
+    /// has — a writer provisioned after the branch was cut, or a cut that never
+    /// finished minting.
+    #[error(
+        "app {app_id}'s environment {env_name} OLTP branch has no credential for {role}; \
+         its branch cut did not finish minting credentials"
+    )]
+    EnvBranchCredentialMissing {
+        app_id: Uuid,
+        env_name: String,
+        role: String,
+    },
 }
 
 /// The command that gets a branch out of `status` — they differ, and naming
@@ -104,11 +138,17 @@ fn branch_fix(org_id: &Uuid, branch: &crate::OltpBranch, status: &str) -> String
 
 // Non-production branches: same connection shapes, pointed at the branch.
 mod branch;
+// The provisioner asks the resolver's production question of the provider's answer.
+pub(crate) use branch::guard::names_production;
 pub(crate) use branch::{BranchOwner, resolve_branch_owner, resolve_branch_writer_in_schema};
 pub use branch::{
     BranchWriter, branch_is_active, resolve_branch_analyst_connection_for_org,
     resolve_branch_writer_connection_for_org, resolve_branch_writer_for_org,
 };
+
+// A custom-app environment's own branch, beside the org's shared one.
+mod env_branch;
+pub use env_branch::{EnvBranchAccept, resolve_env_branch_writer_for_org};
 
 /// Read-only connection coordinates for a workspace's per-org OLTP database.
 ///

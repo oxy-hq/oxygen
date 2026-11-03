@@ -39,6 +39,11 @@ impl ProjectFunctionHost {
         let plane = data_audit::PLANE_APP_AIRHOUSE;
         match host_op {
             HostOp::AirhouseQuery => {
+                // The overlay modes read through the environment's sibling
+                // (`airhouse_overlay`); `write-only` is today's path below.
+                if let Some(mode) = self.overlay_mode() {
+                    return self.airhouse_overlay_query(mode, &schema, payload).await;
+                }
                 self.admit_op(HostOp::AirhouseQuery, (plane, &schema, "QUERY", ""))
                     .await?;
                 self.airhouse_query(&schema, payload).await
@@ -53,8 +58,10 @@ impl ProjectFunctionHost {
                         (plane, &schema, "EXEC", ""),
                     )
                     .await?;
+                let (write, settle) = self.route_overlay_write(&schema, sql, write).await?;
                 self.airhouse_write(&write.schema, &write.statement, None, None)
                     .await?;
+                self.settle_overlay_write(settle).await?;
                 Ok(serde_json::json!({ "ok": true }))
             }
             HostOp::AirhouseAppend => {
@@ -65,8 +72,10 @@ impl ProjectFunctionHost {
                 let write = self
                     .airhouse_route(HostOp::AirhouseAppend, &sql, &schema, target)
                     .await?;
+                let (write, settle) = self.route_overlay_write(&schema, &sql, write).await?;
                 self.airhouse_write(&write.schema, &write.statement, Some(table), Some(rows))
                     .await?;
+                self.settle_overlay_write(settle).await?;
                 Ok(serde_json::json!({ "rowCount": rows }))
             }
             _ => Err(format!("unknown op '{op}'")),
@@ -111,7 +120,10 @@ impl ProjectFunctionHost {
     }
 
     /// The app's connection scoped to `schema` — its own, or its sibling.
-    async fn airhouse_connector(&self, schema: &str) -> Result<Arc<dyn DatabaseConnector>, String> {
+    pub(super) async fn airhouse_connector(
+        &self,
+        schema: &str,
+    ) -> Result<Arc<dyn DatabaseConnector>, String> {
         let mut cached = self.airhouse_conn.lock().await;
         if let Some(connector) = cached.get(schema) {
             return Ok(connector.clone());
@@ -177,6 +189,7 @@ impl ProjectFunctionHost {
                 statements: 1,
                 op: None,
                 note: None,
+                sent: None,
             })
             .await;
         }
@@ -223,7 +236,7 @@ fn is_plain_identifier(name: &str) -> bool {
 /// Check one app statement against its Airhouse schema and return it as parsed
 /// and re-rendered — the text to send. Sending the author's original instead
 /// would let DuckDB's lexer find a second statement the check never saw.
-fn checked_statement(sql: &str, schema: &str, access: Access) -> Result<String, String> {
+pub(super) fn checked_statement(sql: &str, schema: &str, access: Access) -> Result<String, String> {
     let mut statements = sql_rules::check(sql, schema, access).map_err(|e| e.to_string())?;
     match statements.len() {
         1 => Ok(statements.remove(0)),
@@ -233,7 +246,10 @@ fn checked_statement(sql: &str, schema: &str, access: Access) -> Result<String, 
     }
 }
 
-fn required_str<'a>(payload: &'a serde_json::Value, field: &str) -> Result<&'a str, String> {
+pub(super) fn required_str<'a>(
+    payload: &'a serde_json::Value,
+    field: &str,
+) -> Result<&'a str, String> {
     payload
         .get(field)
         .and_then(|v| v.as_str())

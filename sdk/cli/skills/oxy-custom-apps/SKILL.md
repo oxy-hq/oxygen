@@ -707,10 +707,10 @@ If a command fails with `fetch failed` (exit `7`) while `HTTPS_PROXY` is set,
 
 A sandbox (`dev-<handle>`, 1-12 lowercase letters/digits/hyphens, no leading,
 trailing or double hyphen) is a named, short-lived environment of one app: its
-own build pointer, storage silo, secrets and Airhouse sibling schema. Reads
-hit production; most writes are isolated or *held* (recorded, not performed —
-`ctx.oltp`/`ctx.warehouse` stay shared; a held write's `note` field in
-`invocations held` names the manifest key that would make it land instead).
+own build pointer, storage silo, secrets and Airhouse sibling schema. By
+default reads hit production and writes are isolated or *held* (recorded, not
+performed: a held write's `note` in `invocations held` names what would make it
+land). Each part can be isolated further: see **Branch it** below.
 A sandbox's schedules are **off by default** (staging's too): staff turn them
 on per environment with `oxyc env schedules <app> dev-x --on`, and a scheduled
 fire is not activity. To test a scheduled function without that, run it once
@@ -736,6 +736,26 @@ oxyc logs acme/store --app-env dev-x --env dev --follow --timeout 300 --json  # 
 oxyc env delete acme/store dev-x --env dev --yes --wait --json     # done; tears its homes down
 ```
 
+**Branch it: isolate exactly the parts you are testing.** A sandbox is a
+branch of the app, with a parent (`--from`, for the build), a fork point
+(`--at`, for production's data) and a mode per plane of app state. The defaults
+keep the behaviour above. Turn on isolation only for what you are testing:
+
+```bash
+oxyc env create acme/store dev-x --from staging --preset full --env dev --json   # most isolation in one flag
+oxyc env update acme/store dev-x --plane oltp=branch --env dev                   # its own copy of production's rows
+oxyc env update acme/store dev-x --fetch-host api.stripe.com --env dev          # real writes to a provider sandbox
+oxyc env outbox acme/store dev-x --env dev --json                               # what messages=capture kept
+oxyc env reset acme/store dev-x --plane storage,secrets,messages --env dev      # start those planes over
+```
+
+Which mode tests what, every plane and its modes, the `full` preset, reset,
+expiry, the caps and each refusal with its fix are in
+[references/environment-branches.md](references/environment-branches.md). Read
+it before setting any plane. Three rules hold whatever you choose: production
+has no planes; `oltp=branch|empty` and `airhouse=branch|snapshot` are
+sandbox-only; `ctx.airway.run` is refused outside production.
+
 (`--data` has no short form — don't write `-d`.)
 
 Iterate from `publish` as the code changes — each publish is a new build, and
@@ -756,13 +776,14 @@ before an agent runs any `oxyc` command against a deployment.
 **A sandbox isolates the app, not the workspace.** The semantic model,
 automations and Airway pipelines it reads are `main`'s. To try a workspace
 branch, open a workspace preview (staff only, `oxyc preview …`), or publish to
-the sandbox with `--semantic-branch <branch>` — see
+the sandbox with `--semantic-branch <branch>`, or set the planes above — see
 [references/sandbox-agent-loop.md](references/sandbox-agent-loop.md#a-sandbox-isolates-the-app-not-the-workspace).
 
 ## Read next
 
 | File | Read it when |
 | --- | --- |
+| [references/environment-branches.md](references/environment-branches.md) | You want a sandbox to isolate more than the defaults: its own copy of production's OLTP rows, an Airhouse overlay or snapshot, captured email, empty secrets or storage, real writes to a provider sandbox, a semantic branch, or preview automation runs. Which mode tests what, reset, expiry and every refusal. |
 | [references/sandbox-agent-loop.md](references/sandbox-agent-loop.md) | You are an AI agent about to touch a deployment: minting the sandbox agent token, the loop, exit codes, rules, what to hand back, when you cannot get a token, the MCP tools, workspace previews. |
 | [references/verifying-in-the-browser.md](references/verifying-in-the-browser.md) | You changed something a person sees (`src/**`, or a function a card calls) and need to prove it on the published page. |
 | [references/reading-data.md](references/reading-data.md) | You need a deployment's live data while building: an agent's own `--agent` token, `oxyc api` / `routes` / `schema`, and `oxyc proxy` for `pnpm dev` against cloud data. |

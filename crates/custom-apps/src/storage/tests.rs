@@ -272,7 +272,7 @@ async fn presigning_without_a_bucket_is_a_clear_error() {
 
 /// Point the store at a scratch state dir with no bucket configured, so the
 /// filesystem backend is selected.
-fn use_temp_state_dir() -> PathBuf {
+pub(super) fn use_temp_state_dir() -> PathBuf {
     let tmp = std::env::temp_dir().join(format!("oxy-storage-{}", Uuid::new_v4()));
     // SAFETY: these tests are single-threaded (serialized by the shared env).
     unsafe {

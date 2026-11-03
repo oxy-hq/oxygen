@@ -26,15 +26,17 @@ const TOKEN: Uuid = Uuid::from_u128(0x70);
 
 /// Rows a token granted staging also uses on staging: show the environment,
 /// publish a draft, list and run checks, read runs, invocations, held writes
-/// and call traces and logs, tail them, and call a function. F1 and L1 are the
+/// and call traces and logs, tail them (T1) and read what they captured (T2),
+/// and call a function. F1 and L1 are the
 /// serve tree's and the public router's rows, which the allow-list table does
 /// not carry.
-const ON_STAGING: [&str; 12] = [
-    "C1", "C2", "C3", "E3", "F1", "L1", "P1", "R1", "R2", "R3", "R4", "T1",
+const ON_STAGING: [&str; 13] = [
+    "C1", "C2", "C3", "E3", "F1", "L1", "P1", "R1", "R2", "R3", "R4", "T1", "T2",
 ];
 /// Rows that stay a sandbox's alone for every token, by their handler and not
-/// by the model: an environment's secrets.
-const SANDBOX_ONLY: [&str; 3] = ["S1", "S2", "S3"];
+/// by the model: an environment's secrets, and the choice and reset of its
+/// planes (E4, E5), which take the delete door.
+const SANDBOX_ONLY: [&str; 5] = ["E4", "E5", "S1", "S2", "S3"];
 /// Rows that name no one environment: the token about itself, and listing or
 /// creating a sandbox.
 const NO_ENVIRONMENT: [&str; 4] = ["A1", "A2", "E1", "E2"];
@@ -43,7 +45,7 @@ const NO_ENVIRONMENT: [&str; 4] = ["A1", "A2", "E1", "E2"];
 /// request names (`sandbox_agent_stack::stack_of`).
 fn decisions_of(row: &str) -> Vec<Action> {
     match row {
-        "F1" | "L1" | "T1" => vec![Action::AppNonProduction, Action::AppAdmin],
+        "F1" | "L1" | "T1" | "T2" => vec![Action::AppNonProduction, Action::AppAdmin],
         _ => vec![Action::AppNonProduction],
     }
 }
@@ -172,6 +174,17 @@ fn the_sandbox_only_rows_are_held_by_their_handler() {
     let handlers = source("api-custom-apps/src/custom_apps_sandboxes/handlers.rs");
     assert!(
         handlers.contains("if deletes_a_fixed_environment(caller, door, &environment) => false"),
-        "E3: the delete door no longer refuses a sandbox agent token production and staging"
+        "E3, E4, E5: the delete door no longer refuses a sandbox agent token production and \
+         staging"
     );
+    for (row, file) in [
+        ("E4", "api-custom-apps/src/custom_apps_sandboxes/planes.rs"),
+        ("E5", "api-custom-apps/src/custom_apps_sandboxes/reset.rs"),
+    ] {
+        assert!(
+            source(file).contains("admit(&actor.user, marker, id, Door::Sandbox(&name))"),
+            "{row}: the handler no longer admits through the delete door, so a token granted \
+             staging could change staging's planes"
+        );
+    }
 }

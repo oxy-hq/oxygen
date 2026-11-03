@@ -53,3 +53,34 @@ export const useDeleteAppEnvironment = (appId: string) => {
     onError: (err) => toast.error(errMessage(err, "Couldn't delete the sandbox"))
   });
 };
+
+/**
+ * What a `capture` environment kept instead of sending (`GET …/outbox`), newest
+ * first. Only asked for while `enabled`, so a closed drawer reads nothing.
+ */
+export const useEnvironmentOutbox = (appId: string, name: string, enabled: boolean) =>
+  useQuery({
+    queryKey: queryKeys.customApps.environmentOutbox(appId, name),
+    queryFn: () => CustomAppsService.environmentOutbox(appId, name),
+    enabled: enabled && !!appId,
+    retry: (failures, error) => !isForbidden(error) && failures < 2
+  });
+
+/**
+ * Put planes back to a clean copy of their source (`POST …/reset`). Each plane
+ * answers `done`, or `queued` for a re-cut that runs in the background (`oltp`),
+ * so the list is refreshed either way.
+ */
+export const useResetEnvironmentPlanes = (appId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, planes }: { name: string; planes: string[] }) =>
+      CustomAppsService.resetEnvironmentPlanes(appId, name, planes),
+    onSuccess: (reset) => {
+      qc.invalidateQueries({ queryKey: queryKeys.customApps.environments(appId) });
+      const queued = reset.planes.some((p) => p.status === "queued");
+      toast.success(queued ? `Resetting ${reset.name} in the background` : `Reset ${reset.name}`);
+    },
+    onError: (err) => toast.error(errMessage(err, "Couldn't reset the plane"))
+  });
+};

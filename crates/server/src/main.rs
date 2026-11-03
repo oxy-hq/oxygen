@@ -122,7 +122,12 @@ fn api_seam_routes() -> SeamRouter {
         .merge(oxy_api_tenancy::onboarding::routes())
         .merge(oxy_api_documents::routes())
         .merge(oxy_api_frontline::routes())
-        .merge(oxy_api_custom_apps::routes())
+        // The environment planes writes pin a semantic branch through a port
+        // `oxy-app` implements (a surface may not depend on `oxy-app`).
+        .merge(
+            oxy_api_custom_apps::routes()
+                .layer(axum::Extension(custom_apps_seams::semantic_pinner())),
+        )
 }
 
 /// The sibling crates merged beside the public tree, outside the auth stack.

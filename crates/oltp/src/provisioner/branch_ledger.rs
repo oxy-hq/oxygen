@@ -31,6 +31,26 @@ impl OltpProvisioner {
         &self,
         org_id: Uuid,
     ) -> Result<Vec<ledger::Model>, ProvisionerError> {
+        self.production_ledger_where(org_id, None).await
+    }
+
+    /// [`Self::production_ledger`] as of `fork_at`: only the rows applied at or
+    /// before it. A branch forked at a past instant holds the database as it
+    /// was then, so a file applied after it is not in that copy and must not be
+    /// recorded as applied.
+    pub(super) async fn production_ledger_at(
+        &self,
+        org_id: Uuid,
+        fork_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<ledger::Model>, ProvisionerError> {
+        self.production_ledger_where(org_id, Some(fork_at)).await
+    }
+
+    async fn production_ledger_where(
+        &self,
+        org_id: Uuid,
+        fork_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<ledger::Model>, ProvisionerError> {
         let apps: Vec<Uuid> = entity::apps::Entity::find()
             .select_only()
             .column(entity::apps::Column::Id)
@@ -41,12 +61,14 @@ impl OltpProvisioner {
         if apps.is_empty() {
             return Ok(Vec::new());
         }
-        Ok(ledger::Entity::find()
+        let mut query = ledger::Entity::find()
             .filter(ledger::Column::Store.eq(STORE_OLTP))
             .filter(ledger::Column::Target.eq(PRODUCTION))
-            .filter(ledger::Column::AppId.is_in(apps))
-            .all(&self.db)
-            .await?)
+            .filter(ledger::Column::AppId.is_in(apps));
+        if let Some(at) = fork_at {
+            query = query.filter(ledger::Column::AppliedAt.lte(at.fixed_offset()));
+        }
+        Ok(query.all(&self.db).await?)
     }
 
     /// Make the ledger of branch `provider_branch_id` exactly `snapshot`

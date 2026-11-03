@@ -37,7 +37,7 @@ use uuid::Uuid;
 
 use super::host_call_attrs::{QuerySummary, identifier_like};
 pub(crate) use super::write_record::{
-    WriteRecord, actor_entry, plane_for_dialect, with_first_target,
+    SENT_NOTE, SentCall, WriteRecord, actor_entry, plane_for_dialect, with_first_target,
 };
 
 /// Who is running, as far as a write needs to be attributed. Built once per
@@ -152,17 +152,29 @@ pub(super) fn record_db_span(summary: &QuerySummary, namespace: Option<&str>, ta
     super::call_note::note_db(namespace, &summary.verb, Some(table));
 }
 
+/// The most distinct sent provider-sandbox calls one invocation records. A
+/// loop over resource ids is a distinct path per call, so without a bound one
+/// `audit_events.metadata` could grow to the megabyte.
+pub(super) const MAX_SENT_RECORDS: usize = 64;
+
+/// Whether `a` and `b` are the same call to the log: the same plane, op,
+/// target, verb, sent path and status, and the same reason (`note`), so two
+/// holds that differ only in why stay two records.
+fn same_call(a: &WriteRecord, b: &WriteRecord) -> bool {
+    a.plane == b.plane
+        && a.op == b.op
+        && a.namespace == b.namespace
+        && a.verb == b.verb
+        && a.table == b.table
+        && a.note == b.note
+        && a.sent == b.sent
+}
+
 /// Fold a write into the invocation's buffer: the same (plane, namespace,
 /// verb, table) becomes one record with the statements counted and the rows
 /// summed, so a loop of ten thousand inserts is one line, not ten thousand.
 pub(super) fn coalesce(buffer: &mut Vec<WriteRecord>, write: WriteRecord) {
-    if let Some(existing) = buffer.iter_mut().find(|w| {
-        w.plane == write.plane
-            && w.op == write.op
-            && w.namespace == write.namespace
-            && w.verb == write.verb
-            && w.table == write.table
-    }) {
+    if let Some(existing) = buffer.iter_mut().find(|w| same_call(w, &write)) {
         existing.statements += write.statements;
         existing.rows = match (existing.rows, write.rows) {
             (Some(a), Some(b)) => Some(a + b),
@@ -174,6 +186,15 @@ pub(super) fn coalesce(buffer: &mut Vec<WriteRecord>, write: WriteRecord) {
     }
 }
 
+/// Whether `write` is a sent call that would be a new record past
+/// [`MAX_SENT_RECORDS`]. A repeat of a recorded call coalesces, so it is
+/// never over the cap.
+fn past_sent_cap(buffer: &[WriteRecord], write: &WriteRecord) -> bool {
+    write.sent.is_some()
+        && !buffer.iter().any(|w| same_call(w, write))
+        && buffer.iter().filter(|w| w.sent.is_some()).count() >= MAX_SENT_RECORDS
+}
+
 /// The invocation's write buffer, with the one state that matters: once
 /// drained it is **closed**, and a write noted after that — a detached host
 /// call that commits after the isolate was cancelled or timed out — is
@@ -182,19 +203,27 @@ pub(super) fn coalesce(buffer: &mut Vec<WriteRecord>, write: WriteRecord) {
 #[derive(Debug)]
 pub(super) struct WriteBuffer {
     open: Option<Vec<WriteRecord>>,
+    /// Sent calls past [`MAX_SENT_RECORDS`]: counted, not recorded.
+    sent_over_cap: u64,
 }
 
 impl WriteBuffer {
     pub fn new() -> Self {
         Self {
             open: Some(Vec::new()),
+            sent_over_cap: 0,
         }
     }
 
     /// Buffer the write, or return it when the buffer has already been
-    /// drained: the caller must then record it immediately.
+    /// drained: the caller must then record it immediately. A sent call past
+    /// the cap is counted and dropped.
     pub fn note(&mut self, write: WriteRecord) -> Option<WriteRecord> {
         match &mut self.open {
+            Some(buffer) if past_sent_cap(buffer, &write) => {
+                self.sent_over_cap += 1;
+                None
+            }
             Some(buffer) => {
                 coalesce(buffer, write);
                 None
@@ -208,8 +237,17 @@ impl WriteBuffer {
         self.open.as_ref().is_none_or(Vec::is_empty)
     }
 
-    /// Take everything buffered and close the buffer for good.
+    /// Take everything buffered and close the buffer for good. Warns once,
+    /// with the count only, when sent calls went past the cap.
     pub fn drain(&mut self) -> Vec<WriteRecord> {
+        let over = std::mem::take(&mut self.sent_over_cap);
+        if over > 0 {
+            tracing::warn!(
+                over_cap = over,
+                cap = MAX_SENT_RECORDS,
+                "sent provider-sandbox calls past the per-invocation record cap were counted, not recorded"
+            );
+        }
         self.open.take().unwrap_or_default()
     }
 
@@ -386,6 +424,7 @@ mod tests {
             statements: 1,
             op: None,
             note: None,
+            sent: None,
         };
         let human = entry(
             ACTION_OLTP_WRITE,
@@ -432,6 +471,7 @@ mod tests {
             statements: 1,
             op: None,
             note: None,
+            sent: None,
         };
         assert_eq!(w.target(), "airhouse:warehouse");
     }
@@ -450,6 +490,7 @@ mod tests {
             statements: 1,
             op: None,
             note: None,
+            sent: None,
         };
         let e = entry(
             ACTION_TX_COMMIT,
@@ -474,6 +515,7 @@ mod tests {
             statements: 1,
             op: None,
             note: None,
+            sent: None,
         };
         let mut buf = WriteBuffer::new();
         assert!(buf.note(mk()).is_none(), "buffered while open");
@@ -504,6 +546,7 @@ mod tests {
             statements: 1,
             op: None,
             note: None,
+            sent: None,
         };
         let mut buf = Vec::new();
         for _ in 0..1000 {
@@ -526,5 +569,86 @@ mod tests {
             None,
         );
         assert_eq!(e.metadata["writes"][0]["statements"], 1001);
+    }
+
+    #[test]
+    fn identical_sent_calls_coalesce_and_different_ones_do_not() {
+        let mk = |path: &str, status: Option<u16>| WriteRecord {
+            plane: "fetch",
+            namespace: "api.stripe.com".into(),
+            verb: "POST".into(),
+            table: String::new(),
+            rows: None,
+            statements: 1,
+            op: Some("fetch"),
+            note: Some(SENT_NOTE),
+            sent: Some(SentCall::new(path, status)),
+        };
+        let mut buf = Vec::new();
+        coalesce(&mut buf, mk("/v1/charges", Some(200)));
+        coalesce(&mut buf, mk("/v1/charges", Some(200)));
+        assert_eq!(buf.len(), 1);
+        assert_eq!(buf[0].statements, 2);
+        coalesce(&mut buf, mk("/v1/charges", Some(402)));
+        coalesce(&mut buf, mk("/v1/charges", None));
+        coalesce(&mut buf, mk("/v1/refunds", Some(200)));
+        assert_eq!(
+            buf.len(),
+            4,
+            "a different status or path stays its own record"
+        );
+    }
+
+    fn held_fetch(note: &'static str) -> WriteRecord {
+        WriteRecord {
+            plane: "fetch",
+            namespace: "api.stripe.com".into(),
+            verb: "POST".into(),
+            table: String::new(),
+            rows: None,
+            statements: 1,
+            op: Some("fetch"),
+            note: Some(note),
+            sent: None,
+        }
+    }
+
+    #[test]
+    fn two_holds_that_differ_only_in_note_stay_two_records() {
+        let mut buf = Vec::new();
+        coalesce(&mut buf, held_fetch("no test key"));
+        coalesce(&mut buf, held_fetch("fallback credential"));
+        assert_eq!(buf.len(), 2, "the reason is part of the record");
+        coalesce(&mut buf, held_fetch("no test key"));
+        assert_eq!(buf.len(), 2);
+        assert_eq!(buf[0].statements, 2);
+    }
+
+    fn sent_to(path: &str) -> WriteRecord {
+        WriteRecord {
+            note: Some(SENT_NOTE),
+            sent: Some(SentCall::new(path, Some(200))),
+            ..held_fetch(SENT_NOTE)
+        }
+    }
+
+    #[test]
+    fn sent_records_are_capped_per_invocation_and_the_overflow_is_counted() {
+        let mut buf = WriteBuffer::new();
+        for n in 0..MAX_SENT_RECORDS + 10 {
+            assert!(
+                buf.note(sent_to(&format!("/v1/customers/cus_{n}")))
+                    .is_none()
+            );
+        }
+        // A held call is not a sent one: the cap leaves it alone.
+        assert!(buf.note(held_fetch("no test key")).is_none());
+        // A repeat of a recorded call coalesces rather than counting.
+        assert!(buf.note(sent_to("/v1/customers/cus_0")).is_none());
+        assert_eq!(buf.sent_over_cap, 10);
+        let drained = buf.drain();
+        assert_eq!(drained.len(), MAX_SENT_RECORDS + 1);
+        assert_eq!(drained[0].statements, 2);
+        assert_eq!(buf.sent_over_cap, 0, "the count is reported once");
     }
 }

@@ -29,16 +29,22 @@
 //! The first terminal state wins ([`settle`]): a result that lands after
 //! the cancel is discarded.
 //!
-//! Staging ([`staging_hold`]): the environment guard lets this route's
-//! `POST` through on a custom app's staging host
-//! (`custom_app_env_request::is_staging_write`), same as it lets an
+//! Non-production ([`staging_hold`]): the environment guard lets this route's
+//! `POST` through on a custom app's staging host or sandbox whose
+//! `workspace-actions` plane is `held`
+//! (`custom_app_env_request::is_held_workspace_action`), same as it lets an
 //! agent ask through — but unlike an ask, an automation run never runs held.
 //! `start_automation_run` refuses it outright with `409 held_in_staging`,
 //! logged as one `app.staging.held` row for a caller who may open this app's
-//! staging; a caller who may not gets the same `404 EnvironmentRefused` a
-//! staging ask refuses with. Production is unaffected.
+//! environment; a caller who may not, or an environment whose plane is
+//! `refused`, gets the same `404 EnvironmentRefused` a staging ask refuses
+//! with. Production is unaffected.
+//!
+//! `preview` ([`preview_mode`]), which the guard lets through as it does
+//! `held`, runs the automation as a workspace-preview dry run instead.
 
 pub mod executor;
+pub mod preview_mode;
 mod settle;
 pub mod task;
 
@@ -64,15 +70,13 @@ use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::DatabaseConnection;
 
-use crate::server::api::custom_apps_env_resolve::may_open_non_production;
 use crate::server::api::custom_apps_gates::{
     CustomAppContextExt, check_custom_app_gates, parse_versioned_body,
 };
-use crate::server::api::projects::agent_ask_staging::{ask_app_ref, refused};
+use crate::server::api::projects::agent_ask_staging::refused;
+use crate::server::api::projects::workspace_actions::{non_production_app, workspace_actions_mode};
 use crate::server::router::AppState;
-use oxy_custom_apps::staging_held::{HeldActor, HeldRow, record_held};
-use oxy_custom_apps::staging_pin::request::find_app;
-use oxy_custom_apps::write_record::WriteRecord;
+use oxy_custom_apps::planes::WorkspaceActionsMode;
 use sea_orm::ExprTrait;
 
 /// The surface an automation run's held row is listed under, and its `mode`.
@@ -93,77 +97,55 @@ fn held_in_staging() -> Response {
         .into_response()
 }
 
-/// The held write an automation run would have made, as the audit shape:
-/// never a table, since nothing ran.
-fn automation_write(automation_id: &str) -> WriteRecord {
-    WriteRecord {
-        plane: "automation",
-        namespace: automation_id.to_string(),
-        verb: "RUN".to_string(),
-        table: String::new(),
-        rows: None,
-        statements: 1,
-        op: None,
-        note: None,
-    }
+/// What a non-production host's automation-run request is to do, decided
+/// before anything is looked up or written.
+enum Hold {
+    /// Production: start the run as before.
+    Proceed,
+    /// Answered here: a refusal, or the `409 held_in_staging`.
+    Answer(Response),
+    /// `workspace-actions: preview`: run it as a preview dry run.
+    Preview(preview_mode::PreviewTarget),
 }
 
-/// What a staging host's automation-run request answers, before anything is
-/// looked up or written: `Ok(())` in production (unchanged), else `Err` —
-/// `409` logged as one `app.staging.held` row for a caller who may open this
-/// app's staging, else the same `404 EnvironmentRefused` a staging ask
-/// refuses with. Fail closed: a lookup miss is a refusal, never a run.
+/// [`Hold`] for a staging or sandbox host's automation-run request. The
+/// environment's `workspace-actions` plane decides, not its kind: `held`
+/// records one `app.staging.held` row and answers `409 held_in_staging`,
+/// `refused` answers the `404 EnvironmentRefused` an ask refuses with,
+/// `preview` hands back the target to run. A caller who may not open the
+/// environment gets that `404` too, and an unreadable plane `409`. Fail
+/// closed: a lookup miss is a refusal, never a run.
 async fn staging_hold(
     db: &DatabaseConnection,
     headers: &HeaderMap,
     user: &AuthenticatedUser,
     project_id: Uuid,
     automation_id: &str,
-) -> Result<(), Response> {
-    let refusal = || refused(&AppEnvironment::Staging, "an automation run");
-    let environment = request_environment(headers).map_err(|e| e.into_response())?;
-    match environment {
-        AppEnvironment::Production => return Ok(()),
-        AppEnvironment::Staging => {}
-        other => return Err(refused(&other, "an automation run")),
-    }
-    let app = match ask_app_ref(headers) {
-        Some(r) => find_app(db, &r).await,
-        None => None,
+) -> Hold {
+    let environment = match request_environment(headers) {
+        Ok(AppEnvironment::Production) => return Hold::Proceed,
+        Ok(environment) => environment,
+        Err(e) => return Hold::Answer(e.into_response()),
     };
-    let Some(app) = app else {
-        return Err(refusal());
+    let Some(app) = non_production_app(db, headers, user, project_id, &environment).await else {
+        return Hold::Answer(refused(&environment, "an automation run"));
     };
-    if app.project_id != project_id {
-        return Err(refusal());
+    let mode = match workspace_actions_mode(db, app.id, &environment).await {
+        Ok(mode) => mode,
+        Err(unreadable) => return Hold::Answer(unreadable),
+    };
+    let target = preview_mode::PreviewTarget { app, environment };
+    match mode {
+        WorkspaceActionsMode::Refused => {
+            Hold::Answer(refused(&target.environment, "an automation run"))
+        }
+        WorkspaceActionsMode::Preview => Hold::Preview(target),
+        WorkspaceActionsMode::Held => {
+            preview_mode::record_run_request(db, &target, user, automation_id, AUTOMATION_SURFACE)
+                .await;
+            Hold::Answer(held_in_staging())
+        }
     }
-    let caller = crate::server::authz::Caller::from_user(user);
-    if !may_open_non_production(db, &caller, &app).await {
-        return Err(refusal());
-    }
-    record_held(
-        db,
-        HeldRow {
-            app_id: app.id,
-            app_slug: app.slug.clone(),
-            org_id: app.org_id,
-            project_id,
-            environment: AppEnvironment::Staging.name(),
-            actor: HeldActor::User {
-                id: user.id,
-                email: user.email.clone(),
-            },
-            function_or_surface: AUTOMATION_SURFACE.to_string(),
-            mode: AUTOMATION_SURFACE.to_string(),
-            request_id: None,
-            writes: vec![automation_write(automation_id)],
-            invocation_id: None,
-            trace_id: None,
-            token_id: None,
-        },
-    )
-    .await;
-    Err(held_in_staging())
 }
 
 #[derive(Serialize)]
@@ -277,7 +259,7 @@ pub async fn start_automation_run(
         Ok(c) => c,
         Err(resp) => return resp,
     };
-    if let Err(resp) = staging_hold(
+    let preview = match staging_hold(
         &gates_ctx.db,
         &headers,
         &gates_ctx.user,
@@ -286,12 +268,17 @@ pub async fn start_automation_run(
     )
     .await
     {
-        return resp;
-    }
+        Hold::Proceed => None,
+        Hold::Answer(resp) => return resp,
+        Hold::Preview(target) => Some(target),
+    };
     let req: AutomationRunRequest = match parse_versioned_body(&body) {
         Ok(r) => r,
         Err(resp) => return resp,
     };
+    if let Some(target) = preview {
+        return preview_mode::start(&gates_ctx, target, &automation_id, req.params).await;
+    }
 
     let agentic_state = match app_state.agentic_state.as_ref() {
         Some(s) => s.clone(),
@@ -545,7 +532,7 @@ pub async fn cancel_automation_run(
     Path((project_id, run_id)): Path<(Uuid, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let _gates_ctx = match check_custom_app_gates(&headers, project_id).await {
+    let gates_ctx = match check_custom_app_gates(&headers, project_id).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -563,6 +550,19 @@ pub async fn cancel_automation_run(
             );
         }
     };
+    // Outside production only an environment's own preview runs may be
+    // cancelled (the guard let this through because its plane is `preview`).
+    if let Err(refusal) = preview_mode::may_cancel(
+        &agentic_state.db,
+        &headers,
+        &gates_ctx.user,
+        project_id,
+        run_uuid,
+    )
+    .await
+    {
+        return refusal;
+    }
     let row = match proc_run::Entity::find_by_id(run_uuid)
         .one(&agentic_state.db)
         .await
@@ -613,7 +613,9 @@ pub async fn cancel_automation_run(
         // Row reached a terminal state between the status read and this
         // write. The terminal row is the right answer; nothing more to do.
         Ok(false) => return StatusCode::NO_CONTENT.into_response(),
-        Ok(true) => {}
+        Ok(true) => {
+            preview_mode::end_queued_of_closed_polls(&agentic_state.db, Some(run_uuid)).await
+        }
         Err(e) => {
             warn!(run_id = %run_id, error = %e, "cancel: DB stamp failed");
         }
@@ -714,6 +716,13 @@ pub async fn sweep_terminal_runs(
         .exec(db)
         .await?
         .rows_affected;
+
+    // A poll row failed or cancelled above may belong to a preview run that
+    // never started: end that too, or it would run what the bundle was told
+    // had failed.
+    if stuck_cancelled + stuck_failed > 0 {
+        preview_mode::end_queued_of_closed_polls(db, None).await;
+    }
 
     Ok(SweepReport {
         evicted,

@@ -31,6 +31,7 @@
 //! default DSN has to change that service with it, or the suite goes quiet
 //! again in the way that looks green.
 
+mod branches_local;
 mod grants;
 mod neon_live;
 

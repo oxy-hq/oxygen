@@ -133,6 +133,21 @@ pub trait FunctionProjectContext: Send + Sync {
         schema: &str,
     ) -> Result<Arc<dyn agentic_connector::DatabaseConnector>, oxy_shared::errors::OxyError>;
 
+    /// An unscoped Reader for the app, which `ctx.airhouse.query` reads on
+    /// under the `snapshot` mode: Airhouse refuses time travel on a
+    /// schema-scoped Writer. It can write nothing. `schema` is the app's own,
+    /// named for the audit subject. A context that cannot mint one refuses.
+    async fn build_app_airhouse_reader(
+        &self,
+        app_slug: &str,
+        schema: &str,
+    ) -> Result<Arc<dyn agentic_connector::DatabaseConnector>, oxy_shared::errors::OxyError> {
+        let _ = (app_slug, schema);
+        Err(oxy_shared::errors::OxyError::ConfigurationError(
+            "ctx.airhouse: this context cannot mint an app Reader".into(),
+        ))
+    }
+
     /// Seed an Airway run (`ctx.airway.run`) against `db`, returning the run id.
     async fn start_airway_seed(
         &self,

@@ -63,11 +63,14 @@ pub mod custom_apps_agent_refusal;
 pub mod custom_apps_availability;
 pub mod custom_apps_build_history;
 pub mod custom_apps_debug;
+pub mod custom_apps_env_branch;
 pub mod custom_apps_env_schedules;
 pub mod custom_apps_functions;
 pub mod custom_apps_migrations;
 pub mod custom_apps_nonproduction;
 pub mod custom_apps_open_builds;
+pub mod custom_apps_outbox;
+pub mod custom_apps_planes;
 /// `oxyc promote` / `oxyc rollback`, and the one function that moves
 /// production's pointer for every writer.
 pub mod custom_apps_promote;
@@ -169,7 +172,23 @@ pub mod custom_apps_gates {
     ) -> Result<CustomAppContext, Response> {
         oxy_custom_apps::gate::check_custom_app_gates(headers, project_id)
             .await
-            .map_err(|e| oxy_app_core::gate_response::refusal(e.status(), e.message(), e.code()))
+            .map_err(|e| {
+                let fix = e.pin_not_ready().map(|p| p.fix());
+                let not_ready = e.pin_not_ready().zip(fix.as_deref()).map(|(p, fix)| {
+                    oxy_app_core::gate_response::NotReady {
+                        environment: &p.environment,
+                        git_sha: p.git_sha(),
+                        fix,
+                        planes_unreadable: p.is_planes_unreadable(),
+                    }
+                });
+                oxy_app_core::gate_response::gate_refusal(
+                    e.status(),
+                    e.message(),
+                    e.code(),
+                    not_ready,
+                )
+            })
     }
 }
 
@@ -181,14 +200,14 @@ pub mod custom_apps_staging_pin {
     pub use oxy_custom_apps::staging_pin::request;
     pub use oxy_custom_apps::staging_pin::request::{APP_HEADER, staging_pin_for_data_request};
     pub use oxy_custom_apps::staging_pin::{
-        PinRefusal, SemanticPinNotice, check_pinnable, pin_drift, pinned_revision_for,
-        validate_pin_for_publish,
+        EnvironmentPin, PinNotReady, PinRefusal, SemanticPinNotice, check_pinnable, effective_pin,
+        environment_pin, pin_drift, pinned_revision_for, validate_pin_for_publish,
     };
 }
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
@@ -307,6 +326,30 @@ pub fn routes() -> Router<AppState> {
                         get(custom_apps_sandboxes::handlers::show)
                             .delete(custom_apps_sandboxes::handlers::delete),
                     )
+                    // The OLTP schema difference between a sandbox's own branch and
+                    // production (`oxyc env diff`): Postgres reads only, FleetOk with
+                    // the nest, admitted through `show`'s door.
+                    .route(
+                        "/{id}/environments/{name}/diff",
+                        get(custom_apps_sandboxes::handlers::diff),
+                    )
+                    // Choose an environment's plane modes (`PUT …/planes`, the body
+                    // replaces the stored object) and put planes back (`POST
+                    // …/reset`): see `custom_apps_sandboxes::{planes, reset}`.
+                    // Postgres only (a row write, and a queued run when a reset
+                    // ships one) — FleetOk with the nest. Registered above the four
+                    // layers so all of them cover it; each handler then asks the
+                    // delete door (`Door::Sandbox`): a person who may open the
+                    // environment, or a sandbox agent token for a sandbox it
+                    // created. Production is `409 production_has_no_planes`.
+                    .route(
+                        "/{id}/environments/{name}/planes",
+                        put(custom_apps_sandboxes::planes::set),
+                    )
+                    .route(
+                        "/{id}/environments/{name}/reset",
+                        post(custom_apps_sandboxes::reset::reset),
+                    )
                     // Promote and rollback (`custom_apps_promote`; environments
                     // design §5.5a): a sandbox's build to staging, staging's to
                     // production, and either of those two back. Postgres, the
@@ -335,6 +378,15 @@ pub fn routes() -> Router<AppState> {
                     .route(
                         "/{id}/environments/{name}/tail",
                         get(custom_apps_tail::handler::tail),
+                    )
+                    // The email and notifications an environment captured
+                    // instead of sending (its messages plane's `capture`),
+                    // newest first: objects of its own storage silo, read
+                    // from the object store. FleetOk with the nest, and the
+                    // tail's door: `custom_apps_sandboxes::outbox`.
+                    .route(
+                        "/{id}/environments/{name}/outbox",
+                        get(custom_apps_sandboxes::outbox::list),
                     )
                     // A non-production environment's schedules switch (off by
                     // default) and its rows: read it back, or flip it and

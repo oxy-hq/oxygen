@@ -172,6 +172,66 @@ describe("the popover rows", () => {
   });
 });
 
+describe("calls sent to a provider sandbox", () => {
+  const sent = (over: Partial<StagingHeldEntry["writes"][number]> = {}) =>
+    write({
+      plane: "fetch",
+      namespace: "api.stripe.com",
+      verb: "POST",
+      table: "",
+      op: "fetch",
+      path: "/v1/charges",
+      status: 200,
+      ...over
+    });
+
+  it("does not count a sent call as held", () => {
+    heldResult = {
+      data: [entry({ writes: [write(), sent()] }), entry({ writes: [sent({ status: null })] })],
+      error: null,
+      isLoading: false
+    };
+    render(<StagingBanner appId='app-1' />);
+    expect(screen.getByTestId("admin-app-staging-banner-count").textContent).toBe("1 write held");
+  });
+
+  it("lists a sent call apart, as METHOD host path → status", async () => {
+    heldResult = {
+      data: [entry({ function: "charge", writes: [write(), sent(), sent({ status: null })] })],
+      error: null,
+      isLoading: false
+    };
+    render(<StagingBanner appId='app-1' />);
+    await userEvent.click(screen.getByTestId("admin-app-staging-banner-count"));
+
+    const held = await screen.findAllByTestId("admin-app-staging-held-row");
+    expect(held).toHaveLength(1);
+    expect(held[0].textContent).not.toContain("api.stripe.com");
+    const list = screen.getByTestId("admin-app-staging-sent-list");
+    expect(list.textContent).toContain("Sent to a provider sandbox");
+    const rows = screen.getAllByTestId("admin-app-staging-sent-row");
+    expect(rows.map((r) => r.textContent?.split("· ").pop())).toEqual([
+      "POST api.stripe.com/v1/charges → 200",
+      "POST api.stripe.com/v1/charges → no response"
+    ]);
+  });
+
+  it("shows no sent section when nothing was sent, and no empty text when only sends exist", async () => {
+    heldResult = { data: [entry()], error: null, isLoading: false };
+    const { unmount } = render(<StagingBanner appId='app-1' />);
+    await userEvent.click(screen.getByTestId("admin-app-staging-banner-count"));
+    await screen.findAllByTestId("admin-app-staging-held-row");
+    expect(screen.queryByTestId("admin-app-staging-sent-list")).toBeNull();
+    unmount();
+
+    heldResult = { data: [entry({ writes: [sent()] })], error: null, isLoading: false };
+    render(<StagingBanner appId='app-1' />);
+    await userEvent.click(screen.getByTestId("admin-app-staging-banner-count"));
+    await screen.findByTestId("admin-app-staging-sent-list");
+    expect(screen.queryByTestId("admin-app-staging-held-empty")).toBeNull();
+  });
+});
+
 describe("the qualified name", () => {
   it("joins namespace and table with one dot", () => {
     expect(qualifiedName({ namespace: "app_orders", table: "orders" })).toBe("app_orders.orders");

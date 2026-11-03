@@ -210,13 +210,13 @@ impl Fx {
         // The staging branch's database, by its derived name — the same
         // belt-and-braces as the tenant's, for a test that failed between the
         // copy and the row.
-        let req = oxy_oltp::provider::BranchRequest {
-            project_id: project.clone(),
-            parent_branch_id: "local".into(),
-            name: oxy_oltp::OltpBranch::Staging.provider_name().into(),
-            database_name: project.clone(),
-            owner_role: format!("{project}_owner"),
-        };
+        let req = oxy_oltp::provider::BranchRequest::staging(
+            project.as_str(),
+            "local",
+            oxy_oltp::OltpBranch::Staging.provider_name(),
+            project.as_str(),
+            format!("{project}_owner"),
+        );
         let branch = oxy_oltp::provider::branch_database_name(&project, &req.name);
         let _ = self.provider.delete_branch(&req, &branch).await;
         let roles = self.minted_roles.lock().expect("minted_roles").clone();

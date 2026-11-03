@@ -145,4 +145,9 @@ impl ProjectContext for PreviewPlatformContext {
     fn staging_app_id(&self) -> Option<uuid::Uuid> {
         None
     }
+
+    /// Nor is it a sandbox's.
+    fn sandbox_environment(&self) -> Option<String> {
+        None
+    }
 }

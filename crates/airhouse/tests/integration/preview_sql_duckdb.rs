@@ -222,6 +222,7 @@ fn live_tables_are_byte_identical_after_pokehouse_shaped_sequences() {
         opts: RewriteOptions {
             catalog: CATALOG.map(str::to_string),
             read_live_only: false,
+            pin: None,
         },
     };
     let before = host.live_snapshot();

@@ -44,6 +44,7 @@ pub mod preagg_cache_ctx;
 pub mod preagg_context;
 pub mod process_role;
 pub mod semantic_limit;
+pub mod semantic_pin_seam;
 pub mod serve_mode;
 pub mod sql_kind;
 pub mod staging_pin_scope;

@@ -40,7 +40,8 @@
 /// staff sampling a branch's pipeline: no such failure says anything about the
 /// workspace production serves. Nor does `custom_app_staging_migrations`, a
 /// custom app's staging homes migrated after a publish, nor a sandbox's
-/// (`custom_app_sandbox_migrations`, `custom_app_sandbox_oltp`) or its teardown
+/// (`custom_app_sandbox_migrations`, `custom_app_sandbox_oltp`,
+/// `custom_app_env_oltp_branch`) or its teardown
 /// (`custom_app_sandbox_teardown`): staff trying a build, not the tenant's work.
 /// Nor does `custom_app_usage_backfill`, the platform copying a workspace's usage
 /// history to its Airhouse.
@@ -54,6 +55,7 @@ const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "custom_app_staging_migrations",
     "custom_app_sandbox_migrations",
     "custom_app_sandbox_oltp",
+    "custom_app_env_oltp_branch",
     "custom_app_sandbox_teardown",
     "custom_app_usage_backfill",
 ];

@@ -140,6 +140,8 @@ const UNSCANNED_ROUTE_FILES: &[&str] = &[
     "crates/app/src/server/role_middleware_tests.rs",
     // Fixture routers for the sandbox-agent-token body assertions.
     "crates/app-core/src/agent_body_tests.rs",
+    // Fixture router for the environment guard's held-workspace-action tests.
+    "crates/app-core/src/custom_app_env_request_workspace_actions_tests.rs",
 ];
 
 /// The floor exists so a router refactor the lexical walker can no longer

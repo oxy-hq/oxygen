@@ -1,8 +1,9 @@
 //! The sandbox maintenance loop: a boot-time loop, shaped like
 //! `previews::maintenance`, that expires idle sandboxes and retries teardowns
-//! that did not finish. It only writes rows and queues tasks — the teardown
-//! itself is a `custom_app_sandbox_teardown` task ([`super::teardown`]) on the
-//! worker fleet — so it runs on any node, with or without workers.
+//! that did not finish. Apart from step 5 it only writes rows and queues tasks
+//! — the teardown itself is a `custom_app_sandbox_teardown` task
+//! ([`super::teardown`]) on the worker fleet — so it runs on any node, with or
+//! without workers.
 //!
 //! Each pass ([`sweep`]):
 //! 1. **Expire** up to [`SANDBOXES_PER_PASS`] active sandboxes whose last
@@ -16,6 +17,15 @@
 //!    than [`stale_teardown`] ago: their teardown failed, or never got a
 //!    worker. Deleting one again marks it now and queues a new run, so it is
 //!    next retried a further [`stale_teardown`] later.
+//! 4. **Expire past the fork** up to [`SANDBOXES_PER_PASS`] active sandboxes
+//!    whose fork point (`fork_at`, else when they were created) is more than
+//!    [`oxy_oltp::env_branches::EXPIRY_DAYS`] ago **and** that hold a copy of
+//!    production rows ([`expires_from_fork`]), reason `oltp_branch_expired`.
+//!    Activity does not count: a copy of production data must not outlive its
+//!    window because someone keeps using it. Its teardown deletes the branch.
+//! 5. **Delete orphaned OLTP branches** — environment branches whose sandbox
+//!    row is gone without a teardown, by a cascade from its app or owner
+//!    ([`super::orphan_branches`]). Inline, not queued: no sandbox is left.
 //!
 //! **The list is a moment old when each sandbox's turn comes.** A publish
 //! may have landed on an idle sandbox, or a stale teardown finished and its
@@ -31,11 +41,18 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use entity::apps;
-use oxy_app_core::custom_app_environment::AppEnvironment;
-use sea_orm::{DatabaseBackend, DatabaseConnection, DbErr, EntityTrait, Statement};
+use entity::{app_environments, apps};
+use oxy_app_core::custom_app_environment::{AppEnvironment, AppEnvironmentKind};
+use oxy_custom_apps::planes::{AirhouseMode, OltpMode, ResolvedPlanes, planes_from_row};
+use oxy_oltp::env_branches::EXPIRY_DAYS;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, DatabaseBackend, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect, Statement,
+};
 use uuid::Uuid;
 
+use super::delete::forked_at;
 use super::ops::Expect;
 use super::{SandboxError, TeardownReason, activity, ops};
 
@@ -44,6 +61,8 @@ const DEFAULT_INTERVAL_SECS: u64 = 900;
 const MIN_INTERVAL_SECS: u64 = 60;
 /// Sandboxes expired, and teardowns retried, per pass; the next pass continues.
 pub const SANDBOXES_PER_PASS: i64 = 50;
+/// Rows the fork pass reads at a time while it looks for sandboxes that qualify.
+const FORK_PAGE: u64 = 200;
 
 /// How long a sandbox may stay `deleting` before its teardown is queued again.
 pub fn stale_teardown() -> chrono::Duration {
@@ -101,11 +120,44 @@ pub fn spawn(config: MaintenanceConfig) {
     });
 }
 
+/// Whether a sandbox with `planes` holds a copy of production's rows, and so
+/// is deleted [`EXPIRY_DAYS`] after its fork point.
+///
+/// **The one place this is decided.** An exhaustive match on the planes that
+/// can copy rows, so a new mode has to choose. `empty` copies nothing (its
+/// branch is cut without a provider expiry); OLTP `schema` is a schema of
+/// the org's shared staging branch, which this pass does not own. Storage
+/// never counts: an environment's silo starts empty and its objects expire
+/// on their own.
+pub fn expires_from_fork(planes: &ResolvedPlanes) -> bool {
+    let oltp = match planes.oltp {
+        OltpMode::Branch => true,
+        OltpMode::Empty | OltpMode::Schema => false,
+    };
+    let airhouse = match planes.airhouse {
+        // The overlay copies production's rows into the sandbox on write.
+        AirhouseMode::Branch | AirhouseMode::Snapshot => true,
+        AirhouseMode::WriteOnly => false,
+    };
+    oltp || airhouse
+}
+
 /// One pass at `now`: expire idle sandboxes, end those whose token ended,
-/// then retry stale teardowns.
+/// retry stale teardowns, expire those past their fork, then delete the OLTP
+/// branches no sandbox holds.
 /// Answers how many teardowns it queued. A sandbox that cannot be deleted is
 /// logged and left for the next pass; only a failed read fails the pass.
 pub async fn sweep(db: &DatabaseConnection, now: DateTime<Utc>) -> Result<usize, DbErr> {
+    sweep_with(db, now, expires_from_fork).await
+}
+
+/// [`sweep`], with the rule for which planes expire from the fork passed in:
+/// the seam the tests use to force it `true`.
+pub async fn sweep_with(
+    db: &DatabaseConnection,
+    now: DateTime<Utc>,
+    expires: fn(&ResolvedPlanes) -> bool,
+) -> Result<usize, DbErr> {
     let ttl = super::idle_ttl();
     let idle_since = Expect::IdleSince(now - ttl);
     let idle = activity::idle_sandboxes(db, now, ttl, SANDBOXES_PER_PASS)
@@ -117,6 +169,10 @@ pub async fn sweep(db: &DatabaseConnection, now: DateTime<Utc>) -> Result<usize,
     queued += super::token_ended::sweep(db, now).await?;
     let stale = stale_teardowns(db, now - stale_teardown(), SANDBOXES_PER_PASS).await?;
     queued += delete_each(db, stale, TeardownReason::Retried).await;
+    let cutoff = now - chrono::Duration::days(EXPIRY_DAYS);
+    let forked = forked_sandboxes(db, cutoff, SANDBOXES_PER_PASS as usize, expires).await?;
+    queued += delete_each(db, forked, TeardownReason::BranchExpired).await;
+    super::orphan_branches::sweep(db).await;
     Ok(queued)
 }
 
@@ -152,6 +208,74 @@ async fn stale_teardowns(
             Ok((row.try_get("", "app_id")?, row.try_get("", "name")?, expect))
         })
         .collect()
+}
+
+/// Up to `limit` active sandboxes forked before `cutoff` whose planes `expires`,
+/// oldest fork first, each to be deleted only while still forked before it.
+/// Read a page at a time: most old sandboxes copy nothing, and must not crowd
+/// out those that do. A row whose planes do not parse is warned about and
+/// skipped — never torn down on a choice nobody can read.
+async fn forked_sandboxes(
+    db: &DatabaseConnection,
+    cutoff: DateTime<Utc>,
+    limit: usize,
+    expires: fn(&ResolvedPlanes) -> bool,
+) -> Result<Vec<Selected>, DbErr> {
+    use app_environments::Column;
+    use sea_orm::sea_query::ExprTrait;
+    let fork = || -> Expr {
+        Func::coalesce([Expr::col(Column::ForkAt), Expr::col(Column::CreatedAt)]).into()
+    };
+    let mut selected = Vec::new();
+    let mut after: Option<(DateTime<Utc>, Uuid, String)> = None;
+    while selected.len() < limit {
+        let mut query = app_environments::Entity::find()
+            .filter(Column::Kind.eq(AppEnvironmentKind::Dev.as_str()))
+            .filter(Column::DeletingAt.is_null())
+            .filter(fork().lt(cutoff.fixed_offset()))
+            .order_by_asc(fork())
+            .order_by_asc(Column::AppId)
+            .order_by_asc(Column::Name)
+            .limit(FORK_PAGE);
+        if let Some((forked, app_id, name)) = after.take() {
+            let here = Expr::tuple([fork(), Expr::col(Column::AppId), Expr::col(Column::Name)]);
+            let last = Expr::tuple([
+                Expr::value(forked.fixed_offset()),
+                Expr::value(app_id),
+                Expr::value(name),
+            ]);
+            query = query.filter(here.gt(last));
+        }
+        let page = query.all(db).await?;
+        let Some(last) = page.last() else { break };
+        after = Some((forked_at(last), last.app_id, last.name.clone()));
+        let full = page.len() as u64 == FORK_PAGE;
+        selected.extend(
+            page.iter()
+                .filter(|row| expires_row(row, expires))
+                .map(|row| (row.app_id, row.name.clone(), Expect::ForkedBefore(cutoff)))
+                .take(limit - selected.len()),
+        );
+        if !full {
+            break;
+        }
+    }
+    Ok(selected)
+}
+
+/// Whether `row`'s planes say it expires from its fork.
+fn expires_row(row: &app_environments::Model, expires: fn(&ResolvedPlanes) -> bool) -> bool {
+    let Some(environment) = AppEnvironment::parse(&row.name) else {
+        return false;
+    };
+    match planes_from_row(Some(row), &environment) {
+        Ok(planes) => planes.as_ref().is_some_and(expires),
+        Err(why) => {
+            tracing::warn!(app_id = %row.app_id, environment = %row.name, %why,
+                "sandbox_maintenance: planes unreadable; not expiring from the fork");
+            false
+        }
+    }
 }
 
 /// `ops::delete_if` for each selected sandbox; how many teardowns were queued.
@@ -206,38 +330,5 @@ async fn delete_one(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Fifteen minutes by default; the override is whole seconds, never under
-    /// a minute. nextest runs each test in its own process, so the env writes
-    /// are its own.
-    #[test]
-    fn the_interval_is_fifteen_minutes_unless_overridden_and_never_under_one() {
-        // SAFETY: nextest runs each test in its own process.
-        unsafe { std::env::remove_var(INTERVAL_ENV) };
-        assert_eq!(
-            MaintenanceConfig::from_env().interval,
-            Duration::from_secs(900)
-        );
-        for (raw, secs) in [
-            ("120", 120),
-            (" 3600 ", 3600),
-            ("5", 60),
-            ("0", 60),
-            ("soon", 900),
-        ] {
-            unsafe { std::env::set_var(INTERVAL_ENV, raw) };
-            assert_eq!(
-                MaintenanceConfig::from_env().interval,
-                Duration::from_secs(secs),
-                "{raw:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_teardown_is_retried_after_six_hours() {
-        assert_eq!(stale_teardown(), chrono::Duration::hours(6));
-    }
-}
+#[path = "maintenance_tests.rs"]
+mod tests;

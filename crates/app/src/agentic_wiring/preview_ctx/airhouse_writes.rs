@@ -110,6 +110,7 @@ impl PreviewAirhouse {
         let opts = RewriteOptions {
             catalog: ports.catalog(),
             read_live_only: read_live_only(&row.options),
+            pin: None,
         };
         Ok(Self {
             db: db.clone(),

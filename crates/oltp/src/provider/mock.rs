@@ -13,7 +13,8 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 
 use super::types::{
-    Branch, BranchRequest, CreateProjectRequest, DatabaseInfo, Project, ProjectBranch, Role,
+    Branch, BranchInit, BranchRequest, CreateProjectRequest, DatabaseInfo, Project, ProjectBranch,
+    Role,
 };
 use super::{OltpProvider, ProviderError};
 
@@ -30,15 +31,24 @@ struct State {
     roles: HashMap<RoleKey, String>,
     /// (project, branch id) → a non-default branch, stored redacted
     branches: HashMap<(String, String), ProjectBranch>,
+    /// branch id → the init it was created with: what Neon's `parent_id`
+    /// tells apart (a schema-only branch has none), so an adopt can refuse
+    /// a branch of the other shape the way Neon's does.
+    branch_inits: HashMap<String, BranchInit>,
     /// branch id → how many times it was reset, for assertions
     branch_resets: HashMap<String, u32>,
     /// Every branch id `delete_branch` was asked to delete, refused or not —
     /// so a test can prove a caller never ASKED to delete production, which a
     /// refusal here would otherwise hide.
     branch_delete_attempts: Vec<String>,
+    /// Every request `create_branch` was handed, in order — so a test can read
+    /// back the fork point, expiry and init a caller asked for.
+    branch_create_requests: Vec<BranchRequest>,
     /// Held before a branch create answers, so a test can make two provisions
     /// overlap deterministically.
     branch_create_delay: Option<std::time::Duration>,
+    /// Every `(branch id, expires_at)` `set_branch_expiry` was asked for.
+    branch_expiry_updates: Vec<(String, chrono::DateTime<chrono::Utc>)>,
     seq: u64,
     faults: VecDeque<ProviderError>,
 }
@@ -319,6 +329,19 @@ impl OltpProvider for MockProvider {
         branch_id: &str,
     ) -> Result<(), ProviderError> {
         self.delete_branch_impl(req, branch_id)
+    }
+
+    async fn find_branch_id(&self, req: &BranchRequest) -> Result<Option<String>, ProviderError> {
+        self.find_branch_id_impl(req)
+    }
+
+    async fn set_branch_expiry(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), ProviderError> {
+        self.set_branch_expiry_impl(req, branch_id, expires_at)
     }
 
     /// As on Neon, a project's branches go with it.

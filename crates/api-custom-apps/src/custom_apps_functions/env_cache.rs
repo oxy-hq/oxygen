@@ -54,7 +54,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use super::super::custom_apps_secrets::scope;
-use super::env_policy::EnvPolicy;
+use super::env_policy::{EnvPolicy, SecretsHome};
 
 const TTL: Duration = Duration::from_secs(60);
 /// Apps × environments a replica serves live, with room to spare.
@@ -68,6 +68,19 @@ pub(super) struct ResolvedEnv {
     pub(super) read_through_fallback: BTreeSet<String>,
 }
 
+impl ResolvedEnv {
+    /// The values of the keys read through the fallback, never the keys: a
+    /// provider-sandbox `ctx.fetch` carrying one is held
+    /// (`host::provider_fetch`).
+    #[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
+    pub(super) fn fallback_values(&self) -> Vec<String> {
+        self.read_through_fallback
+            .iter()
+            .filter_map(|key| self.values.get(key).cloned())
+            .collect()
+    }
+}
+
 /// Everything a resolution depends on.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct EnvKey {
@@ -75,6 +88,9 @@ pub(super) struct EnvKey {
     pub(super) app_id: Uuid,
     pub(super) environment: AppEnvironment,
     pub(super) shared: BTreeSet<String>,
+    /// The secrets plane's home: `inherit` and `empty` read different paths
+    /// for the same app and environment, so they never share an entry.
+    pub(super) home: SecretsHome,
 }
 
 /// The app's secret rows as they stood when an entry was resolved.
@@ -186,6 +202,14 @@ async fn stamp_of(db: &DatabaseConnection, project_id: Uuid, app_id: Uuid) -> Op
     }
 }
 
+/// Where the policy reads `ctx.env` from: the chain, unless its planes say
+/// the environment's own path alone.
+fn secrets_home(policy: &EnvPolicy) -> SecretsHome {
+    policy
+        .homes()
+        .map_or(SecretsHome::Chain, |homes| homes.secrets)
+}
+
 /// Resolve `ctx.env` for an invocation: secrets stored under the
 /// `apps/<app_id>/<KEY>` prefix in the project's secret manager, exposed to
 /// the isolate with the prefix stripped (so the function sees plain `KEY`).
@@ -209,6 +233,7 @@ pub(super) async fn resolve(
         app_id,
         environment: policy.environment().clone(),
         shared: policy.shared_env().clone(),
+        home: secrets_home(policy),
     };
     let stamp = stamp_of(db, project_id, app_id).await;
     if let Some(stamp) = stamp
@@ -243,7 +268,13 @@ async fn resolve_uncached(
             return (ResolvedEnv::default(), false);
         }
     };
-    let plan = scope::plan_env(app_id, policy.environment(), policy.shared_env(), &names);
+    let plan = scope::plan_env(
+        app_id,
+        policy.environment(),
+        secrets_home(policy).lookup(),
+        policy.shared_env(),
+        &names,
+    );
 
     let mut resolved = ResolvedEnv::default();
     let mut complete = true;
@@ -274,6 +305,7 @@ mod tests {
             app_id: Uuid::from_u128(app),
             environment,
             shared: BTreeSet::new(),
+            home: SecretsHome::Chain,
         }
     }
 
@@ -292,6 +324,42 @@ mod tests {
 
     fn staging() -> AppEnvironment {
         AppEnvironment::Staging
+    }
+
+    /// The same app and environment resolve differently under `empty`, so an
+    /// entry cached under one home is never served for the other.
+    #[test]
+    fn inherit_and_empty_never_share_a_cache_entry() {
+        let cache = EnvCache::new(Duration::from_secs(60), 16);
+        let inherit = key(1, staging());
+        let empty = EnvKey {
+            home: SecretsHome::OwnOnly,
+            ..inherit.clone()
+        };
+        cache.put(inherit.clone(), stamp(1), env("inherited"));
+        assert!(cache.get(&empty, stamp(1)).is_none());
+        cache.put(empty.clone(), stamp(1), env("own"));
+        assert_eq!(
+            cache.get(&inherit, stamp(1)).expect("hit").values["API_KEY"],
+            "inherited"
+        );
+        assert_eq!(
+            cache.get(&empty, stamp(1)).expect("hit").values["API_KEY"],
+            "own"
+        );
+    }
+
+    #[test]
+    fn fallback_values_are_the_values_of_the_keys_read_through_the_fallback() {
+        let resolved = ResolvedEnv {
+            values: BTreeMap::from([
+                ("OWN".to_string(), "own-value".to_string()),
+                ("SHARED".to_string(), "prod-value".to_string()),
+            ]),
+            read_through_fallback: BTreeSet::from(["SHARED".to_string(), "GONE".to_string()]),
+        };
+        assert_eq!(resolved.fallback_values(), vec!["prod-value".to_string()]);
+        assert!(ResolvedEnv::default().fallback_values().is_empty());
     }
 
     #[test]

@@ -1,31 +1,37 @@
-//! An agent ask from a custom app's **staging** host runs with every write
-//! held (`internal-docs/customer-apps-staging.md` D5).
+//! An agent ask from a custom app's **staging** host or a **sandbox** runs with
+//! every write held (`internal-docs/customer-apps-staging.md` D5).
 //!
-//! The environment guard lets the ask routes through on the staging host
-//! (`custom_app_env_request::is_staging_write`) and nothing else. Here
+//! The environment guard lets the ask routes through in an environment whose
+//! `workspace-actions` plane is `held`
+//! (`custom_app_env_request::is_held_workspace_action`) and nothing else. Here
 //! [`ask_scope`] decides what that ask runs under:
 //!
 //! - **production** — `None`: the ask runs as it always has;
-//! - **staging** — the app the request names (the staging host; off an app
-//!   host, `x-oxy-app` or the `Referer`) must be published from this
-//!   workspace, and the
-//!   caller must be one oxy-authz lets open its staging
-//!   (`may_open_non_production`). Then a [`HoldScope::staging`]: `start_ask`
-//!   builds the run's platform and starts the run inside it, so the platform
-//!   captures the hold (`OxyProjectContext::holds_writes`) — every connector
-//!   held, no automation runner, no builder bridges, Airway refused,
-//!   `http_request` `GET`/`HEAD` only — and the run is stamped
-//!   `workspace_preview: {revision_id, app_id}`, so recovery and a cold resume
-//!   retire it rather than drive it on production's platform;
-//! - **anything else** (a dev slot, an app that does not resolve, a caller who
-//!   may not open staging) — refused, `404 EnvironmentRefused`, before any
-//!   thread or run row is written. Fail closed: a lookup error is a refusal.
+//! - **staging or a sandbox** — the app the request names (the environment's
+//!   host; off an app host, `x-oxy-app` or the `Referer`) must be published
+//!   from this workspace, and the caller must be one oxy-authz lets open that
+//!   environment (`non_production_app`). Then the plane decides
+//!   (`workspace_actions_mode`, the environment's row, never its kind):
+//!   `held` is a [`HoldScope`] for that environment — staging's, or the
+//!   sandbox's own, whose threads, run stamps and held rows are never
+//!   staging's. `start_ask` builds the run's platform and starts the run inside
+//!   it, so the platform captures the hold (`OxyProjectContext::holds_writes`):
+//!   every connector held, no automation runner, no builder bridges, Airway
+//!   refused, `http_request` `GET`/`HEAD` only; the run is stamped
+//!   `workspace_preview: {revision_id, app_id}` (plus `environment` for a
+//!   sandbox), so recovery and a cold resume retire it rather than drive it on
+//!   production's platform. `refused` is today's refusal;
+//! - **anything else** (an app that does not resolve, a caller who may not
+//!   open the environment, a `refused` plane) — refused, `404
+//!   EnvironmentRefused`, before any thread or run row is written. An
+//!   unreadable plane is `409` ([`planes_unreadable`]). Fail closed: a lookup
+//!   error is a refusal.
 //!
 //! Every statement the hold refuses is recorded through the one
 //! `app.staging.held` writer (`oxy_custom_apps::staging_held::record_held`) as
-//! `function = "agent"`, so the console's held list shows it to the developer
-//! who asked. Cancelling on the staging host makes the same decision and
-//! reaches only a run this app's staging ask started ([`staging_run_matches`]).
+//! `function = "agent"`, under the environment's own name. Cancelling makes the
+//! same decision and reaches only a run this app's ask in this environment
+//! started ([`staging_run_matches`]).
 
 use std::sync::Arc;
 
@@ -39,20 +45,24 @@ use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use agentic_pipeline::platform::preview_stamp::RUN_STAMP;
+use oxy_custom_apps::planes::WorkspaceActionsMode;
 use oxy_custom_apps::staging_held::{HeldActor, HeldRow, record_held};
-use oxy_custom_apps::thread_source::{PRODUCTION_THREAD_SOURCE, staging_thread_source};
+use oxy_custom_apps::thread_source::{
+    PRODUCTION_THREAD_SOURCE, sandbox_thread_source, staging_thread_source,
+};
 use oxy_custom_apps::write_record::{WriteRecord, plane_for_dialect};
 
+use super::workspace_actions::{non_production_app, workspace_actions_mode};
 use crate::server::previews::request_hold::{HeldSink, HeldStatement, HoldScope};
 use crate::server::previews::sql_kind::StatementKind;
 use oxy_app_core::custom_app_env_request::environment_refused;
-use oxy_custom_apps::staging_pin::request::{AppRef, staging_app_for, staging_app_ref};
 
 /// The surface an ask's held rows are listed under, and their `mode`.
 pub const ASK_SURFACE: &str = "agent";
 
-/// What the ask from this request runs under: `None` in production, a staging
-/// hold on the staging host, or the refusal to answer. See the module docs.
+/// What the ask from this request runs under: `None` in production, a hold in
+/// staging or a sandbox whose plane is `held`, or the refusal to answer. See
+/// the module docs.
 pub async fn ask_scope(
     db: &DatabaseConnection,
     headers: &HeaderMap,
@@ -60,60 +70,70 @@ pub async fn ask_scope(
     project_id: Uuid,
 ) -> Result<Option<HoldScope>, Response> {
     let environment = request_environment(headers).map_err(|e| e.into_response())?;
-    match environment {
-        AppEnvironment::Production => Ok(None),
-        AppEnvironment::Staging => staging_hold(db, headers, user, project_id)
-            .await
-            .map(Some)
-            .ok_or_else(|| refused(&AppEnvironment::Staging, "an agent ask")),
-        other => Err(refused(&other, "an agent ask")),
+    if environment == AppEnvironment::Production {
+        return Ok(None);
+    }
+    let refusal = || refused(&environment, "an agent ask");
+    let Some(app) = non_production_app(db, headers, user, project_id, &environment).await else {
+        return Err(refusal());
+    };
+    match workspace_actions_mode(db, app.id, &environment).await? {
+        // `preview` changes what an automation run does, not an ask: the ask
+        // runs with its writes held either way.
+        WorkspaceActionsMode::Held | WorkspaceActionsMode::Preview => {
+            Ok(Some(hold_scope(db, user, project_id, &app, environment)))
+        }
+        WorkspaceActionsMode::Refused => Err(refusal()),
     }
 }
 
 /// The `threads.source` an ask under `hold` writes, and the only one it may
-/// continue (`oxy_custom_apps::thread_source::staging_thread_source`): production's
-/// history, or this app's staging history.
+/// continue (`oxy_custom_apps::thread_source`): production's history, this
+/// app's staging history, or this sandbox's own.
 pub fn thread_source(hold: Option<&HoldScope>) -> String {
-    match hold {
+    match hold.map(|h| (h.app_id(), h.environment())) {
         None => PRODUCTION_THREAD_SOURCE.to_string(),
-        Some(h) => staging_thread_source(h.app_id()),
+        Some((app, Some(env))) if *env != AppEnvironment::Staging => {
+            sandbox_thread_source(app, &env.name())
+        }
+        Some((app, _)) => staging_thread_source(app),
     }
 }
 
-/// Whether `metadata` (an `agentic_runs` row's) is a run the staging ask of
-/// `hold`'s app started: its `workspace_preview` stamp names that app. A
-/// production run (unstamped) or another app's never matches.
+/// Whether `metadata` (an `agentic_runs` row's) is a run the ask of `hold`'s
+/// app and environment started: its `workspace_preview` stamp names that app,
+/// and the same environment (a stamp without one is staging's). A production
+/// run (unstamped), another app's, or another environment's never matches.
 pub fn staging_run_matches(hold: &HoldScope, metadata: Option<&serde_json::Value>) -> bool {
-    let stamped = metadata
-        .and_then(|m| m.get(RUN_STAMP))
+    let stamp = metadata.and_then(|m| m.get(RUN_STAMP));
+    let stamped = stamp
         .and_then(|s| s.get("app_id"))
         .and_then(|v| v.as_str())
         .and_then(|v| Uuid::parse_str(v).ok());
-    stamped.is_some() && stamped == hold.app_id()
+    let stamped_env = stamp
+        .and_then(|s| s.get("environment"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("staging");
+    stamped.is_some()
+        && stamped == hold.app_id()
+        && hold.environment().map(AppEnvironment::name).as_deref() == Some(stamped_env)
 }
 
-/// The app a staging write names (`oxy_custom_apps::staging_pin::request::
-/// staging_app_ref`). Shared with `projects::automation_run::staging_hold`.
-pub(crate) fn ask_app_ref(headers: &HeaderMap) -> Option<AppRef> {
-    staging_app_ref(headers)
-}
-
-/// The staging hold for the app this request names, when the caller may open
-/// its staging. `None` on any miss, a lookup error included.
-async fn staging_hold(
+/// The hold for `environment` of `app`, whose held statements are recorded
+/// under the environment's own name.
+fn hold_scope(
     db: &DatabaseConnection,
-    headers: &HeaderMap,
     user: &AuthenticatedUser,
     project_id: Uuid,
-) -> Option<HoldScope> {
-    let caller = crate::server::authz::Caller::from_user(user);
-    let app = staging_app_for(db, headers, &caller, project_id).await?;
+    app: &entity::apps::Model,
+    environment: AppEnvironment,
+) -> HoldScope {
     let row = HeldRow {
         app_id: app.id,
         app_slug: app.slug.clone(),
         org_id: app.org_id,
         project_id,
-        environment: AppEnvironment::Staging.name(),
+        environment: environment.name(),
         actor: HeldActor::User {
             id: user.id,
             email: user.email.clone(),
@@ -130,7 +150,7 @@ async fn staging_hold(
         db: db.clone(),
         row,
     });
-    Some(HoldScope::staging(app.id, sink))
+    HoldScope::in_environment(app.id, environment, sink)
 }
 
 /// `404 EnvironmentRefused` (`oxy_custom_apps::staging_pin::request::
@@ -180,5 +200,6 @@ fn write_record(statement: &HeldStatement<'_>) -> WriteRecord {
         statements: 1,
         op: None,
         note,
+        sent: None,
     }
 }

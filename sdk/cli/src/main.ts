@@ -44,6 +44,9 @@ import { runChecks } from "./commands/checks.js";
 import { runList, runPath } from "./commands/customers.js";
 import { runOpenApi, runRoutes, runSchema } from "./commands/discover.js";
 import { runEnvCreate, runEnvDelete, runEnvList, runEnvShow } from "./commands/env.js";
+import { runEnvDiff } from "./commands/env-diff.js";
+import { runEnvOutbox } from "./commands/env-outbox.js";
+import { runEnvReset, runEnvUpdate } from "./commands/env-planes.js";
 import { runEnvSchedules } from "./commands/env-schedules.js";
 import { runEnvSecretDelete, runEnvSecretList, runEnvSecretSet } from "./commands/env-secrets.js";
 import { registerExperiments } from "./commands/experiments-cli.js";
@@ -695,9 +698,38 @@ function buildProgram(): Command {
     env
       .command("create <app> <name>")
       .description("create a sandbox (dev-<handle>) — starts with no build")
+      .option("--from <env>", "branch from production, staging or another sandbox")
+      .option("--at <timestamp>", "branch from the parent as of this time (not in the future)")
+      .option("--preset <preset>", "light (the default) or full: how many planes start isolated")
+      .option(
+        "--plane <key=mode>",
+        "set one plane's mode, e.g. storage=own or semantic=branch:<git branch> (repeatable; wins over --preset)",
+        collect,
+        []
+      )
+      .option(
+        "--destination <db=mapped>",
+        "write <mapped> instead of production's <db> in this environment, over the build's nonProduction.destinations (repeatable)",
+        collect,
+        []
+      )
+      .option(
+        "--fetch-host <host>",
+        "fetch=allow: send mutating ctx.fetch calls to this registered provider sandbox (repeatable; the list replaces the stored one)",
+        collect,
+        []
+      )
       .option("--json", "emit the Environment as JSON")
   ).action(async (app: string, name: string, opts: Record<string, unknown>) => {
-    await runEnvCreate(createContext(globals(opts)), app, name, { json: Boolean(opts.json) });
+    await runEnvCreate(createContext(globals(opts)), app, name, {
+      json: Boolean(opts.json),
+      from: opts.from as string | undefined,
+      at: opts.at as string | undefined,
+      preset: opts.preset as string | undefined,
+      plane: opts.plane as string[] | undefined,
+      destination: opts.destination as string[] | undefined,
+      fetchHost: opts.fetchHost as string[] | undefined
+    });
   });
   withGlobals(
     env
@@ -727,6 +759,94 @@ function buildProgram(): Command {
       yes: opts.yes as boolean | undefined,
       waitSeconds:
         opts.wait === undefined ? undefined : opts.wait === true ? 120 : Number(opts.wait),
+      json: Boolean(opts.json)
+    });
+  });
+
+  withGlobals(
+    env
+      .command("update <app> <name>")
+      .description("change an environment's plane modes — keeps the ones already set")
+      .option(
+        "--plane <key=mode>",
+        "a plane's mode, e.g. semantic=branch:<git branch> or workspace-actions=preview (repeatable); key=default clears it, back to the default",
+        collect,
+        []
+      )
+      .option(
+        "--destination <db=mapped>",
+        "warehouse override: write <mapped> instead of production's <db> here (repeatable; keeps the others)",
+        collect,
+        []
+      )
+      .option(
+        "--clear-destination <db>",
+        "remove the warehouse override of <db>, back to the build's mapping (repeatable)",
+        collect,
+        []
+      )
+      .option(
+        "--fetch-host <host>",
+        "fetch=allow: send mutating ctx.fetch calls to this registered provider sandbox (repeatable; the list replaces the stored one)",
+        collect,
+        []
+      )
+      .option("--replace", "send exactly these --plane flags, dropping every other set plane")
+      .option("--json", "emit the Environment as JSON")
+  ).action(async (app: string, name: string, opts: Record<string, unknown>) => {
+    await runEnvUpdate(createContext(globals(opts)), app, name, {
+      plane: opts.plane as string[] | undefined,
+      destination: opts.destination as string[] | undefined,
+      clearDestination: opts.clearDestination as string[] | undefined,
+      fetchHost: opts.fetchHost as string[] | undefined,
+      replace: opts.replace as boolean | undefined,
+      json: Boolean(opts.json)
+    });
+  });
+  withGlobals(
+    env
+      .command("reset <app> <name>")
+      .description(
+        "put planes of an environment back: storage and secrets (sandboxes only), messages (the captured outbox), airhouse (the overlay's copied rows) and oltp (a sandbox's own branch, re-cut from production)"
+      )
+      .option("--plane <keys>", "the plane(s) to reset, comma-separated (repeatable)", collect, [])
+      .option(
+        "--at <timestamp>",
+        "re-cut the oltp plane from production as of this time (not in the future; oltp only)"
+      )
+      .option("--json", "emit {name, planes} as JSON")
+  ).action(async (app: string, name: string, opts: Record<string, unknown>) => {
+    await runEnvReset(createContext(globals(opts)), app, name, {
+      plane: opts.plane as string[] | undefined,
+      at: opts.at as string | undefined,
+      json: Boolean(opts.json)
+    });
+  });
+
+  withGlobals(
+    env
+      .command("diff <app> <name>")
+      .description(
+        "an environment's OLTP schema against production's: tables and columns added, removed, changed"
+      )
+      .option("--plane <keys>", "the plane(s) to diff: oltp (the default; repeatable)", collect, [])
+      .option("--json", "emit {environment, planes} as JSON")
+  ).action(async (app: string, name: string, opts: Record<string, unknown>) => {
+    await runEnvDiff(createContext(globals(opts)), app, name, {
+      plane: opts.plane as string[] | undefined,
+      json: Boolean(opts.json)
+    });
+  });
+
+  withGlobals(
+    env
+      .command("outbox <app> <name>")
+      .description("the email and notifications an environment captured instead of sending")
+      .option("--limit <n>", "how many, newest first (default 50, at most 200)")
+      .option("--json", "emit {messages, has_more} as JSON")
+  ).action(async (app: string, name: string, opts: Record<string, unknown>) => {
+    await runEnvOutbox(createContext(globals(opts)), app, name, {
+      limit: opts.limit === undefined ? undefined : Number(opts.limit),
       json: Boolean(opts.json)
     });
   });

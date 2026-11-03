@@ -1094,9 +1094,14 @@ predates trusted checks.
 ## Sandboxes
 
 ```bash
-oxyc env create <app> <name>                 # name is dev-<handle>, 1-12 chars a-z0-9-
+oxyc env create <app> <name> [--from <env>] [--at <ts>] [--preset light|full] [--plane <key>=<mode> …] [--destination <db>=<mapped> …] [--fetch-host <host> …]
+                                             # name is dev-<handle>, 1-12 chars a-z0-9-
 oxyc env list <app>
 oxyc env show <app> <name>
+oxyc env update <app> <name> --plane <key>=<mode> … [--destination <db>=<mapped> …] [--clear-destination <db> …] [--fetch-host <host> …] [--replace]   # key=default clears a key
+oxyc env reset <app> <name> --plane <key>[,<key>…] [--at <ts>]   # oltp, airhouse, storage, secrets, messages; --at: oltp branch, from production as of <ts>
+oxyc env diff <app> <name> [--plane oltp] [--json]   # a branch sandbox's OLTP schema against production
+oxyc env outbox <app> <name> [--limit <n>] [--json]    # email and notifications a `capture` environment kept
 oxyc env delete <app> <name> [--yes] [--wait [seconds]]
 oxyc env schedules <app> <name> [--on|--off] # staging's or a sandbox's switch; off by default
 
@@ -1115,6 +1120,62 @@ oxyc env secret list <app> --app-env <name>      # keys and flags, never a value
 oxyc env secret set <app> <key> --app-env <name> (--value <text> | --value-env <VAR>)
 oxyc env secret delete <app> <key> --app-env <name>
 ```
+
+**`env create --from/--at/--preset/--plane`** branches a sandbox from production,
+staging or another sandbox, optionally as of a past time, with each plane's
+mode set (`--plane` repeats; it wins over `--preset`). With `--from`, the
+sandbox starts on the parent's build and that build's migrations are queued for
+it (a parent with no build gives a sandbox with none). You may fork only from an
+environment you may open, so a sandbox agent token can fork only from a sandbox
+it created, or from staging when it was minted with the staging option: `--from production`
+(and `--from staging` without that option) is `400 invalid_parent` for it.
+Plane keys and modes: `oltp` (`schema`, `branch`, `empty`), `airhouse`
+(`write-only`, `branch`, `snapshot`), `storage` (`branch`, `empty`), `secrets` (`inherit`,
+`empty`), `messages` (`invoker`, `capture`), `fetch` (`held-writes`, `allow`
+with `--fetch-host`), `workspace-actions` (`held`, `refused`). `--preset full` is
+`oltp=branch`, `secrets=empty`, `messages=capture` and `airhouse=branch`. **`env update`** reads
+the environment's `planes_set`, merges the flags into it (`--plane a=default`
+removes `a`) and PUTs the whole object; `--replace` sends exactly the flags.
+Staging can be updated too; production has no planes (`409
+production_has_no_planes`). **`--destination <db>=<mapped>`** makes this
+environment write `<mapped>` instead of production's `<db>` over the build's
+`nonProduction.destinations`, key by key; repeat it, and `env update` keeps the
+ones it is not told about. **`--clear-destination <db>`** removes one (an empty
+`--destination` value is a usage error). The mapped name is checked as at
+publish (`400 invalid_planes`). **`--fetch-host <host>`** (repeatable) sets
+the `fetch` plane to `allow` for exactly these registered provider sandboxes
+(`{"mode": "allow", "hosts": [...]}`), so mutating `ctx.fetch` calls to them are
+sent and listed as `(sent)` in `invocations held`; the list replaces the stored
+one, a host that is not a registered sandbox is `400 invalid_planes`, and
+`--plane fetch=default` turns it off. A bare `--plane fetch=allow` keeps the
+stored list, and with none stored is a usage error. **`env reset`** puts the
+named planes back to a clean copy of the parent's and prints each one's `done` /
+`queued` (with its `run_id`): it empties `storage`, `secrets` and `messages`,
+empties Airhouse's overlay, and re-cuts an `oltp=branch|empty` sandbox's own
+OLTP branch from production as a queued run (`--at <ts>` cuts it as of that
+time). On staging only `messages` resets (`409 plane_not_resettable` for the
+others, which the team shares); a held lock is `409 environment_busy`. **`env
+outbox`** lists what a `messages: capture` environment rendered and did not
+send, newest first (`--limit`, default 50, at most 200; `--json` prints
+`{messages, has_more}`; over MCP, `oxy_env_outbox`). A sandbox agent token sees
+only messages captured since its sandbox began. A sandbox agent token may
+update, reset or read the outbox of only a `dev-<handle>` sandbox it created.
+`env show` prints the explicitly set planes as `set:`. **`env diff`** lists the
+tables and columns a sandbox on its own OLTP branch (`oltp=branch|empty`) has
+added (`+`), removed (`-`) or changed (`~`) against production's; a sandbox
+without one has nothing to show, and a branch not yet cut or migrated is
+`409 oltp_branch_unready` with the fix in its message.
+
+Two plane modes name more than a keyword. **`--plane semantic=branch:<git branch>`**
+pins the environment's semantic model to that branch of the app's workspace: the
+server checks the branch exists (`400 invalid_planes` naming it otherwise),
+compiles its head as a staging revision, and moves the pin when a later push to
+the branch compiles. The environment answers `503 semantic_branch_not_ready`
+until the first compile lands. `--plane semantic=default` (or `build-pin`)
+returns to the build's own pin and clears the environment's. **`--plane
+workspace-actions=preview`** runs an automation the app starts as a workspace
+preview dry run on the environment's semantic pin (else production's revision) instead of holding or refusing it;
+`--preset full` sets it.
 
 `logs --follow` is the live tail: each line as a function prints it,
 wherever the function runs, with no observability capture needed (the polled
@@ -1141,6 +1202,12 @@ staging's tables (rows up to a size cap), then the build's OLTP migrations.
 `failed` (with `error`) or `stale` (the branch was reset; publish again), and
 `structure_only` lists the tables copied empty. Until it is `ready` a
 `ctx.oltp` call in the sandbox is refused with a message that says which.
+
+`env show` also prints one line with the environment's parent and each plane's
+mode (`from staging · build=own semantic=build-pin … workspace-actions=refused`).
+Those are today's behaviour for every environment, reported, not yet
+configurable; `--json` carries them as `parent`, `fork_at`, `planes` and
+`planes_error`.
 
 The loop: `env create` → `publish --app-env` → `fn call` / `checks run
 --app-env` → `invocations list` / `held` to read back what ran → iterate from
@@ -1369,7 +1436,7 @@ prints `↳ <status> fn <name>  request_id=…  trace_id=…`.
 those schemas cost ~2 KB per turn and reach endpoints added after this
 package shipped. Two named exceptions trade that minimalism for validation an
 agent needs to drive a loop unsupervised: the **sandbox loop**
-(`oxy_env_create`/`list`/`show`/`delete`, `oxy_publish_sandbox`,
+(`oxy_env_create`/`list`/`show`/`update`/`reset`/`outbox`/`delete`, `oxy_publish_sandbox`,
 `oxy_fn_call`, `oxy_checks_run`, `oxy_invocations_list`/`held`, `oxy_logs`)
 and **workspace previews** (`oxy_preview_create`/`list`/`show`/`delete`/
 `checks`/`run`/`runs_list`/`run_show`). Each tool calls its CLI verb's own
@@ -1395,7 +1462,7 @@ claude mcp add oxyc -- npx -y @oxy-hq/cli mcp --login --env production
 ```
 
 **A sandbox agent token (`oxy_sbx_…`) is served a different, smaller list**:
-the ten sandbox-loop tools, `oxy_whoami` (the token's `kind`, `expires_at`,
+the fourteen sandbox-loop tools, `oxy_whoami` (the token's `kind`, `expires_at`,
 `apps` and `minter`), and four that exist only for it — `oxy_env_secret_list`,
 `oxy_env_secret_set` and `oxy_env_secret_delete`, which accept only a
 `dev-<handle>` `appEnv`, and `oxy_token_revoke`, which needs `confirm: true`.

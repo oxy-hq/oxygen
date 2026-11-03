@@ -31,6 +31,7 @@
 
 mod m20260804_000001_create_oltp_tables;
 mod m20260929_000001_create_oltp_branches;
+mod m20261102_000001_create_oltp_env_branches;
 
 use sea_orm::DatabaseConnection;
 use sea_orm_migration::prelude::*;
@@ -46,6 +47,9 @@ impl MigratorTrait for OltpMigrator {
             Box::new(m20260804_000001_create_oltp_tables::Migration),
             // Appended, never squashed in — see the module doc.
             Box::new(m20260929_000001_create_oltp_branches::Migration),
+            // Its own tables, not a new `oltp_branches.kind`: a reverted binary
+            // decodes every `kind` it finds.
+            Box::new(m20261102_000001_create_oltp_env_branches::Migration),
         ]
     }
 

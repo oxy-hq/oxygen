@@ -41,6 +41,40 @@ pub(crate) fn staging_host(t: &Tenant, app: &str) -> String {
     format!("staging--{}--{app}.customer-apps.oxygen-hq.com", t.org_slug)
 }
 
+pub(crate) fn sandbox_host(t: &Tenant, app: &str, handle: &str) -> String {
+    format!(
+        "dev-{handle}--{}--{app}.customer-apps.oxygen-hq.com",
+        t.org_slug
+    )
+}
+
+/// The sandbox `dev-<handle>` of `app_id`, created the way the API creates it,
+/// with `planes` stored on its row when given (any JSON, readable or not).
+pub(crate) async fn create_sandbox(t: &Tenant, app_id: Uuid, handle: &str, planes: Option<Value>) {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+
+    let app = apps::Entity::find_by_id(app_id)
+        .one(&t.db)
+        .await
+        .expect("query app")
+        .expect("the app");
+    let environment = oxy_app_core::custom_app_environment::AppEnvironment::Dev {
+        handle: handle.into(),
+    };
+    oxy_api_custom_apps::custom_apps_sandboxes::ops::create(&t.db, &app, &environment, &t.guest())
+        .await
+        .expect("create the sandbox");
+    if let Some(planes) = planes {
+        t.db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE app_environments SET planes = $3 WHERE app_id = $1 AND name = $2",
+            [app_id.into(), environment.name().into(), planes.into()],
+        ))
+        .await
+        .expect("store the planes");
+    }
+}
+
 pub(crate) fn production_host(t: &Tenant, app: &str) -> String {
     format!("{}--{app}.customer-apps.oxygen-hq.com", t.org_slug)
 }

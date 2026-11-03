@@ -40,6 +40,16 @@ impl TenantSqlExecutor for Recorder {
             .push((dsn.to_string(), statements.to_vec()));
         Ok(())
     }
+
+    /// Nothing to read from a recorded database: a copy of an `oxy_meta`
+    /// ledger from it copies no rows.
+    async fn query_text_rows(
+        &self,
+        _dsn: &str,
+        _statement: &str,
+    ) -> Result<Vec<Vec<Option<String>>>, SqlError> {
+        Ok(Vec::new())
+    }
 }
 
 impl Recorder {

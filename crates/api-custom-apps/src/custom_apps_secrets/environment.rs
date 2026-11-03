@@ -92,6 +92,13 @@ pub(super) async fn mark_inherited(
     if *environment == AppEnvironment::Production {
         return;
     }
+    // An environment on its own secrets path reads nothing from another one.
+    if let Ok(Some(planes)) =
+        crate::custom_apps_planes::environment_planes(db, app.id, environment).await
+        && planes.secrets == crate::custom_apps_planes::SecretsMode::Empty
+    {
+        return;
+    }
     let shared = super::shared_env::effective_shared_env(db, app, environment, manifest).await;
     let staging_keys = staging_keys_for(db, app, environment).await;
     apply_inheritance(environment, &shared, &staging_keys, entries);

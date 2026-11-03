@@ -10,6 +10,8 @@ use oxy_app_core::custom_app_environment::AppEnvironment;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
+use super::{EnvironmentPin, PinNotReady, effective_pin, environment_pin};
+
 /// How a request named its app, before any database lookup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppRef {
@@ -26,44 +28,58 @@ pub enum AppRef {
 }
 
 /// The pin for a request that named `app` and the non-production
-/// `environment`, or `None` for every other request. `project_id` is the
+/// `environment`: `Ok(None)` for every other request. `project_id` is the
 /// workspace the request is addressed to: an app published from another
 /// workspace is no match.
 ///
 /// The viewer must be allowed to open non-production
 /// (`may_open_non_production`, the rule that serves them that environment's
-/// HTML), and the pin is read from the build **that environment** serves. A
-/// sandbox whose build pins nothing reads the promoted model; it never borrows
-/// staging's pin.
+/// HTML). The pin is the **effective** one ([`effective_pin`]): the build
+/// **that environment** serves pins its own, else the environment's own pin.
+/// A sandbox whose build and environment pin nothing reads the promoted model;
+/// it never borrows staging's pin. `Err` when the environment follows a
+/// semantic branch with no ready compile: the request is refused, not served
+/// another model.
 pub async fn pin_for_environment(
     db: &DatabaseConnection,
     caller: &oxy_server_authz::Caller,
     project_id: Uuid,
     app: &AppRef,
     environment: &AppEnvironment,
-) -> Option<Uuid> {
-    let app = find_app(db, app).await?;
-    if app.project_id != project_id {
-        return None;
+) -> Result<Option<Uuid>, PinNotReady> {
+    let Some(app) = find_app(db, app).await else {
+        return Ok(None);
+    };
+    if app.project_id != project_id || !may_open(db, caller, &app).await {
+        return Ok(None);
     }
-    let build_id = environment_build(db, caller, &app, environment).await?;
-    super::pinned_revision_for(db, build_id).await
+    let build_pin = match environment_build(db, &app, environment).await {
+        Some(build_id) => super::pinned_revision_for(db, build_id).await,
+        None => None,
+    };
+    // A build's own pin wins, so the environment's is not read for it.
+    let env_pin = match build_pin {
+        Some(_) => EnvironmentPin::Unset,
+        None => environment_pin(db, app.id, &environment.name()).await,
+    };
+    effective_pin(build_pin, &env_pin)
 }
 
-/// The build `environment` — staging or a sandbox — serves, for a viewer who
-/// may open the app's non-production environments.
-async fn environment_build(
+async fn may_open(
     db: &DatabaseConnection,
     caller: &oxy_server_authz::Caller,
     app: &entity::apps::Model,
+) -> bool {
+    crate::non_production::may_open_non_production(db, caller, app).await
+}
+
+/// The build `environment` — staging or a sandbox — serves.
+async fn environment_build(
+    db: &DatabaseConnection,
+    app: &entity::apps::Model,
     environment: &AppEnvironment,
 ) -> Option<Uuid> {
-    use crate::env_resolve::resolve_environment;
-    use crate::non_production::may_open_non_production;
-    if !may_open_non_production(db, caller, app).await {
-        return None;
-    }
-    resolve_environment(db, app, environment)
+    crate::env_resolve::resolve_environment(db, app, environment)
         .await
         .ok()?
         .build_id

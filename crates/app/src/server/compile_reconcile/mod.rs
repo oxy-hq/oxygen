@@ -34,6 +34,8 @@
 //!   behind another and repeated failures back off.
 
 mod check;
+pub mod env_pinner;
+pub mod env_pins;
 pub mod push;
 mod state;
 
