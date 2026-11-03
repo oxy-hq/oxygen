@@ -5,7 +5,10 @@ import { dirname } from "node:path";
 // Bump when the toolkit shape or replay semantics change so old
 // entries invalidate cleanly. Cached actions recorded against an older
 // version are ignored on read and filtered out at load time.
-export const CACHE_VERSION = 3;
+// 4: recordings no longer rank an element's ambiguous test id above the
+// model's scoped selector (selectors.ts `materializeStrategies`); entries
+// from 3 carry that rank 0 and fail every replay on a page that renders it twice.
+export const CACHE_VERSION = 4;
 
 export type SelectorKind = "testid" | "role_name" | "text" | "css";
 

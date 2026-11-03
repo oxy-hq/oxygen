@@ -136,9 +136,15 @@ export async function materializeStrategies(
     const handle = await locator.elementHandle({ timeout: 200 }).catch(() => null);
     if (!handle) return uniqueByRank(candidates);
 
+    // After the primary, not before it: `keepUnambiguous` keeps the first
+    // candidate unchecked as the one the run proved. A test id rendered twice
+    // on the page (the Ask dock's composer and the launcher's under it) put
+    // here first was kept as rank 0 over the model's scoped selector, and
+    // replay's `.first()` clicked the hidden one. `uniqueByRank` still ranks a
+    // unique test id above a role, text or css primary.
     const testid = await handle.evaluate((el) => el.getAttribute("data-testid")).catch(() => null);
     if (testid) {
-      candidates.unshift({ kind: "testid", selector: `[data-testid="${testid}"]` });
+      candidates.push({ kind: "testid", selector: `[data-testid="${testid}"]` });
     }
 
     const role = await handle

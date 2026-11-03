@@ -172,7 +172,7 @@ dev's stated success criterion in plain English.
 ## Action cache contract
 
 Cache file: `tests/agentic/.cache/bespoke-actions.json`. Schema version
-`CACHE_VERSION = 3` (in `runner/action-cache.ts`).
+`CACHE_VERSION = 4` (in `runner/action-cache.ts`).
 
 Every successful state-changing tool call (`browser_click`, `browser_type`,
 `browser_press_key`, `browser_keyboard_type`, `browser_navigate`,

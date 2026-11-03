@@ -175,7 +175,7 @@ flow's claims are stale, or a real bug snuck in.
 
 - Test passes locally but fails in CI on a fresh runner (or vice versa).
 - `--inspect-cache` shows entries with `version` other than the current
-  `CACHE_VERSION` (`3` today — check `runner/action-cache.ts`).
+  `CACHE_VERSION` (`4` today — check `runner/action-cache.ts`).
 - A recent runtime change touched `runner/tool-registry.ts`,
   `runner/selectors.ts`, `runner/action-cache.ts`, or
   `runner/runtimes/bespoke.ts` and replays are doing surprising things.

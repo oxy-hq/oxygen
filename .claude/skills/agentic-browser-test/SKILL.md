@@ -306,7 +306,7 @@ After each run, if `.results/healing.json` is non-empty (Tier-2 heal happened) t
 
 ## Action cache + healing model
 
-Cache file: `web-app/tests/agentic/.cache/bespoke-actions.json`. Schema version: `CACHE_VERSION = 3` (defined in `runner/action-cache.ts`).
+Cache file: `web-app/tests/agentic/.cache/bespoke-actions.json`. Schema version: `CACHE_VERSION = 4` (defined in `runner/action-cache.ts`).
 
 ### Three layers of invalidation
 

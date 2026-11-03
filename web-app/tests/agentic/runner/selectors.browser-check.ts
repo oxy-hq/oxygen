@@ -1,11 +1,13 @@
 // A browser check for selector materialization, run by showcase.yaml (the unit
-// suite has no browser). Exits non-zero when either promise breaks:
+// suite has no browser). Exits non-zero when any promise breaks:
 //
 // 1. Reading strategies must not invalidate the model's `aria-ref=` map. Any
 //    aria snapshot replaces that map, so a strategy read that took one made
 //    every ref the model was about to click resolve to nothing.
 // 2. A form field named by its <label> or placeholder gets a durable `role=`
 //    strategy, so typing into it replays.
+// 3. A test id the page renders twice never outranks the model's scoped
+//    selector, so replay does not click the other copy.
 //
 //   node --import tsx tests/agentic/runner/selectors.browser-check.ts
 
@@ -50,6 +52,23 @@ try {
   );
   await page.locator(button).click({ timeout: 2_000 });
   check(true, "clicking by ref works after strategies are read");
+
+  // Two composers share a test id; the model scoped its click to the one in
+  // the dock. The recording must not rank the bare, ambiguous test id first.
+  await page.setContent(
+    '<div><button data-testid="send">Send</button></div>' +
+      '<div data-testid="dock"><button data-testid="send">Send</button></div>'
+  );
+  const scoped = '[data-testid="dock"] [data-testid="send"]';
+  const dockStrategies = await materializeStrategies(page, "browser_click", { selector: scoped });
+  check(
+    dockStrategies[0]?.selector === scoped,
+    "a scoped selector stays rank 0 over its element's ambiguous test id"
+  );
+  check(
+    !dockStrategies.some((s) => s.selector === '[data-testid="send"]'),
+    "an ambiguous test id is not recorded as a strategy"
+  );
 } catch (err) {
   check(false, `the check itself threw: ${err instanceof Error ? err.message : String(err)}`);
 } finally {

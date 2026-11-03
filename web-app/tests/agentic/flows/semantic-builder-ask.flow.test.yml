@@ -189,6 +189,12 @@ cases:
     tags: [builder, semantic, integration, critical]
     steps:
       # === Phase 1: Builder adds a measure to the semantic model ===
+      # Cmd+I is bound when the workspace layout mounts. A warm replay presses
+      # it straight after `goto:/ide`, before that, so the dialog never opened
+      # and the textarea click failed every strategy (a Tier-2 heal on every
+      # PR); a cold run only worked because the model's first call took longer
+      # than the page load. The IDE sidebar renders inside that layout.
+      - wait_for: "selector:[data-testid=ide-nav-world-model];timeout_ms=60000"
       - act: |
           You are on /ide where Cmd+I opens the builder dialog. Open it and
           submit a build prompt. Do NOT touch the auto-approve toggle — leave
