@@ -170,6 +170,26 @@ async fn a_bounded_grant_reads_and_evaluates_only_its_own_orgs_workspace_health(
     }
 }
 
+/// A health row outlives a hard-deleted workspace (no FK). It can never be
+/// re-evaluated, so listing it shows a frozen verdict as "Unknown workspace".
+#[tokio::test]
+async fn the_health_rollup_leaves_out_a_deleted_workspaces_last_verdict() {
+    let w = world().await;
+    let deleted = Uuid::new_v4();
+    for ws in [w.ws_a, deleted] {
+        health_row(&w.db, ws).await;
+    }
+
+    for (who, actor) in w.everything_readers() {
+        let rollup = reply(list_workspace_health(as_actor(actor)).await).await;
+        assert_eq!(
+            rollup.column(Some("workspaces"), "workspace_id"),
+            vec![w.ws_a.to_string()],
+            "{who} sees a deleted workspace's health row"
+        );
+    }
+}
+
 async fn invitation(w: &World, org: Uuid, invitee: &AuthenticatedUser) -> Uuid {
     let id = Uuid::new_v4();
     org_invitations::ActiveModel {

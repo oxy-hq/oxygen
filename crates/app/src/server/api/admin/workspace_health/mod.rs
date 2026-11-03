@@ -178,11 +178,14 @@ pub async fn health_rollup(
     }
     let rows = find.all(db).await?;
 
+    // A state row has no FK to `workspaces`, so it outlives a deleted workspace.
+    // No label means the workspace is gone: its verdict is frozen and can never be
+    // re-evaluated, so leave it out rather than list it as "Unknown workspace".
     let mut workspaces: Vec<WorkspaceHealthRow> = rows
         .into_iter()
-        .map(|r| {
-            let label = labels.get(&r.workspace_id);
-            row_from_state(r, label)
+        .filter_map(|r| {
+            let label = labels.get(&r.workspace_id)?;
+            Some(row_from_state(r, label))
         })
         .collect();
     // Worst-first: Unhealthy > Degraded > Healthy.
@@ -300,7 +303,7 @@ fn payload_parts(
 /// Build a response row from a persisted state row + its display label.
 fn row_from_state(
     r: entity::workspace_health_state::Model,
-    label: Option<&queries::WorkspaceLabel>,
+    label: &queries::WorkspaceLabel,
 ) -> WorkspaceHealthRow {
     let changed_at = r.changed_at;
     let checked_at = r.updated_at;
@@ -309,8 +312,8 @@ fn row_from_state(
     let parts = payload_parts(r.payload, r.status, r.reasons);
     WorkspaceHealthRow {
         workspace_id,
-        workspace_name: label.map(|l| l.name.clone()),
-        org_name: label.and_then(|l| l.org_name.clone()),
+        workspace_name: Some(label.name.clone()),
+        org_name: label.org_name.clone(),
         status: parts.status,
         reasons: parts.reasons,
         dimensions: parts.dimensions,
