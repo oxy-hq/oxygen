@@ -12,7 +12,8 @@
 //!   workspace already without the user clicking through a setup wizard.
 //!
 //! Then, from the CLI ([`SeedOptions`]): every seeded workspace gets its
-//! Airhouse tenant (`seed_airhouse`), LLM provider keys from the environment
+//! Airhouse tenant and the demo's data files are loaded into the demo's
+//! (`seed_airhouse`), LLM provider keys from the environment
 //! become workspace secrets (`seed_llm_keys`), and every seeded workspace is
 //! compiled + promoted (`seed_compile`) so it serves on the first request.
 //!
@@ -61,7 +62,8 @@ pub struct SeedOptions {
     /// Build the demo fixture app after the compile (`--fixtures`; local DB
     /// only). `ExampleAppsSeam::fixtures`.
     pub fixtures: bool,
-    /// Give every seeded workspace its Airhouse tenant (`seed_airhouse`).
+    /// Give every seeded workspace its Airhouse tenant, and load the demo's
+    /// data files into its tenant (`seed_airhouse`).
     pub airhouse: bool,
 }
 
@@ -100,8 +102,8 @@ pub async fn seed_demo_with(
     let mut compiled = Ok(());
     if options.compile || options.llm_keys || options.airhouse {
         let targets = super::seed_compile::seeded_workspaces(&conn, workspace_id).await?;
-        if options.airhouse {
-            super::seed_airhouse::provision_tenants(&conn, &targets).await;
+        if options.airhouse && super::seed_airhouse::provision_tenants(&conn, &targets).await {
+            super::seed_airhouse::load_demo_data(&conn, workspace_id, &resolved).await;
         }
         // Warns instead of failing: chat without a key is a clear, fixable error
         // in the product, and the rest of the seed is what a developer needs.

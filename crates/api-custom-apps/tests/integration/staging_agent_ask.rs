@@ -7,8 +7,9 @@
 //! - **the decision** — `ask_scope` over the request's real headers, against
 //!   a published app, oxy-authz's `may_open_non_production` and the database;
 //! - **the platform** — `build_project_context` (the builder `start_ask`
-//!   calls) inside the hold, over the seeded demo workspace, used from a
-//!   spawned task as the run's drive uses it;
+//!   calls) inside the hold, over the seeded demo workspace's row with a
+//!   working copy of [`working_copy`]'s, used from a spawned task as the run's
+//!   drive uses it;
 //! - **the held write** — DDL sent through the connector that platform hands
 //!   the pipeline, then read back from `GET …/staging/held`;
 //! - **the run** — the stamp `start_analytics` applies, on a real
@@ -17,6 +18,7 @@
 //! The environment guard's allowance (only the ask routes, staging only) is
 //! unit-tested beside it in `oxy-app-core`.
 
+use std::path::Path as FsPath;
 use std::sync::Arc;
 
 use agentic_pipeline::platform::preview_stamp::{INTERRUPTED, RUN_STAMP, stamp};
@@ -43,8 +45,25 @@ use crate::common::demo_workspace_id;
 use crate::custom_app_functions_fixture::{Tenant, publish_build, seeded_tenant};
 use crate::staging_functions::{held_rows, make_guest_staff, production_host, staging_host};
 
-/// The demo workspace's small DuckDB directory.
-const DATABASE: &str = "training";
+/// A file DuckDB in [`working_copy`]: a database the held platform builds a
+/// connector for with no service behind it. The examples' databases are
+/// Airhouse, which this suite does not run.
+const DATABASE: &str = "scratch";
+
+/// A working copy declaring [`DATABASE`] over a directory of its own.
+fn working_copy() -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("working copy");
+    std::fs::create_dir(root.path().join("data")).expect("data dir");
+    std::fs::write(root.path().join("data/one.csv"), "x\n1\n").expect("data file");
+    std::fs::write(
+        root.path().join("config.yml"),
+        format!(
+            "databases:\n  - name: {DATABASE}\n    type: duckdb\n    dataset: data/\nmodels: []\n"
+        ),
+    )
+    .expect("config.yml");
+    root
+}
 
 fn guest(t: &Tenant) -> AuthenticatedUser {
     AuthenticatedUser {
@@ -70,13 +89,15 @@ async fn app(t: &Tenant, slug: &str) -> Uuid {
         .app_id
 }
 
-/// The platform `start_ask` builds, inside `hold` when there is one.
-async fn platform(t: &Tenant, hold: Option<HoldScope>) -> Arc<OxyProjectContext> {
-    let workspace = entity::workspaces::Entity::find_by_id(demo_workspace_id())
+/// The platform `start_ask` builds, inside `hold` when there is one, over the
+/// demo workspace's row with its working copy at `root`.
+async fn platform(t: &Tenant, hold: Option<HoldScope>, root: &FsPath) -> Arc<OxyProjectContext> {
+    let mut workspace = entity::workspaces::Entity::find_by_id(demo_workspace_id())
         .one(&t.db)
         .await
         .expect("query workspace")
         .expect("the demo workspace is seeded");
+    workspace.path = Some(root.to_string_lossy().into_owned());
     let built = scope_if(
         hold,
         build_project_context(&workspace, t.guest_id, demo_workspace_id()),
@@ -110,7 +131,8 @@ async fn a_staging_ask_holds_every_write_and_the_console_lists_it() {
     .expect("a staging ask runs held");
     assert_eq!(hold.app_id(), Some(app_id));
 
-    let ctx = platform(&t, Some(hold)).await;
+    let root = working_copy();
+    let ctx = platform(&t, Some(hold), root.path()).await;
     // The run is driven on a spawned task, outside the request's scope.
     let on_drive = {
         let ctx = ctx.clone();
@@ -188,7 +210,8 @@ async fn a_staging_ask_run_is_stamped_and_recovery_retires_it() {
     .ok()
     .flatten()
     .expect("a staging hold");
-    let held: Arc<dyn PlatformContext> = platform(&t, Some(hold)).await;
+    let root = working_copy();
+    let held: Arc<dyn PlatformContext> = platform(&t, Some(hold), root.path()).await;
 
     // Its own workspace id, so recovery here touches this run alone. No
     // workspace has that id, so the caller recorded below can never be
@@ -217,7 +240,7 @@ async fn a_staging_ask_run_is_stamped_and_recovery_retires_it() {
     .expect("insert the run as start_analytics does");
 
     // A restart: production's platform, every root resumed.
-    let production: Arc<dyn PlatformContext> = platform(&t, None).await;
+    let production: Arc<dyn PlatformContext> = platform(&t, None, root.path()).await;
     agentic_pipeline::recovery::recover_active_runs(
         t.db.clone(),
         Arc::new(agentic_runtime::state::RuntimeState::new()),
@@ -273,7 +296,8 @@ async fn a_production_ask_is_unchanged_no_hold_no_stamp() {
     .expect("the admin host is production");
     assert!(none_from_admin_host.is_none());
 
-    let ctx: Arc<dyn PlatformContext> = platform(&t, hold).await;
+    let root = working_copy();
+    let ctx: Arc<dyn PlatformContext> = platform(&t, hold, root.path()).await;
     assert!(!ctx.is_workspace_preview());
     assert_eq!(ctx.staging_app_id(), None);
     assert!(

@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 
 export interface DemoWorkspace {
-  /** `hasData`: its data is files in the workspace, so it answers on an instance with no warehouse. */
+  /** `hasData`: its data is files in the workspace (read directly, or loaded into its Airhouse tenant by `oxy seed`), so it answers on an instance with no warehouse. */
   databases: { name: string; type: string; hasData: boolean }[];
   /** Workspace-relative paths, grouped by what the product calls them. */
   files: { kind: string; paths: string[] }[];
@@ -35,8 +35,13 @@ const KINDS: [kind: string, suffix: RegExp][] = [
 const PER_KIND = 30;
 // A database of this type over a `dataset` directory is files in the
 // workspace. Every other one is a service or a credential a throwaway instance
-// does not have.
+// does not have, except the next.
 const FILE_BACKED_TYPE = "duckdb";
+// The workspace's own Airhouse tenant, which `oxy seed` fills from these
+// directories (`seed_airhouse.rs`, `DEMO_DATA_DIRS`) when the instance has an
+// Airhouse, as `scripts/ci/showcase-boot.sh` gives it.
+const SEEDED_TYPE = "airhouse_managed";
+const SEED_DATA_DIRS = [".db", ".training_data"];
 
 function trackedFiles(dir: string): string[] {
   const res = spawnSync("git", ["ls-files"], { cwd: dir, encoding: "utf-8" });
@@ -49,12 +54,14 @@ function databases(dir: string): DemoWorkspace["databases"] {
   const parsed = parse(readFileSync(config, "utf-8")) as {
     databases?: { name?: unknown; type?: unknown; dataset?: unknown }[];
   } | null;
+  const seeded = SEED_DATA_DIRS.some((d) => existsSync(join(dir, d)));
   return (parsed?.databases ?? []).flatMap((d) => {
     if (typeof d.name !== "string" || typeof d.type !== "string") return [];
     const hasData =
-      d.type === FILE_BACKED_TYPE &&
-      typeof d.dataset === "string" &&
-      existsSync(join(dir, d.dataset));
+      (d.type === FILE_BACKED_TYPE &&
+        typeof d.dataset === "string" &&
+        existsSync(join(dir, d.dataset))) ||
+      (d.type === SEEDED_TYPE && seeded);
     return [{ name: d.name, type: d.type, hasData }];
   });
 }
@@ -76,7 +83,7 @@ export function describeDemoWorkspace(demo: DemoWorkspace): string {
   if (demo.databases.length) {
     const answers = demo.databases.filter((d) => d.hasData).map((d) => `\`${d.name}\``);
     lines.push(
-      "Databases in its config. Only the file-backed ones hold data on this instance" +
+      "Databases in its config. Only these hold data on this instance" +
         ` (${answers.length ? answers.join(", ") : "none"}); a query on any other fails with a ` +
         "connection error, so a plan that runs a query first picks one of those:",
       ...demo.databases.map((d) => `- \`${d.name}\` (${d.type})`)

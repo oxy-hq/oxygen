@@ -1,9 +1,0 @@
-table: main.monthly_revenue_by_region_csv
-database: local
-dimensions:
-- name: month
-  type: VARCHAR
-- name: region
-  type: VARCHAR
-- name: revenue
-  type: DOUBLE

@@ -25,6 +25,8 @@ describe("readDemoWorkspace", () => {
         "  - name: airhouse",
         "    type: airhouse",
         "  - name: local",
+        "    type: airhouse_managed",
+        "  - name: legacy",
         "    type: duckdb",
         "    dataset: .db/",
         "  - name: gone",
@@ -41,7 +43,8 @@ describe("readDemoWorkspace", () => {
     const demo = readDemoWorkspace(dir);
     expect(demo.databases).toEqual([
       { name: "airhouse", type: "airhouse", hasData: false },
-      { name: "local", type: "duckdb", hasData: true },
+      { name: "local", type: "airhouse_managed", hasData: true },
+      { name: "legacy", type: "duckdb", hasData: true },
       { name: "gone", type: "duckdb", hasData: false }
     ]);
     expect(demo.files).toEqual([
@@ -69,7 +72,7 @@ describe("describeDemoWorkspace", () => {
       ],
       files: []
     });
-    expect(text).toMatch(/Only the file-backed ones hold data on this instance \(`local`\)/);
+    expect(text).toMatch(/Only these hold data on this instance \(`local`\)/);
     expect(text).toContain("- `airhouse` (airhouse)");
   });
   it("names a long kind by its first paths and a count", () => {

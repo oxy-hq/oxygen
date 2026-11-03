@@ -24,13 +24,17 @@ databases:
 
     # dry_run_limit: 1
 
+  # The workspace's own Airhouse tenant. `oxy seed` loads every file in
+  # `.db/` and `.training_data/` into it, under the names a file DuckDB gave
+  # them (`orders.csv` is the table `main.orders`, with views
+  # `main."orders.csv"` and `orders.csv`), so `FROM 'orders.csv'`,
+  # `FROM "orders.csv"` and `FROM orders` all resolve. `local`, `training`
+  # and `local-acme` are the same tenant under three names.
   - name: local
-    type: duckdb
-    dataset: .db/
+    type: airhouse_managed
 
   - name: training
-    dataset: .training_data/
-    type: duckdb
+    type: airhouse_managed
 
   - name: local-acme
     type: airhouse_managed
@@ -42,10 +46,6 @@ databases:
   # Ask questions about it: oxy agentic run oltp -q "how many orders are open?"
   - name: oltp
     type: postgres_managed
-
-  - name: duckdb_persistent
-    type: duckdb
-    path: db.duckdb
 
   - name: snowflake
     type: snowflake

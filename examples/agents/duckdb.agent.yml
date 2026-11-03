@@ -19,19 +19,11 @@ system_instructions: |
   ### You have access to the following databases and tables, ONLY use the provided database and tables, columns:
 
   **Dialect: {{ databases.local.dialect }}**
-  {% with dataset = databases.local.datasets.duckdb %}
 
-  **Dataset: {{ dataset.dataset }}**
-  **DDL:**
-
-  ```
-  {{ dataset.ddl }}
-  ```
-
-  **Semantic Information:**
-  {{ dataset.semantic_info }}
-  ```
-  {% endwith %}
+  The `local` database is the workspace's Airhouse tenant. Its tables are in
+  the `main` schema, one per demo data file (`orders.csv` is `main.orders`).
+  Before writing a query, list the tables and columns you need with
+  `SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'main'`.
 
 
   ### Begin

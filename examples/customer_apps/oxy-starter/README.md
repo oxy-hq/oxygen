@@ -42,8 +42,9 @@ OXY_ROLE=ide cargo run -p oxy-server -- serve --enterprise
    is the one thing this function-less app can't demonstrate — `examples/hello-oxy` in the
    customer-apps repo shows both halves side by side.
 
-Both queries hit `oxymart` in the `local` DuckDB database from `examples/config.yml` — the
-same demo table the example dashboards use. No credentials, so it works offline.
+Both queries hit `oxymart` in the `local` database from `examples/config.yml` — the
+workspace's Airhouse tenant, which `oxy seed` loads from `examples/.db/` — the same demo
+table the example dashboards use. No credentials beyond what the seed sets up.
 
 ## What Oxy adds for free (no bundle code)
 

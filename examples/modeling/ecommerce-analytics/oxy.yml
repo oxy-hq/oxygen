@@ -1,2 +1,5 @@
+# Airform cannot write to Airhouse yet, so `run` and `test` refuse this target
+# (dbt type `duckdb`, Oxy database `airhouse_managed`); `nodes` and `lineage`
+# read the project alone and work.
 mappings:
-  dev: duckdb_persistent
+  dev: local

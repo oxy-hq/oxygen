@@ -13,8 +13,10 @@
 #   showcase-boot.sh stop                        stop whichever of the above is running, keep logs
 #
 # The shape is the custom-app canary's (ci.yaml): `oxy serve --enterprise`
-# against the job's Postgres service, then `oxy seed` for the demo data. Needs
-# OXY_DATABASE_URL, OXY_GLOBAL_ADMINS and OXY_DEV_LOGIN_EMAILS in the env.
+# against the job's Postgres service and `docker-compose.airhouse.yml`'s
+# Airhouse, then `oxy seed` for the demo data, which loads the examples' data
+# files into the Demo workspace's tenant. Needs OXY_DATABASE_URL,
+# OXY_GLOBAL_ADMINS and OXY_DEV_LOGIN_EMAILS in the env.
 set -euo pipefail
 
 MODE="${1:?usage: showcase-boot.sh binary | image <ref> [--spa-checkout] | stop}"
@@ -33,11 +35,19 @@ PORT="${SHOWCASE_PORT:-3000}"
 BACKEND="http://127.0.0.1:$PORT"
 SERVE=(oxy serve --enterprise --port "$PORT" --internal-port "$((PORT + 1))")
 mkdir -p "$LOG_DIR" "$STATE_DIR"
+# The compose stack's names, as `.env.airhouse` points a dev box at it.
+# `OXY_AIRHOUSE_OBS_INSECURE` allows plain pgwire to it (no TLS locally).
+export AIRHOUSE_BASE_URL="${AIRHOUSE_BASE_URL:-http://localhost:8080}"
+export AIRHOUSE_ADMIN_TOKEN="${AIRHOUSE_ADMIN_TOKEN:-airhouse-local-token}"
+export AIRHOUSE_WIRE_HOST="${AIRHOUSE_WIRE_HOST:-localhost}"
+export AIRHOUSE_WIRE_PORT="${AIRHOUSE_WIRE_PORT:-5445}"
+export OXY_AIRHOUSE_OBS_INSECURE="${OXY_AIRHOUSE_OBS_INSECURE:-true}"
 
 # A container sees the examples and the state dir at the SAME absolute paths
 # as the host, so the workspace path the seed records resolves for the server.
 DOCKER=(--network host -v "$EXAMPLES:$EXAMPLES" -v "$STATE_DIR:$STATE_DIR" -e "OXY_STATE_DIR=$STATE_DIR")
-for v in OXY_DATABASE_URL OXY_GLOBAL_ADMINS OXY_DEV_LOGIN_EMAILS MAGIC_LINK_LOCAL_TEST OXY_APP_EMAIL_LOCAL_TEST; do
+for v in OXY_DATABASE_URL OXY_GLOBAL_ADMINS OXY_DEV_LOGIN_EMAILS MAGIC_LINK_LOCAL_TEST OXY_APP_EMAIL_LOCAL_TEST \
+  AIRHOUSE_BASE_URL AIRHOUSE_ADMIN_TOKEN AIRHOUSE_WIRE_HOST AIRHOUSE_WIRE_PORT OXY_AIRHOUSE_OBS_INSECURE; do
   DOCKER+=(-e "$v")
 done
 
@@ -87,6 +97,31 @@ run_oxy() { # run_oxy <args…> — one-shot, to completion
 migrate() {
   [[ "$MODE" == image ]] && docker pull --quiet "$IMAGE" >/dev/null
   run_oxy migrate 2>&1 | tee "$LOG_DIR/migrate.log"
+}
+
+# The Demo workspace's databases are its Airhouse tenant. One already
+# answering (a dev box's `oxy start` or compose stack) is used as it is.
+start_airhouse() {
+  if curl -fsS "$AIRHOUSE_BASE_URL/healthz" >/dev/null 2>&1; then
+    echo "using the Airhouse already answering at $AIRHOUSE_BASE_URL"
+    return
+  fi
+  # A first `up` can lose a race: an init container reaches the Airhouse
+  # Postgres before it accepts connections. A second finds it ready (ci.yaml's
+  # "Wait for Airhouse").
+  local attempt
+  for attempt in 1 2 3; do
+    if docker compose -f "$WORK/docker-compose.airhouse.yml" up -d --wait \
+      airhouse-cp airhouse-dp airhouse-haproxy >>"$LOG_DIR/airhouse.log" 2>&1; then
+      wait_for "$AIRHOUSE_BASE_URL/healthz" Airhouse
+      return
+    fi
+    echo "docker compose up for Airhouse failed (attempt $attempt)"
+    sleep 5
+  done
+  echo "::error::the Airhouse stack did not come up"
+  tail -n 60 "$LOG_DIR/airhouse.log"
+  exit 1
 }
 
 start_server() {
@@ -139,6 +174,7 @@ case "$MODE" in
   *) echo "::error::unknown mode '$MODE'"; exit 1 ;;
 esac
 
+start_airhouse
 migrate
 start_server
 seed

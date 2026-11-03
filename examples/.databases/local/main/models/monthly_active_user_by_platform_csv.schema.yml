@@ -1,9 +1,0 @@
-table: main.monthly_active_user_by_platform_csv
-database: local
-dimensions:
-- name: month
-  type: VARCHAR
-- name: platform
-  type: VARCHAR
-- name: users
-  type: BIGINT

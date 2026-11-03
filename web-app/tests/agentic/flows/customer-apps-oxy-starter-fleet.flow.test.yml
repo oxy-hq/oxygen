@@ -46,8 +46,11 @@
 # That default is fine for a network-reachable connector (Postgres, Snowflake,
 # Airhouse, an S3-mirrored/DuckLake DuckDB — internal-docs/local-split-fleet-
 # testing.md, Scenario 6, "serve-safe"). `oxy-starter`'s query targets the
-# `local` database in examples/config.yml:24-26 — `type: duckdb, dataset:
-# .db/` — a PLAIN directory on disk, not S3-mirrored, not DuckLake. The compile
+# `local` database in examples/config.yml. When this flow was written that was
+# `type: duckdb, dataset: .db/` — a PLAIN directory on disk, not S3-mirrored,
+# not DuckLake — and the gap below followed from it. It is now
+# `airhouse_managed` (the workspace's tenant, which `oxy seed` loads from
+# `.db/`), reachable from every replica, so the gap should be gone. The compile
 # boundary only materialises compiled YAML definitions (config, semantic
 # model), never arbitrary data-directory bytes like `.db/*.csv`
 # (crates/app/src/server/api/custom_apps_gates.rs:401-408, which claims these

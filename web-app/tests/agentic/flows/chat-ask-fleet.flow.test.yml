@@ -37,11 +37,10 @@
 # lets a *serve-safe* workspace run analytics locally on the replica instead
 # of proxying — but it is gated by `OXY_ANALYTICS_FLEET_UNPIN`, default OFF
 # (serve_safety.rs:17-24, "when unset the serve fleet proxies every
-# `/analytics` request to the ide, exactly as before"), and this fixture
-# would not qualify even if it were on: `examples/config.yml`'s `local`
-# database is `type: duckdb, dataset: .db/` — a raw local DuckDB with no
-# `s3_mirror` and no DuckLake, which `database_is_serve_safe`
-# (serve_safety.rs:53-58) explicitly treats as FS-pinned, not serve-safe.
+# `/analytics` request to the ide, exactly as before"). (When this was
+# written, `examples/config.yml`'s `local` was a file DuckDB over `.db/`,
+# which would not have qualified either; it is now `airhouse_managed`, which
+# `database_is_serve_safe` in `servability.rs` counts as serve-safe.)
 # So on THIS fleet, asking a question always crosses the serve→ide proxy —
 # this flow's green run is a genuine end-to-end proof of that hop working
 # from the browser's own network tab, streamed back through the replica's
