@@ -1,0 +1,24 @@
+[package]
+name = "oxy-policy-engine"
+version.workspace = true
+authors.workspace = true
+description = "Policy engine prototype, Phase 1: a Rust host boots a policy script (TypeScript, compiled ahead of time) under deno_core, hands it a policy through one op and audits its decision through another"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "policy-engine"
+path = "src/main.rs"
+
+[dependencies]
+deno_core = { workspace = true }
+deno_error = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

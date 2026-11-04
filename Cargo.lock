@@ -10438,6 +10438,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-policy-engine"
+version = "0.5.158"
+dependencies = [
+ "deno_core",
+ "deno_error",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-project"
 version = "0.5.158"
 dependencies = [
