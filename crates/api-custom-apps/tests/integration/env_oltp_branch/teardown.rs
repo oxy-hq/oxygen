@@ -239,6 +239,50 @@ async fn a_sandbox_with_no_forking_plane_does_not_expire() {
     .await;
 }
 
+/// A row of `name`'s Airhouse overlay registry, as a copy-on-write leaves it.
+async fn overlay_row(app: &OltpApp, row: &apps::Model, name: &str, state: &str) {
+    app.t
+        .db
+        .execute_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "INSERT INTO workspace_preview_tables \
+                 (workspace_id, preview_key, live_schema, table_name, state, last_run_id) \
+             VALUES ($1, $2, 'app_orders', 'orders', $3, 'r-1')",
+            [
+                row.project_id.into(),
+                format!("env:{}:{name}", row.id).into(),
+                state.into(),
+            ],
+        ))
+        .await
+        .expect("record an overlay table");
+}
+
+/// A sandbox moved off `branch` keeps the Airhouse rows it copied, so it
+/// expires from its fork while its registry lists one; a table it dropped is
+/// no copy. Both keep the default planes, which copy nothing.
+#[tokio::test]
+async fn leftover_airhouse_copies_expire_from_the_fork() {
+    let app = OltpApp::provision(&functions()).await;
+    run_then_cleanup(&app, async {
+        let row = app_with_a_branch_sandbox(&app, json!({})).await;
+        let now = Utc::now();
+        for name in [ENVIRONMENT, SIBLING] {
+            set_fork_at(&app, row.id, name, now - Duration::days(31)).await;
+        }
+        overlay_row(&app, &row, ENVIRONMENT, "shadow").await;
+        overlay_row(&app, &row, SIBLING, "dropped").await;
+
+        sweep(&app.t.db, now).await.expect("sweep");
+
+        assert!(is_deleting(&app, row.id, ENVIRONMENT).await, "holds a copy");
+        let reason = queued_reason(&app, row.id, ENVIRONMENT).await;
+        assert_eq!(reason.as_deref(), Some("oltp_branch_expired"));
+        assert!(!is_deleting(&app, row.id, SIBLING).await, "only dropped");
+    })
+    .await;
+}
+
 /// A third sandbox, `dev-c3`, 31 days past its fork and in OLTP `branch`.
 async fn app_with_a_branch_sandbox_control(app: &OltpApp, row: &apps::Model) -> String {
     let c3 = sandbox("c3");

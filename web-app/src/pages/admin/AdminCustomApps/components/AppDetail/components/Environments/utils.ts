@@ -35,7 +35,7 @@ export const PLANE_LABEL: Record<string, string> = {
 /** What a reset of each plane throws away, for its confirm. */
 export const RESET_COPY: Record<string, string> = {
   oltp: "Its database branch is cut again from production now. Every row it wrote is lost.",
-  airhouse: "Its copied Airhouse tables are dropped and its snapshot moves to now.",
+  airhouse: "Every Airhouse table it copied is dropped, and a snapshot moves to now.",
   storage: "Every file it wrote is deleted.",
   secrets: "Every secret value set on it is deleted.",
   messages: "Its outbox is emptied."
@@ -111,7 +111,8 @@ export const resettablePlanes = (env: AppEnvironment): string[] => {
   const planes = env.planes ?? {};
   const out: string[] = [];
   if (planes.oltp === "branch" || planes.oltp === "empty") out.push("oltp");
-  if (planes.airhouse === "branch" || planes.airhouse === "snapshot") out.push("airhouse");
-  out.push("storage", "secrets", "messages");
+  // On every mode: a sandbox moved off branch or snapshot keeps the rows it
+  // copied, and this reset is what drops them.
+  out.push("airhouse", "storage", "secrets", "messages");
   return out;
 };

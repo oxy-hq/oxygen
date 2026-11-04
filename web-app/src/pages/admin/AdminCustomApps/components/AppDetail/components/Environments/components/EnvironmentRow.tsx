@@ -32,8 +32,8 @@ export const EnvironmentRow = ({
       data-testid={`admin-app-env-row-${env.name}`}
     >
       <div className='flex min-w-0 flex-1 flex-col gap-0.5'>
-        <div className='flex items-center gap-2'>
-          <span className='font-medium font-mono'>{env.name}</span>
+        <div className='flex flex-wrap items-center gap-x-2'>
+          <span className='whitespace-nowrap font-medium font-mono'>{env.name}</span>
           <span className='text-muted-foreground'>{env.kind}</span>
           {deletingNow && <span className={cn(ADMIN_TONE.warn.text)}>deleting</span>}
           {env.oltp_branch && <OltpBranchStatus branch={env.oltp_branch} name={env.name} />}

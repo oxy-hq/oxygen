@@ -64,8 +64,8 @@ describe("deletion", () => {
 });
 
 describe("resettablePlanes", () => {
-  it("offers a sandbox's own copies, and OLTP only on its own branch", () => {
-    expect(resettablePlanes(env())).toEqual(["storage", "secrets", "messages"]);
+  it("offers a sandbox's own copies, OLTP only on its own branch, Airhouse on every mode", () => {
+    expect(resettablePlanes(env())).toEqual(["airhouse", "storage", "secrets", "messages"]);
     expect(resettablePlanes(env({ planes: { oltp: "branch", airhouse: "branch" } }))).toEqual([
       "oltp",
       "airhouse",

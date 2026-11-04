@@ -86,7 +86,9 @@ pub(super) async fn messages(target: &ResetTarget<'_>) -> Result<PlaneReset, San
 }
 
 /// Empty what the overlay copied, forget it, and re-pin a `snapshot`
-/// environment to now. Done before the request answers.
+/// environment to now. Done before the request answers. A `write-only`
+/// sandbox is reset too: one moved off `branch` or `snapshot` keeps the rows
+/// it copied, and nothing else drops them short of a teardown.
 pub(super) async fn airhouse(target: &ResetTarget<'_>) -> Result<PlaneReset, SandboxError> {
     let planes = environment_planes(target.db, target.app.id, target.environment)
         .await
