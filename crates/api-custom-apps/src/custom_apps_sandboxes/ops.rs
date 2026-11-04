@@ -82,7 +82,8 @@ pub async fn create_with(
         .await
         .map_err(|e| SandboxError::db("commit", e))?;
     if let Some(build_pk) = created.build_id {
-        copy_build::queue_copied_migrations(db, app, environment, build_pk).await;
+        copy_build::queue_served_migrations(db, app, environment, build_pk, "create from a parent")
+            .await;
     }
     let entry = audit::AuditEntry::for_request(owner, "app.environment.created");
     audit::record_best_effort(db, scoped(entry, app, environment)).await;

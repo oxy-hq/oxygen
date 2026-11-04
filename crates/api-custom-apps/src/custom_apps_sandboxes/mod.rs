@@ -45,6 +45,7 @@ pub mod agent_draft;
 pub(crate) mod agent_publish;
 pub mod airhouse_overlay;
 pub mod branch;
+mod copies;
 mod copy_build;
 pub mod delete;
 pub mod env_diff;
@@ -72,6 +73,7 @@ pub mod teardown;
 mod teardown_branch;
 mod teardown_executor;
 pub mod token_ended;
+mod unwanted_branches;
 mod view;
 
 use std::collections::BTreeMap;
@@ -151,6 +153,12 @@ pub struct EnvironmentDto {
     /// the moment its cut is recorded; `null` for a sandbox on `schema`, for
     /// production and for staging.
     pub oltp_branch: Option<oltp_branch_dto::OltpBranchDto>,
+    /// When a sandbox is deleted for holding a copy of production: 30 days
+    /// (`EXPIRY_DAYS`) past `fork_at` while its planes copy production or its
+    /// Airhouse overlay still lists a table it copied — the maintenance sweep's
+    /// own rule (`copies`). Activity does not move it. `null` while it holds
+    /// none, and for production and staging.
+    pub copies_expire_at: Option<DateTime<Utc>>,
     /// The environment this one was cut from. Always `null` for production;
     /// otherwise its row's `parent_name`, else `production` for staging and
     /// `staging` for a sandbox.

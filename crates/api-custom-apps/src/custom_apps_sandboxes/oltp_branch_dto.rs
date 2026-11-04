@@ -26,10 +26,14 @@ pub struct OltpBranchDto {
     pub fork_at: DateTime<Utc>,
     /// When the provider reaps the branch, and the sandbox is torn down with
     /// it. `null` for `empty`: it holds no production rows, so the provider
-    /// is told it never expires and the sandbox is not torn down for age.
+    /// is told it never expires. The sandbox may still be deleted for age on
+    /// another plane's copy: `EnvironmentDto::copies_expire_at` says when.
     pub expires_at: Option<DateTime<Utc>>,
     /// What failed, when `status` is `failed`.
     pub error: Option<String>,
+    /// Whether a cut or reset is waiting or running on the queue. A queued one
+    /// leaves `status` at `ready` until the worker takes it.
+    pub recut_queued: bool,
 }
 
 impl OltpBranchDto {
@@ -44,6 +48,7 @@ impl OltpBranchDto {
             fork_at: row.fork_at.with_timezone(&Utc),
             expires_at,
             error: row.error.clone(),
+            recut_queued: false,
         }
     }
 }

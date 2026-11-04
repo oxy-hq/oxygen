@@ -58,7 +58,7 @@ async fn sandbox_row(app: &OltpApp, app_id: uuid::Uuid, name: &str) -> app_envir
         .expect("the sandbox's row")
 }
 
-async fn set_fork_at(app: &OltpApp, app_id: uuid::Uuid, name: &str, at: DateTime<Utc>) {
+pub(super) async fn set_fork_at(app: &OltpApp, app_id: uuid::Uuid, name: &str, at: DateTime<Utc>) {
     app_environments::Entity::update_many()
         .col_expr(
             app_environments::Column::ForkAt,
@@ -72,7 +72,7 @@ async fn set_fork_at(app: &OltpApp, app_id: uuid::Uuid, name: &str, at: DateTime
 }
 
 /// The reason of the teardown queued for `name`, if one is.
-async fn queued_reason(app: &OltpApp, app_id: uuid::Uuid, name: &str) -> Option<String> {
+pub(super) async fn queued_reason(app: &OltpApp, app_id: uuid::Uuid, name: &str) -> Option<String> {
     let row = app
         .t
         .db
@@ -92,7 +92,7 @@ async fn queued_reason(app: &OltpApp, app_id: uuid::Uuid, name: &str) -> Option<
     Some(row.try_get("", "reason").expect("reason"))
 }
 
-async fn is_deleting(app: &OltpApp, app_id: uuid::Uuid, name: &str) -> bool {
+pub(super) async fn is_deleting(app: &OltpApp, app_id: uuid::Uuid, name: &str) -> bool {
     sandbox_row(app, app_id, name).await.deleting_at.is_some()
 }
 
@@ -240,7 +240,7 @@ async fn a_sandbox_with_no_forking_plane_does_not_expire() {
 }
 
 /// A row of `name`'s Airhouse overlay registry, as a copy-on-write leaves it.
-async fn overlay_row(app: &OltpApp, row: &apps::Model, name: &str, state: &str) {
+pub(super) async fn overlay_row(app: &OltpApp, row: &apps::Model, name: &str, state: &str) {
     app.t
         .db
         .execute_raw(sea_orm::Statement::from_sql_and_values(

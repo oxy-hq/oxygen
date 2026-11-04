@@ -295,8 +295,8 @@ async fn read_pin(
     }
 }
 
-async fn set_pin(
-    db: &DatabaseConnection,
+pub(super) async fn set_pin<C: ConnectionTrait>(
+    db: &C,
     app_id: Uuid,
     environment: &AppEnvironment,
     pinned_at: Option<DateTime<Utc>>,

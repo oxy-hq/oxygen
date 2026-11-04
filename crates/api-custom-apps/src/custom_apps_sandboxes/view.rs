@@ -2,7 +2,7 @@
 //! query each for the builds, the owners' emails and the sandboxes' last
 //! invocations, however many environments are shown.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use entity::{app_builds, app_environments, apps, users};
@@ -11,6 +11,7 @@ use oxy_app_core::custom_apps_host_dispatch::environment_url_for;
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use uuid::Uuid;
 
+use super::copies::{copies_expire_at, holding_copies, overlay_key_of};
 use super::oltp_branch_dto::OltpBranchDto;
 use super::{EnvironmentDto, OwnerDto, activity, oltp_state};
 use crate::custom_apps_planes::{PlaneSpec, default_parent};
@@ -29,6 +30,9 @@ pub(super) struct View<'a> {
     oltp_cut: Option<oxy_oltp::branches::BranchCut>,
     /// The app's environment branches by environment name.
     oltp_branches: HashMap<String, OltpBranchDto>,
+    /// The overlay keys of the shown sandboxes whose Airhouse overlay still
+    /// lists a table it copied.
+    holding: HashSet<String>,
 }
 
 impl<'a> View<'a> {
@@ -55,6 +59,7 @@ impl<'a> View<'a> {
             ttl: super::idle_ttl(),
             oltp_cut: oltp_cut(db, app, rows).await?,
             oltp_branches: oltp_branches(db, app, rows).await?,
+            holding: holding(db, rows).await?,
         })
     }
 
@@ -105,6 +110,8 @@ impl<'a> View<'a> {
         dto.oltp_schema = oltp_state::of_row(row)
             .map(|state| oltp_state::OltpSchemaDto::of(state, self.oltp_cut.as_ref()));
         dto.oltp_branch = self.oltp_branches.get(&row.name).cloned();
+        let holding = overlay_key_of(row).is_some_and(|key| self.holding.contains(&key));
+        dto.copies_expire_at = copies_expire_at(row, holding);
         Some(dto)
     }
 
@@ -133,6 +140,7 @@ impl<'a> View<'a> {
             url: environment_url_for(environment, self.org_slug, &self.app.slug),
             oltp_schema: None,
             oltp_branch: None,
+            copies_expire_at: None,
             parent: branch.parent,
             fork_at: branch.fork_at,
             planes: branch.planes,
@@ -233,11 +241,32 @@ async fn oltp_branches(
     if !rows.iter().any(|row| wants_branch(row)) {
         return Ok(HashMap::new());
     }
+    let queued = crate::custom_apps_env_branch::task::recuts_queued(db, app.id).await?;
     Ok(oxy_oltp::env_branches::list_for_app(db, app.id)
         .await?
         .iter()
-        .map(|row| (row.env_name.clone(), OltpBranchDto::of(row)))
+        .map(|row| {
+            let dto = OltpBranchDto {
+                recut_queued: queued.contains(&row.env_name),
+                ..OltpBranchDto::of(row)
+            };
+            (row.env_name.clone(), dto)
+        })
         .collect())
+}
+
+/// Which shown sandboxes' overlays still hold a copied table: one query for
+/// all of them.
+async fn holding(
+    db: &DatabaseConnection,
+    rows: &[app_environments::Model],
+) -> Result<HashSet<String>, DbErr> {
+    let keys: Vec<String> = rows
+        .iter()
+        .filter(|row| is_sandbox(row))
+        .filter_map(overlay_key_of)
+        .collect();
+    holding_copies(db, &keys).await
 }
 
 /// Whether `row` is a sandbox and asks for a branch of its own.

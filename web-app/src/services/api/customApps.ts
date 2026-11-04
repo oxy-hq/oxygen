@@ -589,6 +589,12 @@ export interface AppEnvironment {
   planes_set?: Record<string, unknown> | null;
   /** A sandbox's own OLTP branch (`oltp` `branch` or `empty`); `null` otherwise. */
   oltp_branch?: EnvironmentOltpBranch | null;
+  /**
+   * RFC 3339: when a sandbox is deleted for holding a copy of production — 30
+   * days past `fork_at` while its planes copy production or Airhouse still keeps
+   * rows it copied. `null` when it holds none, and for production and staging.
+   */
+  copies_expire_at?: string | null;
 }
 
 /** A sandbox's own OLTP database branch, cut from production. */
@@ -601,6 +607,8 @@ export interface EnvironmentOltpBranch {
   /** When the branch, and the sandbox with it, is deleted; `null` for `empty`. */
   expires_at: string | null;
   error: string | null;
+  /** A cut or reset is waiting or running; the branch reads `ready` until the worker takes it. */
+  recut_queued: boolean;
 }
 
 /** One email or notification a `capture` environment kept instead of sending. */

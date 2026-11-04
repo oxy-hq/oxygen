@@ -96,6 +96,8 @@ oxyc env delete acme/store dev-x --yes --wait      # tears its branches down
   database's history window; Airhouse keeps snapshots one day too).
 - **An OLTP branch is cut in the background.** `env show` reports
   `oltp_branch.status`: `cutting`, `migrating`, `ready`, `resetting` or `failed`.
+  A reset that is queued but not started still reads `ready`, with
+  `oltp_branch.recut_queued: true`, so wait for that to be `false` too.
   `ctx.oltp` is refused, with the reason, until it is `ready`. It is never
   routed to staging or production in the meantime, so poll before the first call.
 - **Reset** puts a plane back to a clean copy of its source. A sandbox resets
@@ -104,9 +106,14 @@ oxyc env delete acme/store dev-x --yes --wait      # tears its branches down
   `oltp=schema` has nothing to reset: publish again to re-seed it.
 - **Expiry.** A sandbox is deleted after 7 idle days. One holding a copy of
   production's rows (`oltp=branch`, or `airhouse=branch|snapshot`) is also
-  deleted 30 days after its fork point, however busy it is. `env reset` of that
-  plane starts the 30 days again. `oltp=empty` holds no rows and is not deleted
-  for age.
+  deleted 30 days after its fork point, however busy it is; `env show` gives
+  the day as `copies_expire_at`. `env reset` of that plane starts the 30 days
+  again, and so does turning such a plane on for a sandbox that held no copy.
+  Moving `airhouse` back to `write-only` keeps the rows it copied, still on the
+  same clock: `env reset --plane airhouse` drops them. `oltp=empty` holds no
+  rows and is not deleted for age.
+- **Entering `airhouse=snapshot`** on an existing sandbox pins the snapshot to
+  that moment.
 - **Limits.** 20 sandboxes per app. A per-org cap on OLTP branches (8 by
   default): delete sandboxes you are done with.
 

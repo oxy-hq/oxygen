@@ -11,7 +11,7 @@ import {
   fetchHosts,
   PLANE_LABEL,
   PLANE_ORDER,
-  RESET_COPY,
+  resetCopy,
   resettablePlanes
 } from "../../../utils";
 
@@ -82,8 +82,7 @@ export const PlanesTable = ({ appId, env }: { appId: string; env: AppEnvironment
           confirming
             ? {
                 title: `Reset ${PLANE_LABEL[confirming]} in ${env.name}?`,
-                description:
-                  RESET_COPY[confirming] ?? "It goes back to a clean copy of its source.",
+                description: resetCopy(confirming, env),
                 confirm: "Reset"
               }
             : null

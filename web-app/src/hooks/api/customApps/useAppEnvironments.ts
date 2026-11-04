@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { settling } from "@/pages/admin/AdminCustomApps/components/AppDetail/components/Environments/utils";
 import { CustomAppsService } from "@/services/api/customApps";
 import { errMessage } from "../errMessage";
 import { isForbidden } from "../httpStatus";
@@ -10,8 +11,10 @@ import queryKeys from "../queryKey";
  * (`GET /customer-apps/{id}/environments`).
  *
  * A deleting sandbox stays in the list as `status: "deleting"` until its teardown
- * lands, so the panel polls briefly while one is: a row that vanished on click and
- * a row that is still being torn down are different answers.
+ * lands, and an OLTP branch reports `cutting` → `migrating` → `ready` as the worker
+ * re-cuts it, so the panel polls while the server is still working on any row
+ * (`settling`): a row that vanished on click and a row still being torn down are
+ * different answers, and so are a branch that serves and one that is about to.
  *
  * A 403 — the caller may not open the app's non-production environments — is an
  * answer, not a fault, so it is not retried: the Secrets pane's picker and this
@@ -24,8 +27,7 @@ export const useAppEnvironments = (appId: string | undefined) =>
     enabled: !!appId,
     retry: (failures, error) => !isForbidden(error) && failures < 3,
     staleTime: 15_000,
-    refetchInterval: (query) =>
-      query.state.data?.some((e) => e.status === "deleting") ? 5_000 : false
+    refetchInterval: (query) => (query.state.data?.some(settling) ? 5_000 : false)
   });
 
 export const useCreateAppEnvironment = (appId: string) => {
@@ -76,8 +78,12 @@ export const useResetEnvironmentPlanes = (appId: string) => {
   return useMutation({
     mutationFn: ({ name, planes }: { name: string; planes: string[] }) =>
       CustomAppsService.resetEnvironmentPlanes(appId, name, planes),
-    onSuccess: (reset) => {
+    onSuccess: (reset, { planes }) => {
       qc.invalidateQueries({ queryKey: queryKeys.customApps.environments(appId) });
+      // The Secrets pane lists them under its own key.
+      if (planes.includes("secrets")) {
+        qc.invalidateQueries({ queryKey: queryKeys.customApps.secrets(appId) });
+      }
       const queued = reset.planes.some((p) => p.status === "queued");
       toast.success(queued ? `Resetting ${reset.name} in the background` : `Reset ${reset.name}`);
     },

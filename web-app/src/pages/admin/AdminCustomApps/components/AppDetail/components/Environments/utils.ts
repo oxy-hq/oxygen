@@ -33,15 +33,22 @@ export const PLANE_LABEL: Record<string, string> = {
 };
 
 /** What a reset of each plane throws away, for its confirm. */
-export const RESET_COPY: Record<string, string> = {
-  oltp: "Its database branch is cut again from production now. Every row it wrote is lost.",
+const RESET_COPY: Record<string, string> = {
   airhouse: "Every Airhouse table it copied is dropped, and a snapshot moves to now.",
   storage: "Every file it wrote is deleted.",
   secrets: "Every secret value set on it is deleted.",
   messages: "Its outbox is emptied."
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+/** The confirm's sentence for resetting `plane` of `env`. */
+export const resetCopy = (plane: string, env: AppEnvironment): string => {
+  if (plane === "oltp") {
+    return env.planes?.oltp === "empty"
+      ? "Its database branch is cut again with production's tables and none of their rows. Every row it wrote is lost."
+      : "Its database branch is cut again from production now. Every row it wrote is lost.";
+  }
+  return RESET_COPY[plane] ?? "It goes back to a clean copy of its source.";
+};
 
 /** A plane's chosen mode: a string, or the `mode` of an object choice. */
 const modeOf = (choice: unknown): string => {
@@ -69,29 +76,45 @@ export const fetchHosts = (env: AppEnvironment): string[] => {
   return Array.isArray(hosts) ? hosts.map(String) : [];
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export type Deletion = { at: Date; reason: string };
 
 /**
  * When a sandbox is deleted, and why: the earliest of its idle expiry, its OLTP
- * branch's expiry, and 30 days past its fork when Airhouse holds a copy of
- * production. `null` for production and staging, which are never deleted.
+ * branch's expiry, and the day the server deletes it for holding a copy of
+ * production (`copies_expire_at`, the maintenance sweep's own rule). `null` for
+ * production and staging, which are never deleted.
  */
 export const deletion = (env: AppEnvironment): Deletion | null => {
   if (env.kind !== "dev") return null;
   const candidates: Deletion[] = [];
   if (env.expires_at) candidates.push({ at: new Date(env.expires_at), reason: "idle" });
-  if (env.oltp_branch?.expires_at) {
-    candidates.push({ at: new Date(env.oltp_branch.expires_at), reason: "30 days of copied data" });
-  }
-  const airhouse = env.planes?.airhouse;
-  if (env.fork_at && (airhouse === "branch" || airhouse === "snapshot")) {
-    const at = new Date(new Date(env.fork_at).getTime() + 30 * DAY_MS);
-    candidates.push({ at, reason: "30 days of copied data" });
+  for (const at of [env.oltp_branch?.expires_at, env.copies_expire_at]) {
+    if (at) candidates.push({ at: new Date(at), reason: "30 days of copied data" });
   }
   const valid = candidates.filter((c) => !Number.isNaN(c.at.getTime()));
   if (valid.length === 0) return null;
   return valid.reduce((soonest, c) => (c.at < soonest.at ? c : soonest));
 };
+
+/** OLTP branch states a worker is moving through; `ctx.oltp` refuses until `ready`. */
+const BRANCH_BUSY = new Set(["cutting", "migrating", "resetting"]);
+
+/**
+ * A re-cut of the sandbox's OLTP branch that the server queued and the worker has
+ * not started: the branch still reads `ready` until then. The server reads it off
+ * the queue. Comparing the sandbox's `fork_at` with the branch's would not do: an
+ * Airhouse change that starts copying moves the sandbox's too.
+ */
+export const oltpRecutQueued = (env: AppEnvironment): boolean =>
+  env.oltp_branch?.status === "ready" && env.oltp_branch.recut_queued;
+
+/** Whether the server is still working on `env`, so the list keeps polling. */
+export const settling = (env: AppEnvironment): boolean =>
+  env.status === "deleting" ||
+  BRANCH_BUSY.has(env.oltp_branch?.status ?? "") ||
+  oltpRecutQueued(env);
 
 /** "today", "tomorrow", "in 12 days". */
 export const untilText = (at: Date, now: Date = new Date()): string => {
@@ -107,7 +130,8 @@ export const untilText = (at: Date, now: Date = new Date()): string => {
  */
 export const resettablePlanes = (env: AppEnvironment): string[] => {
   if (env.kind === "staging") return env.planes?.messages === "capture" ? ["messages"] : [];
-  if (env.kind !== "dev") return [];
+  // A sandbox being deleted refuses every reset.
+  if (env.kind !== "dev" || env.status === "deleting") return [];
   const planes = env.planes ?? {};
   const out: string[] = [];
   if (planes.oltp === "branch" || planes.oltp === "empty") out.push("oltp");

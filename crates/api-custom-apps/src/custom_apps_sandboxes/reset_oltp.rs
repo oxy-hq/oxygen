@@ -8,7 +8,10 @@
 //! before a row, or a drop that ran) — and writes `app_environments.fork_at`
 //! to the new fork point in the same transaction, because the expiry pass reads
 //! the sandbox's age from there: a reset restarts the clock, and a sandbox
-//! must not be torn down for the age of the cut it just replaced.
+//! must not be torn down for the age of the cut it just replaced. A run that
+//! fails puts back the fork point of the branch the sandbox still has
+//! (`custom_apps_env_branch::task`), so a reset that never ran does not buy
+//! the old copy 30 more days.
 //!
 //! A sandbox on `schema` mode, and staging, have nothing to reset here
 //! (`409 plane_not_resettable`, with a message that says what to do instead):

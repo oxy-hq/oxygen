@@ -12,7 +12,12 @@ use chrono::{DateTime, Utc};
 use futures::FutureExt;
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_oltp::env_branches::EnvBranchKey;
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, SqlErr, TransactionTrait};
+use std::collections::HashSet;
+
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, SqlErr, Statement,
+    TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::mpsc;
@@ -193,6 +198,29 @@ pub async fn enqueue_in<C: ConnectionTrait>(
     .await?;
     tracing::info!(app_id = %task.app_id, %run_id, "environment OLTP branch task queued");
     Ok(run_id)
+}
+
+/// The sandboxes of `app_id` with a cut or reset of their branch waiting or
+/// running on the queue. A queued re-cut leaves the branch `ready` until the
+/// worker takes it, so the branch row alone cannot say one is on its way.
+pub async fn recuts_queued<C: ConnectionTrait>(
+    conn: &C,
+    app_id: Uuid,
+) -> Result<HashSet<String>, DbErr> {
+    let rows = conn
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT DISTINCT spec->'payload'->>'environment' AS environment \
+               FROM agentic_task_queue \
+              WHERE queue_status IN ('queued', 'claimed') AND spec->>'kind' = $1 \
+                AND spec->'payload'->>'app_id' = $2 \
+                AND spec->'payload'->'op'->>'op' IN ('cut', 'reset')",
+            [ENV_OLTP_BRANCH_KIND.into(), app_id.to_string().into()],
+        ))
+        .await?;
+    rows.iter()
+        .map(|row| row.try_get("", "environment"))
+        .collect()
 }
 
 pub struct EnvBranchExecutor {

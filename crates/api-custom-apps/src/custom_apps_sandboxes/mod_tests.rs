@@ -148,6 +148,7 @@ fn the_environment_object_always_carries_every_field() {
         url: None,
         oltp_schema: None,
         oltp_branch: None,
+        copies_expire_at: None,
         parent: None,
         fork_at: None,
         planes: None,
@@ -171,6 +172,7 @@ fn the_environment_object_always_carries_every_field() {
         "url",
         "oltp_schema",
         "oltp_branch",
+        "copies_expire_at",
         "parent",
         "fork_at",
         "planes",
@@ -179,6 +181,6 @@ fn the_environment_object_always_carries_every_field() {
     ] {
         assert!(object.contains_key(field), "{field} is missing");
     }
-    assert_eq!(object.len(), 19);
+    assert_eq!(object.len(), 20);
     assert!(json["build_id"].is_null(), "null, not omitted");
 }

@@ -49,8 +49,8 @@ pub(crate) fn op_for_change(
 /// other environment is refused here, not left to the caller's validation.
 /// A cut or re-cut also writes the sandbox's `fork_at` — the point it cuts at,
 /// else now — in the same transaction, so the expiry pass (`maintenance`)
-/// counts the branch from when it was asked for, whether or not the task ever
-/// gets to write it.
+/// counts the branch from when it was asked for; a run that fails puts the
+/// fork point of the branch the sandbox still has back (`task::restore_fork_at`).
 pub(crate) async fn queue_for_change<C: ConnectionTrait>(
     conn: &C,
     app: &apps::Model,

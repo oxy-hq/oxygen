@@ -52,7 +52,9 @@ use super::handlers::{Admitted, Door, admit, parse};
 use super::ops::{get_for, scoped};
 use super::planes_pin::{self, Pinner};
 use super::{EnvironmentDto, SandboxError};
+use super::{copies, copy_build};
 use crate::custom_apps_env_branch::planes as branch_planes;
+use crate::custom_apps_env_branch::wants_branch;
 use crate::custom_apps_env_resolve::resolve_function_environment;
 use crate::custom_apps_functions::env_policy::EnvPolicy;
 use crate::custom_apps_nonproduction::{check_overrides, destinations_from_build_manifest};
@@ -89,7 +91,11 @@ pub async fn set(
     let pinner = pinner.as_ref().map(|Extension(pinner)| pinner);
     let requested = checked(&db, &app, &environment, &body.planes, pinner).await?;
     let branch = requested.spec.semantic_branch();
-    replace(&db, &app, &environment, &actor, requested.stored, branch).await?;
+    let schema_again = replace(&db, &app, &environment, &actor, requested.stored, branch).await?;
+    if let Some(build_pk) = schema_again {
+        copy_build::queue_served_migrations(&db, &app, &environment, build_pk, "planes change")
+            .await;
+    }
     planes_pin::settle(
         pinner,
         &app,
@@ -215,6 +221,10 @@ async fn merged_destinations(
 /// fails the row is a branch with no pin (refused by the reader), never the
 /// previous branch's revision under a row that names another. The same branch
 /// again keeps its pin, which `settle` refreshes.
+///
+/// `Some(build)`: the OLTP plane left the sandbox's own branch for `schema`
+/// while it serves `build`, whose migrations no publish applied to its schema
+/// meanwhile — the caller queues them, once the write has committed.
 async fn replace(
     db: &DatabaseConnection,
     app: &apps::Model,
@@ -222,7 +232,7 @@ async fn replace(
     actor: &RequestActor,
     stored: Value,
     branch: Option<&str>,
-) -> Result<(), SandboxError> {
+) -> Result<Option<Uuid>, SandboxError> {
     let name = environment.name();
     let txn = db.begin().await.map_err(|e| SandboxError::db("begin", e))?;
     let row = app_environments::Entity::find_by_id((app.id, name.clone()))
@@ -241,6 +251,7 @@ async fn replace(
     if row.deleting_at.is_some() {
         return Err(SandboxError::Deleting(name));
     }
+    let before_row = row.clone();
     let before = row.planes.clone();
     let previous = PlaneSpec::parse(&before)
         .ok()
@@ -255,6 +266,9 @@ async fn replace(
         .update(&txn)
         .await
         .map_err(|e| SandboxError::db("store the planes", e))?;
+    copies::start_copying(&txn, &before_row, &updated)
+        .await
+        .map_err(|e| SandboxError::db("start the copies' clock", e))?;
     // Queued with the write: a sandbox whose planes ask for a branch is never
     // stored without the cut that makes one (or the drop that removes it).
     branch_planes::queue_for_change(&txn, app, &updated, &before)
@@ -266,5 +280,6 @@ async fn replace(
     let entry = audit::AuditEntry::for_request(actor, ACTION)
         .change(json!({ "planes": before }), json!({ "planes": stored }));
     audit::record_best_effort(db, scoped(entry, app, environment)).await;
-    Ok(())
+    let left_branch = wants_branch(&before_row).is_some() && wants_branch(&updated).is_none();
+    Ok(updated.build_id.filter(|_| left_branch))
 }

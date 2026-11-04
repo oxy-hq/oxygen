@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { AppEnvironment } from "@/services/api/customApps";
-import { chosenPlanes, deletion, fetchHosts, resettablePlanes, untilText } from "./utils";
+import {
+  chosenPlanes,
+  deletion,
+  fetchHosts,
+  oltpRecutQueued,
+  resetCopy,
+  resettablePlanes,
+  settling,
+  untilText
+} from "./utils";
 
 const env = (over: Partial<AppEnvironment> = {}): AppEnvironment => ({
   name: "dev-a1",
@@ -31,14 +40,20 @@ describe("deletion", () => {
     expect(d).toEqual({ at: new Date("2026-11-08T00:00:00Z"), reason: "idle" });
   });
 
-  it("is 30 days past the fork when Airhouse holds a copy, if that comes first", () => {
+  it("is the server's copied-data expiry, if that comes first", () => {
     const d = deletion(
-      env({
-        expires_at: "2026-12-31T00:00:00Z",
-        planes: { airhouse: "snapshot" }
-      })
+      env({ expires_at: "2026-12-31T00:00:00Z", copies_expire_at: "2026-12-01T00:00:00Z" })
     );
     expect(d).toEqual({ at: new Date("2026-12-01T00:00:00Z"), reason: "30 days of copied data" });
+  });
+
+  it("does not guess a copied-data expiry from the planes: the server states it", () => {
+    // A write-only sandbox can still hold copies, and a snapshot one may hold none
+    // yet: only the server's sweep rule knows, so the console reads its answer.
+    const d = deletion(
+      env({ expires_at: "2026-12-31T00:00:00Z", planes: { airhouse: "snapshot" } })
+    );
+    expect(d?.reason).toBe("idle");
   });
 
   it("takes the OLTP branch's own expiry", () => {
@@ -50,7 +65,8 @@ describe("deletion", () => {
           status: "ready",
           fork_at: "2026-11-01T00:00:00Z",
           expires_at: "2026-11-20T00:00:00Z",
-          error: null
+          error: null,
+          recut_queued: false
         }
       })
     );
@@ -75,11 +91,59 @@ describe("resettablePlanes", () => {
     ]);
   });
 
+  it("offers nothing on a sandbox being deleted, which refuses every reset", () => {
+    expect(resettablePlanes(env({ status: "deleting", planes: { oltp: "branch" } }))).toEqual([]);
+  });
+
   it("offers staging only its outbox, and only when it captures", () => {
     expect(resettablePlanes(env({ kind: "staging", planes: { messages: "invoker" } }))).toEqual([]);
     expect(resettablePlanes(env({ kind: "staging", planes: { messages: "capture" } }))).toEqual([
       "messages"
     ]);
+  });
+});
+
+describe("oltpRecutQueued and settling", () => {
+  const branch = {
+    mode: "branch",
+    status: "ready",
+    fork_at: "2026-11-01T00:00:00Z",
+    expires_at: "2026-12-01T00:00:00Z",
+    error: null,
+    recut_queued: false
+  } as const;
+
+  it("reads a reset the worker has not started from the server", () => {
+    const settled = env({ oltp_branch: { ...branch } });
+    const queued = env({ oltp_branch: { ...branch, recut_queued: true } });
+    expect(oltpRecutQueued(settled)).toBe(false);
+    expect(oltpRecutQueued(queued)).toBe(true);
+    expect(settling(settled)).toBe(false);
+    expect(settling(queued)).toBe(true);
+  });
+
+  it("does not take fork points that differ for a queued re-cut", () => {
+    // An empty branch whose sandbox turned on airhouse=branch: the sandbox's
+    // clock moved, and nothing is queued.
+    const e = env({
+      fork_at: "2026-11-04T09:00:00Z",
+      oltp_branch: { ...branch, mode: "empty", expires_at: null }
+    });
+    expect(oltpRecutQueued(e)).toBe(false);
+    expect(settling(e)).toBe(false);
+  });
+
+  it("polls while a branch moves or a sandbox is deleted, and not once it has failed", () => {
+    for (const status of ["cutting", "migrating", "resetting"]) {
+      expect(settling(env({ oltp_branch: { ...branch, status } }))).toBe(true);
+    }
+    const failed = env({
+      oltp_branch: { ...branch, status: "failed", error: "boom", recut_queued: true }
+    });
+    expect(oltpRecutQueued(failed)).toBe(false);
+    expect(settling(failed)).toBe(false);
+    expect(settling(env({ status: "deleting" }))).toBe(true);
+    expect(settling(env())).toBe(false);
   });
 });
 
@@ -98,6 +162,15 @@ describe("chosenPlanes and fetchHosts", () => {
       { plane: "fetch", mode: "allow" }
     ]);
     expect(fetchHosts(e)).toEqual(["connect.squareupsandbox.com"]);
+  });
+});
+
+describe("resetCopy", () => {
+  it("says an empty branch comes back without production's rows", () => {
+    expect(resetCopy("oltp", env({ planes: { oltp: "branch" } }))).toContain("from production");
+    const empty = resetCopy("oltp", env({ planes: { oltp: "empty" } }));
+    expect(empty).toContain("none of their rows");
+    expect(empty).not.toContain("from production now");
   });
 });
 

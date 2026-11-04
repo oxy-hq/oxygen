@@ -36,6 +36,7 @@ use uuid::Uuid;
 
 mod cut_and_reset;
 mod diff;
+mod lifecycle;
 mod planes;
 mod planes_reset;
 mod publish_migrates;

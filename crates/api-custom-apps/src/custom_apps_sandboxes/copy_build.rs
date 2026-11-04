@@ -78,22 +78,26 @@ async fn fixed<C: ConnectionTrait>(
     Ok((builds.production, builds.staging))
 }
 
-/// Queue `build_pk`'s migrations for the new sandbox `environment`. Logs what a
-/// publish would return as warnings.
-pub(super) async fn queue_copied_migrations(
+/// Queue `build_pk`'s migrations for the sandbox `environment` into its own
+/// homes, as a publish of it would: for a new sandbox started on its parent's
+/// build, and for one whose OLTP plane moved back to `schema`, whose schema no
+/// publish migrated while it ran on a branch of its own. `cause` says which,
+/// in the log, where what a publish would return as warnings goes.
+pub(super) async fn queue_served_migrations(
     db: &DatabaseConnection,
     app: &apps::Model,
     environment: &AppEnvironment,
     build_pk: Uuid,
+    cause: &'static str,
 ) {
     let build = match app_builds::Entity::find_by_id(build_pk).one(db).await {
         Ok(Some(build)) => build,
         Ok(None) => return,
-        Err(e) => return not_queued(app, environment, &e.to_string()),
+        Err(e) => return not_queued(app, environment, cause, &e.to_string()),
     };
     let declared = match declared_in_build(&build, &app.slug).await {
         Ok(declared) => declared,
-        Err(e) => return not_queued(app, environment, &e.to_string()),
+        Err(e) => return not_queued(app, environment, cause, &e.to_string()),
     };
     let sandbox = SandboxBuild {
         app_id: app.id,
@@ -104,12 +108,11 @@ pub(super) async fn queue_copied_migrations(
         environment,
     };
     for warning in queue_migrations(db, sandbox, &declared.oltp, &declared.airhouse).await {
-        tracing::warn!(app_id = %app.id, %environment, "create from a parent: {warning}");
+        tracing::warn!(app_id = %app.id, %environment, "{cause}: {warning}");
     }
 }
 
-fn not_queued(app: &apps::Model, environment: &AppEnvironment, why: &str) {
+fn not_queued(app: &apps::Model, environment: &AppEnvironment, cause: &str, why: &str) {
     tracing::warn!(app_id = %app.id, %environment, error = %why,
-        "create from a parent: the copied build's migrations were not queued; publish to the \
-         sandbox to queue them");
+        "{cause}: the build's migrations were not queued; publish to the sandbox to queue them");
 }

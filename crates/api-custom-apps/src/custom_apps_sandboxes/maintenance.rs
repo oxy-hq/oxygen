@@ -21,7 +21,7 @@
 //!    whose fork point (`fork_at`, else when they were created) is more than
 //!    [`oxy_oltp::env_branches::EXPIRY_DAYS`] ago **and** that hold a copy of
 //!    production rows ([`expires_from_fork`]), or whose Airhouse overlay still
-//!    lists a table it copied ([`holding_copies`]), reason `oltp_branch_expired`.
+//!    lists a table it copied ([`super::copies::holding_copies`]), reason `oltp_branch_expired`.
 //!    Activity does not count: a copy of production data must not outlive its
 //!    window because someone keeps using it, or because its plane was moved
 //!    off the mode that copied it. Its teardown deletes the branch and the
@@ -29,6 +29,8 @@
 //! 5. **Delete orphaned OLTP branches** — environment branches whose sandbox
 //!    row is gone without a teardown, by a cascade from its app or owner
 //!    ([`super::orphan_branches`]). Inline, not queued: no sandbox is left.
+//! 6. **Drop OLTP branches no sandbox asks for** — a sandbox moved off
+//!    `branch`/`empty` whose own `Drop` failed ([`super::unwanted_branches`]).
 //!
 //! **The list is a moment old when each sandbox's turn comes.** A publish
 //! may have landed on an idle sandbox, or a stale teardown finished and its
@@ -43,12 +45,10 @@
 
 use std::time::Duration;
 
-use std::collections::HashSet;
-
 use chrono::{DateTime, Utc};
 use entity::{app_environments, apps};
 use oxy_app_core::custom_app_environment::{AppEnvironment, AppEnvironmentKind};
-use oxy_custom_apps::planes::{AirhouseMode, OltpMode, ResolvedPlanes, planes_from_row};
+use oxy_custom_apps::planes::{AirhouseMode, OltpMode, ResolvedPlanes};
 use oxy_oltp::env_branches::EXPIRY_DAYS;
 use sea_orm::sea_query::{Expr, Func};
 use sea_orm::{
@@ -57,10 +57,10 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
+use super::copies::{expires_row, holding_copies, overlay_key_of};
 use super::delete::forked_at;
 use super::ops::Expect;
 use super::{SandboxError, TeardownReason, activity, ops};
-use crate::custom_apps_functions::env_policy::airhouse_overlay::overlay_key;
 
 pub const INTERVAL_ENV: &str = "OXY_APP_SANDBOX_MAINTENANCE_INTERVAL_SECS";
 const DEFAULT_INTERVAL_SECS: u64 = 900;
@@ -179,6 +179,7 @@ pub async fn sweep_with(
     let forked = forked_sandboxes(db, cutoff, SANDBOXES_PER_PASS as usize, expires).await?;
     queued += delete_each(db, forked, TeardownReason::BranchExpired).await;
     super::orphan_branches::sweep(db).await;
+    queued += super::unwanted_branches::sweep(db, now).await;
     Ok(queued)
 }
 
@@ -261,14 +262,14 @@ async fn forked_sandboxes(
             .iter()
             .zip(&by_planes)
             .filter(|(_, by_planes)| !**by_planes)
-            .filter_map(|(row, _)| row_overlay_key(row))
+            .filter_map(|(row, _)| overlay_key_of(row))
             .collect();
         let held = holding_copies(db, &unexpired).await?;
         selected.extend(
             page.iter()
                 .zip(by_planes)
                 .filter(|(row, by_planes)| {
-                    *by_planes || row_overlay_key(row).is_some_and(|key| held.contains(&key))
+                    *by_planes || overlay_key_of(row).is_some_and(|key| held.contains(&key))
                 })
                 .map(|(row, _)| row)
                 .map(|row| (row.app_id, row.name.clone(), Expect::ForkedBefore(cutoff)))
@@ -279,59 +280,6 @@ async fn forked_sandboxes(
         }
     }
     Ok(selected)
-}
-
-/// The registry key of `row`'s Airhouse overlay; `None` for a name that is
-/// not an environment.
-fn row_overlay_key(row: &app_environments::Model) -> Option<String> {
-    AppEnvironment::parse(&row.name).map(|environment| overlay_key(row.app_id, &environment))
-}
-
-/// The overlay keys among `keys` whose registry still lists a table they
-/// copied (any state but `dropped`). Changing a sandbox's Airhouse plane does
-/// not empty its overlay — only a reset or a teardown does — so a sandbox moved
-/// off `branch` or `snapshot` still holds production rows, and they age from
-/// the fork like any other copy.
-async fn holding_copies(
-    db: &DatabaseConnection,
-    keys: &[String],
-) -> Result<HashSet<String>, DbErr> {
-    use sea_orm::ConnectionTrait;
-    if keys.is_empty() {
-        return Ok(HashSet::new());
-    }
-    let placeholders: Vec<String> = (1..=keys.len()).map(|i| format!("${i}")).collect();
-    let sql = format!(
-        "SELECT DISTINCT preview_key FROM workspace_preview_tables \
-          WHERE state <> 'dropped' AND preview_key IN ({})",
-        placeholders.join(", ")
-    );
-    let values = keys.iter().map(|key| key.clone().into());
-    let rows = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            sql,
-            values,
-        ))
-        .await?;
-    rows.iter()
-        .map(|row| row.try_get("", "preview_key"))
-        .collect()
-}
-
-/// Whether `row`'s planes say it expires from its fork.
-fn expires_row(row: &app_environments::Model, expires: fn(&ResolvedPlanes) -> bool) -> bool {
-    let Some(environment) = AppEnvironment::parse(&row.name) else {
-        return false;
-    };
-    match planes_from_row(Some(row), &environment) {
-        Ok(planes) => planes.as_ref().is_some_and(expires),
-        Err(why) => {
-            tracing::warn!(app_id = %row.app_id, environment = %row.name, %why,
-                "sandbox_maintenance: planes unreadable; not expiring from the fork");
-            false
-        }
-    }
 }
 
 /// `ops::delete_if` for each selected sandbox; how many teardowns were queued.

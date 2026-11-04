@@ -63,17 +63,20 @@ const sandbox: AppEnvironment = {
     status: "migrating",
     fork_at: "2026-11-02T00:00:00Z",
     expires_at: "2026-12-02T00:00:00Z",
-    error: null
+    error: null,
+    recut_queued: false
   }
 };
 
 const renderPanel = () => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  // The hook keeps its own retry count; no delay keeps a failing fetch quick.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } });
+  render(
     <QueryClientProvider client={client}>
       <Environments appId='app-1' />
     </QueryClientProvider>
   );
+  return client;
 };
 
 beforeEach(() => {
@@ -135,6 +138,77 @@ describe("Environments", () => {
     expect(item.textContent).toContain("Your receipt");
     expect(item.textContent).toContain("<b>Thanks</b>");
     expect(item.querySelector("b")).toBeNull();
+  });
+
+  it("prints a failed branch's reason and offers Delete again on a sandbox being deleted", async () => {
+    vi.mocked(CustomAppsService.listEnvironments).mockResolvedValue([
+      base,
+      {
+        ...sandbox,
+        status: "deleting",
+        oltp_branch: {
+          ...(sandbox.oltp_branch as NonNullable<AppEnvironment["oltp_branch"]>),
+          status: "failed",
+          error: "the provider refused the cut"
+        }
+      }
+    ]);
+    renderPanel();
+    const error = await screen.findByTestId("admin-app-env-oltp-error-dev-pay");
+    expect(error.textContent).toBe("the provider refused the cut");
+    const del = screen.getByTestId("admin-app-env-delete-dev-pay") as HTMLButtonElement;
+    expect(del.disabled).toBe(false);
+    expect(del.textContent).toBe("Retry delete");
+  });
+
+  it("says a queued re-cut is queued, not ready", async () => {
+    vi.mocked(CustomAppsService.listEnvironments).mockResolvedValue([
+      base,
+      {
+        ...sandbox,
+        oltp_branch: {
+          ...(sandbox.oltp_branch as NonNullable<AppEnvironment["oltp_branch"]>),
+          status: "ready",
+          recut_queued: true
+        }
+      }
+    ]);
+    renderPanel();
+    expect((await screen.findByTestId("admin-app-env-oltp-dev-pay")).textContent).toBe(
+      "oltp branch re-cut queued"
+    );
+  });
+
+  it("shows the server's words and a Retry when the list cannot load", async () => {
+    vi.mocked(CustomAppsService.listEnvironments).mockRejectedValue(new Error("database is down"));
+    renderPanel();
+    expect((await screen.findByTestId("admin-async-error-detail")).textContent).toBe(
+      "database is down"
+    );
+    expect(screen.getByTestId("admin-async-retry")).toBeTruthy();
+  });
+
+  it("keeps the list it has when a refetch fails", async () => {
+    const client = renderPanel();
+    await screen.findByTestId("admin-app-env-row-dev-pay");
+    vi.mocked(CustomAppsService.listEnvironments).mockRejectedValue(new Error("database is down"));
+    await client.refetchQueries();
+    await waitFor(() =>
+      expect(client.getQueryState(["customApps", "environments", "app-1"])?.status).toBe("error")
+    );
+    expect(screen.getByTestId("admin-app-env-row-dev-pay")).toBeTruthy();
+    expect(screen.queryByTestId("admin-async-error")).toBeNull();
+  });
+
+  it("refreshes the Secrets pane after a secrets reset", async () => {
+    const client = renderPanel();
+    const key = ["customApps", "secrets", "app-1", "dev-pay"];
+    client.setQueryData(key, { keys: ["STRIPE_KEY"] });
+    fireEvent.click(await screen.findByTestId("admin-app-env-details-dev-pay"));
+    fireEvent.click(await screen.findByTestId("admin-app-env-reset-secrets"));
+    const confirm = await screen.findByTestId("admin-app-env-reset-confirm");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Reset" }));
+    await waitFor(() => expect(client.getQueryState(key)?.isInvalidated).toBe(true));
   });
 
   it("resets one plane only after its confirm", async () => {

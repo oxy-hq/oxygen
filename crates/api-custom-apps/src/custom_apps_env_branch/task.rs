@@ -48,7 +48,9 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
 use super::planes::record_fork_at;
-pub use super::queue::{BranchOp, ENV_OLTP_BRANCH_KIND, EnvBranchExecutor, EnvBranchTask, enqueue};
+pub use super::queue::{
+    BranchOp, ENV_OLTP_BRANCH_KIND, EnvBranchExecutor, EnvBranchTask, enqueue, recuts_queued,
+};
 use super::{provisioner, wants_branch};
 use crate::custom_apps_env_resolve::sandbox_row;
 use crate::custom_apps_migrations::{
@@ -75,6 +77,38 @@ pub async fn run(db: &DatabaseConnection, task: &EnvBranchTask) -> Result<String
 /// before its build is read and applied — the window a publish lands in. A
 /// seam for the test that lands one there; [`run`] passes nothing.
 pub async fn run_with<F: Future<Output = ()>>(
+    db: &DatabaseConnection,
+    task: &EnvBranchTask,
+    between: F,
+) -> Result<String, String> {
+    let outcome = locked(db, task, between).await;
+    if outcome.is_err() && matches!(task.op, BranchOp::Cut { .. } | BranchOp::Reset { .. }) {
+        restore_fork_at(db, task).await;
+    }
+    outcome
+}
+
+/// After a cut or reset that failed: the sandbox's fork point goes back to the
+/// branch it still has. The request wrote the new point when it queued (so the
+/// sweep never deletes a sandbox mid-reset for the age of the cut it replaces),
+/// and only a finished run writes the branch's; a run that failed before the
+/// provider call, or after it, would otherwise leave the expiry clock counting
+/// from a copy that does not exist while the old one ages past 30 days. With no
+/// branch row, the point asked for stands: nothing was copied.
+async fn restore_fork_at(db: &DatabaseConnection, task: &EnvBranchTask) {
+    let name = &task.environment;
+    let restored = match find_for_app(db, task.app_id, name).await {
+        Ok(Some(branch)) => record_fork_at(db, task.app_id, name, branch.fork_at.to_utc()).await,
+        Ok(None) => Ok(()),
+        Err(e) => Err(e),
+    };
+    if let Err(e) = restored {
+        tracing::warn!(app_id = %task.app_id, environment = %name,
+            "could not put the sandbox's fork point back to its branch's: {e}");
+    }
+}
+
+async fn locked<F: Future<Output = ()>>(
     db: &DatabaseConnection,
     task: &EnvBranchTask,
     between: F,

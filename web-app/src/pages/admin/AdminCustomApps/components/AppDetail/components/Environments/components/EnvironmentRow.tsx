@@ -36,7 +36,7 @@ export const EnvironmentRow = ({
           <span className='whitespace-nowrap font-medium font-mono'>{env.name}</span>
           <span className='text-muted-foreground'>{env.kind}</span>
           {deletingNow && <span className={cn(ADMIN_TONE.warn.text)}>deleting</span>}
-          {env.oltp_branch && <OltpBranchStatus branch={env.oltp_branch} name={env.name} />}
+          <OltpBranchStatus env={env} />
         </div>
         <span className='truncate text-muted-foreground'>
           {env.build_id ? `build ${shortBuildId(env.build_id)}` : "nothing published"}
@@ -80,12 +80,13 @@ export const EnvironmentRow = ({
           variant='ghost'
           size='sm'
           className='h-6 gap-1 px-1.5 text-muted-foreground text-xs'
-          disabled={deletingNow}
           onClick={onDelete}
           data-testid={`admin-app-env-delete-${env.name}`}
         >
           <Trash2 className='size-3' />
-          Delete
+          {/* The server takes a second DELETE: it answers the teardown still on its
+              way, or starts another once that one has failed. */}
+          {deletingNow ? "Retry delete" : "Delete"}
         </Button>
       )}
     </li>
