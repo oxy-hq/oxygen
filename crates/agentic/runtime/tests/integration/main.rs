@@ -27,3 +27,4 @@ mod task_end_reaches_run_test;
 mod thread_live_run_test;
 mod tls_smoke_test;
 mod unclaimed_clock_test;
+mod worker_cap_and_wake_test;

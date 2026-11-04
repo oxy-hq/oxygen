@@ -18,7 +18,7 @@ static TEST_CONTAINER: tokio::sync::OnceCell<
 > = tokio::sync::OnceCell::const_new();
 
 /// Spin up (or reuse) a Postgres testcontainer and return `(url, db)`.
-async fn test_db() -> Option<(String, DatabaseConnection)> {
+pub(super) async fn test_db() -> Option<(String, DatabaseConnection)> {
     let url = TEST_DB_URL
         .get_or_init(|| async {
             if let Ok(url) = std::env::var("OXY_DATABASE_URL") {

@@ -1429,7 +1429,7 @@ pub async fn drive_with_coordinator(
     use agentic_core::transport::{CoordinatorTransport, WorkerTransport};
     use agentic_runtime::coordinator::Coordinator;
     use agentic_runtime::transport::DurableTransport;
-    use agentic_runtime::worker::Worker;
+    use agentic_runtime::worker::{SlotPool, Worker};
 
     let run_id = started.run_id.clone();
     let _source_type = started.source_type.clone();
@@ -1471,7 +1471,13 @@ pub async fn drive_with_coordinator(
     });
 
     // Worker: handles task execution (including the initial root task).
-    let worker = Worker::new(transport.clone() as Arc<dyn WorkerTransport>, executor);
+    // Request-initiated: its rows cannot leave this process, so it must
+    // not wait behind queue-claimed work (`SlotPool`).
+    let worker = Worker::in_pool(
+        transport.clone() as Arc<dyn WorkerTransport>,
+        executor,
+        SlotPool::Direct,
+    );
 
     // Query the max existing event seq so the coordinator starts after it.
     // This is critical for cold resume — avoids seq conflicts with prior events.

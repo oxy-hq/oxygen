@@ -25,7 +25,7 @@ use agentic_runtime::coordinator::Coordinator;
 use agentic_runtime::crud;
 use agentic_runtime::state::RuntimeState;
 use agentic_runtime::transport::DurableTransport;
-use agentic_runtime::worker::Worker;
+use agentic_runtime::worker::{SlotPool, Worker};
 use sea_orm::{DatabaseConnection, DbErr};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -408,7 +408,13 @@ pub fn spawn_automation_run_drive(
     // `start_automation_run`'s `crud::enqueue_task` call.
     coordinator.register_root(run_id.clone(), 0);
 
-    let worker = Worker::new(transport.clone() as Arc<dyn WorkerTransport>, executor);
+    // Request-initiated: its rows cannot leave this process, so it must
+    // not wait behind queue-claimed work (`SlotPool`).
+    let worker = Worker::in_pool(
+        transport.clone() as Arc<dyn WorkerTransport>,
+        executor,
+        SlotPool::Direct,
+    );
 
     tracing::debug!(
         target: "workflow_run",

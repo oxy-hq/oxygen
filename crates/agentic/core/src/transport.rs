@@ -5,9 +5,12 @@
 //! The transport layer is swappable: in-process channels for day 1,
 //! gRPC or message queues for distributed deployment later.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::delegation::{ClaimEpoch, TaskAssignment, TaskOutcome};
@@ -136,6 +139,29 @@ pub trait WorkerTransport: Send + Sync + 'static {
     /// transport and cannot name the condition under which this returns
     /// `None`, it does not satisfy this contract.
     async fn recv_assignment(&self) -> Option<TaskAssignment>;
+
+    /// Pull the next assignment holding one of `slots` — the process's worker
+    /// concurrency cap — for it. `None` exactly when [`Self::recv_assignment`]
+    /// would return `None`.
+    ///
+    /// The slot is the caller's to release (drop) when the task stops
+    /// occupying it.
+    ///
+    /// The default receives first and waits for a slot second. That is right
+    /// for a channel transport, where a received assignment holds nothing
+    /// while it waits. A transport whose receive *claims* something — a row
+    /// lock, a lease that must be heartbeated — must override this to take
+    /// the slot **before** it claims, and to hold no slot while it has nothing
+    /// to claim: a claim waiting behind a slot holds its lease for nothing,
+    /// and an idle receiver holding a slot starves every other caller.
+    async fn recv_admitted(
+        &self,
+        slots: &Arc<Semaphore>,
+    ) -> Option<(TaskAssignment, OwnedSemaphorePermit)> {
+        let assignment = self.recv_assignment().await?;
+        let slot = Arc::clone(slots).acquire_owned().await.ok()?;
+        Some((assignment, slot))
+    }
 
     /// Send a message (event or outcome) back to the coordinator.
     async fn send(&self, msg: WorkerMessage) -> Result<(), TransportError>;

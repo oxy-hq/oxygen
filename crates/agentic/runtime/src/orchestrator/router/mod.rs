@@ -34,6 +34,7 @@
 //!   responsibility, different cadence.
 
 mod postgres;
+mod wake;
 pub use postgres::{
     DEFAULT_LISTENER_KEEPALIVE_INTERVAL, HEALTH_PROBE_CHANNEL, LAST_PROBE_RECEIVED_MILLIS,
     ListenerConfigFactory, PROBES_RECEIVED, PostgresTaskRouter, PostgresTaskRouterOptions,
@@ -66,6 +67,21 @@ pub trait TaskRouter: Send + Sync {
     /// should attempt one `claim_task` and, if that yields nothing,
     /// loop back to `wait_for_task`.
     async fn wait_for_task(&self, classes: &[String], timeout: Duration);
+
+    /// [`Self::wait_for_task`] for a waiter that can only claim tasks under
+    /// `root` (`task_id = root` or `task_id LIKE root || '.%'`, the scoped
+    /// claim's predicate). `None` is an unscoped waiter: it wakes for any
+    /// enqueue.
+    ///
+    /// A router that knows which task an enqueue was for may skip a scoped
+    /// waiter's wake for another root's task. It must still wake it for any
+    /// signal it cannot attribute — a payload it cannot parse, a reconnect,
+    /// a lagged buffer: a dropped wake costs a poll interval, a spurious one
+    /// costs one claim query. The default ignores `root`.
+    async fn wait_for_task_under(&self, root: Option<&str>, timeout: Duration) {
+        let _ = root;
+        self.wait_for_task(&[], timeout).await;
+    }
 
     /// Signal that a task was enqueued. Workers listening on `class`
     /// (or any class, if the impl doesn't partition) wake up.

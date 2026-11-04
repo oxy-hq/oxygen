@@ -9,8 +9,8 @@
 //! - A long-lived **driver task** owns that connection. It pumps the
 //!   `tokio_postgres::Connection` future (required for the client to
 //!   work at all) and observes `AsyncMessage::Notification` events,
-//!   which it translates into wakes on a shared `tokio::sync::Notify`.
-//! - `wait_for_task` callers race a `notify.notified()` future against
+//!   which it translates into [`Wake`]s on a shared broadcast channel.
+//! - `wait_for_task` callers race the next wake that concerns them against
 //!   their own timeout. Spurious wakes are fine — the caller's job is
 //!   to call `claim_task` and find out.
 //! - `notify_enqueued` issues `SELECT pg_notify(...)` through a
@@ -24,7 +24,7 @@
 //!
 //! If the listener connection drops (server failover, OS network
 //! reset, slow-query timeout), the driver task backs off and reconnects.
-//! On reconnect it fires the local `Notify` once so any waiting worker
+//! On reconnect it broadcasts [`Wake::All`] once so any waiting worker
 //! does a catch-up `claim_task` — this covers the window during which
 //! notifications could have been missed.
 //!
@@ -68,8 +68,10 @@
 //!   filter keeps the wire protocol simple. When worker classes land,
 //!   only this file changes — the trait and callers are already
 //!   class-aware.
-//! - **No payload data.** NOTIFY is "go look", not "here's your task."
-//!   Storage is the source of truth.
+//! - **No task data in the payload.** NOTIFY is "go look", not "here's your
+//!   task" — storage is the source of truth. The payload names the task id
+//!   (`task:<id>`, from the trigger) only so a poller scoped to another run's
+//!   root can skip the wake instead of re-querying the queue; see [`Wake`].
 //! - **No notification deduplication.** Postgres may deliver multiple
 //!   NOTIFYs back-to-back; we wake once per notification and let
 //!   `SKIP LOCKED` sort out the claim race.
@@ -82,12 +84,13 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::future::BoxFuture;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
-use tokio::sync::Notify;
+use tokio::sync::broadcast;
 use tokio_postgres::AsyncMessage;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use tokio_util::sync::CancellationToken;
 
 use super::TaskRouter;
+use super::wake::{WAKE_BUFFER, Wake, next_wake_for};
 
 /// Postgres NOTIFY channel name. Single global channel for v1 — every
 /// worker hears every enqueue regardless of class, and `SKIP LOCKED`
@@ -254,12 +257,13 @@ pub struct PostgresTaskRouter {
     /// Workers' main DB traffic uses the same pool — sharing is fine
     /// because `pg_notify` is a tiny query.
     db: DatabaseConnection,
-    /// Wakes everyone parked in `wait_for_task`. The listener task
-    /// calls `notify_waiters()` on every received `task_enqueued`
-    /// notification + once per reconnect. Health probes update
-    /// `last_probe_at_millis` instead — they do NOT wake workers,
-    /// since a probe doesn't indicate new claimable work.
-    notify: Arc<Notify>,
+    /// Wakes for everyone parked in `wait_for_task`. The listener task
+    /// sends one per received `task_enqueued` notification + a
+    /// [`Wake::All`] per (re)connect; each waiter keeps the ones that
+    /// concern its root. Health probes update `last_probe_at_millis`
+    /// instead — they do NOT wake workers, since a probe doesn't indicate
+    /// new claimable work.
+    wakes: broadcast::Sender<Wake>,
     /// UNIX millis of the most recent health probe this listener saw
     /// (from any instance, including itself). `0` means "never".
     /// Updated atomically from the driver task; readable from any
@@ -294,14 +298,14 @@ impl PostgresTaskRouter {
         factory: ListenerConfigFactory,
         options: PostgresTaskRouterOptions,
     ) -> (Arc<Self>, CancellationToken) {
-        let notify = Arc::new(Notify::new());
+        let (wakes, _) = broadcast::channel(WAKE_BUFFER);
         let last_probe_at_millis = Arc::new(AtomicI64::new(0));
         let instance_id = format!("router-{}", uuid::Uuid::new_v4());
         let cancel = CancellationToken::new();
 
         let router = Arc::new(Self {
             db,
-            notify: Arc::clone(&notify),
+            wakes: wakes.clone(),
             last_probe_at_millis: Arc::clone(&last_probe_at_millis),
             instance_id: instance_id.clone(),
         });
@@ -312,7 +316,7 @@ impl PostgresTaskRouter {
             run_listener(
                 factory,
                 tls,
-                notify,
+                wakes,
                 last_probe_at_millis,
                 listener_cancel,
                 options,
@@ -373,13 +377,14 @@ impl PostgresTaskRouter {
 #[async_trait]
 impl TaskRouter for PostgresTaskRouter {
     async fn wait_for_task(&self, _classes: &[String], timeout: Duration) {
-        // `notified()` must be created *before* we check / wait, because
-        // it captures a permit position relative to current state. Race
-        // it against the backstop timeout — whichever fires first.
-        tokio::select! {
-            _ = self.notify.notified() => {}
-            _ = tokio::time::sleep(timeout) => {}
-        }
+        self.wait_for_task_under(None, timeout).await;
+    }
+
+    async fn wait_for_task_under(&self, root: Option<&str>, timeout: Duration) {
+        // Subscribe before waiting: a receiver sees only what is sent after
+        // it exists. Race the next wake for `root` against the backstop.
+        let mut wakes = self.wakes.subscribe();
+        let _ = tokio::time::timeout(timeout, next_wake_for(&mut wakes, root)).await;
     }
 
     async fn notify_enqueued(&self, class: Option<&str>) {
@@ -577,7 +582,7 @@ impl rustls::client::danger::ServerCertVerifier for NoCertVerification {
 async fn run_listener(
     factory: ListenerConfigFactory,
     tls: MakeRustlsConnect,
-    notify: Arc<Notify>,
+    wakes: broadcast::Sender<Wake>,
     last_probe_at_millis: Arc<AtomicI64>,
     cancel: CancellationToken,
     options: PostgresTaskRouterOptions,
@@ -591,7 +596,7 @@ async fn run_listener(
         match listen_once(
             &factory,
             &tls,
-            &notify,
+            &wakes,
             &last_probe_at_millis,
             &cancel,
             &options,
@@ -631,7 +636,7 @@ async fn run_listener(
                 // connection died and when we'll reconnect. Without
                 // this, a notification arriving during the outage
                 // would be lost without a wake.
-                notify.notify_waiters();
+                let _ = wakes.send(Wake::All);
 
                 tokio::select! {
                     _ = tokio::time::sleep(backoff) => {}
@@ -686,14 +691,14 @@ impl From<tokio_postgres::Error> for ListenExit {
 /// fix is to spawn the connection driver as a sibling task.
 ///
 /// That sibling task pulls async messages off the connection and
-/// forwards `Notification`s to the shared `Notify`. It also doubles
+/// forwards `Notification`s to the shared wake channel. It also doubles
 /// as the disconnect detector: when the stream ends, the task sends
 /// the reason through a oneshot, and the main task here translates
 /// that into a `ListenExit` for the reconnect loop.
 async fn listen_once(
     factory: &ListenerConfigFactory,
     tls: &MakeRustlsConnect,
-    notify: &Arc<Notify>,
+    wakes: &broadcast::Sender<Wake>,
     last_probe_at_millis: &Arc<AtomicI64>,
     cancel: &CancellationToken,
     options: &PostgresTaskRouterOptions,
@@ -716,7 +721,7 @@ async fn listen_once(
     // probes), and sends its exit reason (server-close vs error)
     // when the stream dries up. Cancelling the parent (via
     // `cancel.cancelled()`) is signalled by aborting its JoinHandle.
-    let driver_notify = Arc::clone(notify);
+    let driver_wakes = wakes.clone();
     let driver_probe = Arc::clone(last_probe_at_millis);
     let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<ListenExit>();
     let driver = tokio::spawn(async move {
@@ -736,9 +741,10 @@ async fn listen_once(
                             payload = %n.payload(),
                             "notification delivered"
                         );
-                        // Wake all parked waiters. `SKIP LOCKED`
-                        // resolves which one actually claims.
-                        driver_notify.notify_waiters();
+                        // Wake the parked waiters this task concerns
+                        // (all of them, if the payload names none).
+                        // `SKIP LOCKED` resolves which one claims.
+                        let _ = driver_wakes.send(Wake::from_payload(n.payload()));
                     }
                     HEALTH_PROBE_CHANNEL => {
                         let now_millis = SystemTime::now()
@@ -764,7 +770,7 @@ async fn listen_once(
                             from = %n.payload(),
                             "health probe received"
                         );
-                        // Deliberately do NOT call notify_waiters:
+                        // Deliberately send no wake:
                         // a probe doesn't represent claimable work.
                     }
                     other => {
@@ -820,7 +826,7 @@ async fn listen_once(
     // between connection death and now, the corresponding NOTIFY is
     // lost server-side; this wake gives waiters one chance to find
     // the row themselves.
-    notify.notify_waiters();
+    let _ = wakes.send(Wake::All);
 
     // Keepalive ticker. First tick fires after the full interval (not
     // immediately) — `Burst` would re-fire missed ticks back-to-back

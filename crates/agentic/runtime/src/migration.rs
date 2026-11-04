@@ -8,9 +8,11 @@ use sea_orm_migration::prelude::*;
 
 mod run_notify_requested;
 mod run_source_file_index;
+mod task_queue_notify_payload;
 mod task_queue_retry_attempt;
 pub use run_notify_requested::AddRunNotifyRequested;
 pub use run_source_file_index::{AddRunSourceFileIndex, RUN_SOURCE_FILE_INDEX_SQL};
+pub use task_queue_notify_payload::{AddTaskQueueNotifyPayload, MAX_TASK_ID_IN_PAYLOAD};
 pub use task_queue_retry_attempt::AddTaskQueueRetryAttempt;
 
 pub struct RuntimeMigrator;
@@ -47,6 +49,7 @@ impl MigratorTrait for RuntimeMigrator {
             Box::new(AddRunSourceFileIndex),
             Box::new(AddTaskQueueRetryAttempt),
             Box::new(AddRunNotifyRequested),
+            Box::new(AddTaskQueueNotifyPayload),
         ]
     }
 

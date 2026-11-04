@@ -16,7 +16,7 @@ use agentic_core::transport::{
 };
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
-use tokio::sync::{Mutex, Notify, mpsc};
+use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::crud;
@@ -27,6 +27,7 @@ mod beat;
 mod claims;
 mod dead_letter;
 mod parked;
+mod recv;
 mod retry;
 
 use claims::{ClaimTokens, Heartbeats, fence};
@@ -894,197 +895,22 @@ fn pool_starvation_backoff(streak: u32, offset_ms: u64) -> std::time::Duration {
 #[async_trait]
 impl WorkerTransport for DurableTransport {
     async fn recv_assignment(&self) -> Option<TaskAssignment> {
-        // Consecutive pool-acquire failures, driving the backoff in the `Err`
-        // arm below. Reset the moment a claim round-trip succeeds.
-        let mut pool_starvation_streak: u32 = 0;
-        loop {
-            // The ONLY exit. Checked first so a retired transport stops asking
-            // the database anything at all, including on the paths below that
-            // `continue` without ever reaching a claim.
-            if self.worker_loop_cancel.is_cancelled() {
-                tracing::debug!(
-                    worker_id = %self.worker_id,
-                    task_id_root = ?self.task_id_root,
-                    "worker loop retired; no longer polling the queue"
-                );
-                return None;
-            }
-            // Refuse to take on new work once this process has begun shutting
-            // down. Graceful release flips our claims `claimed -> queued`,
-            // which fires the queue's NOTIFY trigger and wakes *this* loop —
-            // so without the gate we would re-claim the very rows we just
-            // gave back, recharge `claim_count`, and then exit holding them.
-            // See [`begin_shutdown`].
-            //
-            // Park on the poll interval rather than spinning: nothing can
-            // clear the flag, and the process is on its way out anyway.
-            if is_shutting_down() {
-                tokio::time::sleep(self.poll_interval).await;
-                continue;
-            }
+        self.recv_inner(None)
+            .await
+            .map(|(assignment, _)| assignment)
+    }
 
-            // Try to claim a task from the queue. Scoped transports only
-            // see tasks under their root — see `task_id_root` for why.
-            //
-            // Race the claim round-trip against the process shutdown signal: a
-            // poll already in flight when a co-located DB dies on shutdown
-            // (Ctrl-C in local/dev) would otherwise block the full pool
-            // `ACQUIRE_TIMEOUT` (~30s) before erroring, pushing shutdown past
-            // the grace period. On shutdown we abandon the poll and loop; the
-            // `is_shutting_down()` gate at the top then parks us for good.
-            // `begin_shutdown` sets that gate before cancelling this signal, so
-            // the next iteration is guaranteed to see it.
-            let claim_result = tokio::select! {
-                _ = shutdown_signal().cancelled() => continue,
-                r = async {
-                    match &self.task_id_root {
-                        Some(root) => {
-                            crud::claim_task_under_root(&self.db, &self.worker_id, root).await
-                        }
-                        None => crud::claim_task(&self.db, &self.worker_id).await,
-                    }
-                } => r,
-            };
-            if claim_result.is_ok() {
-                pool_starvation_streak = 0;
-            }
-            match claim_result {
-                Ok(Some(entry)) => {
-                    // Close the gate-to-claim race *at its cause*. The gate
-                    // above was clear when this iteration started, but the
-                    // claim is a round-trip: shutdown can begin while it is in
-                    // flight, and the release pass can therefore run before
-                    // this row lands `claimed`. The row would then be owned by
-                    // a process that is already gone, with `claim_count`
-                    // charged — exactly the state graceful release exists to
-                    // prevent, relocated into a smaller window.
-                    //
-                    // This is the only point in the system that knows both
-                    // that the claim exists and that the process is leaving,
-                    // so it is the only place the race can actually be closed.
-                    // `drain_claims_for_worker` can only *narrow* it, and if
-                    // this process held no other claims the drain's first pass
-                    // returns 0 and it stops before the straggler lands —
-                    // which is the likeliest shape of the race, since an idle
-                    // poller is precisely the worker sitting in `claim_task`.
-                    if is_shutting_down() {
-                        match crud::release_claim(
-                            &self.db,
-                            &entry.task_id,
-                            &self.worker_id,
-                            Some(entry.claim_epoch),
-                        )
-                        .await
-                        {
-                            Ok(_) => tracing::info!(
-                                task_id = %entry.task_id,
-                                "claim landed during shutdown; handed straight back to the queue"
-                            ),
-                            Err(e) => tracing::warn!(
-                                task_id = %entry.task_id,
-                                "failed to hand back a claim taken during shutdown: {e} \
-                                 (the reaper will reclaim it after the visibility timeout)"
-                            ),
-                        }
-                        continue;
-                    }
-
-                    // Deserialize spec and policy back into the assignment.
-                    let spec: TaskSpec = match serde_json::from_value(entry.spec) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::error!(task_id = %entry.task_id, "failed to deserialize task spec: {e}");
-                            // Mark as failed and try the next task. We hold the
-                            // claim — the UPDATE above just granted it — so the
-                            // ownership predicate matches.
-                            let _ = crud::fail_queue_task(
-                                &self.db,
-                                &entry.task_id,
-                                &self.worker_id,
-                                Some(entry.claim_epoch),
-                            )
-                            .await;
-                            continue;
-                        }
-                    };
-                    let policy = entry.policy.and_then(|p| {
-                        serde_json::from_value(p)
-                            .map_err(|e| {
-                                tracing::warn!(task_id = %entry.task_id, "failed to deserialize task policy: {e}");
-                            })
-                            .ok()
-                    });
-
-                    return Some(TaskAssignment {
-                        task_id: entry.task_id,
-                        parent_task_id: entry.parent_task_id,
-                        run_id: entry.run_id,
-                        spec,
-                        policy,
-                        claim_epoch: entry.claim_epoch,
-                    });
-                }
-                Ok(None) => {
-                    // No tasks available. Wait for any wake signal:
-                    //   - `new_task_notify`: same-process `assign()` call
-                    //   - `router.wait_for_task`: cross-process LISTEN wake
-                    //     (or its own internal backstop timeout)
-                    //
-                    // The router's `wait_for_task` already enforces the
-                    // backstop via its `timeout` arg, so we don't need
-                    // a separate `tokio::time::sleep` here — that would
-                    // double up the timeout and waste a poll-interval's
-                    // worth of latency on every loop iteration.
-                    tokio::select! {
-                        _ = self.new_task_notify.notified() => {}
-                        _ = self.router.wait_for_task(&[], self.poll_interval) => {}
-                        // Retirement lands here too, not just at the top of the
-                        // loop: an idle poller is parked in exactly this select,
-                        // so without this arm it would sit out a full poll
-                        // interval before noticing it has been retired.
-                        _ = self.worker_loop_cancel.cancelled() => {}
-                    }
-                }
-                Err(e) => {
-                    // A DB failure while shutting down is expected, not an
-                    // error: the co-located database is going down with us.
-                    // Keep the original ERROR level in steady state so a real
-                    // queue-connectivity problem is still loud.
-                    if is_shutting_down() {
-                        tracing::debug!("failed to claim task from queue during shutdown: {e}");
-                        tokio::time::sleep(self.poll_interval).await;
-                    } else if is_pool_acquire_failure(&e) {
-                        // The pool is starved, and this poll already spent the
-                        // full `ACQUIRE_TIMEOUT` (~30s) parked in its waiter
-                        // queue to find that out. Re-entering on the ordinary
-                        // poll interval is the wrong move: sqlx's waiter queue
-                        // is FIFO, so a claimer that immediately re-queues sits
-                        // permanently *ahead of request traffic*, and N
-                        // claimers in one process hold N such places. In prod
-                        // (2026-09-01) seven of them on the ide node kept the
-                        // API waiting the whole timeout behind background work
-                        // that had nothing to do.
-                        //
-                        // Back off instead, so a starved pool drains toward the
-                        // callers a human is waiting on.
-                        pool_starvation_streak = pool_starvation_streak.saturating_add(1);
-                        let backoff =
-                            pool_starvation_backoff(pool_starvation_streak, self.backoff_offset_ms);
-                        tracing::error!(
-                            worker_id = %self.worker_id,
-                            streak = pool_starvation_streak,
-                            backoff_ms = backoff.as_millis() as u64,
-                            "failed to claim task from queue: {e} (pool starved; backing off \
-                             so request traffic is not queued behind this poller)"
-                        );
-                        tokio::time::sleep(backoff).await;
-                    } else {
-                        tracing::error!("failed to claim task from queue: {e}");
-                        tokio::time::sleep(self.poll_interval).await;
-                    }
-                }
-            }
-        }
+    /// Takes the slot before each claim and holds none while idle — see
+    /// [`recv`].
+    async fn recv_admitted(
+        &self,
+        slots: &Arc<Semaphore>,
+    ) -> Option<(TaskAssignment, OwnedSemaphorePermit)> {
+        let (assignment, slot) = self.recv_inner(Some(slots)).await?;
+        Some((
+            assignment,
+            slot.expect("recv_inner holds a slot for every claim it is given slots for"),
+        ))
     }
 
     async fn send(&self, msg: WorkerMessage) -> Result<(), TransportError> {

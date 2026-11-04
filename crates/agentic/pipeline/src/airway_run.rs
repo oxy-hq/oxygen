@@ -21,7 +21,7 @@ use agentic_runtime::coordinator::Coordinator;
 use agentic_runtime::crud;
 use agentic_runtime::state::RuntimeState;
 use agentic_runtime::transport::DurableTransport;
-use agentic_runtime::worker::Worker;
+use agentic_runtime::worker::{SlotPool, Worker};
 use sea_orm::{DatabaseConnection, DbErr};
 use serde::Deserialize;
 use serde_json::Value;
@@ -555,7 +555,13 @@ pub fn spawn_airway_run_drive(
     // exists from `start_airway_run`'s `enqueue_task`.
     coordinator.register_root(run_id.clone(), 0);
 
-    let worker = Worker::new(transport.clone() as Arc<dyn WorkerTransport>, executor);
+    // Request-initiated: its rows cannot leave this process, so it must
+    // not wait behind queue-claimed work (`SlotPool`).
+    let worker = Worker::in_pool(
+        transport.clone() as Arc<dyn WorkerTransport>,
+        executor,
+        SlotPool::Direct,
+    );
 
     // Forward `state.cancel(run_id)` into the transport so the worker's
     // in-flight `CancellationToken` fires and the queued row is marked

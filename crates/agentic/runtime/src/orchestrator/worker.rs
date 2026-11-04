@@ -3,32 +3,45 @@
 //! The worker is domain-agnostic — it delegates actual pipeline/automation
 //! execution to a [`TaskExecutor`] injected by the pipeline layer.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use agentic_core::delegation::{TaskAssignment, TaskOutcome};
 use agentic_core::hub_task::spawn_with_hub;
 use agentic_core::transport::{WorkerMessage, WorkerTransport};
 use async_trait::async_trait;
 use serde_json::Value;
-use tokio::sync::{Semaphore, mpsc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 
 mod start;
 
-/// Env var controlling the per-worker in-flight task cap.
+/// Env var controlling the per-process in-flight task cap.
 ///
-/// "Per-worker" deliberately, not per-run: a single worker process holds
-/// at most this many tasks executing concurrently. With multiple worker
-/// processes (today: one per HTTP automation run; future: a remote worker
-/// pool), the global ceiling scales as `n_workers * MAX_INFLIGHT` — same
-/// semantic Sidekiq / Celery use. A future per-run or per-tenant cap
-/// would layer on top via DB-side claim predicates, not by reinterpreting
-/// this value.
+/// **Per process**, not per run: every [`Worker`] draws from one of the
+/// process's two pools of this many slots ([`process_slots`], [`SlotPool`]) —
+/// queue-claimed runs from one, runs this process drives because it accepted
+/// the request from the other — however many runs it drives. Each run's drive
+/// spawns its own scoped worker, so until hardening item 8 the cap was per run
+/// and a process driving K runs could execute 32×K tasks at once. An
+/// `oxy worker` process drives queue work only, so with N worker processes the
+/// fleet ceiling is `N * MAX_INFLIGHT` — the number HPA reads as
+/// `oxy_worker_capacity`. A node that also takes requests can hold up to twice
+/// it.
+///
+/// A slot is held from the claim until the task ends **or suspends** (a
+/// delegation or a question to a person): a suspended task does no work, and
+/// one that held its slot could wedge the process — every slot held by a
+/// parent waiting for a child that cannot get one. A task resumed in place
+/// after a suspension (a pipeline answered through its `answers` channel)
+/// continues without retaking a slot, so the cap bounds claims being worked,
+/// not every future alive in the process. Tasks driven directly rather than
+/// claimed by a `Worker` (a chat root, `drive_with_coordinator`'s virtual
+/// worker) are outside it.
 pub const MAX_INFLIGHT_ENV: &str = "OXY_WORKER_MAX_INFLIGHT";
 
 /// Default in-flight cap when [`MAX_INFLIGHT_ENV`] is unset or unparsable.
 ///
-/// 32 gives a single local run enough headroom for IO-bound loops
+/// 32 gives a process enough headroom for IO-bound loops
 /// (HTTP fetches, fast warehouse queries) without exhausting the
 /// Postgres pool (DEFAULT_MAX_CONNECTIONS = 80, and it must stay
 /// comfortably above this cap — see the floor discussion in
@@ -58,6 +71,38 @@ fn read_max_inflight() -> usize {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
         .unwrap_or(DEFAULT_MAX_INFLIGHT)
+}
+
+/// Which of this process's two slot pools a [`Worker`] draws from.
+///
+/// Two, so request-initiated work never waits behind the fleet's queue work.
+/// A drive's child rows are `scope_owned`, so only the worker on the node that
+/// accepted the request can claim them — a saturated pool cannot spill them to
+/// another process. If chat children shared the pool with long queue-driven
+/// tasks (airway syncs, automation steps), a delegating chat question could
+/// wait hours behind work it has nothing to do with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlotPool {
+    /// Runs this process claimed off the shared queue (the recovery/global
+    /// driver): the work the fleet — and `oxy_worker_capacity` — sizes.
+    Queue,
+    /// Runs this process drives because it accepted the request
+    /// (`drive_with_coordinator`, the interactive automation and airway
+    /// drives). An `oxy worker` process has none.
+    Direct,
+}
+
+static QUEUE_SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+static DIRECT_SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+
+/// One of this process's slot pools: [`MAX_INFLIGHT_ENV`] permits each (read
+/// once, on first use). See [`MAX_INFLIGHT_ENV`] and [`SlotPool`].
+pub fn process_slots(pool: SlotPool) -> &'static Arc<Semaphore> {
+    let cell = match pool {
+        SlotPool::Queue => &QUEUE_SLOTS,
+        SlotPool::Direct => &DIRECT_SLOTS,
+    };
+    cell.get_or_init(|| Arc::new(Semaphore::new(read_max_inflight())))
 }
 
 // ── ExecutingTask ────────────────────────────────────────────────────────────
@@ -136,6 +181,21 @@ impl CustomTaskRegistry {
 }
 
 #[cfg(test)]
+mod pool_tests {
+    use super::*;
+
+    /// Request-initiated drives must not queue behind queue-claimed work.
+    #[test]
+    fn direct_drives_and_queue_work_have_separate_pools() {
+        let queue = process_slots(SlotPool::Queue);
+        let direct = process_slots(SlotPool::Direct);
+        assert!(!Arc::ptr_eq(queue, direct));
+        assert!(Arc::ptr_eq(queue, process_slots(SlotPool::Queue)));
+        assert!(Arc::ptr_eq(direct, process_slots(SlotPool::Direct)));
+    }
+}
+
+#[cfg(test)]
 mod registry_tests {
     use super::*;
 
@@ -162,31 +222,48 @@ mod registry_tests {
 pub struct Worker {
     transport: Arc<dyn WorkerTransport>,
     executor: Arc<dyn TaskExecutor>,
-    /// Caps how many tasks this worker process executes concurrently.
-    /// See [`MAX_INFLIGHT_ENV`] / [`DEFAULT_MAX_INFLIGHT`].
-    inflight: Arc<Semaphore>,
+    /// The slots this worker's tasks occupy — the process pool for
+    /// [`Worker::new`]. See [`MAX_INFLIGHT_ENV`].
+    slots: Arc<Semaphore>,
 }
 
 impl Worker {
+    /// A worker for a run claimed off the queue, drawing from this process's
+    /// [`SlotPool::Queue`].
     pub fn new(transport: Arc<dyn WorkerTransport>, executor: Arc<dyn TaskExecutor>) -> Self {
-        Self::with_max_inflight(transport, executor, read_max_inflight())
+        Self::in_pool(transport, executor, SlotPool::Queue)
     }
 
-    /// Constructor with an explicit in-flight cap.
-    ///
-    /// Tests use this to assert backpressure semantics deterministically;
-    /// production code prefers [`Worker::new`] which reads the env var.
+    /// A worker drawing from one of this process's pools ([`SlotPool`]).
+    pub fn in_pool(
+        transport: Arc<dyn WorkerTransport>,
+        executor: Arc<dyn TaskExecutor>,
+        pool: SlotPool,
+    ) -> Self {
+        Self::with_slots(transport, executor, Arc::clone(process_slots(pool)))
+    }
+
+    /// A worker with a pool of its own, `max_inflight` slots wide. Tests use
+    /// it to assert backpressure deterministically.
     pub fn with_max_inflight(
         transport: Arc<dyn WorkerTransport>,
         executor: Arc<dyn TaskExecutor>,
         max_inflight: usize,
     ) -> Self {
-        let cap = max_inflight.max(1);
-        tracing::debug!(target: "worker", max_inflight = cap, "worker constructed");
+        let slots = Arc::new(Semaphore::new(max_inflight.max(1)));
+        Self::with_slots(transport, executor, slots)
+    }
+
+    /// A worker drawing from `slots`, which other workers may share.
+    pub fn with_slots(
+        transport: Arc<dyn WorkerTransport>,
+        executor: Arc<dyn TaskExecutor>,
+        slots: Arc<Semaphore>,
+    ) -> Self {
         Self {
             transport,
             executor,
-            inflight: Arc::new(Semaphore::new(cap)),
+            slots,
         }
     }
 
@@ -195,33 +272,20 @@ impl Worker {
     ///
     /// Returns when the transport's assignment channel is closed.
     ///
-    /// Backpressure: a per-worker `Semaphore` caps concurrent in-flight
-    /// tasks. We acquire the permit *before* claiming the next assignment
-    /// so a saturated worker leaves the task in `agentic_task_queue` for
-    /// another worker (or this one, later) — claiming first would lock
-    /// the row under us while we wait for capacity, defeating the cap.
+    /// Backpressure: each assignment arrives holding a slot
+    /// ([`WorkerTransport::recv_admitted`]). A durable transport takes it
+    /// *before* claiming, so a saturated pool leaves the task `queued` rather
+    /// than claimed-and-waiting, and holds none while it has nothing to claim.
+    /// A scoped worker's rows are `scope_owned`: they wait for a slot in
+    /// *this* process — no other process can claim them.
     pub async fn run(&self) {
         tracing::debug!(target: "worker", "worker run loop started");
-        loop {
-            // `acquire_owned` only errors if the Semaphore is closed; we
-            // never close it, so the `expect` is structurally infallible.
-            let permit = Arc::clone(&self.inflight)
-                .acquire_owned()
-                .await
-                .expect("worker inflight semaphore closed");
-            let Some(assignment) = self.transport.recv_assignment().await else {
-                break;
-            };
+        while let Some((assignment, slot)) = self.transport.recv_admitted(&self.slots).await {
             let task_id = assignment.task_id.clone();
             let transport = Arc::clone(&self.transport);
             let executor = Arc::clone(&self.executor);
-
             spawn_with_hub(async move {
-                Self::handle_task(transport, executor, task_id, assignment).await;
-                // Permit released only after handle_task fully returns —
-                // not on each Suspended outcome — so a long-suspended
-                // pipeline still occupies a slot until terminal.
-                drop(permit);
+                Self::handle_task(transport, executor, task_id, assignment, slot).await;
             });
         }
         tracing::debug!(target: "worker", "assignment channel closed, shutting down");
@@ -268,7 +332,10 @@ impl Worker {
         executor: Arc<dyn TaskExecutor>,
         task_id: String,
         assignment: TaskAssignment,
+        slot: OwnedSemaphorePermit,
     ) {
+        // Held until the task ends or suspends — see [`MAX_INFLIGHT_ENV`].
+        let mut slot = Some(slot);
         tracing::info!(target: "worker", task_id = %task_id, spec_type = ?assignment.spec, "received task assignment");
 
         // Surface the claim on the run's event stream. Admins debugging a
@@ -370,6 +437,11 @@ impl Worker {
             // Moving this past the break would keep the ticker alive for a row
             // this worker no longer holds.
             parked_suspended = matches!(outcome, TaskOutcome::Suspended { .. });
+            if parked_suspended {
+                // A suspended task does no work; holding its slot could leave
+                // every slot with a parent waiting on a child that needs one.
+                drop(slot.take());
+            }
             // A deferral is not an outcome. Translate it into `Defer` so the
             // task returns to the queue unrun, and stop consuming: sending it
             // as an `Outcome` would have the coordinator record a result for a
