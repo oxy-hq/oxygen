@@ -507,7 +507,7 @@ impl std::fmt::Debug for FilesystemParams {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum FilesystemFormatLabel {
     Json,
@@ -530,6 +530,24 @@ fn build_filesystem(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError
         .map_err(|e| AirwayError::Other(format!("invalid filesystem config: {e}")))?;
 
     let is_sftp = airway::connector::sftp::SftpLocation::is_sftp_url(&params.base_path);
+    refuse_login_off_sftp(&params, is_sftp)?;
+
+    let mut source =
+        FilesystemSource::new(&params.base_path, &params.pattern, params.format.into());
+    if let Some(name) = params.table_name.as_deref() {
+        source = source.with_table_name(name);
+    }
+    if let Some(jp) = params.json_path.as_deref() {
+        source = source.with_json_path(jp);
+    }
+    if is_sftp {
+        source = apply_sftp_auth(source, &params)?;
+    }
+    Ok(Box::new(apply_landing(source, params)?))
+}
+
+/// Refuses login keys on a path that is not `sftp://`.
+fn refuse_login_off_sftp(params: &FilesystemParams, is_sftp: bool) -> Result<(), AirwayError> {
     // An offline build (`crate::placeholder`) turns `base_path_var` into the
     // placeholder literal, so the scheme is unknowable there. It builds
     // without the login rather than being refused: construction does no I/O,
@@ -552,34 +570,39 @@ fn build_filesystem(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError
                 .into(),
         ));
     }
+    Ok(())
+}
 
-    let mut source =
-        FilesystemSource::new(&params.base_path, &params.pattern, params.format.into());
-    if let Some(name) = params.table_name.as_deref() {
-        source = source.with_table_name(name);
-    }
-    if let Some(jp) = params.json_path.as_deref() {
-        source = source.with_json_path(jp);
-    }
-    if is_sftp {
-        let auth = airway::connector::sftp::SftpAuth {
-            username: params.username.unwrap_or_default(),
-            password: params.password,
-            private_key: params.private_key,
-            private_key_passphrase: params.private_key_passphrase,
-            host_key_fingerprint: params.host_key_fingerprint,
-            insecure_accept_any_host_key: params.insecure_accept_any_host_key,
-        };
-        // At build, not first connect: an unpinned login without the explicit
-        // flag (or a malformed pin) is a config error a preview should show,
-        // not a run failure. Construction still does no I/O.
-        auth.validate()
-            .map_err(|e| AirwayError::Other(format!("invalid filesystem config: {e}")))?;
-        source = source.with_sftp_auth(auth);
-        if let Some(max) = params.max_file_bytes {
-            source = source.with_max_file_bytes(max);
-        }
-    }
+/// Attaches the SFTP login and the per-file size cap.
+fn apply_sftp_auth(
+    source: FilesystemSource,
+    params: &FilesystemParams,
+) -> Result<FilesystemSource, AirwayError> {
+    let auth = airway::connector::sftp::SftpAuth {
+        username: params.username.clone().unwrap_or_default(),
+        password: params.password.clone(),
+        private_key: params.private_key.clone(),
+        private_key_passphrase: params.private_key_passphrase.clone(),
+        host_key_fingerprint: params.host_key_fingerprint.clone(),
+        insecure_accept_any_host_key: params.insecure_accept_any_host_key,
+    };
+    // At build, not first connect: an unpinned login without the explicit
+    // flag (or a malformed pin) is a config error a preview should show,
+    // not a run failure. Construction still does no I/O.
+    auth.validate()
+        .map_err(|e| AirwayError::Other(format!("invalid filesystem config: {e}")))?;
+    let source = source.with_sftp_auth(auth);
+    Ok(match params.max_file_bytes {
+        Some(max) => source.with_max_file_bytes(max),
+        None => source,
+    })
+}
+
+/// How rows land: keys, nulls, timestamp and typed columns, the file name.
+fn apply_landing(
+    source: FilesystemSource,
+    params: FilesystemParams,
+) -> Result<FilesystemSource, AirwayError> {
     let source = source
         .with_keys(
             params.write_disposition.into(),
@@ -596,11 +619,10 @@ fn build_filesystem(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError
                 .map(|(column, label)| (column, label.into()))
                 .collect(),
         );
-    let source = match params.file_name_column.as_deref() {
+    Ok(match params.file_name_column.as_deref() {
         Some(column) => source.with_file_name_column(column),
         None => source,
-    };
-    Ok(Box::new(source))
+    })
 }
 
 // ── sql_database ─────────────────────────────────────────────────────────────
