@@ -1,6 +1,7 @@
 //! The warm pool: isolates built ahead of demand, each used once.
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
