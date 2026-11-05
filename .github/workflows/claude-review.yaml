@@ -32,10 +32,15 @@ permissions:
 
 jobs:
   claude-review:
-    # Release PRs are not skipped here: the script reads their diff and posts "not
-    # reviewed" only for the release app's pure version bump (RELEASE_AUTOMATION).
+    # Not for the release app's own pushes to its release/ PRs: the run took ~6 minutes
+    # only to post "not reviewed". review-gate.yaml passes such a head itself, and only
+    # when its diff is the pure version bump RELEASE_AUTOMATION describes; any other
+    # diff fails the gate with "needs a review". A person who pushes or reopens one is
+    # the sender, so that event gets a review (closing and reopening is how to ask).
     if: ${{ github.event.pull_request.draft == false && github.repository ==
-      'oxy-hq/oxygen-internal' }}
+      'oxy-hq/oxygen-internal' && !(startsWith(github.head_ref, 'release/') &&
+      github.event.pull_request.user.login == 'oxyhelper[bot]' &&
+      github.event.sender.login == 'oxyhelper[bot]') }}
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-2x' || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:

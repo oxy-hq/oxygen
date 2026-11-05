@@ -6,6 +6,7 @@ import { run } from "./exec.ts";
 import type {
   CommitStatus,
   IssueComment,
+  PrFileListing,
   PrMeta,
   PrReview,
   ReviewComment,
@@ -104,9 +105,7 @@ export const listReviewComments = (repo: string, n: number) =>
 export const listReviews = (repo: string, n: number) =>
   list<PrReview>(`repos/${repo}/pulls/${n}/reviews?per_page=100`);
 export const listPrFiles = (repo: string, n: number) =>
-  list<{ filename: string; previous_filename?: string; patch?: string }>(
-    `repos/${repo}/pulls/${n}/files?per_page=100`
-  );
+  list<PrFileListing>(`repos/${repo}/pulls/${n}/files?per_page=100`);
 
 export const createIssueComment = (repo: string, n: number, body: string) =>
   api<IssueComment>(`repos/${repo}/issues/${n}/comments`, { method: "POST", body: { body } });

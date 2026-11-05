@@ -11,8 +11,10 @@ import { parseArgs } from "node:util";
 import { parseTrailer } from "../roadmap/trailer.ts";
 import * as config from "./config.ts";
 import { parseCodeowners } from "./src/codeowners.ts";
+import type { GateInput } from "./src/gate.ts";
 import { evaluateGate, evaluateRisk } from "./src/gate.ts";
 import * as gh from "./src/github.ts";
+import { isReleaseAppPr, isReleaseBump, listingAsDiff } from "./src/release.ts";
 import { evaluateRoadmap } from "./src/roadmap.ts";
 import { decodeState, findSummaryComment } from "./src/state.ts";
 import type { CommitStatus } from "./src/types.ts";
@@ -59,20 +61,31 @@ async function reviewState() {
   );
 }
 
+/**
+ * For the release app's own release PR, whether the diff (read from the API) is its pure
+ * version bump; undefined for every other PR.
+ */
+async function releaseKind(): Promise<GateInput["release"]> {
+  const rule = config.RELEASE_AUTOMATION;
+  if (!isReleaseAppPr(meta, rule)) return undefined;
+  const files = listingAsDiff(await gh.listPrFiles(repo, pr));
+  return files !== null && isReleaseBump({ meta, files }, rule) ? "bump" : "other";
+}
+
 if (args.gate) {
-  const state = await reviewState();
   const labels = meta.labels.map((l) => l.name);
   await report(
     config.GATE_CONTEXT,
     evaluateGate({
-      state,
+      state: await reviewState(),
       headSha: meta.head.sha,
       labels,
       draft: meta.draft,
       overrideLabel: config.OVERRIDE_LABEL,
       // Only a failed run for this very head: an older head's failure says nothing here.
       reviewJobFailed:
-        args["review-conclusion"] === "failure" && args["review-head"] === meta.head.sha
+        args["review-conclusion"] === "failure" && args["review-head"] === meta.head.sha,
+      release: await releaseKind()
     })
   );
 }

@@ -16,6 +16,12 @@ export interface GateInput {
   draft: boolean;
   overrideLabel: string;
   reviewJobFailed?: boolean;
+  /**
+   * Set for the release app's own release PR (RELEASE_AUTOMATION): "bump" when its diff
+   * is the pure version bump, "other" when it is not. claude-review.yaml does not run for
+   * the app's pushes, so "other" with no review of the head must not read as waiting.
+   */
+  release?: "bump" | "other" | undefined;
 }
 
 /**
@@ -29,15 +35,24 @@ export function evaluateGate({
   labels,
   draft,
   overrideLabel,
-  reviewJobFailed = false
+  reviewJobFailed = false,
+  release
 }: GateInput): CommitStatus {
   if (draft) return { state: "success", description: "Draft: not gated" };
+  if (release === "bump")
+    return { state: "success", description: "Not reviewed: a version bump the release app opened" };
   const overridden = labels.includes(overrideLabel);
   if (!state || state.head !== headSha) {
     if (reviewJobFailed && !overridden)
       return {
         state: "failure",
         description: "The review job failed before it posted a verdict. Re-run it"
+      };
+    if (release === "other" && !overridden)
+      return {
+        state: "failure",
+        description:
+          "Not a pure version bump, so it needs a review. If none is running, close and reopen the PR"
       };
     return overridden
       ? {

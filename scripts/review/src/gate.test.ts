@@ -28,6 +28,21 @@ const gate = (s: ReviewState | null, labels: string[] = [], extra: Partial<GateI
     ...extra
   });
 
+test("review-gate on the release app's PR, which gets no review run of its own", () => {
+  assert.equal(gate(null, [], { release: "bump" }).state, "success");
+  assert.equal(
+    gate(null, [], { release: "other" }).state,
+    "failure",
+    "a non-bump with no review coming must not wait forever"
+  );
+  assert.equal(
+    gate(state(), [], { release: "other" }).state,
+    "success",
+    "once a person's push or reopen got it reviewed, the verdict decides"
+  );
+  assert.equal(gate(null, [OVERRIDE_LABEL], { release: "other" }).state, "success");
+});
+
 test("review-gate", () => {
   assert.equal(gate(state()).state, "success");
   assert.equal(
@@ -266,4 +281,34 @@ diff --git a/CHANGELOG.md b/CHANGELOG.md
     ),
     "the branch name alone is nothing"
   );
+});
+
+test("the gate reads a release bump from the API listing, and only a whole one", async () => {
+  const { isReleaseBump, listingAsDiff } = await import("./release.ts");
+  const app = prMeta({
+    user: { login: "oxyhelper[bot]", type: "Bot" },
+    head: { sha: "h", ref: "release/0.5.156" }
+  });
+  const toml = {
+    filename: "Cargo.toml",
+    status: "modified",
+    patch: '@@ -3,1 +3,1 @@\n-version = "0.5.155"\n+version = "0.5.156"'
+  };
+  const changelog = {
+    filename: "CHANGELOG.md",
+    status: "modified",
+    patch: "@@ -1,0 +1,1 @@\n+## 0.5.156"
+  };
+  const files = must(listingAsDiff([toml, changelog]));
+  assert.ok(isReleaseBump({ meta: app, files }, RELEASE_AUTOMATION));
+  const sneaky = must(
+    listingAsDiff([{ ...toml, patch: `${toml.patch}\n+evil = { git = "https://example.com/x" }` }])
+  );
+  assert.ok(!isReleaseBump({ meta: app, files: sneaky }, RELEASE_AUTOMATION));
+  assert.equal(
+    listingAsDiff([{ filename: "Cargo.lock", status: "modified" }]),
+    null,
+    "no patch is not proof of a version-only change"
+  );
+  assert.equal(listingAsDiff([{ ...toml, status: "added" }]), null);
 });

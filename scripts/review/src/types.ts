@@ -321,6 +321,14 @@ export interface PrMeta {
   deletions?: number;
 }
 
+/** One entry of the API's PR file listing; `patch` is absent for a large or binary file. */
+export interface PrFileListing {
+  filename: string;
+  status: string;
+  previous_filename?: string;
+  patch?: string;
+}
+
 export interface CommitStatus {
   state: "pending" | "success" | "failure";
   description: string;
