@@ -22,6 +22,7 @@ pub use dead_letter::{
 pub use outcomes::{
     complete_child_done_txn, complete_child_failed_txn, get_outcomes_for_parent, get_run_answer,
     insert_child_run, insert_task_outcome, suspend_with_data_txn,
+    update_task_status_merging_metadata,
 };
 pub use queue::{
     DeadTask, DeferOutcome, HeartbeatOutcome, QueueStats, QueueTaskRow, ReapOutcome,

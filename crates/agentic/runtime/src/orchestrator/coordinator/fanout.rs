@@ -182,8 +182,7 @@ impl Coordinator {
                 parent_run_id,
                 meta,
             } => {
-                self.persist_task_status(&parent_run_id, "delegating", Some(meta))
-                    .await;
+                self.persist_delegation_state(&parent_run_id, meta).await;
                 for sibling_id in &siblings {
                     self.transport.cancel(sibling_id).await.ok();
                     if let Some(sibling_node) = self.tasks.get_mut(sibling_id) {
@@ -201,8 +200,7 @@ impl Coordinator {
                 parent_run_id,
                 meta,
             } => {
-                self.persist_task_status(&parent_run_id, "delegating", Some(meta))
-                    .await;
+                self.persist_delegation_state(&parent_run_id, meta).await;
                 let answer = self.aggregate_child_results(parent_id);
                 let child_status = if self.parent_has_any_failure(parent_id) {
                     "failed"
@@ -215,9 +213,29 @@ impl Coordinator {
                 parent_run_id,
                 meta,
             } => {
-                self.persist_task_status(&parent_run_id, "delegating", Some(meta))
-                    .await;
+                self.persist_delegation_state(&parent_run_id, meta).await;
             }
+        }
+    }
+
+    /// Persist a parent's fan-out state (`completed` so far) onto its run row,
+    /// merged into `task_metadata` so a delegated parent keeps the
+    /// `original_spec` its own resume reads back (see
+    /// `crud::update_task_status_merging_metadata`).
+    async fn persist_delegation_state(&self, run_id: &str, meta: Value) {
+        let write = crate::orchestrator::crud::update_task_status_merging_metadata(
+            &self.db,
+            run_id,
+            "delegating",
+            Some(meta),
+        );
+        if let Err(e) = write.await {
+            tracing::error!(
+                target: "coordinator",
+                run_id,
+                error = %e,
+                "failed to persist delegation state"
+            );
         }
     }
 

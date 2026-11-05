@@ -160,16 +160,7 @@ pub async fn suspend_with_data_txn(
     let txn = db.begin().await?;
 
     // 1. Update run status + metadata.
-    let mut model = run::ActiveModel {
-        id: Set(run_id.to_string()),
-        task_status: Set(Some(task_status.to_string())),
-        updated_at: Set(ts),
-        ..Default::default()
-    };
-    if let Some(meta) = task_metadata {
-        model.task_metadata = Set(Some(meta));
-    }
-    run::Entity::update(model).exec(&txn).await?;
+    update_task_status_merging_metadata(&txn, run_id, task_status, task_metadata).await?;
 
     // 2. Upsert suspension data.
     let suggestions_val: Value = serde_json::to_value(suggestions).unwrap();
@@ -201,6 +192,54 @@ pub async fn suspend_with_data_txn(
         .await?;
 
     txn.commit().await
+}
+
+/// Set a run's status and **merge** `task_metadata` into what the row has.
+///
+/// Merge, not replace: a delegated child's row already carries
+/// `{policy, original_spec}` from [`insert_child_run`], and when that child
+/// delegates in turn its fan-out state lands here. Replacing the column threw
+/// the `original_spec` away, and resuming the child is precisely what reads it
+/// back — a delegated run has `metadata = None`, so the executor recovers its
+/// `agent_id` from `task_metadata.original_spec.agent_id`, found nothing, and
+/// failed with "resume: agent_id is empty". A top-level merge (`||`) still
+/// overwrites the keys being written, so a second delegation replaces the
+/// first one's `child_task_ids` as before. A row whose column is not an
+/// object (absent, or JSON `null`) starts from `{}`.
+///
+/// Every coordinator write of delegation state goes through here: the
+/// suspension itself, and each child result folded into `completed`
+/// (`Coordinator::record_child_result`) — that one rewrote the whole column too.
+pub async fn update_task_status_merging_metadata<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    run_id: &str,
+    task_status: &str,
+    task_metadata: Option<Value>,
+) -> Result<(), DbErr> {
+    use sea_orm::{DatabaseBackend, Statement};
+    let sql = "\
+        UPDATE agentic_runs SET task_status = $1, updated_at = $2, \
+            task_metadata = CASE WHEN $3::jsonb IS NULL THEN task_metadata \
+                ELSE (CASE WHEN jsonb_typeof(task_metadata) = 'object' \
+                      THEN task_metadata ELSE '{}'::jsonb END) || $3::jsonb END \
+        WHERE id = $4";
+    let result = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            [
+                task_status.into(),
+                now().into(),
+                task_metadata.into(),
+                run_id.into(),
+            ],
+        ))
+        .await?;
+    if result.rows_affected() == 0 {
+        // What `Entity::update` reported for a missing row before this was SQL.
+        return Err(DbErr::RecordNotUpdated);
+    }
+    Ok(())
 }
 
 /// Create a child run with its initial task_metadata (policy/spec for recovery)

@@ -7,6 +7,7 @@ use crate::crud;
 use crate::lifecycle::state::RunStatus;
 
 use super::policy::{CompletionAction, CompletionContext};
+use super::terminal_write::{TerminalWriteTarget, write_terminal};
 use super::{ChildResult, Coordinator, RetryAction, TaskStatus};
 
 impl Coordinator {
@@ -514,18 +515,20 @@ impl Coordinator {
         let run_id = node.run_id.clone();
 
         let msg = "Operation cancelled";
+        // Retried, not dropped: the node is terminal in memory already, so a
+        // lost write would leave the row live with nobody driving it.
+        let db = &self.db;
+        let target = TerminalWriteTarget {
+            what: "cancelled",
+            task_id,
+            run_id: &run_id,
+        };
         if let Some(parent_id) = parent_id {
             // Atomically mark child cancelled + record outcome in one transaction.
-            crud::complete_child_failed_txn(
-                &self.db,
-                &run_id,
-                task_id,
-                &parent_id,
-                "cancelled",
-                msg,
-            )
-            .await
-            .ok();
+            write_terminal(target, || {
+                crud::complete_child_failed_txn(db, &run_id, task_id, &parent_id, "cancelled", msg)
+            })
+            .await;
 
             self.emit_delegation_completed(&parent_id, task_id, false, None, Some(msg))
                 .await;
@@ -538,9 +541,10 @@ impl Coordinator {
             self.state.deregister_notifier(&run_id);
         } else {
             // Root task cancelled — single write.
-            crud::transition_run(&self.db, &run_id, "cancelled", None, None, Some(msg))
-                .await
-                .ok();
+            write_terminal(target, || {
+                crud::transition_run(db, &run_id, "cancelled", None, None, Some(msg))
+            })
+            .await;
             self.state
                 .statuses
                 .insert(run_id.clone(), RunStatus::Cancelled);

@@ -39,6 +39,7 @@ mod recovery_status;
 pub mod retry;
 pub mod run_loop;
 pub mod suspension;
+mod terminal_write;
 
 pub use policy::{
     CompletionAction, CompletionContext, CompletionPolicy, DefaultCompletionPolicy,

@@ -9,6 +9,8 @@
 
 mod adopt_queued_task_test;
 mod boot_cleanup_liveness_test;
+mod concurrent_claim_test;
+mod delegating_child_metadata_test;
 mod direct_drive_lease_test;
 mod duplicate_delegation_test;
 mod eviction_safety_test;
@@ -24,6 +26,7 @@ mod stop_and_heartbeat_test;
 mod stuck_run_sweeper_test;
 mod suspension_clock_test;
 mod task_end_reaches_run_test;
+mod terminal_write_test;
 mod thread_live_run_test;
 mod tls_smoke_test;
 mod unclaimed_clock_test;

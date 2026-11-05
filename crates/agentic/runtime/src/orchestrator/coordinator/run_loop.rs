@@ -5,6 +5,7 @@ use agentic_core::transport::WorkerMessage;
 use crate::crud;
 use crate::lifecycle::state::RunStatus;
 
+use super::terminal_write::{TerminalWriteTarget, write_terminal};
 use super::{ChildResult, Coordinator, LoopAction, TaskStatus};
 
 impl Coordinator {
@@ -394,52 +395,60 @@ impl Coordinator {
                 "delegation timed out"
             );
 
-            // Mark as timed_out — distinct from failed (retriable, not a logic error).
-            let node = self.tasks.get_mut(&task_id);
-            if let Some(node) = node {
-                node.status = TaskStatus::Failed;
-                node.suspended_at = None;
-                // The checkpoint is a license to resume. A timed-out task has
-                // none left to give, whatever its children do later.
-                node.suspend_data = None;
-                let run_id = node.run_id.clone();
-                let parent_id = node.parent_task_id.clone();
-                let msg = format!(
-                    "Timed out after {}s waiting for {status_desc}",
-                    self.suspend_timeout.as_secs()
-                );
-
-                if let Some(parent_id) = parent_id {
-                    // Atomically mark timed-out child + record outcome.
-                    crud::complete_child_failed_txn(
-                        &self.db,
-                        &run_id,
-                        &task_id,
-                        &parent_id,
-                        "timed_out",
-                        &msg,
-                    )
-                    .await
-                    .ok();
-                    self.emit_delegation_completed(&parent_id, &task_id, false, None, Some(&msg))
-                        .await;
-                    self.record_child_result(&parent_id, &task_id, ChildResult::Failed(msg))
-                        .await;
-                } else {
-                    // Root task timed out — single write.
-                    if crud::transition_run(&self.db, &run_id, "timed_out", None, None, Some(&msg))
-                        .await
-                        .is_ok()
-                    {
-                        crate::lifecycle::failure_hook::root_run_failed(&run_id).await;
-                    }
-                    self.state
-                        .statuses
-                        .insert(run_id.clone(), RunStatus::Failed(msg));
-                    self.state.notify(&run_id);
-                }
-            }
+            self.time_out_task(&task_id, &status_desc).await;
         }
         true
+    }
+
+    /// Fail one timed-out delegating task, in memory and on its run row, and
+    /// tell its parent. The row write is retried rather than dropped: the node is
+    /// already terminal here, so a lost write leaves a run nobody drives.
+    async fn time_out_task(&mut self, task_id: &str, status_desc: &str) {
+        let Some(node) = self.tasks.get_mut(task_id) else {
+            return;
+        };
+        // Mark as timed_out — distinct from failed (retriable, not a logic error).
+        node.status = TaskStatus::Failed;
+        node.suspended_at = None;
+        // The checkpoint is a license to resume. A timed-out task has
+        // none left to give, whatever its children do later.
+        node.suspend_data = None;
+        let run_id = node.run_id.clone();
+        let parent_id = node.parent_task_id.clone();
+        let msg = format!(
+            "Timed out after {}s waiting for {status_desc}",
+            self.suspend_timeout.as_secs()
+        );
+        let db = &self.db;
+        let target = TerminalWriteTarget {
+            what: "timed_out",
+            task_id,
+            run_id: &run_id,
+        };
+
+        if let Some(parent_id) = parent_id {
+            // Atomically mark timed-out child + record outcome.
+            write_terminal(target, || {
+                crud::complete_child_failed_txn(db, &run_id, task_id, &parent_id, "timed_out", &msg)
+            })
+            .await;
+            self.emit_delegation_completed(&parent_id, task_id, false, None, Some(&msg))
+                .await;
+            self.record_child_result(&parent_id, task_id, ChildResult::Failed(msg))
+                .await;
+        } else {
+            // Root task timed out — single write.
+            let landed = write_terminal(target, || {
+                crud::transition_run(db, &run_id, "timed_out", None, None, Some(&msg))
+            })
+            .await;
+            if landed {
+                crate::lifecycle::failure_hook::root_run_failed(&run_id).await;
+            }
+            self.state
+                .statuses
+                .insert(run_id.clone(), RunStatus::Failed(msg));
+            self.state.notify(&run_id);
+        }
     }
 }
