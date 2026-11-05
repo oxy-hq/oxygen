@@ -48,8 +48,10 @@ function DesignForm({
   });
   const { errors, isSubmitting } = form.formState;
   const messageFor = (name: string): string | undefined => {
-    const message: unknown = get(errors, name)?.message;
-    return typeof message === "string" ? message : undefined;
+    // `get` returns `unknown` (react-hook-form >= 7.91): a path may land on a
+    // field error, a nested error group, or nothing — only a string message counts.
+    const error = get<typeof errors, { message?: unknown } | undefined>(errors, name);
+    return typeof error?.message === "string" ? error.message : undefined;
   };
   const section = { form, messageFor };
 
