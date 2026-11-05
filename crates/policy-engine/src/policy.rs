@@ -3,8 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// What `op_oxy_get_policy("mock")` returns — the stand-in for a database
-/// read. A literal on purpose: Phase 1 proves the boundary, not the store.
+/// The policy `PolicySource::Mock` serves as `"mock"` — the stand-in for a
+/// database read when no database is configured.
 pub(crate) const MOCK_POLICY_JSON: &str = r#"{
   "id": "mock",
   "variants": [
@@ -14,6 +14,33 @@ pub(crate) const MOCK_POLICY_JSON: &str = r#"{
   ],
   "bounds": { "minMultiplier": 0.8, "maxMultiplier": 1.2 }
 }"#;
+
+/// A pricing policy, as the script receives it. Every policy is parsed into
+/// this on the host before it crosses, whichever store it came from, so the
+/// script sees one shape and a row with a stray or missing field is refused at
+/// the read rather than surfacing as `undefined` in the script.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Policy {
+    pub id: String,
+    pub variants: Vec<Variant>,
+    pub bounds: Bounds,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Variant {
+    pub name: String,
+    pub weight: u32,
+    pub price_multiplier: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Bounds {
+    pub min_multiplier: f64,
+    pub max_multiplier: f64,
+}
 
 /// One routing decision, as the script reports it through
 /// `op_oxy_write_decision` — the stand-in for a `policy_decisions` row.

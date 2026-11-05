@@ -3,8 +3,8 @@
 
 import { OxyAudit, OxyContext, OxyMath, type PolicyDecision } from "./sdk.ts";
 
-export function decide(sku: string): PolicyDecision {
-  const policy = OxyContext.getPolicy("mock");
+export async function decide(sku: string, policyId: string): Promise<PolicyDecision> {
+  const policy = await OxyContext.getPolicy(policyId);
   const totalWeight = policy.variants.reduce((sum, v) => sum + v.weight, 0);
 
   // Walk the variants until the SKU's bucket falls inside one's weight band.

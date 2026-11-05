@@ -1,20 +1,32 @@
 //! The two ops the TypeScript SDK calls. Each takes and returns JSON text, so
 //! the boundary has a single encoding in both directions.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use deno_core::{OpState, op2};
 use deno_error::JsErrorBox;
 
-use crate::policy::{AuditLog, MOCK_POLICY_JSON, PolicyDecision};
+use crate::policy::{AuditLog, PolicyDecision};
+use crate::store::PolicySource;
 
-/// `OxyContext.getPolicy(name)` — mocks the database read. Only `"mock"`
-/// exists; any other name is refused, the way a missing row would be.
+/// `OxyContext.getPolicy(name)` — reads the policy from the engine's
+/// [`PolicySource`]. Async: with the OLTP database behind it, the script awaits a
+/// promise while the query runs.
 #[op2]
 #[string]
-fn op_oxy_get_policy(#[string] name: &str) -> Result<String, JsErrorBox> {
-    match name {
-        "mock" => Ok(MOCK_POLICY_JSON.to_string()),
-        other => Err(JsErrorBox::generic(format!("unknown policy: {other}"))),
-    }
+async fn op_oxy_get_policy(
+    state: Rc<RefCell<OpState>>,
+    #[string] name: String,
+) -> Result<String, JsErrorBox> {
+    // Clone the source out and drop the borrow: holding a `RefCell` borrow of
+    // the op state across an await panics the next op that touches it.
+    let source = state.borrow().borrow::<PolicySource>().clone();
+    let policy = source
+        .fetch(&name)
+        .await
+        .map_err(|e| JsErrorBox::generic(e.to_string()))?;
+    serde_json::to_string(&policy).map_err(|e| JsErrorBox::generic(e.to_string()))
 }
 
 /// `OxyAudit.record(decision)` — mocks the `policy_decisions` write. The JSON

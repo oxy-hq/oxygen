@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{EngineError, PolicyDecision, PolicyEngine};
+use crate::{EngineError, PolicyDecision, PolicyEngine, PolicySource};
 
 const POLICY_JS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/js/policy.js");
 const SDK_JS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/js/sdk.js");
@@ -58,7 +58,7 @@ fn script(name: &str, body: &str) -> PathBuf {
 
 #[tokio::test]
 async fn the_script_routes_each_sku_as_an_independent_implementation_predicts() {
-    let mut engine = PolicyEngine::boot(Path::new(POLICY_JS))
+    let mut engine = PolicyEngine::boot(Path::new(POLICY_JS), PolicySource::Mock)
         .await
         .expect("boots");
     let skus = [
@@ -71,7 +71,7 @@ async fn the_script_routes_each_sku_as_an_independent_implementation_predicts() 
     ];
     let mut returned = Vec::new();
     for sku in skus {
-        returned.push(engine.decide(sku).await.expect("decides"));
+        returned.push(engine.decide("mock", sku).await.expect("decides"));
     }
     let predicted: Vec<_> = skus.iter().map(|s| expected(s)).collect();
     assert_eq!(
@@ -87,14 +87,14 @@ async fn the_script_routes_each_sku_as_an_independent_implementation_predicts() 
 
 #[tokio::test]
 async fn routing_spreads_skus_across_every_variant() {
-    let mut engine = PolicyEngine::boot(Path::new(POLICY_JS))
+    let mut engine = PolicyEngine::boot(Path::new(POLICY_JS), PolicySource::Mock)
         .await
         .expect("boots");
     let mut seen = std::collections::BTreeSet::new();
     for i in 0..200 {
         seen.insert(
             engine
-                .decide(&format!("SKU-{i}"))
+                .decide("mock", &format!("SKU-{i}"))
                 .await
                 .expect("decides")
                 .variant,
@@ -114,9 +114,11 @@ async fn a_malformed_decision_is_refused_by_the_write_op() {
             return d;
         }"#,
     );
-    let mut engine = PolicyEngine::boot(&path).await.expect("boots");
+    let mut engine = PolicyEngine::boot(&path, PolicySource::Mock)
+        .await
+        .expect("boots");
     let err = engine
-        .decide("SKU-1")
+        .decide("mock", "SKU-1")
         .await
         .expect_err("the write op refuses it");
     assert!(
@@ -135,8 +137,13 @@ async fn an_unknown_policy_throws_in_the_script() {
         "unknown",
         r#"export function decide(sku) { return OxyContext.getPolicy("nope"); }"#,
     );
-    let mut engine = PolicyEngine::boot(&path).await.expect("boots");
-    let err = engine.decide("SKU-1").await.expect_err("no such policy");
+    let mut engine = PolicyEngine::boot(&path, PolicySource::Mock)
+        .await
+        .expect("boots");
+    let err = engine
+        .decide("mock", "SKU-1")
+        .await
+        .expect_err("no such policy");
     assert!(
         matches!(&err, EngineError::Script(m) if m.contains("unknown policy: nope")),
         "{err}"
@@ -146,7 +153,7 @@ async fn an_unknown_policy_throws_in_the_script() {
 #[tokio::test]
 async fn a_script_without_a_decide_export_fails_at_boot() {
     let path = script("no-export", "export const notDecide = 1;");
-    let err = PolicyEngine::boot(&path)
+    let err = PolicyEngine::boot(&path, PolicySource::Mock)
         .await
         .err()
         .expect("refused at boot");
@@ -163,15 +170,21 @@ async fn a_script_without_a_decide_export_fails_at_boot() {
 /// on the JavaScript side.
 #[tokio::test]
 async fn the_isolate_heap_does_not_grow_with_decisions() {
-    let mut engine = PolicyEngine::boot(Path::new(POLICY_JS))
+    let mut engine = PolicyEngine::boot(Path::new(POLICY_JS), PolicySource::Mock)
         .await
         .expect("boots");
     for i in 0..2_000 {
-        engine.decide(&format!("WARM-{i}")).await.expect("decides");
+        engine
+            .decide("mock", &format!("WARM-{i}"))
+            .await
+            .expect("decides");
     }
     let before = engine.retained_heap_bytes();
     for i in 0..20_000 {
-        engine.decide(&format!("LOAD-{i}")).await.expect("decides");
+        engine
+            .decide("mock", &format!("LOAD-{i}"))
+            .await
+            .expect("decides");
     }
     let after = engine.retained_heap_bytes();
     let growth = after.saturating_sub(before);
@@ -186,7 +199,7 @@ async fn a_typescript_script_is_refused_with_the_build_step_named() {
     let path = std::env::temp_dir().join(format!("oxy-policy-{}-raw.ts", std::process::id()));
     std::fs::write(&path, "export function decide(sku: string) { return sku; }")
         .expect("temp dir is writable");
-    let err = PolicyEngine::boot(&path)
+    let err = PolicyEngine::boot(&path, PolicySource::Mock)
         .await
         .err()
         .expect("refused at boot");

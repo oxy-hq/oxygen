@@ -21,16 +21,19 @@ export interface PolicyDecision {
 }
 
 interface HostOps {
-  op_oxy_get_policy(name: string): string;
+  op_oxy_get_policy(name: string): Promise<string>;
   op_oxy_write_decision(decision: string): void;
 }
 
 const ops = (globalThis as unknown as { Deno: { core: { ops: HostOps } } }).Deno.core.ops;
 
 export const OxyContext = {
-  /** The policy called `name`, read by the host. Throws if it does not exist. */
-  getPolicy(name: string): Policy {
-    return JSON.parse(ops.op_oxy_get_policy(name)) as Policy;
+  /**
+   * The policy called `name`, read by the host from its policy store. Rejects
+   * if it does not exist or the store cannot be read.
+   */
+  async getPolicy(name: string): Promise<Policy> {
+    return JSON.parse(await ops.op_oxy_get_policy(name)) as Policy;
   },
 };
 

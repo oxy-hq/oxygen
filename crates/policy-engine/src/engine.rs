@@ -8,6 +8,7 @@ use deno_core::{JsRuntime, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions
 use crate::loader::JsModuleLoader;
 use crate::ops::oxy_policy_ext;
 use crate::policy::{AuditLog, PolicyDecision};
+use crate::store::PolicySource;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -35,8 +36,9 @@ pub struct PolicyEngine {
 impl PolicyEngine {
     /// Load and evaluate `script` (a `.js` ES module, compiled from `ts/` by
     /// `build-js.sh`, exporting
-    /// `decide(sku)`), with the ops registered and an empty audit log.
-    pub async fn boot(script: &Path) -> Result<Self, EngineError> {
+    /// `decide(sku, policyId)`), with the ops registered, policies read from
+    /// `source`, and an empty audit log.
+    pub async fn boot(script: &Path, source: PolicySource) -> Result<Self, EngineError> {
         let path = std::fs::canonicalize(script)
             .map_err(|e| EngineError::Boot(format!("{}: {e}", script.display())))?;
         let script = ModuleSpecifier::from_file_path(&path)
@@ -46,6 +48,7 @@ impl PolicyEngine {
             extensions: vec![oxy_policy_ext::init()],
             ..Default::default()
         });
+        runtime.op_state().borrow_mut().put(source);
         let id = runtime
             .load_main_es_module(&script)
             .await
@@ -62,21 +65,31 @@ impl PolicyEngine {
         Ok(Self { runtime, decide })
     }
 
-    /// Call the script's `decide(sku)` and return the decision it made.
+    /// Call the script's `decide(sku, policyId)` and return the decision it
+    /// made under policy `policy_id`.
     ///
     /// The script is expected to have written the same decision through the
     /// audit op on the way; [`Self::audit_log`] is where that write landed.
-    pub async fn decide(&mut self, sku: &str) -> Result<PolicyDecision, EngineError> {
-        let sku = {
+    pub async fn decide(
+        &mut self,
+        policy_id: &str,
+        sku: &str,
+    ) -> Result<PolicyDecision, EngineError> {
+        let args = {
             let runtime = &mut self.runtime;
             deno_core::scope!(scope, runtime);
-            let sku = v8::String::new(scope, sku)
-                .ok_or_else(|| EngineError::Script("SKU too long for a V8 string".into()))?;
-            v8::Global::new(scope, v8::Local::<v8::Value>::from(sku))
+            let mut args = Vec::with_capacity(2);
+            for arg in [sku, policy_id] {
+                let value = v8::String::new(scope, arg).ok_or_else(|| {
+                    EngineError::Script("argument too long for a V8 string".into())
+                })?;
+                args.push(v8::Global::new(scope, v8::Local::<v8::Value>::from(value)));
+            }
+            args
         };
-        // The call's future settles only while the event loop is polled, which
-        // matters once `decide` is async or awaits an async op.
-        let call = self.runtime.call_with_args(&self.decide, &[sku]);
+        // `decide` is async — the policy read is a promise — and its future
+        // settles only while the event loop is polled.
+        let call = self.runtime.call_with_args(&self.decide, &args);
         let value = self
             .runtime
             .with_event_loop_promise(Box::pin(call), PollEventLoopOptions::default())
