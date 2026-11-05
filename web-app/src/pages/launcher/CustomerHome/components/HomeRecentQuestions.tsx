@@ -6,23 +6,44 @@ import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 
 const RECENT_LIMIT = 3;
+/** Threads read to fill the three rows: a question asked again is one row, not three. */
+const RECENT_FETCH = 12;
 
 export type RecentQuestion = { id: string; title: string; timestamp: string };
 
-/** The person's three latest questions, newest first, and whether the answer is in
- *  (`settled`, also on an error). The home reads it to know whether the side column
- *  has anything to hold; the list draws the rows. */
+/** The same question however it was spaced or cased, so a re-ask matches its first. */
+const questionKey = (title: string) => title.trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * Newest first, one row per question: a question asked again keeps only its latest
+ * thread, so the list shows three different questions rather than one three times.
+ */
+export function latestDistinctQuestions(rows: RecentQuestion[], limit = RECENT_LIMIT) {
+  const seen = new Set<string>();
+  return [...rows]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .filter((row) => {
+      const key = questionKey(row.title);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit);
+}
+
+/** The person's three latest distinct questions, newest first, and whether the answer
+ *  is in (`settled`, also on an error). The home reads it to know whether the side
+ *  column has anything to hold; the list draws the rows. */
 export function useRecentQuestions(): { rows: RecentQuestion[]; settled: boolean } {
   // `isLoading`, not `isPending`: a query that never runs is settled, not waiting.
-  const { data, isLoading } = useThreads({ page: 1, limit: RECENT_LIMIT });
-  const rows = (data?.threads ?? [])
-    .map((t) => ({
+  const { data, isLoading } = useThreads({ page: 1, limit: RECENT_FETCH });
+  const rows = latestDistinctQuestions(
+    (data?.threads ?? []).map((t) => ({
       id: t.id,
       title: t.title || t.input || "Untitled question",
       timestamp: t.created_at
     }))
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, RECENT_LIMIT);
+  );
   return { rows, settled: !isLoading };
 }
 

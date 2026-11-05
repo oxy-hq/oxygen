@@ -576,74 +576,19 @@
 /* ─── System indicator ──────────────────────────────────────────────────── */
 
 .oxy-sysind {
-  display: none;
-  align-items: center;
-  gap: 0.375rem;
-  font-family: var(--oxy-shell-font-mono);
-  font-size: 12px;
-  color: var(--oxy-shell-muted-fg);
-}
-
-.oxy-sysind__state {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-}
-
-.oxy-sysind__state--online {
-  color: var(--oxy-shell-success);
-}
-
-.oxy-sysind__state--offline {
+  gap: 0.375rem;
+  font-size: 12px;
   color: var(--oxy-shell-destructive);
 }
 
-.oxy-sysind__dot-wrap {
-  position: relative;
-  display: inline-flex;
-  height: 0.375rem;
-  width: 0.375rem;
-}
-
 .oxy-sysind__dot {
-  position: relative;
   display: inline-flex;
   height: 0.375rem;
   width: 0.375rem;
   border-radius: 9999px;
-}
-
-.oxy-sysind__dot--online {
-  background: var(--oxy-shell-success);
-}
-
-.oxy-sysind__dot--offline {
   background: var(--oxy-shell-destructive);
-}
-
-.oxy-sysind__ping {
-  position: absolute;
-  display: inline-flex;
-  height: 0.375rem;
-  width: 0.375rem;
-  border-radius: 9999px;
-  background: var(--oxy-shell-success);
-  opacity: 0.75;
-  animation: oxy-shell-ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
-
-@keyframes oxy-shell-ping {
-  75%,
-  100% {
-    transform: scale(2);
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .oxy-sysind__ping {
-    animation: none;
-  }
 }
 
 /* ─── Clock ─────────────────────────────────────────────────────────────── */
@@ -657,10 +602,6 @@
 }
 
 @media (min-width: 640px) {
-  .oxy-sysind {
-    display: inline-flex;
-  }
-
   .oxy-clock {
     display: inline;
   }

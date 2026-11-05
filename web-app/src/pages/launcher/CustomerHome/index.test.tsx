@@ -37,6 +37,9 @@ vi.mock("@/stores/useAskDock", () => ({
 vi.mock("@/hooks/api/users/useCurrentUser", () => ({
   default: () => ({ data: { name: "Priya Silva", email: "priya.silva@northwind.test" } })
 }));
+vi.mock("@/hooks/api/agents/useWorkspaceTimezone", () => ({
+  default: () => "America/Los_Angeles"
+}));
 vi.mock("@/hooks/useCurrentProjectBranch", () => ({
   default: () => ({ project: { id: "ws-1" } })
 }));

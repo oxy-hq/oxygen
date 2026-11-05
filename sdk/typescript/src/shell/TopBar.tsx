@@ -94,33 +94,19 @@ function useOnlineStatus(): boolean {
 }
 
 /**
- * Universal "Sys: Connected" indicator — a pulsing green dot when the browser
- * is online, red when offline. Presentational connectivity signal; a real
- * backend health ping can replace `useOnlineStatus` later without touching
- * consumers.
+ * The top bar's connection signal: nothing while the browser is online, a red
+ * "Offline" when it is not. It mirrors `navigator.onLine` only, so a permanent
+ * green "Connected" would be a light that can't go out; it shows up only with
+ * news. A real backend health ping can replace `useOnlineStatus` later without
+ * touching consumers.
  */
 export function SystemIndicator() {
   const online = useOnlineStatus();
+  if (online) return null;
   return (
-    <span data-testid='topbar-system' className='oxy-shell-scope oxy-sysind'>
-      <span>Sys:</span>
-      <span
-        className={cx(
-          "oxy-sysind__state",
-          online ? "oxy-sysind__state--online" : "oxy-sysind__state--offline"
-        )}
-      >
-        <span className='oxy-sysind__dot-wrap'>
-          {online && <span className='oxy-sysind__ping' />}
-          <span
-            className={cx(
-              "oxy-sysind__dot",
-              online ? "oxy-sysind__dot--online" : "oxy-sysind__dot--offline"
-            )}
-          />
-        </span>
-        {online ? "Connected" : "Offline"}
-      </span>
+    <span data-testid='topbar-system' role='status' className='oxy-shell-scope oxy-sysind'>
+      <span className='oxy-sysind__dot' />
+      Offline
     </span>
   );
 }

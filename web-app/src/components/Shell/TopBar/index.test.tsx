@@ -20,10 +20,13 @@ vi.mock("./WorkspaceClock", () => ({
 vi.mock("./MenuBar/AppHealthItem", () => ({
   AppHealthItem: () => <span data-testid='menubar-health' />
 }));
+let online = true;
+vi.mock("@/hooks/useOnlineStatus", () => ({ default: () => online }));
 
 afterEach(() => {
   cleanup();
   appsFirst = false;
+  online = true;
 });
 
 const order = () =>
@@ -32,9 +35,8 @@ const order = () =>
   );
 
 describe("the top bar", () => {
-  it("is main's with the flag off: Sys text, clock without a date, bell, Ask", () => {
+  it("is main's with the flag off: clock without a date, bell, Ask", () => {
     render(<TopBar />);
-    expect(screen.getByTestId("topbar-system")).toBeInTheDocument();
     expect(screen.getByTestId("topbar-clock")).toHaveAttribute("data-with-date", "false");
     expect(screen.queryByTestId("menubar-status")).toBeNull();
     expect(screen.getByTestId("workspace-topbar")).not.toHaveAttribute("data-menubar");
@@ -47,11 +49,36 @@ describe("the top bar", () => {
     expect(screen.queryByTestId("topbar-system")).toBeNull();
     expect(order()).toEqual([
       "menubar-health",
-      "menubar-connection",
       "ask-oxygen-button",
       "notifications-bell",
       "topbar-clock"
     ]);
     expect(screen.getByTestId("topbar-clock")).toHaveAttribute("data-with-date", "true");
+  });
+
+  it("says nothing about the connection while online, on either bar", () => {
+    render(<TopBar />);
+    expect(screen.queryByTestId("topbar-system")).toBeNull();
+    cleanup();
+    appsFirst = true;
+    render(<TopBar />);
+    expect(screen.queryByTestId("menubar-connection")).toBeNull();
+  });
+
+  it("says Offline when the browser is offline, on either bar", () => {
+    online = false;
+    render(<TopBar />);
+    expect(screen.getByTestId("topbar-system")).toHaveTextContent("Offline");
+    cleanup();
+    appsFirst = true;
+    render(<TopBar />);
+    expect(screen.getByTestId("menubar-connection")).toHaveAccessibleName("Offline");
+    expect(order()).toEqual([
+      "menubar-health",
+      "menubar-connection",
+      "ask-oxygen-button",
+      "notifications-bell",
+      "topbar-clock"
+    ]);
   });
 });

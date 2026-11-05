@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The shell's top bar no longer shows "Sys: Connected".** `SystemIndicator`
+  renders nothing while the browser is online and a red "Offline" when it is
+  not. It only ever mirrored `navigator.onLine`, so the pulsing green dot was a
+  light that could not go out. The pulse animation and the mono "Sys:" label
+  are gone; an app that placed `SystemIndicator` itself needs no change.
+
 ## [2.26.0] - 2026-11-02
 
 ### Added

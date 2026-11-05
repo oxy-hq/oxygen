@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppAccessDialog } from "@/components/appAccess/AppAccessDialog";
 import { Spinner } from "@/components/ui/shadcn/spinner";
+import useWorkspaceTimezone from "@/hooks/api/agents/useWorkspaceTimezone";
 import useOrgCustomApps from "@/hooks/api/customApps/useOrgCustomApps";
 import { sectionsFromKinds } from "@/hooks/api/homeWidgets/preferences";
 import {
@@ -65,6 +66,7 @@ export default function CustomerHome() {
   const { apps, isPending: appsPending } = useOrgCustomApps(project?.id ?? "");
   const factoryUser = useFactoryAccess();
   const { data: user } = useCurrentUser();
+  const timeZone = useWorkspaceTimezone();
   const org = useCurrentOrg((s) => s.org);
   // Hidden Today means no widgets request at all, and nothing is read before the
   // person's preference is known (a failed read counts as "shown").
@@ -181,7 +183,7 @@ export default function CustomerHome() {
     <header className='flex flex-col gap-5 pt-8'>
       <div className='flex flex-col gap-1'>
         <h1 className='font-medium text-xl tracking-tight sm:text-2xl'>
-          {homeGreeting(user?.name)}
+          {homeGreeting(user?.name, new Date(), timeZone)}
         </h1>
         {/* With Today, inside the same transition, so it does not push the apps first. */}
         {todayHidden ? (
