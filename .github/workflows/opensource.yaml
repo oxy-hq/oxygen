@@ -66,6 +66,8 @@ jobs:
             internal-docs/**
             mobile/**
             scripts/airhouse/**
+            .github/workflows/platform-pulse.yaml
+            .github/scripts/platform-pulse.ts
             .env.airhouse
             .env.clickhouse
             **/.env
