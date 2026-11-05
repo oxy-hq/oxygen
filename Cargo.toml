@@ -1162,7 +1162,15 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # connected `NoTls` and could not.) That note said "Pinned at 0.1.35" through
 # every bump since, which is how a running log goes stale: the surrounding prose
 # stayed true and only the version was wrong.
-airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.60", default-features = false, features = [
+#
+# 0.1.61 carries airway-internal#244 for the NetSuite source: a `vendors`
+# resource, a `system_notes` resource, and the per-pipeline
+# `transaction_custom_fields` list that `NetSuiteParams` now passes through
+# (#3941). `git diff --name-only 0.1.60 0.1.61` is `netsuite.rs`, `main.rs`
+# and the version lines: no shared module, no trait change, no new dependency.
+# Both new resources are opt-in, so an existing netsuite pipeline extracts
+# exactly what it did before.
+airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.61", default-features = false, features = [
   "duckdb",
   "postgres",
 ] }

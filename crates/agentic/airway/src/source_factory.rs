@@ -27,7 +27,9 @@ use airway::connector::sources::besttime::{BestTimeConfig, besttime_source};
 use airway::connector::sources::filesystem::{FilesystemSource, SourceFileFormat};
 use airway::connector::sources::google_sheets::GoogleSheetsSource;
 use airway::connector::sources::http_file::{HttpFileConfig, http_file_source};
-use airway::connector::sources::netsuite::{NetSuiteCredentials, NetSuiteSource, SigningAlgorithm};
+use airway::connector::sources::netsuite::{
+    NetSuiteCredentials, NetSuiteSource, SigningAlgorithm, TransactionCustomField,
+};
 use airway::connector::sources::overpass::{OverpassConfig, overpass_source};
 use airway::connector::sources::overture::{OvertureConfig, overture_source};
 use airway::connector::sources::postgres_cdc::PostgresCdcSource;
@@ -1029,6 +1031,23 @@ struct NetSuiteParams {
     /// without erroring.** Setting both is rarely what anyone means.
     #[serde(default)]
     resources: Option<Vec<String>>,
+    /// Extra `custbody*` fields appended to the `transactions` projection, per
+    /// pipeline (airway-internal#244). Each entry is a bare id or
+    /// `{ id, type }` with `type` one of `raw` (default), `date`, `datetime`,
+    /// `list`.
+    ///
+    /// Airway's own type, embedded as is rather than mirrored: its
+    /// hand-written `Deserialize` is what refuses a misspelled key inside the
+    /// object form, and the id validation (the ids are spliced into SuiteQL)
+    /// lives in `with_transaction_custom_fields`. A mirror here would either
+    /// drift from both or accept the key and drop it, which is the silent
+    /// failure `deny_unknown_fields` exists to prevent.
+    ///
+    /// **A bad id fails `transactions` itself**, not just the column: SuiteQL
+    /// rejects the whole query for an id that does not exist on `transaction`
+    /// or a `date` declared over a text field. Probe the projection first.
+    #[serde(default)]
+    transaction_custom_fields: Option<Vec<TransactionCustomField>>,
 }
 
 /// Hand-written so a `{params:?}` in future maintenance cannot put a private
@@ -1049,6 +1068,7 @@ impl std::fmt::Debug for NetSuiteParams {
             .field("algorithm", &self.algorithm)
             .field("lookback_days", &self.lookback_days)
             .field("resources", &self.resources)
+            .field("transaction_custom_fields", &self.transaction_custom_fields)
             .finish()
     }
 }
@@ -1118,6 +1138,12 @@ fn build_netsuite(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError> 
     })?;
     if let Some(days) = params.lookback_days {
         source = source.with_lookback_days(days);
+    }
+    // Only when present, so a config without the key builds the exact source
+    // it did before (airway pins the no-fields query byte-identical). Ahead of
+    // `with_resources` because `system_notes` is scoped to these fields.
+    if let Some(fields) = params.transaction_custom_fields {
+        source = source.with_transaction_custom_fields(fields)?;
     }
     if let Some(resources) = params.resources {
         source = source.with_resources(resources)?;
@@ -1838,6 +1864,8 @@ mod tests {
         // Identifiers, not secrets — the account id is in every API hostname.
         assert_eq!(params.account_id, "4544316");
         assert_eq!(params.certificate_id, "kid");
+        // A config written before the key existed parses as it always did.
+        assert!(params.transaction_custom_fields.is_none());
     }
 
     /// A misspelled key must be refused, not silently ignored: without
@@ -2273,6 +2301,117 @@ mod tests {
             }),
         )));
         assert!(msg.contains("private_key_var"), "{msg}");
+    }
+
+    /// A throwaway RSA key, copied from airway's own netsuite test fixture, so
+    /// a test can get past `NetSuiteSource::new` (which parses the PEM) and
+    /// reach the builder calls after it. Not a credential for anything.
+    const NETSUITE_TEST_KEY: &str = include_str!("testdata/netsuite_test_key.pem");
+
+    /// [`netsuite_cfg`] with a PEM that actually parses, for the cases that
+    /// must build rather than be refused.
+    fn netsuite_buildable_cfg(extra: Value) -> SourceConfig {
+        let mut extra = extra.as_object().expect("object").clone();
+        extra.insert("private_key_pem".into(), NETSUITE_TEST_KEY.into());
+        netsuite_cfg(extra)
+    }
+
+    /// Both YAML spellings airway accepts reach `NetSuiteParams` intact — the
+    /// key used to be refused outright by `deny_unknown_fields`.
+    #[test]
+    fn netsuite_params_read_transaction_custom_fields_in_both_forms() {
+        use airway::connector::sources::netsuite::CustomFieldKind;
+        let params: NetSuiteParams = serde_json::from_value(json!({
+            "account_id": "4544316",
+            "client_id": "cid",
+            "certificate_id": "kid",
+            "private_key_pem": "x",
+            "transaction_custom_fields": [
+                "custbody_po_delay_reason",
+                { "id": "custbody_po_expected_ship_date", "type": "date" },
+                { "id": "custbody_po_status", "type": "list" },
+                { "id": "custbody_po_total_cbm" },
+            ],
+        }))
+        .expect("deserialize");
+        assert_eq!(
+            params.transaction_custom_fields,
+            Some(vec![
+                TransactionCustomField::new("custbody_po_delay_reason", CustomFieldKind::Raw),
+                TransactionCustomField::new(
+                    "custbody_po_expected_ship_date",
+                    CustomFieldKind::Date
+                ),
+                TransactionCustomField::new("custbody_po_status", CustomFieldKind::List),
+                TransactionCustomField::new("custbody_po_total_cbm", CustomFieldKind::Raw),
+            ])
+        );
+    }
+
+    /// A misspelled key inside the object form is refused naming itself, not
+    /// dropped — the same guarantee `deny_unknown_fields` gives one level up.
+    #[test]
+    fn netsuite_refuses_a_misspelled_custom_field_key() {
+        let err = serde_json::from_value::<NetSuiteParams>(json!({
+            "account_id": "4544316",
+            "client_id": "cid",
+            "certificate_id": "kid",
+            "private_key_pem": "x",
+            "transaction_custom_fields": [{ "id": "custbody_x", "typ": "date" }],
+        }))
+        .expect_err("unknown inner key must be refused");
+        assert!(err.to_string().contains("typ"), "{err}");
+    }
+
+    /// The list must reach `with_transaction_custom_fields`, not just parse:
+    /// a field that deserializes and is never handed to the connector is the
+    /// accept-and-drop failure this wiring exists to avoid. airway refuses an
+    /// id outside `^custbody[a-z0-9_]+$` (it is spliced into SuiteQL), so that
+    /// refusal surfacing here proves the call is made.
+    #[test]
+    fn netsuite_hands_custom_fields_to_the_connector() {
+        let msg = refusal(build(&netsuite_buildable_cfg(json!({
+            "transaction_custom_fields": ["CUSTBODY_X"],
+        }))));
+        assert!(msg.contains("CUSTBODY_X"), "{msg}");
+        assert!(msg.contains("custbody"), "{msg}");
+
+        let msg = refusal(build(&netsuite_buildable_cfg(json!({
+            "transaction_custom_fields": [
+                "custbody_a",
+                { "id": "custbody_a", "type": "date" },
+            ],
+        }))));
+        assert!(msg.contains("configured twice"), "{msg}");
+    }
+
+    /// A config without the key builds as before, and the resources that
+    /// airway made opt-in stay opt-in through this factory.
+    #[test]
+    fn netsuite_without_custom_fields_builds_the_default_source() {
+        let source = build(&netsuite_buildable_cfg(json!({}))).expect("builds");
+        let names: Vec<_> = source.resources().into_iter().map(|r| r.name).collect();
+        assert!(names.contains(&"transactions".to_string()), "{names:?}");
+        assert!(!names.contains(&"vendors".to_string()), "{names:?}");
+        assert!(!names.contains(&"system_notes".to_string()), "{names:?}");
+    }
+
+    /// The new resources are enabled through the connector-level `resources`,
+    /// which `build_netsuite` already passes through; no oxy change is needed
+    /// for them beyond the custom-field list `system_notes` is scoped to.
+    #[test]
+    fn netsuite_opts_into_vendors_and_system_notes_via_resources() {
+        let source = build(&netsuite_buildable_cfg(json!({
+            "resources": ["transactions", "vendors", "system_notes"],
+            "transaction_custom_fields": [
+                { "id": "custbody_po_expected_ship_date", "type": "date" },
+                "custbody_po_delay_reason",
+            ],
+        })))
+        .expect("builds");
+        let mut names: Vec<_> = source.resources().into_iter().map(|r| r.name).collect();
+        names.sort();
+        assert_eq!(names, ["system_notes", "transactions", "vendors"]);
     }
 
     #[test]
