@@ -5,6 +5,7 @@ manages customer workspace repos.
 
 - **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `token`, `login-link`, `tokens`, `assume`, `oltp`, `airhouse`
 - **Experiments** — `experiments` (draft, price, register, status, interim, abort, result)
+- **Feature flags** — `flags` (list, show, set, rules, eval, org)
 - **Home layout** — `home` (show, get, apply, reset)
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
 - **Custom apps** — `publish`, `init-ci`, `proxy`, `apps`
@@ -571,6 +572,48 @@ refuses unless `--yes`. It is idempotent — an existing tenant is reconciled
 workspace's UUID. A 404 can be a workspace outside your staff grant's scope, a
 503 is a deployment with no Airhouse configured, and an active `assume` session
 closes `/admin`.
+
+## Feature flags
+
+Staff-only control of the flags Oxy declares in code
+(`crates/app/src/server/feature_flags/registry.rs`): the kill switch and the
+targeting rules — per-org / per-user overrides plus a weighted fallthrough for
+A/B splits. Flags are not created at runtime. **Every write hits the
+deployment `--env` names (production by default) and takes effect for real
+orgs**; it needs platform-operate standing (an `assume` session does not give
+it).
+
+```bash
+oxyc flags list                                   # key, kill switch, rules summary, unit, scope
+oxyc flags show <key>                             # rules in full, and any unreadable-rules error
+oxyc flags set <key> --on|--off [--yes]           # the kill switch only
+oxyc flags rules <key> --set-org <org>=<variant> [--set-org …] [--yes]   # slug or UUID; `org=` removes
+oxyc flags rules <key> --set-user <uuid>=<variant>
+oxyc flags rules <key> --remove-org <org> | --remove-user <uuid>
+oxyc flags rules <key> --everyone <variant>       # everyone not overridden
+oxyc flags rules <key> --split control=50,treatment=50   # percent; must total exactly 100
+oxyc flags rules <key> --file rules.json | --clear       # replace wholesale | back to the plain switch
+oxyc flags rules <key> … --dry-run                # print the rules that would be sent
+oxyc flags eval --org <org> [--user <uuid>]       # what each flag serves them: variant, reason, bucket
+oxyc flags org <org>                              # what a member of that org sees (client flags)
+```
+
+`rules` reads the flag first and edits the rules it has, so adding one override
+leaves the other overrides, the fallthrough and the salt as they were. A flag
+with no rules starts from what it serves today (kill switch on is the second
+variant, off the first). Percentages become basis points; a total other than
+100%, or a share finer than 0.01%, is a usage error (exit 2) rather than a
+rounded split. The override flags are `--set-org` / `--set-user` because `--org`
+is the global "which org" flag. `eval` is a preview and records nothing. Rules
+saved behind an off kill switch do not apply until `set <key> --on`, and the
+command says so.
+
+Every write asks first and refuses without `--yes` when stdin is not a terminal
+(exit 8). A rejected rule set (422: an unknown variant, a split that does not
+total 100%, rules on a flag whose read sites do not pass the org) is printed in
+the server's words and exits 6. A flag whose stored rules this build cannot
+read (409) is edited only by `--file` or `--clear`. Guide:
+`internal-docs/feature-flags.md`.
 
 ## Experiments
 

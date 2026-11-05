@@ -1,17 +1,22 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FeatureFlag, FeatureFlagsService } from "@/services/api/featureFlags";
+import {
+  type FeatureFlag,
+  type FeatureFlagPatch,
+  FeatureFlagsService
+} from "@/services/api/featureFlags";
 import queryKeys from "../queryKey";
 
-interface UpdateInput {
+interface UpdateInput extends FeatureFlagPatch {
   key: string;
-  enabled: boolean;
 }
 
 export const useUpdateFeatureFlag = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ key, enabled }: UpdateInput) => FeatureFlagsService.update(key, enabled),
+    mutationFn: ({ key, ...patch }: UpdateInput) => FeatureFlagsService.update(key, patch),
     onMutate: async ({ key, enabled }) => {
+      // Only the kill switch is optimistic; rules come back from the server (it validates them).
+      if (enabled === undefined) return { previous: undefined };
       await qc.cancelQueries({ queryKey: queryKeys.featureFlags.list() });
       const previous = qc.getQueryData<FeatureFlag[]>(queryKeys.featureFlags.list());
       if (previous) {
@@ -28,7 +33,8 @@ export const useUpdateFeatureFlag = () => {
       }
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.featureFlags.list() });
+      qc.invalidateQueries({ queryKey: queryKeys.featureFlags.all });
+      qc.invalidateQueries({ queryKey: queryKeys.featureFlags.orgs });
     }
   });
 };

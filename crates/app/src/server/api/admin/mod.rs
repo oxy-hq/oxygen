@@ -73,6 +73,7 @@ use crate::server::router::{AdminSection, AppState};
 ///   - POST   /admin/orgs/{org_id}/billing/checkout/cancel
 ///   - POST   /admin/orgs/{org_id}/billing/resync
 ///   - GET    /admin/feature-flags
+///   - GET    /admin/feature-flags/evaluate
 ///   - PATCH  /admin/feature-flags/{key}
 ///   - GET    /admin/app-admins
 ///   - POST   /admin/app-admins

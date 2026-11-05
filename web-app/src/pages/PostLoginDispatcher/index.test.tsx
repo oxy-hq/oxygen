@@ -26,8 +26,10 @@ vi.mock("@/hooks/api/workspaces/useWorkspaces", () => ({
 }));
 vi.mock("@/libs/orgSubdomain", () => ({ getInjectedOrg: () => null }));
 // The apps-first flag (`GET /auth/config`). On for the org-home tests, off for main's.
-const appsFirst = vi.hoisted(() => ({ on: true }));
-vi.mock("@/hooks/useAppsFirstExperience", () => ({ default: () => appsFirst.on }));
+const appsFirst = vi.hoisted(() => ({ on: true, pending: false }));
+vi.mock("@/hooks/useAppsFirstExperience", () => ({
+  useAppsFirstExperienceState: () => ({ enabled: appsFirst.on, isPending: appsFirst.pending })
+}));
 const appCounts = vi.hoisted(() => ({ data: {} as Record<string, number> }));
 vi.mock("@/hooks/api/customApps/useWorkspacesCustomApps", () => ({
   useWorkspacesCustomApps: (ids: readonly string[]) => ({
@@ -65,6 +67,20 @@ describe("PostLoginDispatcher", () => {
     appCounts.data = {};
     user.data = { partner_memberships: [], is_app_admin: false, is_owner: false };
     appsFirst.on = true;
+    appsFirst.pending = false;
+  });
+
+  it("waits for the org's own apps-first answer before it lands anywhere", () => {
+    appsFirst.pending = true;
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route index element={<PostLoginDispatcher />} />
+          <Route path='*' element={<Landed />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    expect(screen.queryByTestId("landed")).toBeNull();
   });
 
   it("carries the token emails' ?settings= link into the page it lands on", () => {

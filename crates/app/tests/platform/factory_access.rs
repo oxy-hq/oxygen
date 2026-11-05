@@ -35,6 +35,7 @@ use uuid::Uuid;
 const STAFF: &str = "staff@oxy.test";
 
 struct Fx {
+    org: Uuid,
     ws: Uuid,
     member: AuthenticatedUser,
     admin: AuthenticatedUser,
@@ -137,6 +138,7 @@ async fn setup(on: bool) -> Fx {
     let ws = workspace(&db, org).await;
     let other_ws = workspace(&db, org).await;
     let fx = Fx {
+        org,
         ws,
         member: user(&db, org, "member@acme.test", OrgRole::Member).await,
         admin: user(&db, org, "admin@acme.test", OrgRole::Admin).await,
@@ -475,5 +477,59 @@ async fn the_switch_takes_effect_on_the_next_request() {
     assert_through(
         &call(&fx.member, "POST", api(&fx, "/files/abc")).await,
         "after turning it off",
+    );
+}
+
+/// Turn the switch on for `org` alone, by org override, with everyone else off:
+/// the rules an operator saves to try apps-first on one customer.
+fn on_for_only(org: Uuid) {
+    use oxy_app::server::feature_flags::targeting::{Fallthrough, Targeting};
+    use oxy_app::server::feature_flags::{registry, store};
+    let def = registry::get(APPS_FIRST_EXPERIENCE).expect("registered");
+    let targeting = Targeting {
+        users: Default::default(),
+        orgs: [(org, "on".to_string())].into(),
+        fallthrough: Fallthrough::Variant {
+            variant: "off".into(),
+        },
+        salt: None,
+    };
+    let decoded = store::Decoded {
+        enabled: true,
+        targeting: Ok(Some(targeting)),
+    };
+    cache::set_state(APPS_FIRST_EXPERIENCE, cache::state_of(def, &decoded));
+}
+
+/// The switch is per org: an override for this org enforces the Factory here, and
+/// an override for another org leaves this one exactly as with the switch off.
+#[tokio::test]
+async fn an_org_override_enforces_the_factory_in_that_org_only() {
+    let fx = setup(false).await;
+
+    on_for_only(fx.org);
+    assert_refused(
+        &call(&fx.member, "POST", api(&fx, "/files/abc")).await,
+        "the org the override names",
+    );
+    assert_through(
+        &call(&fx.admin, "POST", api(&fx, "/files/abc")).await,
+        "an admin of the org the override names",
+    );
+    let r = call(&fx.member, "GET", api(&fx, "/meta")).await;
+    assert_eq!(
+        r.body["factory_access"], false,
+        "the rail follows the override"
+    );
+
+    on_for_only(Uuid::new_v4());
+    assert_through(
+        &call(&fx.member, "POST", api(&fx, "/files/abc")).await,
+        "an org the override does not name",
+    );
+    let r = call(&fx.member, "GET", api(&fx, "/meta")).await;
+    assert_eq!(
+        r.body["factory_access"], true,
+        "the rail is unchanged elsewhere"
     );
 }

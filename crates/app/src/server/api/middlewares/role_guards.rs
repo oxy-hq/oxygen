@@ -17,7 +17,7 @@ use axum::http::request::Parts;
 
 /// Who may create a workspace in an org (`POST /orgs/{org_id}/onboarding/{demo,new,github}`).
 ///
-/// With the apps-first experience on (`feature_flags::APPS_FIRST_EXPERIENCE`), Oxy
+/// With the apps-first experience on for the org (`feature_flags::APPS_FIRST_EXPERIENCE`), Oxy
 /// staff only: [`OrgWorkspaceProvisioner`], an org owner or admin who is also staff
 /// with `operate_platform` over the org, because customers do not build. Off, an
 /// org owner or admin ([`OrgAdmin`]), as before that experience existed, so the flag
@@ -32,7 +32,12 @@ where
     type Rejection = StatusCode;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        if crate::server::feature_flags::apps_first_experience() {
+        // No org context: either door refuses it, so which one asks does not matter.
+        let apps_first = parts
+            .extensions
+            .get::<oxy_server_authz::org_context::OrgContext>()
+            .is_some_and(|ctx| crate::server::feature_flags::apps_first_experience_in(ctx.org.id));
+        if apps_first {
             OrgWorkspaceProvisioner::from_request_parts(parts, state)
                 .await
                 .map(|OrgWorkspaceProvisioner(ctx)| OrgWorkspaceCreator(ctx))

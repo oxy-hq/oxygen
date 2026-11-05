@@ -6,6 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Organization, OrgRole } from "@/types/organization";
 import OrgDispatcher from "./OrgDispatcher";
 
+// No org flags answer, so the apps-first flag reads from the auth config.
+vi.mock("@/hooks/api/featureFlags", () => ({
+  useOrgFeatureFlags: () => ({ data: undefined, isPending: orgFlagsPending })
+}));
+
 /**
  * `/:orgSlug` for an org with nothing ready. It used to redirect into a
  * self-serve onboarding wizard; orgs are provisioned for their members now, so
@@ -48,6 +53,8 @@ vi.mock("@/hooks/api/users/useCurrentUser", () => ({
 }));
 // The apps-first flag as `GET /auth/config` reports it; off unless a test turns it on.
 let appsFirst = false;
+// Whether the org's own flags (`GET /orgs/{id}/feature-flags`) are still on their way.
+let orgFlagsPending = false;
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ logout: vi.fn() }),
   useOptionalAuth: () => ({
@@ -105,6 +112,7 @@ beforeEach(() => {
   appCounts = {};
   countsPending = false;
   appsFirst = false;
+  orgFlagsPending = false;
   localStorage.clear();
 });
 afterEach(cleanup);
@@ -238,6 +246,13 @@ describe("OrgDispatcher — an org with a ready workspace", () => {
     workspaces = [{ id: "ws-1", status: "ready" }];
     renderAt();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home$/);
+  });
+
+  it("waits for the org's own apps-first answer before it lands anywhere", () => {
+    workspaces = [{ id: "ws-1", status: "ready" }];
+    orgFlagsPending = true;
+    renderAt();
+    expect(screen.queryByTestId("location")).toBeNull();
   });
 
   it("sends an operator straight into the workspace", () => {

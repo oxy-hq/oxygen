@@ -18,8 +18,9 @@
 //!   to the response the rail reads.
 //!
 //! **Behind a switch, off by default.** Enforcement is one of the things the
-//! apps-first flag ([`APPS_FIRST_EXPERIENCE`]) turns on; the admin console flips it
-//! fleet-wide within the flag cache's refresh interval. Off, the
+//! apps-first flag ([`APPS_FIRST_EXPERIENCE`]) turns on, per org; the admin console
+//! flips it (for every org, or by org override or rollout) fleet-wide within the
+//! flag cache's refresh interval. Off for the workspace's org, the
 //! gate returns before it reads a route or a fact, and [`FactoryAccess`] says yes to
 //! everyone: behaviour is exactly what it was. On, every Factory route refuses a caller
 //! the decision refuses with `403 factory_access_required`. Operators grant the people
@@ -50,9 +51,14 @@ pub use crate::server::feature_flags::APPS_FIRST_EXPERIENCE;
 /// The `code` in the 403 body, which the web app words itself.
 pub const REFUSAL_CODE: &str = "factory_access_required";
 
-/// Whether the switch is on.
-pub fn enforced() -> bool {
-    crate::server::feature_flags::apps_first_experience()
+/// Whether the switch is on for workspaces of `org_id`.
+pub fn enforced_in(org_id: uuid::Uuid) -> bool {
+    crate::server::feature_flags::apps_first_experience_in(org_id)
+}
+
+/// The org of the workspace `workspace_middleware` attached, without cloning the row.
+fn org_of(parts: &Parts) -> Option<uuid::Uuid> {
+    parts.extensions.get::<workspaces::Model>()?.org_id
 }
 
 /// Whether this request arrived through the external API, a curated surface that is
@@ -109,7 +115,8 @@ fn workspace_of(parts: &Parts) -> Option<(workspaces::Model, uuid::Uuid)> {
 /// but for the caller's facts, memoized in its extensions where the role guards
 /// read them (`request_facts`), so a Factory route pays for them once, not twice.
 ///
-/// Returns at once, reading nothing, when the switch is off; and for the external API
+/// Returns at once, reading nothing, when the switch is off for the workspace's org;
+/// and for the external API
 /// and for any route on the customer list. A route on neither list, or whose entries
 /// tie, is the Factory's — a table gap refuses a customer a page rather than handing
 /// them the IDE.
@@ -130,10 +137,12 @@ pub fn gate(
 }
 
 async fn decide(request: Request<Body>) -> Result<Request<Body>, Response> {
-    if !enforced() {
-        return Ok(request);
-    }
     let (mut parts, body) = request.into_parts();
+    // No workspace attached is a wiring bug: carry on, so `workspace_of` below fails
+    // it closed rather than reading the switch for no org.
+    if org_of(&parts).is_some_and(|org_id| !enforced_in(org_id)) {
+        return Ok(Request::from_parts(parts, body));
+    }
     if is_external(&parts)
         || surface_of(parts.method.as_str(), parts.uri.path()) == Surface::Customer
     {
@@ -167,7 +176,8 @@ async fn decide(request: Request<Body>) -> Result<Request<Body>, Response> {
 }
 
 /// Whether the caller may use the Factory in the request's workspace — what the
-/// workspace response tells the rail. `true` for everyone while the switch is off.
+/// workspace response tells the rail. `true` for everyone while the switch is off
+/// for the workspace's org.
 ///
 /// An unreadable standing answers `true`: the rail is not access control, the gate
 /// is, and a database blip must not hide the Factory from the staff who run it.
@@ -177,12 +187,12 @@ impl<S: Send + Sync> FromRequestParts<S> for FactoryAccess {
     type Rejection = Infallible;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Infallible> {
-        if !enforced() {
-            return Ok(Self(true));
-        }
         let Some((workspace, org_id)) = workspace_of(parts) else {
             return Ok(Self(true));
         };
+        if !enforced_in(org_id) {
+            return Ok(Self(true));
+        }
         Ok(Self(match request_facts(parts).await {
             Some(facts) => may_use_factory(&facts, workspace.id, org_id),
             None => true,

@@ -353,8 +353,14 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
         });
 
     // `/billing/*` is the only org-scoped tree a paywalled user may reach, so it
-    // sits outside the subscription guard above.
+    // sits outside the subscription guard above. So does `/feature-flags`: the
+    // shell reads it on every page, the paywall included. Postgres-backed cache,
+    // FleetOk.
     gated
+        .route_fleet(
+            "/feature-flags",
+            get(crate::server::feature_flags::routes::org_flags),
+        )
         .nest_all(
             "/billing",
             RouteRole::FleetOk,

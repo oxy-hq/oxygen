@@ -7,6 +7,9 @@ import type { CustomAppSummary } from "@/types/apps";
 import type { OrgRole } from "@/types/organization";
 import LauncherPage from "./index";
 
+// No org flags answer, so the apps-first flag reads from the auth config.
+vi.mock("@/hooks/api/featureFlags", () => ({ useOrgFeatureFlags: () => ({ data: undefined }) }));
+
 /**
  * The page-level half of the access gate: the mapping from (org, role) to whether
  * the control renders at all.

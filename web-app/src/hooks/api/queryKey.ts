@@ -706,7 +706,12 @@ const oxyAccessKeys = {
 
 const featureFlagKeys = {
   all: ["admin", "feature-flags"] as const,
-  list: () => [...featureFlagKeys.all, "list"] as const
+  list: () => [...featureFlagKeys.all, "list"] as const,
+  evaluate: (orgId: string, userId: string) =>
+    [...featureFlagKeys.all, "evaluate", orgId, userId] as const,
+  /** Not under `admin`: any org member reads their own org's client flags. */
+  orgs: ["feature-flags", "org"] as const,
+  forOrg: (orgId: string) => [...featureFlagKeys.orgs, orgId] as const
 };
 
 const usageReportKeys = {

@@ -75,7 +75,7 @@ export default function FactoryAccessPanel({
             <p className='text-muted-foreground text-xs'>
               {data.enforced
                 ? "Enforcement is on: Oxy staff, the organization's owners and admins, and the members granted here can use this workspace's Factory. Owners and admins already have access without a grant."
-                : "Enforcement is off (feature flag apps_first_experience, which also switches on the customer home): everyone can still use the Factory. Owners and admins already have access without a grant; grant the other members who use it today, then turn it on."}
+                : "Enforcement is off for this organization (feature flag apps_first_experience, which also switches on the customer home; it can be turned on per organization): everyone can still use the Factory. Owners and admins already have access without a grant; grant the other members who use it today, then turn it on."}
             </p>
             <ul className='divide-y divide-border/60 rounded-lg border border-border/60 bg-card'>
               {data.members.map((m) => (

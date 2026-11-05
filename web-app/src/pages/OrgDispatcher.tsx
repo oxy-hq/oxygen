@@ -7,7 +7,7 @@ import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useOrgs } from "@/hooks/api/organizations";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useAllWorkspaces } from "@/hooks/api/workspaces/useWorkspaces";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
+import { useAppsFirstExperienceState } from "@/hooks/useAppsFirstExperience";
 import { useLandingWorkspace } from "@/hooks/useLandingWorkspace";
 import { carriedSearch } from "@/libs/utils/carriedSearch";
 import { clearLastWorkspaceId, setLastWorkspaceId } from "@/libs/utils/lastWorkspace";
@@ -44,7 +44,7 @@ export default function OrgDispatcher() {
   const org = orgs?.find((o) => o.slug === orgSlug);
   const { data: workspaces, isPending: wsPending, isError } = useAllWorkspaces(org?.id);
   const landing = useLandingWorkspace(workspaces, org?.id);
-  const appsFirst = useAppsFirstExperience();
+  const { enabled: appsFirst, isPending: appsFirstPending } = useAppsFirstExperienceState(org?.id);
   // Keyed by org: this element survives an org switch, and "creating" must not.
   const [creatingInOrgId, setCreatingInOrgId] = useState<string | null>(null);
 
@@ -58,7 +58,8 @@ export default function OrgDispatcher() {
     </div>
   );
 
-  if (orgsPending || userPending || !org || wsPending) return spinner;
+  // The org's own apps-first answer decides both the setup screen and the landing.
+  if (orgsPending || userPending || !org || wsPending || appsFirstPending) return spinner;
 
   const setupPending = (
     <OrgSetupPending

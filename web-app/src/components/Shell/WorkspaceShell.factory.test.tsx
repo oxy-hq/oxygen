@@ -8,6 +8,9 @@ import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import type { Workspace } from "@/types/workspace";
 import { WorkspaceShell } from "./WorkspaceShell";
 
+// No org flags answer, so the apps-first flag reads from the auth config.
+vi.mock("@/hooks/api/featureFlags", () => ({ useOrgFeatureFlags: () => ({ data: undefined }) }));
+
 // The shell's own children fetch and subscribe to things this test is not about.
 vi.mock("@/hooks/api/adminAssume/useActingSession", () => ({
   useActingSession: () => ({ session: undefined, isActing: false })

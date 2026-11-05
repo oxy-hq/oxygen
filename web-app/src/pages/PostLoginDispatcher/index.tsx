@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useOrgs } from "@/hooks/api/organizations";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useAllWorkspaces } from "@/hooks/api/workspaces/useWorkspaces";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
+import { useAppsFirstExperienceState } from "@/hooks/useAppsFirstExperience";
 import { useLandingWorkspace } from "@/hooks/useLandingWorkspace";
 import { getInjectedOrg } from "@/libs/orgSubdomain";
 import { carriedSearch } from "@/libs/utils/carriedSearch";
@@ -54,11 +54,13 @@ import type { Organization } from "@/types/organization";
 export default function PostLoginDispatcher() {
   const { data: orgs, isPending: orgsPending, isError: orgsError } = useOrgs();
   const { data: user, isPending: userPending } = useCurrentUser();
-  const appsFirst = useAppsFirstExperience();
   // `partner_memberships` is already on /user — no extra request.
   const isPartner = (user?.partner_memberships?.length ?? 0) > 0;
 
   const chosenOrg = useMemo(() => pickOrg(orgs), [orgs]);
+  const { enabled: appsFirst, isPending: appsFirstPending } = useAppsFirstExperienceState(
+    chosenOrg?.id
+  );
   // `/?settings=<section>` — the link the token emails carry — rides into the
   // org or workspace chosen here, where the dialog reads it; so does
   // `/?notifications=open`, the page a push notification opens, for the inbox
@@ -147,7 +149,9 @@ export default function PostLoginDispatcher() {
   // With the apps-first experience, who is landing decides where, so wait for
   // the profile: staff work inside a workspace, a customer lands on the org's
   // home, which loads from the same workspace. Without it, everyone goes into the
-  // workspace, as before.
+  // workspace, as before. The org's own answer, not the default, picks: the redirect
+  // replaces this page, so a wrong guess would stick for the visit.
+  if (appsFirstPending) return <FullPageSpinner />;
   if (appsFirst) {
     if (userPending) return <FullPageSpinner />;
     if (!landsInWorkspace(user)) {

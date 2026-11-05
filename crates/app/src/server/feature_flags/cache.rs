@@ -9,19 +9,25 @@
 //!
 //! A tighter bound would be Postgres LISTEN/NOTIFY on the flag table; the
 //! interval is the cheaper approximation and enough for a safety switch.
+//!
+//! Each entry is a [`FlagState`] (kill switch + compiled rules), so a per-org
+//! evaluation is a lookup plus a hash, still with no DB hit.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, Once, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, Once, OnceLock, RwLock};
 use std::time::Duration;
 
 use oxy_shared::errors::OxyError;
 use sea_orm::{DatabaseConnection, DbErr};
 
-use super::registry;
+use super::evaluate::{self, Evaluation, FlagContext, FlagState, RulesState};
+use super::registry::{self, FlagDef};
 use super::store;
 
-static CACHE: OnceLock<RwLock<HashMap<&'static str, bool>>> = OnceLock::new();
+type FlagMap = HashMap<&'static str, FlagState>;
+
+static CACHE: OnceLock<RwLock<FlagMap>> = OnceLock::new();
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Bumped on every LOCAL write (`set`, from a PATCH on this instance). A refresh
@@ -90,27 +96,65 @@ async fn load_and_install() -> Result<(), OxyError> {
 }
 
 /// Read the flag table and fold it onto the registry defaults.
-async fn load_map(db: &DatabaseConnection) -> Result<HashMap<&'static str, bool>, DbErr> {
+async fn load_map(db: &DatabaseConnection) -> Result<FlagMap, DbErr> {
     let rows = store::fetch_all(db).await?;
-    let mut by_key: HashMap<&str, bool> = HashMap::new();
+    let mut by_key = HashMap::new();
     for row in &rows {
         if registry::get(&row.key).is_some() {
-            by_key.insert(row.key.as_str(), row.enabled);
+            by_key.insert(row.key.as_str(), row);
         } else {
             warn_stale_once(&row.key);
         }
     }
-    let mut map: HashMap<&'static str, bool> = HashMap::new();
+    let mut map = FlagMap::new();
     for flag in registry::FLAGS {
-        map.insert(
-            flag.key,
-            by_key
-                .get(flag.key)
-                .copied()
-                .unwrap_or(flag.default_enabled),
-        );
+        let state = match by_key.get(flag.key) {
+            Some(row) => state_of(flag, &store::decode(row)),
+            None => FlagState::global(flag.default_enabled),
+        };
+        map.insert(flag.key, state);
     }
     Ok(map)
+}
+
+/// What the cache serves for a decoded row: its rules compiled against this build's
+/// registry, or [`RulesState::Invalid`] (the off variant) when they do not compile.
+pub fn state_of(def: &FlagDef, decoded: &store::Decoded) -> FlagState {
+    let rules = match &decoded.targeting {
+        Ok(None) => RulesState::None,
+        Ok(Some(targeting)) => match targeting.compile(def) {
+            Ok(rules) => RulesState::Compiled(Arc::new(rules)),
+            Err(reason) => {
+                warn_invalid_once(def.key, &reason);
+                RulesState::Invalid
+            }
+        },
+        Err(reason) => {
+            warn_invalid_once(def.key, reason);
+            RulesState::Invalid
+        }
+    };
+    FlagState {
+        enabled: decoded.enabled,
+        rules,
+    }
+}
+
+/// Warn once per process per flag and reason: like a stale row, broken rules are
+/// re-read every tick.
+fn warn_invalid_once(key: &'static str, reason: &str) {
+    static WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let mut seen = WARNED
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if seen.insert(format!("{key}:{reason}")) {
+        tracing::error!(
+            key,
+            reason,
+            "feature flag rules do not compile; serving the off variant"
+        );
+    }
 }
 
 /// Warn once per process about a DB row whose key the registry no longer
@@ -138,7 +182,7 @@ fn warn_stale_once(key: &str) {
 /// Reading `gen_before` before the (awaited) `fetch_all` and re-checking here is
 /// what makes "the refresh cannot revert a just-committed PATCH" hold rather
 /// than merely narrow.
-fn install_if_current(map: HashMap<&'static str, bool>, gen_before: u64) {
+fn install_if_current(map: FlagMap, gen_before: u64) {
     match CACHE.get() {
         Some(cache) => {
             let mut guard = cache.write().unwrap_or_else(|p| p.into_inner());
@@ -191,11 +235,26 @@ fn spawn_refresh() {
     });
 }
 
-/// Returns whether `key` is enabled. Synchronous — pure HashMap lookup after
-/// init. While the cache is uninitialized, returns the registry default for
-/// `key` and warns ONCE — read sites call this per request, so a per-call log
-/// would flood and bury the init warning. Unknown keys return `false`.
+/// Returns whether `key` serves anything but its off variant to a caller with no
+/// context: a global flag's value. Per-org rules need
+/// `feature_flags::is_enabled_for`. Synchronous — pure HashMap lookup after init.
+/// While the cache is uninitialized, returns the registry default for `key` and
+/// warns ONCE — read sites call this per request, so a per-call log would flood
+/// and bury the init warning. Unknown keys return `false`.
 pub fn is_enabled(key: &'static str) -> bool {
+    match (registry::get(key), evaluate(key, &FlagContext::default())) {
+        (Some(def), Some(eval)) => eval.variant != def.off(),
+        _ => false,
+    }
+}
+
+/// The variant `key` serves `ctx`, without recording an exposure (an admin's
+/// preview is not one). `None` for a key the registry does not declare.
+pub fn evaluate(key: &str, ctx: &FlagContext) -> Option<Evaluation> {
+    let Some(def) = registry::get(key) else {
+        tracing::warn!(key, "feature_flags evaluated with unknown key");
+        return None;
+    };
     if !INITIALIZED.load(Ordering::Acquire) {
         static WARNED: Once = Once::new();
         WARNED.call_once(|| {
@@ -204,28 +263,29 @@ pub fn is_enabled(key: &'static str) -> bool {
                  until the refresh installs values"
             );
         });
-        return registry::default_for(key);
+        return Some(evaluate::evaluate(
+            def,
+            &FlagState::global(def.default_enabled),
+            ctx,
+        ));
     }
-    let Some(cache) = CACHE.get() else {
-        return registry::default_for(key);
-    };
-    let guard = match cache.read() {
-        Ok(g) => g,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    match guard.get(key).copied() {
-        Some(v) => v,
-        None => {
-            tracing::warn!(key, "feature_flags::is_enabled called with unknown key");
-            false
-        }
-    }
+    let state = CACHE.get().and_then(|cache| {
+        let guard = cache.read().unwrap_or_else(|p| p.into_inner());
+        guard.get(def.key).cloned()
+    });
+    let state = state.unwrap_or_else(|| FlagState::global(def.default_enabled));
+    Some(evaluate::evaluate(def, &state, ctx))
 }
 
-/// Overwrites the cache entry for `key` with `enabled`. Called by the PATCH
-/// handler after the DB write commits. Bumps [`GENERATION`] so an in-flight
-/// refresh cannot install a snapshot older than this write.
+/// Overwrites the cache entry for `key` with a plain global value.
 pub fn set(key: &'static str, enabled: bool) {
+    set_state(key, FlagState::global(enabled));
+}
+
+/// Overwrites the cache entry for `key`. Called by the PATCH handler after the DB
+/// write commits. Bumps [`GENERATION`] so an in-flight refresh cannot install a
+/// snapshot older than this write.
+pub fn set_state(key: &'static str, state: FlagState) {
     let Some(cache) = CACHE.get() else {
         tracing::error!(key, "feature_flags::set called before cache init");
         return;
@@ -237,7 +297,7 @@ pub fn set(key: &'static str, enabled: bool) {
     // Bump UNDER the write lock, so `install_if_current`'s check-under-lock sees
     // this write as either wholly before or wholly after it — never interleaved.
     GENERATION.fetch_add(1, Ordering::AcqRel);
-    guard.insert(key, enabled);
+    guard.insert(key, state);
 }
 
 #[cfg(test)]
@@ -250,7 +310,10 @@ pub fn init_for_tests(values: HashMap<&'static str, bool>) {
         Ok(g) => g,
         Err(p) => p.into_inner(),
     };
-    *guard = values;
+    *guard = values
+        .into_iter()
+        .map(|(key, enabled)| (key, FlagState::global(enabled)))
+        .collect();
     INITIALIZED.store(true, Ordering::Release);
 }
 

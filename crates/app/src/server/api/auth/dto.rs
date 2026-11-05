@@ -131,12 +131,13 @@ pub struct AuthConfigResponse {
     /// the org Billing settings tab and the admin Billing queue surfaces a
     /// "Billing is disabled" notice instead of a misleading empty state.
     pub billing_enabled: bool,
-    /// Mirror of the backend `apps_first_experience` feature flag: the customer
-    /// home and onboarding, the read-only world model page, and the web app without
-    /// its workspace management and creation screens. Here rather than on a
-    /// workspace's `/meta` because the screens it switches include ones with no
-    /// workspace (the org that is being set up, the person with no org). Factory
-    /// access is the server's to enforce and still reads `factory_access` on `/meta`.
+    /// The backend `apps_first_experience` feature flag as an org with no override
+    /// gets it: the customer home and onboarding, the read-only world model page, and
+    /// the web app without its workspace management and creation screens. The flag
+    /// is per org, and this route has none, so the web app reads it only for screens
+    /// before an org (the person with no org); with an org it reads the org's value
+    /// from `GET /orgs/{org_id}/feature-flags`. Factory access is the server's to
+    /// enforce and still reads `factory_access` on `/meta`.
     pub apps_first_experience: bool,
     /// Mirror of the backend `home_v3` feature flag: the third apps-first home
     /// (ask first, big apps, Today folded, simple and full views). The web app reads

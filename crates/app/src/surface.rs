@@ -194,10 +194,10 @@ pub mod admin_scope {
     pub use crate::server::api::admin::scope::*;
 }
 
-/// Whether Factory access is enforced (the `apps_first_experience` flag), for
-/// the staff console's Factory-access tab to say what a grant changes today.
+/// Whether Factory access is enforced in an org (the `apps_first_experience` flag),
+/// for the staff console's Factory-access tab to say what a grant changes today.
 pub mod factory_access {
-    pub use crate::server::factory_access::enforced;
+    pub use crate::server::factory_access::enforced_in;
 }
 
 /// Transactional email delivery (SES, or the local preview provider).

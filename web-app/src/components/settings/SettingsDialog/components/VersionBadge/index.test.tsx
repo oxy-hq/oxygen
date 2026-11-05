@@ -13,6 +13,9 @@ vi.mock("@/services/api/version", async (importOriginal) => ({
 
 import { VersionBadge } from "./index";
 
+// No org flags answer, so the apps-first flag reads from the auth config.
+vi.mock("@/hooks/api/featureFlags", () => ({ useOrgFeatureFlags: () => ({ data: undefined }) }));
+
 const info = (over: Partial<VersionInfo> = {}): VersionInfo => ({
   image_tag: "main-1bcefe3",
   service: "oxy",

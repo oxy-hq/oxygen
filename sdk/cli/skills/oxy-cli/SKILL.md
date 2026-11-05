@@ -69,6 +69,7 @@ never sent to the server as a literal.
     oxyc validate                  # check the workspace YAML — no network, no token
     oxyc proxy --env dev           # local app dev against cloud data
     oxyc experiments list          # experiments: draft, price, register, status, interim, abort, result
+    oxyc flags list                # feature flags: kill switch, per-org overrides, A/B splits (staff)
     oxyc login-link --next /ide    # one-time URL that signs a browser in as your token
     oxyc guide                     # this page, to paste into a context file
 
@@ -90,6 +91,26 @@ tools (`oxy_routes`, `oxy_schema`, `oxy_request`, `oxy_whoami`) instead. It
 reads its credential from `OXY_TOKEN` only — with the variable unset it exits
 `4` rather than using the machine's `oxyc login`; `oxyc mcp --login` opts
 into that. The same holds for any command given `--token-env <VAR>`.
+
+## Feature flags (staff)
+
+Use `oxyc flags` to turn an Oxy product change on for named orgs, run an A/B split, or
+see what a flag serves an org — instead of the admin page or hand-written PATCHes.
+Flags are declared in code; you change the kill switch and the targeting rules, never
+create a flag. **Every write is prod-affecting** (`--env` defaults to production) and
+asks first; pass `--yes` when there is no terminal, after `--dry-run` shows the rules.
+
+    oxyc flags list | show <key>                       # read: rules, unit, scope
+    oxyc flags eval --org acme [--user <uuid>]         # preview what each flag serves them
+    oxyc flags set <key> --off --yes                   # kill switch: off = every org gets the first variant
+    oxyc flags rules <key> --set-org acme=treatment --yes      # add one override, keep the rest
+    oxyc flags rules <key> --split control=50,treatment=50 --yes   # percent, must total 100
+    oxyc flags rules <key> --file rules.json | --clear --yes
+
+Orgs take a slug or UUID, users a UUID. Rules on a flag with `per_org: false` are refused
+(422, exit 6), and rules saved behind an off kill switch do not apply until `set --on`.
+Treat a running split as immutable. `oxyc flags org <org>` is what a member of that org
+sees.
 
 ## An agent's own credential
 

@@ -130,7 +130,12 @@ pub async fn get_config(
 
     let observability_enabled = app_state.observability().is_some();
     let billing_enabled = crate::server::feature_flags::is_enabled("billing");
-    let apps_first_experience = crate::server::feature_flags::apps_first_experience();
+    // This route has no org, so it says what an org with no override gets; the web
+    // app reads the org's own value from `GET /orgs/{org_id}/feature-flags` once it
+    // knows the org, and uses this only before that (a person with no org yet).
+    let apps_first_experience = crate::server::feature_flags::is_enabled(
+        crate::server::feature_flags::APPS_FIRST_EXPERIENCE,
+    );
     let home_v3 = crate::server::feature_flags::home_v3();
     // Per-caller, not process-wide: an off-box peer that the dev-login route
     // 404s must not be told from here that a bypass exists. See

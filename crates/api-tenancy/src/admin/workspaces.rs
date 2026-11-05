@@ -461,8 +461,8 @@ pub struct FactoryAccessMember {
 
 #[derive(Serialize)]
 pub struct FactoryAccessList {
-    /// Whether enforcement is on. Off, the grants below change nobody's access yet:
-    /// everyone still reaches the Factory.
+    /// Whether enforcement is on for this workspace's org. Off, the grants below
+    /// change nobody's access yet: everyone still reaches the Factory.
     pub enforced: bool,
     pub members: Vec<FactoryAccessMember>,
 }
@@ -546,7 +546,7 @@ pub async fn list_factory_access(
     });
 
     Ok(Json(FactoryAccessList {
-        enforced: oxy_app::surface::factory_access::enforced(),
+        enforced: oxy_app::surface::factory_access::enforced_in(org_id),
         members,
     }))
 }

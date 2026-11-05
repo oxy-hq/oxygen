@@ -165,7 +165,8 @@ export interface AuthConfigResponse {
    */
   billing_enabled: boolean;
   /**
-   * Mirror of the backend `apps_first_experience` feature flag (global). On: the
+   * The backend `apps_first_experience` feature flag as an org with no override
+   * gets it (the flag is per org; this config has none). On: the
    * customer home and onboarding, the read-only world model page, and no
    * workspace management or creation screens. Read it through
    * `useAppsFirstExperience`. Absent (an older server) reads as off.

@@ -248,6 +248,7 @@ mod m20261102_000001_app_environment_branch_columns;
 mod m20261102_000005_app_environment_semantic_pin;
 mod m20261102_000030_app_environment_airhouse_pin;
 mod m20261103_000001_experiment_flips_retry;
+mod m20261105_000001_feature_flag_targeting;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
@@ -518,6 +519,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261102_000005_app_environment_semantic_pin::Migration),
             Box::new(m20261102_000030_app_environment_airhouse_pin::Migration),
             Box::new(m20261103_000001_experiment_flips_retry::Migration),
+            Box::new(m20261105_000001_feature_flag_targeting::Migration),
         ]
     }
 

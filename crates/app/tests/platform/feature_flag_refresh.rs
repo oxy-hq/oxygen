@@ -127,3 +127,96 @@ async fn an_unloaded_cache_reads_billing_off_so_the_paywall_would_skip() {
          un-inited process would skip the paywall for every org"
     );
 }
+
+/// A flag with rules keeps its kill switch inside `targeting` and writes the
+/// `enabled` column as the registry default — what a binary that predates
+/// targeting (one revert back) reads. So a revert sees a targeted flag as
+/// untouched, never as on for every org. This build reads the rules back.
+#[tokio::test]
+async fn a_targeted_flag_reads_as_its_default_to_a_binary_without_targeting() {
+    use oxy_app::server::feature_flags::targeting::{Fallthrough, Targeting};
+    use oxy_app::server::feature_flags::{FlagContext, is_enabled_for, registry};
+
+    let db = common::test_db().await;
+    let def = registry::get("billing").expect("billing is registered");
+    let held_back = uuid::Uuid::new_v4();
+    let targeting = Targeting {
+        users: Default::default(),
+        orgs: [(held_back, "off".to_string())].into(),
+        fallthrough: Fallthrough::Variant {
+            variant: "on".into(),
+        },
+        salt: None,
+    };
+    let row = store::write(&db, def, true, Some(&targeting))
+        .await
+        .expect("write targeted billing");
+    assert_eq!(
+        row.enabled, def.default_enabled,
+        "the legacy column must read the default while rules are set"
+    );
+    assert!(row.targeting.is_some());
+
+    cache::init().await.expect("feature flag cache init");
+    assert!(is_enabled("billing"), "everyone else gets on");
+    assert!(
+        !is_enabled_for("billing", &FlagContext::org(held_back)),
+        "the held-back org gets off"
+    );
+
+    let cleared = store::upsert(&db, "billing", false)
+        .await
+        .expect("a plain write clears the rules");
+    assert!(cleared.targeting.is_none());
+}
+
+/// A binary one release back can flip the `enabled` column of a targeted flag, which
+/// it believes is the switch. Its last write wins on roll-forward even when it put the
+/// column back where it was (on, then off again during an incident), because the
+/// document records the `updated_at` it was written with and the old write is later.
+#[tokio::test]
+async fn a_switch_an_older_binary_wrote_wins_on_roll_forward() {
+    use oxy_app::server::feature_flags::registry;
+    use oxy_app::server::feature_flags::targeting::{Fallthrough, Targeting};
+    use sea_orm::ConnectionTrait;
+
+    let db = common::test_db().await;
+    let def = registry::get("billing").expect("billing is registered");
+    let targeting = Targeting {
+        users: Default::default(),
+        orgs: Default::default(),
+        fallthrough: Fallthrough::Variant {
+            variant: "on".into(),
+        },
+        salt: None,
+    };
+    store::write(&db, def, true, Some(&targeting))
+        .await
+        .expect("write targeted billing");
+    assert!(
+        billing_switch(&db).await,
+        "read back from Postgres, the document's own write is not mistaken for a later one"
+    );
+
+    // What the older binary's upsert does: set the column and `updated_at`, nothing else.
+    for enabled in [true, false] {
+        db.execute_unprepared(&format!(
+            "UPDATE feature_flags SET enabled = {enabled}, updated_at = now() WHERE key = 'billing'"
+        ))
+        .await
+        .expect("older binary write");
+    }
+    assert!(
+        !billing_switch(&db).await,
+        "the admin's last choice on the older binary was off"
+    );
+}
+
+/// Billing's kill switch as this binary reads the stored row.
+async fn billing_switch(db: &sea_orm::DatabaseConnection) -> bool {
+    let row = store::fetch(db, "billing")
+        .await
+        .unwrap()
+        .expect("billing row");
+    store::decode(&row).enabled
+}
