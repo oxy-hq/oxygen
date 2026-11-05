@@ -731,7 +731,7 @@ aho-corasick = "1.1"
 # `EffectResult.waves` lists each wave's own effect, and `PanelMatrix::log1p` +
 # `proportional` read an effect as a share.
 #
-# NOW AT 5dc3444 — airlayer main, the merge of PR #138
+# Before that, 5dc3444 — airlayer main, the merge of PR #138
 # (`claude/project-thread-g2c606`, https://github.com/oxy-hq/airlayer/pull/138),
 # on top of 753d59d. `estimate_synthetic` / `price_synthetic` add a synthetic
 # control for chosen units; the staggered permutation test permutes a
@@ -740,7 +740,16 @@ aho-corasick = "1.1"
 # unless `Assignment.one_date_test` opts it into that permutation test.
 # Only `engine::experiment` changes, so **no rollup hash moves** and
 # `PREAGG_BUILDER_GENERATION` stays put.
-airlayer ={ git = "https://github.com/oxy-hq/airlayer", rev = "5dc344429ab27235f066762542e88bb20bb30b34" }
+#
+# NOW AT 9b7f7bf — airlayer main, the merge of PR #140
+# (`fix/duckdb-manifest-no-primary-key`, https://github.com/oxy-hq/airlayer/pull/140),
+# on top of 5dc3444 plus dependabot lockfile bumps. The DuckDB `__manifest`
+# DDL no longer declares `PRIMARY KEY (view_name, rollup_name)`: DuckLake
+# refuses it, so the first pre-aggregation on an Airhouse view failed its
+# prelude every cycle (the DuckDB upsert is DELETE + INSERT and never needed
+# the key). Only the manifest DDL changes, not the build SQL, so **no rollup
+# hash moves** and `PREAGG_BUILDER_GENERATION` stays put.
+airlayer ={ git = "https://github.com/oxy-hq/airlayer", rev = "9b7f7bf1cbfaa27a2aee55586d1079dcbc5a3b2b" }
 # Anomaly detection: ETS forecasting + MSTL decomposition. augurs-ets gives
 # Holt-Winters family (with auto model selection); augurs-mstl handles
 # multi-seasonality (daily + weekly + yearly). Pulled in by oxy-metric-monitoring.
