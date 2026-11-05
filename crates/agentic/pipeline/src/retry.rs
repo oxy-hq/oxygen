@@ -260,7 +260,7 @@ async fn retry_airway(
         }
         agentic_runtime::crud::reset_run_for_retry(db, &run_id).await?;
         // A backfill chunk's task is `scope_owned` (driven under its range's
-        // scope); the global coordinator's `claim_task` only picks up
+        // scope); the global recovery selections only pick up
         // `scope_owned = false`, so a reset-in-place retry would never be
         // re-driven. Make it global so the coordinator re-drives it. No-op for a
         // normal (already-global) run.

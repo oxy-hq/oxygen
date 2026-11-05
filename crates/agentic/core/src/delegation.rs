@@ -39,7 +39,9 @@ pub enum SuspendReason {
         request: String,
         /// Opaque context the coordinator may forward to the child task.
         context: Value,
-        /// Optional retry/fallback policy for the delegated task.
+        /// Unread: the coordinator does not retry or fall back a delegated
+        /// task, and no producer sets it. Kept because this is a serde wire
+        /// type.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         policy: Option<TaskPolicy>,
     },
@@ -77,16 +79,20 @@ pub enum FanoutFailurePolicy {
 
 // ── Task policies ───────────────────────────────────────────────────────────
 
-/// Retry and fallback configuration for a delegated task.
+/// Retry configuration for a queued task.
 ///
-/// Attached to [`TaskAssignment`] and enforced transparently by the coordinator.
-/// Domain crates opt in by populating this field; `None` means no retry.
+/// Attached to [`TaskAssignment`] and stored on the task's queue row
+/// (`agentic_task_queue.policy`). `retry` is honoured there, by the queue,
+/// for runs that opt in (`DurableTransport::retry_failed_root`); `None`
+/// means no retry.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TaskPolicy {
     /// Retry the same target on failure.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<RetryPolicy>,
-    /// Fallback targets to try if the primary (and all retries) fail.
+    /// Unread. The coordinator's per-node fallback that consumed it was
+    /// removed; the field stays because policies are stored as JSONB on
+    /// queue rows and every producer still names it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fallback_targets: Vec<DelegationTarget>,
 }

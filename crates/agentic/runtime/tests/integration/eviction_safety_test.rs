@@ -110,14 +110,14 @@ pub(super) async fn seed_task(
 /// not its echo three assertions later.
 ///
 /// A lost claim here is real and worth stopping on. These tests share one
-/// table, and several operations in it are unscoped by design — the global
-/// `claim_task` takes *any* queued root, `reap_stale_tasks` reaps *every*
-/// expired row — so a row can genuinely be taken out from under a fixture.
+/// table, and some operations in it are unscoped by design —
+/// `reap_stale_tasks` reaps *every* expired row — so a row can genuinely be
+/// taken out from under a fixture.
 /// **Reports rather than asserts, deliberately.** An `assert!` here would
 /// convert a known, unfixed environmental flake into a hard CI failure: the
 /// module is not hermetic (see `internal-docs/testing.md`, "`serial-db` is
 /// load-bearing for the queue tests"), so under load a fixture row really can be
-/// taken by another test's unscoped `reap_stale_tasks` or global `claim_task`.
+/// taken by another test's unscoped `reap_stale_tasks`.
 /// Failing loudly on that would make CI red for something nobody can act on in
 /// the moment, which buys less than it costs.
 ///
@@ -216,12 +216,11 @@ async fn reap_reports_requeue_and_dead_letter_separately() {
 
     // One task under the cap -> requeued.
     //
-    // Claim scoped to this task's own id (not the generic global `claim_task`,
-    // which grabs the oldest queued row in the whole table): this table is
-    // shared with every other test in the suite via the reused testcontainer,
-    // and a prior test's own reap-requeued row (older `created_at`, still
-    // `queued`) would otherwise be claimed instead of the row this test just
-    // seeded, silently testing the wrong row.
+    // Claim scoped to this task's own id: this table is shared with every
+    // other test in the suite via the reused testcontainer, and a claim that
+    // took the oldest queued row in the whole table would take a prior test's
+    // reap-requeued row instead of the one this test just seeded, silently
+    // testing the wrong row.
     let (_, live) = seed_task(&db, "workflow", TaskScope::Global).await;
     claim_or_fail(&db, "w-1", &live).await;
     expire_heartbeat(&db, &live).await;
@@ -279,7 +278,7 @@ async fn reap_counters_increment_via_a_call_site_other_than_run_reaper_cycle() {
 
     // One task under the cap -> requeued. See the identical comment on
     // `reap_reports_requeue_and_dead_letter_separately` for why the claim is
-    // scoped to this task's own id rather than the generic global claim.
+    // scoped to this task's own id.
     let (_, live) = seed_task(&db, "workflow", TaskScope::Global).await;
     claim_or_fail(&db, "w-dt", &live).await;
     expire_heartbeat(&db, &live).await;
@@ -328,7 +327,7 @@ async fn reap_nulls_last_heartbeat_on_requeue() {
     };
 
     // See the comment in `reap_reports_requeue_and_dead_letter_separately` —
-    // scope the claim to this task's own id, not the generic global claim.
+    // scope the claim to this task's own id.
     let (_, task_id) = seed_task(&db, "workflow", TaskScope::Global).await;
     claim_or_fail(&db, "w-1", &task_id).await;
     expire_heartbeat(&db, &task_id).await;
@@ -345,11 +344,10 @@ async fn reap_nulls_last_heartbeat_on_requeue() {
 
 // ── Graceful release ─────────────────────────────────────────────────────────
 //
-// Every claim below is `claim_task_under_root` rather than the global
-// `claim_task`, for the reason spelled out in the two tests above: this table
-// is shared across the whole suite, the global claim takes the *oldest* queued
-// row, and a leftover `queued` row from an earlier test is always older than
-// the one the test just seeded. With the global claim these tests either pass
+// Every claim below is scoped to the test's own task, for the reason spelled
+// out in the two tests above: this table is shared across the whole suite, and
+// a leftover `queued` row from an earlier test is always older than the one
+// the test just seeded. A claim of the oldest row would make these tests pass
 // vacuously (having released some other test's row) or fail spuriously — both
 // of which hide the regression they exist to catch.
 
@@ -893,76 +891,6 @@ async fn a_task_with_no_queue_row_is_not_a_lost_claim() {
     }
 }
 
-/// The global claim path must never take a task that has a parent, even when
-/// that task is `scope_owned = false` (globally claimable in every other
-/// respect). A descendant claimed in isolation reports its outcome to
-/// whichever coordinator holds the transport — not necessarily the one whose
-/// in-memory task map actually contains it — so `handle_done` early-returns,
-/// the queue row ends `completed`, the run stays `delegating`, and the parent
-/// waits forever. See `DurableTransport::task_id_root` and
-/// `claim_task`/`claim_task_under_root` in `orchestrator/crud/queue.rs`.
-#[tokio::test(flavor = "multi_thread")]
-async fn global_claim_refuses_a_leaf_task() {
-    let Some(db) = test_db().await else {
-        eprintln!("skipping: no DB available");
-        return;
-    };
-
-    // Drain any root/global tasks earlier tests in this file left `queued`.
-    // This is the only test that calls the truly unscoped `claim_task` —
-    // every other test in the file deliberately claims via
-    // `claim_task_under_root` instead precisely because this table is shared
-    // across the whole suite (see the comment above "── Graceful release"),
-    // and several of them (the reap tests, the budget-neutrality loop, the
-    // shutdown hand-back test) leave their own root task sitting `queued`
-    // once they're done with it. `claim_task` orders by `created_at ASC`, so
-    // without draining first, an older leftover row — not our own child —
-    // would be the one claimed, and `is_none()` would fail for a reason
-    // that has nothing to do with the guard under test.
-    //
-    // Safe to drain unconditionally: `agentic-runtime`'s `kind(test)` tests
-    // run one at a time (see `.config/nextest.toml`'s `serial-db` group), so
-    // nothing can add a new row while this loop runs, and no other test ever
-    // looks at an earlier test's row again once it has finished.
-    while crud::claim_task(&db, "drain-leftover-roots")
-        .await
-        .unwrap()
-        .is_some()
-    {}
-
-    let run_id = format!("ev-{}", uuid::Uuid::new_v4());
-    crud::insert_run(&db, &run_id, "Q", None, "workflow", None, uuid::Uuid::nil())
-        .await
-        .unwrap();
-
-    // A descendant task, globally claimable but with a parent.
-    let child = format!("{run_id}.1");
-    crud::enqueue_task(
-        &db,
-        &child,
-        &run_id,
-        Some(&run_id),
-        &TaskSpec::Agent {
-            agent_id: "test-agent".to_string(),
-            question: "q".to_string(),
-            extra: None,
-        },
-        None,
-        TaskScope::Global,
-    )
-    .await
-    .unwrap();
-
-    let claimed = crud::claim_task(&db, "global-worker").await.unwrap();
-
-    assert!(
-        claimed.is_none(),
-        "the global path must never claim a leaf in isolation — its outcome \
-         would be dropped by a coordinator that does not hold it"
-    );
-    assert_eq!(row(&db, &child).await.queue_status, "queued");
-}
-
 // ── Root eligibility for orphaned scoped work ────────────────────────────────
 //
 // `mark_released_roots_global` matches on `worker_id` + `queue_status =
@@ -1028,43 +956,34 @@ async fn released_agent_root_stays_scoped() {
 }
 
 /// The whole point of the change, not just "a column flipped": after marking,
-/// the global `claim_task` can actually take the released root. Only roots
-/// are claimable (Task 4's guard), so this seeds a root with no parent —
-/// same as `seed_task` always does.
+/// the latency worker's selection picks the released root up, and a surviving
+/// node's driver — which claims under that root, as `recover_single_run`'s
+/// scoped transport does — can take it.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_marked_root_is_claimable_by_the_global_path() {
+async fn a_marked_root_is_picked_up_by_the_global_path() {
     let Some(db) = test_db().await else {
         eprintln!("skipping: no DB available");
         return;
     };
 
-    // Drain any leftover globally-claimable root rows other tests in this
-    // suite left `queued`, for the same reason `global_claim_refuses_a_leaf_task`
-    // does: `claim_task` orders by `created_at ASC` across the whole shared
-    // table, so an older leftover would be claimed instead of our own row.
-    while crud::claim_task(&db, "drain-leftover-roots-2")
-        .await
-        .unwrap()
-        .is_some()
-    {}
-
-    let (_, task_id) = seed_task(&db, "workflow", TaskScope::Scoped).await;
+    let (run_id, task_id) = seed_task(&db, "workflow", TaskScope::Scoped).await;
     let worker = "w-shutdown-claimable";
     claim_or_fail(&db, worker, &task_id).await;
 
     crud::mark_released_roots_global(&db, worker).await.unwrap();
     crud::release_claims_for_worker(&db, worker).await.unwrap();
 
-    let claimed = crud::claim_task(&db, "surviving-fleet-worker")
+    let pending = crud::find_pending_global_runs(&db, None).await.unwrap();
+    assert!(
+        pending.iter().any(|r| r.run_id == run_id),
+        "the orphaned root must be selectable once it has been marked \
+         globally eligible"
+    );
+
+    let claimed = crud::claim_task_under_root(&db, "surviving-fleet-worker", &task_id)
         .await
         .unwrap();
-
-    assert_eq!(
-        claimed.map(|c| c.task_id),
-        Some(task_id.clone()),
-        "the global claim path must be able to pick up the orphaned root \
-         once it has been marked globally eligible"
-    );
+    assert_eq!(claimed.map(|c| c.task_id), Some(task_id.clone()));
     assert_eq!(
         row(&db, &task_id).await.worker_id.as_deref(),
         Some("surviving-fleet-worker")
@@ -1135,8 +1054,7 @@ async fn mark_released_roots_global_refuses_a_claimed_child() {
     );
     assert!(
         row(&db, &child).await.scope_owned,
-        "the roots-only guard must refuse the child itself, not merely rely \
-         on the global claim path never picking up a leaf"
+        "the roots-only guard must refuse the child itself"
     );
 }
 
@@ -1456,9 +1374,8 @@ async fn the_wait_streak_is_not_reset_by_later_deferrals() {
     );
 
     // Leave nothing claimable behind. These tests share one database with the
-    // whole suite, and `claim_task` is a GLOBAL claim: a stray queued root here
-    // gets picked up by another test that assumed it would claim its own task.
-    // Deferring with delay 0 (needed above, to re-claim) ends with exactly such
+    // whole suite, and a stray queued Global root shows up in other tests'
+    // global selections. Deferring with delay 0 (needed above, to re-claim) ends with exactly such
     // a row, so retire it explicitly.
     db.execute_raw(Statement::from_sql_and_values(
         sea_orm::DatabaseBackend::Postgres,
@@ -1565,7 +1482,7 @@ async fn a_dead_lettered_child_task_reaches_its_coordinator() {
         return;
     };
     // Scoped, so the root's `queued` entry (the live entry this test needs)
-    // is invisible to the global claim path other tests use.
+    // is invisible to the global selections other tests use.
     let (root_id, _root_task) = seed_task(&db, "automation", TaskScope::Scoped).await;
 
     // A delegated child, shaped exactly as the coordinator spawns one.

@@ -63,11 +63,7 @@ pub(super) fn queue_rows_of_run(alias: &str) -> String {
 /// `ttl` is the placeholder bound to [`DRIVER_LEASE_TTL_SECS`].
 ///
 /// `queued` is the alias of the run's joined `queued` Global queue rows, for a
-/// query that joins them and `GROUP BY r.id`. It is `None` for a selection
-/// whose own predicate rules such rows out (`find_stuck_automation_runs`'s
-/// `NOT EXISTS`): there the `MAX` would be NULL on every row and `GREATEST`
-/// would drop it anyway, so leaving the term out is the same clock without a
-/// join that can never match.
+/// query that joins them and `GROUP BY r.id`.
 ///
 /// One definition on purpose: every selection that reports the number hands it
 /// to the same placement gate (or could), and a clock that ticked differently
@@ -78,14 +74,11 @@ pub(super) fn queue_rows_of_run(alias: &str) -> String {
 /// JOIN, no queued row — simply drops that term. The lease term is gated on
 /// `driver_id` because a cleanly released lease clears both columns while a
 /// dead driver leaves both set. Clamped at 0 so the cast to `u64` cannot wrap.
-fn unclaimed_secs_sql(queued: Option<&str>, ttl: &str) -> String {
-    let queued_term = queued
-        .map(|alias| format!("MAX({alias}.updated_at), "))
-        .unwrap_or_default();
+fn unclaimed_secs_sql(queued: &str, ttl: &str) -> String {
     format!(
         "GREATEST(0, FLOOR(EXTRACT(EPOCH FROM now() - GREATEST( \
              r.updated_at, \
-             {queued_term}\
+             MAX({queued}.updated_at), \
              CASE WHEN r.driver_id IS NOT NULL \
                   THEN r.driver_heartbeat_at + make_interval(secs => {ttl}) END \
          ))))::bigint AS unclaimed_secs"
@@ -152,9 +145,9 @@ pub async fn get_resumable_root_runs(
     query.all(db).await
 }
 
-// ── Stuck-automation-run sweeper ─────────────────────────────────────────────
+// ── Stranded-run selection ───────────────────────────────────────────────────
 
-/// An automation run that has no active queue entry driving it forward.
+/// A run that has no active queue entry driving it forward.
 #[derive(Debug, Clone)]
 pub struct StuckRun {
     pub run_id: String,
@@ -176,11 +169,7 @@ pub struct StuckRun {
     /// Every selection that returns a `StuckRun` measures it with one SQL
     /// definition (`unclaimed_secs_sql`): the two a placement gate sits behind
     /// — [`find_pending_global_runs`] (the latency worker) and
-    /// [`find_stuck_runs`] (the periodic stranded tick) — and
-    /// [`find_stuck_automation_runs`], which feeds the automation sweeper. The
-    /// sweeper re-enqueues rather than drives and reads no policy, but its rows
-    /// carry the real number anyway, so handing them to a placement gate later
-    /// cannot misread a long-stranded run as one that just arrived.
+    /// [`find_stuck_runs`] (the periodic stranded tick).
     ///
     /// The clock restarts at the LATEST of three moments, so that any sign of
     /// life postpones it rather than any sign of age advancing it:
@@ -202,88 +191,9 @@ pub struct StuckRun {
     pub unclaimed_secs: u64,
 }
 
-/// Find automation runs that are stranded: `task_status` is non-terminal but no
-/// queue entry for the run or any descendant is in `queued`/`claimed`. These
-/// runs cannot make progress on their own — nothing will re-drive them.
-///
-/// `grace_secs` is a lower bound on `updated_at` age to avoid racing with a
-/// worker that is mid-commit (e.g. has already advanced state but has not yet
-/// enqueued the follow-up).
-///
-/// Intentionally scoped to `source_type = 'workflow'`. Agent/analytics runs
-/// that get into this state are typically unrecoverable (no idempotent
-/// re-drive primitive), and a blanket sweep could false-positive on
-/// long-running LLM calls. Automation decisions are pure + `decision_version`
-/// gated, so a spurious re-enqueue is always safe.
-///
-/// **`unclaimed_secs`:** reported on the same clock as the other two
-/// selections (see [`StuckRun::unclaimed_secs`]). With no `queued` row by
-/// construction, it counts from the later of the run's `updated_at` and a dead
-/// driver's lease lapsing — what `find_stuck_runs` reports for a stranded run
-/// with no queue row.
-pub async fn find_stuck_automation_runs(
-    db: &DatabaseConnection,
-    grace_secs: u64,
-) -> Result<Vec<StuckRun>, DbErr> {
-    use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
-
-    #[derive(FromQueryResult)]
-    struct Row {
-        id: String,
-        task_status: Option<String>,
-        workspace_id: Uuid,
-        source_type: Option<String>,
-        unclaimed_secs: i64,
-    }
-
-    // Active statuses from `get_active_root_runs` / `cleanup_stale_runs` — a
-    // run in any of these is presumed "still supposed to be making progress".
-    // We intentionally exclude `awaiting_input` (HITL suspension — driven by
-    // a user action, not a queue row).
-    let queue_rows = queue_rows_of_run("q");
-    let unclaimed_secs = unclaimed_secs_sql(None, "$2");
-    let sql = format!(
-        "\
-        SELECT r.id, r.task_status, r.workspace_id, r.source_type, \
-               {unclaimed_secs} \
-        FROM agentic_runs r \
-        WHERE r.source_type = 'workflow' \
-          AND r.task_status IN ('running', 'delegating', 'waiting_on_child', 'waiting_on_children') \
-          AND r.updated_at < now() - ($1 || ' seconds')::interval \
-          AND NOT EXISTS ( \
-              SELECT 1 FROM agentic_task_queue q \
-              WHERE {queue_rows} \
-                AND q.queue_status IN ('queued', 'claimed') \
-          )"
-    );
-
-    let rows = Row::find_by_statement(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        sql,
-        [
-            (grace_secs as i64).into(),
-            (DRIVER_LEASE_TTL_SECS as i32).into(),
-        ],
-    ))
-    .all(db)
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|r| StuckRun {
-            run_id: r.id,
-            task_status: r.task_status,
-            workspace_id: r.workspace_id,
-            source_type: r.source_type,
-            // Clamped to 0 in SQL, so the cast cannot wrap.
-            unclaimed_secs: r.unclaimed_secs as u64,
-        })
-        .collect())
-}
-
 /// Find runs that are stranded **and** safe for the periodic global
-/// driver loop to pick up — generalized over `find_stuck_automation_runs`
-/// for `workflow` + `airway` (the Phase 1/2 schedulable targets).
+/// driver loop to pick up — `workflow` + `airway` (the Phase 1/2
+/// schedulable targets).
 ///
 /// "Stranded" means: no queue entry is `claimed` (a live worker — the
 /// dead case is the reaper's job) **and** no entry is `queued` *and*
@@ -352,7 +262,7 @@ pub async fn find_stuck_runs(
     };
     let held_by_a_live_coordinator = queue_rows_of_run("q");
     let queued_global = queue_rows_of_run("g");
-    let unclaimed_secs = unclaimed_secs_sql(Some("g"), "$2");
+    let unclaimed_secs = unclaimed_secs_sql("g", "$2");
     // `GROUP BY r.id` alone is enough for the other `r.*` columns: `id` is the
     // table's primary key, so Postgres treats them as functionally dependent.
     let sql = format!(
@@ -468,7 +378,7 @@ pub async fn find_pending_global_runs(
     };
     let statuses = pending_global_status_sql();
     let queued_global = queue_rows_of_run("q");
-    let unclaimed_secs = unclaimed_secs_sql(Some("q"), "$1");
+    let unclaimed_secs = unclaimed_secs_sql("q", "$1");
     // `GROUP BY r.id` alone is enough for the other `r.*` columns: `id` is the
     // table's primary key, so Postgres treats them as functionally dependent.
     let sql = format!(
@@ -601,16 +511,16 @@ pub async fn increment_attempt(db: &DatabaseConnection, run_id: &str) -> Result<
 
 /// Retire a run and its live queue rows **in one transaction**.
 ///
-/// Both writes or neither. The order matters (queue rows first: [`claim_task`]
-/// has no run-status predicate, so a terminal run with `queued` rows stays
-/// claimable), but ordering alone is not enough — cancelling the queue rows
+/// Both writes or neither. The order matters (queue rows first:
+/// [`claim_task_under_root`] has no run-status predicate, so a terminal run
+/// with `queued` rows stays claimable), but ordering alone is not enough — cancelling the queue rows
 /// removes the run from [`find_pending_global_runs`], whose selection requires a
 /// `queued`, non-scope-owned row. So if the terminal write then failed, nothing
 /// would ever select that run again and it would sit non-terminal forever.
 /// Rolling both back leaves the run exactly as it was, and the next tick
 /// genuinely retries the whole step.
 ///
-/// [`claim_task`]: super::queue::claim_task
+/// [`claim_task_under_root`]: super::queue::claim_task_under_root
 pub async fn retire_run(db: &DatabaseConnection, run_id: &str, reason: &str) -> Result<(), DbErr> {
     retire_run_with_message(db, run_id, &format!("recovery failed: {reason}")).await
 }

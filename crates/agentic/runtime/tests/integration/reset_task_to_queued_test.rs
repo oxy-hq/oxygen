@@ -119,7 +119,7 @@ async fn reset_task_to_queued_revives_an_existing_task() {
     };
     let task_id = seed_airway_task(&db).await;
 
-    // Simulate a failed, previously-claimed task in place (no claim_task race on
+    // Simulate a failed, previously-claimed task in place (no claim race on
     // the shared test DB).
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -324,9 +324,9 @@ async fn reset_clears_the_wait_streak_and_visibility() {
     );
     // And it must be visible NOW, not an hour from now.
     //
-    // Asserted on the column rather than by claiming it: `claim_task` is a
-    // GLOBAL claim and ~400 tests share this database, so any peer can take
-    // this row between the reset and the claim. Testing the property directly
+    // Asserted on the column rather than by claiming it: ~400 tests share
+    // this database, and the row is visible to their global selections between
+    // the reset and the claim. Testing the property directly
     // removes a race that has nothing to do with what is being verified.
     assert_eq!(
         queue_col(&db, &task_id, "(available_at <= now())")

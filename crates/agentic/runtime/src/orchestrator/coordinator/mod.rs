@@ -15,15 +15,13 @@
 //! - [`outcomes`]: handlers for `WorkerMessage::Event` and `TaskOutcome` variants.
 //! - [`fanout`]: per-parent child-result accumulation and resume logic.
 //! - [`suspension`]: handlers for `Suspended` outcomes and human answers.
-//! - [`retry`]: retry/fallback decisions + delegation event emitters.
+//! - [`events`]: delegation event emitters and task-status persistence.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use agentic_core::delegation::{
-    FanoutFailurePolicy, TaskAssignment, TaskOutcome, TaskPolicy, TaskSpec,
-};
+use agentic_core::delegation::{FanoutFailurePolicy, TaskAssignment, TaskOutcome, TaskSpec};
 use agentic_core::transport::CoordinatorTransport;
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc;
@@ -31,12 +29,12 @@ use tokio::sync::mpsc;
 use crate::lifecycle::state::RuntimeState;
 
 mod child_guard;
+pub mod events;
 pub mod fanout;
 pub mod outcomes;
 pub mod policy;
 pub mod recovery;
 mod recovery_status;
-pub mod retry;
 pub mod run_loop;
 pub mod suspension;
 mod terminal_write;
@@ -106,15 +104,9 @@ pub(super) struct TaskNode {
     pub(super) next_seq: i64,
     /// When the task entered a suspended state (for timeout enforcement).
     pub(super) suspended_at: Option<tokio::time::Instant>,
-    // ── Retry/fallback state ────────────────────────────────────────────
-    /// The original TaskSpec for this child task (needed for retries).
+    /// The TaskSpec this child task was assigned. Names the task's kind and
+    /// step in logs and `task_failed`.
     pub(super) original_spec: Option<TaskSpec>,
-    /// The policy governing retries and fallbacks.
-    pub(super) policy: Option<TaskPolicy>,
-    /// Current retry attempt (0 = initial attempt).
-    pub(super) attempt: u32,
-    /// Index into `policy.fallback_targets` (0 = still on primary).
-    pub(super) fallback_index: usize,
     /// Set on children that represent one iteration of a
     /// `loop_sequential` step's fan-out. The coordinator reads this
     /// in `record_child_result` to emit per-iteration progress
@@ -332,9 +324,6 @@ impl Coordinator {
                 next_seq,
                 suspended_at: None,
                 original_spec: None,
-                policy: None,
-                attempt: 0,
-                fallback_index: 0,
                 // Root tasks are never loop iterations.
                 loop_iteration: None,
             },
@@ -365,7 +354,7 @@ impl Coordinator {
     }
 }
 
-// ── Loop / retry helper enums ───────────────────────────────────────────────
+// ── Loop helper enum ────────────────────────────────────────────────────────
 
 pub(super) enum LoopAction {
     WorkerEvent {
@@ -396,25 +385,6 @@ pub(super) enum LoopAction {
     TransportClosed,
     /// A suspend timeout expired — loop back to check_suspend_timeouts.
     SuspendTimeout,
-}
-
-/// What to do when a child task fails and has a retry/fallback policy.
-pub(super) enum RetryAction {
-    /// Retry the same spec after a backoff delay.
-    Retry {
-        delay: Duration,
-        attempt: u32,
-        spec: TaskSpec,
-        run_id: String,
-        parent_task_id: Option<String>,
-    },
-    /// Try a fallback target.
-    Fallback {
-        new_spec: TaskSpec,
-        fallback_index: usize,
-        run_id: String,
-        parent_task_id: Option<String>,
-    },
 }
 
 /// The `source_type` a compile run is stamped with.

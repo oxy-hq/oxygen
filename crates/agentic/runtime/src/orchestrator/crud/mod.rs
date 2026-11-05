@@ -27,7 +27,7 @@ pub use outcomes::{
 pub use queue::{
     DeadTask, DeferOutcome, HeartbeatOutcome, QueueStats, QueueTaskRow, ReapOutcome,
     TASKS_DEAD_LETTERED, TASKS_REQUEUED, TaskScope, TerminalWrite, cancel_queued_task,
-    cancel_queued_task_owned, cancel_queued_tasks_for_run, claim_task, claim_task_under_root,
+    cancel_queued_task_owned, cancel_queued_tasks_for_run, claim_task_under_root,
     complete_queue_task, defer_task, drain_claims_for_worker, enqueue_task, fail_orphaned_claim,
     fail_queue_task, get_queue_entry, get_queue_stats, heartbeat_queue_task,
     mark_released_roots_global, mark_task_global, purge_old_terminal_tasks, reap_stale_tasks,
@@ -35,9 +35,9 @@ pub use queue::{
     set_terminal_status_owned, update_queue_heartbeat,
 };
 pub use recovery::{
-    StuckRun, complete_run_with_lost_outcome, find_pending_global_runs, find_stuck_automation_runs,
-    find_stuck_runs, get_active_root_runs, get_max_child_counter, get_resumable_root_runs,
-    increment_attempt, mark_recovery_failed, owning_run_id, retire_run,
+    StuckRun, complete_run_with_lost_outcome, find_pending_global_runs, find_stuck_runs,
+    get_active_root_runs, get_max_child_counter, get_resumable_root_runs, increment_attempt,
+    mark_recovery_failed, owning_run_id, retire_run,
 };
 pub use retry::{
     RetryState, cancel_waiting_retry, final_failure_message, requeue_failed_attempt, retry_state,

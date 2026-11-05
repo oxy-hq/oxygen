@@ -12,7 +12,7 @@
 //!   which it translates into [`Wake`]s on a shared broadcast channel.
 //! - `wait_for_task` callers race the next wake that concerns them against
 //!   their own timeout. Spurious wakes are fine — the caller's job is
-//!   to call `claim_task` and find out.
+//!   to attempt a claim and find out.
 //! - `notify_enqueued` issues `SELECT pg_notify(...)` through a
 //!   *separate* pooled connection (the SeaORM `DatabaseConnection`),
 //!   so it composes with whatever transaction the caller is in. Postgres
@@ -25,7 +25,7 @@
 //! If the listener connection drops (server failover, OS network
 //! reset, slow-query timeout), the driver task backs off and reconnects.
 //! On reconnect it broadcasts [`Wake::All`] once so any waiting worker
-//! does a catch-up `claim_task` — this covers the window during which
+//! does a catch-up claim — this covers the window during which
 //! notifications could have been missed.
 //!
 //! ## Credentials & the factory pattern
@@ -822,7 +822,7 @@ async fn listen_once(
         "listener connected; LISTEN issued"
     );
     // On a fresh connection, wake anyone waiting to do an immediate
-    // catch-up `claim_task`. If a row was enqueued during the gap
+    // catch-up claim. If a row was enqueued during the gap
     // between connection death and now, the corresponding NOTIFY is
     // lost server-side; this wake gives waiters one chance to find
     // the row themselves.

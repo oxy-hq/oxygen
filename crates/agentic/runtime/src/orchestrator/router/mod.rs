@@ -50,7 +50,7 @@ use async_trait::async_trait;
 ///
 /// The contract is intentionally loose: `wait_for_task` may return for
 /// any reason (real notification, spurious wake, timeout). Callers must
-/// still call `claim_task` to find out whether work is actually
+/// still attempt a claim to find out whether work is actually
 /// available — the router only promises that *if* something was
 /// enqueued, *some* waiter will see a wake before the timeout.
 #[async_trait]
@@ -64,7 +64,7 @@ pub trait TaskRouter: Send + Sync {
     /// without changing every caller. An empty slice means "any class."
     ///
     /// May return early on spurious wakes. After it returns, the caller
-    /// should attempt one `claim_task` and, if that yields nothing,
+    /// should attempt one claim and, if that yields nothing,
     /// loop back to `wait_for_task`.
     async fn wait_for_task(&self, classes: &[String], timeout: Duration);
 

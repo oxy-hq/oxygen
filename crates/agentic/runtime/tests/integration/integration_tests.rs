@@ -2557,490 +2557,6 @@ mod fanout_tests {
     }
 }
 
-// ── Retry and fallback tests ────────────────────────────────────────────────
-
-mod retry_tests {
-    use super::*;
-    use agentic_core::delegation::{
-        BackoffStrategy, DelegationTarget, RetryPolicy, SuspendReason, TaskAssignment, TaskOutcome,
-        TaskPolicy, TaskSpec,
-    };
-    use agentic_core::human_input::SuspendedRunData;
-    use agentic_core::transport::{CoordinatorTransport, WorkerTransport};
-    use agentic_runtime::coordinator::Coordinator;
-    use agentic_runtime::state::RuntimeState;
-    use agentic_runtime::transport::LocalTransport;
-    use agentic_runtime::worker::{ExecutingTask, TaskExecutor, Worker};
-    use async_trait::async_trait;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::Duration;
-    use tokio::sync::mpsc;
-    use tokio_util::sync::CancellationToken;
-
-    fn make_suspend_data() -> SuspendedRunData {
-        SuspendedRunData {
-            from_state: "executing".into(),
-            original_input: "test question".into(),
-            trace_id: "trace-1".into(),
-            stage_data: json!({}),
-            question: "delegate".into(),
-            suggestions: vec![],
-        }
-    }
-
-    /// Executor that delegates with a retry policy. The automation fails
-    /// `fail_count` times then succeeds.
-    struct RetryExecutor {
-        fail_count: u32,
-        attempt_counter: Arc<AtomicU32>,
-    }
-
-    #[async_trait]
-    impl TaskExecutor for RetryExecutor {
-        async fn execute(&self, assignment: TaskAssignment) -> Result<ExecutingTask, String> {
-            let (event_tx, event_rx) = mpsc::channel(16);
-            let (outcome_tx, outcome_rx) = mpsc::channel(4);
-            let cancel = CancellationToken::new();
-
-            let spec = assignment.spec.clone();
-            let fail_count = self.fail_count;
-            let counter = self.attempt_counter.clone();
-            tokio::spawn(async move {
-                drop(event_tx);
-                let outcome = match spec {
-                    TaskSpec::Agent { .. } => TaskOutcome::Suspended {
-                        reason: SuspendReason::Delegation {
-                            target: DelegationTarget::Automation {
-                                workflow_ref: "flaky.yml".into(),
-                            },
-                            request: "run flaky workflow".into(),
-                            context: json!({}),
-                            policy: Some(TaskPolicy {
-                                retry: Some(RetryPolicy {
-                                    max_retries: 3,
-                                    backoff: BackoffStrategy::Fixed { delay_ms: 10 },
-                                    retry_on: vec![],
-                                }),
-                                fallback_targets: vec![],
-                            }),
-                        },
-                        resume_data: make_suspend_data(),
-                        trace_id: "trace-1".into(),
-                    },
-                    TaskSpec::Resume { .. } => TaskOutcome::Done {
-                        answer: "resumed after retry".into(),
-                        metadata: None,
-                    },
-                    TaskSpec::Automation { .. } => {
-                        let attempt = counter.fetch_add(1, Ordering::SeqCst);
-                        if attempt < fail_count {
-                            TaskOutcome::Failed(format!("attempt {attempt} failed"))
-                        } else {
-                            TaskOutcome::Done {
-                                answer: format!("succeeded on attempt {attempt}"),
-                                metadata: None,
-                            }
-                        }
-                    }
-                    TaskSpec::AutomationStep { .. } => TaskOutcome::Done {
-                        answer: "step done".into(),
-                        metadata: None,
-                    },
-                    _ => {
-                        unreachable!("AutomationDecision/Custom not used in runtime tests")
-                    }
-                    TaskSpec::Airway { .. } => {
-                        unreachable!("Airway not used in runtime tests")
-                    }
-                };
-                let _ = outcome_tx.send(outcome).await;
-            });
-
-            Ok(ExecutingTask {
-                events: event_rx,
-                outcomes: outcome_rx,
-                cancel,
-                answers: None,
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn test_retry_succeeds_on_second_attempt() {
-        let Some(db) = test_db().await else {
-            return;
-        };
-        let run_id = test_run_id();
-        crud::insert_run(
-            &db,
-            &run_id,
-            "test Q",
-            None,
-            "analytics",
-            None,
-            uuid::Uuid::nil(),
-        )
-        .await
-        .unwrap();
-
-        let state = Arc::new(RuntimeState::new());
-        let transport = LocalTransport::with_defaults();
-        let counter = Arc::new(AtomicU32::new(0));
-
-        let executor = Arc::new(RetryExecutor {
-            fail_count: 1, // Fail once, then succeed.
-            attempt_counter: counter.clone(),
-        });
-        let worker = Worker::new(transport.clone() as Arc<dyn WorkerTransport>, executor);
-
-        let (_answer_tx, answer_rx) = mpsc::channel::<String>(1);
-        let mut coordinator = Coordinator::new(
-            db.clone(),
-            state.clone(),
-            transport.clone() as Arc<dyn CoordinatorTransport>,
-        );
-        coordinator.register_answer_channel(run_id.clone(), answer_rx);
-
-        coordinator
-            .submit_root(
-                run_id.clone(),
-                TaskSpec::Agent {
-                    agent_id: "test".into(),
-                    question: "test Q".into(),
-                    extra: None,
-                },
-            )
-            .await
-            .unwrap();
-
-        tokio::spawn(async move { worker.run().await });
-        let coord_handle = tokio::spawn(async move { coordinator.run().await });
-
-        tokio::time::timeout(Duration::from_secs(10), coord_handle)
-            .await
-            .expect("coordinator timed out")
-            .expect("coordinator panicked");
-
-        // Root should be done (retry succeeded).
-        let root = crud::get_run(&db, &run_id).await.unwrap().unwrap();
-        assert_eq!(
-            crud::user_facing_status(root.task_status.as_deref()),
-            "done",
-            "root should complete after retry"
-        );
-
-        // The automation was called twice (1 fail + 1 success).
-        assert_eq!(counter.load(Ordering::SeqCst), 2);
-
-        // Verify delegation_retry event was emitted.
-        let events = crud::get_all_events(&db, &run_id).await.unwrap();
-        let retry_events: Vec<_> = events
-            .iter()
-            .filter(|e| e.event_type == "delegation_retry")
-            .collect();
-        assert_eq!(
-            retry_events.len(),
-            1,
-            "should have 1 delegation_retry event"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_retry_exhausted_then_fallback() {
-        let Some(db) = test_db().await else {
-            return;
-        };
-        let run_id = test_run_id();
-        crud::insert_run(
-            &db,
-            &run_id,
-            "test Q",
-            None,
-            "analytics",
-            None,
-            uuid::Uuid::nil(),
-        )
-        .await
-        .unwrap();
-
-        /// Executor that always fails on the primary automation but succeeds on fallback.
-        struct FallbackExecutor;
-
-        #[async_trait]
-        impl TaskExecutor for FallbackExecutor {
-            async fn execute(&self, assignment: TaskAssignment) -> Result<ExecutingTask, String> {
-                let (event_tx, event_rx) = mpsc::channel(16);
-                let (outcome_tx, outcome_rx) = mpsc::channel(4);
-                let cancel = CancellationToken::new();
-
-                let spec = assignment.spec.clone();
-                tokio::spawn(async move {
-                    drop(event_tx);
-                    let outcome = match spec {
-                        TaskSpec::Agent { .. } => TaskOutcome::Suspended {
-                            reason: SuspendReason::Delegation {
-                                target: DelegationTarget::Automation {
-                                    workflow_ref: "primary.yml".into(),
-                                },
-                                request: "run primary".into(),
-                                context: json!({}),
-                                policy: Some(TaskPolicy {
-                                    retry: Some(RetryPolicy {
-                                        max_retries: 1,
-                                        backoff: BackoffStrategy::Fixed { delay_ms: 10 },
-                                        retry_on: vec![],
-                                    }),
-                                    fallback_targets: vec![DelegationTarget::Automation {
-                                        workflow_ref: "fallback.yml".into(),
-                                    }],
-                                }),
-                            },
-                            resume_data: make_suspend_data(),
-                            trace_id: "trace-1".into(),
-                        },
-                        TaskSpec::Resume { .. } => TaskOutcome::Done {
-                            answer: "resumed after fallback".into(),
-                            metadata: None,
-                        },
-                        TaskSpec::Automation { workflow_ref, .. } => {
-                            if workflow_ref.contains("primary") {
-                                TaskOutcome::Failed("primary always fails".into())
-                            } else {
-                                TaskOutcome::Done {
-                                    answer: format!("fallback {workflow_ref} succeeded"),
-                                    metadata: None,
-                                }
-                            }
-                        }
-                        TaskSpec::AutomationStep { .. } => TaskOutcome::Done {
-                            answer: "step done".into(),
-                            metadata: None,
-                        },
-                        _ => {
-                            unreachable!("AutomationDecision/Custom not used in runtime tests")
-                        }
-                        TaskSpec::Airway { .. } => {
-                            unreachable!("Airway not used in runtime tests")
-                        }
-                    };
-                    let _ = outcome_tx.send(outcome).await;
-                });
-
-                Ok(ExecutingTask {
-                    events: event_rx,
-                    outcomes: outcome_rx,
-                    cancel,
-                    answers: None,
-                })
-            }
-        }
-
-        let state = Arc::new(RuntimeState::new());
-        let transport = LocalTransport::with_defaults();
-
-        let executor = Arc::new(FallbackExecutor);
-        let worker = Worker::new(transport.clone() as Arc<dyn WorkerTransport>, executor);
-
-        let (_answer_tx, answer_rx) = mpsc::channel::<String>(1);
-        let mut coordinator = Coordinator::new(
-            db.clone(),
-            state.clone(),
-            transport.clone() as Arc<dyn CoordinatorTransport>,
-        );
-        coordinator.register_answer_channel(run_id.clone(), answer_rx);
-
-        coordinator
-            .submit_root(
-                run_id.clone(),
-                TaskSpec::Agent {
-                    agent_id: "test".into(),
-                    question: "test Q".into(),
-                    extra: None,
-                },
-            )
-            .await
-            .unwrap();
-
-        tokio::spawn(async move { worker.run().await });
-        let coord_handle = tokio::spawn(async move { coordinator.run().await });
-
-        tokio::time::timeout(Duration::from_secs(10), coord_handle)
-            .await
-            .expect("coordinator timed out")
-            .expect("coordinator panicked");
-
-        // Root should be done (fallback succeeded).
-        let root = crud::get_run(&db, &run_id).await.unwrap().unwrap();
-        assert_eq!(
-            crud::user_facing_status(root.task_status.as_deref()),
-            "done",
-            "root should complete after fallback succeeds"
-        );
-
-        // Verify both retry and fallback events were emitted.
-        let events = crud::get_all_events(&db, &run_id).await.unwrap();
-        let retry_count = events
-            .iter()
-            .filter(|e| e.event_type == "delegation_retry")
-            .count();
-        let fallback_count = events
-            .iter()
-            .filter(|e| e.event_type == "delegation_fallback")
-            .count();
-
-        assert!(retry_count >= 1, "should have retry events");
-        assert_eq!(fallback_count, 1, "should have 1 fallback event");
-    }
-
-    #[tokio::test]
-    async fn test_retry_pattern_matching() {
-        let Some(db) = test_db().await else {
-            return;
-        };
-        let run_id = test_run_id();
-        crud::insert_run(
-            &db,
-            &run_id,
-            "test Q",
-            None,
-            "analytics",
-            None,
-            uuid::Uuid::nil(),
-        )
-        .await
-        .unwrap();
-
-        /// Executor that fails with a specific error and only retries on matching patterns.
-        struct PatternExecutor {
-            counter: Arc<AtomicU32>,
-        }
-
-        #[async_trait]
-        impl TaskExecutor for PatternExecutor {
-            async fn execute(&self, assignment: TaskAssignment) -> Result<ExecutingTask, String> {
-                let (event_tx, event_rx) = mpsc::channel(16);
-                let (outcome_tx, outcome_rx) = mpsc::channel(4);
-                let cancel = CancellationToken::new();
-
-                let spec = assignment.spec.clone();
-                let counter = self.counter.clone();
-                tokio::spawn(async move {
-                    drop(event_tx);
-                    let outcome = match spec {
-                        TaskSpec::Agent { .. } => TaskOutcome::Suspended {
-                            reason: SuspendReason::Delegation {
-                                target: DelegationTarget::Automation {
-                                    workflow_ref: "pattern_test.yml".into(),
-                                },
-                                request: "test".into(),
-                                context: json!({}),
-                                policy: Some(TaskPolicy {
-                                    retry: Some(RetryPolicy {
-                                        max_retries: 3,
-                                        backoff: BackoffStrategy::Fixed { delay_ms: 10 },
-                                        retry_on: vec!["transient".into()],
-                                    }),
-                                    fallback_targets: vec![],
-                                }),
-                            },
-                            resume_data: SuspendedRunData {
-                                from_state: "executing".into(),
-                                original_input: "test".into(),
-                                trace_id: "t".into(),
-                                stage_data: json!({}),
-                                question: "q".into(),
-                                suggestions: vec![],
-                            },
-                            trace_id: "t".into(),
-                        },
-                        TaskSpec::Resume { .. } => TaskOutcome::Done {
-                            answer: "done".into(),
-                            metadata: None,
-                        },
-                        TaskSpec::Automation { .. } => {
-                            let attempt = counter.fetch_add(1, Ordering::SeqCst);
-                            if attempt == 0 {
-                                // First failure: "transient" — should retry.
-                                TaskOutcome::Failed("transient error".into())
-                            } else {
-                                // Second failure: "permanent" — should NOT retry.
-                                TaskOutcome::Failed("permanent error".into())
-                            }
-                        }
-                        TaskSpec::AutomationStep { .. } => TaskOutcome::Done {
-                            answer: "step done".into(),
-                            metadata: None,
-                        },
-                        _ => {
-                            unreachable!("AutomationDecision/Custom not used in runtime tests")
-                        }
-                        TaskSpec::Airway { .. } => {
-                            unreachable!("Airway not used in runtime tests")
-                        }
-                    };
-                    let _ = outcome_tx.send(outcome).await;
-                });
-
-                Ok(ExecutingTask {
-                    events: event_rx,
-                    outcomes: outcome_rx,
-                    cancel,
-                    answers: None,
-                })
-            }
-        }
-
-        let state = Arc::new(RuntimeState::new());
-        let transport = LocalTransport::with_defaults();
-        let counter = Arc::new(AtomicU32::new(0));
-
-        let executor = Arc::new(PatternExecutor {
-            counter: counter.clone(),
-        });
-        let worker = Worker::new(transport.clone() as Arc<dyn WorkerTransport>, executor);
-
-        let (_answer_tx, answer_rx) = mpsc::channel::<String>(1);
-        let mut coordinator = Coordinator::new(
-            db.clone(),
-            state.clone(),
-            transport.clone() as Arc<dyn CoordinatorTransport>,
-        );
-        coordinator.register_answer_channel(run_id.clone(), answer_rx);
-
-        coordinator
-            .submit_root(
-                run_id.clone(),
-                TaskSpec::Agent {
-                    agent_id: "test".into(),
-                    question: "test Q".into(),
-                    extra: None,
-                },
-            )
-            .await
-            .unwrap();
-
-        tokio::spawn(async move { worker.run().await });
-        let coord_handle = tokio::spawn(async move { coordinator.run().await });
-
-        tokio::time::timeout(Duration::from_secs(10), coord_handle)
-            .await
-            .expect("coordinator timed out")
-            .expect("coordinator panicked");
-
-        // Should have retried once (transient), then failed on permanent.
-        assert_eq!(counter.load(Ordering::SeqCst), 2, "should have 2 attempts");
-
-        // Root should be done (parent resumed with failure message).
-        let root = crud::get_run(&db, &run_id).await.unwrap().unwrap();
-        assert_eq!(
-            crud::user_facing_status(root.task_status.as_deref()),
-            "done",
-            "root should complete (resumed with error)"
-        );
-    }
-}
-
 // ── Crash recovery tests (task_outcomes table) ────────────────────────────────
 //
 // These tests simulate the crash windows at the parent-child boundary by
@@ -4749,8 +4265,8 @@ mod recovery_attempt_tests {
 
 /// Reset the global task-queue tables so each queue test starts from a clean
 /// slate. The whole `agentic-runtime` integration binary shares ONE Postgres
-/// (a reused testcontainer locally / a single CI service) and both `claim_task`
-/// and outcome `recv` are GLOBAL — so any row a prior test left behind (e.g. a
+/// (a reused testcontainer locally / a single CI service) and outcome `recv`
+/// is GLOBAL — so any row a prior test left behind (e.g. a
 /// requeued/reaped task left `queued`) would be poached by the next test's
 /// "claim my task" / "queue is empty" assertions. Called from `test_db()` so
 /// every test gets the clean slate. The `serial-db` nextest group runs these DB
@@ -4827,9 +4343,9 @@ async fn test_enqueue_and_claim_task() {
         .expect("queue entry not found");
     assert_eq!(entry.queue_status, "queued");
 
-    let claimed = crud::claim_task(&db, "worker-1")
+    let claimed = crud::claim_task_under_root(&db, "worker-1", &task_id)
         .await
-        .expect("claim_task failed")
+        .expect("claim_task_under_root failed")
         .expect("no task to claim");
     assert_eq!(claimed.task_id, task_id);
 
@@ -4838,9 +4354,9 @@ async fn test_enqueue_and_claim_task() {
     assert_eq!(entry.worker_id.as_deref(), Some("worker-1"));
     assert_eq!(entry.claim_count, 1);
 
-    let nothing = crud::claim_task(&db, "worker-2")
+    let nothing = crud::claim_task_under_root(&db, "worker-2", &task_id)
         .await
-        .expect("claim_task failed");
+        .expect("claim_task_under_root failed");
     assert!(nothing.is_none());
 }
 
@@ -4851,7 +4367,10 @@ async fn test_complete_and_fail_task() {
     };
 
     let (task_id_1, _) = enqueue_test_task(&db).await;
-    crud::claim_task(&db, "w1").await.unwrap().unwrap();
+    crud::claim_task_under_root(&db, "w1", &task_id_1)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         crud::complete_queue_task(&db, &task_id_1, "w1", None)
             .await
@@ -4867,7 +4386,10 @@ async fn test_complete_and_fail_task() {
 
     // Test fail.
     let (task_id_2, _) = enqueue_test_task(&db).await;
-    crud::claim_task(&db, "w1").await.unwrap().unwrap();
+    crud::claim_task_under_root(&db, "w1", &task_id_2)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         crud::fail_queue_task(&db, &task_id_2, "w1", None)
             .await
@@ -4897,7 +4419,9 @@ async fn test_cancel_queued_task() {
     assert_eq!(entry.queue_status, "cancelled");
 
     // Cancelled tasks should not be claimable.
-    let nothing = crud::claim_task(&db, "w1").await.unwrap();
+    let nothing = crud::claim_task_under_root(&db, "w1", &task_id)
+        .await
+        .unwrap();
     assert!(nothing.is_none());
 }
 
@@ -4908,7 +4432,10 @@ async fn test_heartbeat_and_reap() {
     };
     let (task_id, _) = enqueue_test_task(&db).await;
 
-    crud::claim_task(&db, "w1").await.unwrap().unwrap();
+    crud::claim_task_under_root(&db, "w1", &task_id)
+        .await
+        .unwrap()
+        .unwrap();
 
     // Heartbeat should update last_heartbeat. Keyed on the claiming worker —
     // a heartbeat may only stamp a row its own worker still holds.
@@ -4948,7 +4475,10 @@ async fn test_heartbeat_and_reap() {
     assert_eq!(entry.queue_status, "queued");
     assert!(entry.worker_id.is_none());
 
-    let claimed = crud::claim_task(&db, "w2").await.unwrap().unwrap();
+    let claimed = crud::claim_task_under_root(&db, "w2", &task_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(claimed.claim_count, 2);
 }
 
@@ -4961,7 +4491,7 @@ async fn test_dead_letter_after_max_claims() {
 
     // Claim and reap repeatedly until max_claims (default 3).
     for i in 0..3 {
-        crud::claim_task(&db, &format!("w{i}"))
+        crud::claim_task_under_root(&db, &format!("w{i}"), &task_id)
             .await
             .unwrap()
             .unwrap();
@@ -4987,7 +4517,9 @@ async fn test_dead_letter_after_max_claims() {
     assert_eq!(entry.queue_status, "dead");
 
     // Dead tasks should not be claimable.
-    let nothing = crud::claim_task(&db, "w-final").await.unwrap();
+    let nothing = crud::claim_task_under_root(&db, "w-final", &task_id)
+        .await
+        .unwrap();
     assert!(nothing.is_none());
 }
 
@@ -5011,7 +4543,9 @@ async fn setup_durable_transport(
     )
     .await
     .unwrap();
-    let transport = DurableTransport::new(db.clone());
+    // Scoped to the run, as every production worker's transport is: an
+    // unscoped `DurableTransport` claims nothing.
+    let transport = DurableTransport::new_scoped(db.clone(), run_id.clone());
     (transport, run_id)
 }
 
@@ -5263,7 +4797,10 @@ async fn test_requeue_task_upserts_existing_entry() {
     let (task_id, _run_id) = enqueue_test_task(&db).await;
 
     // Claim the task (simulates worker picking it up).
-    let claimed = crud::claim_task(&db, "worker-1").await.unwrap().unwrap();
+    let claimed = crud::claim_task_under_root(&db, "worker-1", &task_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(claimed.task_id, task_id);
 
     let entry = crud::get_queue_entry(&db, &task_id).await.unwrap().unwrap();
@@ -5296,7 +4833,10 @@ async fn test_requeue_task_upserts_existing_entry() {
     }
 
     // The re-queued task should be claimable.
-    let reclaimed = crud::claim_task(&db, "worker-2").await.unwrap().unwrap();
+    let reclaimed = crud::claim_task_under_root(&db, "worker-2", &task_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(reclaimed.task_id, task_id);
 }
 
@@ -5403,24 +4943,22 @@ async fn test_driver_lease() {
     );
 }
 
-/// Rung-2 acceptance proof (consolidated, claim + lease layers).
+/// Rung-2 acceptance proof (claim + lease layers).
 ///
-/// The whole Phase-1 safety story in one deterministic test:
-///   1. The unscoped/global claim path NEVER returns a `scope_owned`
-///      (interactive) task — even when it is the only queued row.
-///   2. The scoped path STILL claims that interactive task, so the
-///      per-request coordinator never stalls.
-///   3. The driver-lease CAS rejects a second concurrent driver for the
+///   1. The scoped path claims an interactive (`scope_owned`) task, so the
+///      per-request coordinator never stalls. (That no other driver takes
+///      the run is a property of the global selections, which skip
+///      `scope_owned` rows — see `stuck_run_sweeper_test`.)
+///   2. The driver-lease CAS rejects a second concurrent driver for the
 ///      same run, so two loops/replicas can't double-drive.
 #[tokio::test]
-async fn test_rung2_global_never_poaches_scoped() {
+async fn test_rung2_scoped_claim_and_single_driver() {
     let Some(db) = test_db().await else {
         return;
     };
     let run_scoped = test_run_id();
-    let run_global = test_run_id();
 
-    // Queue rows FK to agentic_runs — seed the run rows first.
+    // Queue rows FK to agentic_runs — seed the run row first.
     crud::insert_run(
         &db,
         &run_scoped,
@@ -5432,71 +4970,24 @@ async fn test_rung2_global_never_poaches_scoped() {
     )
     .await
     .expect("insert run_scoped");
-    crud::insert_run(
-        &db,
-        &run_global,
-        "Q",
-        None,
-        "workflow",
-        None,
-        uuid::Uuid::nil(),
-    )
-    .await
-    .expect("insert run_global");
 
-    let spec = |rid: &str| TaskSpec::AutomationDecision {
-        run_id: rid.to_string(),
-        pending_child_answer: None,
-    };
-
-    // An interactive run's root task (a per-request coordinator owns it)…
+    // An interactive run's root task (a per-request coordinator owns it).
     crud::enqueue_task(
         &db,
         &run_scoped,
         &run_scoped,
         None,
-        &spec(&run_scoped),
+        &TaskSpec::AutomationDecision {
+            run_id: run_scoped.clone(),
+            pending_child_answer: None,
+        },
         None,
         crud::TaskScope::Scoped,
     )
     .await
     .expect("enqueue scoped");
-    // …and a global (scheduler-seeded / orphaned) root task.
-    crud::enqueue_task(
-        &db,
-        &run_global,
-        &run_global,
-        None,
-        &spec(&run_global),
-        None,
-        crud::TaskScope::Global,
-    )
-    .await
-    .expect("enqueue global");
 
-    // (1) The global worker claims ONLY the Global task.
-    let claimed = crud::claim_task(&db, "global-worker-1")
-        .await
-        .expect("claim_task")
-        .expect("a global task must be claimable");
-    assert_eq!(
-        claimed.task_id, run_global,
-        "global claim path must return the Global task, never the Scoped one"
-    );
-    assert!(!claimed.scope_owned);
-
-    // The Scoped task is now the only queued row. The global path must
-    // STILL refuse it — this is the anti-poaching invariant.
-    let none = crud::claim_task(&db, "global-worker-2")
-        .await
-        .expect("claim_task");
-    assert!(
-        none.is_none(),
-        "global claim path must never claim a scope_owned task, even as \
-         the sole queued row (got {none:?})"
-    );
-
-    // (2) The scoped path still claims the interactive task → the
+    // (1) The scoped path claims the interactive task → the
     // per-request coordinator is not starved.
     let scoped = crud::claim_task_under_root(&db, "scoped-coordinator", &run_scoped)
         .await
@@ -5504,7 +4995,7 @@ async fn test_rung2_global_never_poaches_scoped() {
         .expect("scoped worker must still claim its own task");
     assert_eq!(scoped.task_id, run_scoped);
 
-    // (3) Driver-lease CAS rejects a concurrent second driver.
+    // (2) Driver-lease CAS rejects a concurrent second driver.
     let leased_run = test_run_id();
     crud::insert_run(
         &db,
@@ -5567,10 +5058,10 @@ async fn test_rung4_kill_and_recover() {
 
     // A driver claims it and takes the lease — then is hard-killed
     // (no further heartbeats).
-    let claimed = crud::claim_task(&db, "dead-worker")
+    let claimed = crud::claim_task_under_root(&db, "dead-worker", &run_id)
         .await
         .unwrap()
-        .expect("global worker claims the Global task");
+        .expect("the driver claims the Global task");
     assert_eq!(claimed.task_id, run_id);
     assert!(
         crud::try_acquire_driver(&db, &run_id, "dead-driver")

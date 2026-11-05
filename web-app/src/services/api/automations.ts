@@ -215,12 +215,10 @@ export type AutomationEvent =
       };
     }
   /**
-   * Coordinator-emitted: a worker reported `Failed` for a task. Fires
-   * once per attempt, *before* the coordinator decides retry / fallback
-   * / finalize — admins can attribute every failure to the specific
-   * `spec_kind` that errored. Subsequent events on the same stream
-   * (`delegation_retry`, `delegation_fallback`, `delegation_completed`)
-   * narrate the coordinator's reaction.
+   * Coordinator-emitted: a worker reported `Failed` for a task, so
+   * admins can attribute every failure to the specific `spec_kind` that
+   * errored. A child's `delegation_completed { success: false }` follows.
+   * `attempt` is always 0 (the coordinator no longer retries).
    */
   | {
       type: "task_failed";

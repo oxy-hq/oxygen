@@ -197,7 +197,7 @@ pub async fn recover_active_runs(
             Err(e) => {
                 log_recovery_failure(&run_id, &e, "failed to recover run");
                 // `retire_run`, not `mark_recovery_failed`: failing the run
-                // alone leaves its queue rows `queued`, and `claim_task` has no
+                // alone leaves its queue rows `queued`, and a claim has no
                 // run-status predicate — so a worker can still claim and execute
                 // a task belonging to a run that is already dead.
                 agentic_runtime::crud::retire_run(&db, &run_id, &e)

@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
 
-use agentic_core::delegation::{ClaimEpoch, TaskAssignment, TaskOutcome, TaskSpec};
+use agentic_core::delegation::{ClaimEpoch, TaskAssignment, TaskOutcome};
 use agentic_core::transport::{
     CoordinatorTransport, TransportError, WorkerMessage, WorkerTransport,
 };
@@ -99,6 +99,10 @@ pub struct DurableTransport {
     /// outcome (the task isn't in its in-memory `self.tasks` map),
     /// `handle_done` early-returns, and the right coordinator hangs
     /// waiting for an outcome that already arrived elsewhere.
+    ///
+    /// When unset, [`recv_assignment`] claims nothing. Every transport a
+    /// production worker drains is scoped; the unscoped ones (the recovery
+    /// loops' and admin's) only reap, prune and enqueue.
     task_id_root: Option<String>,
 
     /// Retry the root task per its queue row's policy when it fails, rather
@@ -639,107 +643,6 @@ impl DurableTransport {
     // [`crate::orchestrator::background::start`], which runs a single process-level
     // task per app instance. The old per-transport spawn was dead code
     // (no production caller) — see commit history for the audit trail.
-
-    /// Run a single stuck-automation-run sweep.
-    ///
-    /// Finds automation runs in non-terminal `task_status` with no queue entry
-    /// for themselves or any descendant, and re-enqueues a fresh
-    /// `AutomationDecision` for each. The decider is idempotent under the
-    /// `decision_version` CAS, so a race where two sweepers (or a sweeper and
-    /// a real worker) both re-enqueue is safe — one will win the CAS, the
-    /// other will return `VersionConflict` and exit cleanly.
-    ///
-    /// `grace_secs` is the minimum `updated_at` age before a run is eligible,
-    /// to avoid racing with an in-flight commit. Returns the number of runs
-    /// rescued in this pass.
-    #[tracing::instrument(
-        target = "transport",
-        name = "stuck_run_sweeper_cycle",
-        skip(self),
-        fields(rescued = tracing::field::Empty, stuck = tracing::field::Empty)
-    )]
-    pub async fn run_stuck_run_sweeper(&self, grace_secs: u64) -> u64 {
-        let stuck = match crud::find_stuck_automation_runs(&self.db, grace_secs).await {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!("stuck-run sweeper: query failed: {e}");
-                return 0;
-            }
-        };
-
-        tracing::Span::current().record("stuck", stuck.len() as u64);
-        let mut rescued: u64 = 0;
-        for run in &stuck {
-            let spec = TaskSpec::AutomationDecision {
-                run_id: run.run_id.clone(),
-                pending_child_answer: None,
-            };
-            // Re-enqueue as an AutomationDecision. `enqueue_task` upserts on
-            // conflict — if another writer has already re-driven the run
-            // between our query and this call, we harmlessly overwrite with
-            // the same spec shape. The stuck-run sweeper rescues orphaned
-            // runs that have no in-process driver, so this is `Global`:
-            // the recovery/global loop is responsible for driving it.
-            if let Err(e) = crud::enqueue_task(
-                &self.db,
-                &run.run_id,
-                &run.run_id,
-                None,
-                &spec,
-                None,
-                crud::TaskScope::Global,
-            )
-            .await
-            {
-                tracing::error!(
-                    run_id = %run.run_id,
-                    error = %e,
-                    "stuck-run sweeper: failed to re-enqueue AutomationDecision"
-                );
-                continue;
-            }
-            tracing::warn!(
-                run_id = %run.run_id,
-                task_status = ?run.task_status,
-                "stuck-run sweeper: re-enqueued AutomationDecision"
-            );
-            rescued += 1;
-        }
-
-        tracing::Span::current().record("rescued", rescued);
-        if rescued > 0 {
-            self.new_task_notify.notify_waiters();
-        }
-        rescued
-    }
-
-    /// Spawn a background sweeper that periodically calls
-    /// [`run_stuck_run_sweeper`](Self::run_stuck_run_sweeper).
-    ///
-    /// Use `grace_secs >= interval` so the sweeper never acts on a run it
-    /// just observed in the previous pass.
-    pub fn spawn_stuck_run_sweeper(
-        self: &Arc<Self>,
-        interval: Duration,
-        grace_secs: u64,
-    ) -> CancellationToken {
-        let cancel = CancellationToken::new();
-        let transport = Arc::clone(self);
-        let cancel_clone = cancel.clone();
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(interval);
-            ticker.tick().await; // first tick is immediate, skip it
-            loop {
-                tokio::select! {
-                    _ = ticker.tick() => {
-                        transport.run_stuck_run_sweeper(grace_secs).await;
-                    }
-                    _ = cancel_clone.cancelled() => break,
-                }
-            }
-        });
-        cancel
-    }
 }
 
 #[async_trait]
@@ -1224,8 +1127,7 @@ mod pool_backoff_tests {
         use agentic_core::transport::WorkerTransport;
         // A `Disconnected` handle errors on ANY query, so reaching `None` at all
         // proves the retirement check runs before the claim round-trip.
-        let t =
-            DurableTransport::with_config(DatabaseConnection::default(), Duration::from_millis(10));
+        let t = DurableTransport::new_scoped(DatabaseConnection::default(), "root".into());
         t.retire_worker_loop();
         assert!(
             t.recv_assignment().await.is_none(),
@@ -1240,8 +1142,7 @@ mod pool_backoff_tests {
         // had no `None` path at all, so `Worker::run` never broke and every
         // finished run left a poller hitting the queue for the life of the
         // process. A live transport must still never exit on its own...
-        let t =
-            DurableTransport::with_config(DatabaseConnection::default(), Duration::from_millis(10));
+        let t = DurableTransport::new_scoped(DatabaseConnection::default(), "root".into());
         assert!(
             tokio::time::timeout(Duration::from_millis(200), t.recv_assignment())
                 .await

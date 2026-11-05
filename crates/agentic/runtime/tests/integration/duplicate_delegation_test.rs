@@ -342,14 +342,14 @@ async fn fail_orphaned_claim_only_touches_this_process_claim() {
 /// is which.
 ///
 /// **`Scoped`, deliberately.** `Global` (`scope_owned = false`) is what the
-/// unscoped [`crud::claim_task`] selects, and it takes *the oldest queued root
-/// row in the whole table* — not one keyed to any run. This Postgres is shared
-/// with the `agentic-pipeline` and `agentic-airway` suites, so a concurrent
-/// worker there will happily claim a `Global` row seeded here; [`force_claim`]
-/// would then find no `queued` row and trip its `rows_affected == 1` assert,
-/// failing for reasons that have nothing to do with what is under test.
-/// Scoping costs this test nothing — nothing here goes through the global claim
-/// path — and takes the race off the table. It also leaves case (c)'s
+/// global recovery selections pick up, across the whole table — not keyed to
+/// any run. This Postgres is shared with the `agentic-pipeline` and
+/// `agentic-airway` suites, so a concurrent recovery pass there could take a
+/// `Global` row seeded here; [`force_claim`] would then find no `queued` row
+/// and trip its `rows_affected == 1` assert, failing for reasons that have
+/// nothing to do with what is under test. Scoping costs this test nothing —
+/// nothing here goes through the global path — and takes the race off the
+/// table. It also leaves case (c)'s
 /// permanently-`queued` row unclaimable by any other suite.
 async fn seed_queued_task(db: &DatabaseConnection) -> String {
     let run_id = format!("orphan-{}", uuid::Uuid::new_v4());

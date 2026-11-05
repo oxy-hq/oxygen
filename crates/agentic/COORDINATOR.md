@@ -2,7 +2,7 @@
 
 ## Overview
 
-The coordinator-worker architecture manages multi-agent task execution: delegation between agents, workflow automation runs, human-in-the-loop (HITL), retry/fallback policies, and crash recovery. It sits between the pipeline layer (domain logic) and the transport layer (message delivery).
+The coordinator-worker architecture manages multi-agent task execution: delegation between agents, workflow automation runs, human-in-the-loop (HITL), and crash recovery. It sits between the pipeline layer (domain logic) and the transport layer (message delivery).
 
 ```
 HTTP/CLI
@@ -28,7 +28,7 @@ Manages an in-memory task tree. Receives `WorkerMessage`s from transport, routes
 - Delegation: spawns child tasks when a pipeline suspends
 - Fan-out: `ParallelDelegation` spawns N children, collects results
 - Resume: sends answer back to suspended parent (via answer channel or `TaskSpec::Resume`)
-- Retry/fallback: retries failed children with backoff, falls back to alternative targets
+- Failure: a failure that reaches the coordinator is terminal. Retries live on the queue row (`TaskPolicy::retry`, applied by `DurableTransport::retry_failed_root` for opted-in roots); the coordinator never retries or falls back
 - Persistence: writes `task_status` + `task_metadata` on every transition via `persist_task_status()` (intermediate) or `transition_run()` (terminal)
 - Event bubbling: child events propagated as `delegation_event` to all ancestors up to root
 - Timeout enforcement: auto-fails `delegating` tasks after 30 min (`awaiting_input` tasks never timeout)
@@ -308,29 +308,6 @@ Analytics root (uuid)                    task_status: running
 └─ [future: second delegation if needed]
 ```
 
-## Retry & Fallback
-
-When a child task has a `TaskPolicy`:
-
-```
-Child fails with error "connection timeout"
-  │
-  ├─ check_retry_or_fallback():
-  │   ├─ retry.max_retries > attempt?
-  │   │   ├─ retry_on patterns match? (empty = match all)
-  │   │   │   → RetryAction::Retry { delay, attempt+1, same spec }
-  │   │   │   → Backoff delay (Fixed or Exponential)
-  │   │   │   → Re-assign same TaskSpec to worker
-  │   │   │   → Emit delegation_retry event
-  │   │   └─ Pattern doesn't match → skip to fallback
-  │   └─ fallback_targets[fallback_index] exists?
-  │       → RetryAction::Fallback { new_spec, fallback_index+1 }
-  │       → Reset attempt counter
-  │       → Emit delegation_fallback event
-  │
-  └─ All exhausted → finalize_failed() → propagate to parent
-```
-
 ## Crash Recovery
 
 Recovery is **transparent** — no attempt increment, no visible boundary to users. Partial events from the interrupted execution are cleaned up, and a lightweight `recovery_resumed` marker is emitted.
@@ -362,7 +339,6 @@ Server Startup
     │     ├─ Coordinator::from_db(root_run_id) → rebuild task tree
     │     │   ├─ Load runs via parent_run_id chain (BFS)
     │     │   ├─ Rebuild TaskNode state from DB
-    │     │   ├─ Restore retry state (attempt, fallback_index, policy)
     │     │   ├─ Rebuild completed map from agentic_task_outcomes (crash-safe)
     │     │   ├─ Detect PendingResumes (children done, parent not resumed)
     │     │   └─ Initialize child_counter from existing children (collision-safe)
@@ -438,7 +414,7 @@ agentic_runs (
 
   -- Single source of truth for coordinator state
   task_status TEXT,       -- running|awaiting_input|delegating|done|failed|cancelled|timed_out|shutdown
-  task_metadata JSONB,    -- child_task_ids, completed, failure_policy, retry state
+  task_metadata JSONB,    -- child_task_ids, completed, failure_policy, original_spec
 
   attempt INT DEFAULT 0,  -- reserved for future user-initiated retry
   recovery_requested_at TIMESTAMPTZ,  -- reserved for future selective recovery
@@ -528,6 +504,6 @@ agentic_task_queue (
 
 9. **HITL never times out.** Only `delegating` tasks (waiting for children) time out after 30 min. `awaiting_input` tasks (waiting for human answer) persist indefinitely — they consume no resources and users may respond hours later.
 
-10. **Cancelled is distinct from failed.** `TaskOutcome::Cancelled` routes to `handle_cancelled()`, not `handle_failed()`. This preserves user intent in the DB (`task_status = "cancelled"`) and skips retry/fallback logic.
+10. **Cancelled is distinct from failed.** `TaskOutcome::Cancelled` routes to `handle_cancelled()`, not `handle_failed()`. This preserves user intent in the DB (`task_status = "cancelled"`) and never reaches `finalize_failed()`.
 
 11. **Shutdown is distinct from cancelled.** Graceful shutdown marks runs as `task_status = "shutdown"`, not `"cancelled"`. `shutdown` is resumable by the recovery pipeline on restart; `cancelled` is terminal and non-resumable. This prevents data loss when the server restarts.

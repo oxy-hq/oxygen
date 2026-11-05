@@ -1,27 +1,16 @@
-//! Tests for the stuck-run sweeper.
+//! Tests for the global recovery selections — `find_stuck_runs` (the
+//! periodic stranded tick), `find_pending_global_runs` (the latency worker) —
+//! and the driver lease and stale-run cleanup that sit beside them.
 //!
-//! The sweeper is defense-in-depth: even after `commit_decision` made the
-//! decision boundary atomic, an automation run can still be stranded if the
-//! coordinator crashes between receiving a `Suspended` outcome and calling
-//! `insert_child_run` + `transport.assign`. In that window the parent's
-//! queue row has already been released as `completed`, so the reaper cannot
-//! rescue it — its grace is keyed on `queue_status='claimed'`.
-//!
-//! The sweeper finds any automation run that is still in a non-terminal
-//! `task_status` but has no queue entry in `queued`/`claimed` (for itself or
-//! any descendant task_id), and re-enqueues a fresh `AutomationDecision`. The
-//! decider is idempotent under the `decision_version` CAS, so a spurious
-//! re-enqueue is safe.
+//! (Named for the automation stuck-run sweeper these tests started with; that
+//! sweeper had no production caller and was removed.)
 //!
 //! Run:
 //!   cargo nextest run -p agentic-runtime --test integration -E 'test(stuck_run_sweeper_test)'
 
-use std::time::Duration;
-
 use agentic_core::delegation::TaskSpec;
 use agentic_runtime::crud;
 use agentic_runtime::migration::RuntimeMigrator;
-use agentic_runtime::transport::DurableTransport;
 use sea_orm::{Database, DatabaseConnection};
 
 static TEST_DB_URL: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
@@ -85,8 +74,8 @@ pub(crate) async fn test_db() -> Option<DatabaseConnection> {
     Some(db)
 }
 
-/// Shift `agentic_runs.updated_at` for `run_id` back by `secs` seconds so the
-/// sweeper's grace check treats the run as old enough to act on.
+/// Shift `agentic_runs.updated_at` for `run_id` back by `secs` seconds so a
+/// selection's grace check treats the run as old enough to act on.
 pub(crate) async fn age_run(db: &DatabaseConnection, run_id: &str, secs: i64) {
     use sea_orm::{ConnectionTrait, Statement};
     db.execute_raw(Statement::from_sql_and_values(
@@ -96,158 +85,6 @@ pub(crate) async fn age_run(db: &DatabaseConnection, run_id: &str, secs: i64) {
     ))
     .await
     .unwrap();
-}
-
-async fn seed_automation_run(db: &DatabaseConnection) -> String {
-    let run_id = format!("wf-stuck-{}", uuid::Uuid::new_v4());
-    crud::insert_run(db, &run_id, "Q", None, "workflow", None, uuid::Uuid::nil())
-        .await
-        .unwrap();
-    run_id
-}
-
-/// An automation run in `running` state with no queue row (or any descendant
-/// queue row) is stranded; the sweeper should surface it.
-#[tokio::test(flavor = "multi_thread")]
-async fn find_stuck_runs_detects_run_with_no_queue_entry() {
-    let Some(db) = test_db().await else {
-        eprintln!("skipping: no DB available");
-        return;
-    };
-
-    let run_id = seed_automation_run(&db).await;
-    age_run(&db, &run_id, 60).await;
-
-    let stuck = crud::find_stuck_automation_runs(&db, 30).await.unwrap();
-    assert!(
-        stuck.iter().any(|r| r.run_id == run_id),
-        "expected {run_id} in stuck runs, got: {stuck:?}"
-    );
-}
-
-/// An automation run whose child task is still `claimed` is NOT stuck — the
-/// child will drive the parent forward when it finishes. The sweeper must
-/// not false-positive here or it would spawn duplicate decisions.
-#[tokio::test(flavor = "multi_thread")]
-async fn find_stuck_runs_ignores_run_with_in_flight_child() {
-    let Some(db) = test_db().await else {
-        eprintln!("skipping: no DB available");
-        return;
-    };
-
-    let run_id = seed_automation_run(&db).await;
-    age_run(&db, &run_id, 60).await;
-
-    // Child task claimed and heart-beating: parent is healthy, not stuck.
-    let child_id = format!("{run_id}.1");
-    crud::enqueue_task(
-        &db,
-        &child_id,
-        &run_id,
-        Some(&run_id),
-        &TaskSpec::Agent {
-            agent_id: "a".into(),
-            question: "q".into(),
-            extra: None,
-        },
-        None,
-        crud::TaskScope::Global,
-    )
-    .await
-    .unwrap();
-    crud::claim_task(&db, "worker-x").await.unwrap();
-
-    let stuck = crud::find_stuck_automation_runs(&db, 30).await.unwrap();
-    assert!(
-        !stuck.iter().any(|r| r.run_id == run_id),
-        "run with in-flight child must not be reported stuck"
-    );
-}
-
-/// Recently-updated automations (inside the grace window) are skipped — they
-/// may be mid-commit from another worker. Acting on them would race.
-#[tokio::test(flavor = "multi_thread")]
-async fn find_stuck_runs_respects_grace_window() {
-    let Some(db) = test_db().await else {
-        eprintln!("skipping: no DB available");
-        return;
-    };
-
-    let run_id = seed_automation_run(&db).await;
-    // No age_run — run was just created; updated_at is near now().
-
-    let stuck = crud::find_stuck_automation_runs(&db, 30).await.unwrap();
-    assert!(
-        !stuck.iter().any(|r| r.run_id == run_id),
-        "recently-updated run must be excluded by grace window"
-    );
-}
-
-/// Terminal runs (`done`, `failed`, `cancelled`) are not the sweeper's job.
-#[tokio::test(flavor = "multi_thread")]
-async fn find_stuck_runs_ignores_terminal_runs() {
-    let Some(db) = test_db().await else {
-        eprintln!("skipping: no DB available");
-        return;
-    };
-
-    let run_id = seed_automation_run(&db).await;
-    age_run(&db, &run_id, 60).await;
-    crud::update_run_done(&db, &run_id, "done", None)
-        .await
-        .unwrap();
-    age_run(&db, &run_id, 60).await; // ensure still outside grace after update
-
-    let stuck = crud::find_stuck_automation_runs(&db, 30).await.unwrap();
-    assert!(!stuck.iter().any(|r| r.run_id == run_id));
-}
-
-/// End-to-end: `run_stuck_run_sweeper` on a `DurableTransport` re-enqueues a
-/// `AutomationDecision` for each stuck run. The queue row is upsert-safe, so a
-/// second sweep must not re-rescue the same run.
-///
-/// The test DB is shared across tests via a reused testcontainer, so the
-/// sweep may also rescue runs seeded by other tests. The assertion is
-/// scoped to this test's own run to stay isolated.
-#[tokio::test(flavor = "multi_thread")]
-async fn sweeper_re_enqueues_automation_decision_idempotently() {
-    let Some(db) = test_db().await else {
-        eprintln!("skipping: no DB available");
-        return;
-    };
-    let run_id = seed_automation_run(&db).await;
-    age_run(&db, &run_id, 60).await;
-
-    let transport = DurableTransport::with_config(db.clone(), Duration::from_millis(100));
-
-    // No queue row before sweeping.
-    assert!(crud::get_queue_entry(&db, &run_id).await.unwrap().is_none());
-
-    let rescued = transport.run_stuck_run_sweeper(30).await;
-    assert!(rescued >= 1, "expected to rescue at least this run");
-
-    // Queue row now present with an AutomationDecision spec for this run.
-    let entry = crud::get_queue_entry(&db, &run_id).await.unwrap().unwrap();
-    assert_eq!(entry.queue_status, "queued");
-    let spec: TaskSpec = serde_json::from_value(entry.spec).unwrap();
-    assert!(
-        matches!(spec, TaskSpec::AutomationDecision { .. }),
-        "expected AutomationDecision spec"
-    );
-
-    // Idempotent for OUR run: a second sweep may rescue other tests' stuck
-    // runs, but our run already has a `queued` entry and must not be
-    // re-rescued (queue status stays `queued`, not `claimed` since no
-    // worker is running here).
-    let _ = transport.run_stuck_run_sweeper(30).await;
-    let entry_after = crud::get_queue_entry(&db, &run_id).await.unwrap().unwrap();
-    assert_eq!(
-        entry_after.queue_status, "queued",
-        "our run's queue entry must remain `queued` across a second sweep"
-    );
-    // Spec is unchanged.
-    let spec_after: TaskSpec = serde_json::from_value(entry_after.spec).unwrap();
-    assert!(matches!(spec_after, TaskSpec::AutomationDecision { .. }));
 }
 
 // ── find_stuck_runs (periodic global-driver selection, Task 6 correction) ────
@@ -854,11 +691,10 @@ async fn a_live_direct_driven_run_is_excluded_by_the_queue_gated_selections_only
     )
     .await
     .unwrap();
-    // The direct-drive's in-process Worker claims the root. `_under_root`, not
-    // the global `claim_task`, because `spawn_airway_run_drive` builds a
-    // run-scoped `DurableTransport` — and the global claim path skips
-    // `scope_owned = true` rows anyway, so using it here would leave the row
-    // `queued` and quietly turn this into a duplicate of the test below.
+    // The direct-drive's in-process Worker claims the root, as
+    // `spawn_airway_run_drive`'s run-scoped `DurableTransport` does. Without
+    // the claim the row stays `queued` and this quietly turns into a
+    // duplicate of the test below.
     crud::claim_task_under_root(&db, "the-app-node", &run_id)
         .await
         .unwrap()

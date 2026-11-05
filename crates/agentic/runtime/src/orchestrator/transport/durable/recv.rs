@@ -116,13 +116,18 @@ impl DurableTransport {
         }
     }
 
-    /// One claim attempt. Scoped transports only see tasks under their root —
-    /// see `task_id_root` for why.
+    /// One claim attempt, under this transport's root — see `task_id_root`
+    /// for why. An unscoped transport claims nothing: no production worker
+    /// drains one, and the global claim it once made had no other caller.
     async fn claim_once(&self) -> Result<Option<task_queue::Model>, sea_orm::DbErr> {
-        match &self.task_id_root {
-            Some(root) => crud::claim_task_under_root(&self.db, &self.worker_id, root).await,
-            None => crud::claim_task(&self.db, &self.worker_id).await,
-        }
+        let Some(root) = &self.task_id_root else {
+            tracing::warn!(
+                worker_id = %self.worker_id,
+                "unscoped durable transport polled for work; it claims nothing"
+            );
+            return Ok(None);
+        };
+        crud::claim_task_under_root(&self.db, &self.worker_id, root).await
     }
 
     /// Turn a claimed row into an assignment, or hand it back and return

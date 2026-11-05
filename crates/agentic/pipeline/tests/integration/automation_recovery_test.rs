@@ -688,7 +688,9 @@ impl TaskExecutor for AutomationDecisionStubExecutor {
 }
 
 async fn run_recovery(db: &DatabaseConnection, state: Arc<RuntimeState>, root_id: &str) {
-    let transport = DurableTransport::new(db.clone());
+    // Scoped to the root, as `recover_single_run_owned` builds it: an
+    // unscoped `DurableTransport` claims nothing.
+    let transport = DurableTransport::new_scoped(db.clone(), root_id.to_string());
     transport.run_reaper().await;
 
     let (coordinator, pending_resumes) = Coordinator::from_db(
@@ -1059,10 +1061,8 @@ async fn test_happy_path_analytics_automation_step_done() {
     let state = Arc::new(RuntimeState::new());
     // Scoped to `root_id`, matching every production `Worker` site: a
     // coordinator's own worker claims its subtree via
-    // `claim_task_under_root`, not the global `claim_task` (which now
-    // refuses tasks with a parent — see `queue::claim_task`). An unscoped
-    // transport here would starve this worker forever, since every task it
-    // needs to run is a descendant of `root_id`.
+    // `claim_task_under_root`. An unscoped transport claims nothing, so it
+    // would starve this worker forever.
     let transport = DurableTransport::new_scoped(db.clone(), root_id.clone());
     transport.run_reaper().await;
 

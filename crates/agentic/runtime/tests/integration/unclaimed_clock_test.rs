@@ -1,5 +1,5 @@
 //! `find_pending_global_runs` reports how long each run has gone unclaimed, and
-//! `find_stuck_runs` and `find_stuck_automation_runs` read the same clock.
+//! `find_stuck_runs` reads the same clock.
 //!
 //! That number is what lets a node *prefer* to leave work for the fleet without
 //! being able to strand it: `agentic_pipeline::recovery::may_drive` opens for a
@@ -90,17 +90,6 @@ async fn unclaimed_secs(db: &DatabaseConnection, run_id: &str) -> Option<u64> {
 /// `find_stuck_runs` does not select it.
 async fn stranded_unclaimed_secs(db: &DatabaseConnection, run_id: &str) -> Option<u64> {
     crud::find_stuck_runs(db, GRACE, Some(uuid::Uuid::nil()))
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|r| r.run_id == run_id)
-        .map(|r| r.unclaimed_secs)
-}
-
-/// What the automation sweeper's selection reports for this run, or `None` if
-/// `find_stuck_automation_runs` does not select it.
-async fn sweeper_unclaimed_secs(db: &DatabaseConnection, run_id: &str) -> Option<u64> {
-    crud::find_stuck_automation_runs(db, GRACE)
         .await
         .unwrap()
         .into_iter()
@@ -228,61 +217,6 @@ async fn a_stranded_run_with_no_queue_row_still_counts_its_wait() {
     assert!(
         waited >= GRACE,
         "stranded for two minutes with nothing queued, yet only {waited}s unclaimed"
-    );
-}
-
-/// The automation sweeper's selection reads the same clock, not a placeholder.
-///
-/// It used to report `0` — "just arrived" to the placement gate — because the
-/// sweeper re-enqueues rather than drives and reads no policy. Nothing broke
-/// while that held, but a later caller handing those rows to
-/// `partition_drivable` under `Defer` / `Only` would have declined a
-/// long-stranded run on every tick, forever. With no queued row by
-/// construction, it has to read what the periodic tick reads for the same
-/// stranded run — including the lease term, so a driver that died a moment ago
-/// is not an old wait.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_automation_sweeper_reads_the_same_clock_as_the_periodic_tick() {
-    let Some(db) = test_db().await else {
-        return;
-    };
-    let ttl = crud::DRIVER_LEASE_TTL_SECS;
-    let run_id = seed_run(&db, "workflow").await;
-    age_run(&db, &run_id, 120).await;
-
-    let swept = sweeper_unclaimed_secs(&db, &run_id)
-        .await
-        .expect("an aged workflow run with no queue row is the sweeper's");
-    let tick = stranded_unclaimed_secs(&db, &run_id)
-        .await
-        .expect("the same run is stranded for the periodic tick");
-    assert!(
-        swept >= GRACE,
-        "stranded for two minutes with nothing queued, yet the sweeper's \
-         selection reads {swept}s unclaimed"
-    );
-    assert!(
-        swept.abs_diff(tick) <= 1,
-        "the two selections disagree about the same run: sweeper {swept}s, \
-         tick {tick}s"
-    );
-
-    // Its driver died, and the lease lapsed five seconds ago.
-    leave_dead_lease(&db, &run_id, ttl + 5).await;
-    let swept = sweeper_unclaimed_secs(&db, &run_id)
-        .await
-        .expect("a lapsed lease does not hide the run from the sweeper");
-    let tick = stranded_unclaimed_secs(&db, &run_id)
-        .await
-        .expect("a lapsed lease leaves the run stranded");
-    assert!(
-        swept < GRACE,
-        "lease lapsed ~5s ago but the sweeper's selection reads {swept}s \
-         unclaimed — the lease term is missing from its clock"
-    );
-    assert!(
-        swept.abs_diff(tick) <= 1,
-        "sweeper {swept}s vs tick {tick}s"
     );
 }
 

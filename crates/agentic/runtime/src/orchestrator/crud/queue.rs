@@ -10,17 +10,18 @@ use sea_orm::{
 use crate::lifecycle::crud::now;
 use crate::orchestrator::entity::task_queue;
 
-/// Ownership regime for a queued task — decides whether the global/recovery
-/// claim path may pick it up.
+/// Ownership regime for a queued task — decides whether the global recovery
+/// selections may hand its run to another driver.
 ///
 /// Stamped onto `agentic_task_queue.scope_owned` at INSERT and preserved
-/// across `claimed -> queued` reaping. The global `claim_task` filters
-/// `scope_owned = false`, so a [`TaskScope::Scoped`] task can never be
+/// across `claimed -> queued` reaping. A `queued` [`TaskScope::Scoped`] row
+/// keeps its run out of [`super::recovery::find_stuck_runs`] and is not what
+/// [`super::recovery::find_pending_global_runs`] selects, so the run is never
 /// poached out from under the co-located coordinator that owns its tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskScope {
     /// A co-located scoped coordinator owns this task's tree (every
-    /// interactive HTTP/CLI run today). The global claim path must skip it.
+    /// interactive HTTP/CLI run today). The global recovery path must skip it.
     Scoped,
     /// No in-process driver owns this task — scheduler-seeded or
     /// crash-orphaned. The global/recovery loop is responsible for it.
@@ -124,11 +125,11 @@ async fn enqueue_task_inner(
         // invisible for the remainder of a deferral its caller never chose.
         //
         // **This timestamp comes from the APP's clock, and the predicate that
-        // reads it (`available_at <= now()` in `claim_task` /
-        // `claim_task_under_root`) evaluates on the DATABASE's.** They are
-        // different machines in any real deployment. If the database runs
-        // behind the app by more than the enqueue→claim gap — milliseconds — a
-        // freshly enqueued row is briefly invisible to a claim.
+        // reads it (`available_at <= now()` in `claim_task_under_root`)
+        // evaluates on the DATABASE's.** They are different machines in any
+        // real deployment. If the database runs behind the app by more than
+        // the enqueue→claim gap — milliseconds — a freshly enqueued row is
+        // briefly invisible to a claim.
         //
         // Deliberately left as-is — but cost it honestly, because this comment
         // is what someone will re-decide from. The skew *window* is
@@ -147,7 +148,7 @@ async fn enqueue_task_inner(
         // failing several steps later.
         //
         // `created_at` below is stamped from the same clock and is
-        // `claim_task`'s `ORDER BY` key, so multi-instance skew also perturbs
+        // `claim_task_under_root`'s `ORDER BY` key, so multi-instance skew also perturbs
         // claim *order*. Fairness rather than correctness, and equally
         // invisible.
         available_at: Set(available_at),
@@ -183,64 +184,7 @@ async fn enqueue_task_inner(
     Ok(())
 }
 
-/// Atomically claim the oldest queued **root** task that no co-located
-/// scoped coordinator owns (`scope_owned = false`). Returns `None` if no such
-/// task is available. Uses `FOR UPDATE SKIP LOCKED` to avoid contention
-/// between concurrent workers.
-///
-/// This is the unscoped/global claim path (the standalone worker and the
-/// recovery loop). The `scope_owned = false` predicate is what prevents it
-/// from poaching an interactive run's task out from under the per-request
-/// coordinator that owns its tree — those rows are stamped `scope_owned =
-/// true` at enqueue (see [`TaskScope`]) and are claimed only via
-/// [`claim_task_under_root`], which deliberately ignores `scope_owned`.
-///
-/// Only **root** tasks (`parent_task_id IS NULL`) are eligible. A descendant
-/// claimed in isolation routes its outcome to whichever coordinator holds the
-/// transport, whose in-memory task map does not contain it — `handle_done`
-/// early-returns and the result is silently dropped, leaving the queue row
-/// `completed`, the run `delegating`, and the parent waiting forever. Subtrees
-/// are recovered by re-driving their root; see [`claim_task_under_root`].
-pub async fn claim_task(
-    db: &DatabaseConnection,
-    worker_id: &str,
-) -> Result<Option<task_queue::Model>, DbErr> {
-    use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
-
-    // Single atomic UPDATE ... RETURNING using a subquery with FOR UPDATE SKIP LOCKED.
-    let sql = "\
-        UPDATE agentic_task_queue \
-        SET queue_status = 'claimed', \
-            worker_id = $1, \
-            claimed_at = now(), \
-            last_heartbeat = now(), \
-            claim_count = claim_count + 1, \
-            claim_epoch = claim_epoch + 1, \
-            updated_at = now() \
-        WHERE task_id = ( \
-            SELECT task_id FROM agentic_task_queue \
-            WHERE queue_status = 'queued' \
-              AND available_at <= now() \
-              AND scope_owned = false \
-              AND parent_task_id IS NULL \
-            ORDER BY created_at \
-            LIMIT 1 \
-            FOR UPDATE SKIP LOCKED \
-        ) \
-        RETURNING *";
-
-    let result = task_queue::Model::find_by_statement(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        sql,
-        [worker_id.into()],
-    ))
-    .one(db)
-    .await?;
-
-    Ok(result)
-}
-
-/// Like [`claim_task`] but only considers tasks under the given root —
+/// Atomically claim the oldest queued task under the given root —
 /// either the root itself (`task_id = $root`) or its descendants
 /// (`task_id LIKE '$root.%'`).
 ///
@@ -599,9 +543,9 @@ pub async fn reset_task_to_queued(db: &DatabaseConnection, task_id: &str) -> Res
 
 /// Make a task globally claimable by the coordinator (`scope_owned = false`).
 ///
-/// The global [`claim_task`] only picks up `scope_owned = false` tasks; a
+/// The global recovery selections only pick up `scope_owned = false` tasks; a
 /// SCOPE_OWNED task (e.g. a backfill chunk, normally driven under its range's
-/// scope) is otherwise never re-claimed. A reset-in-place retry of such a run
+/// scope) is otherwise never re-driven. A reset-in-place retry of such a run
 /// must call this so the coordinator actually re-drives the re-queued task. A
 /// no-op for an already-global run. Returns rows affected (`0` = task reaped).
 pub async fn mark_task_global(db: &DatabaseConnection, task_id: &str) -> Result<u64, DbErr> {
@@ -620,8 +564,8 @@ pub async fn mark_task_global(db: &DatabaseConnection, task_id: &str) -> Result<
 /// After [`release_claims_for_worker`], make the released **roots** eligible
 /// for the global recovery path by clearing `scope_owned`.
 ///
-/// Scoped rows are otherwise invisible to `claim_task` and excluded from
-/// `find_stuck_runs`, so an orphan waits for a process restart. Clearing the
+/// Scoped rows are otherwise invisible to `find_pending_global_runs` and
+/// excluded from `find_stuck_runs`, so an orphan waits for a process restart. Clearing the
 /// flag lets `find_pending_global_runs` select the root for
 /// `recover_single_run`, which rebuilds a scoped transport and re-adopts the
 /// whole subtree via [`claim_task_under_root`].
@@ -632,8 +576,9 @@ pub async fn mark_task_global(db: &DatabaseConnection, task_id: &str) -> Result<
 /// `source_type` filter in `find_stuck_runs`. Agent runs stay stranded until
 /// restart — the existing, deliberate trade.
 ///
-/// Only roots are touched (`parent_task_id IS NULL`): a descendant claimed in
-/// isolation has its outcome dropped. See [`claim_task`].
+/// Only roots are touched (`parent_task_id IS NULL`): a descendant is
+/// re-driven with its root, never on its own — a coordinator that claimed one
+/// in isolation would have no node for it and drop its outcome.
 ///
 /// Matches on the task row's `worker_id` + `queue_status = 'claimed'`, so
 /// this must run **before** [`release_claims_for_worker`] clears both —
@@ -690,10 +635,11 @@ pub async fn cancel_queued_task(db: &DatabaseConnection, task_id: &str) -> Resul
 /// own `q.task_id = r.id OR q.task_id LIKE r.id || '.%'`, so what this cancels
 /// is exactly what makes a run selectable there.
 ///
-/// Retiring a run is not enough on its own: [`claim_task`] has **no
-/// run-status predicate**, so a row left `queued` under a run that has gone
-/// terminal is still claimable by any global worker. Both halves have to move
-/// together or the queue row outlives the run it belongs to.
+/// Retiring a run is not enough on its own: [`claim_task_under_root`] has
+/// **no run-status predicate**, so a row left `queued` under a run that has
+/// gone terminal is still claimable by whatever drives that root next. Both
+/// halves have to move together or the queue row outlives the run it belongs
+/// to.
 pub async fn cancel_queued_tasks_for_run<C: ConnectionTrait>(
     db: &C,
     run_id: &str,
@@ -1190,7 +1136,7 @@ const RELEASE_DRAIN_ATTEMPTS: usize = 3;
 /// Release this worker's claims repeatedly until a pass matches nothing.
 ///
 /// **Defense in depth, not the primary fix.** The gate-to-claim race — a
-/// worker that cleared `is_shutting_down()` and is awaiting its `claim_task`
+/// worker that cleared `is_shutting_down()` and is awaiting its `claim_task_under_root`
 /// round-trip when the flag flips — is closed at its cause, in
 /// `DurableTransport::recv_assignment`, which re-checks the flag after the
 /// claim lands and hands the row straight back via [`release_claim`]. That is

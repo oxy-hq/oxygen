@@ -8,7 +8,7 @@ use crate::lifecycle::state::RunStatus;
 
 use super::policy::{CompletionAction, CompletionContext};
 use super::terminal_write::{TerminalWriteTarget, write_terminal};
-use super::{ChildResult, Coordinator, RetryAction, TaskStatus};
+use super::{ChildResult, Coordinator, TaskStatus};
 
 impl Coordinator {
     // ── Event handling ──────────────────────────────────────────────────
@@ -301,145 +301,15 @@ impl Coordinator {
             );
         }
 
-        // Surface the raw worker failure on the parent's event stream
-        // *before* we decide retry/fallback — admins should see every
-        // attempt's error, not just the terminal one. The next event on
-        // the same stream (delegation_retry / delegation_fallback /
-        // delegation_completed) tells them what we did about it.
+        // Surface the raw worker failure on the parent's event stream, ahead
+        // of the `delegation_completed` that `finalize_failed` emits for a
+        // child: it names the spec kind and step that errored.
         self.emit_task_failed(task_id, &msg).await;
 
-        // Check if this child task can be retried or has fallbacks.
-        if let Some(retry_action) = self.check_retry_or_fallback(task_id, &msg) {
-            match retry_action {
-                RetryAction::Retry {
-                    delay,
-                    attempt,
-                    spec,
-                    run_id,
-                    parent_task_id,
-                } => {
-                    tracing::info!(
-                        target: "coordinator",
-                        task_id,
-                        attempt,
-                        delay_ms = delay.as_millis() as u64,
-                        "retrying child task"
-                    );
-                    self.emit_retry_event(task_id, attempt, &msg).await;
-
-                    // Persist retry state (include policy + spec for restart recovery).
-                    let node = self.tasks.get(task_id);
-                    let policy_json = node
-                        .and_then(|n| n.policy.as_ref())
-                        .and_then(|p| serde_json::to_value(p).ok());
-                    let spec_json = node
-                        .and_then(|n| n.original_spec.as_ref())
-                        .and_then(|s| serde_json::to_value(s).ok());
-                    self.persist_task_status(
-                        &run_id,
-                        "running",
-                        Some(json!({
-                            "attempt": attempt,
-                            "retry_reason": &msg,
-                            "policy": policy_json,
-                            "original_spec": spec_json,
-                        })),
-                    )
-                    .await;
-
-                    // Backoff delay.
-                    if !delay.is_zero() {
-                        tokio::time::sleep(delay).await;
-                    }
-
-                    // Re-assign the same spec to a worker.
-                    let assignment = TaskAssignment {
-                        task_id: task_id.to_string(),
-                        parent_task_id: parent_task_id.clone(),
-                        run_id: run_id.clone(),
-                        spec,
-                        policy: None, // Policy stays on the TaskNode, not the assignment.,
-                        claim_epoch: agentic_core::NO_CLAIM,
-                    };
-                    if let Err(e) = self.transport.assign(assignment).await {
-                        tracing::error!(
-                            target: "coordinator",
-                            task_id,
-                            error = %e,
-                            "failed to assign retry, escalating to failure"
-                        );
-                        self.finalize_failed(task_id, format!("retry assignment failed: {e}"))
-                            .await;
-                    }
-                    return;
-                }
-                RetryAction::Fallback {
-                    new_spec,
-                    fallback_index,
-                    run_id,
-                    parent_task_id,
-                } => {
-                    tracing::info!(
-                        target: "coordinator",
-                        task_id,
-                        fallback_index,
-                        "falling back to alternative target"
-                    );
-                    self.emit_fallback_event(task_id, fallback_index, &msg)
-                        .await;
-
-                    // Reset attempt counter for the fallback target.
-                    if let Some(node) = self.tasks.get_mut(task_id) {
-                        node.status = TaskStatus::Running;
-                        node.attempt = 0;
-                        node.fallback_index = fallback_index;
-                        node.original_spec = Some(new_spec.clone());
-                    }
-
-                    // Persist fallback state (include policy + spec for restart recovery).
-                    let node = self.tasks.get(task_id);
-                    let policy_json = node
-                        .and_then(|n| n.policy.as_ref())
-                        .and_then(|p| serde_json::to_value(p).ok());
-                    let spec_json = node
-                        .and_then(|n| n.original_spec.as_ref())
-                        .and_then(|s| serde_json::to_value(s).ok());
-                    self.persist_task_status(
-                        &run_id,
-                        "running",
-                        Some(json!({
-                            "fallback_index": fallback_index,
-                            "fallback_reason": &msg,
-                            "policy": policy_json,
-                            "original_spec": spec_json,
-                        })),
-                    )
-                    .await;
-
-                    let assignment = TaskAssignment {
-                        task_id: task_id.to_string(),
-                        parent_task_id,
-                        run_id,
-                        spec: new_spec,
-                        policy: None,
-                        claim_epoch: agentic_core::NO_CLAIM,
-                    };
-                    if let Err(e) = self.transport.assign(assignment).await {
-                        tracing::error!(
-                            target: "coordinator",
-                            task_id,
-                            error = %e,
-                            "failed to assign fallback, escalating to failure"
-                        );
-                        self.finalize_failed(task_id, format!("fallback assignment failed: {e}"))
-                            .await;
-                    }
-                    return;
-                }
-            }
-        }
-
-        // No retry/fallback — finalize the failure.
+        // The coordinator does not retry: a failure that reaches it is
+        // terminal. A root whose run opts in is retried beneath it, on its
+        // queue row (`transport/durable/retry.rs`), and reports `Failed` here
+        // only once those retries are spent.
         self.finalize_failed(task_id, msg).await;
     }
 
@@ -480,8 +350,8 @@ impl Coordinator {
             self.state.notify(&run_id);
             self.state.deregister_notifier(&run_id);
         } else {
-            // Root task failed. Terminal: `handle_failed` already found no
-            // retry or fallback for it.
+            // Root task failed. Terminal: a failure reaching the coordinator
+            // has already spent its queue retries.
             match crud::update_run_failed(&self.db, &run_id, &msg).await {
                 Ok(()) => crate::lifecycle::failure_hook::root_run_failed(&run_id).await,
                 Err(e) => tracing::error!(
@@ -501,8 +371,8 @@ impl Coordinator {
 
     /// Terminal cancellation: mark node cancelled and propagate to parent.
     ///
-    /// Unlike `handle_failed`, cancellation skips retry/fallback — the user
-    /// intentionally stopped the task.
+    /// Distinct from `handle_failed`: the user intentionally stopped the task,
+    /// so it is recorded as `cancelled`, not `failed`.
     pub(super) async fn handle_cancelled(&mut self, task_id: &str) {
         tracing::info!(target: "coordinator", task_id, "handle_cancelled");
 
@@ -593,7 +463,7 @@ fn is_user_input_request(msg: &str) -> bool {
 /// error.
 ///
 /// Only the level changes. The run still failed, so `emit_task_failed` and the
-/// retry/fallback decision below are untouched — an outcome that heals itself is
+/// failure propagation below are untouched — an outcome that heals itself is
 /// just not one to page on.
 ///
 /// It was the loudest ERROR in production by a wide margin: 993 events in the

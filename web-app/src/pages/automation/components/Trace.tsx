@@ -21,10 +21,9 @@
  * { success: false }`) render in the destructive color so they're easy
  * to spot in a long stream.
  *
- * Note: `delegation_retry` and `delegation_fallback` are intentionally
- * NOT routed to the FE — `task_failed` carries the same attempt-level
- * detail (attempt number + spec_kind + step name + error) and
- * subsumes them. See `event_registry.rs` for the SSE allowlist.
+ * Note: `delegation_retry` and `delegation_fallback` were never routed
+ * to the FE and are no longer emitted (the coordinator does not retry).
+ * See `event_registry.rs` for the SSE allowlist.
  */
 
 import { ChevronDown, ChevronRight } from "lucide-react";

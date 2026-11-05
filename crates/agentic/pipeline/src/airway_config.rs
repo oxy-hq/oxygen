@@ -199,7 +199,7 @@ const ADMISSION_INITIAL_BACKOFF: Duration = Duration::from_millis(250);
 ///
 /// **This bound, not the attempt count, is the load-bearing one.** The
 /// decision task's queue row carries `visibility_timeout_secs = 60`, its
-/// `last_heartbeat` is stamped at claim time (`claim_task`), and the worker
+/// `last_heartbeat` is stamped at claim time (`claim_task_under_root`), and the worker
 /// only spawns the heartbeat loop *after* `executor.execute()` returns — so
 /// every second spent inside this resolver is a second the row looks
 /// unheartbeated. Overrun 60s and the reaper re-queues the task while it is
@@ -263,10 +263,11 @@ impl agentic_automation::AirwayAdmissionResolver for PipelineAirwayAdmissionReso
     ///
     /// **Why retry here rather than hand the queue a retryable error**: there
     /// is no such thing to hand it for this task. The durable queue's only
-    /// failure-retry mechanism is `TaskPolicy::retry`, which
-    /// `Coordinator::check_retry_or_fallback` applies solely to child tasks
-    /// that carry a policy — and the root automation task is enqueued with
-    /// `policy: None` (`automation_run.rs`), so it bails immediately.
+    /// failure-retry mechanism is `TaskPolicy::retry`, honoured on the queue
+    /// row only for a root whose driver opts in
+    /// (`DurableTransport::retry_failed_root`) — and the root automation task
+    /// is enqueued with `policy: None` (`automation_run.rs`), so it fails
+    /// immediately.
     /// `claim_count` / `max_claims` is a redelivery lease for *dead workers*
     /// (the reaper only touches rows still `claimed`), not a failure budget.
     /// And the decider's `Fail` is written by `commit_decision` as one

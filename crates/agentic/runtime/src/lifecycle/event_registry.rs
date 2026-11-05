@@ -146,16 +146,10 @@ impl StreamProcessor {
         }
 
         // Coordinator lifecycle events pass through as-is so the frontend
-        // can render delegation cards and other structural UI. The
-        // attempt-level trace event `task_failed` carries enough detail
-        // (attempt + spec_kind + step_name + error) to subsume both
-        // `delegation_retry` and `delegation_fallback` for admin
-        // debugging — those two are still persisted to
-        // `agentic_run_events` (the coordinator emits them
-        // unconditionally), they just don't ride the SSE stream to
-        // the FE because the Trace tab would render them with no
-        // distinct payload shape beyond what `task_failed` already
-        // carries.
+        // can render delegation cards and other structural UI.
+        // (`delegation_retry` / `delegation_fallback` were never routed here
+        // and are no longer emitted: the coordinator's per-node retry is gone.
+        // Older runs may still hold them in `agentic_run_events`.)
         if matches!(
             event_type,
             "delegation_started"

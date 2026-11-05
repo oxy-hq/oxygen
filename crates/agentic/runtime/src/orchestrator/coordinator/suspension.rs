@@ -62,9 +62,10 @@ impl Coordinator {
             // table, and the write itself stops the ticker (the heartbeat
             // predicate needs `queue_status = 'claimed'`).
             //
-            // Pathological by construction rather than transient — `claim_task`
-            // only lets ROOT tasks be claimed globally precisely so an outcome
-            // can't be routed to a coordinator that doesn't own the task.
+            // Pathological by construction rather than transient — every claim
+            // is scoped to the root its coordinator owns
+            // (`claim_task_under_root`) precisely so an outcome can't be routed
+            // to a coordinator that doesn't own the task.
             let Some(node) = self.tasks.get_mut(task_id) else {
                 // `rule = "orphaned-claim"` pairs with the drivers'
                 // `rule = "dropped-outcome"`: the two halves of "an outcome went
@@ -162,7 +163,9 @@ impl Coordinator {
                 target,
                 request,
                 context,
-                policy,
+                // Nothing reads a per-delegation policy: the coordinator does
+                // not retry, and no producer sets one. Kept on the wire type.
+                policy: _,
             } => {
                 self.child_counter += 1;
                 let child_id = format!("{task_id}.{}", self.child_counter);
@@ -234,7 +237,7 @@ impl Coordinator {
 
                 let child_spec = self.delegation_resolver.resolve(target, request, context);
 
-                // Register child in task tree (store spec + policy for retries).
+                // Register child in task tree.
                 // Single-child delegation is never a loop iteration —
                 // loops always fan out via the parallel path — so
                 // loop_iteration stays None here.
@@ -248,9 +251,6 @@ impl Coordinator {
                         next_seq: 0,
                         suspended_at: None,
                         original_spec: Some(child_spec.clone()),
-                        policy,
-                        attempt: 0,
-                        fallback_index: 0,
                         loop_iteration: None,
                     },
                 );
@@ -258,24 +258,10 @@ impl Coordinator {
                 // Derive source_type from the child's TaskSpec.
                 let child_source_type = source_type_for_spec(&child_spec);
 
-                // Build task_metadata with policy/spec for restart recovery.
-                let child_task_metadata = {
-                    let node = self.tasks.get(&child_id);
-                    let policy_json = node
-                        .and_then(|n| n.policy.as_ref())
-                        .and_then(|p| serde_json::to_value(p).ok());
-                    let spec_json = node
-                        .and_then(|n| n.original_spec.as_ref())
-                        .and_then(|s| serde_json::to_value(s).ok());
-                    if policy_json.is_some() || spec_json.is_some() {
-                        Some(json!({
-                            "policy": policy_json,
-                            "original_spec": spec_json,
-                        }))
-                    } else {
-                        None
-                    }
-                };
+                // Build task_metadata with the spec for restart recovery.
+                let child_task_metadata = serde_json::to_value(&child_spec)
+                    .ok()
+                    .map(|s| json!({ "original_spec": s }));
 
                 // Persist child run with parent reference + metadata in one INSERT.
                 if let Err(e) = crud::insert_child_run(
@@ -453,9 +439,6 @@ impl Coordinator {
                             next_seq: 0,
                             suspended_at: None,
                             original_spec: Some(child_specs[i].clone()),
-                            policy: None,
-                            attempt: 0,
-                            fallback_index: 0,
                             loop_iteration,
                         },
                     );

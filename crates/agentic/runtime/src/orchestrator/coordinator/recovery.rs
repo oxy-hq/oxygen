@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use agentic_core::delegation::{TaskPolicy, TaskSpec};
+use agentic_core::delegation::TaskSpec;
 use agentic_core::transport::CoordinatorTransport;
 use sea_orm::DatabaseConnection;
 
@@ -215,13 +215,11 @@ impl Coordinator {
             // instead of being renewed forever. See `get_suspension_with_start`.
             let suspend_data = suspension.and_then(|(_, data)| data);
 
-            // Restore retry state from task_metadata if present.
+            // Restore the assigned spec from task_metadata if present. Rows
+            // written before the coordinator's per-node retry was removed may
+            // also carry `policy` / `attempt` / `fallback_index`; nothing
+            // reads them now.
             let meta = row.task_metadata.as_ref();
-            let attempt = meta.and_then(|m| m["attempt"].as_u64()).unwrap_or(0) as u32;
-            let fallback_index =
-                meta.and_then(|m| m["fallback_index"].as_u64()).unwrap_or(0) as usize;
-            let policy: Option<TaskPolicy> =
-                meta.and_then(|m| serde_json::from_value(m["policy"].clone()).ok());
             let original_spec: Option<TaskSpec> =
                 meta.and_then(|m| serde_json::from_value(m["original_spec"].clone()).ok());
 
@@ -235,9 +233,6 @@ impl Coordinator {
                     next_seq,
                     suspended_at,
                     original_spec,
-                    policy,
-                    attempt,
-                    fallback_index,
                     // Recovery doesn't reconstruct loop_iteration —
                     // it's only used live by record_child_result to
                     // emit progress events, and a recovered run that

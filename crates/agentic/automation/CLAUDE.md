@@ -99,9 +99,9 @@ resolver that errors **fails the step** rather than defaulting.
 
 `Err` from the port means *determinate, or transient past all patience*: the
 resolver owns the retry, because this crate has no error type richer than
-`String` and no queue-level retry to defer to (the root automation task is
-enqueued with `policy: None`, so `Coordinator::check_retry_or_fallback` never
-fires, and `commit_decision` writes the terminal failure transactionally before
+`String` and no queue-level retry to defer to (the coordinator never retries — see
+`crates/agentic/runtime/CLAUDE.md` — the root automation task doesn't opt into
+queue-level retry via `retry_failed_root`, and `commit_decision` writes the terminal failure transactionally before
 the coordinator sees an outcome). The facade impl classifies determinate
 failures (unresolvable ref, unparseable YAML, malformed row) from transient ones
 (reset connection, exhausted pool) and re-attempts only the latter, inside a

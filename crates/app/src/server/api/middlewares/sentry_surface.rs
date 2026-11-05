@@ -1342,11 +1342,6 @@ mod tests {
                       own queue upkeep failing — a platform bug, which is what Sentry is for.",
             },
             Unhubbed {
-                file: "runtime/src/orchestrator/transport/durable.rs",
-                site: "spawn_stuck_run_sweeper",
-                why: "a boot-time sweeper loop over stuck runs; the same reasoning.",
-            },
-            Unhubbed {
                 file: "runtime/src/orchestrator/router/postgres.rs",
                 site: "start_with_options",
                 why: "the LISTEN/NOTIFY listener loop the task router starts at boot.",

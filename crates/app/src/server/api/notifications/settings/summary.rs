@@ -4,7 +4,7 @@
 //! # Why a delayed task
 //!
 //! The durable queue already runs a task no earlier than its `available_at`
-//! (`agentic_task_queue.available_at`, which `claim_task` honours), so a
+//! (`agentic_task_queue.available_at`, which every claim honours), so a
 //! summary is one task per (person, window end), queued by the delivery run
 //! that held a push and due when the window ends. Its id names both, so a
 //! second hold in the same window queues nothing new.

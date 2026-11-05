@@ -8,7 +8,6 @@
 //! directly except through that crate's CRUD API.
 
 pub mod background;
-pub mod circuit_breaker;
 pub mod coordinator;
 pub mod crud;
 pub mod entity;

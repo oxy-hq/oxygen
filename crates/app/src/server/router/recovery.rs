@@ -1223,7 +1223,7 @@ async fn tick_cloud(
     //
     // Decline undrivable runs BEFORE the lease, not after the claim.
     //
-    // `claim_task` has no `task_kind` predicate, so any eligible driver wins
+    // A claim has no `task_kind` predicate, so any eligible driver wins
     // any row — but a node may be unable (compile without a working copy) or
     // unwanted (heavy work on the ide, see `drive_policy_for`) as its driver.
     // Failing after the claim makes success a coin flip on poll phase;
