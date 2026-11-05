@@ -502,6 +502,17 @@ describe("the home's widgets", () => {
       expect(preferences.setToday).toHaveBeenCalledWith("hidden");
     });
 
+    it("still hides Today inside a fold, where it has no heading of its own", async () => {
+      widgets = [close()];
+      render(
+        <HomeWidgets orgSlug='poke-house' apps={[]} groups={[]} variant='stack' heading={false} />
+      );
+      expect(screen.queryByRole("heading", { name: "Today" })).toBeNull();
+      expect(screen.getByTestId("home-widgets")).toHaveAccessibleName("Today");
+      await userEvent.click(screen.getByTestId("home-today-hide"));
+      expect(preferences.setToday).toHaveBeenCalledWith("hidden");
+    });
+
     it("reads nothing while told not to, and shows the skeleton meanwhile", () => {
       widgets = undefined;
       isPending = true;

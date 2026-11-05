@@ -8,6 +8,7 @@ import { AppHealthItem } from "./MenuBar/AppHealthItem";
 import { ConnectionItem } from "./MenuBar/ConnectionItem";
 import { NotificationsBell } from "./NotificationsBell";
 import { SystemIndicator } from "./SystemIndicator";
+import { TodayButton } from "./TodayButton";
 import { WorkspaceClock } from "./WorkspaceClock";
 
 /** Toggles the Ask dock. Renders the same OxyMark the removed floating pill
@@ -45,10 +46,11 @@ function AskOxygenButton() {
  * mobile nav drawer's menu button there. Follow-up: lift into `@oxy-hq/sdk`
  * for custom apps.
  *
- * With the apps-first experience on it is the home's menu bar, macOS-style: the
- * rail is the dock, and the right side carries status items — apps that need
- * attention, connection, Ask (the Spotlight), the bell (Notification Center) and
- * the day and time last.
+ * With the apps-first experience on it is as quiet as it can be: where you are on
+ * the left; on the right only what you act on, Ask (the Spotlight), Today (the
+ * widgets, from any page) and the bell,
+ * plus a status item while something is wrong (an app down, the browser offline).
+ * No clock: the computer already shows one.
  */
 export function TopBar({ leading }: { leading?: ReactNode }) {
   const appsFirst = useAppsFirstExperience();
@@ -65,8 +67,8 @@ export function TopBar({ leading }: { leading?: ReactNode }) {
           <AppHealthItem />
           <ConnectionItem />
           <AskOxygenButton />
+          <TodayButton />
           <NotificationsBell />
-          <WorkspaceClock withDate />
         </div>
       ) : (
         <div className='ml-auto flex shrink-0 items-center gap-3'>

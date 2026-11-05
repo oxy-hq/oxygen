@@ -26,6 +26,8 @@ export function Breadcrumb() {
 
   // Org name in cloud; workspace name as a fallback; plain label in local mode.
   const workspaceName = orgName || workspace?.name || "Workspace";
+  // On the apps-first home the org's name is the whole crumb: "/ Home" says nothing.
+  const atHome = appsFirst && pageName === "Home";
 
   return (
     <div className='flex min-w-0 items-center gap-2 text-sm'>
@@ -36,8 +38,12 @@ export function Breadcrumb() {
       >
         {workspaceName}
       </Link>
-      <span className='shrink-0 text-muted-foreground/40'>/</span>
-      <span className='shrink-0 text-muted-foreground'>{pageName}</span>
+      {!atHome && (
+        <>
+          <span className='shrink-0 text-muted-foreground/40'>/</span>
+          <span className='shrink-0 text-muted-foreground'>{pageName}</span>
+        </>
+      )}
     </div>
   );
 }

@@ -208,7 +208,7 @@ One motion language for Oxygen and every custom app. Its source is the SDK's `sd
 - **Easing:** `ease-out` (expo deceleration) for arrivals, `ease-in` for departures, which run faster. No bounce. Overlays travel little: scale 0.97 and a 4px nudge.
 - **Overlays** (dialogs, sheets, menus, popovers, tooltips) are timed centrally by `data-slot`/`data-state`; don't add `duration-*` to them.
 - **Something appearing:** `transition-[opacity,translate] duration-(--duration-slow) starting:opacity-0 starting:translate-y-1` (Tailwind's `@starting-style`), never a JS mount animation.
-- **Layout changes that move things** (the home's Today rail arriving): `document.startViewTransition`, with a `view-transition-name` on what moves (`useTransitionedFlag` in `CustomerHome/useTodayHint.ts`).
+- **Layout changes that move things** (an app opening from the home): `document.startViewTransition`, with a `view-transition-name` on what moves (`CustomerHome/components/AppLaunch/useAppLaunch.ts`).
 - **Reduced motion is required:** every transform you add gets its `motion-reduce:` counterpart (`motion-reduce:starting:translate-y-0`). Fades and colour changes stay; travel, zoom and press-scale go.
 
 ## Code Style

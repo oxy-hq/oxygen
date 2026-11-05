@@ -60,15 +60,21 @@ function plainPress(event: MouseEvent): HTMLAnchorElement | null {
  *
  * `onClick` goes on a container: any link inside it that opens one of `apps`
  * launches, whichever tile, card or row it is. The element marked
- * `data-app-launch-origin` around the link is what grows.
+ * `data-app-launch-origin` around the link is what grows. `onOpen` hears of each
+ * app opened this way (the home's recent apps).
  */
-export function useAppLaunch(apps: readonly CustomAppSummary[]) {
+export function useAppLaunch(
+  apps: readonly CustomAppSummary[],
+  onOpen?: (app: CustomAppSummary) => void
+) {
   const [launching, setLaunching] = useState<CustomAppSummary | null>(null);
   // Whether the launch screen grew from the tile, or has to fade in on its own.
   const [grown, setGrown] = useState(false);
   const origin = useRef<Origin | null>(null);
   const appsNow = useRef(apps);
   appsNow.current = apps;
+  const onOpenNow = useRef(onOpen);
+  onOpenNow.current = onOpen;
 
   const close = useCallback(() => {
     clearHandoff();
@@ -94,6 +100,7 @@ export function useAppLaunch(apps: readonly CustomAppSummary[]) {
     if (!anchor) return;
     const opens = appFor(anchor.href, appsNow.current);
     if (!opens) return;
+    onOpenNow.current?.(opens.app);
     const el = anchor.closest<HTMLElement>("[data-app-launch-origin]") ?? anchor;
     leaveHandoff(opens.app, opens.root, el.querySelector("[data-slot=app-mark]"));
     origin.current = { el, name: el.style.viewTransitionName };

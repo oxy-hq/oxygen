@@ -7,7 +7,7 @@ import type { CustomAppSummary } from "@/types/apps";
 import type { HomeSection } from "@/types/homeWidgets";
 import type { InboxItem } from "@/types/notifications";
 import CustomerHome from "./index";
-import { HOME_CONTAINER } from "./layout";
+import { HOME_COLUMN } from "./layout";
 
 /**
  * The apps-first home: what a customer sees and, as much, what they do not — no
@@ -27,18 +27,14 @@ vi.mock("@/hooks/api/notifications", () => ({
   useLatestUnreadByApp: () => latest
 }));
 
+// A member starts on the simple view; a test that needs the full one says "owner".
+let role = "member";
 vi.mock("@/stores/useCurrentOrg", () => ({
   default: <T,>(selector: (s: unknown) => T) =>
-    selector({ org: { id: "org-1", slug: "northwind", name: "Northwind" }, role: "member" })
+    selector({ org: { id: "org-1", slug: "northwind", name: "Northwind" }, role })
 }));
 vi.mock("@/stores/useAskDock", () => ({
   default: <T,>(selector: (s: { open: () => void }) => T) => selector({ open: vi.fn() })
-}));
-vi.mock("@/hooks/api/users/useCurrentUser", () => ({
-  default: () => ({ data: { name: "Priya Silva", email: "priya.silva@northwind.test" } })
-}));
-vi.mock("@/hooks/api/agents/useWorkspaceTimezone", () => ({
-  default: () => "America/Los_Angeles"
 }));
 vi.mock("@/hooks/useCurrentProjectBranch", () => ({
   default: () => ({ project: { id: "ws-1" } })
@@ -63,9 +59,8 @@ vi.mock("../components/NeedsAttention", () => ({
   )
 }));
 let worldModel: { entities: { id: string }[] } | undefined;
-let worldModelLoading = false;
 vi.mock("@/hooks/api/useWorldModel", () => ({
-  useWorldModel: () => ({ data: worldModel, isLoading: worldModelLoading })
+  useWorldModel: () => ({ data: worldModel, isLoading: false })
 }));
 vi.mock("./components/WorldModelCard", () => ({
   worldModelTitle: (org?: string) => `How ${org}'s data fits together`,
@@ -128,13 +123,9 @@ vi.mock("@/hooks/api/homeWidgets/useHomePreferences", () => ({
   useHomePreferences: () => preferences,
   useHomePreferenceActions: () => ({ setToday })
 }));
-// Wide (the rail) unless a test sets a phone.
-let wide = true;
-vi.mock("@/hooks/useMediaQuery", () => ({ useMediaQuery: () => wide }));
 let recent: { id: string; title: string; timestamp: string }[] = [];
-let recentSettled = true;
 vi.mock("./components/HomeRecentQuestions", () => ({
-  useRecentQuestions: () => ({ rows: recent, settled: recentSettled }),
+  useRecentQuestions: () => ({ rows: recent, settled: true }),
   HomeRecentQuestions: () => <h2 data-testid='recent-questions'>Your recent questions</h2>
 }));
 vi.mock("@/components/appAccess/AppAccessDialog", () => ({ AppAccessDialog: () => null }));
@@ -169,16 +160,12 @@ beforeEach(() => {
   preferences = { data: { hidden: [], today: "shown" }, isPending: false };
   widgetsEnabled.mockReset();
   setToday.mockReset();
-  wide = true;
-  window.localStorage.removeItem("oxy.home.today.northwind");
+  role = "member";
   unread = {};
   latest = {};
   worldModel = { entities: [{ id: "store" }] };
   recent = [{ id: "t1", title: "Sales last week", timestamp: "2026-11-01T00:00:00Z" }];
-  recentSettled = true;
-  worldModelLoading = false;
-  window.localStorage.removeItem("oxy.home.side.northwind");
-  window.localStorage.removeItem("oxy.home.seen.northwind");
+  window.localStorage.clear();
   window.sessionStorage.clear();
 });
 
@@ -186,23 +173,30 @@ const appsOf = (n: number): CustomAppSummary[] =>
   Array.from({ length: n }, (_, i) => ({ ...revenue, id: `app-${i}`, slug: `app-${i}` }));
 afterEach(cleanup);
 
-describe("the home's frame", () => {
-  it("puts Today, then recent questions and the data map, in a side column on a wide screen", () => {
+describe("the home's order", () => {
+  it("is one column: the ask box, then the apps, then Today, then the deeper reads", () => {
+    role = "owner";
     widgets = someWidgets("critical", "ok");
     renderHome();
-    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "rail");
-    const side = screen.getByTestId("home-side");
-    expect(side.tagName).toBe("ASIDE");
-    const today = screen.getByTestId("home-widgets-stub");
-    expect(today).toHaveAttribute("data-variant", "rail");
-    const lower = screen.getByTestId("home-lower-row");
-    expect(side.contains(today) && side.contains(lower)).toBe(true);
-    expect(today.compareDocumentPosition(lower) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // The apps have the main column to themselves.
-    expect(side.contains(screen.getByTestId("launcher-app-grid"))).toBe(false);
+    const body = screen.getByTestId("home-body");
+    expect(body.className.split(/\s+/)).toEqual(expect.arrayContaining(HOME_COLUMN.split(" ")));
+    const order = [
+      screen.getByTestId("home-ask-box"),
+      screen.getByTestId("launcher-app-grid"),
+      screen.getByTestId("home-today-fold"),
+      screen.getByTestId("home-insights")
+    ];
+    for (const el of order) expect(body.contains(el)).toBe(true);
+    for (let i = 1; i < order.length; i++) {
+      const before = order[i - 1] as Element;
+      expect(
+        before.compareDocumentPosition(order[i] as Element) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    }
   });
 
   it("is one scroller: nothing inside the page scrolls on its own", () => {
+    role = "owner";
     widgets = someWidgets("critical", "ok");
     renderHome();
     const home = screen.getByTestId("customer-home");
@@ -213,124 +207,124 @@ describe("the home's frame", () => {
     expect(inner).toEqual([]);
   });
 
-  it("sizes the app grid by its own room, not the screen", () => {
+  it("sizes the full app grid by its own room, not the screen", () => {
+    role = "owner";
     renderHome();
     const grid = screen.getByTestId("launcher-app-grid");
     expect(grid.closest(".\\@container")).not.toBeNull();
     expect(grid).toHaveClass("@sm:grid-cols-2", "@2xl:grid-cols-3", "@5xl:grid-cols-4");
   });
 
-  it("puts the apps first and Today stacked under them on a narrow screen", () => {
-    widgets = someWidgets("critical");
-    wide = false;
+  it("keeps recent questions and the data map to the full view, and out when the layout drops them", () => {
     renderHome();
-    expect(screen.queryByTestId("home-side")).toBeNull();
-    const grid = screen.getByTestId("launcher-app-grid");
-    const today = screen.getByTestId("home-widgets-stub");
-    expect(today).toHaveAttribute("data-variant", "stack");
-    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "stack");
-    // The apps come before Today on the page, as they do on the screen.
-    expect(grid.compareDocumentPosition(today) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("keeps the side column for recent questions and the data map when the org has no widgets", () => {
-    renderHome();
-    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "none");
-    expect(screen.queryByTestId("home-widgets-stub")).toBeNull();
-    expect(screen.getByTestId("home-side").contains(screen.getByTestId("home-lower-row"))).toBe(
-      true
-    );
-  });
-
-  it("draws the side column this browser saw last time while recent questions and the model load", () => {
-    // No widgets: only the later reads can fill the side column.
-    recentSettled = false;
-    worldModelLoading = true;
-    worldModel = undefined;
-    recent = [];
-    renderHome();
-    // Never seen: the apps take the whole width, and nothing is remembered yet.
-    expect(screen.queryByTestId("home-side")).toBeNull();
-    expect(window.localStorage.getItem("oxy.home.side.northwind")).toBeNull();
+    expect(screen.queryByTestId("home-insights")).toBeNull();
+    expect(screen.queryByTestId("world-model-card")).toBeNull();
     cleanup();
-    window.localStorage.setItem("oxy.home.side.northwind", "1");
+    role = "owner";
     renderHome();
-    // Seen before: the grid has its final width from the first paint.
-    expect(screen.getByTestId("home-side")).toBeInTheDocument();
-  });
-
-  it("remembers whether there was a side column once the reads are in", () => {
-    renderHome();
-    expect(window.localStorage.getItem("oxy.home.side.northwind")).toBe("1");
+    expect(screen.getByTestId("home-insights")).toBeInTheDocument();
     cleanup();
-    recent = [];
-    worldModel = undefined;
-    renderHome();
-    expect(window.localStorage.getItem("oxy.home.side.northwind")).toBe("0");
-    expect(screen.queryByTestId("home-side")).toBeNull();
-  });
-
-  it("gives the apps the whole width when the side column would be empty", () => {
-    recent = [];
-    worldModel = undefined;
-    renderHome();
-    expect(screen.queryByTestId("home-side")).toBeNull();
-    expect(screen.queryByTestId("home-lower-row")).toBeNull();
-  });
-
-  it("draws the frame this browser saw last time while the widgets load", () => {
-    widgets = { data: undefined, isLoading: true, isError: false };
-    renderHome();
-    // Never seen: no rail, so an org without widgets never sees one flash in.
-    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "none");
-    cleanup();
-    window.localStorage.setItem("oxy.home.today.northwind", "1");
-    renderHome();
-    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "rail");
-  });
-
-  it("remembers what the widgets said, for the next visit's first paint", () => {
-    widgets = someWidgets("ok");
-    renderHome();
-    expect(window.localStorage.getItem("oxy.home.today.northwind")).toBe("1");
-    cleanup();
-    widgets = { data: [], isLoading: false, isError: false };
-    renderHome();
-    expect(window.localStorage.getItem("oxy.home.today.northwind")).toBe("0");
-    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "none");
-  });
-
-  it("always draws the apps; insights only while the layout keeps them", () => {
     sections = [W];
     renderHome();
     expect(screen.getByTestId("launcher-app-grid")).toBeInTheDocument();
-    expect(screen.queryByTestId("home-lower-row")).toBeNull();
+    expect(screen.queryByTestId("home-insights")).toBeNull();
+  });
+
+  it("draws no deeper reads when there are none", () => {
+    role = "owner";
+    recent = [];
+    worldModel = undefined;
+    renderHome();
+    expect(screen.queryByTestId("home-insights")).toBeNull();
   });
 });
 
-describe("the line under the greeting", () => {
-  it("counts the widgets that need someone and links to Today", () => {
+describe("the two views", () => {
+  it("starts a member on the simple view: big icons, no freshness, no access control", () => {
+    renderHome();
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-view", "simple");
+    expect(screen.getByTestId("home-view-simple")).toHaveAttribute("data-state", "on");
+    expect(screen.getByTestId("launcher-app-card-revenue")).toHaveTextContent("Revenue Board");
+    expect(screen.queryByTestId("launcher-app-card-freshness-revenue")).toBeNull();
+    expect(screen.queryByTestId("home-app-card-access-revenue")).toBeNull();
+  });
+
+  it("starts an owner or an admin on the full view", () => {
+    role = "admin";
+    renderHome();
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-view", "full");
+    expect(screen.getByTestId("launcher-app-card-freshness-revenue")).toBeInTheDocument();
+  });
+
+  it("switches, and remembers the choice for this org", () => {
+    renderHome();
+    fireEvent.click(screen.getByTestId("home-view-full"));
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-view", "full");
+    expect(window.localStorage.getItem("oxy.home.view.northwind")).toBe("full");
+    cleanup();
+    renderHome();
+    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-view", "full");
+  });
+
+  it("puts the apps opened last in a row above the rest, once there are enough to look through", () => {
+    apps = appsOf(12);
+    window.localStorage.setItem("oxy.home.recent.northwind", JSON.stringify(["app-7", "gone"]));
+    renderHome();
+    expect(screen.getByRole("heading", { name: "Recent" })).toBeInTheDocument();
+    expect(screen.getByTestId("home-recent-app-app-7")).toBeInTheDocument();
+    // An app the person can no longer open drops out.
+    expect(screen.getAllByTestId(/^home-recent-app-/)).toHaveLength(1);
+    cleanup();
+    apps = appsOf(4);
+    window.localStorage.setItem("oxy.home.recent.northwind", JSON.stringify(["app-1"]));
+    renderHome();
+    expect(screen.queryByRole("heading", { name: "Recent" })).toBeNull();
+  });
+});
+
+describe("Today's line", () => {
+  it("is folded on the simple view and open on the full one", () => {
+    widgets = someWidgets("critical");
+    renderHome();
+    expect(screen.getByTestId("home-today-toggle")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("home-widgets-stub")).toBeNull();
+    cleanup();
+    role = "owner";
+    renderHome();
+    expect(screen.getByTestId("home-today-toggle")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("home-widgets-stub")).toHaveAttribute("data-variant", "stack");
+  });
+
+  it("opens to Today and stays open next time", () => {
+    widgets = someWidgets("critical");
+    renderHome();
+    fireEvent.click(screen.getByTestId("home-today-toggle"));
+    expect(screen.getByTestId("home-widgets-stub")).toBeInTheDocument();
+    cleanup();
+    renderHome();
+    expect(screen.getByTestId("home-today-toggle")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("counts the widgets that need someone", () => {
     widgets = someWidgets("critical", "attention", "ok");
     renderHome();
-    const status = screen.getByTestId("home-status");
-    expect(status).toHaveTextContent("2 things need you today");
-    expect(status).toHaveAttribute("href", "#home-today");
+    expect(screen.getByTestId("home-today-toggle")).toHaveTextContent("2 things need you today");
   });
 
   it("says one thing in the singular, and all clear when nothing needs anyone", () => {
     widgets = someWidgets("attention", "ok");
     renderHome();
-    expect(screen.getByTestId("home-status")).toHaveTextContent("1 thing needs you today");
+    expect(screen.getByTestId("home-today-toggle")).toHaveTextContent("1 thing needs you today");
     cleanup();
     widgets = someWidgets("ok", "info");
     renderHome();
-    expect(screen.getByTestId("home-status")).toHaveTextContent("All clear today");
+    expect(screen.getByTestId("home-today-toggle")).toHaveTextContent("All clear today");
   });
 
   it("never says all clear when nothing answered, and names failures beside a clear day", () => {
     widgets = { data: [{ view: null }, { view: null }], isLoading: false, isError: false };
     renderHome();
-    expect(screen.queryByTestId("home-status")).toBeNull();
+    expect(screen.getByTestId("home-today-toggle")).not.toHaveTextContent(/all clear/i);
     cleanup();
     widgets = {
       data: [...(someWidgets("ok").data ?? []), { key: "w1", view: null }],
@@ -338,17 +332,20 @@ describe("the line under the greeting", () => {
       isError: false
     };
     renderHome();
-    expect(screen.getByTestId("home-status")).toHaveTextContent("All clear, but 1 couldn't load");
+    expect(screen.getByTestId("home-today-toggle")).toHaveTextContent(
+      "All clear, but 1 couldn't load"
+    );
   });
 
-  it("says nothing while there are no widgets", () => {
+  it("is not there while there are no widgets", () => {
     renderHome();
-    expect(screen.queryByTestId("home-status")).toBeNull();
+    expect(screen.queryByTestId("home-today-fold")).toBeNull();
   });
 });
 
 describe("the home's app notifications", () => {
-  it("badges an app with its unread count and shows its newest one", () => {
+  it("badges an app's tile with its unread count and shows its newest one", () => {
+    role = "owner";
     unread = { "app-1": 2 };
     latest = { "app-1": { title: "Walk-in cooler is warm" } };
     renderHome();
@@ -361,7 +358,16 @@ describe("the home's app notifications", () => {
     );
   });
 
+  it("badges a simple icon too", () => {
+    unread = { "app-1": 3 };
+    renderHome();
+    expect(screen.getByTestId("launcher-app-card-revenue")).toHaveAccessibleName(
+      "Revenue Board, 3 unread"
+    );
+  });
+
   it("shows the badge alone when the store did not answer for the text", () => {
+    role = "owner";
     unread = { "app-1": 1 };
     latest = { "app-1": { title: null, body: null } };
     renderHome();
@@ -370,6 +376,7 @@ describe("the home's app notifications", () => {
   });
 
   it("shows neither while nothing is unread, even with a stale newest", () => {
+    role = "owner";
     latest = { "app-1": { title: "Old news" } };
     renderHome();
     expect(screen.queryByTestId("home-app-card-unread-revenue")).toBeNull();
@@ -378,10 +385,12 @@ describe("the home's app notifications", () => {
 });
 
 describe("the apps-first home", () => {
-  it("greets the person by first name; the org's name is the top bar's, not repeated", () => {
+  it("has no greeting: its one heading is the page's name, for a screen reader", () => {
     renderHome();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/, Priya$/);
-    expect(screen.queryByText("Northwind")).toBeNull();
+    const title = screen.getByRole("heading", { level: 1 });
+    expect(title).toHaveTextContent("Northwind home");
+    expect(title).toHaveClass("sr-only");
+    expect(document.body.textContent).not.toMatch(/good (morning|afternoon|evening)/i);
   });
 
   it("offers the ask box when chat is usable, and not when it is not", () => {
@@ -393,7 +402,8 @@ describe("the apps-first home", () => {
     expect(screen.queryByTestId("home-ask-box")).toBeNull();
   });
 
-  it("shows each app with a freshness line and none of the author's status text", () => {
+  it("shows each full tile with a freshness line and none of the author's status text", () => {
+    role = "owner";
     renderHome();
     expect(screen.getByTestId("launcher-app-card-revenue")).toBeInTheDocument();
     expect(screen.getByTestId("launcher-app-card-freshness-revenue")).toHaveTextContent(
@@ -412,6 +422,7 @@ describe("the apps-first home", () => {
   });
 
   it("links the world model card to the read-only page", () => {
+    role = "owner";
     renderHome();
     expect(screen.getByTestId("world-model-card")).toHaveAttribute(
       "href",
@@ -421,6 +432,7 @@ describe("the apps-first home", () => {
   });
 
   it("keeps setup prompts and unmeasured rows from a customer, and real alerts in", () => {
+    role = "owner";
     renderHome();
     expect(screen.queryByTestId("setup-toast")).toBeNull();
     expect(screen.getByTestId("needs-attention")).toHaveAttribute("data-unmeasured", "false");
@@ -428,6 +440,7 @@ describe("the apps-first home", () => {
   });
 
   it("keeps them for a Factory user", () => {
+    role = "owner";
     factoryUser = true;
     renderHome();
     expect(screen.getByTestId("setup-toast")).toBeInTheDocument();
@@ -442,26 +455,19 @@ describe("the apps-first home", () => {
     renderHome();
     expect(document.body.textContent).not.toMatch(/workspace/i);
   });
-});
 
-describe("the home's container", () => {
-  it("puts the greeting, the apps and what is under them in the one container", () => {
-    renderHome();
-    const body = screen.getByTestId("home-body");
-    expect(body.className.split(/\s+/)).toEqual(expect.arrayContaining(HOME_CONTAINER.split(" ")));
-    expect(body.contains(screen.getByTestId("home-ask-box"))).toBe(true);
-    expect(body.contains(screen.getByTestId("launcher-app-grid"))).toBe(true);
-    expect(body.contains(screen.getByTestId("home-lower-row"))).toBe(true);
-    expect(body.contains(screen.getByTestId("home-side"))).toBe(true);
-  });
-
-  it("puts every app on the one grid, however many there are", () => {
+  it("puts every app on the grid, however many there are, in either view", () => {
     apps = appsOf(30);
+    renderHome();
+    expect(screen.getAllByTestId(/^launcher-app-card-app-/)).toHaveLength(30);
+    cleanup();
+    role = "owner";
     renderHome();
     expect(screen.getByTestId("launcher-app-grid").children).toHaveLength(30);
   });
 
   it("draws an app with no icon as its tinted two-letter monogram", () => {
+    role = "owner";
     apps = [{ ...revenue, icon_url: undefined }];
     renderHome();
     const mark = screen.getByTestId("launcher-app-card-mark-revenue");
@@ -478,35 +484,36 @@ describe("the home with Today hidden", () => {
     // Not one widgets read is allowed: both queries are told they are off.
     expect(widgetsEnabled).toHaveBeenCalled();
     expect(widgetsEnabled.mock.calls.every(([enabled]) => enabled === false)).toBe(true);
-    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "none");
+    expect(screen.queryByTestId("home-today-fold")).toBeNull();
     expect(screen.queryByTestId("home-widgets-stub")).toBeNull();
-    expect(screen.queryByTestId("home-status")).toBeNull();
     // The apps stay.
-    expect(screen.getByRole("heading", { name: "Your apps" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Apps" })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("home-today-show"));
     expect(setToday).toHaveBeenCalledWith("shown");
   });
 
   it("keeps Insights out when the org layout dropped it, though the widgets are not read", () => {
+    role = "owner";
     // The disabled sections query answers the default, which has Insights.
     preferences = { data: { hidden: [], today: "hidden", sections: ["apps"] }, isPending: false };
     renderHome();
     expect(widgetsEnabled.mock.calls.every(([enabled]) => enabled === false)).toBe(true);
     expect(screen.getByTestId("launcher-app-grid")).toBeInTheDocument();
-    expect(screen.queryByTestId("home-lower-row")).toBeNull();
+    expect(screen.queryByTestId("home-insights")).toBeNull();
   });
 
   it("keeps Insights when the layout has it, and falls back to the default when none was named", () => {
+    role = "owner";
     preferences = {
       data: { hidden: [], today: "hidden", sections: ["apps", "insights"] },
       isPending: false
     };
     renderHome();
-    expect(screen.getByTestId("home-lower-row")).toBeInTheDocument();
+    expect(screen.getByTestId("home-insights")).toBeInTheDocument();
     cleanup();
     preferences = { data: { hidden: [], today: "hidden" }, isPending: false };
     renderHome();
-    expect(screen.getByTestId("home-lower-row")).toBeInTheDocument();
+    expect(screen.getByTestId("home-insights")).toBeInTheDocument();
   });
 
   it("waits for the preference before reading widgets, and shows no way back yet", () => {
@@ -517,6 +524,7 @@ describe("the home with Today hidden", () => {
   });
 
   it("reads the widgets once Today is shown, and offers no Show Today", () => {
+    role = "owner";
     widgets = someWidgets("critical");
     renderHome();
     expect(widgetsEnabled.mock.calls.every(([enabled]) => enabled === true)).toBe(true);
@@ -528,7 +536,7 @@ describe("the home with Today hidden", () => {
     widgets = { data: [], isLoading: false, isError: false };
     hiddenCopies = [{ key: "bookkeeping/close" }];
     renderHome();
-    expect(screen.getByTestId("customer-home")).toHaveAttribute("data-today", "rail");
+    expect(screen.getByTestId("home-today-fold")).toBeInTheDocument();
   });
 });
 
@@ -563,6 +571,14 @@ describe("opening an app", () => {
     expect(window.sessionStorage.getItem("oxy.launch")).toBeNull();
   });
 
+  it("remembers the app as one opened recently", () => {
+    renderHome();
+    fireEvent.click(screen.getByTestId("launcher-app-card-revenue"));
+    expect(JSON.parse(window.localStorage.getItem("oxy.home.recent.northwind") ?? "[]")).toEqual([
+      "app-1"
+    ]);
+  });
+
   it("leaves a press that opens a new tab alone", () => {
     renderHome();
     fireEvent.click(screen.getByTestId("launcher-app-card-revenue"), { metaKey: true });
@@ -579,9 +595,7 @@ describe("since the last visit", () => {
       JSON.stringify({ w0: "something-else", w1: "also-different" })
     );
     renderHome();
-    expect(screen.getByTestId("home-status-since")).toHaveTextContent(
-      "2 updates since your last visit"
-    );
+    expect(screen.getByTestId("home-status-since")).toHaveTextContent("2 updates");
   });
 
   it("says nothing on a first visit, and remembers this one for the next", () => {

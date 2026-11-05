@@ -20,6 +20,9 @@ vi.mock("./WorkspaceClock", () => ({
 vi.mock("./MenuBar/AppHealthItem", () => ({
   AppHealthItem: () => <span data-testid='menubar-health' />
 }));
+vi.mock("./TodayButton", () => ({
+  TodayButton: () => <span data-testid='topbar-today-button' />
+}));
 let online = true;
 vi.mock("@/hooks/useOnlineStatus", () => ({ default: () => online }));
 
@@ -42,18 +45,18 @@ describe("the top bar", () => {
     expect(screen.getByTestId("workspace-topbar")).not.toHaveAttribute("data-menubar");
   });
 
-  it("is a menu bar with the flag on, the day and time last", () => {
+  it("is minimal with the flag on: Ask, Today and the bell, no clock, no connection while online", () => {
     appsFirst = true;
     render(<TopBar />);
     expect(screen.getByTestId("workspace-topbar")).toHaveAttribute("data-menubar", "true");
     expect(screen.queryByTestId("topbar-system")).toBeNull();
+    expect(screen.queryByTestId("topbar-clock")).toBeNull();
     expect(order()).toEqual([
       "menubar-health",
       "ask-oxygen-button",
-      "notifications-bell",
-      "topbar-clock"
+      "topbar-today-button",
+      "notifications-bell"
     ]);
-    expect(screen.getByTestId("topbar-clock")).toHaveAttribute("data-with-date", "true");
   });
 
   it("says nothing about the connection while online, on either bar", () => {
@@ -77,8 +80,8 @@ describe("the top bar", () => {
       "menubar-health",
       "menubar-connection",
       "ask-oxygen-button",
-      "notifications-bell",
-      "topbar-clock"
+      "topbar-today-button",
+      "notifications-bell"
     ]);
   });
 });

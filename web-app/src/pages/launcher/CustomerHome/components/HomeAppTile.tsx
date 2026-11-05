@@ -47,7 +47,7 @@ export function HomeAppTile({
     // button is its sibling, lifted above the overlay with `z-10`.
     <div
       // Gives slightly under a press (the name's link covers the tile), like a button.
-      className='group relative flex min-w-0 @sm:flex-row flex-col items-center @sm:gap-3 gap-1.5 rounded-lg @sm:border @sm:bg-card @sm:p-3 @sm:text-left text-center transition-[border-color,scale] duration-(--duration-fast) focus-within:ring-2 focus-within:ring-ring @sm:hover:border-primary/50 has-[a:active]:scale-98 has-[a:active]:duration-(--duration-instant) motion-reduce:has-[a:active]:scale-100'
+      className='group relative flex min-w-0 @sm:flex-row flex-col items-center @sm:gap-4 gap-2 rounded-xl @sm:border @sm:bg-card @sm:p-4 @sm:text-left text-center transition-[border-color,scale] duration-(--duration-fast) focus-within:ring-2 focus-within:ring-ring @sm:hover:border-primary/50 has-[a:active]:scale-98 has-[a:active]:duration-(--duration-instant) motion-reduce:has-[a:active]:scale-100'
       data-testid={`home-app-card-${app.slug}`}
       // What grows into the app's launch screen when the tile is pressed.
       data-app-launch-origin
@@ -59,7 +59,7 @@ export function HomeAppTile({
           iconUrl={app.icon_url}
           name={app.name}
           size='xl'
-          className='@sm:size-9 @sm:text-sm'
+          className='@sm:size-11 size-14 rounded-xl @sm:text-base text-lg'
           testId={`launcher-app-card-mark-${app.slug}`}
         />
         <UnreadBadge
@@ -73,7 +73,7 @@ export function HomeAppTile({
           // The full name on hover, wherever it is cut.
           title={app.name}
           // Hyphenated where the browser can, never broken mid-word without one.
-          className='line-clamp-2 @sm:truncate hyphens-auto font-medium @sm:text-sm text-card-foreground text-xs'
+          className='line-clamp-2 @sm:truncate hyphens-auto font-medium @sm:text-base text-card-foreground text-sm'
         >
           {/* Opens in this tab, as the launcher's card does (§ 4.1). */}
           <a
@@ -90,7 +90,7 @@ export function HomeAppTile({
         {banner ? (
           <p
             title={banner}
-            className='@sm:flex hidden min-w-0 items-center gap-1.5 text-foreground text-xs'
+            className='@sm:flex hidden min-w-0 items-center gap-1.5 text-foreground text-sm'
             data-testid={`home-app-card-banner-${app.slug}`}
           >
             {/* "New", not "wrong": a routine notice is not an alarm. */}
@@ -100,7 +100,7 @@ export function HomeAppTile({
         ) : (
           freshness && (
             <p
-              className='@sm:block hidden truncate text-muted-foreground text-xs'
+              className='@sm:block hidden truncate text-muted-foreground text-sm'
               data-testid={`launcher-app-card-freshness-${app.slug}`}
             >
               {freshness}

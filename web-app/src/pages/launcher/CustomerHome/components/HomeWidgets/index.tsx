@@ -43,7 +43,8 @@ export function HomeWidgets({
   groups,
   since,
   variant,
-  enabled = true
+  enabled = true,
+  heading = true
 }: {
   orgSlug: string | undefined;
   /** The home's app list, for each widget's app icon. */
@@ -55,6 +56,8 @@ export function HomeWidgets({
   variant: "rail" | "stack";
   /** `false` reads nothing yet (the person's preference is still loading): the skeleton shows. */
   enabled?: boolean;
+  /** `false` inside a fold whose line already names Today: no heading, no Hide. */
+  heading?: boolean;
 }) {
   const {
     data: widgets,
@@ -115,14 +118,23 @@ export function HomeWidgets({
     <section
       id={TODAY_ANCHOR}
       className='group/today flex scroll-mt-6 flex-col gap-6'
-      aria-labelledby='home-today-heading'
+      aria-labelledby={heading ? "home-today-heading" : undefined}
+      aria-label={heading ? undefined : "Today"}
       data-testid='home-widgets'
       data-variant={variant}
     >
-      <div className='flex min-h-6 items-center justify-between gap-2'>
-        <h2 id='home-today-heading' className='font-medium text-base'>
-          Today
-        </h2>
+      {/* Inside a fold the fold's line names Today; Hide stays, the one way to turn Today off. */}
+      <div
+        className={cn(
+          "flex min-h-6 items-center gap-2",
+          heading ? "justify-between" : "justify-end"
+        )}
+      >
+        {heading && (
+          <h2 id='home-today-heading' className='font-medium text-base'>
+            Today
+          </h2>
+        )}
         <Button
           variant='ghost'
           size='sm'
