@@ -1160,7 +1160,7 @@ jobs:
       # so do agentic-tests and custom-app-canary. It is built from the same
       # commit, profile env and cache as the test archive, by a separate cargo.
       - name: Upload oxy binary artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: oxy-binary-ci
           path: target/debug/oxy
@@ -1377,7 +1377,7 @@ jobs:
 
       - name: Upload test archive
         if: steps.archive.outputs.run-tests == 'true'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: nextest-archive
           path: nextest-archive.tar.zst
@@ -1972,7 +1972,7 @@ jobs:
       # traces off, and no page or response body is collected.
       - name: Upload server log
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: custom-app-canary-server-log
           path: ${{ runner.temp }}/custom-app-canary/oxy-server.log

@@ -58,7 +58,7 @@ jobs:
           [ -n "$ONLY" ] && args+=(--only "$ONLY")
           node scripts/review/eval/eval.ts "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: review-eval
           path: ${{ runner.temp }}/review-eval.json

@@ -282,7 +282,7 @@ jobs:
       # window will roll past it.
       - name: Upload the brief
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: sentry-brief-${{ github.run_id }}
           path: .sentry-triage/

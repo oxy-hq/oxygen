@@ -267,7 +267,7 @@ jobs:
           pnpm build
 
       - name: Upload web-app dist
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: web-app-dist
           path: web-app/dist/
@@ -449,7 +449,7 @@ jobs:
           done
 
       - name: Upload oxyc binaries
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: cli-oxyc
           path: |
