@@ -2,6 +2,96 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.159] - 2026-11-05
+
+### 🚀 Features
+
+- Home app notification badges and a menu-bar top bar (#3877)
+- Home widgets, a custom app's live card on the home with the button that does the next job (#3881)
+- Experiments test one-date runs by permutation and read past data against a synthetic control (#3867)
+- Staff feed of failed production function invocations across apps, for ferret's alert priority (#3886)
+- Home layout with widget settings, groups and refresh hints, placed by an LLM or oxyc (#3885)
+- Home widgets fold calm cards to a line and draw progress as a ring on regular cards (#3893)
+- Custom-app function-failure page also opens a Minor All Quiet incident for ferret's triage (#3894)
+- Home gives apps their own column and widgets a Today space, apps first on phones (#3896)
+- A motion system for the app, and a home that never shifts or shouts when widgets arrive (#3898)
+- One motion language for oxygen and custom apps, shipped in the sdk (sdk 2.24.0) (#3901)
+- Home widgets for the right people, a simpler home per person, and today from the top bar (sdk 2.25.0) (#3902)
+- Deprecate file duckdb; workspace data lives in airhouse (#3878)
+- *(airway)* SFTP logins and keyed landing for the filesystem source (#3888)
+- Experiment chart marks the pre window, switch and end dates; past data reads what a change left behind after it ended (#3887)
+- Custom-app pager names a failed ctx call's cause, and admin can test an org's oltp connection (#3769)
+- Mobile apps are com.oxygenhq.app on production, with oxygen dev beside them on the dev deployment (#3884)
+- Home opens apps with a launch screen and marks what changed since the last visit (#3928)
+- *(start)* Oxy start runs a local airhouse, and seeded workspaces get their tenants (#3929)
+- *(examples)* The examples' local and training databases are the workspace's airhouse tenant (#3932)
+- Custom-app branches, every plane of an app branchable per environment (#3940)
+- Policy-engine phase 1 — a Rust host boots a TypeScript policy over deno_core ops (#3925)
+- Agents check their own sandbox's page on their sandbox token (#3960)
+- Home in two views, ask first and apps big, with a minimal top bar (#3961)
+
+### 🐛 Bug Fixes
+
+- Airhouse pool reuses an idle connection before opening a new one (#3882)
+- Sdk shell tooltip draws on the host's --muted in both themes (sdk 2.23.1) (#3890)
+- Custom-app early pushes, prefetched opens and their session, follow-ups to the dock PR (#3868)
+- Function-failures feed accepts the last 7 days asked on a clock a moment behind the server's (#3892)
+- Production error surfaced by weekly Sentry triage (#3907)
+- *(duckdb)* A failed ducklake attach no longer returns or logs the catalog password (#3912)
+- *(airhouse)* Deleting a workspace deletes its Airhouse tenant (#3911)
+- Home scrolls as one page, apps fill the main column, Today and recent work share the side (#3919)
+- *(airhouse)* Never remove a tenant another workspace still uses (#3923)
+- *(agentic)* Stop the ask-agent and semantic heals that every pr posts (#3934)
+- Workspace health leaves out deleted workspaces instead of listing them as unknown (#3939)
+- Experiments guardrails, live control pin, flip retries and estimate reads (#3937)
+- Oxyc env help suggests storage=empty, a mode the server accepts, not storage=own (#3943)
+- Sandbox leftover airhouse copies expire from the fork; console offers their reset and keeps names on one line (#3944)
+- Sandbox lifecycle follow-ups: copies clock, failed re-cuts, unwanted branches, and an honest environments panel (#3946)
+- Sandbox lifecycle follow-ups: copies clock, failed re-cuts, unwanted branches, and an honest environments panel (#3946)
+- Orchestrator keeps a delegating child's original_spec and retries timeout/cancel terminal writes (#3951)
+- Shell shows connection only when offline, greets in the workspace's time zone, lists each recent question once (#3945)
+
+### 💼 Other
+
+- *(deps)* Bump github/codeql-action/upload-sarif from 4.38.2 to 4.39.1 (#3873)
+- *(deps)* Bump taiki-e/install-action from 2.87.12 to 2.87.31 (#3872)
+- Upgrade to preact 11 and @anthropic-ai/sdk 1.3 (sdk 2.26.0, create-oxy-app 0.10.0) (#3905)
+- Bump prod-npm-minor-dependencies group (15 updates) with react-hook-form get() typing fix (#3957)
+- *(deps)* Bump actions/upload-artifact from 6.0.0 to 7.0.2 (#3954)
+- *(deps)* Bump actions/setup-java from 5.7.0 to 6.1.0 (#3953)
+
+### 🚜 Refactor
+
+- Retire the dead ExecutionContext tool-runtime + drop oxy-looker from core (#3915)
+- Split the custom-app functions runtime and its tests into modules (#3920)
+- *(airway)* Split build_filesystem; roadmap names airway 0.1.60 (#3917)
+
+### 📚 Documentation
+
+- Biweekly internal-docs distillation (#3904)
+- Update product-context.md from recent changelogs (#3914)
+- Refresh ownership matrix + CODEOWNERS (weekly) (#3913)
+- Experiment examples for every way an experiment is read, on data with planted effects (#3926)
+
+### ⚡ Performance
+
+- *(preagg)* Evaluate a refresh_key with one query, not count+sample+profile (#3883)
+- Orchestrator worker cap is per process and a wake names its task (#3918)
+
+### 🧪 Testing
+
+- Platform canary reads zero, one and 2,500 Airhouse rows through ctx.warehouse and /query (#3895)
+
+### ⚙️ Miscellaneous Tasks
+
+- Remove open-source self-serve leftovers (#3879)
+- Move oxygen-internal jobs off github-hosted runners onto warpbuild (#3899)
+- Fix resolve-matrix runner comment to match its warp label (#3900)
+- Monthly dead code cleanup 2026-11-01, with its broken test and review nits fixed (#3908)
+- Drop coverage and stop the public mirror re-running checks (#3921)
+- Deploy metrics reads staging, release checks and production fixes from infrastructure (#3935)
+- Internal-only Platform Pulse workflow commits the weekly delivery readings (#3933)
+
 ## [0.5.158] - 2026-10-29
 
 ### 🚀 Features
@@ -97,6 +187,7 @@ All notable changes to this project will be documented in this file.
 - Stop release build cache misses and move to rust 1.99.1 (#3864)
 - Reconcile builder knowledge cards with sdk/cli/skills (#3855)
 - The oxy image's creation time is its commit's time, so dev deploys the newest commit (#3866)
+- Release 0.5.158 (#3807)
 
 ## [0.5.157] - 2026-10-21
 
