@@ -108,7 +108,14 @@ pub(super) async fn run_in(
 
     // Grab the isolate handle so cancellation can terminate execution even
     // when the isolate is stuck in a compute-only loop (design doc §11.4).
-    let isolate_handle = handle_rx.await.ok();
+    // Held in a guard: if this future is dropped (a route caller hung up and
+    // axum dropped the handler), nothing below runs, so the isolate would
+    // otherwise run on to completion with its admission permit already gone.
+    let mut isolate_handle = TerminateOnDrop {
+        handle: handle_rx.await.ok(),
+        cancelled: cancelled.clone(),
+        finished: false,
+    };
 
     tokio::pin!(done_rx);
     let sleep = tokio::time::sleep(timeout);
@@ -123,10 +130,7 @@ pub(super) async fn run_in(
             // Cancellation: terminate the isolate; the thread's done_tx will
             // then deliver an error/partial which we map to Cancelled.
             _ = &mut cancel => {
-                cancelled.store(true, Ordering::Relaxed);
-                if let Some(h) = &isolate_handle {
-                    h.terminate();
-                }
+                isolate_handle.terminate();
                 return Err(RuntimeError::Cancelled);
             }
             // Wall-clock timeout: terminate the isolate the same way as
@@ -136,10 +140,7 @@ pub(super) async fn run_in(
             // after which we give up waiting (see the grace branch).
             _ = &mut sleep, if !timed_out => {
                 timed_out = true;
-                cancelled.store(true, Ordering::Relaxed);
-                if let Some(h) = &isolate_handle {
-                    h.terminate();
-                }
+                isolate_handle.terminate();
                 grace
                     .as_mut()
                     .reset(tokio::time::Instant::now() + TIMEOUT_GRACE);
@@ -173,6 +174,7 @@ pub(super) async fn run_in(
                 }
             }
             done = &mut done_rx => {
+                isolate_handle.finished = true;
                 if timed_out {
                     return Err(RuntimeError::Timeout);
                 }
@@ -180,6 +182,32 @@ pub(super) async fn run_in(
                     Err(RuntimeError::Internal("isolate thread vanished".into()))
                 });
             }
+        }
+    }
+}
+
+/// The isolate's terminate handle, fired on drop unless the isolate reported
+/// back. Isolates are single-use (`warm_pool`), so a late terminate can only
+/// ever reach the isolate this run started.
+struct TerminateOnDrop {
+    handle: Option<<ActiveEngine as IsolateEngine>::Terminate>,
+    cancelled: Arc<AtomicBool>,
+    finished: bool,
+}
+
+impl TerminateOnDrop {
+    fn terminate(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+        if let Some(h) = &self.handle {
+            h.terminate();
+        }
+    }
+}
+
+impl Drop for TerminateOnDrop {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.terminate();
         }
     }
 }

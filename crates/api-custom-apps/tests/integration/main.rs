@@ -50,6 +50,7 @@
 //! | `staging_function_pager` | a failing staging function neither pages nor claims production's first-occurrence slot, end to end (both guards: `failure_page::observe` and `claim` itself) |
 //! | `demo_fixture` | `oxy seed --fixtures` builds `local/pulse-demo` through the real publish and promote: five builds, r1..r4 promoted with r4 (the bad release) live and r5 on staging, production's schedules, the audit rows, the queued runs; the history re-dated onto seven days with r4's failure rate and vitals per build; a second run is present and writes nothing; a partial fixture is rebuilt; the clear retires its schedules and leaves no row; a developer's own `pulse-demo` is never touched; r4's real `store` fails with the seeded fingerprint |
 //! | `custom_app_functions_e2e` | publish, route call, isolate, invocation row; success and throw |
+//! | `custom_app_functions_client_gone` | a route caller hanging up mid-run settles the row `cancelled` with no failure fingerprint, not `running` for the reaper to page as a timeout; a keyed one stays `running`, so its retry is a 409, not a second run |
 //! | `custom_app_functions_diskless` | a route call on a pod with the working copy deleted answers `ctx.semantic`, `ctx.query` and `ctx.warehouse.query` from the promoted revision with the fs-leak probe at zero; an uncompiled workspace there is a retryable 503 that queues a compile, and one whose database is a file in the checkout a 503 that queues none — neither runs the isolate |
 //! | `custom_app_functions_forwarded` | the same three workspaces with `OXY_IDE_UPSTREAM` naming a Factory bound in-process: the servable one runs here and the Factory sees nothing; the other two are replayed over a real hop — method, path, body and the caller's headers verbatim plus the loop guard — and the Factory's status, body and `served-by` come back under this replica's `forwarded-via`; the uncompiled one queues a compile, neither writes an invocation row. With `OXY_IDE_UPSTREAM` naming a closed port (a down Factory), the two answer the same 503s as with none configured — not the ide-down 502 |
 //! | `custom_app_functions_host_failures` | a caught paging host-call failure writes its fingerprint; a caught `not_found` does not |
@@ -136,6 +137,7 @@ mod custom_app_agent_ask_caller;
 mod custom_app_agent_ask_cancel;
 mod custom_app_agent_ask_queue;
 mod custom_app_functions_clickhouse;
+mod custom_app_functions_client_gone;
 mod custom_app_functions_diskless;
 mod custom_app_functions_e2e;
 mod custom_app_functions_fixture;

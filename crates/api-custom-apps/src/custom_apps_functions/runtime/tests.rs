@@ -4,6 +4,7 @@
 mod attachments_and_notify;
 mod broker_gates;
 mod crypto;
+mod dropped_run;
 mod host_call_failures;
 mod identity;
 mod limits_and_meters;

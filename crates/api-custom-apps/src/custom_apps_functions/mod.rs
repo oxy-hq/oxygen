@@ -42,6 +42,8 @@ mod call_scope;
 pub(crate) mod check_run;
 #[cfg(test)]
 mod cli_capabilities_drift;
+// Settles a route invocation as `cancelled` when its caller hangs up mid-run.
+mod client_gone;
 /// The audit record for every data-plane write a function makes (session
 /// tag, statement trailer, `audit_events` row).
 #[cfg(feature = "custom-app-functions")]
@@ -1503,7 +1505,15 @@ async fn run_route(run: RouteRun<'_>, prepared: pipeline::PreparedRun) -> Respon
     let clock = pipeline::RunClock::start();
     let (db, outcome, request) = (run.db, run.outcome, run.request);
     let (admitted, call, invocation_id) = (run.admitted, run.call, run.invocation_id);
-    let run_outcome = isolate_route(run, prepared, &clock).await;
+    // Armed until the row is settled: if the caller hangs up, axum drops this
+    // future and nothing below runs, so the guard settles the row instead.
+    let client_gone = client_gone::ClientGone::arm(
+        db,
+        invocation_id,
+        clock.started,
+        call.idempotency_key.is_some(),
+    );
+    let run_outcome = isolate_route(run, prepared, &clock, client_gone.token()).await;
     let finished = pipeline::Finished {
         app: &outcome.app,
         environment: &admitted.resolved.environment,
@@ -1519,6 +1529,7 @@ async fn run_route(run: RouteRun<'_>, prepared: pipeline::PreparedRun) -> Respon
         persist_result: call.idempotency_key.is_some(),
     };
     let recorded = pipeline::record(db, finished, run_outcome).await;
+    client_gone.disarm();
     respond_route(recorded, call, admitted.build_id, invocation_id)
 }
 
@@ -1528,6 +1539,7 @@ async fn isolate_route(
     run: RouteRun<'_>,
     prepared: pipeline::PreparedRun,
     clock: &pipeline::RunClock,
+    cancel: tokio_util::sync::CancellationToken,
 ) -> RunOutcome {
     let (outcome, request, manifest) = (run.outcome, run.request, &run.admitted.manifest);
     let app = &outcome.app;
@@ -1560,9 +1572,9 @@ async fn isolate_route(
         caps: manifest_capabilities(manifest, app, &prepared.build),
         logs: clock.logs.clone(),
         meters: clock.meters.clone(),
-        // Route path: cancellation is the `cancel_requested_at` DB flag (set on
-        // client-gone / dashboard cancel), so a never-fired token suffices here.
-        cancel: tokio_util::sync::CancellationToken::new(),
+        // Fired by `client_gone` when the caller hangs up; a dashboard cancel
+        // arrives instead as the `cancel_requested_at` DB flag.
+        cancel,
         preagg: run.preagg,
         policy: prepared.policy,
     };
@@ -1574,8 +1586,9 @@ async fn isolate_route(
     run: RouteRun<'_>,
     prepared: pipeline::PreparedRun,
     clock: &pipeline::RunClock,
+    cancel: tokio_util::sync::CancellationToken,
 ) -> RunOutcome {
-    let _ = (prepared, clock, &run.query_exec, &run.preagg);
+    let _ = (prepared, clock, cancel, &run.query_exec, &run.preagg);
     (
         "error",
         Some("custom-app-functions feature not enabled".to_string()),
@@ -2545,7 +2558,8 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
     };
 
     // §11.4 — cancellation watchdog: poll `cancel_requested_at` every 1s and
-    // fire the cancel signal when it's set (dashboard cancel / client gone).
+    // fire the cancel signal when it's set (dashboard cancel), or on the
+    // in-process token (a route caller hanging up, a worker shutdown).
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
     let watchdog = tokio::spawn(
         spawn_cancel_watchdog(args.db.clone(), args.invocation_id, cancel_tx, args.cancel)
@@ -2691,18 +2705,23 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
 
 /// Resolve `cancel_tx` (which terminates the isolate) on the first of two
 /// signals: the in-process `token` firing (the runtime/worker cancelled this
-/// task — e.g. fleet shutdown or an operator cancel) or
-/// `app_function_invocations.cancel_requested_at` going non-null (cross-process:
-/// dashboard cancel / client gone), polled once per second.
+/// task — e.g. fleet shutdown, an operator cancel, or a route caller hanging
+/// up via `client_gone`) or `app_function_invocations.cancel_requested_at`
+/// going non-null (cross-process: dashboard cancel), polled once per second.
 #[cfg(feature = "custom-app-functions")]
 async fn spawn_cancel_watchdog(
     db: sea_orm::DatabaseConnection,
     invocation_id: Uuid,
-    cancel_tx: tokio::sync::oneshot::Sender<()>,
+    mut cancel_tx: tokio::sync::oneshot::Sender<()>,
     token: tokio_util::sync::CancellationToken,
 ) {
     loop {
         tokio::select! {
+            // The run is gone — it finished, or its future was dropped before
+            // it could `abort()` this task. Without this arm a dropped route
+            // run left the watchdog polling Postgres once a second for the
+            // life of the process.
+            _ = cancel_tx.closed() => return,
             // In-process cancel — fire immediately rather than waiting up to a
             // second for the next poll.
             _ = token.cancelled() => {
