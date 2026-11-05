@@ -10,7 +10,7 @@
 
 import { APP_ENV_HEADER, isProduction } from "../apps/environment.js";
 import type { Creds, ResolvedApp } from "../apps/resolve.js";
-import { isMachineIdentity, isSandboxAgentToken } from "../auth/token-kind.js";
+import { isMachineIdentity } from "../auth/token-kind.js";
 import { fetchEnvironment } from "../commands/env.js";
 import type { Context } from "../context/resolve.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
@@ -31,16 +31,20 @@ const MAX_WAIT_SECONDS = 30;
  * service-account or CI token, stored or minted from GitHub OIDC
  * (`oidcAvailable`, when no user credential is set) — cannot be: it reaches
  * the `/customer-apps` API routes only, so the page would redirect to
- * sign-in. A sandbox agent token is refused by the page too (it opens `/fn`
- * and `/logs`, never the app's HTML). Refused before any request, and before
- * the exchange would mint one. The same order `resolveCredentials` reads them
- * in: a stored bearer, then an API key, then OIDC.
+ * sign-in. Refused before any request, and before the exchange would mint one.
+ * The same order `resolveCredentials` reads them in: a stored bearer, then an
+ * API key, then OIDC.
+ *
+ * A SANDBOX AGENT TOKEN IS THE EXCEPTION. The server lets it load its own
+ * sandbox's page on the product host's path URL when the request carries the
+ * bearer and `X-Oxy-App-Env: dev-<handle>` — which is what `browserTarget`
+ * sends, to requests under the app base only. Which environment it may name
+ * is `requireOwnSandbox`'s call (`resolveCredentials`), made before this
+ * check's first request.
  */
 export function refuseMachineBrowser(ctx: Context, oidcAvailable: boolean): void {
   const bearer = ctx.storedBearer();
-  const machine = bearer
-    ? isMachineIdentity(bearer) || isSandboxAgentToken(bearer)
-    : !ctx.apiKey() && oidcAvailable;
+  const machine = bearer ? isMachineIdentity(bearer) : !ctx.apiKey() && oidcAvailable;
   if (machine) {
     throw usageError(
       "the browser check loads the app as a user, which this token cannot",

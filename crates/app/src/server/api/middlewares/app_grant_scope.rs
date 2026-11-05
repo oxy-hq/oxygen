@@ -12,7 +12,8 @@
 //! - [`app_grant_scope_middleware`] sits in `api_auth_layers`, after
 //!   authentication, and reads the request's `CredentialContext`.
 //! - [`serve_tree_refuses`] is asked first in `serve_dispatch`, BEFORE
-//!   authentication, so it keys on the presented `oxy_sbx_` prefix.
+//!   authentication, so it keys on the presented `oxy_sbx_` prefix. It admits
+//!   `/fn` and the sandbox's own page (document, assets, `__oxy/*`, beacon).
 //!
 //! Both only refuse. A shape is matched segment for segment, never by prefix,
 //! so `/customer-apps/{id}/secrets/{key}/value` cannot ride on the shape of
@@ -21,12 +22,14 @@
 //!
 //! **Staging adds no route.** A token granted an app's staging uses the rows
 //! of [`SANDBOX_ALLOWED`] with `staging` where it named a sandbox, and F1 with
-//! `X-Oxy-App-Env: staging`. The serve tree's half is asked before the token
-//! is known, so it admits the header by shape — a sandbox's name, or
-//! `staging` — and whether **this** token was granted that app's staging is
-//! decided once it is: the credential's own grant, then oxy-authz
-//! (`oxy_custom_apps::agent::holds_staging`, `custom_apps_functions::agent_gate`).
-//! A token minted without staging is answered the same `404`, by that gate.
+//! `X-Oxy-App-Env: staging`, and so does loading the page. The serve tree's
+//! half is asked before the token is known, so it admits the header by shape —
+//! a sandbox's name, or `staging` — and whether **this** token was granted that
+//! app's staging is decided once it is: the credential's own grant, then
+//! oxy-authz (`oxy_custom_apps::agent::holds_staging`,
+//! `custom_apps_functions::agent_gate`; for the page,
+//! `oxy_custom_apps::non_production::may_open_environment`). A token minted
+//! without staging is answered the same `404`, by that gate.
 //!
 //! `/logs` is on the public router, where no fence is mounted: it admits the
 //! token at authentication and every other public route refuses it there
@@ -202,29 +205,49 @@ pub fn serve_tree_refuses(method: &Method, headers: &HeaderMap, path: &str) -> b
     oxy_auth::token::presents_sandbox_agent(headers) && !serve_tree_admits(method, headers, path)
 }
 
-/// F1, and nothing else: `POST <org>/<app>/fn/<name>` on the product host,
-/// naming a `dev-*` sandbox, or `staging`, in `X-Oxy-App-Env`.
+/// What a sandbox agent token reaches on the serve tree, and nothing else: on
+/// the product host, with a `dev-*` sandbox, or `staging`, named in
+/// `X-Oxy-App-Env`,
 ///
-/// An app or org subdomain is refused whatever it asks: its host label would
-/// decide the environment before the header does. Whether the sandbox is the
-/// token's own — and whether the token was granted the app's staging at all —
-/// is `environment_gate`'s check, made once the token is known.
+/// - F1: `POST <org>/<app>/fn/<name>`, a function call;
+/// - the sandbox's page: `GET`/`HEAD <org>/<app>/<rest>` — the document, its
+///   assets, and the reserved `__oxy/*` names (`build`, `sw.js`, the manifest) —
+///   with `<rest>` empty for the document at the app's root;
+/// - `POST <org>/<app>/__oxy/beacon`, the page's own telemetry batch.
+///
+/// A `GET` of `fn/<name>` is not a page: it stays refused, as it always was.
+/// So does the legacy `<uuid>/…` form, whose redirect never admitted the
+/// token. An app or org subdomain is refused whatever it asks: its host label
+/// would decide the environment before the header does. Whether the sandbox is
+/// the token's own — and whether the token was granted the app's staging at
+/// all — is the check made once the token is known: `environment_gate` for
+/// `/fn`, the serve path's access check (`resolve::authorize`) for the page.
 fn serve_tree_admits(method: &Method, headers: &HeaderMap, path: &str) -> bool {
-    if method != Method::POST || on_tenant_host(headers) {
+    if on_tenant_host(headers) || !names_an_agent_environment(headers) {
         return false;
     }
-    let mut segments = path.trim_start_matches('/').split('/');
-    let shape = (
-        segments.next(),
-        segments.next(),
-        segments.next(),
-        segments.next(),
-        segments.next(),
-    );
-    let (Some(org), Some(app), Some("fn"), Some(name), None) = shape else {
+    let mut segments = path.trim_start_matches('/').splitn(3, '/');
+    let (Some(org), Some(app)) = (segments.next(), segments.next()) else {
         return false;
     };
-    !org.is_empty() && !app.is_empty() && !name.is_empty() && names_an_agent_environment(headers)
+    if org.is_empty() || app.is_empty() || Uuid::parse_str(org).is_ok() {
+        return false;
+    }
+    let rest = segments.next().unwrap_or("");
+    match *method {
+        Method::POST => is_function_call(rest) || rest == BEACON,
+        Method::GET | Method::HEAD => !rest.starts_with("fn/"),
+        _ => false,
+    }
+}
+
+/// The page's telemetry batch, under the app: `POST` only.
+const BEACON: &str = "__oxy/beacon";
+
+/// `fn/<name>`: exactly one non-empty segment after `fn/`.
+fn is_function_call(rest: &str) -> bool {
+    rest.strip_prefix("fn/")
+        .is_some_and(|name| !name.is_empty() && !name.contains('/'))
 }
 
 /// Whether the request arrived on an app subdomain or an org subdomain.

@@ -31,12 +31,27 @@ import { once } from "node:events";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { withUserAgent } from "../api/user-agent.js";
+import { APP_ENV_HEADER } from "../apps/environment.js";
+import { isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
 import { CliError, ExitCode } from "../util/errors.js";
+import {
+  admitsLocalRequest,
+  appBase,
+  forwardsWritesByDefault,
+  isUnderApp,
+  normalizeRequestPath,
+  type ProxyApp,
+  parseProxyApp
+} from "./proxy-app.js";
 
 export interface ProxyFlags {
+  /** `<org>/<app>`: the app whose page is loaded through the proxy. */
+  app?: string;
+  /** With `app`: `staging` or `dev-<handle>`, sent as `X-Oxy-App-Env` on the app's requests. */
+  appEnv?: string;
   port?: string;
   allowWrites?: boolean;
   allowEvents?: boolean;
@@ -148,11 +163,19 @@ export function rewriteSetCookie(value: string): string {
  * The dev bearer is injected ONLY as a fallback — when the request carries no
  * auth of its own and is not an auth endpoint — so it can never override a
  * real session or break login.
+ *
+ * ONE EXCEPTION, with `app` naming an environment: a request under that app's
+ * base is sent with `X-Oxy-App-Env` and WITHOUT the browser's cookie, Origin
+ * and Referer. The server answers 400 to an environment header beside a
+ * cookie, and the token
+ * is the credential for that environment — so the fallback below then applies
+ * to it like any request that arrived with no auth. Elsewhere nothing changes.
  */
 export function buildRequestHeaders(
   incoming: NodeJS.Dict<string | string[]>,
   token: string | undefined,
-  path: string
+  path: string,
+  app?: ProxyApp
 ): Record<string, string> {
   const headers: Record<string, string> = {};
   // `traceparent` / `tracestate` are the SDK's W3C trace context. The trace a
@@ -171,6 +194,15 @@ export function buildRequestHeaders(
     const value = incoming[name];
     if (typeof value === "string") headers[name] = value;
     else if (Array.isArray(value) && value[0]) headers[name] = value[0];
+  }
+  if (app?.env && isUnderApp(path, app)) {
+    // The proxy's token is the credential here, so the browser's origin says
+    // nothing about who is asking — and the server's origin gate would refuse
+    // a loopback page arriving at a cloud host.
+    delete headers.cookie;
+    delete headers.origin;
+    delete headers.referer;
+    headers[APP_ENV_HEADER.toLowerCase()] = app.env;
   }
   const hasAuth = "cookie" in headers || "authorization" in headers;
   if (!hasAuth && !isAuthPath(path) && token) headers.authorization = `Bearer ${token}`;
@@ -290,17 +322,31 @@ export function isProductionTarget(target: string): boolean {
   return host === "oxygen-hq.com" || host.endsWith(".oxygen-hq.com");
 }
 
+/** The banner's word for what happens to a side-effecting call. */
+function writesBanner(flags: ProxyFlags, app: ProxyApp | undefined): string {
+  if (flags.allowWrites) return out.yellow("FORWARDED");
+  if (app?.env?.startsWith("dev-"))
+    return `forwarded in ${app.env} (the app's own requests), held elsewhere`;
+  return "held";
+}
+
 export async function runProxy(ctx: Context, flags: ProxyFlags): Promise<void> {
   const target = ctx.target();
   const port = Number(flags.port ?? 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new CliError(`invalid --port ${flags.port}`, { code: ExitCode.USAGE });
   }
+  // Usage, before the production confirmation: a sandbox agent token that
+  // names no sandbox needs a different command line, not `--yes`.
+  const app = parseProxyApp(flags, isSandboxAgentToken(ctx.storedBearer()));
 
   // A production target is confirmed, not assumed. The guardrails hold writes
   // by default, but `--allow-writes` plus a forgotten `--env` is a laptop
-  // writing to a customer's live data.
-  if (isProductionTarget(target) && !flags.yes) {
+  // writing to a customer's live data. A proxy into a `dev-<handle>` sandbox
+  // without `--allow-writes` needs no confirmation: the app's own writes land
+  // in the sandbox, and every other write is held.
+  const intoSandbox = app?.env?.startsWith("dev-") === true && !flags.allowWrites;
+  if (isProductionTarget(target) && !flags.yes && !intoSandbox) {
     throw new CliError(`refusing to proxy to a production target (${target}) without --yes`, {
       code: ExitCode.REFUSED,
       hint: "oxyc proxy --env dev        — or pass --yes if production is really what you want"
@@ -315,8 +361,21 @@ export async function runProxy(ctx: Context, flags: ProxyFlags): Promise<void> {
 
   // oxlint-disable-next-line typescript/no-misused-promises -- both awaits below sit in a try/catch that answers the request, so nothing is left to reject
   const server = createServer(async (req, res) => {
-    const path = req.url ?? "/";
+    // Decided and forwarded on one path: what the upstream URL will name.
+    const path = normalizeRequestPath(req.url ?? "/");
     const method = (req.method ?? "GET").toUpperCase();
+
+    // Under the app's base the browser's origin is dropped before the token is
+    // added, so the cloud cannot refuse another site's page: refuse it here.
+    if (app?.env && isUnderApp(path, app) && !admitsLocalRequest(req.headers)) {
+      log.warn(`refused  ${method} ${path}  (not from a page on this machine)`);
+      json(res, 403, {
+        error: "origin_not_local",
+        message:
+          "oxyc proxy carries its token only for pages on this machine. Open the app at the 127.0.0.1 URL it printed."
+      });
+      return;
+    }
 
     if (!flags.allowEvents && isEventsPath(path)) {
       // DROPPED, and answered 204 rather than refused: the SDK's tracking call
@@ -327,7 +386,7 @@ export async function runProxy(ctx: Context, flags: ProxyFlags): Promise<void> {
       return;
     }
 
-    if (!flags.allowWrites && isWritePath(method, path)) {
+    if (!flags.allowWrites && !forwardsWritesByDefault(app, path) && isWritePath(method, path)) {
       // HELD with a 403 and a body that says WHY. A silent 200 would let a
       // dev believe a write landed in the cloud when nothing happened.
       log.warn(`held  ${method} ${path}  (side-effecting; --allow-writes to forward)`);
@@ -361,7 +420,7 @@ export async function runProxy(ctx: Context, flags: ProxyFlags): Promise<void> {
     });
 
     try {
-      const headers = buildRequestHeaders(req.headers, token, path);
+      const headers = buildRequestHeaders(req.headers, token, path, app);
       // A function call gets a trace of its own, minted here when the SDK did
       // not already send one, so the line printed below names the trace an
       // operator would open — the developer who just watched the call fail
@@ -445,9 +504,15 @@ export async function runProxy(ctx: Context, flags: ProxyFlags): Promise<void> {
   process.stderr.write(
     `${out.green(`oxyc proxy → ${target}`)}\n` +
       `  listening on http://127.0.0.1:${port}\n` +
-      `  writes ${flags.allowWrites ? out.yellow("FORWARDED") : "held"}` +
+      `  writes ${writesBanner(flags, app)}` +
       `   ·   events ${flags.allowEvents ? out.yellow("FORWARDED") : "dropped"}\n`
   );
+  if (app) {
+    const where = app.env ? `${app.env} of ${app.org}/${app.app}` : `${app.org}/${app.app}`;
+    process.stderr.write(
+      `  open http://127.0.0.1:${port}${appBase(app)}/ — ${where} on ${target}\n`
+    );
+  }
 
   // Runs until interrupted; the process is the server.
   await new Promise<void>(() => {});

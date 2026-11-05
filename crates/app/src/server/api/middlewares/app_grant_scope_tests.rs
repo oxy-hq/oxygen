@@ -145,9 +145,10 @@ fn the_serve_tree_admits_fn_of_a_dev_sandbox_on_the_product_host_only() {
         (Method::POST, "acme/store/fn/"),
         (Method::POST, "acme/store/fn"),
         (Method::POST, "acme//fn/ping"),
-        (Method::GET, "acme/store/"),
-        (Method::GET, "acme/store/assets/index.js"),
+        (Method::POST, "acme/store/"),
         (Method::POST, "acme/store/api/anything"),
+        (Method::PUT, "acme/store/fn/ping"),
+        (Method::DELETE, "acme/store/"),
     ];
     for (verb, path) in refused_paths {
         assert!(
@@ -206,10 +207,117 @@ fn the_serve_tree_admits_fn_of_a_dev_sandbox_on_the_product_host_only() {
     }
 }
 
+/// The sandbox's page: the document, its assets, `__oxy/*`, and the beacon.
+#[test]
+fn the_serve_tree_admits_the_page_of_a_sandbox_on_the_product_host_only() {
+    let own = [
+        ("authorization", SBX),
+        ("x-oxy-app-env", "dev-a"),
+        ("host", "app.oxygen-hq.com"),
+    ];
+    let staging = [
+        ("authorization", SBX),
+        ("x-oxy-app-env", "staging"),
+        ("host", "app.oxygen-hq.com"),
+    ];
+    let admitted = [
+        (Method::GET, "acme/store"),
+        (Method::GET, "acme/store/"),
+        (Method::GET, "/acme/store/"),
+        (Method::GET, "acme/store/index.html"),
+        (Method::GET, "acme/store/assets/index-abc.js"),
+        (Method::GET, "acme/store/fn"),
+        (Method::GET, "acme/store/__oxy/build"),
+        (Method::GET, "acme/store/__oxy/sw.js"),
+        (Method::GET, "acme/store/__oxy/manifest.webmanifest"),
+        (Method::HEAD, "acme/store/"),
+        (Method::POST, "acme/store/__oxy/beacon"),
+    ];
+    for pairs in [&own[..], &staging[..]] {
+        for (verb, path) in &admitted {
+            assert!(
+                !serve_tree_refuses(verb, &headers(pairs), path),
+                "{pairs:?} {verb} {path}"
+            );
+        }
+    }
+
+    // Nothing else: a POST that is not F1 or the beacon, a `GET` of a function,
+    // the legacy uuid form, a beacon with more after it, an empty org or app.
+    let refused = [
+        (Method::POST, "acme/store/something-else"),
+        (Method::POST, "acme/store/"),
+        (Method::POST, "acme/store/__oxy/build"),
+        (Method::POST, "acme/store/__oxy/beacon/extra"),
+        (Method::POST, "acme/store/assets/__oxy/beacon"),
+        (Method::GET, "acme/store/fn/ping"),
+        (Method::GET, "acme/store/fn/"),
+        (Method::PUT, "acme/store/index.html"),
+        (Method::DELETE, "acme/store/"),
+        (Method::PATCH, "acme/store/__oxy/beacon"),
+        (Method::GET, "acme"),
+        (Method::GET, "acme//index.html"),
+        (Method::GET, "/"),
+        (Method::GET, ""),
+        (
+            Method::GET,
+            "4f9f2c1e-6d0a-4c53-9e3b-1f6a8f0b7d11/index.html",
+        ),
+    ];
+    for (verb, path) in refused {
+        assert!(
+            serve_tree_refuses(&verb, &headers(&own), path),
+            "{verb} {path}"
+        );
+    }
+
+    // The same conditions as F1: an environment named, never production, and
+    // never on a tenant host.
+    let refused_headers: [&[(&'static str, &str)]; 6] = [
+        &[("authorization", SBX), ("host", "app.oxygen-hq.com")],
+        &[("authorization", SBX), ("x-oxy-app-env", "production")],
+        &[("authorization", SBX), ("x-oxy-app-env", "nonsense")],
+        &[
+            ("authorization", SBX),
+            ("x-oxy-app-env", "dev-a"),
+            ("host", "acme--store.customer-apps.oxygen-hq.com"),
+        ],
+        &[
+            ("authorization", SBX),
+            ("x-oxy-app-env", "dev-a"),
+            ("host", "dev-a--acme--store.customer-apps.oxygen-hq.com"),
+        ],
+        &[
+            ("authorization", SBX),
+            ("x-oxy-app-env", "staging"),
+            ("host", "staging--acme--store.customer-apps.oxygen-hq.com"),
+        ],
+    ];
+    for pairs in refused_headers {
+        for (verb, path) in [
+            (Method::GET, "acme/store/"),
+            (Method::GET, "acme/store/assets/index.js"),
+            (Method::POST, "acme/store/__oxy/beacon"),
+        ] {
+            assert!(
+                serve_tree_refuses(&verb, &headers(pairs), path),
+                "{pairs:?} {verb} {path}"
+            );
+        }
+    }
+}
+
 #[test]
 fn the_serve_tree_reads_the_token_from_x_api_key_too() {
-    let presented = headers(&[("x-api-key", SBX.trim_start_matches("Bearer "))]);
+    let key = SBX.trim_start_matches("Bearer ");
+    let presented = headers(&[("x-api-key", key)]);
     assert!(serve_tree_refuses(&Method::GET, &presented, "acme/store/"));
+    let in_a_sandbox = headers(&[("x-api-key", key), ("x-oxy-app-env", "dev-a")]);
+    assert!(!serve_tree_refuses(
+        &Method::GET,
+        &in_a_sandbox,
+        "acme/store/"
+    ));
 }
 
 #[test]
@@ -256,15 +364,17 @@ fn rust_sources(dir: &Path, found: &mut Vec<PathBuf>) {
     }
 }
 
-/// The three entry points that admit a sandbox agent token, and no other.
+/// The four entry points that admit a sandbox agent token, and no other.
 ///
 /// Every authenticator is built with `Admit` or `Refuse`, so a new entry point
 /// has to choose; this is what makes choosing `Admit` a reviewed decision.
 /// Each admitting site sits behind a fence: `api_auth_layers` mounts
 /// [`app_grant_scope_middleware`], and `/fn` runs after
-/// [`serve_tree_refuses`]. `/logs` is checked by its handler.
+/// [`serve_tree_refuses`], as does the sandbox's page (`serve/mod.rs`, the same
+/// fence, then `resolve::authorize` per environment). `/logs` is checked by its
+/// handler.
 #[test]
-fn only_three_entry_points_admit_a_sandbox_agent_token() {
+fn only_four_entry_points_admit_a_sandbox_agent_token() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("crates/");
@@ -295,6 +405,7 @@ fn only_three_entry_points_admit_a_sandbox_agent_token() {
         [
             "api-custom-apps/src/custom_apps_functions/mod.rs",
             "api-custom-apps/src/logs.rs",
+            "api-custom-apps/src/serve/mod.rs",
             "app/src/server/router/protected.rs",
         ],
         "a new entry point admits a sandbox agent token: put it behind the route allow-list \

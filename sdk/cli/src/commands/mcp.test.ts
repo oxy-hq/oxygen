@@ -291,9 +291,10 @@ describe("the tool list", () => {
    * original 8 KB on purpose, because the sandbox/previews tools trade
    * minimalism for validation an agent needs to drive either loop
    * unsupervised (see the tool-list test above and `mcp.ts`'s module doc).
-   * Ceiling set to 18.7 KB (it was 17 KB until `oxy_env_update` / `oxy_env_reset`
-   * and create's branch arguments, 18 KB until `oxy_env_outbox`, and 18.4 KB until
-   * `oxy_env_reset`'s OLTP `at`), not a round 20 KB: close enough to the
+   * Ceiling set to 19 KB (it was 17 KB until `oxy_env_update` / `oxy_env_reset`
+   * and create's branch arguments, 18 KB until `oxy_env_outbox`, 18.4 KB until
+   * `oxy_env_reset`'s OLTP `at`, 18.7 KB until `oxy_checks_run`'s browser option), not
+   * a round 20 KB: close enough to the
    * actual that a tool added without trimming anything still trips it, but
    * with enough headroom that a wording tweak to an existing description
    * does not. The ceiling still catches erosion: it is not "whatever the
@@ -304,7 +305,7 @@ describe("the tool list", () => {
     const frames = await rpc([INIT, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }]);
     const tools = frames.find((f) => f.id === 2)?.result?.tools;
     const bytes = JSON.stringify(tools).length;
-    expect(bytes).toBeLessThan(18_700);
+    expect(bytes).toBeLessThan(19_000);
   });
 
   it("tells the model to discover before it guesses", async () => {
@@ -665,6 +666,26 @@ describe("sandbox tools — client-side validation before any request", () => {
     const { isError, body } = await callTool("oxy_checks_run", {});
     expect(isError).toBe(true);
     expect(body).toMatch(/oxy_checks_run needs app/);
+  });
+
+  it("oxy_checks_run offers the browser check, with the CLI's own rule for the selector", async () => {
+    const frames = await rpc([INIT, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }]);
+    const tools = (frames.find((f) => f.id === 2)?.result?.tools ?? []) as {
+      name: string;
+      inputSchema: { properties: Record<string, { type: string }> };
+    }[];
+    const properties = tools.find((t) => t.name === "oxy_checks_run")?.inputSchema.properties;
+    expect(properties?.browser?.type).toBe("boolean");
+    expect(properties?.expectSelector?.type).toBe("string");
+
+    // The same check `--expect-selector` without `--browser` fails, before any request.
+    const { isError, body } = await callTool("oxy_checks_run", {
+      app: "acme/store",
+      expectSelector: "main"
+    });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/--expect-selector needs --browser/);
+    expect(body).toMatch(/\[exit 2 USAGE\]/);
   });
 
   it("oxy_invocations_held names the missing argument", async () => {
@@ -1112,14 +1133,46 @@ describe("a sandbox agent token", () => {
     ]);
   });
 
+  it("serves oxy_checks_run's browser option on this list too, and runs it for a sandbox", async () => {
+    const id = "a1a1a1a1-2222-3333-4444-555555555555";
+    const { frames } = await served(
+      [
+        INIT,
+        LIST,
+        call(3, "oxy_checks_run", { app: "acme/store", appEnv: "dev-a1", browser: true })
+      ],
+      {
+        ...A1,
+        [`GET /api/customer-apps/${id}/functions?environment=dev-a1`]: [],
+        // Past the credential gate and into the browser step's own first read:
+        // an environment with no build is refused there, before any Chromium.
+        [`GET /api/customer-apps/${id}/environments/dev-a1`]: {
+          name: "dev-a1",
+          status: "ready",
+          build_uuid: null
+        }
+      }
+    );
+    const tools = (frames.find((f) => f.id === 2)?.result?.tools ?? []) as {
+      name: string;
+      inputSchema: { properties: Record<string, unknown> };
+    }[];
+    const properties = tools.find((t) => t.name === "oxy_checks_run")?.inputSchema.properties;
+    expect(properties).toHaveProperty("browser");
+    expect(properties).toHaveProperty("expectSelector");
+    expect(textOf(frames, 3)).toMatch(/dev-a1 of acme\/store serves no build yet/);
+    expect(textOf(frames, 3)).not.toMatch(/loads the app as a user/);
+  });
+
   it("costs less schema per turn than the list a person is served", async () => {
     const mine = await served([INIT, LIST], A1);
     const theirs = await rpc([INIT, LIST]);
     const bytes = (frames: Frame[]) =>
       JSON.stringify(frames.find((f) => f.id === 2)?.result?.tools).length;
     expect(bytes(mine.frames)).toBeLessThan(bytes(theirs));
-    // 12.9 KB until `oxy_env_reset`'s OLTP `at` joined `oxy_env_outbox`.
-    expect(bytes(mine.frames)).toBeLessThan(13_200);
+    // 12.9 KB until `oxy_env_reset`'s OLTP `at` joined `oxy_env_outbox`; 13.2 KB
+    // until `oxy_checks_run` took the browser option.
+    expect(bytes(mine.frames)).toBeLessThan(13_500);
   });
 
   it("requires the sandbox on every tool that defaults to production for staff", async () => {

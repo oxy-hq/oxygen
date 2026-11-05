@@ -429,6 +429,26 @@ pub(super) fn cache_control_for(
     "public, max-age=300"
 }
 
+/// [`cache_control_for`]'s answer, made `private` outside production.
+///
+/// A non-production environment can be asked for at the production path URL
+/// with only `X-Oxy-App-Env` to tell it apart — a person's `oxyc checks run
+/// --browser`, a sandbox agent token loading its own sandbox's page — and a
+/// shared cache keys on the URL. A `public` answer there could hand a
+/// sandbox's `favicon.ico` to production's visitors for five minutes, or a
+/// sandbox's bundle under a production URL for a year. `private` keeps every
+/// such answer in the one browser that asked.
+pub(super) fn cache_control_in(environment: &str, cache: &'static str) -> &'static str {
+    if environment == "production" {
+        return cache;
+    }
+    match cache {
+        "public, max-age=300" => "private, max-age=300",
+        "public, max-age=31536000, immutable" => "private, max-age=31536000, immutable",
+        other => other,
+    }
+}
+
 // The ETag format and `If-None-Match` comparison are shared with the admin
 // SPA shell — see `server::http_cache` for why they have one home.
 pub(super) use oxy_app_core::http_cache::{if_none_match, weak_etag as etag_for};
@@ -633,5 +653,34 @@ mod tests {
             "purpose",
             "subresource"
         )));
+    }
+
+    /// Outside production nothing is `public`: the production path URL can
+    /// carry a sandbox's bytes with only `X-Oxy-App-Env` to tell them apart.
+    #[test]
+    fn nothing_outside_production_is_public() {
+        let root = cache_control_for(
+            "favicon.ico",
+            StdPath::new("favicon.ico"),
+            VersionPin::default(),
+        );
+        let hashed = cache_control_for(
+            "assets/main-a1b2.js",
+            StdPath::new("assets/main-a1b2.js"),
+            VersionPin::default(),
+        );
+        assert_eq!(cache_control_in("production", root), root);
+        assert_eq!(cache_control_in("production", hashed), hashed);
+        for environment in ["staging", "dev-a1"] {
+            for policy in [root, hashed, "private, no-cache"] {
+                let answer = cache_control_in(environment, policy);
+                assert!(!answer.contains("public"), "{environment}: {answer}");
+                assert!(answer.starts_with("private"), "{environment}: {answer}");
+            }
+        }
+        assert_eq!(
+            cache_control_in("dev-a1", hashed),
+            "private, max-age=31536000, immutable"
+        );
     }
 }

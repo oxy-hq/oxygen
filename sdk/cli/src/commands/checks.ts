@@ -32,6 +32,7 @@ import {
   resolveApp
 } from "../apps/resolve.js";
 import { githubOidcAvailable } from "../auth/oidc.js";
+import { isSandboxAgentToken } from "../auth/token-kind.js";
 import type { BrowserCheckResult } from "../checks/browser.js";
 import { refuseMachineBrowser, runBrowserStep } from "../checks/browser-step.js";
 import type { Context } from "../context/resolve.js";
@@ -136,14 +137,20 @@ export async function runChecksCore(
       "resolving a slug means listing every app, which a publish or service-account token may not do; the id is on the app's admin page, and `oxyc publish --json` reports it"
     );
   }
-  const resolved: ResolvedApp | { appId: string; label: string } = machine.appId
-    ? { appId: machine.appId, label: app }
-    : creds.machine && UUID_RE.test(app)
-      ? // Never touch `/api/customer-apps/{id}` with a machine token — it is
-        // refused there just as the listing is, and the id already names the
-        // app, so there is nothing left for `resolveApp` to add.
-        { appId: app, label: app }
-      : await resolveApp(creds, app);
+  // `--browser` needs the slugs for the page's URL. A sandbox agent token's
+  // app came off its own list (`machine.appId`, no slugs), and `resolveApp`
+  // reads the same remembered list — no listing, no request.
+  const needsSlugs = opts.browser && isSandboxAgentToken(machine.bearer);
+  const resolved: ResolvedApp | { appId: string; label: string } = needsSlugs
+    ? await resolveApp(creds, app)
+    : machine.appId
+      ? { appId: machine.appId, label: app }
+      : creds.machine && UUID_RE.test(app)
+        ? // Never touch `/api/customer-apps/{id}` with a machine token — it is
+          // refused there just as the listing is, and the id already names the
+          // app, so there is nothing left for `resolveApp` to add.
+          { appId: app, label: app }
+        : await resolveApp(creds, app);
   const { appId, label } = resolved;
   const checks = await listChecks(creds, appId, appEnv);
   // With `--browser` the page is itself a check, so an app with no check
@@ -162,9 +169,10 @@ export async function runChecksCore(
     onResult?.(result);
   }
   if (opts.browser) {
-    // `refuseMachineBrowser` kept every machine and sandbox-agent token out,
-    // so the app was resolved by `resolveApp` and carries its slugs. Should a
-    // new path skip it, say so rather than report a run with no browser check.
+    // `refuseMachineBrowser` kept every machine token out, and a sandbox
+    // agent token was resolved by `resolveApp` above, so the app carries its
+    // slugs. Should a new path skip that, say so rather than report a run with
+    // no browser check.
     if (!("orgSlug" in resolved)) {
       throw new CliError(`cannot load ${label} in a browser: its slugs were not resolved`, {
         code: ExitCode.USAGE,

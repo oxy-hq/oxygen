@@ -6,6 +6,23 @@ a report its engineer can act on. What a sandbox is, and the same loop as a
 person runs it, are in
 [SKILL.md → Sandboxes](../SKILL.md#sandboxes--try-a-change-on-real-data-before-shipping-it).
 
+## The whole loop at a glance
+
+Everything up to shipping is yours; shipping is a person's.
+
+| Step | Do | Proves |
+| --- | --- | --- |
+| 1. Build locally | `oxyc publish --build-only`, `oxyc fn dev <fn>` | it builds, and a function runs, before any approval |
+| 2. Get a token | `oxyc tokens create --sandbox-agent --app <org>/<app>` — your engineer approves once | you act as yourself, on those apps only |
+| 3. Make a sandbox | `oxyc env create … dev-x` (planes for what you test: [environment-branches.md](environment-branches.md)) | a copy of the app nobody else uses |
+| 4. Publish into it | `oxyc publish --app-env dev-x` | the build the sandbox serves |
+| 5. Exercise it | `fn call`, `fn run --as-schedule`, `checks run` | the functions, on production's reads |
+| 6. Check the page | `checks run --browser`, `oxyc proxy --app-env dev-x` + a browser tool | what a person sees |
+| 7. Read back | `invocations list` / `held`, `logs`, `env outbox`, `env diff` | what ran, held, would have been sent, and changed |
+| 8. Iterate | edit, back to 4 | |
+| 9. Hand back, clean up | the report below; `env delete --wait`, then `tokens revoke --current` | |
+| 10. Ship | **your engineer:** `oxyc promote <app> --from dev-x`, check staging, `oxyc promote <app>` | |
+
 ## An agent's own credential: the sandbox agent token
 
 **If you are an AI agent, you do not work on your engineer's login.** A login
@@ -78,9 +95,11 @@ token, `oxyc tokens create --agent`: see [reading-data.md](reading-data.md).
 ## What it reaches
 
 One to five named apps, and only `dev-<handle>` sandboxes it created itself —
-three at a time at most, counting ones still being deleted. Everything else
-answers `404`: production and staging, another app, someone else's sandbox,
-`/admin`, a secret's value. A publish to a channel (staging, production) or a
+three at a time at most, counting ones still being deleted. In those it runs
+the loop below and loads the app's page ([Check its page](#check-its-page)).
+Everything else answers `404`: production and staging, another app, someone
+else's sandbox, `/admin`, a secret's value, and the deployment's own `/api`
+data routes. A publish to a channel (staging, production) or a
 promote answers `403`. `oxyc` refuses those two, and `oxyc api`, `oxyc apps`
 and `oxyc login-link`, before any request (exit `2`). **Shipping stays with a
 person.**
@@ -103,6 +122,8 @@ oxyc env secret set <org>/<app> KEY --app-env dev-x --value-env VAR --env <deplo
 # 3. Call what you changed. Success: exit 0 and "ok":true. Then run the app's checks.
 oxyc fn call <org>/<app> <function> --app-env dev-x --data '{}' --env <deployment> --token-env OXY_TOKEN --json
 oxyc checks run <org>/<app> --app-env dev-x --env <deployment> --token-env OXY_TOKEN --json
+# 3b. Changed something a person sees? Check the page (see "Check its page").
+oxyc checks run <org>/<app> --app-env dev-x --browser --expect-selector '<css>' --env <deployment> --token-env OXY_TOKEN --json
 # 4. Read back: what ran (a row's id is `id`), what it held instead of writing, its logs.
 oxyc invocations list <org>/<app> --app-env dev-x --env <deployment> --token-env OXY_TOKEN --json
 oxyc invocations held <org>/<app> <invocation-id> --env <deployment> --token-env OXY_TOKEN --json
@@ -210,14 +231,41 @@ Branch on the exit code and the JSON fields, not on the text:
   day after its token ends, and your engineer can delete it sooner with the
   `env delete` command on their own login.
 
-## You cannot open a page
+## Check its page
 
-The token signs no browser in, and the sandbox's host answers only a signed-in
-staff session. So you verify the functions (`fn call`, `checks run`,
-`invocations held`, `logs`) and your engineer verifies what a person sees. Do
-not log in to get a session, and do not drive the app's production URL
-instead: it does not serve your build. What your engineer does with the link
-is in [verifying-in-the-browser.md](verifying-in-the-browser.md).
+The token loads your own sandbox's page — its HTML, assets and `/fn` calls —
+when it rides as a header with `X-Oxy-App-Env: dev-x`. It never becomes a
+browser cookie, so you reach the page in one of two ways, both on the token:
+
+```bash
+# 1. Assert it mounted: one more entry in checks[], "kind": "browser".
+oxyc checks run <org>/<app> --app-env dev-x --browser --expect-selector '<css>' \
+  --env <deployment> --token-env OXY_TOKEN --json
+# 2. Drive it yourself: a local proxy that adds the token and the header.
+oxyc proxy --app <org>/<app> --app-env dev-x --port 3000 \
+  --env <deployment> --token-env OXY_TOKEN        # in the background; leave it running
+# then, with a browser tool: http://127.0.0.1:3000/customer-apps/<org>/<app>/
+```
+
+- **The browser check** passes when the page names `dev-x` and the build `env
+  show` reports, sends its ready beacon, throws nothing, and shows the
+  `--expect-selector` element. It needs Playwright resolvable from the
+  working directory. Over MCP it is `oxy_checks_run` with `browser: true`
+  (and `expectSelector`).
+- **The proxy** serves the deployment at `http://127.0.0.1:<port>`, adding the
+  token and `X-Oxy-App-Env` to requests under the app's path only. Open that
+  path with a browser tool (`browser_navigate`, `browser_click`,
+  `browser_take_screenshot`, `browser_evaluate` to measure) and click through
+  what you changed. In a sandbox it forwards writes: they land in the
+  sandbox's homes or are held, as a `fn call`'s are. Stop it when you are done.
+- **What it cannot show:** the page's own calls to the deployment's `/api`
+  (an SDK `useQuery` or semantic query) answer `404` to your token, so a card
+  fed that way renders empty or errors. `/fn` calls work. Report which cards
+  you could not see with data; do not reach for another credential.
+
+Do not log in to get a session, and do not drive the app's production URL
+instead: it does not serve your build. How to drive and measure a page is in
+[verifying-in-the-browser.md](verifying-in-the-browser.md).
 
 ## What to hand back
 
@@ -230,7 +278,10 @@ Whether the task worked or not:
 - each function you called, with its input and whether it was `ok`; each
   check's name and `passed`, or that the app declares no checks;
 - every held write (`op`, `plane`, `table`, `note`);
-- what you did not verify: under this token, everything on the page;
+- the page: the browser check's result, and what you clicked through the
+  proxy, with screenshots;
+- what you did not verify: cards fed by the deployment's `/api` (they answer
+  `404` to your token), and anything you did not open;
 - the cleanup: the sandbox deleted or still up, and the token revoked.
 
 Copy what you need out of `invocations` and `logs` into the report before you
@@ -284,6 +335,8 @@ with the class at the end of its text (`[exit 5 NOT_FOUND]`, plus `server
 code: <code>` when the server sent one) — branch on that the way you would
 on the exit code. `oxy_fn_call` and `oxy_checks_run` set `isError` when the
 function or a check failed, with the full document still in the result.
+`oxy_checks_run` takes `browser: true` and `expectSelector` for the page
+check. The proxy has no tool: run `oxyc proxy` in the background.
 `oxy_env_delete` needs `confirm: true`. `oxy_publish_sandbox` takes only a
 `dev-<handle>` and cannot reach staging or production.
 

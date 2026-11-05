@@ -768,8 +768,10 @@ such staff approved; a publish token is refused on every sandbox operation,
 so CI cannot use one.
 
 **An agent runs this loop on its own sandbox agent token**, never a person's
-login, with `--token-env OXY_TOKEN` on every command — the mint, exit codes,
-rules and what to hand back are in
+login, with `--token-env OXY_TOKEN` on every command — up to the page:
+`checks run --browser` and `oxyc proxy --app <org>/<app> --app-env dev-x` let
+it check what a person sees in its own sandbox. The loop at a glance, the
+mint, exit codes, rules and what to hand back are in
 [references/sandbox-agent-loop.md](references/sandbox-agent-loop.md). Read it
 before an agent runs any `oxyc` command against a deployment.
 
@@ -784,7 +786,7 @@ the sandbox with `--semantic-branch <branch>`, or set the planes above — see
 | File | Read it when |
 | --- | --- |
 | [references/environment-branches.md](references/environment-branches.md) | You want a sandbox to isolate more than the defaults: its own copy of production's OLTP rows, an Airhouse overlay or snapshot, captured email, empty secrets or storage, real writes to a provider sandbox, a semantic branch, or preview automation runs. Which mode tests what, reset, expiry and every refusal. |
-| [references/sandbox-agent-loop.md](references/sandbox-agent-loop.md) | You are an AI agent about to touch a deployment: minting the sandbox agent token, the loop, exit codes, rules, what to hand back, when you cannot get a token, the MCP tools, workspace previews. |
+| [references/sandbox-agent-loop.md](references/sandbox-agent-loop.md) | You are an AI agent about to touch a deployment: the loop at a glance, minting the sandbox agent token, checking the sandbox's page, exit codes, rules, what to hand back, when you cannot get a token, the MCP tools, workspace previews. |
 | [references/verifying-in-the-browser.md](references/verifying-in-the-browser.md) | You changed something a person sees (`src/**`, or a function a card calls) and need to prove it on the published page. |
 | [references/reading-data.md](references/reading-data.md) | You need a deployment's live data while building: an agent's own `--agent` token, `oxyc api` / `routes` / `schema`, and `oxyc proxy` for `pnpm dev` against cloud data. |
 | [references/performance-and-usage.md](references/performance-and-usage.md) | You write an Oxy Function, a bulk action, caching or idempotency keys — or need to know what Oxy does for load speed and usage tracking, and the opt-outs. |

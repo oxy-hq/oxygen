@@ -57,7 +57,7 @@ use crate::auth::{user_cache_key, user_can_access_app};
 use crate::cache::{
     ResolvedApp, cached_app_resolution, cached_user, set_cached_app_resolution, set_cached_user,
 };
-use crate::env_resolve::{EnvironmentBuilds, load_environment_builds, may_open_non_production};
+use crate::env_resolve::{EnvironmentBuilds, load_environment_builds, may_open_environment};
 
 /// A request resolved to the app it addresses and the caller who may open it.
 pub struct AppRequest {
@@ -317,6 +317,14 @@ async fn resolve_rows(
 /// `(user_id, app_id)` — see `custom_apps_auth::user_can_access_app`. Any
 /// other environment: Oxy staff reaching the org, decided by oxy-authz — an
 /// unreleased build is never a customer's to open.
+///
+/// A sandbox agent token differs on the second arm only: any other environment
+/// is decided for **that** environment, uncached (`may_open_environment`) — a
+/// `dev-*` sandbox it created, or the staging it was granted, and nothing else.
+/// Its production arm is the ordinary one, because `/fn` resolves at
+/// production for every caller and decides the environment it runs in at
+/// `environment_gate`; the page path, which resolves at the environment it
+/// serves, refuses the token at production itself (`ServeContext::prepare`).
 async fn authorize(
     db: &DatabaseConnection,
     caller: &Caller,
@@ -327,7 +335,9 @@ async fn authorize(
         if *environment == AppEnvironment::Production {
             user_can_access_app(db, caller, app).await
         } else {
-            Ok(may_open_non_production(db, caller, app).await)
+            // For every caller but a sandbox agent token this is
+            // `may_open_non_production`, unchanged.
+            Ok(may_open_environment(db, caller, app, environment).await)
         }
     };
     access

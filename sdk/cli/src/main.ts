@@ -1550,6 +1550,14 @@ function buildProgram(): Command {
       .command("proxy")
       .description("run a local outbound proxy so a custom app in `pnpm dev` hits cloud data")
       .option("--port <n>", "local port to listen on", "3000")
+      .option(
+        "--app <org>/<app>",
+        "the custom app whose page you open through the proxy (with --app-env)"
+      )
+      .option(
+        "--app-env <name>",
+        "load --app in this environment — staging or a dev-<handle> sandbox (production is the default; omit it)"
+      )
       .option("--allow-writes", "forward side-effecting calls instead of holding them")
       .option("--allow-events", "forward tracking events instead of dropping them")
       .option("--yes", "confirm proxying to a production target")
@@ -1558,11 +1566,19 @@ function buildProgram(): Command {
         "\nGuardrails, on by default: side-effecting calls are HELD, tracking events are\n" +
           "DROPPED, auth endpoints reach the backend unauthenticated so sign-in works, and\n" +
           "the cached token is a fallback that never overrides a real browser session.\n" +
+          "\nWith --app <org>/<app> --app-env <name>, requests under /customer-apps/<org>/<app>/\n" +
+          "carry X-Oxy-App-Env and lose the browser's cookie (the token is the credential);\n" +
+          "the first line printed is the URL to open. In a dev-<handle> sandbox the app's own\n" +
+          "side-effecting calls are forwarded without --allow-writes — a sandbox's writes land\n" +
+          "in its own homes — and staging holds them as production does. A sandbox agent token\n" +
+          "(oxy_sbx_…) must pass both: it reaches nothing else.\n" +
           "\nEach Oxy Function call prints `↳ <status> fn <name>  request_id=…  trace_id=…`.\n"
       )
   ).action(async (opts: Record<string, unknown>) => {
     await runProxy(createContext(globals(opts)), {
       port: opts.port as string | undefined,
+      app: opts.app as string | undefined,
+      appEnv: opts.appEnv as string | undefined,
       allowWrites: opts.allowWrites as boolean | undefined,
       allowEvents: opts.allowEvents as boolean | undefined,
       yes: opts.yes as boolean | undefined

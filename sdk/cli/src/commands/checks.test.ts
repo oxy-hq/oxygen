@@ -13,12 +13,21 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { forgetSandboxTokens } from "../apps/sandbox-token.js";
 import { pendingRevokes, runExitRevokes } from "../auth/exit-revoke.js";
 import { resetOidcExchanges } from "../auth/oidc.js";
+import { runBrowserCheck } from "../checks/browser.js";
 import { type Context, createContext } from "../context/resolve.js";
 import { SERVICE_ACCOUNT_ID } from "../testing/stub-fetch.js";
 import { CliError, ExitCode } from "../util/errors.js";
 import { type CheckResult, type ChecksReport, runChecks } from "./checks.js";
+
+// The page load itself (headless Chromium) is not under test here; what the
+// browser step hands it is. The real implementation stays for every other case.
+vi.mock("../checks/browser.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../checks/browser.js")>()),
+  runBrowserCheck: vi.fn()
+}));
 
 const TARGET = "https://oxy.test";
 const APP_ID = "a1a1a1a1-2222-3333-4444-555555555555";
@@ -1014,11 +1023,6 @@ describe("runChecks --browser refusals", () => {
     });
   }
 
-  // In its own sandbox, where the token may otherwise run checks.
-  it("refuses a stored sandbox agent token in its own sandbox before any request (exit 2)", async () => {
-    await refusedBeforeAnyRequest(contextWith({ bearer: "oxy_sbx_stored" }), { appEnv: "dev-a1" });
-  });
-
   it("refuses before minting when only GitHub OIDC could supply a credential", async () => {
     inGithubActions();
     await refusedBeforeAnyRequest(contextWith());
@@ -1029,5 +1033,106 @@ describe("runChecks --browser refusals", () => {
       browser: false,
       expectSelector: "main"
     });
+  });
+});
+
+describe("runChecks --browser under a sandbox agent token", () => {
+  const SANDBOX_TOKEN = "oxy_sbx_0123456789abcdefghijABCDEFGHIJ012345";
+  const DESCRIBED = {
+    id: "tok-sbx-1",
+    name: "fix the checkout",
+    kind: "sandbox_agent",
+    display_prefix: "oxy_sbx_0123",
+    last_four: "2345",
+    grants: [],
+    blocked_orgs: [],
+    expires_at: "2099-01-01T00:00:00Z",
+    minter: { user_id: "u-1", email: "luong@oxy.tech" },
+    apps: [{ id: APP_ID, org_slug: "acme", slug: "store", name: "Store" }]
+  };
+  let calls: { method: string; url: string; headers: Record<string, string> }[];
+
+  const routes = (environment: object): RouteTable => ({
+    "GET /api/auth/token": () => ({ status: 200, body: DESCRIBED }),
+    [`GET /api/customer-apps/${APP_ID}/functions?environment=dev-a1`]: () => ({
+      status: 200,
+      body: []
+    }),
+    [`GET /api/customer-apps/${APP_ID}/environments/dev-a1`]: () => ({
+      status: 200,
+      body: environment
+    })
+  });
+
+  beforeEach(() => {
+    calls = [];
+    forgetSandboxTokens();
+    vi.mocked(runBrowserCheck).mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("loads the sandbox's page with the bearer and the environment header", async () => {
+    stubFetch(routes({ name: "dev-a1", status: "ready", build_uuid: "build-1" }), calls);
+    vi.mocked(runBrowserCheck).mockResolvedValue({
+      name: "browser",
+      kind: "browser",
+      url: `${TARGET}/customer-apps/acme/store/`,
+      status: "done",
+      passed: true,
+      durationMs: 5,
+      functionCalls: []
+    });
+
+    await runChecks(contextWith({ bearer: SANDBOX_TOKEN }), "acme/store", {
+      json: true,
+      timeoutSeconds: 5,
+      pollMs: 0,
+      appEnv: "dev-a1",
+      browser: true,
+      expectSelector: "main"
+    });
+
+    const target = vi.mocked(runBrowserCheck).mock.calls[0]?.[0];
+    expect(target).toMatchObject({
+      url: `${TARGET}/customer-apps/acme/store/`,
+      environment: "dev-a1",
+      expectedBuild: "build-1",
+      expectSelector: "main",
+      headers: { authorization: `Bearer ${SANDBOX_TOKEN}`, "x-oxy-app-env": "dev-a1" }
+    });
+    // No app listing: the token's own list named the slugs.
+    expect(calls.some((c) => c.url.includes("/api/customer-apps?"))).toBe(false);
+  });
+
+  it("stops at an environment that serves no build, as for a person", async () => {
+    stubFetch(routes({ name: "dev-a1", status: "ready", build_uuid: null }), calls);
+    const error = await runChecks(contextWith({ bearer: SANDBOX_TOKEN }), "acme/store", {
+      json: true,
+      timeoutSeconds: 5,
+      pollMs: 0,
+      appEnv: "dev-a1",
+      browser: true
+    }).catch((e: unknown) => e as CliError);
+    expect((error as CliError).code).toBe(ExitCode.NOT_FOUND);
+    expect(runBrowserCheck).not.toHaveBeenCalled();
+  });
+
+  it("still names its own sandbox: production and staging are refused before any request", async () => {
+    stubFetch({}, calls);
+    for (const appEnv of [undefined, "staging"]) {
+      const error = await runChecks(contextWith({ bearer: SANDBOX_TOKEN }), "acme/store", {
+        json: true,
+        timeoutSeconds: 5,
+        pollMs: 0,
+        appEnv,
+        browser: true
+      }).catch((e: unknown) => e as CliError);
+      expect((error as CliError).code).toBe(ExitCode.USAGE);
+    }
+    expect(calls).toHaveLength(0);
   });
 });

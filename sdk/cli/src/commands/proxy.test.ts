@@ -9,7 +9,7 @@
  */
 
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { createServer, type Server } from "node:http";
+import { createServer, request, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +30,13 @@ import {
   rewriteSetCookie,
   traceIdOf
 } from "./proxy.js";
+import {
+  admitsLocalRequest,
+  forwardsWritesByDefault,
+  isUnderApp,
+  normalizeRequestPath,
+  parseProxyApp
+} from "./proxy-app.js";
 
 /**
  * A port the OS says is free, rather than one derived from another port.
@@ -497,5 +504,478 @@ describe("the production refusal, through the binary", () => {
     expect(r.status).toBe(ExitCode.REFUSED);
     expect(r.stderr).toMatch(/production target/);
     expect(r.stderr).toMatch(/--yes/);
+  });
+});
+
+const SANDBOX_TOKEN = "oxy_sbx_0123456789abcdefghijABCDEFGHIJ012345";
+const DEV_APP = { org: "acme", app: "store", env: "dev-a1" };
+
+describe("parseProxyApp — usage errors before anything is bound", () => {
+  const usage = (flags: { app?: string; appEnv?: string }, sandbox = false) => {
+    try {
+      parseProxyApp(flags, sandbox);
+    } catch (e) {
+      return e as { code: number; message: string; hint?: string };
+    }
+    return undefined;
+  };
+
+  it("names no app when neither flag is given", () => {
+    expect(parseProxyApp({}, false)).toBeUndefined();
+  });
+
+  it("takes an org/app and a sandbox or staging", () => {
+    expect(parseProxyApp({ app: "acme/store", appEnv: "dev-a1" }, false)).toEqual(DEV_APP);
+    expect(parseProxyApp({ app: "acme/store", appEnv: "staging" }, false)).toEqual({
+      org: "acme",
+      app: "store",
+      env: "staging"
+    });
+    expect(parseProxyApp({ app: "acme/store" }, false)).toEqual({ org: "acme", app: "store" });
+  });
+
+  it("refuses --app-env without --app", () => {
+    const e = usage({ appEnv: "dev-a1" });
+    expect(e?.code).toBe(ExitCode.USAGE);
+    expect(e?.message).toMatch(/--app-env needs --app/);
+  });
+
+  it("refuses --app-env production, which reads already do", () => {
+    const e = usage({ app: "acme/store", appEnv: "production" });
+    expect(e?.code).toBe(ExitCode.USAGE);
+    expect(e?.hint).toMatch(/omit --app-env/);
+  });
+
+  it("refuses a malformed environment and a malformed app", () => {
+    expect(usage({ app: "acme/store", appEnv: "dev-NOPE!" })?.code).toBe(ExitCode.USAGE);
+    for (const app of ["acme", "acme/", "/store", "a/b/c", "acme/st ore", "acme/st%2fore"]) {
+      expect(usage({ app }, false)?.code, app).toBe(ExitCode.USAGE);
+    }
+  });
+
+  it("holds a sandbox agent token to a sandbox of the named app", () => {
+    for (const flags of [{}, { app: "acme/store" }, { app: "acme/store", appEnv: "staging" }]) {
+      const e = usage(flags, true);
+      expect(e?.code, JSON.stringify(flags)).toBe(ExitCode.USAGE);
+    }
+    expect(usage({}, true)?.message).toMatch(/--app-env dev-<handle>/);
+    expect(parseProxyApp({ app: "acme/store", appEnv: "dev-a1" }, true)).toEqual(DEV_APP);
+  });
+});
+
+describe("isUnderApp — the app's own requests, whole-segment", () => {
+  it("matches the base, with and without the slash, a query, and any case", () => {
+    for (const path of [
+      "/customer-apps/acme/store",
+      "/customer-apps/acme/store/",
+      "/customer-apps/acme/store?x=1",
+      "/customer-apps/acme/store/assets/a.js?v=2",
+      "/customer-apps/acme/store/fn/refresh",
+      "/customer-apps/acme/store/__oxy/beacon",
+      "/customer-apps/Acme/STORE/"
+    ]) {
+      expect(isUnderApp(path, DEV_APP), path).toBe(true);
+    }
+  });
+
+  it("leaves everything else alone", () => {
+    for (const path of [
+      "/",
+      "/api/user",
+      "/api/customer-apps/acme/store/events",
+      "/customer-apps/acme/store-2/",
+      "/customer-apps/acme/stor",
+      "/customer-apps/acme",
+      "/customer-apps/other/store/",
+      "/x/customer-apps/acme/store/"
+    ]) {
+      expect(isUnderApp(path, DEV_APP), path).toBe(false);
+    }
+  });
+});
+
+describe("buildRequestHeaders — the app's environment", () => {
+  const incoming = {
+    cookie: "session=browser",
+    accept: "text/html",
+    origin: "http://127.0.0.1:3000",
+    referer: "http://127.0.0.1:3000/customer-apps/acme/store/"
+  };
+
+  it("adds X-Oxy-App-Env and drops the cookie under the app base, and the token takes over", () => {
+    const h = buildRequestHeaders(incoming, "tok", "/customer-apps/acme/store/", DEV_APP);
+    expect(h["x-oxy-app-env"]).toBe("dev-a1");
+    expect(h.cookie).toBeUndefined();
+    // The loopback page's origin would fail the server's origin gate at a cloud host.
+    expect(h.origin).toBeUndefined();
+    expect(h.referer).toBeUndefined();
+    expect(h.authorization).toBe("Bearer tok");
+    expect(h.accept).toBe("text/html");
+  });
+
+  it("does the same for a function call and the beacon", () => {
+    for (const path of [
+      "/customer-apps/acme/store/fn/refresh",
+      "/customer-apps/acme/store/__oxy/beacon"
+    ]) {
+      const h = buildRequestHeaders(incoming, "tok", path, DEV_APP);
+      expect(h["x-oxy-app-env"], path).toBe("dev-a1");
+      expect(h.cookie, path).toBeUndefined();
+    }
+  });
+
+  it("leaves an explicit Authorization where it is", () => {
+    const h = buildRequestHeaders(
+      { ...incoming, authorization: "Bearer theirs" },
+      "tok",
+      "/customer-apps/acme/store/",
+      DEV_APP
+    );
+    expect(h.authorization).toBe("Bearer theirs");
+    expect(h["x-oxy-app-env"]).toBe("dev-a1");
+  });
+
+  it("touches no other path: no header, the cookie stays, no token over it", () => {
+    for (const path of ["/api/user", "/api/projects/p/query", "/customer-apps/acme/other/"]) {
+      const h = buildRequestHeaders(incoming, "tok", path, DEV_APP);
+      expect(h["x-oxy-app-env"], path).toBeUndefined();
+      expect(h.cookie, path).toBe("session=browser");
+      expect(h.authorization, path).toBeUndefined();
+    }
+  });
+
+  it("adds nothing without an environment, or without an app", () => {
+    const base = "/customer-apps/acme/store/";
+    const noEnv = buildRequestHeaders(incoming, "tok", base, { org: "acme", app: "store" });
+    expect(noEnv["x-oxy-app-env"]).toBeUndefined();
+    expect(noEnv.cookie).toBe("session=browser");
+    expect(buildRequestHeaders(incoming, "tok", base)["x-oxy-app-env"]).toBeUndefined();
+  });
+});
+
+describe("normalizeRequestPath — decide on the path the upstream will name", () => {
+  it("collapses dot segments, encoded ones too, and keeps the query", () => {
+    expect(normalizeRequestPath("/customer-apps/acme/store/../../../api/w/apps")).toBe(
+      "/api/w/apps"
+    );
+    expect(normalizeRequestPath("/customer-apps/acme/store/%2e%2e/%2E%2E/%2e%2e/api/x?y=1")).toBe(
+      "/api/x?y=1"
+    );
+    expect(normalizeRequestPath("/customer-apps/acme/store/./fn/save")).toBe(
+      "/customer-apps/acme/store/fn/save"
+    );
+  });
+
+  it("leaves an ordinary path alone, and a leading // stays a path", () => {
+    expect(normalizeRequestPath("/customer-apps/acme/store/")).toBe("/customer-apps/acme/store/");
+    expect(normalizeRequestPath("//evil.example/x")).toBe("//evil.example/x");
+  });
+
+  it("no longer reads an escaping path as the app's own", () => {
+    const path = normalizeRequestPath("/customer-apps/acme/store/../../../api/w/apps");
+    expect(isUnderApp(path, DEV_APP)).toBe(false);
+    expect(forwardsWritesByDefault(DEV_APP, path)).toBe(false);
+  });
+});
+
+describe("admitsLocalRequest — the token rides only for a page on this machine", () => {
+  const local = { host: "127.0.0.1:3000" };
+
+  it("admits a loopback page, and a client that sends no origin at all", () => {
+    expect(admitsLocalRequest({ ...local, origin: "http://127.0.0.1:3000" })).toBe(true);
+    expect(admitsLocalRequest({ host: "localhost:5173", origin: "http://localhost:5173" })).toBe(
+      true
+    );
+    expect(admitsLocalRequest({ host: "[::1]:3000", referer: "http://[::1]:3000/x" })).toBe(true);
+    expect(admitsLocalRequest(local)).toBe(true);
+    expect(admitsLocalRequest({ ...local, "sec-fetch-site": "same-origin" })).toBe(true);
+    expect(admitsLocalRequest({ ...local, "sec-fetch-site": "none" })).toBe(true);
+  });
+
+  it("refuses another site's page, whatever it sends", () => {
+    expect(admitsLocalRequest({ ...local, origin: "https://evil.example" })).toBe(false);
+    expect(admitsLocalRequest({ ...local, origin: "null" })).toBe(false);
+    // No Origin, no Referer (a no-referrer page): the browser still names the site.
+    expect(admitsLocalRequest({ ...local, "sec-fetch-site": "cross-site" })).toBe(false);
+    expect(
+      admitsLocalRequest({
+        ...local,
+        origin: "http://127.0.0.1:3000",
+        "sec-fetch-site": "cross-site"
+      })
+    ).toBe(false);
+    expect(admitsLocalRequest({ ...local, referer: "https://evil.example/page" })).toBe(false);
+    // A loopback Referer does not rescue a foreign Origin.
+    expect(
+      admitsLocalRequest({
+        ...local,
+        origin: "https://evil.example",
+        referer: "http://127.0.0.1:3000/"
+      })
+    ).toBe(false);
+  });
+
+  it("refuses a request that arrived under another name: DNS rebinding", () => {
+    expect(admitsLocalRequest({ host: "evil.example:3000" })).toBe(false);
+    expect(
+      admitsLocalRequest({ host: "evil.example:3000", origin: "http://evil.example:3000" })
+    ).toBe(false);
+    expect(admitsLocalRequest({})).toBe(false);
+  });
+});
+
+describe("forwardsWritesByDefault — a sandbox's own requests only", () => {
+  const under = "/customer-apps/acme/store/fn/save";
+
+  it("forwards in a dev sandbox, under the app base", () => {
+    expect(forwardsWritesByDefault(DEV_APP, under)).toBe(true);
+  });
+
+  it("holds staging, production and no app", () => {
+    expect(forwardsWritesByDefault({ ...DEV_APP, env: "staging" }, under)).toBe(false);
+    expect(forwardsWritesByDefault({ org: "acme", app: "store" }, under)).toBe(false);
+    expect(forwardsWritesByDefault(undefined, under)).toBe(false);
+  });
+
+  it("holds a write outside the base, which carries no environment", () => {
+    expect(forwardsWritesByDefault(DEV_APP, "/api/customer-apps/x/environments")).toBe(false);
+  });
+});
+
+/** One proxy process against `target`: resolves once it listens, with what it has printed. */
+async function startProxy(
+  target: string,
+  args: string[],
+  env: Record<string, string>
+): Promise<{ url: string; child: ChildProcess; stderr: () => string }> {
+  const port = await freePort();
+  const url = `http://127.0.0.1:${port}`;
+  let stderr = "";
+  const child = spawn(
+    process.execPath,
+    [BIN, "proxy", "--target", target, "--port", String(port), ...args],
+    { env: { ...process.env, NO_COLOR: "1", ...env }, stdio: ["ignore", "ignore", "pipe"] }
+  );
+  child.stderr?.on("data", (d) => {
+    stderr += d;
+  });
+  for (let i = 0; i < 100; i++) {
+    try {
+      await fetch(`${url}/api/ping`);
+      return { url, child, stderr: () => stderr };
+    } catch {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  child.kill();
+  throw new Error(`the proxy never came up on ${url}\n--- its stderr ---\n${stderr}`);
+}
+
+describe("the app-scoped proxy, through the binary", () => {
+  let upstream: Server;
+  let base: string;
+  const proxies: ChildProcess[] = [];
+  /** What the upstream saw, in order. */
+  const seen: { method: string; path: string; headers: Record<string, string | undefined> }[] = [];
+
+  beforeAll(async () => {
+    upstream = createServer((req, res) => {
+      seen.push({
+        method: req.method ?? "GET",
+        path: req.url ?? "/",
+        headers: {
+          cookie: req.headers.cookie,
+          authorization: req.headers.authorization,
+          "x-oxy-app-env": req.headers["x-oxy-app-env"] as string | undefined
+        }
+      });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    });
+    await new Promise<void>((r) => upstream.listen(0, "127.0.0.1", r));
+    base = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+  });
+
+  afterAll(() => {
+    for (const p of proxies) p.kill();
+    upstream.close();
+  });
+
+  const lastSeen = () => seen[seen.length - 1];
+
+  it("sends the app's requests into the sandbox and says what to open", async () => {
+    const p = await startProxy(base, ["--app", "acme/store", "--app-env", "dev-a1"], {
+      OXY_TOKEN: "dev-token"
+    });
+    proxies.push(p.child);
+    const cookie = { cookie: "session=browser" };
+
+    await fetch(`${p.url}/customer-apps/acme/store/`, { headers: cookie });
+    expect(lastSeen()?.headers).toEqual({
+      cookie: undefined,
+      authorization: "Bearer dev-token",
+      "x-oxy-app-env": "dev-a1"
+    });
+
+    await fetch(`${p.url}/api/user`, { headers: cookie });
+    expect(lastSeen()?.headers["x-oxy-app-env"]).toBeUndefined();
+    expect(lastSeen()?.headers.cookie).toBe("session=browser");
+
+    await fetch(`${p.url}/customer-apps/acme/other/`);
+    expect(lastSeen()?.headers["x-oxy-app-env"]).toBeUndefined();
+
+    expect(p.stderr()).toContain(
+      `open ${p.url}/customer-apps/acme/store/ — dev-a1 of acme/store on ${base}`
+    );
+  }, 30_000);
+
+  it("forwards a sandbox's own writes by default and still holds the rest", async () => {
+    const p = await startProxy(base, ["--app", "acme/store", "--app-env", "dev-a1"], {
+      OXY_TOKEN: "dev-token"
+    });
+    proxies.push(p.child);
+    const before = seen.length;
+
+    const own = await fetch(`${p.url}/customer-apps/acme/store/fn/save`, { method: "POST" });
+    expect(own.status).toBe(200);
+    expect(lastSeen()).toMatchObject({ method: "POST", path: "/customer-apps/acme/store/fn/save" });
+
+    const elsewhere = await fetch(`${p.url}/api/w/apps`, { method: "POST" });
+    expect(elsewhere.status).toBe(409);
+    expect(seen.length).toBe(before + 1);
+  }, 30_000);
+
+  it("holds a write whose dot segments escape the app base, as the upstream would see it", async () => {
+    const p = await startProxy(base, ["--app", "acme/store", "--app-env", "dev-a1"], {
+      OXY_TOKEN: "dev-token"
+    });
+    proxies.push(p.child);
+    const before = seen.length;
+    // fetch() would collapse the dots before sending, so speak raw HTTP.
+    const status = await new Promise<number>((done, fail) => {
+      const req = request(
+        `${p.url}/customer-apps/acme/store/../../../api/w/apps`.replace(/\/customer-apps.*/, ""),
+        { method: "POST", path: "/customer-apps/acme/store/../../../api/w/apps" },
+        (res) => {
+          res.resume();
+          done(res.statusCode ?? 0);
+        }
+      );
+      req.on("error", fail);
+      req.end();
+    });
+    expect(status).toBe(409);
+    expect(seen.length).toBe(before);
+  }, 30_000);
+
+  it("refuses another site's page under the app base before the token is added", async () => {
+    const p = await startProxy(base, ["--app", "acme/store", "--app-env", "dev-a1"], {
+      OXY_TOKEN: "dev-token"
+    });
+    proxies.push(p.child);
+    const before = seen.length;
+
+    const forged = await fetch(`${p.url}/customer-apps/acme/store/fn/save`, {
+      method: "POST",
+      headers: { origin: "https://evil.example" }
+    });
+    expect(forged.status).toBe(403);
+    expect(await forged.json()).toMatchObject({ error: "origin_not_local" });
+    const page = await fetch(`${p.url}/customer-apps/acme/store/`, {
+      headers: { referer: "https://evil.example/" }
+    });
+    expect(page.status).toBe(403);
+    expect(seen.length).toBe(before);
+
+    const local = await fetch(`${p.url}/customer-apps/acme/store/fn/save`, {
+      method: "POST",
+      headers: { origin: p.url }
+    });
+    expect(local.status).toBe(200);
+  }, 30_000);
+
+  it("holds staging's writes, and --allow-writes forwards them", async () => {
+    const held = await startProxy(base, ["--app", "acme/store", "--app-env", "staging"], {
+      OXY_TOKEN: "dev-token"
+    });
+    proxies.push(held.child);
+    const before = seen.length;
+    const res = await fetch(`${held.url}/customer-apps/acme/store/fn/save`, { method: "POST" });
+    expect(res.status).toBe(409);
+    expect(seen.length).toBe(before);
+
+    const open = await startProxy(
+      base,
+      ["--app", "acme/store", "--app-env", "staging", "--allow-writes"],
+      { OXY_TOKEN: "dev-token" }
+    );
+    proxies.push(open.child);
+    await fetch(`${open.url}/customer-apps/acme/store/fn/save`, { method: "POST" });
+    expect(lastSeen()).toMatchObject({ method: "POST" });
+    expect(lastSeen()?.headers["x-oxy-app-env"]).toBe("staging");
+  }, 30_000);
+
+  it("keeps dropping events, in a sandbox too", async () => {
+    const p = await startProxy(base, ["--app", "acme/store", "--app-env", "dev-a1"], {
+      OXY_TOKEN: "dev-token"
+    });
+    proxies.push(p.child);
+    const before = seen.length;
+    const res = await fetch(`${p.url}/api/customer-apps/abc/events`, { method: "POST" });
+    expect(res.status).toBe(204);
+    expect(seen.length).toBe(before);
+  }, 30_000);
+
+  /** Refused before the listener opens; `--yes` is irrelevant to the local target. */
+  const refused = (args: string[], token = "t") =>
+    spawnSync(process.execPath, [BIN, "proxy", "--target", base, "--port", "45998", ...args], {
+      encoding: "utf8",
+      env: { ...process.env, OXY_TOKEN: token, NO_COLOR: "1" },
+      timeout: 15_000
+    });
+
+  it("exits 2 on the usage errors", () => {
+    for (const args of [
+      ["--app-env", "dev-a1"],
+      ["--app", "acme/store", "--app-env", "production"],
+      ["--app", "acme/store", "--app-env", "dev-NOPE!"],
+      ["--app", "acme"]
+    ]) {
+      const r = refused(args);
+      expect(r.status, args.join(" ")).toBe(ExitCode.USAGE);
+    }
+  });
+
+  it("exits 2 for a sandbox agent token that names no sandbox, and says how to", () => {
+    for (const args of [[], ["--app", "acme/store"]]) {
+      const r = refused(args, SANDBOX_TOKEN);
+      expect(r.status, args.join(" ")).toBe(ExitCode.USAGE);
+      expect(r.stderr).toMatch(/--app <org>\/<app> --app-env dev-<handle>/);
+    }
+  });
+
+  const againstProduction = (args: string[], timeout = 15_000) =>
+    spawnSync(process.execPath, [BIN, "proxy", "--port", "45997", "--app", "acme/store", ...args], {
+      encoding: "utf8",
+      env: { ...process.env, OXY_TOKEN: "t", NO_COLOR: "1" },
+      timeout
+    });
+
+  it("still refuses a production target without --yes for staging, or a sandbox with --allow-writes", () => {
+    for (const args of [
+      ["--app-env", "staging"],
+      ["--app-env", "dev-a1", "--allow-writes"]
+    ]) {
+      const r = againstProduction(args);
+      expect(r.status, args.join(" ")).toBe(ExitCode.REFUSED);
+      expect(r.stderr).toMatch(/production target/);
+    }
+  });
+
+  it("opens into a sandbox on a production target without --yes: its writes stay in the sandbox", () => {
+    // It listens until killed, so the timeout ends it; the banner proves it got past the refusal.
+    const r = againstProduction(["--app-env", "dev-a1"], 4_000);
+    expect(r.stderr).not.toMatch(/production target/);
+    expect(r.stderr).toMatch(/listening on http:\/\/127\.0\.0\.1:45997/);
   });
 });

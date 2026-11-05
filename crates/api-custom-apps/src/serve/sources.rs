@@ -318,8 +318,14 @@ pub(crate) async fn serve_from_s3_build(
     // derives from the request path rather than the fetched bytes. So on a
     // hit the identity object is never needed: one store round-trip instead
     // of two, and one LRU entry instead of two.
+    // A `.br` hit serves the requested path itself, so its policy is the
+    // request path's, decided here where the environment is known.
+    let br_cache = cache_control_in(
+        &runtime.environment,
+        cache_control_for(&requested, StdPath::new(&requested), pin),
+    );
     if let Some(response) =
-        try_precompressed(app_id, &build.build_id, &requested, pin, headers).await
+        try_precompressed(app_id, &build.build_id, &requested, br_cache, headers).await
     {
         return response;
     }
@@ -365,7 +371,10 @@ pub(crate) async fn serve_from_s3_build(
 
     let resolved_path = StdPath::new(&rel_used);
     let mime = guess_content_type(resolved_path);
-    let cache = cache_control_for(&requested, resolved_path, pin);
+    let cache = cache_control_in(
+        &runtime.environment,
+        cache_control_for(&requested, resolved_path, pin),
+    );
 
     // HTML is transformed on the way out (base-path rewrite + identity
     // injection), so it is never pre-compressed at publish — the stored bytes
@@ -641,7 +650,7 @@ async fn try_precompressed(
     app_id: Uuid,
     build_id: &str,
     requested: &str,
-    pin: VersionPin<'_>,
+    cache: &'static str,
     headers: &HeaderMap,
 ) -> Option<Response> {
     if !precompress::accepts_brotli(headers)
@@ -658,7 +667,7 @@ async fn try_precompressed(
             Some(asset_response(
                 br_bytes,
                 guess_content_type(path),
-                cache_control_for(requested, path, pin),
+                cache,
                 Some("br"),
             ))
         }

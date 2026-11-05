@@ -443,13 +443,16 @@ const SANDBOX_TOOLS = [
       'Run every function the app marked "check": true in one environment, and wait for each ' +
       "to a terminal status. Returns {app, checks:[{name, status, passed, error, durationMs}]}; " +
       "isError is set when any check failed or timed out. Run this right after " +
-      "oxy_publish_sandbox to verify a build.",
+      "oxy_publish_sandbox to verify a build. browser=true also loads the page in headless " +
+      'Chromium (needs Playwright), adding a {kind:"browser"} check.',
     inputSchema: {
       type: "object",
       properties: {
         app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
         appEnv: { type: "string", description: "production (default), staging, or dev-<handle>." },
-        timeoutSeconds: { type: "number", description: "Per-check timeout (default 300)." }
+        timeoutSeconds: { type: "number", description: "Per-check timeout (default 300)." },
+        browser: { type: "boolean", description: "Also load the page in a browser." },
+        expectSelector: { type: "string", description: "With browser: a selector to await." }
       },
       required: ["app"]
     }
@@ -1060,7 +1063,9 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
       requireArgs("oxy_checks_run", args, ["app"]);
       const report = await runChecksCore(ctx, String(args.app), {
         timeoutSeconds: args.timeoutSeconds === undefined ? 300 : Number(args.timeoutSeconds),
-        appEnv: args.appEnv as string | undefined
+        appEnv: args.appEnv as string | undefined,
+        browser: args.browser === true,
+        expectSelector: args.expectSelector as string | undefined
       });
       const failed = report.checks.some((c) => !c.passed);
       return jsonResult(report, { isError: failed, code: ExitCode.CHECK_FAILED });

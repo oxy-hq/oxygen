@@ -342,7 +342,7 @@ async fn the_public_reads_are_closed(s: &Scene) {
 
 /// `/fn` runs for the token only in its own sandbox, named by the header on
 /// the product host. No header is production; a subdomain host decides the
-/// environment before the header does; a bundle is never the token's to read.
+/// environment before the header does; the page is its own sandbox's alone.
 async fn fn_runs_only_in_its_own_sandbox(s: &Scene) {
     let own = s.agent.call(Some(OWN), "whoami", json!({})).await;
     assert_eq!(own.status, StatusCode::OK, "its own sandbox: {}", own.raw);
@@ -389,10 +389,40 @@ async fn fn_runs_only_in_its_own_sandbox(s: &Scene) {
             "a subdomain host: {headers:?}"
         );
     }
+    // The page is the token's own sandbox's, and only on the product host
+    // (`sandbox_agent_token/page.rs` holds the whole of it): a bundle read in
+    // any other environment, or from a subdomain, is refused.
     let product: &[(&str, &str)] = &[("authorization", &bearer), ("x-oxy-app-env", OWN)];
     for bundle in [format!("{path}/"), format!("{path}/index.html")] {
         let status = serve("GET", &bundle, product).await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "GET {bundle}");
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "GET {bundle}: its own sandbox's page"
+        );
+        for environment in ["production", "staging", COLLEAGUES, OTHERS] {
+            let headers: &[(&str, &str)] =
+                &[("authorization", &bearer), ("x-oxy-app-env", environment)];
+            let status = serve("GET", &bundle, headers).await;
+            assert_eq!(
+                status,
+                StatusCode::NOT_FOUND,
+                "GET {bundle} in {environment}"
+            );
+        }
+        let status = serve("GET", &bundle, &[("authorization", &bearer)]).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "GET {bundle}: production");
+        let on_host: &[(&str, &str)] = &[
+            ("authorization", &bearer),
+            ("x-oxy-app-env", OWN),
+            ("host", host),
+        ];
+        let status = serve("GET", &bundle, on_host).await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "GET {bundle}: a subdomain host"
+        );
     }
 }
 

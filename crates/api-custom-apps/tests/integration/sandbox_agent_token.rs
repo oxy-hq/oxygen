@@ -36,6 +36,11 @@
 //! - `diff`: the token diffs a sandbox it created (row E3), and is answered
 //!   `404 environment_not_found` for production, staging without the grant
 //!   and a colleague's sandbox.
+//! - `page`: the token loads its own sandbox's page — document, assets,
+//!   `__oxy/*`, beacon — on the product host's path URL, and no other
+//!   environment's; production, staging without the grant, a colleague's or
+//!   another token's sandbox and a tenant host are `404`; a page view is not
+//!   sandbox activity.
 //! - `sandbox_promote`: a token's **sandbox** build is marked too, and
 //!   neither *promote latest* nor a rollback ships it, while a person's
 //!   sandbox build ships on both as before; the sandbox still serves its own
@@ -47,6 +52,7 @@ mod diff;
 pub(crate) mod fixture;
 mod instance;
 mod ownership;
+mod page;
 mod refusal_shape;
 mod refusals;
 mod revocation;

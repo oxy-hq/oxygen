@@ -694,7 +694,7 @@ oxyc publish [--env <e>] [--dir <path>] [--promote] [--build-only | --prebuilt] 
 oxyc promote <app> [--from staging|dev-<handle>] [--build <id>] [--remove-schedule <fn>]… [--dry-run] [--yes] [--json]
 oxyc rollback <app> --app-env staging|production [--to <build>] [--remove-schedule <fn>]… [--dry-run] [--yes] [--json]
 oxyc init-ci [--app <org>/<app>] [--environment <name>] [--promote] [--force] [--no-register] [--setup-action]
-oxyc proxy [--port <n>] [--allow-writes] [--allow-events] [--yes]
+oxyc proxy [--app <org>/<app> --app-env staging|dev-<handle>] [--port <n>] [--allow-writes] [--allow-events] [--yes]
 ```
 
 **`publish`**, from an app directory, runs `oxy-app.json`'s build (default
@@ -1019,8 +1019,12 @@ credential, as an anonymous visitor's would. The result is one more entry in `ch
 the `/fn` calls the page made. Playwright is not a dependency: it is resolved
 from the working directory (`playwright`, `playwright-core` or
 `@playwright/test`), so run it where one is installed. The page loads as a
-user, so a publish, service-account, CI or sandbox agent token is refused
-before any request.
+user, so a publish, service-account or CI token is refused before any
+request. A **sandbox agent token** is the exception, in its own sandbox: the
+server lets it load that sandbox's page on this path URL, with the bearer and
+`X-Oxy-App-Env: dev-<handle>` and no cookie. It still needs `--app-env
+dev-<handle>`. `oxy_checks_run` takes the same two options as `browser` and
+`expectSelector`, and returns the same document.
 
 ```bash
 oxyc checks run acme/store --app-env dev-a1 --browser --expect-selector 'main'
@@ -1430,6 +1434,35 @@ sign-in works, and the cached token never overrides a real browser session. A
 production target (any host under `oxygen-hq.com`) is refused without `--yes`.
 Each Oxy Function call carries a W3C trace — the SDK's, or one minted here — and
 prints `↳ <status> fn <name>  request_id=…  trace_id=…`.
+
+`--app <org>/<app> --app-env <name>` also opens the app's own page in a
+non-production environment. Requests under `/customer-apps/<org>/<app>/` — the
+document, its assets, the beacon and `/fn` calls — are sent with
+`X-Oxy-App-Env: <name>` and **without the browser's cookie, `Origin` or
+`Referer`** (the server answers `400` to an environment beside a cookie, and
+its origin gate would refuse a loopback page at a cloud host; the token is the
+credential). Because the browser's origin no longer reaches the server, the
+proxy asks the origin gate's question itself: a request under the base must
+arrive at a loopback `Host`, and an `Origin` or `Referer` it sends must be a
+loopback page, and a browser request marked `Sec-Fetch-Site: cross-site` never passes, or it is refused `403 origin_not_local` before the token is
+added — another site open in the same browser cannot act with it. Every
+other path is forwarded as before. On start the proxy prints
+`open http://127.0.0.1:<port>/customer-apps/<org>/<app>/ — dev-x of <org>/<app> on <target>`.
+The name is `staging` or a `dev-<handle>` sandbox; `--app-env` alone is exit `2`,
+and so is `--app-env production` (reads already hit production — leave it out).
+In a **`dev-<handle>` sandbox** the app's own side-effecting calls are forwarded
+without `--allow-writes`, since a sandbox's writes land in its own homes or are
+held server-side; the hold applies to everything else, and to staging, as
+before. Events are still dropped. For the same reason a sandbox proxy needs no
+`--yes` against the product host; staging, or a sandbox with `--allow-writes`,
+still does.
+
+A **sandbox agent token** must pass `--app <org>/<app> --app-env dev-<handle>`
+(exit `2` otherwise): everything else it could proxy, the server refuses.
+
+```bash
+oxyc proxy --app acme/store --app-env dev-a1    # then open the printed URL
+```
 
 **`mcp`** serves the API over stdio as four generic tools — `oxy_routes`,
 `oxy_schema`, `oxy_request`, `oxy_whoami` — rather than one per endpoint, so

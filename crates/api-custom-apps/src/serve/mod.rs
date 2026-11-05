@@ -130,11 +130,12 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
     let uri = parts.uri;
     let method = parts.method;
 
-    // A sandbox agent token reaches one shape on this tree, `/fn` of a `dev-*`
-    // sandbox on the product host. Asked first, before any authentication, so
-    // nothing below has to remember the kind exists. It is refused only for
-    // presenting the token, so the refusal is in the token's one body: the
-    // `404` that `/fn` answers for an app or a sandbox that is not its own.
+    // A sandbox agent token reaches two shapes on this tree, on the product
+    // host and naming a `dev-*` sandbox or `staging`: `/fn`, and its sandbox's
+    // page. Asked first, before any authentication, so nothing below has to
+    // remember the kind exists. It is refused only for presenting the token,
+    // so the refusal is in the token's one body: the `404` that `/fn` answers
+    // for an app or a sandbox that is not its own.
     if oxy_app::surface::serve_tree_refuses(&method, &headers, &path) {
         return oxy_app_core::agent_body::Refusal::not_found().into_response();
     }
@@ -351,7 +352,10 @@ impl ServeContext {
             &headers,
             org_slug,
             app_slug,
-            oxy_auth::token::SandboxAgent::Refuse,
+            // Admitted: `serve_dispatch` already fenced the token to its own
+            // sandbox's page (`serve_tree_refuses`), and `resolve::authorize`
+            // decides, per environment, whether this sandbox is its own.
+            oxy_auth::token::SandboxAgent::Admit,
             &environment,
         )
         .await
@@ -366,6 +370,13 @@ impl ServeContext {
             };
             refuse(refusal, at, started)
         })?;
+        // The fence admits a sandbox agent token only with a sandbox or
+        // staging named, but the page's own door is closed to it at
+        // production too: `resolve` decides production by the ordinary rule,
+        // which `/fn` relies on (it resolves there for every caller).
+        if request.caller.is_sandbox_agent() && environment == AppEnvironment::Production {
+            return Err(oxy_app_core::agent_body::Refusal::not_found().into_response());
+        }
         // 3. The source facade. The per-app source is recorded at register
         //    time; a row still carrying a removed type (`v0`, `local`) fails to
         //    parse here and answers a recorded 500 — see `custom_apps_source`
@@ -678,6 +689,21 @@ fn refuse(refusal: Refusal, at: RefusedAt<'_>, started: std::time::Instant) -> R
         headers,
         ..
     } = at;
+    // A sandbox agent token is an API credential, not a browser: a token that
+    // fails is the bare `401` `/fn` answers it, never a redirect to sign-in,
+    // and a refusal that is not a `401` is the token's one `404` body, whether
+    // the app is unknown to it or the environment is not its own.
+    if oxy_auth::token::presents_sandbox_agent(headers) {
+        match &refusal {
+            Refusal::Unauthenticated(_) | Refusal::UnknownUser => {
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+            Refusal::NotFound | Refusal::Forbidden(_) => {
+                return oxy_app_core::agent_body::Refusal::not_found().into_response();
+            }
+            Refusal::Internal(_) => {}
+        }
+    }
     match refusal {
         Refusal::Unauthenticated(error) => {
             // Surface auth failures so an operator can tell apart "no cookie"
