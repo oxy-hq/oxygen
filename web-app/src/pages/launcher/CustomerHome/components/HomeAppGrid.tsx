@@ -11,10 +11,13 @@ import { HomeAppTile } from "./HomeAppTile";
  */
 export function HomeAppGrid({
   apps,
-  onManageAccess
+  onManageAccess,
+  large
 }: {
   apps: CustomAppSummary[];
   onManageAccess?: (app: CustomAppSummary) => void;
+  /** Home v3's bigger tiles. */
+  large?: boolean;
 }) {
   const unread = useAppUnreadCounts();
   const latest = useLatestUnreadByApp();
@@ -30,6 +33,7 @@ export function HomeAppGrid({
           unread={unread[app.id] ?? 0}
           latest={latest[app.id]}
           onManageAccess={onManageAccess}
+          large={large}
         />
       ))}
     </div>

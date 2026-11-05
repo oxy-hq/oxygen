@@ -38,6 +38,18 @@ pub static FLAGS: &[FlagDef] = &[
         default_enabled: false,
     },
     FlagDef {
+        key: super::HOME_V3,
+        description: "Home page v3, for every org at once, and only where \
+                      apps_first_experience is on. When on: the ask box comes first, \
+                      the apps follow, bigger, and Today folds to one line under them; \
+                      a Simple/Full switch (members start on Simple, owners and admins \
+                      on Full; Full adds recent questions and the world model); the \
+                      top bar loses its clock and gains a Today button. When off, the \
+                      apps-first home is as before (greeting, Today beside the apps). \
+                      Presentation only: nothing is refused either way.",
+        default_enabled: false,
+    },
+    FlagDef {
         key: crate::server::queued_analytics::QUEUED_STARTS_FLAG,
         description: "Start a plain chat and a member's agentic-workflow run on the \
                       queue, driven by whichever pod claims it, instead of in the pod \

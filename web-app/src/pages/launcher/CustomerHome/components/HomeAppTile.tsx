@@ -3,6 +3,7 @@ import { AppAccessBadge } from "@/components/appAccess/AppAccessBadge";
 import { AppMark } from "@/components/apps/AppMark";
 import { UnreadBadge } from "@/components/Notifications/UnreadBadge";
 import { Button } from "@/components/ui/shadcn/button";
+import { cn } from "@/libs/shadcn/utils";
 import { prefetchApp } from "@/libs/utils/prefetchApp";
 import type { CustomAppSummary } from "@/types/apps";
 import type { InboxItem } from "@/types/notifications";
@@ -26,7 +27,8 @@ export function HomeAppTile({
   app,
   unread = 0,
   latest,
-  onManageAccess
+  onManageAccess,
+  large = false
 }: {
   app: CustomAppSummary;
   /** How many of this app's notifications the viewer has not read. */
@@ -35,6 +37,8 @@ export function HomeAppTile({
   latest?: InboxItem;
   /** Open the access dialog for this app. Passed only for org owners and admins. */
   onManageAccess?: (app: CustomAppSummary) => void;
+  /** Home v3's bigger tile: a larger icon, name and padding. */
+  large?: boolean;
 }) {
   const warm = () => prefetchApp(app.url);
   const freshness = appFreshnessLine(app);
@@ -47,7 +51,10 @@ export function HomeAppTile({
     // button is its sibling, lifted above the overlay with `z-10`.
     <div
       // Gives slightly under a press (the name's link covers the tile), like a button.
-      className='group relative flex min-w-0 @sm:flex-row flex-col items-center @sm:gap-4 gap-2 rounded-xl @sm:border @sm:bg-card @sm:p-4 @sm:text-left text-center transition-[border-color,scale] duration-(--duration-fast) focus-within:ring-2 focus-within:ring-ring @sm:hover:border-primary/50 has-[a:active]:scale-98 has-[a:active]:duration-(--duration-instant) motion-reduce:has-[a:active]:scale-100'
+      className={cn(
+        "group relative flex min-w-0 @sm:flex-row flex-col items-center @sm:border @sm:bg-card @sm:text-left text-center transition-[border-color,scale] duration-(--duration-fast) focus-within:ring-2 focus-within:ring-ring @sm:hover:border-primary/50 has-[a:active]:scale-98 has-[a:active]:duration-(--duration-instant) motion-reduce:has-[a:active]:scale-100",
+        large ? "@sm:gap-4 gap-2 rounded-xl @sm:p-4" : "@sm:gap-3 gap-1.5 rounded-lg @sm:p-3"
+      )}
       data-testid={`home-app-card-${app.slug}`}
       // What grows into the app's launch screen when the tile is pressed.
       data-app-launch-origin
@@ -59,7 +66,11 @@ export function HomeAppTile({
           iconUrl={app.icon_url}
           name={app.name}
           size='xl'
-          className='@sm:size-11 size-14 rounded-xl @sm:text-base text-lg'
+          className={
+            large
+              ? "@sm:size-11 size-14 rounded-xl @sm:text-base text-lg"
+              : "@sm:size-9 @sm:text-sm"
+          }
           testId={`launcher-app-card-mark-${app.slug}`}
         />
         <UnreadBadge
@@ -73,7 +84,10 @@ export function HomeAppTile({
           // The full name on hover, wherever it is cut.
           title={app.name}
           // Hyphenated where the browser can, never broken mid-word without one.
-          className='line-clamp-2 @sm:truncate hyphens-auto font-medium @sm:text-base text-card-foreground text-sm'
+          className={cn(
+            "line-clamp-2 @sm:truncate hyphens-auto font-medium text-card-foreground",
+            large ? "@sm:text-base text-sm" : "@sm:text-sm text-xs"
+          )}
         >
           {/* Opens in this tab, as the launcher's card does (§ 4.1). */}
           <a
@@ -90,7 +104,10 @@ export function HomeAppTile({
         {banner ? (
           <p
             title={banner}
-            className='@sm:flex hidden min-w-0 items-center gap-1.5 text-foreground text-sm'
+            className={cn(
+              "@sm:flex hidden min-w-0 items-center gap-1.5 text-foreground",
+              large ? "text-sm" : "text-xs"
+            )}
             data-testid={`home-app-card-banner-${app.slug}`}
           >
             {/* "New", not "wrong": a routine notice is not an alarm. */}
@@ -100,7 +117,10 @@ export function HomeAppTile({
         ) : (
           freshness && (
             <p
-              className='@sm:block hidden truncate text-muted-foreground text-sm'
+              className={cn(
+                "@sm:block hidden truncate text-muted-foreground",
+                large ? "text-sm" : "text-xs"
+              )}
               data-testid={`launcher-app-card-freshness-${app.slug}`}
             >
               {freshness}

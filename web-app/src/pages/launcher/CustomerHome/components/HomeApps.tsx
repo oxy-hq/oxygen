@@ -64,7 +64,7 @@ export function HomeApps({
         ) : view === "simple" ? (
           <HomeAppIcons apps={apps} testId={(app) => `launcher-app-card-${app.slug}`} />
         ) : (
-          <HomeAppGrid apps={apps} onManageAccess={onManageAccess} />
+          <HomeAppGrid apps={apps} onManageAccess={onManageAccess} large />
         )}
       </section>
     </div>

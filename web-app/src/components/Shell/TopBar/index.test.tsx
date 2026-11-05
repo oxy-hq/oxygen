@@ -8,6 +8,8 @@ import { TopBar } from "./index";
 
 let appsFirst = false;
 vi.mock("@/hooks/useAppsFirstExperience", () => ({ default: () => appsFirst }));
+let homeV3 = false;
+vi.mock("@/hooks/useHomeV3", () => ({ default: () => homeV3 }));
 vi.mock("./Breadcrumb", () => ({ Breadcrumb: () => null }));
 vi.mock("./NotificationsBell", () => ({
   NotificationsBell: () => <span data-testid='notifications-bell' />
@@ -29,6 +31,7 @@ vi.mock("@/hooks/useOnlineStatus", () => ({ default: () => online }));
 afterEach(() => {
   cleanup();
   appsFirst = false;
+  homeV3 = false;
   online = true;
 });
 
@@ -45,8 +48,23 @@ describe("the top bar", () => {
     expect(screen.getByTestId("workspace-topbar")).not.toHaveAttribute("data-menubar");
   });
 
-  it("is minimal with the flag on: Ask, Today and the bell, no clock, no connection while online", () => {
+  it("is a menu bar with apps-first on, the day and time last", () => {
     appsFirst = true;
+    render(<TopBar />);
+    expect(screen.getByTestId("workspace-topbar")).toHaveAttribute("data-menubar", "true");
+    expect(screen.queryByTestId("topbar-today-button")).toBeNull();
+    expect(order()).toEqual([
+      "menubar-health",
+      "ask-oxygen-button",
+      "notifications-bell",
+      "topbar-clock"
+    ]);
+    expect(screen.getByTestId("topbar-clock")).toHaveAttribute("data-with-date", "true");
+  });
+
+  it("is minimal with home v3 on: Ask, Today and the bell, no clock, no connection while online", () => {
+    appsFirst = true;
+    homeV3 = true;
     render(<TopBar />);
     expect(screen.getByTestId("workspace-topbar")).toHaveAttribute("data-menubar", "true");
     expect(screen.queryByTestId("topbar-system")).toBeNull();
@@ -74,6 +92,7 @@ describe("the top bar", () => {
     expect(screen.getByTestId("topbar-system")).toHaveTextContent("Offline");
     cleanup();
     appsFirst = true;
+    homeV3 = true;
     render(<TopBar />);
     expect(screen.getByTestId("menubar-connection")).toHaveAccessibleName("Offline");
     expect(order()).toEqual([

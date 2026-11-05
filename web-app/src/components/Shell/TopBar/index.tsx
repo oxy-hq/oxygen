@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { OxyMark } from "@/components/OxyMark";
 import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
+import useHomeV3 from "@/hooks/useHomeV3";
 import { cn } from "@/libs/shadcn/utils";
 import useAskDock from "@/stores/useAskDock";
 import { Breadcrumb } from "./Breadcrumb";
@@ -46,14 +47,18 @@ function AskOxygenButton() {
  * mobile nav drawer's menu button there. Follow-up: lift into `@oxy-hq/sdk`
  * for custom apps.
  *
- * With the apps-first experience on it is as quiet as it can be: where you are on
- * the left; on the right only what you act on, Ask (the Spotlight), Today (the
- * widgets, from any page) and the bell,
- * plus a status item while something is wrong (an app down, the browser offline).
- * No clock: the computer already shows one.
+ * With the apps-first experience on it is the home's menu bar, macOS-style: the
+ * rail is the dock; on the right Ask (the Spotlight) and the bell (Notification
+ * Center), plus a status item while something is wrong (an app down, the browser
+ * offline), and the day and time last.
+ *
+ * With home v3 (`home_v3`) on too it is as quiet as it can be: Today (the
+ * widgets, from any page) joins Ask and the bell, and there is no clock: the
+ * computer already shows one.
  */
 export function TopBar({ leading }: { leading?: ReactNode }) {
   const appsFirst = useAppsFirstExperience();
+  const homeV3 = useHomeV3();
   return (
     <header
       data-testid='workspace-topbar'
@@ -67,8 +72,9 @@ export function TopBar({ leading }: { leading?: ReactNode }) {
           <AppHealthItem />
           <ConnectionItem />
           <AskOxygenButton />
-          <TodayButton />
+          {homeV3 && <TodayButton />}
           <NotificationsBell />
+          {!homeV3 && <WorkspaceClock withDate />}
         </div>
       ) : (
         <div className='ml-auto flex shrink-0 items-center gap-3'>

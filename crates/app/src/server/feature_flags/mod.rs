@@ -23,3 +23,14 @@ pub const APPS_FIRST_EXPERIENCE: &str = "apps_first_experience";
 pub fn apps_first_experience() -> bool {
     is_enabled(APPS_FIRST_EXPERIENCE)
 }
+
+/// The third home, on top of [`APPS_FIRST_EXPERIENCE`]: the ask box first, the apps
+/// big, Today folded to one line, two views (simple and full) and a top bar with
+/// no clock and a Today button. Off, the apps-first home is the one before it.
+/// Presentation only: the web app reads it from `GET /auth/config`.
+pub const HOME_V3: &str = "home_v3";
+
+/// Whether [`HOME_V3`] is on.
+pub fn home_v3() -> bool {
+    is_enabled(HOME_V3)
+}

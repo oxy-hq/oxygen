@@ -138,6 +138,10 @@ pub struct AuthConfigResponse {
     /// workspace (the org that is being set up, the person with no org). Factory
     /// access is the server's to enforce and still reads `factory_access` on `/meta`.
     pub apps_first_experience: bool,
+    /// Mirror of the backend `home_v3` feature flag: the third apps-first home
+    /// (ask first, big apps, Today folded, simple and full views). The web app reads
+    /// it only where `apps_first_experience` is on.
+    pub home_v3: bool,
     /// True when `OXY_DEV_LOGIN_EMAILS` is set, i.e. the dev sign-in bypass is
     /// available. Drives the "Dev sign-in" button on the login page — the one
     /// affordance a browser-automation tool can click without OAuth or email.
