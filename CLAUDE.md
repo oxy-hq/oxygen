@@ -170,6 +170,13 @@ The bounds it comes with, which are not optional:
 - **Verify before you commit**, not after: the checks that cover what you touched must
   actually have run and passed. A green claim you did not watch happen is worse than no
   claim.
+- **Show the change working in the PR body's Demo section** when it can be shown:
+  screenshots of each screen it changes (before/after), a GIF of any multi-step flow, the
+  output of a changed CLI command or API call, captured from the running app before opening
+  the PR. Not every change can be shown; then write `None -- <why>`. It is expected, not
+  enforced, so don't build a check for it. The repo is private, so images go on an
+  orphan `pr-assets/<branch>` commit and are linked as `github.com/…/blob/<sha>/…?raw=true`;
+  `raw.githubusercontent.com` renders broken. Recipe: `internal-docs/pr-demos.md`.
 - **Stage only what you changed.** `git add -A` sweeps up other people's dirty files and
   scratch directories; name your paths.
 - A change that is risky, destructive, or outward-facing beyond opening a PR — a release,
