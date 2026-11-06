@@ -459,6 +459,25 @@ Exit 8 means someone saved since your `get`: `home get` again and redo the edit
 still shows after the first group's items unless `others` is `"hide"`, except one with a
 required setting and no default: it needs an entry that sets `params`.
 
+## Phone layout
+
+People open these apps on their phones. A desktop layout squeezed into one column
+is not a phone layout: tables scroll sideways, tabs get cut, the answer sits under a
+map. Give each screen people use on a phone a **phone view** built from the phone
+kit in `@oxy-hq/sdk/shell`, beside the desktop component, from the same hooks:
+
+```tsx
+const phone = usePhoneLayout();
+return phone ? <OrdersPhone {...data} /> : <OrdersDesktop {...data} />;
+```
+
+The desktop layout stays exactly as it is. On the phone: a `PhoneTabBar` for
+sections, the answer first (`PhoneKpiStrip`, "needs you" `PhoneRow`s), table rows
+as `PhoneCard`s (**never a sideways-scrolling table**), details in a `PhoneSheet`,
+maps as their own tab, `PhoneHint` instead of hover tooltips. The mapping from each
+desktop part, the type and touch floor, and how to check it at 390×844 and 844×390:
+[references/phone-layout.md](references/phone-layout.md).
+
 ## Four pitfalls
 
 - **CORS errors are usually wrong-URL errors in disguise.** The SDK's
@@ -790,4 +809,5 @@ the sandbox with `--semantic-branch <branch>`, or set the planes above — see
 | [references/verifying-in-the-browser.md](references/verifying-in-the-browser.md) | You changed something a person sees (`src/**`, or a function a card calls) and need to prove it on the published page. |
 | [references/reading-data.md](references/reading-data.md) | You need a deployment's live data while building: an agent's own `--agent` token, `oxyc api` / `routes` / `schema`, and `oxyc proxy` for `pnpm dev` against cloud data. |
 | [references/performance-and-usage.md](references/performance-and-usage.md) | You write an Oxy Function, a bulk action, caching or idempotency keys — or need to know what Oxy does for load speed and usage tracking, and the opt-outs. |
+| [references/phone-layout.md](references/phone-layout.md) | A screen people open on a phone: when to build a phone view, the `usePhoneLayout()` pattern, what each desktop part becomes, and how to check it. |
 | [references/minimal-starter.md](references/minimal-starter.md) | You are writing an app by hand instead of scaffolding it, or need the smallest correct layout. |

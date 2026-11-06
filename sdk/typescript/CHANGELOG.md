@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.0] - 2026-11-04
+
+### Added
+
+- **Phone kit in `@oxy-hq/sdk/shell`: the pieces a custom app's phone view is
+  made of.** `usePhoneLayout()` (with `PHONE_LAYOUT_QUERY`) is `true` on a phone
+  upright or on its side, so an app renders
+  `phone ? <OrdersPhone /> : <OrdersDesktop />` from the same data hooks and
+  leaves its desktop layout as it is. The view is built from `PhonePage` (a
+  frame that scrolls with the shell, with 16px safe-area gutters and a bottom
+  dock), `PhoneTabBar` (up to five slots, past five a More sheet),
+  `PhoneSheet` (full screen, Back and Escape, focus in and back, the page behind
+  locked, the phone's Back closes only the top sheet), `PhoneStickyAction` and `PhoneButton` (48px), `PhoneKpiStrip`,
+  `PhoneSection`, `PhoneRow`, `PhoneCard` and `PhoneCardList` (a table row as a
+  card with up to three figures; two columns on a phone on its side),
+  `PhoneSegmented`, `PhoneFilterChip` and `PhoneHint` (an ⓘ that explains on a
+  tap, replacing hover-only tooltips). Styles ship in `shell.css` under
+  `oxy-phone-*` and use only the shell's tokens, so they follow the host theme
+  and a `.dark` ancestor, with corners from the app's `--radius` (at `0`, every
+  control is square; only status dots stay round), text in the app's `--font-sans`
+  when it has one, and Phosphor glyphs drawn inline, so there is no new dependency.
+  Inside a phone page text stays at 11px or more, actions at 44px or more, and
+  small fields are raised to 16px. An app that renders no phone view gets only
+  the shell fixes below.
+
+### Fixed
+
+- **The shell works better on a phone.** On a touch phone, upright or on its
+  side, small text fields inside `OxyShell` are raised to 16px, so iOS Safari no
+  longer zooms the page when someone taps a filter or a search box (it zooms on
+  anything smaller and does not zoom back). The rule only raises: a field set
+  larger anywhere keeps its size. It reaches Tailwind's `text-3xs`, `text-2xs`,
+  `text-xs` and `text-sm`, and any field no class sizes. **Not covered, and still
+  under 16px:** an arbitrary small size (`text-[11px]`), another `--text-*` token
+  of the app's own, and an unlayered `font-size` rule under 16px; nor a dialog an
+  app portals to `<body>`, which is outside the shell. On any touch screen the
+  workspace link in the top bar's breadcrumb, the way home from every app, fills
+  the bar's height instead of its 20px text box. The Today popover's height on a
+  phone follows the visible screen (`100dvh`), so Safari's toolbar no longer
+  covers its last rows. A mouse-driven desktop and a tablet's field sizes are
+  unchanged.
+
 ### Changed
 
 - **The shell's top bar no longer shows "Sys: Connected".** `SystemIndicator`

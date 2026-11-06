@@ -41,7 +41,7 @@ export const AppSwitcherTrigger = ({
     onClick={onClick}
     data-testid='apps-switcher-trigger'
     className={cn(
-      "inline-flex h-7 items-center gap-1.5 rounded-md border border-border/60 px-2 text-muted-foreground text-xs transition-colors hover:text-foreground",
+      "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border/60 px-2 text-muted-foreground text-xs transition-colors hover:text-foreground",
       className
     )}
   >

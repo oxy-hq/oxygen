@@ -5,8 +5,17 @@
 // in shell.css). Mirrors web-app/src/components/Shell/ShellNavSheet.tsx;
 // written without a dialog library because the SDK carries none.
 
-import { Fragment, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState
+} from "react";
 import { cx } from "./cx";
+import { holdHistoryEntry, replacePageFrom } from "./phone/sheetHistory";
 import { type RailItem, RailItemMark } from "./ShellRail";
 
 function MenuIcon() {
@@ -43,6 +52,28 @@ function CloseIcon() {
   );
 }
 
+// An open drawer holds a history entry, so an anchor's own navigation would leave
+// that entry between the old page and the new one. Picking a row replaces it, and
+// Back from the new page goes to the old one. A click meant for a new tab, or a
+// router that took the click, is left alone: the page stays, the drawer closes.
+function followRow(e: MouseEvent<HTMLAnchorElement>) {
+  if (e.defaultPrevented || e.button !== 0) return;
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const to = new URL(e.currentTarget.href, window.location.href);
+  if (!to.protocol.startsWith("http")) return;
+  // Already here: a replace would reload onto the drawer's entry, a Back that
+  // shows no change. The page asked for is showing, so closing is the whole pick.
+  if (to.href === window.location.href) {
+    e.preventDefault();
+    return;
+  }
+  // The same document at another fragment does not unload; it pushes, as any
+  // navigation from inside a sheet may.
+  if (to.pathname === window.location.pathname && to.search === window.location.search) return;
+  e.preventDefault();
+  replacePageFrom(to.href);
+}
+
 function NavRow({ item, onPick }: { item: RailItem; onPick: () => void }) {
   const className = cx("oxy-navsheet__row", item.active && "oxy-navsheet__row--active");
   const ariaCurrent = item.active ? ("page" as const) : undefined;
@@ -57,14 +88,17 @@ function NavRow({ item, onPick }: { item: RailItem; onPick: () => void }) {
       <span className='oxy-navsheet__label'>{item.label}</span>
     </>
   );
-  // Every pick closes the drawer; an anchor still follows its href.
+  // Every pick closes the drawer; an anchor still goes to its href.
   return item.href ? (
     <a
       href={item.href}
       data-testid={testId}
       aria-current={ariaCurrent}
       className={className}
-      onClick={onPick}
+      onClick={(e) => {
+        followRow(e);
+        onPick();
+      }}
     >
       {content}
     </a>
@@ -106,12 +140,13 @@ type NavSheetContentProps = {
   bottom?: ReactNode;
 };
 
-const FOCUSABLE =
+export const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // Tab and Shift+Tab wrap inside the panel: it is `aria-modal`, so focus must
-// not walk out to the page hidden behind the overlay.
-function trapTab(e: KeyboardEvent, panel: HTMLElement | null) {
+// not walk out to the page hidden behind the overlay. The phone kit's
+// PhoneSheet reuses it.
+export function trapTab(e: KeyboardEvent, panel: HTMLElement | null) {
   if (!panel) return;
   const focusable = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
   const first = focusable[0];
@@ -187,6 +222,12 @@ export function NavSheetPanel({
       trigger?.focus();
     };
   }, [open, setOpen, triggerRef]);
+
+  // The phone's Back closes the drawer and leaves the page where it was. In the
+  // same coordinator as PhoneSheet, so the two stack in the order they opened.
+  useEffect(() => {
+    if (open) return holdHistoryEntry(() => setOpen(false));
+  }, [open, setOpen]);
 
   if (!open) return null;
   return (

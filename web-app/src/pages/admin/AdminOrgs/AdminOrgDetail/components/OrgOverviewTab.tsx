@@ -84,7 +84,7 @@ export const OrgOverviewTab = ({
     <div className='space-y-6'>
       <NeedsAttention alerts={alerts} />
 
-      <div className='grid gap-6 lg:grid-cols-2'>
+      <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
         <section className='space-y-3'>
           <AdminSectionLabel
             trailing={
@@ -163,7 +163,7 @@ export const OrgOverviewTab = ({
         </section>
       </div>
 
-      <div className='grid gap-6 lg:grid-cols-2'>
+      <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
         <section className='space-y-3'>
           <AdminSectionLabel
             trailing={

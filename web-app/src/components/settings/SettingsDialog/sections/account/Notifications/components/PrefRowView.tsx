@@ -82,7 +82,9 @@ export function PrefRowView({ row, source, testKey, reach, onChannel, onFloor }:
             {state.explicit && !row.critical && (
               <button
                 type='button'
-                className='rounded-sm text-muted-foreground text-xs hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+                // `relative`: 2px under the switch, it must win its own area from the
+                // switch's tap margin.
+                className='relative rounded-sm text-muted-foreground text-xs hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
                 aria-label={`${name}: reset ${c.label}`}
                 data-testid={`${testId}-${c.value}-reset`}
                 onClick={() => onChannel(c.value, null)}

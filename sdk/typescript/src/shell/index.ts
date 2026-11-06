@@ -9,6 +9,9 @@
 //   bundles, fed by the bundle-gated `/api/projects/:id/shell-context`
 //   endpoint. Must be mounted inside <OxyAppProvider>.
 //
+// Plus the phone kit (`usePhoneLayout`, `Phone*`, in ./phone): the pieces an
+// app's phone view is made of, beside its unchanged desktop layout.
+//
 // Styling: import "@oxy-hq/sdk/shell.css" once. The stylesheet is
 // namespaced (`oxy-shell-*`) and needs no Tailwind; it follows the host's
 // design tokens when present and falls back to the Oxygen defaults. Dark
@@ -26,6 +29,45 @@ export { OXY_MARK_PATH, OxygenFactoryMark, OxyMark } from "./marks";
 export { NavSheet } from "./NavSheet";
 export type { OxyShellProps } from "./OxyShell";
 export { OxyShell } from "./OxyShell";
+export type {
+  PhoneButtonProps,
+  PhoneButtonTone,
+  PhoneCardFigure,
+  PhoneCardListProps,
+  PhoneCardProps,
+  PhoneCardStatus,
+  PhoneFilterChipProps,
+  PhoneHintProps,
+  PhoneKpi,
+  PhoneKpiStripProps,
+  PhonePageProps,
+  PhoneRowProps,
+  PhoneSectionProps,
+  PhoneSegmentedOption,
+  PhoneSegmentedProps,
+  PhoneSheetProps,
+  PhoneStickyActionProps,
+  PhoneTabBarProps,
+  PhoneTabItem,
+  PhoneTone
+} from "./phone";
+export {
+  PHONE_LAYOUT_QUERY,
+  PhoneButton,
+  PhoneCard,
+  PhoneCardList,
+  PhoneFilterChip,
+  PhoneHint,
+  PhoneKpiStrip,
+  PhonePage,
+  PhoneRow,
+  PhoneSection,
+  PhoneSegmented,
+  PhoneSheet,
+  PhoneStickyAction,
+  PhoneTabBar,
+  usePhoneLayout
+} from "./phone";
 export type { ReasoningTraceProps } from "./ReasoningTrace";
 export { ReasoningTrace } from "./ReasoningTrace";
 export type { RailItem } from "./ShellRail";

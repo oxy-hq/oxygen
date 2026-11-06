@@ -377,9 +377,9 @@ export function BuilderDialog() {
               onSelect={handleSelect}
               onClick={handleSelect}
               placeholder='Describe what you want to build...'
-              className='customScrollbar max-h-50 min-h-20 resize-none border-none bg-transparent py-3 text-sm shadow-none outline-none focus-visible:ring-0 focus-visible:ring-offset-0'
+              className='customScrollbar max-h-50 min-h-20 resize-none border-none bg-transparent py-3 text-base shadow-none outline-none focus-visible:ring-0 focus-visible:ring-offset-0 md:text-sm'
               highlight={mentionHighlight}
-              overlayClassName='px-3 py-3 text-sm'
+              overlayClassName='px-3 py-3 text-base md:text-sm'
             />
 
             {/* Mention autocomplete dropdown */}

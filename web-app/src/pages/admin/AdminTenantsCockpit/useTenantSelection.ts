@@ -62,6 +62,13 @@ export function useTenantSelection() {
     [setParams]
   );
 
+  /** The phone's way back from a dossier, to a list that exists: workspaces have
+   *  none of their own, so going back from one lands on the organizations. */
+  const backToList = useCallback(() => {
+    if (type === "workspaces") setType("orgs");
+    else setId(null);
+  }, [type, setType, setId]);
+
   /** Select an entity AND, when it's from the map, flip back to the list so its
    *  dossier is visible. Also used to jump from a partner chip to an org. */
   const focus = useCallback(
@@ -90,5 +97,16 @@ export function useTenantSelection() {
     [setParams]
   );
 
-  return { type, id, view, partnerFilter, setType, setId, setView, focus, setPartnerFilter };
+  return {
+    type,
+    id,
+    view,
+    partnerFilter,
+    setType,
+    setId,
+    backToList,
+    setView,
+    focus,
+    setPartnerFilter
+  };
 }

@@ -373,3 +373,71 @@ describe("shell.css motion", () => {
     for (const token of used) expect(defined).toContain(token);
   });
 });
+
+describe("shell.css ask dock fields", () => {
+  // A text check passed a rule that was there and lost: it sat before the dock's own
+  // rules at the same specificity. So this runs the cascade over the file: every rule
+  // that names the field, the conditions it sits under, and which of them wins.
+  interface Rule {
+    selector: string;
+    media: string[];
+    fontSize: string | undefined;
+  }
+
+  function rulesIn(css: string, media: string[] = []): Rule[] {
+    const rules: Rule[] = [];
+    let start = 0;
+    let at = 0;
+    while (at < css.length) {
+      const open = css.indexOf("{", at);
+      if (open < 0) break;
+      const prelude = css.slice(start, open).trim();
+      let depth = 1;
+      let end = open + 1;
+      while (depth > 0 && end < css.length) {
+        if (css[end] === "{") depth += 1;
+        if (css[end] === "}") depth -= 1;
+        end += 1;
+      }
+      const body = css.slice(open + 1, end - 1);
+      if (prelude.startsWith("@media")) {
+        rules.push(...rulesIn(body, [...media, prelude]));
+      } else if (!prelude.startsWith("@")) {
+        const fontSize = /(?:^|;|\s)font-size:\s*([^;]+);/.exec(body)?.[1];
+        for (const selector of prelude.split(",")) {
+          rules.push({ selector: selector.trim(), media, fontSize });
+        }
+      }
+      start = end;
+      at = end;
+    }
+    return rules;
+  }
+
+  const here = dirname(fileURLToPath(import.meta.url));
+  const specificity = (selector: string) => (selector.match(/[.#[:]/g) ?? []).length;
+
+  function winningFontSize(field: string, applies: (media: string) => boolean) {
+    const css = readFileSync(join(here, "shell.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    let best: Rule | undefined;
+    for (const rule of rulesIn(css)) {
+      if (!rule.fontSize || !rule.selector.endsWith(field) || !rule.media.every(applies)) continue;
+      if (!best || specificity(rule.selector) >= specificity(best.selector)) best = rule;
+    }
+    return best?.fontSize;
+  }
+
+  const phone = (media: string) =>
+    /max-width: 767\.98px|max-width: 639px/.test(media) || /pointer: coarse\)(?! and)/.test(media);
+  const desktop = (media: string) => /min-width/.test(media);
+
+  it("reach 16px on a phone, so iOS does not zoom into them", () => {
+    expect(winningFontSize(".oxy-askdock__input", phone)).toBe("16px");
+    expect(winningFontSize(".oxy-askdock__history-searchinput", phone)).toBe("16px");
+  });
+
+  it("keep their size with a mouse", () => {
+    expect(winningFontSize(".oxy-askdock__input", desktop)).toBe("13.5px");
+    expect(winningFontSize(".oxy-askdock__history-searchinput", desktop)).toBe("13px");
+  });
+});

@@ -95,7 +95,8 @@ export default function AdminCustomApps() {
           nothing fleet-wide to say. */}
       <FleetStrip fleet={fleet.data} />
 
-      <header className='flex h-10 shrink-0 items-center gap-2 border-b px-3'>
+      {/* On a phone the bar wraps rather than dropping a control. */}
+      <header className='flex h-10 shrink-0 items-center gap-2 border-b px-3 max-sm:h-auto max-sm:min-h-10 max-sm:flex-wrap max-sm:gap-y-1 max-sm:py-1.5'>
         <AppSwitcherTrigger onClick={openAdminPalette} />
         {selected ? (
           <>
@@ -107,7 +108,9 @@ export default function AdminCustomApps() {
                 All apps
               </Link>
             </Button>
-            <AppIdentity app={selected} className='min-w-0 flex-1' />
+            {/* A phone has no room for the name beside the controls, and the console
+                below opens with it anyway: there it only keeps the controls apart. */}
+            <AppIdentity app={selected} className='min-w-0 flex-1 max-sm:invisible' />
           </>
         ) : (
           <span className='flex-1 text-muted-foreground text-xs'>

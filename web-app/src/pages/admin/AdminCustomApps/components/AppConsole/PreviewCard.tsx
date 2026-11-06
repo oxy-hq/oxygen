@@ -65,7 +65,9 @@ export const PreviewCard = ({ app, servedAt }: { app: CustomApp; servedAt: strin
         the product shows what a custom app calls, and nobody would guess that from a
         button labelled "Inspect". */}
     <div className='flex flex-wrap items-center gap-x-6 gap-y-3'>
-      <div className='flex min-w-0 flex-1 items-center gap-3'>
+      {/* basis-64: when the tool list cannot fit beside it the list wraps below, instead
+          of this block shrinking until its sentence is one word per line. */}
+      <div className='flex min-w-0 flex-1 basis-64 items-center gap-3'>
         <div className='flex size-9 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground'>
           <Monitor className='size-4' />
         </div>

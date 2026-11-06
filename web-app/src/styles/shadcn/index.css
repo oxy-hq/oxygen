@@ -452,3 +452,76 @@ body.is-acting [data-slot="sidebar-wrapper"] {
   height: 2px;
   background: color-mix(in srgb, var(--destructive) 70%, transparent);
 }
+
+/* ─── Touch phones ───────────────────────────────────────────────────────────
+   iOS Safari zooms the whole page when it focuses a field whose text is under
+   16px, and does not zoom back out. On a touch phone, upright or on its side
+   (under 768px wide, or under 501px tall), this raises small fields to 16px and
+   never lowers one; desktop and tablets keep their compact `text-sm` / `text-xs`.
+   CSS cannot read a field's own size, so it works from two sides. A field
+   redefines Tailwind's small tokens, so `text-sm` and `text-xs` come out at 16px.
+   A field no class sizes gets 16px or what it would inherit, whichever is more,
+   in the `base` layer: every utility outranks it, so `text-lg`, `text-4xl` or
+   `text-[20px]` (the crew PIN) keep their size. Not covered, and staying under
+   16px: an arbitrary small size such as `text-[11px]`. HighlightTextarea's overlay
+   takes the same rules as its textarea, so the drawn text stays on the caret. */
+@media (pointer: coarse) and (max-width: 767px), (pointer: coarse) and (max-height: 500px) {
+  :is(
+    input:not(
+      [type="checkbox"],
+      [type="radio"],
+      [type="range"],
+      [type="color"],
+      [type="file"],
+      [type="button"],
+      [type="submit"],
+      [type="reset"],
+      [type="image"],
+      [type="hidden"]
+    ),
+    select,
+    textarea,
+    [data-slot="highlight-overlay"]
+  ) {
+    --text-xs: 16px;
+    --text-sm: 16px;
+  }
+
+  @layer base {
+    :is(
+        input:not(
+          [type="checkbox"],
+          [type="radio"],
+          [type="range"],
+          [type="color"],
+          [type="file"],
+          [type="button"],
+          [type="submit"],
+          [type="reset"],
+          [type="image"],
+          [type="hidden"]
+        ),
+        select,
+        textarea,
+        [data-slot="highlight-overlay"]
+      ) {
+      font-size: max(1em, 16px);
+    }
+  }
+}
+
+/* A switch draws at 32×18px, under the 24px minimum tap size. On a touch screen a
+   transparent margin takes the tap as well, just enough to reach 24px: it paints
+   over anything unpositioned beside it, so a wider one took taps meant for the
+   control next to it. A control closer than 3px must be `relative` to win its own
+   area (Reset under a notification switch). */
+@media (pointer: coarse) {
+  [data-slot="switch"] {
+    position: relative;
+  }
+  [data-slot="switch"]::after {
+    content: "";
+    position: absolute;
+    inset: -3px 0;
+  }
+}

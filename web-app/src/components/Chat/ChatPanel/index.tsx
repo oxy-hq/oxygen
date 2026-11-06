@@ -365,8 +365,8 @@ const ChatPanel = ({
         onClick={handleTextareaSelect}
         placeholder={placeholder}
         highlight={isBuildMode ? mentionHighlight : undefined}
-        overlayClassName='px-0 py-2 text-sm'
-        className='customScrollbar max-h-[200px] resize-none border-none bg-transparent px-0 text-sm shadow-none outline-none placeholder:text-sm hover:border-none focus-visible:border-none focus-visible:shadow-none focus-visible:ring-0 focus-visible:ring-offset-0'
+        overlayClassName='px-0 py-2 text-base md:text-sm'
+        className='customScrollbar max-h-[200px] resize-none border-none bg-transparent px-0 text-base shadow-none outline-none placeholder:text-base hover:border-none focus-visible:border-none focus-visible:shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 md:text-sm md:placeholder:text-sm'
       />
 
       <div className='flex flex-wrap items-center justify-between gap-2'>

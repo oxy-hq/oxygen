@@ -1,5 +1,8 @@
+import { ChevronLeft } from "lucide-react";
 import { useEffect } from "react";
+import { Button } from "@/components/ui/shadcn/button";
 import { useAdminPartners } from "@/hooks/api/adminPartners";
+import { cn } from "@/libs/shadcn/utils";
 import AdminOrgDetail from "@/pages/admin/AdminOrgs/AdminOrgDetail";
 import AdminUserDetail from "@/pages/admin/AdminUsers/AdminUserDetail";
 import AdminWorkspaceDetail from "@/pages/admin/AdminWorkspaces/AdminWorkspaceDetail";
@@ -10,6 +13,15 @@ import TenantMap from "./components/TenantMap";
 import TenantRail from "./components/TenantRail";
 import { type TenantType, useTenantSelection } from "./useTenantSelection";
 
+/** What the phone-only back button returns to, per tenant type. */
+const SWITCHER_LABEL: Record<TenantType, string> = {
+  orgs: "organizations",
+  partners: "partners",
+  users: "users",
+  // No list of workspaces exists: the way back from one goes to the organizations.
+  workspaces: "organizations"
+};
+
 /**
  * Tenant management: a relationship-first surface for orgs, partners, and users.
  * A dense rail (with partner chips) beside an inline detail dossier, plus a Map
@@ -17,8 +29,18 @@ import { type TenantType, useTenantSelection } from "./useTenantSelection";
  * Every action is inline — operators never round-trip through pages.
  */
 export default function AdminTenantsCockpit() {
-  const { type, id, view, partnerFilter, setType, setId, setView, focus, setPartnerFilter } =
-    useTenantSelection();
+  const {
+    type,
+    id,
+    view,
+    partnerFilter,
+    setType,
+    setId,
+    backToList,
+    setView,
+    focus,
+    setPartnerFilter
+  } = useTenantSelection();
 
   const partnerFilterName = usePartnerName(partnerFilter);
 
@@ -31,7 +53,7 @@ export default function AdminTenantsCockpit() {
   return (
     <div
       data-testid='admin-tenants-cockpit'
-      className='flex h-[calc(100vh-3.5rem)] min-h-0 flex-col'
+      className='flex h-[calc(100vh-3.5rem)] min-h-0 flex-col supports-[height:100dvh]:h-[calc(100dvh-3.5rem)]'
     >
       <TenantHeader
         type={type}
@@ -48,8 +70,15 @@ export default function AdminTenantsCockpit() {
           <TenantMap onFocus={focus} />
         </main>
       ) : (
+        // A phone has no room for the rail beside the dossier: it shows the rail until a
+        // tenant is picked, then the dossier with a way back. Desktop keeps both side by side.
         <div className='flex min-h-0 flex-1'>
-          <aside className='relative flex w-80 shrink-0 flex-col border-r'>
+          <aside
+            className={cn(
+              "relative flex w-80 shrink-0 flex-col border-r max-md:w-full max-md:border-r-0",
+              id && "max-md:hidden"
+            )}
+          >
             <TenantRail
               type={type}
               selectedId={id}
@@ -61,7 +90,21 @@ export default function AdminTenantsCockpit() {
             />
           </aside>
 
-          <main className='min-w-0 flex-1 overflow-auto'>
+          <main className={cn("min-w-0 flex-1 overflow-auto", !id && "max-md:hidden")}>
+            {id && (
+              <div className='border-b bg-background px-2 py-1 md:hidden'>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className='h-8 gap-1 text-xs'
+                  onClick={backToList}
+                  data-testid='admin-tenants-back-to-list'
+                >
+                  <ChevronLeft className='size-3.5' aria-hidden />
+                  All {SWITCHER_LABEL[type]}
+                </Button>
+              </div>
+            )}
             <DetailStage type={type} id={id} onClose={() => setId(null)} />
           </main>
         </div>

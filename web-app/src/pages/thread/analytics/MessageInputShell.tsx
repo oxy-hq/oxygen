@@ -77,8 +77,8 @@ const MessageInputShell = ({
             onClick={onClick}
             onKeyDown={onKeyDown}
             placeholder={placeholder}
-            className='h-14 max-h-20 resize-none overflow-y-auto rounded-none border-0 bg-transparent text-sm shadow-none placeholder:text-sm focus-visible:ring-0'
-            overlayClassName='px-3 py-2 text-sm'
+            className='h-14 max-h-20 resize-none overflow-y-auto rounded-none border-0 bg-transparent text-base shadow-none placeholder:text-base focus-visible:ring-0 md:text-sm md:placeholder:text-sm'
+            overlayClassName='px-3 py-2 text-base md:text-sm'
             disabled={disabled}
             highlight={highlight}
           />

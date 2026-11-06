@@ -84,7 +84,7 @@ export function ThreadHistory({
           placeholder='Search threads…'
           aria-label='Search threads'
           data-testid='thread-history-search'
-          className='h-9 pr-8 pl-8 text-sm'
+          className='h-9 pr-8 pl-8 text-base md:text-sm'
         />
         {query && (
           <button

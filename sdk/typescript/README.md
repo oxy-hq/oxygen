@@ -283,6 +283,81 @@ In a Tailwind app, map the tokens so your own utilities match (the
 
 Without the shell, `import "@oxy-hq/sdk/motion.css"` on its own.
 
+### Phone kit (`@oxy-hq/sdk/shell`)
+
+A desktop layout stacked into one column passes a breakage check and still
+fails a person holding a phone: a table you scroll sideways, a row of tabs cut
+mid-word, the answer under a map, explanations that only open on hover. The
+phone kit is the set of pieces an app's **phone view** is made of, styled by
+`shell.css` with the shell's tokens (light, dark via a `.dark` ancestor, and the
+host's own tokens when it has them). Every app follows one pattern: keep the
+desktop component as it is and render a phone view beside it, from the same data
+hooks and actions.
+
+```tsx
+import {
+  PhoneCard, PhoneCardList, PhoneKpiStrip, PhonePage, PhoneSheet, PhoneTabBar,
+  usePhoneLayout
+} from "@oxy-hq/sdk/shell";
+
+function Orders() {
+  const data = useOrders(); // the app's existing hooks
+  const phone = usePhoneLayout();
+  return phone ? <OrdersPhone {...data} /> : <OrdersDesktop {...data} />;
+}
+
+function OrdersPhone({ stores, totals }: OrdersData) {
+  const [tab, setTab] = useState("today");
+  const [open, setOpen] = useState<Store | null>(null);
+  return (
+    <PhonePage
+      scrollKey={tab}
+      tabBar={<PhoneTabBar items={TABS} activeId={tab} onSelect={setTab} />}
+    >
+      <PhoneKpiStrip items={totals} />
+      <PhoneCardList summary={`${stores.length} stores`}>
+        {stores.map((s) => (
+          <PhoneCard
+            key={s.id}
+            title={s.name}
+            status={{ label: s.posted ? "Posted" : "Late", tone: s.posted ? "good" : "warn" }}
+            figures={[{ label: "Sales", value: s.sales }, { label: "Net", value: s.net }]}
+            onClick={() => setOpen(s)}
+          />
+        ))}
+      </PhoneCardList>
+      <PhoneSheet open={open !== null} onClose={() => setOpen(null)} title={open?.name}>
+        …
+      </PhoneSheet>
+    </PhonePage>
+  );
+}
+```
+
+| Export | What it is |
+| --- | --- |
+| `usePhoneLayout()` | `true` on a phone upright (narrower than 640px) or on its side (a touch screen no taller than 500px); re-renders when that changes, `false` on the server. `PHONE_LAYOUT_QUERY` is the media query, for code outside React. |
+| `PhonePage` | The frame: 16px gutters (plus safe-area insets), 12px rhythm. It scrolls with the shell's main area or the document, never in a box of its own. `tabBar` and `stickyAction` dock at the bottom of the screen and the content clears them, also under wrappers that hug their content (padding on a wrapper insets the dock, so for an edge-to-edge dock render the page without one); a new `scrollKey` scrolls back to the top. |
+| `PhoneTabBar` | Bottom navigation, 56px plus the home indicator. Up to five slots; past five, four and a **More** slot that lists the rest in a sheet. `items: { id, label, icon?, badge? }[]`, `activeId`, `onSelect`. |
+| `PhoneSheet` | A full-screen sheet with a 44px Back, a scrolling body and an optional `footer`. Back and Escape call `onClose`; focus goes in on open and back to the control that opened it on close; the page behind does not scroll. The phone's Back also calls `onClose` and leaves the page where it was: an open sheet holds a history entry on the same URL. A sheet that opened by pushing its own entry (a route, `?item=`) passes `historyEntry={false}`. |
+| `PhoneStickyAction`, `PhoneButton` | The action a screen exists for, pinned above the tab bar. Buttons are 48px; `tone` is `primary`, `secondary` or `danger`. |
+| `PhoneKpiStrip` | Headline numbers, two per row: label, value, a `delta` coloured by `tone`. A tile with `onClick` is a button. |
+| `PhoneSection` | An 11px label with an optional `action`, then its content. Rows directly inside join into one list. |
+| `PhoneRow` | A 56px list row: status dot (`tone`), title, subtitle, a `trailing` slot, and a chevron when it has `onClick`. |
+| `PhoneCard`, `PhoneCardList` | A table row as a card: title with a status pill, subtitle, up to three figures, a `trailing` action (it keeps its own tap). The list puts a one-line `summary` on top and goes to two columns on a phone on its side. |
+| `PhoneSegmented` | Two to four equal 44px segments (List / Map) as a radio group. |
+| `PhoneFilterChip` | The one filter control in a page header ("Oct 2026 · All companies"), with the count of filters set; it opens your filters `PhoneSheet`. |
+| `PhoneHint` | An ⓘ (24px to see, 44px to hit) that explains a number on a tap, and on hover or keyboard focus where there is a mouse. It replaces a hover-only tooltip. |
+
+Inside a `PhonePage` or `PhoneSheet` the kit keeps a floor: body text 13px or
+more, labels 11px or more, actions 44px or more, and small fields raised to 16px
+so iOS does not zoom into them (a field set larger keeps its size; `text-[11px]`
+and your own small `font-size` rules are not raised, so don't use them on a field).
+Corners follow your `--radius` (at `0`, every control is square; status dots stay
+round) and text your `--font-sans`. Never put a sideways-scrolling table on a phone: rows become
+`PhoneCard`s, details open in a `PhoneSheet`, sections go in the `PhoneTabBar`,
+and the first screen answers what the person opened the app for.
+
 ## Who is using the app
 
 Two identity surfaces, and the difference between them is the difference between

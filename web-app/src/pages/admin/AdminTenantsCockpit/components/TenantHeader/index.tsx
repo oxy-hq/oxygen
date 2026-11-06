@@ -57,13 +57,18 @@ export default function TenantHeader({
   const canCreateOrg = type === "orgs" && view === "list" && !isOrg;
 
   return (
-    <header className='flex h-11 shrink-0 items-center justify-between gap-3 border-b px-3'>
-      <div className='flex min-w-0 items-center gap-3'>
+    // On a phone the bar wraps instead of dropping anything: the switcher and the controls
+    // keep the first line, the counts take a line of their own (`max-sm:contents` lifts
+    // the left group's children into the bar so the counts can be ordered last).
+    <header className='flex h-11 shrink-0 items-center justify-between gap-3 border-b px-3 max-sm:h-auto max-sm:min-h-11 max-sm:flex-wrap max-sm:gap-y-1 max-sm:py-1.5'>
+      <div className='flex min-w-0 items-center gap-3 max-sm:contents'>
         {isOrg && org ? (
           <>
             <TenantSwitcher orgs={orgs} selected={org} onSelect={onSelect} />
-            <span className='h-4 w-px shrink-0 bg-border' />
-            <TenantSummary org={org} />
+            <div className='flex min-w-0 items-center gap-3 max-sm:order-last max-sm:basis-full'>
+              <span className='h-4 w-px shrink-0 bg-border max-sm:hidden' />
+              <TenantSummary org={org} />
+            </div>
           </>
         ) : (
           <>
@@ -86,7 +91,8 @@ export default function TenantHeader({
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
-                    {t.label}
+                    <span className='max-sm:hidden'>{t.label}</span>
+                    <span className='sm:hidden'>{t.short}</span>
                   </button>
                 ))}
               </div>
@@ -99,10 +105,10 @@ export default function TenantHeader({
 
       <div className='flex shrink-0 items-center gap-2'>
         {isOrg && org && (
-          <>
+          <div className='flex items-center gap-2'>
             <TenantActivity events={activity} isPending={activityPending} isError={activityError} />
             <span className='h-4 w-px bg-border' />
-          </>
+          </div>
         )}
         {canCreateOrg && <CreateOrgDialog onCreated={onCreatedOrg} />}
         <Tooltip>

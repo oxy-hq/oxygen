@@ -31,6 +31,9 @@ export function HighlightTextarea({
         <div
           ref={overlayRef}
           aria-hidden
+          // The touch-phone field rule in styles/shadcn/index.css sizes this overlay with
+          // the textarea, so the drawn text stays on top of the caret.
+          data-slot='highlight-overlay'
           className={cn(
             "pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words",
             overlayClassName
