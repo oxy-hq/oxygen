@@ -139,7 +139,12 @@ impl BuiltInAuthenticator {
 
     fn validate(&self, value: &str, key: &DecodingKey) -> Result<Identity, OxyError> {
         let token_data = decode::<Claims>(value, key, &Validation::default()).map_err(|err| {
-            tracing::error!("JWT validation failed: {}", err);
+            // WARN, not ERROR: this is the client's credential failing — a
+            // stale or foreign session answers 401 and the dispatch falls
+            // through to a key. Still a breadcrumb, because an instance whose
+            // session key differs from its neighbours' fails exactly this way
+            // (compare `key_fingerprint` across pods, see `session_key`).
+            tracing::warn!("JWT validation failed: {}", err);
             OxyError::AuthenticationError(format!("Invalid JWT token: {err}"))
         })?;
 
