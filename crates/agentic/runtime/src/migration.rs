@@ -10,10 +10,14 @@ mod run_notify_requested;
 mod run_source_file_index;
 mod task_queue_notify_payload;
 mod task_queue_retry_attempt;
+mod task_queue_root_task_id;
+mod task_queue_run_id_index;
 pub use run_notify_requested::AddRunNotifyRequested;
 pub use run_source_file_index::{AddRunSourceFileIndex, RUN_SOURCE_FILE_INDEX_SQL};
 pub use task_queue_notify_payload::{AddTaskQueueNotifyPayload, MAX_TASK_ID_IN_PAYLOAD};
 pub use task_queue_retry_attempt::AddTaskQueueRetryAttempt;
+pub use task_queue_root_task_id::{AddTaskQueueRootTaskId, ROOT_INDEX_SQL, ROOT_OF_FN_SQL};
+pub use task_queue_run_id_index::{AddTaskQueueRunIdIndex, RUN_ID_INDEX_SQL};
 
 pub struct RuntimeMigrator;
 
@@ -50,6 +54,8 @@ impl MigratorTrait for RuntimeMigrator {
             Box::new(AddTaskQueueRetryAttempt),
             Box::new(AddRunNotifyRequested),
             Box::new(AddTaskQueueNotifyPayload),
+            Box::new(AddTaskQueueRootTaskId),
+            Box::new(AddTaskQueueRunIdIndex),
         ]
     }
 

@@ -206,7 +206,10 @@ export interface QueueHealthResponse {
   cancelled: number;
   dead: number;
   stale_tasks: QueueTaskEntry[];
+  /** Newest first, at most 100; `dead` is the full count. */
   dead_tasks: QueueTaskEntry[];
+  /** True when `dead` is more than `dead_tasks` lists. Absent from older servers. */
+  dead_tasks_truncated?: boolean;
 }
 
 export class CoordinatorService {

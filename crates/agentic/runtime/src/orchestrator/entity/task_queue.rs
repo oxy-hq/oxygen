@@ -12,6 +12,12 @@ pub struct Model {
     pub task_id: String,
     pub run_id: String,
     pub parent_task_id: Option<String>,
+    /// The root of this task's tree: the key every tree-scoped statement
+    /// uses (`root_task_id = $root`). Set by the BEFORE INSERT trigger
+    /// `agentic_task_queue_set_root_trigger` from the run chain (migration
+    /// `m20261105_000001_add_task_queue_root_task_id`), so inserts leave it
+    /// `NotSet` and the upsert never rewrites it.
+    pub root_task_id: String,
     /// `queued` | `claimed` | `completed` | `failed` | `cancelled` | `dead`
     pub queue_status: String,
     /// Serialized `TaskSpec` as JSONB.

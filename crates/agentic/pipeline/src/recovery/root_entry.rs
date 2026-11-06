@@ -174,6 +174,7 @@ mod tests {
             task_id: "run-1".into(),
             run_id: "run-1".into(),
             parent_task_id: None,
+            root_task_id: "run-1".into(),
             queue_status: status.into(),
             spec,
             policy: None,

@@ -158,11 +158,26 @@ pub(super) async fn seed_task(
 /// 3. **`queue_status`**, only where the status arm of the predicate under test
 ///    is itself the confound to rule out — as in
 ///    `defer_refunds_the_claim_it_returns`.
+///
+/// A root is claimed through `claim_task_under_root`, the production path. A
+/// child cannot be: the claim is scoped by `root_task_id`, so naming a child
+/// as the root selects nothing (it used to select the child's own row, through
+/// `task_id = $root`). A child is claimed with the same column writes, on its
+/// row alone, so its tree's other queued rows stay queued.
 async fn claim_or_fail(db: &DatabaseConnection, worker: &str, task_id: &str) {
-    let claimed = crud::claim_task_under_root(db, worker, task_id)
+    let is_root = crud::get_queue_entry(db, task_id)
         .await
-        .expect("claim query failed");
-    if claimed.is_none() {
+        .expect("queue read failed")
+        .is_some_and(|row| row.root_task_id == task_id);
+    let claimed = if is_root {
+        crud::claim_task_under_root(db, worker, task_id)
+            .await
+            .expect("claim query failed")
+            .is_some()
+    } else {
+        claim_child_row(db, worker, task_id).await
+    };
+    if !claimed {
         eprintln!(
             "FIXTURE CLAIM DID NOT LAND: worker `{worker}` found no claimable row for \
              `{task_id}`. Everything this test asserts from here is downstream of that. \
@@ -170,6 +185,23 @@ async fn claim_or_fail(db: &DatabaseConnection, worker: &str, task_id: &str) {
              queued — start there, not at the assertion that follows."
         );
     }
+}
+
+/// `claim_task_under_root`'s column writes, on one queued child row.
+async fn claim_child_row(db: &DatabaseConnection, worker: &str, task_id: &str) -> bool {
+    db.execute_raw(Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Postgres,
+        "UPDATE agentic_task_queue \
+         SET queue_status = 'claimed', worker_id = $1, claimed_at = now(), \
+             last_heartbeat = now(), claim_count = claim_count + 1, \
+             claim_epoch = claim_epoch + 1, updated_at = now() \
+         WHERE task_id = $2 AND queue_status = 'queued' AND available_at <= now()",
+        [worker.into(), task_id.into()],
+    ))
+    .await
+    .expect("claim query failed")
+    .rows_affected()
+        == 1
 }
 
 /// Age a claimed task's heartbeat so the reaper's visibility timeout has expired.

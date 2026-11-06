@@ -106,6 +106,8 @@ async fn enqueue_task_inner(
         task_id: Set(task_id.to_string()),
         run_id: Set(run_id.to_string()),
         parent_task_id: Set(parent_task_id.map(String::from)),
+        // The trigger derives it; see `task_queue::Model::root_task_id`.
+        root_task_id: NotSet,
         queue_status: Set("queued".to_string()),
         spec: Set(serde_json::to_value(spec).unwrap()),
         policy: Set(policy.map(|p| serde_json::to_value(p).unwrap())),
@@ -184,9 +186,8 @@ async fn enqueue_task_inner(
     Ok(())
 }
 
-/// Atomically claim the oldest queued task under the given root —
-/// either the root itself (`task_id = $root`) or its descendants
-/// (`task_id LIKE '$root.%'`).
+/// Atomically claim the oldest queued task in the given root's tree
+/// (`root_task_id = $root`: the root itself or any descendant).
 ///
 /// Used by per-run scoped workers so they don't accidentally claim tasks
 /// from a sibling run's coordinator. See `DurableTransport::task_id_root`
@@ -213,7 +214,7 @@ pub async fn claim_task_under_root(
             SELECT task_id FROM agentic_task_queue \
             WHERE queue_status = 'queued' \
               AND available_at <= now() \
-              AND (task_id = $2 OR task_id LIKE $2 || '.%') \
+              AND root_task_id = $2 \
             ORDER BY created_at \
             LIMIT 1 \
             FOR UPDATE SKIP LOCKED \
@@ -629,11 +630,12 @@ pub async fn cancel_queued_task(db: &DatabaseConnection, task_id: &str) -> Resul
 }
 
 /// Cancel every live (`queued`/`claimed`) row in `run_id`'s task tree — the
-/// root row itself plus its `run_id.N` descendants.
+/// root row itself plus its `run_id.N` descendants. `run_id` is a **root**
+/// run id (every caller's is); a child id matches no row.
 ///
-/// The tree predicate mirrors [`super::recovery::find_pending_global_runs`]'s
-/// own `q.task_id = r.id OR q.task_id LIKE r.id || '.%'`, so what this cancels
-/// is exactly what makes a run selectable there.
+/// The tree predicate is [`super::recovery::find_pending_global_runs`]'s own
+/// `q.root_task_id = r.id`, so what this cancels is exactly what makes a run
+/// selectable there.
 ///
 /// Retiring a run is not enough on its own: [`claim_task_under_root`] has
 /// **no run-status predicate**, so a row left `queued` under a run that has
@@ -648,7 +650,7 @@ pub async fn cancel_queued_tasks_for_run<C: ConnectionTrait>(
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE agentic_task_queue SET queue_status = 'cancelled', updated_at = now() \
-             WHERE (task_id = $1 OR task_id LIKE $1 || '.%') \
+             WHERE root_task_id = $1 \
                AND queue_status IN ('queued', 'claimed')",
             [run_id.into()],
         ))
@@ -1233,152 +1235,4 @@ pub async fn purge_old_terminal_tasks(
     }
 
     Ok(total)
-}
-
-/// A plain DTO for a task queue entry, avoiding leaking entity types.
-pub struct QueueTaskRow {
-    pub task_id: String,
-    pub run_id: String,
-    pub queue_status: String,
-    pub worker_id: Option<String>,
-    pub claim_count: i32,
-    pub max_claims: i32,
-    pub last_heartbeat: Option<chrono::DateTime<chrono::FixedOffset>>,
-    pub created_at: chrono::DateTime<chrono::FixedOffset>,
-    pub updated_at: chrono::DateTime<chrono::FixedOffset>,
-}
-
-impl From<task_queue::Model> for QueueTaskRow {
-    fn from(m: task_queue::Model) -> Self {
-        Self {
-            task_id: m.task_id,
-            run_id: m.run_id,
-            queue_status: m.queue_status,
-            worker_id: m.worker_id,
-            claim_count: m.claim_count,
-            max_claims: m.max_claims,
-            last_heartbeat: m.last_heartbeat,
-            created_at: m.created_at,
-            updated_at: m.updated_at,
-        }
-    }
-}
-
-/// Queue status counts and stale/dead-lettered task details for the dashboard.
-pub struct QueueStats {
-    pub queued: u64,
-    pub claimed: u64,
-    pub completed: u64,
-    pub failed: u64,
-    pub cancelled: u64,
-    pub dead: u64,
-    /// Tasks claimed but with heartbeat older than their visibility timeout.
-    pub stale_tasks: Vec<QueueTaskRow>,
-    /// Tasks that have been dead-lettered.
-    pub dead_tasks: Vec<QueueTaskRow>,
-}
-
-/// **Workspace-scoped** by joining `agentic_task_queue.run_id` →
-/// `agentic_runs.workspace_id`. The queue table itself doesn't carry a
-/// `workspace_id` column today; the JOIN keeps the dashboard
-/// tenant-correct without a schema change.
-///
-/// **The customer's own work only.** This is what a workspace's members read
-/// of the queue, so the join also applies the run feed's rule
-/// (`visibility::customer_run_sql`): a task of a workspace preview's dry run,
-/// or of a custom-app check run staff queued outside production, is neither
-/// counted nor listed. A dead sandbox check is not the tenant's dead job, and
-/// listing it would hand out the run id every other route hides.
-pub async fn get_queue_stats(
-    db: &DatabaseConnection,
-    workspace_id: uuid::Uuid,
-) -> Result<QueueStats, DbErr> {
-    use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
-
-    // One predicate for all three statements, over the `r` they all join.
-    let customers_own = crate::lifecycle::crud::visibility::customer_run_sql("r.");
-
-    // Count by status in a single query.
-    #[derive(Debug, FromQueryResult)]
-    struct StatusCount {
-        queue_status: String,
-        cnt: i64,
-    }
-
-    let rows = StatusCount::find_by_statement(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        format!(
-            "SELECT q.queue_status, COUNT(*) as cnt \
-             FROM agentic_task_queue q \
-             INNER JOIN agentic_runs r ON r.id = q.run_id \
-             WHERE r.workspace_id = $1 AND {customers_own} \
-             GROUP BY q.queue_status"
-        ),
-        [workspace_id.into()],
-    ))
-    .all(db)
-    .await?;
-
-    let mut stats = QueueStats {
-        queued: 0,
-        claimed: 0,
-        completed: 0,
-        failed: 0,
-        cancelled: 0,
-        dead: 0,
-        stale_tasks: vec![],
-        dead_tasks: vec![],
-    };
-
-    for row in &rows {
-        let count = row.cnt as u64;
-        match row.queue_status.as_str() {
-            "queued" => stats.queued = count,
-            "claimed" => stats.claimed = count,
-            "completed" => stats.completed = count,
-            "failed" => stats.failed = count,
-            "cancelled" => stats.cancelled = count,
-            "dead" => stats.dead = count,
-            _ => {}
-        }
-    }
-
-    // Fetch stale tasks (claimed but heartbeat expired).
-    stats.stale_tasks = task_queue::Model::find_by_statement(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        format!(
-            "SELECT q.* FROM agentic_task_queue q \
-             INNER JOIN agentic_runs r ON r.id = q.run_id \
-             WHERE r.workspace_id = $1 AND {customers_own} \
-               AND q.queue_status = 'claimed' \
-               AND q.last_heartbeat < now() - (q.visibility_timeout_secs || ' seconds')::interval \
-             ORDER BY q.last_heartbeat \
-             LIMIT 50"
-        ),
-        [workspace_id.into()],
-    ))
-    .all(db)
-    .await?
-    .into_iter()
-    .map(QueueTaskRow::from)
-    .collect();
-
-    // Fetch dead-lettered tasks (most recent first).
-    stats.dead_tasks = task_queue::Model::find_by_statement(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        format!(
-            "SELECT q.* FROM agentic_task_queue q \
-             INNER JOIN agentic_runs r ON r.id = q.run_id \
-             WHERE r.workspace_id = $1 AND {customers_own} AND q.queue_status = 'dead' \
-             ORDER BY q.updated_at DESC"
-        ),
-        [workspace_id.into()],
-    ))
-    .all(db)
-    .await?
-    .into_iter()
-    .map(QueueTaskRow::from)
-    .collect();
-
-    Ok(stats)
 }

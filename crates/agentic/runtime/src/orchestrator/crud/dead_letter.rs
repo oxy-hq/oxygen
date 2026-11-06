@@ -81,7 +81,8 @@ pub async fn fail_dead_lettered_run(
 /// `$1` root run id, `$2` error, `$3` lease TTL. The `root` CTE is the whole
 /// guard — not terminal, no fresh lease, no live entry in the tree — and is
 /// locked so a driver taking the lease meanwhile waits for this write and
-/// then sees a terminal run. The tree predicates are `retire_run`'s.
+/// then sees a terminal run. The queue side keys on `root_task_id`; the run
+/// side is `retire_run`'s `LIKE` (`agentic_runs` has no root column).
 const FAIL_UNHELD_TREE: &str = "\
     WITH root AS ( \
         SELECT id FROM agentic_runs \
@@ -92,7 +93,7 @@ const FAIL_UNHELD_TREE: &str = "\
                 OR driver_heartbeat_at < now() - make_interval(secs => $3)) \
            AND NOT EXISTS ( \
                SELECT 1 FROM agentic_task_queue q \
-                WHERE (q.task_id = $1 OR q.task_id LIKE $1 || '.%') \
+                WHERE q.root_task_id = $1 \
                   AND q.queue_status IN ('queued', 'claimed')) \
          FOR UPDATE) \
     UPDATE agentic_runs r \

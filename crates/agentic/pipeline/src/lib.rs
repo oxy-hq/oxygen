@@ -1451,9 +1451,11 @@ pub async fn drive_with_coordinator(
     // sibling run sits with a seeded `agentic_workflow_state` row
     // but no in-flight queue task driving it.
     //
-    // The `with_router` scope filter is `task_id = $root OR
-    // task_id LIKE '$root.%'`, which still reaches every child /
-    // grandchild this coordinator legitimately owns.
+    // The `with_router` scope filter is `root_task_id = $root` (the
+    // queue's insert trigger stamps every row with its tree's root),
+    // which still reaches every child / grandchild this coordinator
+    // legitimately owns. `run_id` must therefore be a root run id: a
+    // child id scopes to nothing.
     let transport = DurableTransport::with_router(db.clone(), router, Some(run_id.clone()));
 
     // Create the task executor for child tasks (delegation). A preview — a

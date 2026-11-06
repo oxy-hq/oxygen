@@ -35,12 +35,16 @@
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
 
-use super::recovery::queue_rows_of_run;
+use super::recovery::queue_rows_of_subtree;
 use crate::lifecycle::crud::DRIVER_LEASE_TTL_SECS;
 
 /// SQL predicate over run `r`: nothing live holds it.
+///
+/// `r` may be a child run here (the `waiting_on_child` and `needs_resume`
+/// arms take children), and a child is held by its own subtree, not its whole
+/// tree — so this keeps the subtree match rather than `root_task_id`.
 fn not_held() -> String {
-    let queue_rows = queue_rows_of_run("q");
+    let queue_rows = queue_rows_of_subtree("q");
     format!(
         "NOT (r.driver_id IS NOT NULL \
               AND r.driver_heartbeat_at IS NOT NULL \

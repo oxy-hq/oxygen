@@ -939,7 +939,10 @@ pub struct QueueHealthResponse {
     pub cancelled: u64,
     pub dead: u64,
     pub stale_tasks: Vec<QueueTaskEntry>,
+    /// Newest first, at most `DEAD_TASKS_LIMIT` (100); `dead` is the full count.
     pub dead_tasks: Vec<QueueTaskEntry>,
+    /// `true` when `dead` is more than `dead_tasks` lists.
+    pub dead_tasks_truncated: bool,
 }
 
 fn queue_row_to_entry(m: db::QueueTaskRow) -> QueueTaskEntry {
@@ -986,6 +989,7 @@ pub async fn get_queue_health(
             .into_iter()
             .map(queue_row_to_entry)
             .collect(),
+        dead_tasks_truncated: stats.dead_tasks_truncated,
     })
     .into_response()
 }

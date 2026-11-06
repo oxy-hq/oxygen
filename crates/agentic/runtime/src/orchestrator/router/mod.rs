@@ -69,8 +69,8 @@ pub trait TaskRouter: Send + Sync {
     async fn wait_for_task(&self, classes: &[String], timeout: Duration);
 
     /// [`Self::wait_for_task`] for a waiter that can only claim tasks under
-    /// `root` (`task_id = root` or `task_id LIKE root || '.%'`, the scoped
-    /// claim's predicate). `None` is an unscoped waiter: it wakes for any
+    /// `root` (`task_id = root` or `<root>.…` — the rows whose `root_task_id`
+    /// the scoped claim matches). `None` is an unscoped waiter: it wakes for any
     /// enqueue.
     ///
     /// A router that knows which task an enqueue was for may skip a scoped

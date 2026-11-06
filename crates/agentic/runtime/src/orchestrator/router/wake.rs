@@ -2,8 +2,9 @@
 //!
 //! The queue's NOTIFY trigger sends `task:<task_id>` for the row that became
 //! `queued` (`migration::task_queue_notify_payload`). A worker scoped to one
-//! run's tree can only claim `task_id = root` or `task_id LIKE root || '.%'`
-//! (`crud::claim_task_under_root`), so a wake for any other task would send it
+//! run's tree can only claim rows with `root_task_id = root`
+//! (`crud::claim_task_under_root`) — for every production row, `task_id =
+//! root` or `<root>.…`, which is what the match here tests — so a wake for any other task would send it
 //! to the queue for nothing — and every run's poller in every process used to
 //! do exactly that on every enqueue fleet-wide.
 //!

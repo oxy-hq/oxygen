@@ -38,21 +38,30 @@ pub fn pending_global_status_sql() -> String {
         .join(", ")
 }
 
-/// The `agentic_task_queue` rows (aliased `alias`) that belong to run `r`: its
-/// own root task or any task in its tree (`<run_id>.<n>`).
+/// The `agentic_task_queue` rows (aliased `alias`) in **root** run `r`'s
+/// tree: its own root task and every `<run_id>.<n>…` descendant.
+///
+/// `root_task_id` is indexed and set on every row by the queue's insert
+/// trigger (`m20261105_000001_add_task_queue_root_task_id`), so this is a
+/// plain equi-join the planner hashes, merges or probes. `r` must be a root
+/// (`r.parent_run_id IS NULL`): a child run's id is no row's root. For a run
+/// that may be a child, see [`queue_rows_of_subtree`].
+pub(super) fn queue_rows_of_root(alias: &str) -> String {
+    format!("{alias}.root_task_id = r.id")
+}
+
+/// The `agentic_task_queue` rows (aliased `alias`) in run `r`'s **subtree**,
+/// for an `r` that may be a child: its own task and every `<r.id>.<n>…`
+/// descendant. Only the boot cleanup asks this of child runs.
 ///
 /// The leading `split_part` equality is the planner's join key, not a filter:
-/// it is implied by the match after it (a task id equal to `r.id`, or `r.id`
-/// followed by `.`, starts with the same first dot-segment), so it changes no
-/// result. It exists because the match alone is an `OR` with a `LIKE` whose
-/// pattern is an outer-row expression — no index or hash can take that, and
-/// every selection here ran it as a join filter over each (run, queued row)
-/// pair. Given an equality, Postgres hashes or merges the two small sides
-/// instead: `find_pending_global_runs` against a prod-shaped queue went from
-/// 43 ms as a nested loop to 2.4 ms. (The equality is also stricter than the
-/// `LIKE` in one way, deliberately: a `_` in a run id is a `LIKE` wildcard and
-/// could match a different run's `<id>.<n>` row; the key cannot.)
-pub(super) fn queue_rows_of_run(alias: &str) -> String {
+/// it is implied by the match after it, so it changes no result. Without it
+/// the match is an `OR` with a `LIKE` whose pattern is an outer-row
+/// expression, which no index or hash can take. (The key is also stricter
+/// than the `LIKE` in one way, deliberately: a `_` in a run id is a `LIKE`
+/// wildcard and could match a different run's `<id>.<n>` row; the key
+/// cannot.)
+pub(super) fn queue_rows_of_subtree(alias: &str) -> String {
     format!(
         "(split_part({alias}.task_id, '.', 1) = split_part(r.id, '.', 1) \
           AND ({alias}.task_id = r.id OR {alias}.task_id LIKE r.id || '.%'))"
@@ -260,8 +269,8 @@ pub async fn find_stuck_runs(
     } else {
         ""
     };
-    let held_by_a_live_coordinator = queue_rows_of_run("q");
-    let queued_global = queue_rows_of_run("g");
+    let held_by_a_live_coordinator = queue_rows_of_root("q");
+    let queued_global = queue_rows_of_root("g");
     let unclaimed_secs = unclaimed_secs_sql("g", "$2");
     // `GROUP BY r.id` alone is enough for the other `r.*` columns: `id` is the
     // table's primary key, so Postgres treats them as functionally dependent.
@@ -351,7 +360,7 @@ pub async fn find_stuck_runs(
 /// returned iff it has at least one such row, and `MAX` ranges over exactly
 /// those rows), but the scalar form re-scanned the queued set once per
 /// returned row — 100k buffers where the query had read 280. The join reads
-/// it once, and `queue_rows_of_run`'s key lets the planner merge or hash the
+/// it once, and `queue_rows_of_root`'s key lets the planner merge or hash the
 /// two sides rather than test every pair. This runs every second on every
 /// node; the measurements are in `internal-docs/worker-fleet.md`.
 pub async fn find_pending_global_runs(
@@ -377,7 +386,7 @@ pub async fn find_pending_global_runs(
         ""
     };
     let statuses = pending_global_status_sql();
-    let queued_global = queue_rows_of_run("q");
+    let queued_global = queue_rows_of_root("q");
     let unclaimed_secs = unclaimed_secs_sql("q", "$1");
     // `GROUP BY r.id` alone is enough for the other `r.*` columns: `id` is the
     // table's primary key, so Postgres treats them as functionally dependent.
@@ -569,7 +578,7 @@ pub async fn complete_run_with_lost_outcome(
                      OR task_status NOT IN ('done', 'failed', 'cancelled', 'timed_out')) \
                 AND NOT EXISTS ( \
                     SELECT 1 FROM agentic_task_queue q \
-                     WHERE (q.task_id = $1 OR q.task_id LIKE $1 || '.%') \
+                     WHERE q.root_task_id = $1 \
                        AND q.queue_status IN ('queued', 'claimed'))",
             [run_id.into(), metadata.into()],
         ))
@@ -580,10 +589,9 @@ pub async fn complete_run_with_lost_outcome(
 /// The **root** run id that owns `task_id` — itself for a root task, the
 /// prefix for a `run_id.N` descendant.
 ///
-/// The predicate mirrors [`find_pending_global_runs`] and
-/// [`super::queue::cancel_queued_tasks_for_run`] rather than splitting the id
-/// on `.` here: a third spelling of "which run owns this task" is a third
-/// thing to keep in step. `None` means the run row is gone, which is not an
+/// Reads `agentic_runs`, which has no root column, so it matches by id shape
+/// rather than by the queue's `root_task_id` (which the dead-lettered row
+/// could also answer). `None` means the run row is gone, which is not an
 /// error — the caller has nothing left to retire.
 ///
 /// **`ORDER BY length(id) ASC` is the whole correctness of this function.**
@@ -612,9 +620,10 @@ pub async fn owning_run_id(
     // `$1 LIKE id || '.%'` is not sargable, so this is a scan of
     // `agentic_runs`. Acceptable here and nowhere hotter: it runs once per
     // dead-letter, which is a task that has already spent its entire wait
-    // budget failing to run. Run ids are UUIDs (or `<prefix>-<uuid>`) and
-    // carry no `_` or `%`, so the LIKE metacharacters are not reachable from
-    // an id — if that ever stops being true this needs an ESCAPE clause.
+    // budget failing to run. Some run ids do carry `_` (the custom-app task
+    // kinds, `custom_app_sandbox_oltp:…`), a LIKE wildcard; a wrong match needs
+    // another run whose id differs only where this one has a `_`, which no
+    // producer mints (`tree_scope_test` pins the queue side of this).
     Ok(Row::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT id FROM agentic_runs \

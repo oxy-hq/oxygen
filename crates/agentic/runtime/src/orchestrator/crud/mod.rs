@@ -11,6 +11,7 @@ pub mod boot_cleanup;
 pub mod dead_letter;
 pub mod outcomes;
 pub mod queue;
+pub mod queue_stats;
 pub mod recovery;
 pub mod retry;
 
@@ -25,14 +26,16 @@ pub use outcomes::{
     update_task_status_merging_metadata,
 };
 pub use queue::{
-    DeadTask, DeferOutcome, HeartbeatOutcome, QueueStats, QueueTaskRow, ReapOutcome,
-    TASKS_DEAD_LETTERED, TASKS_REQUEUED, TaskScope, TerminalWrite, cancel_queued_task,
-    cancel_queued_task_owned, cancel_queued_tasks_for_run, claim_task_under_root,
-    complete_queue_task, defer_task, drain_claims_for_worker, enqueue_task, fail_orphaned_claim,
-    fail_queue_task, get_queue_entry, get_queue_stats, heartbeat_queue_task,
-    mark_released_roots_global, mark_task_global, purge_old_terminal_tasks, reap_stale_tasks,
-    release_claim, release_claims_for_worker, requeue_task, reset_task_to_queued,
+    DeadTask, DeferOutcome, HeartbeatOutcome, ReapOutcome, TASKS_DEAD_LETTERED, TASKS_REQUEUED,
+    TaskScope, TerminalWrite, cancel_queued_task, cancel_queued_task_owned,
+    cancel_queued_tasks_for_run, claim_task_under_root, complete_queue_task, defer_task,
+    drain_claims_for_worker, enqueue_task, fail_orphaned_claim, fail_queue_task, get_queue_entry,
+    heartbeat_queue_task, mark_released_roots_global, mark_task_global, purge_old_terminal_tasks,
+    reap_stale_tasks, release_claim, release_claims_for_worker, requeue_task, reset_task_to_queued,
     set_terminal_status_owned, update_queue_heartbeat,
+};
+pub use queue_stats::{
+    DEAD_TASKS_LIMIT, QueueStats, QueueTaskRow, STALE_TASKS_LIMIT, get_queue_stats,
 };
 pub use recovery::{
     StuckRun, complete_run_with_lost_outcome, find_pending_global_runs, find_stuck_runs,

@@ -111,6 +111,13 @@ pub(crate) async fn test_db() -> Option<DatabaseConnection> {
     Some(db)
 }
 
+/// The URL [`test_db`] connects to, for a test that needs a database of its
+/// own in the same server (`root_task_id_migration_test`).
+pub(crate) async fn test_db_url() -> Option<String> {
+    test_db().await?;
+    TEST_DB_URL.get().cloned()
+}
+
 /// Generate a unique run ID for test isolation.
 fn test_run_id() -> String {
     format!("test-{}", uuid::Uuid::new_v4())

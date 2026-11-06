@@ -150,7 +150,11 @@ const QueueHealthPage: React.FC = () => {
         {/* Dead-lettered tasks */}
         <div className='px-4 pt-4 pb-4'>
           <h3 className='mb-2 font-medium text-sm'>
-            Dead-lettered Tasks ({data.dead_tasks.length})
+            Dead-lettered Tasks (
+            {data.dead_tasks_truncated
+              ? `newest ${data.dead_tasks.length} of ${data.dead}`
+              : data.dead_tasks.length}
+            )
           </h3>
           <div className='rounded-lg border border-border'>
             {data.dead_tasks.length === 0 ? (
