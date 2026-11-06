@@ -119,7 +119,7 @@ fn the_landmarks_sit_where_the_plan_puts_them() {
         ("GET", "/semantic/topic/{file_path_b64}"),
         ("POST", "/databases"),
         ("PUT", "/secrets/{id}"),
-        ("GET", "/world-model/events"),
+        ("POST", "/world-model/competitors"),
         ("POST", "/agentic-airway/backfill"),
         ("POST", "/agentic-schedules"),
         ("GET", "/tests"),
@@ -140,6 +140,8 @@ fn the_landmarks_sit_where_the_plan_puts_them() {
         ("GET", "/api-keys"),
         ("GET", "/oxy-access"),
         ("POST", "/sql/query"),
+        ("GET", "/world-model/events"),
+        ("POST", "/world-model/weather/current"),
     ] {
         assert_eq!(
             surface_of(method, path),

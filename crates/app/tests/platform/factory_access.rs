@@ -184,6 +184,11 @@ fn app(user: &AuthenticatedUser, prefix: &str) -> Router {
         .route("/semantic/world-model", get(stub))
         .route("/semantic/world-model/instances", get(stub))
         .route("/semantic/world-model/filter-counts", post(stub))
+        // What a custom app reads live is a customer's, under a prefix that stays the
+        // Factory's.
+        .route("/world-model/events", get(stub))
+        .route("/world-model/weather/current", post(stub))
+        .route("/world-model/competitors", post(stub))
         // The working copy's git state and config status: the Factory's since the
         // web app stopped asking for them for customers.
         .route("/git-state", get(stub))
@@ -336,6 +341,27 @@ async fn with_the_switch_on_a_plain_member_reads_the_world_model_but_cannot_chan
     assert_through(
         &call(&fx.admin, "POST", model_file).await,
         "admin POST /files/<.world-model.yml>",
+    );
+}
+
+/// A custom app runs on its viewer's session, so what it reads live has to answer a
+/// plain member, or the app breaks for its customers while staff see nothing wrong.
+/// Nothing else under the prefix comes with those two routes.
+#[tokio::test]
+async fn with_the_switch_on_a_plain_member_reaches_what_a_custom_app_reads_live() {
+    let fx = setup(true).await;
+    for (method, route) in [
+        ("GET", "/world-model/events"),
+        ("POST", "/world-model/weather/current"),
+    ] {
+        assert_through(
+            &call(&fx.member, method, api(&fx, route)).await,
+            &format!("member {method} {route}"),
+        );
+    }
+    assert_refused(
+        &call(&fx.member, "POST", api(&fx, "/world-model/competitors")).await,
+        "member POST /world-model/competitors",
     );
 }
 

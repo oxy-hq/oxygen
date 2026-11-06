@@ -15,7 +15,8 @@
 //! and config status. A route is a customer's when a surface a customer reaches calls
 //! it: the shell (what the workspace is, its members and API keys), chat and its runs, viewing and running automations and
 //! pipelines, the launcher's readiness reads, the world model's
-//! graph (the home's preview and the read-only page), and running a query. Reading
+//! graph (the home's preview and the read-only page), what a custom app reads live (the
+//! order feed and store weather), and running a query. Reading
 //! is not the test — `GET /files` is the Factory's, `POST /sql/query` is a
 //! customer's — what the route is *for* is.
 //!
@@ -156,10 +157,15 @@ pub const CUSTOMER: &[(&str, &str)] = &[
     // ── The world model, read-only ────────────────────────────────────────────
     // The entities, their measures and how they connect: the home's preview card
     // and the read-only world model page. Only the graph itself — instance lookups,
-    // filter counts, breakdowns and the live feed stay the Factory's, and so does
-    // every write (the model is `.world-model.yml` and the views, written through
-    // `/files`).
+    // filter counts and breakdowns stay the Factory's, and so does every write (the
+    // model is `.world-model.yml` and the views, written through `/files`).
     ("GET", "/semantic/world-model"),
+    // ── What a custom app reads live ──────────────────────────────────────────
+    // A custom app calls these on its viewer's session, so a plain member has to
+    // reach them: the order feed and the store weather on a live operations screen.
+    // Every other route under `/world-model` stays the Factory's.
+    ("GET", "/world-model/events"),
+    ("POST", "/world-model/weather/current"),
 ];
 
 /// Routes that author or operate the workspace. `{*rest}` entries claim a whole
@@ -303,7 +309,7 @@ mod tests {
             ("PUT", "/secrets/abc"),
             ("POST", "/databases"),
             ("DELETE", "/agentic-schedules/abc"),
-            ("GET", "/world-model/events"),
+            ("POST", "/world-model/competitors"),
             ("GET", "/cameras/abc/preview/hls/a/b/c.m3u8"),
             // The shell asks for these only for a Factory user.
             ("GET", "/git-state"),
@@ -327,6 +333,8 @@ mod tests {
             ("POST", "/sql/query"),
             ("GET", "/custom-apps"),
             ("GET", "/semantic/world-model"),
+            ("GET", "/world-model/events"),
+            ("POST", "/world-model/weather/current"),
         ] {
             assert_eq!(
                 resolve(method, path),
@@ -365,7 +373,38 @@ mod tests {
             ("POST", "/semantic/world-model/filter-counts"),
             ("GET", "/semantic/world-model/instance-detail"),
             ("GET", "/semantic/world-model/measure-breakdown"),
+        ] {
+            assert_eq!(
+                surface_of(method, path),
+                Surface::Factory,
+                "{method} {path}"
+            );
+        }
+    }
+
+    /// A custom app runs on its viewer's session, so what it reads live is a customer's
+    /// under a prefix that stays the Factory's. An exact entry beats `{*rest}` for its
+    /// own path and verb, and for nothing beside them.
+    #[test]
+    fn a_custom_app_reads_the_live_feed_and_the_weather_and_nothing_else_of_the_prefix() {
+        for (method, path) in [
             ("GET", "/world-model/events"),
+            ("HEAD", "/world-model/events"),
+            ("POST", "/world-model/weather/current"),
+        ] {
+            assert_eq!(
+                surface_of(method, path),
+                Surface::Customer,
+                "{method} {path}"
+            );
+        }
+        for (method, path) in [
+            ("POST", "/world-model/events"),
+            ("GET", "/world-model/weather/current"),
+            ("GET", "/world-model/weather/precipitation/1/2/3"),
+            ("GET", "/world-model/cameras"),
+            ("POST", "/world-model/competitors"),
+            ("POST", "/world-model/foot-traffic/current"),
         ] {
             assert_eq!(
                 surface_of(method, path),
