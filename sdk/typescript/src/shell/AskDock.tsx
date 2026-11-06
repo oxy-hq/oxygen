@@ -275,6 +275,7 @@ export function AskDock({
   const [historyShown, setHistoryShown] = React.useState(HISTORY_PAGE_SIZE);
   const [restoring, setRestoring] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const inputRef = React.useRef<HTMLTextAreaElement>(null);
   // Generation guard for the async transcript restore: any conversation
   // switch bumps this, and an in-flight `openServerThread` fetch that
   // resolves afterwards checks it and bails instead of clobbering the now-
@@ -294,6 +295,13 @@ export function AskDock({
   const liveSteps = React.useMemo(() => buildTraceSteps(run.events), [run.events]);
   const liveLlm = React.useMemo(() => aggregateLlmStats(run.events), [run.events]);
   const liveCharts = React.useMemo(() => chartsFrom(run.events), [run.events]);
+
+  // The drawer stays mounted, so opening it (⌘K or the top-bar button) must
+  // move focus to the composer itself — otherwise the first keystrokes go
+  // nowhere until the user clicks in. Absent while History is showing.
+  React.useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
 
   // Adopt the server-assigned thread id as it arrives; "new chat" resets the
   // local value to null and the old run.threadId won't re-trigger this.
@@ -654,6 +662,7 @@ export function AskDock({
             }}
           >
             <textarea
+              ref={inputRef}
               className='oxy-askdock__input'
               rows={3}
               placeholder={placeholder}

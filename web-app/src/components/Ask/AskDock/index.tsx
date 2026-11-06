@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { cn } from "@/libs/shadcn/utils";
 import useAskDock from "@/stores/useAskDock";
 import { DockComposer } from "./DockComposer";
@@ -19,6 +19,15 @@ export function AskDock() {
   const view = useAskDock((s) => s.view);
   const threadId = useAskDock((s) => s.threadId);
   const { width, isDesktop, dragging, minWidth, maxWidth, handleProps } = useDockWidth();
+  const asideRef = useRef<HTMLElement>(null);
+
+  // The composer's `autoFocus` fires only when it mounts, and the dock stays
+  // mounted across collapses — so every later ⌘K open left focus wherever it
+  // was, and the first keystrokes went nowhere (#3970). Focus the active
+  // view's textarea on each open instead; the history view has none.
+  useEffect(() => {
+    if (isOpen) asideRef.current?.querySelector("textarea")?.focus();
+  }, [isOpen]);
 
   // Don't mount the dock (or its ChatPanel / Thread) until it's first opened —
   // but once mounted, keep it so collapsing never loses state.
@@ -28,6 +37,7 @@ export function AskDock() {
 
   return (
     <aside
+      ref={asideRef}
       data-testid='ask-dock'
       // `inert` (not just aria-hidden) so the collapsed dock's textarea,
       // buttons, and links leave the tab order and the a11y tree together.
