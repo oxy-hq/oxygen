@@ -56,6 +56,7 @@ use oxy_app_core::workspace_org::{WorkspaceOrgMatch, workspace_in_org};
 
 mod admit;
 mod inflate;
+mod limits;
 mod orphan;
 mod pipeline;
 
@@ -371,6 +372,19 @@ pub enum PublishError {
     /// (`custom_apps_sandboxes::agent_draft`); answered as JSON with the code.
     #[error("{0}")]
     AgentDraft(sandbox_agent_draft::AgentDraftRefusal),
+    /// The org has registered as many apps as this deployment allows
+    /// (`custom_apps_publish::limits`). Surfaced as 409; publishing to an
+    /// existing app is never refused by it.
+    #[error(
+        "this org already has {limit} custom apps, the most this deployment allows. Publish to an existing app, or ask Oxy to raise the limit"
+    )]
+    AppLimit { limit: u64 },
+    /// The publisher spent this hour's publish budget in this org
+    /// (`custom_apps_publish::limits`). Surfaced as 429.
+    #[error(
+        "too many publishes: at most {limit} an hour per publisher in an org. Try again in {retry_after_secs}s"
+    )]
+    RateLimited { limit: u32, retry_after_secs: u64 },
     #[error("database error: {0}")]
     Db(String),
     #[error("storage error: {0}")]
@@ -476,9 +490,10 @@ impl PublishError {
             PublishError::BadTarball(_) | PublishError::Invalid(_) => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
-            PublishError::DuplicateBuild { .. } | PublishError::ProjectMismatch { .. } => {
-                StatusCode::CONFLICT
-            }
+            PublishError::DuplicateBuild { .. }
+            | PublishError::ProjectMismatch { .. }
+            | PublishError::AppLimit { .. } => StatusCode::CONFLICT,
+            PublishError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             PublishError::InvalidBuildId(_)
             | PublishError::InvalidSlug(_)
             | PublishError::MissingFunctionArtifacts { .. }
@@ -825,21 +840,29 @@ async fn find_app(
 /// error with its own), but never silently: the warning is what lets an
 /// operator tell "that id is taken" from "that id is taken *because cleanup
 /// failed*", which have different remedies.
-async fn discard_build_row(db: &DatabaseConnection, build_pk: Uuid, build_id: &str) {
+///
+/// Returns whether the row is gone, so the caller deletes the bytes only once
+/// nothing can point at them.
+async fn discard_build_row(db: &DatabaseConnection, build_pk: Uuid, build_id: &str) -> bool {
     match app_builds::Entity::find_by_id(build_pk).one(db).await {
-        Ok(Some(row)) => {
-            if let Err(e) = row.delete(db).await {
+        Ok(Some(row)) => match row.delete(db).await {
+            Ok(_) => true,
+            Err(e) => {
                 tracing::warn!(
                     "publish rollback: could not delete build row {build_pk} ({build_id:?}): {e} \
                      — retrying this publish with the same --build-id will now 409"
                 );
+                false
             }
+        },
+        Ok(None) => true,
+        Err(e) => {
+            tracing::warn!(
+                "publish rollback: could not load build row {build_pk} ({build_id:?}) to delete it: \
+                 {e} — retrying this publish with the same --build-id may now 409"
+            );
+            false
         }
-        Ok(None) => {}
-        Err(e) => tracing::warn!(
-            "publish rollback: could not load build row {build_pk} ({build_id:?}) to delete it: \
-             {e} — retrying this publish with the same --build-id may now 409"
-        ),
     }
 }
 
@@ -1204,6 +1227,13 @@ pub(crate) fn is_valid_function_name(name: &str) -> bool {
 /// as one `PublishError` before any row is written. Split out so it is
 /// unit-testable without a database.
 fn validate_function_names(specs: &[(String, serde_json::Value)]) -> Result<(), PublishError> {
+    if specs.len() > limits::MAX_FUNCTIONS_PER_BUNDLE {
+        return Err(PublishError::BadTarball(format!(
+            "oxy-app.json declares {} functions; a bundle may declare at most {}",
+            specs.len(),
+            limits::MAX_FUNCTIONS_PER_BUNDLE
+        )));
+    }
     for (name, _) in specs {
         if !is_valid_function_name(name) {
             return Err(PublishError::BadTarball(format!(
@@ -2050,6 +2080,22 @@ mod tests {
         let manifest = serde_json::json!({ "notifications": { "kinds": { "late": {} } } });
         let warnings = check_notification_catalogue(Some(&manifest)).expect("a warning only");
         assert_eq!(warnings.len(), 1, "{warnings:?}");
+    }
+
+    #[test]
+    fn validate_function_names_caps_the_count() {
+        let specs = |n: usize| -> Vec<(String, serde_json::Value)> {
+            (0..n)
+                .map(|i| (format!("fn-{i}"), serde_json::json!({})))
+                .collect()
+        };
+        assert!(validate_function_names(&specs(limits::MAX_FUNCTIONS_PER_BUNDLE)).is_ok());
+        let err =
+            validate_function_names(&specs(limits::MAX_FUNCTIONS_PER_BUNDLE + 1)).unwrap_err();
+        assert!(
+            matches!(&err, PublishError::BadTarball(m) if m.contains("at most")),
+            "expected a BadTarball naming the cap, got {err:?}"
+        );
     }
 
     #[test]

@@ -1229,8 +1229,10 @@ pub async fn list_builds(Path(id): Path<Uuid>) -> Result<Json<BuildHistoryRespon
 /// was, and the build's pending migrations are applied before the pointer
 /// moves (a failure is `migration_failed` with the migration's own status).
 /// Unlike `oxyc rollback`, the build need not be one production served: this
-/// is how the console makes an older staging build live. One `app.rolled_back`
-/// audit row.
+/// is how the console makes an older staging build live. An unknown app is
+/// `404 app_not_found`; a build id that is not one of this app's (unknown,
+/// retired, or another app's — the same answer, so it reveals nothing) is
+/// `404 build_not_found`. One `app.rolled_back` audit row.
 pub async fn rollback_app(
     _: oxy_app_core::agent_refusal::RefuseSandboxAgent,
     actor: oxy_app_core::audit::RequestActor,
@@ -1245,7 +1247,7 @@ pub async fn rollback_app(
         .one(&db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| rollback_refusal(StatusCode::NOT_FOUND, "app_not_found", "no such app"))?;
     // The build production serves before the move: the audit row's "from".
     let previous = crate::custom_apps_environments::pointer(
         &db,
@@ -1258,10 +1260,14 @@ pub async fn rollback_app(
         .one(&db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    if build.app_id != id {
-        return Err(StatusCode::BAD_REQUEST.into());
-    }
+        .filter(|build| build.app_id == id)
+        .ok_or_else(|| {
+            rollback_refusal(
+                StatusCode::NOT_FOUND,
+                "build_not_found",
+                "this app has no build with that id; it may have been retired by retention",
+            )
+        })?;
     let mv = crate::custom_apps_promote::ProductionMove {
         app_id: id,
         build: build.id.into(),
@@ -1291,6 +1297,16 @@ pub async fn rollback_app(
     )
     .await;
     Ok(Json(promote_response(&db, moved.app, &org.slug).await))
+}
+
+/// A coded refusal for the console's rollback, so it can say why instead of
+/// showing a bare status.
+fn rollback_refusal(status: StatusCode, code: &'static str, message: &str) -> PromoteRefusal {
+    PromoteRefusal::Coded {
+        status,
+        code,
+        message: message.to_string(),
+    }
 }
 
 pub async fn delete_app(

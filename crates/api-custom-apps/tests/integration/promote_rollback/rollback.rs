@@ -7,7 +7,7 @@ use serde_json::json;
 use super::{
     audit_rows, draft, events, fixture_builds, pointers, promote, rollback, sandbox_build,
 };
-use crate::sandbox_agent_token::fixture::{agent, tarball};
+use crate::sandbox_agent_token::fixture::{agent, published, tarball};
 
 /// Production promoted once has a previous build: a rollback with no `to`
 /// moves back to it, records `production / rollback` and `app.rolled_back`,
@@ -94,4 +94,36 @@ async fn staging_rolls_back_and_a_sandbox_does_not() {
     let (status, refused) = rollback(&agent, "dev-r1", json!({})).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
     assert_eq!(refused["error"], "not_rollbackable", "{refused}");
+}
+
+/// The console's Make Live (`POST …/rollback` with a `build_id`) answers a
+/// coded `404` the console can show: an app that does not exist is
+/// `app_not_found`, and a build id that is not one of this app's — unknown
+/// or another app's alike — is `build_not_found`. Production never moves.
+#[tokio::test]
+async fn console_rollback_names_what_it_could_not_find() {
+    let agent = agent().await;
+    let (prod, _) = fixture_builds(&agent).await;
+    let other = published(&agent.t, "sbx-agent-other").await;
+    let foreign = crate::sandbox_publish::build_pk(&agent.t.db, other.id, "agent-prod")
+        .await
+        .expect("the other app's build");
+    let before = pointers(&agent).await.0;
+
+    let uri = format!("/customer-apps/{}/rollback", agent.app.id);
+    for build in [uuid::Uuid::new_v4(), foreign] {
+        let named = Some(json!({ "build_id": build }));
+        let (status, body) = super::person(&agent, "POST", &uri, named).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(body["code"], "build_not_found", "{body}");
+        assert!(body["message"].as_str().is_some_and(|m| !m.is_empty()));
+    }
+
+    let missing = format!("/customer-apps/{}/rollback", uuid::Uuid::new_v4());
+    let named = Some(json!({ "build_id": prod }));
+    let (status, body) = super::person(&agent, "POST", &missing, named).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["code"], "app_not_found", "{body}");
+
+    assert_eq!(pointers(&agent).await.0, before, "production never moved");
 }

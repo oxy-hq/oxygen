@@ -1,6 +1,7 @@
 //! The admit stage: resolve the org, authorize, and refuse what can be
 //! refused before the expensive work — a malformed or reused build id, a bad
-//! slug, a publish that names another workspace. Nothing is written.
+//! slug, a publish that names another workspace, a publisher past its hourly
+//! budget, a new app past the org's cap. Nothing is written.
 
 use entity::{apps, organizations};
 use sea_orm::DatabaseConnection;
@@ -8,7 +9,7 @@ use uuid::Uuid;
 
 use super::{
     PublishError, PublishInput, PublishTarget, authorize_publish, build_id_taken,
-    ensure_same_workspace, find_app, org_for_project, resolve_org, sandbox_publish, store,
+    ensure_same_workspace, find_app, limits, org_for_project, resolve_org, sandbox_publish, store,
     validate_project,
 };
 
@@ -27,6 +28,7 @@ pub(super) async fn admit(
 ) -> Result<Admitted, PublishError> {
     let org = resolve_publish_org(db, input).await?;
     authorize_publish(db, &org, input).await?;
+    limits::refuse_past_publish_rate(org.id, input)?;
     // A semantic pin is staging-only and must name a ready revision of the
     // workspace this publish targets (which `ensure_same_workspace` below
     // holds to the app's own). Checked before the bundle is inflated.
@@ -44,6 +46,9 @@ pub(super) async fn admit(
     let existing_app = find_app(db, org.id, &input.app_slug).await?;
     let sandbox_app =
         sandbox_publish::admit_target(db, input, existing_app.as_ref(), target).await?;
+    if existing_app.is_none() {
+        limits::refuse_new_app_past_cap(db, org.id).await?;
+    }
     if let Some(app) = &existing_app {
         // The same fast-path reasoning for a publish that names another
         // workspace or reuses a build id: refused before the bundle is

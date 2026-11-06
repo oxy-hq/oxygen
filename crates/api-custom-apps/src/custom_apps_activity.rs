@@ -32,7 +32,7 @@ use chrono::{DateTime, FixedOffset, Utc};
 use entity::apps;
 use oxy::database::client::establish_connection;
 use oxy_custom_apps::usage_reads;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -188,6 +188,9 @@ pub enum EventAppRefusal {
     NotYours,
     /// No body-named app and the workspace has published nothing.
     NoneInWorkspace,
+    /// No body-named app and the workspace publishes more than one, so any
+    /// pick would write one app's numbers into another's Activity tab.
+    Ambiguous,
     Db(String),
 }
 
@@ -205,9 +208,10 @@ pub enum EventAppRefusal {
 /// when the resource-level check has to run.
 ///
 /// Without `app_id` (an older bundle, or `pnpm dev` with no injected identity)
-/// the lookup falls back to "an app in this workspace" — exact for the one-app
-/// case and a guess otherwise. It was always a guess; now it is deterministic
-/// (first by id) and logged rather than silent.
+/// the event is attributed only when the workspace publishes exactly one app,
+/// and only if the sender can open it. With several there is nothing to go
+/// on: the event is refused ([`EventAppRefusal::Ambiguous`]) rather than
+/// written to whichever app sorts first, as it used to be.
 pub async fn resolve_event_app(
     db: &sea_orm::DatabaseConnection,
     project_id: Uuid,
@@ -215,35 +219,42 @@ pub async fn resolve_event_app(
     app_id: Option<Uuid>,
 ) -> Result<apps::Model, EventAppRefusal> {
     let db_err = |e: sea_orm::DbErr| EventAppRefusal::Db(e.to_string());
-    match app_id {
-        Some(app_id) => {
-            let app = apps::Entity::find_by_id(app_id)
-                .filter(apps::Column::ProjectId.eq(project_id))
-                .one(db)
-                .await
-                .map_err(db_err)?
-                .ok_or(EventAppRefusal::NotYours)?;
-            let can_open = super::custom_apps_auth::user_can_access_app(db, caller, &app)
-                .await
-                .map_err(db_err)?;
-            if can_open {
-                Ok(app)
-            } else {
-                Err(EventAppRefusal::NotYours)
-            }
-        }
-        None => {
-            tracing::debug!(
-                %project_id,
-                "event ingest without app_id — attributing to an app in the workspace"
-            );
-            apps::Entity::find()
-                .filter(apps::Column::ProjectId.eq(project_id))
-                .order_by_asc(apps::Column::Id)
-                .one(db)
-                .await
-                .map_err(db_err)?
-                .ok_or(EventAppRefusal::NoneInWorkspace)
+    let app = match app_id {
+        Some(app_id) => apps::Entity::find_by_id(app_id)
+            .filter(apps::Column::ProjectId.eq(project_id))
+            .one(db)
+            .await
+            .map_err(db_err)?
+            .ok_or(EventAppRefusal::NotYours)?,
+        None => only_app_in(db, project_id).await?,
+    };
+    let can_open = super::custom_apps_auth::user_can_access_app(db, caller, &app)
+        .await
+        .map_err(db_err)?;
+    if can_open {
+        Ok(app)
+    } else {
+        Err(EventAppRefusal::NotYours)
+    }
+}
+
+/// The workspace's one published app, for an event that did not name one.
+async fn only_app_in(
+    db: &sea_orm::DatabaseConnection,
+    project_id: Uuid,
+) -> Result<apps::Model, EventAppRefusal> {
+    let mut found = apps::Entity::find()
+        .filter(apps::Column::ProjectId.eq(project_id))
+        .limit(2)
+        .all(db)
+        .await
+        .map_err(|e| EventAppRefusal::Db(e.to_string()))?;
+    match found.len() {
+        0 => Err(EventAppRefusal::NoneInWorkspace),
+        1 => Ok(found.remove(0)),
+        _ => {
+            tracing::debug!(%project_id, "event ingest without app_id in a multi-app workspace");
+            Err(EventAppRefusal::Ambiguous)
         }
     }
 }
@@ -331,6 +342,13 @@ pub async fn post_event(
         }
         Err(EventAppRefusal::NoneInWorkspace) => {
             return err(StatusCode::NOT_FOUND, "no app registered for this project");
+        }
+        Err(EventAppRefusal::Ambiguous) => {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "this workspace publishes several apps, so the event must name one in app_id; \
+                 rebuild the bundle against a current @oxy-hq/sdk",
+            );
         }
         Err(EventAppRefusal::Db(e)) => {
             tracing::error!("event ingest app lookup: {e}");

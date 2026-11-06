@@ -370,7 +370,7 @@ async fn inserted_views_are_ordered_by_their_stamped_time() {
 /// honoured when the app is published from this workspace AND the sender passes
 /// the same per-app gate the shell and every function invoke run — so a
 /// restricted app cannot be written to, or probed for, by naming it from a
-/// workspace it shares. Without a name, the fallback is deterministic.
+/// workspace it shares. Without a name, only a workspace's one app is named.
 #[tokio::test]
 async fn an_event_names_only_an_app_its_sender_can_open() {
     use oxy_api_custom_apps::custom_apps_activity::{EventAppRefusal, resolve_event_app};
@@ -419,10 +419,18 @@ async fn an_event_names_only_an_app_its_sender_can_open() {
         resolve(Some(elsewhere.id)).await.map(|a| a.id),
         Err(EventAppRefusal::NotYours)
     );
-    // Unnamed: an app in the workspace, first by id — deterministic, not "one of them".
+    // Unnamed, in a workspace with two apps: refused, never written to
+    // whichever sorts first.
     assert_eq!(
         resolve(None).await.map(|a| a.id),
-        Ok(std::cmp::min(open.id, restricted.id))
+        Err(EventAppRefusal::Ambiguous)
+    );
+    // Unnamed, in a workspace with one app the sender can open: that app.
+    assert_eq!(
+        resolve_event_app(&conn, elsewhere.project_id, &caller, None)
+            .await
+            .map(|a| a.id),
+        Ok(elsewhere.id)
     );
     // Unnamed, in a workspace that published nothing.
     assert_eq!(
