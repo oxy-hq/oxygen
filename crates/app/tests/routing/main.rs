@@ -30,6 +30,7 @@
 // how far the compiler will follow it.
 #![recursion_limit = "256"]
 
+mod app_growth;
 mod config_write_routes;
 mod fleet_canary;
 mod fleet_routes_table;

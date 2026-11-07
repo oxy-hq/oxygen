@@ -1,13 +1,21 @@
 # `oxy-app` — CLI + HTTP Server (`crates/app`)
 
-The CLI + server **library** lives here (crate name **`oxy-app`**, path `crates/app`, ~311k
-LOC under `src/` as of 2026-10 — the largest crate, a quarter of it the custom-apps
-vertical; lib-only). The `oxy` **binary** is the thin `oxy-server` crate
+The CLI + server **library** lives here (crate name **`oxy-app`**, path `crates/app`, ~250k
+LOC under `src/` on 2026-11-06, down from a 321k peak when the custom-apps serving half
+moved to `oxy-api-custom-apps`; still the largest crate; lib-only). The `oxy` **binary** is the thin `oxy-server` crate
 (`crates/server`, the workspace default member), which mounts the API surfaces and calls into
 this library. It wires everything together: the CLI
 command surface, the Axum HTTP server (`server/`, ~80k LOC), the fleet/role machinery, the
 worker runtime, and integration glue (Slack, emails). Business logic should live in `oxy` and
-the domain crates — this crate is composition + transport.
+the domain crates — this crate is the platform runtime plus the contexts not yet extracted.
+
+**Do not start a new context here (rule S8 in `internal-docs/domain-boundaries.md`).** A new
+feature, bounded context or integration goes in its own `crates/api-<context>` surface over a
+domain crate, mounted by `oxy-server`. Growing a module already here is fine; adding a
+top-level module to `src/`, `src/server/` or `src/server/api/` fails
+`tests/routing/app_growth.rs`. Every edit here pays whole-crate work (about half of the
+recompile: metadata, the 656 MB rlib, macro expansion) that grows with the crate, so a smaller
+`oxy-app` is a faster edit loop for everyone.
 
 ## Layering & where logic belongs
 
