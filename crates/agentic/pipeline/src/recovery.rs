@@ -1237,12 +1237,23 @@ async fn recover_single_run_owned(
     let pending_count = pending_resumes.len();
     let retire_transport = transport.clone();
     let park_db = db.clone();
+    let drive_state = state.clone();
+    let drive_root = root.id.clone();
     spawn_with_hub(async move {
         let mut coord = coordinator;
         coord.process_pending_resumes(pending_resumes).await;
         coord.run().await;
+        // Drop the registration made above, as the direct drive does. Left in
+        // place, the root stays in `cancel_txs` for the life of the process
+        // and `shutdown_all` would write `shutdown` over it at the next
+        // deploy. A parked root keeps its notifier, so SSE can still deliver
+        // the answer that resumes it.
         if let Some(root_id) = coord.parked_root() {
             park(&park_db, &retire_transport, root_id, &driver_id).await;
+            drive_state.suspend_cleanup(&drive_root);
+        } else {
+            drive_state.notify(&drive_root);
+            drive_state.deregister(&drive_root);
         }
         drive_ended.cancel();
         // `coord.run()` returns only once every task in this tree is terminal,

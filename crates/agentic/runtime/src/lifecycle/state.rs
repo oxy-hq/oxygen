@@ -138,32 +138,32 @@ impl RuntimeState {
     /// `spawn_shutdown_hook` in `oxy-app`'s `server::router::recovery` and the
     /// `oxy worker` shutdown sequence in `cli::commands::worker`, both of
     /// which may legitimately depend on both layers.
+    ///
+    /// Only a run that is still unfinished in the database is marked. A
+    /// registered run may already be `done`/`failed`/`cancelled`/`timed_out`
+    /// (its drive ended but its entry outlived it); writing `shutdown` over
+    /// that sends the next process to resume a finished run, find no
+    /// checkpoint, and record it `failed`.
     pub async fn shutdown_all(&self, db: &sea_orm::DatabaseConnection) -> usize {
         let mut shutdown_count = 0;
         let run_ids: Vec<String> = self.cancel_txs.iter().map(|e| e.key().clone()).collect();
 
         for run_id in &run_ids {
-            // Mark as "shutdown" in DB (resumable on restart).
-            let model = crate::lifecycle::entity::run::ActiveModel {
-                id: sea_orm::ActiveValue::Set(run_id.clone()),
-                task_status: sea_orm::ActiveValue::Set(Some("shutdown".to_string())),
-                updated_at: sea_orm::ActiveValue::Set(chrono::Utc::now().fixed_offset()),
-                ..Default::default()
-            };
-            if let Err(e) = sea_orm::EntityTrait::update(model).exec(db).await {
-                tracing::warn!(
+            match mark_shutdown_if_unfinished(db, run_id).await {
+                Ok(true) => shutdown_count += 1,
+                Ok(false) => {}
+                Err(e) => tracing::warn!(
                     target: "runtime",
                     run_id,
                     error = %e,
                     "failed to mark run as shutdown"
-                );
+                ),
             }
 
             // Cancel the pipeline.
             if let Some(tx) = self.cancel_txs.get(run_id) {
                 tx.send(true).ok();
             }
-            shutdown_count += 1;
         }
 
         if shutdown_count > 0 {
@@ -217,6 +217,31 @@ impl RuntimeState {
         );
         Ok(())
     }
+}
+
+/// Mark `run_id` `shutdown` unless it is already finished. `Ok(true)` when the
+/// row was marked. A NULL `task_status` reads as running, so it is marked too.
+async fn mark_shutdown_if_unfinished(
+    db: &DatabaseConnection,
+    run_id: &str,
+) -> Result<bool, sea_orm::DbErr> {
+    use crate::lifecycle::entity::run;
+    use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, sea_query::Expr};
+
+    let res =
+        run::Entity::update_many()
+            .col_expr(run::Column::TaskStatus, Expr::value("shutdown"))
+            .col_expr(
+                run::Column::UpdatedAt,
+                Expr::value(chrono::Utc::now().fixed_offset()),
+            )
+            .filter(run::Column::Id.eq(run_id))
+            .filter(Condition::any().add(run::Column::TaskStatus.is_null()).add(
+                run::Column::TaskStatus.is_not_in(["done", "failed", "cancelled", "timed_out"]),
+            ))
+            .exec(db)
+            .await?;
+    Ok(res.rows_affected > 0)
 }
 
 /// Current state of a pipeline run (in-memory cache).

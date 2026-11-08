@@ -389,14 +389,17 @@ On SIGTERM/Ctrl+C:
      ├─ Reaper cancelled
      └─ Shutdown watcher fires:
           ├─ RuntimeState.shutdown_all(&db):
-          │     For each active run:
-          │       ├─ Mark task_status = "shutdown" in DB (resumable)
+          │     For each registered run:
+          │       ├─ Mark task_status = "shutdown" in DB (resumable),
+          │       │  only if the row is not already terminal
           │       └─ Send cancel signal to pipeline via cancel_txs
           └─ Pipelines receive cancel → coordinators exit
                └─ On next restart: recovery resumes "shutdown" runs
 ```
 
 **`shutdown` vs `cancelled`**: User-initiated cancel sets `task_status = "cancelled"` which is terminal and non-resumable. Graceful shutdown sets `task_status = "shutdown"` which the recovery pipeline treats as resumable, just like `running` or `delegating`.
+
+**Every drive deregisters when it ends.** Both the direct drive (`drive_with_coordinator`) and recovery's drive (`recover_single_run_owned`) remove the root from `RuntimeState` once their coordinator returns, so `cancel_txs` holds only runs still being driven in this process. Until 2026-11 recovery's drive did not, and every deploy wrote `shutdown` over thousands of finished runs, which the next process then failed with "no checkpoint". `shutdown_all`'s status guard is the second line against that.
 
 ## Database Schema
 

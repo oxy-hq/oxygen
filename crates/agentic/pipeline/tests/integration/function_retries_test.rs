@@ -36,20 +36,20 @@ use crate::scheduler_test::FakeWorkspace;
 
 /// A function that fails its first `fail_first` starts of each run, then
 /// succeeds. Counts every start, per run.
-struct Flaky {
+pub(crate) struct Flaky {
     fail_first: usize,
     starts: Mutex<HashMap<String, usize>>,
 }
 
 impl Flaky {
-    fn new(fail_first: usize) -> Arc<Self> {
+    pub(crate) fn new(fail_first: usize) -> Arc<Self> {
         Arc::new(Self {
             fail_first,
             starts: Mutex::new(HashMap::new()),
         })
     }
 
-    fn starts(&self, run_id: &str) -> usize {
+    pub(crate) fn starts(&self, run_id: &str) -> usize {
         self.starts
             .lock()
             .unwrap()
@@ -105,7 +105,11 @@ fn policy(max_attempts: u32, backoff_ms: u64) -> TaskPolicy {
 
 /// Create a `function` schedule carrying `policy` the way the host's reconcile
 /// writes it, and fire it through the scheduler.
-async fn fire_function(db: &DatabaseConnection, ws: Uuid, policy: Option<TaskPolicy>) -> String {
+pub(crate) async fn fire_function(
+    db: &DatabaseConnection,
+    ws: Uuid,
+    policy: Option<TaskPolicy>,
+) -> String {
     let app = Uuid::new_v4();
     let s = create_schedule(
         db,
@@ -130,11 +134,22 @@ async fn fire_function(db: &DatabaseConnection, ws: Uuid, policy: Option<TaskPol
 
 /// The latency worker's pass: takes every pending Global run and drives it.
 async fn latency_pass(db: &DatabaseConnection, ws: Uuid, function: &Arc<Flaky>) {
+    latency_pass_with_state(db, ws, function, Arc::new(RuntimeState::new())).await;
+}
+
+/// [`latency_pass`] over a caller's `RuntimeState`, so a test can read what the
+/// drive left registered in it.
+pub(crate) async fn latency_pass_with_state(
+    db: &DatabaseConnection,
+    ws: Uuid,
+    function: &Arc<Flaky>,
+    state: Arc<RuntimeState>,
+) {
     let mut registry = CustomTaskRegistry::new();
     registry.register(APP_FUNCTION_KIND, function.clone());
     agentic_pipeline::recovery::recover_pending_global_runs(
         db.clone(),
-        Arc::new(RuntimeState::new()),
+        state,
         Arc::new(FakePlatform),
         Arc::new(IdentityResolver),
         None,
@@ -150,7 +165,10 @@ async fn latency_pass(db: &DatabaseConnection, ws: Uuid, function: &Arc<Flaky>) 
 
 /// Wait for the run to end, then long enough that an attempt the queue still
 /// owed would have started.
-async fn settle(db: &DatabaseConnection, run_id: &str) -> agentic_runtime::entity::run::Model {
+pub(crate) async fn settle(
+    db: &DatabaseConnection,
+    run_id: &str,
+) -> agentic_runtime::entity::run::Model {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     loop {
         let run = crud::get_run(db, run_id).await.unwrap().expect("run");
