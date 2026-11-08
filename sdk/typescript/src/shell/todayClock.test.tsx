@@ -310,6 +310,28 @@ describe("Today from the top bar clock", () => {
     expect(clock().tagName).toBe("SPAN");
     expect(widgetCalls()).toEqual([]);
   });
+
+  it("keeps the plain clock when the app asks for it, with an org to ask for", async () => {
+    calls = [];
+    const fetcher = (async (input: RequestInfo | URL) => {
+      const url = urlOf(input);
+      calls.push(url);
+      if (url.includes("/shell-context")) return new Response(JSON.stringify(SHELL_CONTEXT));
+      return new Response(JSON.stringify(PAYLOAD));
+    }) as unknown as typeof fetch;
+    page = await mount(<OxyShell plainClock>app body</OxyShell>, fetcher);
+    await settle();
+    // The shell loaded (the org is there), and the clock is still just a time.
+    expect(calls.some((u) => u.includes("/shell-context"))).toBe(true);
+    expect(clock().tagName).toBe("SPAN");
+    expect(clock().className).toBe("oxy-shell-scope oxy-clock");
+    expect(clock().getAttribute("aria-haspopup")).toBeNull();
+    expect($(".oxy-clock__icon")).toBeNull();
+    await click(clock());
+    await settle(300);
+    expect(panel()).toBeNull();
+    expect(widgetCalls()).toEqual([]);
+  });
 });
 
 describe("todayRows", () => {

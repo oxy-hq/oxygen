@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.1] - 2026-11-06
+
+### Added
+
+- **`<OxyShell plainClock>` keeps the top-bar clock a plain time.** No Today
+  button, no Today panel, no `GET /api/home/widgets` read and no clock icon at phone
+  width: the clock is the 2.23 `WorkspaceClock`. For a screen that is not one
+  person's, such as a store's shared tablet. The default is unchanged, the clock
+  opens Today.
+
+### Fixed
+
+- **A phone sheet's Back no longer leaves the app under the platform's runtime.**
+  The runtime turns a push made before the person has touched the page into a
+  replace, so a `PhoneSheet` or drawer open at load (a pasted link, a reload) had no
+  history entry under it, and its Back and the phone's Back landed on the page before
+  the app. The coordinator now pushes through the runtime's own opt-out, for its push
+  only, so an app's boot-time pushes are still made replaces and the app adds nothing.
+  It also stops assuming a push landed: where one did not (another rewriter, an older
+  host), the sheet closes without a step off the page, and the entry is made on the
+  first activation. Picking a drawer row with no entry under it navigates rather than
+  replacing the page.
+- **A reload with a sheet open reuses that sheet's entry.** It used to stack a new
+  one each time, each with a URL that opened the sheet again on the way back down.
+  Marks written by 2.27.0 are not reused, since they may sit on an entry that was
+  never pushed.
+
 ## [2.27.0] - 2026-11-04
 
 ### Added

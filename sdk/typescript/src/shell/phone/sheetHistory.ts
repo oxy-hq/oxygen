@@ -14,14 +14,32 @@
 // after a traversal the state is the only way to know where we landed.
 //
 // A sheet the URL already names has its own entry and opts out (`historyEntry`).
+//
+// A push is not assumed to have landed. The platform's runtime (`runtime.js` in
+// `api-custom-apps`) turns a push made before the person has touched the page into a
+// replace, so a sheet open at load would have no entry under it, and stepping back
+// off it would leave the app. So our pushes say they are meant (`pushOwnEntry`), each
+// is checked (`entryAdded`), and `depth` counts only entries seen to exist. Where one
+// could not be added the sheet still works, it just takes no step when it closes, and
+// the push is tried again the moment the page is activated.
 
 const DEPTH = "oxyPhoneSheetDepth";
 const RUN = "oxyPhoneSheetRun";
+/**
+ * Starts every `RUN` written since a mark means its entry exists. A mark without it
+ * came from a kit that assumed so (2.27.0), and may be on an entry with nothing under
+ * it that is ours.
+ */
+const CHECKED = "c1-";
+/** An entry of ours whose URL when it was made is not known: it left an earlier load. */
+const URL_UNKNOWN = "";
+/** What activates a page, for a touch too: a touch activates when it ends, not when it starts. */
+const ACTIVATING = ["pointerup", "touchend", "mousedown", "keydown", "click"];
 /** Longer than any real traversal; `go` that lands nowhere never fires popstate. */
 const MOVE_TIMEOUT_MS = 1000;
 
-/** This page load, so a mark left by an earlier one reads as no mark at all. */
-const run = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+/** This page load, to tell a mark it wrote from one an earlier load left. */
+const run = `${CHECKED}${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const open: Array<() => void> = [];
 let depth = 0;
 /** The URL under each of our entries: `urls[n]` is the page entry `n` sits on. */
@@ -38,18 +56,92 @@ let released = false;
 let opened = false;
 /** The page is on its way out by `replacePageFrom`: nothing may go back under it. */
 let departing = false;
+/** A push did not land, and the next activation is to try it again. */
+let awaitingActivation = false;
 
 type EntryState = Record<string, unknown> | null;
 
 function depthOf(state: EntryState): number {
-  if (state?.[RUN] !== run) return 0;
-  const n = state[DEPTH];
+  const from = state?.[RUN];
+  if (typeof from !== "string" || !from.startsWith(CHECKED)) return 0;
+  const n = state?.[DEPTH];
   return typeof n === "number" ? n : 0;
 }
 
 function marked(state: EntryState, n: number): Record<string, unknown> {
   const { [DEPTH]: _depth, [RUN]: _run, ...rest } = state ?? {};
   return n > 0 ? { ...rest, [DEPTH]: n, [RUN]: run } : rest;
+}
+
+/**
+ * An entry of ours left by an earlier load of this page: a reload with a sheet open,
+ * or a return from another page. Its sheet is opening again, so it takes that entry
+ * back rather than stacking another on it, each with a URL that would reopen the sheet
+ * on the way down. The entries under it are there, or the mark would not be.
+ */
+function adoptLeftEntry(): void {
+  const state = window.history.state as EntryState;
+  const n = depthOf(state);
+  if (n < 1 || state?.[RUN] === run) return;
+  depth = n;
+  urls = new Array<string>(n).fill(URL_UNKNOWN);
+  lengthAfterPush = window.history.length;
+  window.history.replaceState(marked(state, n), "", window.location.href);
+}
+
+/** Set on a push and left on a replace. Absent before Safari 26.2. */
+function currentEntryKey(): string | undefined {
+  const { navigation } = window as unknown as {
+    navigation?: { currentEntry?: { key: string } | null };
+  };
+  return navigation?.currentEntry?.key;
+}
+
+/**
+ * Did the push just made add an entry? Where the key is missing, `history.length` is
+ * the evidence, and a push can leave it alone: over exactly one entry a Back left
+ * ahead (a sheet opened again, the common case) and at the browser's cap. So the same
+ * length counts as a push when nothing can have rewritten it: `pushState` is the
+ * browser's own, or the page is active. Otherwise it reads as no entry, which at worst
+ * costs one Back that shows no change; assuming an entry can leave the app.
+ */
+function entryAdded(lengthBefore: number, keyBefore: string | undefined): boolean {
+  const key = currentEntryKey();
+  if (key !== undefined) return key !== keyBefore;
+  if (window.history.length !== lengthBefore) return true;
+  return (
+    window.history.pushState === History.prototype.pushState ||
+    navigator.userActivation?.hasBeenActive === true
+  );
+}
+
+/**
+ * The runtime leaves a push alone under this meta, its door for an app that pushes on
+ * purpose before any interaction, and it reads it on each push. Up only for our own, so
+ * an app's boot-time pushes are still made replaces and need no opting out.
+ */
+function pushOwnEntry(state: Record<string, unknown>): void {
+  const door = document.createElement("meta");
+  door.name = "oxy-history";
+  door.content = "native";
+  document.head.prepend(door);
+  try {
+    window.history.pushState(state, "", window.location.href);
+  } finally {
+    door.remove();
+  }
+}
+
+function onActivation(): void {
+  awaitingActivation = false;
+  for (const type of ACTIVATING) window.removeEventListener(type, onActivation, true);
+  schedule();
+}
+
+function retryOnActivation(): void {
+  if (awaitingActivation) return;
+  awaitingActivation = true;
+  for (const type of ACTIVATING) window.addEventListener(type, onActivation, true);
 }
 
 function push(want: number): void {
@@ -59,9 +151,17 @@ function push(want: number): void {
     window.history.replaceState(marked(window.history.state, depth), "", window.location.href);
   }
   while (depth < want) {
+    const lengthBefore = window.history.length;
+    const keyBefore = currentEntryKey();
+    pushOwnEntry(marked(window.history.state, depth + 1));
+    if (!entryAdded(lengthBefore, keyBefore)) {
+      // We are still on the entry we pushed from, and our mark has gone on it.
+      window.history.replaceState(marked(window.history.state, depth), "", window.location.href);
+      retryOnActivation();
+      break;
+    }
     urls.push(window.location.href);
     depth += 1;
-    window.history.pushState(marked(window.history.state, depth), "", window.location.href);
   }
   lengthAfterPush = window.history.length;
 }
@@ -106,6 +206,7 @@ function leave(want: number): void {
 function settle(): void {
   if (moveTimer !== null) return;
   const want = open.length;
+  if (want > 0 && depth === 0) adoptLeftEntry();
   const swapped = released && opened && want === depth && want > 0;
   released = false;
   opened = false;
@@ -207,6 +308,12 @@ if (typeof window !== "undefined") {
  * leaving the entry in place would be a Back that shows no change.
  */
 export function replacePageFrom(href: string): void {
+  // No entry of ours to take over: a replace would take the page itself, and Back from
+  // the next one would go to whatever came before this app.
+  if (depth === 0) {
+    window.location.assign(href);
+    return;
+  }
   departing = true;
   window.location.replace(href);
 }

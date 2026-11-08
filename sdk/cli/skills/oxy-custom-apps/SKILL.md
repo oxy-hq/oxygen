@@ -308,6 +308,8 @@ purpose before any interaction (a dialog route opened on load and closed with
 `history.back()`, a kiosk's Back trap) adds
 `<meta name="oxy-history" content="native">` to its `index.html`, and its pushes
 are left alone.
+`PhoneSheet` and the shell's drawer hold their own entries this way and need nothing
+from the app.
 
 The app is its own page, outside Oxygen's shell, so show the inbox **in the
 app** — people who live in it (crew on a kiosk) never see Oxygen's bell:

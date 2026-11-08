@@ -85,6 +85,11 @@ export interface OxyShellProps {
   railBottom?: ReactNode;
   /** Drop the top bar and keep only the rail. */
   hideTopBar?: boolean;
+  /** Keep the top bar's clock a plain time, without the Today button and
+   *  panel (and so without its `GET /api/home/widgets` read). For a screen
+   *  that is not one person's, such as a store's shared tablet, where the
+   *  viewer's widgets have no place. Default false: the clock opens Today. */
+  plainClock?: boolean;
   /** Bind ⌘K / Ctrl+K to toggle the Ask dock (default true). Set false
    *  when the host app owns that shortcut; the top-bar button still works. */
   askHotkey?: boolean;
@@ -167,6 +172,7 @@ export function OxyShell({
   topBarExtra,
   railBottom,
   hideTopBar,
+  plainClock = false,
   askHotkey = true,
   productBaseUrl,
   className,
@@ -289,7 +295,7 @@ export function OxyShell({
                 <>
                   <UpdatePill />
                   <SystemIndicator />
-                  {data?.org?.slug ? (
+                  {data?.org?.slug && !plainClock ? (
                     // The clock opens Today: this person's widgets from every app.
                     <TodayClock orgSlug={data.org.slug} homeHref={data.links.home} resolve={abs} />
                   ) : (
