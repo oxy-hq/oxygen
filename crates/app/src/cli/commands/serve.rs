@@ -426,12 +426,16 @@ async fn seed_app_admins_from_env() -> Result<(), OxyError> {
     Ok(())
 }
 
-/// Read `OXY_SERVICE_TOKENS` and create the `users` row behind each service
-/// (`oxy_auth::token::service`). A malformed value stops the boot: a credential
-/// that silently failed to configure would read as "the service is down", not
-/// as a typo.
+/// Install the services `OXY_SERVICE_TOKENS` configures and create the `users`
+/// row behind each (`oxy_auth::token::service`). A malformed value has already
+/// stopped the boot in `BootConfig::init`: a credential that silently failed to
+/// configure would read as "the service is down", not as a typo.
 async fn init_service_tokens() -> Result<(), OxyError> {
-    let count = oxy_auth::token::service::init_from_env().map_err(OxyError::ConfigurationError)?;
+    let tokens = oxy_app_core::config::BootConfig::current()
+        .service_tokens()
+        .map_err(|e| OxyError::ConfigurationError(e.to_string()))?;
+    let count = tokens.len();
+    oxy_auth::token::service::install(tokens).map_err(OxyError::ConfigurationError)?;
     if count == 0 {
         return Ok(());
     }

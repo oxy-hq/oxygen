@@ -27,7 +27,9 @@
 //! someone reactivates it; boot does not.
 //!
 //! Unset or empty, the feature is off and every `oxysvc_` token is refused. A
-//! malformed value fails startup ([`init_from_env`]) rather than being ignored.
+//! malformed value fails startup rather than being ignored: the variable is read
+//! and checked by `oxy_app_core::config::BootConfig`, which [`parse`]s it, and
+//! `oxy serve` [`install`]s the result.
 
 use std::sync::OnceLock;
 
@@ -43,9 +45,6 @@ use super::credential::{CredentialContext, StoredKind};
 
 /// What every service token starts with.
 pub const PREFIX: &str = "oxysvc_";
-
-/// The environment variable the entries are read from.
-pub const ENV: &str = "OXY_SERVICE_TOKENS";
 
 /// Names a service's deterministic ids, so the same name is the same principal
 /// on every pod and across restarts.
@@ -161,23 +160,23 @@ impl ServiceToken {
     }
 }
 
-/// Parse `OXY_SERVICE_TOKENS`. Blank is no services. Anything that is not a
-/// JSON array of well-formed entries with distinct names and hashes is an
-/// error, with the reason; the value itself is never echoed.
+/// Parse the service-token list (`OXY_SERVICE_TOKENS`). Blank is no services.
+/// Anything that is not a JSON array of well-formed entries with distinct names
+/// and hashes is an error, with the reason; the value itself is never echoed.
 pub fn parse(raw: &str) -> Result<Vec<ServiceToken>, String> {
     if raw.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let entries: Vec<Entry> =
-        serde_json::from_str(raw).map_err(|e| format!("{ENV} is not a list of entries: {e}"))?;
+    let entries: Vec<Entry> = serde_json::from_str(raw)
+        .map_err(|e| format!("not a JSON list of {{name, role, sha256}} entries: {e}"))?;
     let mut tokens: Vec<ServiceToken> = Vec::with_capacity(entries.len());
     for entry in entries {
         let token = ServiceToken::new(&entry.name, &entry.role, &entry.sha256)?;
         if tokens.iter().any(|t| t.name == token.name) {
-            return Err(format!("{ENV} names service {} twice", token.name));
+            return Err(format!("service {} is named twice", token.name));
         }
         if tokens.iter().any(|t| t.sha256 == token.sha256) {
-            return Err(format!("{ENV} gives two services the same hash"));
+            return Err("two services have the same hash".to_string());
         }
         tokens.push(token);
     }
@@ -202,16 +201,6 @@ pub fn install(tokens: Vec<ServiceToken>) -> Result<(), String> {
     } else {
         Err("service tokens are already installed with a different set".to_string())
     }
-}
-
-/// Read, check and install `OXY_SERVICE_TOKENS`, returning how many services
-/// it configures. Called at startup, which fails on `Err`.
-pub fn init_from_env() -> Result<usize, String> {
-    let raw = std::env::var(ENV).unwrap_or_default();
-    let tokens = parse(&raw)?;
-    let count = tokens.len();
-    install(tokens)?;
-    Ok(count)
 }
 
 /// The service `token` is, when its hash matches an entry. Every entry is

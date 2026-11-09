@@ -54,6 +54,10 @@ pub struct BootConfig {
     /// (`crate::internal_orgs`). Entries that are not UUIDs are skipped with a
     /// warning there, not here, so one typo never drops the list.
     pub internal_orgs: Vec<uuid::Uuid>,
+    /// `OXY_SERVICE_TOKENS`: the platform services configured as code
+    /// (`oxy_auth::token::service`), as the deployment set it. Strict: a value
+    /// [`BootConfig::service_tokens`] cannot parse refuses the boot.
+    pub service_tokens: Option<String>,
 }
 
 static BOOT: OnceLock<Arc<BootConfig>> = OnceLock::new();
@@ -69,6 +73,7 @@ impl BootConfig {
             internal_orgs: crate::internal_orgs::parse_internal_orgs(
                 var("OXY_INTERNAL_ORGS").as_deref(),
             ),
+            service_tokens: var("OXY_SERVICE_TOKENS"),
         }
     }
 
@@ -80,7 +85,21 @@ impl BootConfig {
     /// The first value the deployment set that this process cannot use, if any.
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.role.validate()?;
-        self.hosts.validate()
+        self.hosts.validate()?;
+        self.service_tokens().map(|_| ())
+    }
+
+    /// The configured services, or why `OXY_SERVICE_TOKENS` cannot be used. The
+    /// value is never echoed: the error names the variable and the problem.
+    pub fn service_tokens(
+        &self,
+    ) -> Result<Vec<oxy_auth::token::service::ServiceToken>, ConfigError> {
+        let raw = self.service_tokens.as_deref().unwrap_or_default();
+        oxy_auth::token::service::parse(raw).map_err(|problem| ConfigError {
+            var: "OXY_SERVICE_TOKENS",
+            value: "(not shown)".to_string(),
+            problem,
+        })
     }
 
     /// Parse the environment once for this process and keep it. Called first
@@ -136,7 +155,29 @@ mod tests {
         assert_eq!(cfg.role, RoleSetting::Unset);
         assert_eq!(cfg.hosts.api_url, None);
         assert!(cfg.internal_orgs.is_empty());
+        assert_eq!(cfg.service_tokens, None);
         assert_eq!(cfg.validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_malformed_service_token_list_refuses_the_boot() {
+        let hash = "a".repeat(64);
+        let good = format!(r#"[{{"name":"ferret","role":"global_admin","sha256":"{hash}"}}]"#);
+        let cfg = parse(&[("OXY_SERVICE_TOKENS", &good)]);
+        assert_eq!(cfg.validate(), Ok(()));
+        assert_eq!(cfg.service_tokens().unwrap().len(), 1);
+
+        for bad in [
+            "not json".to_string(),
+            good.replace("global_admin", "global_owner"),
+            good.replace(&hash, &"A".repeat(64)),
+        ] {
+            let err = parse(&[("OXY_SERVICE_TOKENS", &bad)])
+                .validate()
+                .expect_err(&bad);
+            assert_eq!(err.var, "OXY_SERVICE_TOKENS");
+            assert!(!err.to_string().contains(&hash), "{err}");
+        }
     }
 
     #[test]
