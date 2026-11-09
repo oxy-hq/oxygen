@@ -13,6 +13,7 @@ mod drive_policy;
 mod entry;
 mod global;
 mod openapi;
+pub mod periodic;
 mod protected;
 mod public;
 pub(crate) mod recovery;

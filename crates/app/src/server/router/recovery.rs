@@ -30,7 +30,7 @@ use super::seams::TaskSeam;
 
 /// The custom-app task kinds the composition root handed in, shared by every
 /// driver loop this process runs.
-type CustomTasks = Arc<[TaskSeam]>;
+pub(super) type CustomTasks = Arc<[TaskSeam]>;
 use oxy::config::WorkingCopy;
 use oxy_app_core::serve_mode::{LOCAL_WORKSPACE_ID, ServeMode};
 
@@ -277,7 +277,7 @@ pub(crate) fn inproc_global_worker_enabled() -> bool {
     )
 }
 
-fn inproc_global_worker_interval() -> std::time::Duration {
+pub(super) fn inproc_global_worker_interval() -> std::time::Duration {
     let secs = std::env::var(INPROC_GLOBAL_WORKER_INTERVAL_ENV)
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -627,6 +627,22 @@ pub(super) async fn run_recovery(
             )
             .await
         }
+        // The periodic tick claims a bounded batch of workspaces instead of
+        // visiting every one on every node — see `super::periodic`.
+        ServeMode::Cloud if periodic => {
+            super::periodic::tick(&super::periodic::TickDeps {
+                db: db.clone(),
+                runtime,
+                schema_cache,
+                builder_test_runner,
+                router,
+                ws_cache,
+                preagg,
+                custom_tasks,
+                policy,
+            })
+            .await
+        }
         ServeMode::Cloud => {
             recover_all_workspaces(
                 db,
@@ -634,7 +650,6 @@ pub(super) async fn run_recovery(
                 schema_cache,
                 builder_test_runner,
                 router,
-                periodic,
                 ws_cache,
                 preagg,
                 custom_tasks,
@@ -718,7 +733,7 @@ async fn recover_local(
         if fired > 0 {
             tracing::info!(target: "scheduler", fired, workspace_id = %LOCAL_WORKSPACE_ID, "periodic tick fired schedules");
         }
-        bootstrap_monitor_schedules(db, LOCAL_WORKSPACE_ID, &cwd).await;
+        super::periodic::monitors::bootstrap_from_file(db, LOCAL_WORKSPACE_ID, &cwd).await;
         let monitor_fired = agentic_pipeline::scheduler::tick_monitor_schedules(
             db,
             LOCAL_WORKSPACE_ID,
@@ -750,14 +765,9 @@ async fn recover_local(
         super::seams::run_global_ticks(db, chrono::Utc::now()).await;
         recovered + fired
     } else {
-        // One-time startup backfill of per-workspace health schedule rows from
-        // compiled config. Steady-state sync is event-driven at compile time
-        // (compile_worker::reconcile_health_from_compiled) — never per tick, so
-        // the periodic driver never re-resolves config for every workspace.
         // Local mode: the single workspace has no `workspaces` row, so skip the
         // orphan prune (an empty table there is not evidence of orphans).
-        reconcile_all_health_schedules(db, false).await;
-        reconcile_all_preagg_schedules(db).await;
+        super::periodic::reconcile::startup_housekeeping(db, false).await;
         recover_active_runs(
             db.clone(),
             runtime,
@@ -780,6 +790,9 @@ async fn recover_local(
     }
 }
 
+/// The one-shot startup pass over every workspace: resume each one's
+/// interrupted runs. The periodic tick is [`super::periodic::tick`], which
+/// claims a bounded batch instead of visiting every workspace.
 async fn recover_all_workspaces(
     db: &DatabaseConnection,
     runtime: Arc<RuntimeState>,
@@ -792,7 +805,6 @@ async fn recover_all_workspaces(
     >,
     builder_test_runner: Option<Arc<dyn BuilderTestRunnerTrait>>,
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
-    periodic: bool,
     ws_cache: Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: PreaggCacheCtx,
     custom_tasks: CustomTasks,
@@ -812,10 +824,6 @@ async fn recover_all_workspaces(
     }
 
     let mut total = 0usize;
-    // The health tick enqueues per-workspace eval tasks and needs no platform
-    // handle; this flag is just a "did we build any workspace context this pass"
-    // proxy so the tick fires once per pass after the loop (not per workspace).
-    let mut health_platform: Option<Arc<dyn PlatformContext>> = None;
     for ws in &workspaces {
         let Some(ref path) = ws.path else {
             continue;
@@ -831,90 +839,27 @@ async fn recover_all_workspaces(
             continue;
         };
         let platform: Arc<dyn PlatformContext> = project_ctx.clone();
-        let platform_for_monitor: Arc<dyn PlatformContext> = project_ctx.clone();
-        if periodic && health_platform.is_none() {
-            health_platform = Some(project_ctx.clone());
-        }
-        // §12 FU4b: keep a workspace handle for the per-workspace
-        // scheduler tick below; airway targets need it to resolve the
-        // pipeline file on THIS workspace's filesystem.
-        let workspace: Arc<dyn agentic_pipeline::WorkflowWorkspaceContext> = project_ctx.clone();
         let bridges: Option<BuilderBridges> = Some(build_builder_bridges(project_ctx));
 
-        let n = if periodic {
-            // Filter to THIS workspace's runs only — otherwise the
-            // loop would drive every workspace's stranded rows with
-            // the wrong PlatformContext on each iteration (silently
-            // pre-FU4c, now an enforced invariant).
-            let recovered = recover_stranded_runs(
-                db.clone(),
-                runtime.clone(),
-                platform,
-                CallerRunResolver::shared(db),
-                bridges,
-                schema_cache.clone(),
-                builder_test_runner.clone(),
-                router.clone(),
-                Some(ws.id),
-                Some(build_custom_task_registry(
-                    db,
-                    &preagg,
-                    &custom_tasks,
-                    schema_cache.clone(),
-                )),
-                policy,
-            )
-            .await;
-            // Per-workspace scheduler tick (§12 FU4b). Each workspace
-            // only ticks its own schedules.
-            let fired =
-                agentic_pipeline::scheduler::tick_schedules(db, ws.id, workspace.as_ref()).await;
-            if fired > 0 {
-                tracing::info!(
-                    target: "scheduler",
-                    workspace_id = %ws.id,
-                    fired,
-                    "cloud tick fired schedules"
-                );
-            }
-            let ws_root = std::path::Path::new(path.as_str());
-            bootstrap_monitor_schedules(db, ws.id, ws_root).await;
-            let monitor_fired = agentic_pipeline::scheduler::tick_monitor_schedules(
+        let n = recover_active_runs(
+            db.clone(),
+            runtime.clone(),
+            platform,
+            CallerRunResolver::shared(db),
+            bridges,
+            schema_cache.clone(),
+            builder_test_runner.clone(),
+            router.clone(),
+            Some(ws.id),
+            Some(build_custom_task_registry(
                 db,
-                ws.id,
-                platform_for_monitor,
-            )
-            .await;
-            if monitor_fired > 0 {
-                tracing::info!(
-                    target: "metric_monitoring",
-                    workspace_id = %ws.id,
-                    fired = monitor_fired,
-                    "monitor tick spawned scans"
-                );
-            }
-            recovered + fired
-        } else {
-            recover_active_runs(
-                db.clone(),
-                runtime.clone(),
-                platform,
-                CallerRunResolver::shared(db),
-                bridges,
+                &preagg,
+                &custom_tasks,
                 schema_cache.clone(),
-                builder_test_runner.clone(),
-                router.clone(),
-                Some(ws.id),
-                Some(build_custom_task_registry(
-                    db,
-                    &preagg,
-                    &custom_tasks,
-                    schema_cache.clone(),
-                )),
-                policy,
-            )
-            .await
-        };
+            )),
+            policy,
+        )
+        .await;
 
         if n > 0 {
             tracing::info!(
@@ -926,35 +871,11 @@ async fn recover_all_workspaces(
         }
         total += n;
     }
-    if !periodic {
-        // One-time startup backfill of per-workspace health schedule rows from
-        // compiled config. Steady-state sync is event-driven at compile time
-        // (compile_worker::reconcile_health_from_compiled) — never per tick, so
-        // the periodic driver never re-resolves config for every workspace.
-        reconcile_all_health_schedules(db, true).await;
-        reconcile_all_preagg_schedules(db).await;
-    }
-    // Per-workspace health tick: fire due eval rows once per pass, but only
-    // after at least one workspace context was built this pass (proxy for "this
-    // node has work to do"). Cheap indexed SELECT of due rows; the tick enqueues
-    // per-workspace eval tasks and needs no platform handle.
-    if health_platform.is_some() {
-        let health_fired = agentic_pipeline::scheduler::tick_health_schedules(db).await;
-        if health_fired > 0 {
-            tracing::info!(target: "health_eval", "cloud health schedule fired");
-        }
-        let preagg_fired = agentic_pipeline::scheduler::tick_preagg_schedules(db).await;
-        if preagg_fired > 0 {
-            tracing::info!(target: "preagg", "cloud preagg schedule fired");
-        }
-        // The surfaces' global ticks (`SurfaceSeams::global_ticks`; the experiment
-        // tick). Global like the health tick: exactly-once per item across
-        // replicas by each tick's own CAS.
-        super::seams::run_global_ticks(db, chrono::Utc::now()).await;
-        // Does nothing unless `OXY_COMPILE_RECONCILE` is set. Each check is
-        // claimed in Postgres, so it does not matter how many nodes run this.
-        crate::server::compile_reconcile::tick(db).await;
-    }
+    // Legacy-row and orphan cleanup, once per boot. The per-workspace cadence
+    // backfill that used to run here is claim-gated in the periodic tick
+    // (`super::periodic::reconcile`): a workspace is reconciled when its
+    // revision changed or its hourly net comes round, not here on every node.
+    super::periodic::reconcile::startup_housekeeping(db, true).await;
     total
 }
 
@@ -1459,7 +1380,7 @@ async fn retire_orphaned_runs(
 /// the global-run driver. Currently just per-workspace health eval; future
 /// Custom kinds register here. See `internal-docs/agentic-runtime-integration.md`
 /// ("One-shot queue work: `TaskSpec::Custom` + `CustomTaskRegistry`").
-fn build_custom_task_registry(
+pub(super) fn build_custom_task_registry(
     db: &sea_orm::DatabaseConnection,
     preagg: &PreaggCacheCtx,
     tasks: &[TaskSeam],
@@ -1804,7 +1725,7 @@ pub async fn build_workspace_ctx(
 /// DuckDB dataset dir, a BigQuery `key_path`) would resolve against an empty
 /// path. The request middleware stamps it for exactly this reason; so do we.
 ///
-async fn build_cloud_project_ctx(
+pub(super) async fn build_cloud_project_ctx(
     workspace_id: uuid::Uuid,
     path: &str,
     db: &DatabaseConnection,
@@ -1969,360 +1890,6 @@ async fn assemble_cloud_project_ctx(
         .with_preagg(preagg))
 }
 
-/// Reconcile per-workspace `health_eval` schedule rows on startup. Removes the
-/// legacy cross-tenant singleton row (`target_ref = 'global'`, the old 10-minute
-/// sweep) if present, then gives every workspace with a *readable promoted
-/// config* a row whose cadence comes from that config's `health_check` (1h when
-/// the block sets no interval; **disabled** when there is no block — health
-/// checks are opt-in).
-///
-/// Workspaces without one are skipped entirely rather than written as disabled:
-/// neither "no promoted revision yet" nor a failed read states intent, and this
-/// loops over *every* workspace, so a bad read here can't switch off a tenant
-/// that opted in. A skipped workspace may therefore have no row at all until its
-/// first promoted compile, which reconciles through the same upsert
-/// (`compile_worker::health_reconcile_target`) — and no row behaves exactly like
-/// a disabled one. Idempotent and best-effort: a per-workspace failure is logged
-/// and skipped. Replaces the old `bootstrap_health_schedule`.
-///
-/// `prune_orphans` gates the destructive orphan sweep to Cloud mode: there the
-/// `workspaces` table is the authoritative set, so a row pointing outside it is
-/// genuinely orphaned (and an empty table genuinely means zero workspaces). In
-/// Local mode the single workspace has no `workspaces` row, so the table is empty
-/// and pruning would wrongly delete the local schedules — hence `false` there.
-async fn reconcile_all_health_schedules(db: &DatabaseConnection, prune_orphans: bool) {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-
-    // Drop the legacy global singleton row — superseded by per-workspace rows.
-    if let Err(e) = db
-        .execute_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "DELETE FROM agentic_schedules \
-             WHERE target_kind = 'health_eval' AND target_ref = 'global'",
-        ))
-        .await
-    {
-        tracing::warn!(
-            target: "health_eval",
-            error = %e,
-            "startup reconcile: failed to delete legacy global health row"
-        );
-    }
-
-    let workspaces = match entity::workspaces::Entity::find().all(db).await {
-        Ok(ws) => ws,
-        Err(e) => {
-            tracing::warn!(
-                target: "health_eval",
-                error = %e,
-                "startup reconcile: failed to list workspaces; skipping health backfill"
-            );
-            return;
-        }
-    };
-
-    // Prune orphaned schedules: workspaces carry no FK to `agentic_schedules`,
-    // so a deleted workspace leaves its rows behind — a `health_eval` (or
-    // `monitor_scan`) row keeps enqueuing tasks for a workspace that no longer
-    // exists, which the worker fails and eventually dead-letters, piling up.
-    // Delete every schedule whose workspace is gone. (New deletes clean up inline
-    // via `cleanup_workspace_schedules`; this drains rows orphaned before that.)
-    if prune_orphans {
-        let live_ids: Vec<uuid::Uuid> = workspaces.iter().map(|w| w.id).collect();
-        prune_orphaned_schedules(db, &live_ids).await;
-    }
-
-    for ws in workspaces {
-        // Reads the workspace's compiled config (FS fallback on miss) and
-        // reconciles its row to the configured cadence — never clobbers a
-        // config-set cadence with a default.
-        crate::server::compile_worker::reconcile_health_from_compiled(db, ws.id).await;
-    }
-}
-
-/// One-time startup backfill of every workspace's `preagg_cycle` schedule row
-/// from compiled config. Mirrors [`reconcile_all_health_schedules`] minus the
-/// orphan sweep and legacy-row cleanup — both are already generic across every
-/// `target_kind` and run once from the health call in the same startup pass, so
-/// running them twice would be redundant, not incorrect, and this skips that.
-/// Steady-state sync is event-driven at compile time
-/// (`compile_worker::reconcile_preagg_from_compiled`) — never per tick.
-async fn reconcile_all_preagg_schedules(db: &DatabaseConnection) {
-    let workspaces = match entity::workspaces::Entity::find().all(db).await {
-        Ok(ws) => ws,
-        Err(e) => {
-            tracing::warn!(
-                target: "preagg",
-                error = %e,
-                "startup reconcile: failed to list workspaces; skipping preagg backfill"
-            );
-            return;
-        }
-    };
-    for ws in workspaces {
-        // The resolved opt-in is the promote path's business, not startup's:
-        // this backfills cadences, it does not seed ticks.
-        let _ = crate::server::compile_worker::reconcile_preagg_from_compiled(db, ws.id).await;
-    }
-}
-
-/// Delete every schedule row (any `target_kind`) whose workspace no longer
-/// exists. Given the full set of live workspace ids, removes each row pointing
-/// outside it — the orphans left behind by workspace deletion (schedules have no
-/// FK, so the DB won't cascade). An empty `live_ids` means no workspaces exist,
-/// so every row is an orphan. **Cloud-only** (see `prune_orphans` on the caller):
-/// in Local mode the single workspace has no `workspaces` row, so an empty table
-/// there is not evidence of orphans. Best-effort; a failure is logged and skipped.
-async fn prune_orphaned_schedules(db: &DatabaseConnection, live_ids: &[uuid::Uuid]) {
-    use agentic_runtime::entity::schedule;
-    use sea_orm::{ColumnTrait, QueryFilter};
-
-    let mut q = schedule::Entity::delete_many();
-    if !live_ids.is_empty() {
-        q = q.filter(schedule::Column::WorkspaceId.is_not_in(live_ids.iter().copied()));
-    }
-    match q.exec(db).await {
-        Ok(res) if res.rows_affected > 0 => tracing::info!(
-            target: "health_eval",
-            removed = res.rows_affected,
-            "startup reconcile: pruned orphaned schedules for deleted workspaces"
-        ),
-        Ok(_) => {}
-        Err(e) => tracing::warn!(
-            target: "health_eval",
-            error = %e,
-            "startup reconcile: failed to prune orphaned schedules"
-        ),
-    }
-}
-
-/// The timezone a workspace's `monitor_scan` schedule rows should fire in.
-///
-/// Only the FILE-level `.monitor.yml` timezone can apply: one schedule row
-/// drives every monitor at a given granularity, so a per-monitor override has
-/// nothing to attach to. Absent = UTC, preserving existing behavior.
-fn desired_schedule_timezone(cfg: &oxy_metric_monitoring::MonitorConfig) -> String {
-    cfg.timezone.clone().unwrap_or_else(|| "UTC".to_string())
-}
-
-/// Build the `ActiveModel` for a timezone reconcile: sets only `id` (primary
-/// key — never emitted in the `SET` clause), `timezone` and `next_run_at`,
-/// leaving every other column `NotSet`.
-///
-/// `agentic_schedules` has exactly one true writer today —
-/// `tick_monitor_schedules`'s CAS `UPDATE ... WHERE id = $2 AND
-/// next_run_at = $3` — and several replicas run the tick loop concurrently
-/// with no leader election precisely because that CAS makes it safe
-/// (`recovery.rs` docs above). Building this `ActiveModel` from
-/// `row.clone().into()` would set every column from a snapshot taken
-/// earlier in the boot/tick pass and emit a full-row, unguarded `UPDATE`,
-/// making this the first non-CAS writer on the table: a concurrent CAS fire
-/// on the same row between the snapshot read and this write would have its
-/// bookkeeping (`last_fired_at`, `last_run_id`, `missed_runs`,
-/// `last_missed_at`) silently reverted. A targeted two-column update can
-/// never race the CAS fire on any column it doesn't touch.
-fn timezone_reconcile_active_model(
-    row: &agentic_runtime::entity::schedule::Model,
-    timezone: &str,
-    next: chrono::DateTime<chrono::FixedOffset>,
-) -> agentic_runtime::entity::schedule::ActiveModel {
-    use agentic_runtime::entity::schedule;
-
-    schedule::ActiveModel {
-        id: sea_orm::ActiveValue::Set(row.id.clone()),
-        timezone: sea_orm::ActiveValue::Set(timezone.to_string()),
-        next_run_at: sea_orm::ActiveValue::Set(next),
-        ..Default::default()
-    }
-}
-
-/// Update the `timezone` (and recompute `next_run_at`) on any existing
-/// `monitor_scan` row whose timezone differs from `desired`.
-///
-/// Bootstrap is create-only, so without this reconcile every existing row
-/// would be stranded on its original timezone and a `timezone:` edit in
-/// `.monitor.yml` would silently never take effect. Cadence, the enabled
-/// flag and variables are left exactly as they are — see
-/// [`timezone_reconcile_active_model`] for why the update must stay
-/// column-targeted rather than a full-row write. A row whose next fire
-/// time can't be recomputed for the new timezone is logged and left alone,
-/// never half-updated.
-async fn reconcile_monitor_schedule_timezones(
-    db: &DatabaseConnection,
-    workspace_id: uuid::Uuid,
-    existing: &[agentic_runtime::entity::schedule::Model],
-    timezone: &str,
-) {
-    for row in existing.iter().filter(|r| r.timezone != timezone) {
-        let next = match agentic_pipeline::scheduler::next_after(
-            &row.cron_expr,
-            timezone,
-            chrono::Utc::now(),
-        ) {
-            Ok(n) => n,
-            Err(e) => {
-                tracing::warn!(
-                    target: "metric_monitoring",
-                    %workspace_id,
-                    schedule_id = %row.id,
-                    error = %e,
-                    "reconcile: could not recompute next_run_at for the new timezone; leaving the row alone"
-                );
-                continue;
-            }
-        };
-        let active = timezone_reconcile_active_model(row, timezone, next);
-        match sea_orm::ActiveModelTrait::update(active, db).await {
-            Ok(_) => tracing::info!(
-                target: "metric_monitoring",
-                %workspace_id,
-                schedule_id = %row.id,
-                from = %row.timezone,
-                to = %timezone,
-                "reconciled monitor_scan schedule timezone"
-            ),
-            Err(e) => tracing::warn!(
-                target: "metric_monitoring",
-                %workspace_id,
-                schedule_id = %row.id,
-                error = %e,
-                "reconcile: failed to update monitor_scan schedule timezone"
-            ),
-        }
-    }
-}
-
-/// Read `.monitor.yml`'s `schedule:` block and create `monitor_scan` schedule
-/// rows for any granularity not yet present in `agentic_schedules`. Also
-/// reconciles the `timezone` column on rows already present — see
-/// [`reconcile_monitor_schedule_timezones`]. Otherwise create-only: never
-/// touches cadence, enabled flag, or variables on existing rows, and never
-/// deletes rows.
-async fn bootstrap_monitor_schedules(
-    db: &DatabaseConnection,
-    workspace_id: uuid::Uuid,
-    workspace_root: &std::path::Path,
-) {
-    use agentic_pipeline::scheduler::{ScheduleInput, create_schedule};
-    use agentic_runtime::entity::schedule;
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-
-    let config_path = oxy_metric_monitoring::default_config_path(workspace_root);
-    let cfg = match oxy_metric_monitoring::load_from_file(&config_path) {
-        Ok(c) => c,
-        // "No monitors here" and "this node holds no working copy" are the two
-        // ORDINARY answers, not failures. Every periodic pass visits every
-        // workspace on every node, so warning on them emitted ~70 lines/min per
-        // worker in prod (2026-09-01) — noise that buried the real signal while
-        // the fleet was actually failing. A malformed or unreadable file is a
-        // genuine problem and stays loud.
-        // `WorkspaceAbsent` only — `load_from_file` returns `Ok(default)` for a
-        // merely missing file, so `NotFound` is unconstructible there and an arm
-        // for it would read as coverage it does not provide.
-        Err(e @ oxy_metric_monitoring::ConfigLoadError::WorkspaceAbsent(_)) => {
-            tracing::debug!(
-                target: "metric_monitoring",
-                %workspace_id,
-                error = %e,
-                "bootstrap: no readable .monitor.yml on this node; skipping"
-            );
-            return;
-        }
-        Err(e) => {
-            tracing::warn!(
-                target: "metric_monitoring",
-                %workspace_id,
-                error = %e,
-                "bootstrap: failed to read .monitor.yml; skipping"
-            );
-            return;
-        }
-    };
-    let timezone = desired_schedule_timezone(&cfg);
-    let Some(sched) = cfg.schedule.clone() else {
-        return;
-    };
-
-    // Fetch existing monitor_scan rows once to avoid N+1 queries.
-    let existing = match schedule::Entity::find()
-        .filter(schedule::Column::WorkspaceId.eq(workspace_id))
-        .filter(schedule::Column::TargetKind.eq("monitor_scan"))
-        .all(db)
-        .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!(
-                target: "metric_monitoring",
-                %workspace_id,
-                error = %e,
-                "bootstrap: failed to query existing monitor schedules"
-            );
-            return;
-        }
-    };
-
-    let has_granularity = |gran: &str| {
-        existing.iter().any(|s| {
-            s.variables
-                .as_ref()
-                .and_then(|v| v.get("granularity"))
-                .and_then(|g| g.as_str())
-                == Some(gran)
-        })
-    };
-
-    reconcile_monitor_schedule_timezones(db, workspace_id, &existing, &timezone).await;
-
-    let entries = [
-        (sched.daily.as_deref(), "day", "Metric monitoring (daily)"),
-        (
-            sched.weekly.as_deref(),
-            "week",
-            "Metric monitoring (weekly)",
-        ),
-        (
-            sched.monthly.as_deref(),
-            "month",
-            "Metric monitoring (monthly)",
-        ),
-    ];
-
-    for (maybe_cron, gran, name) in entries {
-        let Some(cron_expr) = maybe_cron else {
-            continue;
-        };
-        if has_granularity(gran) {
-            continue;
-        }
-        let input = ScheduleInput {
-            name: name.to_string(),
-            target_kind: "monitor_scan".to_string(),
-            target_ref: ".monitor.yml".to_string(),
-            question: None,
-            variables: Some(serde_json::json!({ "granularity": gran })),
-            cron_expr: cron_expr.to_string(),
-            timezone: timezone.clone(),
-            enabled: true,
-        };
-        match create_schedule(db, workspace_id, input).await {
-            Ok(_) => tracing::info!(
-                target: "metric_monitoring",
-                %workspace_id,
-                granularity = %gran,
-                "bootstrapped monitor_scan schedule"
-            ),
-            Err(e) => tracing::warn!(
-                target: "metric_monitoring",
-                %workspace_id,
-                granularity = %gran,
-                error = %e,
-                "bootstrap: failed to create monitor_scan schedule"
-            ),
-        }
-    }
-}
-
 #[cfg(test)]
 mod agent_ask_tests;
 
@@ -2372,108 +1939,6 @@ mod tests {
         };
         assert_eq!(reason(None), "workspace no longer exists");
         assert_eq!(reason(Some(None)), "workspace has no path");
-    }
-
-    #[test]
-    fn schedule_timezone_comes_from_the_monitor_config() {
-        let cfg: oxy_metric_monitoring::MonitorConfig = serde_yaml::from_str(
-            "timezone: America/Los_Angeles\nmonitors:\n  - measure: a.b\n    time_dimension: a.t\n",
-        )
-        .unwrap();
-        assert_eq!(desired_schedule_timezone(&cfg), "America/Los_Angeles");
-    }
-
-    #[test]
-    fn schedule_timezone_defaults_to_utc() {
-        let cfg: oxy_metric_monitoring::MonitorConfig =
-            serde_yaml::from_str("monitors:\n  - measure: a.b\n    time_dimension: a.t\n").unwrap();
-        assert_eq!(
-            desired_schedule_timezone(&cfg),
-            "UTC",
-            "an existing config with no timezone must keep firing on the UTC cron"
-        );
-    }
-
-    #[test]
-    fn per_monitor_overrides_do_not_change_the_schedule_timezone() {
-        // One schedule row drives every monitor at a granularity, so only the
-        // file-level timezone can determine when it fires.
-        let cfg: oxy_metric_monitoring::MonitorConfig = serde_yaml::from_str(
-            "timezone: America/Los_Angeles\nmonitors:\n  - measure: a.b\n    time_dimension: a.t\n    timezone: Europe/Berlin\n",
-        )
-        .unwrap();
-        assert_eq!(desired_schedule_timezone(&cfg), "America/Los_Angeles");
-    }
-
-    /// `agentic_schedules` has exactly one true writer today — the tick's CAS
-    /// `UPDATE ... WHERE id = $2 AND next_run_at = $3` — and several replicas
-    /// run the tick loop concurrently with no leader election *because* that
-    /// CAS makes it safe. A reconcile built from `row.clone().into()` would
-    /// set every column and emit a full-row, unguarded `UPDATE`, becoming a
-    /// second, non-CAS writer that can silently revert a concurrent tick's
-    /// fire bookkeeping. Pin the reconcile to a true two-column update: every
-    /// field except `id` (the primary key, never emitted in `SET`),
-    /// `timezone` and `next_run_at` must stay `NotSet`.
-    #[test]
-    fn timezone_reconcile_active_model_only_touches_timezone_and_next_run_at() {
-        use agentic_runtime::entity::schedule;
-
-        let now: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().fixed_offset();
-        let row = schedule::Model {
-            id: "sched-1".to_string(),
-            workspace_id: uuid::Uuid::new_v4(),
-            project_id: None,
-            branch_id: None,
-            name: "Metric monitoring (daily)".to_string(),
-            target_kind: "monitor_scan".to_string(),
-            target_ref: ".monitor.yml".to_string(),
-            question: None,
-            variables: Some(serde_json::json!({ "granularity": "day" })),
-            cron_expr: "0 6 * * *".to_string(),
-            timezone: "UTC".to_string(),
-            enabled: true,
-            next_run_at: now,
-            // Bookkeeping a concurrent CAS fire on another replica could have
-            // just written — must survive an unrelated timezone reconcile.
-            last_fired_at: Some(now),
-            last_run_id: Some("run-42".to_string()),
-            last_error: None,
-            missed_runs: 3,
-            last_missed_at: Some(now),
-            created_at: now,
-            updated_at: now,
-        };
-        let next = now + chrono::Duration::hours(1);
-
-        let active = timezone_reconcile_active_model(&row, "America/Los_Angeles", next);
-
-        assert!(
-            active.id.is_set(),
-            "primary key must be set to target the row"
-        );
-        assert!(active.timezone.is_set());
-        assert!(active.next_run_at.is_set());
-
-        assert!(active.workspace_id.is_not_set());
-        assert!(active.project_id.is_not_set());
-        assert!(active.branch_id.is_not_set());
-        assert!(active.name.is_not_set());
-        assert!(active.target_kind.is_not_set());
-        assert!(active.target_ref.is_not_set());
-        assert!(active.question.is_not_set());
-        assert!(active.variables.is_not_set());
-        assert!(active.cron_expr.is_not_set());
-        assert!(active.enabled.is_not_set());
-        assert!(
-            active.last_fired_at.is_not_set(),
-            "must not revert a concurrent tick's fire bookkeeping"
-        );
-        assert!(active.last_run_id.is_not_set());
-        assert!(active.last_error.is_not_set());
-        assert!(active.missed_runs.is_not_set());
-        assert!(active.last_missed_at.is_not_set());
-        assert!(active.created_at.is_not_set());
-        assert!(active.updated_at.is_not_set());
     }
 }
 
@@ -2547,11 +2012,7 @@ mod experiment_tick_wiring_tests {
             "async fn recover_local(",
             "async fn recover_all_workspaces(",
         );
-        let cloud = between(
-            s,
-            "async fn recover_all_workspaces(",
-            "// ── Per-workspace context builders",
-        );
+        let cloud = include_str!("periodic/mod.rs");
         for (pass, body) in [("local", local), ("cloud", cloud)] {
             assert!(
                 body.contains("run_global_ticks("),

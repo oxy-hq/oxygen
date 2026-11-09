@@ -187,6 +187,7 @@ pub mod workspace_factory_grants;
 pub mod workspace_health_state;
 pub mod workspace_members;
 pub mod workspace_oxy_lockdown;
+pub mod workspace_periodic_ticks;
 pub mod workspace_preview_runs;
 pub mod workspace_preview_schemas;
 pub mod workspace_preview_sources;

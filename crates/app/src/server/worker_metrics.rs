@@ -21,6 +21,11 @@
 //! | `oxy_router_probes_received_total` | counter | (none) | `agentic_runtime::router::PROBES_RECEIVED` |
 //! | `oxy_router_last_probe_received_timestamp_seconds` | gauge | (none) | `agentic_runtime::router::LAST_PROBE_RECEIVED_MILLIS` |
 //! | `oxy_abandoned_isolates_total` | counter | (none) | `custom_apps_functions::runtime::abandoned_isolates` |
+//! | `oxy_periodic_ticks_total` | counter | (none) | `router::periodic::metrics` — this process's periodic cloud ticks |
+//! | `oxy_periodic_workspaces_claimed_total` | counter | (none) | same — workspaces this process claimed |
+//! | `oxy_periodic_reconciles_skipped_unchanged_total` | counter | (none) | same — schedule reconciles the revision gate skipped |
+//! | `oxy_periodic_tick_duration_seconds` | gauge | (none) | same — the last tick's wall time, per replica |
+//! | `oxy_periodic_due_backlog` | gauge | (none) | same — `workspace_periodic_ticks` rows due at the last tick; DB-sourced, take `max` |
 //! | `oxy_metrics_scrape_db_ok` | gauge=0/1 | (none) | this replica's DB read status this scrape |
 //!
 //! The queue-depth rows group by the task's kind, which `agentic_task_queue`
@@ -231,6 +236,9 @@ pub async fn metrics(State(state): State<MetricsState>) -> Response {
     push_compile_health(&mut body, &compile_health.unwrap_or_default());
     push_reap_counters(&mut body);
     push_abandoned_isolates(&mut body);
+    // The periodic driver's claim counters: process-local like the reap
+    // counters, read straight from their statics.
+    crate::server::router::periodic::metrics::push_prometheus(&mut body);
     push_router_probe(
         &mut body,
         agentic_runtime::router::PROBES_RECEIVED.load(std::sync::atomic::Ordering::Relaxed),

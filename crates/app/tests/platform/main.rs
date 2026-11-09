@@ -107,6 +107,7 @@ mod oltp_env_branches_recut;
 mod oltp_env_branches_stale;
 mod oltp_provisioner;
 mod operating_graph;
+mod periodic_claim;
 mod platform_notices;
 mod preagg_promote_nudge;
 mod preview_routes;

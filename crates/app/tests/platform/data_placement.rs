@@ -706,6 +706,13 @@ const TABLES: &[(&str, Placement)] = &[
     ),
     ("workspace_oxy_lockdown", Control("staff lockout")),
     (
+        "workspace_periodic_ticks",
+        Control(
+            "when each workspace is next driven by the periodic driver, and the revision its \
+             schedules were last reconciled from",
+        ),
+    ),
+    (
         "workspace_preview_runs",
         Control("preview runs: which revision, key and target a staff preview run reads"),
     ),

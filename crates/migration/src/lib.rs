@@ -249,6 +249,7 @@ mod m20261102_000005_app_environment_semantic_pin;
 mod m20261102_000030_app_environment_airhouse_pin;
 mod m20261103_000001_experiment_flips_retry;
 mod m20261105_000001_feature_flag_targeting;
+mod m20261108_000001_workspace_periodic_ticks;
 mod m20261108_000040_rate_limit_windows;
 mod m20261108_000300_drop_dead_legacy_tables;
 
@@ -522,6 +523,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261102_000030_app_environment_airhouse_pin::Migration),
             Box::new(m20261103_000001_experiment_flips_retry::Migration),
             Box::new(m20261105_000001_feature_flag_targeting::Migration),
+            Box::new(m20261108_000001_workspace_periodic_ticks::Migration),
             Box::new(m20261108_000040_rate_limit_windows::Migration),
             Box::new(m20261108_000300_drop_dead_legacy_tables::Migration),
         ]

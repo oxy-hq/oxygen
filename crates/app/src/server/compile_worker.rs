@@ -305,6 +305,7 @@ async fn drive(
                     // gated on the same opt-in the reconcile just resolved.
                     let preagg_enabled = reconcile_preagg_from_compiled(&db, spec.workspace_id)
                         .await
+                        .enabled()
                         .unwrap_or_else(|| {
                             // `None` and `Some(false)` both mean "no tick", but
                             // they are different answers to "why didn't my
@@ -498,10 +499,16 @@ fn health_reconcile_target(
 /// schedule row to the configured cadence. Best-effort: a read that carries no
 /// statement of intent leaves the row alone (see [`health_reconcile_target`]);
 /// a reconcile error is logged.
+///
+/// Returns whether the reconcile is settled: `true` when the row was written
+/// or there was nothing to say (no promoted revision, no config row), `false`
+/// when a read or the write failed — the periodic driver leaves such a
+/// workspace unstamped so its next claim retries, rather than waiting out the
+/// forced interval.
 pub(crate) async fn reconcile_health_from_compiled(
     db: &DatabaseConnection,
     workspace_id: uuid::Uuid,
-) {
+) -> bool {
     // One revision for the whole pass: the schedule this writes and the
     // `reconcile.yml` the warning below looks for must describe the same
     // compile, or a promote landing mid-pass warns about the wrong one.
@@ -513,11 +520,12 @@ pub(crate) async fn reconcile_health_from_compiled(
             %workspace_id,
             "no promoted compiled config; leaving the health schedule untouched"
         );
-        return;
+        return true;
     };
     let read = crate::server::api::compiled_reader::resolve_workspace_config_at(revision_id).await;
+    let read_failed = read.is_err();
     let Some((interval, opt_in)) = health_reconcile_target(read, workspace_id) else {
-        return;
+        return !read_failed;
     };
     if let Some((cause, remedy)) = opt_in.inert_reconcile_warning() {
         warn_if_reconcile_goes_inert(workspace_id, revision_id, cause, remedy).await;
@@ -536,7 +544,9 @@ pub(crate) async fn reconcile_health_from_compiled(
             %workspace_id,
             "failed to reconcile health schedule from compiled config"
         );
+        return false;
     }
+    true
 }
 
 /// Warn when disabling health checks also silences a `reconcile.yml` the tenant
@@ -644,18 +654,25 @@ fn preagg_reconcile_target(
 /// that carries no statement of intent leaves the row alone (see
 /// [`preagg_reconcile_target`]); a reconcile error is logged.
 ///
-/// Returns the opt-in it resolved — `Some(enabled)`, or `None` when the read
-/// said nothing and the row was left alone. The promote path needs it so a
-/// workspace with no `pre_aggregations:` block cannot be handed a cycle
-/// through [`crate::server::preagg_promote::nudge_after_promote`]; the startup
-/// reconcile has nothing to do with it and discards it.
+/// Returns what it resolved ([`PreaggReconcile`]). The promote path reads the
+/// opt-in so a workspace with no `pre_aggregations:` block cannot be handed a
+/// cycle through [`crate::server::preagg_promote::nudge_after_promote`]; the
+/// periodic driver reads whether it is settled, so a failed read or write
+/// leaves the workspace to be retried on its next claim.
 pub(crate) async fn reconcile_preagg_from_compiled(
     db: &DatabaseConnection,
     workspace_id: uuid::Uuid,
-) -> Option<bool> {
+) -> PreaggReconcile {
     let read =
         crate::server::api::compiled_reader::resolve_workspace_config(workspace_id, None).await;
-    let (interval, enabled) = preagg_reconcile_target(read, workspace_id)?;
+    let read_failed = read.is_err();
+    let Some((interval, enabled)) = preagg_reconcile_target(read, workspace_id) else {
+        return if read_failed {
+            PreaggReconcile::Failed
+        } else {
+            PreaggReconcile::NothingToSay
+        };
+    };
     if let Err(e) =
         agentic_pipeline::scheduler::reconcile_preagg_schedule(db, workspace_id, interval, enabled)
             .await
@@ -669,9 +686,36 @@ pub(crate) async fn reconcile_preagg_from_compiled(
         // The row is not where the config says it should be, so a tick seeded
         // against it would be attributed to a stale cadence at best. Say
         // nothing rather than yes.
-        return None;
+        return PreaggReconcile::Failed;
     }
-    Some(enabled)
+    PreaggReconcile::Reconciled { enabled }
+}
+
+/// What [`reconcile_preagg_from_compiled`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PreaggReconcile {
+    /// The promoted config was read and the row now carries its cadence.
+    Reconciled { enabled: bool },
+    /// No promoted revision or no config row: nothing to reconcile from, and
+    /// nothing to retry.
+    NothingToSay,
+    /// The read or the write failed; the row may not match the config.
+    Failed,
+}
+
+impl PreaggReconcile {
+    /// The resolved opt-in, when the config was read and written.
+    pub(crate) fn enabled(self) -> Option<bool> {
+        match self {
+            Self::Reconciled { enabled } => Some(enabled),
+            Self::NothingToSay | Self::Failed => None,
+        }
+    }
+
+    /// Whether there is nothing left to retry.
+    pub(crate) fn settled(self) -> bool {
+        !matches!(self, Self::Failed)
+    }
 }
 
 /// After a `Ready` compile: when it is a staging revision of a branch staff

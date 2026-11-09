@@ -389,20 +389,29 @@ async fn a_platform_the_inner_resolver_substitutes_is_kept() {
 
 /// Recovery is handed this resolver at every entry point, or a recorded ask
 /// is driven as the tick on the one that was missed. Comments are dropped
-/// before counting, so a mention cannot stand in for a call.
+/// before counting, so a mention cannot stand in for a call. The periodic
+/// tick's entry point lives in `router/periodic/mod.rs` since the cloud tick
+/// moved out of `recovery.rs`, so both files are read.
 #[test]
 fn every_recovery_entry_point_is_handed_the_caller_resolver() {
-    let code: String = read_repo_file("crates/app/src/server/router/recovery.rs")
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("//"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let code: String = [
+        "crates/app/src/server/router/recovery.rs",
+        "crates/app/src/server/router/periodic/mod.rs",
+    ]
+    .iter()
+    .map(|path| read_repo_file(path))
+    .collect::<Vec<_>>()
+    .join("\n")
+    .lines()
+    .filter(|line| !line.trim_start().starts_with("//"))
+    .collect::<Vec<_>>()
+    .join("\n");
     let entry_points = code.matches("recover_active_runs(").count()
         + code.matches("recover_stranded_runs(").count()
         + code.matches("recover_pending_global_runs(").count();
     assert_eq!(
         entry_points, 5,
-        "recovery.rs calls a recovery entry point somewhere this test does not know about"
+        "recovery.rs / periodic/mod.rs call a recovery entry point somewhere this test does not know about"
     );
     assert_eq!(
         code.matches("CallerRunResolver::shared(db),").count(),

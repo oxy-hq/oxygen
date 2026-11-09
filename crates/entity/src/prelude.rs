@@ -90,6 +90,7 @@ pub use super::workspace_compile_checks::Entity as WorkspaceCompileChecks;
 pub use super::workspace_factory_grants::Entity as WorkspaceFactoryGrants;
 pub use super::workspace_members::Entity as WorkspaceMembers;
 pub use super::workspace_oxy_lockdown::Entity as WorkspaceOxyLockdown;
+pub use super::workspace_periodic_ticks::Entity as WorkspacePeriodicTicks;
 pub use super::workspace_preview_runs::Entity as WorkspacePreviewRuns;
 pub use super::workspace_preview_schemas::Entity as WorkspacePreviewSchemas;
 pub use super::workspace_preview_sources::Entity as WorkspacePreviewSources;
