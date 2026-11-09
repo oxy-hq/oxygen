@@ -571,6 +571,12 @@ const TABLES: &[(&str, Placement)] = &[
     ("partner_publish_consent", Control("client publish consent")),
     ("partner_role_bindings", Control("partner operators")),
     ("quickbooks_oauth_states", Control("OAuth CSRF state")),
+    (
+        "rate_limit_windows",
+        Control(
+            "fixed-window rate-limit counters shared by every replica; keys and counts, no content",
+        ),
+    ),
     ("reconcile_configs", Control("compiled reconcile.yml")),
     ("revisions", Control("compile revisions")),
     ("run_sequences", Control("run index counters")),

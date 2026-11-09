@@ -52,11 +52,24 @@
 //! [`UsageJob::Unwritten`] and are written like the beacon's. Either way a busy
 //! app costs one write per batch, not one per event.
 //!
-//! **Shutdown.** The drain is registered as a shutdown hook and does a final
-//! [`flush`] when the shutdown token fires. **Tests** call [`flush`] to make
-//! queued rows visible without waiting for a tick; it drains inline whether or
-//! not the background task exists, and waits for a batch the task has in
-//! flight.
+//! **Shutdown.** The drain is registered as a shutdown hook. The shutdown
+//! token fires *before* the HTTP listener has drained its in-flight requests
+//! (`serve.rs` cancels the token, lets handlers finish for up to the graceful
+//! drain deadline, then awaits the hooks), and those handlers keep enqueueing
+//! views and events. So the drain does not flush once and leave — that lost
+//! every row queued during the drain window on every rolling deploy. It keeps
+//! flushing on its tick after the signal for as long as the listener may still
+//! be handing it rows: it exits once the queue has been empty for one whole
+//! HTTP drain window (`oxy_app_core::shutdown::GRACEFUL_DRAIN_DEADLINE`, 5 s,
+//! read from there rather than copied), or at the latest two of them after the
+//! signal (10 s — the hooks' own budget in `router/recovery.rs`). Then the
+//! hook's handle completes, `await_shutdown_hooks` returns, and every row a
+//! finishing handler queued is in the database. A crash still loses at most
+//! one [`FLUSH_INTERVAL`] of rows, which is the trade stated above; writing
+//! through per request would reinstate the connection-per-pageview this
+//! module exists to remove. **Tests** call [`flush`] to make queued rows
+//! visible without waiting for a tick; it drains inline whether or not the
+//! background task exists, and waits for a batch the task has in flight.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -268,8 +281,9 @@ macro_rules! insert_all {
     }};
 }
 
-/// Start the one drain task. The returned handle finishes after the final
-/// flush, so it can be registered as a shutdown hook.
+/// Start the one drain task. The returned handle finishes once the queue has
+/// stayed empty for a whole HTTP drain window after the shutdown signal (see
+/// the module docs), so it can be registered as a shutdown hook.
 ///
 /// Bound to a tagged custom-app hub: the rows carry viewer emails and
 /// tenant-authored payloads, and there is no request hub to inherit.
@@ -283,15 +297,31 @@ pub fn spawn_usage_drain(shutdown: CancellationToken) -> tokio::task::JoinHandle
                 tokio::select! {
                     _ = tick.tick() => {}
                     _ = QUEUE.wake.notified() => {}
-                    _ = shutdown.cancelled() => {
-                        flush().await;
-                        report.emit(true);
-                        break;
-                    }
+                    _ = shutdown.cancelled() => break,
                 }
                 flush().await;
                 report.emit(false);
             }
+            // The listener is still answering in-flight requests for up to one
+            // drain window, and they still enqueue. Keep draining until the
+            // queue has been quiet for that long; stop regardless at two
+            // windows, which is the shutdown hooks' whole budget.
+            let drain_window = oxy_app_core::shutdown::GRACEFUL_DRAIN_DEADLINE;
+            let signalled = std::time::Instant::now();
+            let mut last_rows = signalled;
+            loop {
+                if flush().await > 0 {
+                    last_rows = std::time::Instant::now();
+                }
+                let now = std::time::Instant::now();
+                if now.duration_since(last_rows) >= drain_window
+                    || now.duration_since(signalled) >= drain_window * 2
+                {
+                    break;
+                }
+                tick.tick().await;
+            }
+            report.emit(true);
         }
         .bind_hub(oxy_telemetry::sentry_filter::custom_app_hub()),
     )

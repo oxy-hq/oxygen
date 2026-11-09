@@ -32,15 +32,18 @@ use crate::custom_app_functions_fixture::{
 const APP: &str = "invocation-queries";
 
 /// What a warm call may issue before its isolate starts, for the org owner and
-/// for a plain member. The owner is an app admin, a role that is never
+/// for a plain member. One of each bound is the shared rate limiter's upsert
+/// (`oxy_app_core::rate_limit::take`, one `INSERT … ON CONFLICT` per call):
+/// added on purpose in 2026-11 so the per-function limit is one number across
+/// replicas rather than one per pod. The owner is an app admin, a role that is never
 /// remembered, so the owner's standing is read on every call; a member holds no
 /// role, and that is remembered for 60 s (the second call here is warm for it).
-const MAX_OWNER: usize = 11;
-const MAX_MEMBER: usize = 6;
+const MAX_OWNER: usize = 12;
+const MAX_MEMBER: usize = 7;
 /// A member of an org that holds a partner grant: their "no role" is never
 /// remembered (see `resolve_app_role`), so they pay the standing reads, but the
 /// check that decides this is itself remembered and adds nothing per call.
-const MAX_PARTNER_ORG_MEMBER: usize = 14;
+const MAX_PARTNER_ORG_MEMBER: usize = 15;
 
 const NOOP_JS: &str = r#"
 export default async () => Response.json({ ok: true });
@@ -123,6 +126,10 @@ async fn statements_before_isolate() -> Vec<String> {
         .iter()
         .filter(|s| !s.contains("app_environment_tails"))
         .filter(|s| !s.contains("app_function_invocation_calls"))
+        // The rate limiter's expired-window cleanup is spawned off the request
+        // path every 64th take (and on the first take of a fresh process, which
+        // every nextest process is), so it too can land in the window.
+        .filter(|s| !(s.contains("DELETE") && s.contains("rate_limit_windows")))
         .cloned()
         .collect();
     let settled = seen

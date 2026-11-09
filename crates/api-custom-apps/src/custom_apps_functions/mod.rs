@@ -1405,7 +1405,7 @@ async fn admit_route_call<'a>(
     let limit = manifest
         .rate_limit_per_minute
         .unwrap_or(rate_limit::DEFAULT_RATE_PER_MIN);
-    if rate_limit::would_exceed_rate(&scope, limit) {
+    if rate_limit::would_exceed_rate(db, &scope, limit).await {
         return Err(rate_limited());
     }
     Ok(RouteCall {

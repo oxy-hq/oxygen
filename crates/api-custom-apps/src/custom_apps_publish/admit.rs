@@ -28,7 +28,7 @@ pub(super) async fn admit(
 ) -> Result<Admitted, PublishError> {
     let org = resolve_publish_org(db, input).await?;
     authorize_publish(db, &org, input).await?;
-    limits::refuse_past_publish_rate(org.id, input)?;
+    limits::refuse_past_publish_rate(db, org.id, input).await?;
     // A semantic pin is staging-only and must name a ready revision of the
     // workspace this publish targets (which `ensure_same_workspace` below
     // holds to the app's own). Checked before the bundle is inflated.

@@ -38,13 +38,12 @@ use oxy_app::server::api::operating_graph::assignments;
 use oxy_app::server::api::operating_graph::dto::AssignmentSpec;
 use oxy_app::surface::role_guards::OrgAdmin;
 use oxy_app_core::audit;
+use oxy_app_core::rate_limit;
 use oxy_auth::frontline::{self, KIND_PIN, PinPolicy, PinVerdict};
 use oxy_shared::errors::OxyError;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
 
@@ -65,40 +64,41 @@ pub(crate) const SHIFT_HOURS: i64 = 12;
 /// The credential's own lockout is per worker, so a caller trying `0000` once
 /// against each of 40 names never trips it — 40 identifiers, one attempt each.
 /// This is the ceiling that notices the *pattern* rather than the account.
-const ORG_ATTEMPT_CEILING: usize = 30;
+const ORG_ATTEMPT_CEILING: u64 = 30;
 const ORG_WINDOW: Duration = Duration::from_secs(60);
 
-/// Failed attempts per org, newest last. In-process on purpose: this is a
-/// coarse brake in front of the real per-credential throttle, not the throttle
-/// itself, so a per-replica window is the right cost. Making it shared state
-/// would put a Postgres write on every wrong keypress to slow down an attacker
-/// the credential layer already locks out.
-static ORG_ATTEMPTS: LazyLock<Mutex<HashMap<Uuid, Vec<Instant>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn org_is_rate_limited(org_id: Uuid) -> bool {
-    // A poisoned lock means a previous holder panicked. RECOVER rather than
-    // fail closed: poisoning is permanent, so `Err(_) => return true` refused
-    // every sign-in for every org for the life of the process — a self-inflicted
-    // outage far larger than the guessing it was meant to stop. The guarded data
-    // is a map of timestamps with no invariant a panic could leave broken, so
-    // there is nothing to protect by refusing to read it.
-    let mut map = match ORG_ATTEMPTS.lock() {
-        Ok(m) => m,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    let now = Instant::now();
-    let hits = map.entry(org_id).or_default();
-    hits.retain(|t| now.duration_since(*t) < ORG_WINDOW);
-    hits.len() >= ORG_ATTEMPT_CEILING
+/// Failed attempts per org, counted in Postgres (`oxy_app_core::rate_limit`)
+/// so every replica charges and reads one budget.
+///
+/// Until 2026-11 this was an in-process table, kept per replica to spare a
+/// Postgres write per wrong keypress. That reasoning did not survive two facts:
+/// a wrong PIN already costs an atomic `UPDATE` in `verify_pin`
+/// (`charge_failed_attempt`), so the write was never saved; and a per-replica
+/// window handed a guesser walking the roster `N` ceilings behind `N`
+/// replicas — exactly the pattern this brake exists to notice, and the one the
+/// per-credential lockout cannot. Now a check is one indexed read and a
+/// failure one upsert. The limiter fails OPEN on a database error, which is the
+/// right side for a sign-in brake in front of a lockout that stays closed on its
+/// own: the alternative was every store locked out of its checklists by a
+/// hiccup in a counter table.
+///
+/// The check is **sliding**, not a fixed minute: the previous window's failures
+/// still count, weighted by how much of the trailing sixty seconds they fall in
+/// ([`rate_limit::peek_sliding`]). A fixed window would let a walker time the
+/// boundary and spend two ceilings a second apart — the old in-process table was
+/// a true sliding window, and this keeps that property.
+fn org_brake_key(org_id: Uuid) -> String {
+    format!("frontline-pin:{org_id}")
 }
 
-fn record_org_attempt(org_id: Uuid) {
-    let mut map = match ORG_ATTEMPTS.lock() {
-        Ok(m) => m,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    map.entry(org_id).or_default().push(Instant::now());
+async fn org_is_rate_limited(db: &sea_orm::DatabaseConnection, org_id: Uuid) -> bool {
+    rate_limit::peek_sliding(db, &org_brake_key(org_id), ORG_ATTEMPT_CEILING, ORG_WINDOW)
+        .await
+        .is_limited()
+}
+
+async fn record_org_attempt(db: &sea_orm::DatabaseConnection, org_id: Uuid) {
+    rate_limit::record(db, &org_brake_key(org_id), ORG_WINDOW).await;
 }
 
 /// The throttle key for a request that named an org that does not exist.
@@ -679,10 +679,10 @@ pub async fn login(req_headers: HeaderMap, body: Json<LoginRequest>) -> impl Int
         // passes per request, unauthenticated, at whatever concurrency the
         // caller picks. So the unknown-slug path gets its own bucket, and ends
         // up with exactly the same cost profile as the known-slug path.
-        if org_is_rate_limited(NO_SUCH_ORG) {
+        if org_is_rate_limited(&db, NO_SUCH_ORG).await {
             return refuse(StatusCode::TOO_MANY_REQUESTS);
         }
-        record_org_attempt(NO_SUCH_ORG);
+        record_org_attempt(&db, NO_SUCH_ORG).await;
 
         // Same refusal as a wrong PIN, and the same COST. Matching bodies is
         // only half of it: a known slug goes on to `verify_pin`, which always
@@ -699,7 +699,7 @@ pub async fn login(req_headers: HeaderMap, body: Json<LoginRequest>) -> impl Int
         return refuse(StatusCode::UNAUTHORIZED);
     };
 
-    if org_is_rate_limited(org.id) {
+    if org_is_rate_limited(&db, org.id).await {
         warn!(org_id = %org.id, "frontline login rate-limited for this org");
         // 429 rather than 401: this one IS worth telling the caller apart,
         // because a kiosk should back off rather than retry, and the fact
@@ -723,7 +723,7 @@ pub async fn login(req_headers: HeaderMap, body: Json<LoginRequest>) -> impl Int
             return refuse(StatusCode::SERVICE_UNAVAILABLE);
         }
         _ => {
-            record_org_attempt(org.id);
+            record_org_attempt(&db, org.id).await;
             oxy_auth::frontline::burn_verify_time(&body.pin);
             info!(org_id = %org.id, "frontline login refused: no kiosk bound to this org");
             return refuse(StatusCode::UNAUTHORIZED);
@@ -745,7 +745,7 @@ pub async fn login(req_headers: HeaderMap, body: Json<LoginRequest>) -> impl Int
         };
 
     let KioskVerdict::Pin(PinVerdict::Ok { user_id }) = verdict else {
-        record_org_attempt(org.id);
+        record_org_attempt(&db, org.id).await;
         // One response for every failure — wrong PIN, locked out, no such
         // worker, malformed, not rostered at this kiosk's store, nobody
         // rostered at it. `PinVerdict::public_message` exists for exactly this
@@ -1078,21 +1078,27 @@ mod tests {
         );
     }
 
+    /// The property the brake exists for, checked against the estimate it
+    /// reads: a caller walking the roster cannot buy a second ceiling by
+    /// waiting for the minute to turn over.
     #[test]
-    fn the_org_brake_opens_and_closes() {
-        let org = Uuid::new_v4();
-        assert!(!org_is_rate_limited(org), "a fresh org is not limited");
-        for _ in 0..ORG_ATTEMPT_CEILING {
-            record_org_attempt(org);
-        }
+    fn the_org_brake_does_not_reset_at_the_minute_boundary() {
+        let ceiling = ORG_ATTEMPT_CEILING as i64;
+        // Half the failures just before the boundary, half just after: the
+        // fixed window would see 15 and let the next 15 through; the sliding
+        // estimate sees the whole thirty.
+        let at_boundary =
+            rate_limit::sliding_estimate(ceiling / 2, ceiling / 2, Duration::ZERO, ORG_WINDOW);
         assert!(
-            org_is_rate_limited(org),
+            at_boundary >= ORG_ATTEMPT_CEILING as f64,
             "the ceiling must actually stop a caller walking the roster — the \
              per-credential lockout cannot, because 40 names is 40 budgets"
         );
-        // A different org is unaffected: the brake is per tenant, so one store
-        // under attack cannot lock out another.
-        assert!(!org_is_rate_limited(Uuid::new_v4()));
+        // Thirty seconds of quiet later, half of them have aged out.
+        let later = rate_limit::sliding_estimate(0, ceiling, Duration::from_secs(30), ORG_WINDOW);
+        assert_eq!(later, (ceiling / 2) as f64);
+        // A different org is a different key: the brake is per tenant.
+        assert_ne!(org_brake_key(Uuid::new_v4()), org_brake_key(Uuid::new_v4()));
     }
 
     #[tokio::test]

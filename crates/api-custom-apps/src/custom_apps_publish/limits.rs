@@ -9,15 +9,16 @@
 //! deployment with `OXY_CUSTOMER_APPS_MAX_APPS_PER_ORG` and
 //! `OXY_CUSTOMER_APPS_MAX_PUBLISHES_PER_HOUR`.
 //!
-//! The rate is counted per process, like the event-ingest and function
-//! limiters: behind N replicas a publisher gets up to N times the budget. It
-//! bounds the load one replica takes, which is what it is for.
+//! The rate is counted in Postgres (`oxy_app_core::rate_limit`), so it is the
+//! same budget whichever replica takes the publish; until 2026-11 it was a
+//! per-process table and N replicas meant N budgets. The limiter fails open on
+//! a database error, which a publish — the next step of which is a database
+//! write — would surface on its own.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use entity::apps;
+use oxy_app_core::rate_limit::{self, Decision};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
 use uuid::Uuid;
 
@@ -68,7 +69,8 @@ fn publisher_key(input: &PublishInput) -> Option<Uuid> {
 
 /// Count this publish against its publisher's hourly budget in this org, and
 /// refuse it once the budget is spent.
-pub(super) fn refuse_past_publish_rate(
+pub(super) async fn refuse_past_publish_rate(
+    db: &DatabaseConnection,
     org_id: Uuid,
     input: &PublishInput,
 ) -> Result<(), PublishError> {
@@ -79,72 +81,12 @@ pub(super) fn refuse_past_publish_rate(
         "OXY_CUSTOMER_APPS_MAX_PUBLISHES_PER_HOUR",
         DEFAULT_MAX_PUBLISHES_PER_HOUR,
     );
-    match take((org_id, publisher), limit, Instant::now()) {
-        Ok(()) => Ok(()),
-        Err(retry_after) => Err(PublishError::RateLimited {
+    let key = format!("publish:{org_id}:{publisher}");
+    match rate_limit::take(db, &key, u64::from(limit), RATE_WINDOW).await {
+        Decision::Allowed => Ok(()),
+        limited @ Decision::Limited { .. } => Err(PublishError::RateLimited {
             limit,
-            retry_after_secs: retry_after.as_secs().max(1),
+            retry_after_secs: limited.retry_after_secs(),
         }),
-    }
-}
-
-struct Window {
-    start: Instant,
-    count: u32,
-}
-
-fn windows() -> &'static Mutex<HashMap<(Uuid, Uuid), Window>> {
-    static TABLE: std::sync::OnceLock<Mutex<HashMap<(Uuid, Uuid), Window>>> =
-        std::sync::OnceLock::new();
-    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Take one publish from `key`'s fixed window, or say how long until the
-/// window resets. Expired windows are evicted on the way through, so the
-/// table holds only publishers active in the last hour.
-fn take(key: (Uuid, Uuid), limit: u32, now: Instant) -> Result<(), Duration> {
-    let mut table = windows().lock().unwrap_or_else(|e| e.into_inner());
-    table.retain(|_, w| now.duration_since(w.start) < RATE_WINDOW);
-    let window = table.entry(key).or_insert(Window {
-        start: now,
-        count: 0,
-    });
-    if window.count >= limit {
-        return Err(RATE_WINDOW.saturating_sub(now.duration_since(window.start)));
-    }
-    window.count += 1;
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_publisher_is_refused_once_the_window_is_spent_and_only_that_publisher() {
-        let (org, me, other) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-        let start = Instant::now();
-        for _ in 0..3 {
-            assert!(take((org, me), 3, start).is_ok());
-        }
-        let wait = take((org, me), 3, start + Duration::from_secs(600)).unwrap_err();
-        assert_eq!(wait, Duration::from_secs(3000), "the rest of the hour");
-        assert!(
-            take((org, other), 3, start).is_ok(),
-            "another publisher's own budget"
-        );
-        assert!(
-            take((Uuid::new_v4(), me), 3, start).is_ok(),
-            "another org's own budget"
-        );
-    }
-
-    #[test]
-    fn the_window_resets_after_an_hour() {
-        let key = (Uuid::new_v4(), Uuid::new_v4());
-        let start = Instant::now();
-        assert!(take(key, 1, start).is_ok());
-        assert!(take(key, 1, start).is_err());
-        assert!(take(key, 1, start + RATE_WINDOW).is_ok());
     }
 }

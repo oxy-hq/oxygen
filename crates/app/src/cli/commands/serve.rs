@@ -1101,16 +1101,10 @@ async fn finalize_html(
     axum::response::Response::from_parts(parts, Body::from(bytes))
 }
 
-/// How long the plain-HTTP path lets in-flight requests drain after the
-/// shutdown signal before it drops the serve future and moves on.
-///
-/// `axum::serve(...).with_graceful_shutdown(..)` otherwise waits for in-flight
-/// requests *indefinitely*, so a single handler wedged on a 30s DB pool acquire
-/// would delay the whole shutdown ~30s before `await_shutdown_hooks` even runs.
-/// Bounding it keeps total shutdown ≈ this deadline + the 10s hook budget,
-/// comfortably inside a default 30s Kubernetes grace period. The TLS path uses
-/// `axum_server`'s immediate `handle.shutdown()` and needs no equivalent.
-const GRACEFUL_DRAIN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+// How long in-flight requests get after the shutdown signal, and why:
+// `oxy_app_core::shutdown::GRACEFUL_DRAIN_DEADLINE`. It lives there because the
+// custom-app usage drain keeps flushing for the same window.
+use oxy_app_core::shutdown::GRACEFUL_DRAIN_DEADLINE;
 
 async fn serve_application(
     app: Router,

@@ -22,8 +22,7 @@
 //! choice; the report mail makes it the same way.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Path, Query};
@@ -31,6 +30,7 @@ use axum::http::{HeaderMap, StatusCode};
 use chrono::{DateTime, FixedOffset, Utc};
 use entity::apps;
 use oxy::database::client::establish_connection;
+use oxy_app_core::rate_limit::Deferred;
 use oxy_custom_apps::usage_reads;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
@@ -43,114 +43,28 @@ use super::custom_apps_tracking::{self, EventError};
 
 /// 60 events / minute / (user, app) — generous for "track every
 /// meaningful interaction" but blocks a misconfigured
-/// `useEffect(track, [])` loop. Window is rolling, computed via a
-/// per-key bucket reset each minute.
+/// `useEffect(track, [])` loop. Shared across replicas through
+/// `oxy_app_core::rate_limit`, without making an event wait for the
+/// database: the verdict is this replica's count plus the last verdict
+/// the shared table gave, and the calls are written once per key per
+/// second by one flusher task ([`Deferred`]) — this is a telemetry
+/// route, and its own write is already batched the same way by the
+/// usage queue. Until 2026-11 it was a per-process bucket and N
+/// replicas meant N budgets.
 const RATE_PER_MIN: u64 = 60;
+const RATE_WINDOW: Duration = Duration::from_secs(60);
 
-/// How long an idle bucket sticks around in the rate table before
-/// being garbage-collected. Two windows = enough that a borderline-
-/// rate-limited user doesn't lose their counter mid-burst from a
-/// concurrent eviction; small enough that the table stays bounded
-/// when distinct (user, app) pairs churn over time.
-const RATE_BUCKET_TTL: Duration = Duration::from_secs(120);
-
-#[derive(Debug)]
-struct RateBucket {
-    window_start: Instant,
-    count: u64,
-}
-
-/// Per-(user, app) bucket map. Read-modify-write happens entirely
-/// inside the table mutex, so a `RateBucket` lives by value and we
-/// don't need Arc/atomic gymnastics. The critical section is a
-/// handful of nanoseconds per request, which is fine at the
-/// event-ingest volume this limiter is meant to handle.
-///
-/// **History.** The earlier version stored `Arc<RateBucket>` and
-/// tried to mutate `window_start` via `Arc::get_mut` — but the
-/// outer `bucket = …clone()` kept the strong count ≥ 2 for the rest
-/// of the call, so `get_mut` always returned `None` and the limiter
-/// silently never tripped. Replacing it with this plain-value layout
-/// removes the failure mode entirely.
-fn rate_table() -> &'static Mutex<HashMap<(Uuid, Uuid), RateBucket>> {
-    static TABLE: std::sync::OnceLock<Mutex<HashMap<(Uuid, Uuid), RateBucket>>> =
-        std::sync::OnceLock::new();
-    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
-}
+static LIMITER: Deferred = Deferred::new();
 
 /// Returns `true` when the (user, app) pair has burned through its
 /// per-minute allowance, `false` when there's still budget. Records
-/// the new tick on the way through.
-///
-/// Also opportunistically evicts buckets whose window expired more
-/// than [`RATE_BUCKET_TTL`] ago — keeps the table bounded under
-/// churn (lots of distinct callers over time) without needing a
-/// separate sweep task.
+/// the new tick on the way through; never waits.
 fn would_exceed_rate(user_id: Uuid, app_id: Uuid) -> bool {
-    let now = Instant::now();
-    let mut table = rate_table().lock().unwrap();
-
-    // Opportunistic GC. O(n) over the table but n is bounded by
-    // "active (user, app) pairs in the last 2 minutes" — tiny.
-    table.retain(|_, b| now.duration_since(b.window_start) < RATE_BUCKET_TTL);
-
-    let bucket = table
-        .entry((user_id, app_id))
-        .or_insert_with(|| RateBucket {
-            window_start: now,
-            count: 0,
-        });
-    if now.duration_since(bucket.window_start).as_secs() >= 60 {
-        bucket.window_start = now;
-        bucket.count = 0;
-    }
-    bucket.count += 1;
-    bucket.count > RATE_PER_MIN
-}
-
-#[cfg(test)]
-mod rate_tests {
-    use super::*;
-
-    /// Reset the rate table between tests — they share a single
-    /// process-wide map via the `OnceLock`, so leaving rows behind
-    /// would let later tests inherit "already-exceeded" state from
-    /// earlier ones.
-    fn reset_table() {
-        rate_table().lock().unwrap().clear();
-    }
-
-    #[test]
-    fn allows_up_to_the_limit_then_blocks() {
-        reset_table();
-        let u = Uuid::new_v4();
-        let a = Uuid::new_v4();
-        for i in 1..=RATE_PER_MIN {
-            assert!(
-                !would_exceed_rate(u, a),
-                "request {i} of {RATE_PER_MIN} should be allowed"
-            );
-        }
-        // The (N+1)-th request trips the limit.
-        assert!(
-            would_exceed_rate(u, a),
-            "request {} should be blocked",
-            RATE_PER_MIN + 1
-        );
-    }
-
-    #[test]
-    fn isolates_buckets_per_user_app_pair() {
-        reset_table();
-        let user_a = Uuid::new_v4();
-        let user_b = Uuid::new_v4();
-        let app = Uuid::new_v4();
-        for _ in 0..RATE_PER_MIN {
-            assert!(!would_exceed_rate(user_a, app));
-        }
-        // user_a is now at the limit; user_b should still have full budget.
-        assert!(!would_exceed_rate(user_b, app));
-    }
+    LIMITER.over(
+        format!("events:{user_id}:{app_id}"),
+        RATE_PER_MIN,
+        RATE_WINDOW,
+    )
 }
 
 // ── Bundle endpoint: POST /events ───────────────────────────────────────

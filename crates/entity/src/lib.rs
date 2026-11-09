@@ -158,6 +158,7 @@ pub mod partner_orgs;
 pub mod partner_publish_consent;
 pub mod partner_role_bindings;
 pub mod quickbooks_oauth_states;
+pub mod rate_limit_windows;
 pub mod reconcile_configs;
 pub mod run_sequences;
 pub mod secrets;

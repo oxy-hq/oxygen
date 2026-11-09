@@ -47,12 +47,11 @@
 //! for a future ordering fix; trusting a client clock to order an analytics
 //! table is how you get rows in 1970 and 2087.
 
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use oxy_app_core::rate_limit::Deferred;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -166,44 +165,27 @@ pub const MAX_BODY_BYTES: usize = 16 * 1024;
 /// visibility change, one on unload.
 const RATE_PER_MIN: u64 = 30;
 
-const RATE_BUCKET_TTL: Duration = Duration::from_secs(120);
+const RATE_WINDOW: Duration = Duration::from_secs(60);
 
-struct RateBucket {
-    window_start: Instant,
-    count: u64,
-}
+/// Shared across replicas through `oxy_app_core::rate_limit`, but never by
+/// making a batch wait: this response holds the browser's unload path, so the
+/// verdict is this replica's own count plus the last verdict the shared table
+/// gave, and the calls are gathered and written once per key per second by one
+/// flusher task ([`Deferred`]) — the usage queue's rule, one write per batch,
+/// not per request. `N` replicas converge on one `RATE_PER_MIN` a tick late;
+/// until 2026-11 this was a per-process table and the effective limit was
+/// `RATE_PER_MIN × N`.
+/// Fails *open* when the database cannot answer: dropping the whole analytics
+/// stream is a worse outcome than an unbounded minute, and nothing here is a
+/// security boundary.
+static LIMITER: Deferred = Deferred::new();
 
-fn rate_table() -> &'static Mutex<HashMap<(Uuid, Uuid), RateBucket>> {
-    static TABLE: OnceLock<Mutex<HashMap<(Uuid, Uuid), RateBucket>>> = OnceLock::new();
-    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Per-process, like the SDK route's limiter — `N` replicas mean an effective
-/// `RATE_PER_MIN × N`. Called out rather than fixed here because it is the
-/// same pre-existing scaling gap tracked for Functions, and closing it needs a
-/// shared counter rather than a second copy of the workaround.
 fn would_exceed_rate(user_id: Uuid, app_id: Uuid) -> bool {
-    let now = Instant::now();
-    let Ok(mut table) = rate_table().lock() else {
-        // A poisoned lock means a previous caller panicked while holding it.
-        // Fail *open* on a telemetry limiter: dropping the whole analytics
-        // stream for the life of the process is a worse outcome than an
-        // unbounded minute, and nothing here is a security boundary.
-        return false;
-    };
-    table.retain(|_, b| now.duration_since(b.window_start) < RATE_BUCKET_TTL);
-    let bucket = table
-        .entry((user_id, app_id))
-        .or_insert_with(|| RateBucket {
-            window_start: now,
-            count: 0,
-        });
-    if now.duration_since(bucket.window_start).as_secs() >= 60 {
-        bucket.window_start = now;
-        bucket.count = 0;
-    }
-    bucket.count += 1;
-    bucket.count > RATE_PER_MIN
+    LIMITER.over(
+        format!("beacon:{user_id}:{app_id}"),
+        RATE_PER_MIN,
+        RATE_WINDOW,
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -720,8 +702,10 @@ mod tests {
         assert_eq!(rest.len(), 1);
     }
 
+    /// No runtime and no database here: the limiter answers from this
+    /// replica's memory alone, which is the contract the unload path needs.
     #[test]
-    fn rate_limiter_admits_a_normal_session_and_stops_a_flood() {
+    fn the_limiter_admits_a_normal_session_and_stops_a_flood_without_waiting() {
         let user = Uuid::new_v4();
         let app = Uuid::new_v4();
         for i in 1..=RATE_PER_MIN {
