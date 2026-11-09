@@ -35,6 +35,7 @@ mod legacy_keys;
 mod legacy_reach;
 mod mint_locks;
 mod mobile_login;
+mod monitoring_contract;
 mod new_tokens;
 mod notification_sessions;
 mod oidc;

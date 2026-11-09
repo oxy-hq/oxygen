@@ -20,7 +20,7 @@ use super::{Fixture, call, fixture};
 
 /// ferret's token in these tests: the prefix and 48 alphanumerics, the shape
 /// the infrastructure generates.
-const FERRET_TOKEN: &str = "oxysvc_Fe7retTestToken0nly4ServiceTokenTests0123456789";
+pub(super) const FERRET_TOKEN: &str = "oxysvc_Fe7retTestToken0nly4ServiceTokenTests0123456789";
 
 /// The token's SHA-256 as `OXY_SERVICE_TOKENS` spells it: 64 lowercase hex.
 fn sha256_hex(token: &str) -> String {
@@ -32,7 +32,7 @@ fn sha256_hex(token: &str) -> String {
 
 /// The `ferret` service at `global_admin`, installed for this test process,
 /// with its `users` row created as boot creates it.
-async fn with_ferret(fx: &Fixture) -> &'static ServiceToken {
+pub(super) async fn with_ferret(fx: &Fixture) -> &'static ServiceToken {
     let sha256 = sha256_hex(FERRET_TOKEN);
     let ferret = ServiceToken::new("ferret", "global_admin", &sha256).expect("a valid entry");
     service::install(vec![ferret]).expect("install the service");
