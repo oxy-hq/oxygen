@@ -38,14 +38,15 @@ import { inferOrgApp } from "./publish.js";
  * Which schema governs which file.
  *
  * Keyed by the SUFFIX rather than the extension, because these are all `.yml`
- * and the kind is carried by the second-to-last segment. `.workflow.yml` is
- * the retired spelling of `.automation.yml` and is still accepted by the
- * platform, so it is accepted here.
+ * and the kind is carried by the second-to-last segment. `.procedure.yml` is
+ * the legacy spelling of `.automation.yml` that the platform still accepts, so
+ * it is accepted here. `.workflow.yml` is not a recognised kind at all — the
+ * platform neither lists nor compiles one — so it is not validated either:
+ * reporting it clean would suggest it runs. `oxy migrate-automations` renames it.
  */
 const SCHEMA_KINDS: ReadonlyArray<readonly [stem: string, schema: string]> = [
   [".automation", "workflow.json"],
   [".procedure", "workflow.json"],
-  [".workflow", "workflow.json"],
   [".agentic", "agentic.json"],
   [".agent.test", "agent-test.json"],
   ["config", "config.json"]

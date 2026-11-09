@@ -39,10 +39,10 @@ pub struct AgentEntry {
 
 /// An automation as a listing row.
 ///
-/// `extension` is carried because three of them are accepted — `.automation.yml`
-/// is canonical, `.procedure.yml` is legacy-but-live, and `.workflow.yml` is no
-/// longer a recognised file kind, so the walker never compiles one and it
-/// resolves from the working copy or not at all. The file tree groups by it.
+/// `extension` is carried because two of them are accepted — `.automation.yml`
+/// is canonical and `.procedure.yml` is legacy-but-live. `.workflow.yml` is not
+/// a recognised file kind: neither the compile walker nor the working-copy
+/// lister enumerates one, so it never appears here. The file tree groups by it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutomationEntry {
     pub name: String,

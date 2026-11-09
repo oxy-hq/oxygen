@@ -757,13 +757,15 @@ describe("schemaFor", () => {
   });
 
   /**
-   * `.procedure.yml` and `.workflow.yml` are the retired spellings of
-   * `.automation.yml`; the platform still accepts both, so a validator that
-   * skipped them would report a workspace as clean without checking them.
+   * `.procedure.yml` is the legacy spelling of `.automation.yml` the platform
+   * still accepts, so a validator that skipped it would report a workspace as
+   * clean without checking it. `.workflow.yml` is not a recognised kind at all
+   * (the walker does not compile it), so it is not validated: a clean report
+   * would suggest a file that never runs is fine.
    */
-  it("accepts the retired automation spellings", () => {
+  it("accepts the legacy procedure spelling and not the retired workflow one", () => {
     expect(schemaFor("x.procedure.yml")).toBe("workflow.json");
-    expect(schemaFor("x.workflow.yml")).toBe("workflow.json");
+    expect(schemaFor("x.workflow.yml")).toBeUndefined();
   });
 
   it("ignores YAML it has no schema for", () => {

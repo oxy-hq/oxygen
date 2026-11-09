@@ -542,9 +542,11 @@ impl ConfigStorage for FsStorage {
     async fn list_workflows(&self) -> Result<Vec<AutomationEntry>, OxyError> {
         self.require_root()?;
         let mut out = Vec::new();
+        // The same two kinds the compile walker recognises
+        // (`oxy_compile::walker::AutomationKind`): `.workflow.yml` is not one, on
+        // either arm. `walker_storage_divergence.rs` pins the agreement.
         for (sub_extension, extension) in [
             ("procedure", ".procedure.yml"),
-            ("workflow", ".workflow.yml"),
             ("automation", ".automation.yml"),
         ] {
             for path in self.list_entity_files(sub_extension) {

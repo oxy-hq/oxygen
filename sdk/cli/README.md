@@ -1418,7 +1418,7 @@ generated from the Rust config types. No network, no token.
 | File | Schema |
 | --- | --- |
 | `config.yml` / `config.yaml` | `config.json` |
-| `*.automation.yml`, `*.procedure.yml`, `*.workflow.yml` | `workflow.json` |
+| `*.automation.yml`, `*.procedure.yml` (`*.workflow.yml` is not a recognised kind; `oxy migrate-automations` renames it) | `workflow.json` |
 | `*.agentic.yml` | `agentic.json` |
 | `*.agent.test.yml` | `agent-test.json` |
 

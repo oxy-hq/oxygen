@@ -167,11 +167,11 @@ fn extract_file_meta(path: &Path) -> (String, AutomationMeta) {
         return (stem, meta);
     }
 
-    // For .procedure.yml / .workflow.yml / .automation.yml: strip the double extension.
+    // For .procedure.yml / .automation.yml: strip the double extension.
+    // (`.workflow.yml` is not a recognised kind, so it never gets here.)
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let name = stem
         .strip_suffix(".procedure")
-        .or_else(|| stem.strip_suffix(".workflow"))
         .or_else(|| stem.strip_suffix(".automation"))
         .unwrap_or(stem)
         .to_string();

@@ -1001,7 +1001,7 @@
       "type": "object",
       "properties": {
         "tools": {
-          "description": "List of file patterns to expose as MCP tools Supports glob patterns like \"agents/*.agent.yml\" Examples: - \"agents/sql-generator.agent.yml\" (specific file) - \"agents/*.agent.yml\" (all agents in directory) - \"workflows/**/*.workflow.yml\" (all workflows recursively) - \"semantics/topics/*.topic.yml\" (semantic topics) - \"sqls/queries/*.sql\" (SQL files)",
+          "description": "List of file patterns to expose as MCP tools Supports glob patterns like \"agents/*.agent.yml\" Examples: - \"agents/sql-generator.agent.yml\" (specific file) - \"agents/*.agent.yml\" (all agents in directory) - \"automations/**/*.automation.yml\" (all automations recursively) - \"semantics/topics/*.topic.yml\" (semantic topics) - \"sqls/queries/*.sql\" (SQL files)",
           "default": [],
           "type": "array",
           "items": {

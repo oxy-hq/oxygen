@@ -1054,11 +1054,7 @@ pub async fn list_workspaces(
                             move || {
                                 (
                                     Some(count_yml_suffix(&dir, "agent")),
-                                    Some(
-                                        count_yml_suffix(&dir, "automation")
-                                            + count_yml_suffix(&dir, "procedure")
-                                            + count_yml_suffix(&dir, "workflow"),
-                                    ),
+                                    Some(count_automation_files(&dir)),
                                 )
                             }
                         })

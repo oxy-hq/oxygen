@@ -313,8 +313,8 @@ pub struct WorkspaceSummary {
     /// "0 agents · 0 automations · 0 apps".
     pub agent_count: Option<usize>,
     /// Number of automation files found (recursive) — `.automation.yml` plus the
-    /// `.procedure.yml` / `.workflow.yml` legacy spellings, matching
-    /// `ConfigManager::list_workflows` and the "automations" the UI labels them.
+    /// `.procedure.yml` legacy spelling, matching `ConfigManager::list_workflows`
+    /// and the "automations" the UI labels them (`.workflow.yml` is not a kind).
     /// `None` as above.
     pub workflow_count: Option<usize>,
     /// Git remote URL (e.g. `https://github.com/org/repo`), if set.

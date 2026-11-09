@@ -195,7 +195,10 @@ pub mod workspaces;
 // ── compile boundary (Phase 1.6a) ────────────────────────────────────
 pub mod agent_definitions;
 pub mod airway_pipelines;
-pub mod app_definitions;
+// `app_definitions` (compiled `.app.yml`) has no entity: Data Apps are retired
+// and nothing writes or reads the table. It is dropped by a later migration
+// (internal-docs/legacy-removal.md); `tests/platform/data_placement.rs` still
+// places it until then.
 pub mod automation_definitions;
 pub mod backfill_checkpoints;
 pub mod backfill_ranges;

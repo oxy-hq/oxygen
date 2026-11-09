@@ -717,14 +717,12 @@ impl<S: DiskSlot> ConfigManager<S> {
     /// read is the error, never a reason to list the working copy instead.
     /// `Origin::Disk` lists the directory it was built over.
     ///
-    /// The two arms do NOT enumerate the same set and this does not change
-    /// that: the working copy unions `.procedure.yml`, `.workflow.yml` and
-    /// `.automation.yml`, while the walker dropped `.workflow.yml` as a file
-    /// kind. So a `.workflow.yml` automation is listed on a workspace read from
-    /// disk and absent on one read from the boundary — exactly as before this
-    /// moved. `automations_diverge_on_the_legacy_workflow_extension` pins it.
-    /// Closing that gap means deciding whether a no-longer-recognised extension
-    /// should still appear, which is a product question, not a refactor.
+    /// Both arms enumerate the same set: `.procedure.yml` and `.automation.yml`.
+    /// `.workflow.yml` is not a recognised kind on either — the walker dropped
+    /// it first, and the working copy used to keep listing it, so the same
+    /// workspace showed one more automation read from disk than read from the
+    /// boundary. `automations_agree_that_workflow_yml_is_not_a_kind` pins the
+    /// agreement; `oxy migrate-automations` is the one reader left, to rename.
     pub async fn list_automations(&self) -> Result<Vec<AutomationEntry>, ArtifactError> {
         match self.origin {
             Origin::Compiled { revision_id, .. } => {

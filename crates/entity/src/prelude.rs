@@ -101,7 +101,6 @@ pub use super::workspaces::Entity as Workspaces;
 // ── compile boundary (Phase 1.6a) ────────────────────────────────────
 pub use super::agent_definitions::Entity as AgentDefinitions;
 pub use super::airway_pipelines::Entity as AirwayPipelines;
-pub use super::app_definitions::Entity as AppDefinitions;
 pub use super::automation_definitions::Entity as AutomationDefinitions;
 pub use super::compiled_references::Entity as CompiledReferences;
 // Back-compat alias for the renamed entity (was `procedure_definitions`).

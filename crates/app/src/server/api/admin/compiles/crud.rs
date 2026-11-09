@@ -259,7 +259,8 @@ async fn collect_compiled_entities(
     collect!(entity::agent_definitions, "agent");
     collect!(entity::semantic_views, "view");
     collect!(entity::semantic_topics, "topic");
-    collect!(entity::app_definitions, "app");
+    // No `app` kind: Data Apps are retired and nothing writes `app_definitions`
+    // (the table stays until a revert-safe drop; internal-docs/legacy-removal.md).
     collect!(entity::automation_definitions, "automation");
     collect!(entity::airway_pipelines, "pipeline");
 

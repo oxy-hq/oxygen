@@ -12,8 +12,8 @@ description: >-
   self-serve oxyc publish ship flow, dev-<handle> sandboxes and workspace
   previews, how an AI agent gets its own short-lived credential (oxyc tokens
   create --sandbox-agent or --agent, never the engineer's oxyc login), and
-  reading a deployment's live data with oxyc api and oxyc proxy (which replaced
-  oxy api and the Rust oxy login, publish and proxy).
+  reading a deployment's live data with oxyc api and oxyc proxy (the oxy binary
+  has no HTTP-API commands; every one of them is oxyc).
 ---
 
 # Custom-app development

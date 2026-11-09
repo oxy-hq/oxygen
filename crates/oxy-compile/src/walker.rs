@@ -382,6 +382,9 @@ mod tests {
         write(root, "semantics/topics/sales.topic.yml", "name: sales");
         // A Data App is no longer a compiled kind: it must be left alone.
         write(root, "apps/dash.app.yml", "name: dash");
+        // Nor is `.workflow.yml` (product-context.md: "no longer recognized");
+        // only `oxy migrate-automations` reads one, to rename it.
+        write(root, "workflows/ancient.workflow.yml", "name: ancient");
         write(root, "workflows/x.procedure.yml", "name: x");
         write(root, "workflows/cron.automation.yml", "name: cron");
         write(root, "pipelines/data.airway.yml", "name: data");
@@ -452,6 +455,18 @@ mod tests {
         assert!(
             !paths.iter().any(|p| p.ends_with(".app.yml")),
             "a .app.yml was discovered: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.ends_with(".workflow.yml")),
+            "a .workflow.yml was discovered: {paths:?}"
+        );
+        assert_eq!(
+            by_kind
+                .iter()
+                .filter(|(_, k)| matches!(k, FileKind::Automation(_)))
+                .count(),
+            2,
+            "exactly the .procedure.yml and the .automation.yml; retired spellings stay retired"
         );
 
         // The skip rule is any-depth and kind-agnostic, so assert it that way

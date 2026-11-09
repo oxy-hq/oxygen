@@ -227,36 +227,40 @@ async fn agents_agree_on_every_test_mirror_spelling() {
     );
 }
 
+/// A former divergence, now pinned as resolved: `.workflow.yml` is not an
+/// automation on either arm. The walker dropped the kind first; the working
+/// copy kept unioning three extensions, so a workspace read from disk listed
+/// one more automation than the same workspace read from the boundary — and
+/// that one could never be compiled or run. product-context.md says the
+/// extension is no longer recognised; `oxy migrate-automations` is the one
+/// reader left, and it only renames. The fixture still writes
+/// `ancient.workflow.yml` so this proves it is ignored, not merely absent.
 #[tokio::test]
-async fn automations_diverge_on_the_legacy_workflow_extension() {
+async fn automations_agree_that_workflow_yml_is_not_a_kind() {
     let dir = fixture();
     let root = dir.path();
 
+    let listed = {
+        let mut v: Vec<String> = manager(root)
+            .await
+            .list_automations()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|a| a.file_path)
+            .collect();
+        v.sort();
+        v
+    };
     assert_eq!(
-        {
-            let mut v: Vec<String> = manager(root)
-                .await
-                .list_automations()
-                .await
-                .unwrap()
-                .into_iter()
-                .map(|a| a.file_path)
-                .collect();
-            v.sort();
-            v
-        },
-        vec![
-            "ancient.workflow.yml",
-            "legacy.procedure.yml",
-            "nightly.automation.yml",
-        ],
-        "the working copy still unions three extensions"
+        listed,
+        vec!["legacy.procedure.yml", "nightly.automation.yml"],
+        "the working copy lists the two recognised spellings and ignores `.workflow.yml`"
     );
     assert_eq!(
         walked_any_automation(root),
-        vec!["legacy.procedure.yml", "nightly.automation.yml"],
-        "the walker dropped `.workflow.yml` as a file kind, so one of these \
-         cannot be compiled and only ever resolves from disk"
+        listed,
+        "and the walker enumerates exactly the same set"
     );
 }
 

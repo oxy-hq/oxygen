@@ -470,6 +470,35 @@ pub(super) fn count_yml_suffix(dir: &std::path::Path, suffix: &str) -> usize {
     count
 }
 
+/// The workspace card's automation count: the two spellings
+/// `ConfigManager::list_workflows` and the compile walker recognise, and no
+/// other. `.workflow.yml` is not a kind (product-context.md), so counting it
+/// here made the card disagree with the list it summarises.
+pub(super) fn count_automation_files(dir: &std::path::Path) -> usize {
+    count_yml_suffix(dir, "automation") + count_yml_suffix(dir, "procedure")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::count_automation_files;
+
+    #[test]
+    fn the_summary_counts_the_two_recognised_automation_spellings_only() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("workflows")).unwrap();
+        std::fs::write(root.join("nightly.automation.yml"), "tasks: []\n").unwrap();
+        std::fs::write(root.join("workflows/legacy.procedure.yml"), "tasks: []\n").unwrap();
+        std::fs::write(root.join("workflows/ancient.workflow.yml"), "tasks: []\n").unwrap();
+
+        assert_eq!(
+            count_automation_files(root),
+            2,
+            "`.workflow.yml` is not a recognised kind, so the card must not count it"
+        );
+    }
+}
+
 /// Best-effort removal of a workspace's schedule rows, to be called *after* the
 /// workspace has been deleted. Schedules carry a plain `workspace_id` with no FK,
 /// so nothing cascades — an orphaned `health_eval` row keeps firing health-eval

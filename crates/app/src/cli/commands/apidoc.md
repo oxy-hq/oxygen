@@ -22,9 +22,9 @@ will attach it to every "Try it out" request.
 
 ## CLI Quick-start
 
-The terminal client is **`oxyc`** (`@oxy-hq/cli`, source in `sdk/cli`). It
-replaced the old `oxy api`, `oxy login` and `oxy logout` subcommands, which
-were removed from the `oxy` binary.
+The terminal client is **`oxyc`** (`@oxy-hq/cli`, source in `sdk/cli`). The
+`oxy` binary has no HTTP-API, login or logout subcommands; every command that
+talks to a deployment is `oxyc`.
 
 ```bash
 npm install -g @oxy-hq/cli

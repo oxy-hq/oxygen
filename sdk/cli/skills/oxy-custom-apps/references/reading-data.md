@@ -2,10 +2,9 @@
 
 You don't need an `X-API-Key` to poke at the data API by hand — a bearer
 token works, and **`oxyc`** (`npm i -g @oxy-hq/cli`) is the client that sends
-it for you. **It replaced `oxy api`, and the Rust `oxy login`, `oxy publish`
-and `oxy proxy` with it**: every command that talks to a deployment's HTTP API
-is `oxyc`. It reads the `credentials.json` the Rust `oxy login` wrote, so an
-existing login still works.
+it for you. **Every command that talks to a deployment's HTTP API is `oxyc`**;
+the `oxy` binary has none. It reads the same `credentials.json` an older
+`oxy login` wrote, so an existing login still works.
 
 The bearer is `OXY_TOKEN` (or the variable `--token-env` names), else the
 `oxyc login` cache for that deployment.
@@ -71,8 +70,7 @@ oxyc api projects/<projectId>/query --env local -f sql='select 1' --md
   401 that reads like an expired session is usually a dev call made with a
   prod token — check the `--env`. A `200` with a `null` body is the *other*
   expired-token shape; `oxyc whoami` tells them apart.
-- For a raw `curl`, `oxyc token` prints the resolved bearer (`oxy api
-  --print-token` went with the rest of that command):
+- For a raw `curl`, `oxyc token` prints the resolved bearer:
 
   ```bash
   curl -H "Authorization: Bearer $(oxyc token --env local)" \
