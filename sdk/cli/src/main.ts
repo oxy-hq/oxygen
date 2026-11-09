@@ -21,6 +21,7 @@ import { clearAllCaches, unknownCacheEntries } from "./api/cache.js";
 import { hintToShow } from "./auth/agent-token.js";
 import { approverFrom, approverOption } from "./auth/approver.js";
 import { runExitRevokes } from "./auth/exit-revoke.js";
+import type { BootstrapFlags } from "./bootstrap/target.js";
 import { runActivity } from "./commands/activity.js";
 import { runAirhouseProvision, runAirhouseStatus } from "./commands/airhouse.js";
 import { runApi } from "./commands/api.js";
@@ -40,6 +41,7 @@ import {
 import { runAppsDrift } from "./commands/apps-drift.js";
 import { runAssumeEnd, runAssumeStart, runAssumeStatus } from "./commands/assume.js";
 import { runLogin, runLogout, runToken, runWhoami } from "./commands/auth.js";
+import { runBootstrapPlan, runBootstrapRun, runBootstrapVerify } from "./commands/bootstrap.js";
 import { runChecks } from "./commands/checks.js";
 import { runList, runPath } from "./commands/customers.js";
 import { runOpenApi, runRoutes, runSchema } from "./commands/discover.js";
@@ -153,6 +155,28 @@ function globals(opts: Record<string, unknown>): GlobalFlags {
     customer: opts.customer as string | undefined,
     refresh: opts.refresh as boolean | undefined,
     serviceAccount: opts.serviceAccount as string | undefined
+  };
+}
+
+/**
+ * `oxyc bootstrap`'s own options, as its parser wants them.
+ *
+ * Separate from `globals` because these describe the CUSTOMER rather than the
+ * invocation, and because `--name` / `--app` / `--repo` would be nonsense as
+ * global flags on every other command.
+ */
+function bootstrapFlags(opts: Record<string, unknown>): BootstrapFlags {
+  return {
+    name: opts.name as string | undefined,
+    owner: opts.owner as string | undefined,
+    repo: opts.repo as string | undefined,
+    app: opts.app as string | undefined,
+    writer: opts.writer as string[] | undefined,
+    crews: opts.crews as boolean | undefined,
+    phase: opts.phase as string[] | undefined,
+    yes: opts.yes as boolean | undefined,
+    json: opts.json as boolean | undefined,
+    dryRun: opts.dryRun as boolean | undefined
   };
 }
 
@@ -475,6 +499,65 @@ function buildProgram(): Command {
       yes: opts.yes as boolean | undefined,
       json: opts.json as boolean | undefined
     });
+  });
+
+  // ── standing a customer up ───────────────────────────────────────────────
+  //
+  // One group, three verbs, and the order they are declared in is the order
+  // they are used in: plan before you run, verify after. `run --dry-run` is
+  // `plan`, for the caller who only learned one verb.
+  const bootstrap = program
+    .command("bootstrap")
+    .description("stand a new customer up: the sequence, what oxyc can do of it, and what landed");
+
+  /** The flags all three verbs share. They describe the CUSTOMER, not the act. */
+  const bootstrapTargetFlags = (command: Command): Command =>
+    command
+      .argument("<customer>", "the org slug — also the default repository name and app slug")
+      .option("--name <display>", "the org's display name (default: the slug)")
+      .option("--repo <owner/repo>", "the workspace repository (default: the customers org / slug)")
+      .option("--app <slug>", "the first app's slug (default: the customer slug)")
+      .option(
+        "--writer <app:slug|pipeline:source>",
+        "an OLTP writer the account needs (repeatable; default: app:<app slug>)",
+        collect,
+        []
+      )
+      .option("--crews", "the customer has frontline crews, so the frontline phase applies")
+      .option("--phase <id>", "only this phase (repeatable)", collect, []);
+
+  withGlobals(
+    bootstrapTargetFlags(
+      bootstrap
+        .command("plan")
+        .description("the whole sequence, with stage boundaries — reads nothing, writes nothing")
+    )
+  ).action((customer: string, opts: Record<string, unknown>) => {
+    runBootstrapPlan(createContext(globals(opts)), customer, bootstrapFlags(opts));
+  });
+
+  withGlobals(
+    bootstrapTargetFlags(
+      bootstrap
+        .command("run")
+        .description("do the phases oxyc can do, print the checklist for the rest; safe to re-run")
+        .option("--owner <email>", "the person onboarded as the org's Owner")
+        .option("--dry-run", "print the plan and stop")
+        .option("--yes", "do not ask before a write")
+    )
+  ).action(async (customer: string, opts: Record<string, unknown>) => {
+    await runBootstrapRun(createContext(globals(opts)), customer, bootstrapFlags(opts));
+  });
+
+  withGlobals(
+    bootstrapTargetFlags(
+      bootstrap
+        .command("verify")
+        .description("read every phase and report what landed; exits 9 when one has not")
+        .option("--json", "emit the report as JSON")
+    )
+  ).action(async (customer: string, opts: Record<string, unknown>) => {
+    await runBootstrapVerify(createContext(globals(opts)), customer, bootstrapFlags(opts));
   });
 
   withGlobals(
@@ -1823,7 +1906,7 @@ const EXIT_CODE_HELP = `0  success
 6  the request was malformed (4xx other than 401/403/404)
 7  unavailable — 5xx, a timeout, or the network failed. Retryable.
 8  refused — the operation would have destroyed or overwritten something
-9  a check ran and failed or timed out (\`oxyc checks run\`)
+9  a check ran and the answer was no (\`oxyc checks run\`, \`oxyc bootstrap verify\`)
 `;
 
 /**

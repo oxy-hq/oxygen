@@ -767,6 +767,50 @@ Exit codes: `5` the workspace has no repository (connect one in its Settings) or
 does not exist, `6` `git clone` failed (git's own message is printed above it),
 `8` the target directory is not empty, `2` a bad flag.
 
+## Standing a customer up
+
+Ten steps across three credentials. `bootstrap` is the runbook plus the part of
+it `oxyc` can do; the whole sequence, with what each step is and how it fails,
+is [`internal-docs/customer-bootstrap.md`](../../internal-docs/customer-bootstrap.md).
+
+```bash
+oxyc bootstrap plan   <customer> [--crews]            # the sequence; reads nothing, writes nothing
+oxyc bootstrap run    <customer> --owner <email>      # do what oxyc can, print the rest
+oxyc bootstrap verify <customer> [--json]             # did every step land?
+```
+
+Shared flags: `--name <display>`, `--repo <owner/repo>`, `--app <slug>`,
+`--writer app:<slug>|pipeline:<source>` (repeatable), `--crews`,
+`--phase <id>` (repeatable). `run` also takes `--owner`, `--dry-run` and
+`--yes`.
+
+The phases are `repo`, `org`, `billing`, `oltp`, `git-link`, `workspace`,
+`airhouse`, `app`, `secrets` and — with `--crews` — `frontline`.
+
+**`run` is safe to re-run**, which is the point: a half-finished standup is the
+common case. It reads each phase before it writes and writes only what is
+missing. It performs exactly two things — creating the org
+(`POST /api/admin/orgs`) and provisioning or reconciling the workspace's
+Airhouse tenant — and prints a checklist for everything else. It never
+provisions the OLTP store (a billable project at a paid provider), never
+provisions a subscription (Global Owner only), never sets a secret's value and
+never enrols a worker.
+
+**It works one surface at a time.** `/api/admin` is refused while an
+`oxyc assume` session is live, and the GitHub import that gives a workspace its
+remote is an org-scoped route — so a standup crosses between staff and tenant
+credentials twice. `plan` prints the stage boundaries; `run` refuses rather than
+half-writing when an assume session is open.
+
+**Exit codes:** `0` every phase looked at has landed, `9` one has not (as
+`checks run` means it), `8` refused because an assume session is live, `2` the
+invocation was wrong — checked before any request.
+
+```bash
+oxyc bootstrap verify poke-house --env dev --json \
+  | jq -r '.phases[] | select(.landed=="no") | "\(.id)\t\(.next)"'
+```
+
 ## Custom apps
 
 ```bash

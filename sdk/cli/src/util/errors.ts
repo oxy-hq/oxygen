@@ -32,7 +32,14 @@ export const ExitCode = {
   UNAVAILABLE: 7,
   /** A refusal: the operation would have destroyed or overwritten something. */
   REFUSED: 8,
-  /** `oxyc checks run`: a check ran and failed or timed out. */
+  /**
+   * A check ran and the answer was no.
+   *
+   * `oxyc checks run` (a check failed or timed out) and
+   * `oxyc bootstrap verify` (a phase of a customer standup has not landed).
+   * The same code because the RESPONSE is the same — read the report, act on
+   * it — which is the rule this table is built on.
+   */
   CHECK_FAILED: 9
 } as const;
 
