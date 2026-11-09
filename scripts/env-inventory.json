@@ -142,6 +142,7 @@
   "OXY_ORG_SUBDOMAIN_ZONE": {"kind": "deployment", "default": "unset → derived from `OXY_API_URL` when its host's first label is exactly `app`", "gates": "The DNS zone bare org subdomains live under; required on non-prod. Migrated to `oxy_app_core::config::HostsConfig`."},
   "OXY_OTEL_FILTER": {"kind": "deployment", "default": "info", "gates": "What platform telemetry exports over OTLP (RUST_LOG syntax)."},
   "OXY_OWNER": {"kind": "deployment", "default": "unset (no global owner)", "gates": "Comma-separated emails of the Global Owner(s). Read only by `oxy-server-authz`'s owner guard, the one door for the fact."},
+  "OXY_PERIODIC_TICK_BATCH": {"kind": "deployment", "default": "50", "gates": "Periodic driver: how many due workspaces one claim takes per tick on a node; a tick keeps claiming while batches come back full. Raise the fleet, not this, when `oxy_periodic_due_backlog` stays above zero across ticks."},
   "OXY_PREVIEW_COW_MAX_ROWS": {"kind": "deployment", "default": "5000000", "gates": "A preview's write-in-place copies the live table whole up to this many rows."},
   "OXY_PREVIEW_DIFF_MAX_ROWS": {"kind": "deployment", "default": "2000000", "gates": "A transform build's compare counts differing rows only when neither side exceeds this."},
   "OXY_PREVIEW_MAINTENANCE_INTERVAL_SECS": {"kind": "deployment", "default": "300 (at least 30)", "gates": "How often the preview schema sweep runs."},
