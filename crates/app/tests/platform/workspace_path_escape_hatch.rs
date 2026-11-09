@@ -58,6 +58,29 @@ const ALLOWED: &[(&str, &str)] = &[
          compiler holds it there.",
     ),
     (
+        "src/agentic_wiring/project_ctx/context_root.rs",
+        "an agent run's context root on `Origin::Disk` (a draft branch in the \
+         IDE, the CLI), or when a compiled revision holds no context. A \
+         compiled origin materialises its rows instead, on every role.",
+    ),
+    (
+        "src/agentic_wiring/project_ctx/monitor_scan.rs",
+        "BACKLOG. Same shape as `metric_anomalies/scan.rs`: `.monitor.yml` is \
+         compiled and materialised first; the working copy is the fallback \
+         when no revision holds one, and it errors where there is none.",
+    ),
+    (
+        "src/agentic_wiring/builder_bridges/semantic_compiler.rs",
+        "BACKLOG. The Builder's semantic-query tool scans the workspace root; \
+         it should scan `context_root()`, which serves the compiled boundary. \
+         The Builder edits the working copy, so it runs on the Factory.",
+    ),
+    (
+        "src/agentic_wiring/builder_bridges/project_validator.rs",
+        "the Builder validates the files it just wrote into the working copy. \
+         The working copy is the subject; there is no revision to read yet.",
+    ),
+    (
         "src/server/api/database.rs",
         "the `.databases/` sync cache, written by the IdeOnly sync route. No \
          compiled substitute exists — `oxy-compile` carries `config.databases`, \
@@ -89,12 +112,29 @@ fn server_files() -> Vec<(String, String)> {
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut out = Vec::new();
     walk(&manifest.join("src/server"), &mut out);
+    // Request paths that live outside `src/server`: Slack and eval runs
+    // (`src/integrations`, where Slack once ran an agent from a working-copy
+    // path on fleet pods), and the agent-run host (`src/agentic_wiring`).
+    walk(&manifest.join("src/integrations"), &mut out);
+    walk(&manifest.join("src/agentic_wiring"), &mut out);
     // Extracted from `src/server/api/documents`; still a request path of this
     // server, so still in scope. Labelled `../api-documents/src/…`.
     walk(&manifest.join("../api-documents/src"), &mut out);
     // Likewise `src/server/api/source_upload.rs`.
     walk(&manifest.join("../api-source-upload/src"), &mut out);
+    out.retain(|(rel, _)| !is_test_file(rel));
     out
+}
+
+/// Test-only sources: a `tests/` directory, a `tests.rs` or `*_tests.rs`
+/// module. A test asserting `workspace_path()` is `None` is not a use.
+fn is_test_file(rel: &str) -> bool {
+    let stem = rel
+        .rsplit('/')
+        .next()
+        .unwrap_or(rel)
+        .trim_end_matches(".rs");
+    rel.split('/').any(|part| part == "tests") || stem == "tests" || stem.ends_with("_tests")
 }
 
 /// Every use of the escape hatch is on the list.
@@ -170,14 +210,17 @@ fn the_escape_hatch_does_not_widen() {
     // `ConfigManager`, so its callers no longer resolve a raw path. The one site
     // that still needed an absolute path (`automation_run`'s filesystem
     // fallback) goes through `resolve_file`, which checks containment.
-    const CEILING: usize = 36;
+    // 36 -> 30: the scan now covers `src/integrations` and `src/agentic_wiring`
+    // (+5, all listed above) after Slack's run stopped joining its agent onto
+    // the working copy (-1 there). `src/server` alone is 25.
+    const CEILING: usize = 30;
     let total: usize = server_files()
         .iter()
         .map(|(_, body)| body.matches(".workspace_path()").count())
         .sum();
     assert!(
         total <= CEILING,
-        "`workspace_path()` is used {total} times in src/server, over the \
+        "`workspace_path()` is used {total} times in the scanned trees, over the \
          ceiling of {CEILING}. This is the measure of how much workspace access \
          still bypasses the type system. Lower the ceiling when you remove a \
          use; raising it needs a reason in the PR.",

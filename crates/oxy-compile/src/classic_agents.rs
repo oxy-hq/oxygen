@@ -24,6 +24,7 @@
 //!
 //! [`FileKind::RetiredAgent`]: crate::walker::FileKind::RetiredAgent
 
+use crate::agent_ref::agent_ref_candidates;
 use crate::automation_check::visit_tasks;
 use crate::compile::{CompiledAutomation, CompiledRow};
 use crate::walker::DiscoveredFile;
@@ -104,31 +105,6 @@ pub(crate) fn agent_ref_warnings(rows: &[CompiledRow]) -> Vec<ClassicAgentWarnin
         }
     }
     out
-}
-
-/// THE normalisation of an `agent_ref`: the spellings it may resolve by, most
-/// specific first. The full ref (a workspace path or a bare name), the ref minus
-/// `.agentic.yml`/`.agentic.yaml`, and the last `/` segment of that (the stem
-/// the runtime looks up `agent_definitions.name` by today,
-/// `OxyProjectContext::resolve_agent_yaml`). One home for the rule so the
-/// runtime can adopt it instead of repeating it.
-pub fn agent_ref_candidates(target: &str) -> Vec<String> {
-    let full = target.trim().trim_start_matches("./");
-    let bare = strip_agent_extension(full);
-    let stem = bare.rsplit('/').next().unwrap_or(bare);
-    let mut out = vec![full.to_string()];
-    for c in [bare, stem] {
-        if !out.iter().any(|o| o == c) {
-            out.push(c.to_string());
-        }
-    }
-    out
-}
-
-fn strip_agent_extension(path: &str) -> &str {
-    path.strip_suffix(".agentic.yml")
-        .or_else(|| path.strip_suffix(".agentic.yaml"))
-        .unwrap_or(path)
 }
 
 /// Every spelling a compiled agent answers to: its path, its path minus the

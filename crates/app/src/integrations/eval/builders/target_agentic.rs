@@ -37,9 +37,11 @@ pub(super) async fn run_target(
 ) -> Result<Vec<TargetOutput>, OxyError> {
     let start = std::time::Instant::now();
 
-    // Resolve to absolute so the agentic loader reads from the right place
-    // regardless of process CWD (same as target.rs).
-    let resolved = workspace
+    // Checked here only so a target outside the workspace fails with this
+    // message. The run itself takes the workspace-relative ref and reads it
+    // through `ConfigManager::agent_by_ref`, like every other agent run (the
+    // `.test.yml` itself stays a working-copy read: evals are CLI-only).
+    workspace
         .config_manager
         .resolve_file(&input.config_path)
         .await
@@ -70,7 +72,7 @@ pub(super) async fn run_target(
 
     let answer_text = agentic_pipeline::run_agentic_streaming(
         platform,
-        std::path::Path::new(&resolved),
+        &input.config_path,
         input.prompt,
         event_tx,
     )

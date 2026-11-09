@@ -9,6 +9,7 @@ pub mod schema_type_converter;
 pub mod test_config;
 pub mod validate;
 use garde::Validate;
+mod agent_census;
 mod agent_ref;
 mod artifacts;
 mod builder;
@@ -30,6 +31,7 @@ use validate::ValidationContext;
 
 use oxy_shared::errors::OxyError;
 
+pub use agent_census::compiled_agent_counts;
 pub use artifacts::{
     AgentEntry, AgentRef, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocument,
     ContextDocuments, PipelineEntry, SimulationEntry, VerifiedQueryEntry, pipeline_source_kind,

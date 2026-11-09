@@ -441,6 +441,34 @@ pub fn build_workspace_details_response_for_uninitialized_local(
     )
 }
 
+/// The workspace card's agent count: the agents each workspace's promoted
+/// revision compiled, keyed by workspace id. A workspace with no promoted
+/// revision is absent (`agent_count: None`, "did not look"), and so is every
+/// workspace when the count could not be read — a database blip must not
+/// render as "0 agents". The same on every role: no working copy is walked.
+pub(super) async fn compiled_agent_counts(
+    workspaces: &[entity::workspaces::Model],
+) -> std::collections::HashMap<Uuid, usize> {
+    let revisions: Vec<Uuid> = workspaces
+        .iter()
+        .filter_map(|w| w.current_revision_id)
+        .collect();
+    let by_revision = match oxy::config::compiled_agent_counts(&revisions).await {
+        Ok(counts) => counts,
+        Err(e) => {
+            tracing::warn!(error = %e, retryable = e.retryable(), "workspace agent counts unavailable");
+            return std::collections::HashMap::new();
+        }
+    };
+    workspaces
+        .iter()
+        .filter_map(|w| {
+            let revision = w.current_revision_id?;
+            Some((w.id, by_revision.get(&revision).copied().unwrap_or(0)))
+        })
+        .collect()
+}
+
 /// Count files whose name ends with `.<suffix>.yml` under `dir` (recursive, skips hidden dirs).
 pub(super) fn count_yml_suffix(dir: &std::path::Path, suffix: &str) -> usize {
     let pattern = format!(".{suffix}.yml");

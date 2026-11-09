@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DatabaseInfo } from "@/types/database";
+import { AgentService } from "./agents";
 import { ContextGraphService } from "./contextGraph";
 import { DatabaseService } from "./database";
 import { FileService } from "./files";
@@ -45,6 +46,7 @@ const IDE_ANSWER: DatabaseInfo[] = [
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.spyOn(AgentService, "listAgents").mockResolvedValue([]);
   vi.spyOn(FileService, "getFileTree").mockResolvedValue({
     primary: []
   } as unknown as Awaited<ReturnType<typeof FileService.getFileTree>>);

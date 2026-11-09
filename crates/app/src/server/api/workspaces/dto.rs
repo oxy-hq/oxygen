@@ -317,10 +317,11 @@ pub struct WorkspaceSummary {
     pub last_opened_at: Option<DateTime<Utc>>,
     /// Display name of the user who created this workspace, if known.
     pub created_by_name: Option<String>,
-    /// Number of `.agent.yml` files found (recursive), or `None` when this
-    /// instance holds no working copy for the workspace and therefore did not
-    /// look. Zero means "counted, and there are none" — a replica reporting the
-    /// two as the same number is how a healthy workspace came to render
+    /// Number of agents the workspace's promoted revision compiled (its
+    /// `agent_definitions` rows), the same on every pod. `None` when there is
+    /// no promoted revision, or the count could not be read: did not look.
+    /// Zero means "counted, and there are none" — a replica reporting the two
+    /// as the same number is how a healthy workspace came to render
     /// "0 agents · 0 automations · 0 apps".
     pub agent_count: Option<usize>,
     /// Number of automation files found (recursive) — `.automation.yml` plus the

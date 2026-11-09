@@ -148,3 +148,57 @@ async fn a_definition_that_does_not_parse_is_not_a_load_failure() {
     assert!(matches!(err, HeadlessError::Invalid(_)), "got {err:?}");
     assert!(err.to_string().contains("YAML parse error"), "{err}");
 }
+
+/// G5: Slack's streaming run takes a ref, and on a node with no files it reads
+/// the agent from the compiled revision — the same load the eval does.
+#[tokio::test]
+async fn a_streaming_run_reads_its_agent_from_the_revision() {
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let err = super::run_agentic_streaming(
+        replica(Some("databases:\n  - warehouse\n")),
+        AGENT_REF,
+        "q".into(),
+        tx,
+    )
+    .await
+    .expect_err("the fake resolves no connector");
+    assert!(err.contains("no databases configured"), "{err}");
+}
+
+/// A stored classic path (a Slack preference saved before retirement) names
+/// no compiled agent: the run fails at the load, naming the ref, rather than
+/// starting with some other agent.
+#[tokio::test]
+async fn a_streaming_run_of_a_classic_path_is_a_load_failure() {
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let err = super::run_agentic_streaming(
+        replica(Some("databases: []\n")),
+        "agents/sales.agent.yml",
+        "q".into(),
+        tx,
+    )
+    .await
+    .expect_err("no compiled agent has that path");
+    assert!(err.contains("failed to load agentic config"), "{err}");
+    assert!(err.contains("agents/sales.agent.yml"), "{err}");
+}
+
+/// G6: the librarian's one-turn answer reads its agent by ref from the
+/// revision. The fake resolves no model, so getting that far is the proof
+/// the definition loaded without a file.
+#[tokio::test]
+async fn a_one_turn_answer_reads_its_agent_from_the_revision() {
+    let err = super::run_agentic_answer(
+        replica(Some("instructions: be brief\n")),
+        AGENT_REF,
+        "q".into(),
+    )
+    .await
+    .expect_err("the fake resolves no model");
+    assert!(err.contains("no model configured"), "{err}");
+
+    let err = super::run_agentic_answer(replica(None), AGENT_REF, "q".into())
+        .await
+        .expect_err("nothing serves this agent");
+    assert!(err.contains("failed to load agentic config"), "{err}");
+}

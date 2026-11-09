@@ -187,6 +187,17 @@ pub trait WorkspaceContext: Send + Sync {
         ContextRoot::fs(self.workspace_path().unwrap_or(Path::new("")).to_path_buf())
     }
 
+    /// Directory a run that WRITES workspace files works in: the Builder's
+    /// project root. Never a materialised revision on a node that holds the
+    /// working copy, because that tempdir is a cache shared by every analytics
+    /// run of the revision; an edit written there is lost to the user and read
+    /// back as the revision's context. Defaults to [`Self::context_root`] for
+    /// hosts whose context root already is the working copy (or a preview's
+    /// held root); the host adapter overrides it where they differ.
+    async fn working_root(&self) -> ContextRoot {
+        self.context_root().await
+    }
+
     /// Database configurations for dialect mapping.
     fn database_configs(&self) -> Vec<oxy_airlayer_compat::DatabaseConfig>;
 

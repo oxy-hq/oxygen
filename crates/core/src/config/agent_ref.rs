@@ -20,20 +20,25 @@
 //! so the compiler never calls "resolves" something this answers 404 for. Two
 //! such files are ambiguous, and that is said rather than one picked.
 //!
+//! The spellings themselves (`./` dropped, extension stripped, stem) are
+//! `oxy_compile::agent_ref_spellings`, the normaliser the compiler's own
+//! `agent_ref` check uses; this module only orders the lookups.
+//!
 //! Whether `name:` should keep overriding the key at all is the memo's open
 //! question Q4; this does not change what the compiler writes.
 
 use uuid::Uuid;
 
+use oxy_compile::agent_ref_spellings;
 use oxy_shared::errors::OxyError;
 
 use super::artifacts::{AgentEntry, AgentRef, ArtifactError};
 
-pub(super) const EXTENSIONS: &[&str] = &[".agentic.yml", ".agentic.yaml"];
+pub(super) use oxy_compile::AGENT_EXTENSIONS as EXTENSIONS;
 
 /// The ref with a leading `./` dropped: the form every key is stored in.
 fn normalised(agent_ref: &str) -> &str {
-    agent_ref.trim_start_matches("./")
+    agent_ref_spellings(agent_ref).full
 }
 
 /// The `file_path`s `agent_ref` may name, in lookup order.
@@ -53,11 +58,7 @@ pub(super) fn candidate_paths(agent_ref: &str) -> Vec<String> {
 /// a nameless agent that is the same row a path matched; it differs only for
 /// an agent whose `name:` overrides its path.
 pub(super) fn candidate_name(agent_ref: &str) -> &str {
-    let path = normalised(agent_ref);
-    EXTENSIONS
-        .iter()
-        .find_map(|ext| path.strip_suffix(ext))
-        .unwrap_or(path)
+    agent_ref_spellings(agent_ref).bare
 }
 
 /// The file stem a bare ref may name, or `None` for a ref with a directory.
@@ -69,11 +70,7 @@ fn candidate_stem(agent_ref: &str) -> Option<&str> {
 /// The file's last segment without its extension: `agents/sales/foo` for
 /// `agents/sales/foo.agentic.yml` is `foo`.
 fn file_stem(file_path: &str) -> &str {
-    let file = file_path.rsplit('/').next().unwrap_or(file_path);
-    EXTENSIONS
-        .iter()
-        .find_map(|ext| file.strip_suffix(ext))
-        .unwrap_or(file)
+    agent_ref_spellings(file_path).stem
 }
 
 /// The one entry whose file is `{stem}.agentic.yml` in any directory. Two are

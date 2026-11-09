@@ -32,6 +32,7 @@ mod compile_cooldown;
 #[cfg(test)]
 mod connector_translation_tests;
 mod context_documents;
+mod context_root;
 mod function_context;
 mod monitor_scan;
 mod preview_hold;

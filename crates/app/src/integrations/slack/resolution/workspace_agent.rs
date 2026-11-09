@@ -154,19 +154,15 @@ pub async fn resolve(
     }
 
     // 2. Honor user preferences if present and the workspace is still valid.
-    //    When the preference also pins an explicit `default_agent_path`,
-    //    use it verbatim — bypasses the filesystem-dependent
-    //    `pick_default_agent_path` so a saved preference keeps working
-    //    even when the workspace's repo isn't currently cloned locally.
+    //    A pinned `default_agent_path` is resolved against the compiled
+    //    agents (`saved_agent`), so one saved before classic agents retired
+    //    falls back to the workspace default instead of failing the run.
     if let Some(prefs) = UserPreferencesService::get(user_link.id).await?
         && let Some(ws_id) = prefs.default_workspace_id
         && let Some(ws) = user_workspaces.iter().find(|w| w.id == ws_id)
     {
-        if let Some(agent_path) = prefs.default_agent_path.clone() {
-            return Ok(Resolution::Resolved {
-                workspace_id: ws.id,
-                agent_path,
-            });
+        if let Some(saved) = prefs.default_agent_path.as_deref() {
+            return super::saved_agent::resolve_saved_agent(ws, saved).await;
         }
         return resolve_for_workspace(ws).await;
     }
@@ -236,7 +232,7 @@ async fn build_summaries_from_rows(workspaces: &[workspaces::Model]) -> Vec<Work
 /// agent (configured default, falling back to alphabetical-first), or
 /// flag `WorkspaceHasNoAgents` if the workspace is empty. Shared by the
 /// channel-default / user-preference / single-workspace branches above.
-async fn resolve_for_workspace(ws: &workspaces::Model) -> Result<Resolution, OxyError> {
+pub(super) async fn resolve_for_workspace(ws: &workspaces::Model) -> Result<Resolution, OxyError> {
     match pick_default_agent_path(ws.id).await? {
         Some(agent_path) => Ok(Resolution::Resolved {
             workspace_id: ws.id,
@@ -319,7 +315,7 @@ fn default_agent(agents: &[String]) -> Option<String> {
 }
 
 /// Returns all agent paths for a workspace as relative paths
-/// (e.g. `"agents/foo.agent.yml"`), stripped of the workspace root prefix.
+/// (e.g. `"agents/foo.agentic.yml"`), as the compiled listing carries them.
 pub async fn list_agents(workspace_id: Uuid) -> Result<Vec<String>, OxyError> {
     Ok(read_workspace_agents(workspace_id).await?.agents)
 }

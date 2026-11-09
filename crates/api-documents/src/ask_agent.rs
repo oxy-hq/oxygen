@@ -2,7 +2,7 @@
 //!
 //! # What this type is allowed to hold
 //!
-//! A platform context and a path to an agent config. Deliberately **not** a
+//! A platform context and a ref to an agent. Deliberately **not** a
 //! database connection, an org id, or the caller's standing — the same
 //! restraint [`DocumentSearch::answer`] states in its signature, kept here
 //! where it would be easiest to break. Everything the model reads arrives as an
@@ -22,7 +22,6 @@
 //! object.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use agentic_pipeline::platform::PlatformContext;
@@ -54,7 +53,9 @@ const BODY_CHARS: usize = 8_000;
 
 pub struct DocumentAgent {
     platform: Arc<dyn PlatformContext>,
-    config_path: PathBuf,
+    /// The agent's workspace ref, read from the compiled revision when the
+    /// question is asked — not a path on this node's disk.
+    agent_ref: String,
     /// Retrieval is the shipped one, unchanged. This type replaces how the
     /// answer is written, never who the candidates are.
     retrieval: PostgresSearch,
@@ -84,25 +85,33 @@ impl DocumentAgent {
         let agent_ref =
             std::env::var(AGENT_REF_ENV).unwrap_or_else(|_| AGENT_REF_DEFAULT.to_string());
         let ctx = Arc::new(ctx);
-        // Resolved through the config manager so the path is right regardless
-        // of CWD and of git-subdirectory workspace layouts — the same call the
-        // workspace-health agent probe makes.
-        let config_path = match ctx
+        // Looked up the way every agent run looks one up
+        // (`ConfigManager::agent_by_ref`): the compiled row on a pinned
+        // revision, so this works on a pod with no working copy. Only whether
+        // it exists is decided here; the run reads it again by the same ref.
+        match ctx
             .workspace_manager()
             .config_manager
-            .resolve_file(&agent_ref)
+            .agent_by_ref(&agent_ref)
             .await
         {
-            Ok(p) => PathBuf::from(p),
-            Err(e) => {
-                warn!(%org_id, agent_ref, error = %e, "no document agent in this workspace");
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                warn!(%org_id, agent_ref, "no document agent in this workspace");
                 return None;
             }
-        };
+            Err(e) => {
+                warn!(
+                    %org_id, agent_ref, error = %e, retryable = e.retryable(),
+                    "could not read the document agent"
+                );
+                return None;
+            }
+        }
 
         Some(Self {
             platform: ctx,
-            config_path,
+            agent_ref,
             retrieval: PostgresSearch,
         })
     }
@@ -186,7 +195,7 @@ impl DocumentSearch for DocumentAgent {
         // the ability to run SQL, which is the one thing this design is built
         // not to do. See the facade's own docs for the split.
         let text =
-            agentic_pipeline::run_agentic_answer(self.platform.clone(), &self.config_path, prompt)
+            agentic_pipeline::run_agentic_answer(self.platform.clone(), &self.agent_ref, prompt)
                 .await
                 .map_err(OxyError::AgentError)?;
 

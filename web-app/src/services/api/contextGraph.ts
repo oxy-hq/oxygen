@@ -8,6 +8,12 @@ import type {
   View
 } from "@/types/contextGraph";
 import type { FileTreeModel } from "@/types/file";
+import {
+  addAgentNodes,
+  linkAutomationAgentSteps,
+  loadGraphAgents,
+  sqlPathsInAgentContext
+} from "./contextGraphAgents";
 import { DatabaseService } from "./database";
 import { FileService } from "./files";
 
@@ -17,14 +23,19 @@ export class ContextGraphService {
    */
   static async getContextGraph(projectId: string, branchName: string): Promise<ContextGraph> {
     // Fetch all necessary data in parallel
-    const [databases, fileTree] = await Promise.all([
+    const [databases, fileTree, agents] = await Promise.all([
       DatabaseService.listDatabases(projectId, branchName),
-      FileService.getFileTree(projectId, branchName)
+      FileService.getFileTree(projectId, branchName),
+      loadGraphAgents(projectId, branchName)
     ]);
 
-    // Parse semantic models, agents, queries, automations, and apps from file tree
-    const { views, topics, agents, sqlQueries, automations } =
-      await ContextGraphService.parseProjectFiles(projectId, branchName, fileTree.primary);
+    // Parse semantic models, queries and automations from the file tree.
+    // Agents come from the agent listing above, not from file names.
+    const { views, topics, sqlQueries, automations } = await ContextGraphService.parseProjectFiles(
+      projectId,
+      branchName,
+      fileTree.primary
+    );
 
     // Build nodes
     const nodes: ContextGraphNode[] = [];
@@ -176,7 +187,7 @@ export class ContextGraphService {
       });
     });
 
-    // Add procedure, automation, and agent nodes and link to their dependencies
+    // Add procedure and automation nodes and link to their dependencies
     automations.forEach((automation) => {
       const isProcedure =
         automation.path.endsWith(".procedure.yml") || automation.path.endsWith(".procedure.yaml");
@@ -250,46 +261,9 @@ export class ContextGraphService {
       checkTasksForSqlReferences(automation.tasks);
     });
 
-    const addMatchingSqlQueries = (pattern: string) => {
-      if (!pattern.endsWith(".sql")) return;
-      sqlQueries.forEach((query) => {
-        if (matchesPattern(query.path, pattern)) {
-          referencedSqlQueries.add(query.path);
-        }
-      });
-    };
-
-    const extractSqlPathsFromContext = (
-      contextItem: string | { name?: string; type?: string; src?: string[] }
-    ): string[] => {
-      if (typeof contextItem === "string") {
-        return [contextItem];
-      }
-      if (contextItem && typeof contextItem === "object" && Array.isArray(contextItem.src)) {
-        return contextItem.src.filter((srcPath): srcPath is string => typeof srcPath === "string");
-      }
-      return [];
-    };
-
-    // Check agents for SQL references in context and routes
-    agents.forEach((agent) => {
-      // Check context field
-      if (agent.context) {
-        agent.context.forEach((contextItem) => {
-          const paths = extractSqlPathsFromContext(contextItem);
-          paths.forEach(addMatchingSqlQueries);
-        });
-      }
-
-      // Check routes field (for routing agents)
-      if (agent.routes) {
-        agent.routes.forEach((route) => {
-          if (typeof route === "string") {
-            addMatchingSqlQueries(route);
-          }
-        });
-      }
-    });
+    for (const path of sqlPathsInAgentContext(agents, sqlQueries)) {
+      referencedSqlQueries.add(path);
+    }
 
     // Add only referenced SQL query nodes
     sqlQueries.forEach((query) => {
@@ -308,155 +282,16 @@ export class ContextGraphService {
       }
     });
 
-    // Add agent nodes and link to their dependencies
-    agents.forEach((agent) => {
-      const agentId = `agent:${agent.path}`;
-      nodes.push({
-        id: agentId,
-        type: "agent",
-        label: agent.name,
-        data: {
-          name: agent.name,
-          path: agent.path,
-          description: agent.description,
-          metadata: {
-            type: agent.agentType,
-            model: agent.model
-          }
-        }
-      });
-
-      // Link agent to topics (for default agents with semantic_query tools)
-      if (agent.tools) {
-        agent.tools.forEach((tool) => {
-          if (tool.type === "semantic_query" && tool.topic) {
-            const topicNode = nodes.find((n) => n.type === "topic" && n.data.name === tool.topic);
-            if (topicNode) {
-              edges.push({
-                id: `${agentId}->${topicNode.id}`,
-                source: agentId,
-                target: topicNode.id,
-                label: "uses",
-                type: "uses"
-              });
-            }
-          }
-
-          // Link agent to automations
-          if (tool.type === "workflow" && tool.workflow_ref) {
-            const automationNode = nodes.find(
-              (n) => n.type === "workflow" && n.data.path === tool.workflow_ref
-            );
-            if (automationNode) {
-              edges.push({
-                id: `${agentId}->${automationNode.id}`,
-                source: agentId,
-                target: automationNode.id,
-                label: "uses",
-                type: "uses"
-              });
-            }
-          }
-        });
-      }
-
-      // Link routing agent to topics and automations via routes
-      if (agent.agentType === "routing" && agent.routes) {
-        agent.routes.forEach((route) => {
-          if (typeof route !== "string") return;
-
-          // Handle topic routes
-          if (route.endsWith(".topic.yml") || route.endsWith(".topic.yaml")) {
-            const matchedTopics = nodes.filter(
-              (n) => n.type === "topic" && n.data.path && matchesPattern(n.data.path, route)
-            );
-            matchedTopics.forEach((topicNode) => {
-              edges.push({
-                id: `${agentId}->${topicNode.id}`,
-                source: agentId,
-                target: topicNode.id,
-                label: "routes to",
-                type: "uses"
-              });
-            });
-          }
-
-          // Handle automation routes
-          if (route.endsWith(".automation.yml") || route.endsWith(".procedure.yml")) {
-            const matchedAutomations = nodes.filter(
-              (n) => n.type === "workflow" && n.data.path && matchesPattern(n.data.path, route)
-            );
-            matchedAutomations.forEach((automationNode) => {
-              edges.push({
-                id: `${agentId}->${automationNode.id}`,
-                source: agentId,
-                target: automationNode.id,
-                label: "routes to",
-                type: "uses"
-              });
-            });
-          }
-
-          // Handle SQL query routes
-          if (route.endsWith(".sql")) {
-            const matchedQueries = nodes.filter(
-              (n) => n.type === "sql_query" && n.data.path && matchesPattern(n.data.path, route)
-            );
-            matchedQueries.forEach((queryNode) => {
-              edges.push({
-                id: `${agentId}->${queryNode.id}`,
-                source: agentId,
-                target: queryNode.id,
-                label: "routes to",
-                type: "uses"
-              });
-            });
-          }
-        });
-      }
-
-      if (agent.agentType === "routing" && agent.route_fallback) {
-        const fallbackAgentNode = nodes.find(
-          (n) => n.type === "agent" && n.data.path === agent.route_fallback
-        );
-        if (fallbackAgentNode) {
-          edges.push({
-            id: `${agentId}->${fallbackAgentNode.id}`,
-            source: agentId,
-            target: fallbackAgentNode.id,
-            label: "fallback",
-            type: "uses"
-          });
-        }
-      }
-
-      // Link agent to SQL queries via context
-      if (agent.context) {
-        const allPaths = agent.context.flatMap(extractSqlPathsFromContext);
-        const sqlPaths = allPaths.filter((path) => path.endsWith(".sql"));
-
-        sqlPaths.forEach((contextPath) => {
-          const matchedQueries = nodes.filter(
-            (n) => n.type === "sql_query" && n.data.path && matchesPattern(n.data.path, contextPath)
-          );
-          matchedQueries.forEach((queryNode) => {
-            edges.push({
-              id: `${agentId}->${queryNode.id}`,
-              source: agentId,
-              target: queryNode.id,
-              label: "uses",
-              type: "uses"
-            });
-          });
-        });
-      }
-    });
+    // Agent nodes, linked to what their `context:` names, and automations
+    // linked to the agents their steps run.
+    addAgentNodes(agents, nodes, edges);
+    linkAutomationAgentSteps(automations, agents, nodes, edges);
 
     return { nodes, edges, tablesUnknown };
   }
 
   /**
-   * Parses project files (views, topics, agents, SQL queries, automations, apps, automations) from the file tree
+   * Parses project files (views, topics, SQL queries, automations) from the file tree
    */
   private static async parseProjectFiles(
     projectId: string,
@@ -465,21 +300,6 @@ export class ContextGraphService {
   ): Promise<{
     views: View[];
     topics: Topic[];
-    agents: Array<{
-      name: string;
-      path: string;
-      description?: string;
-      agentType?: string;
-      model?: string;
-      tools?: Array<{
-        type: string;
-        topic?: string;
-        workflow_ref?: string;
-      }>;
-      routes?: string[];
-      route_fallback?: string;
-      context?: Array<string | { name?: string; type?: string; src?: string[] }>;
-    }>;
     sqlQueries: Array<{
       name: string;
       path: string;
@@ -493,21 +313,6 @@ export class ContextGraphService {
   }> {
     const views: View[] = [];
     const topics: Topic[] = [];
-    const agents: Array<{
-      name: string;
-      path: string;
-      description?: string;
-      agentType?: string;
-      model?: string;
-      tools?: Array<{
-        type: string;
-        topic?: string;
-        workflow_ref?: string;
-      }>;
-      routes?: string[];
-      route_fallback?: string;
-      context?: Array<string | { name?: string; type?: string; src?: string[] }>;
-    }> = [];
     const sqlQueries: Array<{
       name: string;
       path: string;
@@ -529,7 +334,6 @@ export class ContextGraphService {
           if (
             file.type === "view" ||
             file.type === "topic" ||
-            file.type === "agent" ||
             file.type === "procedure" ||
             file.type === "workflow" ||
             file.type === "automation"
@@ -555,19 +359,6 @@ export class ContextGraphService {
                 views: parsed.views || [],
                 base_view: parsed.base_view,
                 default_filters: parsed.default_filters
-              });
-            } else if (file.type === "agent") {
-              const agentName = file.path.split("/").pop()?.replace(".agent.yml", "") || "unknown";
-              agents.push({
-                name: agentName,
-                path: file.path,
-                description: parsed.description,
-                agentType: parsed.type || "default",
-                model: parsed.model,
-                tools: parsed.tools,
-                routes: parsed.routes,
-                route_fallback: parsed.route_fallback,
-                context: parsed.context
               });
             } else if (
               file.type === "procedure" ||
@@ -601,11 +392,11 @@ export class ContextGraphService {
       })
     );
 
-    return { views, topics, agents, sqlQueries, automations };
+    return { views, topics, sqlQueries, automations };
   }
 
   /**
-   * Recursively finds all project files (views, topics, agents, SQL, automations, apps, automations) in the file tree
+   * Recursively finds all project files (views, topics, SQL, automations) in the file tree
    */
   private static findProjectFiles(
     fileTree: FileTreeModel[],
@@ -623,8 +414,6 @@ export class ContextGraphService {
           files.push({ path: currentPath, type: "view" });
         } else if (node.name.endsWith(".topic.yml") || node.name.endsWith(".topic.yaml")) {
           files.push({ path: currentPath, type: "topic" });
-        } else if (node.name.endsWith(".agent.yml") || node.name.endsWith(".agent.yaml")) {
-          files.push({ path: currentPath, type: "agent" });
         } else if (node.name.endsWith(".sql")) {
           files.push({ path: currentPath, type: "sql" });
         } else if (node.name.endsWith(".procedure.yml") || node.name.endsWith(".procedure.yaml")) {
@@ -719,22 +508,6 @@ export class ContextGraphService {
             id: `${automationId}->${queryNode.id}`,
             source: automationId,
             target: queryNode.id,
-            label: "uses",
-            type: "uses"
-          });
-        }
-      }
-
-      // Link to agents
-      if (taskObj.type === "agent" && typeof taskObj.agent_ref === "string") {
-        const agentNode = nodes.find(
-          (n) => n.type === "agent" && n.data.path === taskObj.agent_ref
-        );
-        if (agentNode) {
-          edges.push({
-            id: `${automationId}->${agentNode.id}`,
-            source: automationId,
-            target: agentNode.id,
             label: "uses",
             type: "uses"
           });

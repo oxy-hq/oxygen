@@ -52,6 +52,7 @@
 //! `oxy-app` and the future TaskSpec wrapper lives in
 //! `agentic-pipeline`.
 
+mod agent_ref;
 mod automation_check;
 pub mod blob_store;
 mod classic_agents;
@@ -65,7 +66,9 @@ pub mod walker;
 pub mod workspace_path;
 pub mod writer;
 
-pub use classic_agents::agent_ref_candidates;
+pub use agent_ref::{
+    AGENT_EXTENSIONS, AgentRefSpellings, agent_ref_candidates, agent_ref_spellings,
+};
 pub use compile::{
     CURRENT_SCHEMA_VERSION, CompileRequest, ConfigGate, RevisionKind, build_compiled_config,
     compile_workspace, find_reusable_revision,

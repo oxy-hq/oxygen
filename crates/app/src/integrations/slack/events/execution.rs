@@ -6,7 +6,6 @@
 //! `SlackRenderer`, then posts the answer + uploads SQL/chart artifacts
 //! as thread replies.
 
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -228,10 +227,6 @@ async fn run_agentic_for_slack(
     let workspace_manager =
         crate::integrations::slack::workspace::build_manager(workspace_id, "slack_agentic_run")
             .await?;
-    let repo_path = workspace_manager
-        .config_manager
-        .workspace_path()
-        .to_path_buf();
 
     // Without the node's cache the agent still answers correctly, it just
     // compiles every semantic query to warehouse SQL rather than reading a
@@ -240,8 +235,6 @@ async fn run_agentic_for_slack(
         crate::agentic_wiring::OxyProjectContext::new(workspace_manager).with_preagg(&preagg),
     );
     let platform: Arc<dyn agentic_pipeline::platform::PlatformContext> = project_ctx;
-
-    let resolved_path = resolve_agent_config_path(&repo_path, agent_path);
 
     // Renderer channel: bridge writes AnswerStream items; renderer drains
     // them into the SlackRenderResult (body markdown + queued charts + SQL).
@@ -260,13 +253,17 @@ async fn run_agentic_for_slack(
     // Spawn the bridge: drives the agentic pipeline, translates events,
     // and closes `answer_tx` when the pipeline finishes. The renderer
     // loop below terminates naturally on channel close.
-    let resolved_path_owned = resolved_path.clone();
+    // `agent_path` is a ref, read from the compiled revision on a fleet pod
+    // (`ConfigManager::agent_by_ref`), never joined onto a working copy. A
+    // stored classic `.agent.yml` path names no compiled agent and the run
+    // answers "not found" rather than reading the file.
+    let agent_ref = agent_path.to_string();
     let question_owned = question.to_string();
     let platform_for_bridge = platform.clone();
     let bridge_handle = tokio::spawn(async move {
         agentic_bridge::run_with_renderer(
             platform_for_bridge,
-            &resolved_path_owned,
+            &agent_ref,
             &question_owned,
             workspace_id,
             answer_tx,
@@ -293,21 +290,6 @@ async fn run_agentic_for_slack(
         final_markdown,
         agent_errored,
     })
-}
-
-/// Resolve `agent_path` against `repo_path`, trying `.agentic.yml`
-/// fallbacks the way `PipelineBuilder::start_analytics` does so a Slack
-/// `app_home` agent reference (`sales_agent`) and a bare filename both work.
-fn resolve_agent_config_path(repo_path: &Path, agent_path: &str) -> std::path::PathBuf {
-    let direct = repo_path.join(agent_path);
-    if direct.exists() {
-        return direct;
-    }
-    let with_ext = repo_path.join(format!("{agent_path}.agentic.yml"));
-    if with_ext.exists() {
-        return with_ext;
-    }
-    direct
 }
 
 // Block assembly

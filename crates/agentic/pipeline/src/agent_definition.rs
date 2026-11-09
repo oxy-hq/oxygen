@@ -143,7 +143,7 @@ fn resolves_under(path: &Path, base_dir: &Path) -> bool {
 /// The definition in one file: a file that cannot be read is
 /// [`Missing`](AgentDefinitionError::Missing), one that does not parse
 /// [`Invalid`](AgentDefinitionError::Invalid).
-pub(crate) fn read_agent_file(path: &Path) -> Result<AgentConfig, AgentDefinitionError> {
+fn read_agent_file(path: &Path) -> Result<AgentConfig, AgentDefinitionError> {
     AgentConfig::from_file(path).map_err(|e| match e {
         ConfigError::Io(_) => AgentDefinitionError::Missing(e.to_string()),
         e => AgentDefinitionError::Invalid(e.to_string()),

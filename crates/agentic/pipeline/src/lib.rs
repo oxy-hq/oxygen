@@ -526,7 +526,13 @@ impl PipelineBuilder {
         // timeout, a disconnect) would otherwise leave the row this start
         // inserts `running` with nothing to drive it — see `start_guard`.
         let interrupted = (!skip_db_insert).then(|| start_guard::StartGuard::new(db, &run_id));
-        let ctx_root = self.platform.context_root().await;
+        // The Builder edits files, so it works in the working copy
+        // (`working_root`), never the cached materialised revision an
+        // analytics run reads its context from.
+        let ctx_root = match &domain {
+            Domain::Builder { .. } => self.platform.working_root().await,
+            Domain::Analytics { .. } => self.platform.context_root().await,
+        };
         // `ctx_root` owns the materialised tempdir (stateless fleet) and must
         // outlive the resolve_context + semantic-catalog load below — keep it
         // bound in this scope.
@@ -589,7 +595,12 @@ impl PipelineBuilder {
         answer: String,
     ) -> Result<StartedPipeline, PipelineError> {
         self.refuse_preview_run_outside_preview(db, run_id).await?;
-        let ctx_root = self.platform.context_root().await;
+        // As in `start`: a Builder resume edits the working copy.
+        let ctx_root = if source_type == "builder" {
+            self.platform.working_root().await
+        } else {
+            self.platform.context_root().await
+        };
         // `ctx_root` owns the materialised tempdir (stateless fleet) and must
         // outlive the resolve_context + semantic-catalog load below — keep it
         // bound in this scope.

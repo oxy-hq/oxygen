@@ -3,6 +3,11 @@
 //! agent probe, and the document librarian.
 //!
 //! No run row, no SSE stream: the caller owns what happens to the answer.
+//!
+//! Every entry point takes an agent **ref**, never a path on this node's disk,
+//! and reads it through [`agent_definition::read_analytics_agent`], the reader
+//! an Ask run uses. On a host with a compile boundary that is the revision's
+//! row and nothing else, so a headless run works on a pod with no files.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -23,17 +28,6 @@ use crate::platform::{self, PlatformContext};
 enum EventDestination {
     Drain,
     Forward(tokio::sync::mpsc::Sender<Event<AnalyticsEvent>>),
-}
-
-/// Where a headless run reads its agent's definition from.
-enum AgentSource<'a> {
-    /// A file on this node's disk. The eval runner and Slack name one, which
-    /// keeps them on a node that holds a working copy.
-    File(&'a Path),
-    /// A workspace ref, read the way Ask reads it: the compiled revision
-    /// first, this node's working copy only when the revision has no answer.
-    /// Works on a serve or worker pod, which holds no checkout.
-    Ref(&'a str),
 }
 
 /// Why a headless run produced no answer, split where its callers need it: an
@@ -66,21 +60,16 @@ impl std::error::Error for HeadlessError {}
 /// Run an agentic analytics agent headlessly and return its answer text.
 ///
 /// `agent_ref` is a workspace ref (`_analytics.agentic.yml`,
-/// `agents/foo.agentic.yml`, or a bare stem), resolved like an Ask run's agent
-/// — see [`AgentSource::Ref`]. The Workspace Health agent probe calls this from
-/// fleet pods that have no files to read.
+/// `agents/foo.agentic.yml`, or a bare stem), resolved like an Ask run's agent:
+/// the host's compile boundary answers, and only a host with none (the CLI,
+/// tests) reads its working copy. The Workspace Health agent probe calls this
+/// from fleet pods that have no files to read.
 pub async fn run_agentic_eval(
     platform: Arc<dyn PlatformContext>,
     agent_ref: &str,
     prompt: String,
 ) -> Result<String, HeadlessError> {
-    run_agentic_headless(
-        platform,
-        AgentSource::Ref(agent_ref),
-        prompt,
-        EventDestination::Drain,
-    )
-    .await
+    run_agentic_headless(platform, agent_ref, prompt, EventDestination::Drain).await
 }
 
 /// Run ONE turn against an agent's instructions — no tools, no databases, no FSM.
@@ -104,12 +93,13 @@ pub async fn run_agentic_eval(
 /// the text. Everything the FSM adds — states, tools, retrieval, subruns — is
 /// absent by construction rather than by configuration.
 ///
-/// It still reads the agent's YAML from disk, which is what keeps a caller of
-/// this on the ide pod: the instructions are an operator-editable workspace
-/// file, not a string compiled into the server.
+/// The agent is named by a workspace ref and read the way every other run
+/// reads one ([`agent_definition::read_analytics_agent`]): from the compiled
+/// revision on a host that has one, so a caller of this is not tied to a pod
+/// holding a working copy.
 pub async fn run_agentic_answer(
     platform: Arc<dyn PlatformContext>,
-    config_path: &std::path::Path,
+    agent_ref: &str,
     prompt: String,
 ) -> Result<String, String> {
     /// A ceiling for an agent that names none. An answer over four documents
@@ -118,21 +108,20 @@ pub async fn run_agentic_answer(
     /// per-month surprise.
     const DEFAULT_MAX_TOKENS: u32 = 2048;
 
-    let config = AgentConfig::from_file(config_path).map_err(|e| {
-        format!(
-            "failed to load agentic config at {}: {e}",
-            config_path.display()
-        )
-    })?;
+    let config = {
+        let ctx_root = platform.context_root().await;
+        agent_definition::read_analytics_agent(&*platform, agent_ref, ctx_root.path())
+            .await
+            .map_err(|e| format!("failed to load agentic config {agent_ref}: {e}"))?
+    };
 
     let info = platform
         .resolve_model(config.llm.model_ref.as_deref(), config.llm.model.is_some())
         .await
         .ok_or_else(|| {
             format!(
-                "no model configured for agent {} — its `llm:` names {:?}, \
+                "no model configured for agent {agent_ref} — its `llm:` names {:?}, \
                  which does not resolve in this project's config.yml",
-                config_path.display(),
                 config.llm.model_ref
             )
         })?;
@@ -150,7 +139,7 @@ pub async fn run_agentic_answer(
             config.llm.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
         )
         .await
-        .map_err(|e| format!("agent {} failed to answer: {e}", config_path.display()))
+        .map_err(|e| format!("agent {agent_ref} failed to answer: {e}"))
 }
 
 /// Variant of [`run_agentic_eval`] that forwards each
@@ -163,15 +152,19 @@ pub async fn run_agentic_answer(
 /// the solver — events are dropped (with a warn log) on full, which is the
 /// right tradeoff for unfanout-able surfaces like Slack where chart render
 /// latency can dwarf typical event burst rates.
+///
+/// `agent_ref` is read like [`run_agentic_eval`]'s: Slack passes the path its
+/// picker or a saved preference holds, and on a fleet pod that resolves
+/// against the compiled revision, never a file.
 pub async fn run_agentic_streaming(
     platform: Arc<dyn PlatformContext>,
-    config_path: &std::path::Path,
+    agent_ref: &str,
     prompt: String,
     event_sink: tokio::sync::mpsc::Sender<Event<AnalyticsEvent>>,
 ) -> Result<String, String> {
     run_agentic_headless(
         platform,
-        AgentSource::File(config_path),
+        agent_ref,
         prompt,
         EventDestination::Forward(event_sink),
     )
@@ -184,7 +177,7 @@ pub async fn run_agentic_streaming(
 /// pump matching `destination`, then runs the orchestrator.
 async fn run_agentic_headless(
     platform: Arc<dyn PlatformContext>,
-    source: AgentSource<'_>,
+    agent_ref: &str,
     prompt: String,
     destination: EventDestination,
 ) -> Result<String, HeadlessError> {
@@ -195,7 +188,7 @@ async fn run_agentic_headless(
     // See `start_analytics`: keep `ctx_root` alive across context resolution.
     let base_dir = ctx_root.path().to_path_buf();
 
-    let (config, domain_docs) = load_agent(&*platform, source, &base_dir).await?;
+    let (config, domain_docs) = load_agent(&*platform, agent_ref, &base_dir).await?;
     let ctx = build_context(&*platform, &config, domain_docs, &base_dir).await;
 
     let (solver, automation_files) = config
@@ -236,27 +229,18 @@ async fn run_agentic_headless(
 /// reply) and have no retry to give "retryable" to.
 async fn load_agent(
     platform: &dyn PlatformContext,
-    source: AgentSource<'_>,
+    agent_ref: &str,
     base_dir: &Path,
 ) -> Result<(AgentConfig, Option<Vec<String>>), HeadlessError> {
-    let (read, label) = match source {
-        AgentSource::Ref(agent_ref) => (
-            agent_definition::read_analytics_agent(platform, agent_ref, base_dir).await,
-            agent_ref.to_string(),
-        ),
-        AgentSource::File(path) => (
-            agent_definition::read_agent_file(path),
-            format!("at {}", path.display()),
-        ),
-    };
+    let read = agent_definition::read_analytics_agent(platform, agent_ref, base_dir).await;
     let config = read.map_err(|e| match e {
         e @ (AgentDefinitionError::Missing(_)
         | AgentDefinitionError::Unavailable(_)
         | AgentDefinitionError::OutsideWorkspace(_)) => {
-            HeadlessError::Load(format!("failed to load agentic config {label}: {e}"))
+            HeadlessError::Load(format!("failed to load agentic config {agent_ref}: {e}"))
         }
         AgentDefinitionError::Invalid(e) => {
-            HeadlessError::Invalid(format!("agentic config {label} is not valid: {e}"))
+            HeadlessError::Invalid(format!("agentic config {agent_ref} is not valid: {e}"))
         }
     })?;
     let docs = context_documents::resolve(platform, &config)

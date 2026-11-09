@@ -31,82 +31,17 @@ impl WorkspaceContext for OxyProjectContext {
             .map(|wc| wc.root())
     }
 
-    /// On the stateless fleet roles (`Serve` and `Worker`) there's no working
-    /// copy, so resolve an agent's `context:` globs from the compile boundary
-    /// (materialised into a tempdir) instead of globbing an absent filesystem —
-    /// otherwise context resolution finds nothing and the run fails "no
-    /// databases configured". `Ide` / `All` keep the FS path (they hold the
-    /// working copy).
-    ///
-    /// Markdown documents do not come from this root on any role. The run
-    /// asks `resolve_context_documents` for them, which reads the pinned
-    /// revision wherever there is one — see `context_documents.rs`.
+    /// The revision's context, materialised, whenever this manager reads a
+    /// compiled revision — on every role, the Factory included. See
+    /// `context_root.rs`.
     async fn context_root(&self) -> ContextRoot {
-        use crate::server::role_manifest::{Role, current_process_role};
-        if matches!(current_process_role(), Role::Serve | Role::Worker) {
-            let workspace_id = self.workspace_manager.workspace_id;
-            match crate::server::api::semantic_scan::materialise_agent_context(
-                &self.workspace_manager.config_manager,
-            )
-            .await
-            {
-                Ok(Some(materialised)) => {
-                    let root = materialised.root.clone();
-                    // The revision travels with the root because anything a
-                    // caller caches off this path must be keyed by it. A
-                    // materialised root is revision-shaped, not working-copy
-                    // shaped, and caching an engine built from revision A under
-                    // a working-copy key would serve it for revision B — a
-                    // promote that appears not to take effect.
-                    //
-                    // `materialise_agent_context` only returns `Some` under
-                    // `Origin::Compiled`, so this is always `Some` here; the
-                    // `unwrap_or_else` is a belt-and-braces that degrades to the
-                    // working-copy key rather than panicking.
-                    let revision_id = self
-                        .workspace_manager
-                        .config_manager
-                        .revision_id()
-                        .unwrap_or_else(uuid::Uuid::nil);
-                    return ContextRoot::materialised(root, Box::new(materialised), revision_id);
-                }
-                // On a stateless node the FS fall-through below is doomed (no
-                // working copy), so make the miss LOUD and specific rather than
-                // letting it surface later as a confusing "no databases
-                // configured". Control flow is unchanged — we still fall
-                // through, which stays correct for Ide/All and any edge case.
-                //
-                // These two arms give an operator OPPOSITE instructions, which
-                // is why it matters that they are now actually distinct. Until
-                // the reads stopped swallowing their errors, a Postgres fault
-                // arrived here as `Ok(None)` and told someone to recompile a
-                // workspace that was compiled fine — while the arm below, named
-                // for exactly that fault, was unreachable.
-                Ok(None) => {
-                    tracing::error!(
-                        workspace_id = %workspace_id,
-                        role = ?current_process_role(),
-                        "context_root: no compiled agent context on a stateless node — workspace not promoted / not yet compiled; the run will have no usable context. Recompile the workspace."
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(
-                        workspace_id = %workspace_id,
-                        error = ?e,
-                        retryable = e.retryable(),
-                        "context_root: could not read the compile boundary on a stateless node; the run will fall through to an absent FS and fail. The workspace may be fine — retry before recompiling."
-                    );
-                }
-            }
-        }
-        // Ide / All, or a stateless node whose boundary read failed above. The
-        // second is already logged as an error; an empty root there resolves no
-        // globs, which is the same outcome as the absent directory it replaced.
-        ContextRoot::fs(
-            self.workspace_path()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_default(),
-        )
+        self.agent_context_root().await
+    }
+
+    /// The Builder's root: the working copy on a node that holds one, on
+    /// every origin. See `context_root.rs`.
+    async fn working_root(&self) -> ContextRoot {
+        self.builder_root().await
     }
 
     fn refresh_key_cache(

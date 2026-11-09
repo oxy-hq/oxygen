@@ -1089,25 +1089,25 @@ pub async fn list_workspaces(
             .collect()
     };
 
+    // Agents are compiled rows: counted from the promoted revisions in one
+    // query, on any pod, rather than by walking a working copy.
+    let agent_counts = super::ops::compiled_agent_counts(&workspaces).await;
+
     let summary_futures = workspaces.into_iter().map(|p| {
         let creator_names = creator_names.clone();
+        let agent_count = agent_counts.get(&p.id).copied();
         async move {
-            // Gather file counts and git metadata when the path exists on disk.
-            let (agent_count, workflow_count, git_remote, git_commit, git_updated_at) =
+            // Gather automation counts and git metadata when the path exists on disk.
+            let (workflow_count, git_remote, git_commit, git_updated_at) =
                 if let Some(ref path_str) = p.path {
                     let dir = std::path::PathBuf::from(path_str);
                     if dir.exists() {
-                        let (agent_count, workflow_count) = tokio::task::spawn_blocking({
+                        let workflow_count = tokio::task::spawn_blocking({
                             let dir = dir.clone();
-                            move || {
-                                (
-                                    Some(count_yml_suffix(&dir, "agent")),
-                                    Some(count_automation_files(&dir)),
-                                )
-                            }
+                            move || Some(count_automation_files(&dir))
                         })
                         .await
-                        .unwrap_or((None, None));
+                        .unwrap_or(None);
                         let git = default_git_client();
                         let (remote, (sha, msg), updated_at) = tokio::join!(
                             git.get_remote_url(&dir),
@@ -1119,12 +1119,12 @@ pub async fn list_workspaces(
                         } else {
                             Some(format!("{} — {}", &sha[..sha.len().min(7)], msg))
                         };
-                        (agent_count, workflow_count, remote, commit, updated_at)
+                        (workflow_count, remote, commit, updated_at)
                     } else {
-                        (None, None, None, None, None)
+                        (None, None, None, None)
                     }
                 } else {
-                    (None, None, None, None, None)
+                    (None, None, None, None)
                 };
 
             WorkspaceSummary {

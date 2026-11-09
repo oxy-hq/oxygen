@@ -44,7 +44,7 @@ use uuid::Uuid;
 
 use crate::integrations::slack::chart_render;
 
-/// Run an agentic agent against `config_path` with `question`, translating
+/// Run the agentic agent `agent_ref` names with `question`, translating
 /// the agent's event stream into `AnswerStream` items written to
 /// `answer_tx`. Returns the final answer text from the orchestrator.
 ///
@@ -54,7 +54,7 @@ use crate::integrations::slack::chart_render;
 /// terminates.
 pub async fn run_with_renderer(
     platform: Arc<dyn PlatformContext>,
-    config_path: &std::path::Path,
+    agent_ref: &str,
     question: &str,
     workspace_id: Uuid,
     answer_tx: mpsc::Sender<AnswerStream>,
@@ -73,7 +73,7 @@ pub async fn run_with_renderer(
 
     let pipeline_result = agentic_pipeline::run_agentic_streaming(
         platform,
-        config_path,
+        agent_ref,
         question.to_string(),
         event_tx,
     )
