@@ -63,6 +63,11 @@ pub enum FileKind {
     /// extension alone: a README nobody references is not one. See
     /// [`crate::context_documents`].
     ContextDocument,
+    /// `*.agent.yml` — a classic agent. Retired: nothing runs it and it compiles
+    /// to no row. Discovered only so the compile can say so
+    /// ([`crate::classic_agents`]). Test mirrors (`x.agent.test.yml`,
+    /// `x.test.agent.yml`) are not this kind.
+    RetiredAgent,
 }
 
 /// The kind of automation file. `.procedure.yml` is kept for back-compat;
@@ -152,6 +157,12 @@ pub fn discover(workspace_root: &Path) -> Result<Vec<DiscoveredFile>, CompileErr
         workspace_root,
         "**/*.agentic.yml",
         FileKind::AgenticAgent,
+        &mut out,
+    )?;
+    push_glob(
+        workspace_root,
+        "**/*.agent.yml",
+        FileKind::RetiredAgent,
         &mut out,
     )?;
     push_glob(

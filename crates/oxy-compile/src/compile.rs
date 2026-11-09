@@ -17,6 +17,7 @@
 //! still reads YAML from disk; we're only verifying that compile
 //! produces sane rows in production.
 
+use crate::classic_agents::{ClassicAgentWarning, agent_ref_warnings, retired_file_warning};
 use crate::errors::CompileError;
 use crate::outcome::{CompileOutcome, FailureKind, FileFailure, Promotion, RevisionStatus};
 use crate::walker::{AutomationKind, DiscoveredFile, FileKind, discover};
@@ -459,10 +460,12 @@ pub async fn compile_workspace(
 }
 
 /// What compiling every discovered file produced.
-struct CompileBatch {
-    rows: Vec<CompiledRow>,
-    failures: Vec<FileFailure>,
-    compiled: u32,
+pub(crate) struct CompileBatch {
+    pub(crate) rows: Vec<CompiledRow>,
+    pub(crate) failures: Vec<FileFailure>,
+    pub(crate) compiled: u32,
+    /// Classic-agent warnings ([`crate::classic_agents`]). Logged, not stored.
+    pub(crate) warnings: Vec<ClassicAgentWarning>,
 }
 
 /// Compile each file and flag duplicates within one revision. Two files with
@@ -483,15 +486,24 @@ pub(crate) struct AutomationRefusals {
     pub workspace_writes: bool,
 }
 
-async fn compile_files(files: &[DiscoveredFile], refusals: AutomationRefusals) -> CompileBatch {
+pub(crate) async fn compile_files(
+    files: &[DiscoveredFile],
+    refusals: AutomationRefusals,
+) -> CompileBatch {
     let mut batch = CompileBatch {
         rows: Vec::new(),
         failures: Vec::new(),
         compiled: 0,
+        warnings: Vec::new(),
     };
     let mut first_seen: HashMap<(FileKind, String), String> = HashMap::new();
 
     for file in files {
+        if file.kind == FileKind::RetiredAgent {
+            // Warned about, never compiled: no row, no failure.
+            batch.warnings.push(retired_file_warning(file).await);
+            continue;
+        }
         match compile_one_with(file, refusals).await {
             Ok(produced) => {
                 for row in produced {
@@ -515,6 +527,8 @@ async fn compile_files(files: &[DiscoveredFile], refusals: AutomationRefusals) -
             Err(f) => batch.failures.push(f),
         }
     }
+    batch.warnings.extend(agent_ref_warnings(&batch.rows));
+    batch.warnings.iter().for_each(ClassicAgentWarning::log);
     batch
 }
 
@@ -541,6 +555,7 @@ async fn drive_compile(
         mut rows,
         mut failures,
         compiled,
+        warnings: _,
     } = compile_files(
         &files,
         AutomationRefusals {
@@ -739,6 +754,7 @@ async fn compile_one_with(
 
     match file.kind {
         FileKind::Config => compile_config(file, &content),
+        FileKind::RetiredAgent => Ok(Vec::new()),
         FileKind::AgenticAgent => compile_named_yaml(file, &content, |name, file_path, def| {
             CompiledRow::Agent(CompiledAgent {
                 name,

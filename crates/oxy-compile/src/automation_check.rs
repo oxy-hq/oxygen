@@ -141,18 +141,11 @@ pub(crate) fn judge(
 }
 
 fn walk_tasks(tasks: &Value, location: &str, found: &mut Vec<RetiredFeature>) {
-    let Some(tasks) = tasks.as_array() else {
-        return;
-    };
-    for (i, task) in tasks.iter().enumerate() {
-        let here = format!("{location}[{i}]");
-        let Some(map) = task.as_object() else {
-            continue;
-        };
+    visit_tasks(tasks, location, &mut |here, map| {
         let name = map.get("name").and_then(Value::as_str).map(str::to_string);
         let mut refuse = |reason: &'static str, writes_workspace: bool| {
             found.push(RetiredFeature {
-                location: here.clone(),
+                location: here.to_string(),
                 task: name.clone(),
                 reason,
                 writes_workspace,
@@ -171,19 +164,38 @@ fn walk_tasks(tasks: &Value, location: &str, found: &mut Vec<RetiredFeature>) {
         {
             refuse(BUILDER_REASON, false);
         }
+    });
+}
 
+/// Call `visit(location, step)` for every step in `tasks`, descending into
+/// `tasks`, `conditions[].tasks` and `else` as [`retired_features`] documents.
+/// Shared with [`crate::classic_agents`], which reads each step's `agent_ref`.
+pub(crate) fn visit_tasks(
+    tasks: &Value,
+    location: &str,
+    visit: &mut dyn FnMut(&str, &serde_json::Map<String, Value>),
+) {
+    let Some(tasks) = tasks.as_array() else {
+        return;
+    };
+    for (i, task) in tasks.iter().enumerate() {
+        let here = format!("{location}[{i}]");
+        let Some(map) = task.as_object() else {
+            continue;
+        };
+        visit(&here, map);
         if let Some(nested) = map.get("tasks") {
-            walk_tasks(nested, &format!("{here}.tasks"), found);
+            visit_tasks(nested, &format!("{here}.tasks"), visit);
         }
         if let Some(conditions) = map.get("conditions").and_then(Value::as_array) {
             for (c, condition) in conditions.iter().enumerate() {
                 if let Some(nested) = condition.get("tasks") {
-                    walk_tasks(nested, &format!("{here}.conditions[{c}].tasks"), found);
+                    visit_tasks(nested, &format!("{here}.conditions[{c}].tasks"), visit);
                 }
             }
         }
         if let Some(nested) = map.get("else") {
-            walk_tasks(nested, &format!("{here}.else"), found);
+            visit_tasks(nested, &format!("{here}.else"), visit);
         }
     }
 }

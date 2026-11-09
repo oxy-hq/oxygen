@@ -54,6 +54,7 @@
 
 mod automation_check;
 pub mod blob_store;
+mod classic_agents;
 pub mod compile;
 pub mod context_documents;
 pub mod duckdb_mirror;
@@ -64,6 +65,7 @@ pub mod walker;
 pub mod workspace_path;
 pub mod writer;
 
+pub use classic_agents::agent_ref_candidates;
 pub use compile::{
     CURRENT_SCHEMA_VERSION, CompileRequest, ConfigGate, RevisionKind, build_compiled_config,
     compile_workspace, find_reusable_revision,
