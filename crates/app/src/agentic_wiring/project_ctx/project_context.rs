@@ -13,7 +13,7 @@ use oxy::config::model::DatabaseType;
 use crate::server::preagg_context::RollupFreshness;
 
 use super::{
-    OxyProjectContext, airhouse_wire_params, pg_wire_dsn, resolve_connector_impl,
+    CredentialUse, OxyProjectContext, airhouse_wire_params, pg_wire_dsn, resolve_connector_impl,
     resolve_model_impl, resolve_pre_built_airhouse,
 };
 
@@ -157,13 +157,18 @@ impl ProjectContext for OxyProjectContext {
                 }
             }
             // Airhouse speaks the Postgres wire protocol; `airhouse_managed`
-            // mints an ephemeral per-subject credential here.
+            // mints an ephemeral per-subject credential here. `PerRequest`,
+            // deliberately: this hands a DSN to airway, which opens its own
+            // connection and pools nothing, so the requester is the only one
+            // who uses it and naming them is exact. (The shared query pool
+            // takes `SharedPool` instead — see `CredentialUse`.)
             DatabaseType::Airhouse(_) | DatabaseType::AirhouseManaged(_) => {
                 match airhouse_wire_params(
                     &db,
                     &self.workspace_manager,
                     self.subject,
                     self.role.clone(),
+                    CredentialUse::PerRequest,
                 )
                 .await
                 {

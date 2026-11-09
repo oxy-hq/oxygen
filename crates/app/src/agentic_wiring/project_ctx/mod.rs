@@ -640,17 +640,28 @@ mod tests {
         let user = uuid::Uuid::from_u128(1);
         let role = entity::workspace_members::WorkspaceRole::Admin;
 
-        // Managed: keyed by (workspace, subject, role) — NOT the minted user,
-        // so it survives credential rotation.
+        // Managed: keyed by (workspace, user|system, role) — NOT the minted
+        // username, so it survives credential rotation.
         let k1 = airhouse_pool_key(true, ws, Some(user), Some(&role), "wh");
         let k2 = airhouse_pool_key(true, ws, Some(user), Some(&role), "wh");
         assert_eq!(k1, k2);
         assert!(k1.starts_with("mgd:"));
 
-        // Different subject / role / no-subject → distinct keys (no cross-tenant
-        // or cross-role connection sharing).
+        // Two users of one workspace at the same role SHARE a pool. This is
+        // the point of the key, not an accident: airhouse resolves a username
+        // to a role and nothing else, then authorizes on (role, statement
+        // type) plus a tenant-level write scope, so these two sessions are
+        // granted the same thing and already share airhouse's own
+        // {tenant}:{sql} result cache. Keying them apart grew held
+        // connections with headcount instead of concurrency.
         let other_user =
             airhouse_pool_key(true, ws, Some(uuid::Uuid::from_u128(2)), Some(&role), "wh");
+        assert_eq!(k1, other_user);
+        // And no user id reaches the key, so it cannot grow per person.
+        assert!(!k1.contains(&user.to_string()));
+
+        // The boundaries that remain, each of which IS a difference in what
+        // airhouse grants or in what the connection is for.
         let other_role = airhouse_pool_key(
             true,
             ws,
@@ -658,9 +669,22 @@ mod tests {
             Some(&entity::workspace_members::WorkspaceRole::Member),
             "wh",
         );
+        let no_role = airhouse_pool_key(true, ws, Some(user), None, "wh");
         let system = airhouse_pool_key(true, ws, None, None, "wh");
-        assert_ne!(k1, other_user);
-        assert_ne!(k1, other_role);
+        let other_ws = airhouse_pool_key(
+            true,
+            uuid::Uuid::from_u128(9),
+            Some(user),
+            Some(&role),
+            "wh",
+        );
+        assert_ne!(k1, other_role, "a different role is a different authority");
+        assert_ne!(k1, no_role, "no role is not the same as a role");
+        assert_ne!(
+            k1, system,
+            "a background path must not share with an interactive one"
+        );
+        assert_ne!(k1, other_ws, "never across workspaces");
         assert!(system.contains("system"));
 
         // Static airhouse keys by (workspace, db) and ignores subject/role.
@@ -668,6 +692,80 @@ mod tests {
         let s2 = airhouse_pool_key(false, ws, None, None, "wh");
         assert_eq!(s1, s2);
         assert_eq!(s1, format!("static:{ws}:wh"));
+    }
+
+    /// A role change moves a requester to a different key, which is why
+    /// sharing a connection per role is not a revocation hole.
+    ///
+    /// The effective role is resolved per request (`EffectiveWorkspaceRole`,
+    /// set on the request's extensions by the workspace middleware), so a
+    /// demoted or removed member's *next* request keys on their new role and
+    /// gets a credential minted at it. The entry for the old role stays
+    /// reachable only by someone whose current role is that role, which is
+    /// correct by definition; it then idles out. This held for the old
+    /// per-user key too — nothing evicted it on demotion either — so the
+    /// window is unchanged. If targeted eviction is ever wanted, the key to
+    /// drop is `mgd:<ws>:user:<old_role>`, and there is now one entry per role
+    /// rather than one per person to find.
+    #[test]
+    fn a_role_change_moves_the_requester_to_another_key() {
+        use entity::workspace_members::WorkspaceRole;
+        let ws = uuid::Uuid::nil();
+        let user = uuid::Uuid::from_u128(7);
+
+        let as_admin = airhouse_pool_key(true, ws, Some(user), Some(&WorkspaceRole::Admin), "wh");
+        let as_viewer = airhouse_pool_key(true, ws, Some(user), Some(&WorkspaceRole::Viewer), "wh");
+        assert_ne!(
+            as_admin, as_viewer,
+            "a demotion must not land on the old role's pooled connection"
+        );
+        // And the demoted requester lands exactly where every other Viewer of
+        // this workspace lands — no private entry carrying stale authority.
+        let another_viewer = airhouse_pool_key(
+            true,
+            ws,
+            Some(uuid::Uuid::from_u128(8)),
+            Some(&WorkspaceRole::Viewer),
+            "wh",
+        );
+        assert_eq!(as_viewer, another_viewer);
+    }
+
+    /// The identity count per workspace per process is now bounded by the role
+    /// enum rather than by headcount — the whole point of the change.
+    ///
+    /// `width × identities × processes` is what fills the analytics plane's
+    /// pod-wide connection cap, and `identities` was the unbounded term: a
+    /// 40-person org could hold 40 pools per role per process. This pins the
+    /// bound so a future key change cannot quietly reintroduce it.
+    #[test]
+    fn airhouse_pool_identities_are_bounded_by_role_not_headcount() {
+        use entity::workspace_members::WorkspaceRole;
+        let ws = uuid::Uuid::nil();
+        let roles = [
+            WorkspaceRole::Owner,
+            WorkspaceRole::Admin,
+            WorkspaceRole::Member,
+            WorkspaceRole::Viewer,
+        ];
+
+        let mut keys = std::collections::BTreeSet::new();
+        // Forty people, every role, plus the role-less and background paths.
+        for n in 0..40u128 {
+            let user = uuid::Uuid::from_u128(n + 1);
+            for role in &roles {
+                keys.insert(airhouse_pool_key(true, ws, Some(user), Some(role), "wh"));
+            }
+            keys.insert(airhouse_pool_key(true, ws, Some(user), None, "wh"));
+        }
+        keys.insert(airhouse_pool_key(true, ws, None, None, "wh"));
+
+        // roles + "none" for a user, + system. Independent of the 40.
+        assert_eq!(
+            keys.len(),
+            roles.len() + 2,
+            "identities per workspace per process must not grow with headcount: {keys:?}"
+        );
     }
 
     #[test]
@@ -1401,8 +1499,16 @@ async fn build_airhouse_connector<S: DiskSlot>(
     );
 
     crate::agentic_wiring::airhouse_pool::get_or_build(key, || async {
-        let (mut host, mut port, user, password, database) =
-            airhouse_wire_params(db, workspace_manager, subject, role.clone()).await?;
+        // This credential goes into the pool below, so it is minted for the
+        // pool rather than for whoever happens to open it.
+        let (mut host, mut port, user, password, database) = airhouse_wire_params(
+            db,
+            workspace_manager,
+            subject,
+            role.clone(),
+            CredentialUse::SharedPool,
+        )
+        .await?;
 
         // Route query workloads — analytics agent, Data-App, SQL-IDE: everything
         // funneled through build_airhouse_connector — to the dedicated analytics
@@ -1434,12 +1540,33 @@ async fn build_airhouse_connector<S: DiskSlot>(
     .await
 }
 
-/// Logical pool identity for an airhouse connector. Deliberately keyed on the
-/// **requester**, not the minted username: the broker re-mints a fresh
-/// ephemeral username roughly every 15 min, but the live connection (and thus
-/// this key) must persist across that rotation. `airhouse_managed` is per
-/// `(workspace, subject|system, role)`; static airhouse shares fixed creds so
+/// Logical pool identity for an airhouse connector. Deliberately *not* the
+/// minted username: the broker re-mints a fresh ephemeral username roughly
+/// every 15 min, but the live connection (and thus this key) must persist
+/// across that rotation. `airhouse_managed` is per
+/// `(workspace, user|system, role)`; static airhouse shares fixed creds so
 /// it keys per `(workspace, db)`.
+///
+/// **Not per requester.** Keying this on the individual `subject` cost one pool
+/// per user per role per process, so held connections grew with an org's
+/// headcount rather than with its concurrency — the `identities` term in
+/// `width × identities × processes`, and the reason the analytics plane's
+/// pod-wide cap went 64 → 160 → 320 in seven days without settling
+/// (`internal-docs/airhouse-connection-scaling.md`). It bought nothing to
+/// offset that: airhouse resolves a username to a **role** and nothing else
+/// (`rbac.rs::pick_role`), then authorizes on `(role, statement type)` plus a
+/// tenant-level write scope, with no row-level or per-user filter anywhere on
+/// the read path — its own result cache keys on `{tenant}:{sql}` for the same
+/// reason. Two readers of one workspace at the same role therefore saw
+/// byte-identical data and already shared cached results. `role` stays in the
+/// key, so this grants exactly what the per-subject key granted.
+///
+/// **The credential follows the key.** Because one connection now serves every
+/// requester at a role, it is minted for `SystemPurpose::SharedQuery` at that
+/// role rather than for a user: a `mint_for_user` here would stamp whichever
+/// requester opened the connection onto queries other people ran. Coarse and
+/// true beats precise and false, and oxy's own audit trail still records the
+/// individual.
 fn airhouse_pool_key(
     is_managed: bool,
     workspace_id: uuid::Uuid,
@@ -1448,9 +1575,13 @@ fn airhouse_pool_key(
     db_name: &str,
 ) -> String {
     if is_managed {
-        let subj = subject
-            .map(|u| u.to_string())
-            .unwrap_or_else(|| "system".to_string());
+        // A request carrying a user is one bucket; a background path with no
+        // subject keeps its own, so a scheduled run never shares a connection
+        // with an interactive one.
+        let subj = match subject {
+            Some(_) => "user",
+            None => "system",
+        };
         let r = role
             .map(|r| format!("{r:?}"))
             .unwrap_or_else(|| "none".to_string());
@@ -1478,11 +1609,14 @@ fn pg_wire_dsn(user: &str, password: &str, host: &str, port: u16, database: &str
 /// `airhouse_managed` database. For `airhouse_managed` this mints an
 /// ephemeral per-subject credential via the SA broker. Shared by the
 /// connector builder and the airway destination resolver.
+/// `sharing` is passed straight to [`mint_airhouse_managed_creds`] and the
+/// caller must choose it deliberately — see [`CredentialUse`].
 async fn airhouse_wire_params<S>(
     db: &oxy::config::model::Database,
     workspace_manager: &WorkspaceManager<S>,
     subject: Option<uuid::Uuid>,
     role: Option<WorkspaceRole>,
+    sharing: CredentialUse,
 ) -> Result<(String, u16, String, String, String), OxyError> {
     let params = match &db.database_type {
         DatabaseType::Airhouse(ah) => {
@@ -1498,7 +1632,7 @@ async fn airhouse_wire_params<S>(
             (host, port, user, password, database)
         }
         DatabaseType::AirhouseManaged(_) => {
-            mint_airhouse_managed_creds(workspace_manager, subject, role).await?
+            mint_airhouse_managed_creds(workspace_manager, subject, role, sharing).await?
         }
         other => {
             return Err(OxyError::ConfigurationError(format!(
@@ -1517,15 +1651,38 @@ async fn airhouse_wire_params<S>(
 ///
 /// HTTP-handled paths arrive here with both `subject` (the requesting user
 /// id, threaded by the workspace middleware) and `role` (the effective
-/// workspace role) populated; the broker mints with the matching airhouse
-/// role per the standard mapping. Background paths (scheduler, schema
-/// crawl, agentic background runs) leave `subject = None` and fall through
-/// to `mint_for_system` with a `system:workspace:<uuid>:agentic-bg`
-/// audit subject.
+/// workspace role) populated. Background paths (scheduler, schema crawl,
+/// agentic background runs) leave `subject = None` and get
+/// `AgenticBackground` at Admin.
+///
+/// **`sharing` decides whose name goes on the credential, and the caller must
+/// say.** It is not a detail of this function: it follows from what the caller
+/// does with the result, so getting it wrong writes a false audit row. See
+/// [`CredentialUse`].
+/// Whether the credential a mint returns will be **shared** with other
+/// requesters or belongs to **one** request. The caller knows; this function
+/// cannot tell, and the answer decides whether naming the requesting user on
+/// the credential is true or false.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CredentialUse {
+    /// Handed to [`airhouse_pool`](crate::agentic_wiring::airhouse_pool), so
+    /// the connection it opens is reused by every other requester at the same
+    /// role. Minted for [`airhouse::SystemPurpose::SharedQuery`] — a per-user
+    /// mint here would stamp whoever opened the connection onto queries other
+    /// people ran.
+    SharedPool,
+    /// A DSN for one consumer that opens its own connection and pools nothing
+    /// (the airway destination resolver,
+    /// `project_context::resolve_pipeline_destination`). Nobody else uses it,
+    /// so the requester is minted by name and the audit row is exact.
+    PerRequest,
+}
+
 async fn mint_airhouse_managed_creds<S>(
     workspace_manager: &WorkspaceManager<S>,
     subject: Option<uuid::Uuid>,
     role: Option<WorkspaceRole>,
+    sharing: CredentialUse,
 ) -> Result<(String, u16, String, String, String), OxyError> {
     let workspace_id = workspace_manager.workspace_id;
     let endpoint = airhouse::wire_endpoint().ok_or_else(|| {
@@ -1551,15 +1708,29 @@ async fn mint_airhouse_managed_creds<S>(
                 // No effective role in scope (e.g. handler that didn't extract
                 // EffectiveWorkspaceRole). Default to reader — least-privilege.
                 .unwrap_or(airhouse::UserRole::Reader);
-            broker
-                .mint_for_user(
-                    workspace_id,
-                    uid,
-                    airhouse_role,
-                    airhouse::DEFAULT_INTERNAL_TTL,
-                )
-                .await
-                .map_err(OxyError::from)?
+            // The role is the requester's either way, so neither arm grants
+            // more than the other. Only the NAME on the credential differs,
+            // and it follows who will use the connection.
+            match sharing {
+                CredentialUse::SharedPool => broker
+                    .mint_for_system(
+                        workspace_id,
+                        airhouse::SystemPurpose::SharedQuery,
+                        airhouse_role,
+                        airhouse::DEFAULT_INTERNAL_TTL,
+                    )
+                    .await
+                    .map_err(OxyError::from)?,
+                CredentialUse::PerRequest => broker
+                    .mint_for_user(
+                        workspace_id,
+                        uid,
+                        airhouse_role,
+                        airhouse::DEFAULT_INTERNAL_TTL,
+                    )
+                    .await
+                    .map_err(OxyError::from)?,
+            }
         }
         None => broker
             .mint_for_system(

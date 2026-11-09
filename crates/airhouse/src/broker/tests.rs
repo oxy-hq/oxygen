@@ -21,6 +21,32 @@ fn system_subject_includes_workspace_and_purpose() {
     );
 }
 
+/// A person's read on the shared, role-keyed query pool is audited as the
+/// pool, never as a user: one connection serves every requester at that role,
+/// so naming one of them would be a false row. Coarse and true over precise
+/// and false — the individual is recorded by oxy's own audit trail.
+#[test]
+fn shared_query_subject_names_the_pool_not_a_user() {
+    let ws = Uuid::nil();
+    let s = BrokerSubject::System {
+        workspace_id: ws,
+        purpose: SystemPurpose::SharedQuery,
+    };
+    assert_eq!(
+        s.audit_subject(),
+        format!("system:workspace:{ws}:shared-query")
+    );
+    // Distinct from the background segment, so a person's query is never
+    // filtered away as scheduler or agentic traffic.
+    let bg = BrokerSubject::System {
+        workspace_id: ws,
+        purpose: SystemPurpose::AgenticBackground,
+    };
+    assert_ne!(s.audit_subject(), bg.audit_subject());
+    // And it never renders as a user id.
+    assert_ne!(s.audit_subject(), BrokerSubject::User(ws).audit_subject());
+}
+
 /// The previews' live-table read is its own audit segment, so a staff
 /// check reading `information_schema` never reads as scheduler traffic.
 #[test]

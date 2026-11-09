@@ -215,6 +215,20 @@ pub enum SystemPurpose {
     /// a Writer. Its own audit segment, so an onboarding upload never reads
     /// as an app's or a pipeline's writes.
     FileImport,
+    /// A person's query on the **shared, role-keyed** query pool
+    /// (`project_ctx::airhouse_pool_key`). Minted for the role, not the
+    /// caller, for the same reason [`BrokerSubject::App`] is minted for the
+    /// app: one live connection serves every requester at that role, so no
+    /// single requester's identity can honestly be stamped on it.
+    ///
+    /// The role is still the **requester's** effective workspace role, so this
+    /// grants no more than a per-user mint would, and the oxy layer remains
+    /// what authorizes the person (`server::authz`), which is also where the
+    /// individual is recorded. Using [`Self::as_str`] the audit row reads
+    /// `system:workspace:<uuid>:shared-query`, which is coarse but true — the
+    /// alternative is a row naming whichever user happened to open the
+    /// connection, which is false.
+    SharedQuery,
 }
 
 impl SystemPurpose {
@@ -230,6 +244,7 @@ impl SystemPurpose {
             SystemPurpose::UsageIngest => "custom-app-usage",
             SystemPurpose::UsageRead => "custom-app-usage-read",
             SystemPurpose::FileImport => "file-import",
+            SystemPurpose::SharedQuery => "shared-query",
         }
     }
 }

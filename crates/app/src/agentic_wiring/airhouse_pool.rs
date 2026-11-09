@@ -15,8 +15,10 @@
 //! # What
 //!
 //! Cache a **small pool of up to N** live `AirhouseConnector`s per **logical
-//! identity** (`mgd:<workspace>:<subject|system>:<role>` for `airhouse_managed`,
-//! `static:<workspace>:<db>` for static airhouse).
+//! identity** (`mgd:<workspace>:<user|system>:<role>` for `airhouse_managed`,
+//! `static:<workspace>:<db>` for static airhouse). The managed key is **not**
+//! per requester — see `project_ctx::airhouse_pool_key` for why, and for the
+//! bound it puts on how many identities one workspace can have.
 //! This caps an identity's concurrent DP sessions at N (default 3) instead of
 //! unbounded — collapsing the 32-session spike — while still allowing N-way
 //! query concurrency so a slow analytics query doesn't head-of-line-block the
