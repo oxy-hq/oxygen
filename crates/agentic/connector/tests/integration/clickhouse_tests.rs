@@ -47,31 +47,24 @@ pub(crate) async fn test_connection() -> Option<Conn> {
                 });
             }
 
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
+            use testcontainers::ImageExt;
             use testcontainers_modules::clickhouse::ClickHouse;
 
             let container = TEST_CONTAINER
                 .get_or_try_init(|| async {
-                    let img = ClickHouse::default() // 64 MB (Docker default) is too small: a parallel plan wants a 32 MB
-                        // DSM segment and a REUSED container accumulates them.
-                        // Must match at every setup site — reuse hashes the config.
-                        // See internal-docs/workspace-source.md.
-                        .with_shm_size(1024 * 1024 * 1024)
-                        // The module defaults to 23.3; CI's service and prod
-                        // run 25.8. Newer images lock the passwordless
-                        // default user to localhost unless told not to.
-                        .with_tag("25.8-alpine")
-                        .with_env_var("CLICKHOUSE_SKIP_USER_SETUP", "1")
-                        // Reuse matches on labels, not image: without one of
-                        // our own it adopts whatever reusable container is up
-                        // (oxy-app's test Postgres, say) and finds no 8123.
-                        .with_label("tech.oxy.test-clickhouse", "25.8-alpine")
-                        .with_reuse(ReuseDirective::Always);
-                    img.start()
-                        .await
-                        .map(std::sync::Arc::new)
-                        .map_err(|e| format!("clickhouse testcontainer failed: {e}"))
+                    oxy_test_utils::containers::start_reusable(|| {
+                        ClickHouse::default()
+                            // 64 MB (Docker default) is too small for a
+                            // parallel plan. See internal-docs/workspace-source.md.
+                            .with_shm_size(1024 * 1024 * 1024)
+                            // The module defaults to 23.3; CI's service and prod
+                            // run 25.8. Newer images lock the passwordless
+                            // default user to localhost unless told not to.
+                            .with_tag("25.8-alpine")
+                            .with_env_var("CLICKHOUSE_SKIP_USER_SETUP", "1")
+                    })
+                    .await
+                    .map(std::sync::Arc::new)
                 })
                 .await?;
 

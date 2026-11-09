@@ -38,7 +38,6 @@
 #![allow(dead_code)] // Each test binary uses a different subset.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection};
@@ -51,10 +50,6 @@ pub mod source_scan;
 /// Keeps the state dir alive for the whole test binary. Dropping it would
 /// delete the bundle bytes mid-test.
 static STATE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-static TEST_DB_URL: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
-static TEST_CONTAINER: tokio::sync::OnceCell<
-    Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
-> = tokio::sync::OnceCell::const_new();
 
 /// Advisory-lock key guarding template build and clone on the admin database.
 /// Distinct from `server::test_support`'s key, which is taken on the *app*
@@ -86,14 +81,6 @@ const TEST_DB_PREFIXES: &[&str] = &[
     // database owns cleaning it up on the failure path; see `with_fx` in
     // `platform/oltp_provisioner.rs`.
 ];
-
-/// Image tag for the test Postgres. Also the reuse-label value, so bumping it
-/// starts a new container rather than reusing one on the old version.
-const POSTGRES_TAG: &str = "18-alpine";
-
-/// Label that scopes container reuse to *our* Postgres. See the comment at the
-/// call site — without it, reuse matches any testcontainer on the machine.
-const REUSE_LABEL: &str = "tech.oxy.test-postgres";
 
 /// The demo project the seed points workspaces at.
 pub fn examples_path() -> PathBuf {
@@ -197,47 +184,11 @@ async fn migrate_domains(db: &DatabaseConnection) {
 }
 
 /// The admin (`postgres`) connection URL: CI's service container when
-/// `OXY_DATABASE_URL` is set, otherwise a reused testcontainer.
+/// `OXY_DATABASE_URL` is set, otherwise the shared test container. See
+/// `oxy_test_utils::containers` for why that container is pinned by name
+/// and label rather than reused bare.
 pub async fn admin_url() -> String {
-    TEST_DB_URL
-        .get_or_init(|| async {
-            if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
-                return url; // CI: reuse the service container.
-            }
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
-            use testcontainers_modules::postgres::Postgres;
-            let container = TEST_CONTAINER
-                .get_or_init(|| async {
-                    Arc::new(
-                        Postgres::default()
-                            .with_tag(POSTGRES_TAG)
-                            // MUST stay: `ReuseDirective::Always` on its own matches
-                            // ANY container carrying `org.testcontainers.managed-by`
-                            // and takes the most recently created one — no image,
-                            // name or tag is part of the lookup. So a MinIO (or any
-                            // other) testcontainer left running by an unrelated test
-                            // gets "reused" as this Postgres, and every DB test then
-                            // dies on `PortNotExposed { port: Tcp(5432) }`, which
-                            // reads like a broken database rather than a container
-                            // mixup. Custom labels *are* part of the lookup filter,
-                            // so this pins reuse to our own image + tag.
-                            .with_label(REUSE_LABEL, POSTGRES_TAG)
-                            .with_reuse(ReuseDirective::Always)
-                            .start()
-                            .await
-                            .expect("start postgres testcontainer (is Docker running?)"),
-                    )
-                })
-                .await;
-            let port = container
-                .get_host_port_ipv4(5432_u16)
-                .await
-                .expect("get postgres port");
-            format!("postgresql://postgres:postgres@127.0.0.1:{port}/postgres")
-        })
-        .await
-        .clone()
+    oxy_test_utils::containers::server_url().await
 }
 
 /// This run's identity, as something safe to put in a database name.

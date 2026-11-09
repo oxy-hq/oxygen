@@ -45,8 +45,6 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true, features = ["registry"] }
 agentic-analytics = { path = "../analytics" }
 agentic-builder = { path = "../builder" }
-testcontainers = { workspace = true, features = ["blocking", "reusable-containers"] }
-testcontainers-modules = { workspace = true, features = ["postgres"] }
 # `migrate_shared_test_db` — central-then-runtime migration ordering shared
 # with agentic-pipeline / agentic-airway fixtures. See oxy-test-utils::migration.
 oxy-test-utils = { workspace = true }

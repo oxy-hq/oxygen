@@ -33,39 +33,10 @@ use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, Set};
 use serde_json::json;
 use uuid::Uuid;
 
-static TEST_DB_URL: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
-static TEST_CONTAINER: tokio::sync::OnceCell<
-    Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
-> = tokio::sync::OnceCell::const_new();
-
 /// Same fixture as `airway_config_test` / `airway_run_test`: central migrator
 /// first (it owns `airway_source_config`), then `AirwayMigrator`.
 async fn test_db() -> Option<DatabaseConnection> {
-    let url = TEST_DB_URL
-        .get_or_init(|| async {
-            if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
-                return url;
-            }
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
-            use testcontainers_modules::postgres::Postgres;
-            let container = TEST_CONTAINER
-                .get_or_init(|| async {
-                    Arc::new(
-                        Postgres::default()
-                            .with_tag("18-alpine")
-                            .with_reuse(ReuseDirective::Always)
-                            .start()
-                            .await
-                            .expect("start Postgres testcontainer — is Docker running?"),
-                    )
-                })
-                .await;
-            let port = container.get_host_port_ipv4(5432_u16).await.unwrap();
-            format!("postgresql://postgres:postgres@127.0.0.1:{port}/postgres")
-        })
-        .await
-        .clone();
+    let url = oxy_test_utils::containers::shared_db_url::<RuntimeMigrator>().await;
 
     let db = Database::connect(&url).await.ok()?;
     // Central → runtime → domain, in production order. The token returned by

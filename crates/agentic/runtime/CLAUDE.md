@@ -75,4 +75,4 @@ migrators.
 ## Testing
 
 - Unit tests: `cargo nextest run -p agentic-runtime`
-- Integration tests: `OXY_DATABASE_URL=... cargo nextest run -p agentic-runtime --test integration -E 'test(integration_tests)'` (requires PostgreSQL — use testcontainers, never the dev DB)
+- Integration tests: `cargo nextest run -p agentic-runtime --test integration -E 'test(integration_tests)'` (needs Docker; the database comes from `oxy_test_utils::containers::shared_db_url` — never the dev DB)

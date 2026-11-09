@@ -46,7 +46,7 @@ use entity::organizations;
 use entity::workspaces::{self, WorkspaceStatus};
 use migration::{Migrator, MigratorTrait};
 use rustls::ClientConfig;
-use sea_orm::{ActiveModelTrait, ActiveValue, ConnectionTrait, Database, DatabaseConnection, Set};
+use sea_orm::{ActiveModelTrait, ActiveValue, Database, DatabaseConnection, Set};
 use serde_json::{Value, json};
 use std::sync::Mutex;
 use tokio_postgres_rustls::MakeRustlsConnect;
@@ -100,57 +100,8 @@ fn set_test_encryption_key() {
 
 // ── Per-test app DB (same shape as Tier-A) ──────────────────────────────────
 
-static TEST_DB_URL: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
-static TEST_CONTAINER: tokio::sync::OnceCell<
-    std::sync::Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
-> = tokio::sync::OnceCell::const_new();
-
 async fn test_db() -> DatabaseConnection {
-    let admin_url = TEST_DB_URL
-        .get_or_init(|| async {
-            if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
-                return url;
-            }
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
-            use testcontainers_modules::postgres::Postgres;
-
-            let container = TEST_CONTAINER
-                .get_or_init(|| async {
-                    std::sync::Arc::new(
-                        Postgres::default()
-                            .with_tag("18-alpine")
-                            // 64 MB (Docker default) is too small: a parallel plan wants a 32 MB
-                            // DSM segment and a REUSED container accumulates them.
-                            // Must match at every setup site — reuse hashes the config.
-                            // See internal-docs/workspace-source.md.
-                            .with_shm_size(1024 * 1024 * 1024)
-                            .with_reuse(ReuseDirective::Always)
-                            .start()
-                            .await
-                            .expect("start postgres testcontainer"),
-                    )
-                })
-                .await;
-            let port = container
-                .get_host_port_ipv4(5432_u16)
-                .await
-                .expect("postgres port");
-            format!("postgresql://postgres:postgres@127.0.0.1:{port}/postgres")
-        })
-        .await
-        .clone();
-
-    let admin = Database::connect(&admin_url).await.expect("admin connect");
-    let db_name = format!("cameras_tierb_{}", Uuid::new_v4().simple());
-    admin
-        .execute_unprepared(&format!("CREATE DATABASE \"{db_name}\""))
-        .await
-        .expect("create per-test db");
-    let test_url = match admin_url.rfind('/') {
-        Some(pos) => format!("{}/{db_name}", &admin_url[..pos]),
-        None => panic!("admin_url missing path: {admin_url}"),
-    };
+    let test_url = oxy_test_utils::containers::fresh_db_url("cameras_tierb").await;
 
     // The broker calls `oxy_platform::db::establish_connection()` to read
     // the airhouse_tenants row, which reads OXY_DATABASE_URL globally and

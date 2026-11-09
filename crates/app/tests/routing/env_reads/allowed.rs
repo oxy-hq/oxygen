@@ -509,6 +509,11 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
         "platform infrastructure (Postgres, secrets) below oxy-app-core; migrate when oxy-platform grows a config",
     ),
     (
+        "OXY_DATABASE_URL",
+        "crates/test-utils/src/containers/mod.rs",
+        "test-only helper (dev-dep crate below oxy-app-core): CI's database for the shared test Postgres",
+    ),
+    (
         "OXY_DATABASE_USER",
         "crates/platform/src/db/auth_mode.rs",
         "platform infrastructure (Postgres, secrets) below oxy-app-core; migrate when oxy-platform grows a config",

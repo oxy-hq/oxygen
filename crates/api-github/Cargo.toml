@@ -61,11 +61,7 @@ agentic-runtime = { workspace = true }
 agentic-pipeline = { workspace = true }
 oxy-cameras = { workspace = true }
 tempfile = { workspace = true }
-testcontainers = { workspace = true, features = [
-    "blocking",
-    "reusable-containers",
-] }
-testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
+oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
 
 [lints]
 workspace = true

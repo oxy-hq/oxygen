@@ -17,60 +17,11 @@ use agentic_runtime::transport::DurableTransport;
 use sea_orm::{Database, DatabaseConnection};
 use serde_json::json;
 
-/// Shared test Postgres container — started once per process, reused across tests.
-/// The container is automatically cleaned up when the test process exits.
-static TEST_DB_URL: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
-
-/// Keeps the Postgres container handle alive for the process lifetime without
-/// leaking. `ReuseDirective::Always` means tests across nextest processes share
-/// the same container regardless.
-static TEST_CONTAINER: tokio::sync::OnceCell<
-    std::sync::Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
-> = tokio::sync::OnceCell::const_new();
-
-/// Get a database connection for testing. Uses testcontainers to spin up
-/// Postgres automatically, or OXY_DATABASE_URL if set. Shared with sibling
+/// Get a database connection for testing: this run's shared test database
+/// (`oxy_test_utils::containers::shared_db_url`), or OXY_DATABASE_URL if set. Shared with sibling
 /// modules (e.g. `run_feed_test`) so they don't copy the container setup.
 pub(crate) async fn test_db() -> Option<DatabaseConnection> {
-    let url = TEST_DB_URL
-        .get_or_init(|| async {
-            // If OXY_DATABASE_URL is set, use it (external DB).
-            if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
-                return url;
-            }
-
-            // Start a reusable testcontainer. `ReuseDirective::Always` means
-            // nextest processes share one Postgres container instead of each
-            // spawning their own.
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
-            use testcontainers_modules::postgres::Postgres;
-
-            let container = TEST_CONTAINER
-                .get_or_init(|| async {
-                    std::sync::Arc::new(
-                        Postgres::default()
-                            .with_tag("18-alpine")
-                            // 64 MB (Docker default) is too small: a parallel plan wants a 32 MB
-                            // DSM segment and a REUSED container accumulates them.
-                            // Must match at every setup site — reuse hashes the config.
-                            // See internal-docs/workspace-source.md.
-                            .with_shm_size(1024 * 1024 * 1024)
-                            .with_reuse(ReuseDirective::Always)
-                            .start()
-                            .await
-                            .expect("failed to start Postgres testcontainer — is Docker running?"),
-                    )
-                })
-                .await;
-            let port = container
-                .get_host_port_ipv4(5432_u16)
-                .await
-                .expect("failed to get Postgres port");
-            format!("postgresql://postgres:postgres@127.0.0.1:{port}/postgres")
-        })
-        .await
-        .clone();
+    let url = oxy_test_utils::containers::shared_db_url::<RuntimeMigrator>().await;
 
     // Retry connection — the reusable container may still be starting up.
     let mut db = None;
@@ -115,7 +66,7 @@ pub(crate) async fn test_db() -> Option<DatabaseConnection> {
 /// own in the same server (`root_task_id_migration_test`).
 pub(crate) async fn test_db_url() -> Option<String> {
     test_db().await?;
-    TEST_DB_URL.get().cloned()
+    Some(oxy_test_utils::containers::shared_db_url::<RuntimeMigrator>().await)
 }
 
 /// Generate a unique run ID for test isolation.

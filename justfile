@@ -205,7 +205,14 @@ test-filter expr:
 test-build:
     {{lease}} cargo nextest list --workspace >/dev/null
 
-# Remove dangling test containers (Postgres/ClickHouse/MySQL) left by test runs
+# Remove test containers a killed run left behind; keeps the shared `oxy-test-*`
+# ones and anything young enough to be in use (dry run without --apply).
+#   just test-gc --apply              # leftover containers
+#   just test-gc --apply --databases  # also the test DBs (after editing a migration in place)
+test-gc *args:
+    python3 scripts/test-gc.py {{ args }}
+
+# Force-remove EVERY testcontainer, shared and in-use ones included (prefer test-gc)
 clean-test-containers:
     @docker ps -aq --filter "label=org.testcontainers.managed-by=testcontainers" | xargs -r docker rm -f
 

@@ -38,6 +38,12 @@ sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
 # Jitter for the advisory-lock poll backoff in `migration::AdvisoryLock`.
 rand = { workspace = true }
+# `containers`: the shared local test containers and self-cleaning test
+# databases. See src/containers/mod.rs.
+testcontainers = { workspace = true, features = ["reusable-containers"] }
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+url = { workspace = true }
+uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [lints]

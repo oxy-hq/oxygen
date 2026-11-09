@@ -51,11 +51,7 @@ oxy-oltp = { workspace = true }
 reqwest = { workspace = true }             # document_storage: PUT/GET the presigned URLs
 tempfile = { workspace = true }
 url = { workspace = true }
-testcontainers = { workspace = true, features = [
-    "blocking",
-    "reusable-containers",
-] }
-testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
+oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

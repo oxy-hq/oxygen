@@ -14,54 +14,14 @@
 //! want to validate the `Require`/`VerifyFull` path — the testcontainer
 //! used here only serves plain TCP.
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::OnceCell;
 use tokio_postgres::Config;
 use tokio_postgres::config::SslMode;
 use tokio_postgres_rustls::MakeRustlsConnect;
 
-static TEST_DB_URL: OnceCell<String> = OnceCell::const_new();
-static TEST_CONTAINER: OnceCell<
-    Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
-> = OnceCell::const_new();
-
 async fn test_db_url() -> String {
-    TEST_DB_URL
-        .get_or_init(|| async {
-            if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
-                return url;
-            }
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
-            use testcontainers_modules::postgres::Postgres;
-
-            let container = TEST_CONTAINER
-                .get_or_init(|| async {
-                    Arc::new(
-                        Postgres::default()
-                            .with_tag("18-alpine")
-                            // 64 MB (Docker default) is too small: a parallel plan wants a 32 MB
-                            // DSM segment and a REUSED container accumulates them.
-                            // Must match at every setup site — reuse hashes the config.
-                            // See internal-docs/workspace-source.md.
-                            .with_shm_size(1024 * 1024 * 1024)
-                            .with_reuse(ReuseDirective::Always)
-                            .start()
-                            .await
-                            .expect("failed to start Postgres testcontainer"),
-                    )
-                })
-                .await;
-            let port = container
-                .get_host_port_ipv4(5432_u16)
-                .await
-                .expect("failed to get Postgres port");
-            format!("postgresql://postgres:postgres@127.0.0.1:{port}/postgres")
-        })
-        .await
-        .clone()
+    oxy_test_utils::containers::shared_db_url::<agentic_runtime::migration::RuntimeMigrator>().await
 }
 
 fn build_rustls_connector() -> MakeRustlsConnect {

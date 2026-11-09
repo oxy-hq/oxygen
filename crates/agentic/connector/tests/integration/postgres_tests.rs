@@ -21,9 +21,6 @@ use futures::StreamExt;
 // ── Container plumbing ──────────────────────────────────────────────────────
 
 static TEST_DSN: tokio::sync::OnceCell<Dsn> = tokio::sync::OnceCell::const_new();
-static TEST_CONTAINER: tokio::sync::OnceCell<
-    std::sync::Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
-> = tokio::sync::OnceCell::const_new();
 
 #[derive(Clone, Debug)]
 pub(crate) struct Dsn {
@@ -61,31 +58,7 @@ pub(crate) async fn test_dsn() -> Option<Dsn> {
             if let Some(dsn) = Dsn::from_env() {
                 return Ok::<_, String>(dsn);
             }
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
-            use testcontainers_modules::postgres::Postgres;
-
-            let container = TEST_CONTAINER
-                .get_or_try_init(|| async {
-                    Postgres::default()
-                        .with_tag("18-alpine")
-                        // 64 MB (Docker default) is too small: a parallel plan wants a 32 MB
-                        // DSM segment and a REUSED container accumulates them.
-                        // Must match at every setup site — reuse hashes the config.
-                        // See internal-docs/workspace-source.md.
-                        .with_shm_size(1024 * 1024 * 1024)
-                        // Reuse matches on labels, not image: without one of our
-                        // own this adopts any reusable container that is up. Not
-                        // oxy-app's `tech.oxy.test-postgres` — that one lacks this
-                        // shm size, and sharing it would lose it.
-                        .with_label("tech.oxy.test-postgres-connector", "18-alpine")
-                        .with_reuse(ReuseDirective::Always)
-                        .start()
-                        .await
-                        .map(std::sync::Arc::new)
-                        .map_err(|e| format!("postgres testcontainer failed: {e}"))
-                })
-                .await?;
+            let container = oxy_test_utils::containers::try_postgres_container().await?;
 
             let host = container
                 .get_host()

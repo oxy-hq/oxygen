@@ -150,6 +150,7 @@ use std::time::{Duration, Instant};
 /// | `0x4149_5257_4159` | `oxy-app` `admin::airway_config::handlers_tests::LOCK_KEY` |
 /// | `0x0041_4952_5741_5950` | `oxy-app` `admin::airway_config::preview_scan_tests::LOCK_KEY` |
 /// | `0x0078_795F_6D69_6772` | `oxy serve` boot migration (`MIGRATION_ADVISORY_LOCK_KEY`) |
+/// | `0x5348_5244_5450` | `containers::RUN_DB_LOCK_KEY` (on the server's `postgres` database) |
 /// | workspace-id derived | per-workspace lazy compile (`middlewares::workspace_context`) |
 /// | name+project hash | `SecretManager` per-secret write lock |
 ///
@@ -272,7 +273,7 @@ impl<'a> DomainMigrations<'a> {
 /// detector reports nothing wrong. Polling `pg_try_advisory_lock` instead
 /// keeps every attempt to one short statement, so no snapshot is ever held
 /// open between attempts.
-struct AdvisoryLock {
+pub(crate) struct AdvisoryLock {
     conn: DatabaseConnection,
     key: i64,
 }
@@ -289,7 +290,7 @@ impl AdvisoryLock {
     /// Polls until every other session holding `key` has released it, or
     /// errors after [`LOCK_WAIT_BOUND`] naming the key and elapsed wait. See
     /// the struct docs for why this polls rather than blocks.
-    async fn acquire(url: &str, key: i64) -> Result<Self, DbErr> {
+    pub(crate) async fn acquire(url: &str, key: i64) -> Result<Self, DbErr> {
         // A pool of exactly one connection — see the struct doc for why.
         let mut opt = ConnectOptions::new(url.to_string());
         opt.max_connections(1).min_connections(1);
@@ -330,7 +331,7 @@ impl AdvisoryLock {
         }
     }
 
-    async fn release(self) {
+    pub(crate) async fn release(self) {
         // Best-effort: a failure here is not worth failing a test over, because
         // dropping the connection ends the session and Postgres releases the
         // lock anyway.

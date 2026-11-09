@@ -77,25 +77,20 @@ static CLICKHOUSE_CONTAINER: tokio::sync::OnceCell<ClickHouseContainer> =
     tokio::sync::OnceCell::const_new();
 
 async fn clickhouse_container() -> Result<ClickHouseServer, String> {
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers::{ImageExt, ReuseDirective};
+    use testcontainers::ImageExt;
     use testcontainers_modules::clickhouse::ClickHouse;
 
-    // The same image config as agentic-connector's ClickHouse suite: reuse
-    // hashes it, so matching it shares one container across both.
+    // The same image and configuration as agentic-connector's ClickHouse
+    // suite, so both share one container (`oxy-test-clickhouse-server-25.8-alpine`).
     let container = CLICKHOUSE_CONTAINER
         .get_or_try_init(|| async {
-            ClickHouse::default()
-                .with_shm_size(1024 * 1024 * 1024)
-                .with_tag("25.8-alpine")
-                .with_env_var("CLICKHOUSE_SKIP_USER_SETUP", "1")
-                // Reuse matches on labels, not image — see agentic-connector's
-                // `clickhouse_tests`, which this must match.
-                .with_label("tech.oxy.test-clickhouse", "25.8-alpine")
-                .with_reuse(ReuseDirective::Always)
-                .start()
-                .await
-                .map_err(|e| format!("clickhouse testcontainer failed: {e}"))
+            oxy_test_utils::containers::start_reusable(|| {
+                ClickHouse::default()
+                    .with_shm_size(1024 * 1024 * 1024)
+                    .with_tag("25.8-alpine")
+                    .with_env_var("CLICKHOUSE_SKIP_USER_SETUP", "1")
+            })
+            .await
         })
         .await?;
     let host = container.get_host().await.map_err(|e| e.to_string())?;

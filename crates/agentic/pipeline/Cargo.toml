@@ -56,8 +56,6 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # here names it, so it is not a direct dependency.
 oxy-test-utils = { workspace = true }
 tempfile = { workspace = true }
-testcontainers = { workspace = true, features = ["blocking", "reusable-containers"] }
-testcontainers-modules = { workspace = true, features = ["postgres"] }
 oxy-airlayer-compat = { workspace = true }
 # Engine types (StateStore trait, PipelineState/Schema) for the run-scoped store
 # e2e — `AirwayRunScopedStateStore` implements `airway::StateStore`.

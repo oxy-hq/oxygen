@@ -90,11 +90,7 @@ tempfile = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 url = { workspace = true }
 uuid = { workspace = true }
-testcontainers = { workspace = true, features = [
-    "blocking",
-    "reusable-containers",
-] }
-testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
+oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
 # `served_router_tests`: build `api_router` (ServeMode, its shutdown token) and
 # drive it with `oneshot`.
 tokio-util = { workspace = true }

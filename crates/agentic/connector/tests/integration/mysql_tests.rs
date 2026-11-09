@@ -50,29 +50,18 @@ async fn test_dsn() -> Option<Dsn> {
                 });
             }
 
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
+            use testcontainers::ImageExt;
             use testcontainers_modules::mysql::Mysql;
 
             let container = TEST_CONTAINER
                 .get_or_try_init(|| async {
-                    Mysql::default()
-                        // 64 MB (Docker default) is too small: a parallel plan wants a 32 MB
-                        // DSM segment and a REUSED container accumulates them.
-                        // Must match at every setup site — reuse hashes the config.
-                        // See internal-docs/workspace-source.md.
-                        .with_shm_size(1024 * 1024 * 1024)
-                        // Reuse matches on labels, not image. Without one of
-                        // our own this adopted whatever reusable container was
-                        // up (the ClickHouse or Postgres one), found no 3306,
-                        // and every test here skipped — green in CI while two
-                        // of them could not pass on MySQL.
-                        .with_label("tech.oxy.test-mysql", "8.1")
-                        .with_reuse(ReuseDirective::Always)
-                        .start()
-                        .await
-                        .map(std::sync::Arc::new)
-                        .map_err(|e| format!("mysql testcontainer failed: {e}"))
+                    oxy_test_utils::containers::start_reusable(|| {
+                        // 64 MB (Docker default) is too small for a parallel
+                        // plan. See internal-docs/workspace-source.md.
+                        Mysql::default().with_shm_size(1024 * 1024 * 1024)
+                    })
+                    .await
+                    .map(std::sync::Arc::new)
                 })
                 .await?;
 

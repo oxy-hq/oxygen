@@ -35,8 +35,7 @@ use entity::organizations;
 use entity::workspaces::{self, WorkspaceStatus};
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, Database, DatabaseConnection,
-    EntityTrait, QueryFilter, Set,
+    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
 };
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -46,84 +45,13 @@ use oxy_cameras::CamerasMigrator;
 use oxy_cameras::entities::{cameras, sites};
 use oxy_cameras::routes;
 
-// ── Shared postgres testcontainer (one per `nextest` process tree) ──────────
-
-static TEST_DB_URL: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
-static TEST_CONTAINER: tokio::sync::OnceCell<
-    std::sync::Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
-> = tokio::sync::OnceCell::const_new();
+// ── Per-test database on the shared test Postgres ───────────────────────────
 
 /// Create a fresh per-test database, run every migrator the production
 /// stack runs, and return a connection scoped to that DB.
 async fn test_db() -> DatabaseConnection {
-    let admin_url = TEST_DB_URL
-        .get_or_init(|| async {
-            if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
-                return url;
-            }
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
-            use testcontainers_modules::postgres::Postgres;
-
-            let container = TEST_CONTAINER
-                .get_or_init(|| async {
-                    std::sync::Arc::new(
-                        Postgres::default()
-                            .with_tag("18-alpine")
-                            // 64 MB (Docker default) is too small: a parallel plan wants a 32 MB
-                            // DSM segment and a REUSED container accumulates them.
-                            // Must match at every setup site — reuse hashes the config.
-                            // See internal-docs/workspace-source.md.
-                            .with_shm_size(1024 * 1024 * 1024)
-                            .with_reuse(ReuseDirective::Always)
-                            .start()
-                            .await
-                            .expect("start postgres testcontainer (is Docker running?)"),
-                    )
-                })
-                .await;
-            let port = container
-                .get_host_port_ipv4(5432_u16)
-                .await
-                .expect("get postgres port");
-            format!("postgresql://postgres:postgres@127.0.0.1:{port}/postgres")
-        })
-        .await
-        .clone();
-
-    let admin = {
-        let mut last_err = None;
-        let mut conn = None;
-        for attempt in 0..10 {
-            match Database::connect(&admin_url).await {
-                Ok(c) => {
-                    conn = Some(c);
-                    break;
-                }
-                Err(e) => {
-                    last_err = Some(e);
-                    if attempt < 9 {
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    }
-                }
-            }
-        }
-        conn.unwrap_or_else(|| panic!("connect admin: {:?}", last_err))
-    };
-
-    let db_name = format!("cameras_smoke_{}", Uuid::new_v4().simple());
-    admin
-        .execute_unprepared(&format!("CREATE DATABASE \"{db_name}\""))
-        .await
-        .expect("create per-test database");
-
-    let test_url = match admin_url.rfind('/') {
-        Some(pos) => format!("{}/{db_name}", &admin_url[..pos]),
-        None => panic!("admin_url missing path: {admin_url}"),
-    };
-    let db = Database::connect(&test_url)
-        .await
-        .expect("connect to per-test database");
+    let test_url = oxy_test_utils::containers::fresh_db_url("cameras_smoke").await;
+    let db = oxy_test_utils::containers::connect(&test_url).await;
 
     // Production runs three migrators in this order. Mirror that.
     Migrator::up(&db, None).await.expect("central migrations");

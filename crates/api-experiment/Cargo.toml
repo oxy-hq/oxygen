@@ -67,11 +67,7 @@ airhouse = { workspace = true }
 oxy-cameras = { workspace = true }
 oxy-oltp = { workspace = true }
 url = { workspace = true }
-testcontainers = { workspace = true, features = [
-    "blocking",
-    "reusable-containers",
-] }
-testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
+oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
 # `experiment_pricing` and the fixture helpers `set_current_dir`; the attribute's
 # lock is global to the binary.
 serial_test = { workspace = true }

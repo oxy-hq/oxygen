@@ -87,6 +87,7 @@ tracing = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+oxy-test-utils = { workspace = true }
 # Smoke tests:
 #   - tests/integration/smoke_e2e.rs (Tier A, hermetic): testcontainers Postgres +
 #     tower::oneshot. Airhouse intentionally disabled — the 503 is the
@@ -103,8 +104,6 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 serial_test = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros"] }
 tower = { workspace = true, features = ["util"] }
-testcontainers = { workspace = true, features = ["blocking", "reusable-containers"] }
-testcontainers-modules = { workspace = true, features = ["postgres"] }
 entity = { workspace = true }
 migration = { workspace = true }
 
