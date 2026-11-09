@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
-use entity::settings::SyncStatus;
 use oxy::api_types::{CommitEntry, ProjectBranch};
+use oxy::github::types::SyncStatus;
 use oxy_git::DirtyEntry;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

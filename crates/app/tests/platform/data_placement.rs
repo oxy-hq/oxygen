@@ -599,7 +599,6 @@ const TABLES: &[(&str, Placement)] = &[
         "service_accounts",
         Control("org-owned machine principals: identity and standing for API tokens"),
     ),
-    ("settings", Control("legacy GitHub sync settings")),
     (
         "simulation_definitions",
         Control("compiled .simulation.yml"),
@@ -647,13 +646,6 @@ const TABLES: &[(&str, Placement)] = &[
         Control("which platform emails a staff member opted out of"),
     ),
     ("stripe_webhook_events", Control("Stripe webhook ledger")),
-    (
-        "tasks",
-        Backlog {
-            holds: "legacy title, question and answer",
-            belongs: "org OLTP, or drop",
-        },
-    ),
     (
         "test_case_human_verdicts",
         Control("human pass or fail per eval case"),

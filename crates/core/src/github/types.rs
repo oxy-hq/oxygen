@@ -15,12 +15,26 @@ pub struct GitHubBranch {
     pub name: String,
 }
 
+/// GitHub synchronization status of a connected repository.
+///
+/// Formerly a column type of the single-row `settings` table in `crates/entity`;
+/// that table was dropped in `m20261108_000300_drop_dead_legacy_tables`, and
+/// this is the plain value type the code kept using.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SyncStatus {
+    Idle,
+    Syncing,
+    Synced,
+    Error,
+}
+
 #[derive(Debug, Clone)]
 pub struct GitHubSettings {
     pub app_installation_id: String,
     pub selected_repo_id: Option<i64>,
     pub revision: Option<String>,
-    pub sync_status: entity::settings::SyncStatus,
+    pub sync_status: SyncStatus,
     pub is_onboarded: bool,
 }
 
@@ -30,7 +44,7 @@ impl GitHubSettings {
             app_installation_id,
             selected_repo_id: None,
             revision: None,
-            sync_status: entity::settings::SyncStatus::Idle,
+            sync_status: SyncStatus::Idle,
             is_onboarded: false,
         }
     }
@@ -45,7 +59,7 @@ impl GitHubSettings {
         self
     }
 
-    pub fn with_sync_status(mut self, status: entity::settings::SyncStatus) -> Self {
+    pub fn with_sync_status(mut self, status: SyncStatus) -> Self {
         self.sync_status = status;
         self
     }

@@ -114,6 +114,18 @@ const DECLARED: &[(&str, &str, Why)] = &[
     ),
     (
         "central",
+        "m20261108_000300_drop_dead_legacy_tables",
+        Why::Phase2 {
+            after: "nothing deployed reads `tasks` or `settings`: `tasks` never had a reader \
+                    (a stranded prototype, m20250501), and `settings` lost its last one when \
+                    GitHub access moved to git_namespaces (m20260416_000002) and the only \
+                    remaining use of its entity module was the SyncStatus value type, now in \
+                    oxy::github::types. Fifty commits of history before this migration carry \
+                    no query naming either table",
+        },
+    ),
+    (
+        "central",
         "m20260928_000001_drop_app_preflight_tables",
         Why::Phase2 {
             after: "#3362: the preflight went report-only and stopped using both tables; \

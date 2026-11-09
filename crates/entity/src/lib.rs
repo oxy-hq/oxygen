@@ -63,6 +63,9 @@ pub mod prelude;
 #[cfg(test)]
 mod typed_column_guard;
 
+#[cfg(test)]
+mod schema_guard;
+
 pub mod admin_assume_sessions;
 pub mod airway_deployment_config;
 pub mod airway_source_config;
@@ -160,7 +163,6 @@ pub mod run_sequences;
 pub mod secrets;
 pub mod server_keys;
 pub mod service_accounts;
-pub mod settings;
 pub mod slack_channel_defaults;
 pub mod slack_installations;
 pub mod slack_oauth_states;
@@ -170,7 +172,6 @@ pub mod slack_user_links;
 pub mod slack_user_preferences;
 pub mod staff_notification_preferences;
 pub mod stripe_webhook_events;
-pub mod tasks;
 pub mod test_case_human_verdicts;
 pub mod test_project_runs;
 pub mod test_run_cases;
