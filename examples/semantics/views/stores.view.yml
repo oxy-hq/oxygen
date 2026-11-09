@@ -13,7 +13,7 @@ description: |
   examples/scripts/gen_stores_data.py, which owns that shape and refuses to
   write a fixture that violates it.
 datasource: local
-table: stores.parquet
+table: main.stores
 
 refresh_key:
   every: "1h"

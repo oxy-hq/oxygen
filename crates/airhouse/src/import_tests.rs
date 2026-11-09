@@ -358,3 +358,59 @@ async fn an_unreadable_file_is_a_read_error() {
     assert!(matches!(err, ImportError::Read(_)), "{err}");
     assert!(!sink.table_exists("main", "broken"));
 }
+
+/// `read_parquet` must not depend on installing the extension at run time: a
+/// pod has no `~/.duckdb` cache and may have no egress, so an autoloaded
+/// reader failed there (`could not read the file: out is null`) while CSV,
+/// which is built in, loaded. The `parquet` feature on the workspace's
+/// `duckdb` links it in; this fails if that feature is dropped.
+#[test]
+fn the_parquet_reader_is_linked_in_not_downloaded() {
+    let conn = duckdb::Connection::open_in_memory().unwrap();
+    let mode: String = conn
+        .query_row(
+            "SELECT install_mode FROM duckdb_extensions() WHERE extension_name = 'parquet'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(mode, "STATICALLY_LINKED");
+}
+
+/// `examples/.db/stores.parquet`, as an upload delivers it (streamed to a
+/// scratch file whose name has no extension), lands with every name the
+/// example views use.
+#[tokio::test]
+async fn the_example_stores_parquet_loads_from_a_scratch_file() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/.db/stores.parquet");
+    let dir = tempfile::tempdir().unwrap();
+    let scratch = write(
+        &dir,
+        "oxy-airhouse-import-abc123",
+        &std::fs::read(fixture).unwrap(),
+    );
+    let file =
+        ImportFile::named_like_a_file_database(scratch, "stores.parquet", IfExists::Fail).unwrap();
+    let sink = DuckSink::new();
+    let outcome = load(&sink, &file).await.unwrap();
+    assert_eq!(outcome.rows, 24);
+    assert_eq!(
+        sink.scalar(
+            "SELECT CAST(count(DISTINCT city) AS VARCHAR) || '/' || \
+             CAST(count(DISTINCT region) AS VARCHAR) FROM main.stores"
+        ),
+        "12/4"
+    );
+    for from in [
+        "main.stores",
+        "\"stores.parquet\"",
+        "'stores.parquet'",
+        "stores.parquet",
+    ] {
+        assert_eq!(
+            sink.scalar(&format!("SELECT CAST(count(*) AS VARCHAR) FROM {from}")),
+            "24",
+            "FROM {from}"
+        );
+    }
+}

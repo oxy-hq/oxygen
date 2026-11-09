@@ -181,6 +181,9 @@ const READING_FUNCTIONS: &[&str] = &[
     "json_tree",
     "parquet_bloom_probe",
     "parquet_file_metadata",
+    // Listed only once the workspace's `duckdb` links Parquet in (its
+    // `parquet` feature); reads a file's metadata like its siblings.
+    "parquet_full_metadata",
     "parquet_kv_metadata",
     "parquet_metadata",
     "parquet_scan",

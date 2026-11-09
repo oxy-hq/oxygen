@@ -70,6 +70,13 @@ fn scratch_file() -> Result<tempfile::NamedTempFile, (StatusCode, String)> {
 /// The same limits as the file upload (25 files, 200 MiB each, 500 MiB in
 /// all) and the same refusal of a name already taken (409). Each file is
 /// streamed to a scratch file outside any checkout and removed once loaded.
+///
+/// The files load one after another inside the request, each in its own
+/// transaction, and the answer waits for the last. A request that outlasts
+/// the ingress is cut off mid-way with the files before the cut committed and
+/// the rest not: on staging (2026-11-09) 17 files totalling ~56 MB in one
+/// request were answered 408 part-way. Send large data in several requests;
+/// a re-sent file that already loaded answers 409.
 pub(super) async fn upload_into_airhouse(
     importer: &dyn WorkspaceImporter,
     workspace_id: Uuid,

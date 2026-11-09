@@ -6,7 +6,7 @@ description: |
   measures promote up into their city, and cities promote up into their region.
 datasource: local
 sql: |
-  SELECT DISTINCT city, region FROM 'stores.parquet'
+  SELECT DISTINCT city, region FROM main.stores
 
 refresh_key:
   every: "1h"

@@ -131,7 +131,11 @@ oxy-world-model = { path = "crates/world-model" }
 
 # External dependencies
 async-openai = { version = "0.41.3" }
-duckdb = { version = "=1.10501.0", features = ["bundled"] }
+# `parquet` compiles DuckDB's Parquet reader in. Without it `read_parquet`
+# autoinstalls the extension from extensions.duckdb.org into ~/.duckdb, which
+# a pod with no cache or egress cannot do: Airhouse imports of `.parquet`
+# uploads failed on staging while CSV (built in) loaded.
+duckdb = { version = "=1.10501.0", features = ["bundled", "parquet"] }
 axum = { version = "0.8.9", features = ["macros", "http2"] }
 axum-server = { version = "0.8.0", features = ["tls-rustls"] }
 # Not `"*"`. A wildcard accepts *any* release, so a routine `cargo update`

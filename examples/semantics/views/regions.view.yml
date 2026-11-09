@@ -6,7 +6,7 @@ description: |
   region via the store entity's parent chain.
 datasource: local
 sql: |
-  SELECT DISTINCT region FROM 'stores.parquet'
+  SELECT DISTINCT region FROM main.stores
 
 refresh_key:
   every: "1h"
