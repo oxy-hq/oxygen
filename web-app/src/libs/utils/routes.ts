@@ -125,11 +125,6 @@ const ROUTES = {
             DATABASE: {
               ROOT: `${wsBase}/ide/database`
             },
-            TESTS: {
-              ROOT: `${wsBase}/ide/tests`,
-              RUNS: `${wsBase}/ide/tests/runs`,
-              TEST_FILE: (pathb64: string) => `${wsBase}/ide/tests/${pathb64}`
-            },
             COORDINATOR: {
               ROOT: `${wsBase}/ide/coordinator`,
               OVERVIEW: `${wsBase}/ide/coordinator/overview`,
@@ -150,9 +145,6 @@ const ROUTES = {
               METRIC: (metricName: string) =>
                 `${wsBase}/ide/observability/metrics/${encodeURIComponent(metricName)}`,
               EXECUTION_ANALYTICS: `${wsBase}/ide/observability/execution-analytics`
-            },
-            MODELING: {
-              ROOT: `${wsBase}/ide/modeling`
             },
             SEMANTIC: {
               ROOT: `${wsBase}/ide/semantic`

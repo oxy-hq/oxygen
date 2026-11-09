@@ -51,11 +51,6 @@ const ALLOWED: &[(&str, &str)] = &[
          detail. Fully-FS builder, classified IdeOnly.",
     ),
     (
-        "src/server/api/modeling.rs",
-        "dbt projects live in `modeling/` and have no compiled artifact. \
-         IdeOnly; the LIST no longer degrades to `[]` when the ide is down.",
-    ),
-    (
         "src/server/api/metric_anomalies/scan.rs",
         "BACKLOG. `.monitor.yml` IS compiled and read at the pinned revision; \
          this is the FS fallback, now gated by `WorkspaceAbsent`. The handler \

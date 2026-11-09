@@ -196,13 +196,9 @@ pub const FACTORY: &[(&str, &str)] = &[
     ("*", "/branches/{*rest}"),
     ("*", "/files"),
     ("*", "/files/{*rest}"),
-    // ── Compile, modeling, tests, simulations ─────────────────────────────────
+    // ── Compile, simulations ──────────────────────────────────────────────────
     ("*", "/compile"),
     ("*", "/compile/{*rest}"),
-    ("*", "/modeling"),
-    ("*", "/modeling/{*rest}"),
-    ("*", "/tests"),
-    ("*", "/tests/{*rest}"),
     ("*", "/simulations"),
     ("*", "/simulations/{*rest}"),
     ("*", "/sql/{pathb64}"),
@@ -305,7 +301,6 @@ mod tests {
             ("POST", "/files/abc"),
             ("POST", "/push-changes"),
             ("POST", "/compile"),
-            ("GET", "/modeling/proj/lineage"),
             ("PUT", "/secrets/abc"),
             ("POST", "/databases"),
             ("DELETE", "/agentic-schedules/abc"),

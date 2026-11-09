@@ -159,7 +159,6 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /databases/          list, create, test-connection, sync, build, clean
 ├── /integrations/       looker: list
 ├── /secrets/            list, create, bulk, get, update, delete, reveal  (admin-gated)
-├── /tests/              test files, project-runs, runs + human-verdicts
 ├── /traces/             traces_routes()
 ├── /metrics/            metrics_routes()
 ├── /execution-analytics/

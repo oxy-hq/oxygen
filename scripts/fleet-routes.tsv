@@ -159,8 +159,6 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/meta	fleet-ok	Now	verified live 200
 *	/api/{workspace_id}/metrics	fleet-ok	Struct	404 verified live
 *	/api/{workspace_id}/metrics/{*rest}	fleet-ok	Ext	RESOLVED: not a fleet bug, same root cause as execution-analytics above -- get_metrics_list() also gates on state.observability (ClickHouse). Live-confirmed 500 "Failed to query metrics" on every node uniformly.
-*	/api/{workspace_id}/modeling	ide-only	Now	verified live 200 — real dbt project info from `examples/modeling/*`
-*	/api/{workspace_id}/modeling/{*rest}	ide-only	Fixture	`GET /nodes`, `/lineage` are real reads (Now); `POST /compile`, `/run`, `/test`, `/analyze`, `/seed` need a reachable target DB — same DuckDB-vs-external-cred caveat as `/databases`
 *	/api/{workspace_id}/onboarding-readiness	ide-only	Now	read-only readiness check against the working copy
 *	/api/{workspace_id}/onboarding/github-setup	ide-only	Ext	GitHub-specific, no creds
 *	/api/{workspace_id}/onboarding/reset	ide-only	Destr	resets onboarding state for the shared workspace — could confuse other agents' concurrent work
@@ -218,15 +216,6 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/sql/query	fleet-ok	Fixture	needs a real SQL string + a reachable DB — DuckDB-backed ones most plausible
 *	/api/{workspace_id}/status	ide-only	Now	verified live 200
 *	/api/{workspace_id}/switch-branch	ide-only	Destr	switches the shared working copy's active branch for **every** concurrent request against this workspace, including the other four agents' — do not run right now
-*	/api/{workspace_id}/tests	ide-only	Now	2 real `.test.yml` files exist (`examples/testing/analytics.agentic.test.yml`, `examples/data/custom_test.test.yml`)
-*	/api/{workspace_id}/tests/{pathb64}	ide-only	Now	base64 one of the 2 known real `.test.yml` paths
-*	/api/{workspace_id}/tests/{pathb64}/cases/{case_index}	ide-only	Fixture	runs a real (LLM-backed) test case — needs the case count from the row above, not just a guessed index
-*	/api/{workspace_id}/tests/{pathb64}/runs	fleet-ok	Fixture	needs a run from the row above
-*	/api/{workspace_id}/tests/{pathb64}/runs/{run_index}	fleet-ok	Fixture	same
-*	/api/{workspace_id}/tests/{pathb64}/runs/{run_index}/cases/{case_index}/human-verdict	fleet-ok	Fixture	same chain
-*	/api/{workspace_id}/tests/{pathb64}/runs/{run_index}/human-verdicts	fleet-ok	Fixture	same chain
-*	/api/{workspace_id}/tests/project-runs	fleet-ok	Now	`GET` list, empty-ok; `POST` create is Fixture-bucket
-*	/api/{workspace_id}/tests/project-runs/{project_run_id}	fleet-ok	Fixture	needs a project run created above
 *	/api/{workspace_id}/threads	fleet-ok	Now	verified live 200 — 3 real threads (see fixture-discrepancy note above)
 *	/api/{workspace_id}/threads/{id}	fleet-ok	Now	`GET` one of the 3 real ids; `DELETE` is destructive, same caveat as bulk-delete
 *	/api/{workspace_id}/threads/{id}/messages	fleet-ok	Now	real message history for one of the 3 threads

@@ -31,7 +31,6 @@ oxy-observability = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }
 oxy-workspace-fs = { workspace = true }
-oxy-airform = { workspace = true }
 agentic-airway = { workspace = true }
 agentic-analytics = { workspace = true }
 agentic-builder = { workspace = true }

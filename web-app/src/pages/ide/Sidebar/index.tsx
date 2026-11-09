@@ -4,11 +4,9 @@ import {
   Database,
   FlaskConical,
   Folder,
-  GitBranch,
   Globe,
   Network,
-  Radio,
-  ShieldCheck
+  Radio
 } from "lucide-react";
 import type React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -23,11 +21,9 @@ import useCurrentOrg from "@/stores/useCurrentOrg";
 enum SidebarViewMode {
   WORLD_MODEL = "world-model",
   FILES = "files",
-  TESTS = "tests",
   COORDINATOR = "coordinator",
   OBSERVABILITY = "observability",
   DATABASE = "database",
-  MODELING = "modeling",
   SEMANTIC = "semantic",
   EXPERIMENTS = "experiments",
   EDGE = "edge"
@@ -43,9 +39,6 @@ const getViewModeFromPath = (pathname: string, filesRoot: string): SidebarViewMo
   if (pathname.includes("/ide/files") || pathname === filesRoot) {
     return SidebarViewMode.FILES;
   }
-  if (pathname.includes("/ide/tests")) {
-    return SidebarViewMode.TESTS;
-  }
   if (pathname.includes("/ide/coordinator")) {
     return SidebarViewMode.COORDINATOR;
   }
@@ -57,9 +50,6 @@ const getViewModeFromPath = (pathname: string, filesRoot: string): SidebarViewMo
   }
   if (pathname.includes("/ide/semantic")) {
     return SidebarViewMode.SEMANTIC;
-  }
-  if (pathname.includes("/ide/modeling")) {
-    return SidebarViewMode.MODELING;
   }
   // /ide/compliance is a legacy alias that still routes through the Edge
   // shell (see App.tsx redirect), so highlight the Edge button for it too.
@@ -96,12 +86,6 @@ const Sidebar: React.FC = () => {
         break;
       case SidebarViewMode.DATABASE:
         navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.DATABASE.ROOT);
-        break;
-      case SidebarViewMode.TESTS:
-        navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.TESTS.ROOT);
-        break;
-      case SidebarViewMode.MODELING:
-        navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.MODELING.ROOT);
         break;
       case SidebarViewMode.SEMANTIC:
         navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.SEMANTIC.ROOT);
@@ -152,21 +136,6 @@ const Sidebar: React.FC = () => {
         <Button
           variant='ghost'
           size='icon'
-          onClick={() => handleNavigate(SidebarViewMode.TESTS)}
-          tooltip={{ content: "Tests", side: "right" }}
-          className={cn(
-            "h-8 w-8",
-            currentViewMode === SidebarViewMode.TESTS
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "opacity-60 hover:opacity-100"
-          )}
-        >
-          <ShieldCheck className='h-4 w-4' />
-        </Button>
-
-        <Button
-          variant='ghost'
-          size='icon'
           onClick={() => handleNavigate(SidebarViewMode.COORDINATOR)}
           tooltip={{ content: "Coordinator", side: "right" }}
           className={cn(
@@ -209,21 +178,6 @@ const Sidebar: React.FC = () => {
           )}
         >
           <Database className='h-4 w-4' />
-        </Button>
-
-        <Button
-          variant='ghost'
-          size='icon'
-          onClick={() => handleNavigate(SidebarViewMode.MODELING)}
-          tooltip={{ content: "Modeling", side: "right" }}
-          className={cn(
-            "h-8 w-8",
-            currentViewMode === SidebarViewMode.MODELING
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "opacity-60 hover:opacity-100"
-          )}
-        >
-          <GitBranch className='h-4 w-4' />
         </Button>
 
         <Button

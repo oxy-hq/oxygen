@@ -157,8 +157,6 @@ describe("the branch hint, by section of /ide", () => {
     ["files", IDE.FILES.ROOT],
     ["a file", IDE.FILES.FILE("YWdlbnRzL3NhbGVz")],
     ["database", IDE.DATABASE.ROOT],
-    ["modeling", IDE.MODELING.ROOT],
-    ["tests", IDE.TESTS.ROOT],
     ["semantic model", IDE.SEMANTIC.ROOT],
     ["world model", IDE.WORLD_MODEL.ROOT]
   ])("%s sends the branch selected in the IDE", async (_section, path) => {

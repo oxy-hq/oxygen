@@ -359,11 +359,12 @@ def sort_ids:
     | if ($mapped | length) > 0 and ($mapped[0] | type) == "object"
       then
         # `.id` first, then `.name`, then the whole object. Sorting on `.id`
-        # alone left `/modeling/{project}/nodes` and `/lineage` comparing
-        # unequal: dbt nodes key on `name`, and the handler serialises them
-        # straight out of an in-memory map, so the twelve come back in a
-        # different order on every call — serve-1 disagreed with serve-2,
-        # which have identical state, so this was never about disk. Falling
+        # alone left the (since removed) `/modeling/{project}/nodes` and
+        # `/lineage` comparing unequal: dbt nodes keyed on `name`, and the
+        # handler serialised them straight out of an in-memory map, so the
+        # twelve came back in a different order on every call — serve-1
+        # disagreed with serve-2, which have identical state, so this was
+        # never about disk. Falling
         # back to the whole object keeps the sort total for shapes that carry
         # neither key, which is what makes the comparison deterministic rather
         # than merely usually-equal.
@@ -827,11 +828,9 @@ AGENT_PATHB64=""
 # doesn't silently go stale.
 TOPIC_PATH=$(cd "$REPO_ROOT/examples" && find semantics/topics -name '*.topic.yml' 2>/dev/null | head -1)
 VIEW_PATH=$(cd "$REPO_ROOT/examples" && find semantics/views -name '*.view.yml' 2>/dev/null | head -1)
-TEST_PATH=$(cd "$REPO_ROOT/examples" && find . -name '*.test.yml' 2>/dev/null | sed 's|^\./||' | head -1)
-TOPIC_B64=""; VIEW_B64=""; TEST_B64=""
+TOPIC_B64=""; VIEW_B64=""
 [ -n "$TOPIC_PATH" ] && TOPIC_B64=$(pathb64_std "$TOPIC_PATH")
 [ -n "$VIEW_PATH" ]  && VIEW_B64=$(pathb64_std "$VIEW_PATH")
-[ -n "$TEST_PATH" ]  && TEST_B64=$(pathb64_std "$TEST_PATH")
 
 # ── Extra discovery for the Fixture-bucket additions below ─────────────────
 # A second org member (never the session's own user) to add to a disposable
@@ -857,27 +856,12 @@ if [ -n "$ENTITY_NAME" ]; then
     | jq -r '.items[0].key // empty' 2>/dev/null)
 fi
 
-# One real .test.yml known to parse as the modern TestFileConfig schema (the
-# other seeded fixture, custom_test.test.yml, is the legacy flat format and
-# is silently skipped by list_test_files) — needed for the LLM-backed
-# per-case test run below.
-EVAL_TEST_PATH=""
-if [ -n "$TEST_PATH" ]; then
-  case "$TEST_PATH" in
-    *analytics.agentic.test.yml) EVAL_TEST_PATH="$TEST_PATH" ;;
-  esac
-fi
-[ -z "$EVAL_TEST_PATH" ] && [ -f "$REPO_ROOT/examples/testing/analytics.agentic.test.yml" ] \
-  && EVAL_TEST_PATH="testing/analytics.agentic.test.yml"
-EVAL_TEST_B64=""
-[ -n "$EVAL_TEST_PATH" ] && EVAL_TEST_B64=$(pathb64_std "$EVAL_TEST_PATH")
-
 printf '  agent=%s automation=%s\n' "${AGENT_PATH:-<none>}" "${AUTOMATION_PATH:-<none>}"
 printf '  thread=%s schedule=%s measure=%s/%s\n' "${THREAD_ID:-<none>}" "${SCHEDULE_ID:-<none>}" "${MEASURE_ID:-<none>}" "${TIME_DIM:-<none>}"
 printf '  entity=%s customer_app=%s org_app=%s admin_compile_rev=%s\n' "${ENTITY_NAME:-<none>}" "${CUSTOMER_APP_ID:-<none>}" "${ORG_APP_ID:-<none>}" "${ADMIN_COMPILE_REV:-<none>}"
-printf '  topic=%s view=%s test=%s\n' "${TOPIC_PATH:-<none>}" "${VIEW_PATH:-<none>}" "${TEST_PATH:-<none>}"
-printf '  member=%s nollm_automation=%s wm_key=%s eval_test=%s\n' \
-  "${MEMBER_USER_ID:-<none>}" "${NOLLM_AUTOMATION_PATH:-<none>}" "${WM_SEED_KEY:-<none>}" "${EVAL_TEST_PATH:-<none>}"
+printf '  topic=%s view=%s\n' "${TOPIC_PATH:-<none>}" "${VIEW_PATH:-<none>}"
+printf '  member=%s nollm_automation=%s wm_key=%s\n' \
+  "${MEMBER_USER_ID:-<none>}" "${NOLLM_AUTOMATION_PATH:-<none>}" "${WM_SEED_KEY:-<none>}"
 ok "discovery complete"
 
 # ══ FIXTURE CREATION (disposable, product API only) ══════════════════════════
@@ -895,8 +879,6 @@ SCRATCH_FILE_LIVE=0; SCRATCH_FOLDER_LIVE=0
 OWM_SECRET_ID=""; BESTTIME_SECRET_ID=""
 APP_INTEGRATION_OWM_LIVE=0; APP_INTEGRATION_BESTTIME_LIVE=0
 AUTOMATION_RUN_ID=""
-PROJECT_RUN_ID=""
-EVAL_TEST_RUN_INDEX=""
 ANOM_ID=""
 SCRATCH_FILE_PATH="_fleet_probe/scratch.txt"
 SCRATCH_FILE_B64=$(pathb64_std "$SCRATCH_FILE_PATH")
@@ -1140,7 +1122,7 @@ fi
 # TABLE below (so they get the real 3-way serve-1/serve-2/ide comparison like
 # everything else, instead of a single ad-hoc curl).
 if [ "$SKIP_FIXTURES" = "1" ]; then
-  skip "extended Fixture-bucket coverage (apps/automations/integrations/tests/semantic) — --skip-fixtures was passed"
+  skip "extended Fixture-bucket coverage (apps/automations/integrations/semantic) — --skip-fixtures was passed"
 else
   ANOM_ID=""
 
@@ -1441,60 +1423,6 @@ else
   else
     skip "no disposable schedule — schedules/{id}/backfill and /run-now left uncovered"
   fi
-
-  step "8p. Test project-run (create -> delete — a lightweight tracking row, no execution)"
-  pro=$(mktemp)
-  prc=$(req POST "${S1_BASE}/api/${WS}/tests/project-runs" "$pro" '{"name":"fleet-assert-scratch-project-run"}')
-  if [[ "$prc" =~ ^2 ]]; then
-    PROJECT_RUN_ID=$(jq -r '.id // empty' "$pro")
-    ok "created disposable project-run ${PROJECT_RUN_ID:-<no id field>}"
-    if [ -n "$PROJECT_RUN_ID" ]; then
-      pdc=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X DELETE -H "Authorization: $TOKEN" \
-        "${S1_BASE}/api/${WS}/tests/project-runs/${PROJECT_RUN_ID}")
-      # There is no GET /project-runs/{id} — DELETE is the only verb at this
-      # exact path, so this IS the real, complete coverage for this route.
-      [[ "$pdc" =~ ^2 ]] && { ok "tests/project-runs/{id} DELETE: $pdc"; mark_covered "/api/{workspace_id}/tests/project-runs/{project_run_id}"; } \
-                         || bad "tests/project-runs/{id} DELETE: expected 2xx, got $pdc"
-    fi
-  else
-    skip "tests/project-runs create returned $prc — tests/project-runs/{id} left uncovered"
-  fi
-  rm -f "$pro"
-
-  step "8q. Test case run (LLM-backed judge — one real case only; skipped without a usable LLM key)"
-  if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -f "$REPO_ROOT/.env" ]; then
-    ANTHROPIC_API_KEY=$(grep -E '^ANTHROPIC_API_KEY=' "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | sed 's/^["'"'"']//; s/["'"'"']$//')
-  fi
-  if [ -n "$EVAL_TEST_B64" ] && { [ -n "${ANTHROPIC_API_KEY:-}" ] || [ -n "${OPENAI_API_KEY:-}" ]; }; then
-    tco=$(mktemp)
-    # SSE, and genuinely LLM+judge backed — req()'s default --max-time 30 is
-    # too short for a real agent run plus an LLM judge; give it real room.
-    tcc=$(curl -s -o "$tco" -w '%{http_code}' --max-time 120 -X POST -H "Authorization: $TOKEN" \
-      "${S1_BASE}/api/${WS}/tests/${EVAL_TEST_B64}/cases/0")
-    if [[ "$tcc" =~ ^2 ]]; then
-      ok "ran test case 0 of analytics.agentic.test.yml (LLM-backed): $tcc"
-      mark_covered "/api/{workspace_id}/tests/{pathb64}/cases/{case_index}"
-      for _ in $(seq 1 10); do
-        EVAL_TEST_RUN_INDEX=$(curl -s --max-time 10 -H "Authorization: $TOKEN" "${S1_BASE}/api/${WS}/tests/${EVAL_TEST_B64}/runs" \
-          | jq -r '(.runs? // .items? // .) as $r | (($r[-1].run_index) // (($r|length)-1)) // empty' 2>/dev/null)
-        [ -n "$EVAL_TEST_RUN_INDEX" ] && [ "$EVAL_TEST_RUN_INDEX" -ge 0 ] 2>/dev/null && break
-        sleep 1
-      done
-      if [ -n "$EVAL_TEST_RUN_INDEX" ] && [ "$EVAL_TEST_RUN_INDEX" -ge 0 ] 2>/dev/null; then
-        ok "discovered eval run_index=$EVAL_TEST_RUN_INDEX"
-        hvc=$(req PUT "${S1_BASE}/api/${WS}/tests/${EVAL_TEST_B64}/runs/${EVAL_TEST_RUN_INDEX}/cases/0/human-verdict" /dev/null '{"verdict":"pass"}')
-        [[ "$hvc" =~ ^2 ]] && { ok "human-verdict PUT: $hvc"; mark_covered "/api/{workspace_id}/tests/{pathb64}/runs/{run_index}/cases/{case_index}/human-verdict"; } \
-                           || bad "human-verdict PUT: expected 2xx, got $hvc"
-      else
-        skip "could not discover a run_index for the eval run just started — runs/{run_index}[/…] left uncovered"
-      fi
-    else
-      skip "tests/{pathb64}/cases/0 returned $tcc — the whole test-run/human-verdict chain left uncovered"
-    fi
-    rm -f "$tco"
-  else
-    skip "no usable LLM API key or no eval-compatible .test.yml discovered — tests/{pathb64}/cases/{case_index} and its run/human-verdict chain left uncovered"
-  fi
 fi
 
 # ══ CASE TABLE (data-driven) ══════════════════════════════════════════════════
@@ -1552,7 +1480,6 @@ add Now  "logo"              GET "/api/${WS}/logo"                     status "/
 add Now  "logs"              GET "/api/${WS}/logs"                     body   "/api/{workspace_id}/logs"
 add Now  "members"           GET "/api/${WS}/members"                  body   "/api/{workspace_id}/members"
 add Now  "meta"              GET "/api/${WS}/meta"                     body   "/api/{workspace_id}/meta"
-add Now  "modeling"          GET "/api/${WS}/modeling"                 body   "/api/{workspace_id}/modeling"
 add Now  "onboarding-readiness" GET "/api/${WS}/onboarding-readiness"  body   "/api/{workspace_id}/onboarding-readiness"
 add Now  "test-llm-key"      POST "/api/${WS}/onboarding/test-llm-key" status "/api/{workspace_id}/onboarding/test-llm-key"
 add Now  "org-subdomain"     GET "/api/${WS}/org-subdomain"            body   "/api/{workspace_id}/org-subdomain"
@@ -1563,8 +1490,6 @@ add Now  "recent-commits"    GET "/api/${WS}/recent-commits"           body   "/
 add Now  "revision-info"     GET "/api/${WS}/revision-info"            body   "/api/{workspace_id}/revision-info"
 add Now  "secrets-list"      GET "/api/${WS}/secrets"                  body   "/api/{workspace_id}/secrets"
 add Now  "status"            GET "/api/${WS}/status"                  body   "/api/{workspace_id}/status"
-add Now  "tests-list"        GET "/api/${WS}/tests"                    body   "/api/{workspace_id}/tests"
-add Now  "tests-project-runs" GET "/api/${WS}/tests/project-runs"      body   "/api/{workspace_id}/tests/project-runs"
 add Now  "threads-list"      GET "/api/${WS}/threads"                  body   "/api/{workspace_id}/threads"
 add Now  "worktrees"         GET "/api/${WS}/worktrees"                body   "/api/{workspace_id}/worktrees"   # normalized: idle_secs
 add Now  "world-model-events" GET "/api/${WS}/world-model/events"      status "/api/{workspace_id}/world-model/events" # SSE, connect-and-check only
@@ -1661,13 +1586,7 @@ fi
 # and unmirrored (assert_workspace_local_refusal), 2xx from the mirror otherwise.
 [ -n "$ENTITY_NAME" ] && add Fixture "world-model-instances" GET "/api/${WS}/semantic/world-model/instances?entity=${ENTITY_NAME}" workspace_local_named "/api/{workspace_id}/semantic/world-model/instances"
 
-# ── Workspace: onboarding, integrations, tests, misc (Now) ─────────────────
-if [ -n "$TEST_B64" ]; then
-  add Now "tests-detail-list" GET "/api/${WS}/tests/${TEST_B64}"        body "/api/{workspace_id}/tests/{pathb64}"
-else
-  skip "no *.test.yml discovered on disk — tests/{pathb64} left uncovered"
-fi
-
+# ── Workspace: onboarding, integrations, misc (Now) ────────────────────────
 # ── Fixture bucket: cheap discovery-only additions ──────────────────────────
 add Fixture "airway-backfill-ranges" GET "/api/${WS}/agentic-airway/backfill-ranges?pipeline_ref=sql_ingest" body "/api/{workspace_id}/agentic-airway/backfill-ranges"
 if [ -n "$AIRWAY_RANGE_ID" ]; then
@@ -1797,10 +1716,6 @@ addb Fixture "databases-test-connection" POST "/api/${WS}/databases/test-connect
   '{"warehouse":{"type":"duckdb","name":"local","config":{"file_search_path":".db/"}}}' "/api/{workspace_id}/databases/test-connection"
 add Fixture "databases-sync" POST "/api/${WS}/databases/sync?database=local" status "/api/{workspace_id}/databases/sync"
 
-# ── Fixture bucket: modeling nodes/lineage — real reads, no DB needed ───────
-add Fixture "modeling-nodes" GET "/api/${WS}/modeling/jaffle_shop/nodes" body "/api/{workspace_id}/modeling/{*rest}"
-add Fixture "modeling-lineage" GET "/api/${WS}/modeling/jaffle_shop/lineage" body "/api/{workspace_id}/modeling/{*rest}"
-
 # ── Fixture bucket: world-model proxy routes (weather/foot-traffic/competitors)
 # Real, comparable requests once a real integration row exists (see 8f) — the
 # upstream call itself legitimately fails on a fake key (502), which is still
@@ -1849,13 +1764,6 @@ add Fixture "coordinator-recovery"    GET "/api/${WS}/analytics/coordinator/reco
 # found (task_manager.rs's no-entry case is Ok(false), never Err), so any
 # real workflow path + plausible index is a safe, deterministic real request.
 [ -n "$AUTOMATION_PATHB64" ] && add Fixture "runs-cancel-noop" DELETE "/api/${WS}/runs/${AUTOMATION_PATHB64}/0" status "/api/{workspace_id}/runs/{source_id}/{run_index}"
-
-# ── Fixture bucket: eval-test run reads (from 8q, only if that ran) ────────
-[ -n "$EVAL_TEST_B64" ] && add Fixture "tests-runs-list" GET "/api/${WS}/tests/${EVAL_TEST_B64}/runs" body "/api/{workspace_id}/tests/{pathb64}/runs"
-if [ -n "$EVAL_TEST_RUN_INDEX" ] && [ "$EVAL_TEST_RUN_INDEX" -ge 0 ] 2>/dev/null; then
-  add Fixture "tests-run-get"      GET "/api/${WS}/tests/${EVAL_TEST_B64}/runs/${EVAL_TEST_RUN_INDEX}"                body "/api/{workspace_id}/tests/{pathb64}/runs/{run_index}"
-  add Fixture "tests-run-verdicts" GET "/api/${WS}/tests/${EVAL_TEST_B64}/runs/${EVAL_TEST_RUN_INDEX}/human-verdicts" body "/api/{workspace_id}/tests/{pathb64}/runs/{run_index}/human-verdicts"
-fi
 
 # ── Fixture bucket: invitation accept (expected 403 — email mismatch by design)
 # The token was issued to fleet-assert-scratch@example.com, not this

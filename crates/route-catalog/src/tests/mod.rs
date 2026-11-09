@@ -84,7 +84,6 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/{workspace_id}/databases",
     "/api/{workspace_id}/secrets",
     "/api/{workspace_id}/api-keys",
-    "/api/{workspace_id}/tests",
     "/api/{workspace_id}/traces",
     "/api/{workspace_id}/metrics",
     "/api/{workspace_id}/execution-analytics",

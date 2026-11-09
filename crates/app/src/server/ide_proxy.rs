@@ -90,7 +90,7 @@ fn client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         // Timeouts (no BLANKET `.timeout(...)`, which would sever long-lived SSE
-        // IdeOnly streams — onboarding/modeling — at a fixed budget):
+        // IdeOnly streams — onboarding — at a fixed budget):
         //   - `connect_timeout(3s)`: an in-cluster Service connect is sub-second;
         //     a short ceiling avoids piling connect attempts onto a
         //     down/recovering ide pod (connection-storm mitigation).

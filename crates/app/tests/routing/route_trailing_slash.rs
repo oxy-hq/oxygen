@@ -2,10 +2,10 @@
 //!
 //! `nest_service` registers the prefix WITH a trailing slash; `nest` does not
 //! (measured: `nest_service` answers `/p/` with 200, `nest` answers it 404). So
-//! when `/modeling` moved to `nest_service` to carry its own state, `GET
-//! /modeling/` went from a 404 to reaching `list_projects` — which reads the
-//! working copy — while classifying FleetOk, because no route pattern carries a
-//! trailing slash.
+//! when `/modeling` (since removed) moved to `nest_service` to carry its own
+//! state, `GET /modeling/` went from a 404 to reaching its list handler — which
+//! read the working copy — while classifying FleetOk, because no route pattern
+//! carries a trailing slash.
 //!
 //! `classify` trims it now, so this holds for every prefix, not just that one.
 
@@ -16,11 +16,9 @@ fn a_trailing_slash_keeps_the_route_on_its_own_pod() {
     install_route_declarations_for_tests();
     let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
     for path in [
-        format!("/api/{ws}/modeling"),
-        format!("/api/{ws}/modeling/"),
-        format!("/api/{ws}/modeling/projects"),
         format!("/api/{ws}/files"),
         format!("/api/{ws}/files/"),
+        format!("/api/{ws}/files/cGF0aA"),
     ] {
         assert_eq!(
             classify("GET", &path),
@@ -69,7 +67,7 @@ async fn only_nest_service_serves_the_trailing_slash() {
     assert_eq!(
         status(serviced, "/p/").await,
         200,
-        "nest_service does — which is why nest_typed must declare it",
+        "nest_service does — which is why a mount through it must declare the prefix too",
     );
 }
 

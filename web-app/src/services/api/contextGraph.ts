@@ -10,7 +10,6 @@ import type {
 import type { FileTreeModel } from "@/types/file";
 import { DatabaseService } from "./database";
 import { FileService } from "./files";
-import { ModelingService } from "./modeling";
 
 export class ContextGraphService {
   /**
@@ -18,10 +17,9 @@ export class ContextGraphService {
    */
   static async getContextGraph(projectId: string, branchName: string): Promise<ContextGraph> {
     // Fetch all necessary data in parallel
-    const [databases, fileTree, dbtLineage] = await Promise.all([
+    const [databases, fileTree] = await Promise.all([
       DatabaseService.listDatabases(projectId, branchName),
-      FileService.getFileTree(projectId, branchName),
-      ModelingService.getLineage(projectId, "", branchName).catch(() => null)
+      FileService.getFileTree(projectId, branchName)
     ]);
 
     // Parse semantic models, agents, queries, automations, and apps from file tree
@@ -453,55 +451,6 @@ export class ContextGraphService {
         });
       }
     });
-
-    // Add dbt model/source/seed nodes and their dependency edges
-    if (dbtLineage) {
-      for (const dbtNode of dbtLineage.nodes) {
-        const nodeType =
-          dbtNode.resource_type === "model"
-            ? "dbt_model"
-            : dbtNode.resource_type === "source"
-              ? "dbt_source"
-              : "dbt_seed";
-        nodes.push({
-          id: `dbt:${dbtNode.unique_id}`,
-          type: nodeType,
-          label: dbtNode.name,
-          data: {
-            name: dbtNode.name,
-            path: dbtNode.path ?? undefined,
-            description: dbtNode.description ?? undefined,
-            metadata: { resource_type: dbtNode.resource_type }
-          }
-        });
-      }
-
-      for (const edge of dbtLineage.edges) {
-        edges.push({
-          id: `dbt:${edge.source}->${edge.target}`,
-          source: `dbt:${edge.source}`,
-          target: `dbt:${edge.target}`,
-          label: "derived from",
-          type: "derived_from"
-        });
-      }
-
-      // Cross-link dbt sources to existing table nodes by matching name
-      for (const dbtNode of dbtLineage.nodes) {
-        if (dbtNode.resource_type === "source") {
-          const tableNode = nodes.find((n) => n.type === "table" && n.data.name === dbtNode.name);
-          if (tableNode) {
-            edges.push({
-              id: `dbt:${dbtNode.unique_id}->table:${tableNode.data.name}`,
-              source: `dbt:${dbtNode.unique_id}`,
-              target: tableNode.id,
-              label: "reads from",
-              type: "uses"
-            });
-          }
-        }
-      }
-    }
 
     return { nodes, edges, tablesUnknown };
   }

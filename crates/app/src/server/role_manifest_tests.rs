@@ -144,10 +144,6 @@ fn ide_routes_classify_against_live_uri() {
     // test installs and `classify` would answer with the FleetOk default —
     // a failure that says nothing about the product.
     assert_eq!(
-        classify("POST", "/api/d9830be4-c6a4/modeling/run"),
-        RouteRole::IdeOnly
-    );
-    assert_eq!(
         classify("POST", "/api/d9830be4-c6a4/switch-branch"),
         RouteRole::IdeOnly
     );
@@ -160,17 +156,6 @@ fn ide_routes_classify_against_live_uri() {
     );
     assert_eq!(
         classify("GET", "/api/d9830be4-c6a4/meta"),
-        RouteRole::FleetOk
-    );
-    // Running a test case is execution against the working copy.
-    assert_eq!(
-        classify("POST", "/api/d9830be4-c6a4/tests/cGF0aA/cases/0"),
-        RouteRole::IdeOnly
-    );
-    // Its neighbours stay on the fleet — listing runs is a Postgres read,
-    // and pinning it would put test history behind the singleton.
-    assert_eq!(
-        classify("GET", "/api/d9830be4-c6a4/tests/cGF0aA/runs"),
         RouteRole::FleetOk
     );
     // Deletion is the counterpart of those three creators. `?delete_files=true`
@@ -838,32 +823,6 @@ fn fully_fs_builder_routes_classify_ide_only() {
     );
 }
 
-/// Per-sub-route drift guard for `build_test_file_routes()`, MIXED since
-/// `run_test_case` was pinned. The mount check above stops at `/tests`; this
-/// is what examines what is under it.
-#[test]
-fn every_test_sub_route_is_classified() {
-    let src = include_str!("router/workspace.rs");
-    // Test sub-routes intentionally FleetOk. The two file reads are a KNOWN
-    // GAP, recorded rather than hidden: `list_test_files` and `get_test_file`
-    // read `.test.yml` off the working copy, and the compile boundary has no
-    // artifact for them — `oxy_compile::walker` deliberately skips every path
-    // containing `.test.`. Closing it is a new entity type (the five-step
-    // contract), not a reclassification: pinning them IdeOnly would put the
-    // IDE test list behind the singleton for a read.
-    const TEST_FLEET_OK: &[&str] = &[
-        "/",                                          // list_test_files — GAP, see above
-        "/project-runs",                              // Postgres
-        "/project-runs/{project_run_id}",             // Postgres
-        "/{pathb64}",                                 // get_test_file — GAP, see above
-        "/{pathb64}/runs",                            // Postgres run history
-        "/{pathb64}/runs/{run_index}",                // Postgres
-        "/{pathb64}/runs/{run_index}/human-verdicts", // Postgres
-        "/{pathb64}/runs/{run_index}/cases/{case_index}/human-verdict", // Postgres
-    ];
-    assert_sub_routes_classified(src, "build_test_file_routes", "/tests", TEST_FLEET_OK, 1);
-}
-
 /// Per-sub-route drift guard for `build_integration_routes()`, MIXED: the
 /// OAuth authorize routes are fleet-servable, `GET /looker` is not.
 #[test]
@@ -1209,11 +1168,6 @@ fn manifest_covers_state_touching_routes() {
         // git/working-copy state reads (workspace_root + detect_git_mode)
         ("GET", format!("{ws}/git-state")),
         ("GET", format!("{ws}/status")),
-        // modeling/airform — dbt projects on disk; ALL methods + the bare
-        // list root are IdeOnly (regression for the POST-only-manifest gap).
-        ("GET", format!("{ws}/modeling")),
-        ("GET", format!("{ws}/modeling/myproj/lineage")),
-        ("POST", format!("{ws}/modeling/myproj/run")),
         // The Builder edits the working copy and is driven in the Factory's
         // memory (a chat and an automation are not: phase 3d).
         ("POST", format!("{ws}/analytics/builder/runs")),
@@ -1280,15 +1234,16 @@ fn manifest_covers_state_touching_routes() {
 /// boundary + Postgres + S3). Kept in sync with `build_workspace_routes` —
 /// the test rejects stale entries.
 ///
-/// A mount here may still be **MIXED** — `/apps`, `/tests` and
-/// `/integrations` each have IdeOnly sub-routes. This list cannot express
+/// A mount here may still be **MIXED** — `/apps` and `/integrations` each
+/// have IdeOnly sub-routes (`/tests` was the third, until it went with the
+/// tests UI). This list cannot express
 /// that: `every_workspace_mount_is_classified` short-circuits on a match, so
 /// an entry here means "do not ask about the mount", not "nothing under it
 /// touches disk". The earlier wording claimed the latter and was false the
 /// moment a sub-route was pinned.
 ///
 /// **A mixed mount needs a per-sub-route guard.** See
-/// `every_app_sub_route_is_classified` and the two beside it — without one,
+/// `every_app_sub_route_is_classified` and the one beside it — without one,
 /// every sub-route under the mount is classified by reviewer attention
 /// alone, which is exactly how publish/unpublish came to write the working
 /// copy while classified FleetOk.

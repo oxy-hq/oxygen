@@ -115,14 +115,12 @@ fn the_landmarks_sit_where_the_plan_puts_them() {
         ("POST", "/files/{pathb64}"),
         ("POST", "/compile"),
         ("POST", "/push-changes"),
-        ("GET", "/modeling/{project_name}/lineage"),
         ("GET", "/semantic/topic/{file_path_b64}"),
         ("POST", "/databases"),
         ("PUT", "/secrets/{id}"),
         ("POST", "/world-model/competitors"),
         ("POST", "/agentic-airway/backfill"),
         ("POST", "/agentic-schedules"),
-        ("GET", "/tests"),
     ] {
         assert_eq!(
             surface_of(method, path),

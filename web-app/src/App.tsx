@@ -93,7 +93,6 @@ const FilesLayout = React.lazy(() => import("./pages/ide/Files"));
 const EditorPage = React.lazy(() => import("./pages/ide/Files/Editor"));
 const DatabaseLayout = React.lazy(() => import("./pages/ide/Database"));
 const QueryWorkspacePage = React.lazy(() => import("./pages/ide/Database/QueryWorkspace"));
-const ModelingPage = React.lazy(() => import("./pages/ide/modeling"));
 const SemanticLayerPage = React.lazy(() => import("./pages/ide/SemanticLayer"));
 const ExperimentsListPage = React.lazy(() => import("./pages/ide/Experiments"));
 const ExperimentDetailPage = React.lazy(() => import("./pages/ide/Experiments/ExperimentDetail"));
@@ -110,10 +109,6 @@ const EdgeRolloutsPage = React.lazy(() => import("./pages/ide/edge/RolloutsPage"
 const EdgeRolloutDetailPage = React.lazy(() => import("./pages/ide/edge/RolloutDetailPage"));
 const EdgeAuditPage = React.lazy(() => import("./pages/ide/edge/AuditPage"));
 const EdgePackPage = React.lazy(() => import("./pages/ide/edge/PackPage"));
-const TestsLayout = React.lazy(() => import("./pages/ide/tests"));
-const TestsDashboardPage = React.lazy(() => import("./pages/ide/tests/TestsDashboardPage"));
-const TestsRunsPage = React.lazy(() => import("./pages/ide/tests/TestsRunsPage"));
-const TestFileDetailPage = React.lazy(() => import("./pages/ide/tests/TestFileDetailPage"));
 const CoordinatorLayout = React.lazy(() => import("./pages/ide/coordinator"));
 const OverviewPage = React.lazy(() => import("./pages/ide/coordinator/Overview"));
 const JobsPage = React.lazy(() => import("./pages/ide/coordinator/Jobs"));
@@ -298,7 +293,6 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
     if (lastSeenWsId && lastSeenWsId !== wsId) {
       useAskDock.getState().newChat();
       useBuilderDialog.getState().setIsOpen(false);
-      useBuilderDialog.getState().setModelingSelection(null);
       useDatabaseOperationStore.getState().clearSyncState();
     }
     lastSeenWsId = wsId;
@@ -468,9 +462,6 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
                 <Route index element={<QueryWorkspacePage />} />
               </Route>
 
-              {/* Data Modeling routes */}
-              <Route path='modeling' element={<ModelingPage />} />
-
               {/* Semantic model — explorer + metric tree */}
               <Route path='semantic' element={<SemanticLayerPage />} />
 
@@ -507,13 +498,6 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
               useful. Drops the cameraId/reportId segments since the
               timeline page resolves to the most recent event. */}
               <Route path='compliance/*' element={<Navigate to='../edge/timeline' replace />} />
-
-              {/* Tests routes */}
-              <Route path='tests' element={<TestsLayout />}>
-                <Route index element={<TestsDashboardPage />} />
-                <Route path='runs' element={<TestsRunsPage />} />
-                <Route path=':pathb64' element={<TestFileDetailPage />} />
-              </Route>
 
               {/* Coordinator routes */}
               <Route path='coordinator' element={<CoordinatorLayout />}>

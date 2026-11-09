@@ -15,9 +15,9 @@ use crate::api::{
     agent, api_keys, apps, artifacts, automation, chart, cohort, competitors, compile,
     compile_staging, data, database, execution_analytics, file, foot_traffic, integration,
     local_setup, metric_anomalies, metric_tree, metric_tree_probe, metric_tree_projection, metrics,
-    modeling, org_subdomain, pipeline, preagg, result_files, schedules, semantic, test_file,
-    test_project_run, test_run, thread, traces, video, workspace_logo, workspace_members,
-    workspace_oxy_access, workspaces, world_model, world_model_graph,
+    org_subdomain, pipeline, preagg, result_files, schedules, semantic, thread, traces, video,
+    workspace_logo, workspace_members, workspace_oxy_access, workspaces, world_model,
+    world_model_graph,
 };
 
 use oxy_shared::fleet_role::RouteRole;
@@ -140,7 +140,6 @@ pub(super) fn build_workspace_routes(
             "/app-integrations",
             build_app_integration_routes(&app_state),
         )
-        .nest("/tests", build_test_file_routes(&app_state))
         .nest_all(
             "/traces",
             RouteRole::FleetOk,
@@ -340,12 +339,6 @@ pub(super) fn build_workspace_routes(
         .nest(
             "/agentic-schedules",
             build_schedule_routes(&app_state, agentic_state),
-        )
-        .nest_typed(
-            "/modeling",
-            RouteRole::IdeOnly,
-            modeling::build_modeling_routes(),
-            super::IdeState(app_state.clone()),
         );
 
     if include_git_features {
@@ -704,48 +697,6 @@ fn build_integration_routes(app_state: &AppState) -> RoleRouter {
         .route_fleet(
             "/oauth/{provider}/authorize",
             post(crate::integrations::quickbooks::oauth::authorize::authorize_by_slug),
-        )
-}
-
-fn build_test_file_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone())
-        // `.test.yml` is the one workspace artifact the compile boundary
-        // deliberately does not carry: `oxy_compile::walker` skips every path
-        // containing `.test.`, so there is nothing in Postgres to fall back to
-        // and `list_tests`/`resolve_test` are `ConfigManager<WorkingCopy>`
-        // methods by construction. `IdeOnly` is the honest classification —
-        // a replica forwards to the ide upstream instead of reporting an
-        // absent directory as an empty test suite. Not a hot path: only the
-        // ide opens these.
-        .route_ide("/", get(test_file::list_test_files))
-        .route_fleet(
-            "/project-runs",
-            get(test_project_run::list_project_runs).post(test_project_run::create_project_run),
-        )
-        .route_fleet(
-            "/project-runs/{project_run_id}",
-            delete(test_project_run::delete_project_run),
-        )
-        .route_ide("/{pathb64}", get(test_file::get_test_file))
-        .route_ide(
-            "/{pathb64}/cases/{case_index}",
-            post(test_file::run_test_case),
-        )
-        .route_fleet(
-            "/{pathb64}/runs",
-            get(test_run::list_runs).post(test_run::create_run),
-        )
-        .route_fleet(
-            "/{pathb64}/runs/{run_index}",
-            get(test_run::get_run).delete(test_run::delete_run),
-        )
-        .route_fleet(
-            "/{pathb64}/runs/{run_index}/human-verdicts",
-            get(test_run::list_human_verdicts),
-        )
-        .route_fleet(
-            "/{pathb64}/runs/{run_index}/cases/{case_index}/human-verdict",
-            put(test_run::set_human_verdict),
         )
 }
 

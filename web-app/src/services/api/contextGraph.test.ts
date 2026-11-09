@@ -4,7 +4,6 @@ import type { DatabaseInfo } from "@/types/database";
 import { ContextGraphService } from "./contextGraph";
 import { DatabaseService } from "./database";
 import { FileService } from "./files";
-import { ModelingService } from "./modeling";
 
 // A stateless replica answers `datasets: null` for every database, because the
 // semantic sync directory lives in the working copy it does not have. The ide
@@ -49,7 +48,6 @@ beforeEach(() => {
   vi.spyOn(FileService, "getFileTree").mockResolvedValue({
     primary: []
   } as unknown as Awaited<ReturnType<typeof FileService.getFileTree>>);
-  vi.spyOn(ModelingService, "getLineage").mockRejectedValue(new Error("no lineage"));
 });
 
 describe("ContextGraphService.getContextGraph — datasets null vs {}", () => {

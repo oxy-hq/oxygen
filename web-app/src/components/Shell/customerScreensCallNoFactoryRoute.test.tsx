@@ -21,11 +21,12 @@ import { WorkspaceShell } from "./WorkspaceShell";
 /**
  * A customer screen never calls a Factory route.
  *
- * `BuilderDialog` is mounted for every page and asked `GET /{workspace}/modeling`
- * on load; once enforcement is on that is a `403 factory_access_required` per page
- * load, and a toast for each. Rendering what every page mounts, as someone the
- * server will not let into the Factory, and recording the requests it sends is the
- * check that does not depend on remembering which hook is mounted where.
+ * `BuilderDialog` is mounted for every page and used to ask `GET /{workspace}/modeling`
+ * on load (that route is gone now); once enforcement is on, such a request is a
+ * `403 factory_access_required` per page load, and a toast for each. Rendering what
+ * every page mounts, as someone the server will not let into the Factory, and
+ * recording the requests it sends is the check that does not depend on remembering
+ * which hook is mounted where.
  *
  * The prefixes are the route table's Factory list
  * (`server/factory_access/routes.rs`) at its coarsest: a route the customer list
@@ -33,11 +34,9 @@ import { WorkspaceShell } from "./WorkspaceShell";
  */
 const FACTORY_PREFIXES = [
   "/files",
-  "/modeling",
   "/branches",
   "/repositories",
   "/compile",
-  "/tests",
   "/simulations",
   "/secrets",
   "/traces",
@@ -150,14 +149,12 @@ describe("what every page mounts", () => {
     expect(factory).toEqual([]);
   });
 
-  /// The control: the same screens do ask for the model and the tree when the
-  /// server lets the caller in, so the assertion above is not passing because
-  /// nothing renders.
-  it("does ask for the modeling projects when the caller may use the Factory", async () => {
+  /// The control: the same screens do ask for the config status the banner reads
+  /// when the server lets the caller in, so the assertion above is not passing
+  /// because nothing renders.
+  it("does ask for the config status when the caller may use the Factory", async () => {
     useCurrentWorkspace.setState({ workspace: customerWorkspace(true) });
     renderWhatEveryPageMounts();
-    await waitFor(() => expect(requested.some((r) => r.includes("/modeling"))).toBe(true));
-    // And the config status the banner reads, which a customer is never asked for.
     await waitFor(() => expect(requested.some((r) => r.includes("/status"))).toBe(true));
   });
 });

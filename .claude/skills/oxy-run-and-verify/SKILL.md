@@ -75,7 +75,7 @@ Seeded orgs: `local` (Demo `70787bb2-e11b-5488-b2c3-02e60d5fc7d3` from `./exampl
 | Automations | `W/automations` · `W/automations/<pathb64>` (`/workflows` is an alias) |
 | Airway pipeline | `W/pipelines/<pathb64>` |
 | Oxygen Factory (IDE) | `W/ide` → `W/ide/world-model` |
-| IDE: files · SQL · semantic model · modeling · tests | `W/ide/files/<pathb64>` · `W/ide/database` · `W/ide/semantic` · `W/ide/modeling` · `W/ide/tests` |
+| IDE: files · SQL · semantic model | `W/ide/files/<pathb64>` · `W/ide/database` · `W/ide/semantic` |
 | Orchestrator · observability | `W/ide/coordinator/overview` · `W/ide/observability/traces` |
 | Context graph | `W/context-graph` |
 | Settings dialog | any `W` URL + `?settings=<section>`: `organization.{general,members,teams,crew,locations,positions,billing,integration}`, `workspace.{members,databases,airhouse,oltp,repositories,secrets,connections,apps}`, `preferences.appearance` |

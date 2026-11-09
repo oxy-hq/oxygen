@@ -9,10 +9,7 @@ export interface ContextGraphNode {
     | "automation"
     | "sql_query"
     | "agent"
-    | "entity"
-    | "dbt_model"
-    | "dbt_source"
-    | "dbt_seed";
+    | "entity";
   label: string;
   data: {
     name: string;
@@ -29,7 +26,7 @@ export interface ContextGraphEdge {
   source: string;
   target: string;
   label?: string;
-  type?: "references" | "uses" | "contains" | "derived_from";
+  type?: "references" | "uses" | "contains";
 }
 
 export interface ContextGraph {

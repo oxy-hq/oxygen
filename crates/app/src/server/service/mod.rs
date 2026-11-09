@@ -7,5 +7,3 @@ pub mod api_key;
 pub mod eval;
 pub mod formatters; // CLI-specific formatters (different from oxy::service::formatters)
 pub mod project;
-pub mod test;
-pub mod test_runs;

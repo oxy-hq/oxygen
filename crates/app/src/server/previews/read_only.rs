@@ -167,8 +167,6 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
         "/semantic/preagg-rebuild",
         "Rebuilding pre-aggregations",
     ),
-    ("*", "/modeling/{*rest}", "Running Airform modeling"),
-    ("*", "/tests/{*rest}", "Running tests"),
     (
         "*",
         "/analytics/coordinator/runs/{id}/retry",

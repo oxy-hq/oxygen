@@ -144,28 +144,6 @@ impl RoleRouter {
         self
     }
 
-    /// Nest a subtree that types its own routes, under one role. The role is
-    /// declared here because only the mounting site knows the prefix; the
-    /// subtree's own state is what stops a handler in it reaching for a working
-    /// copy it should not have.
-    pub fn nest_typed<S>(
-        mut self,
-        prefix: &str,
-        role: RouteRole,
-        router: Router<S>,
-        state: S,
-    ) -> Self
-    where
-        S: Clone + Send + Sync + 'static,
-    {
-        self.decls.push(("*", format!("{prefix}/{{*rest}}"), role));
-        self.decls.push(("*", prefix.to_string(), role));
-        self.router = self
-            .router
-            .nest_service(prefix, router.with_state(state).into_service());
-        self
-    }
-
     /// Nest a subtree under one role, without naming its routes. For routers
     /// whose whole surface shares a role and whose handlers need no working
     /// copy; a route added there inherits the role, which is what the wildcard

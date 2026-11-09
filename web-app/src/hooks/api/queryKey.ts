@@ -315,47 +315,6 @@ const slackKeys = {
   installation: (orgId: string) => [...slackKeys.all, "installation", orgId] as const
 };
 
-const testFileKeys = {
-  all: ["testFile"] as const,
-  list: (projectId: string, branchName: string) =>
-    [...testFileKeys.all, "list", projectId, branchName] as const,
-  get: (pathb64: string, projectId: string, branchName: string) =>
-    [...testFileKeys.all, "get", pathb64, projectId, branchName] as const
-};
-
-const testProjectRunKeys = {
-  all: ["testProjectRun"] as const,
-  list: (projectId: string) => [...testProjectRunKeys.all, "list", projectId] as const
-};
-
-const testRunKeys = {
-  all: ["testRun"] as const,
-  list: (projectId: string, pathb64: string) =>
-    [...testRunKeys.all, "list", projectId, pathb64] as const,
-  detail: (projectId: string, pathb64: string, runIndex: number) =>
-    [...testRunKeys.all, "detail", projectId, pathb64, runIndex] as const
-};
-
-const humanVerdictKeys = {
-  all: ["humanVerdict"] as const,
-  list: (projectId: string, pathb64: string, runIndex: number) =>
-    [...humanVerdictKeys.all, "list", projectId, pathb64, runIndex] as const
-};
-
-const modelingKeys = {
-  all: ["modeling"] as const,
-  projects: (projectId: string, branchName: string) =>
-    [...modelingKeys.all, "projects", projectId, branchName] as const,
-  project: (projectId: string, modelingProjectName: string, branchName: string) =>
-    [...modelingKeys.all, "project", projectId, modelingProjectName, branchName] as const,
-  nodes: (projectId: string, modelingProjectName: string, branchName: string) =>
-    [...modelingKeys.all, "nodes", projectId, modelingProjectName, branchName] as const,
-  lineage: (projectId: string, modelingProjectName: string, branchName: string) =>
-    [...modelingKeys.all, "lineage", projectId, modelingProjectName, branchName] as const,
-  columnLineage: (projectId: string, modelingProjectName: string, branchName: string) =>
-    [...modelingKeys.all, "columnLineage", projectId, modelingProjectName, branchName] as const
-};
-
 const orgKeys = {
   all: ["org"] as const,
   list: () => [...orgKeys.all, "list"] as const,
@@ -1283,11 +1242,6 @@ const queryKeys = {
   slack: slackKeys,
   trace: traceKeys,
   executionAnalytics: executionAnalyticsKeys,
-  testFile: testFileKeys,
-  testProjectRun: testProjectRunKeys,
-  testRun: testRunKeys,
-  humanVerdict: humanVerdictKeys,
-  modeling: modelingKeys,
   github: githubKeys,
   preagg: preaggKeys,
   workspaceHealth: workspaceHealthKeys,

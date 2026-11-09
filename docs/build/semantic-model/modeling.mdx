@@ -94,17 +94,10 @@ The `type:` field must match the Oxygen database type for the mapped target (see
 
 ## Running Models
 
-Open **Modeling** in the IDE sidebar to see every discovered project, browse its
-models, and run operations against it:
-
-| Operation | Description |
-|---|---|
-| **Run** | Compile and execute models in topological order. Accepts a dbt node selector |
-| **Compile** | Resolve Jinja macros and `ref()`/`source()` calls to SQL without executing anything |
-| **Test** | Run schema and data tests |
-| **Seed** | Load CSV seed files |
-| **Analyze** | Infer column schemas and detect contract violations |
-| **Lineage** | Show the model DAG, and column-level lineage |
+Run your models where the rest of your repository's checks run: with the dbt CLI in
+your own CI, on push. The Oxygen builder agent can also run, compile, test and seed a
+project for you in chat, and show its lineage, when you ask it to. (The former
+**Modeling** page in the Oxygen IDE has been removed.)
 
 Run accepts dbt node selectors:
 
@@ -138,7 +131,7 @@ mappings:
 
 ## Troubleshooting
 
-**`oxy.yml` not found** — `oxy.yml` must be present next to `dbt_project.yml` when running models through Oxygen. If the project doesn't appear under **Modeling** in the IDE, check that both files are present.
+**`oxy.yml` not found** — `oxy.yml` must be present next to `dbt_project.yml` when running models through Oxygen. If the builder agent doesn't find the project, check that both files are present.
 
 **Unmapped dbt target** — Every key under `outputs:` in `profiles.yml` must appear in `oxy.yml mappings`. The error message lists which targets are missing.
 
