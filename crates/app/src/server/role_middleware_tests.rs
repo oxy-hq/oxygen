@@ -484,6 +484,102 @@ mod preview_header {
     }
 }
 
+/// The `/external/api` surface layers the role middleware INSIDE its `nest`, so
+/// the URI it sees has the prefix stripped (`/{ws}/sql/query`). Both the
+/// classification and the forward to the ide need the full path back. Before
+/// `enforce_role_external`, the classification matched nothing and the forward
+/// sent the stripped path, which the ide answered with its SPA fallback —
+/// `405 Allow: GET,HEAD` for every custom-app query carrying `?branch=main`.
+mod external_surface {
+    use super::*;
+
+    const WS: &str = "some-uuid";
+
+    fn external_router() -> Router {
+        let workspace_routes = Router::new()
+            .route("/compile", post(|| async { "should not reach" }))
+            .route("/sql/query", post(|| async { "served here" }));
+        Router::new().nest(
+            "/external/api",
+            Router::new()
+                .nest("/{workspace_id}", workspace_routes)
+                .layer(middleware::from_fn(enforce_role_external)),
+        )
+    }
+
+    async fn post_external(path: &str) -> (StatusCode, String) {
+        let resp = external_router()
+            .oneshot(HttpRequest::post(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = resp.status();
+        let body = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+        (status, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    /// An `IdeOnly` route reached through the external prefix is classified by
+    /// its `/api/...` declaration — not let through because `/{ws}/compile`
+    /// matches no declaration and defaults to `FleetOk`.
+    #[tokio::test]
+    async fn an_ide_only_route_is_classified_by_its_full_path() {
+        install_roles();
+        unsafe {
+            std::env::set_var("OXY_ROLE", "serve");
+            std::env::remove_var("OXY_IDE_UPSTREAM");
+        }
+        crate::server::role_manifest::init_process_role_from_env();
+
+        let (status, body) = post_external(&format!("/external/api/{WS}/compile")).await;
+
+        assert_eq!(status, StatusCode::MISDIRECTED_REQUEST, "{body}");
+        assert!(
+            body.contains(&format!("/external/api/{WS}/compile")),
+            "the refusal names the path the client sent: {body}"
+        );
+        unsafe { std::env::remove_var("OXY_ROLE") };
+    }
+
+    /// The ide receives the path and query the client sent, prefix included.
+    #[tokio::test]
+    async fn a_branch_request_reaches_the_ide_with_the_external_prefix() {
+        install_roles();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let ide = Router::new().fallback(|uri: axum::http::Uri| async move { uri.to_string() });
+        tokio::spawn(async move { axum::serve(listener, ide).await.unwrap() });
+        unsafe {
+            std::env::set_var("OXY_ROLE", "serve");
+            std::env::set_var("OXY_IDE_UPSTREAM", format!("http://{addr}"));
+            std::env::set_var("NO_PROXY", "127.0.0.1");
+        }
+        crate::server::role_manifest::init_process_role_from_env();
+
+        let path = format!("/external/api/{WS}/sql/query?branch=main");
+        let (status, body) = post_external(&path).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, path, "the ide must route what the client sent");
+        unsafe {
+            std::env::remove_var("OXY_ROLE");
+            std::env::remove_var("OXY_IDE_UPSTREAM");
+        }
+    }
+
+    /// Without a branch the query stays on this replica, as on `/api`.
+    #[tokio::test]
+    async fn a_query_without_a_branch_is_served_here() {
+        install_roles();
+        unsafe { std::env::set_var("OXY_ROLE", "serve") };
+        crate::server::role_manifest::init_process_role_from_env();
+
+        let (status, body) = post_external(&format!("/external/api/{WS}/sql/query")).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, "served here");
+        unsafe { std::env::remove_var("OXY_ROLE") };
+    }
+}
+
 /// With the `ide_retired` flag on, on a serve replica: a refused IDE route is
 /// answered here with the 410 (never forwarded, never a 421), a kept `IdeOnly`
 /// route still goes to the Factory exactly as before, and a fleet route naming

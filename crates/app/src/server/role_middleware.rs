@@ -12,14 +12,35 @@ const HEADER_SERVED_BY: &str = "x-oxy-served-by";
 const HEADER_REQUIRED_ROLE: &str = "x-oxy-required-role";
 const HEADER_FORWARDED_VIA: &str = "x-oxy-forwarded-via";
 
-pub async fn enforce_role(mut req: Request, next: Next) -> Response {
+/// The prefix the external API surface is nested under in `serve.rs`.
+pub const EXTERNAL_API_PREFIX: &str = "/external/api";
+
+pub async fn enforce_role(req: Request, next: Next) -> Response {
+    enforce_role_under("", req, next).await
+}
+
+/// [`enforce_role`] for the `/external/api` surface, which layers it INSIDE its
+/// `nest`. There axum has already stripped the prefix, so the request reads
+/// `/{ws}/sql/query`: no declaration matches that, and when `?branch=` then
+/// escalates it to `IdeOnly` the stripped path is what the ide receives — the
+/// static SPA fallback, `405 Allow: GET,HEAD` for every POST. That broke every
+/// custom app whose SDK sends `?branch=main` (Poke House's Command Center and
+/// Time to Serve on dev, 2026-11-09).
+pub async fn enforce_role_external(req: Request, next: Next) -> Response {
+    enforce_role_under(EXTERNAL_API_PREFIX, req, next).await
+}
+
+/// `prefix` is what a `nest` above this layer stripped; it is put back for the
+/// classification and for the forward, and left off for `next`, which routes on
+/// the stripped remainder.
+async fn enforce_role_under(prefix: &str, mut req: Request, next: Next) -> Response {
     let role = current_process_role();
     if matches!(role, Role::All) {
         return stamp(next.run(req).await, role);
     }
 
     let method = req.method().as_str().to_string();
-    let path = req.uri().path().to_string();
+    let path = format!("{prefix}{}", req.uri().path());
     let classified = classify(&method, &path);
     // A deployment that retired the IDE sends nothing to the Factory for it:
     // a refused route is served here so `workspace_middleware` can answer its
@@ -71,6 +92,7 @@ pub async fn enforce_role(mut req: Request, next: Next) -> Response {
                 path = %path,
                 "serve replica: forwarding IdeOnly route to ide upstream"
             );
+            restore_prefix(prefix, &mut req);
             return stamp_forwarded_via(
                 crate::server::ide_proxy::forward_to_ide(upstream, req).await,
                 role,
@@ -99,6 +121,23 @@ pub async fn enforce_role(mut req: Request, next: Next) -> Response {
         resp.headers_mut().insert(HEADER_REQUIRED_ROLE, v);
     }
     stamp(resp, role)
+}
+
+/// Put back the prefix a `nest` stripped, query included, so the ide routes the
+/// request as the client sent it.
+fn restore_prefix(prefix: &str, req: &mut Request) {
+    if prefix.is_empty() {
+        return;
+    }
+    let rest = req
+        .uri()
+        .path_and_query()
+        .map_or_else(|| req.uri().path(), |pq| pq.as_str())
+        .to_string();
+    match format!("{prefix}{rest}").parse() {
+        Ok(uri) => *req.uri_mut() = uri,
+        Err(e) => tracing::error!(%prefix, %rest, "cannot restore nested prefix: {e}"),
+    }
 }
 
 fn escalate_for_branch(role: RouteRole, query: Option<&str>) -> RouteRole {

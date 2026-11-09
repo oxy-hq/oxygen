@@ -871,8 +871,10 @@ async fn create_web_application(
         .nest(
             "/external/api",
             external_api_router
+                // `_external`: inside this nest the prefix is already stripped,
+                // and both the classification and the forward need it back.
                 .layer(axum::middleware::from_fn(
-                    crate::server::role_middleware::enforce_role,
+                    crate::server::role_middleware::enforce_role_external,
                 ))
                 .layer(axum::middleware::from_fn(
                     oxy_telemetry::http_trace::record_error_body,

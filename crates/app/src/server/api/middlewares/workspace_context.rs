@@ -843,8 +843,9 @@ pub async fn workspace_middleware(
 /// axum has rewritten the URI here to the stripped remainder (`/agents`, not
 /// `/api/{ws}/agents`), and `forward_to_ide` proxies `req.uri()` verbatim, so the
 /// original full URI goes back first — else the ide receives the bare `/agents`
-/// and serves the SPA fallback. (The enforce_role self-proxy needs no such fix:
-/// it runs at the top level where the URI is already the full path.)
+/// and serves the SPA fallback. (`enforce_role` has the same problem on the
+/// `/external/api` surface, which layers it inside its nest; that one is
+/// `enforce_role_external`.)
 async fn forward_with_original_uri(
     upstream: &str,
     mut request: Request<axum::body::Body>,
