@@ -802,8 +802,7 @@ impl PipelineBuilder {
         // original run did, so it routes through the same hook.
         let config =
             agent_definition::read_analytics_agent(self.platform.as_ref(), agent_id, base_dir)
-                .await
-                .map_err(|e| PipelineError::Config(e.to_string()))?;
+                .await?;
 
         // The same documents the original run was built with, asked the same
         // way: a resumed run rebuilds its solver from scratch. A failure here
@@ -1192,17 +1191,16 @@ pub async fn prepare_one_shot(
 /// [`queued_run::check_analytics_agent`] reads in place of a start.
 ///
 /// The definition comes from [`agent_definition::read_analytics_agent`] —
-/// compiled revision first, then this node's working copy, where a missing
-/// file is the "not found" a caller maps to `404`. Both of its failures are
-/// [`PipelineError::Config`] here.
+/// the host's answer when it has a compile boundary, else this node's working
+/// copy. A missing agent is the "not found" a caller maps to `404`; a read
+/// that could not happen is [`PipelineError::Unavailable`] (`503`); anything
+/// else is [`PipelineError::Config`].
 pub(crate) async fn load_analytics_agent(
     platform: &dyn PlatformContext,
     agent_id: &str,
     base_dir: &std::path::Path,
 ) -> Result<(AgentConfig, Option<Vec<String>>), PipelineError> {
-    let config = agent_definition::read_analytics_agent(platform, agent_id, base_dir)
-        .await
-        .map_err(|e| PipelineError::Config(e.to_string()))?;
+    let config = agent_definition::read_analytics_agent(platform, agent_id, base_dir).await?;
     let domain_docs = context_documents::resolve(platform, &config).await?;
     Ok((config, domain_docs))
 }

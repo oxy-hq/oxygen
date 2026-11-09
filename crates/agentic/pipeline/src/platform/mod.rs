@@ -152,20 +152,24 @@ pub trait ProjectContext: Send + Sync {
         has_explicit_model: bool,
     ) -> Option<ResolvedModelInfo>;
 
-    /// Hook for the compile-boundary read path on the analytics agent
-    /// surface. The pipeline calls this BEFORE `AgentConfig::from_file`;
-    /// when it returns `Some(yaml)`, the pipeline parses that string via
-    /// `AgentConfig::from_yaml` and skips the disk read. Returning `None`
-    /// (the default) is the FS path — adapters that don't participate in
-    /// the compile boundary, plus the path where the boundary's
-    /// per-feature-flag check decides "fall through to FS".
+    /// The analytics agent `agent_ref` names, as YAML, from wherever the host
+    /// serves the workspace. Same three-way shape as
+    /// [`Self::resolve_context_documents`]:
     ///
-    /// `agent_id` is whatever the caller passed: a workspace-relative
-    /// path (`agents/foo.agentic.yml`), a bare stem (`foo`), or
-    /// anything in between. Hosts are responsible for normalising to
-    /// the form their compiled-definitions table is keyed by.
-    async fn resolve_agent_yaml(&self, _agent_id: &str) -> Option<String> {
-        None
+    /// - `Ok(None)` — this host does not answer (the default: the CLI, test
+    ///   fakes, a host with no compile boundary). The pipeline then reads the
+    ///   working copy under the context root.
+    /// - `Ok(Some(yaml))` — the definition.
+    /// - `Err` — `Missing` when the host looked and has no such agent (the
+    ///   caller's `404`), `Unavailable` when it could not look (retry, `503`),
+    ///   `Invalid` when what it found is unusable. A host that answers is never
+    ///   second-guessed by the disk.
+    ///
+    /// `agent_ref` is whatever the caller passed: a workspace-relative path
+    /// (`agents/foo.agentic.yml`), the path without its extension, or a bare
+    /// compile key. The host resolves it against what its compiler keyed.
+    async fn resolve_agent(&self, _agent_ref: &str) -> Result<Option<String>, WorkspaceReadError> {
+        Ok(None)
     }
 
     /// The `.md` documents an analytics agent's `context:` patterns reach,

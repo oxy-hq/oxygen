@@ -36,8 +36,11 @@ struct HeldStart {
 
 #[async_trait::async_trait]
 impl ProjectContext for HeldStart {
-    async fn resolve_agent_yaml(&self, _agent_id: &str) -> Option<String> {
-        Some("databases:\n  - warehouse\n".into())
+    async fn resolve_agent(
+        &self,
+        _agent_id: &str,
+    ) -> Result<Option<String>, agentic_automation::WorkspaceReadError> {
+        Ok(Some("databases:\n  - warehouse\n".into()))
     }
     async fn resolve_connector(&self, _db: &str) -> Option<agentic_connector::ConnectorConfig> {
         self.reached.notify_one();

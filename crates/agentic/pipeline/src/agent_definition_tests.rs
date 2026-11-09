@@ -1,6 +1,8 @@
 //! The working-copy fallback on a node with a checkout (ide/all roles), where
 //! nothing is compiled: `agent_id` comes from an HTTP body or a queued run, and
-//! must not read a file outside the workspace root.
+//! must not read a file outside the workspace root. And what a host with a
+//! compile boundary says is final: a miss is "not found", a failed read is a
+//! retry, and neither falls back to the file on this node's disk.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -10,14 +12,25 @@ use crate::platform::{PlatformContext, ProjectContext};
 
 const AGENT_YAML: &str = "databases: []\n";
 
-/// A node whose compile boundary has nothing, so every load takes the disk
-/// fallback.
-struct NothingCompiled;
+type Answer = fn() -> Result<Option<String>, crate::WorkspaceReadError>;
+
+/// A host that says `answer` for every ref. [`NOTHING_COMPILED`] is a host
+/// with no compile boundary, so every load takes the disk fallback.
+struct Host {
+    answer: Answer,
+}
+
+const NOTHING_COMPILED: Host = Host {
+    answer: || Ok(None),
+};
 
 #[async_trait::async_trait]
-impl ProjectContext for NothingCompiled {
-    async fn resolve_agent_yaml(&self, _agent_id: &str) -> Option<String> {
-        None
+impl ProjectContext for Host {
+    async fn resolve_agent(
+        &self,
+        _agent_id: &str,
+    ) -> Result<Option<String>, crate::WorkspaceReadError> {
+        (self.answer)()
     }
     async fn resolve_connector(&self, _db: &str) -> Option<agentic_connector::ConnectorConfig> {
         None
@@ -35,7 +48,7 @@ impl ProjectContext for NothingCompiled {
 }
 
 #[async_trait::async_trait]
-impl agentic_automation::WorkspaceContext for NothingCompiled {
+impl agentic_automation::WorkspaceContext for Host {
     fn workspace_path(&self) -> Option<&Path> {
         None
     }
@@ -86,11 +99,16 @@ fn layout() -> Layout {
 }
 
 async fn load(agent_id: &str, root: &Path) -> Result<(), String> {
-    let platform: Arc<dyn PlatformContext> = Arc::new(NothingCompiled);
+    load_from(NOTHING_COMPILED, agent_id, root)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn load_from(host: Host, agent_id: &str, root: &Path) -> Result<(), crate::PipelineError> {
+    let platform: Arc<dyn PlatformContext> = Arc::new(host);
     load_analytics_agent(platform.as_ref(), agent_id, root)
         .await
         .map(|_| ())
-        .map_err(|e| e.to_string())
 }
 
 /// The control: a file under the root loads, with and without its extension,
@@ -152,4 +170,65 @@ async fn a_symlink_that_stays_under_the_root_loads() {
     )
     .unwrap();
     load("alias", &l.root).await.unwrap();
+}
+
+/// G2: a read the host could not make is a retry (`503`), not "agent not
+/// found", and the valid file in this node's working copy does not answer in
+/// its place (G3).
+#[tokio::test]
+async fn a_failed_host_read_is_retryable_and_never_reads_the_disk() {
+    let l = layout();
+    let host = Host {
+        answer: || Err(crate::WorkspaceReadError::Unavailable("db down".into())),
+    };
+    let err = load_from(host, "agents/inside", &l.root)
+        .await
+        .expect_err("the host's answer is final");
+    assert!(err.is_retryable(), "{err}");
+    assert!(!err.to_string().contains("not found"), "{err}");
+}
+
+/// A miss is the host's answer: a permanent "not found", even with the file
+/// sitting in this node's working copy.
+#[tokio::test]
+async fn a_host_miss_is_not_found_and_never_reads_the_disk() {
+    let l = layout();
+    let host = Host {
+        answer: || {
+            Err(crate::WorkspaceReadError::Missing(
+                "agent `agents/inside` not found".into(),
+            ))
+        },
+    };
+    let err = load_from(host, "agents/inside", &l.root)
+        .await
+        .expect_err("the host's answer is final");
+    assert!(!err.is_retryable(), "{err}");
+    assert!(err.to_string().contains("not found"), "{err}");
+}
+
+/// The path-traversal refusal (#4018) still comes first: a host that would
+/// answer is not even asked about an id outside the workspace.
+#[tokio::test]
+async fn the_workspace_refusal_runs_before_the_host_is_asked() {
+    let l = layout();
+    let host = Host {
+        answer: || Ok(Some(AGENT_YAML.into())),
+    };
+    let err = load_from(host, "../outside/secret", &l.root)
+        .await
+        .expect_err("refused");
+    assert!(err.to_string().contains("inside the workspace"), "{err}");
+}
+
+#[tokio::test]
+async fn an_unparseable_host_definition_is_a_permanent_error() {
+    let l = layout();
+    let host = Host {
+        answer: || Ok(Some("databases: {not: [a list".into())),
+    };
+    let err = load_from(host, "agents/inside", &l.root)
+        .await
+        .expect_err("invalid");
+    assert!(!err.is_retryable(), "{err}");
 }

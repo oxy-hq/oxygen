@@ -9,6 +9,7 @@ pub mod schema_type_converter;
 pub mod test_config;
 pub mod validate;
 use garde::Validate;
+mod agent_ref;
 mod artifacts;
 mod builder;
 mod compiled;
@@ -30,7 +31,7 @@ use validate::ValidationContext;
 use oxy_shared::errors::OxyError;
 
 pub use artifacts::{
-    AgentEntry, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocument,
+    AgentEntry, AgentRef, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocument,
     ContextDocuments, PipelineEntry, SimulationEntry, VerifiedQueryEntry, pipeline_source_kind,
 };
 pub use builder::{ConfigBuilder, OnMissing};

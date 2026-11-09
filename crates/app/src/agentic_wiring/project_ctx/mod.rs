@@ -27,6 +27,7 @@ use oxy_shared::errors::OxyError;
 // The three big trait impls live in sibling child modules; as `impl` blocks
 // they need no re-export — the trait impls are visible wherever the trait and
 // `OxyProjectContext` are in scope.
+mod agent_lookup;
 mod compile_cooldown;
 #[cfg(test)]
 mod connector_translation_tests;
@@ -157,16 +158,6 @@ impl OxyProjectContext {
         self.workspace_manager
             .config_manager
             .automation_definition(file_path)
-            .await
-    }
-
-    pub(super) async fn compiled_agent(
-        &self,
-        name: &str,
-    ) -> Result<Option<serde_json::Value>, oxy::config::ArtifactError> {
-        self.workspace_manager
-            .config_manager
-            .agent_definition(name)
             .await
     }
 

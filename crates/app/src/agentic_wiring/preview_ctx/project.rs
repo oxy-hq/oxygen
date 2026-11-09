@@ -56,9 +56,16 @@ impl ProjectContext for PreviewPlatformContext {
             .await
     }
 
-    async fn resolve_agent_yaml(&self, agent_id: &str) -> Option<String> {
-        let name = self.own_name(agent_id).ok()?;
-        self.pinned(self.inner.resolve_agent_yaml(name)).await
+    /// The staging revision's row for the ref; a name scoped to another run
+    /// is not this run's agent.
+    async fn resolve_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<String>, agentic_automation::WorkspaceReadError> {
+        let name = self
+            .own_name(agent_id)
+            .map_err(agentic_automation::WorkspaceReadError::Missing)?;
+        self.pinned(self.inner.resolve_agent(name)).await
     }
 
     /// The staging revision's documents: `inner` is a manager at that

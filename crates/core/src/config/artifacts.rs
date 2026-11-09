@@ -37,6 +37,16 @@ pub struct AgentEntry {
     pub timezone: Option<String>,
 }
 
+/// One agent a reference resolved to, with its definition: what
+/// `ConfigManager::agent_by_ref` answers. `file_path` says which file the ref
+/// named, so a caller can report it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentRef {
+    pub name: String,
+    pub file_path: String,
+    pub definition: serde_json::Value,
+}
+
 /// An automation as a listing row.
 ///
 /// `extension` is carried because two of them are accepted — `.automation.yml`

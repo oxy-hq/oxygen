@@ -172,6 +172,11 @@ pub(super) async fn drive_here(
 /// compiled yet), `500` otherwise. The same answer whichever path started.
 fn start_failed(agent_id: &str, e: &PipelineError) -> Response {
     let msg = e.to_string();
+    // Retryable first: a failed read's text may well say "not found" (a
+    // backend error, a missing relation), and it is still not a missing agent.
+    if e.is_retryable() {
+        return err(StatusCode::SERVICE_UNAVAILABLE, msg);
+    }
     if msg.contains("not found") || msg.contains("No such file") {
         return err_with_hint(
             StatusCode::NOT_FOUND,
@@ -185,10 +190,5 @@ fn start_failed(agent_id: &str, e: &PipelineError) -> Response {
             ),
         );
     }
-    let status = if e.is_retryable() {
-        StatusCode::SERVICE_UNAVAILABLE
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
-    err(status, msg)
+    err(StatusCode::INTERNAL_SERVER_ERROR, msg)
 }

@@ -42,20 +42,16 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::custom_app_procedure_run_fixture::{Fixture, driver_platform, fixture};
+use crate::custom_app_procedure_run_fixture::{Fixture, driver_platform, fixture_with};
 
 const AGENT: &str = "ask";
 
 /// The fixture's workspace, plus an agent a bundle can ask. It names no usable
 /// model, so its pipeline refuses to build.
+/// Compiled with the workspace: a run reads the promoted revision, never a
+/// file written to disk after the compile (#4022).
 async fn workspace_with_an_agent() -> Fixture {
-    let f = fixture().await;
-    std::fs::write(
-        f._workspace_dir.path().join("ask.agentic.yml"),
-        "llm:\n  ref: none\n",
-    )
-    .expect("write the agent");
-    f
+    fixture_with(&[("ask.agentic.yml", "llm:\n  ref: none\n")]).await
 }
 
 async fn set_metadata(db: &DatabaseConnection, run_id: &str, patch: Value) {

@@ -43,7 +43,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::common::read_repo_file;
-use crate::custom_app_procedure_run_fixture::{Fixture, driver_platform, fixture, send};
+use crate::custom_app_procedure_run_fixture::{Fixture, driver_platform, fixture_with, send};
 
 const START_ROUTE: &str = "/projects/{project_id}/agents/{agent_id}/asks";
 
@@ -60,15 +60,11 @@ fn replica(db: &DatabaseConnection) -> Router {
         .with_state(state)
 }
 
-/// The fixture's workspace, plus an agent a bundle can ask.
+/// The fixture's workspace, plus an agent a bundle can ask, compiled with it:
+/// the start reads the promoted revision, and an agent written to disk after
+/// the compile is one it does not hold (#4022).
 async fn workspace_with_an_agent() -> Fixture {
-    let f = fixture().await;
-    std::fs::write(
-        f._workspace_dir.path().join("ask.agentic.yml"),
-        "llm:\n  ref: none\n",
-    )
-    .expect("write the agent");
-    f
+    fixture_with(&[("ask.agentic.yml", "llm:\n  ref: none\n")]).await
 }
 
 /// `POST …/agents/ask/asks`, and the run row it inserted.

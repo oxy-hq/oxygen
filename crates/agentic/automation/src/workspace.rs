@@ -357,7 +357,7 @@ pub trait WorkspaceContext: Send + Sync {
     /// the difference between *absent* and *unknown*, and every caller that
     /// has to guess gets it wrong in the direction of the cheerful answer.
     ///
-    /// Mirrors `ProjectContext::resolve_agent_yaml`, the same hook shape for
+    /// Mirrors `ProjectContext::resolve_agent`, the same hook shape for
     /// `.agentic.yml`.
     async fn resolve_pipeline_yaml(&self, _pipeline_ref: &str) -> Result<Option<String>, String> {
         Ok(None)

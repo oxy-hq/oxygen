@@ -11,8 +11,8 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::artifacts::{
-    AgentEntry, ArtifactError, AutomationEntry, CompiledArtifact, PipelineEntry, SimulationEntry,
-    VerifiedQueryEntry,
+    AgentEntry, AgentRef, ArtifactError, AutomationEntry, CompiledArtifact, PipelineEntry,
+    SimulationEntry, VerifiedQueryEntry,
 };
 
 pub(super) async fn conn() -> Result<DatabaseConnection, ArtifactError> {
@@ -159,21 +159,48 @@ pub(super) async fn resolve_verified_query_at(
     )
 }
 
-/// One analytics agent's compiled `definition`, keyed by `name`.
-///
-/// Name rather than path, because the analytics pipeline references agents by
-/// `AgenticAgent.name`.
+/// One analytics agent's compiled row, keyed by `name` (the compile key:
+/// `name:`, else the path minus `.agentic.yml`). The last step of
+/// `agent_ref::compiled`, after the by-path lookups.
 pub(super) async fn resolve_agent_at(
     revision_id: Uuid,
     name: &str,
-) -> Result<Option<Value>, ArtifactError> {
+) -> Result<Option<AgentRef>, ArtifactError> {
+    find_agent(
+        revision_id,
+        entity::agent_definitions::Column::Name.eq(name),
+    )
+    .await
+}
+
+/// One analytics agent's compiled row, keyed by workspace-relative
+/// `file_path`. Same table and filter as [`resolve_agent_at`].
+pub(super) async fn resolve_agent_by_path_at(
+    revision_id: Uuid,
+    file_path: &str,
+) -> Result<Option<AgentRef>, ArtifactError> {
+    find_agent(
+        revision_id,
+        entity::agent_definitions::Column::FilePath.eq(file_path),
+    )
+    .await
+}
+
+async fn find_agent(
+    revision_id: Uuid,
+    key: sea_orm::sea_query::SimpleExpr,
+) -> Result<Option<AgentRef>, ArtifactError> {
     Ok(entity::agent_definitions::Entity::find()
         .filter(entity::agent_definitions::Column::RevisionId.eq(revision_id))
-        .filter(entity::agent_definitions::Column::Name.eq(name))
+        .filter(key)
         .one(&conn().await?)
         .await
         .map_err(|e| ArtifactError::Backend(e.to_string()))?
-        .map(|m| m.definition))
+        .map(|m| AgentRef {
+            name: m.name,
+            file_path: m.file_path,
+            definition: m.definition,
+        }))
 }
 
 /// The three root singletons: one row per revision, keyed by revision alone,

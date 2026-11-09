@@ -585,41 +585,76 @@ impl<S: DiskSlot> ConfigManager<S> {
         }
     }
 
-    /// One analytics agent's definition, keyed by NAME rather than by path.
+    /// The one analytics agent `agent_ref` names, from whichever source this
+    /// manager reads. Every way a caller names an agent comes through here:
+    /// an exact `file_path` first, then the ref with `.agentic.yml` appended,
+    /// then the compile key, then (a bare stem only) the one file of that name
+    /// in any directory (`agent_ref` module).
     ///
-    /// The name is the compile boundary's key, so the disk arm has to translate
-    /// it back: `list_analytics_agents` derives the same name from the same
-    /// path (`artifact_name`, pinned against `oxy_compile` by
-    /// `crates/app/tests/platform/artifact_naming_agrees.rs`), which is what makes the
-    /// two arms answer about the same file.
-    pub async fn agent_definition(
+    /// `Ok(None)` is the only "no such agent". Under `Origin::Compiled` that is
+    /// the revision's answer and the disk is never asked, on any node, as
+    /// [`Self::revision_definition`] does for automations; a failed read is
+    /// `Err` and stays one. `Origin::Disk` lists the working copy and applies
+    /// the same order.
+    pub async fn agent_by_ref(
         &self,
-        name: &str,
-    ) -> Result<Option<serde_json::Value>, ArtifactError> {
+        agent_ref: &str,
+    ) -> Result<Option<super::AgentRef>, ArtifactError> {
         if let Origin::Compiled { revision_id, .. } = self.origin {
-            match super::compiled::resolve_agent_at(revision_id, name).await {
-                Ok(Some(value)) => return Ok(Some(value)),
-                Ok(None) => {}
-                Err(e) => match self.working_copy() {
-                    Some(_) => tracing::warn!(
-                        name,
-                        error = %e,
-                        "compile boundary failed; falling back to the working copy"
-                    ),
-                    None => return Err(e),
-                },
+            return super::agent_ref::compiled(revision_id, agent_ref).await;
+        }
+        let agents = self.disk()?.list_analytics_agents().await?;
+        let Some(entry) = super::agent_ref::pick(&agents, agent_ref)? else {
+            return self.agent_off_listing(agent_ref).await;
+        };
+        Ok(self
+            .definition_from_disk(&entry.file_path)
+            .await?
+            .map(|definition| super::AgentRef {
+                name: entry.name.clone(),
+                file_path: entry.file_path.clone(),
+                definition,
+            }))
+    }
+
+    /// A working copy's agent the listing does not carry: an explicit path, a
+    /// `.agentic.yaml` file, a `.test.` name, a file under a skipped
+    /// directory. The disk fallback always read these (`oxy agentic run
+    /// --config`, an IDE draft branch), so the working-copy arm still does,
+    /// by each candidate path in order. Only a path ending in an agent
+    /// extension is read, so a ref cannot open `config.yml`, `.env` or any
+    /// other file under the root. `fs_link` keeps the read inside the root; a
+    /// candidate that is not a file is skipped. Never on a compiled
+    /// origin: the caller has returned before this.
+    async fn agent_off_listing(
+        &self,
+        agent_ref: &str,
+    ) -> Result<Option<super::AgentRef>, ArtifactError> {
+        for path in super::agent_ref::candidate_paths(agent_ref) {
+            if !super::agent_ref::EXTENSIONS
+                .iter()
+                .any(|ext| path.ends_with(ext))
+            {
+                continue;
+            }
+            let resolved = self.disk()?.fs_link(&path).await?;
+            if !std::path::Path::new(&resolved).is_file() {
+                continue;
+            }
+            if let Some(definition) = self.definition_from_disk(&path).await? {
+                let name = definition
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| super::agent_ref::candidate_name(&path).to_string());
+                return Ok(Some(super::AgentRef {
+                    name,
+                    file_path: path,
+                    definition,
+                }));
             }
         }
-        let Some(entry) = self
-            .disk()?
-            .list_analytics_agents()
-            .await?
-            .into_iter()
-            .find(|a| a.name == name)
-        else {
-            return Ok(None);
-        };
-        self.definition_from_disk(&entry.file_path).await
+        Ok(None)
     }
 
     /// The workspace's `.monitor.yml`, compiled or from disk.
@@ -813,9 +848,8 @@ impl<S: DiskSlot> ConfigManager<S> {
         }
     }
 
-    /// One declared world's definition, keyed by NAME rather than by path —
-    /// same reasoning as [`Self::agent_definition`]: the name is the compile
-    /// boundary's key, and a run references the world it is running, so the
+    /// One declared world's definition, keyed by NAME rather than by path:
+    /// the name is the compile boundary's key, and a run references the world it is running, so the
     /// reference has to survive the file being moved.
     ///
     /// The disk arm translates the name back through
@@ -823,7 +857,7 @@ impl<S: DiskSlot> ConfigManager<S> {
     /// walker uses (`artifact_name`, pinned by
     /// `crates/app/tests/platform/artifact_naming_agrees.rs`) — that is what makes the
     /// two arms answer about the same file. It already carries the body, so
-    /// unlike `agent_definition` there is no second read.
+    /// there is no second read.
     pub async fn simulation_definition(
         &self,
         name: &str,
@@ -1269,6 +1303,64 @@ mod tests {
             .build_with_working_copy(Origin::Disk, super::super::OnMissing::Empty)
             .await
             .expect("manager")
+    }
+
+    /// F1 on #4022: a working copy still loads an agent its listing does not
+    /// carry — `.agentic.yaml`, or an explicit path under a skipped directory.
+    #[tokio::test]
+    async fn a_working_copy_loads_an_agent_its_listing_skips() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        tokio::fs::create_dir_all(dir.path().join("node_modules/x"))
+            .await
+            .expect("mkdir");
+        tokio::fs::write(dir.path().join("foo.agentic.yaml"), "databases: []\n")
+            .await
+            .expect("write yaml agent");
+        tokio::fs::write(
+            dir.path().join("node_modules/x/bar.agentic.yml"),
+            "databases: []\n",
+        )
+        .await
+        .expect("write skipped agent");
+
+        let manager = disk_manager(dir.path()).await;
+        for (agent_ref, file_path) in [
+            ("foo", "foo.agentic.yaml"),
+            ("foo.agentic.yaml", "foo.agentic.yaml"),
+            (
+                "node_modules/x/bar.agentic.yml",
+                "node_modules/x/bar.agentic.yml",
+            ),
+        ] {
+            let found = manager
+                .agent_by_ref(agent_ref)
+                .await
+                .expect("read")
+                .unwrap_or_else(|| panic!("`{agent_ref}` is on disk"));
+            assert_eq!(found.file_path, file_path, "{agent_ref}");
+        }
+        assert_eq!(manager.agent_by_ref("missing").await.expect("read"), None);
+    }
+
+    /// A ref naming a file that is not an agent is never opened, however it
+    /// is spelled: only an agent extension is read off the listing.
+    #[tokio::test]
+    async fn a_ref_to_a_non_agent_file_is_never_read() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        tokio::fs::write(dir.path().join(".env"), "SECRET=hunter2\n")
+            .await
+            .expect("write .env");
+        tokio::fs::write(dir.path().join("q.sql"), "select 1")
+            .await
+            .expect("write sql");
+        let manager = disk_manager(dir.path()).await;
+        for agent_ref in ["config.yml", ".env", "q.sql", "./config.yml"] {
+            assert_eq!(
+                manager.agent_by_ref(agent_ref).await.expect(agent_ref),
+                None,
+                "{agent_ref}"
+            );
+        }
     }
 
     /// `Origin::Disk` READS the disk. It used to answer `Ok(None)` — "I am not

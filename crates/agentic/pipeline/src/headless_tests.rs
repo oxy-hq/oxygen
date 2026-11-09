@@ -18,11 +18,14 @@ struct Replica {
 
 #[async_trait::async_trait]
 impl ProjectContext for Replica {
-    async fn resolve_agent_yaml(&self, agent_id: &str) -> Option<String> {
-        (agent_id == AGENT_REF)
+    async fn resolve_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<String>, agentic_automation::WorkspaceReadError> {
+        Ok((agent_id == AGENT_REF)
             .then_some(self.compiled)
             .flatten()
-            .map(str::to_string)
+            .map(str::to_string))
     }
     async fn resolve_connector(&self, _db: &str) -> Option<agentic_connector::ConnectorConfig> {
         None

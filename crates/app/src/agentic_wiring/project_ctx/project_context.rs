@@ -202,23 +202,13 @@ impl ProjectContext for OxyProjectContext {
         resolve_model_impl(model_ref, has_explicit_model, &self.workspace_manager).await
     }
 
-    async fn resolve_agent_yaml(&self, agent_id: &str) -> Option<String> {
-        // Serve the agent YAML from `agent_definitions`; the reader returns
-        // None (→ filesystem read) on any miss.
-        //
-        // `agent_id` may be a path-like reference (`agents/foo.agentic.yml`)
-        // or a bare stem (`foo`); `agent_definitions` is keyed by the
-        // strict-typed `AgenticAgent.name` (stem), so we normalise.
-        let name = agent_id
-            .trim_end_matches(".agentic.yml")
-            .trim_end_matches(".agentic.yaml")
-            .rsplit('/')
-            .next()
-            .unwrap_or(agent_id);
-        self.compiled_agent(name)
-            .await
-            .unwrap_or(None)
-            .and_then(|definition| serde_yaml::to_string(&definition).ok())
+    /// The row the ref names, by `ConfigManager::agent_by_ref`, on every
+    /// role. Always an answer, never `Ok(None)`: see `agent_lookup.rs`.
+    async fn resolve_agent(
+        &self,
+        agent_ref: &str,
+    ) -> Result<Option<String>, agentic_automation::WorkspaceReadError> {
+        self.agent_yaml(agent_ref).await
     }
 
     /// From the revision this context is pinned to, or the working copy on

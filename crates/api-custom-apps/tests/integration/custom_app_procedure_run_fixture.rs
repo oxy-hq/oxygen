@@ -88,6 +88,13 @@ pub(crate) struct Fixture {
 /// promoted. The start handler reads the promoted revision and nothing else, so
 /// the file on disk is only the compiler's input.
 pub(crate) async fn fixture() -> Fixture {
+    fixture_with(&[]).await
+}
+
+/// [`fixture`], with `files` (workspace-relative path, contents) written
+/// before the compile, so they are in the promoted revision. A file written
+/// after it is on disk only, which a compiled read never sees.
+pub(crate) async fn fixture_with(files: &[(&str, &str)]) -> Fixture {
     let t = seeded_tenant().await;
     let dir = tempfile::tempdir().expect("workspace dir");
     std::fs::write(dir.path().join("config.yml"), "databases: []\nmodels: []\n")
@@ -98,6 +105,9 @@ pub(crate) async fn fixture() -> Fixture {
         GREET_AUTOMATION,
     )
     .expect("write automation");
+    for (path, contents) in files {
+        std::fs::write(dir.path().join(path), contents).expect("write a fixture file");
+    }
 
     let workspace_id = Uuid::new_v4();
     workspaces::ActiveModel {

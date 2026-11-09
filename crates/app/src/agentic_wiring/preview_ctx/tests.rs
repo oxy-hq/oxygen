@@ -5,6 +5,7 @@
 //! The database tests skip (do not fail) with `OXY_DATABASE_URL` unset, per
 //! `test_support::test_db`; each seeds its own workspace.
 
+mod agent_ref;
 mod fixture;
 mod sample;
 mod sample_secrets;
@@ -72,8 +73,9 @@ async fn every_resolver_answers_from_the_staging_revision() {
         .expect("pipeline");
     assert!(pipeline.contains("p_from-branch"), "{pipeline}");
     let agent = ctx
-        .resolve_agent_yaml(&scoped(RUN, "agents/analyst.agentic.yml"))
+        .resolve_agent(&scoped(RUN, "agents/analyst.agentic.yml"))
         .await
+        .expect("agent read")
         .expect("agent");
     assert!(agent.contains("from-branch"), "{agent}");
     assert_eq!(ctx.context_root().await.revision(), Some(staging));

@@ -250,7 +250,9 @@ async fn load_agent(
         ),
     };
     let config = read.map_err(|e| match e {
-        e @ (AgentDefinitionError::Missing(_) | AgentDefinitionError::OutsideWorkspace(_)) => {
+        e @ (AgentDefinitionError::Missing(_)
+        | AgentDefinitionError::Unavailable(_)
+        | AgentDefinitionError::OutsideWorkspace(_)) => {
             HeadlessError::Load(format!("failed to load agentic config {label}: {e}"))
         }
         AgentDefinitionError::Invalid(e) => {

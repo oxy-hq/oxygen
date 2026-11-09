@@ -48,8 +48,11 @@ impl ProjectContext for Platform {
     async fn resolve_connector(&self, _db: &str) -> Option<agentic_connector::ConnectorConfig> {
         None
     }
-    async fn resolve_agent_yaml(&self, _agent_id: &str) -> Option<String> {
-        Some("{}".into())
+    async fn resolve_agent(
+        &self,
+        _agent_id: &str,
+    ) -> Result<Option<String>, agentic_automation::WorkspaceReadError> {
+        Ok(Some("{}".into()))
     }
     async fn resolve_model(
         &self,

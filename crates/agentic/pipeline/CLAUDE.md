@@ -45,7 +45,13 @@ started_pipeline.drive(db, state, answer_rx, cancel_rx).await;
 `agent_definition::read_analytics_agent` (used by `load_analytics_agent`,
 `resume_analytics` and the headless eval) refuses an `agent_id` that is not a
 relative path inside the workspace (absolute, `..`, empty), since it comes from
-HTTP bodies and queued runs. It then asks `resolve_agent_yaml`, and on `None` reads the working copy
+HTTP bodies and queued runs. It then asks the host (`resolve_agent`). Reading a compiled
+revision, the host answers for good — the row, `Missing` (404) or `Unavailable`
+(503), never the disk. On a working-copy host (`Origin::Disk`: an IDE draft branch,
+single-process mode) the host's own answer reads the working copy, by the listing
+and then by each candidate path (so `.agentic.yaml`, `.test.` names and skipped
+directories still load). Only a host that answers `Ok(None)` (CLI, tests) leaves
+the pipeline to read the working copy itself
 with extension fallback:
 
 1. Try literal path: `base_dir/agent_id`
