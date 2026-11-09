@@ -13,6 +13,7 @@ use agentic_core::events::{Event, EventStream};
 use agentic_core::hub_task::spawn_with_hub;
 use agentic_core::orchestrator::OrchestratorError;
 
+use crate::agent_definition::{self, AgentDefinitionError};
 use crate::context_documents;
 use crate::platform::{self, PlatformContext};
 
@@ -41,9 +42,12 @@ enum AgentSource<'a> {
 #[derive(Debug)]
 pub enum HeadlessError {
     /// The agent's definition or its context documents could not be read —
-    /// not compiled into the revision yet, no such agent, a definition that
-    /// does not parse.
+    /// not compiled into the revision yet, no such agent, a ref outside the
+    /// workspace. The run never had an agent to start.
     Load(String),
+    /// A definition was found and does not parse. The agent is broken, the
+    /// same as one that loads and then fails.
+    Invalid(String),
     /// The definition loaded and the run failed: no model or key, no
     /// connector, a clarifying question, an LLM or query error.
     Run(String),
@@ -52,7 +56,7 @@ pub enum HeadlessError {
 impl std::fmt::Display for HeadlessError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Load(msg) | Self::Run(msg) => f.write_str(msg),
+            Self::Load(msg) | Self::Invalid(msg) | Self::Run(msg) => f.write_str(msg),
         }
     }
 }
@@ -223,43 +227,47 @@ async fn run_agentic_headless(
 
 /// The agent's definition and the context documents it names.
 ///
-/// A ref goes through [`crate::load_analytics_agent`], the loader an Ask run
-/// uses, so a headless run and a chat run of the same agent read the same
-/// definition from the same place. Every failure here is [`HeadlessError::Load`],
-/// flattened to a string like the rest of this module: its callers hand it to
-/// a person (an eval, a health probe, a Slack reply) and have no retry to give
-/// "retryable" to.
+/// A ref is read by [`agent_definition::read_analytics_agent`], the reader an
+/// Ask run's loader uses, so a headless run and a chat run of the same agent
+/// read the same definition from the same place. A definition that does not
+/// parse is [`HeadlessError::Invalid`]; every other failure here is
+/// [`HeadlessError::Load`]. Both are flattened to strings like the rest of this
+/// module: its callers hand them to a person (an eval, a health probe, a Slack
+/// reply) and have no retry to give "retryable" to.
 async fn load_agent(
     platform: &dyn PlatformContext,
     source: AgentSource<'_>,
     base_dir: &Path,
 ) -> Result<(AgentConfig, Option<Vec<String>>), HeadlessError> {
-    match source {
-        AgentSource::Ref(agent_ref) if !is_inside_workspace(agent_ref) => Err(HeadlessError::Load(
-            format!("agent ref {agent_ref:?} must be a relative path inside the workspace"),
-        )),
-        AgentSource::Ref(agent_ref) => crate::load_analytics_agent(platform, agent_ref, base_dir)
-            .await
-            .map_err(|e| {
-                HeadlessError::Load(format!("failed to load agentic config {agent_ref}: {e}"))
-            }),
-        AgentSource::File(path) => {
-            let config = AgentConfig::from_file(path).map_err(|e| {
-                HeadlessError::Load(format!(
-                    "failed to load agentic config at {}: {e}",
-                    path.display()
-                ))
-            })?;
-            let docs = context_documents::resolve(platform, &config)
-                .await
-                .map_err(|e| {
-                    HeadlessError::Load(format!(
-                        "failed to read the agent's context documents: {e}"
-                    ))
-                })?;
-            Ok((config, docs))
+    let (read, label) = match source {
+        AgentSource::Ref(agent_ref) if !is_inside_workspace(agent_ref) => {
+            return Err(HeadlessError::Load(format!(
+                "agent ref {agent_ref:?} must be a relative path inside the workspace"
+            )));
         }
-    }
+        AgentSource::Ref(agent_ref) => (
+            agent_definition::read_analytics_agent(platform, agent_ref, base_dir).await,
+            agent_ref.to_string(),
+        ),
+        AgentSource::File(path) => (
+            agent_definition::read_agent_file(path),
+            format!("at {}", path.display()),
+        ),
+    };
+    let config = read.map_err(|e| match e {
+        AgentDefinitionError::Missing(e) => {
+            HeadlessError::Load(format!("failed to load agentic config {label}: {e}"))
+        }
+        AgentDefinitionError::Invalid(e) => {
+            HeadlessError::Invalid(format!("agentic config {label} is not valid: {e}"))
+        }
+    })?;
+    let docs = context_documents::resolve(platform, &config)
+        .await
+        .map_err(|e| {
+            HeadlessError::Load(format!("failed to read the agent's context documents: {e}"))
+        })?;
+    Ok((config, docs))
 }
 
 /// Whether a ref names something under the workspace root. The loader falls

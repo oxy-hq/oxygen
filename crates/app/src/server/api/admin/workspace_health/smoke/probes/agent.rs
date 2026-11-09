@@ -32,13 +32,42 @@ pub(crate) async fn ask(
         .map_err(|e| failure(agent_ref, e))
 }
 
-/// An agent that could not be read is a probe we could not run (Degraded); an
-/// agent that loaded and then failed — no LLM key, a bad query — is broken.
+/// An agent that could not be read is a probe we could not run (Degraded). An
+/// agent whose definition does not parse, or that loaded and then failed — no
+/// LLM key, a bad query — is broken (Unhealthy).
 fn failure(agent_ref: &str, e: HeadlessError) -> ProbeFailure {
     match e {
         HeadlessError::Load(e) => {
             ProbeFailure::Unavailable(format!("agent '{agent_ref}' could not be loaded: {e}"))
         }
+        HeadlessError::Invalid(e) => {
+            ProbeFailure::Broken(format!("agent '{agent_ref}' is invalid: {e}"))
+        }
         HeadlessError::Run(e) => ProbeFailure::Broken(format!("agent '{agent_ref}' failed: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The probe's verdict follows the pipeline's split: only an agent it
+    /// could not find is Unavailable; one that does not parse is Broken, as it
+    /// was when the probe read the file itself.
+    #[test]
+    fn an_invalid_definition_is_broken_and_a_missing_one_unavailable() {
+        let r = "_analytics.agentic.yml";
+        assert!(matches!(
+            failure(r, HeadlessError::Invalid("YAML parse error".into())),
+            ProbeFailure::Broken(_)
+        ));
+        assert!(matches!(
+            failure(r, HeadlessError::Load("not found".into())),
+            ProbeFailure::Unavailable(_)
+        ));
+        assert!(matches!(
+            failure(r, HeadlessError::Run("no model".into())),
+            ProbeFailure::Broken(_)
+        ));
     }
 }

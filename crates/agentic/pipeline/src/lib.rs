@@ -4,6 +4,7 @@
 //! solver building, and pipeline startup. Both the HTTP layer and the CLI
 //! use this crate — no domain logic is duplicated.
 
+mod agent_definition;
 pub mod agent_run;
 pub mod airway_config;
 mod airway_recovery;
@@ -1206,34 +1207,18 @@ pub async fn prepare_one_shot(
 /// [`PipelineBuilder::start`] reads before it inserts a run, and what
 /// [`queued_run::check_analytics_agent`] reads in place of a start.
 ///
-/// `resolve_agent_yaml` returns the compiled definition when the compile
-/// boundary has one; `None` falls through to this node's working copy, where a
-/// missing file is the "not found" a caller maps to `404`.
+/// The definition comes from [`agent_definition::read_analytics_agent`] —
+/// compiled revision first, then this node's working copy, where a missing
+/// file is the "not found" a caller maps to `404`. Both of its failures are
+/// [`PipelineError::Config`] here.
 pub(crate) async fn load_analytics_agent(
     platform: &dyn PlatformContext,
     agent_id: &str,
     base_dir: &std::path::Path,
 ) -> Result<(AgentConfig, Option<Vec<String>>), PipelineError> {
-    let config = match platform.resolve_agent_yaml(agent_id).await {
-        Some(yaml) => {
-            AgentConfig::from_yaml(&yaml).map_err(|e| PipelineError::Config(format!("{e}")))?
-        }
-        None => {
-            let config_path = base_dir.join(agent_id);
-            let config_path = if config_path.exists() {
-                config_path
-            } else {
-                let with_ext = base_dir.join(format!("{}.agentic.yml", agent_id));
-                if with_ext.exists() {
-                    with_ext
-                } else {
-                    config_path // will produce a clear "not found" error
-                }
-            };
-            AgentConfig::from_file(&config_path)
-                .map_err(|e| PipelineError::Config(format!("{e}")))?
-        }
-    };
+    let config = agent_definition::read_analytics_agent(platform, agent_id, base_dir)
+        .await
+        .map_err(|e| PipelineError::Config(e.to_string()))?;
     let domain_docs = context_documents::resolve(platform, &config).await?;
     Ok((config, domain_docs))
 }

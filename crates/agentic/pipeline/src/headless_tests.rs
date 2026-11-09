@@ -128,3 +128,20 @@ async fn a_ref_outside_the_workspace_is_refused_before_the_load() {
         );
     }
 }
+
+/// A definition the revision holds that does not parse is the agent being
+/// broken, not the probe being unable to run: it must not come back as
+/// `Load`, which the health probe reports as Degraded rather than Unhealthy.
+#[tokio::test]
+async fn a_definition_that_does_not_parse_is_not_a_load_failure() {
+    let err = run_agentic_eval(
+        replica(Some("databases: [unterminated")),
+        AGENT_REF,
+        "q".into(),
+    )
+    .await
+    .expect_err("the definition does not parse");
+
+    assert!(matches!(err, HeadlessError::Invalid(_)), "got {err:?}");
+    assert!(err.to_string().contains("YAML parse error"), "{err}");
+}
