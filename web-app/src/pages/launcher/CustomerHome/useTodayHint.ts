@@ -68,7 +68,12 @@ export function useTransitionedFlag(value: boolean): boolean {
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? true;
     if (typeof document.startViewTransition === "function" && !reduced) {
       // The callback runs outside this effect, so the DOM must update inside it.
-      document.startViewTransition(() => flushSync(() => setShown(value)));
+      const transition = document.startViewTransition(() => flushSync(() => setShown(value)));
+      // The browser skips the animation when the tab is hidden, or when the
+      // other flag on this page starts one in the same commit, and rejects
+      // `ready` to say so. The update still runs, so the frame is right and
+      // there is nothing to report: unhandled, it reached Sentry as an error.
+      transition.ready.catch(() => undefined);
     } else {
       setShown(value);
     }
