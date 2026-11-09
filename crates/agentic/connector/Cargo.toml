@@ -43,7 +43,7 @@ postgres = [
     "transactions",
 ]
 
-clickhouse = ["dep:reqwest", "dep:oxy-shared", "dep:serde_json", "dep:serde"]
+clickhouse = ["dep:reqwest", "dep:serde_json", "dep:serde"]
 # MySQL via sqlx-mysql. `chrono` + `serde_json` decode DATE / DATETIME /
 # JSON columns into owned Rust types inside `execute_query_full`.
 mysql = [
@@ -64,13 +64,13 @@ snowflake = ["dep:snowflake-api", "dep:serde_json", "arrow", "arrow/json"]
 bigquery = ["dep:gcp-bigquery-client", "dep:base64", "dep:serde_json"]
 # DOMO: REST-API-backed. `reqwest` + `serde` + `serde_json` are the only
 # runtime deps — no DB driver, no CREATE TEMP TABLE.
-domo = ["dep:reqwest", "dep:oxy-shared", "dep:serde", "dep:serde_json"]
+domo = ["dep:reqwest", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 agentic-core = { workspace = true }
-# `oxy_shared::http::builder()` — the process's reqwest defaults. Optional, on
-# with the two HTTP-backed connectors, so the crate alone stays as lean as before.
-oxy-shared = { workspace = true, optional = true }
+# `oxy_shared::http::builder()` — the process's reqwest defaults — and
+# `oxy_shared::redact`, which scrubs credentials from every `ConnectorError`.
+oxy-shared = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt"] }

@@ -645,6 +645,28 @@ mod tests {
         path
     }
 
+    /// A credential the attach did not list (`secret_values` empty) is still
+    /// scrubbed from the `OxyError` by its shape. Parser error, so no extension
+    /// is downloaded.
+    #[test]
+    fn a_failed_ducklake_attach_error_carries_no_unlisted_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        let attach = DuckLakeAttach {
+            statements: vec![
+                "ATTACH 'ducklake:postgres:password=synthetic-Pa55 host=db.internal' 'x' AS d"
+                    .to_string(),
+            ],
+            secret_values: Vec::new(),
+        };
+
+        let err = run_attach_statements(&conn, &attach)
+            .unwrap_err()
+            .to_string();
+
+        assert!(!err.contains("Pa55"), "{err}");
+        assert!(err.contains("host=db.internal"), "{err}");
+    }
+
     /// A failed DuckLake attach statement's error names no credential, even
     /// though DuckDB's own message quotes the statement (a parser error
     /// repeats its line). Parser errors, so no extension is downloaded.

@@ -100,8 +100,6 @@ impl ConnectionStringParser for PostgresConnectionString {
             Some(percent_decode(url.username())?)
         };
 
-        let password = url.password().map(percent_decode).transpose()?;
-
         let port = url.port();
 
         // Extract database name from path (remove leading slash)
@@ -114,11 +112,26 @@ impl ConnectionStringParser for PostgresConnectionString {
             }
         };
 
-        // Extract query parameters as options
+        // Extract query parameters as options. libpq also reads the password
+        // from `?password=`; it is lifted out with the userinfo one, so it is
+        // never passed on as an option — `to_duckdb_format` writes every
+        // option into the attach path, which DuckDB repeats in its errors.
+        let mut query_password = None;
         let options: Vec<(String, String)> = url
             .query_pairs()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .filter_map(|(k, v)| {
+                if k.eq_ignore_ascii_case("password") {
+                    query_password = Some(v.into_owned());
+                    None
+                } else {
+                    Some((k.into_owned(), v.into_owned()))
+                }
+            })
             .collect();
+        let password = match url.password() {
+            Some(encoded) => Some(percent_decode(encoded)?),
+            None => query_password,
+        };
 
         Ok(PostgresConnectionString {
             user,
@@ -180,6 +193,25 @@ impl ConnectionStringFormatter for PostgresConnectionString {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A password given as a query parameter is the password, not an option,
+    /// so it stays out of the DuckDB attach path like the userinfo one.
+    #[test]
+    fn a_query_parameter_password_is_lifted_out_of_the_options() {
+        let parsed = PostgresConnectionString::parse(
+            "postgres://ducklake@db.internal/catalog?sslmode=require&password=synthetic%2FPa55",
+        )
+        .unwrap();
+
+        assert_eq!(parsed.password.as_deref(), Some("synthetic/Pa55"));
+        assert_eq!(
+            parsed.options,
+            vec![("sslmode".to_string(), "require".to_string())]
+        );
+        let path = parsed.to_duckdb_format();
+        assert!(!path.contains("Pa55"), "{path}");
+        assert!(path.contains("host=db.internal"), "{path}");
+    }
 
     #[test]
     fn test_parse_full_connection_string() {

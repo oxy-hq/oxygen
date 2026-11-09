@@ -71,7 +71,7 @@ pub(crate) fn pg_query_failed(
     e: &tokio_postgres::Error,
 ) -> QueryFailedDetails {
     let sql = sql.into();
-    match e.as_db_error() {
+    let details = match e.as_db_error() {
         Some(db) => QueryFailedDetails {
             sql,
             message: db.message().to_string(),
@@ -92,7 +92,8 @@ pub(crate) fn pg_query_failed(
             message: e.to_string(),
             ..Default::default()
         },
-    }
+    };
+    details.redacted()
 }
 
 /// `[SQLSTATE] message — detail (hint: …)`, skipping the parts absent.

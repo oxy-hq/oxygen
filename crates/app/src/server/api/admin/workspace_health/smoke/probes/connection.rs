@@ -16,11 +16,19 @@ pub(crate) async fn ping(ctx: &Arc<OxyProjectContext>, db_name: &str) -> Result<
     let connector = ctx
         .build_connector_for(db_name)
         .await
-        .map_err(|e| ProbeFailure::Unavailable(format!("could not build connector: {e}")))?;
+        .map_err(|e| ProbeFailure::Unavailable(scrub(format!("could not build connector: {e}"))))?;
 
     connector
         .execute_query("SELECT 1", 1)
         .await
         .map(|_| ())
-        .map_err(|e| ProbeFailure::Broken(format!("SELECT 1 failed: {e}")))
+        .map_err(|e| ProbeFailure::Broken(scrub(format!("SELECT 1 failed: {e}"))))
+}
+
+/// The probe's text is stored in the health payload and shown to anyone who
+/// can read Workspace Health, and a connector built outside `agentic-connector`
+/// (the core DuckLake attach) reports through `OxyError`, which is not
+/// scrubbed on its own. So it is scrubbed here as well.
+fn scrub(text: String) -> String {
+    oxy_shared::redact::redact_credentials(&text)
 }

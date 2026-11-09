@@ -20,6 +20,7 @@ pub mod jinja;
 pub mod key_validation;
 pub mod log_noise;
 pub mod openai_config;
+pub mod redact;
 pub mod semantic_error;
 pub mod sql_literal;
 pub mod state_dir;

@@ -251,9 +251,12 @@ pub struct DuckLakeAttach {
 }
 
 impl DuckLakeAttach {
-    /// `text` with every secret value replaced by `***`.
+    /// `text` with every secret value replaced by `***`, then anything else
+    /// shaped like a credential (`password=…`, `PASSWORD '…'`, `user:pass@`):
+    /// the backstop for a credential that reached a statement without being
+    /// listed here, as a `?password=` in `catalog_path` once did.
     pub fn redact(&self, text: &str) -> String {
-        redact_secret_values(text, &self.secret_values)
+        oxy_shared::redact::redact_credentials(&redact_secret_values(text, &self.secret_values))
     }
 }
 

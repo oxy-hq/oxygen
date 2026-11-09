@@ -931,6 +931,44 @@ mod duckdb {
         }
     }
 
+    /// A failed ATTACH whose caller did not list the password in
+    /// `secret_values` still comes back without it: the error scrubs anything
+    /// shaped like a credential (libpq `password=`, a `PASSWORD '…'` literal).
+    /// This is the shape Workspace Health once stored and showed. Parser
+    /// errors, so no extension is downloaded.
+    #[test]
+    fn a_failed_attach_error_carries_no_password_it_was_not_told_about() {
+        for stmt in [
+            "ATTACH 'ducklake:postgres:user=ducklake password=synthetic%2FPa55 \
+             host=db.internal dbname=ducklake_catalog sslmode=require' 'x' AS ducklake",
+            "CREATE OR REPLACE SECRET (TYPE postgres PASSWORD 'synthetic-Pa55')",
+        ] {
+            let cfg =
+                agentic_connector::ConnectorConfig::DuckDbRaw(agentic_connector::DuckDbRawConfig {
+                    init_statements: vec![stmt.to_string()],
+                    secret_values: Vec::new(),
+                });
+
+            let err = match agentic_connector::build_connector(cfg) {
+                Ok(_) => panic!("{stmt} should not parse"),
+                Err(e) => e,
+            };
+            let ConnectorError::QueryFailed(details) = &err else {
+                panic!("expected QueryFailed, got {err:?}");
+            };
+
+            for shown in [
+                err.to_string(),
+                format!("{err:?}"),
+                details.sql.clone(),
+                details.message.clone(),
+            ] {
+                assert!(!shown.contains("Pa55"), "{shown}");
+            }
+            assert!(details.sql.contains("***"), "{}", details.sql);
+        }
+    }
+
     /// A `DuckDbUrl` open failure (MotherDuck's token rides in the URL) and the
     /// config's `Debug` both come out without the token.
     #[test]

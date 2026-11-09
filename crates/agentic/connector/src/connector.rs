@@ -21,6 +21,7 @@ use crate::string_literal::StringLiteral;
 use agentic_core::result::{
     BoxedRowStream, CellValue, QueryResult, TypedRowError, TypedRowStream, TypedValue,
 };
+use oxy_shared::redact::redact_credentials;
 
 // ── Dialect ───────────────────────────────────────────────────────────────────
 
@@ -203,7 +204,6 @@ pub struct QueryFailedDetails {
     pub position: Option<u32>,
 }
 
-#[derive(Debug)]
 pub enum ConnectorError {
     QueryFailed(QueryFailedDetails),
     ConnectionError(String),
@@ -215,16 +215,54 @@ impl ConnectorError {
     /// message. Connectors that can extract richer metadata should construct
     /// `QueryFailed(QueryFailedDetails { … })` directly.
     pub fn query_failed(sql: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::QueryFailed(QueryFailedDetails {
-            sql: sql.into(),
-            message: message.into(),
-            ..Default::default()
-        })
+        Self::QueryFailed(
+            QueryFailedDetails {
+                sql: sql.into(),
+                message: message.into(),
+                ..Default::default()
+            }
+            .redacted(),
+        )
     }
 }
 
+impl QueryFailedDetails {
+    /// These details with every credential-shaped value in the SQL and the
+    /// server's text replaced (see [`redact_credentials`]). Constructors call
+    /// it, because handlers read these fields straight into API responses;
+    /// `Display` repeats it for details built by hand.
+    ///
+    /// `position` indexes the SQL as sent, so it is dropped when redaction
+    /// changed the SQL: a highlight on shifted text would point at the wrong
+    /// token.
+    pub fn redacted(self) -> Self {
+        let sql = redact_credentials(&self.sql);
+        let position = if sql == self.sql { self.position } else { None };
+        Self {
+            sql,
+            message: redact_credentials(&self.message),
+            detail: self.detail.as_deref().map(redact_credentials),
+            hint: self.hint.as_deref().map(redact_credentials),
+            position,
+            code: self.code,
+        }
+    }
+}
+
+/// Every error's text goes through [`redact_credentials`]: it is shown on
+/// Workspace Health, returned to chat and tool calls, and logged, and the SQL
+/// or driver message inside it can quote a connection string or a secret.
 impl fmt::Display for ConnectorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut text = String::new();
+        self.write_unredacted(&mut text)?;
+        f.write_str(&redact_credentials(&text))
+    }
+}
+
+impl ConnectorError {
+    fn write_unredacted(&self, f: &mut String) -> fmt::Result {
+        use fmt::Write as _;
         match self {
             Self::QueryFailed(d) => {
                 if let Some(code) = &d.code {
@@ -242,6 +280,26 @@ impl fmt::Display for ConnectorError {
             }
             Self::ConnectionError(msg) => write!(f, "connection error: {msg}"),
             Self::Other(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+// By hand, so `{:?}` (a `tracing` field, an `unwrap`) is scrubbed like `{}`.
+impl fmt::Debug for ConnectorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::QueryFailed(d) => f
+                .debug_tuple("QueryFailed")
+                .field(&d.clone().redacted())
+                .finish(),
+            Self::ConnectionError(msg) => f
+                .debug_tuple("ConnectionError")
+                .field(&redact_credentials(msg))
+                .finish(),
+            Self::Other(msg) => f
+                .debug_tuple("Other")
+                .field(&redact_credentials(msg))
+                .finish(),
         }
     }
 }
@@ -697,6 +755,37 @@ pub fn plan_sql_script(sql: &str) -> SqlScript {
 
 #[cfg(test)]
 mod tests {
+
+    /// Whatever a caller hands a `ConnectorError`, no rendering of it — the
+    /// fields handlers return, `Display`, `Debug` — repeats a credential.
+    #[test]
+    fn a_connector_error_never_repeats_a_credential() {
+        let attach = "ATTACH 'ducklake:postgres:user=ducklake password=synthetic-Pa55 \
+                      host=db.internal dbname=catalog' AS ducklake";
+        let errors = [
+            ConnectorError::query_failed(attach, format!("Parser Error: near {attach}")),
+            ConnectorError::QueryFailed(QueryFailedDetails {
+                sql: attach.to_string(),
+                message: "x".into(),
+                ..Default::default()
+            }),
+            ConnectorError::ConnectionError("postgres://u:synthetic-Pa55@db.internal/x".into()),
+            ConnectorError::Other(format!("could not open: {attach}")),
+        ];
+        for err in &errors {
+            for shown in [err.to_string(), format!("{err:?}")] {
+                assert!(!shown.contains("Pa55"), "{shown}");
+                assert!(shown.contains("db.internal"), "the host is kept: {shown}");
+            }
+        }
+        let ConnectorError::QueryFailed(d) = &errors[0] else {
+            unreachable!()
+        };
+        assert!(
+            !d.sql.contains("Pa55") && !d.message.contains("Pa55"),
+            "{d:?}"
+        );
+    }
     use super::*;
 
     #[test]
