@@ -469,6 +469,10 @@ pub async fn get_workspace_meta(
             requires_local_setup: d.requires_local_setup,
             // Local mode is one guest owner on their own machine: no Factory to gate.
             factory_access: true,
+            // `--local` is the unmaintained no-remote mode: nothing to clone.
+            git_remote_url: None,
+            default_branch: None,
+            repo_subdir: None,
         }));
     }
 
@@ -487,6 +491,7 @@ pub async fn get_workspace_meta(
     let Path(workspace_id) = path;
     let Extension(project) = project;
     let now = chrono::Utc::now().to_string();
+    let (git_remote_url, default_branch, repo_subdir) = repository_facts(&project);
     Ok(ResponseJson(WorkspaceMetaResponse {
         id: workspace_id,
         name: project.name,
@@ -498,7 +503,41 @@ pub async fn get_workspace_meta(
         current_user_role: role.as_str().to_string(),
         requires_local_setup: false,
         factory_access,
+        git_remote_url,
+        default_branch,
+        repo_subdir,
     }))
+}
+
+/// The repository facts `/meta` serves, off the Postgres row: the remote with
+/// any `user:password@` removed (callers show the URL, never authenticate with
+/// it), the default branch, and the workspace's subdirectory when it is not the
+/// repository root. Empty strings read as absent.
+fn repository_facts(
+    row: &entity::workspaces::Model,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let remote = row
+        .git_remote_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(strip_url_userinfo);
+    let branch = oxy_app_core::workspace_repo_facts::stored_default_branch(row);
+    let subdir = oxy_app_core::workspace_repo_facts::stored_repo_subdir(row).map(str::to_string);
+    (remote, branch, subdir)
+}
+
+/// `https://user:pw@host/x` -> `https://host/x`. Leaves scp-style
+/// (`git@github.com:o/r.git`) and credential-free URLs untouched.
+fn strip_url_userinfo(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let (authority, tail) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    match authority.rsplit_once('@') {
+        Some((_, host)) => format!("{scheme}://{host}{tail}"),
+        None => url.to_string(),
+    }
 }
 
 /// `GET /{workspace_id}/git-state` — the `.git` half of `/details`.
@@ -1422,5 +1461,34 @@ mod compute_ahead_behind_tests {
         let local_sha = current_sha(root).await;
         let (ahead, behind) = compute_ahead_behind(root, &local_sha, None, true).await;
         assert_eq!((ahead, behind), (0, 0));
+    }
+}
+
+#[cfg(test)]
+mod strip_url_userinfo_tests {
+    use super::strip_url_userinfo;
+
+    #[test]
+    fn credentials_are_removed_and_the_rest_kept() {
+        assert_eq!(
+            strip_url_userinfo("https://x-access-token:abc@github.com/acme/repo.git"),
+            "https://github.com/acme/repo.git"
+        );
+        assert_eq!(
+            strip_url_userinfo("https://token@github.com"),
+            "https://github.com"
+        );
+    }
+
+    #[test]
+    fn urls_without_credentials_are_untouched() {
+        assert_eq!(
+            strip_url_userinfo("https://github.com/acme/repo.git"),
+            "https://github.com/acme/repo.git"
+        );
+        assert_eq!(
+            strip_url_userinfo("git@github.com:acme/repo.git"),
+            "git@github.com:acme/repo.git"
+        );
     }
 }

@@ -58,10 +58,8 @@ runs:
         name: web-app-dist
         path: web-app/dist/
 
-    - uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1
+    - uses: ./.github/actions/setup-mold
       if: runner.os == 'Linux'
-      with:
-        make-default: true
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@1.99.1 # keep in step with rust-toolchain.toml

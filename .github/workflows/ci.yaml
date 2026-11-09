@@ -1825,10 +1825,8 @@ jobs:
             airform
             airway-internal
             snowflake-rs
-      - uses: rui314/setup-mold@7e4f20ad28a2e8ca6fd0892ccf72e2abb706b9c3 # v1
+      - uses: ./.github/actions/setup-mold
         if: needs.cargo-check-and-test.result == 'skipped' && runner.os == 'Linux'
-        with:
-          make-default: true
       - name: Prep Rust (build path)
         if: needs.cargo-check-and-test.result == 'skipped'
         uses: dtolnay/rust-toolchain@1.99.1 # keep in step with rust-toolchain.toml

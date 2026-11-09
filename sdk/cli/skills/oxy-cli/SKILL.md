@@ -71,7 +71,18 @@ never sent to the server as a literal.
     oxyc experiments list          # experiments: draft, price, register, status, interim, abort, result
     oxyc flags list                # feature flags: kill switch, per-org overrides, A/B splits (staff)
     oxyc login-link --next /ide    # one-time URL that signs a browser in as your token
+    oxyc workspace clone <id>      # clone the workspace's repository to edit locally; push to deploy
     oxyc guide                     # this page, to paste into a context file
+
+`oxyc workspace clone <workspace-id>` is how you change a workspace: authoring
+happens in its repository, not in the product. It runs your own `git clone` (no
+token injected), prints the path of the workspace folder (the repository's
+subdirectory when the workspace lives in one), and opens it in VS Code or Cursor
+only from an interactive terminal (`--open code|cursor|none`; an agent gets the
+command printed instead). Edit, commit, push: **a push to the default branch
+compiles and deploys**; to try a branch first, `oxyc preview create <branch>
+--workspace <id> --wait` (staff). Exit `5` means the workspace has no repository
+yet (connect one in Settings), `6` a failed `git clone`, `8` a non-empty `--dir`.
 
 `oxyc validate` is the one command that works entirely offline. It checks
 `config.yml`, `.automation.yml`, `.agentic.yml` and

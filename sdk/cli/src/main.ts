@@ -83,6 +83,7 @@ import { runTokensCreateAgent } from "./commands/tokens-agent.js";
 import { runTokensCreateSandboxAgent, runTokensRevokeCurrent } from "./commands/tokens-sandbox.js";
 import { runValidate } from "./commands/validate.js";
 import { runAdopt, runDoctor, runUpdate } from "./commands/workspace.js";
+import { registerWorkspace } from "./commands/workspace-cli.js";
 import { createContext, type GlobalFlags } from "./context/resolve.js";
 import { VERSION } from "./generated/version.js";
 import * as log from "./ui/log.js";
@@ -1272,6 +1273,7 @@ function buildProgram(): Command {
   registerExperiments(program, { withGlobals, globals, collect });
   registerFlags(program, { withGlobals, globals, collect });
   registerHome(program, { withGlobals, globals, collect });
+  registerWorkspace(program, { withGlobals, globals, collect });
 
   const preview = program
     .command("preview")

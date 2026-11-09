@@ -8,6 +8,7 @@ manages customer workspace repos.
 - **Feature flags** — `flags` (list, show, set, rules, eval, org)
 - **Home layout** — `home` (show, get, apply, reset)
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
+- **Your workspace's repository** — `workspace clone`
 - **Custom apps** — `publish`, `init-ci`, `proxy`, `apps`
 - **Checks** — `checks run`
 - **Sandboxes** — `env`, `fn dev`, `fn call`, `invocations`, `logs`
@@ -729,6 +730,42 @@ never touched.
 
 `launch` starts a Claude Code session scoped to one customer; `--here` runs in
 the current directory while granting access to the customer's repo.
+
+## Cloning a workspace's repository
+
+```bash
+oxyc workspace clone <workspace> [--env dev|staging|production] [--dir <path>]
+                     [--open code|cursor|none] [--branch <name>]
+```
+
+Authoring happens in the workspace's repository, not in the product: clone it,
+edit with VS Code, Cursor or an agent, and push. **A push to the default branch
+compiles and deploys.** The in-app "work in your editor" panel prints exactly
+this command.
+
+`<workspace>` is the workspace's id (`oxyc api {org}/workspaces --jq '.[] |
+[.id, .name]'`), or its name when `--org <slug>` says where to look. The command
+reads `git_remote_url`, `default_branch` and `repo_subdir` from `GET
+/api/{workspace}/meta`, prints the plan and runs plain `git clone --branch
+<default branch> <url> <dir>` with **your** git and credentials: no token is
+injected and the URL is not rewritten. `--dir` defaults to the repository's
+name and must not exist or be empty; `--branch` checks out something other than
+the default branch. A workspace that lives in a subdirectory of its repository
+(`repo_subdir`) is opened at that subdirectory.
+
+`--open code` runs `code <path>` (the default when `code` is on PATH),
+`--open cursor` runs `cursor <path>`, `--open none` launches nothing. **An
+editor is only launched from an interactive terminal**: in a pipe, a CI job or
+an agent's shell the command is printed instead, whatever `--open` says.
+
+It ends with three lines on stdout: the path to open, `push to <default branch>
+to compile and deploy`, and how to preview a branch first (`oxyc preview
+create <branch> --workspace <id> --wait`, staff only; see [Workspace
+previews](#workspace-previews)).
+
+Exit codes: `5` the workspace has no repository (connect one in its Settings) or
+does not exist, `6` `git clone` failed (git's own message is printed above it),
+`8` the target directory is not empty, `2` a bad flag.
 
 ## Custom apps
 

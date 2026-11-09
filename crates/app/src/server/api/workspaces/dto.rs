@@ -197,6 +197,17 @@ pub struct WorkspaceMetaResponse {
     /// `apps_first_experience` flag) is off for the org, and in local mode. The rail shows its Factory entry only when this is set; the routes
     /// themselves are refused on the server regardless of what a client does with it.
     pub factory_access: bool,
+
+    /// The workspace's repository, as `workspaces.git_remote_url` stores it with
+    /// any `user:password@` stripped. `None` for a workspace with no remote.
+    /// What `oxyc workspace clone` and the "work in your editor" panel read.
+    pub git_remote_url: Option<String>,
+    /// The repository's default branch (`workspaces.default_branch`); `None`
+    /// until recorded, and for a workspace with no remote.
+    pub default_branch: Option<String>,
+    /// Where the workspace root sits inside the repository, `/`-separated;
+    /// `None` when it is the repository root.
+    pub repo_subdir: Option<String>,
 }
 
 /// The half of [`WorkspaceDetailsResponse`] that needs `.git`.

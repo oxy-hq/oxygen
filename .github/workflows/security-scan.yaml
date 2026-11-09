@@ -1,8 +1,15 @@
 name: Security Scan
 
-# Pull requests on oxygen-internal only. The public oxy-hq/oxygen mirror gets no
-# scan of its own: every commit it receives was scanned here first.
+# Pull requests and pushes to main on oxygen-internal only. The public
+# oxy-hq/oxygen mirror gets no scan of its own: every commit it receives was
+# scanned here first. The push run also seeds the Trivy binary cache on main,
+# the only ref every PR can restore from (see .github/actions/setup-trivy).
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "internal-docs/**"
   pull_request:
     paths-ignore:
       - "docs/**"
@@ -30,9 +37,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - uses: ./.github/actions/setup-trivy
+
       - name: Run Trivy vulnerability scanner (filesystem)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          skip-setup-trivy: true
           scan-type: fs
           scan-ref: .
           scanners: vuln
@@ -70,9 +80,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - uses: ./.github/actions/setup-trivy
+
       - name: Run Trivy secret scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          skip-setup-trivy: true
           scan-type: fs
           scan-ref: .
           scanners: secret

@@ -1,0 +1,72 @@
+name: Set up Trivy
+description: >-
+  Installs Trivy 0.70.0 from the release tarball, cached by version and arch so a
+  hit never touches github.com releases, and puts it on PATH. The tarball is
+  verified against the pinned publisher SHA-256 before it is cached and again
+  before it is extracted. Unlike mold there is no fallback: a security scan must
+  not silently skip, so a failed download or digest mismatch fails the job. Pair
+  with `skip-setup-trivy: true` on aquasecurity/trivy-action.
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Trivy tarball
+      id: trivy-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ~/.cache/trivy-tarball
+        key: trivy-tarball-0.70.0-${{ runner.arch }}
+
+    - name: Download Trivy
+      if: steps.trivy-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        RUNNER_ARCH_NAME: ${{ runner.arch }}
+      run: |
+        set -euo pipefail
+        # SHA-256 from the publisher's trivy_0.70.0_checksums.txt.
+        case "$RUNNER_ARCH_NAME" in
+          ARM64) asset=Linux-ARM64; sha=2f6bb988b553a1bbac6bdd1ce890f5e412439564e17522b88a4541b4f364fc8d ;;
+          X64) asset=Linux-64bit; sha=8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9 ;;
+          *) echo "unsupported runner arch: $RUNNER_ARCH_NAME" >&2; exit 1 ;;
+        esac
+        dir="$HOME/.cache/trivy-tarball"
+        mkdir -p "$dir"
+        # Retry inside the step: release downloads time out intermittently.
+        for attempt in 1 2 3; do
+          if wget --quiet --timeout=30 -O "$dir/trivy.tar.gz.part" \
+            "https://github.com/aquasecurity/trivy/releases/download/v0.70.0/trivy_0.70.0_${asset}.tar.gz"; then
+            echo "$sha  $dir/trivy.tar.gz.part" | sha256sum -c -
+            mv "$dir/trivy.tar.gz.part" "$dir/trivy.tar.gz"
+            exit 0
+          fi
+          sleep $((attempt * 5))
+        done
+        echo "trivy download failed after 3 attempts" >&2
+        exit 1
+
+    - name: Save Trivy tarball
+      if: steps.trivy-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ~/.cache/trivy-tarball
+        key: trivy-tarball-0.70.0-${{ runner.arch }}
+
+    - name: Install Trivy and put it on PATH
+      shell: bash
+      env:
+        RUNNER_ARCH_NAME: ${{ runner.arch }}
+      run: |
+        set -euo pipefail
+        # Re-verify: the file may have come from the cache, not the step above.
+        case "$RUNNER_ARCH_NAME" in
+          ARM64) sha=2f6bb988b553a1bbac6bdd1ce890f5e412439564e17522b88a4541b4f364fc8d ;;
+          X64) sha=8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9 ;;
+          *) echo "unsupported runner arch: $RUNNER_ARCH_NAME" >&2; exit 1 ;;
+        esac
+        echo "$sha  $HOME/.cache/trivy-tarball/trivy.tar.gz" | sha256sum -c -
+        bin="$HOME/.local/trivy-bin"
+        mkdir -p "$bin"
+        tar -xzf "$HOME/.cache/trivy-tarball/trivy.tar.gz" -C "$bin" trivy
+        echo "$bin" >> "$GITHUB_PATH"
+        "$bin/trivy" --version | head -1

@@ -1,0 +1,78 @@
+name: Set up mold (best effort)
+description: >-
+  Installs mold 2.42.0 as the default linker (/usr/bin/ld) on Linux. The release
+  tarball is cached by version and arch, so a cache hit never touches github.com
+  releases. If the download fails the step only warns and the job links with the
+  system linker: slower, but the same result. No cargo config names mold, so
+  nothing else needs to change when it is absent.
+
+runs:
+  using: composite
+  steps:
+    - name: Restore mold tarball
+      if: runner.os == 'Linux'
+      id: mold-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ~/.cache/mold-tarball
+        key: mold-2.42.0-${{ runner.arch }}
+
+    - name: Download mold
+      if: runner.os == 'Linux' && steps.mold-cache.outputs.cache-hit != 'true'
+      id: mold-download
+      continue-on-error: true
+      shell: bash
+      run: |
+        set -euo pipefail
+        dir="$HOME/.cache/mold-tarball"
+        mkdir -p "$dir"
+        # Digests of the release tarballs as validated on 2026-11-09. mold
+        # publishes no checksum file, so these pin what we checked, not a
+        # publisher signature. A mismatch fails this step: nothing is cached.
+        case "$(uname -m)" in
+          aarch64) sha=3c9a0a3624aac8a2007569ae50c33b3129a0f0ae8bcc974aeee2f8939d295190 ;;
+          x86_64) sha=f5ed2f6e31d1ada4f07fe766fe0de7a73104d1c5cdc59086fcecc16a43720b6d ;;
+          *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+        esac
+        # Retry inside the step: release downloads time out intermittently.
+        for attempt in 1 2 3; do
+          if wget --quiet --timeout=30 -O "$dir/mold.tar.gz.part" \
+            "https://github.com/rui314/mold/releases/download/v2.42.0/mold-2.42.0-$(uname -m)-linux.tar.gz"; then
+            echo "$sha  $dir/mold.tar.gz.part" | sha256sum -c -
+            mv "$dir/mold.tar.gz.part" "$dir/mold.tar.gz"
+            exit 0
+          fi
+          sleep $((attempt * 5))
+        done
+        echo "mold download failed after 3 attempts" >&2
+        exit 1
+
+    - name: Save mold tarball
+      if: runner.os == 'Linux' && steps.mold-download.outcome == 'success'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ~/.cache/mold-tarball
+        key: mold-2.42.0-${{ runner.arch }}
+
+    - name: Install mold
+      if: runner.os == 'Linux' && (steps.mold-cache.outputs.cache-hit == 'true' || steps.mold-download.outcome == 'success')
+      id: mold-install
+      continue-on-error: true
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Re-verify: the file may have come from the cache, not the step above.
+        case "$(uname -m)" in
+          aarch64) sha=3c9a0a3624aac8a2007569ae50c33b3129a0f0ae8bcc974aeee2f8939d295190 ;;
+          x86_64) sha=f5ed2f6e31d1ada4f07fe766fe0de7a73104d1c5cdc59086fcecc16a43720b6d ;;
+          *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+        esac
+        echo "$sha  $HOME/.cache/mold-tarball/mold.tar.gz" | sha256sum -c -
+        sudo tar -C /usr/local --strip-components=1 --no-overwrite-dir -xzf "$HOME/.cache/mold-tarball/mold.tar.gz"
+        sudo ln -sf /usr/local/bin/mold /usr/bin/ld
+        ld --version | head -1
+
+    - name: Warn when mold is unavailable
+      if: runner.os == 'Linux' && steps.mold-install.outcome != 'success'
+      shell: bash
+      run: echo "::warning::mold unavailable, building with the default linker"
