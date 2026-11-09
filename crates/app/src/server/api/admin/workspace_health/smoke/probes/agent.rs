@@ -6,10 +6,15 @@
 //! the round-trip completes. A suspended run (the agent asked a clarifying
 //! question) surfaces as an error string from the pipeline, which is the right
 //! outcome: a smoke prompt that can't be answered outright is a broken probe.
+//!
+//! The agent is named by its workspace ref and read the way Ask reads it: from
+//! the compiled revision, falling back to the working copy only on a node that
+//! has one. Health evals run on serve and worker pods, which hold no checkout,
+//! so resolving the ref to a file here failed every probe on the fleet.
 
-use std::path::Path;
 use std::sync::Arc;
 
+use agentic_pipeline::HeadlessError;
 use agentic_pipeline::platform::PlatformContext;
 
 use super::ProbeFailure;
@@ -20,20 +25,20 @@ pub(crate) async fn ask(
     agent_ref: &str,
     prompt: &str,
 ) -> Result<(), ProbeFailure> {
-    // Resolve through the config manager so the path is right regardless of CWD
-    // and of git-subdirectory workspace layouts.
-    let config_path = ctx
-        .workspace_manager()
-        .config_manager
-        .resolve_file(agent_ref)
-        .await
-        .map_err(|e| {
-            ProbeFailure::Unavailable(format!("agent config '{agent_ref}' not found: {e}"))
-        })?;
-
     let platform: Arc<dyn PlatformContext> = ctx.clone();
-    agentic_pipeline::run_agentic_eval(platform, Path::new(&config_path), prompt.to_string())
+    agentic_pipeline::run_agentic_eval(platform, agent_ref, prompt.to_string())
         .await
         .map(|_| ())
-        .map_err(|e| ProbeFailure::Broken(format!("agent '{agent_ref}' failed: {e}")))
+        .map_err(|e| failure(agent_ref, e))
+}
+
+/// An agent that could not be read is a probe we could not run (Degraded); an
+/// agent that loaded and then failed — no LLM key, a bad query — is broken.
+fn failure(agent_ref: &str, e: HeadlessError) -> ProbeFailure {
+    match e {
+        HeadlessError::Load(e) => {
+            ProbeFailure::Unavailable(format!("agent '{agent_ref}' could not be loaded: {e}"))
+        }
+        HeadlessError::Run(e) => ProbeFailure::Broken(format!("agent '{agent_ref}' failed: {e}")),
+    }
 }

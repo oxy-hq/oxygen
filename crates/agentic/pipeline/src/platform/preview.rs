@@ -195,10 +195,10 @@ mod tests {
     /// No analytics path builds an automation runner except through the gate.
     #[test]
     fn no_runner_is_built_outside_the_gate() {
-        let lib = include_str!("../lib.rs");
+        let lib = [include_str!("../lib.rs"), include_str!("../headless.rs")].concat();
         assert!(
             !lib.contains("OxyAutomationRunner::new"),
-            "lib.rs builds an automation runner directly; use `automation_subrun_runner`"
+            "lib.rs or headless.rs builds an automation runner directly; use `automation_subrun_runner`"
         );
         assert_eq!(
             lib.matches("automation_subrun_runner(").count(),
