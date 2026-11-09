@@ -1,4 +1,4 @@
-use oxy_app::surface::emails::app_emailer::RenderedEmail;
+use oxy_app_core::emails::app_emailer::RenderedEmail;
 use oxy_app_core::notifications::input::{self, NotifyInput};
 use serde_json::json;
 use uuid::Uuid;

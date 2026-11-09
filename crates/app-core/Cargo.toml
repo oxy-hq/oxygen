@@ -50,6 +50,13 @@ once_cell = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
 
+# `emails`: transactional mail over SES. lettre composes the MIME for app email
+# so it is OUR artifact and can be asserted byte-exact offline — see emails/mime.rs.
+aws-config = { workspace = true, features = ["behavior-version-latest"] }
+aws-sdk-sesv2 = { workspace = true }
+lettre = { workspace = true }
+base64 = { workspace = true, features = ["std"] }
+
 async-trait = { workspace = true }
 axum = { workspace = true }
 sea-orm = { workspace = true }
@@ -69,6 +76,10 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 serde_yaml = { workspace = true }
 tempfile = { workspace = true }
 tower = { workspace = true, features = ["util"] }
+# `emails::app_emailer` tests: capture the SES request without a network call or
+# an emulator, so the attachment wire format is asserted against the real SDK serializer.
+aws-smithy-http-client = { workspace = true, features = ["test-util"] }
+aws-credential-types = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

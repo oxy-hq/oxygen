@@ -170,7 +170,7 @@ impl AppEmailer {
         // override (`0`/`false` → SES, any other value → preview).
         let local_test = match std::env::var("OXY_APP_EMAIL_LOCAL_TEST") {
             Ok(v) if !v.trim().is_empty() => !matches!(v.trim(), "0" | "false" | "no"),
-            _ => oxy_app_core::serve_mode::process_is_local().unwrap_or(false),
+            _ => crate::serve_mode::process_is_local().unwrap_or(false),
         };
         Self {
             app_name: app_name.into(),

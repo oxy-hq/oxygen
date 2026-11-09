@@ -11,7 +11,7 @@ use super::super::env_policy::{self, Decision, HostOp, Target};
 use super::env_guard::HeldTarget;
 use super::*;
 use crate::custom_apps_storage::Silo;
-use oxy_app::surface::emails::app_emailer::{AppEmailer, EmailSendInput};
+use oxy_app_core::emails::app_emailer::{AppEmailer, EmailSendInput};
 
 /// `Refuse` fix for `ctx.secrets.set` on a key this run read from another
 /// environment: production's through the `shared` fallback, or — in a sandbox

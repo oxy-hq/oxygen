@@ -28,7 +28,6 @@ const SRC: &[&str] = &[
     "airway_boot",
     "airway_boot_tests",
     "cli",
-    "emails",
     "integrations",
     "managed_connection_resolver",
     "observability_boot",

@@ -960,8 +960,8 @@ mod tests {
     /// literal (a char, a comment) yields nothing.
     fn typed_labels_in_host_sources() -> BTreeSet<String> {
         const HOST_SOURCES: &[&str] = &[
-            // The emailer stayed in `oxy-app`; the host and its ops came here.
-            "../app/src/emails",
+            // The emailer moved down to `oxy-app-core`; the host and its ops came here.
+            "../app-core/src/emails",
             "src/custom_apps_functions/host.rs",
             "src/custom_apps_functions/host",
             // The storage module moved down with the serving lift.

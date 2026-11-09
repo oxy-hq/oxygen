@@ -1383,8 +1383,10 @@ impl FunctionHost for ProjectFunctionHost {
         // Parsed by reference, so a held send is refused for the same payload
         // errors production would refuse it for.
         let parsed =
-            <oxy_app::surface::emails::app_emailer::EmailSendInput as serde::Deserialize>::deserialize(&input)
-                .map_err(|e| format!("InvalidEmailPayload: {e}"))?;
+            <oxy_app_core::emails::app_emailer::EmailSendInput as serde::Deserialize>::deserialize(
+                &input,
+            )
+            .map_err(|e| format!("InvalidEmailPayload: {e}"))?;
         // Held where the policy holds email (`env_guard`); elsewhere outside
         // production it goes to the invoking user alone (`env_homes`).
         if let Some(held) = self.held_email(&input).await {

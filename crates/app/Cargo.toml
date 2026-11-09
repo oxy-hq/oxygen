@@ -177,12 +177,7 @@ hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
-aws-config = { workspace = true, features = ["behavior-version-latest"] }
 aws-sdk-s3 = { workspace = true }
-aws-sdk-sesv2 = { workspace = true }
-# Composes the MIME for app email so it is OUR artifact and can be asserted
-# byte-exact offline — see emails/mime.rs.
-lettre = { workspace = true }
 # customer-apps publish pipeline: tarball pack/unpack + bundle LRU cache
 tar = { workspace = true }
 flate2 = { workspace = true }
@@ -262,10 +257,6 @@ testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse
 # The OLTP provisioner tests connect *as the minted writer role* to prove the
 # DSN it hands back actually works and lands writes in the right schema — the
 # one thing asserting on the generated SQL cannot show.
-# Captures the SES request without a network call or an emulator, so the
-# attachment wire format is asserted against the real SDK serializer.
-aws-smithy-http-client = { workspace = true, features = ["test-util"] }
-aws-credential-types = { workspace = true, features = ["test-util"] }
 # Mints throwaway EC/RSA keys for the APNs and FCM JWT tests, so no private
 # key is committed (the secret scanner rightly rejects one). Already in the
 # tree via jsonwebtoken's `aws_lc_rs` backend.

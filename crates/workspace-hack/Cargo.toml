@@ -80,6 +80,7 @@ df-interchange = { version = "0.3", default-features = false, features = ["arrow
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "oid", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid", "rand_core"] }
 either = { version = "1", features = ["serde", "use_std"] }
+email_address = { version = "0.2" }
 flate2 = { version = "1", features = ["zlib", "zlib-rs"] }
 form_urlencoded = { version = "1" }
 frunk_core = { version = "0.4", default-features = false, features = ["alloc"] }

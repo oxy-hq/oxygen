@@ -21,7 +21,7 @@ use super::homes::{Routed, airhouse_write, warehouse_database};
 use super::tests::isolated_writes;
 use super::*;
 use crate::custom_apps_storage::{normalize_in, validate_in};
-use oxy_app::surface::emails::app_emailer::EmailSendInput;
+use oxy_app_core::emails::app_emailer::EmailSendInput;
 
 const APP_SCHEMA: &str = "app_store_ops";
 const DATABASE: &str = "clickhouse";

@@ -6,7 +6,7 @@ moved to `oxy-api-custom-apps`; still the largest crate; lib-only). The `oxy` **
 (`crates/server`, the workspace default member), which mounts the API surfaces and calls into
 this library. It wires everything together: the CLI
 command surface, the Axum HTTP server (`server/`, ~80k LOC), the fleet/role machinery, the
-worker runtime, and integration glue (Slack, emails). Business logic should live in `oxy` and
+worker runtime, and integration glue (Slack). Business logic should live in `oxy` and
 the domain crates — this crate is the platform runtime plus the contexts not yet extracted.
 
 **Do not start a new context here (rule S8 in `internal-docs/domain-boundaries.md`).** A new
@@ -38,7 +38,7 @@ nearly everything (`oxy`, agentic-http/pipeline, integrations). Keep it thin:
 | `server/` | The Axum server (~80k LOC) — see breakdown below. |
 | `agentic_wiring/` | Adapts `oxy` state into the shape `agentic-pipeline` needs (`project_ctx.rs` is a 1.8k-line god file — a decomposition target). Has its own `CLAUDE.md`. |
 | `integrations/` | External integrations, notably the Slack bot (`integrations/slack/`). |
-| `emails/`, `custom_app_template/` | Transactional email (SES) + custom-app scaffold templates. |
+| — | Transactional email (SES) is `oxy_app_core::emails`, re-exported here as `crate::emails`; the magic-link template is `server/api/auth/magic_link.hbs`. Custom-app scaffold templates are in `oxy-api-custom-apps`. |
 | `observability_boot.rs` / `observability_setup.rs` | Tracing/observability bootstrap for the binary. |
 
 ### `server/` internals

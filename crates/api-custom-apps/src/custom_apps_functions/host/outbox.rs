@@ -9,7 +9,7 @@
 //! and a message is never sent instead.
 
 use chrono::Utc;
-use oxy_app::surface::emails::app_emailer::{AppEmailer, EmailSendInput, RenderedEmail};
+use oxy_app_core::emails::app_emailer::{AppEmailer, EmailSendInput, RenderedEmail};
 use oxy_app_core::notifications::input::NotifyInput;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;

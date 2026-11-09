@@ -100,7 +100,7 @@ impl Audience<'_> {
     /// API access settings. `None` when the deployment's URL is unknown
     /// (`OXY_API_URL` unset); the mail then names the place in words.
     pub fn settings_url(&self) -> Option<String> {
-        let base = oxy_app_core::custom_apps_host_dispatch::admin_base_url()?;
+        let base = crate::custom_apps_host_dispatch::admin_base_url()?;
         Some(format!("{base}/?settings={}", self.settings_key()))
     }
 
@@ -131,7 +131,7 @@ pub const LEGACY_KEYS_SETTINGS_LABEL: &str = "Workspace → Legacy API keys";
 /// Where a legacy API key's owner acts on it. `None` when the deployment's URL
 /// is unknown (`OXY_API_URL` unset).
 pub fn legacy_keys_url() -> Option<String> {
-    let base = oxy_app_core::custom_apps_host_dispatch::admin_base_url()?;
+    let base = crate::custom_apps_host_dispatch::admin_base_url()?;
     Some(format!("{base}/?settings={LEGACY_KEYS_SETTINGS_KEY}"))
 }
 

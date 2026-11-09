@@ -1275,7 +1275,7 @@ async fn send_magic_link_email(
 
 static MAGIC_LINK_TEMPLATE: Lazy<Handlebars<'static>> = Lazy::new(|| {
     let mut hbs = Handlebars::new();
-    hbs.register_template_string("magic_link", include_str!("../../../emails/magic_link.hbs"))
+    hbs.register_template_string("magic_link", include_str!("magic_link.hbs"))
         .expect("magic_link.hbs is valid");
     hbs
 });

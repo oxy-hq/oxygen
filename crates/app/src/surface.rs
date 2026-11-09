@@ -199,6 +199,3 @@ pub mod admin_scope {
 pub mod factory_access {
     pub use crate::server::factory_access::enforced_in;
 }
-
-/// Transactional email delivery (SES, or the local preview provider).
-pub use crate::emails;

@@ -213,7 +213,7 @@ pub async fn send_invitation_email(
     inviter_email: &str,
     org_name: &str,
 ) -> Result<(), OxyError> {
-    use oxy_app::surface::emails::{
+    use oxy_app_core::emails::{
         EmailMessage, EmailProvider, local_test::LocalTestEmailProvider, ses::SesEmailProvider,
     };
 
