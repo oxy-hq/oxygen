@@ -60,7 +60,7 @@ use super::metric_tree_inputs::{ExprInput, baseline_inputs};
 type Row = serde_json::Map<String, serde_json::Value>;
 
 /// The view half of a `view.measure` node id.
-pub(crate) fn view_of(node_id: &str) -> &str {
+pub fn view_of(node_id: &str) -> &str {
     node_id.split('.').next().unwrap_or(node_id)
 }
 
@@ -87,7 +87,7 @@ pub fn space_of(tree: &MetricTree, node_id: &str) -> AggregateSpace {
 /// lengthen a window that was never applied to their measure in the first
 /// place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SkipKind {
+pub enum SkipKind {
     /// No query was issued for this view at all.
     NotQueried,
     /// A query was issued and the executor returned an error.
@@ -96,7 +96,7 @@ pub(crate) enum SkipKind {
 
 /// A view the values read produced nothing for, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SkippedGroup {
+pub struct SkippedGroup {
     pub view: String,
     pub nodes: Vec<String>,
     pub reason: String,
@@ -104,7 +104,7 @@ pub(crate) struct SkippedGroup {
 }
 
 /// What one grouped values read produced.
-pub(crate) struct GroupedValues {
+pub struct GroupedValues {
     pub values: HashMap<String, f64>,
     pub outcome: BaselineOutcome,
     pub skipped: Vec<SkippedGroup>,
@@ -361,7 +361,7 @@ fn measure_value(row: &Row, alias: &str) -> Option<f64> {
 /// they are read over, and they stay out of the outcome and the skip list:
 /// both speak about tree nodes, and an unread input already shows up as the
 /// composite above it going unvalued.
-pub(crate) fn grouped_values(
+pub fn grouped_values(
     tree: &MetricTree,
     layer: &SemanticLayer,
     roots: &[String],

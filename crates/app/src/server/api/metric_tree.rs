@@ -609,107 +609,13 @@ pub async fn post_opportunity(
 
 // ── Baseline (scenario simulation) ──────────────────────────────────────────
 
-/// Soft cap on the baseline read as a whole — not one query but a fan-out of
-/// them. `baseline_reads` asks `grouped_values` for one query per view in the
-/// forward-reachable set, then `grouped_fit` for one more per single-view
-/// group plus up to one per cross-view pair (worst case N + V(V-1)/2), all
-/// against the same warehouse a cold scan can already hang on its own — same
-/// reasoning as [`EXPLAIN_TIMEOUT`], on a shorter clock because this handler
-/// exists to show a lever's current value, not to explain a query plan.
-///
-/// The outer `tokio::time::timeout` around this handler's `spawn_blocking`
-/// only bounds how long the CLIENT waits — it cannot cancel the OS thread, so
-/// a fan-out with no deadline of its own would keep issuing warehouse queries
-/// after the response had already gone back as a timeout. What actually
-/// bounds the fan-out is the shared, absolute deadline `baseline_reads`
-/// builds from this constant and threads through
-/// `metric_tree_baseline::splitting_executor` — checked before every single
-/// query the executor is asked to run, not only inside its additivity-split
-/// retry — so the read degrades to partial values and a recorded budget
-/// refusal instead of outliving the request that asked for it.
-///
-/// `pub(crate)` so the `projects/` twin shares this exact number instead of
-/// keeping its own copy: two handlers hitting the same warehouse with two
-/// silently diverging deadlines is a bug waiting for someone to tune one.
-pub(crate) const BASELINE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// The tail of [`BASELINE_TIMEOUT`] that [`BASELINE_QUERY_BUDGET`] deliberately
-/// does NOT spend — reserved for *finishing*, not for *starting*.
-///
-/// The deadline cannot make the response beat `BASELINE_TIMEOUT`: nothing
-/// bounds a single warehouse query, and the outer `tokio::time::timeout` wraps
-/// a `spawn_blocking` it cannot cancel. What it can do is stop the fan-out
-/// issuing a query so late that the request is already doomed when it lands.
-/// So the budget is `BASELINE_TIMEOUT` MINUS what one last query plus the work
-/// after it plausibly needs — a subtraction, not a fraction of the whole.
-///
-/// Ten seconds covers, in order of cost: the one query already in flight when
-/// the deadline passes — uncancellable, and the only genuinely unbounded term
-/// here — plus everything `baseline_reads` still has to do after it, which is
-/// `FittedDriver::with_profile`, [`classify_unvalued`], a sort and the JSON.
-/// That tail is in-memory over a few hundred rows: microseconds against the
-/// query's seconds. So this is effectively all in-flight-query allowance, and
-/// generous at that — more than ten times the per-call allowance the fan-out
-/// itself implies (see [`BASELINE_QUERY_BUDGET`]).
-pub(crate) const BASELINE_QUERY_HEADROOM: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// How long a scenario baseline may go on ISSUING warehouse queries.
-///
-/// **What it is.** `BASELINE_TIMEOUT - BASELINE_QUERY_HEADROOM`, as ONE
-/// absolute deadline shared by both of [`baseline_reads`]' reads and every
-/// query either of them provokes. Absolute and shared because a per-call
-/// duration would restart for each read and so bound nothing.
-///
-/// **What it has to fit — the whole fan-out, not one query.** For a
-/// forward-reachable set spanning `V` views, `baseline_reads` issues
-///
-/// ```text
-///   V              grouped_values  — one request per view
-/// + V              grouped_fit     — one panel request per single-view group
-/// + V(V-1)/2       grouped_fit     — one panel request per cross-view PAIR
-/// = V(V+3)/2 executor calls
-/// ```
-///
-/// plus one more `grouped_values` request for each view whose reached
-/// composites read an input that is no tree node (an induced measure — see
-/// `metric_tree_inputs`), so at most `V` more and none on a tree without one;
-/// and each of those may fan out again, into one query per (view, additivity)
-/// group, when airlayer refuses the batch. `example_new` — the workspace this
-/// repo's fixtures and `tests/platform/metric_tree_fit_panel` run against —
-/// ships six views, so `V = 6` gives `6 + 6 + 15 = 27` executor calls. Twenty
-/// seconds across 27 of them is ~740ms per warehouse round trip.
-///
-/// **Why not half of `BASELINE_TIMEOUT`.** It was `BASELINE_TIMEOUT / 2` when
-/// the deadline gated only the additivity-split RETRY: a rare path, a handful
-/// of queries, where spending half the request was plainly fine. It now gates
-/// every query the executor serves — `split_groups` checks it before issuing
-/// `req` at all — so that same 15s had to cover all 27 calls: ~550ms each,
-/// under a cold warehouse round trip. That made the DEADLINE, not the
-/// warehouse, the thing that failed the read: a six-view tree that used to
-/// answer in ~20s would start returning partial values and `BUDGET_SPENT`.
-/// Widening the remit without re-sizing the number was the regression.
-///
-/// **What happens when it is hit.** `split_groups` returns `BUDGET_SPENT`
-/// rather than issuing the query, so the read degrades to values for the views
-/// that answered plus a refusal naming the budget for the rest — instead of
-/// outliving the request that asked for it. That degradation is the point:
-/// pushing this any closer to `BASELINE_TIMEOUT` trades an honest partial
-/// answer for a timed-out response with queries still hitting the warehouse.
-pub(crate) const BASELINE_QUERY_BUDGET: std::time::Duration = std::time::Duration::from_secs(
-    BASELINE_TIMEOUT
-        .as_secs()
-        .saturating_sub(BASELINE_QUERY_HEADROOM.as_secs()),
-);
-
-/// The shared deadline a baseline fan-out starts against.
-///
-/// A function rather than an `Instant::now() + BASELINE_QUERY_BUDGET` at each
-/// call site: `metric_tree_projection` kept its own copy of the old
-/// `BASELINE_TIMEOUT / 2`, so tuning one of them tuned half the surface. Same
-/// reasoning that makes `BASELINE_TIMEOUT` itself `pub(crate)`.
-pub(crate) fn baseline_query_deadline() -> std::time::Instant {
-    std::time::Instant::now() + BASELINE_QUERY_BUDGET
-}
+// The baseline budget (`BASELINE_TIMEOUT`, its headroom, the query budget and
+// the shared deadline) lives beside the executor that spends it, in
+// `metric_tree_baseline`; re-exported so every caller keeps its path.
+pub(crate) use super::metric_tree_baseline::{BASELINE_TIMEOUT, baseline_query_deadline};
+// Only this file's tests read the budget's two halves.
+#[cfg(test)]
+use super::metric_tree_baseline::{BASELINE_QUERY_BUDGET, BASELINE_QUERY_HEADROOM};
 
 #[derive(Debug, Deserialize)]
 pub struct BaselineRequest {

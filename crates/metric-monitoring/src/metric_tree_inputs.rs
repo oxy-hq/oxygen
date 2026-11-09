@@ -35,7 +35,7 @@ use super::metric_tree_baseline::forward_reachable;
 /// A composite's input that no tree node stands for, asked for by the name the
 /// expression reads and read back under the alias the engine projects it as.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ExprInput {
+pub struct ExprInput {
     /// The `view.measure` the expression names — the key its value goes under.
     pub requested: String,
     /// The `view.measure` the engine compiles it to; its alias keys the row.
@@ -51,7 +51,7 @@ impl ExprInput {
 
 /// Everything a baseline over `roots` must read.
 #[derive(Debug, Default)]
-pub(crate) struct BaselineInputs {
+pub struct BaselineInputs {
     /// Tree nodes: the forward-reachable set, then every other input a reached
     /// node reads. In that order, so the reachable ones come first as before.
     pub nodes: Vec<String>,
@@ -66,7 +66,7 @@ pub(crate) struct BaselineInputs {
 /// A root is a lever, pinned rather than recomputed, so its own inputs are not
 /// needed. Every edge kind but a driver counts as a read: even an input read
 /// only by a guard can make the measure above it undefined.
-pub(crate) fn baseline_inputs(
+pub fn baseline_inputs(
     tree: &MetricTree,
     layer: &SemanticLayer,
     roots: &[String],

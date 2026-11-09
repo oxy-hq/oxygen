@@ -12,6 +12,13 @@
 //! - [`gates`] — statistical trust checks around the detector: how much
 //!   history a series needs before it is scored at all, and which flags to
 //!   suppress because the fit that produced them is not credible.
+//! - [`metric_tree_baseline`], [`metric_tree_groups`], [`metric_tree_inputs`]
+//!   — the scenario canvas's baseline read over the semantic-model metric
+//!   tree: the shared query budget and the split-retry executor, per-view
+//!   grouped values and the cross-view grouped fit, and the inputs a reached
+//!   composite reads. Pure over airlayer; the HTTP handlers that call them
+//!   (and build the executor from Oxy's connector pool) live in `oxy-app`,
+//!   which re-exports these modules at their old `server::api::` paths.
 //! - [`notify`] — the `notify:` block: which events a scan should announce,
 //!   the once-per-event claim on them, and the Slack message. Posting it is
 //!   the host's.
@@ -29,6 +36,9 @@ pub mod config;
 pub mod detect;
 pub mod forecast;
 pub mod gates;
+pub mod metric_tree_baseline;
+pub mod metric_tree_groups;
+pub mod metric_tree_inputs;
 pub mod notify;
 pub mod persist;
 pub mod preview;

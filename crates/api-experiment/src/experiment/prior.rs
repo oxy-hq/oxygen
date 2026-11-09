@@ -9,7 +9,7 @@ use oxy_airlayer_compat::engine::metric_tree_ops::QueryExecutor;
 use oxy_airlayer_compat::schema::models::DriverForm;
 use oxy_experiment::{PriorCoefficient, PriorSource};
 
-use oxy_app::server::api::metric_tree_groups::grouped_fit;
+use oxy_metric_monitoring::metric_tree_groups::grouped_fit;
 
 /// How far back the fit looks, up to and including today.
 pub const PRIOR_FIT_DAYS: i64 = 365;

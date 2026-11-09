@@ -51,7 +51,6 @@ const BACKLOG: &[(&str, &str)] = &[
     // experiments: the metric-tree helpers the panel and the read-back reader
     // use (Pending 8's metric-tree lowering into `oxy-metric-monitoring`)
     ("api-experiment", "server::api::metric_tree"),
-    ("api-experiment", "server::api::metric_tree_groups"),
     ("api-experiment", "agentic_wiring::metric_tree_runner"),
 ];
 

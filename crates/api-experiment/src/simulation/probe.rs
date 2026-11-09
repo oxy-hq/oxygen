@@ -255,7 +255,7 @@ impl SemanticProbe for FitProbe {
         // current aggregate, and a log link needs the latter.
         .map(|f| {
             let target = values.get(&f.to).copied();
-            let space = oxy_app::server::api::metric_tree_groups::space_of(&self.tree, &f.to);
+            let space = oxy_metric_monitoring::metric_tree_groups::space_of(&self.tree, &f.to);
             f.with_profile(target, space)
         })
         .collect::<Vec<_>>();

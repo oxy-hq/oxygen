@@ -10401,6 +10401,7 @@ dependencies = [
  "entity",
  "humantime",
  "oxy-airlayer-compat",
+ "oxy-semantic",
  "sea-orm",
  "serde",
  "serde_json",

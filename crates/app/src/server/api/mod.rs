@@ -70,9 +70,8 @@ pub mod integration;
 pub mod local_setup;
 pub mod metric_anomalies;
 pub mod metric_tree;
-pub mod metric_tree_baseline;
-pub mod metric_tree_groups;
-pub mod metric_tree_inputs;
+// Lowered into the domain crate; re-exported so every `server::api::` path holds.
+pub use oxy_metric_monitoring::{metric_tree_baseline, metric_tree_groups, metric_tree_inputs};
 pub mod metric_tree_probe;
 pub mod metric_tree_projection;
 pub mod metrics;

@@ -29,6 +29,7 @@ uuid = { workspace = true, features = ["v5"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+oxy-semantic = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]
