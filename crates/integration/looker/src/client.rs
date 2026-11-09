@@ -74,7 +74,7 @@ pub struct LookerApiClient {
 impl LookerApiClient {
     /// Creates a new Looker API client with the given configuration.
     pub fn new(config: LookerAuthConfig) -> Result<Self, LookerError> {
-        let http_client = Client::builder()
+        let http_client = oxy_shared::http::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| LookerError::ConfigError {

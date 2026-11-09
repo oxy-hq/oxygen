@@ -71,7 +71,7 @@ pub async fn validate_provider_key(
 fn probe_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
+        oxy_shared::http::builder()
             .timeout(Duration::from_secs(10))
             .build()
             .expect("failed to build shared LLM key-probe HTTP client")

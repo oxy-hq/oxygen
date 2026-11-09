@@ -52,7 +52,7 @@ impl DOMO {
         auth_value.set_sensitive(true);
         headers.insert("X-DOMO-Developer-Token", auth_value);
 
-        let client = Client::builder()
+        let client = oxy_shared::http::builder()
             .default_headers(headers)
             .build()
             .map_err(|err| {

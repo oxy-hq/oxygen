@@ -159,7 +159,9 @@ impl OmniApiClient {
     pub fn new(base_url: String, api_token: String) -> Result<Self, OmniError> {
         Self::validate_client_config(&base_url, &api_token)?;
 
-        let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+        let client = oxy_shared::http::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?;
 
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -178,7 +180,9 @@ impl OmniApiClient {
     ) -> Result<Self, OmniError> {
         Self::validate_client_config(&base_url, &api_token)?;
 
-        let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+        let client = oxy_shared::http::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?;
 
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -198,7 +202,9 @@ impl OmniApiClient {
         Self::validate_client_config(&base_url, &api_token)?;
         Self::validate_timeout_config(&timeout_config)?;
 
-        let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+        let client = oxy_shared::http::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?;
 
         debug!(
             base_url = %base_url,

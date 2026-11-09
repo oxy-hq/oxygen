@@ -53,7 +53,7 @@ impl ToastSource {
             .or_else(|| std::env::var("OXY_TOAST_BASE_URL").ok())
             .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
         Self {
-            http: reqwest::Client::new(),
+            http: oxy_shared::http::client(),
             base_url,
             client_id_var: toast.and_then(|t| t.client_id_var.clone()),
             client_secret_var: toast.and_then(|t| t.client_secret_var.clone()),

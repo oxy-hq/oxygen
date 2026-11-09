@@ -76,7 +76,7 @@ pub struct AirhouseAdminClient {
 impl AirhouseAdminClient {
     pub fn new(base_url: impl Into<String>, token: impl Into<String>) -> Self {
         Self {
-            client: Client::new(),
+            client: oxy_shared::http::client(),
             base_url: base_url.into(),
             token: token.into(),
         }

@@ -34,7 +34,12 @@ impl CubeEngine {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_token,
-            client: Client::new(),
+            // `builder()`, not `client()`: a query runs as long as the engine
+            // takes, so no overall timeout; the shared client is the fallback a
+            // failed build (TLS init) would also have panicked on.
+            client: oxy_shared::http::builder()
+                .build()
+                .unwrap_or_else(|_| oxy_shared::http::client()),
         }
     }
 }

@@ -110,7 +110,7 @@ fn client() -> &'static Client {
         //     quiet (each frame resets the clock). If an op legitimately needs
         //     longer-to-first-byte, it should stream progress rather than block.
         // `redirect::none()` — stream any 3xx straight to the browser.
-        Client::builder()
+        oxy_shared::http::builder()
             .connect_timeout(Duration::from_secs(3))
             .read_timeout(Duration::from_secs(120))
             .pool_idle_timeout(Duration::from_secs(90))

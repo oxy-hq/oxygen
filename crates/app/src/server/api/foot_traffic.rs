@@ -303,7 +303,7 @@ pub async fn foot_traffic_current_batch(
         StatusCode::SERVICE_UNAVAILABLE,
         "besttime integration not configured for this workspace".to_string(),
     ))?;
-    let client = reqwest::Client::builder()
+    let client = oxy_shared::http::builder()
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -535,7 +535,7 @@ pub async fn foot_traffic_radar_batch(
         StatusCode::SERVICE_UNAVAILABLE,
         "besttime integration not configured for this workspace".to_string(),
     ))?;
-    let client = reqwest::Client::builder()
+    let client = oxy_shared::http::builder()
         .timeout(Duration::from_secs(15))
         .build()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

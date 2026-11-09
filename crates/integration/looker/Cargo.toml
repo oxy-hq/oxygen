@@ -9,6 +9,7 @@ edition.workspace = true
 exclude.workspace = true
 
 [dependencies]
+oxy-shared = { workspace = true }
 # Core dependencies for HTTP client and async operations
 reqwest = { workspace = true, features = ["json", "form"] }
 tokio = { workspace = true }

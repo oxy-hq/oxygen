@@ -69,7 +69,7 @@ impl NeonProvider {
         base_url: impl Into<String>,
     ) -> Self {
         Self {
-            http: reqwest::Client::builder()
+            http: oxy_shared::http::builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
                 .expect("reqwest client with a timeout is always constructible"),

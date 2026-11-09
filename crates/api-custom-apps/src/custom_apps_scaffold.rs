@@ -119,7 +119,7 @@ pub async fn scaffold_pr(
         .await
         .map_err(|e| ScaffoldError::Auth(e.to_string()))?;
 
-    let client = Client::builder()
+    let client = oxy_shared::http::builder()
         .user_agent("oxy-app/customer-apps-scaffold")
         .timeout(GITHUB_REQUEST_TIMEOUT)
         .build()

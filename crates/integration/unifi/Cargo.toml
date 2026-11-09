@@ -9,6 +9,7 @@ edition.workspace = true
 exclude.workspace = true
 
 [dependencies]
+oxy-shared = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 tokio = { workspace = true }
 serde = { workspace = true }

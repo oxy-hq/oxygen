@@ -33,7 +33,7 @@ pub async fn exchange_oauth_code(code: &str) -> Result<String, OxyError> {
     let client_secret = std::env::var("GITHUB_CLIENT_SECRET")
         .map_err(|_| OxyError::ConfigurationError("GITHUB_CLIENT_SECRET not set".to_string()))?;
 
-    let resp = reqwest::Client::new()
+    let resp = oxy_shared::http::client()
         .post("https://github.com/login/oauth/access_token")
         .header("Accept", "application/json")
         .header("User-Agent", "Oxy-GitHub-Integration/1.0")
@@ -81,7 +81,7 @@ impl GitHubClient {
             HeaderValue::from_static("application/vnd.github.v3+json"),
         );
 
-        let client = Client::builder()
+        let client = oxy_shared::http::builder()
             .default_headers(headers)
             .build()
             .map_err(|e| OxyError::RuntimeError(format!("Failed to create HTTP client: {e}")))?;

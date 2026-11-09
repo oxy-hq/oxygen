@@ -671,7 +671,7 @@ pub async fn wait_for_clickhouse_ready(timeout_secs: u64) -> Result<(), OxyError
     let start = Instant::now();
     let timeout = Duration::from_secs(timeout_secs);
     let url = format!("http://localhost:{}/ping", CLICKHOUSE_HTTP_PORT);
-    let client = reqwest::Client::builder()
+    let client = oxy_shared::http::builder()
         .timeout(Duration::from_secs(2))
         .build()
         .map_err(|e| OxyError::InitializationError(format!("http client build failed: {}", e)))?;

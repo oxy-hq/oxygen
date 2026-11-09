@@ -34,7 +34,7 @@ impl UnifiClient {
         Ok(Self {
             base_url: base,
             api_key: api_key.into(),
-            http: Client::builder()
+            http: oxy_shared::http::builder()
                 .user_agent("oxy-unifi/0.1")
                 .build()
                 .map_err(|e| UnifiError::Transport(e.to_string()))?,

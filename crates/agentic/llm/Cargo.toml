@@ -9,6 +9,7 @@ authors.workspace = true
 
 [dependencies]
 agentic-core = { workspace = true }
+oxy-shared = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 futures-core = { workspace = true }

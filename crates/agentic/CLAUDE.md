@@ -18,7 +18,7 @@ Three-layer design — each layer has strict dependency rules:
 | ------- | -------- | --------------- | ------------------- |
 | **Core** | `agentic-core` | External only (serde, tokio) | Any `agentic-*` crate |
 | **Runtime** | `agentic-runtime` | `core` | analytics, builder, workflow, connector, llm, pipeline, http |
-| **Infrastructure** | `agentic-connector`, `agentic-llm` | `core` | analytics, builder, workflow, runtime, pipeline, http |
+| **Infrastructure** | `agentic-connector`, `agentic-llm` | `core`, `oxy-shared` (the bottom platform crate: `oxy_shared::http` is the one `reqwest` client) | analytics, builder, workflow, runtime, pipeline, http |
 | **Domains** | `agentic-analytics`, `agentic-builder`, `agentic-automation` | `core`, `runtime`, `connector`, `llm` | Each other, pipeline, http |
 | **Pipeline** | `agentic-pipeline` | All agentic crates, `oxy` | `http` |
 | **HTTP** | `agentic-http` | `pipeline`, `runtime`, `oxy`, `oxy-auth` | analytics, builder, workflow, connector, llm, core, entity |

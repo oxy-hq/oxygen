@@ -19,6 +19,7 @@ agentic-connector = { workspace = true, features = [
     "bigquery",
 ] }
 agentic-core = { workspace = true }
+oxy-shared = { workspace = true }
 agentic-llm = { workspace = true }
 agentic-runtime = { workspace = true }
 agentic-automation = { workspace = true }

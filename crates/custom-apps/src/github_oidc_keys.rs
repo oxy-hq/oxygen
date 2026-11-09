@@ -20,7 +20,7 @@ use oxy_auth::github_oidc::{GITHUB_JWKS_URL, JwksCache};
 const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
 async fn fetch_jwks() -> Result<JwkSet, reqwest::Error> {
-    reqwest::Client::builder()
+    oxy_shared::http::builder()
         .timeout(FETCH_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .build()?

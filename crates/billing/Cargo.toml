@@ -8,6 +8,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+oxy-shared = { workspace = true }
 chrono.workspace = true
 entity.workspace = true
 hex.workspace = true

@@ -45,7 +45,7 @@ pub(super) const LLM_READ_TIMEOUT: Duration = Duration::from_secs(120);
 /// unreachable in practice for these settings — the fallback only exists so the
 /// infallible `Provider::new` constructors keep their signatures.
 pub(super) fn build_llm_http_client() -> reqwest::Client {
-    reqwest::Client::builder()
+    oxy_shared::http::builder()
         .connect_timeout(LLM_CONNECT_TIMEOUT)
         .read_timeout(LLM_READ_TIMEOUT)
         .build()
@@ -54,7 +54,7 @@ pub(super) fn build_llm_http_client() -> reqwest::Client {
                 error = %err,
                 "failed to build LLM HTTP client with timeouts; using default client"
             );
-            reqwest::Client::new()
+            oxy_shared::http::client()
         })
 }
 

@@ -1999,7 +1999,7 @@ pub fn into_arc(host: ProjectFunctionHost) -> Arc<dyn FunctionHost> {
 /// (`env_policy::upload`) goes to that URL or nowhere. A total timeout bounds
 /// the call.
 fn fetch_client() -> reqwest::Client {
-    reqwest::Client::builder()
+    oxy_shared::http::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(std::time::Duration::from_secs(10))
         .dns_resolver(Arc::new(PublicOnlyDnsResolver))

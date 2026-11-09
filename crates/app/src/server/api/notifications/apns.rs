@@ -152,7 +152,7 @@ impl Apns {
         }
         let key = EncodingKey::from_ec_pem(native_push::unescape_pem(&pem).as_bytes())
             .map_err(|e| ConfigError::PrivateKey(e.to_string()))?;
-        let http = reqwest::Client::builder()
+        let http = oxy_shared::http::builder()
             // APNs speaks only HTTP/2; this also pins TLS ALPN to `h2`.
             .http2_prior_knowledge()
             .redirect(reqwest::redirect::Policy::none())

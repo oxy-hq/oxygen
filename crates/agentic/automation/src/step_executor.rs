@@ -692,7 +692,7 @@ async fn execute_http_request(
         return Ok(held_http_result(reason, shown, url_tmpl));
     }
 
-    let client = reqwest::Client::builder()
+    let client = oxy_shared::http::builder()
         .timeout(std::time::Duration::from_secs(timeout_secs))
         // Do NOT follow redirects: `validate_egress` only vets the initial URL, so a
         // 3xx to a private IP or a non-`allow_hosts` host would slip past the egress

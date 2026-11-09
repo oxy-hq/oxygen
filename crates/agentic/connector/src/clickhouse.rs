@@ -221,8 +221,14 @@ impl ClickHouseConnector {
         password: String,
         database: String,
     ) -> Result<Self, ConnectorError> {
+        // The shared `builder()`, not `client()`: a query runs as long as
+        // ClickHouse lets it (`max_execution_time` is the server's ceiling),
+        // so an overall client timeout would cut a legitimately long result.
+        let client = oxy_shared::http::builder()
+            .build()
+            .map_err(|e| ConnectorError::ConnectionError(format!("http client build: {e}")))?;
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             url,
             user,
             password,

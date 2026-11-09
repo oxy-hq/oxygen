@@ -279,7 +279,7 @@ async fn bigquery_service_account_token(key: &serde_json::Value) -> anyhow::Resu
     let assertion = encode(&Header::new(Algorithm::RS256), &claims, &encoding_key)
         .map_err(|e| anyhow::anyhow!("Failed to sign BigQuery JWT: {e}"))?;
 
-    let client = reqwest::Client::new();
+    let client = oxy_shared::http::client();
     let resp = client
         .post(token_uri)
         .form(&[

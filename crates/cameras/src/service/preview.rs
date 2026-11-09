@@ -71,7 +71,7 @@ const DEFAULT_EDGE_PLAYBACK_PORT: u16 = 9996;
 fn http_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
+        oxy_shared::http::builder()
             .timeout(SNAPSHOT_TIMEOUT)
             .cookie_store(true)
             .build()

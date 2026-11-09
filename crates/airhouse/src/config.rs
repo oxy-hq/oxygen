@@ -248,7 +248,7 @@ pub async fn autodetect_local_airhouse() -> bool {
     }
 
     let health_url = format!("{LOCAL_DEFAULT_BASE_URL}/healthz");
-    let reachable = match reqwest::Client::new()
+    let reachable = match oxy_shared::http::client()
         .get(&health_url)
         .timeout(std::time::Duration::from_millis(1500))
         .send()

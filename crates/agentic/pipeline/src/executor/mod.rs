@@ -1527,7 +1527,7 @@ async fn mint_google_access_token(sa_json: &str, scope: &str) -> Result<String, 
     )
     .map_err(|e| format!("failed to sign the google service-account JWT: {e}"))?;
 
-    let resp = reqwest::Client::new()
+    let resp = oxy_shared::http::client()
         .post(token_uri)
         .form(&[
             ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),

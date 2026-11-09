@@ -24,7 +24,7 @@ impl StripeClient {
     pub fn new(cfg: StripeConfig) -> Self {
         Self {
             cfg,
-            http: Client::builder()
+            http: oxy_shared::http::builder()
                 .pool_idle_timeout(std::time::Duration::from_secs(30))
                 .build()
                 .expect("build reqwest client"),

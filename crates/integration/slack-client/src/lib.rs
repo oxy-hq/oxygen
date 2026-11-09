@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use oxy_shared::errors::OxyError;
 use reqwest::Client;
 use serde::Deserialize;
@@ -9,15 +7,6 @@ mod users;
 pub use users::{EmailLookup, LookupUser};
 
 const DEFAULT_BASE_URL: &str = "https://slack.com/api";
-
-/// Process-wide reqwest client shared across all Slack events. `Client::new()`
-/// builds a fresh connection pool + cold TLS state, and ~15 webhook/event
-/// handlers construct a `SlackClient` per event; cloning a shared client (cheap
-/// — it's `Arc`-backed) reuses pooled keep-alive connections to slack.com.
-fn shared_http() -> Client {
-    static SHARED: OnceLock<Client> = OnceLock::new();
-    SHARED.get_or_init(Client::new).clone()
-}
 
 /// Thin wrapper around Slack's Web API. Stateless on bot tokens —
 /// every call takes the token as an argument so the same client can
@@ -35,9 +24,12 @@ impl Default for SlackClient {
 }
 
 impl SlackClient {
+    /// ~15 webhook/event handlers construct a `SlackClient` per event, so the
+    /// client is the process-wide one (`oxy_shared::http::client`): pooled
+    /// keep-alive connections to slack.com, a timeout and a user agent.
     pub fn new() -> Self {
         Self {
-            http: shared_http(),
+            http: oxy_shared::http::client(),
             base_url: DEFAULT_BASE_URL.to_string(),
         }
     }
@@ -45,7 +37,7 @@ impl SlackClient {
     /// For tests: point at a mock server.
     pub fn with_base_url(base_url: impl Into<String>) -> Self {
         Self {
-            http: Client::new(),
+            http: oxy_shared::http::client(),
             base_url: base_url.into(),
         }
     }

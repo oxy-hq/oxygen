@@ -47,10 +47,10 @@ impl DohResolver {
             Ok(url) if !url.trim().is_empty() => vec![url.trim().to_string()],
             _ => DEFAULT_RESOLVERS.iter().map(|s| s.to_string()).collect(),
         };
-        let client = reqwest::Client::builder()
+        let client = oxy_shared::http::builder()
             .timeout(Duration::from_secs(5))
             .build()
-            .unwrap_or_default();
+            .unwrap_or_else(|_| oxy_shared::http::client());
         Self { client, resolvers }
     }
 

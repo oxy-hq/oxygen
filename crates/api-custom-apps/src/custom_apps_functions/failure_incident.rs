@@ -81,7 +81,7 @@ pub(super) async fn post(
     body: &Value,
     timeout: std::time::Duration,
 ) -> Result<(), String> {
-    let sent = reqwest::Client::new()
+    let sent = oxy_shared::http::client()
         .post(url)
         .timeout(timeout)
         .json(body)

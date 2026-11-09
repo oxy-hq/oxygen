@@ -69,7 +69,7 @@ fn repo_url(owner: &str, repo: &str) -> String {
 }
 
 async fn fetch(owner: &str, repo: &str, token: Option<&str>) -> Option<Resolved> {
-    let client = reqwest::Client::builder()
+    let client = oxy_shared::http::builder()
         .timeout(TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(USER_AGENT)

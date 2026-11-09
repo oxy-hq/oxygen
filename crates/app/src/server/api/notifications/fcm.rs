@@ -125,7 +125,7 @@ impl Fcm {
         }
         let key = EncodingKey::from_rsa_pem(native_push::unescape_pem(&sa.private_key).as_bytes())
             .map_err(|e| ConfigError::PrivateKey(e.to_string()))?;
-        let http = reqwest::Client::builder()
+        let http = oxy_shared::http::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(10))
             .connect_timeout(Duration::from_secs(5))

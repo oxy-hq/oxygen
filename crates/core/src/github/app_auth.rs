@@ -62,7 +62,7 @@ impl GitHubAppAuth {
             HeaderValue::from_static("application/vnd.github.v3+json"),
         );
 
-        let client = Client::builder()
+        let client = oxy_shared::http::builder()
             .default_headers(headers)
             .build()
             .map_err(|e| OxyError::RuntimeError(format!("Failed to create HTTP client: {e}")))?;

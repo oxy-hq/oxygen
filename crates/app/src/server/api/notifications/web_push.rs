@@ -242,7 +242,7 @@ impl WebPush {
             key,
             public_key: public.to_string(),
             subject: subject.to_string(),
-            http: reqwest::Client::builder()
+            http: oxy_shared::http::builder()
                 // NO REDIRECTS. The endpoint is caller-supplied (see
                 // `check_endpoint`), so following a 302 would let an allowed
                 // host hand us an internal one and walk straight past the host

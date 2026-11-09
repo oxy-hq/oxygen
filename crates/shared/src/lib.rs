@@ -13,6 +13,7 @@ pub mod domain;
 pub mod duckdb_s3;
 pub mod errors;
 pub mod fleet_role;
+pub mod http;
 pub mod image_tag;
 pub mod infrastructure;
 pub mod jinja;

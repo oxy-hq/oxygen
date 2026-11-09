@@ -343,7 +343,7 @@ pub(super) async fn exchange_github_code_for_user_info(
 
     let redirect_uri = format!("{}/github/callback", oauth_redirect_base(base_url));
 
-    let client = reqwest::Client::builder()
+    let client = oxy_shared::http::builder()
         .user_agent("Oxy/1.0")
         .build()
         .map_err(|e| OxyError::RuntimeError(e.to_string()))?;
@@ -847,7 +847,7 @@ pub(super) async fn exchange_google_code_for_user_info(
         OxyError::ConfigurationError("Google OAuth configuration not found".to_string())
     })?;
 
-    let client = reqwest::Client::new();
+    let client = oxy_shared::http::client();
 
     let redirect_uri = format!("{}/auth/google/callback", oauth_redirect_base(base_url));
 
@@ -941,7 +941,7 @@ pub(super) async fn exchange_okta_code_for_user_info(
         OxyError::ConfigurationError("Okta OAuth configuration not found".to_string())
     })?;
 
-    let client = reqwest::Client::new();
+    let client = oxy_shared::http::client();
 
     let redirect_uri = format!("{base_url}/auth/okta/callback");
 

@@ -140,7 +140,7 @@ pub async fn start() -> Result<LocalAirhouse, OxyError> {
 
 /// The control plane answers its health check on the host.
 async fn admin_healthy() -> bool {
-    let Ok(client) = reqwest::Client::builder()
+    let Ok(client) = oxy_shared::http::builder()
         .timeout(Duration::from_secs(2))
         .build()
     else {

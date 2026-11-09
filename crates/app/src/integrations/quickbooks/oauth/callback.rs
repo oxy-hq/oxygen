@@ -156,7 +156,7 @@ async fn exchange_code(
     code: &str,
     redirect_uri: &str,
 ) -> Result<String, String> {
-    let resp = reqwest::Client::new()
+    let resp = oxy_shared::http::client()
         .post(token_url)
         .basic_auth(client_id, Some(client_secret))
         .header(reqwest::header::ACCEPT, "application/json")

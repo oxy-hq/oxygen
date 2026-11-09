@@ -132,7 +132,7 @@ fn build_overpass_query(req: &CompetitorsRequest) -> String {
 async fn run_overpass(query: &str) -> Result<Value, (StatusCode, String)> {
     let upstream =
         std::env::var("OVERPASS_URL").unwrap_or_else(|_| OVERPASS_DEFAULT_URL.to_string());
-    let client = reqwest::Client::builder()
+    let client = oxy_shared::http::builder()
         .timeout(Duration::from_secs(60))
         // Overpass returns 406 Not Acceptable without a User-Agent; reqwest
         // omits one by default. See OVERPASS_USER_AGENT.
