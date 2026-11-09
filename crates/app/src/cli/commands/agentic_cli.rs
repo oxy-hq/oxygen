@@ -53,7 +53,8 @@ pub enum AgenticCommand {
 
 #[derive(Parser, Debug)]
 pub struct RunArgs {
-    /// Agent config name (e.g. `queries_agent` loads `queries_agent.agentic.yml`)
+    /// Agent config name (e.g. `queries_agent` loads `queries_agent.agentic.yml`),
+    /// relative to the workspace root, or an absolute path inside the workspace
     pub config: String,
     /// Question to ask the pipeline
     #[clap(long, short)]
@@ -172,6 +173,38 @@ fn build_event_registry() -> EventRegistry {
     registry
 }
 
+/// The agent ref `oxy agentic run <config>` hands the pipeline. The loader
+/// takes only a relative path inside the workspace — it also serves HTTP
+/// bodies, so it refuses an absolute path or a `..` rather than read outside
+/// the root. A relative name passes through unchanged (the loader states the
+/// refusal for one with a `..`); an absolute path inside the workspace becomes
+/// the relative name it stands for, and one outside is refused here.
+fn workspace_relative_config(
+    config: &str,
+    project_path: &std::path::Path,
+) -> Result<String, OxyError> {
+    let path = std::path::Path::new(config);
+    if !path.is_absolute() {
+        return Ok(config.to_string());
+    }
+    let with_ext = std::path::PathBuf::from(format!("{config}.agentic.yml"));
+    let real = path
+        .canonicalize()
+        .or_else(|_| with_ext.canonicalize())
+        .map_err(|e| OxyError::ArgumentError(format!("agent config {config}: {e}")))?;
+    let root = project_path.canonicalize().map_err(|e| {
+        OxyError::RuntimeError(format!("workspace {}: {e}", project_path.display()))
+    })?;
+    let relative = real.strip_prefix(&root).map_err(|_| {
+        OxyError::ArgumentError(format!(
+            "agent config {config} is outside the workspace {}; \
+             pass a path inside it",
+            root.display()
+        ))
+    })?;
+    Ok(relative.to_string_lossy().into_owned())
+}
+
 // ── Commands ────────────────────────────────────────────────────────────────
 
 async fn cmd_run(args: RunArgs) -> Result<(), OxyError> {
@@ -210,7 +243,7 @@ async fn cmd_run(args: RunArgs) -> Result<(), OxyError> {
     builder = if args.domain == "builder" {
         builder.builder(None)
     } else {
-        builder.analytics(&args.config)
+        builder.analytics(&workspace_relative_config(&args.config, &project_path)?)
     };
 
     let started = builder
@@ -796,4 +829,47 @@ async fn get_delegation_info(db: &DatabaseConnection, run_id: &str) -> String {
 
 fn db_err(e: sea_orm::DbErr) -> OxyError {
     OxyError::RuntimeError(format!("db error: {e}"))
+}
+
+#[cfg(test)]
+mod workspace_relative_config_tests {
+    use super::workspace_relative_config;
+
+    #[test]
+    fn a_relative_name_passes_through() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(
+            workspace_relative_config("agents/a", tmp.path()).unwrap(),
+            "agents/a"
+        );
+    }
+
+    #[test]
+    fn an_absolute_path_inside_the_workspace_becomes_relative() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("agents")).unwrap();
+        std::fs::write(tmp.path().join("agents/a.agentic.yml"), "databases: []\n").unwrap();
+        let full = tmp.path().join("agents/a.agentic.yml");
+        assert_eq!(
+            workspace_relative_config(full.to_str().unwrap(), tmp.path()).unwrap(),
+            "agents/a.agentic.yml"
+        );
+        // Without the extension, as the relative form allows.
+        let bare = tmp.path().join("agents/a");
+        assert_eq!(
+            workspace_relative_config(bare.to_str().unwrap(), tmp.path()).unwrap(),
+            "agents/a.agentic.yml"
+        );
+    }
+
+    #[test]
+    fn an_absolute_path_outside_the_workspace_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = tmp.path().join("b.agentic.yml");
+        std::fs::write(&outside, "databases: []\n").unwrap();
+        let err = workspace_relative_config(outside.to_str().unwrap(), &root).unwrap_err();
+        assert!(err.to_string().contains("outside the workspace"), "{err}");
+    }
 }

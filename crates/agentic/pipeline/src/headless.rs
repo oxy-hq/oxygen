@@ -240,11 +240,6 @@ async fn load_agent(
     base_dir: &Path,
 ) -> Result<(AgentConfig, Option<Vec<String>>), HeadlessError> {
     let (read, label) = match source {
-        AgentSource::Ref(agent_ref) if !is_inside_workspace(agent_ref) => {
-            return Err(HeadlessError::Load(format!(
-                "agent ref {agent_ref:?} must be a relative path inside the workspace"
-            )));
-        }
         AgentSource::Ref(agent_ref) => (
             agent_definition::read_analytics_agent(platform, agent_ref, base_dir).await,
             agent_ref.to_string(),
@@ -255,7 +250,7 @@ async fn load_agent(
         ),
     };
     let config = read.map_err(|e| match e {
-        AgentDefinitionError::Missing(e) => {
+        e @ (AgentDefinitionError::Missing(_) | AgentDefinitionError::OutsideWorkspace(_)) => {
             HeadlessError::Load(format!("failed to load agentic config {label}: {e}"))
         }
         AgentDefinitionError::Invalid(e) => {
@@ -268,19 +263,6 @@ async fn load_agent(
             HeadlessError::Load(format!("failed to read the agent's context documents: {e}"))
         })?;
     Ok((config, docs))
-}
-
-/// Whether a ref names something under the workspace root. The loader falls
-/// back to `base_dir.join(ref)` on disk when the revision has no answer, and
-/// `join` lets an absolute path or a `..` walk out of the root — so a ref from
-/// workspace config (a `health_check:` block) must be refused before that, as
-/// `ConfigManager::resolve_file` refused it when the probe went through it.
-fn is_inside_workspace(agent_ref: &str) -> bool {
-    use std::path::Component;
-    !agent_ref.is_empty()
-        && Path::new(agent_ref)
-            .components()
-            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
 }
 
 /// The solver's build context: model, timezone, and the connectors for the

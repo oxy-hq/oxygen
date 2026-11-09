@@ -800,26 +800,10 @@ impl PipelineBuilder {
         // Same compile-boundary read path as `start_analytics`. The
         // resume path needs to load the same agent definition the
         // original run did, so it routes through the same hook.
-        let config = match self.platform.resolve_agent_yaml(agent_id).await {
-            Some(yaml) => {
-                AgentConfig::from_yaml(&yaml).map_err(|e| PipelineError::Config(format!("{e}")))?
-            }
-            None => {
-                let config_path = base_dir.join(agent_id);
-                let config_path = if config_path.exists() {
-                    config_path
-                } else {
-                    let with_ext = base_dir.join(format!("{}.agentic.yml", agent_id));
-                    if with_ext.exists() {
-                        with_ext
-                    } else {
-                        config_path
-                    }
-                };
-                AgentConfig::from_file(&config_path)
-                    .map_err(|e| PipelineError::Config(format!("{e}")))?
-            }
-        };
+        let config =
+            agent_definition::read_analytics_agent(self.platform.as_ref(), agent_id, base_dir)
+                .await
+                .map_err(|e| PipelineError::Config(e.to_string()))?;
 
         // The same documents the original run was built with, asked the same
         // way: a resumed run rebuilds its solver from scratch. A failure here

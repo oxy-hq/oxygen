@@ -42,11 +42,19 @@ started_pipeline.drive(db, state, answer_rx, cancel_rx).await;
 
 ## Config Path Resolution
 
-`PipelineBuilder::start_analytics()` resolves config paths with extension fallback:
+`agent_definition::read_analytics_agent` (used by `load_analytics_agent`,
+`resume_analytics` and the headless eval) refuses an `agent_id` that is not a
+relative path inside the workspace (absolute, `..`, empty), since it comes from
+HTTP bodies and queued runs. It then asks `resolve_agent_yaml`, and on `None` reads the working copy
+with extension fallback:
 
 1. Try literal path: `base_dir/agent_id`
 2. If not found, try: `base_dir/agent_id.agentic.yml`
 3. If neither exists, return the original path (produces a clear error)
+
+A path that exists but resolves outside `base_dir` once symlinks are followed is
+refused too. The CLI (`oxy agentic run`) turns an absolute path inside the
+workspace into the relative name before it calls the builder.
 
 ## Platform Boundary
 
