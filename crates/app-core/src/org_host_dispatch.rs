@@ -89,45 +89,23 @@ pub fn is_reserved_label(label: &str) -> bool {
     if l.starts_with("app-") || l == "customer-apps" || l.starts_with("customer-apps-") {
         return true;
     }
-    if let Ok(extra) = std::env::var("OXY_RESERVED_SUBDOMAINS")
-        && extra
-            .split(',')
-            .map(|s| s.trim().to_ascii_lowercase())
-            .any(|s| !s.is_empty() && s == l)
-    {
-        return true;
-    }
-    false
+    crate::config::BootConfig::current()
+        .hosts
+        .reserved_subdomains
+        .iter()
+        .any(|s| *s == l)
 }
 
 // ── Org-zone derivation ──────────────────────────────────────────────────
 
-/// The DNS zone under which bare org subdomains live for this deployment.
-///
-/// - `OXY_ORG_SUBDOMAIN_ZONE` (leading dot tolerated) wins — required for
-///   non-prod, where the apex wildcard can't be shared across envs (set it
-///   to e.g. `dev.oxygen-hq.com` so `pokehouse.dev.oxygen-hq.com` resolves).
-/// - Otherwise derive from `OXY_API_URL`: the admin host's parent zone, but
-///   **only** when the admin host's first label is exactly `app` (prod
-///   apex, `app.oxygen-hq.com` → `oxygen-hq.com`). An `app-<env>` or custom
-///   host returns `None` to avoid colliding the apex wildcard across envs —
-///   those must set `OXY_ORG_SUBDOMAIN_ZONE` explicitly.
+/// The DNS zone under which bare org subdomains live for this deployment:
+/// `OXY_ORG_SUBDOMAIN_ZONE`, else derived from `OXY_API_URL` when the admin
+/// host's first label is exactly `app`. The rule and its reasons:
+/// [`crate::config::HostsConfig::org_subdomain_zone`].
 pub fn org_subdomain_zone() -> Option<String> {
-    if let Ok(z) = std::env::var("OXY_ORG_SUBDOMAIN_ZONE") {
-        let z = z.trim().trim_start_matches('.').trim_end_matches('.');
-        if !z.is_empty() {
-            return Some(z.to_ascii_lowercase());
-        }
-    }
-    let api_url = std::env::var("OXY_API_URL").ok()?;
-    let parsed: url::Url = api_url.parse().ok()?;
-    let admin_host = parsed.host_str()?;
-    let (first_label, rest) = admin_host.split_once('.')?;
-    if first_label == "app" {
-        Some(rest.to_ascii_lowercase())
-    } else {
-        None
-    }
+    crate::config::BootConfig::current()
+        .hosts
+        .org_subdomain_zone()
 }
 
 /// Parse a `Host` header into a candidate org-subdomain label, using the

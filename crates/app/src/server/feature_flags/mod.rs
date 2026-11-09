@@ -7,6 +7,8 @@
 //! - `cache` — in-memory cache, preloaded at startup, write-through on
 //!   admin PATCH. Exposes `is_enabled(key)` for read-site gating.
 //! - `exposure` — split assignments logged for experiment analysis.
+//! - `rollout` — rollout gates: `Rollout` flags with a sunset and, for one
+//!   release, the environment variable that used to be the gate.
 //! - `routes` — admin API (list, patch, evaluate) and the org-member read.
 //!
 //! Reading a flag: [`is_enabled`] for a global switch, [`is_enabled_for`] or
@@ -17,6 +19,7 @@ pub mod cache;
 pub mod evaluate;
 pub mod exposure;
 pub mod registry;
+pub mod rollout;
 pub mod routes;
 pub mod store;
 pub mod targeting;

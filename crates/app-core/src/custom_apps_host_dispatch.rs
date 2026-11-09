@@ -209,27 +209,9 @@ pub fn subdomain_url_for(org_slug: &str, app_slug: &str) -> Option<String> {
 /// A custom-branded host with neither variable set gets `None`; subdomain
 /// URLs are simply not surfaced.
 pub(crate) fn custom_apps_zone() -> Option<String> {
-    if let Ok(z) = std::env::var("OXY_CUSTOM_APPS_ZONE") {
-        let z = z.trim().trim_start_matches('.').trim_end_matches('.');
-        if !z.is_empty() {
-            return Some(z.to_ascii_lowercase());
-        }
-    }
-    if let Some(zone) = zone_from_admin_host() {
-        return Some(zone);
-    }
-    let org_zone = crate::org_host_dispatch::org_subdomain_zone()?;
-    Some(format!("customer-apps.{org_zone}"))
-}
-
-/// `app{-env}.<rest>` → `customer-apps{-env}.<rest>`, from `OXY_API_URL`.
-fn zone_from_admin_host() -> Option<String> {
-    let api_url = std::env::var("OXY_API_URL").ok()?;
-    let parsed: url::Url = api_url.parse().ok()?;
-    let admin_host = parsed.host_str()?;
-    let (first_label, rest) = admin_host.split_once('.')?;
-    let env_suffix = first_label.strip_prefix("app")?;
-    Some(format!("customer-apps{env_suffix}.{rest}"))
+    crate::config::BootConfig::current()
+        .hosts
+        .custom_apps_zone()
 }
 
 /// Absolute base URL of the admin host this cluster serves, e.g.
@@ -246,14 +228,7 @@ fn zone_from_admin_host() -> Option<String> {
 /// `?return_to=` appended → … until nginx returns 414 Request-URI
 /// Too Large.
 pub fn admin_base_url() -> Option<String> {
-    let api_url = std::env::var("OXY_API_URL").ok()?;
-    let parsed: url::Url = api_url.parse().ok()?;
-    let scheme = parsed.scheme();
-    let host = parsed.host_str()?;
-    match parsed.port() {
-        Some(port) => Some(format!("{scheme}://{host}:{port}")),
-        None => Some(format!("{scheme}://{host}")),
-    }
+    crate::config::BootConfig::current().hosts.admin_base_url()
 }
 
 /// Tower middleware that rewrites subdomain requests to the path-prefix

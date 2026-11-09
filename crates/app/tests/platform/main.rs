@@ -119,6 +119,7 @@ mod previews_from_git;
 mod projects_query;
 mod queued_chat_run;
 mod revision_miss_not_from_disk;
+mod rollout_gates;
 mod run;
 mod run_routes_workspace_scope;
 mod semantic_scan_from_memory;

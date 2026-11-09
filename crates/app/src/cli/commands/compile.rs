@@ -100,6 +100,12 @@ pub async fn run_compile(args: CompileArgs) -> Result<(), OxyError> {
         .await
         .map_err(|e| OxyError::RuntimeError(format!("database connection failed: {e}")))?;
 
+    // The config gate below reads the rollout flags (`compile_refuse_*`), and
+    // an unloaded cache reads them at their registry default — off — whatever
+    // the admin page says. One load, no refresh: this process compiles once
+    // and exits. Fail-fast, as `oxy serve` and `oxy worker` do.
+    crate::server::feature_flags::cache::load_once().await?;
+
     let workspace_id = args.workspace_id.unwrap_or(Uuid::nil());
 
     println!(

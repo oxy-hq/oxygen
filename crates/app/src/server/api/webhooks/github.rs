@@ -15,7 +15,7 @@
 //!
 //! `FleetOk`: it reads Postgres and queues a task, so any replica serves it.
 //! Whether a verified push does anything is decided by the same gate as the
-//! periodic check (`OXY_COMPILE_RECONCILE`); with it off the delivery is
+//! periodic check (the `compile_reconcile` flag); with it off the delivery is
 //! acknowledged `202` and nothing is queued.
 
 use axum::body::Bytes;

@@ -149,7 +149,7 @@ fn salt(def: &FlagDef, salt: Option<&str>) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::feature_flags::registry::{BOOLEAN, Unit};
+    use crate::server::feature_flags::registry::{BOOLEAN, FlagKind, Unit};
 
     const EXPERIMENT: FlagDef = FlagDef {
         key: "test_experiment",
@@ -159,6 +159,8 @@ mod tests {
         unit: Unit::Org,
         per_org: true,
         client: false,
+        kind: FlagKind::Product,
+        sunset: None,
     };
     const ON_OFF: FlagDef = FlagDef {
         key: "test_on_off",
@@ -168,6 +170,8 @@ mod tests {
         unit: Unit::Org,
         per_org: true,
         client: false,
+        kind: FlagKind::Product,
+        sunset: None,
     };
 
     fn split(weights: &[(&str, u32)]) -> Targeting {

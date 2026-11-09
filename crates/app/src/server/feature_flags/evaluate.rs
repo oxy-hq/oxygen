@@ -174,7 +174,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::server::feature_flags::registry::BOOLEAN;
+    use crate::server::feature_flags::registry::{BOOLEAN, FlagKind};
     use crate::server::feature_flags::targeting::{Fallthrough, Targeting};
 
     const ON_OFF: FlagDef = FlagDef {
@@ -185,6 +185,8 @@ mod tests {
         unit: Unit::Org,
         per_org: true,
         client: false,
+        kind: FlagKind::Product,
+        sunset: None,
     };
     const PER_USER: FlagDef = FlagDef {
         unit: Unit::User,

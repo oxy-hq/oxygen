@@ -77,9 +77,10 @@ pub fn challenge_value(token: &str) -> String {
 /// demand (it asks `GET /api/custom-domains/tls-ask` first). `None` on a
 /// deployment that has no such edge; the console then says so.
 pub fn cname_target() -> Option<String> {
-    let raw = std::env::var("OXY_CUSTOM_DOMAIN_TARGET").ok()?;
-    let target = raw.trim().trim_end_matches('.').to_ascii_lowercase();
-    (!target.is_empty()).then_some(target)
+    crate::config::BootConfig::current()
+        .hosts
+        .custom_domain_target
+        .clone()
 }
 
 // ── Normalization ─────────────────────────────────────────────────────────
@@ -196,7 +197,12 @@ fn platform_zones() -> &'static [String] {
                 }
             }
         };
-        push(std::env::var("OXY_SESSION_COOKIE_DOMAIN").ok());
+        push(
+            crate::config::BootConfig::current()
+                .hosts
+                .session_cookie_domain
+                .clone(),
+        );
         push(crate::org_host_dispatch::org_subdomain_zone());
         push(crate::custom_apps_host_dispatch::custom_apps_zone());
         if let Some(admin) = crate::custom_apps_host_dispatch::admin_base_url()

@@ -22,6 +22,8 @@ use oxy_app_core::process_role::current_process_role;
 use oxy_compile::{CompiledConfig, ConfigGate, merge_compiled_config};
 use oxy_shared::fleet_role::Role;
 
+use crate::server::feature_flags::rollout;
+
 /// The production config gate: merge the split columns and assert the result
 /// deserialises into the runtime [`oxy::config::model::Config`], and that it
 /// asks for nothing the pods serving it cannot have.
@@ -45,22 +47,30 @@ impl ConfigGate for RuntimeConfigGate {
     fn compiles_for_cloud_roles(&self) -> bool {
         current_process_role() != Role::All
     }
+
+    /// The `compile_refuse_retired_automation_steps` flag, or its deprecated
+    /// override: `oxy-compile` cannot read flags, so the gate carries it.
+    fn refuses_retired_automation_steps(&self) -> bool {
+        rollout::is_on(&rollout::COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS)
+    }
 }
 
-/// The environment variable that turns the file-credential refusal on. Without
-/// it the gate only logs a warning for each such database, which is the rollout
-/// gate (dev, then staging, then production): the refusal freezes a workspace's
-/// served revision, and the in-product "create database connection" flow still
-/// writes this shape, so it is switched on only once production has been checked
-/// (the same pattern as `OXY_COMPILE_RECONCILE`).
+/// The deprecated environment override of the `compile_refuse_file_credentials`
+/// flag ([`rollout::COMPILE_REFUSE_FILE_CREDENTIALS`]), for one release.
+pub use rollout::COMPILE_REFUSE_FILE_CREDENTIALS_ENV as REFUSE_FILE_CREDENTIALS_ENV;
+
+/// Whether the file-credential refusal is on: the
+/// `compile_refuse_file_credentials` flag, or `OXY_COMPILE_REFUSE_FILE_CREDENTIALS=1`
+/// while that override lasts. Off, the gate only logs a warning for each such
+/// database, which is the rollout (dev, then staging, then production): the
+/// refusal freezes a workspace's served revision, and the in-product "create
+/// database connection" flow still writes this shape, so it is switched on only
+/// once production has been checked (the same pattern as `compile_reconcile`).
 ///
 /// It governs the key files only. File DuckDB is refused on the cloud roles
-/// whether it is set or not.
-pub const REFUSE_FILE_CREDENTIALS_ENV: &str = "OXY_COMPILE_REFUSE_FILE_CREDENTIALS";
-
-/// Whether [`REFUSE_FILE_CREDENTIALS_ENV`] is set to `1`.
+/// whether it is on or not.
 fn refusal_enabled() -> bool {
-    std::env::var(REFUSE_FILE_CREDENTIALS_ENV).is_ok_and(|v| v == "1")
+    rollout::is_on(&rollout::COMPILE_REFUSE_FILE_CREDENTIALS)
 }
 
 /// What a compile does with a database that reads a file from the repository.
@@ -80,8 +90,8 @@ fn refusal_enabled() -> bool {
 /// `key_path` and `private_key` are among them), so what a pod reads is an
 /// empty path whatever the file held. The connection fails at the first query,
 /// on a pod, with an error about a file the customer never wrote. These warn,
-/// and fail the compile only when `refuse` is set
-/// ([`REFUSE_FILE_CREDENTIALS_ENV`]); the replacement is the key's contents in
+/// and fail the compile only when `refuse` is set ([`refusal_enabled`]); the
+/// replacement is the key's contents in
 /// the secret store, `key_json_var` and `private_key_var`. BigQuery
 /// `key_path_var` is deprecated with a warning: its value is a path, not the
 /// key, so it fails on a pod the same way.
@@ -158,7 +168,8 @@ fn file_credential(refuse: bool, message: String) -> Result<(), String> {
     }
     tracing::warn!(
         %message,
-        "compile: file credential not refused; set {REFUSE_FILE_CREDENTIALS_ENV}=1 to fail the compile"
+        "compile: file credential not refused; turn on the compile_refuse_file_credentials flag \
+         (or set {REFUSE_FILE_CREDENTIALS_ENV}=1) to fail the compile"
     );
     Ok(())
 }

@@ -32,6 +32,7 @@
 
 mod app_growth;
 mod config_write_routes;
+mod env_reads;
 mod fleet_canary;
 mod fleet_routes_table;
 mod global_route_roles;

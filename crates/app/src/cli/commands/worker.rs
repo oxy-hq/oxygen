@@ -248,6 +248,8 @@ pub async fn run_worker(
     // and `All` is the value that claims the workspace filesystem. A chart that
     // never sets `OXY_ROLE` would otherwise get all three wrong branches below
     // anyway. An explicit `OXY_ROLE` still wins.
+    oxy_app_core::config::BootConfig::init()
+        .map_err(|e| OxyError::ConfigurationError(format!("worker: {e}")))?;
     let role = crate::server::role_manifest::init_process_role_from_env_with_default(
         crate::server::role_manifest::Role::Worker,
     );
@@ -300,6 +302,15 @@ pub async fn run_worker(
         .map_err(OxyError::RuntimeError)?;
     // As at `oxy serve` boot: a rollback's mutes, into the settings table.
     crate::server::api::notifications::settings::reconcile::at_boot().await;
+    // As at `oxy serve` boot: the feature-flag cache, with its refresh. The
+    // worker runs three flag-gated paths — the worker-fleet compile
+    // (`compile_config_gate`), the reconcile tick and `self_heal`
+    // (`compile_reconcile::enabled`) — and an unloaded cache reads every flag
+    // at its registry default, so the rollout gates would stay off here while
+    // the admin page said they were on. Fail-fast for the same reason serve
+    // does; the refresh is what lets a flag flipped later reach the fleet.
+    tracing::info!("worker: initializing feature flags");
+    serve::init_feature_flags().await?;
 
     // airway's process-wide `GlobalConfig`, from the singleton
     // `airway_deployment_config` row — installed once here rather than at the

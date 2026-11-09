@@ -191,9 +191,19 @@ pub trait ConfigGate: Send + Sync {
     ///   DuckDB there, so a copy would be uploaded for a revision that fails;
     /// - automation steps that write into the workspace directory
     ///   (`export:`, `cache:`) fail the compile, whatever
-    ///   `OXY_COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS` says.
+    ///   [`ConfigGate::refuses_retired_automation_steps`] says.
     fn compiles_for_cloud_roles(&self) -> bool {
         false
+    }
+
+    /// Whether an automation carrying a retired step (`export:`, `cache:`,
+    /// `agent_ref: __builder__`) fails the compile rather than warns. This
+    /// crate cannot read feature flags, so the gate carries the decision
+    /// (`oxy-app`: the `compile_refuse_retired_automation_steps` flag, or its
+    /// deprecated `OXY_COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS=1` override).
+    /// The default is the variable alone, for a compile with no gate.
+    fn refuses_retired_automation_steps(&self) -> bool {
+        crate::automation_check::refusal_enabled()
     }
 }
 
@@ -460,7 +470,20 @@ struct CompileBatch {
 /// it into a structured per-file failure. The failure is recorded on the later
 /// file (discovery is sorted by `rel_path`) and its message names the file that
 /// declared the identifier first, so the operator sees both paths.
-async fn compile_files(files: &[DiscoveredFile], refuse_workspace_writes: bool) -> CompileBatch {
+/// What a compile does with an automation's retired steps
+/// (`automation_check`): which of them fail the file rather than warn.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AutomationRefusals {
+    /// Fail on `export:`, `cache:` and `agent_ref: __builder__`: the
+    /// `compile_refuse_retired_automation_steps` flag, or its override
+    /// ([`ConfigGate::refuses_retired_automation_steps`]).
+    pub retired_steps: bool,
+    /// Fail on the two workspace writes whatever the switch says: a cloud
+    /// compile ([`ConfigGate::compiles_for_cloud_roles`]).
+    pub workspace_writes: bool,
+}
+
+async fn compile_files(files: &[DiscoveredFile], refusals: AutomationRefusals) -> CompileBatch {
     let mut batch = CompileBatch {
         rows: Vec::new(),
         failures: Vec::new(),
@@ -469,7 +492,7 @@ async fn compile_files(files: &[DiscoveredFile], refuse_workspace_writes: bool) 
     let mut first_seen: HashMap<(FileKind, String), String> = HashMap::new();
 
     for file in files {
-        match compile_one_with(file, refuse_workspace_writes).await {
+        match compile_one_with(file, refusals).await {
             Ok(produced) => {
                 for row in produced {
                     if let Some(key) = row_dedupe_key(&row, &file.kind) {
@@ -509,12 +532,23 @@ async fn drive_compile(
     let files = discover(workspace_path)?;
     debug!(file_count = files.len(), "files discovered");
     let for_cloud_roles = config_gate.is_some_and(|gate| gate.compiles_for_cloud_roles());
+    let refuse_retired_steps = config_gate
+        .map_or_else(crate::automation_check::refusal_enabled, |gate| {
+            gate.refuses_retired_automation_steps()
+        });
 
     let CompileBatch {
         mut rows,
         mut failures,
         compiled,
-    } = compile_files(&files, for_cloud_roles).await;
+    } = compile_files(
+        &files,
+        AutomationRefusals {
+            retired_steps: refuse_retired_steps,
+            workspace_writes: for_cloud_roles,
+        },
+    )
+    .await;
 
     // Mirror local-file DuckDB warehouses to S3 so the stateless fleet can
     // query them (no-op without OXY_COMPILE_BLOB_S3_BUCKET). Only on an
@@ -677,15 +711,22 @@ async fn stored_schema_migration_count(
 /// [`compile_one_with`] for a single-process compile.
 #[cfg(test)]
 async fn compile_one(file: &DiscoveredFile) -> Result<Vec<CompiledRow>, FileFailure> {
-    compile_one_with(file, false).await
+    compile_one_with(
+        file,
+        AutomationRefusals {
+            retired_steps: crate::automation_check::refusal_enabled(),
+            workspace_writes: false,
+        },
+    )
+    .await
 }
 
 /// Per-file compile. Returns one or more rows on success, a structured
-/// failure on parse / shape errors. `refuse_workspace_writes` is
-/// [`ConfigGate::compiles_for_cloud_roles`].
+/// failure on parse / shape errors. `refusals` says which retired automation
+/// steps fail the file ([`AutomationRefusals`]).
 async fn compile_one_with(
     file: &DiscoveredFile,
-    refuse_workspace_writes: bool,
+    refusals: AutomationRefusals,
 ) -> Result<Vec<CompiledRow>, FileFailure> {
     let bytes = tokio::fs::read(&file.abs_path)
         .await
@@ -723,8 +764,8 @@ async fn compile_one_with(
             file,
             &content,
             p,
-            crate::automation_check::refusal_enabled(),
-            refuse_workspace_writes,
+            refusals.retired_steps,
+            refusals.workspace_writes,
         ),
         FileKind::AirwayPipeline => compile_named_yaml(file, &content, |name, file_path, def| {
             CompiledRow::Pipeline(CompiledPipeline {
@@ -1300,7 +1341,8 @@ fn compile_automation(
         warn!(
             path = %file.rel_path,
             %message,
-            "compile: retired automation step not refused; set {}=1 to fail the compile",
+            "compile: retired automation step not refused; turn on the \
+             compile_refuse_retired_automation_steps flag (or set {}=1) to fail the compile",
             crate::automation_check::REFUSE_RETIRED_STEPS_ENV
         );
     }
@@ -1667,7 +1709,14 @@ mod tests {
         let root = dir.path();
         write(root, "agents/a.agentic.yml", "name: foo\n");
         write(root, "agents/b.agentic.yml", "name: foo\n");
-        let batch = compile_files(&discover(root).unwrap(), false).await;
+        let batch = compile_files(
+            &discover(root).unwrap(),
+            AutomationRefusals {
+                retired_steps: false,
+                workspace_writes: false,
+            },
+        )
+        .await;
         assert_eq!(batch.failures.len(), 1, "{:?}", batch.failures);
         let f = &batch.failures[0];
         assert!(

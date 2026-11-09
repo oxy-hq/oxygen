@@ -261,7 +261,7 @@ pub async fn org_flags(OrgContextExtractor(ctx): OrgContextExtractor) -> Json<Or
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::feature_flags::registry::BOOLEAN;
+    use crate::server::feature_flags::registry::{BOOLEAN, FlagKind};
 
     const GLOBAL: FlagDef = FlagDef {
         key: "test_global",
@@ -271,6 +271,8 @@ mod tests {
         unit: Unit::Org,
         per_org: false,
         client: false,
+        kind: FlagKind::Product,
+        sunset: None,
     };
     const PER_ORG: FlagDef = FlagDef {
         per_org: true,

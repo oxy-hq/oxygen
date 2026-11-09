@@ -82,6 +82,13 @@ pub async fn init() -> Result<(), OxyError> {
     load_and_install().await
 }
 
+/// [`init`] without the refresh: one load, for a one-shot command (`oxy
+/// compile`) that reads the flags once and exits, where a refresh task would
+/// outlive nothing. Fallible for the same reason as [`init`].
+pub async fn load_once() -> Result<(), OxyError> {
+    load_and_install().await
+}
+
 /// Open a connection, read the flag table, and install the map — unless a local
 /// PATCH raced the read, in which case its value already won and this snapshot
 /// is stale.

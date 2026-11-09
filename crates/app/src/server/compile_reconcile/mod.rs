@@ -13,10 +13,12 @@
 //! `internal-docs/factory-retirement.md`, phase 1. Its other half is the GitHub
 //! `push` webhook ([`push`]), which reaches the same enqueue sooner.
 //!
-//! **Off unless `OXY_COMPILE_RECONCILE` is set**, and the webhook obeys the same
-//! gate. Turning it on changes what a deployment serves: a push to a default
-//! branch is promoted without anyone clicking Compile. It is a rollout gate —
-//! dev, then staging — not a setting.
+//! **Off unless the `compile_reconcile` feature flag is on** (or, for one more
+//! release, `OXY_COMPILE_RECONCILE` is set: `feature_flags::rollout`), and the
+//! webhook obeys the same gate. Turning it on changes what a deployment serves:
+//! a push to a default branch is promoted without anyone clicking Compile. It is
+//! a rollout gate — dev, then staging — not a setting, and the registry names
+//! its sunset.
 //!
 //! Three properties the loop is built around:
 //!
@@ -46,9 +48,6 @@ use sea_orm::DatabaseConnection;
 
 pub use check::Outcome;
 
-/// The rollout gate. Read by [`enabled`] and nowhere else.
-const GATE_ENV: &str = "OXY_COMPILE_RECONCILE";
-
 /// How often one workspace's branch head is compared with what it serves.
 ///
 /// Five minutes bounds how stale a pushed commit can be before it is noticed,
@@ -76,15 +75,12 @@ const TICK_BUDGET: Duration = Duration::from_secs(20);
 /// pauses itself.
 static PAUSED_UNTIL: AtomicI64 = AtomicI64::new(0);
 
-/// Whether the loop is switched on for this process.
+/// Whether the loop is switched on for this process: the `compile_reconcile`
+/// flag, or its deprecated environment override
+/// ([`rollout::COMPILE_RECONCILE`](crate::server::feature_flags::rollout::COMPILE_RECONCILE)).
 pub fn enabled() -> bool {
-    gate_is_on(|name| std::env::var(name).ok())
-}
-
-/// [`enabled`] over an injected lookup. Same truthy values as the drive
-/// policy's gates.
-fn gate_is_on(var: impl Fn(&str) -> Option<String>) -> bool {
-    var(GATE_ENV).is_some_and(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
+    use crate::server::feature_flags::rollout;
+    rollout::is_on(&rollout::COMPILE_RECONCILE)
 }
 
 /// Say at boot whether this node will move what workspaces serve on its own.
@@ -93,7 +89,7 @@ pub fn announce() {
         tracing::info!(
             target: "compile_reconcile",
             interval_secs = CHECK_INTERVAL.as_secs(),
-            "{GATE_ENV} is set: this node compares each remote-backed workspace's default \
+            "compile_reconcile is on: this node compares each remote-backed workspace's default \
              branch with the revision it serves, and queues a commit compile when they differ"
         );
     }
@@ -261,34 +257,5 @@ fn report(workspace_id: uuid::Uuid, outcome: &Outcome) {
             target: "compile_reconcile", %workspace_id, %error,
             "a branch check failed; it is retried on the next interval"
         ),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn gate(value: Option<&str>) -> bool {
-        gate_is_on(|name| {
-            assert_eq!(name, "OXY_COMPILE_RECONCILE");
-            value.map(str::to_string)
-        })
-    }
-
-    #[test]
-    fn the_gate_is_off_unless_it_is_set_to_something_true() {
-        for off in [
-            None,
-            Some(""),
-            Some("0"),
-            Some("false"),
-            Some("no"),
-            Some("TRUE"),
-        ] {
-            assert!(!gate(off), "{off:?}");
-        }
-        for on in ["1", "true", "yes", "on"] {
-            assert!(gate(Some(on)), "{on}");
-        }
     }
 }

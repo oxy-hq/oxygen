@@ -39,7 +39,11 @@
 use serde_json::Value;
 
 /// The environment variable that turns the refusal on. Off (unset, or any value
-/// but `1`) the compile warns instead.
+/// but `1`) the compile warns instead. On the production compile paths the
+/// decision comes from `oxy-app`'s `compile_refuse_retired_automation_steps`
+/// feature flag through [`crate::ConfigGate::refuses_retired_automation_steps`];
+/// this variable is that flag's deprecated override, and the only switch a
+/// compile with no gate has.
 pub(crate) const REFUSE_RETIRED_STEPS_ENV: &str = "OXY_COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS";
 
 /// Whether [`REFUSE_RETIRED_STEPS_ENV`] is set to `1`.

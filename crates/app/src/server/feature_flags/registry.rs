@@ -10,6 +10,13 @@
 //! split by the admin's targeting rules (`super::targeting`). Treat a running
 //! split as immutable: changing its variants, salt or unit reshuffles who gets
 //! what, so a changed experiment is a new flag.
+//!
+//! A **rollout gate** is a flag of [`FlagKind::Rollout`]: it switches a change on
+//! for one deployment at a time while it is proven, and its end state is the
+//! change on and the flag deleted. Every one names a `sunset`; the test below
+//! fails once that is within [`SUNSET_MARGIN_DAYS`], so the retirement PR lands
+//! before the gate expires. `internal-docs/feature-flags.md`, "Rollout gates and
+//! their sunset", says how to retire one.
 
 /// The two variants of an on/off flag. Every flag's first variant is its "off"
 /// (or control): what a disabled flag, a missing context or a broken rule serves.
@@ -26,6 +33,22 @@ pub enum Unit {
     /// The person, for a change one person sees alone.
     User,
 }
+
+/// Why a flag exists, which decides how long it may.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlagKind {
+    /// A product switch or an A/B test: lives as long as the choice does.
+    Product,
+    /// A temporary gate on a change being rolled out deployment by deployment.
+    /// Must name a `sunset`; retired by turning the change on and deleting the
+    /// flag (`super::rollout`).
+    Rollout,
+}
+
+/// A [`FlagKind::Rollout`] flag fails the registry test once today is this
+/// close to its sunset, so the retirement PR has time to land.
+pub const SUNSET_MARGIN_DAYS: i64 = 14;
 
 pub struct FlagDef {
     pub key: &'static str,
@@ -46,6 +69,11 @@ pub struct FlagDef {
     /// Whether the web app may read this flag's evaluated variant
     /// (`GET /orgs/{org_id}/feature-flags`). Off for a server-only switch.
     pub client: bool,
+    /// Product switch, or a rollout gate with an end date.
+    pub kind: FlagKind,
+    /// When a [`FlagKind::Rollout`] flag is to be gone: a date (`2027-01-31`) or
+    /// a crate version (`0.6.0`). `None` for a product flag.
+    pub sunset: Option<&'static str>,
 }
 
 pub static FLAGS: &[FlagDef] = &[
@@ -59,6 +87,8 @@ pub static FLAGS: &[FlagDef] = &[
         unit: Unit::Org,
         per_org: false,
         client: false,
+        kind: FlagKind::Product,
+        sunset: None,
     },
     FlagDef {
         key: super::APPS_FIRST_EXPERIENCE,
@@ -80,6 +110,8 @@ pub static FLAGS: &[FlagDef] = &[
         unit: Unit::Org,
         per_org: true,
         client: true,
+        kind: FlagKind::Product,
+        sunset: None,
     },
     FlagDef {
         key: super::HOME_V3,
@@ -97,6 +129,8 @@ pub static FLAGS: &[FlagDef] = &[
         // Read from `GET /auth/config`, which has no org.
         per_org: false,
         client: false,
+        kind: FlagKind::Product,
+        sunset: None,
     },
     FlagDef {
         key: crate::server::queued_analytics::QUEUED_STARTS_FLAG,
@@ -111,6 +145,58 @@ pub static FLAGS: &[FlagDef] = &[
         unit: Unit::Org,
         per_org: false,
         client: false,
+        kind: FlagKind::Product,
+        sunset: None,
+    },
+    FlagDef {
+        key: super::rollout::COMPILE_RECONCILE_FLAG,
+        description: "Keep a remote-backed workspace serving what its default branch has: \
+                      the periodic branch check (every 5 minutes per workspace) and the \
+                      GitHub push webhook queue a commit compile when the branch is ahead \
+                      of what is served. Turning it on changes what the deployment serves \
+                      without anyone clicking Compile; the webhook also needs \
+                      GITHUB_WEBHOOK_SECRET. Was OXY_COMPILE_RECONCILE, which still \
+                      overrides this flag for one release when set.",
+        default_enabled: false,
+        variants: BOOLEAN,
+        unit: Unit::Org,
+        per_org: false,
+        client: false,
+        kind: FlagKind::Rollout,
+        sunset: Some("2027-01-31"),
+    },
+    FlagDef {
+        key: super::rollout::COMPILE_REFUSE_FILE_CREDENTIALS_FLAG,
+        description: "Fail, instead of warn on, a compile whose config.yml reads a key file \
+                      from the repository (BigQuery key_path, Snowflake private-key path) on \
+                      a cloud role. The previous revision keeps serving; the replacement is \
+                      key_json_var / private_key_var. Check production for workspaces that \
+                      still declare a key file before turning this on. Was \
+                      OXY_COMPILE_REFUSE_FILE_CREDENTIALS=1, which still overrides this flag \
+                      for one release when set.",
+        default_enabled: false,
+        variants: BOOLEAN,
+        unit: Unit::Org,
+        per_org: false,
+        client: false,
+        kind: FlagKind::Rollout,
+        sunset: Some("2027-01-31"),
+    },
+    FlagDef {
+        key: super::rollout::COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS_FLAG,
+        description: "Fail, instead of warn on, a compile of an automation that carries a \
+                      retired step: export:, cache: or agent_ref: __builder__. The runtime \
+                      already ignores the two writes; Demo workspaces seeded before the demo \
+                      project dropped its export: blocks still carry them, so check them \
+                      first. Was OXY_COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS=1, which still \
+                      overrides this flag for one release when set.",
+        default_enabled: false,
+        variants: BOOLEAN,
+        unit: Unit::Org,
+        per_org: false,
+        client: false,
+        kind: FlagKind::Rollout,
+        sunset: Some("2027-01-31"),
     },
 ];
 
@@ -120,6 +206,37 @@ pub fn get(key: &str) -> Option<&'static FlagDef> {
 
 pub fn default_for(key: &str) -> bool {
     get(key).map(|f| f.default_enabled).unwrap_or(false)
+}
+
+/// A rollout gate's planned end, as [`FlagDef::sunset`] spells it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sunset {
+    Date(chrono::NaiveDate),
+    Version((u64, u64, u64)),
+}
+
+impl Sunset {
+    /// `YYYY-MM-DD`, or `MAJOR.MINOR.PATCH`; anything else is `None`.
+    pub fn parse(raw: &str) -> Option<Self> {
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d") {
+            return Some(Sunset::Date(date));
+        }
+        let mut parts = raw.split('.').map(|p| p.parse::<u64>().ok());
+        match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some(Some(a)), Some(Some(b)), Some(Some(c)), None) => Some(Sunset::Version((a, b, c))),
+            _ => None,
+        }
+    }
+
+    /// Whether the gate should already be gone, given today and this build's
+    /// version: a date within [`SUNSET_MARGIN_DAYS`] of today, or a version this
+    /// build has reached.
+    pub fn is_due(&self, today: chrono::NaiveDate, version: (u64, u64, u64)) -> bool {
+        match self {
+            Sunset::Date(date) => today + chrono::Duration::days(SUNSET_MARGIN_DAYS) >= *date,
+            Sunset::Version(v) => version >= *v,
+        }
+    }
 }
 
 impl FlagDef {
@@ -141,7 +258,7 @@ impl FlagDef {
 
 #[cfg(test)]
 mod tests {
-    use super::FLAGS;
+    use super::*;
     use std::collections::HashSet;
 
     #[test]
@@ -162,5 +279,71 @@ mod tests {
     fn keys_are_unique() {
         let unique: HashSet<_> = FLAGS.iter().map(|f| f.key).collect();
         assert_eq!(unique.len(), FLAGS.len());
+    }
+
+    fn crate_version() -> (u64, u64, u64) {
+        let mut parts = env!("CARGO_PKG_VERSION")
+            .split('.')
+            .map(|p| p.parse().unwrap());
+        (
+            parts.next().unwrap(),
+            parts.next().unwrap(),
+            parts.next().unwrap(),
+        )
+    }
+
+    /// A rollout gate that has reached its sunset fails the build, naming the
+    /// flag and where the retirement is described.
+    #[test]
+    fn every_rollout_flag_has_a_sunset_that_has_not_come() {
+        let today = chrono::Utc::now().date_naive();
+        for flag in FLAGS {
+            match flag.kind {
+                FlagKind::Product => assert!(
+                    flag.sunset.is_none(),
+                    "{}: a Product flag has no sunset; make it Rollout if it is one",
+                    flag.key
+                ),
+                FlagKind::Rollout => {
+                    let raw = flag.sunset.unwrap_or_else(|| {
+                        panic!(
+                            "{}: a Rollout flag must name a sunset (a date or a version)",
+                            flag.key
+                        )
+                    });
+                    let sunset = Sunset::parse(raw).unwrap_or_else(|| {
+                        panic!(
+                            "{}: sunset {raw:?} is neither YYYY-MM-DD nor MAJOR.MINOR.PATCH",
+                            flag.key
+                        )
+                    });
+                    assert!(
+                        !sunset.is_due(today, crate_version()),
+                        "the rollout gate `{}` reaches its sunset ({raw}) within {SUNSET_MARGIN_DAYS} days \
+                         of today ({today}, build {}). Retire it: turn the change on, delete the FlagDef \
+                         and its env override, and update the docs — internal-docs/feature-flags.md, \
+                         \"Rollout gates and their sunset\".",
+                        flag.key,
+                        env!("CARGO_PKG_VERSION")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_sunset_is_due_within_the_margin_or_at_the_version() {
+        let date = Sunset::parse("2027-01-31").unwrap();
+        let day = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        assert!(!date.is_due(day("2026-12-01"), (0, 0, 0)));
+        assert!(
+            date.is_due(day("2027-01-20"), (0, 0, 0)),
+            "inside the margin"
+        );
+        assert!(date.is_due(day("2027-03-01"), (0, 0, 0)));
+        let version = Sunset::parse("0.6.0").unwrap();
+        assert!(!version.is_due(day("2099-01-01"), (0, 5, 200)));
+        assert!(version.is_due(day("2000-01-01"), (0, 6, 0)));
+        assert_eq!(Sunset::parse("soon"), None);
     }
 }

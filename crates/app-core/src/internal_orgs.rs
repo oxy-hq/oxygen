@@ -35,12 +35,12 @@ pub fn parse_internal_orgs(raw: Option<&str>) -> Vec<Uuid> {
     orgs
 }
 
-/// This process's internal orgs, parsed on the first call and kept: the
-/// environment is fixed for a process's life, so a typo warns once rather than
-/// on every caller's call.
+/// This process's internal orgs, taken from the boot config on the first call
+/// and kept: the environment is fixed for a process's life, so a typo warns
+/// once rather than on every caller's call.
 pub fn internal_orgs() -> &'static [Uuid] {
     static INTERNAL: OnceLock<Vec<Uuid>> = OnceLock::new();
-    INTERNAL.get_or_init(|| parse_internal_orgs(std::env::var(INTERNAL_ORGS_ENV).ok().as_deref()))
+    INTERNAL.get_or_init(|| crate::config::BootConfig::current().internal_orgs.clone())
 }
 
 #[cfg(test)]

@@ -39,6 +39,11 @@ pub async fn start_server_and_web_app(
     args: ServeArgs,
     seams: crate::server::router::SurfaceSeams,
 ) -> Result<(), OxyError> {
+    // Every deployment variable the app layer reads, parsed once and validated:
+    // a value the process cannot use refuses the boot here, naming the variable,
+    // instead of being read as absent somewhere down the request path.
+    oxy_app_core::config::BootConfig::init()
+        .map_err(|e| OxyError::ConfigurationError(format!("serve: {e}")))?;
     // OXY_ROLE → ide | serve | worker | all (default). Read once so the
     // routing middleware can enforce the FS-routing boundary.
     let role = crate::server::role_manifest::init_process_role_from_env();
@@ -394,7 +399,11 @@ pub async fn start_server_and_web_app(
     serve_application(app, internal_app, args, shutdown_token).await
 }
 
-async fn init_feature_flags() -> Result<(), OxyError> {
+/// Load the feature-flag cache and start its refresh. Shared with `oxy worker`,
+/// which runs the same flag-gated compile paths (`compile_config_gate`,
+/// `compile_reconcile`) and would otherwise read every flag at its registry
+/// default — the rollout gates off — for the life of the pod.
+pub(super) async fn init_feature_flags() -> Result<(), OxyError> {
     // `cache::init` opens its own connection, starts the refresh, and does the
     // first load. FAIL-FAST here (`?`): an unloaded cache reads the registry
     // default for `billing` (OFF = paywall skipped for every org), so serve must
