@@ -52,6 +52,7 @@ mod sandbox_agent_staging;
 mod sandbox_agent_sweep;
 mod serve_tree_usage;
 mod service_accounts;
+mod service_tokens;
 mod session_key;
 mod stack;
 mod standing_tokens;

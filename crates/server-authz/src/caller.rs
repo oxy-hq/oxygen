@@ -24,9 +24,9 @@ use axum::http::request::Parts;
 use axum::http::{Extensions, StatusCode};
 use entity::org_members::OrgRole;
 use entity::workspace_members::WorkspaceRole;
-use oxy_auth::token::{AccountStanding, AppPublishGrant, CredentialContext};
+use oxy_auth::token::{AccountStanding, AppPublishGrant, CredentialContext, StoredKind};
 use oxy_auth::types::AuthenticatedUser;
-use oxy_authz::{PrincipalFacts, RoleCeiling, SandboxAgentReach, TokenReach};
+use oxy_authz::{PlatformStanding, PrincipalFacts, RoleCeiling, SandboxAgentReach, TokenReach};
 use uuid::Uuid;
 
 use crate::grant_memo::GrantMemo;
@@ -57,6 +57,10 @@ pub struct Caller {
     /// guards. Written only for a sandbox agent token (`globals`); never part
     /// of who the caller is.
     grant_memo: GrantMemo,
+    /// Set when the request is a configured service (`oxysvc_`): the standing
+    /// its `OXY_SERVICE_TOKENS` entry gives it, which `globals` reads instead
+    /// of the grant table.
+    service: Option<PlatformStanding>,
 }
 
 /// The service account a request acts as. `standing` is `None` only if the
@@ -94,6 +98,9 @@ impl Caller {
             .filter(|c| !c.is_legacy())
             .map(|c| c.app_publish.clone())
             .unwrap_or_default();
+        let service = credential
+            .filter(|c| c.kind == StoredKind::Service)
+            .and_then(|c| oxy_auth::token::service::standing_of(c.token_id));
         Self {
             user_id: user.id,
             email: user.email.clone().unwrap_or_default(),
@@ -101,6 +108,7 @@ impl Caller {
             account,
             app_publish,
             grant_memo: GrantMemo::default(),
+            service,
         }
     }
 
@@ -167,7 +175,14 @@ impl Caller {
             account: None,
             app_publish: Vec::new(),
             grant_memo: GrantMemo::default(),
+            service: None,
         }
+    }
+
+    /// The standing of a configured service (`oxysvc_`), from its entry; `None`
+    /// for every other caller. Read by `globals` alone.
+    pub(crate) fn service_standing(&self) -> Option<&PlatformStanding> {
+        self.service.as_ref()
     }
 
     /// Whether the credential holds any `app_publish` grant. One that does

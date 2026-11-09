@@ -107,6 +107,9 @@ pub enum StoredKind {
     /// `oxy_sbx_…` — minted by a staff member for an agent: it reaches the
     /// sandboxes it creates of the apps it names, as its minter, for hours.
     SandboxAgent,
+    /// `oxysvc_…` — a service configured in `OXY_SERVICE_TOKENS`
+    /// ([`super::service`]): platform standing from its entry, no stored row.
+    Service,
 }
 
 impl StoredKind {
@@ -117,6 +120,7 @@ impl StoredKind {
             Self::ServiceAccount => "service_account",
             Self::Ci => "ci",
             Self::SandboxAgent => "sandbox_agent",
+            Self::Service => "service",
         }
     }
 
@@ -290,6 +294,12 @@ impl CredentialContext {
     /// before the app is known reads (`custom_apps_sandboxes::publish`).
     pub fn stages_any_app(&self) -> bool {
         self.app_sandbox.iter().any(|g| g.staging)
+    }
+
+    /// Whether the credential is a configured service (`oxysvc_`,
+    /// [`super::service`]): no stored row, so nothing to count usage against.
+    pub fn is_service(&self) -> bool {
+        self.kind == StoredKind::Service
     }
 
     /// Whether the credential acts as an org's service account rather than as

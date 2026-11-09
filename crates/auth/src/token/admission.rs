@@ -354,7 +354,12 @@ pub fn admit(
         StoredKind::ServiceAccount | StoredKind::Ci => {
             Some(account_standing(links.account, &grants)?)
         }
-        StoredKind::Personal | StoredKind::LegacyKey | StoredKind::SandboxAgent => None,
+        // No stored row parses as `Service` (`StoredKind::parse`); a service is
+        // read from configuration and never admitted here.
+        StoredKind::Personal
+        | StoredKind::LegacyKey
+        | StoredKind::SandboxAgent
+        | StoredKind::Service => None,
     };
     Ok(CredentialContext {
         token_id: row.id,

@@ -8,6 +8,9 @@
 //!
 //! The order, which is the whole contract:
 //!
+//! 0. **A service token** (`oxysvc_`, [`super::service`]) in `Authorization:
+//!    Bearer` or `X-API-Key` decides the request: the service its hash names,
+//!    or 401. Read from configuration, never from the database or the cache.
 //! 1. **A new-prefix token** (`oxy_pat_`/`oxy_sat_`/`oxy_ci_`/`oxy_sbx_`) in
 //!    `Authorization: Bearer` or `X-API-Key` decides the request. If it fails,
 //!    the answer is 401 — it never falls through to a cookie. That is new, and
@@ -39,6 +42,7 @@ use super::browser_session;
 use super::cache;
 use super::credential::CredentialContext;
 use super::format::{TokenFormat, hash_token, new_prefix_format, parse_format, verify_checksum};
+use super::service;
 use super::store;
 use crate::api_key_infra::require_active_owner;
 use crate::built_in::{auth_configured, extract_session_cookie, guest_identity, session_identity};
@@ -86,6 +90,10 @@ pub async fn authenticate_request(
     // Zero-config local installs run as the guest, keys or no keys, as before.
     if surface == AuthSurface::Session && !auth_configured() {
         return Ok((guest_identity(), None));
+    }
+
+    if let Some(token) = service_token(headers) {
+        return authenticate_service(&token);
     }
 
     if let Some((token, format)) = new_prefix_token(headers) {
@@ -187,6 +195,32 @@ async fn login_session(headers: &HeaderMap) -> Result<Identity, OxyError> {
 /// `oxy_session` cookie — `BuiltInAuthenticator`'s own order.
 fn session_jwt(headers: &HeaderMap) -> Option<String> {
     bearer(headers).or_else(|| extract_session_cookie(headers))
+}
+
+/// A service token from `Authorization: Bearer`, else from `X-API-Key`.
+fn service_token(headers: &HeaderMap) -> Option<String> {
+    [bearer(headers), api_key_header(headers)]
+        .into_iter()
+        .flatten()
+        .find(|value| value.starts_with(service::PREFIX))
+}
+
+/// The service a token names, as its principal and credential; 401 when it
+/// names none — a wrong token, an empty body, or no services configured. No
+/// database read, no cache and no recorded use: the service has no row to
+/// count against, and its `users` row is read by the caller as any token's is.
+fn authenticate_service(token: &str) -> Result<Authenticated, OxyError> {
+    let Some(service) = service::authenticate(token) else {
+        tracing::debug!("service token refused: it matches no configured service");
+        return Err(OxyError::AuthenticationError("Invalid API key".to_string()));
+    };
+    let identity = Identity {
+        user_id: Some(service.user_id()),
+        email: String::new(),
+        name: Some(service.principal()),
+        picture: None,
+    };
+    Ok((identity, Some(service.credential())))
 }
 
 /// A new-prefix token from `Authorization: Bearer`, else from `X-API-Key`.

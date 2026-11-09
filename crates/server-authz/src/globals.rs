@@ -146,6 +146,10 @@ pub async fn platform_grant_checked(
     if !caller.carries_platform() {
         return Ok(None);
     }
+    // A configured service's standing is its entry, never a grant row.
+    if let Some(standing) = caller.service_standing() {
+        return Ok(Some(standing.clone()));
+    }
     if caller.is_sandbox_agent() {
         return uncached_grant(db, caller).await;
     }
@@ -372,7 +376,9 @@ pub async fn fresh_standing(
     db: &DatabaseConnection,
     caller: &Caller,
 ) -> Result<FreshStanding, DbErr> {
-    let grant = if caller.carries_platform() {
+    let grant = if let Some(standing) = caller.service_standing() {
+        Some(standing.clone())
+    } else if caller.carries_platform() {
         let key = caller.standing_email().trim().to_ascii_lowercase();
         let stored = if key.is_empty() {
             None

@@ -27,9 +27,11 @@ use oxy_auth::token::usage::{self, UsageSample};
 use oxy_telemetry::http_trace::RequestTokenId;
 
 pub async fn token_usage_middleware(request: Request<Body>, next: Next) -> Response {
+    // A configured service has no `api_tokens` row for a usage row to name.
     let Some(token_id) = request
         .extensions()
         .get::<CredentialContext>()
+        .filter(|c| !c.is_service())
         .map(|c| c.token_id)
     else {
         return next.run(request).await;

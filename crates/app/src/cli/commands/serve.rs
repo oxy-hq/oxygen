@@ -165,6 +165,7 @@ pub async fn start_server_and_web_app(
     init_feature_flags().await?;
     println!("serve: feature flags initialized, seeding app admins from env");
     seed_app_admins_from_env().await?;
+    init_service_tokens().await?;
     println!("serve: app admins seeded, installing airway deployment tier");
 
     // airway's process-wide `GlobalConfig` (timeout / retries / user-agent /
@@ -422,6 +423,25 @@ async fn seed_app_admins_from_env() -> Result<(), OxyError> {
     oxy_custom_apps::auth::bootstrap_app_admins_from_env(&db)
         .await
         .map_err(|e| OxyError::RuntimeError(format!("app admin seed failed: {}", e)))?;
+    Ok(())
+}
+
+/// Read `OXY_SERVICE_TOKENS` and create the `users` row behind each service
+/// (`oxy_auth::token::service`). A malformed value stops the boot: a credential
+/// that silently failed to configure would read as "the service is down", not
+/// as a typo.
+async fn init_service_tokens() -> Result<(), OxyError> {
+    let count = oxy_auth::token::service::init_from_env().map_err(OxyError::ConfigurationError)?;
+    if count == 0 {
+        return Ok(());
+    }
+    let db = establish_connection()
+        .await
+        .map_err(|e| OxyError::RuntimeError(format!("Failed to connect to database: {e}")))?;
+    oxy_auth::token::service::ensure_principals(&db)
+        .await
+        .map_err(|e| OxyError::RuntimeError(format!("service token principals: {e}")))?;
+    tracing::info!(count, "service tokens configured");
     Ok(())
 }
 
