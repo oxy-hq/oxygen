@@ -248,6 +248,12 @@ widget cards from every app they can open, needs-attention first, each row a
 plain link, with a footer link to Oxygen home. It is fetched the first time the
 panel opens (`GET /api/home/widgets?org=<slug>`) and a failure only shows
 "Couldn't load Today." in the panel. Nothing to configure; `shell.css` styles it.
+In the phone layout (`PHONE_LAYOUT_QUERY`) each top-bar control, the menu button,
+the clock, Ask and a button or link your `topBarExtra` puts directly in the bar,
+answers a tap within 44px of its centre; nothing drawn grows. A tablet and a desktop
+keep the bar exactly as it is. The reach is that control's `::before`, so in the phone
+layout the shell owns the `::before` of a button or link placed directly in the bar:
+put a badge on such a control in a child element, not in its `::before`.
 A screen that is not one person's, such as a store's shared tablet, passes
 `<OxyShell plainClock>` to keep the clock a plain time: no Today button or panel,
 and no widgets read.
@@ -346,10 +352,10 @@ function OrdersPhone({ stores, totals }: OrdersData) {
 | `PhoneStickyAction`, `PhoneButton` | The action a screen exists for, pinned above the tab bar. Buttons are 48px; `tone` is `primary`, `secondary` or `danger`. |
 | `PhoneKpiStrip` | Headline numbers, two per row: label, value, a `delta` coloured by `tone`. A tile with `onClick` is a button. |
 | `PhoneSection` | An 11px label with an optional `action`, then its content. Rows directly inside join into one list. |
-| `PhoneRow` | A 56px list row: status dot (`tone`), title, subtitle, a `trailing` slot, and a chevron when it has `onClick`. |
+| `PhoneRow` | A 56px list row: status dot (`tone`), title, subtitle, a `trailing` slot, and a chevron when it has `onClick`. With `onClick` the row's button is the row's full height, so a tap anywhere on it opens it; a control in `trailing` keeps its own tap. |
 | `PhoneCard`, `PhoneCardList` | A table row as a card: title with a status pill, subtitle, up to three figures, a `trailing` action (it keeps its own tap). The list puts a one-line `summary` on top and goes to two columns on a phone on its side. |
 | `PhoneSegmented` | Two to four equal 44px segments (List / Map) as a radio group. |
-| `PhoneFilterChip` | The one filter control in a page header ("Oct 2026 · All companies"), with the count of filters set; it opens your filters `PhoneSheet`. |
+| `PhoneFilterChip` | A 44px chip: the one filter control in a page header ("Oct 2026 · All companies"), with the count of filters set; it opens your filters `PhoneSheet`. |
 | `PhoneHint` | An ⓘ (24px to see, 44px to hit) that explains a number on a tap, and on hover or keyboard focus where there is a mouse. It replaces a hover-only tooltip. |
 
 Inside a `PhonePage` or `PhoneSheet` the kit keeps a floor: body text 13px or

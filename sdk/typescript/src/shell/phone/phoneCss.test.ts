@@ -103,11 +103,48 @@ describe("shell.css phone kit", () => {
     expect(rule(".oxy-phone-tabbar__slot")).toMatch(/min-width: 44px/);
     expect(rule(".oxy-phone-btn")).toMatch(/min-height: 48px/);
     expect(rule(".oxy-phone-row")).toMatch(/min-height: 56px/);
-    expect(rule(".oxy-phone-segmented")).toMatch(/min-height: 44px/);
+    expect(rule(".oxy-phone-segmented")).toMatch(/min-height: 48px/);
     expect(rule(".oxy-phone-sheet__back")).toMatch(/height: 44px/);
     // A 24px ⓘ with a 10px reach on every side is a 44px target.
     expect(rule(".oxy-phone-hint")).toMatch(/height: 24px/);
     expect(rule(".oxy-phone-hint::before")).toMatch(/inset: -10px/);
+  });
+
+  it("makes every control at least 44px to tap, drawn or reached", () => {
+    // Measured on phones in 2.27.1: a chip 36 tall, a segment 40, a row's button
+    // 39 inside its 56px row, a one-line card's button 20.
+    expect(rule(".oxy-phone-chip")).toMatch(/\bheight: 44px/);
+    expect(section).not.toMatch(/\.oxy-phone-chip::before/);
+    expect(rule(".oxy-phone-segmented__option")).toMatch(/min-height: 44px/);
+    expect(rule(".oxy-phone-segmented")).toMatch(/padding: 2px/);
+
+    // The row's vertical 8px and left 14px move onto its button, which stretches
+    // to the row's height; the trailing slot and chevron keep the 8px as margin.
+    expect(rule(".oxy-phone-row")).toMatch(/padding: 8px 14px;/);
+    expect(rule(".oxy-phone-row--button")).toMatch(/padding: 0 14px 0 0;/);
+    const main = rule(".oxy-phone-row--button .oxy-phone-row__main");
+    expect(main).toMatch(/align-self: stretch;/);
+    expect(main).toMatch(/padding: 8px 0 8px 14px;/);
+    expect(main).toMatch(/box-sizing: border-box;/);
+    for (const side of [".oxy-phone-row__trailing", ".oxy-phone-row__chevron"]) {
+      const r = rule(`.oxy-phone-row--button ${side}`);
+      expect(r).toMatch(/margin-top: 8px;/);
+      expect(r).toMatch(/margin-bottom: 8px;/);
+    }
+
+    // The card's button takes the card's 12px above and below and hands it back.
+    expect(rule(".oxy-phone-card")).toMatch(/padding: 12px 14px;/);
+    const card = rule(".oxy-phone-card--button .oxy-phone-card__main");
+    for (const d of [
+      "margin-top: -12px",
+      "margin-bottom: -12px",
+      "padding-top: 12px",
+      "padding-bottom: 12px"
+    ])
+      expect(card).toContain(d);
+
+    // The ⓘ's reach sits above the row after it.
+    expect(rule(".oxy-phone-hint::before")).toMatch(/z-index: 1;/);
   });
 
   it("pins the dock to the bottom of the scroller and clears the home indicator", () => {

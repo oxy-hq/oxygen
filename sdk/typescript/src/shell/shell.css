@@ -957,6 +957,72 @@
   background: color-mix(in srgb, var(--oxy-shell-link) 18%, transparent);
 }
 
+/* ─── Top bar touch targets (phone layout only) ─────────────────────────── */
+
+/* The bar's controls are drawn small (the menu button 36px, the Today clock
+   28x24, an app's account button 32px), and a thumb needs 44. In the phone
+   layout each one gets an invisible hit area at least 44px each way, centred on
+   it: nothing drawn grows, and the bar stays 48px. The query is
+   PHONE_LAYOUT_QUERY (usePhoneLayout.ts), not `pointer: coarse` alone, so a
+   landscape touch tablet (Store Ops' kiosk) and a desktop keep the bar exactly
+   as it was. With the bar's 12px gaps, two neighbours 32px wide or more keep
+   their full reach; the 28px Today icon is spaced below. */
+@media (max-width: 639.98px), (pointer: coarse) and (max-height: 500px) {
+  .oxy-navsheet-trigger,
+  .oxy-clock--button,
+  .oxy-askbtn,
+  .oxy-updatepill,
+  .oxy-navsheet__close {
+    position: relative;
+  }
+
+  .oxy-navsheet-trigger::before,
+  .oxy-clock--button::before,
+  .oxy-askbtn::before,
+  .oxy-updatepill::before,
+  .oxy-navsheet__close::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+
+  /* Upright, the Today clock is a 28px icon: 2px either side puts its centre 44px
+     from a 32px neighbour's, so neither reach takes from the other. */
+  @media (max-width: 639.98px) {
+    .oxy-today-anchor {
+      margin-left: 2px;
+      margin-right: 2px;
+    }
+  }
+
+  /* An app's own control in the bar (`topBarExtra`, such as an account menu)
+     gets the same reach, so in the phone layout the shell draws the `::before`
+     of a button or link placed directly in the bar: an app draws a badge on
+     such a control in a child element instead. The rules sit in the base layer
+     so an app that positions its control keeps its own `position`. */
+  @layer base {
+    .oxy-topbar__right > a,
+    .oxy-topbar__right > button {
+      position: relative;
+    }
+
+    .oxy-topbar__right > a::before,
+    .oxy-topbar__right > button::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
 /* ─── Tooltip (Radix content, portaled into the shell scope) ────────────── */
 
 .oxy-shell-tooltip {
@@ -2482,8 +2548,18 @@
 
 /* The clickable row's button reaches over the whole row; the trailing slot
    sits above that reach (so its own controls take their taps) but lets other
-   taps through to it. */
+   taps through to it. The button's own box is the row's full height and runs
+   from its left edge too: the row's top and bottom 8px and its left 14px move
+   from the row onto the button, and the trailing slot and chevron keep the same
+   8px as a margin, so the row is as tall as it was and nothing in it moves. */
+.oxy-phone-row--button {
+  padding: 0 14px 0 0;
+}
+
 .oxy-phone-row--button .oxy-phone-row__main {
+  box-sizing: border-box;
+  align-self: stretch;
+  padding: 8px 0 8px 14px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
@@ -2551,6 +2627,8 @@
 }
 
 .oxy-phone-row--button .oxy-phone-row__trailing {
+  margin-top: 8px;
+  margin-bottom: 8px;
   pointer-events: none;
 }
 
@@ -2568,6 +2646,11 @@
   margin-right: -4px;
   color: var(--oxy-shell-muted-fg);
   pointer-events: none;
+}
+
+.oxy-phone-row--button .oxy-phone-row__chevron {
+  margin-top: 8px;
+  margin-bottom: 8px;
 }
 
 /* ── PhoneCard + PhoneCardList ── */
@@ -2631,7 +2714,15 @@
   text-align: left;
 }
 
+/* Its box takes in the card's 12px padding above and below the text (a negative
+   margin hands the space back, so nothing moves): a one-line card's button is
+   44px tall, not 20. */
 .oxy-phone-card--button .oxy-phone-card__main {
+  box-sizing: border-box;
+  margin-top: -12px;
+  margin-bottom: -12px;
+  padding-top: 12px;
+  padding-bottom: 12px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
@@ -2759,7 +2850,7 @@
 .oxy-phone-segmented {
   box-sizing: border-box;
   display: grid;
-  min-height: 44px;
+  min-height: 48px;
   grid-auto-columns: minmax(0, 1fr);
   grid-auto-flow: column;
   gap: 2px;
@@ -2770,7 +2861,7 @@
 
 .oxy-phone-segmented__option {
   box-sizing: border-box;
-  min-height: 40px;
+  min-height: 44px;
   min-width: 0;
   margin: 0;
   border: none;
@@ -2810,7 +2901,7 @@
   box-sizing: border-box;
   position: relative;
   display: inline-flex;
-  height: 36px;
+  height: 44px;
   max-width: 100%;
   align-items: center;
   gap: 6px;
@@ -2826,13 +2917,6 @@
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-}
-
-/* 36px to look at, 44px to hit. */
-.oxy-phone-chip::before {
-  content: "";
-  position: absolute;
-  inset: -5px 0;
 }
 
 .oxy-phone-chip svg {
@@ -2898,10 +2982,13 @@
     background var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
-/* 24px to look at, 44px to hit. */
+/* 24px to look at, 44px to hit. The reach is stacked above what follows the ⓘ
+   (the first row under a section title would otherwise take its bottom 2px);
+   it is transparent, so nothing it covers looks different. */
 .oxy-phone-hint::before {
   content: "";
   position: absolute;
+  z-index: 1;
   inset: -10px;
 }
 

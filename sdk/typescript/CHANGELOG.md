@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.2] - 2026-11-09
+
+### Fixed
+
+- **The phone kit's controls are at least 44px to tap.** Measured on phones in
+  2.27.1: `PhoneFilterChip` was 36px tall, `PhoneSegmented`'s segments 40px, and a
+  clickable `PhoneRow`'s button 39px inside its 56px row. The chip is now 44px, the
+  segments 44px in a 48px track, and the row's button is the row's full height and
+  runs from its left edge (the row is as tall as before and nothing in it moves). A
+  clickable `PhoneCard`'s button takes in the card's padding above and below its text,
+  so a one-line card's is 44px, not 20; the card looks the same. `PhoneHint` keeps its
+  24px ⓘ and its 44px reach, which no longer loses 2px to a row right under it.
+- **The top bar's controls answer a tap within 44px in the phone layout.** The menu
+  button (36px), the Today clock (28x24), Ask, the update pill, the drawer's close
+  (32px), and a button or link an app puts directly in the bar with `topBarExtra` (an
+  account menu, 38x32) each get an invisible hit area at least 44px each way, centred
+  on it. Nothing drawn grows; upright, the Today icon gets 2px either side so a 32px
+  neighbour's reach does not take from its own. Only under `PHONE_LAYOUT_QUERY`: a
+  landscape touch tablet, such as a store's kiosk, and a desktop keep the bar exactly
+  as it was. On an app's own control the reach is its `::before`, in the base layer:
+  the app keeps its own `position`, and in the phone layout the shell owns that
+  `::before`, so a badge on such a control belongs in a child element.
+
 ## [2.27.1] - 2026-11-06
 
 ### Added
