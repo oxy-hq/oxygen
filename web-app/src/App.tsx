@@ -53,6 +53,7 @@ import { PreviewPinProvider } from "./contexts/PreviewPinContext";
 import { useWorkspace } from "./hooks/api/workspaces/useWorkspaces";
 import useAuthConfig from "./hooks/auth/useAuthConfig";
 import useAppsFirstExperience from "./hooks/useAppsFirstExperience";
+import useIdeRetired from "./hooks/useIdeRetired";
 import useOauthConnectReturn from "./hooks/useOauthConnectReturn";
 import useVersionCheck from "./hooks/useVersionCheck";
 import { LOCAL_WORKSPACE_ID } from "./libs/utils/constants";
@@ -92,6 +93,7 @@ const IdePage = React.lazy(() => import("./pages/ide"));
 const FilesLayout = React.lazy(() => import("./pages/ide/Files"));
 const EditorPage = React.lazy(() => import("./pages/ide/Files/Editor"));
 const DatabaseLayout = React.lazy(() => import("./pages/ide/Database"));
+const RetiredIdePanel = React.lazy(() => import("./pages/ide/RetiredIdePanel"));
 const QueryWorkspacePage = React.lazy(() => import("./pages/ide/Database/QueryWorkspace"));
 const SemanticLayerPage = React.lazy(() => import("./pages/ide/SemanticLayer"));
 const ExperimentsListPage = React.lazy(() => import("./pages/ide/Experiments"));
@@ -225,11 +227,19 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
   useOauthConnectReturn();
   const { setIsOpen: setBuilderDialogOpen } = useBuilderDialog();
   const { setIsOpen: setFileQuickOpenOpen } = useFileQuickOpen();
+  // IDE retired: the Builder (⌘I) and file quick-open (⌘P) read and edit the
+  // working copy, whose routes the server refuses, so neither is bound or mounted.
+  const ideRetired = useIdeRetired();
   useHotkeys("meta+i", () => setBuilderDialogOpen(!useBuilderDialog.getState().isOpen), {
     preventDefault: true,
-    useKey: true
+    useKey: true,
+    enabled: !ideRetired
   });
-  useHotkeys("meta+p", () => setFileQuickOpenOpen(true), { preventDefault: true, useKey: true });
+  useHotkeys("meta+p", () => setFileQuickOpenOpen(true), {
+    preventDefault: true,
+    useKey: true,
+    enabled: !ideRetired
+  });
   // react-hotkeys-hook's useKey matching misfired on bare "k" (closing the
   // panel mid-typing); bind ⌘K/Ctrl+K manually with explicit modifier checks.
   useEffect(() => {
@@ -394,8 +404,12 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
 
   const shell = (
     <HotkeysProvider>
-      <BuilderDialog />
-      <FileQuickOpen />
+      {!ideRetired && (
+        <>
+          <BuilderDialog />
+          <FileQuickOpen />
+        </>
+      )}
       <SettingsDialog />
       {/* Apps-first has no opener for it (the rail switcher and the Factory
           picker's "Manage sets of apps" are gone), so it is not mounted. */}
@@ -452,15 +466,26 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
                 </FactoryGuard>
               }
             >
-              {/* Files routes */}
-              <Route path='files' element={<FilesLayout />}>
-                <Route path=':pathb64' element={<EditorPage />} />
-              </Route>
+              {authConfig.ide_retired ? (
+                <>
+                  {/* IDE retired: where Files and the Database client were, the
+                  repository and how to open it in your own editor. */}
+                  <Route path='files/*' element={<RetiredIdePanel />} />
+                  <Route path='database/*' element={<RetiredIdePanel />} />
+                </>
+              ) : (
+                <>
+                  {/* Files routes */}
+                  <Route path='files' element={<FilesLayout />}>
+                    <Route path=':pathb64' element={<EditorPage />} />
+                  </Route>
 
-              {/* Database routes */}
-              <Route path='database' element={<DatabaseLayout />}>
-                <Route index element={<QueryWorkspacePage />} />
-              </Route>
+                  {/* Database routes */}
+                  <Route path='database' element={<DatabaseLayout />}>
+                    <Route index element={<QueryWorkspacePage />} />
+                  </Route>
+                </>
+              )}
 
               {/* Semantic model — explorer + metric tree */}
               <Route path='semantic' element={<SemanticLayerPage />} />

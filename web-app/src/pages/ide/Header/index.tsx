@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import { Card } from "@/components/ui/shadcn/card";
 import useRevisionInfo from "@/hooks/api/workspaces/useRevisionInfo";
+import useIdeRetired from "@/hooks/useIdeRetired";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
@@ -21,6 +22,9 @@ const Header = () => {
   const { workspace: project } = useCurrentWorkspace();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const navigate = useNavigate();
+  // IDE retired: no git half (branch, diff, pull/push, compile). The server
+  // refuses those routes; the repository panel replaces them.
+  const ideRetired = useIdeRetired();
 
   // `useCurrentWorkspaceBranch` throws without a workspace; Header renders
   // during initial load too, so resolve the branch manually.
@@ -36,7 +40,7 @@ const Header = () => {
 
   // Header sits above <IdeGitProvider> so we read revisionInfo directly;
   // React Query dedupes by key so the provider's internal call shares it.
-  const { data: revisionInfo } = useRevisionInfo(canDiff && !!project?.id);
+  const { data: revisionInfo } = useRevisionInfo(!ideRetired && canDiff && !!project?.id);
   const { repoUrl: githubRepoUrl } = useGithubUrls({
     remoteUrl: revisionInfo?.remote_url,
     branch: ideBranch,
@@ -74,16 +78,18 @@ const Header = () => {
         </Button>
       )}
       <div className='flex flex-1 items-center justify-end gap-2'>
-        <IdeGitProvider
-          workspaceId={project?.id}
-          branch={ideBranch}
-          defaultBranch={defaultBranch}
-          isOnMain={isOnMain}
-          protectedBranches={protectedBranches}
-          capabilities={project?.capabilities}
-        >
-          <GitActions />
-        </IdeGitProvider>
+        {!ideRetired && (
+          <IdeGitProvider
+            workspaceId={project?.id}
+            branch={ideBranch}
+            defaultBranch={defaultBranch}
+            isOnMain={isOnMain}
+            protectedBranches={protectedBranches}
+            capabilities={project?.capabilities}
+          >
+            <GitActions />
+          </IdeGitProvider>
+        )}
       </div>
     </Card>
   );

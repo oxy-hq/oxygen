@@ -21,7 +21,17 @@ pub async fn enforce_role(mut req: Request, next: Next) -> Response {
     let method = req.method().as_str().to_string();
     let path = req.uri().path().to_string();
     let classified = classify(&method, &path);
-    let mut route_role = if branch_names_a_resource(&path) {
+    // A deployment that retired the IDE sends nothing to the Factory for it:
+    // a refused route is served here so `workspace_middleware` can answer its
+    // 410 after authorizing the caller, and `?branch=` escalates nothing — the
+    // request is served from the compiled revision on this pod.
+    let ide_retired = crate::server::factory_access::ide_retired::is_on();
+    if ide_retired
+        && crate::server::factory_access::ide_retired::refuses(&method, &path, classified)
+    {
+        return stamp(next.run(req).await, role);
+    }
+    let mut route_role = if ide_retired || branch_names_a_resource(&path) {
         classified
     } else {
         escalate_for_branch(classified, req.uri().query())

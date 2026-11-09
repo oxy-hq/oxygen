@@ -1,10 +1,12 @@
 import { GitBranch, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import RetiredIdeNotice from "@/components/RetiredIdeNotice";
 import ErrorAlert from "@/components/ui/ErrorAlert";
 import { Button } from "@/components/ui/shadcn/button";
 import { useApplyWriteBack } from "@/hooks/api/useExperiments";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import useIdeRetired from "@/hooks/useIdeRetired";
 import { useRole } from "@/hooks/useRole";
 import { encodeBase64 } from "@/libs/encoding";
 import ROUTES from "@/libs/utils/routes";
@@ -27,6 +29,9 @@ export default function WriteBackAction({ name }: { name: string }) {
   const navigate = useNavigate();
   const [applied, setApplied] = useState<WriteBackResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // IDE retired: proposing creates a git branch on the Factory, which the
+  // server refuses; the edit is made in the repository instead.
+  const ideRetired = useIdeRetired();
 
   const run = async () => {
     setError(null);
@@ -44,6 +49,10 @@ export default function WriteBackAction({ name }: { name: string }) {
       ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.FILES.FILE(encodeBase64(applied.file_path))
     );
   };
+
+  if (ideRetired) {
+    return <RetiredIdeNotice className='text-muted-foreground text-xs' />;
+  }
 
   return (
     <div className='flex flex-col gap-2'>

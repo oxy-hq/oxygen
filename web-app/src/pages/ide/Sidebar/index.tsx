@@ -4,6 +4,7 @@ import {
   Database,
   FlaskConical,
   Folder,
+  FolderGit2,
   Globe,
   Network,
   Radio
@@ -14,6 +15,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/shadcn/button";
 import { useAuth } from "@/contexts/AuthContext";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import useIdeRetired from "@/hooks/useIdeRetired";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -63,6 +65,9 @@ const Sidebar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { authConfig } = useAuth();
+  // IDE retired: the Files slot opens the repository panel, and the Database
+  // client goes.
+  const ideRetired = useIdeRetired();
   const { project } = useCurrentProjectBranch();
   const projectId = project.id;
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
@@ -122,7 +127,8 @@ const Sidebar: React.FC = () => {
           variant='ghost'
           size='icon'
           onClick={() => handleNavigate(SidebarViewMode.FILES)}
-          tooltip={{ content: "Files", side: "right" }}
+          data-testid='ide-nav-files'
+          tooltip={{ content: ideRetired ? "Work in your editor" : "Files", side: "right" }}
           className={cn(
             "h-8 w-8",
             currentViewMode === SidebarViewMode.FILES
@@ -130,7 +136,7 @@ const Sidebar: React.FC = () => {
               : "opacity-60 hover:opacity-100"
           )}
         >
-          <Folder className='h-4 w-4' />
+          {ideRetired ? <FolderGit2 className='h-4 w-4' /> : <Folder className='h-4 w-4' />}
         </Button>
 
         <Button
@@ -165,20 +171,22 @@ const Sidebar: React.FC = () => {
           </Button>
         )}
 
-        <Button
-          variant='ghost'
-          size='icon'
-          onClick={() => handleNavigate(SidebarViewMode.DATABASE)}
-          tooltip={{ content: "Database Client", side: "right" }}
-          className={cn(
-            "h-8 w-8",
-            currentViewMode === SidebarViewMode.DATABASE
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "opacity-60 hover:opacity-100"
-          )}
-        >
-          <Database className='h-4 w-4' />
-        </Button>
+        {!ideRetired && (
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={() => handleNavigate(SidebarViewMode.DATABASE)}
+            tooltip={{ content: "Database Client", side: "right" }}
+            className={cn(
+              "h-8 w-8",
+              currentViewMode === SidebarViewMode.DATABASE
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "opacity-60 hover:opacity-100"
+            )}
+          >
+            <Database className='h-4 w-4' />
+          </Button>
+        )}
 
         <Button
           variant='ghost'

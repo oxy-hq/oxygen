@@ -705,6 +705,12 @@ pub async fn workspace_middleware(
         Err(refusal) => return Ok(refusal),
     };
 
+    // A deployment that retired the IDE refuses its routes here, after the caller
+    // is authorized (the answer names the repository). A no-op with the flag off.
+    if let Some(refusal) = crate::server::factory_access::ide_retired::refusal_for(&request) {
+        return Ok(refusal);
+    }
+
     // A preview request (`x-oxy-preview-revision`) from staff, naming a ready
     // staging revision of this workspace, reads that revision. Every other
     // request — the IDE on the same branch included, which sends no header — is
@@ -720,7 +726,11 @@ pub async fn workspace_middleware(
     // From here on `?branch=` means "read this branch's working copy": it
     // picks the revision and the directory a manager is built on. On a route
     // where it names what is acted on instead, it means neither.
-    let working_copy_branch = query.branch.filter(|_| !branch_names_a_resource(&request));
+    // With the IDE retired there is no working copy to read: the request is
+    // served from the compiled revision whatever branch it names.
+    let working_copy_branch = query.branch.filter(|_| {
+        !branch_names_a_resource(&request) && !crate::server::factory_access::ide_retired::is_on()
+    });
 
     // Resolve the one revision this request reads — ONCE — and pin it for the
     // whole downstream (config resolution below + every compiled reader the

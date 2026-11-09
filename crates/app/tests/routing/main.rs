@@ -37,6 +37,7 @@ mod fleet_canary;
 mod fleet_routes_table;
 mod global_route_roles;
 mod handler_spawns;
+mod ide_retired_refusals;
 mod paginated_links_keep_the_api_prefix;
 mod route_role_derivation;
 mod route_trailing_slash;

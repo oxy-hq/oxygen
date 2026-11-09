@@ -3,6 +3,7 @@ import type React from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import RetiredIdeNotice from "@/components/RetiredIdeNotice";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -19,6 +20,7 @@ import useDatabases from "@/hooks/api/databases/useDatabases";
 import useCreateFile from "@/hooks/api/files/useCreateFile";
 import useSaveFile from "@/hooks/api/files/useSaveFile";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import useIdeRetired from "@/hooks/useIdeRetired";
 import { apiErrorMessage } from "@/libs/apiError";
 import { encodeBase64 } from "@/libs/encoding";
 import { cn } from "@/libs/shadcn/utils";
@@ -54,7 +56,29 @@ const SEARCH_THRESHOLD = 6;
 
 const NAME_RE = /^[a-zA-Z0-9_-]+$/;
 
-const NewPipelineDialog: React.FC<NewPipelineDialogProps> = ({
+/**
+ * With the IDE retired, creating a pipeline writes a file the server refuses,
+ * so the dialog says where the change goes instead of offering the form.
+ */
+const NewPipelineDialog: React.FC<NewPipelineDialogProps> = (props) => {
+  const ideRetired = useIdeRetired();
+  if (!ideRetired) return <NewPipelineForm {...props} />;
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className='sm:max-w-lg'>
+        <DialogHeader>
+          <DialogTitle>New pipeline</DialogTitle>
+          <DialogDescription>
+            A pipeline is an .airway.yml file in the repository.
+          </DialogDescription>
+        </DialogHeader>
+        <RetiredIdeNotice />
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+const NewPipelineForm: React.FC<NewPipelineDialogProps> = ({
   open,
   onOpenChange,
   existingNames,

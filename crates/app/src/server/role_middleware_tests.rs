@@ -483,3 +483,109 @@ mod preview_header {
         assert_eq!(body, "runs");
     }
 }
+
+/// With the `ide_retired` flag on, on a serve replica: a refused IDE route is
+/// answered here with the 410 (never forwarded, never a 421), a kept `IdeOnly`
+/// route still goes to the Factory exactly as before, and a fleet route naming
+/// `?branch=` is served here with no escalation. The workspace layer below
+/// stands in for `workspace_middleware` by calling the same
+/// `ide_retired::refusal_for` it calls; the database half of that middleware is
+/// not what is under test. Nextest runs each test in its own process, so the
+/// flag and the process role set here reach no other test.
+mod ide_retired_on_serve {
+    use super::*;
+    use crate::server::feature_flags::rollout::IDE_RETIRED_FLAG;
+    use crate::server::previews::pin::DeferredBranchEscalation;
+
+    const WS: &str = "7a4e3c1e-0b5f-4c36-9d55-3f1c2b8a9e01";
+
+    async fn refuse_like_workspace_middleware(
+        req: axum::extract::Request,
+        next: axum::middleware::Next,
+    ) -> Response {
+        match crate::server::factory_access::ide_retired::refusal_for(&req) {
+            Some(refusal) => refusal,
+            None => next.run(req).await,
+        }
+    }
+
+    fn router() -> Router {
+        async fn threads(req: axum::extract::Request) -> String {
+            let deferred = req.extensions().get::<DeferredBranchEscalation>().is_some();
+            format!("served here, deferred={deferred}")
+        }
+        let workspace_routes = Router::new()
+            .route("/files", get(|| async { "should not reach" }))
+            .route("/compile/status", get(|| async { "compile status" }))
+            .route("/threads", get(threads))
+            .layer(middleware::from_fn(refuse_like_workspace_middleware));
+        let api_routes = Router::new().nest("/{workspace_id}", workspace_routes);
+        Router::new()
+            .nest("/api", api_routes)
+            .layer(middleware::from_fn(enforce_role))
+    }
+
+    async fn get_path(uri: &str) -> (StatusCode, axum::http::HeaderMap, String) {
+        let resp = router()
+            .oneshot(HttpRequest::get(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let (status, headers) = (resp.status(), resp.headers().clone());
+        let body = to_bytes(resp.into_body(), 8192).await.unwrap();
+        (status, headers, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    fn retired_serve_replica() {
+        install_roles();
+        unsafe {
+            std::env::set_var("OXY_ROLE", "serve");
+            std::env::remove_var("OXY_IDE_UPSTREAM");
+        }
+        crate::server::role_manifest::init_process_role_from_env();
+        crate::server::feature_flags::cache::override_for_tests(IDE_RETIRED_FLAG, true);
+    }
+
+    fn restore() {
+        crate::server::feature_flags::cache::override_for_tests(IDE_RETIRED_FLAG, false);
+        unsafe { std::env::remove_var("OXY_ROLE") };
+    }
+
+    #[tokio::test]
+    async fn a_refused_route_is_answered_here_with_the_410() {
+        retired_serve_replica();
+        let (status, headers, body) = get_path(&format!("/api/{WS}/files")).await;
+        assert_eq!(status, StatusCode::GONE, "{body}");
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(json["error"], "ide_retired");
+        assert!(headers.get(HEADER_FORWARDED_VIA).is_none(), "not forwarded");
+        assert!(
+            headers
+                .get(HEADER_SERVED_BY)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("serve@")
+        );
+        restore();
+    }
+
+    #[tokio::test]
+    async fn a_kept_ide_route_still_goes_to_the_factory() {
+        retired_serve_replica();
+        let (status, headers, body) = get_path(&format!("/api/{WS}/compile/status")).await;
+        // No upstream configured: the route the replica would forward answers
+        // 421 naming the ide, as it always has.
+        assert_eq!(status, StatusCode::MISDIRECTED_REQUEST, "{body}");
+        assert_eq!(headers.get(HEADER_REQUIRED_ROLE).unwrap(), "ide");
+        restore();
+    }
+
+    #[tokio::test]
+    async fn a_branch_on_a_fleet_route_is_served_here_without_escalation() {
+        retired_serve_replica();
+        let (status, _, body) = get_path(&format!("/api/{WS}/threads?branch=x")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, "served here, deferred=false");
+        restore();
+    }
+}

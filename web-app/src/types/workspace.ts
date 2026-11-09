@@ -52,6 +52,13 @@ export interface Workspace {
    * whatever the client shows. */
   factory_access?: boolean;
 
+  /** The workspace's repository from `/meta` (credentials stripped); null for a
+   * workspace with no git remote. What the panel that replaces Files when the IDE
+   * is retired, and `oxyc workspace clone`, read. Absent from an older server. */
+  git_remote_url?: string | null;
+  /** Where the workspace root sits inside its repository; null at the root. */
+  repo_subdir?: string | null;
+
   /** Namespace for per-workspace browser state (onboarding wizard
    * localStorage). UUID in cloud; `local:{path-hash}` in local — see
    * `compute_workspace_storage_key` in the Rust side for the contract.

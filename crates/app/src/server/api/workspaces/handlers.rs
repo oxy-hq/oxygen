@@ -423,6 +423,15 @@ pub async fn push_changes(
     }
 }
 
+/// The repository facts `/meta` serves (see `repository_facts`), for the other
+/// reader that names the repository: the retired-IDE 410 body
+/// (`factory_access::ide_retired`). One credential-stripping path, not two.
+pub fn workspace_repository_facts(
+    row: &entity::workspaces::Model,
+) -> (Option<String>, Option<String>, Option<String>) {
+    repository_facts(row)
+}
+
 pub async fn get_revision_info(
     WorkspaceManagerWorkingCopy(wm): WorkspaceManagerWorkingCopy,
     Query(query): Query<BranchQuery>,

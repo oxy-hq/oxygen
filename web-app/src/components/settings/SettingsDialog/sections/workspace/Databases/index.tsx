@@ -1,6 +1,7 @@
 import { Database, Plus, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { CanWorkspaceAdmin } from "@/components/auth/Can";
+import RetiredIdeNotice from "@/components/RetiredIdeNotice";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -12,6 +13,7 @@ import {
 import { Separator } from "@/components/ui/shadcn/separator";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useDataClean } from "@/hooks/api/databases/useDataClean";
+import useIdeRetired from "@/hooks/useIdeRetired";
 import useDatabaseOperation from "@/stores/useDatabaseOperation";
 import NoAccessNotice from "../../../components/NoAccessNotice";
 import SectionHeader from "../../../components/SectionHeader";
@@ -24,6 +26,9 @@ export default function Databases() {
   const cleanMutation = useDataClean();
   const cleaningInProgress = isCleaning();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  // IDE retired: adding a database, resetting state and embeddings all write the
+  // working copy, which the server refuses; the list stays.
+  const ideRetired = useIdeRetired();
 
   const handleCleanAll = useCallback(() => {
     cleanMutation.mutate("all");
@@ -37,7 +42,7 @@ export default function Databases() {
     setIsAddDialogOpen(false);
   };
 
-  const headerActions = (
+  const headerActions = ideRetired ? null : (
     <CanWorkspaceAdmin>
       <div className='flex gap-2'>
         <Button size='sm' variant='outline' onClick={() => setIsAddDialogOpen(true)}>
@@ -71,11 +76,16 @@ export default function Databases() {
       <div className='flex flex-col gap-5'>
         <SectionHeader icon={Database} title='Databases' actions={headerActions} />
 
+        {ideRetired && <RetiredIdeNotice />}
+
         <DatabaseTable />
 
-        <Separator />
-
-        <EmbeddingsManagement />
+        {!ideRetired && (
+          <>
+            <Separator />
+            <EmbeddingsManagement />
+          </>
+        )}
 
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogContent className='flex max-h-[85vh] max-w-2xl flex-col overflow-hidden p-0'>

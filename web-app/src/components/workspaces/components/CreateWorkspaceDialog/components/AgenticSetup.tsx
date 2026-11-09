@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import OrgSwitcher from "@/components/org/OrgSwitcher";
+import RetiredIdeNotice from "@/components/RetiredIdeNotice";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   ResizableHandle,
@@ -18,6 +19,7 @@ import useGithubSetup from "@/hooks/api/onboarding/useGithubSetup";
 import { sseEventToUiBlock, useAnalyticsRun } from "@/hooks/useAnalyticsRun";
 import { useBuilderActivity } from "@/hooks/useBuilderActivity";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import useIdeRetired from "@/hooks/useIdeRetired";
 import { bigQueryKeySecretName } from "@/libs/utils/cloudConnections";
 import {
   clearOnboardingStateForStorageKey,
@@ -51,10 +53,25 @@ import { useViewRunManager } from "./useViewRunManager";
  *  one database, at least one public agent — redirect any visit away. */
 export default function AgenticSetupPage() {
   const { project } = useCurrentProjectBranch();
+  // IDE retired: the agentic setup is a run of the Builder, which writes the
+  // working copy and is refused (410). A workspace is set up in its repository.
+  const ideRetired = useIdeRetired();
   // Falling back to `project.id` keeps fabricated/partial Workspace
   // objects (legacy callers; tests) working until they fill in storage_key.
   const storageKey = project.storage_key ?? project.id;
+  if (ideRetired) return <RetiredAgenticSetup />;
   return <AgenticSetupForWorkspace key={storageKey} storageKey={storageKey} />;
+}
+
+function RetiredAgenticSetup() {
+  return (
+    <div className='flex flex-1 justify-center p-6' data-testid='onboarding-ide-retired'>
+      <div className='flex w-full max-w-xl flex-col gap-2'>
+        <h1 className='font-semibold text-lg'>Set up this workspace in its repository</h1>
+        <RetiredIdeNotice />
+      </div>
+    </div>
+  );
 }
 
 function AgenticSetupForWorkspace({ storageKey }: { storageKey: string }) {

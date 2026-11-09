@@ -27,6 +27,7 @@
 //! who use the Factory today before turning it on; the steps are in
 //! `internal-docs/roles-and-authorization.md`.
 
+pub mod ide_retired;
 pub mod routes;
 
 use std::convert::Infallible;

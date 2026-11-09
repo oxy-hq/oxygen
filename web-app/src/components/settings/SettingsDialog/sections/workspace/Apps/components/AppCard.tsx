@@ -8,6 +8,8 @@ interface AppCardProps {
   integration: AppIntegration | null;
   loading: boolean;
   onConfigure: () => void;
+  /** The server refuses the write (the IDE is retired); the section says why. */
+  configureDisabled?: boolean;
 }
 
 interface KindMeta {
@@ -43,7 +45,13 @@ const META: Record<AppIntegrationKind, KindMeta> = {
   }
 };
 
-export function AppCard({ kind, integration, loading, onConfigure }: AppCardProps) {
+export function AppCard({
+  kind,
+  integration,
+  loading,
+  onConfigure,
+  configureDisabled = false
+}: AppCardProps) {
   const meta = META[kind];
   const Icon = meta.icon;
   const connected = integration !== null;
@@ -73,7 +81,12 @@ export function AppCard({ kind, integration, loading, onConfigure }: AppCardProp
       {integration && <AppCardDetails integration={integration} />}
 
       <div className='flex justify-end'>
-        <Button size='sm' variant='outline' onClick={onConfigure} disabled={loading}>
+        <Button
+          size='sm'
+          variant='outline'
+          onClick={onConfigure}
+          disabled={loading || configureDisabled}
+        >
           {connected ? "Edit" : "Connect"}
         </Button>
       </div>

@@ -117,11 +117,26 @@ export const WorkspaceService = {
    * may not use the Factory — the same object a degraded git half gives. That makes
    * the two requests sequential for a Factory user; the price of not sending a
    * customer's browser to a Factory route on every page.
+   *
+   * `ideRetired` (the `ide_retired` flag): there is no working copy to read, and
+   * the server refuses `/git-state` with a 410, so only `/meta` is asked.
    */
   async getWorkspace(
     workspaceId: string,
-    { gitStateOnlyForFactory = false }: { gitStateOnlyForFactory?: boolean } = {}
+    {
+      gitStateOnlyForFactory = false,
+      ideRetired = false
+    }: { gitStateOnlyForFactory?: boolean; ideRetired?: boolean } = {}
   ): Promise<Workspace> {
+    if (ideRetired) {
+      const meta = await apiClient.get(`/${workspaceId}/meta`);
+      // `/meta` carries the repository's default branch; keep it.
+      return {
+        ...meta.data,
+        ...GIT_STATE_UNAVAILABLE,
+        default_branch: meta.data?.default_branch ?? ""
+      };
+    }
     if (gitStateOnlyForFactory) {
       const meta = await apiClient.get(`/${workspaceId}/meta`);
       if (meta.data?.factory_access === false) {

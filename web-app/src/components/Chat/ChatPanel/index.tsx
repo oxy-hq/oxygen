@@ -12,6 +12,7 @@ import useRunAutomationThread from "@/hooks/automation/useRunAutomationThread";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { useEnterSubmit } from "@/hooks/useEnterSubmit";
 import useFactoryAccess from "@/hooks/useFactoryAccess";
+import useIdeRetired from "@/hooks/useIdeRetired";
 import { useMentionHighlight } from "@/hooks/useMentionHighlight";
 import { cn } from "@/libs/shadcn/utils";
 import { flattenFiles, getActiveMention, getCleanObjectName } from "@/libs/utils/mention";
@@ -122,6 +123,8 @@ const ChatPanel = ({
   const textareaElRef = useRef<HTMLTextAreaElement | null>(null);
   const { formRef, onKeyDown: enterSubmitKeyDown } = useEnterSubmit();
   const [mode, setMode] = useState<string>(lockMode ?? "ask");
+  // IDE retired: the Builder edits files, so Build mode is not offered.
+  const ideRetired = useIdeRetired();
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("auto");
 
   // When the agent picker is hidden, resolve and lock in the workspace
@@ -389,19 +392,21 @@ const ChatPanel = ({
                   <MessageCircleQuestion className='size-4' />
                   Ask
                 </SelectItemWithDetail>
-                <SelectItemWithDetail
-                  className='cursor-pointer'
-                  value='build'
-                  disabled={!isBuilderAvailable || isCheckingBuilder}
-                  detail={{
-                    title: "Build",
-                    description:
-                      "Build semantic models, agents, and automations by describing what you need in natural language."
-                  }}
-                >
-                  <Hammer className='size-4' />
-                  Build
-                </SelectItemWithDetail>
+                {!ideRetired && (
+                  <SelectItemWithDetail
+                    className='cursor-pointer'
+                    value='build'
+                    disabled={!isBuilderAvailable || isCheckingBuilder}
+                    detail={{
+                      title: "Build",
+                      description:
+                        "Build semantic models, agents, and automations by describing what you need in natural language."
+                    }}
+                  >
+                    <Hammer className='size-4' />
+                    Build
+                  </SelectItemWithDetail>
+                )}
                 <SelectItemWithDetail
                   className='cursor-pointer'
                   value='workflow'

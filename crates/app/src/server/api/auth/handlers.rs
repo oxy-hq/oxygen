@@ -137,6 +137,7 @@ pub async fn get_config(
         crate::server::feature_flags::APPS_FIRST_EXPERIENCE,
     );
     let home_v3 = crate::server::feature_flags::home_v3();
+    let ide_retired = crate::server::factory_access::ide_retired::is_on();
     // Per-caller, not process-wide: an off-box peer that the dev-login route
     // 404s must not be told from here that a bypass exists. See
     // `dev_login::dev_login_reachable_by`.
@@ -155,6 +156,7 @@ pub async fn get_config(
             billing_enabled,
             apps_first_experience,
             home_v3,
+            ide_retired,
             dev_login,
         }));
     }
@@ -183,6 +185,7 @@ pub async fn get_config(
         billing_enabled,
         apps_first_experience,
         home_v3,
+        ide_retired,
         dev_login,
     };
 
@@ -580,6 +583,7 @@ mod mode_field_tests {
             billing_enabled: false,
             apps_first_experience: false,
             home_v3: false,
+            ide_retired: false,
             dev_login: false,
         };
         let json = serde_json::to_value(&response).expect("serialize");
@@ -600,6 +604,7 @@ mod mode_field_tests {
             billing_enabled: false,
             apps_first_experience: false,
             home_v3: false,
+            ide_retired: false,
             dev_login: false,
         };
         let json = serde_json::to_value(&response).expect("serialize");

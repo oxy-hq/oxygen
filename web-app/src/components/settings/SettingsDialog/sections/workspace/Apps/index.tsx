@@ -2,7 +2,9 @@ import { AppWindow } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
 import { CanWorkspaceAdmin } from "@/components/auth/Can";
+import RetiredIdeNotice from "@/components/RetiredIdeNotice";
 import { useAppIntegrations } from "@/hooks/api/appIntegrations/useAppIntegrations";
+import useIdeRetired from "@/hooks/useIdeRetired";
 import type { AppIntegration, AppIntegrationKind } from "@/services/api/appIntegrations";
 import NoAccessNotice from "../../../components/NoAccessNotice";
 import SectionHeader from "../../../components/SectionHeader";
@@ -14,6 +16,8 @@ const APP_KINDS: AppIntegrationKind[] = ["toast", "openweathermap", "besttime", 
 const Apps: React.FC = () => {
   const { data, isLoading } = useAppIntegrations();
   const [activeKind, setActiveKind] = useState<AppIntegrationKind | null>(null);
+  // IDE retired: configuring an app writes config.yml, which the server refuses.
+  const ideRetired = useIdeRetired();
 
   const byKind = useMemo(() => {
     const map = new Map<AppIntegrationKind, AppIntegration>();
@@ -32,6 +36,8 @@ const Apps: React.FC = () => {
           description='External services that feed downstream dashboards. Credentials live in the workspace secrets store and are referenced from config.yml.'
         />
 
+        {ideRetired && <RetiredIdeNotice />}
+
         <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
           {APP_KINDS.map((kind) => (
             <AppCard
@@ -40,11 +46,12 @@ const Apps: React.FC = () => {
               integration={byKind.get(kind) ?? null}
               loading={isLoading}
               onConfigure={() => setActiveKind(kind)}
+              configureDisabled={ideRetired}
             />
           ))}
         </div>
 
-        {activeKind && (
+        {activeKind && !ideRetired && (
           <ConfigureAppDialog
             kind={activeKind}
             existing={byKind.get(activeKind) ?? null}

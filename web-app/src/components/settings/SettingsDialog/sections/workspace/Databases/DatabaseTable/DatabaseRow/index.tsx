@@ -2,6 +2,7 @@ import type React from "react";
 import { useCallback } from "react";
 import { TableCell, TableRow } from "@/components/ui/shadcn/table";
 import { useDatabaseSync } from "@/hooks/api/databases/useDatabaseSync";
+import useIdeRetired from "@/hooks/useIdeRetired";
 import useDatabaseOperation from "@/stores/useDatabaseOperation";
 import type { DatabaseInfo as Database } from "@/types/database";
 import Actions from "./Actions";
@@ -26,6 +27,8 @@ const DatabaseRow: React.FC<DatabaseTableRowProps> = ({ database }) => {
   );
   const { isSyncing } = useDatabaseOperation();
   const isCurrentlySyncing = isSyncing(database.name);
+  // IDE retired: sync writes the working copy, which the server refuses.
+  const ideRetired = useIdeRetired();
 
   return (
     <TableRow>
@@ -36,7 +39,9 @@ const DatabaseRow: React.FC<DatabaseTableRowProps> = ({ database }) => {
         <DatasetInfo datasets={database.datasets} />
       </TableCell>
       <TableCell className='max-w-md'>
-        <Actions database={database} isLoading={isCurrentlySyncing} onSync={handleSync} />
+        {!ideRetired && (
+          <Actions database={database} isLoading={isCurrentlySyncing} onSync={handleSync} />
+        )}
       </TableCell>
     </TableRow>
   );
