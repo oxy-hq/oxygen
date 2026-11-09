@@ -295,6 +295,27 @@ const ALLOWED: &[(&str, &str)] = &[
         "`spawn_sweep` runs only on the singleton role and only queues tasks; the \
          second spawn is the queue executor's own task (`UsageBackfillExecutor`)",
     ),
+    // ---- api-experiment ----
+    (
+        "api-experiment/src/experiment/check/executor.rs",
+        "a queue executor's own task: `ExperimentCheckExecutor::execute`",
+    ),
+    (
+        "api-experiment/src/experiment/estimate/mod.rs",
+        "a queue executor's own task: `ExperimentEstimateExecutor::execute`",
+    ),
+    (
+        "api-experiment/src/experiment/executor.rs",
+        "a queue executor's own task: `ExperimentPriceExecutor::execute`",
+    ),
+    (
+        "api-experiment/src/experiment/interim/mod.rs",
+        "a queue executor's own task: `ExperimentInterimExecutor::execute`",
+    ),
+    (
+        "api-experiment/src/simulation/mod.rs",
+        "a queue executor's own task: `SimulationTaskExecutor::execute`",
+    ),
 ];
 
 /// The `crates/` root. `CARGO_MANIFEST_DIR` is `crates/app`.

@@ -65,17 +65,17 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_APP_EMAIL_FROM",
-        "crates/app/src/emails/app_emailer.rs",
+        "crates/app-core/src/emails/app_emailer.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_APP_EMAIL_LOCAL_TEST",
-        "crates/app/src/emails/app_emailer.rs",
+        "crates/app-core/src/emails/app_emailer.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_APP_EMAIL_REGION",
-        "crates/app/src/emails/app_emailer.rs",
+        "crates/app-core/src/emails/app_emailer.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
