@@ -175,6 +175,13 @@ pub(super) async fn run_in(
             }
             done = &mut done_rx => {
                 isolate_handle.finished = true;
+                // `select!` picks among ready branches at random, so a call
+                // the isolate sent just before it finished can still be
+                // queued here. Count it now, or an un-awaited call goes
+                // missing from the trace instead of reading as unfinished.
+                while let Ok(call) = call_rx.try_recv() {
+                    host_call_task::spawn_host_call(call, host.clone(), &meters);
+                }
                 if timed_out {
                     return Err(RuntimeError::Timeout);
                 }
