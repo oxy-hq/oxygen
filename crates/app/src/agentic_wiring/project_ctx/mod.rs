@@ -1635,21 +1635,6 @@ async fn airhouse_wire_params<S>(
     Ok(params)
 }
 
-/// Mint an ephemeral wire-protocol credential for an `airhouse_managed`
-/// database via the SA-backed broker. Returns the
-/// (host, port, username, password, dbname) tuple ready for the connector
-/// constructor.
-///
-/// HTTP-handled paths arrive here with both `subject` (the requesting user
-/// id, threaded by the workspace middleware) and `role` (the effective
-/// workspace role) populated. Background paths (scheduler, schema crawl,
-/// agentic background runs) leave `subject = None` and get
-/// `AgenticBackground` at Admin.
-///
-/// **`sharing` decides whose name goes on the credential, and the caller must
-/// say.** It is not a detail of this function: it follows from what the caller
-/// does with the result, so getting it wrong writes a false audit row. See
-/// [`CredentialUse`].
 /// Whether the credential a mint returns will be **shared** with other
 /// requesters or belongs to **one** request. The caller knows; this function
 /// cannot tell, and the answer decides whether naming the requesting user on
@@ -1669,6 +1654,21 @@ pub(crate) enum CredentialUse {
     PerRequest,
 }
 
+/// Mint an ephemeral wire-protocol credential for an `airhouse_managed`
+/// database via the SA-backed broker. Returns the
+/// (host, port, username, password, dbname) tuple ready for the connector
+/// constructor.
+///
+/// HTTP-handled paths arrive here with both `subject` (the requesting user
+/// id, threaded by the workspace middleware) and `role` (the effective
+/// workspace role) populated. Background paths (scheduler, schema crawl,
+/// agentic background runs) leave `subject = None` and get
+/// `AgenticBackground` at Admin.
+///
+/// **`sharing` decides whose name goes on the credential, and the caller must
+/// say.** It is not a detail of this function: it follows from what the caller
+/// does with the result, so getting it wrong writes a false audit row. See
+/// [`CredentialUse`].
 async fn mint_airhouse_managed_creds<S>(
     workspace_manager: &WorkspaceManager<S>,
     subject: Option<uuid::Uuid>,
