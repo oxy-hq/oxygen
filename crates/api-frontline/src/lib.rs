@@ -3,6 +3,10 @@
 //! bind tablets.
 //!
 //! - [`frontline`]: the roster, the PIN login, enrolment and standing.
+//! - [`frontline_admin`]: the crew as a manager sees it — the worker list,
+//!   which apps each opens, a PIN re-issued.
+//! - [`frontline_grants`]: the app grants a worker holds, shared by enrolment
+//!   and `frontline_admin`.
 //! - [`frontline_devices`]: kiosk binding — the enrol link, the device cookie,
 //!   and the org-admin device CRUD.
 //! - [`frontline_kiosk_cookie`]: the `oxy_kiosk` cookie and its page-readable
@@ -34,14 +38,15 @@
 #![recursion_limit = "256"]
 
 pub mod frontline;
+pub mod frontline_admin;
 pub mod frontline_devices;
+pub mod frontline_grants;
 pub mod frontline_kiosk_cookie;
 pub mod frontline_kiosk_mode;
 
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{get, patch, post, put};
-use oxy_app::server::api::frontline_admin;
 use oxy_app::surface::org_middleware;
 use oxy_app::surface::subscription_guard_middleware;
 use oxy_app_core::AppState;
@@ -75,11 +80,6 @@ pub fn public_routes() -> Router<AppState> {
 /// applies the last-declared `.layer` as outermost, so this yields request order
 /// `org_middleware → subscription_guard → handler` — the same order these routes
 /// had inside oxy-app's `build_org_routes`.
-///
-/// `list_workers`, `set_worker_apps` and `reset_worker_pin` still live in oxy-app
-/// (`frontline_admin`). They mount here because `/frontline/workers` pairs
-/// `list_workers` with `enrol` on one path, and one path's verbs cannot be split
-/// across two routers.
 pub fn routes() -> Router<AppState> {
     Router::new()
         .nest("/orgs/{org_id}/frontline", org_frontline_routes())

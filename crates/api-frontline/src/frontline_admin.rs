@@ -1,9 +1,9 @@
 //! What a manager does with the crew after enrolment: see them, decide which
 //! apps each one opens, re-issue a forgotten PIN.
 //!
-//! Enrolment, standing and kiosks live in the `oxy-api-frontline` sibling crate
-//! (`frontline` and `frontline_devices`), which also MOUNTS these handlers — one
-//! path pairs `list_workers` with its `enrol`. This is the read-and-adjust
+//! Enrolment, standing and kiosks are this crate's `frontline` and
+//! `frontline_devices`; `lib.rs` mounts all of them, and one path pairs
+//! `list_workers` with its `enrol`. This is the read-and-adjust
 //! surface the org settings' Crew section is built on. Every route is
 //! org-scoped under `OrgAdmin`; deciding an app's audience
 //! is additionally `AppAccessManage` (`frontline_grants::may_grant_apps`), the
@@ -19,8 +19,8 @@ use entity::{app_members, apps, org_frontline_members, user_credentials, users};
 use oxy::database::client::establish_connection;
 use oxy_app_core::audit;
 
-use crate::server::api::operating_graph::assignments;
-use crate::server::api::operating_graph::dto::WorkerAssignment;
+use oxy_app_core::operating_graph::dto::WorkerAssignment;
+use oxy_app_core::operating_graph::readers as assignments;
 use oxy_auth::frontline::{self, KIND_PIN, PinPolicy};
 use oxy_shared::errors::OxyError;
 use sea_orm::{
@@ -31,8 +31,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
-use crate::server::api::frontline_grants::{self, GrantError};
-use crate::server::api::middlewares::role_guards::OrgAdmin;
+use crate::frontline_grants::{self, GrantError};
+use oxy_app::surface::role_guards::OrgAdmin;
 
 #[derive(Debug, Serialize)]
 pub struct WorkerRow {
@@ -233,8 +233,12 @@ pub async fn set_worker_apps(
     let Ok(db) = establish_connection().await else {
         return json_error(StatusCode::SERVICE_UNAVAILABLE, "database unavailable");
     };
-    if !frontline_grants::may_grant_apps(&db, &crate::server::authz::caller_of(&actor), org_id)
-        .await
+    if !frontline_grants::may_grant_apps(
+        &db,
+        &oxy_server_authz::Caller::of(&actor.user, actor.credential.as_ref()),
+        org_id,
+    )
+    .await
     {
         return json_error(
             StatusCode::FORBIDDEN,
@@ -251,11 +255,11 @@ pub async fn set_worker_apps(
                 .map(|a| (a, "granted"))
                 .chain(changed.removed.iter().map(|a| (a, "revoked")))
             {
-                super::org_teams::audit::record(
+                oxy_tenancy::org_teams::audit::record(
                     &db,
                     &ctx,
                     &actor,
-                    super::org_teams::audit::APP_ACCESS_CHANGED,
+                    oxy_tenancy::org_teams::audit::APP_ACCESS_CHANGED,
                     (
                         "app",
                         app.id,

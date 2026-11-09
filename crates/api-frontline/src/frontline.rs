@@ -34,10 +34,10 @@ use axum::response::IntoResponse;
 use axum::{Json, http::header};
 use entity::{org_frontline_members, org_role_members, organizations, user_credentials, users};
 use oxy::database::client::establish_connection;
-use oxy_app::server::api::operating_graph::assignments;
-use oxy_app::server::api::operating_graph::dto::AssignmentSpec;
 use oxy_app::surface::role_guards::OrgAdmin;
 use oxy_app_core::audit;
+use oxy_app_core::operating_graph::assignments;
+use oxy_app_core::operating_graph::dto::AssignmentSpec;
 use oxy_app_core::rate_limit;
 use oxy_auth::frontline::{self, KIND_PIN, PinPolicy, PinVerdict};
 use oxy_shared::errors::OxyError;
@@ -1225,9 +1225,9 @@ pub async fn enrol(
     // enforce — and `OrgAdmin` is not that ring, so a request that grants is
     // held to it here; then an id that is not this org's refuses the whole
     // request.
-    let apps = oxy_app::server::api::frontline_grants::normalize_app_ids(req.apps);
+    let apps = crate::frontline_grants::normalize_app_ids(req.apps);
     if !apps.is_empty()
-        && !oxy_app::server::api::frontline_grants::may_grant_apps(
+        && !crate::frontline_grants::may_grant_apps(
             &db,
             &oxy_server_authz::Caller::of(&actor.user, actor.credential.as_ref()),
             org_id,
@@ -1242,16 +1242,14 @@ pub async fn enrol(
         )
             .into_response();
     }
-    if let Err(e) =
-        oxy_app::server::api::frontline_grants::validate_apps_in_org(&db, org_id, &apps).await
-    {
+    if let Err(e) = crate::frontline_grants::validate_apps_in_org(&db, org_id, &apps).await {
         return match e {
-            oxy_app::server::api::frontline_grants::GrantError::NotThisOrg(_) => (
+            crate::frontline_grants::GrantError::NotThisOrg(_) => (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": e.to_string() })),
             )
                 .into_response(),
-            oxy_app::server::api::frontline_grants::GrantError::Db(err) => {
+            crate::frontline_grants::GrantError::Db(err) => {
                 error!(%org_id, "frontline enrolment: app lookup failed: {err}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -1291,7 +1289,7 @@ pub async fn enrol(
             // above, so the only way this fails is the database — and then the
             // worker exists without their apps, which the response must say
             // rather than report a clean 201.
-            let granted = match oxy_app::server::api::frontline_grants::grant_apps_to_worker(
+            let granted = match crate::frontline_grants::grant_apps_to_worker(
                 &db,
                 org_id,
                 user_id,

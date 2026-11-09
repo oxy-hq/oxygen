@@ -361,5 +361,5 @@ fn test_files_are_recognised() {
         "app/src/server/api/api_keys/lifecycle_tests.rs"
     ));
     assert!(!is_test_file("app/src/server/api/api_keys/lifecycle.rs"));
-    assert!(!is_test_file("app/src/server/api/frontline_admin.rs"));
+    assert!(!is_test_file("api-frontline/src/frontline_admin.rs"));
 }

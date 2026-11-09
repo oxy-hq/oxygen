@@ -118,8 +118,6 @@ const SERVER_API: &[&str] = &[
     "file",
     "foot_traffic",
     "foot_traffic_seed",
-    "frontline_admin",
-    "frontline_grants",
     "healthcheck",
     "integration",
     "local_setup",

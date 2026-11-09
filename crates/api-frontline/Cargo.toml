@@ -11,12 +11,11 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# What this surface still reaches into oxy-app for: the OrgAdmin role guard and
-# the org middlewares, the session-cookie + token helpers in `api::auth`, the
-# operating-graph assignment helpers, the app-grant rules in `frontline_grants`
-# (shared with `frontline_admin`, which stays in oxy-app), the org_teams access
-# audit, and the custom-app access-cache invalidator. oxy-app never depends back
-# on this crate. default-features off so a `--no-default-features` build of
+# What this surface takes from oxy-app, all through `oxy_app::surface`: the
+# OrgAdmin role guard, the org middlewares and the session-cookie + token
+# helpers. The operating-graph assignment writes and reads are oxy-app-core's,
+# the org_teams audit is oxy-tenancy's. oxy-app never depends back on this
+# crate. default-features off so a `--no-default-features` build of
 # oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }  # AppState (router state) + the audit writer

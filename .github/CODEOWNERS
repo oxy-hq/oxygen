@@ -103,7 +103,6 @@ web-app/src/components/settings/SettingsDialog/sections/organization/ApiAccess/ 
 # (locations, tenant roles, work items), org chat, and the notification/push
 # seam. Mars backs up: org membership/invites and cross-pod live delivery
 # (#2823) are the adjacent surfaces.
-crates/app/src/server/api/frontline*.rs            @luong-komorebi @NTtanh
 crates/api-frontline/                              @luong-komorebi @NTtanh
 crates/route-catalog/                              @luong-komorebi @NTtanh
 crates/app/src/server/api/work/                    @luong-komorebi @NTtanh
@@ -227,7 +226,7 @@ crates/airform/                                    @haitrr @luong-komorebi
 # report. All Hai's. Luong backs up on the semantic-model reasoning above; his one
 # commit here is a dead-code sweep, so this is a generalist backup.
 crates/experiment/                                 @haitrr @luong-komorebi
-crates/app/src/server/api/experiment/              @haitrr @luong-komorebi
+crates/api-experiment/                             @haitrr @luong-komorebi
 web-app/src/pages/ide/Experiments/                 @haitrr @luong-komorebi
 internal-docs/experiments*.md                      @haitrr @luong-komorebi
 

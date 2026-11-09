@@ -132,11 +132,12 @@ AREAS = [
     ("crates/api-tenancy/src/organizations",              "Multi-tenancy / orgs"),
     ("crates/app/src/server/api/organizations",           "Multi-tenancy / orgs"),
     ("crates/app/src/server/api/secrets.rs",              "Secrets"),
-    # Frontline & crew ops (new 2026-09) — one area, four prefixes.
+    # Frontline & crew ops (new 2026-09) — one area, one live prefix.
     ("crates/api-frontline",                              "Frontline & crew ops"),
+    # Pre-extraction paths of what moved into crates/api-frontline/ (#3390,
+    # and frontline_admin/frontline_grants with the frontline completion).
     ("crates/app/src/server/api/frontline_admin.rs",      "Frontline & crew ops"),
     ("crates/app/src/server/api/frontline_grants.rs",     "Frontline & crew ops"),
-    # Pre-extraction paths of what moved into crates/api-frontline/ (#3390).
     ("crates/app/src/server/api/frontline.rs",            "Frontline & crew ops"),
     ("crates/app/src/server/api/frontline_devices.rs",    "Frontline & crew ops"),
     ("crates/app/src/server/api/frontline_kiosk_cookie.rs", "Frontline & crew ops"),

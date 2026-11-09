@@ -65,8 +65,6 @@ mod foot_traffic_seed;
 // `oxy-server`. oxy-app no longer depends on it.
 pub mod chat;
 pub mod cohort;
-pub mod frontline_admin;
-pub mod frontline_grants;
 pub mod healthcheck;
 pub mod integration;
 pub mod local_setup;

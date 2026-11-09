@@ -37,16 +37,5 @@ pub(crate) fn json_error(status: StatusCode, message: impl Into<String>) -> Resp
     (status, Json(serde_json::json!({ "error": message.into() }))).into_response()
 }
 
-/// Is this the unique-constraint collision, rather than any other failure?
-///
-/// Asked through `sql_err()`, which classifies the driver's SQLSTATE. The
-/// earlier spelling, `to_string().contains("23505")`, matched nothing: the
-/// Display of a sea-orm query error carries Postgres's message ("duplicate
-/// key value violates unique constraint …") and not its code, so every
-/// collision read as a 500. The operating-graph tests pin this one.
-pub(crate) fn is_unique_violation(e: &sea_orm::DbErr) -> bool {
-    matches!(
-        e.sql_err(),
-        Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
-    )
-}
+/// Lowered into `oxy-app-core` with the assignment writes that use it.
+pub(crate) use oxy_app_core::operating_graph::is_unique_violation;

@@ -1175,7 +1175,7 @@ pub struct UpdateDeviceRequest {
     /// which is the hole that made changing a kiosk mean re-enrolling it.
     #[serde(
         default,
-        deserialize_with = "oxy_app::server::api::operating_graph::dto::patch"
+        deserialize_with = "oxy_app_core::operating_graph::dto::patch"
     )]
     pub idle_timeout_seconds: Option<Option<u32>>,
 }

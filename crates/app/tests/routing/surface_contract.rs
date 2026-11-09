@@ -35,11 +35,7 @@ use std::path::{Path, PathBuf};
 /// `domain-boundaries.md`).
 const BACKLOG: &[(&str, &str)] = &[
     // custom-apps vertical
-    // frontline completion: this logic belongs IN api-frontline
-    ("api-frontline", "server::api::frontline_grants"),
-    ("api-frontline", "server::api::frontline_admin"),
-    // tenancy (api-tenancy) and the operating graph
-    ("api-frontline", "server::api::operating_graph"),
+    // tenancy (api-tenancy)
     // write_access flushes oxy-app's custom-app caches; the rest is oxy-tenancy
     (
         "api-tenancy",

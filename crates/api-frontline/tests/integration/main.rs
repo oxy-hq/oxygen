@@ -2,8 +2,8 @@
 //! (add a case as a `mod` here, never a new top-level `tests/*.rs`).
 //!
 //! These moved out of `oxy-app`'s `tests/platform/` and `tests/authz/` with the
-//! frontline handlers. The DB-backed ones (`frontline_devices`,
-//! `frontline_roster`, `frontline_kiosk_signin`, `frontline_kiosk_mode`,
+//! frontline handlers. The DB-backed ones (`frontline_app_grant`,
+//! `frontline_devices`, `frontline_roster`, `frontline_kiosk_signin`, `frontline_kiosk_mode`,
 //! `frontline_kiosk_leave_route`, `frontline_kiosk_probe`) keep using
 //! `oxy-app`'s harness, included by path rather than copied: it owns the
 //! per-run template database and the stray-database sweep, and a second copy would drift from both. Like the
@@ -15,6 +15,7 @@
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
 
+mod frontline_app_grant;
 mod frontline_device_guards;
 mod frontline_devices;
 mod frontline_kiosk_leave_route;

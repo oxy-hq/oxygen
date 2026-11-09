@@ -70,6 +70,24 @@ fn github_namespace_routes() -> Vec<(Method, String)> {
     ]
 }
 
+/// `oxy-api-frontline`'s org-admin crew routes, whose handlers
+/// (`frontline_admin`) moved out of `oxy-app` into that crate: the crew list,
+/// a worker's apps and a PIN reset.
+fn frontline_crew_routes() -> Vec<(Method, String)> {
+    let worker = "00000000-0000-0000-0000-000000000000";
+    vec![
+        (Method::GET, format!("/orgs/{ORG}/frontline/workers")),
+        (
+            Method::PUT,
+            format!("/orgs/{ORG}/frontline/workers/{worker}/apps"),
+        ),
+        (
+            Method::POST,
+            format!("/orgs/{ORG}/frontline/workers/{worker}/pin"),
+        ),
+    ]
+}
+
 /// The router `serve` builds in `mode`, from the seams boot hands it.
 async fn served(mode: ServeMode) -> Router {
     let (router, _external_router, _preagg) = api_router(
@@ -163,6 +181,22 @@ async fn local_mode_drops_the_github_namespace_surface() {
         return;
     }
     assert_local_drops(github_namespace_routes()).await;
+}
+
+#[tokio::test]
+async fn cloud_mode_mounts_the_frontline_crew_routes() {
+    if db_unavailable() {
+        return;
+    }
+    assert_cloud_mounts(frontline_crew_routes()).await;
+}
+
+#[tokio::test]
+async fn local_mode_drops_the_frontline_crew_routes() {
+    if db_unavailable() {
+        return;
+    }
+    assert_local_drops(frontline_crew_routes()).await;
 }
 
 /// `oxy-api-custom-apps`'s public seam. Unlike the routes above, "mounted" cannot

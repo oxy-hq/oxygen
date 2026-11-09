@@ -262,13 +262,10 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
     //     can hit while paywalled (so they can subscribe / open the portal)
     let gated = RoleRouter::new(app_state.clone())
         // The org-scoped frontline routes (`/frontline/workers*`,
-        // `/frontline/devices*`, `/frontline/device/leave`) moved to the
-        // `oxy-api-frontline` sibling crate, which re-applies this tree's
-        // `org_middleware` + subscription guard and declares them FleetOk.
-        // `/frontline/workers` pairs a handler still here
-        // (`frontline_admin::list_workers`) with one that moved (`enrol`), and
-        // `RoleRouter` cannot split one path's verbs across two routers, so the
-        // whole `/frontline/*` namespace mounts there.
+        // `/frontline/devices*`, `/frontline/device/leave`) and every handler
+        // behind them live in the `oxy-api-frontline` sibling crate, which
+        // re-applies this tree's `org_middleware` + subscription guard and
+        // declares them FleetOk.
         .route_fleet(
             "/partner-publish-consent",
             get(crate::server::api::partner_publish_consent::get_consent)

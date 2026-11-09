@@ -16,7 +16,7 @@
 
 use entity::prelude::AppMembers;
 use entity::{app_members, apps};
-use oxy_authz::{Action, Resource};
+use oxy_server_authz::{Action, Resource};
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 use uuid::Uuid;
