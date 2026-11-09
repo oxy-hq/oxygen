@@ -271,6 +271,14 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_source_upload",
         function: "routes",
     },
+    // `oxy-api-experiment`: experiments and declared worlds, inside the
+    // `/{workspace_id}` tree like the two seeds above.
+    Seed {
+        surface: "workspace",
+        prefix: "/api/{workspace_id}",
+        module: "oxy_api_experiment",
+        function: "workspace_routes",
+    },
     Seed {
         surface: "external",
         prefix: "/external/api/{workspace_id}",
@@ -286,7 +294,8 @@ const SEEDS: &[Seed] = &[
 /// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
 /// Both lists watch `crates/api-github/src`, `crates/api-tenancy/src`,
 /// `crates/api-documents/src`, `crates/api-frontline/src`,
-/// `crates/api-custom-apps/src` and `crates/api-source-upload/src`, none of which `oxy-app` depends on
+/// `crates/api-custom-apps/src`, `crates/api-source-upload/src` and
+/// `crates/api-experiment/src`, none of which `oxy-app` depends on
 /// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
 /// reverse). Editing any of them therefore re-runs this build script and
 /// recompiles `oxy-app` — the workspace's largest crate — before the small
@@ -315,6 +324,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-frontline/src",
     "crates/api-custom-apps/src",
     "crates/api-source-upload/src",
+    "crates/api-experiment/src",
     // `crates/oltp/src/api`, not the whole crate: every handler the OLTP routes
     // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
     // the wider path would only pull ~15 unrelated modules (`provisioner`,
@@ -343,6 +353,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-frontline/src",
     "crates/api-custom-apps/src",
     "crates/api-source-upload/src",
+    "crates/api-experiment/src",
     // Mounts `/oltp/me/connection` and `/oltp/me/erd`, merged into the served
     // app as `oxy_oltp::api::router` — `role_manifest.rs` asserts that merge.
     // Missing here since #2851, so both routes were live and absent from the

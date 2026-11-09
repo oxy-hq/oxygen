@@ -120,7 +120,7 @@ const ALLOWED: &[(&str, &str)] = &[
          and the engine built from it are unique to the request.",
     ),
     (
-        "crates/app/src/server/simulation/probe.rs",
+        "crates/api-experiment/src/simulation/probe.rs",
         "Run-scoped: `FitProbe` parses its layer out of the materialised world \
          directory a run generates, not the workspace's. The cache is keyed by \
          workspace id, so an entry for it would hand the next run — or a real \

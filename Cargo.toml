@@ -13,6 +13,7 @@ members = [
   "crates/tenancy",
   "crates/custom-apps",
   "crates/api-source-upload",
+  "crates/api-experiment",
   "crates/app-core",
   "crates/auth",
   "crates/authz",

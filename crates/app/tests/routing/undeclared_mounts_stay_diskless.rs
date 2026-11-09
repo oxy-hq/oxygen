@@ -66,6 +66,28 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
     // route at all, so no pod placement applies.
     ("api-custom-apps/src/seed_apps.rs", "workspace_path"),
     ("api-custom-apps/src/seed.rs", "workspace_path"),
+    // `POST /{workspace_id}/experiments/{name}/write-back/apply` creates a git
+    // worktree and branch in the workspace root: `oxy_api_experiment::
+    // workspace_route_roles()` declares it IdeOnly, the handler runs on
+    // `IdeState` explicitly (the one working-copy extractor in the crate), and
+    // that crate's `tests/integration/route_roles.rs` asserts the declaration
+    // classifies. `apply.rs` is the git half the handler calls.
+    (
+        "api-experiment/src/api/experiment/write_back.rs",
+        "WorkspaceRootWorkingCopy",
+    ),
+    ("api-experiment/src/experiment/apply.rs", "GitClient"),
+    // `GET /{workspace_id}/simulations` and `POST …/simulations/{name}/runs`
+    // read the declared world through `ConfigManager`, which owns the
+    // compiled-vs-disk choice (`simulation_definitions` through the compile
+    // boundary, the working copy only where one is held) and pins the
+    // request's revision; both routes are FleetOk by default, as they were under
+    // `route_fleet`. The working-copy needles still apply to both files.
+    (
+        "api-experiment/src/api/simulation/worlds.rs",
+        "ConfigManager",
+    ),
+    ("api-experiment/src/api/simulation/runs.rs", "ConfigManager"),
 ];
 
 /// Every `.rs` file under `dir` — or `dir` itself, when it names one file.
@@ -149,6 +171,13 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // `ConfigManager`, which owns the compiled-vs-disk choice — the handler
         // itself never reaches for a working copy.
         "../api-source-upload/src",
+        // Experiments and declared worlds, moved out of `build_workspace_routes`
+        // where 18 of the 19 routes were `route_fleet`: the `MethodRouter<FleetState>`
+        // type refused a working-copy extractor at compile time, and as plain
+        // axum routes merged through the workspace seam they lost that gate, so
+        // this scan is what is left. The one IdeOnly route (write-back apply) and
+        // the two compile-boundary `ConfigManager` reads are exempted above.
+        "../api-experiment/src",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

@@ -1,8 +1,9 @@
 # `oxy-app` — CLI + HTTP Server (`crates/app`)
 
-The CLI + server **library** lives here (crate name **`oxy-app`**, path `crates/app`, ~250k
-LOC under `src/` on 2026-11-06, down from a 321k peak when the custom-apps serving half
-moved to `oxy-api-custom-apps`; still the largest crate; lib-only). The `oxy` **binary** is the thin `oxy-server` crate
+The CLI + server **library** lives here (crate name **`oxy-app`**, path `crates/app`, ~221k
+LOC under `src/` on 2026-11-08, down from a 321k peak when the custom-apps serving half
+moved to `oxy-api-custom-apps` and 250k before the experiments context left for
+`oxy-api-experiment`; still the largest crate; lib-only). The `oxy` **binary** is the thin `oxy-server` crate
 (`crates/server`, the workspace default member), which mounts the API surfaces and calls into
 this library. It wires everything together: the CLI
 command surface, the Axum HTTP server (`server/`, ~80k LOC), the fleet/role machinery, the
@@ -57,6 +58,13 @@ nearly everything (`oxy`, agentic-http/pipeline, integrations). Keep it thin:
 so the per-surface crates can share them without depending on each other. Import them as
 `oxy_app_core::<module>`; no re-export was left behind, so a stale `crate::server::…` path
 is a compile error, and an in-flight branch using one will merge clean and then fail to build.
+
+**The experiments context left (2026-11-08):** `server/experiment`, `server/simulation`,
+`api/experiment` and `api/simulation` are `oxy-api-experiment` (`crates/api-experiment`),
+mounted by `oxy-server` through `SurfaceSeams::workspace`. Nothing here names them: the five
+task kinds arrive through `SurfaceSeams::tasks` and the experiment tick through
+`SurfaceSeams::global_ticks`, which the global driver (`router/recovery.rs`) runs beside its
+own schedule ticks.
 
 ## Key entry points
 

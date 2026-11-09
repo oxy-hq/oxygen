@@ -13,12 +13,11 @@ use agentic_http::{AgenticState, airway_router, automation_router, router as age
 
 use crate::api::{
     agent, api_keys, apps, artifacts, automation, chart, cohort, competitors, compile,
-    compile_staging, data, database, execution_analytics, experiment, file, foot_traffic,
-    integration, local_setup, metric_anomalies, metric_tree, metric_tree_probe,
-    metric_tree_projection, metrics, modeling, org_subdomain, pipeline, preagg, result_files,
-    schedules, semantic, simulation, test_file, test_project_run, test_run, thread, traces, video,
-    workspace_logo, workspace_members, workspace_oxy_access, workspaces, world_model,
-    world_model_graph,
+    compile_staging, data, database, execution_analytics, file, foot_traffic, integration,
+    local_setup, metric_anomalies, metric_tree, metric_tree_probe, metric_tree_projection, metrics,
+    modeling, org_subdomain, pipeline, preagg, result_files, schedules, semantic, test_file,
+    test_project_run, test_run, thread, traces, video, workspace_logo, workspace_members,
+    workspace_oxy_access, workspaces, world_model, world_model_graph,
 };
 
 use oxy_shared::fleet_role::RouteRole;
@@ -225,80 +224,10 @@ pub(super) fn build_workspace_routes(
         // oxy-hq/oxygen#878 (every call 500'd on the serve fleet when these
         // read `semantics_scan_path()` directly).
         .merge(build_metric_tree_routes(&app_state))
-        // Declared worlds and their runs. Reads come from the compile boundary
-        // (`simulation_definitions`) and Postgres (`simulation_run*`); the POST
-        // only enqueues a TaskSpec. A run DOES touch local disk — a per-run
-        // TempDir — but that happens on the worker, never in a handler, which
-        // is the whole reason it is queued work rather than a spawn.
-        .route_fleet("/simulations", get(simulation::list_simulations))
-        .route_fleet(
-            "/simulations/validate",
-            post(simulation::validate_simulation),
-        )
-        .route_fleet("/simulations/runs", get(simulation::list_runs))
-        .route_fleet("/simulations/runs/{run_id}", get(simulation::get_run))
-        .route_fleet("/simulations/{name}/runs", post(simulation::enqueue_run))
-        // The paired profit race over one world's runs. A `workspace_id`-
-        // scoped join of `simulation_runs` onto `simulation_run_periods` and
-        // nothing else — no working copy, no `.git`, no state dir — so it is
-        // FleetOk like every other read here, and pinning it to the ide
-        // would make *viewing* a finished race need the singleton.
-        .route_fleet("/simulations/{name}/race", get(simulation::get_profit_race))
-        // Experiments are records. Every route reads or writes Postgres
-        // (`experiments`, `experiment_designs`, `experiment_proposals`) or
-        // enqueues a `TaskSpec`; the warehouse queries run on the worker, so
-        // the POSTs are FleetOk like the simulation POST above.
-        .route_fleet(
-            "/experiments",
-            get(experiment::list_experiments).post(experiment::create_experiment),
-        )
-        .route_fleet(
-            "/experiments/{name}/design",
-            get(experiment::get_design).put(experiment::put_design),
-        )
-        .route_fleet(
-            "/experiments/{name}/duplicate",
-            post(experiment::duplicate_experiment),
-        )
-        .route_fleet(
-            "/experiments/{name}/proposals/{proposal_id}/use",
-            post(experiment::use_proposal),
-        )
-        .route_fleet(
-            "/experiments/{name}/register",
-            post(experiment::post_register),
-        )
-        .route_fleet(
-            "/experiments/{name}/retrospective",
-            post(experiment::post_retrospective),
-        )
-        .route_fleet("/experiments/{name}/price", post(experiment::post_price))
-        .route_fleet(
-            "/experiments/{name}/proposals",
-            get(experiment::list_proposals),
-        )
-        // Experiment runs. The GET reads `experiment_runs` / `experiment_flips`;
-        // the abort records one flag that the global driver's tick actuates.
-        // Neither touches the working copy — FleetOk, like the routes above.
-        .route_fleet("/experiments/{name}/run", get(experiment::get_run))
-        .route_fleet("/experiments/{name}/abort", post(experiment::abort_run))
-        // PR 5. The sealed report: two Postgres reads (`experiment_runs`,
-        // `experiment_results`), FleetOk. The 409 is decided in the handler, on
-        // the run's state.
-        .route_fleet("/experiments/{name}/result", get(experiment::get_result))
-        // The interim reading of a run in progress: a Postgres read, and a POST that
-        // enqueues an `experiment_interim` TaskSpec (the warehouse reads run on the worker).
-        .route_fleet(
-            "/experiments/{name}/interim",
-            get(experiment::get_interim).post(experiment::post_interim),
-        )
-        // PR 5. Creates a git worktree + branch in the working copy: IdeOnly.
-        // `WorkspaceRootWorkingCopy` resolves only from `IdeState`, so this
-        // could not compile through `route_fleet`.
-        .route_ide(
-            "/experiments/{name}/write-back/apply",
-            post(experiment::apply_write_back),
-        )
+        // Declared worlds and their runs, and experiments, are
+        // `oxy-api-experiment`'s: merged inside this nest by `oxy-server` through
+        // `SurfaceSeams::workspace`, with the IdeOnly write-back apply declared
+        // in its `workspace_route_roles`.
         // The world-model graph reads the semantic model through the compile
         // boundary (`world_model_graph::source`), as the metric tree does, so
         // any replica serves it. The handlers take `WorkspaceManagerReadOnly`:

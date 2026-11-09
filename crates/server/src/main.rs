@@ -140,6 +140,7 @@ fn workspace_seam_routes() -> SeamRouter {
     oxy_api_tenancy::onboarding::workspace_routes()
         .merge(oxy_api_source_upload::routes())
         .merge(oxy_api_custom_apps::workspace_routes())
+        .merge(oxy_api_experiment::workspace_routes())
 }
 
 /// Every surface this composition root mounts, by seam. `cli` forwards it into
@@ -175,6 +176,12 @@ fn workspace_seam_routes() -> SeamRouter {
 ///
 /// `oxy-api-source-upload` rides the workspace seam and declares its one route
 /// FleetOk: an S3 write that must not need the ide.
+///
+/// `oxy-api-experiment` rides the workspace seam too (experiments and declared
+/// worlds under `/{workspace_id}`), declaring write-back apply IdeOnly (it creates
+/// a git worktree in the working copy). Its five task kinds join the custom-app
+/// ones in `tasks`, and its tick — the one piece of singleton work the global
+/// driver runs for it each pass — is the first `global_ticks` entry.
 fn surface_seams() -> SurfaceSeams {
     SurfaceSeams {
         api: SurfaceSeam {
@@ -194,6 +201,7 @@ fn surface_seams() -> SurfaceSeams {
                 .iter()
                 .chain(oxy_api_source_upload::route_roles())
                 .chain(oxy_api_custom_apps::workspace_route_roles())
+                .chain(oxy_api_experiment::workspace_route_roles())
                 .copied()
                 .collect(),
         },
@@ -221,8 +229,12 @@ fn surface_seams() -> SurfaceSeams {
         // `oxy-custom-apps`, and the mount is `oxy-api-custom-apps`'s. `oxy-app`
         // no longer names any of it, and refuses to start if any of it is missing
         // here.
-        tasks: custom_apps_seams::tasks(),
+        tasks: custom_apps_seams::tasks()
+            .into_iter()
+            .chain(oxy_api_experiment::tasks())
+            .collect(),
         background: custom_apps_seams::background(),
+        global_ticks: oxy_api_experiment::global_ticks(),
         outer: Some(custom_apps_seams::outer),
         outer_decls: oxy_api_custom_apps::serve::serve_dispatch_roles().to_vec(),
         function_runtime: Some(custom_apps_seams::function_runtime()),
@@ -419,6 +431,39 @@ mod tests {
             catalog.routes.len()
         );
         assert!(catalog.routes.iter().any(|r| r.path == "/api/_catalog"));
+    }
+
+    /// The experiment and simulation task kinds reached the fleet from inside
+    /// `oxy-app`'s registry until the context moved to `oxy-api-experiment`; now
+    /// only this composition hands them over, so only here can "a queued
+    /// `experiment_estimate` has an executor" be checked. A kind missing from the
+    /// seams sits in the queue forever and no run ever reports; the tick missing
+    /// means no run ever advances.
+    #[test]
+    fn the_composition_runs_every_experiment_kind() {
+        let seams = surface_seams();
+        let kinds: Vec<&str> = seams.tasks.iter().map(|t| t.kind).collect();
+        for kind in [
+            "simulation_run",
+            "experiment_price",
+            "experiment_check",
+            "experiment_estimate",
+            "experiment_interim",
+        ] {
+            assert!(kinds.contains(&kind), "no executor for `{kind}`: {kinds:?}");
+        }
+        assert!(
+            seams
+                .global_ticks
+                .iter()
+                .any(|t| t.name == "experiment_tick"),
+            "the experiment tick is not handed to the global driver"
+        );
+        assert_eq!(
+            oxy_app::server::router::require_task_kinds(&seams.tasks),
+            Ok(()),
+            "a kind registered twice would shadow one executor with another"
+        );
     }
 
     /// `GET /orgs` is one of the lookups an agent needs a schema for (see

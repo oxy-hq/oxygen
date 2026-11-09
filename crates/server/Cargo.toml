@@ -40,6 +40,7 @@ oxy-custom-apps = { workspace = true }
 oxy-app-core = { workspace = true }
 oxy-route-catalog = { path = "../route-catalog" }
 oxy-api-source-upload = { path = "../api-source-upload" }
+oxy-api-experiment = { path = "../api-experiment" }
 # Dev-dynamic-linking shim, pulled in only by the `dev-dynamic` feature above.
 oxy-app-dylib = { path = "../app-dylib", optional = true }
 oxy = { workspace = true }

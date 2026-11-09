@@ -188,7 +188,8 @@ fn served_declarations() -> Vec<(&'static str, String, RouteRole)> {
     let workspace_seam = oxy_api_tenancy::onboarding::workspace_route_roles()
         .iter()
         .chain(oxy_api_source_upload::route_roles())
-        .chain(oxy_api_custom_apps::workspace_route_roles());
+        .chain(oxy_api_custom_apps::workspace_route_roles())
+        .chain(oxy_api_experiment::workspace_route_roles());
     decls.extend(
         workspace_seam.map(|d| (d.method, format!("/api/{{workspace_id}}{}", d.path), d.role)),
     );

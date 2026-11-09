@@ -154,7 +154,7 @@ fn base(n: notifications::Model, info: KindInfo) -> InboxItem {
 
 /// The row's own words, for a notice that is neither an app's nor a platform
 /// kind: no app, no content row in an org store, and a title on the row
-/// itself. Experiment owner notices (`server::experiment::notify`) are the one
+/// itself. Experiment owner notices (`oxy_api_experiment::experiment::notify`) are the one
 /// writer; every other row writes the legacy columns empty, so this is `None`
 /// for them.
 fn own_words(n: &notifications::Model) -> Option<(String, Option<String>)> {

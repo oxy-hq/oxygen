@@ -1,0 +1,88 @@
+[package]
+name = "oxy-api-experiment"
+version.workspace = true
+authors.workspace = true
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
+# oxy-app — the catalog sits above it for exactly that reason.
+description = "Experiments HTTP surface — pre-registered experiments (pricing, registration, the run tick, read-back, the sealed estimate, write-back) and declared-world simulations — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Imported through `oxy_app::surface` (the S4 prelude) plus the backlog rows
+# `crates/app/tests/routing/surface_contract.rs` lists for this crate (the
+# metric-tree helpers, until they go down into `oxy-metric-monitoring`). oxy-app
+# never depends back on this crate. default-features off so a
+# `--no-default-features` build of oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }         # AppState (router state), the semantic-engine cache
+oxy = { workspace = true }                  # database client, config
+oxy-experiment = { workspace = true }       # the file, its refusals and the calendar
+oxy-simulation = { path = "../simulation" } # the declared-world loop
+oxy-airlayer-compat = { workspace = true }  # airlayer's engine::experiment (the statistics), the metric tree
+oxy-metric-monitoring = { workspace = true } # the metric-tree fit the read-back reader uses
+oxy-semantic = { workspace = true }
+oxy-platform = { workspace = true }         # owner notices
+oxy-auth = { workspace = true }             # AuthenticatedUserExtractor
+oxy-server-authz = { workspace = true }     # the Experiment* role guards
+oxy-git = { workspace = true }              # write-back: the worktree and branch
+oxy-shared = { workspace = true }           # OxyError + fleet_role::RouteRoleDecl
+entity = { workspace = true }
+agentic-core = { workspace = true }         # TaskSpec::Custom
+agentic-runtime = { workspace = true }      # TaskExecutor, the queue
+agentic-pipeline = { workspace = true }     # ProjectContext (the per-task workspace context)
+agentic-analytics = { workspace = true }    # the read-back reader's query path
+
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+chrono-tz = { workspace = true }
+duckdb = { workspace = true }               # the simulation probe's in-memory fitter
+futures = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+minijinja = { workspace = true, features = ["loader"] } # lever template variables
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }             # a simulation run's throwaway world directory
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# The integration group (`tests/integration/`) reuses oxy-app's per-test
+# database harness (`crates/app/tests/common/mod.rs`, included by `#[path]`),
+# so it needs that harness's dependencies too. Dev-only: nothing here ships.
+agentic-runtime = { workspace = true }       # tests/common runs the runtime migrator
+migration = { workspace = true }
+airhouse = { workspace = true }
+oxy-cameras = { workspace = true }
+oxy-oltp = { workspace = true }
+url = { workspace = true }
+testcontainers = { workspace = true, features = [
+    "blocking",
+    "reusable-containers",
+] }
+testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
+# `experiment_pricing` and the fixture helpers `set_current_dir`; the attribute's
+# lock is global to the binary.
+serial_test = { workspace = true }
+# `experiment_runner::e2e` stands up a lever automation against a DuckDB
+# connector to run a whole experiment end to end; the real `oxy-app` does the
+# same through `agentic-pipeline`. Dev-only, so the shipped graph keeps the
+# domain layering (`backend-architecture.md`).
+agentic-automation = { workspace = true }
+agentic-connector = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

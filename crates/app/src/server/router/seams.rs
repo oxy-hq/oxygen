@@ -9,10 +9,13 @@
 //! outside it. Which side of the auth stack a route lands on is the field it is
 //! assigned to, so that decision is spelled out at every construction site.
 
-use std::sync::Arc;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
 
 use agentic_runtime::worker::TaskExecutor;
 use axum::Router;
+use chrono::{DateTime, Utc};
 use oxy_app_core::function_seam::FunctionRuntime;
 use oxy_shared::fleet_role::RouteRoleDecl;
 use sea_orm::DatabaseConnection;
@@ -122,6 +125,71 @@ pub struct BackgroundSeam {
     pub start: fn(&BackgroundDeps<'_>) -> Option<JoinHandle<()>>,
 }
 
+/// One piece of singleton work an extracted surface needs the global driver to
+/// run on every pass, beside the schedule ticks `oxy-app` owns
+/// (`tick_schedules`, `tick_health_schedules`, `tick_preagg_schedules`). The
+/// experiment tick is the first: it advances every due run. Exactly-once across
+/// replicas is the seam's own job — the experiment tick claims each run by a CAS
+/// on `experiment_runs.next_check_at` — so several eligible nodes running it is
+/// safe, as it is for the ticks beside it.
+///
+/// Installed process-wide ([`install_global_ticks`]) rather than threaded through
+/// the driver's dozen signatures: the driver is `oxy-app`'s and names no surface,
+/// the way route declarations are installed from the seams rather than passed.
+#[derive(Clone, Copy)]
+pub struct GlobalTickSeam {
+    /// Names the tick in the driver's log line.
+    pub name: &'static str,
+    /// Runs one pass at `now`; how many items it advanced. Called every
+    /// `OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS` (30 s), so it must be cheap when
+    /// nothing is due: an indexed SELECT of due rows.
+    pub tick: for<'a> fn(
+        &'a DatabaseConnection,
+        DateTime<Utc>,
+    ) -> Pin<Box<dyn Future<Output = usize> + Send + 'a>>,
+}
+
+static GLOBAL_TICKS: OnceLock<Vec<GlobalTickSeam>> = OnceLock::new();
+
+/// Install the surfaces' global ticks for this process. First install wins: the
+/// router and the worker command each install the composition root's list once,
+/// before the driver is spawned, and a test that builds a router without seams
+/// installs an empty list. A second, different list is a composition error and
+/// is logged, not applied.
+pub fn install_global_ticks(ticks: &[GlobalTickSeam]) {
+    if GLOBAL_TICKS.set(ticks.to_vec()).is_err() {
+        let installed: Vec<&str> = global_ticks().iter().map(|t| t.name).collect();
+        let offered: Vec<&str> = ticks.iter().map(|t| t.name).collect();
+        if installed != offered {
+            tracing::warn!(
+                ?installed,
+                ?offered,
+                "global ticks were already installed for this process; the later list is ignored"
+            );
+        }
+    }
+}
+
+/// The installed ticks; empty until [`install_global_ticks`] runs.
+pub fn global_ticks() -> &'static [GlobalTickSeam] {
+    GLOBAL_TICKS.get().map(Vec::as_slice).unwrap_or(&[])
+}
+
+/// One pass of every installed tick, in order; how many items they advanced in
+/// all. Called by the global driver (`recovery.rs`) after its own schedule
+/// ticks, in both the local and the cloud pass.
+pub(crate) async fn run_global_ticks(db: &DatabaseConnection, now: DateTime<Utc>) -> usize {
+    let mut total = 0;
+    for seam in global_ticks() {
+        let advanced = (seam.tick)(db, now).await;
+        if advanced > 0 {
+            tracing::info!(target: "global_tick", tick = seam.name, advanced, "global tick advanced work");
+        }
+        total += advanced;
+    }
+    total
+}
+
 /// Builds the router `serve` mounts at the top level of the outer router,
 /// beside `/api`. It is given the Layer-1 preagg cache the API router owns,
 /// because a route mounted outside the API router has no `AppState` to read it
@@ -216,6 +284,11 @@ pub struct SurfaceSeams {
     /// Process-lifetime jobs a serve process starts for custom apps, started
     /// by `api_router`. One-shot per-request spawns stay with their handlers.
     pub background: Vec<BackgroundSeam>,
+    /// Singleton work the global driver runs each pass for an extracted surface
+    /// (the experiment tick). Installed process-wide by `api_router` and
+    /// `oxy worker` through [`install_global_ticks`]; the driver reads them
+    /// beside its own schedule ticks.
+    pub global_ticks: Vec<GlobalTickSeam>,
     /// The outer `/customer-apps/{*path}` mount, merged by `serve` beside
     /// `/api`. `None` mounts nothing; `serve` refuses to start without it.
     pub outer: Option<OuterMount>,
@@ -373,6 +446,23 @@ mod tests {
                 "custom_app_env_oltp_branch",
             ]
         );
+    }
+
+    /// The install is first-wins and the second list is ignored, so a router
+    /// built in a test (empty seams) cannot clear what the process installed —
+    /// and no caller can double-register a tick.
+    #[test]
+    fn global_ticks_install_once() {
+        fn tick(name: &'static str) -> GlobalTickSeam {
+            GlobalTickSeam {
+                name,
+                tick: |_, _| Box::pin(async { 0usize }),
+            }
+        }
+        install_global_ticks(&[tick("first")]);
+        install_global_ticks(&[tick("second")]);
+        let names: Vec<&str> = global_ticks().iter().map(|t| t.name).collect();
+        assert_eq!(names, ["first"]);
     }
 
     #[test]

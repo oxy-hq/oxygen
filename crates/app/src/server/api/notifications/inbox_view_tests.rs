@@ -135,7 +135,7 @@ fn row(kind: &str, title: &str, body: Option<&str>) -> notifications::Model {
 
 #[test]
 fn a_row_with_no_app_and_no_stored_message_reads_its_own_words() {
-    // The shape `server::experiment::notify` writes.
+    // The shape `oxy_api_experiment::experiment::notify` writes.
     let n = row(
         "experiment",
         "Experiment promo",

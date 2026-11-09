@@ -397,8 +397,8 @@ pub(crate) fn semantic_err(
 /// same for a single-file read. On a serve replica the scan is the compiled
 /// revision's files, held in memory, so there is nothing to keep alive; where a
 /// working copy is held it is that directory.
-pub(crate) struct QueryScanSource {
-    pub(crate) scan: ScanDir,
+pub struct QueryScanSource {
+    pub scan: ScanDir,
 }
 
 impl QueryScanSource {
@@ -412,7 +412,7 @@ impl QueryScanSource {
     }
 
     /// The revision this scan actually READ, or `None` for the working copy.
-    pub(crate) fn source_revision<S: oxy::config::DiskSlot>(
+    pub fn source_revision<S: oxy::config::DiskSlot>(
         &self,
         workspace_manager: &WorkspaceManager<S>,
     ) -> Option<Uuid> {
@@ -443,7 +443,7 @@ pub(crate) fn scan_source_revision<S: oxy::config::DiskSlot>(
 
 /// The workspace has no compiled semantic model and this node has no working
 /// copy to fall back to.
-pub(crate) struct ScanUnavailable {
+pub struct ScanUnavailable {
     workspace_id: Uuid,
     /// The caller refused the working-copy fallback rather than lacking one.
     /// Same absence, different thing to tell the reader: one is "this node
@@ -453,7 +453,7 @@ pub(crate) struct ScanUnavailable {
 }
 
 impl ScanUnavailable {
-    pub(crate) fn message(&self) -> String {
+    pub fn message(&self) -> String {
         if self.compiled_only {
             return format!(
                 "workspace {} has no compiled semantic model; this check reads the promoted \
@@ -557,7 +557,7 @@ pub(crate) async fn resolve_query_scan_source<S: oxy::config::DiskSlot>(
 /// next pass succeeds without operator action. A workspace with no promoted
 /// config has no health schedule row at all, so in practice this is the manual
 /// `POST /workspace-health/{id}/eval` and the mid-deploy window.
-pub(crate) async fn resolve_compiled_scan_source<S: oxy::config::DiskSlot>(
+pub async fn resolve_compiled_scan_source<S: oxy::config::DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
 ) -> Result<QueryScanSource, ScanUnavailable> {
     let workspace_id = workspace_manager.workspace_id;

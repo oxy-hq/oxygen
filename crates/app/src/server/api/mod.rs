@@ -58,7 +58,6 @@ pub mod database;
 // The document-library HTTP surface moved to the `oxy-api-documents` sibling
 // crate, mounted by `oxy-server`. oxy-app no longer depends on it.
 pub mod execution_analytics;
-pub mod experiment;
 pub mod file;
 pub mod foot_traffic;
 mod foot_traffic_seed;
@@ -97,7 +96,6 @@ pub mod schedules;
 pub mod secrets;
 pub mod semantic;
 pub mod semantic_scan;
-pub mod simulation;
 pub mod test_file;
 pub mod test_project_run;
 pub mod test_run;

@@ -73,6 +73,7 @@ pub async fn api_router(
         admin,
         tasks,
         background,
+        global_ticks,
         // Merged by `serve`, which takes it before handing the seams here.
         outer: _,
         outer_decls,
@@ -124,6 +125,11 @@ pub async fn api_router(
     } else {
         (None, None)
     };
+
+    // The surfaces' singleton ticks (`SurfaceSeams::global_ticks`), read by the
+    // global driver each pass. Installed whether or not this process runs the
+    // driver: the list is the composition's, not the role's.
+    super::seams::install_global_ticks(&global_ticks);
 
     if disable_inprocess_workers {
         tracing::info!(
@@ -499,6 +505,7 @@ pub async fn internal_api_router(
         // outer route.
         tasks: _,
         background: _,
+        global_ticks: _,
         outer: _,
         outer_decls: _,
         function_runtime: _,

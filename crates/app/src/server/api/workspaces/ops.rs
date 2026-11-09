@@ -305,7 +305,7 @@ pub(super) async fn git_list_branches(
 /// Switches the IDE-local branch. Materialises a local ref via
 /// `ensure_local_ref` (no checkout) before `worktree add` so the main
 /// worktree's HEAD and working tree are untouched.
-pub(crate) async fn git_switch_branch(
+pub async fn git_switch_branch(
     root: &std::path::Path,
     branch: &str,
     workspace: Option<&entity::workspaces::Model>,
@@ -342,10 +342,7 @@ pub(crate) async fn git_switch_branch(
     })
 }
 
-pub(crate) async fn git_delete_branch(
-    root: &std::path::Path,
-    branch: &str,
-) -> Result<(), OxyError> {
+pub async fn git_delete_branch(root: &std::path::Path, branch: &str) -> Result<(), OxyError> {
     let git = default_git_client();
     let default_branch = git.get_default_branch(root).await;
     if branch == default_branch {

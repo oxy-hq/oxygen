@@ -41,7 +41,7 @@ use crate::server::service::secret_manager::SecretManagerService;
 /// The secrets manager is NOT among the trimmings, and this is the one place
 /// where the request path's shape has to be copied rather than simplified —
 /// see the comment at its construction below.
-pub(super) async fn build_workspace_manager(
+pub async fn build_workspace_manager(
     db: &DatabaseConnection,
     workspace_id: Uuid,
 ) -> Result<WorkspaceManager<WorkingCopy>, String> {

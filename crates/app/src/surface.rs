@@ -34,7 +34,8 @@ pub use crate::server::api::middlewares::subscription_guard::subscription_guard_
 
 /// Workspace-scoped request context, as the workspace seam provides it.
 pub use crate::server::api::middlewares::workspace_context::{
-    WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath, enqueue_lazy_compile,
+    SemanticEngineCacheCtx, WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath,
+    WorkspaceRootWorkingCopy, enqueue_lazy_compile,
 };
 
 /// The fence that keeps a sandbox agent token (`oxy_sbx_`) to the one shape it
@@ -86,9 +87,31 @@ pub mod workspace_context {
 }
 
 /// Pod placement: whether this process holds the working copy, and how a
-/// request that needs the Factory is relayed to it.
+/// request that needs the Factory is relayed to it. `IdeState` is the router
+/// state a working-copy extractor resolves from: a surface that mounts one such
+/// handler on its (fleet-typed) seam router runs it on `IdeState` explicitly and
+/// declares the route IdeOnly — the two facts `route_ide` states inside `oxy-app`.
 pub mod fleet {
+    pub use crate::server::router::IdeState;
     pub use crate::server::{ide_proxy, role_middleware, servability};
+}
+
+/// The workspace runtime a queued job or a handler rebuilds a workspace from:
+/// the project context the global driver builds for a workspace (the promoted
+/// revision's semantic model, never a working copy), the workspace manager
+/// behind it, the compile-boundary scan root, and the driver's tick interval.
+pub mod workspace_runtime {
+    pub use crate::server::api::semantic::resolve_compiled_scan_source;
+    pub use crate::server::preagg_workspace::build_workspace_manager;
+    pub use crate::server::router::recovery::{
+        DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS, build_workspace_ctx,
+    };
+}
+
+/// Git operations on the workspace root working copy, as the workspace
+/// handlers perform them: switching to and deleting a branch.
+pub mod workspace_git {
+    pub use crate::server::api::workspaces::{git_delete_branch, git_switch_branch};
 }
 
 /// The notification service's parts the staff console's "Test notifications"
@@ -143,7 +166,8 @@ pub mod seed {
 /// half.
 pub mod seams {
     pub use crate::server::router::{
-        BackgroundDeps, BackgroundSeam, ExampleAppsSeam, MigrateReport, TaskDeps, TaskSeam,
+        BackgroundDeps, BackgroundSeam, ExampleAppsSeam, GlobalTickSeam, MigrateReport, TaskDeps,
+        TaskSeam,
     };
 }
 

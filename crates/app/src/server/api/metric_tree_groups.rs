@@ -70,7 +70,7 @@ pub(crate) fn view_of(node_id: &str) -> &str {
 /// composite's space follows its expression, not its measure type. An id with
 /// no node refuses rather than defaulting to `Total` — the permissive answer is
 /// the one that produces a number.
-pub(crate) fn space_of(tree: &MetricTree, node_id: &str) -> AggregateSpace {
+pub fn space_of(tree: &MetricTree, node_id: &str) -> AggregateSpace {
     tree.nodes
         .iter()
         .find(|n| n.id == node_id)
@@ -644,7 +644,7 @@ fn fit_group(
 
 /// Coefficients for every fittable edge, one panel query per single-view group
 /// plus one per cross-view PAIR.
-pub(crate) fn grouped_fit(
+pub fn grouped_fit(
     tree: &MetricTree,
     layer: &SemanticLayer,
     roots: &[String],

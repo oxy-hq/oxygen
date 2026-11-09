@@ -126,7 +126,7 @@ pub(crate) async fn resolve_scan<S: oxy::config::DiskSlot>(
 }
 
 /// Parse the workspace's semantic model from an already-resolved scan.
-pub(crate) fn load_layer_at(
+pub fn load_layer_at(
     scan: &oxy::config::ScanDir,
 ) -> Result<oxy_airlayer_compat::SemanticLayer, MetricTreeError> {
     OxyMetricTreeRunner::load_layer_at(scan).map_err(|e| MetricTreeError::LayerLoad(e.to_string()))
@@ -139,7 +139,7 @@ fn load_tree_at(scan: &oxy::config::ScanDir) -> Result<MetricTree, MetricTreeErr
 }
 
 /// The airlayer database configs for the workspace.
-pub(crate) fn workspace_databases<S: oxy::config::DiskSlot>(
+pub fn workspace_databases<S: oxy::config::DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
 ) -> Vec<oxy_airlayer_compat::DatabaseConfig> {
     OxyMetricTreeRunner::list_databases_sync(workspace_manager)

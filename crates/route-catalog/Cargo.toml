@@ -21,6 +21,7 @@ oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
 # customer route, the surfaces' included.
 oxy-api-tenancy = { path = "../api-tenancy", default-features = false }
 oxy-api-source-upload = { path = "../api-source-upload", default-features = false }
+oxy-api-experiment = { path = "../api-experiment" }
 axum = { workspace = true }
 uuid = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

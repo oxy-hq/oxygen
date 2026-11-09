@@ -23,7 +23,8 @@ crates/
                             #   assembly) that mounts the API surfaces. Default member.
   app/                      # (oxy-app) CLI + HTTP server LIBRARY (the bulk of the code; lib-only)
   api-<context>/            # (oxy-api-*) HTTP surface crates oxy-server mounts — one bounded context
-                            #   each; oxy-app does NOT depend on them. Placement rules S1–S7 and the
+                            #   each (github, tenancy, documents, frontline, custom-apps, source-upload,
+                            #   experiment); oxy-app does NOT depend on them. Placement rules S1–S7 and the
                             #   per-crate review: internal-docs/domain-boundaries.md
   route-catalog/             # (oxy-route-catalog) generated GET /api/_catalog table; sits ABOVE oxy-app
                             #   so a surface edit doesn't rebuild oxy-app. oxy-server hands it in

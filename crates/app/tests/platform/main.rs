@@ -4,7 +4,9 @@
 //! workspace detail fields, and the partner-table regression guard.
 //!
 //! One binary for the whole group; see `tests/authz/main.rs` for why. Add a case
-//! as a `mod` here rather than a new `tests/*.rs`.
+//! as a `mod` here rather than a new `tests/*.rs`. The experiment and simulation
+//! modules left with their code for `oxy-api-experiment`'s `tests/integration/`
+//! (2026-11-08); `oxy-app` cannot name that crate.
 //!
 //! Four of these ask "where may a workspace file be read from?" rather than
 //! "which pod serves this route" — `compiled_reader_is_not_a_back_door`,
@@ -20,8 +22,7 @@
 //!   `airway_compile_boundary`, `file_credentials_at_compile`, `revision_miss_not_from_disk`,
 //!   `semantic_scan_from_memory`, `context_documents_boundary`, `anomaly_bulk_status`,
 //!   `connector_vars_from_workspace_secrets`,
-//!   `anomaly_notify`, `workspace_health_history`, `usage_report`, `simulation_routes`,
-//!   `simulation_lifecycle`, `experiment_pricing`, `experiment_routes`, the two
+//!   `anomaly_notify`, `workspace_health_history`, `usage_report`, the two
 //!   `workspace_previews_*` modules, `preview_routes`, `preview_ttl`, `encryption_key_check` and `master_key_kms` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
@@ -81,10 +82,6 @@ mod coordinator_any_replica;
 mod data_placement;
 mod encryption_key_check;
 mod env_pins;
-mod experiment_pricing;
-mod experiment_results;
-mod experiment_routes;
-mod experiment_runner;
 mod factory_access;
 mod feature_flag_refresh;
 mod file_credentials_at_compile;
@@ -126,9 +123,6 @@ mod run;
 mod run_routes_workspace_scope;
 mod semantic_scan_from_memory;
 mod shared_state_boot;
-mod simulation_lifecycle;
-mod simulation_router;
-mod simulation_routes;
 mod test_notices;
 mod toast_webhook_compile_boundary;
 mod usage_report;

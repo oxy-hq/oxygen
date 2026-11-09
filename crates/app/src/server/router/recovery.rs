@@ -262,7 +262,7 @@ pub(crate) async fn await_shutdown_hooks(shutdown_token: &tokio_util::sync::Canc
 /// election needed.
 pub(crate) const INPROC_GLOBAL_WORKER_ENV: &str = "OXY_INPROC_GLOBAL_WORKER";
 const INPROC_GLOBAL_WORKER_INTERVAL_ENV: &str = "OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS";
-pub(crate) const DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS: u64 = 30;
+pub const DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS: u64 = 30;
 
 pub(crate) fn inproc_global_worker_enabled() -> bool {
     // Explicit env override wins, in both directions.
@@ -744,11 +744,10 @@ async fn recover_local(
         if preagg_fired > 0 {
             tracing::info!(target: "preagg", "preagg schedule fired");
         }
-        let experiments =
-            crate::server::experiment::tick::tick_experiments(db, chrono::Utc::now()).await;
-        if experiments > 0 {
-            tracing::info!(target: "experiment", experiments, "experiment tick advanced runs");
-        }
+        // The surfaces' global ticks (`SurfaceSeams::global_ticks`; the experiment
+        // tick, which advances due runs). Each is exactly-once across replicas by
+        // its own CAS, like the schedule ticks above.
+        super::seams::run_global_ticks(db, chrono::Utc::now()).await;
         recovered + fired
     } else {
         // One-time startup backfill of per-workspace health schedule rows from
@@ -948,13 +947,10 @@ async fn recover_all_workspaces(
         if preagg_fired > 0 {
             tracing::info!(target: "preagg", "cloud preagg schedule fired");
         }
-        // Global like the health tick: exactly-once per run across replicas by
-        // the CAS on `experiment_runs.next_check_at`.
-        let experiments =
-            crate::server::experiment::tick::tick_experiments(db, chrono::Utc::now()).await;
-        if experiments > 0 {
-            tracing::info!(target: "experiment", experiments, "cloud experiment tick advanced runs");
-        }
+        // The surfaces' global ticks (`SurfaceSeams::global_ticks`; the experiment
+        // tick). Global like the health tick: exactly-once per item across
+        // replicas by each tick's own CAS.
+        super::seams::run_global_ticks(db, chrono::Utc::now()).await;
         // Does nothing unless `OXY_COMPILE_RECONCILE` is set. Each check is
         // claimed in Postgres, so it does not matter how many nodes run this.
         crate::server::compile_reconcile::tick(db).await;
@@ -1476,14 +1472,6 @@ fn build_custom_task_registry(
         HEALTH_EVAL_KIND,
         Arc::new(HealthEvalTaskExecutor { db: db.clone() }),
     );
-    reg.register(
-        crate::server::simulation::SIMULATION_RUN_KIND,
-        Arc::new(crate::server::simulation::SimulationTaskExecutor { db: db.clone() }),
-    );
-    reg.register(
-        crate::server::experiment::EXPERIMENT_PRICE_KIND,
-        Arc::new(crate::server::experiment::ExperimentPriceExecutor { db: db.clone() }),
-    );
     // Insights delivery, queued after a monitor scan whose `.monitor.yml` has a
     // `notify:` block. Nothing can queue one before every pod parses that
     // block — an older pod refuses the file outright — so the kind and its
@@ -1594,36 +1582,17 @@ fn build_custom_task_registry(
             crate::server::previews::sample::PreviewAirwaySampleExecutor::airhouse(db.clone()),
         ),
     );
-    // The custom-app kinds, handed in by the composition root
-    // (`SurfaceSeams::tasks`). A kind absent here fails its tasks as unknown, so
-    // `SurfaceSeams::require_custom_apps` refuses to start a process without
-    // them.
+    // The surfaces' kinds, handed in by the composition root
+    // (`SurfaceSeams::tasks`): the custom-app kinds, and the experiment and
+    // simulation kinds (`oxy-api-experiment`: a simulation run, the price job,
+    // read-back, the estimate, the interim reading). A kind absent here fails
+    // its tasks as unknown, so `SurfaceSeams::require_custom_apps` refuses to
+    // start a process without the custom-app ones, and `oxy-server`'s own test
+    // holds the experiment ones to the composition.
     let deps = crate::server::router::TaskDeps { db, preagg };
     for seam in tasks {
         reg.register(seam.kind, (seam.build)(&deps));
     }
-    // Experiment read-back and guardrails: the warehouse reads the tick must
-    // not make itself. Context rebuilt per task from the run's workspace.
-    reg.register(
-        crate::server::experiment::jobs::CHECK_KIND,
-        Arc::new(
-            crate::server::experiment::check::executor::ExperimentCheckExecutor { db: db.clone() },
-        ),
-    );
-    // The sealed report of a closed or aborted run: the tick enqueues one per run.
-    reg.register(
-        crate::server::experiment::jobs::ESTIMATE_KIND,
-        Arc::new(
-            crate::server::experiment::estimate::ExperimentEstimateExecutor::warehouse(db.clone()),
-        ),
-    );
-    // The interim reading of a live or closing run: on demand and once a day by the tick.
-    reg.register(
-        crate::server::experiment::interim::store::INTERIM_KIND,
-        Arc::new(
-            crate::server::experiment::interim::ExperimentInterimExecutor::warehouse(db.clone()),
-        ),
-    );
     Arc::new(reg)
 }
 
@@ -1758,7 +1727,7 @@ fn with_db_secrets_manager(
 /// the caller degrades gracefully. Cloud path only; reuses
 /// [`build_cloud_project_ctx`]. Not cached here — callers that touch many
 /// checks should build once per workspace and reuse.
-pub(crate) async fn build_workspace_ctx(
+pub async fn build_workspace_ctx(
     workspace_id: uuid::Uuid,
     db: &DatabaseConnection,
 ) -> Option<Arc<OxyProjectContext>> {
@@ -2534,7 +2503,7 @@ mod health_scan_wiring_tests {
     fn the_health_context_reads_the_promoted_revision_and_nothing_else() {
         let s = src();
         let body = s
-            .split("pub(crate) async fn build_workspace_ctx")
+            .split("pub async fn build_workspace_ctx")
             .nth(1)
             .expect("build_workspace_ctx is defined here");
         assert!(
@@ -2585,60 +2554,10 @@ mod experiment_tick_wiring_tests {
         );
         for (pass, body) in [("local", local), ("cloud", cloud)] {
             assert!(
-                body.contains("experiment::tick::tick_experiments("),
-                "the {pass} global-driver pass must tick experiments"
+                body.contains("run_global_ticks("),
+                "the {pass} global-driver pass must run the surfaces' global ticks \
+                 (the experiment tick among them)"
             );
         }
-    }
-
-    #[test]
-    fn the_experiment_check_executor_is_registered() {
-        let registry = between(
-            src(),
-            "fn build_custom_task_registry(",
-            "async fn drive_pending(",
-        );
-        assert!(
-            registry.contains("experiment::jobs::CHECK_KIND"),
-            "without it every experiment_check job dead-letters and read-back never runs"
-        );
-    }
-
-    #[test]
-    fn the_experiment_estimate_executor_is_registered() {
-        let registry: String = between(
-            src(),
-            "fn build_custom_task_registry(",
-            "async fn drive_pending(",
-        )
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-        assert!(
-            registry.contains(
-                "experiment::jobs::ESTIMATE_KIND,Arc::new(crate::server::experiment::estimate::\
-                 ExperimentEstimateExecutor::warehouse("
-            ),
-            "without it every experiment_estimate job sits in the queue and no run ever reports"
-        );
-    }
-
-    #[test]
-    fn the_experiment_interim_executor_is_registered() {
-        let registry: String = between(
-            src(),
-            "fn build_custom_task_registry(",
-            "async fn drive_pending(",
-        )
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-        assert!(
-            registry.contains(
-                "experiment::interim::store::INTERIM_KIND,Arc::new(crate::server::experiment::\
-                 interim::ExperimentInterimExecutor::warehouse("
-            ),
-            "without it every experiment_interim job sits in the queue and no interim is ever read"
-        );
     }
 }

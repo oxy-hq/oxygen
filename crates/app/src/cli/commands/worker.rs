@@ -206,10 +206,14 @@ pub async fn run_worker(
     // The custom-app task kinds this worker can run, handed in by the composition
     // root (`SurfaceSeams::tasks`).
     custom_tasks: Vec<crate::server::router::TaskSeam>,
+    // The surfaces' singleton ticks (`SurfaceSeams::global_ticks`); this process
+    // runs the global driver when its role says so, and the driver reads them.
+    global_ticks: Vec<crate::server::router::GlobalTickSeam>,
 ) -> Result<(), OxyError> {
     // Before anything is built: a worker without an executor for a kind
     // `oxy-app` queues would claim those tasks and fail them as unknown.
     crate::server::router::require_task_kinds(&custom_tasks).map_err(OxyError::RuntimeError)?;
+    crate::server::router::install_global_ticks(&global_ticks);
 
     // The worker is a separate PROCESS, so `start_server_and_web_app`'s
     // registration does not reach it — and background work is where `notify`

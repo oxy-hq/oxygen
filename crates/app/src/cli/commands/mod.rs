@@ -776,7 +776,7 @@ pub async fn cli(
             }
         }
         Some(SubCommand::Worker(worker_args)) => {
-            if let Err(e) = worker::run_worker(worker_args, seams.tasks).await {
+            if let Err(e) = worker::run_worker(worker_args, seams.tasks, seams.global_ticks).await {
                 // Returned rather than `exit(1)`-ed: `main` prints the same
                 // message, records it to Sentry, and — the reason this changed —
                 // flushes the platform-telemetry exporters, so the failure that
