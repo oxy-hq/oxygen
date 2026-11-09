@@ -21,14 +21,15 @@
 //! first thing in the process to touch V8, and that mode is process-wide: it
 //! sets `--predictable --random-seed=42`, which would make every tenant's
 //! `Math.random()` the same sequence in every process and serialize V8's
-//! garbage collection. [`init_v8_for_execution`] runs first so the mode is
-//! always the one isolates run under, and the snapshot is built under it.
+//! garbage collection. [`v8_platform::init`](super::v8_platform::init) runs
+//! first so the mode is always the one isolates run under, with the runtime's
+//! V8 flags, and the snapshot is built under it.
 
 use std::sync::OnceLock;
 
-use deno_core::{JsRuntime, JsRuntimeForSnapshot, RuntimeOptions};
+use deno_core::{JsRuntimeForSnapshot, RuntimeOptions};
 
-use super::ops;
+use super::{ops, v8_platform};
 
 /// The script name the bootstrap runs under, in a snapshot or on a bare
 /// isolate. Appears in stack traces, so it must not depend on the path taken.
@@ -71,14 +72,8 @@ pub(super) fn bootstrap_snapshot(bootstrap: &'static str) -> Option<&'static [u8
     })
 }
 
-/// Make V8's process-wide mode the one isolates run under, before anything
-/// builds a snapshot. A no-op once V8 is initialized by anyone.
-fn init_v8_for_execution() {
-    JsRuntime::init_platform(None);
-}
-
 fn build(bootstrap: &'static str) -> Result<Box<[u8]>, String> {
-    init_v8_for_execution();
+    v8_platform::init();
     let mut runtime = JsRuntimeForSnapshot::try_new(RuntimeOptions {
         extensions: vec![ops::oxy_functions_ext::init()],
         ..Default::default()

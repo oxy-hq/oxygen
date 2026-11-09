@@ -64,6 +64,8 @@ mod ops;
 #[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]
+mod terminate_gap_tests;
+#[cfg(test)]
 mod test_calls;
 #[cfg(test)]
 mod tests;

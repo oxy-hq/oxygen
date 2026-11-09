@@ -15,6 +15,7 @@ use crate::custom_apps_functions::runtime::ops::{OpContext, RequestBody};
 
 mod ops;
 mod snapshot;
+mod v8_platform;
 
 /// How much headroom the near-limit callback grants so V8 can finish unwinding.
 ///
@@ -56,6 +57,8 @@ impl DenoEngine {
     /// script on a bare isolate, which is what every isolate did before the
     /// snapshot and what an isolate does if the snapshot could not be built.
     fn create_with(config: IsolateConfig, snapshot: Option<&'static [u8]>) -> Result<Self, String> {
+        // The runtime's V8 flags, before this or any isolate exists.
+        v8_platform::init();
         let mut runtime = JsRuntime::new(RuntimeOptions {
             extensions: vec![ops::oxy_functions_ext::init()],
             startup_snapshot: snapshot,
