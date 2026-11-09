@@ -583,7 +583,14 @@ pub async fn complete_run_with_lost_outcome(
             [run_id.into(), metadata.into()],
         ))
         .await?;
-    Ok(res.rows_affected() > 0)
+    let changed = res.rows_affected() > 0;
+    if changed {
+        // Row-only terminal transition: wake the run's streams to it.
+        // Best-effort: the row is committed, and the caller's lease release
+        // must not hinge on a second acquire.
+        crate::lifecycle::crud::notify_run_events_best_effort(db, run_id).await;
+    }
+    Ok(changed)
 }
 
 /// The **root** run id that owns `task_id` — itself for a root task, the
@@ -699,6 +706,8 @@ async fn retire_run_with_message(
         [run_id.into(), error_message.into()],
     ))
     .await?;
+    // Row-only terminal transition for the whole tree: wake its streams.
+    crate::lifecycle::crud::notify_run_events(&txn, run_id).await?;
     txn.commit().await?;
     // Retired or dead-lettered is terminal. The observer reads the row, so a
     // root that had already finished (and kept its own outcome) is told apart.

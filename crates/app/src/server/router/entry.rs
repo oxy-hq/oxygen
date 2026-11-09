@@ -618,6 +618,9 @@ async fn new_agentic_state(
                 ..Default::default()
             },
         );
+    // Kept concrete for one more call below: the run-events fan-out is bound
+    // to the state this function is about to build.
+    let stream_waker_router = Arc::clone(&router_handle);
     let router: Arc<dyn agentic_runtime::router::TaskRouter> = router_handle;
     // Tie the listener's lifetime to the same shutdown token as the
     // rest of the agentic state. Dropped CancellationToken would
@@ -659,7 +662,7 @@ async fn new_agentic_state(
         bg_cancel.cancel();
     });
 
-    Ok(Arc::new(
+    let state = Arc::new(
         AgenticState::new(shutdown_token, db, thread_owner)
             .with_builder_test_runner(Arc::new(OxyTestRunner))
             .with_router(router)
@@ -670,7 +673,17 @@ async fn new_agentic_state(
                 };
                 role_owns_workspace_files(current_process_role())
             }),
-    ))
+    );
+    // A run driven on another pod appends to `agentic_run_events` and NOTIFYs
+    // `oxy_run_events`; the listener above hands the run id to this state's
+    // `remote_wakes`, where `GET /runs/:id/events` parks for such a run. The
+    // state did not exist when the router started, hence the late bind; the
+    // stream's safety-net timer covers the moments in between. The `oxy
+    // worker` process serves no streams, so `WorkerRuntime` does not bind.
+    let stream_waker: Arc<dyn agentic_runtime::router::RunEventWaker> =
+        state.runtime.remote_wakes.clone();
+    stream_waker_router.bind_run_event_waker(stream_waker);
+    Ok(state)
 }
 
 /// Applies the shared outer layers — state, CORS, the 60-second global

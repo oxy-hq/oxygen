@@ -8,14 +8,22 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::{Notify, mpsc, watch};
 
 use crate::lifecycle::crud;
+use crate::lifecycle::remote_wake::RemoteWakes;
 
 /// Shared state for all in-flight pipeline runs.
 ///
 /// Transport-agnostic: no HTTP types, no axum. Can be used from HTTP, gRPC,
 /// CLI, or tests.
 pub struct RuntimeState {
-    /// Woken when new events are written for a run.
+    /// Woken when new events are written for a run — by the driver in THIS
+    /// process. See [`remote_wakes`](Self::remote_wakes) for the other pods.
     pub notifiers: DashMap<String, Arc<Notify>>,
+    /// Woken when ANY process appends events for a run: the write path pairs
+    /// each append with a `NOTIFY oxy_run_events`, and the task router's
+    /// listener fans the run id in here. Only a stream whose driver may be
+    /// elsewhere subscribes, so a locally-driven stream is never woken twice
+    /// for one flush ([`crate::lifecycle::remote_wake`]).
+    pub remote_wakes: Arc<RemoteWakes>,
     /// Delivers user answers to suspended pipeline tasks (HITL).
     pub answer_txs: DashMap<String, mpsc::Sender<String>>,
     /// Cancellation signals for running pipelines.
@@ -34,6 +42,7 @@ impl RuntimeState {
     pub fn new() -> Self {
         Self {
             notifiers: DashMap::new(),
+            remote_wakes: Arc::new(RemoteWakes::new()),
             answer_txs: DashMap::new(),
             cancel_txs: DashMap::new(),
             statuses: DashMap::new(),

@@ -74,6 +74,10 @@ pub async fn fail_dead_lettered_run(
     if !root_failed {
         return Ok(DeadLetterRun::Held { run_id });
     }
+    // Row-only terminal transition: wake the run's streams to it.
+    // Best-effort: the row is committed, and the failure observer below must
+    // run whether or not a second acquire succeeds.
+    crate::lifecycle::crud::notify_run_events_best_effort(db, &run_id).await;
     crate::lifecycle::failure_hook::root_run_failed(&run_id).await;
     Ok(DeadLetterRun::Failed { run_id })
 }

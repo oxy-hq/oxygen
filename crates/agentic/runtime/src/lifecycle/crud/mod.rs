@@ -19,8 +19,9 @@ mod undriven;
 pub mod visibility;
 
 pub use events::{
-    EventRow, batch_insert_events, delete_events_from_seq, get_all_events, get_all_events_for_runs,
-    get_events_after, get_max_seq, insert_event,
+    EventRow, append_events, batch_insert_events, delete_events_from_seq, get_all_events,
+    get_all_events_for_runs, get_events_after, get_max_seq, insert_event, notify_run_events,
+    notify_run_events_best_effort,
 };
 pub use queries::{
     AirwayTableSummary, AutomationStepSummary, LlmTokenSummary, LlmTokenSummaryByRun,
@@ -95,11 +96,19 @@ pub async fn transition_run(
     // dangling (and so observability doesn't show a "held" lease on a
     // finished run). Unconditional here is safe: the run is terminal, no
     // driver should still be acting on it.
-    if matches!(task_status, "done" | "failed" | "cancelled" | "timed_out") {
+    let terminal = matches!(task_status, "done" | "failed" | "cancelled" | "timed_out");
+    if terminal {
         model.driver_id = Set(None);
         model.driver_heartbeat_at = Set(None);
     }
     run::Entity::update(model).exec(db).await?;
+    // A terminal status with no event behind it — a failure before the
+    // orchestrator loop, a cancel of a run nothing drives, `start_guard` — is
+    // what a stream synthesizes its terminal event from, so it has to wake the
+    // stream the way an event would. Best-effort: the row is already written.
+    if terminal {
+        events::notify_run_events_best_effort(db, run_id).await;
+    }
     Ok(())
 }
 

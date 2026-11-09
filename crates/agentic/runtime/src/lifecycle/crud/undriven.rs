@@ -48,5 +48,11 @@ pub async fn fail_undriven_run(
             ],
         ))
         .await?;
-    Ok(res.rows_affected() == 1)
+    let failed = res.rows_affected() == 1;
+    if failed {
+        // A stream for this run has no event to read; wake it to the row.
+        // Best-effort: the row is committed, and this is the caller's answer.
+        super::events::notify_run_events_best_effort(db, run_id).await;
+    }
+    Ok(failed)
 }

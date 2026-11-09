@@ -550,44 +550,45 @@ pub fn terminal_event_for_status(
     }
 }
 
-/// How long [`stream_events`] will park on the in-process notifier before
-/// re-reading `agentic_run_events` anyway.
+/// How long [`stream_events`] parks before re-reading `agentic_run_events`
+/// anyway, when the run's driver may be in another process.
 ///
-/// **The notifier is not a sufficient wake source, because the driver is often
-/// in a different process.** `RuntimeState.notifiers` is a per-process
-/// `DashMap<run_id, Notify>` and `state.notify(..)` rings only this process's
-/// copy. Since airway submits enqueue `TaskScope::Global`
-/// (`routes/airway.rs::start_and_drive`), the pod that accepted the submit —
-/// and therefore serves this SSE stream, the route being `IdeOnly` — is
-/// usually *not* the pod driving the run. The driver writes rows to
-/// `agentic_run_events` in Postgres and rings a notifier we cannot see.
+/// **Two wake sources, then the timer.** `RuntimeState.notifiers` is a
+/// per-process `DashMap<run_id, Notify>` that only this process's driver
+/// rings. A run driven elsewhere — an airway submit enqueued
+/// `TaskScope::Global`, a queued chat claimed by another pod, a run whose
+/// registering pod restarted — writes its rows to Postgres and rings a
+/// notifier we cannot see. For those, every append to `agentic_run_events`
+/// now also issues `NOTIFY oxy_run_events, '<run_id>'` in the write's own
+/// transaction (`agentic_runtime::crud::events`), the task router's existing
+/// LISTEN connection hears it, and it rings the
+/// `RuntimeState::remote_wakes` entry this stream subscribes below. That is
+/// the hot path: one indexed read per batch of events, however many pods.
 ///
-/// Parking on the notifier alone therefore hangs the stream: the client gets
-/// whatever was already written at the first poll and then nothing, while
-/// `still_active` stays true forever (only an in-process `deregister` clears
-/// the entry, and the driver's process is the one that calls it). That breaks
-/// the invariant that every run stream ends in `done`/`error`/`cancelled`.
+/// The timer is what is left when the NOTIFY path is not delivering: the
+/// listener connection is down (it reconnects with 200 ms–5 s backoff and a
+/// 300 s keepalive, and rings every parked stream once on reconnect), the
+/// fan-out is not yet bound at boot, or a notification was lost in the gap.
+/// A stream never hangs on the listener's health; it is at most this much
+/// slower for as long as the listener is down. So the value is sized by the
+/// connection-pool budget, not by felt latency — see
+/// [`ROW_CHECK_EVERY_N_TIMED_WAKES`] for the arithmetic.
 ///
-/// A timer costs one indexed `get_events_after` per stream per interval and
-/// needs no new infrastructure. Per-run LISTEN/NOTIFY was the alternative and
-/// is rejected for the reasons `adr-postgres-as-worker-queue.md` gives (§1,
-/// §3): a second permanent LISTEN connection per pod is a horizontal-scale cap
-/// and a PgBouncer footgun. #2823 rejected it on the same grounds for the
-/// world-model bus and tailed a table instead.
-///
-/// The notifier stays as the fast path: a locally-driven run (`OXY_ROLE=all`,
-/// or any run this process drives) still wakes instantly, so this interval is
-/// the added latency only when the driver is remote.
-const REMOTE_DRIVER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+/// Why not a dedicated LISTEN connection per stream, or per pod: a second
+/// permanent LISTEN connection per pod is the horizontal-scale cap
+/// `adr-postgres-as-worker-queue.md` §1/§3 warns of. This rides the one the
+/// router already holds, as one more channel.
+const REMOTE_DRIVER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The backed-off interval used once a stream has been quiet for
 /// [`IDLE_TICKS_BEFORE_BACKOFF`].
 ///
 /// A run that is `awaiting_input` is not terminal and deliberately never times
 /// out (`SuspendedHuman`), so its stream can legitimately stay open for hours.
-/// At the fast interval that is two indexed queries a second, per open
-/// browser, for the whole wait — a real cost on a handler shared by every
-/// domain, not a hypothetical one.
+/// At the old 1 s fast interval that was two indexed queries a second, per
+/// open browser, for the whole wait — a real cost on a handler shared by every
+/// domain, not a hypothetical one — and even at 10 s it is a query the NOTIFY
+/// path makes unnecessary.
 ///
 /// Backing off is safe here precisely because it only engages after a long
 /// quiet stretch: an active pipeline emits events continuously and resets to
@@ -600,8 +601,9 @@ const IDLE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3
 /// Sized to be far longer than any realistic wait for a driver to claim a
 /// freshly-enqueued run, so the back-off can never be what makes a pipeline
 /// look slow to start. A worker claims in ~300 ms; the ungated periodic
-/// stranded tick is the slow path at ~30 s. 90 s clears both.
-const IDLE_TICKS_BEFORE_BACKOFF: u32 = 90;
+/// stranded tick is the slow path at ~30 s. 9 × 10 s = 90 s clears both —
+/// the same wall-clock as before the fast tier went from 1 s to 10 s.
+const IDLE_TICKS_BEFORE_BACKOFF: u32 = 9;
 
 /// Ask the run row on one in every N **timed** wakes, not on all of them.
 ///
@@ -618,24 +620,32 @@ const IDLE_TICKS_BEFORE_BACKOFF: u32 = 90;
 /// refused connections an hour — and it is still live, so anything that adds a
 /// steady poll has to be sized against it rather than assumed cheap.
 ///
-/// Before this change an idle SSE stream parked on the notifier and issued
-/// **zero** acquires. It cannot stay that way and still serve a run driven in
-/// another process, so the budget is spent deliberately — and only where it
-/// buys something. **Both** queries count: `get_events_after` runs on every
-/// wake, `get_run` on one timed wake in `N`.
+/// An idle SSE stream parked on a notifier issues **zero** acquires, and a
+/// remote-driven one now parks on the `oxy_run_events` NOTIFY the same way.
+/// What is left is the safety-net timer, and it is spent deliberately. **Both**
+/// queries count: `get_events_after` runs on every wake, `get_run` on one
+/// timed wake in `N`.
 ///
 /// | stream | interval | acquires/sec |
 /// | --- | --- | --- |
-/// | notifier present, notified wake | — | 0 |
-/// | notifier present, non-airway, quiet | 30 s | 0.033 + 0.007 = **0.04** |
-/// | airway, or no notifier — active | 1 s | 1 + 0.2 = **1.2** |
+/// | local driver, notified wake | — | 0 |
+/// | driver may be elsewhere, NOTIFY wake | — | one read per flush, as local |
+/// | local driver, quiet | 30 s | 0.033 + 0.007 = **0.04** |
+/// | driver may be elsewhere — safety net, inside the back-off | 10 s | 0.1 + 0.02 = **0.12** |
 /// | either, quiet ≥ `IDLE_TICKS_BEFORE_BACKOFF` | 30 s | **0.04** |
 ///
-/// The fast tier is keyed on *whether the timer is the wake source*, not on
-/// `source_type` alone: a stream holding no notifier has nothing that can ring
-/// it, whatever kind it is. `notifier` is snapshotted once before the loop and
-/// never re-read, so that state is permanent for the stream's life — see the
-/// gate at the park.
+/// 0.12/s is under the stricter reaper threshold of 0.13/s (ceiling 40,
+/// `idle_timeout` 300 s) for a single stream, where the 1 s tier it replaces
+/// sat at 1.2/s — ten times over, for every open remote-driven stream, for the
+/// length of the run. The NOTIFY path carries the events; the 10 s read is
+/// what a stream costs when nothing is ringing it, and it decays to 0.04/s
+/// after 90 s quiet. The [`poll_after`] test pins the arithmetic.
+///
+/// The fast tier is keyed on *whether the driver may be elsewhere*, not on
+/// `source_type` alone: a stream that found no notifier here was registered
+/// by no local driver, whatever its kind. `notifier` is snapshotted once
+/// before the loop and never re-read, so that state is permanent for the
+/// stream's life — see the gate at the park.
 ///
 /// An earlier version of this table read `driver local … ~0` and was wrong: it
 /// counted only `get_run`, and `timed_wakes` not advancing on a notified wake
@@ -643,23 +653,40 @@ const IDLE_TICKS_BEFORE_BACKOFF: u32 = 90;
 /// so before `driver_may_be_remote` existed an analytics stream paid ~1.2/s
 /// through every LLM call and warehouse query — gaps long enough to time out
 /// but short enough to keep resetting `idle_polls`, so it never reached the
-/// back-off. That is the largest number in the table, on the pod this change
-/// exists to relieve, for the source types that do not need a timer at all.
+/// back-off. The same mistake is why the NOTIFY fan-out rings a registry of
+/// its own (`RuntimeState::remote_wakes`) and not `notifiers`: every pod
+/// hears its own appends too, and a second ring per flush on a locally-driven
+/// stream is a second `get_events_after` that returns nothing.
 ///
-/// Hence the gate: only a kind whose driver can be in another process pays the
-/// fast interval. Everything else sits at 30 s, where the notifier is doing
-/// the real work and the timer is a safety net.
-///
-/// The remaining 1.2/s applies to airway streams only, is bounded by the run's
-/// duration, and decays to 0.04/s after `IDLE_TICKS_BEFORE_BACKOFF`.
+/// Hence the gate: only a stream whose driver may be elsewhere subscribes to
+/// the NOTIFY and pays the 10 s safety net. Everything else sits at 30 s,
+/// where the notifier is doing the real work and the timer is a safety net.
 const ROW_CHECK_EVERY_N_TIMED_WAKES: u32 = 5;
+
+/// How long to park before the next timed read.
+///
+/// Pure, so the tiers can be asserted without a stream: a stream whose driver
+/// may be elsewhere takes [`REMOTE_DRIVER_POLL_INTERVAL`] as its safety net
+/// until it has been quiet for [`IDLE_TICKS_BEFORE_BACKOFF`] polls; every
+/// other stream, and every stream once quiet, sits at [`IDLE_POLL_INTERVAL`].
+fn poll_after(driver_may_be_elsewhere: bool, idle_polls: u32) -> std::time::Duration {
+    if driver_may_be_elsewhere && idle_polls < IDLE_TICKS_BEFORE_BACKOFF {
+        REMOTE_DRIVER_POLL_INTERVAL
+    } else {
+        IDLE_POLL_INTERVAL
+    }
+}
 
 /// Why [`stream_events`] stopped parking.
 enum Wake {
     /// The in-process driver flushed events — re-read immediately.
     Notified,
-    /// Nothing rang us within [`REMOTE_DRIVER_POLL_INTERVAL`]. Either the run
-    /// is idle, or its driver is in another process. Re-read either way.
+    /// A `NOTIFY oxy_run_events` for this run reached us from the write path:
+    /// an append on any pod, or a terminal run-row transition that wrote no
+    /// event. Re-read immediately; if nothing new is there, ask the row.
+    Remote,
+    /// Nothing rang us within [`poll_after`]: the run is idle, or the NOTIFY
+    /// path is not delivering. Re-read either way.
     Timeout,
     Shutdown,
 }
@@ -763,6 +790,25 @@ pub async fn stream_events(
     // `Global`, this is the second place to change.
     let driver_may_be_remote = source_type == agentic_runtime::coordinator::AIRWAY_SOURCE_TYPE;
 
+    // May the driver be in another process? Two ways, and `source_type` alone
+    // covers just one: a kind that is enqueued `Global`, or a stream holding
+    // **no notifier** — nothing here registered the run, so if anyone drives
+    // it, it is another pod (a reconnect after the registering pod restarted,
+    // a queued chat another pod claimed, a run that failed before its driver
+    // spawned). `notifier` is snapshotted once and never re-read, so this is
+    // permanent for the stream's life.
+    //
+    // Such a stream parks on the cross-pod wake too: every append to
+    // `agentic_run_events` NOTIFYs its run id, and the router's listener rings
+    // `remote_wakes` for it (`agentic_runtime::lifecycle::remote_wake`). The
+    // subscription is dropped with the stream — client gone, terminal event,
+    // shutdown — so the registry holds exactly the streams that are open.
+    // A locally-driven stream does not subscribe: its own driver rings it,
+    // and the NOTIFY echo would only add an empty read per flush.
+    let driver_may_be_elsewhere = driver_may_be_remote || notifier.is_none();
+    let remote_wake =
+        driver_may_be_elsewhere.then(|| state.runtime.remote_wakes.subscribe(&run_id));
+
     let registry = Arc::clone(&state.event_registry);
 
     let stream = async_stream::stream! {
@@ -788,6 +834,11 @@ pub async fn stream_events(
         // Starts true so a stream opened against an already-finished run closes
         // on its first pass.
         let mut check_run_row = true;
+        // The last wake was a cross-pod NOTIFY. If the read it triggers finds
+        // no new rows, the write behind it was a run-row-only terminal
+        // transition (`transition_run`, the recovery paths), so the row is
+        // asked on this pass rather than on the fifth timed wake.
+        let mut remote_ring_pending = false;
 
         loop {
             let rows = match db::get_events_after(&db, &run_id, last_sent_seq).await {
@@ -802,6 +853,9 @@ pub async fn stream_events(
                 idle_polls = idle_polls.saturating_add(1);
             } else {
                 idle_polls = 0;
+            }
+            if std::mem::take(&mut remote_ring_pending) && rows.is_empty() {
+                check_run_row = true;
             }
 
             let mut terminal = false;
@@ -923,25 +977,27 @@ pub async fn stream_events(
                 // that died). Derive it from the authoritative run-row status
                 // so the client doesn't hang.
                 //
-                // "Doesn't hang" now carries a tail, and it is worth stating.
-                // This path used to fire on the next wake after the notifier
-                // went away; it now waits for a wake on which
-                // `ROW_CHECK_EVERY_N_TIMED_WAKES` allows the row query. That is
-                // `5 × poll_after`, so it depends on which tier the stream is
-                // in:
+                // "Doesn't hang" carries a tail only when nothing rings. A
+                // run-row-only terminal transition (`transition_run` and the
+                // recovery / dead-letter writers) NOTIFYs the run like an
+                // append would; a stream parked on `remote_wakes` wakes, reads
+                // nothing new, and asks the row on this very pass — so a
+                // remote-driven run whose driver died closes within one
+                // read of the row being written. Two streams still wait for a
+                // timed wake on which `ROW_CHECK_EVERY_N_TIMED_WAKES` allows
+                // the row query, `5 × poll_after`:
                 //
-                // - timer is the wake source (airway, or no notifier here) and
-                //   still inside the back-off → 1 s tier → **~5 s**
-                // - anything at the 30 s tier — a quiet non-airway stream from
-                //   its first park, or any stream past
-                //   `IDLE_TICKS_BEFORE_BACKOFF` → **~150 s**
+                // - a locally-driven stream (it parks on `notifiers`, which
+                //   the dead driver no longer rings, and does not subscribe to
+                //   the NOTIFY) → 30 s tier → **~150 s**
+                // - any stream while the LISTEN connection is down → its
+                //   tier → **~50 s** inside the back-off, ~150 s past it
                 //
-                // The 150 s case is real and not only a backed-off one: a
-                // local run whose driver died without writing a terminal event
-                // leaves its notifier registered, so the stream sits at 30 s
-                // and waits it out. Only the synthesized path pays this at all
-                // — a terminal *event* closes the stream on the very next poll
-                // — and it is the deliberate trade for the query budget above.
+                // Both are the deliberate trade for the query budget above:
+                // a terminal *event* closes the stream on the very next wake,
+                // and the row-only case is on the NOTIFY path too, so the
+                // timer only ever pays for a dead local driver or a dead
+                // listener.
                 if !terminal_emitted
                     && let Some(ev) =
                         synth_terminal_event(&db, &run_id, last_sent_seq + 1).await
@@ -971,57 +1027,55 @@ pub async fn stream_events(
                 return;
             }
 
-            // Park. The notifier is the fast path when the driver is local; the
-            // timer is what makes a remotely-driven run work at all, and the
-            // only wake source when this process holds no notifier for the run.
-            // Fast when the timer is actually the wake source, and only until
-            // the stream goes quiet.
+            // Park. Two wake sources, then the timer: the in-process notifier
+            // when the driver is local, the cross-pod `oxy_run_events` wake
+            // when it may be elsewhere. The timer is the safety net for a
+            // listener outage — fast only for a stream whose driver may be
+            // elsewhere, and only until the stream goes quiet; a locally
+            // driven stream sits at 30 s because its notifier is authoritative.
             //
-            // Two ways it can be the wake source, and `source_type` alone
-            // covers just one. A run whose driver may be in another process is
-            // the obvious case. The other is a stream holding **no notifier**:
-            // `notifier` is snapshotted once, before this loop, and never
-            // re-read, so a stream that opens while this process has no entry
-            // keeps `None` for its whole life — even if recovery resumes the
-            // run here a moment later and registers one. Gating on
-            // `driver_may_be_remote` alone put that stream at 30 s forever: an
-            // ide restart mid-analytics-run would leave a reconnecting browser
-            // receiving events in 30 s batches, and waiting the full
-            // `ROW_CHECK_EVERY_N_TIMED_WAKES` × 30 s for a synthesized terminal
-            // event, with no back-off needed to get there.
+            // A stream has at least one of the two sources: `remote_wake` is
+            // `Some` exactly when `notifier` is `None` or the kind is airway.
+            // An absent source is a future that never resolves.
             //
             // A *present* notifier still means zero acquires on the common
             // path, which is the whole point of the gate, and `idle_polls`
             // bounds the no-notifier case exactly as it bounds airway.
-            let timer_is_the_wake_source = driver_may_be_remote || notifier.is_none();
-            let poll_after = if timer_is_the_wake_source && idle_polls < IDLE_TICKS_BEFORE_BACKOFF {
-                REMOTE_DRIVER_POLL_INTERVAL
-            } else {
-                IDLE_POLL_INTERVAL
+            let park_for = poll_after(driver_may_be_elsewhere, idle_polls);
+            let local_ring = async {
+                match &notifier {
+                    Some(n) => n.notified().await,
+                    None => std::future::pending::<()>().await,
+                }
             };
-            let wake = match &notifier {
-                Some(n) => tokio::select! {
-                    _ = n.notified() => Wake::Notified,
-                    _ = tokio::time::sleep(poll_after) => Wake::Timeout,
-                    _ = state.shutdown_token.cancelled() => Wake::Shutdown,
-                },
-                // No notifier in this process — either the run was never
-                // registered here (a reconnect after the registering pod
-                // restarted) or it failed before the driver spawned. Nothing
-                // can ring us, so the timer is the whole wake source.
-                None => tokio::select! {
-                    _ = tokio::time::sleep(poll_after) => Wake::Timeout,
-                    _ = state.shutdown_token.cancelled() => Wake::Shutdown,
-                },
+            let remote_ring = async {
+                match &remote_wake {
+                    Some(sub) => sub.notified().await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
+            let wake = tokio::select! {
+                _ = local_ring => Wake::Notified,
+                _ = remote_ring => Wake::Remote,
+                _ = tokio::time::sleep(park_for) => Wake::Timeout,
+                _ = state.shutdown_token.cancelled() => Wake::Shutdown,
             };
             match wake {
                 Wake::Shutdown => break,
-                // A notifier ring proves a driver in THIS process is alive and
+                // A local ring proves a driver in THIS process is alive and
                 // will `deregister` when it finishes, so the run row has
                 // nothing to add. Costs zero acquires, which is what keeps
-                // analytics and builder — still direct-driven, and most open
-                // streams — exactly as cheap as they were before this change.
+                // analytics and builder — direct-driven, and most open
+                // streams — exactly as cheap as before.
                 Wake::Notified => check_run_row = false,
+                // A NOTIFY says "something about this run changed". New rows
+                // explain it, and a terminal one closes the stream at the top
+                // of the loop; no new rows means a run-row-only write, so the
+                // row is asked on the next pass (see `remote_ring_pending`).
+                Wake::Remote => {
+                    check_run_row = false;
+                    remote_ring_pending = true;
+                }
                 Wake::Timeout => {
                     timed_wakes = timed_wakes.saturating_add(1);
                     check_run_row = timed_wakes.is_multiple_of(ROW_CHECK_EVERY_N_TIMED_WAKES);
@@ -1603,7 +1657,63 @@ pub async fn update_thinking_mode(
 
 #[cfg(test)]
 mod tests {
-    use super::{RunRoute, driven_elsewhere, refuses_builder_start};
+    use std::time::Duration;
+
+    use super::{
+        IDLE_POLL_INTERVAL, IDLE_TICKS_BEFORE_BACKOFF, REMOTE_DRIVER_POLL_INTERVAL,
+        ROW_CHECK_EVERY_N_TIMED_WAKES, RunRoute, driven_elsewhere, poll_after,
+        refuses_builder_start,
+    };
+
+    /// The timer is a safety net behind the NOTIFY path: fast only for a
+    /// stream whose driver may be elsewhere, and only while it is not quiet.
+    #[test]
+    fn a_stream_whose_driver_may_be_elsewhere_polls_as_a_safety_net_then_backs_off() {
+        assert_eq!(poll_after(true, 0), REMOTE_DRIVER_POLL_INTERVAL);
+        assert_eq!(
+            poll_after(true, IDLE_TICKS_BEFORE_BACKOFF - 1),
+            REMOTE_DRIVER_POLL_INTERVAL
+        );
+        assert_eq!(
+            poll_after(true, IDLE_TICKS_BEFORE_BACKOFF),
+            IDLE_POLL_INTERVAL
+        );
+        assert_eq!(poll_after(true, u32::MAX), IDLE_POLL_INTERVAL);
+        // A locally-driven stream's notifier is authoritative: never fast.
+        assert_eq!(poll_after(false, 0), IDLE_POLL_INTERVAL);
+        assert_eq!(
+            poll_after(false, IDLE_TICKS_BEFORE_BACKOFF),
+            IDLE_POLL_INTERVAL
+        );
+    }
+
+    /// The tiers are sized against the 2026-09-01 connection-pool incident
+    /// (`internal-docs/worker-fleet.md`, "Polling and the connection pool"):
+    /// `idle_timeout` cannot reap a connection a poller keeps touching, and the
+    /// threshold at the recommended ceiling of 40 is 0.13 acquires/s. Both
+    /// queries in the loop count.
+    #[test]
+    fn the_safety_net_stays_under_the_pool_reaper_threshold() {
+        let acquires_per_tick = 1.0 + 1.0 / f64::from(ROW_CHECK_EVERY_N_TIMED_WAKES);
+        let fast = acquires_per_tick / REMOTE_DRIVER_POLL_INTERVAL.as_secs_f64();
+        let idle = acquires_per_tick / IDLE_POLL_INTERVAL.as_secs_f64();
+        assert!(
+            fast < 0.13,
+            "fast tier spends {fast:.3} acquires/s per stream"
+        );
+        assert!(
+            idle < 0.05,
+            "idle tier spends {idle:.3} acquires/s per stream"
+        );
+        // The events read alone is at most one per 10 s per idle stream.
+        assert!(REMOTE_DRIVER_POLL_INTERVAL >= Duration::from_secs(10));
+        // The back-off still engages at the same wall-clock the 1 s tier had,
+        // so a slow claim never looks like a slow pipeline.
+        assert_eq!(
+            REMOTE_DRIVER_POLL_INTERVAL * IDLE_TICKS_BEFORE_BACKOFF,
+            Duration::from_secs(90)
+        );
+    }
 
     /// The chat route is on the customer list, so the Factory gate lets any member
     /// through it: it must refuse a Builder start on every process, including the

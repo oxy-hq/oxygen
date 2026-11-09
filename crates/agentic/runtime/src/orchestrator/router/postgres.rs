@@ -3,9 +3,17 @@
 //! ## Architecture
 //!
 //! - One **dedicated `tokio_postgres` connection** per process, separate
-//!   from the SeaORM pool, running `LISTEN oxy_task_enqueued`. `LISTEN`
-//!   is per-connection in Postgres, so a pooled connection that rotates
+//!   from the SeaORM pool, running `LISTEN oxy_task_enqueued` (plus the
+//!   health-probe channel and `oxy_run_events`, below). `LISTEN` is
+//!   per-connection in Postgres, so a pooled connection that rotates
 //!   would be unreliable.
+//! - The same connection carries **`oxy_run_events`**: every append to
+//!   `agentic_run_events` NOTIFYs its run id, and the driver task hands
+//!   it to [`RunEventFanout`], which rings the stream parked on that run
+//!   in this process (`lifecycle::remote_wake`). One channel more on the
+//!   connection the pod already holds — not a second LISTEN connection,
+//!   which the pool budget in `internal-docs/worker-fleet.md` counts as
+//!   `P+1` per pod.
 //! - A long-lived **driver task** owns that connection. It pumps the
 //!   `tokio_postgres::Connection` future (required for the client to
 //!   work at all) and observes `AsyncMessage::Notification` events,
@@ -90,7 +98,9 @@ use tokio_postgres_rustls::MakeRustlsConnect;
 use tokio_util::sync::CancellationToken;
 
 use super::TaskRouter;
+use super::run_events::RunEventFanout;
 use super::wake::{WAKE_BUFFER, Wake, next_wake_for};
+use crate::lifecycle::remote_wake::{RUN_EVENTS_CHANNEL, RunEventWaker};
 
 /// Postgres NOTIFY channel name. Single global channel for v1 — every
 /// worker hears every enqueue regardless of class, and `SKIP LOCKED`
@@ -273,6 +283,9 @@ pub struct PostgresTaskRouter {
     /// instance can tell its own probes apart from peer probes in
     /// logs. Diagnostic only; not used for any logic.
     instance_id: String,
+    /// Where a run id received on [`RUN_EVENTS_CHANNEL`] goes. Empty until
+    /// [`Self::bind_run_event_waker`]; the stream's timer covers the gap.
+    run_events: Arc<RunEventFanout>,
 }
 
 impl PostgresTaskRouter {
@@ -302,12 +315,14 @@ impl PostgresTaskRouter {
         let last_probe_at_millis = Arc::new(AtomicI64::new(0));
         let instance_id = format!("router-{}", uuid::Uuid::new_v4());
         let cancel = CancellationToken::new();
+        let run_events = Arc::new(RunEventFanout::new());
 
         let router = Arc::new(Self {
             db,
             wakes: wakes.clone(),
             last_probe_at_millis: Arc::clone(&last_probe_at_millis),
             instance_id: instance_id.clone(),
+            run_events: Arc::clone(&run_events),
         });
 
         let listener_cancel = cancel.clone();
@@ -318,6 +333,7 @@ impl PostgresTaskRouter {
                 tls,
                 wakes,
                 last_probe_at_millis,
+                run_events,
                 listener_cancel,
                 options,
             )
@@ -325,6 +341,15 @@ impl PostgresTaskRouter {
         });
 
         (router, cancel)
+    }
+
+    /// Route the run ids received on [`RUN_EVENTS_CHANNEL`] to `waker` —
+    /// in production the `RuntimeState::remote_wakes` registry the SSE
+    /// handler parks on. Bound by the composition root once that state
+    /// exists, which is after this router started; a notification that
+    /// arrives before then is dropped, and the stream's timer delivers.
+    pub fn bind_run_event_waker(&self, waker: Arc<dyn RunEventWaker>) {
+        self.run_events.bind(waker);
     }
 
     /// UNIX time of the most recently received health probe on this
@@ -584,6 +609,7 @@ async fn run_listener(
     tls: MakeRustlsConnect,
     wakes: broadcast::Sender<Wake>,
     last_probe_at_millis: Arc<AtomicI64>,
+    run_events: Arc<RunEventFanout>,
     cancel: CancellationToken,
     options: PostgresTaskRouterOptions,
 ) {
@@ -598,6 +624,7 @@ async fn run_listener(
             &tls,
             &wakes,
             &last_probe_at_millis,
+            &run_events,
             &cancel,
             &options,
         )
@@ -700,6 +727,7 @@ async fn listen_once(
     tls: &MakeRustlsConnect,
     wakes: &broadcast::Sender<Wake>,
     last_probe_at_millis: &Arc<AtomicI64>,
+    run_events: &Arc<RunEventFanout>,
     cancel: &CancellationToken,
     options: &PostgresTaskRouterOptions,
 ) -> ListenExit {
@@ -723,6 +751,7 @@ async fn listen_once(
     // `cancel.cancelled()`) is signalled by aborting its JoinHandle.
     let driver_wakes = wakes.clone();
     let driver_probe = Arc::clone(last_probe_at_millis);
+    let driver_run_events = Arc::clone(run_events);
     let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<ListenExit>();
     let driver = tokio::spawn(async move {
         let mut stream = futures::stream::poll_fn(move |cx| connection.poll_message(cx));
@@ -773,6 +802,20 @@ async fn listen_once(
                         // Deliberately send no wake:
                         // a probe doesn't represent claimable work.
                     }
+                    RUN_EVENTS_CHANNEL => {
+                        // A run appended events somewhere in the fleet.
+                        // Ring the stream parked on it here, if any; a
+                        // run nobody streams from this pod is the common
+                        // case and costs a map lookup. No task wake: an
+                        // event row is not claimable work.
+                        let woke = driver_run_events.deliver(n.payload());
+                        tracing::trace!(
+                            target: "router.run_events",
+                            run_id = %n.payload(),
+                            woke,
+                            "run events notification delivered"
+                        );
+                    }
                     other => {
                         // Unknown channel — we LISTEN on a closed
                         // set so this only fires if Postgres routes
@@ -802,23 +845,27 @@ async fn listen_once(
         let _ = exit_tx.send(exit);
     });
 
-    // Subscribe to both channels in one batch. Server-side
-    // bookkeeping is per-channel, so we issue two LISTEN commands;
+    // Subscribe to all three channels in one batch. Server-side
+    // bookkeeping is per-channel, so we issue three LISTEN commands;
     // semicolon-joining them in a single batch_execute lets the
     // driver task observe them as one atomic round-trip.
     if let Err(e) = client
         .batch_execute(&format!(
-            "LISTEN {TASK_ENQUEUED_CHANNEL}; LISTEN {HEALTH_PROBE_CHANNEL}"
+            "LISTEN {TASK_ENQUEUED_CHANNEL}; LISTEN {HEALTH_PROBE_CHANNEL}; \
+             LISTEN {RUN_EVENTS_CHANNEL}"
         ))
         .await
     {
         driver.abort();
         return ListenExit::Pg(e);
     }
+    // The one line per (re)connect. A stream that polled through an outage
+    // has its wake path back from here on.
     tracing::info!(
         target: "router",
         task_channel = TASK_ENQUEUED_CHANNEL,
         probe_channel = HEALTH_PROBE_CHANNEL,
+        run_events_channel = RUN_EVENTS_CHANNEL,
         "listener connected; LISTEN issued"
     );
     // On a fresh connection, wake anyone waiting to do an immediate
@@ -827,6 +874,10 @@ async fn listen_once(
     // lost server-side; this wake gives waiters one chance to find
     // the row themselves.
     let _ = wakes.send(Wake::All);
+    // Same for the streams: an append NOTIFYed during the gap is gone, so
+    // each parked stream reads `agentic_run_events` once now rather than
+    // waiting out its safety-net timer.
+    run_events.catch_up();
 
     // Keepalive ticker. First tick fires after the full interval (not
     // immediately) — `Burst` would re-fire missed ticks back-to-back

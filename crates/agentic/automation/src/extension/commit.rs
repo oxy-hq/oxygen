@@ -304,14 +304,13 @@ fn validate_invariants(commit: &DecisionCommit) -> Result<(), DbErr> {
     Ok(())
 }
 
-/// Returns `($start, $start+1, ..., $start+cols-1)` and advances the caller's
-/// counter by `cols`. The parentheses are included so callers can join groups
-/// with ", " and paste directly into a VALUES clause.
-fn build_row_placeholders(start: usize, cols: usize) -> String {
-    let params: Vec<String> = (start..start + cols).map(|n| format!("${n}")).collect();
-    format!("({})", params.join(", "))
-}
-
+/// Append the decision's events inside the commit's transaction.
+///
+/// Through `agentic_runtime::crud::append_events`, which is one multi-row
+/// `INSERT` carrying the `NOTIFY oxy_run_events` the run's streams park on:
+/// a queued automation run is driven on whichever pod claimed it, and the
+/// pod serving its stream learns of these rows from that notification. A
+/// raw insert here would leave that stream on its safety-net timer.
 async fn append_events_in_txn(
     txn: &DatabaseTransaction,
     run_id: &str,
@@ -322,40 +321,7 @@ async fn append_events_in_txn(
         return Ok(());
     }
     let next_seq = next_seq_in_txn(txn, run_id).await?;
-    let now = chrono::Utc::now().fixed_offset();
-
-    // Build a single multi-row INSERT instead of one statement per event.
-    // For N events this reduces from N+1 round-trips (1 SELECT + N inserts)
-    // to exactly 2 (1 SELECT + 1 multi-row INSERT), which matters on
-    // high-latency connections and for long/nested workflows.
-    let mut param_groups: Vec<String> = Vec::with_capacity(events.len());
-    let mut values: Vec<sea_orm::Value> = Vec::with_capacity(events.len() * 6);
-    let mut p = 1usize;
-
-    for (i, (event_type, payload)) in events.iter().enumerate() {
-        let seq = next_seq + i as i64;
-        param_groups.push(build_row_placeholders(p, 6));
-        let row: [sea_orm::Value; 6] = [
-            run_id.into(),
-            seq.into(),
-            event_type.as_str().into(),
-            payload.clone().into(),
-            attempt.into(),
-            now.into(),
-        ];
-        values.extend(row);
-        p += 6;
-    }
-
-    let sql = format!(
-        "INSERT INTO agentic_run_events (run_id, seq, event_type, payload, attempt, created_at) \
-         VALUES {} ON CONFLICT (run_id, seq) DO NOTHING",
-        param_groups.join(", ")
-    );
-
-    let stmt = Statement::from_sql_and_values(sea_orm::DatabaseBackend::Postgres, sql, values);
-    txn.execute_raw(stmt).await?;
-    Ok(())
+    agentic_runtime::crud::append_events(txn, run_id, next_seq, events, attempt).await
 }
 
 async fn next_seq_in_txn(txn: &DatabaseTransaction, run_id: &str) -> Result<i64, DbErr> {
@@ -400,6 +366,10 @@ async fn set_run_terminal_in_txn(
         ],
     );
     txn.execute_raw(stmt).await?;
+    // A terminal decision with no events to append still changes what the
+    // run's streams should do; Postgres collapses this with the append's
+    // notification when both are in this transaction.
+    agentic_runtime::crud::notify_run_events(txn, run_id).await?;
     Ok(())
 }
 

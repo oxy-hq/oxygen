@@ -34,7 +34,12 @@
 //!   responsibility, different cadence.
 
 mod postgres;
+mod run_events;
 mod wake;
+/// The third channel the listener subscribes to: a run id per append to
+/// `agentic_run_events`. Owned by the lifecycle layer, where the write path
+/// is; re-exported here beside the two channels this module owns.
+pub use crate::lifecycle::remote_wake::{RUN_EVENTS_CHANNEL, RunEventWaker};
 pub use postgres::{
     DEFAULT_LISTENER_KEEPALIVE_INTERVAL, HEALTH_PROBE_CHANNEL, LAST_PROBE_RECEIVED_MILLIS,
     ListenerConfigFactory, PROBES_RECEIVED, PostgresTaskRouter, PostgresTaskRouterOptions,
