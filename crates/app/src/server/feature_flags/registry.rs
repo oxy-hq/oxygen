@@ -136,11 +136,12 @@ pub static FLAGS: &[FlagDef] = &[
         key: crate::server::queued_analytics::QUEUED_STARTS_FLAG,
         description: "Start a plain chat and a member's agentic-workflow run on the \
                       queue, driven by whichever pod claims it, instead of in the pod \
-                      that took the request. When off, both are driven where they \
-                      are started, as before. Turn on only once every pod runs a build \
-                      with the queued chat executor: an older pod claims a queued chat \
-                      and fails it as an unknown kind.",
-        default_enabled: false,
+                      that took the request. ON BY DEFAULT since every pod runs a build \
+                      with the queued chat executor; this is now the kill switch. Turn \
+                      off to drive both in the pod that took the request, as before the \
+                      queue (a run already queued is still finished by a driver). The \
+                      switch is kept for one release and then removed.",
+        default_enabled: true,
         variants: BOOLEAN,
         unit: Unit::Org,
         per_org: false,

@@ -31,6 +31,16 @@ nearly everything (`oxy`, agentic-http/pipeline, integrations). Keep it thin:
   on the durable queue, **not** a `tokio::spawn` in a handler — invoke the
   `oxy-task-spec-default` skill.
 
+**The queue is the only background primitive, and a test holds the line.**
+`tests/routing/handler_spawns.rs` scans `src/server/api/**` and every `crates/api-*/src/**`
+for `tokio::spawn(` / `tokio::task::spawn(` outside test code and **fails the build** on a
+file its `ALLOWED` list does not name — the same allowlist-as-backlog shape as
+`tests/authz/authz_boundaries.rs`. Each entry says what the spawn does: a queue executor's
+own task, a spawn that only pumps **this request's SSE stream** (admitted, but the reason
+must say so), or `backlog:` work that should be a `TaskSpec`. A listed file that stops
+spawning fails as a stale entry, so shrinking the list is the migration. Add an entry only
+after the skill's checklist says the work really is request-scoped.
+
 ## Module map (`src/`, declared in `lib.rs`)
 
 | Module | Owns |

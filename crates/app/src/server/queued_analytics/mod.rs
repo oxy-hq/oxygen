@@ -39,15 +39,17 @@ pub use admission::INTERRUPTED_MESSAGE;
 
 /// The feature flag that puts a plain chat start and a requester's
 /// agentic-workflow start on the queue (`AgenticState::queued_starts`).
-/// Registered in `feature_flags::registry`, default off.
+/// Registered in `feature_flags::registry`, **default on**: with no row, or
+/// before the cache loads, a start is queued.
 ///
-/// Off, both are driven in the request's process, as they were before the
-/// queued chat existed. It is a switch rather than a release order because no
-/// driver checks which run kinds it can execute before it claims one
+/// It is a kill switch now. Off, both are driven in the request's process, as
+/// they were before the queued chat existed. It began off because no driver
+/// checks which run kinds it can execute before it claims one
 /// (`find_pending_global_runs` selects every queued Global run; an unknown
 /// `TaskSpec::Custom` kind fails in `PipelineTaskExecutor`), so in a rolling
-/// deploy a pod from before the chat executor would claim a queued chat and fail
-/// it. Turn it on once every pod runs a build that registers `ChatRunExecutor`.
+/// deploy a pod from before the chat executor would have claimed a queued chat
+/// and failed it. Every pod has registered `ChatRunExecutor` for a release, so
+/// the default flipped; the switch stays one more release as the way back.
 pub const QUEUED_STARTS_FLAG: &str = "queued_chat_and_workflow_starts";
 
 /// Whether [`QUEUED_STARTS_FLAG`] is on, read per start.
