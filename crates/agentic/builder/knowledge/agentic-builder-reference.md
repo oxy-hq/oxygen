@@ -2,7 +2,7 @@
 source:
   - sdk/cli/skills/oxy-agents/SKILL.md
   - sdk/cli/skills/oxy-agents/references/quick-reference.md
-reconciled-hash: 0412d30e02a631c73631b7347108736ebe858fec
+reconciled-hash: 882ecc05e5824249b2bb0c4a0f4bc23bf3fc12f8
 note: |
   Authored condensation of the platform skills listed above. Not auto-synced —
   scripts/sync-skills.sh only copies the verbatim YAML templates. Re-condense
@@ -21,6 +21,16 @@ you do not define its states or its tools.
 
 - **`.agentic.yml` is the agent.** The classic `.agent.yml` format has been
   removed — never create one or copy one from an old workspace.
+- **Translate classic agents with `oxy migrate-agents`** — when a compile warns
+  `classic agent format (.agent.yml) is retired`, or an automation's
+  `agent_ref` still names a `.agent.yml`. First `oxy migrate-agents --dry-run
+  --json <dir>` (writes nothing; lists each classic file, dropped fields such as
+  `tools: visualize` or inline `tests:`, what `cannot be mapped` — `omni_query`,
+  `anonymize`, `type: routing`; those files stay put unless `--force` drops the
+  field — the `agent_ref`s/paths it would repoint, and collisions). Then run it
+  without `--dry-run` and review each new file: classic `system_instructions`
+  Jinja (`{{ databases.x.dialect }}`) reaches the model literally, and a classic
+  `name:` is dropped, so the agent's id becomes its file stem.
 - **There is no `kind:` field.** Every `.agentic.yml` runs the same analytics
   pipeline; a file named `app_builder.agentic.yml` is not special. Generating
   views or agent files is the Builder Agent (chat Build mode), which no
@@ -98,7 +108,7 @@ on a well-modelled workspace.
 | State | Tools |
 | --- | --- |
 | clarifying | `search_catalog`, `search_automations`, `propose_semantic_query`, `ask_user` |
-| root cause / opportunity | `explain_metric`, `find_opportunities`, `metric_sensitivity`, `predict_impact` plus the clarifying catalog tools (+ `list_anomalies`, `detect_anomalies`, `explain_anomaly` with anomaly monitoring) |
+| root cause / opportunity | `explain_metric`, `find_opportunities`, `metric_sensitivity`, `predict_impact`, `search_catalog`, `search_automations`, `propose_semantic_query` (+ `list_anomalies`, `detect_anomalies`, `explain_anomaly` with anomaly monitoring) |
 | specifying | `search_catalog`, `sample_columns`, `ask_user`; with a semantic model `check_data_freshness`; without, `get_join_path`, `list_tables`, `describe_table` |
 | solving | `execute_preview` (candidate query, `LIMIT 5`) |
 | executing | none |
