@@ -39,6 +39,7 @@ import {
   runAppsDomainsVerify
 } from "./commands/apps-domains.js";
 import { runAppsDrift } from "./commands/apps-drift.js";
+import { MAX_WAIT_SECONDS, runAsk } from "./commands/ask.js";
 import { runAssumeEnd, runAssumeStart, runAssumeStatus } from "./commands/assume.js";
 import { runLogin, runLogout, runToken, runWhoami } from "./commands/auth.js";
 import { runBootstrapPlan, runBootstrapRun, runBootstrapVerify } from "./commands/bootstrap.js";
@@ -574,6 +575,27 @@ function buildProgram(): Command {
   ).action(async (opts: Record<string, unknown>) => {
     await runWhoami(createContext(globals(opts)), Boolean(opts.json));
   });
+
+  withGlobals(
+    program
+      .command("ask <project> <agent> <question>")
+      .description("ask a workspace's agent a question and wait for the answer, in one request")
+      .option("--thread <id>", "continue this conversation (a thread id from an earlier ask)")
+      .option(
+        "--wait <seconds>",
+        `how long the server waits for the answer, 1 to ${MAX_WAIT_SECONDS}`,
+        String(MAX_WAIT_SECONDS)
+      )
+      .option("--json", "emit the result as JSON")
+  ).action(
+    async (project: string, agent: string, question: string, opts: Record<string, unknown>) => {
+      await runAsk(createContext(globals(opts)), project, agent, question, {
+        thread: opts.thread as string | undefined,
+        waitSeconds: Number(opts.wait),
+        json: Boolean(opts.json)
+      });
+    }
+  );
 
   withGlobals(
     program.command("token").description("print the bearer token, for a raw curl")

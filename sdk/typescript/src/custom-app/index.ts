@@ -23,6 +23,9 @@
 // See `crates/app/src/server/api/custom_apps.rs` for the server-side
 // query contract.
 
+// One-call agent asks: start an ask and wait for its answer.
+export type { AskOptions, AskResult, AskStatus } from "./ask";
+export { askAgent, MAX_ASK_WAIT_SECONDS, useAskAgent } from "./ask";
 export { base64ToBytes, bytesToBase64 } from "./base64";
 export type { CustomAppDebugSnapshot } from "./debug";
 export { getCustomAppDebug } from "./debug";

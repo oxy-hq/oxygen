@@ -102,6 +102,7 @@ couldn't already read.
 | `useQuery({ sql })` | Inline SQL → rows. `SELECT`/`WITH` only, 10k-row cap. |
 | `useSemanticQuery({ topic, dimensions, measures, … })` | Semantic-model query compiled by airlayer. |
 | `useAgentRun({ agentId })` | `.ask(question)` starts an analytics agent run; streams events over SSE; `.cancel()`. |
+| `useAskAgent()` / `askAgent(fetcher, projectId, agentId, question)` | One call: start an ask and wait (up to 45 s, `waitSeconds`) for its `answer`, `error` or clarifying `question`. `status: "running"` when the wait runs out first. |
 | `useProcedureRun({ procedureId })` | Start a long-running procedure, poll, cancel (beta). |
 | `useFunction(name)` | `.invoke(body?)` runs a server-side **Oxy Function** (`functions/<name>.ts`) on oxy's isolate runtime; returns its JSON `Response`. For work the browser shouldn't do — warehouse writes, ELT, external APIs. |
 | `<OxyChat agentId="…" />` | Drop-in chat UI over `useAgentRun`. |

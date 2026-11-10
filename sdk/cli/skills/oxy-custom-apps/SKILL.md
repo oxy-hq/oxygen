@@ -105,6 +105,7 @@ works), but hand-rolling means owning the base-path + dev-proxy wiring yourself.
    | `useQuery({sql})` | `POST /api/projects/:id/query` | Raw SQL, 10k row cap |
    | `useSemanticQuery({topic, …})` | `POST /api/projects/:id/semantic-query` | Reference topics/measures by name |
    | `useAgentRun({agentId})` | `POST /api/projects/:id/agents/:id/asks` + SSE | Streaming chat / Q&A |
+   | `useAskAgent()` | `POST /api/projects/:id/agents/:id/asks` with `wait_seconds` | One-call answer (≤45 s) for a button or a batch; `status: "running"` when the wait runs out |
    | `useProcedureRun({procedureId})` | `POST /api/projects/:id/procedures/:id/runs` ⚠️ beta | Long-running batch |
    | `useFunction(name)` | `POST /customer-apps/<org>/<slug>/fn/<name>` + SSE | Invoke a server-side **Oxy Function** (see below) |
    | `<OxyChat agentId="…"/>` | wraps `useAgentRun` | Drop-in chat UI |
@@ -118,6 +119,10 @@ works), but hand-rolling means owning the base-path + dev-proxy wiring yourself.
    // ...
    <OxyChat agentId="analytics" />
    ```
+
+   To try an agent from a terminal the same way: `oxyc ask <workspace-id> <agent>
+   "<question>" --json` (one request, answer on stdout; `--thread <id>` to reply
+   to a clarifying question).
 
    See the `@oxy-hq/sdk` README for the full reference, including
    `OxyApiError` parsing and beta-surface caveats.

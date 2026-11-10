@@ -150,6 +150,23 @@ are talking to rather than a baked table. It is cached per host; `--refresh`
 re-asks. `--all` includes ide-only and worker-only mounts. `--json` adds each
 route's surface and fleet role.
 
+## Asking an agent
+
+```bash
+oxyc ask <workspace-id> <agent> "How many orders last week?" [--thread <id>] [--wait <s>] [--json]
+```
+
+One request: the server waits up to `--wait` seconds (1 to 45, default 45) for the
+answer, and the answer goes to stdout so it pipes. It is the route a custom app's
+`useAskAgent` calls, as the person logged in.
+
+- **The agent asked a clarifying question:** the question and its suggestions go to
+  stdout, exit `0`; answer with `oxyc ask … --thread <id> "<answer>"`.
+- **Still running when the wait runs out:** exit `0`. The ask keeps running on the
+  fleet, and stderr names the run and the thread to read it in. `--json` carries
+  `status: "running"` for a caller that branches.
+- **The ask failed, timed out or was cancelled:** exit `1`, with the error.
+
 ## Authentication
 
 ```bash

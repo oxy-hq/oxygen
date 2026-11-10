@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.0] - 2026-11-10
+
+### Added
+
+- **Ask an agent and get the answer in one call.** `useAskAgent()` (and `askAgent`,
+  for code holding a fetcher) starts an ask and waits for it, up to 45 s
+  (`waitSeconds`), returning its `status` and the `answer`, the `error`, or the
+  agent's clarifying `question` and `suggestions`. An ask still going when the wait
+  runs out comes back `status: "running"` with its `runId` and `threadId`: it keeps
+  running, and `useAgentRun`'s stream or a later ask on the same thread picks it up.
+  For a chat UI keep `useAgentRun`; this is for a button that fills in a sentence or
+  a batch over many rows. Needs a server with `wait_seconds` on asks (#4040); an
+  older one answers every ask as `running`.
+
 ## [2.27.3] - 2026-11-10
 
 ### Fixed
