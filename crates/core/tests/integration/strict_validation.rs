@@ -102,7 +102,7 @@ mod automation_tests {
 tasks:
   - name: test_task
     type: agent
-    agent_ref: test.agent.yml
+    agent_ref: test.agentic.yml
     prompt: "test prompt"
 "#;
         let result: Result<Automation, _> = parse_yaml(yaml);
@@ -120,7 +120,7 @@ tasks:
 tasks:
   - name: test_task
     type: agent
-    agent_ref: test.agent.yml
+    agent_ref: test.agentic.yml
     prompt: "test {{ my_var }}"
 variables:
   my_var:
@@ -145,7 +145,7 @@ variables:
 steps:
   - name: test_task
     type: agent
-    agent_ref: test.agent.yml
+    agent_ref: test.agentic.yml
     prompt: "test prompt"
 "#;
         let result: Result<Automation, _> = parse_yaml(yaml);
@@ -158,7 +158,7 @@ steps:
 tasks:
   - name: test_task
     type: agent
-    agent_ref: test.agent.yml
+    agent_ref: test.agentic.yml
     prompt: "test prompt"
 unknown_field: "should fail"
 "#;
@@ -173,7 +173,7 @@ unknown_field: "should fail"
 tasks:
   - name: test_task
     type: agent
-    agent_ref: test.agent.yml
+    agent_ref: test.agentic.yml
     prompt: "test prompt"
 description: "A test workflow"
 consistency_prompt: "Check consistency"
@@ -195,7 +195,7 @@ name: my_workflow_name
 tasks:
   - name: test_task
     type: agent
-    agent_ref: test.agent.yml
+    agent_ref: test.agentic.yml
     prompt: "test prompt"
 "#;
         let result: Result<Automation, _> = parse_yaml(yaml);

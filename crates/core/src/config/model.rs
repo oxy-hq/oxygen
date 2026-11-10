@@ -408,10 +408,10 @@ pub struct UnifiIntegration {
 #[garde(context(ValidationContext))]
 pub struct McpConfig {
     /// List of file patterns to expose as MCP tools
-    /// Supports glob patterns like "agents/*.agent.yml"
+    /// Supports glob patterns like "agents/*.agentic.yml"
     /// Examples:
-    /// - "agents/sql-generator.agent.yml" (specific file)
-    /// - "agents/*.agent.yml" (all agents in directory)
+    /// - "agents/sql-generator.agentic.yml" (specific file)
+    /// - "agents/*.agentic.yml" (all agents in directory)
     /// - "workflows/**/*.automation.yml" (all automations recursively)
     /// - "semantics/topics/*.topic.yml" (semantic topics)
     /// - "sqls/queries/*.sql" (SQL files)

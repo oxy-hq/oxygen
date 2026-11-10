@@ -21,8 +21,8 @@ export interface DemoWorkspace {
 
 // The kinds a reader meets in the product, by the file suffix that makes one.
 const KINDS: [kind: string, suffix: RegExp][] = [
-  ["Agents", /\.agent\.yml$/],
-  ["Agentic agents", /\.agentic\.yml$/],
+  // Classic `.agent.yml` agents are retired and refused by the compiler.
+  ["Agents", /\.agentic\.yml$/],
   ["Automations", /\.(automation|procedure)\.yml$/],
   ["Data apps", /\.app\.yml$/],
   ["Semantic views", /\.view\.yml$/],

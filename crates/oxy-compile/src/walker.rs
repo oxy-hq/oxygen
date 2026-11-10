@@ -64,7 +64,7 @@ pub enum FileKind {
     /// [`crate::context_documents`].
     ContextDocument,
     /// `*.agent.yml` — a classic agent. Retired: nothing runs it and it compiles
-    /// to no row. Discovered only so the compile can say so
+    /// to no row. Discovered only so the compile can refuse it
     /// ([`crate::classic_agents`]). Test mirrors (`x.agent.test.yml`,
     /// `x.test.agent.yml`) are not this kind.
     RetiredAgent,

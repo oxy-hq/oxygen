@@ -330,7 +330,7 @@ mod tests {
     fn non_context_files_are_excluded() {
         let paths = vec![
             make_path("monthly_revenue.automation.yml"),
-            make_path("monthly_revenue.agent.yml"),
+            make_path("monthly_revenue.agentic.yml"),
             make_path("monthly_revenue.view.yml"),
         ];
         let refs = filter_automation_paths(&paths, Path::new("/project"), "");

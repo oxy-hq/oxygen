@@ -265,7 +265,7 @@ pub trait InlineAgentRunner: Send + Sync {
     /// Run an agent and return its final answer text.
     ///
     /// `agent_ref` matches the `agent_ref` field in the automation's
-    /// `agent_task` config (typically a path to a `.agent.yml` file).
+    /// `agent_task` config (a path to a `.agentic.yml` agent).
     async fn run_agent(&self, agent_ref: &str, prompt: &str) -> Result<String, String>;
 }
 

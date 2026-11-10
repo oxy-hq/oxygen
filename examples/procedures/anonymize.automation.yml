@@ -9,7 +9,7 @@ tasks:
     sql_file: data/example_anonymize.sql
   - name: report
     type: agent
-    agent_ref: agents/anon.agent.yml
+    agent_ref: agents/duckdb.agentic.yml
     prompt: |
       Generate "Responses to the survey by Organization" report using the provided data.
       The data include total responses by organization and the survey questions.

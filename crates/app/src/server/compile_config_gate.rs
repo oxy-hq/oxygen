@@ -22,7 +22,7 @@ use oxy_app_core::process_role::current_process_role;
 use oxy_compile::{CompiledConfig, ConfigGate, merge_compiled_config};
 use oxy_shared::fleet_role::Role;
 
-use crate::server::feature_flags::{cache, rollout};
+use crate::server::feature_flags::rollout;
 
 /// The production config gate: merge the split columns and assert the result
 /// deserialises into the runtime [`oxy::config::model::Config`], and that it
@@ -52,12 +52,6 @@ impl ConfigGate for RuntimeConfigGate {
     /// override: `oxy-compile` cannot read flags, so the gate carries it.
     fn refuses_retired_automation_steps(&self) -> bool {
         rollout::is_on(&rollout::COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS)
-    }
-
-    /// The `compile_refuse_classic_agents` flag. No environment override: it
-    /// was born as a flag.
-    fn refuses_classic_agents(&self) -> bool {
-        cache::is_enabled(rollout::COMPILE_REFUSE_CLASSIC_AGENTS_FLAG)
     }
 }
 

@@ -2,9 +2,8 @@ import { apiClient } from "./axios";
 
 /// Lightweight listing entry returned by `GET /{workspaceId}/agents`.
 ///
-/// The classic `.agent.yml` execution surface has been removed; this
-/// endpoint now only returns agentic (`.agentic.yml`) + analytics-automation
-/// (`.aw.yml`) agents — the chat panel's selector is the only consumer.
+/// Returns agentic (`.agentic.yml`) + analytics-automation (`.aw.yml`)
+/// agents — the chat panel's selector is the only consumer.
 export type AgentInfo = {
   /// Display name (parsed from the file or `llm.ref` snippet).
   name: string;

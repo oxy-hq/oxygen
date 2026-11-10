@@ -10,7 +10,7 @@ fn is_data_app_file(name: &std::ffi::OsStr) -> bool {
 }
 
 /// Outcome of a skip-if-exists demo copy. Paths are relative to the destination
-/// root (e.g. `"config.yml"`, `"agents/duckdb.agent.yml"`).
+/// root (e.g. `"config.yml"`, `"agents/duckdb.agentic.yml"`).
 #[derive(Debug, Default)]
 pub struct DemoCopyResult {
     pub files_written: Vec<String>,

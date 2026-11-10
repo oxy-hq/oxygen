@@ -94,7 +94,7 @@ vi.mock("@/hooks/api/databases/useDatabases", () => ({
 /** A workspace that can answer questions: one db, one public agent, no gaps. */
 const setUpWorkspace = () => {
   githubSetup = { missing_llm_key_vars: [], warehouses: [], models: [] };
-  agents = [{ path: "analytics.agent.yml", public: true, model: "claude" }];
+  agents = [{ path: "analytics.agentic.yml", public: true, model: "claude" }];
   databases = [{ name: "primary" }];
 };
 

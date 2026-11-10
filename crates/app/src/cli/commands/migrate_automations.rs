@@ -299,7 +299,7 @@ mod tests {
         write(root, "workflows/sync.workflow.yml", "tasks: []\n");
         write(
             root,
-            "agents/default.agent.yml",
+            "agents/default.agentic.yml",
             "workflow_ref: procedures/report.procedure.yml\nincludes:\n  - workflows/*.workflow.yml\n",
         );
 
@@ -313,7 +313,7 @@ mod tests {
         assert!(root.join("workflows/sync.automation.yml").exists());
         assert!(!root.join("procedures/report.procedure.yml").exists());
 
-        let agent = fs::read_to_string(root.join("agents/default.agent.yml")).unwrap();
+        let agent = fs::read_to_string(root.join("agents/default.agentic.yml")).unwrap();
         assert!(agent.contains("procedures/report.automation.yml"));
         assert!(agent.contains("workflows/*.automation.yml"));
         assert!(!agent.contains(".procedure.yml"));

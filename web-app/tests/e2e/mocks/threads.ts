@@ -42,7 +42,7 @@ const MOCK_THREADS: MockThreadItem[] = Array.from({ length: 10 }).map((_, i) => 
   input: "top 3 fruits",
   output: "",
   source_type: "agent",
-  source: "agents/duckdb.agent.yml",
+  source: "agents/duckdb.agentic.yml",
   created_at: NOW,
   references: [],
   is_processing: false

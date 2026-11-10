@@ -192,7 +192,7 @@ async fn thread(db: &DatabaseConnection, workspace: Uuid, title: &str) -> String
         input: ActiveValue::Set(format!("question from {title}")),
         output: ActiveValue::Set(String::new()),
         source_type: ActiveValue::Set("agent".into()),
-        source: ActiveValue::Set("agents/x.agent.yml".into()),
+        source: ActiveValue::Set("agents/x.agentic.yml".into()),
         references: ActiveValue::Set("[]".into()),
         is_processing: ActiveValue::Set(false),
         project_id: ActiveValue::Set(workspace),

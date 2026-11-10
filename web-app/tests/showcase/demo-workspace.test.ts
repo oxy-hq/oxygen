@@ -36,7 +36,7 @@ describe("readDemoWorkspace", () => {
       ".db/orders.csv": "",
       "procedures/active_users.automation.yml": "",
       "old/legacy.procedure.yml": "",
-      "agents/default.agent.yml": "",
+      "agents/default.agentic.yml": "",
       "notes.md": "",
       "data/orders.csv": ""
     });
@@ -48,7 +48,7 @@ describe("readDemoWorkspace", () => {
       { name: "gone", type: "duckdb", hasData: false }
     ]);
     expect(demo.files).toEqual([
-      { kind: "Agents", paths: ["agents/default.agent.yml"] },
+      { kind: "Agents", paths: ["agents/default.agentic.yml"] },
       {
         kind: "Automations",
         paths: ["old/legacy.procedure.yml", "procedures/active_users.automation.yml"]

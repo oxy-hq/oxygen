@@ -90,11 +90,11 @@ describe("NodeDetailPanel", () => {
   it("shows path when node.data.path exists", () => {
     render(
       <NodeDetailPanel
-        node={makeNode({ data: { name: "a", path: "agents/test.agent.yml" } })}
+        node={makeNode({ data: { name: "a", path: "agents/test.agentic.yml" } })}
         onClose={vi.fn()}
       />
     );
-    expect(screen.getByText("agents/test.agent.yml")).toBeInTheDocument();
+    expect(screen.getByText("agents/test.agentic.yml")).toBeInTheDocument();
   });
 
   it("shows description when node.data.description exists", () => {

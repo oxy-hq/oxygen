@@ -183,10 +183,11 @@ fn start_failed(agent_id: &str, e: &PipelineError) -> Response {
             msg,
             "agent_not_found",
             format!(
-                "Expected `{agent_id}.agentic.yml` in the project root. \
-                 Check the agent id matches a file under your workspace; \
-                 agentic agents end in `.agentic.yml`, classic `.agent.yml` \
-                 agents aren't reachable from custom-app bundles."
+                "No compiled agent matches `{agent_id}`. An agent is found by its \
+                 path (such as `agents/sales.agentic.yml`, with or without the \
+                 extension), by its `name:`, or by its file stem when only one \
+                 agent has it. Classic `.agent.yml` agents are retired; \
+                 `oxy migrate-agents` converts them."
             ),
         );
     }

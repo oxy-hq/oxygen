@@ -140,7 +140,7 @@ examples/.oxy_state/
 # to the repo root. Three named files did not cover that, and one was committed.
 /*.png
 examples/test-file-for-e2e.txt
-examples/agents/test-agent-e2e.agent.yml
+examples/agents/test-agent-e2e.agentic.yml
 docs/superpowers/
 .claude/worktrees/
 # Added by code-review-graph

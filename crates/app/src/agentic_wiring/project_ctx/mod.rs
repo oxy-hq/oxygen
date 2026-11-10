@@ -15,8 +15,8 @@ use agentic_connector::{
 };
 use agentic_pipeline::platform::ProjectContext;
 use entity::workspace_members::WorkspaceRole;
-// Same trait the classic `.agent.yml` path uses to turn a `{ env_var: … }`
-// header reference into a literal, so both paths resolve headers identically.
+// Turns a `{ env_var: … }` header reference into a literal, the one rule every
+// connector header resolves through.
 use oxy::adapters::header_value::HeaderValueExt;
 use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::config::WorkingCopy;

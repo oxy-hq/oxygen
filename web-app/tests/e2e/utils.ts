@@ -32,23 +32,16 @@ It gets modified during tests and reset after each test.
 }
 
 export async function resetTestAgentFile() {
-  const testAgentPath = "../examples/agents/test-agent-e2e.agent.yml";
+  const testAgentPath = "../examples/agents/test-agent-e2e.agentic.yml";
   const originalContent = `# Test Agent for E2E Tests
-description: "A test agent used for IDE E2E tests"
-name: test-agent-e2e
-
-model: "openai-4o-mini"
-
-system_instructions: |
+# A test agent used for IDE E2E tests
+llm:
+  ref: openai-4o-mini
+databases:
+  - local
+instructions: |
   You are a test agent used for E2E testing.
   This file gets modified during tests and reset after each test.
-
-output_format: default
-
-tools:
-  - name: execute_sql
-    type: execute_sql
-    database: local
 `;
 
   if (!existsSync("../examples/agents")) {

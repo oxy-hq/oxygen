@@ -46,12 +46,12 @@ async fn resolve_eval_inputs(
         ))
     })?;
 
-    // Only `.agentic.yml` agents are runnable as eval targets. The classic
-    // `.agent.yml` runtime was retired with the oxy-agent crate.
+    // Only `.agentic.yml` agents are runnable as eval targets: classic agents
+    // are retired and the compiler refuses them.
     if !(resolved_target.ends_with("agentic.yml") || resolved_target.ends_with("agentic.yaml")) {
         return Err(OxyError::ConfigurationError(format!(
             "Unsupported test target: {resolved_target}. Expected .agentic.yml or .agentic.yaml \
-             — the classic .agent.yml runtime was removed."
+             — classic .agent.yml agents are retired; `oxy migrate-agents` converts them."
         )));
     }
     let eval_target = AgenticInput {
