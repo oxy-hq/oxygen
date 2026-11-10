@@ -25,8 +25,9 @@ the pipeline. You do not define its states or its tools.
   LLM call with custom tools) has been removed. Do not create one, and do not
   copy one from an old workspace.
 - **Translating a workspace's classic agents: `oxy migrate-agents`.** Run it when a
-  compile warns `classic agent format (.agent.yml) is retired`, or when an
-  automation's `agent_ref` still names a `.agent.yml`. Run
+  compile warns `classic agent format (.agent.yml) is retired` (or, on a
+  deployment that has turned the refusal on, fails the revision with that message),
+  or when an automation's `agent_ref` still names a `.agent.yml`. Run
   `oxy migrate-agents --dry-run --json <dir>` first: it writes nothing and lists
   every classic file, what translates (and which fields it drops, such as
   `tools: visualize` or inline `tests:`), what `cannot be mapped` (`omni_query`,

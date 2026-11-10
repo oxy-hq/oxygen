@@ -25,6 +25,7 @@ async fn warnings(root: &Path) -> (Vec<ClassicAgentWarning>, usize, u32) {
         AutomationRefusals {
             retired_steps: false,
             workspace_writes: true,
+            classic_agents: false,
         },
     )
     .await;
@@ -191,4 +192,100 @@ fn candidates_are_full_path_bare_path_and_stem() {
         ["agents/a.agentic.yaml", "agents/a", "a"]
     );
     assert_eq!(agent_ref_candidates("a"), ["a"]);
+}
+
+/// `(failures, compiled)` of a compile with the `compile_refuse_classic_agents`
+/// flag on or off.
+async fn compile_with_flag(root: &Path, on: bool) -> (Vec<crate::outcome::FileFailure>, u32) {
+    let files = discover(root).unwrap();
+    let batch = compile_files(
+        &files,
+        AutomationRefusals {
+            retired_steps: false,
+            workspace_writes: true,
+            classic_agents: on,
+        },
+    )
+    .await;
+    (batch.failures, batch.compiled)
+}
+
+fn classic_workspace(root: &Path) {
+    write(root, "agents/sales.agent.yml", "model: gpt\n");
+    write(root, "agents/real.agentic.yml", "name: real\n");
+    write(
+        root,
+        "flows/nightly.automation.yml",
+        &automation_with("agents/sales.agent.yml"),
+    );
+}
+
+#[tokio::test]
+async fn flag_off_a_classic_workspace_still_compiles() {
+    let dir = TempDir::new().unwrap();
+    classic_workspace(dir.path());
+    let (failures, compiled) = compile_with_flag(dir.path(), false).await;
+    assert!(failures.is_empty(), "{failures:?}");
+    assert_eq!(compiled, 2, "the agentic agent and the automation compile");
+}
+
+#[tokio::test]
+async fn flag_on_the_file_and_the_ref_fail_the_revision() {
+    let dir = TempDir::new().unwrap();
+    classic_workspace(dir.path());
+    let (failures, compiled) = compile_with_flag(dir.path(), true).await;
+    assert_eq!(compiled, 2, "the other files still compile");
+    assert_eq!(failures.len(), 2, "{failures:?}");
+    let file = failures
+        .iter()
+        .find(|f| f.path == "agents/sales.agent.yml")
+        .expect("the classic file is named");
+    let step = failures
+        .iter()
+        .find(|f| f.path == "flows/nightly.automation.yml")
+        .expect("the automation is named");
+    assert!(step.message.contains("agent_ref: agents/sales.agent.yml"));
+    for f in [file, step] {
+        assert_eq!(f.kind, crate::outcome::FailureKind::Validation);
+        assert!(
+            f.message.contains("compile_refuse_classic_agents"),
+            "{}",
+            f.message
+        );
+        assert!(
+            f.message.contains("oxy migrate-agents --dry-run --json"),
+            "{}",
+            f.message
+        );
+        assert!(
+            !f.message.contains("  "),
+            "no indentation runs: {}",
+            f.message
+        );
+    }
+}
+
+#[tokio::test]
+async fn flag_on_a_ref_to_a_missing_agentic_agent_is_still_only_a_warning() {
+    let dir = TempDir::new().unwrap();
+    write(dir.path(), "agents/real.agentic.yml", "name: real\n");
+    write(
+        dir.path(),
+        "flows/f.automation.yml",
+        &automation_with("agents/missing.agentic.yml"),
+    );
+    let (failures, _) = compile_with_flag(dir.path(), true).await;
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[tokio::test]
+async fn flag_on_test_mirrors_and_skipped_dirs_stay_exempt() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write(root, "agents/sales.agent.test.yml", "name: t\n");
+    write(root, "agents/sales.test.agent.yml", "name: t\n");
+    write(root, "node_modules/x/old.agent.yml", "model: gpt\n");
+    write(root, ".git/old.agent.yml", "model: gpt\n");
+    let (failures, _) = compile_with_flag(root, true).await;
+    assert!(failures.is_empty(), "{failures:?}");
 }

@@ -46,6 +46,13 @@ pub const COMPILE_REFUSE_FILE_CREDENTIALS_FLAG: &str = "compile_refuse_file_cred
 pub const COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS_FLAG: &str =
     "compile_refuse_retired_automation_steps";
 
+/// Registry key of the gate that fails (rather than warns on) a compile that
+/// finds a classic `*.agent.yml` file, or an automation `agent_ref` naming one
+/// (`2026-11-09-classic-agent-retirement.md`, phase 2). Born as a flag, so it
+/// has no environment override and no [`RolloutGate`]; read with
+/// `cache::is_enabled`.
+pub const COMPILE_REFUSE_CLASSIC_AGENTS_FLAG: &str = "compile_refuse_classic_agents";
+
 /// Registry key of the gate that retires the in-product IDE on a deployment: the
 /// web app hides its file, database and git entry points and shows where the
 /// repository is instead, and the server refuses the IDE's routes with `410 Gone`
@@ -205,6 +212,15 @@ mod tests {
             );
             assert!(gate.env.starts_with("OXY_"), "{}", gate.env);
         }
+    }
+
+    #[test]
+    fn compile_refuse_classic_agents_is_a_registered_rollout_flag_that_starts_off() {
+        let def = super::super::registry::get(COMPILE_REFUSE_CLASSIC_AGENTS_FLAG)
+            .expect("compile_refuse_classic_agents is registered");
+        assert_eq!(def.kind, super::super::registry::FlagKind::Rollout);
+        assert!(!def.default_enabled, "the refusal ships off");
+        assert_eq!(def.sunset, Some("2027-03-31"));
     }
 
     #[test]
