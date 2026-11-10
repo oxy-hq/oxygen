@@ -14,6 +14,10 @@ pub struct Capabilities {
     /// (airhouse 0.1.49 and later).
     #[serde(rename = "mint.write_schemas", default)]
     pub mint_write_schemas: bool,
+    /// A mint's `shared_session` makes Airhouse refuse statements that change
+    /// session state on that credential's connection, and is echoed back.
+    #[serde(rename = "mint.shared_session", default)]
+    pub mint_shared_session: bool,
 }
 
 impl AirhouseAdminClient {

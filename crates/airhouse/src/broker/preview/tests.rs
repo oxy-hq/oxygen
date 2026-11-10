@@ -51,6 +51,7 @@ pub(super) fn cred(role: &str, write_schemas: Option<Vec<String>>) -> EphemeralC
         expires_at: Utc::now() + chrono::Duration::seconds(3600),
         service_account_id: "sa_acme".into(),
         write_schemas,
+        shared_session: false,
     }
 }
 

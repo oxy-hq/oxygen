@@ -144,6 +144,10 @@ pub struct EphemeralCredential {
     /// why a caller that asked must treat `None` as unscoped.
     #[serde(default)]
     pub write_schemas: Option<Vec<String>>,
+    /// Echo of the `shared_session` mint claim. `false` both when it was not
+    /// asked for and when the Airhouse predates the claim and ignored it.
+    #[serde(default)]
+    pub shared_session: bool,
 }
 
 /// Auth selector for the per-token revoke endpoint.

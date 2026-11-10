@@ -47,6 +47,31 @@ fn shared_query_subject_names_the_pool_not_a_user() {
     assert_ne!(s.audit_subject(), BrokerSubject::User(ws).audit_subject());
 }
 
+/// Only the shared query pool tells Airhouse its connection is shared: every
+/// other subject is one requester's, and a claim there would refuse settings
+/// that requester may legitimately use.
+#[test]
+fn only_the_shared_query_pool_asks_for_a_shared_session() {
+    let ws = Uuid::nil();
+    let shared = BrokerSubject::System {
+        workspace_id: ws,
+        purpose: SystemPurpose::SharedQuery,
+    };
+    assert!(shared.shared_session());
+    for purpose in [
+        SystemPurpose::Scheduler,
+        SystemPurpose::AgenticBackground,
+        SystemPurpose::SchemaCrawler,
+    ] {
+        let s = BrokerSubject::System {
+            workspace_id: ws,
+            purpose,
+        };
+        assert!(!s.shared_session(), "{}", s.audit_subject());
+    }
+    assert!(!BrokerSubject::User(Uuid::nil()).shared_session());
+}
+
 /// The previews' live-table read is its own audit segment, so a staff
 /// check reading `information_schema` never reads as scheduler traffic.
 #[test]
@@ -150,5 +175,6 @@ fn mock_cred(expires_at: DateTime<Utc>) -> EphemeralCredential {
         expires_at,
         service_account_id: "sa_test".into(),
         write_schemas: None,
+        shared_session: false,
     }
 }

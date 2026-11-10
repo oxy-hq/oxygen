@@ -286,6 +286,21 @@ impl BrokerSubject {
         }
     }
 
+    /// Whether a mint for this subject tells Airhouse the credential's
+    /// connection is shared between requesters (the `shared_session` claim).
+    /// Only [`SystemPurpose::SharedQuery`] is: its one connection serves every
+    /// requester at a role, so Airhouse refuses anything that would leave
+    /// session state for the next one. Every other subject is one requester's.
+    fn shared_session(&self) -> bool {
+        matches!(
+            self,
+            BrokerSubject::System {
+                purpose: SystemPurpose::SharedQuery,
+                ..
+            }
+        )
+    }
+
     fn workspace_id(&self) -> Option<Uuid> {
         match self {
             BrokerSubject::User(_) => None,
@@ -644,6 +659,7 @@ impl AirhouseTokenBroker {
         let ttl_secs = ttl.as_secs().min(i32::MAX as u64) as i32;
         let subject_str = subject.audit_subject();
         let write_schemas = subject.write_schemas(role);
+        let shared_session = subject.shared_session();
 
         let mut attempt = 0;
         loop {
@@ -656,10 +672,24 @@ impl AirhouseTokenBroker {
                     role,
                     ttl_secs,
                     write_schemas.as_deref(),
+                    shared_session,
                 )
                 .await
             {
-                Ok(cred) => return Ok(cred),
+                Ok(cred) => {
+                    // An Airhouse older than the claim ignores it and does not
+                    // echo it. The client-side check on the pooled connector
+                    // (`AirhouseConnector::shared_session`) still holds, so
+                    // this is worth knowing, not worth refusing.
+                    if shared_session && !cred.shared_session {
+                        warn!(
+                            tenant_id = %tenant_id,
+                            "airhouse ignored the shared_session claim; only the client-side \
+                             session-state check applies to this pooled credential"
+                        );
+                    }
+                    return Ok(cred);
+                }
                 Err(AirhouseError::RateLimited(msg)) => {
                     if attempt >= RATE_LIMIT_BACKOFFS.len() {
                         warn!(

@@ -37,6 +37,8 @@ struct MintTokenRequest<'a> {
     ttl_secs: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     write_schemas: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    shared_session: bool,
 }
 
 /// Wire shape of the create-SA response. Flattens
@@ -415,6 +417,10 @@ impl AirhouseAdminClient {
     /// `write_schemas` asks Airhouse to confine a Writer's writes to those
     /// schemas. Omitted from the request when `None`, so an unscoped mint is
     /// byte-identical to one from before the field existed.
+    ///
+    /// `shared_session` tells Airhouse the credential's connection serves more
+    /// than one requester, so it refuses statements that change session state.
+    /// Omitted when `false`, for the same reason.
     pub async fn mint_token(
         &self,
         tenant_id: &str,
@@ -423,6 +429,7 @@ impl AirhouseAdminClient {
         role: UserRole,
         ttl_secs: i32,
         write_schemas: Option<&[String]>,
+        shared_session: bool,
     ) -> Result<EphemeralCredential, AirhouseError> {
         let resp = self
             .client
@@ -433,6 +440,7 @@ impl AirhouseAdminClient {
                 role: &role,
                 ttl_secs,
                 write_schemas,
+                shared_session,
             })
             .send()
             .await?;
@@ -807,6 +815,7 @@ mod tests {
                 UserRole::Reader,
                 900,
                 None,
+                false,
             )
             .await
             .unwrap();
@@ -814,6 +823,67 @@ mod tests {
         assert!(cred.password.starts_with("tk_"));
         assert_eq!(cred.tenant, "acme");
         assert_eq!(cred.service_account_id, "sa_8f2a8c10ab12cd34");
+    }
+
+    /// `shared_session` goes on the wire only when asked for, so an ordinary
+    /// mint is byte-identical to one from before the claim existed; the echo
+    /// comes back on the credential.
+    #[tokio::test]
+    async fn test_mint_token_sends_shared_session_only_when_asked() {
+        let server = MockServer::start().await;
+        let mut echoed = mint_response_json();
+        echoed["shared_session"] = json!(true);
+        Mock::given(method("POST"))
+            .and(path("/admin/v1/tenants/acme/tokens"))
+            .and(wiremock::matchers::body_partial_json(
+                json!({"shared_session": true}),
+            ))
+            .respond_with(ResponseTemplate::new(201).set_body_json(&echoed))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/admin/v1/tenants/acme/tokens"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(&mint_response_json()))
+            .mount(&server)
+            .await;
+
+        let client = AirhouseAdminClient::new(server.uri(), "tok");
+        let shared = client
+            .mint_token(
+                "acme",
+                "ahsa_secret",
+                "pool",
+                UserRole::Reader,
+                900,
+                None,
+                true,
+            )
+            .await
+            .unwrap();
+        assert!(shared.shared_session);
+        let plain = client
+            .mint_token(
+                "acme",
+                "ahsa_secret",
+                "alice",
+                UserRole::Reader,
+                900,
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(!plain.shared_session);
+
+        let bodies: Vec<serde_json::Value> = server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| serde_json::from_slice(&r.body).unwrap())
+            .collect();
+        assert_eq!(bodies[0]["shared_session"], json!(true));
+        assert!(bodies[1].get("shared_session").is_none(), "{}", bodies[1]);
     }
 
     #[tokio::test]
@@ -834,6 +904,7 @@ mod tests {
                 UserRole::Reader,
                 900,
                 None,
+                false,
             )
             .await
             .unwrap_err();
@@ -860,6 +931,7 @@ mod tests {
                 UserRole::Admin,
                 7200,
                 None,
+                false,
             )
             .await
             .unwrap_err();
@@ -884,6 +956,7 @@ mod tests {
                 UserRole::Reader,
                 900,
                 None,
+                false,
             )
             .await
             .unwrap_err();
@@ -908,6 +981,7 @@ mod tests {
                 UserRole::Reader,
                 0,
                 None,
+                false,
             )
             .await
             .unwrap_err();
