@@ -9,7 +9,7 @@
 
 import { parseJson, request } from "../api/request.js";
 import { parseAppEnv } from "../apps/environment.js";
-import { ensureOk, resolveApp, staffCreds } from "../apps/resolve.js";
+import { ensureOk, resolveAppSlugs, staffCreds } from "../apps/resolve.js";
 import { requireOwnSandbox } from "../apps/sandbox-token.js";
 import { isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
@@ -42,7 +42,9 @@ export async function fetchLogs(ctx: Context, app: string, opts: LogsOptions): P
   const creds = staffCreds(ctx);
   // Before any request: with no environment this reads production's lines.
   if (isSandboxAgentToken(creds.bearer)) requireOwnSandbox("oxyc logs", appEnv);
-  const resolved = await resolveApp(creds, app);
+  // A slug pair makes no registry request: the logs route decides its own
+  // authority, and the registry is refused inside an assume-role session.
+  const resolved = await resolveAppSlugs(creds, app);
 
   const query = new URLSearchParams();
   if (appEnv !== undefined) query.set("environment", appEnv);

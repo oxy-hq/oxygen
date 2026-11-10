@@ -69,11 +69,12 @@ function stubFetch(routes: RouteTable, calls: Call[]) {
   );
 }
 
-function appsRoutes(): RouteTable {
+/** The registry: only an app UUID needs it, to learn the app's slugs. */
+function appDetailRoutes(): RouteTable {
   return {
-    "GET /api/customer-apps?limit=100&offset=0": () => ({
+    [`GET /api/customer-apps/${APP_ID}`]: () => ({
       status: 200,
-      body: { items: [{ id: APP_ID, slug: "store", org_slug: "acme" }], next_offset: null }
+      body: { id: APP_ID, slug: "store", org_slug: "acme" }
     })
   };
 }
@@ -88,7 +89,6 @@ describe("runLogs", () => {
   it("GETs /api/customer-apps/{org}/{app}/logs with no query by default", async () => {
     stubFetch(
       {
-        ...appsRoutes(),
         "GET /api/customer-apps/acme/store/logs": () => ({ status: 200, body: { logs: [] } })
       },
       calls
@@ -106,10 +106,65 @@ describe("runLogs", () => {
     expect(calls.some((c) => c.url === `${TARGET}/api/customer-apps/acme/store/logs`)).toBe(true);
   });
 
+  // The registry list sits on the staff console stack, which refuses a caller
+  // inside an assume-role session; the logs route decides its own authority.
+  // A slug pair must therefore reach the logs route and nothing else.
+  it("reads <org>/<app> logs with one request and never walks the registry", async () => {
+    stubFetch(
+      { "GET /api/customer-apps/acme/store/logs": () => ({ status: 200, body: { logs: [] } }) },
+      calls
+    );
+
+    await runLogs(fakeContext({ bearer: "tok" }), "acme/store", { json: true });
+
+    expect(calls).toEqual([{ method: "GET", url: `${TARGET}/api/customer-apps/acme/store/logs` }]);
+  });
+
+  it("resolves an app UUID to its slugs through the registry detail", async () => {
+    stubFetch(
+      {
+        ...appDetailRoutes(),
+        "GET /api/customer-apps/acme/store/logs": () => ({ status: 200, body: { logs: [] } })
+      },
+      calls
+    );
+
+    await runLogs(fakeContext({ bearer: "tok" }), APP_ID, { json: true });
+
+    expect(calls.map((c) => c.url)).toEqual([
+      `${TARGET}/api/customer-apps/${APP_ID}`,
+      `${TARGET}/api/customer-apps/acme/store/logs`
+    ]);
+  });
+
+  it("maps a 404 from the logs route (unknown or unreachable app) to exit 5", async () => {
+    stubFetch(
+      {
+        "GET /api/customer-apps/acme/nope/logs": () => ({
+          status: 404,
+          body: { error: "not permitted" }
+        })
+      },
+      calls
+    );
+    const err = await runLogs(fakeContext({ bearer: "tok" }), "acme/nope", { json: true }).catch(
+      (e: unknown) => e as CliError
+    );
+    expect((err as CliError).code).toBe(ExitCode.NOT_FOUND);
+  });
+
+  it("refuses an argument that is neither <org>/<app> nor a UUID before any request", async () => {
+    stubFetch({}, calls);
+    const err = await runLogs(fakeContext({ bearer: "tok" }), "acme", { json: true }).catch(
+      (e: unknown) => e as CliError
+    );
+    expect((err as CliError).code).toBe(ExitCode.USAGE);
+    expect(calls).toHaveLength(0);
+  });
+
   it("builds ?environment=&invocation_id=&request_id=&hours=&limit=", async () => {
     stubFetch(
       {
-        ...appsRoutes(),
         "GET /api/customer-apps/acme/store/logs?environment=dev-a1&invocation_id=inv-1&request_id=req-1&hours=2&limit=50":
           () => ({ status: 200, body: { logs: [] } })
       },
@@ -137,7 +192,6 @@ describe("runLogs", () => {
   it("maps 501 (observability off) to exit 7", async () => {
     stubFetch(
       {
-        ...appsRoutes(),
         "GET /api/customer-apps/acme/store/logs": () => ({
           status: 501,
           body: { error: "observability capture is not configured" }

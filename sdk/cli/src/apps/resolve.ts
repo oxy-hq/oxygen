@@ -141,14 +141,7 @@ export async function resolveApp(creds: Creds, app: string): Promise<ResolvedApp
     };
   }
 
-  const [orgSlug, ...rest] = app.split("/");
-  const appSlug = rest.join("/");
-  if (!orgSlug || !appSlug) {
-    throw usageError(
-      `"${app}" is not a valid app`,
-      '<app> is "<org-slug>/<app-slug>" or an app UUID'
-    );
-  }
+  const { orgSlug, appSlug } = parseAppSlugs(app);
 
   let offset = 0;
   for (let page = 0; page < MAX_APP_PAGES; page++) {
@@ -175,4 +168,38 @@ export async function resolveApp(creds: Creds, app: string): Promise<ResolvedApp
     code: ExitCode.NOT_FOUND,
     hint: '<app> is "<org-slug>/<app-slug>" or an app UUID'
   });
+}
+
+/** Split `<org-slug>/<app-slug>`; anything else is a usage error. */
+function parseAppSlugs(app: string): { orgSlug: string; appSlug: string } {
+  const [orgSlug, ...rest] = app.split("/");
+  const appSlug = rest.join("/");
+  if (!orgSlug || !appSlug) {
+    throw usageError(
+      `"${app}" is not a valid app`,
+      '<app> is "<org-slug>/<app-slug>" or an app UUID'
+    );
+  }
+  return { orgSlug, appSlug };
+}
+
+/**
+ * The slugs of `app`, for a route addressed by `/customer-apps/{org}/{app}/...`
+ * (`logs`). An `<org-slug>/<app-slug>` argument already IS them, so it makes
+ * no request: the registry walk in `resolveApp` sits on the staff console
+ * stack, which refuses a caller inside an assume-role session and filters out
+ * an app beyond an App Operator's scope — while the slug route decides its own
+ * authority (`Ring::AppAdmin`) and answers for the app itself. A UUID still
+ * needs `resolveApp` to learn its slugs, and a sandbox agent token still
+ * resolves against its own app list.
+ */
+export async function resolveAppSlugs(
+  creds: Creds,
+  app: string
+): Promise<Pick<ResolvedApp, "label" | "orgSlug" | "appSlug">> {
+  if (isSandboxAgentToken(creds.bearer) || UUID_RE.test(app)) {
+    return resolveApp(creds, app);
+  }
+  const { orgSlug, appSlug } = parseAppSlugs(app);
+  return { label: `${orgSlug}/${appSlug}`, orgSlug, appSlug };
 }
