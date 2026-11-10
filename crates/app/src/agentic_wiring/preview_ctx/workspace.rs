@@ -170,6 +170,13 @@ impl WorkspaceContext for PreviewPlatformContext {
         }
     }
 
+    /// A preview holds no working copy and refuses every run that writes, so
+    /// the Builder never starts here; its root is the same held revision root
+    /// `context_root` answers, stated rather than left to the trait default.
+    async fn working_root(&self) -> ContextRoot {
+        self.context_root().await
+    }
+
     fn database_configs(&self) -> Vec<oxy_airlayer_compat::DatabaseConfig> {
         self.inner.database_configs()
     }
