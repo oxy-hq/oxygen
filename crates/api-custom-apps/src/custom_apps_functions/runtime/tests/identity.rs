@@ -109,6 +109,7 @@ async fn isolate_sees_camel_case_identity_and_the_legacy_org_id_alias() {
             env: Default::default(),
             airhouse_schema: None,
             channel: "production".into(),
+            build_id: uuid::Uuid::nil(),
         },
     )
     .await;
@@ -124,4 +125,47 @@ async fn isolate_sees_camel_case_identity_and_the_legacy_org_id_alias() {
     assert_eq!(parsed["orgRole"], "member");
     assert_eq!(parsed["team"], "Finance");
     assert_eq!(parsed["kind"], "user");
+}
+
+/// `ctx.app` carries the build the invocation was started with — the
+/// `app_builds.id` the browser shell injects as `__OXY_APP__.buildId` — and
+/// the environment, as one frozen value: a handler can read which build
+/// produced a record but cannot relabel it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn isolate_sees_the_build_id_it_was_started_with() {
+    let build = uuid::Uuid::parse_str("44444444-4444-4444-4444-444444444444").unwrap();
+    let (result, _host) = run_with_mock_ctx(
+        r#"
+            export default async (req, ctx) => {
+                const before = ctx.app.buildId;
+                try { ctx.app.buildId = "relabelled"; } catch (_) {}
+                return Response.json({
+                    buildId: ctx.app.buildId,
+                    unchanged: ctx.app.buildId === before,
+                    environment: ctx.app.environment,
+                    channel: ctx.channel,
+                    frozen: Object.isFrozen(ctx.app),
+                });
+            };
+        "#,
+        InvocationCtx {
+            user: full_identity(),
+            env: Default::default(),
+            airhouse_schema: None,
+            channel: "staging".into(),
+            build_id: build,
+        },
+    )
+    .await;
+
+    let body = result.expect("function must resolve").body;
+    let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(parsed["buildId"], build.to_string());
+    assert_eq!(
+        parsed["unchanged"], true,
+        "ctx.app.buildId must be read-only"
+    );
+    assert_eq!(parsed["environment"], "staging");
+    assert_eq!(parsed["environment"], parsed["channel"]);
+    assert_eq!(parsed["frozen"], true);
 }

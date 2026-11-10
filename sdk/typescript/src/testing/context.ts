@@ -15,6 +15,7 @@ import * as nodeCryptoImport from "node:crypto";
 import type {
   NotifyResult,
   NotifyTarget,
+  OxyFunctionApp,
   OxyFunctionContext,
   OxyFunctionRow,
   OxyFunctionUser,
@@ -94,6 +95,8 @@ export interface TestContextOptions {
    * the `platform.facts` op and throw.
    */
   platformFacts?: OxyPlatformFacts;
+  /** `ctx.app.buildId`; the nil UUID when omitted. */
+  buildId?: string;
 }
 
 /** One host op the function made, as the context recorded it. */
@@ -156,7 +159,10 @@ export interface TestState {
  * (optional on {@link OxyFunctionContext} for an older server's sake) is
  * always bound, gated by the manifest as the host gates it.
  */
-export type TestFunctionContext = OxyFunctionContext & { platform: OxyPlatformApi };
+export type TestFunctionContext = OxyFunctionContext & {
+  platform: OxyPlatformApi;
+  app: OxyFunctionApp;
+};
 
 export interface TestContext {
   ctx: TestFunctionContext;
@@ -519,6 +525,10 @@ export function createTestContext(
     // A test context runs as production: nothing is held.
     channel: "production",
     environment: "production",
+    app: Object.freeze({
+      buildId: options.buildId ?? "00000000-0000-0000-0000-000000000000",
+      environment: "production"
+    }),
     log: () => {},
     crypto: nodeCrypto(),
     query: async (sql) =>

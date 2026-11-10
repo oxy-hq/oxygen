@@ -234,6 +234,11 @@ globalThis.__buildCtx = (ctxData) => ({
   // `channel` the hold layer's. Same value: "production" or "staging".
   channel: ctxData.channel,
   environment: ctxData.channel,
+  // Which published build is answering, in the shape the browser shell injects
+  // as `window.__OXY_APP__` — so a record written here and one written in the
+  // page about the same build carry the same id. A value, not an op: fixed for
+  // the invocation and frozen so a handler cannot relabel its own records.
+  app: Object.freeze({ buildId: ctxData.buildId, environment: ctxData.channel }),
   log: (...args) => Deno.core.ops.op_ctx_log("info", args.map(String).join(" ")),
   // Synchronous — pure CPU, so these skip the host-call channel entirely.
   //

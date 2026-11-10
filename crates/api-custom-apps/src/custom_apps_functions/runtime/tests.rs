@@ -4,6 +4,7 @@
 mod attachments_and_notify;
 mod broker_gates;
 mod crypto;
+mod decide_throughput;
 mod dropped_run;
 mod host_call_failures;
 mod identity;
@@ -320,6 +321,7 @@ pub(super) fn test_ctx() -> InvocationCtx {
         env: Default::default(),
         airhouse_schema: None,
         channel: "production".into(),
+        build_id: uuid::Uuid::nil(),
     }
 }
 

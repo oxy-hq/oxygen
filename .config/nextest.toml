@@ -76,15 +76,6 @@ path = "junit.xml"
 [test-groups]
 serial-db = { max-threads = 1 }
 db-per-test = { max-threads = 4 }
-# `oxy-policy-engine`'s DuckDB sync tests: each runs `INSTALL postgres`, which on
-# a machine's first run downloads the extension into ~/.duckdb, and parallel test
-# processes would race on that file. Its own group, so they serialize only
-# against each other.
-policy-engine-duckdb = { max-threads = 1 }
-
-[[profile.default.overrides]]
-filter = "package(=oxy-policy-engine) & binary(=integration) & test(/^(sync_parquet|live_oltp)::/)"
-test-group = "policy-engine-duckdb"
 
 [[profile.default.overrides]]
 filter = "kind(test) & (package(=oxy) | package(=oxy-cameras) | package(=agentic-pipeline) | package(=agentic-runtime) | package(=agentic-connector) | package(=agentic-airway))"

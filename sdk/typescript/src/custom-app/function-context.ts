@@ -1075,6 +1075,14 @@ export interface OxyPlatformApi {
   facts(opts?: { weeks?: number }): Promise<OxyPlatformFacts>;
 }
 
+/** `ctx.app`: the build an invocation runs and its environment. Read-only. */
+export interface OxyFunctionApp {
+  /** The `app_builds` id (a UUID) of the build this invocation runs. */
+  readonly buildId: string;
+  /** Same value as `ctx.environment`: `"production"` or `"staging"`. */
+  readonly environment: string;
+}
+
 /**
  * The data-plane context passed as the second argument to a function's default
  * export. Mirrors the host-assembled `ctx` (`__buildCtx` in `runtime.rs`);
@@ -1172,6 +1180,16 @@ export interface OxyFunctionContext {
   channel: string;
   /** Alias of {@link channel}: the environments design's name for it. */
   environment: string;
+  /**
+   * Which published build is answering, and in which environment — the same
+   * shape the browser shell injects as `window.__OXY_APP__`, so a record a
+   * function writes and one the page writes about the same build carry the
+   * same `buildId`. Fixed when the invocation starts and frozen.
+   *
+   * Optional, like `platform`: a server older than November 2026 does not
+   * bind it. Read `ctx.app?.buildId` and treat `undefined` as "unknown build".
+   */
+  app?: OxyFunctionApp;
   /** Structured per-invocation logging (captured + surfaced with the response). */
   log(...args: unknown[]): void;
   /**

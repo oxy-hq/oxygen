@@ -2541,6 +2541,8 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
     let ctx = runtime::InvocationCtx {
         // `ctx.channel`: the environment this run was admitted to.
         channel: args.policy.environment().name(),
+        // `ctx.app.buildId`: the build `prepare` resolved for this run.
+        build_id: args.build_id,
         user: runtime::CtxUser {
             id: args.user_id.to_string(),
             email: args.user_email,

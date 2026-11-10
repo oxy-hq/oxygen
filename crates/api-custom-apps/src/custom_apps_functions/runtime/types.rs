@@ -22,6 +22,13 @@ pub struct InvocationCtx {
     /// `"production"`, or `"staging"`, where the host holds every write
     /// (`custom_apps_functions::env_policy`).
     pub channel: String,
+    /// `ctx.app.buildId`: the `app_builds.id` of the build this invocation
+    /// runs — the same UUID the browser shell injects as
+    /// `window.__OXY_APP__.buildId`, so a server-side record and a browser
+    /// one about the same build join on it. Set once, when the invocation
+    /// starts; `__buildCtx` freezes `ctx.app`.
+    #[serde(rename = "buildId")]
+    pub build_id: uuid::Uuid,
 }
 
 /// One org team the caller belongs to, as surfaced through `ctx.user.teams`.

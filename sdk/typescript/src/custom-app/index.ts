@@ -40,6 +40,7 @@ export type {
   OxyCryptoApi,
   OxyEmailApi,
   OxyFetchResult,
+  OxyFunctionApp,
   OxyFunctionContext,
   OxyFunctionHandler,
   OxyFunctionRequest,
