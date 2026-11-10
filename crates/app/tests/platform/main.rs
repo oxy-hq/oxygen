@@ -64,6 +64,7 @@ mod analytics_run_thread_access;
 mod anomaly_bulk_status;
 mod anomaly_notify;
 mod artifact_naming_agrees;
+mod ask_wait;
 mod build;
 mod chat_org_standing;
 mod compile;

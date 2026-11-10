@@ -12,6 +12,10 @@
 //! go away without taking the ask with it. An ask on an app's staging host is
 //! still driven in this process — see `start`.
 //!
+//! A start may also wait (`wait_seconds`, up to [`wait::MAX_WAIT_SECONDS`]):
+//! an ask that settles within it answers `200` with its outcome, one that does
+//! not answers the same `202` and goes on streaming. See `wait`.
+//!
 //! Pipeline integration: both paths build from `pipeline::ask_pipeline`, on
 //! `agentic_pipeline::PipelineBuilder` — the SAME entry point the workspace
 //! `/runs` route uses for the IDE's analytics surface. So verified-query
@@ -46,6 +50,7 @@ pub mod executor;
 mod pipeline;
 mod start;
 pub mod task;
+pub mod wait;
 
 use start::{drive_here, queue_ask};
 
@@ -173,6 +178,10 @@ pub struct AskRequest {
     /// follow-up questions.
     #[serde(default)]
     pub thread_id: Option<String>,
+    /// Hold the response up to this many seconds for the ask to settle
+    /// (`wait`). Absent or `0` answers at once, as a start always has.
+    #[serde(default)]
+    pub wait_seconds: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -187,6 +196,9 @@ pub struct AskStartResponse {
     /// the browser resolves against whatever origin is serving the
     /// bundle — no need for the server to know its own host.
     pub thread_url: String,
+    /// Set when the start waited: how far the ask got (`wait::AskOutcome`).
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<wait::AskOutcome>,
 }
 
 /// `POST /api/projects/{project_id}/agents/{agent_id}/asks`
@@ -221,6 +233,17 @@ pub async fn start_ask(
             StatusCode::BAD_REQUEST,
             "`question` must be non-empty",
             "agent_question_empty",
+        );
+    }
+    let wait_seconds = req.wait_seconds.unwrap_or(0);
+    if wait_seconds > wait::MAX_WAIT_SECONDS {
+        return err_with_code(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "`wait_seconds` is at most {}; read a longer ask from its event stream",
+                wait::MAX_WAIT_SECONDS
+            ),
+            "agent_wait_too_long",
         );
     }
 
@@ -382,10 +405,17 @@ pub async fn start_ask(
     let thread_url =
         build_thread_path(&agentic_state.db, &gates_ctx.workspace, &thread_id_str).await;
 
+    let outcome = boxed(|| wait::outcome(&agentic_state, &run_id, wait_seconds)).await;
+    let status = match &outcome {
+        Some(o) if o.settled() => StatusCode::OK,
+        _ => StatusCode::ACCEPTED,
+    };
+
     let resp = AskStartResponse {
         run_id,
         thread_id: thread_id_str,
         thread_url,
+        outcome,
     };
-    (StatusCode::ACCEPTED, Json(resp)).into_response()
+    (status, Json(resp)).into_response()
 }
