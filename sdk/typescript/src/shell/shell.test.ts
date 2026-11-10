@@ -417,11 +417,18 @@ describe("shell.css ask dock fields", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const specificity = (selector: string) => (selector.match(/[.#[:]/g) ?? []).length;
 
-  function winningFontSize(field: string, applies: (media: string) => boolean) {
+  // `.oxy-askdock--phone` is set by usePhoneLayout (askDockPhone.ts), so its rules
+  // apply in the phone layout only, as a media query would.
+  function winningFontSize(
+    field: string,
+    applies: (media: string) => boolean,
+    phoneLayout: boolean
+  ) {
     const css = readFileSync(join(here, "shell.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
     let best: Rule | undefined;
     for (const rule of rulesIn(css)) {
       if (!rule.fontSize || !rule.selector.endsWith(field) || !rule.media.every(applies)) continue;
+      if (!phoneLayout && rule.selector.includes(".oxy-askdock--phone")) continue;
       if (!best || specificity(rule.selector) >= specificity(best.selector)) best = rule;
     }
     return best?.fontSize;
@@ -432,12 +439,12 @@ describe("shell.css ask dock fields", () => {
   const desktop = (media: string) => /min-width/.test(media);
 
   it("reach 16px on a phone, so iOS does not zoom into them", () => {
-    expect(winningFontSize(".oxy-askdock__input", phone)).toBe("16px");
-    expect(winningFontSize(".oxy-askdock__history-searchinput", phone)).toBe("16px");
+    expect(winningFontSize(".oxy-askdock__input", phone, true)).toBe("16px");
+    expect(winningFontSize(".oxy-askdock__history-searchinput", phone, true)).toBe("16px");
   });
 
   it("keep their size with a mouse", () => {
-    expect(winningFontSize(".oxy-askdock__input", desktop)).toBe("13.5px");
-    expect(winningFontSize(".oxy-askdock__history-searchinput", desktop)).toBe("13px");
+    expect(winningFontSize(".oxy-askdock__input", desktop, false)).toBe("13.5px");
+    expect(winningFontSize(".oxy-askdock__history-searchinput", desktop, false)).toBe("13px");
   });
 });

@@ -56,7 +56,8 @@ function CloseIcon() {
 // that entry between the old page and the new one. Picking a row replaces it, and
 // Back from the new page goes to the old one. A click meant for a new tab, or a
 // router that took the click, is left alone: the page stays, the drawer closes.
-function followRow(e: MouseEvent<HTMLAnchorElement>) {
+// Today's links on a phone take the same path (TodayClock.tsx).
+export function followRow(e: MouseEvent<HTMLAnchorElement>) {
   if (e.defaultPrevented || e.button !== 0) return;
   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   const to = new URL(e.currentTarget.href, window.location.href);

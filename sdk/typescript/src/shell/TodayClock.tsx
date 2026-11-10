@@ -8,10 +8,17 @@
 // asks again only when the last answer is a minute old or failed. Never throws
 // into the host app: a rejected request, a non-2xx or a payload that is not a
 // widget list all end as "Couldn't load Today." (see todayModel.ts).
+//
+// In the phone layout an open panel holds a history entry, as a PhoneSheet does,
+// so the phone's Back closes it and leaves the app where it was. Elsewhere (a
+// desktop, a tablet) it holds none: Back there is the browser's, as it was.
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useOxyApp } from "../custom-app/react";
 import { cx } from "./cx";
+import { followRow } from "./NavSheet";
+import { holdHistoryEntry } from "./phone/sheetHistory";
+import { usePhoneLayout } from "./phone/usePhoneLayout";
 import { useClockText } from "./TopBar";
 import { type TodayRow, todayRows } from "./todayModel";
 
@@ -73,7 +80,7 @@ function Row({
 }: {
   row: TodayRow;
   resolve: (url?: string | null) => string | undefined;
-  onPick: () => void;
+  onPick: (e: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const href = row.href ? (resolve(row.href) ?? row.href) : undefined;
   const iconUrl = row.iconUrl ? (resolve(row.iconUrl) ?? row.iconUrl) : undefined;
@@ -140,6 +147,7 @@ export function TodayClock({
 }) {
   const { fetcher } = useOxyApp();
   const clock = useClockText(timezone);
+  const phone = usePhoneLayout();
   const panelId = useId();
   const [phase, setPhase] = useState<Phase>("closed");
   const [status, setStatus] = useState<Status>("idle");
@@ -224,6 +232,20 @@ export function TodayClock({
     };
   }, [phase, hide]);
 
+  // The phone's Back closes an open panel and leaves the page where it was.
+  const holding = phone && phase === "open";
+  useEffect(() => {
+    if (holding) return holdHistoryEntry(() => hide(false));
+  }, [holding, hide]);
+
+  // With an entry held, a link's own navigation would leave it between this page
+  // and the next, and the close's step back would race the load: the link replaces
+  // the entry instead, as a drawer row does. Without one, a link is a link.
+  const pick = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (holding) followRow(e);
+    hide(false);
+  };
+
   const home = resolve(homeHref) ?? homeHref;
   const present = phase !== "closed";
   return (
@@ -261,7 +283,7 @@ export function TodayClock({
             {rows?.length ? (
               <ul className='oxy-today__list'>
                 {rows.map((row) => (
-                  <Row key={row.key} row={row} resolve={resolve} onPick={() => hide(false)} />
+                  <Row key={row.key} row={row} resolve={resolve} onPick={pick} />
                 ))}
               </ul>
             ) : rows ? (
@@ -272,7 +294,12 @@ export function TodayClock({
               <Message testId='topbar-today-loading'>Loading…</Message>
             )}
           </div>
-          <a href={home} className='oxy-today__footer' data-testid='topbar-today-home'>
+          <a
+            href={home}
+            className='oxy-today__footer'
+            data-testid='topbar-today-home'
+            onClick={holding ? pick : undefined}
+          >
             Open Oxygen home
           </a>
         </div>

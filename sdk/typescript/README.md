@@ -254,6 +254,13 @@ answers a tap within 44px of its centre; nothing drawn grows. A tablet and a des
 keep the bar exactly as it is. The reach is that control's `::before`, so in the phone
 layout the shell owns the `::before` of a button or link placed directly in the bar:
 put a badge on such a control in a child element, not in its `::before`.
+In the phone layout, Ask Oxygen opens as a full-screen layer over the app (the
+app keeps its width and is inert behind it) rather than docked beside it, and
+Back closes it; a tablet and a desktop keep the docked side panel.
+In the phone layout an open Today panel also holds a history entry, as a
+`PhoneSheet` does, so the phone's Back closes it and the app stays; a row or the
+home link replaces that entry rather than leaving it behind. A tablet and a desktop
+hold none.
 A screen that is not one person's, such as a store's shared tablet, passes
 `<OxyShell plainClock>` to keep the clock a plain time: no Today button or panel,
 and no widgets read.
@@ -347,7 +354,7 @@ function OrdersPhone({ stores, totals }: OrdersData) {
 | --- | --- |
 | `usePhoneLayout()` | `true` on a phone upright (narrower than 640px) or on its side (a touch screen no taller than 500px); re-renders when that changes, `false` on the server. `PHONE_LAYOUT_QUERY` is the media query, for code outside React. |
 | `PhonePage` | The frame: 16px gutters (plus safe-area insets), 12px rhythm. It scrolls with the shell's main area or the document, never in a box of its own. `tabBar` and `stickyAction` dock at the bottom of the screen and the content clears them, also under wrappers that hug their content (padding on a wrapper insets the dock, so for an edge-to-edge dock render the page without one); a new `scrollKey` scrolls back to the top. |
-| `PhoneTabBar` | Bottom navigation, 56px plus the home indicator. Up to five slots; past five, four and a **More** slot that lists the rest in a sheet. `items: { id, label, icon?, badge? }[]`, `activeId`, `onSelect`. |
+| `PhoneTabBar` | Bottom navigation, 56px plus the home indicator. Up to five slots; past five, four and a **More** slot that lists the rest in a sheet. `items: { id, label, icon?, badge? }[]`, `activeId`, `onSelect`. `historyEntry` (off by default) makes the phone's Back work as in a native app's bottom navigation: from any section but the first it calls `onSelect` with the first item's id, and from the first it leaves; the bar holds one history entry while another section shows (one, however many tabs are tapped), only in the phone layout. Turn it on when the section lives in state or in the URL by replace. Leave it off when `onSelect` pushes history (a route or `?tab=` per section): Back would swap between two sections forever. |
 | `PhoneSheet` | A full-screen sheet with a 44px Back, a scrolling body and an optional `footer`. Back and Escape call `onClose`; focus goes in on open and back to the control that opened it on close; the page behind does not scroll. The phone's Back also calls `onClose` and leaves the page where it was: an open sheet holds a history entry on the same URL. A sheet that opened by pushing its own entry (a route, `?item=`) passes `historyEntry={false}`. |
 | `PhoneStickyAction`, `PhoneButton` | The action a screen exists for, pinned above the tab bar. Buttons are 48px; `tone` is `primary`, `secondary` or `danger`. |
 | `PhoneKpiStrip` | Headline numbers, two per row: label, value, a `delta` coloured by `tone`. A tile with `onClick` is a button. |

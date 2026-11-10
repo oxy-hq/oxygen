@@ -11,8 +11,10 @@
 import * as React from "react";
 import { type AgentRunEvent, OxyAnswer, useAgentRun, useOxyApp } from "../custom-app/react";
 import { AnswerChart, type ChartBlock } from "./AnswerChart";
+import { useAskDockPhone } from "./askDockPhone";
 import { cx } from "./cx";
 import { OxyMark } from "./marks";
+import { followRow } from "./NavSheet";
 import { ReasoningTrace } from "./ReasoningTrace";
 import { fetchThreadTranscript, useThreadHistory } from "./threadHistory";
 import {
@@ -276,6 +278,9 @@ export function AskDock({
   const [restoring, setRestoring] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  const dockRef = React.useRef<HTMLElement>(null);
+  // In the phone layout the open dock covers the screen and Back closes it.
+  const phone = useAskDockPhone(dockRef, open, onClose);
   // Generation guard for the async transcript restore: any conversation
   // switch bumps this, and an in-flight `openServerThread` fetch that
   // resolves afterwards checks it and bails instead of clobbering the now-
@@ -492,7 +497,13 @@ export function AskDock({
 
   return (
     <aside
-      className={cx("oxy-shell-scope oxy-askdock", !open && "oxy-askdock--closed", className)}
+      ref={dockRef}
+      className={cx(
+        "oxy-shell-scope oxy-askdock",
+        phone && "oxy-askdock--phone",
+        !open && "oxy-askdock--closed",
+        className
+      )}
       aria-label='Ask Oxygen'
       aria-hidden={!open}
     >
@@ -534,6 +545,9 @@ export function AskDock({
             <a
               className='oxy-askdock__iconbtn'
               href={threadsHref}
+              // Over the app on a phone the dock holds a history entry: the link
+              // replaces it rather than leave it between this page and the next.
+              onClick={phone && open ? followRow : undefined}
               aria-label='Open chat in Oxygen'
               title='Open chat in Oxygen'
             >

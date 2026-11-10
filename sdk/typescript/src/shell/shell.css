@@ -1496,6 +1496,44 @@
   }
 }
 
+/* On a phone (usePhoneLayout, which sets `--phone`) the open dock covers the
+   screen: docked beside the app it left a ~60px column. Fixed, so it leaves the
+   flex row and the app keeps its width behind it (askDockPhone.ts makes the app
+   inert). It fills the viewport; where the visual viewport is known (`data-fit`)
+   its height and top follow it, so the composer sits above the keyboard. Above a
+   phone page's tab bar (30) and its sheets (50), below a hint's popover (60). */
+.oxy-askdock--phone {
+  transition: none;
+}
+
+.oxy-askdock--phone:not(.oxy-askdock--closed) {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  width: auto;
+  height: auto;
+  border-left-width: 0;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+.oxy-askdock--phone[data-fit]:not(.oxy-askdock--closed) {
+  top: var(--oxy-askdock-top);
+  bottom: auto;
+  height: var(--oxy-askdock-vh);
+}
+
+.oxy-askdock--phone .oxy-askdock__iconbtn {
+  width: 44px;
+  height: 44px;
+}
+
+.oxy-askdock--phone .oxy-askdock__input,
+.oxy-askdock--phone .oxy-askdock__history-searchinput {
+  font-size: 16px;
+}
+
 .oxy-askdock__composer-row {
   display: flex;
   justify-content: flex-end;

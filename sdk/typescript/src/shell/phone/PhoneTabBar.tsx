@@ -2,11 +2,25 @@
 // away, in place of a sideways-scrolling tab strip. Five slots at most, as on
 // iOS and Android; past five, the last slot is "More" and opens the rest in a
 // sheet, so no section is ever cut mid-word or scrolled off.
+//
+// The phone's Back works as in a native app's bottom navigation (Android's, whose
+// Back exists): from any section but the first it returns to the first, and from the
+// first it leaves. So the bar holds one history entry while a section other than the
+// first is showing, in the same coordinator as the sheets, and not one per tap:
+// going Sales → Stores → Post and pressing Back lands on Sales, not on Stores, and a
+// second Back leaves, as in a native app, rather than walking every tap made.
+//
+// Opt-in (`historyEntry`), for an app that keeps its section in state or replaces the
+// URL with it. Never with a router that pushes an entry per section: Back would land
+// on the router's entry, the bar's close would push the first section, and the next
+// Back would land on the section again, each Back swapping the two forever.
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { cx } from "../cx";
 import { ChevronRightIcon, MoreIcon } from "./icons";
 import { PhoneSheet } from "./PhoneSheet";
+import { holdHistoryEntry } from "./sheetHistory";
+import { usePhoneLayout } from "./usePhoneLayout";
 
 export interface PhoneTabItem {
   id: string;
@@ -24,6 +38,14 @@ export interface PhoneTabBarProps {
   moreLabel?: string;
   /** The nav landmark's name, read by screen readers. */
   ariaLabel?: string;
+  /** Off by default. On: in the phone layout, while a section other than the first is
+   *  showing, hold one history entry, so the phone's Back calls `onSelect` with the
+   *  first item's id rather than leaving the app. For an app whose section lives in
+   *  React state, or in the URL by `replaceState`. Leave it off when `onSelect` pushes
+   *  history (a route or `?tab=` per section, pushed): those entries already step
+   *  Back between sections, and with this on too, Back loops between two sections and
+   *  never leaves the app. */
+  historyEntry?: boolean;
 }
 
 const MAX_SLOTS = 5;
@@ -86,9 +108,23 @@ export function PhoneTabBar({
   activeId,
   onSelect,
   moreLabel = "More",
-  ariaLabel = "Sections"
+  ariaLabel = "Sections",
+  historyEntry = false
 }: PhoneTabBarProps) {
   const [moreOpen, setMoreOpen] = useState(false);
+  const phone = usePhoneLayout();
+  const first = items[0]?.id;
+  // The latest `onSelect`, so an inline arrow from the app does not take the entry
+  // down and put it back on every render.
+  const selectRef = useRef(onSelect);
+  selectRef.current = onSelect;
+  // Keyed on being away from the first section, not on which section: moving
+  // between the others keeps the one entry. Outside the phone layout (a tablet, a
+  // desktop) there is no entry, as before.
+  const away = historyEntry && phone && first !== undefined && activeId !== first;
+  useEffect(() => {
+    if (away && first !== undefined) return holdHistoryEntry(() => selectRef.current(first));
+  }, [away, first]);
   const overflow = items.length > MAX_SLOTS;
   const slots = overflow ? items.slice(0, MAX_SLOTS - 1) : items;
   const rest = overflow ? items.slice(MAX_SLOTS - 1) : [];

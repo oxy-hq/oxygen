@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.3] - 2026-11-10
+
+### Fixed
+
+- **The phone's Back closes the top bar's Today panel.** The panel held no history
+  entry, so Back with it open left the app. In the phone layout (`PHONE_LAYOUT_QUERY`)
+  an open panel now holds one in the same coordinator as `PhoneSheet` and the drawer:
+  Back closes it and the app stays where it was. A row or the "Open Oxygen home" link
+  replaces that entry, as a drawer row does, so Back from the next page returns to the
+  app. A tablet (a store's kiosk among them) and a desktop hold no entry, as before;
+  `<OxyShell plainClock>` has no panel at all.
+- **Ask Oxygen covers a phone's screen instead of squeezing the app.** Docked beside
+  the app as on a desktop, the panel took `min(23rem, 85vw)` of a 390px screen and
+  left the app a ~60px column, its text wrapping a letter a line and the tab bar's
+  labels cut. In the phone layout (`PHONE_LAYOUT_QUERY`, upright or on its side) the
+  open panel is now a fixed full-screen layer: the app keeps its width behind it and
+  is `inert` until it closes. Back closes it (one history entry, as Today holds), as
+  does its close button, now 44px like its other header buttons. It follows the visual
+  viewport, so the composer (16px) sits above the keyboard. "Open chat in Oxygen"
+  replaces the entry rather than leaving it behind. A tablet and a desktop keep the
+  docked side panel exactly as it was.
+
+### Added
+
+- **`<PhoneTabBar historyEntry>`: the phone's Back returns to the first section.**
+  Opt-in, off by default. `PhoneTabBar` taps push nothing, so in an app that keeps its
+  section in state (or replaces the URL with it) Back after switching sections leaves
+  the app. With `historyEntry` on, Back works as a native app's bottom navigation
+  does: from any section but the first it calls `onSelect` with the first item's id,
+  and from the first it leaves. The bar holds one entry while away from the first
+  section, however many tabs are tapped, so Back never walks through every tap. Picks
+  from More count the same, Back with More open closes More first, and an app opening
+  on another section gets the entry too. Only in the phone layout. **Leave it off when
+  `onSelect` pushes history** (a route or `?tab=` per section): that router already
+  steps Back between sections, and with both, Back swaps between two sections forever
+  and never leaves the app. That is why it is not the default.
+
 ## [2.27.2] - 2026-11-09
 
 ### Fixed
