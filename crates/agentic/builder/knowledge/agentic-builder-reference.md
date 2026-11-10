@@ -2,7 +2,7 @@
 source:
   - sdk/cli/skills/oxy-agents/SKILL.md
   - sdk/cli/skills/oxy-agents/references/quick-reference.md
-reconciled-hash: 882ecc05e5824249b2bb0c4a0f4bc23bf3fc12f8
+reconciled-hash: 91afd7525a7d8e001cb8f3a8d20bb5de836e1550
 note: |
   Authored condensation of the platform skills listed above. Not auto-synced —
   scripts/sync-skills.sh only copies the verbatim YAML templates. Re-condense
@@ -22,8 +22,9 @@ you do not define its states or its tools.
 - **`.agentic.yml` is the agent.** The classic `.agent.yml` format has been
   removed — never create one or copy one from an old workspace.
 - **Translate classic agents with `oxy migrate-agents`** — when a compile warns
-  `classic agent format (.agent.yml) is retired`, or an automation's
-  `agent_ref` still names a `.agent.yml`. First `oxy migrate-agents --dry-run
+  `classic agent format (.agent.yml) is retired` (a deployment that has turned
+  the refusal on fails the revision with that message instead), or an
+  automation's `agent_ref` still names a `.agent.yml`. First `oxy migrate-agents --dry-run
   --json <dir>` (writes nothing; lists each classic file, dropped fields such as
   `tools: visualize` or inline `tests:`, what `cannot be mapped` — `omni_query`,
   `anonymize`, `type: routing`; those files stay put unless `--force` drops the
