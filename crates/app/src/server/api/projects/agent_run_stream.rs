@@ -24,19 +24,34 @@
 //! would mean threading the auth-state choice through the SSE
 //! generator. Cleaner to duplicate the event-emission loop here
 //! (~60 lines of unique logic).
+//!
+//! **How it learns of new events.** Every append to `agentic_run_events`, and
+//! every terminal run-row write, NOTIFYs `oxy_run_events` with the run id; the
+//! router's LISTEN connection rings the [`RemoteWakes`] seat this stream takes
+//! before its first read. A live ask is driven by whichever pod claimed it
+//! and a staging ask by this one, and either way the NOTIFY reaches this pod,
+//! so a ring is the one wake source. Without one the stream re-reads on the
+//! workspace stream's safety-net timer (`agentic_http::routes::run::poll_after`:
+//! 10 s, then 30 s once quiet), which only matters while the listener is down.
+//! It used to re-read every 250 ms instead, four `agentic_run_events` reads a
+//! second for every open stream, quiet or not.
 
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::Duration;
 
+use agentic_http::routes::run::{ROW_CHECK_EVERY_N_TIMED_WAKES, poll_after};
 use agentic_runtime::crud::get_events_after;
 use agentic_runtime::event_registry::EventRegistry;
+use agentic_runtime::lifecycle::remote_wake::RemoteWakes;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
+use futures::{Stream, StreamExt};
+use sea_orm::DatabaseConnection;
 use serde::Serialize;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, instrument};
 use uuid::Uuid;
 
@@ -115,27 +130,95 @@ pub async fn stream_agent_run(
         .clone()
         .unwrap_or_else(|| "analytics".to_string());
 
-    let db = agentic_state.db.clone();
-    let registry: Arc<EventRegistry> = Arc::clone(&agentic_state.event_registry);
-    let run_id_for_stream = run_id.clone();
+    let stream = run_events(
+        agentic_state.db.clone(),
+        &agentic_state.runtime.remote_wakes,
+        Arc::clone(&agentic_state.event_registry),
+        run_id.clone(),
+        source_type,
+        last_seq,
+        agentic_state.shutdown_token.clone(),
+    )
+    .map(|item| {
+        Ok::<_, Infallible>(
+            SseEvent::default()
+                .id(item.id.to_string())
+                .event(item.event)
+                .data(item.data),
+        )
+    });
 
-    let stream = async_stream::stream! {
+    // Axum polls this body *after* the handler future resolves, so the outer
+    // tower layer's `Hub::run` has already unwound and `Hub::current()` on the
+    // polling task is the untagged default. Read the request's hub here, while
+    // it is still current, and bind it across every poll: the `error!` above is
+    // on this module's target, which barrier 1 does not drop, and it — like a
+    // panic under the same poll — carries a tenant agent run's id and error
+    // text (`middlewares::sentry_surface`).
+    let stream = crate::server::api::middlewares::sentry_surface::bind_hub_stream(
+        stream,
+        sentry::Hub::current(),
+    );
+
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// One event the stream sends: the SSE `id`, `event` and `data`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StreamItem {
+    pub id: i64,
+    pub event: String,
+    pub data: String,
+}
+
+/// What ended a park.
+enum Wake {
+    /// A NOTIFY for this run: new events, or a row-only terminal write.
+    Rung,
+    /// Nothing rang within the safety-net interval.
+    Timeout,
+    Shutdown,
+}
+
+/// The events of `run_id` after `last_seq`, then a terminal one, then the
+/// end. Takes its [`RemoteWakes`] seat before the first read, so an append
+/// between the read and the park is a stored permit, not a missed ring.
+pub fn run_events(
+    db: DatabaseConnection,
+    wakes: &Arc<RemoteWakes>,
+    registry: Arc<EventRegistry>,
+    run_id: String,
+    source_type: String,
+    last_seq: i64,
+    shutdown: CancellationToken,
+) -> impl Stream<Item = StreamItem> + Send + 'static {
+    let wake = wakes.subscribe(&run_id);
+    async_stream::stream! {
         let mut last_sent_seq = last_seq;
         let mut processor = registry.stream_processor(&source_type);
-        let mut quiet_polls: u32 = 0;
+        // Event-free passes in a row, for the safety net's back-off.
+        let mut idle_polls: u32 = 0;
+        // Timed wakes so far: the row is asked on one in
+        // `ROW_CHECK_EVERY_N_TIMED_WAKES`, as the workspace stream does.
+        let mut timed_wakes: u32 = 0;
+        // May this pass, if it reads nothing new, ask the run row?
+        let mut check_row = false;
         // Set once the row has read terminal: the next pass is the last.
         let mut row_terminal: Option<agentic_runtime::entity::run::Model> = None;
 
         loop {
             // Pull all new events past last_sent_seq.
-            let rows = match get_events_after(&db, &run_id_for_stream, last_sent_seq).await {
+            let rows = match get_events_after(&db, &run_id, last_sent_seq).await {
                 Ok(r) => r,
                 Err(e) => {
-                    error!(run_id = %run_id_for_stream, error = %e, "stream: db read failed");
+                    error!(run_id = %run_id, error = %e, "stream: db read failed");
                     break;
                 }
             };
-            quiet_polls = if rows.is_empty() { quiet_polls + 1 } else { 0 };
+            let read_nothing = rows.is_empty();
+            idle_polls = if read_nothing { idle_polls.saturating_add(1) } else { 0 };
 
             let mut terminal = false;
             for row in rows {
@@ -145,11 +228,11 @@ pub async fn stream_agent_run(
                 // domain-specific (e.g. recovery_resumed). Matches
                 // the workspace SSE behavior.
                 if row.event_type == "recovery_resumed" {
-                    let event = SseEvent::default()
-                        .id(row.seq.to_string())
-                        .event("recovery_resumed")
-                        .data(row.payload.to_string());
-                    yield Ok::<_, Infallible>(event);
+                    yield StreamItem {
+                        id: row.seq,
+                        event: "recovery_resumed".into(),
+                        data: row.payload.to_string(),
+                    };
                     continue;
                 }
 
@@ -161,18 +244,16 @@ pub async fn stream_agent_run(
                     if let serde_json::Value::Object(ref mut map) = ui_payload {
                         map.insert("attempt".into(), row.attempt.into());
                     }
-                    let event = SseEvent::default()
-                        .id(row.seq.to_string())
-                        .event(&ui_event_type)
-                        .data(ui_payload.to_string());
-                    yield Ok(event);
-
                     // Terminal events close the stream cleanly. The
-                    // SDK's EventSource consumer stops listening as
-                    // soon as it sees one.
+                    // SDK's consumer stops listening as soon as it sees one.
                     if is_terminal_event(&ui_event_type) {
                         terminal = true;
                     }
+                    yield StreamItem {
+                        id: row.seq,
+                        event: ui_event_type,
+                        data: ui_payload.to_string(),
+                    };
                 }
             }
 
@@ -198,15 +279,19 @@ pub async fn stream_agent_run(
                         &run.id,
                     )
                 {
-                    yield Ok(SseEvent::default()
-                        .id(last_sent_seq.saturating_add(1).to_string())
-                        .event(event_type)
-                        .data(payload.to_string()));
+                    yield StreamItem {
+                        id: last_sent_seq.saturating_add(1),
+                        event: event_type.into(),
+                        data: payload.to_string(),
+                    };
                 }
                 return;
             }
-            if quiet_polls > 0 && quiet_polls % ROW_CHECK_EVERY_QUIET_POLLS == 0 {
-                match agentic_runtime::crud::get_run(&db, &run_id_for_stream).await {
+            // A ring that brought no events was a row-only write — a
+            // terminal transition, recovery, a dead letter — so the row is
+            // asked now. A timed wake asks it only on its turn.
+            if read_nothing && check_row {
+                match agentic_runtime::crud::get_run(&db, &run_id).await {
                     Ok(Some(run)) if run_is_over(run.task_status.as_deref()) => {
                         row_terminal = Some(run);
                         continue;
@@ -216,34 +301,25 @@ pub async fn stream_agent_run(
                 }
             }
 
-            // Poll cadence: 250 ms between sweeps. Matches what the
-            // workspace handler uses as its notifier-free fallback;
-            // tight enough for token-like UX, loose enough that a
-            // long-running quiet run doesn't burn DB connections.
-            tokio::time::sleep(Duration::from_millis(250)).await;
+            let park_for = poll_after(true, idle_polls);
+            let woke = tokio::select! {
+                _ = wake.notified() => Wake::Rung,
+                _ = tokio::time::sleep(park_for) => Wake::Timeout,
+                _ = shutdown.cancelled() => Wake::Shutdown,
+            };
+            check_row = match woke {
+                // The client reconnects with `Last-Event-ID`, to a pod that
+                // is staying up.
+                Wake::Shutdown => break,
+                Wake::Rung => true,
+                Wake::Timeout => {
+                    timed_wakes = timed_wakes.saturating_add(1);
+                    timed_wakes.is_multiple_of(ROW_CHECK_EVERY_N_TIMED_WAKES)
+                }
+            };
         }
-    };
-
-    // Axum polls this body *after* the handler future resolves, so the outer
-    // tower layer's `Hub::run` has already unwound and `Hub::current()` on the
-    // polling task is the untagged default. Read the request's hub here, while
-    // it is still current, and bind it across every poll: the `error!` above is
-    // on this module's target, which barrier 1 does not drop, and it — like a
-    // panic under the same poll — carries a tenant agent run's id and error
-    // text (`middlewares::sentry_surface`).
-    let stream = crate::server::api::middlewares::sentry_surface::bind_hub_stream(
-        stream,
-        sentry::Hub::current(),
-    );
-
-    Sse::new(stream)
-        .keep_alive(KeepAlive::default())
-        .into_response()
+    }
 }
-
-/// Quiet 250 ms polls between reads of the run row: one read every 2 s while
-/// nothing arrives, never while events are flowing.
-const ROW_CHECK_EVERY_QUIET_POLLS: u32 = 8;
 
 /// Does this `task_status` mean nothing more is coming? `awaiting_input` is
 /// not over: the stream has already carried the question, and the bundle

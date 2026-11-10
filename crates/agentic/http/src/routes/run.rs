@@ -661,7 +661,7 @@ const IDLE_TICKS_BEFORE_BACKOFF: u32 = 9;
 /// Hence the gate: only a stream whose driver may be elsewhere subscribes to
 /// the NOTIFY and pays the 10 s safety net. Everything else sits at 30 s,
 /// where the notifier is doing the real work and the timer is a safety net.
-const ROW_CHECK_EVERY_N_TIMED_WAKES: u32 = 5;
+pub const ROW_CHECK_EVERY_N_TIMED_WAKES: u32 = 5;
 
 /// How long to park before the next timed read.
 ///
@@ -669,7 +669,9 @@ const ROW_CHECK_EVERY_N_TIMED_WAKES: u32 = 5;
 /// may be elsewhere takes [`REMOTE_DRIVER_POLL_INTERVAL`] as its safety net
 /// until it has been quiet for [`IDLE_TICKS_BEFORE_BACKOFF`] polls; every
 /// other stream, and every stream once quiet, sits at [`IDLE_POLL_INTERVAL`].
-fn poll_after(driver_may_be_elsewhere: bool, idle_polls: u32) -> std::time::Duration {
+/// Public so the custom-app stream (oxy-app's `agent_run_stream`) spends the
+/// same budget.
+pub fn poll_after(driver_may_be_elsewhere: bool, idle_polls: u32) -> std::time::Duration {
     if driver_may_be_elsewhere && idle_polls < IDLE_TICKS_BEFORE_BACKOFF {
         REMOTE_DRIVER_POLL_INTERVAL
     } else {
@@ -774,10 +776,12 @@ pub async fn stream_events(
     // Can this run's driver be in another process? Only then does the timer
     // below need to be fast.
     //
-    // Airway is the only kind enqueued `TaskScope::Global` from an interactive
-    // submit, so it is the only kind whose events can be written by a pod that
-    // cannot ring this one's notifier. Everything else — analytics, builder,
-    // automation — direct-drives, so its notifier IS authoritative and a fast
+    // Airway is the only kind enqueued `TaskScope::Global` from EVERY
+    // interactive submit. A queued chat or member-started automation is too,
+    // but its stream finds no notifier here and is caught by
+    // `driver_may_be_elsewhere` below. A direct-driven run — builder, preview,
+    // branch, a chat with the queue flag off — has a notifier, and it IS
+    // authoritative, so a fast
     // timer buys nothing while costing a `get_events_after` per second through
     // every LLM call and warehouse query. That is most open streams, and on
     // `main` they parked on the notifier at zero acquires; keeping them there

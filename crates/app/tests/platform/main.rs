@@ -80,6 +80,7 @@ mod compiled_reader_semantic;
 mod connector_vars_from_workspace_secrets;
 mod context_documents_boundary;
 mod coordinator_any_replica;
+mod custom_app_stream_wake;
 mod data_placement;
 mod encryption_key_check;
 mod env_pins;
