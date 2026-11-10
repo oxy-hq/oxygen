@@ -16,10 +16,10 @@ use std::sync::Arc;
 use agentic_airway::AirwayMigrator;
 use agentic_pipeline::scheduler::{
     ScheduleError, ScheduleInput, create_schedule, delete_schedule, delete_workspace_schedules,
-    enqueue_health_eval, enqueue_preagg_cycle, enqueue_preagg_cycle_for_promote, get_schedule,
-    health_interval_cron, list_schedules, reconcile_health_schedule, reconcile_preagg_schedule,
-    run_schedule_now, tick_health_schedules, tick_monitor_schedules, tick_preagg_schedules,
-    tick_schedules, update_schedule,
+    enqueue_health_eval, enqueue_health_eval_run_now, enqueue_preagg_cycle,
+    enqueue_preagg_cycle_for_promote, get_schedule, health_interval_cron, list_schedules,
+    reconcile_health_schedule, reconcile_preagg_schedule, run_schedule_now, tick_health_schedules,
+    tick_monitor_schedules, tick_preagg_schedules, tick_schedules, update_schedule,
 };
 use agentic_runtime::migration::RuntimeMigrator;
 use async_trait::async_trait;
@@ -1263,6 +1263,57 @@ async fn manual_health_eval_enqueues_global_custom_task() {
         row.schedule_id.as_deref(),
         Some(schedule_id.as_str()),
         "manual eval attributes to the workspace's health schedule when present",
+    );
+}
+
+/// "Run now" on the health schedule row enqueues the same Global task a
+/// scheduled fire does (no eval in the HTTP handler), attributes the run to that
+/// row and stamps `trigger: manual`, and keeps the smoke cadence
+/// (`force_smoke: false`).
+#[tokio::test]
+async fn health_run_now_enqueues_attributed_manual_run() {
+    let Some(db) = test_db().await else { return };
+    let ws = uuid::Uuid::new_v4();
+    reconcile_health_schedule(&db, ws, std::time::Duration::from_secs(600), true)
+        .await
+        .unwrap();
+    let schedule_id = health_rows_for(&db, ws).await[0].id.clone();
+
+    let run_id = enqueue_health_eval_run_now(&db, ws, &schedule_id)
+        .await
+        .unwrap();
+
+    let tasks = health_tasks_for(&db, ws).await;
+    assert_eq!(tasks.len(), 1, "run now enqueues exactly one task");
+    assert!(
+        !tasks[0].scope_owned,
+        "TaskScope::Global, drained by the fleet"
+    );
+
+    #[derive(sea_orm::FromQueryResult)]
+    struct RunRow {
+        schedule_id: Option<String>,
+        trigger: Option<String>,
+        force_smoke: Option<bool>,
+    }
+    let row = RunRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT r.schedule_id, r.metadata->>'trigger' AS trigger, \
+                (q.spec->'payload'->>'force_smoke')::bool AS force_smoke \
+         FROM agentic_runs r JOIN agentic_task_queue q ON q.task_id = r.id \
+         WHERE r.id = $1",
+        [run_id.into()],
+    ))
+    .one(&db)
+    .await
+    .unwrap()
+    .expect("run row and its root task exist");
+    assert_eq!(row.schedule_id.as_deref(), Some(schedule_id.as_str()));
+    assert_eq!(row.trigger.as_deref(), Some("manual"));
+    assert_eq!(
+        row.force_smoke,
+        Some(false),
+        "run now keeps the smoke cadence"
     );
 }
 

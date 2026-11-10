@@ -177,10 +177,10 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     (
         "app/src/server/api/schedules.rs",
-        "backlog: a manual `run_now` of a monitor scan or a workspace health check \
-         drives the run in this process, registered in the handler's RuntimeState for \
-         cancel and SSE. The scheduled firing of the same work is already a queued \
-         task; the manual fire should enqueue the same TaskSpec",
+        "backlog: a manual `run_now` of a monitor scan drives the run in this \
+         process, registered in the handler's RuntimeState for cancel and SSE. The \
+         scheduled firing of the same work is already a queued task; the manual fire \
+         should enqueue the same TaskSpec, as the health check's now does",
     ),
     (
         "app/src/server/api/user_tokens/device_login.rs",

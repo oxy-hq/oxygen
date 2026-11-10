@@ -907,7 +907,7 @@ pub async fn tick_health_schedules(db: &DatabaseConnection) -> usize {
         // A scheduled fire never forces the probes: the smoke cadence is the
         // workspace's own, and overriding it here would bill every workspace the
         // agent-probe token cost on every eval pass.
-        match start_health_eval_run(db, workspace_id, Some(&s.id), false).await {
+        match start_health_eval_run(db, workspace_id, Some(&s.id), false, None).await {
             Ok(run_id) => {
                 fired += 1;
                 record_fire_success(db, &s.id, &run_id).await;
@@ -971,6 +971,7 @@ async fn start_health_eval_run(
     workspace_id: uuid::Uuid,
     schedule_id: Option<&str>,
     force_smoke: bool,
+    metadata: Option<serde_json::Value>,
 ) -> Result<String, String> {
     use agentic_core::delegation::TaskSpec;
     use agentic_runtime::crud::{TaskScope, enqueue_task};
@@ -987,7 +988,7 @@ async fn start_health_eval_run(
             HEALTH_SCHEDULE_NAME,
             None,
             "health_eval_workspace",
-            None,
+            metadata,
             schedule_id,
             workspace_id,
         )
@@ -999,7 +1000,7 @@ async fn start_health_eval_run(
             HEALTH_SCHEDULE_NAME,
             None,
             "health_eval_workspace",
-            None,
+            metadata,
             workspace_id,
         )
         .await
@@ -1052,7 +1053,23 @@ pub async fn enqueue_health_eval(
         .await
         .map_err(|e| e.to_string())?
         .map(|r| r.id);
-    start_health_eval_run(db, workspace_id, schedule_id.as_deref(), force_smoke).await
+    start_health_eval_run(db, workspace_id, schedule_id.as_deref(), force_smoke, None).await
+}
+
+/// "Run now" on a workspace's `health_eval` schedule row: the same queued
+/// `health_eval_workspace` task a scheduled fire enqueues, attributed to that
+/// row and stamped `trigger: manual` so the run history tells the two apart.
+/// It honours the workspace's smoke cadence like any fire of the schedule;
+/// forcing the probes is the Health tab's "Run smoke test"
+/// ([`enqueue_health_eval`] with `force_smoke`).
+pub async fn enqueue_health_eval_run_now(
+    db: &DatabaseConnection,
+    workspace_id: uuid::Uuid,
+    schedule_id: &str,
+) -> Result<String, String> {
+    let mut metadata = serde_json::json!({});
+    stamp_trigger_metadata(&mut metadata, &Some("manual".into()), &None, &None);
+    start_health_eval_run(db, workspace_id, Some(schedule_id), false, Some(metadata)).await
 }
 
 /// User-facing name for the per-workspace health-eval schedule row (shown in the
