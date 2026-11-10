@@ -11,10 +11,9 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# Imported through `oxy_app::surface` (the S4 prelude) plus the backlog rows
-# `crates/app/tests/routing/surface_contract.rs` lists for this crate (the
-# metric-tree helpers, until they go down into `oxy-metric-monitoring`). oxy-app
-# never depends back on this crate. default-features off so a
+# Imported through `oxy_app::surface` (the S4 prelude) only; this crate has no
+# backlog row in `crates/app/tests/routing/surface_contract.rs`. oxy-app never
+# depends back on this crate. default-features off so a
 # `--no-default-features` build of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }         # AppState (router state), the semantic-engine cache

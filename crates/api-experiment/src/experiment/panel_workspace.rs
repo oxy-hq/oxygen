@@ -1,7 +1,8 @@
 //! Building a workspace's semantic layer, engine and query executor for one
 //! panel query. Nothing here is pricing-specific; it is the recipe
 //! `run_baseline_query` (`crates/app/src/server/api/metric_tree.rs`) uses,
-//! minus the HTTP request.
+//! minus the HTTP request: the executor through `oxy_app::surface::metric_tree_exec`,
+//! the layer straight from the scan.
 
 use std::sync::{Arc, LazyLock};
 
@@ -15,9 +16,8 @@ use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use super::panel::{PanelContext, PanelRefusal, check_revision};
-use oxy_app::agentic_wiring::metric_tree_runner::{RunnerPreagg, build_query_executor};
-use oxy_app::server::api::metric_tree::workspace_databases;
 use oxy_app::surface::SemanticEngineCacheCtx;
+use oxy_app::surface::metric_tree_exec::{RunnerPreagg, build_query_executor, workspace_databases};
 use oxy_app::surface::workspace_runtime::build_workspace_manager;
 use oxy_app::surface::workspace_runtime::resolve_compiled_scan_source;
 use oxy_app_core::workspace_cache::{SemanticEngineCache, new_semantic_engine_cache};
@@ -77,12 +77,10 @@ pub(super) async fn open(db: &DatabaseConnection, ctx: &PanelContext) -> Result<
     // `ScanDir`: the compiled model in memory or a directory on disk (#3833).
     let scan_dir = scan.scan.clone();
     let source_revision = scan.source_revision(&manager);
-    let layer = tokio::task::spawn_blocking(move || {
-        oxy_app::server::api::metric_tree::load_layer_at(&scan_dir)
-    })
-    .await
-    .map_err(|e| workspace_fault("loading the semantic model", e))?
-    .map_err(|e| workspace_fault("loading the semantic model", format!("{e:?}")))?;
+    let layer = tokio::task::spawn_blocking(move || scan_dir.load_layer())
+        .await
+        .map_err(|e| workspace_fault("loading the semantic model", e))?
+        .map_err(|e| workspace_fault("loading the semantic model", format!("{e:?}")))?;
     drop(scan); // the layer is parsed; nothing reads the scan directory again
 
     let databases = workspace_databases(&manager);

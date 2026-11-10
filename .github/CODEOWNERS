@@ -207,6 +207,8 @@ web-app/src/pages/ide/WorldModel/                  @haitrr @NTtanh
 # The metric tree itself keeps Mars as a generalist backup.
 crates/metric-monitoring/                          @haitrr @luong-komorebi
 crates/app/src/server/api/metric_tree.rs           @haitrr @NTtanh
+# metric_tree.rs's domain half, lowered into the domain crate: same owners.
+crates/metric-monitoring/src/metric_tree_scenario.rs  @haitrr @NTtanh
 crates/app/src/server/api/metric_anomalies/        @haitrr @luong-komorebi
 crates/app/src/server/api/metrics.rs               @haitrr @NTtanh
 web-app/src/pages/ide/MetricTree/                  @haitrr @NTtanh

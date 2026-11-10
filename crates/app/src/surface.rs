@@ -108,6 +108,18 @@ pub mod workspace_runtime {
     };
 }
 
+/// The warehouse query executor the metric-tree surfaces run on, built the way
+/// the platform builds it for every metric-tree read: the connector pool, the
+/// pre-aggregation short-circuit (derived from the workspace manager, never the
+/// caller), and the request-scoped preview write hold. With it, the airlayer
+/// database configs a workspace declares, read through `dialect()` so a copy
+/// cannot drift on airhouse/motherduck. Platform runtime, not metric-tree
+/// logic: the metric-tree computation itself lives in `oxy-metric-monitoring`.
+pub mod metric_tree_exec {
+    pub use crate::agentic_wiring::metric_tree_runner::{RunnerPreagg, build_query_executor};
+    pub use crate::server::api::metric_tree::workspace_databases;
+}
+
 /// Git operations on the workspace root working copy, as the workspace
 /// handlers perform them: switching to and deleting a branch.
 pub mod workspace_git {

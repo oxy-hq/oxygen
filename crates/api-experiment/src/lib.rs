@@ -27,14 +27,14 @@
 //!   the singleton global driver runs each pass beside the schedule ticks;
 //!   exactly-once across replicas by the CAS on `experiment_runs.next_check_at`.
 //!
-//! Reaches `oxy-app` through `oxy_app::surface` (platform runtime: the role
-//! guards, the workspace context extractors, the project-context and
-//! workspace-manager builders, the compile-boundary scan resolver) and, until
-//! the rest of the metric-tree logic goes down into `oxy-metric-monitoring`,
-//! the `BACKLOG` rows `crates/app/tests/routing/surface_contract.rs` lists for
-//! it (`server::api::metric_tree`, `agentic_wiring::metric_tree_runner`).
-//! `metric_tree_groups` already comes from `oxy-metric-monitoring` (#3981).
-//! `oxy-app` never depends back on it.
+//! Reaches `oxy-app` through `oxy_app::surface` only (platform runtime: the
+//! role guards, the workspace context extractors, the project-context and
+//! workspace-manager builders, the compile-boundary scan resolver, and
+//! `metric_tree_exec` — the warehouse executor built from Oxy's connector
+//! pool, with the workspace's database configs). The metric-tree logic it
+//! uses comes from `oxy-metric-monitoring`; it has no `BACKLOG` row in
+//! `crates/app/tests/routing/surface_contract.rs`. `oxy-app` never depends
+//! back on it.
 
 // Laying out the handler futures (SeaORM 2.0 query types under the workspace
 // middleware stack) takes more than rustc's default query depth of 128 at

@@ -19,6 +19,13 @@
 //!   composite reads. Pure over airlayer; the HTTP handlers that call them
 //!   (and build the executor from Oxy's connector pool) live in `oxy-app`,
 //!   which re-exports these modules at their old `server::api::` paths.
+//! - [`metric_tree_scenario`], [`metric_tree_projection`], [`metric_tree_series`]
+//!   — the rest of the canvas's domain half: the routes' request and response
+//!   shapes, the baseline reads and their notes, the unvalued diff; the
+//!   projection's validation, seasonality resolution, per-view read and fit;
+//!   and the bucketed time-series request with its timezone pad/trim. The
+//!   handlers that call them stay in `oxy-app`, which re-exports the items at
+//!   `server::api::metric_tree{,_projection}`.
 //! - [`notify`] — the `notify:` block: which events a scan should announce,
 //!   the once-per-event claim on them, and the Slack message. Posting it is
 //!   the host's.
@@ -39,6 +46,9 @@ pub mod gates;
 pub mod metric_tree_baseline;
 pub mod metric_tree_groups;
 pub mod metric_tree_inputs;
+pub mod metric_tree_projection;
+pub mod metric_tree_scenario;
+pub mod metric_tree_series;
 pub mod notify;
 pub mod persist;
 pub mod preview;
