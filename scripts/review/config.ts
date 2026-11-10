@@ -174,7 +174,6 @@ export const IGNORE: readonly string[] = [
   "**/bun.lockb",
   "crates/workspace-hack/**",
   "json-schemas/**",
-  "examples/json-schemas/**",
   "oxlint-suppressions.json",
   "**/*.min.js",
   "**/*.min.css",
