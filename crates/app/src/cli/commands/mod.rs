@@ -7,6 +7,7 @@ mod compile;
 mod intent;
 mod looker;
 mod migrate;
+mod migrate_agents;
 mod migrate_automations;
 /// `pub` so integration tests can drive the seed directly (see
 /// `tests/seed_example_app.rs`) instead of shelling out to the binary — the
@@ -26,6 +27,7 @@ mod test;
 mod worker;
 
 use crate::cli::commands::migrate::migrate;
+use crate::cli::commands::migrate_agents::{MigrateAgentsArgs, migrate_agents};
 use crate::cli::commands::migrate_automations::{MigrateAutomationsArgs, migrate_automations};
 use crate::cli::commands::run::{RunArgs, handle_run_command};
 use crate::server::service::sync::{SyncFilter, sync_databases};
@@ -151,6 +153,15 @@ enum SubCommand {
     /// (`src:`, `workflow_ref:`, glob includes) across the project's
     /// `.yml` / `.yaml` / `.sql` files. Use `--dry-run` to preview.
     MigrateAutomations(MigrateAutomationsArgs),
+    /// Translate classic `.agent.yml` agents to `.agentic.yml`
+    ///
+    /// Translates every classic agent whose fields map onto the agentic
+    /// analytics config, deletes the classic file, and rewrites references to
+    /// it (`agent_ref:`, paths, globs) across the project's YAML. A file with a
+    /// field nothing agentic does (`omni_query`, `anonymize`, routing) is left
+    /// in place and reported, unless `--force` drops the field. Never
+    /// overwrites; collisions are reported. Run `--dry-run --json` first.
+    MigrateAgents(MigrateAgentsArgs),
     /// Start with Docker PostgreSQL (recommended)
     ///
     /// Launch PostgreSQL in Docker and start the Oxy web server.
@@ -531,6 +542,7 @@ pub async fn cli(
             SubCommand::Validate(_) => "validate",
             SubCommand::Migrate => "migrate",
             SubCommand::MigrateAutomations(_) => "migrate-automations",
+            SubCommand::MigrateAgents(_) => "migrate-agents",
             SubCommand::Start(_) => "start",
             SubCommand::Serve(_) => "serve",
             SubCommand::Test(_) => "test",
@@ -754,6 +766,12 @@ pub async fn cli(
         Some(SubCommand::MigrateAutomations(args)) => {
             if let Err(e) = migrate_automations(args) {
                 eprintln!("{}", format!("Automation migration failed: {e}").error());
+                exit(1);
+            }
+        }
+        Some(SubCommand::MigrateAgents(args)) => {
+            if let Err(e) = migrate_agents(args) {
+                eprintln!("{}", format!("Agent migration failed: {e}").error());
                 exit(1);
             }
         }

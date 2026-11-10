@@ -40,7 +40,7 @@ tasks:
 
   - name: report
     type: agent
-    agent_ref: agents/local.agent.yml
+    agent_ref: agents/local.agentic.yml
     prompt: |
       Tell me the different between {{ fruit }} and the other fruits.
       Given the calories: {{calories}}

@@ -36,8 +36,8 @@ use tracing::warn;
 pub(crate) const EVENT: &str = "classic_agent_retired";
 
 /// What the author should do about a classic file.
-const MIGRATE: &str = "Convert it to a `.agentic.yml` agent; the planned `oxy migrate-agents` \
-     command will translate classic files (it does not exist yet)";
+const MIGRATE: &str = "Convert it to a `.agentic.yml` agent: `oxy migrate-agents --dry-run` \
+     shows what translates, and `oxy migrate-agents` translates it";
 
 /// One warning, located at the file that holds the problem.
 #[derive(Debug, Clone, PartialEq, Eq)]

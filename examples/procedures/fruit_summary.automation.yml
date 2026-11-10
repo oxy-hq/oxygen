@@ -22,7 +22,7 @@ tasks:
 
   - name: summary
     type: agent
-    agent_ref: agents/local.agent.yml
+    agent_ref: agents/local.agentic.yml
     prompt: |
       Using the sales data below, write a short 2–3 sentence summary
       for {{ fruit }} only. Include total sales and rank

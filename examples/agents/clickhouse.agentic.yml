@@ -1,10 +1,12 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agent.json
-
-description: "An agent for generating and executing SQL queries for Snowflake databases."
-
-model: "openai-4o-mini"
-
-system_instructions: |
+# Translated from agents/clickhouse.agent.yml by `oxy migrate-agents`.
+# An agent for generating and executing SQL queries for ClickHouse databases.
+llm:
+  ref: openai-4o-mini
+databases:
+- clickhouse
+context:
+- clickhouse_hackernews/*.sql
+instructions: |
   ## Instructions
   You are a Data Analyst expert. Your task is to help the user generate and execute SQL queries to answer the user's question.
   ### Adhere to these rules:
@@ -16,13 +18,17 @@ system_instructions: |
   - The `sql` should be returned in plain text, not in JSON.
 
   ### You have access to the following databases and tables, ONLY use the provided database and tables, columns:
-  **Dataset: {{ databases.snowflake[0].dataset }}**
-  **Dialect: {{ databases.snowflake[0].dialect }}**
-  **Tables:**
+  **Dialect: {{ databases.primary_database.dialect }}**
+  {% with dataset = databases.primary_database.datasets.dbt_prod_core %}
+  **Dataset: {{ dataset.dataset }}**
+  **DDL:**
   ```
-  {% for table in databases.snowflake[0].tables %}
-  {{ table }}
-  {% endfor %}
+  {{ dataset.ddl }}
+  ```
+  **Semantic Information:**
+  {{ dataset.semantic_info.dim_users }}
+  ```
+  {% endwith %}
   ```
 
   ### You can use these queries as hints:
@@ -31,12 +37,7 @@ system_instructions: |
   {{ query }}
   {% endfor %}
 
+  {{ tools.retrieval }}
   ```
 
   ### Begin
-
-output_format: file
-tools:
-  - name: execute_sql
-    type: execute_sql
-    database: snowflake

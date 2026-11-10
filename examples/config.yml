@@ -256,7 +256,7 @@ mcp:
   tools:
     - semantics/topics/fruit_business.topic.yml
     - data/*.sql
-    - agents/*.agent.yml
+    - agents/*.agentic.yml
     - procedures/*.automation.yml
 
 

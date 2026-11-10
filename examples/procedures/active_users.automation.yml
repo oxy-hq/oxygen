@@ -20,7 +20,7 @@ tasks:
 
   - name: report
     type: agent
-    agent_ref: agents/local.agent.yml
+    agent_ref: agents/local.agentic.yml
     prompt: |
       Generate a report on active users based on the provided data.
       The data includes user activity and their last login date.

@@ -1,0 +1,9 @@
+# Translated from agents/semantic.agent.yml by `oxy migrate-agents`.
+# An agent that can answer business questions like users, website visit .
+llm:
+  ref: openai-4.1
+context:
+- semantics/topics/fruit_business.topic.yml
+instructions: |
+  ## Instructions
+  You are an Data Analyst expert. Your task is to help users answer questions based on data.

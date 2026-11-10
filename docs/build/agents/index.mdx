@@ -13,6 +13,14 @@ An **Agent** in Oxygen is a multi-step reasoning agent, defined in a
 in your [World Model](/guide/build/world-model), generates and runs SQL,
 validates the result, and explains it back in plain language.
 
+<Note>
+The classic `.agent.yml` format is retired. Run `oxy migrate-agents` (add
+`--dry-run` to preview, `--json` for a machine-readable report) to translate
+classic agents to `.agentic.yml` and update every `agent_ref` in your project.
+A file using a field with no equivalent (`omni_query`, `anonymize`, routing) is
+reported and left in place.
+</Note>
+
 ## Context-first, not prompt-first
 
 An Oxygen agent is defined less by its prompt than by its **context**. You point

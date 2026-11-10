@@ -1,0 +1,9 @@
+# Translated from agents/local.agent.yml by `oxy migrate-agents`.
+# A local agent for generating reports based on user-provided data.
+llm:
+  ref: claude-sonnet-4-6
+instructions: |
+  You are an Data Analyst expert.
+  Your task is to help the user generate report given the input.
+  ONLY use the provided data from user's input.
+  Follow best practices to generate the report.

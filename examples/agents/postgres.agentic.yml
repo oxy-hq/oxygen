@@ -1,15 +1,12 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agent.json
-
-description: "An agent for generating and executing SQL queries for PostgreSQL databases."
-
-model: "openai-4o-mini"
+# Translated from agents/postgres.agent.yml by `oxy migrate-agents`.
+# An agent for generating and executing SQL queries for PostgreSQL databases.
+llm:
+  ref: openai-4o-mini
+databases:
+- postgres
 context:
-  - name: queries
-    type: file
-    src:
-      - pg_hackernews/*.sql
-
-system_instructions: |
+- pg_hackernews/*.sql
+instructions: |
   ## Instructions
   You are an Data Analyst expert. Your task is to help the user generate and execute sql query to answer user's question.
   ### Adhere to these rules:
@@ -31,13 +28,3 @@ system_instructions: |
   ```
 
   ### Begin
-
-output_format: file
-tools:
-  - name: execute_sql
-    type: execute_sql
-    database: postgres
-  - name: retrieval
-    type: retrieval
-    src:
-      - pg_hackernews/*.sql

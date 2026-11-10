@@ -1,10 +1,10 @@
-model: "openai-4o-mini"
-name: domo
-
-description: |
-  Sales KPI Agent for Sample Marketing Data
-
-system_instructions: |
+# Translated from agents/domo.agent.yml by `oxy migrate-agents`.
+# Sales KPI Agent for Sample Marketing Data
+llm:
+  ref: openai-4o-mini
+databases:
+- domo
+instructions: |
   ## PERSISTENCE
   You are an agent - please keep going until the user's query is completely
   resolved, before ending your turn and yielding back to the user. Only
@@ -44,11 +44,3 @@ system_instructions: |
   Then, print out the SQL query in markdown format.
   Then, use the tool to execute the query.
   Finally, reflect on the results and provide a comprehensive answer to the user.
-
-tools:
-  - type: execute_sql
-    name: execute_sql
-    database: domo
-
-  - name: generate_chart
-    type: visualize

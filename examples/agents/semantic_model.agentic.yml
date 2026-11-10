@@ -1,15 +1,10 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agent.json
-
-description: "An agent for generating and executing SQL queries using semantic models."
-
-model: "openai-4o-mini"
-
-context:
-  - name: anon_youtube_model
-    type: semantic_model
-    src: data/anon_youtube.schema.yml
-
-system_instructions: |
+# Translated from agents/semantic_model.agent.yml by `oxy migrate-agents`.
+# An agent for generating and executing SQL queries using semantic models.
+llm:
+  ref: openai-4o-mini
+databases:
+- local
+instructions: |
   ## Instructions
   You are a Data Analyst expert. Your role is to assist the user in generating and executing SQL queries to answer their questions.
 
@@ -31,15 +26,3 @@ system_instructions: |
 
   **Tables:** {{ context.anon_youtube_model.table }}
   **Dialect:** {{ context.anon_youtube_model.database.type }}
-
-output_format: default
-tools:
-  - name: execute_sql
-    type: execute_sql
-    database: local
-  - name: generate_chart
-    type: visualize
-
-tests:
-  - type: consistency
-    task_description: "how many users are there in the database?"

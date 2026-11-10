@@ -11,7 +11,7 @@ tasks:
   - name: report
     type: agent
     consistency_run: 5
-    agent_ref: agents/default.agent.yml
+    agent_ref: agents/default.agentic.yml
     prompt: |
       how many users?
 

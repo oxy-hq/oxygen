@@ -1,17 +1,10 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agent.json
-
-model: "openai-4.1"
-description: "An agent that can create data app/dashboard."
-context:
-  - name: monthly_revuenue_by_region
-    type: semantic_model
-    src: data/monthly_revenue_by_region.schema.yml
-
-  - name: monthly_active_user_by_platform
-    type: semantic_model
-    src: data/monthly_active_user_by_platform.schema.yml
-
-system_instructions: |
+# Translated from agents/builder.agent.yml by `oxy migrate-agents`.
+# An agent that can create data app/dashboard.
+llm:
+  ref: openai-4.1
+databases:
+- local
+instructions: |
   ## Instructions
   You are an Data Analyst expert. You can create data app/dashboard to visualize metrics.
   Before using a query, try execute and see if the result is correct first.
@@ -41,16 +34,3 @@ system_instructions: |
   Measures:
   {{ context.monthly_active_user_by_platform.measures }}
   -----
-
-tools:
-  - type: create_data_app
-    name: create_data_app
-    description: Create a data app/dashboard to visualize metrics.
-
-  - type: execute_sql
-    name: execute_sql
-    description: Execute SQL query on the database. Use full table name including extension if exists.
-    database: local
-
-max_tool_calls: 25
-max_tool_concurrency: 3

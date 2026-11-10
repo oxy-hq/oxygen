@@ -18,6 +18,6 @@ tasks:
 
   - name: answer_question
     type: agent
-    agent_ref: agents/default_gpt.agent.yml
+    agent_ref: agents/default_gpt.agentic.yml
     prompt: |
       {{ question }}

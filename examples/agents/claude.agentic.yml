@@ -1,14 +1,12 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agent.json
-
-model: claude-3-7-sonnet
-description: "An agent for generating and executing SQL queries using the Claude 3.7 Sonnet model."
+# Translated from agents/claude.agent.yml by `oxy migrate-agents`.
+# An agent for generating and executing SQL queries using the Claude 3.7 Sonnet model.
+llm:
+  ref: claude-3-7-sonnet
+databases:
+- primary_database
 context:
-  - name: queries
-    type: file
-    src:
-      - 'data/*.sql'
-
-system_instructions: |
+- data/*.sql
+instructions: |
   ## Instructions
   You are an Data Analyst expert. Your task is to help the user generate and execute sql query to answer user's question.
   ### Adhere to these rules:
@@ -37,18 +35,3 @@ system_instructions: |
   {{ tools.retrieval }}
 
   ### Begin
-
-tools:
-  - name: execute_sql
-    type: execute_sql
-    database: primary_database
-
-  - name: retrieval
-    type: retrieval
-    src:
-      - 'data/*.sql'
-
-
-tests:
-  - type: consistency
-    task_description: "how many users are there in the database?"

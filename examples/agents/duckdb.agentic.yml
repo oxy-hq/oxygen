@@ -1,11 +1,10 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agent.json
-
-description: "An agent that can execute SQL queries on a database and retrieve data using DuckDB"
-name: duckdb
-
-model: "openai-4o-mini"
-
-system_instructions: |
+# Translated from agents/duckdb.agent.yml by `oxy migrate-agents`.
+# An agent that can execute SQL queries on a database and retrieve data using DuckDB
+llm:
+  ref: openai-4o-mini
+databases:
+- local
+instructions: |
   ## Instructions
   You are a Data Analyst expert. Your task is to help the user generate and execute sql query to answer user's question.
   ### Adhere to these rules:
@@ -27,15 +26,3 @@ system_instructions: |
 
 
   ### Begin
-
-output_format: default
-tools:
-  - name: execute_sql
-    type: execute_sql
-    database: local
-  - name: generate_chart
-    type: visualize
-
-tests:
-  - type: consistency
-    task_description: "how many content type are there in the database?"

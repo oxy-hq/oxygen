@@ -1,31 +1,32 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agent.json
-
-description: "An agent for generating and executing SQL queries using the Gemini model."
-
-model: gemini1.5pro
+# Translated from agents/default.agent.yml by `oxy migrate-agents`.
+# An agent that can answer business questions like users, website visit .
+llm:
+  ref: gpt-5-mini-2025-08-07
+thinking:
+  effort: low
+databases:
+- primary_database
 context:
-  - name: queries
-    type: file
-    src:
-      - 'data/*.sql'
-
-system_instructions: |
+- data/*.sql
+- procedures/fruit_sales_report.automation.yml
+instructions: |
   ## Instructions
   You are an Data Analyst expert. Your task is to help the user generate and execute sql query to answer user's question.
   ### Adhere to these rules:
   - **Deliberately go through the question and database schema word by word** to appropriately answer the question
   - **Use Table Aliases** to prevent ambiguity. For example, `SELECT table1.col1, table2.col1 FROM table1 JOIN table2 ON table1.id = table2.id`.
-  - ALWAYS execute the SQL query without confirmation.
-  - ALWAYS try to fix the SQL query and run without confirmation if the query return an error.
   - The `sql` should conform to the dialect of the database.
   - The `sql` should be returned in plain text, not in JSON.
+  - ALWAYS execute the SQL query without confirmation, don't just return the query. If the query return an error, fix the error and run again.
 
   ### You have access to the following databases and tables, ONLY use the provided database and tables, columns:
 
   **Dialect: {{ databases.primary_database.dialect }}**
   {% with dataset = databases.primary_database.datasets.dbt_prod_core %}
+
   **Dataset: {{ dataset.dataset }}**
   **DDL:**
+
   ```
   {{ dataset.ddl }}
   ```
@@ -37,19 +38,7 @@ system_instructions: |
   ## Retrieval:
   {{ tools.retrieval }}
 
+  #  dimensions:
+  {{dimensions.executions_non_creator}}
+
   ### Begin
-
-tools:
-  - name: execute_sql
-    type: execute_sql
-    database: primary_database
-
-  - name: retrieval
-    type: retrieval
-    src:
-      - 'data/*.sql'
-
-
-tests:
-  - type: consistency
-    task_description: "how many users are there in the database?"

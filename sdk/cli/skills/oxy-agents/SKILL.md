@@ -24,6 +24,17 @@ the pipeline. You do not define its states or its tools.
 - **`.agentic.yml` is the agent.** The classic `.agent.yml` format (a single
   LLM call with custom tools) has been removed. Do not create one, and do not
   copy one from an old workspace.
+- **Translating a workspace's classic agents: `oxy migrate-agents`.** Run it when a
+  compile warns `classic agent format (.agent.yml) is retired`, or when an
+  automation's `agent_ref` still names a `.agent.yml`. Run
+  `oxy migrate-agents --dry-run --json <dir>` first: it writes nothing and lists
+  every classic file, what translates (and which fields it drops, such as
+  `tools: visualize` or inline `tests:`), what `cannot be mapped` (`omni_query`,
+  `anonymize`, `type: routing`; such files stay in place unless `--force` drops
+  the field), the `agent_ref`s and paths it would repoint, and collisions. Then run
+  it without `--dry-run`, and review each new file: classic `system_instructions`
+  Jinja (`{{ databases.x.dialect }}`) is passed to the model literally, and a
+  classic `name:` is dropped, so the agent's id becomes its file stem.
 - **There is no `kind:` field.** Every `.agentic.yml` runs the same analytics
   pipeline. A file named `app_builder.agentic.yml` is not special. Generating
   views or agent files is the in-product **Builder Agent** (chat Build mode),

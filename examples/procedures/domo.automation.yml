@@ -14,7 +14,7 @@ tasks:
 
   - name: marketing_kpis
     type: agent
-    agent_ref: agents/local.agent.yml
+    agent_ref: agents/local.agentic.yml
     prompt: |
       Extract key marketing KPIs from the following marketing data.
       Provide insights on campaign performance, customer engagement, and ROI.
