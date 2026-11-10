@@ -39,7 +39,10 @@ pub async fn clone_repo(
     // Clone from a neutral cwd (parent of destination) so git doesn't pick
     // up stray config from the caller's cwd.
     let cwd = destination.parent().unwrap_or_else(|| Path::new("."));
-    run::run_authed(cwd, &args, auth).await?;
+    // Cancellable: a clone writes only its own fresh directory, so a caller
+    // that gives up (the import's time bound) may kill it. What a killed clone
+    // leaves behind, `clone_or_init` removes before its next attempt.
+    run::run_authed_cancellable(cwd, &args, auth).await?;
 
     info!(
         "Successfully cloned repository to {}",
@@ -87,6 +90,18 @@ pub async fn clone_or_init(
                 .to_string_lossy()
         );
         let tmp_dest = parent.join(&tmp_name);
+        // A clone killed mid-way (its caller's time bound drops the future, and
+        // the git child with it) cannot clean up after itself, and `git clone`
+        // refuses an existing destination, so every retry would fail on the
+        // leftover. Start from nothing.
+        if tokio::fs::try_exists(&tmp_dest).await.unwrap_or(false) {
+            tokio::fs::remove_dir_all(&tmp_dest).await.map_err(|e| {
+                OxyError::IOError(format!(
+                    "Failed to remove a leftover clone at {}: {e}",
+                    tmp_dest.display()
+                ))
+            })?;
+        }
 
         let auth = token.map(Auth::bearer).unwrap_or(Auth::None);
         clone_repo(url, &tmp_dest, Some(branch), &auth).await?;
@@ -124,4 +139,50 @@ pub async fn clone_or_init(
     }
 
     Ok(())
+}
+
+// Unix-only: the fixture shells out to `git` and a file-path remote.
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::process::Command;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .status()
+            .expect("run git");
+        assert!(status.success(), "git {args:?}");
+    }
+
+    /// A clone killed at its caller's time bound leaves a partial temp clone;
+    /// the next attempt must not trip over it.
+    #[tokio::test]
+    async fn a_leftover_temp_clone_does_not_block_the_next_attempt() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let source = tmp.path().join("source");
+        std::fs::create_dir(&source).unwrap();
+        git(&source, &["init", "-q", "-b", "main"]);
+        std::fs::write(source.join("config.yml"), "databases: []\n").unwrap();
+        git(&source, &["add", "."]);
+        git(&source, &["commit", "-q", "-m", "init"]);
+
+        let workspaces = tmp.path().join("workspaces");
+        let root = workspaces.join("ws-1");
+        std::fs::create_dir_all(&root).unwrap();
+        // What a SIGKILLed `git clone` leaves: a half-written destination.
+        let leftover = workspaces.join(".oxy-clone-tmp-ws-1");
+        std::fs::create_dir_all(leftover.join(".git/objects")).unwrap();
+
+        clone_or_init(&root, Some(source.to_str().unwrap()), "main", None)
+            .await
+            .expect("clone over a leftover");
+        assert!(root.join("config.yml").exists());
+        assert!(!leftover.exists());
+    }
 }

@@ -82,11 +82,35 @@ pub(crate) async fn run_authed(
     args: &[&str],
     auth_: &Auth,
 ) -> Result<String, OxyError> {
+    spawn_and_wait(cwd, args, auth_, false).await
+}
+
+/// [`run_authed`] for a command that is safe to abandon: dropping the future
+/// kills the git child. Only for commands that write nothing shared until
+/// they finish, such as `clone` into a fresh directory. A mutating command on
+/// an existing repository (`pull --rebase`, `commit`, `reset`) must run to
+/// completion even when its request is dropped, or it leaves `index.lock` or a
+/// half-applied rebase behind; those use [`run_authed`].
+pub(crate) async fn run_authed_cancellable(
+    cwd: &Path,
+    args: &[&str],
+    auth_: &Auth,
+) -> Result<String, OxyError> {
+    spawn_and_wait(cwd, args, auth_, true).await
+}
+
+async fn spawn_and_wait(
+    cwd: &Path,
+    args: &[&str],
+    auth_: &Auth,
+    kill_on_drop: bool,
+) -> Result<String, OxyError> {
     let mut cmd = Command::new("git");
     cmd.current_dir(cwd);
     harden(&mut cmd);
     auth::apply(&mut cmd, auth_);
     cmd.args(args);
+    cmd.kill_on_drop(kill_on_drop);
 
     let output = cmd.output().await.map_err(|e| {
         OxyError::RuntimeError(format!("Failed to execute git {}: {e}", args.join(" ")))

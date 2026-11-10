@@ -11,6 +11,7 @@
 
 mod airhouse;
 mod dto;
+mod github_import;
 mod handlers;
 mod ops;
 

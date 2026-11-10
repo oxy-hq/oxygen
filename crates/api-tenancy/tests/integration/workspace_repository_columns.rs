@@ -26,7 +26,7 @@ use crate::common::{Schema, fresh_db};
 const CLONE_URL: &str = "https://github.com/acme/analytics.git";
 
 /// A GitHub App namespace; `workspaces.git_namespace_id` is a real foreign key.
-async fn seed_namespace(db: &DatabaseConnection) -> Uuid {
+pub(crate) async fn seed_namespace(db: &DatabaseConnection) -> Uuid {
     let user = Uuid::new_v4();
     users::ActiveModel {
         id: ActiveValue::Set(user),

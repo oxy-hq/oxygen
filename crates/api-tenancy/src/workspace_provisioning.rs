@@ -8,6 +8,15 @@
 //! under a workspace route and a customer's first sign-in should land there,
 //! not in a workspace wizard.
 //!
+//! **An org has exactly one workspace.** It is the hidden key that binds the
+//! org to its configuration repository and keys its revisions, Airhouse tenant
+//! and previews; customers never pick between workspaces. [`register_workspace`]
+//! refuses a second one ([`ProvisionError::OrgHasWorkspace`], `409`), and the
+//! GitHub import connects its repository to the org's workspace instead of
+//! creating another ([`adopt`]). Staging and sandboxes are app environments and
+//! the data-release staging pointer, not workspaces
+//! (`internal-docs/2026-11-10-org-vs-workspace-grain.md`).
+//!
 //! Lives in `oxy-app` rather than `oxy-project`: registering a workspace seeds
 //! its health schedule through `agentic_pipeline`, and a platform crate may
 //! never import an agentic one. Both sibling surface crates already depend on
@@ -31,6 +40,7 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
+pub mod adopt;
 mod repository;
 
 pub use repository::RepositoryOrigin;
@@ -43,6 +53,13 @@ pub enum ProvisionError {
     /// Another workspace in the same org already carries this display name.
     #[error("A workspace named '{0}' already exists. Please choose a different name.")]
     NameTaken(String),
+    /// The org already has its one workspace. Connect a repository to it
+    /// (`POST /orgs/{org_id}/onboarding/github`) rather than making another;
+    /// a demo or internal workspace gets an org of its own.
+    #[error(
+        "org_has_workspace: this organization already has its workspace. Connect a repository to it instead of creating another."
+    )]
+    OrgHasWorkspace,
     /// This process owns no working copy — a stateless serve replica.
     #[error("{0}")]
     NoWorkingCopy(String),
@@ -55,7 +72,7 @@ pub enum ProvisionError {
 impl ProvisionError {
     pub fn status_code(&self) -> StatusCode {
         match self {
-            Self::NameTaken(_) => StatusCode::CONFLICT,
+            Self::NameTaken(_) | Self::OrgHasWorkspace => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -249,6 +266,21 @@ fn in_org(query: sea_orm::Select<Workspaces>, org_id: Option<Uuid>) -> sea_orm::
     }
 }
 
+/// The org's workspace, if it has one. Oldest first, so an org that predates
+/// the one-per-org rule answers with the workspace it was created with.
+pub async fn org_workspace<C: ConnectionTrait>(
+    conn: &C,
+    org_id: Uuid,
+) -> Result<Option<workspaces::Model>, ProvisionError> {
+    use sea_orm::QueryOrder;
+    Workspaces::find()
+        .filter(workspaces::Column::OrgId.eq(org_id))
+        .order_by_asc(workspaces::Column::CreatedAt)
+        .one(conn)
+        .await
+        .map_err(query_failed)
+}
+
 /// The columns a caller chooses for a new workspace row.
 pub struct NewWorkspaceRow<'a> {
     pub name: &'a str,
@@ -291,6 +323,14 @@ pub async fn register_workspace<C: ConnectionTrait>(
             id: existing.id,
             created: false,
         });
+    }
+
+    // One workspace per org. Checked before the name, so a second create is
+    // refused as such rather than as a name clash.
+    if let Some(org_id) = row.org_id
+        && org_workspace(conn, org_id).await?.is_some()
+    {
+        return Err(ProvisionError::OrgHasWorkspace);
     }
 
     // Display names are unique per org; other orgs have their own namespace.

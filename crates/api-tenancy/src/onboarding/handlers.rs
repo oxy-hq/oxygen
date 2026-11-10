@@ -4,10 +4,9 @@ use axum::{
     http::StatusCode,
 };
 use oxy::config::ResolveWorkspaceFile;
-use oxy::github::{GitHubClient, default_git_client, github_token_for_namespace};
+use oxy::github::{GitHubClient, github_token_for_namespace};
 use oxy::service::secret_manager::SecretManagerService;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
-use oxy_git::GitClient;
 use oxy_project::{copy_airhouse_demo_files_to, copy_demo_files_to};
 use oxy_shared::errors::OxyError;
 use tracing::{error, info};
@@ -18,8 +17,8 @@ use oxy_app::surface::{WorkspaceManagerReadOnly, WorkspacePath};
 use oxy_app_core::AppState;
 
 use super::dto::*;
+use super::github_import::{ImportRequest, place_import, spawn_clone};
 use super::ops::*;
-use crate::workspace_provisioning::RepositoryOrigin;
 
 /// POST /orgs/{org_id}/onboarding/demo — copy embedded demo workspace files.
 pub async fn setup_demo(
@@ -164,9 +163,12 @@ pub async fn setup_new(
     }))
 }
 
-/// POST /orgs/{org_id}/onboarding/github — register a GitHub repository as a workspace and clone
-/// it in the background. The workspace appears in the list immediately; the clone runs
-/// asynchronously so large repositories don't hit the global request timeout.
+/// POST /orgs/{org_id}/onboarding/github — connect a GitHub repository to the org's
+/// workspace and clone it in the background. The org's blank workspace is adopted
+/// (same id); an org with none gets one; an org whose workspace already has a
+/// repository is refused `409 org_has_workspace`. The row reads Cloning at once;
+/// the clone runs asynchronously so large repositories don't hit the global
+/// request timeout. See `github_import`.
 pub async fn setup_github(
     OrgWorkspaceCreator(ctx): OrgWorkspaceCreator,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
@@ -227,143 +229,17 @@ pub async fn setup_github(
         })?
         .flatten();
 
-    // Use the caller-supplied name as-is, or fall back to the repository's short
-    // name, auto-numbered (" 2", " 3", …) when that name is already taken in the
-    // org. Mirrors the demo/new flows so re-importing the same repo doesn't 409.
-    let project_name = match req.name.as_deref() {
-        Some(n) => n.to_string(),
-        None => unique_display_name(&repo.name, Some(ctx.org.id))
-            .await
-            .map_err(|(s, m)| {
-                error!("{}", m);
-                (s, m)
-            })?,
-    };
-    let workspace_id = Uuid::new_v4();
-    // repo_dir is where the full git repository will be cloned.
-    let repo_dir = resolve_project_dir(workspace_id).map_err(|(status, msg)| {
-        error!("{}", msg);
-        (status, msg)
-    })?;
-
-    // If a subdirectory was specified, the Oxy workspace root lives inside the repo.
-    // Create it eagerly so register_project can write the DB record now, before
-    // the background clone finishes.
-    let oxy_project_dir = match &subdir {
-        Some(sub) => {
-            let dir = repo_dir.join(sub);
-            std::fs::create_dir_all(&dir).map_err(|e| {
-                let msg = format!("Failed to create subdir {:?}: {}", dir, e);
-                error!("{}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, msg)
-            })?;
-            dir
-        }
-        None => repo_dir.clone(),
-    };
-
-    // Register the workspace in the DB now so it appears in /workspaces immediately.
-    let workspace_id = match register_project(
-        &oxy_project_dir,
-        &project_name,
-        workspace_id,
-        Some(user.id),
-        Some(ctx.org.id),
-        entity::workspaces::WorkspaceStatus::Cloning,
-        Some(RepositoryOrigin::from_github(
-            req.namespace_id,
-            &repo,
-            subdir.as_deref(),
-        )),
-    )
-    .await
-    {
-        Ok(id) => id,
-        Err((status, msg)) => {
-            error!("{}", msg);
-            let _ = std::fs::remove_dir_all(&repo_dir);
-            return Err((status, msg));
-        }
-    };
-
-    // Clone the full repository in the background — large repositories can take
-    // longer than the global request timeout.
-    let clone_url = repo.clone_url.clone();
-    let branch = req.branch.clone();
-    let oxy_project_dir_clone = oxy_project_dir.clone();
-    tokio::spawn(async move {
-        info!(
-            "Cloning repository '{}' branch '{}' into {:?}",
-            clone_url, branch, repo_dir
-        );
-        let clone_result = default_git_client()
-            .clone_or_init(&repo_dir, Some(&clone_url), &branch, Some(&token))
-            .await;
-        let (new_status, new_error) = match clone_result {
-            Ok(()) => {
-                info!("Repository cloned successfully into {:?}", repo_dir);
-                if oxy_project_dir_clone.join("config.yml").exists() {
-                    (entity::workspaces::WorkspaceStatus::Ready, None)
-                } else {
-                    let msg = format!(
-                        "Repository '{}' does not appear to be an Oxygen project — no config.yml found{}.",
-                        clone_url,
-                        if oxy_project_dir_clone != repo_dir {
-                            format!(" in subdirectory '{}'", oxy_project_dir_clone.display())
-                        } else {
-                            String::new()
-                        }
-                    );
-                    error!("{}", msg);
-                    (
-                        entity::workspaces::WorkspaceStatus::NotOxyProject,
-                        Some(msg),
-                    )
-                }
-            }
-            Err(e) => {
-                let msg = format!("Background clone failed: {e}");
-                error!(
-                    "Background clone failed for workspace {}: {}",
-                    workspace_id, e
-                );
-                (entity::workspaces::WorkspaceStatus::Failed, Some(msg))
-            }
-        };
-
-        let is_ready = matches!(new_status, entity::workspaces::WorkspaceStatus::Ready);
-        if let Err(e) = update_workspace_status(workspace_id, new_status, new_error).await {
-            error!(
-                "Failed to persist clone status for workspace {}: {}",
-                workspace_id, e
-            );
-        }
-
-        // Compile-on-import: a freshly-cloned workspace has no compiled revision,
-        // so the serve fleet would fall back to the ide node on first open.
-        // Enqueue a promoting compile now (deduped) so it's servable from Postgres
-        // ASAP — the fail-safe fallback only has to cover the brief window until
-        // this lands. Best-effort: a connect failure just defers compilation to
-        // the lazy self-heal on first serve.
-        if is_ready {
-            match oxy::database::client::establish_connection().await {
-                Ok(db) => {
-                    oxy_app::surface::enqueue_lazy_compile(&db, workspace_id).await;
-                    // Tell whoever is waiting on it. Best-effort: the workspace
-                    // is ready either way, and the list polls while it clones.
-                    if let Err(e) =
-                        oxy_app_core::notifications::platform::workspace_ready::notify_workspace_ready(&db, workspace_id).await
-                    {
-                        tracing::warn!(?e, %workspace_id, "workspace-ready notice not sent");
-                    }
-                }
-                Err(e) => tracing::warn!(
-                    ?e, %workspace_id,
-                    "compile-on-import: db connect failed; deferring to lazy self-heal"
-                ),
-            }
-        }
-    });
+    let placed = place_import(ImportRequest {
+        org_id: ctx.org.id,
+        user_id: user.id,
+        namespace_id: req.namespace_id,
+        repo: &repo,
+        subdir: subdir.as_deref(),
+        name: req.name.as_deref(),
+    })
+    .await?;
+    let workspace_id = placed.workspace_id;
+    spawn_clone(placed, repo.clone_url.clone(), req.branch.clone(), token);
 
     Ok(Json(OnboardingResult {
         workspace_type: "github".to_string(),

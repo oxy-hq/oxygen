@@ -161,9 +161,9 @@ export const PHASES: readonly Phase[] = [
     automation: "assisted",
     how: "a git namespace first (`GET /api/orgs/{org_id}/github/namespaces`, created by `POST …/namespaces/installation` after the GitHub App install, or `POST …/namespaces/pat`), then `POST /api/orgs/{org_id}/onboarding/github` `{namespace_id, repo_id, branch, name?, subdir?}`",
     who: "a member of the org — so staff need `oxyc assume start --org <slug>`, which closes `/admin` for the session",
-    idempotent: "conflicts",
+    idempotent: false,
     wrong:
-      "the workspace has `git_remote_url: null` — **the only path that records a remote is this import**, so the `Default` workspace every org is created with never has one. That is why 25 of 42 workspaces on production have no remote. A second import does not fail: it creates another workspace, named `Default 2`",
+      "the workspace has `git_remote_url: null` — **the only path that records a remote is this import**. It connects the repository to the `Default` workspace every org is created with (same id), so until it runs that workspace has none. An org has one workspace: a second import answers `409 org_has_workspace` instead of creating `Default 2`",
     needs: ["org", "billing"]
   },
   {
