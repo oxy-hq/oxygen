@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use chrono::TimeZone;
-use serde_json::json;
+use oxy_app_core::notifications::catalog::model::Level;
 
 use super::*;
 
@@ -64,38 +64,37 @@ fn the_notice_says_it_is_a_test_and_when_it_was_sent() {
     );
 }
 
+fn summary(kind: &str, label: &str, level: Level, mutable: bool) -> KindSummary {
+    KindSummary {
+        kind: kind.to_string(),
+        label: label.to_string(),
+        description: None,
+        level,
+        category_labels: vec!["General".to_string()],
+        mutable,
+    }
+}
+
+/// What the catalogue says of each kind (levels, mutes, a kind only a function
+/// declares) is the notifications surface's, tested beside its `LiveKinds`
+/// implementation; here, that the console shows each as it is described.
 #[test]
 fn the_console_lists_every_kind_with_its_level_and_whether_a_mute_applies() {
-    let manifest = json!({
-        "notifications": {
-            "kinds": {
-                "check_failed": { "label": "Check failed", "level": "time_sensitive" },
-                "fire_alarm": { "label": "Fire alarm", "level": "critical" }
-            }
-        },
-        "functions": {
-            "close": { "notify": { "kinds": { "check_failed": {}, "list_overdue": {} } } }
-        }
-    });
-    let catalogue = live::from_manifest(Some(&manifest));
-    let kinds = kinds_of(&catalogue);
+    let kinds = kinds_of(&[
+        summary("check_failed", "Check failed", Level::TimeSensitive, true),
+        summary("fire_alarm", "Fire alarm", Level::Critical, false),
+    ]);
     let by_kind: BTreeMap<_, _> = kinds.iter().map(|k| (k.kind.as_str(), k)).collect();
-    assert_eq!(by_kind.len(), 3, "{kinds:?}");
+    assert_eq!(by_kind.len(), 2, "{kinds:?}");
     assert_eq!(by_kind["check_failed"].label, "Check failed");
     assert_eq!(by_kind["check_failed"].level, "time_sensitive");
     assert!(by_kind["check_failed"].mutable);
+    assert_eq!(by_kind["check_failed"].category, ["General"]);
     assert_eq!(by_kind["fire_alarm"].level, "critical");
-    assert!(
-        !by_kind["fire_alarm"].mutable,
-        "a critical kind ignores mutes"
-    );
-    assert!(
-        by_kind["list_overdue"].mutable,
-        "a kind only a function declares is listed too"
-    );
+    assert!(!by_kind["fire_alarm"].mutable);
 }
 
 #[test]
 fn an_app_with_no_live_build_lists_no_kinds() {
-    assert!(kinds_of(&live::from_manifest(None)).is_empty());
+    assert!(kinds_of(&[]).is_empty());
 }

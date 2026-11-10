@@ -6,7 +6,6 @@ use entity::org_members::{self, OrgRole};
 use entity::workspaces::WorkspaceStatus;
 use entity::{notifications, organizations, users, workspaces};
 use oxy_app::server::anomaly_notify::people::PeopleInbox;
-use oxy_app::server::api::notifications::inbox_view;
 use oxy_metric_monitoring::notify::{OrgRoleTarget, PersonTarget, announce, ledger};
 use oxy_metric_monitoring::{NotifyConfig, Severity};
 use sea_orm::ActiveValue::Set;
@@ -155,16 +154,8 @@ async fn people_are_told_each_event_once_on_their_own_channel() {
         "the Slack channel's claim is its own"
     );
 
-    let items = inbox_view::items(&db, told).await.expect("inbox");
-    assert_eq!(items[0].title.as_deref(), Some("Net sales looks unusual"));
-    assert!(
-        items[0].href.as_deref().unwrap().ends_with(&format!(
-            "/workspaces/{}/ide/semantic?view=anomalies",
-            w.workspace
-        )),
-        "{:?}",
-        items[0].href
-    );
+    // How the notice reads in the inbox is the notifications surface's
+    // (`oxy-api-notifications`, `platform_notices::anomaly`).
     let _ = w.member;
 }
 

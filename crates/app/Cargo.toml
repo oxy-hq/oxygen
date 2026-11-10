@@ -194,8 +194,6 @@ human-panic = { workspace = true }
 humantime = { workspace = true }
 indoc = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
-# Web Push payload encryption (RFC 8291 aes128gcm): web_push_payload.rs.
-ece = { workspace = true }
 lazy_static = { workspace = true }
 email_address = { workspace = true }
 serde_urlencoded = { workspace = true }
@@ -254,10 +252,6 @@ testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse
 # The OLTP provisioner tests connect *as the minted writer role* to prove the
 # DSN it hands back actually works and lands writes in the right schema — the
 # one thing asserting on the generated SQL cannot show.
-# Mints throwaway EC/RSA keys for the APNs and FCM JWT tests, so no private
-# key is committed (the secret scanner rightly rejects one). Already in the
-# tree via jsonwebtoken's `aws_lc_rs` backend.
-aws-lc-rs = { workspace = true }
 
 [lints]
 workspace = true

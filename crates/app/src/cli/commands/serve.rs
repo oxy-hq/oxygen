@@ -79,12 +79,23 @@ pub async fn start_server_and_web_app(
         ));
     }
 
-    // Push transport, if one is configured. Registered here rather than lazily
-    // so an operator learns at boot whether push is live — the whole point of
-    // `Push::name` is that "not configured" and "configured and silent" are
-    // distinguishable, and that is worth one log line at startup rather than
-    // being inferred from the absence of notifications.
-    if !crate::server::api::notifications::web_push::register_if_configured() {
+    // The notifications surface's hooks (`SurfaceSeams::notifications`): the
+    // inline transport the write path delivers through, the run observers — a
+    // run this process drives to a terminal failure is announced to whoever
+    // started it (`oxy.run_failed`); an Ask run whose asker wanted to hear when
+    // it ended, done or failed, to them (`oxy.ask_finished`), and each time it
+    // stops to ask them something (`oxy.ask_waiting`) — and the push transports.
+    // Registered here rather than lazily so an operator learns at boot whether
+    // push is live — the whole point of `Push::name` is that "not configured"
+    // and "configured and silent" are distinguishable, and that is worth one
+    // log line at startup rather than being inferred from the absence of
+    // notifications.
+    let notifications = seams.notifications;
+    crate::server::router::require_notifications(notifications.as_ref())
+        .map_err(OxyError::RuntimeError)?;
+    if let Some(hooks) = notifications
+        && !(hooks.install)()
+    {
         tracing::info!(
             "no push transport configured — notifications are inbox-only \
              (web: OXY_VAPID_PRIVATE_KEY, OXY_VAPID_PUBLIC_KEY, OXY_VAPID_SUBJECT; \
@@ -92,13 +103,6 @@ pub async fn start_server_and_web_app(
              Android: OXY_FCM_SERVICE_ACCOUNT_JSON)"
         );
     }
-    // A run this process drives to a terminal failure is announced to whoever
-    // started it (`oxy.run_failed`); an Ask run whose asker wanted to hear
-    // when it ended, done or failed, to them (`oxy.ask_finished`), and each time
-    // it stops to ask them something (`oxy.ask_waiting`).
-    crate::server::api::notifications::platform::run_failed::install();
-    crate::server::api::notifications::platform::ask_finished::install();
-    crate::server::api::notifications::platform::ask_waiting::install();
 
     // In local mode, autodetect a running local Airhouse stack
     // (docker-compose.airhouse.yml) and inject the well-known AIRHOUSE_*
@@ -159,8 +163,11 @@ pub async fn start_server_and_web_app(
         .await
         .map_err(OxyError::RuntimeError)?;
     // Mutes made on a previous release while it was rolled back to reach the
-    // settings table (`notifications::settings::reconcile`). Best-effort.
-    crate::server::api::notifications::settings::reconcile::at_boot().await;
+    // settings table (the notifications surface's `settings::reconcile`).
+    // Best-effort.
+    if let Some(hooks) = notifications {
+        (hooks.after_migrations)().await;
+    }
     println!("serve: migrations done, initializing feature flags");
     init_feature_flags().await?;
     println!("serve: feature flags initialized, seeding app admins from env");

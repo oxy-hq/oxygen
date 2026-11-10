@@ -14,7 +14,6 @@
 
 mod slack_app_home;
 mod slack_cross_org_collision;
-mod slack_notify_dm;
 mod slack_oauth_install;
 mod slack_oauth_state;
 mod slack_resolution;

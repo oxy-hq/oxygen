@@ -122,11 +122,16 @@ fn api_seam_routes() -> SeamRouter {
         .merge(oxy_api_tenancy::onboarding::routes())
         .merge(oxy_api_documents::routes())
         .merge(oxy_api_frontline::routes())
+        .merge(oxy_api_notifications::routes())
         // The environment planes writes pin a semantic branch through a port
-        // `oxy-app` implements (a surface may not depend on `oxy-app`).
+        // `oxy-app` implements (a surface may not depend on `oxy-app`). The
+        // staff console's "Test notifications" reads an app's kinds through a
+        // port the notifications surface implements (a surface may not depend
+        // on another).
         .merge(
             oxy_api_custom_apps::routes()
-                .layer(axum::Extension(custom_apps_seams::semantic_pinner())),
+                .layer(axum::Extension(custom_apps_seams::semantic_pinner()))
+                .layer(axum::Extension(oxy_api_notifications::live_kinds())),
         )
 }
 
@@ -174,6 +179,13 @@ fn workspace_seam_routes() -> SeamRouter {
 /// `/customer-apps/{*path}` route rides `outer`, with its declarations in
 /// `outer_decls` (absolute, because that router sits beside `/api`).
 ///
+/// `oxy-api-notifications` rides the api seam at the `/api` root, where
+/// `build_global_routes` had its routes, and declares every one FleetOk
+/// (Postgres and the org's store only). Its two queue kinds join `tasks`, and its
+/// boot hooks — the inline transport, the run observers, push, the settings
+/// reconcile — ride `notifications`, without which `serve` and `worker` refuse
+/// to start.
+///
 /// `oxy-api-source-upload` rides the workspace seam and declares its one route
 /// FleetOk: an S3 write that must not need the ide.
 ///
@@ -191,6 +203,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_tenancy::partner_console::route_roles())
                 .chain(oxy_api_documents::route_roles())
                 .chain(oxy_api_frontline::route_roles())
+                .chain(oxy_api_notifications::route_roles())
                 .chain(oxy_api_custom_apps::route_roles())
                 .copied()
                 .collect(),
@@ -232,6 +245,7 @@ fn surface_seams() -> SurfaceSeams {
         tasks: custom_apps_seams::tasks()
             .into_iter()
             .chain(oxy_api_experiment::tasks())
+            .chain(oxy_api_notifications::tasks())
             .collect(),
         background: custom_apps_seams::background(),
         global_ticks: oxy_api_experiment::global_ticks(),
@@ -240,6 +254,7 @@ fn surface_seams() -> SurfaceSeams {
         function_runtime: Some(custom_apps_seams::function_runtime()),
         post_migrate: Some(custom_apps_seams::post_migrate()),
         example_apps: Some(oxy_api_custom_apps::seed::example_apps()),
+        notifications: Some(oxy_api_notifications::seam()),
     }
 }
 

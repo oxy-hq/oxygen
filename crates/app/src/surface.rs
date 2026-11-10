@@ -61,12 +61,6 @@ pub mod session {
     };
 }
 
-/// Platform notices a surface raises when something it drives happens — the
-/// notifications service is platform, whichever context the event belongs to.
-pub mod notices {
-    pub use crate::server::api::notifications::platform::workspace_ready::notify_workspace_ready;
-}
-
 /// The CORS origin allowlist, for routes that gate on where a call came from.
 pub use crate::server::router::is_allowed_origin;
 
@@ -126,18 +120,6 @@ pub mod workspace_git {
     pub use crate::server::api::workspaces::{git_delete_branch, git_switch_branch};
 }
 
-/// The notification service's parts the staff console's "Test notifications"
-/// sends through: the same send path `ctx.notify` uses, the live catalogue and
-/// the per-caller cooldown.
-pub mod notifications {
-    pub use crate::server::api::notifications::catalog::live;
-    pub use crate::server::api::notifications::catalog::source::SourceCatalogue;
-    pub use crate::server::api::notifications::platform::self_test::{COOLDOWN, cooldown_left};
-    pub use crate::server::api::notifications::send::{
-        self, AppRef, Outgoing, SendError, key_hash,
-    };
-}
-
 /// The token lifecycle audit a sandbox's teardown writes when a sandbox agent
 /// token ended (`token.expired_sandboxes_queued`).
 pub mod token_audit {
@@ -174,12 +156,13 @@ pub mod seed {
 }
 
 /// The seams a surface crate builds for the composition root to hand `oxy-app`
-/// (`SurfaceSeams`): the task executors, the background jobs and the demo seed's
-/// half.
+/// (`SurfaceSeams`): the task executors, the background jobs, the demo seed's
+/// half, and the notifications surface's boot hooks with the task kinds
+/// `oxy-app` requires of it.
 pub mod seams {
     pub use crate::server::router::{
-        BackgroundDeps, BackgroundSeam, ExampleAppsSeam, GlobalTickSeam, MigrateReport, TaskDeps,
-        TaskSeam,
+        BackgroundDeps, BackgroundSeam, ExampleAppsSeam, GlobalTickSeam, MigrateReport,
+        NOTIFICATION_TASK_KINDS, NotificationsSeam, TaskDeps, TaskSeam,
     };
 }
 
@@ -192,7 +175,7 @@ pub mod testing {
     pub use crate::server::api::admin::app_publish_tokens;
     pub use crate::server::api::middlewares::{app_publish_token_scope, workspace_context};
     pub use crate::server::api::{
-        custom_apps_gates, notifications, projects, schedules, secrets, semantic, world_model_graph,
+        billing, custom_apps_gates, projects, schedules, secrets, semantic, world_model_graph,
     };
     pub use crate::server::router::{
         SurfaceSeam, SurfaceSeams, api_router, external_auth_layers, flat_api_surface,

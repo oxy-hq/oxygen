@@ -15,7 +15,6 @@ use crate::api::middlewares::{
 };
 use crate::api::{admin, user, workspaces};
 use crate::server::api::chat;
-use crate::server::api::notifications;
 use crate::server::api::work;
 
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
@@ -87,78 +86,10 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
         // `extra_api_routes` seam. Still NOT under `/orgs/{org_id}`: frontline
         // workers hold no org membership, and `org_middleware` would reject them.
         .route_fleet("/work/{id}", axum::routing::patch(work::handlers::update))
-        // Notifications. Self-scoped — the filter `user_id = me` IS the
-        // authorization, and there is no org gate on purpose: a frontline
-        // worker holds no org membership by design and is exactly who an
-        // overdue-work notification is for.
-        //
-        // `route_fleet`: Postgres only. A badge that stops updating during a
-        // deploy is a badge nobody trusts afterwards.
-        .route_fleet("/notifications", get(notifications::inbox::list))
-        // The badge: Oxy's database only, never an org's store.
-        .route_fleet("/notifications/unread", get(notifications::badge::unread))
-        // Sources → categories → kinds, with my mutes and unread counts. The
-        // catalogues are config in Postgres (a build's manifest row, or code).
-        .route_fleet(
-            "/notifications/catalog",
-            get(notifications::catalog::handler::catalog),
-        )
-        // One item, for a phone a push named it to: what its notification
-        // service extension fetches. Postgres and the org's store, like the
-        // inbox it is one entry of.
-        .route_fleet("/notifications/{id}", get(notifications::inbox::one))
-        // A notification's button. A function action runs through the app's
-        // own function route, which places the invocation itself
-        // (`invocation_placement`): any replica takes this.
-        .route_fleet(
-            "/notifications/{id}/actions/{action_id}",
-            post(notifications::actions::run),
-        )
-        .route_fleet(
-            "/notifications/preferences",
-            get(notifications::preferences::get_preferences)
-                .put(notifications::preferences::set_preference),
-        )
-        .route_fleet(
-            "/notifications/read-all",
-            post(notifications::handlers::mark_all_read),
-        )
-        // Pause, quiet hours, every node's channels and floor, devices: one
-        // document, `ETag`/`If-Match` versioned. Postgres only.
-        .route_fleet(
-            "/notifications/settings",
-            get(notifications::settings::handlers::get_settings)
-                .patch(notifications::settings::handlers::patch_settings),
-        )
-        .route_fleet(
-            "/notifications/devices",
-            get(notifications::devices::list)
-                .post(notifications::devices::register::register_device)
-                .delete(notifications::devices::register::unregister_device),
-        )
-        // One device's settings and the OS state its app reports on launch.
-        .route_fleet(
-            "/notifications/devices/{id}",
-            axum::routing::patch(notifications::devices::patch)
-                .delete(notifications::devices::delete),
-        )
-        // Send yourself a test. Postgres only, rate-limited by reading the
-        // caller's notification rows, so any replica can take it.
-        .route_fleet(
-            "/notifications/test",
-            post(notifications::test_notice::send_test_notification),
-        )
-        // The key a browser needs before it can register one. Reads three env
-        // vars and no node-local disk, so it belongs on the fleet with its
-        // siblings.
-        .route_fleet(
-            "/notifications/vapid-public-key",
-            get(notifications::handlers::vapid_public_key),
-        )
-        .route_fleet(
-            "/notifications/{id}/read",
-            post(notifications::handlers::mark_read),
-        )
+        // Notifications moved to the `oxy-api-notifications` sibling crate,
+        // merged at this same root by `oxy-server` through the api seam. Still
+        // no org gate: self-scoped, and a frontline worker holds no org
+        // membership by design.
         .merge_undeclared(
             airhouse::api::router::<AppState>(),
             "airhouse provisioning is per-user and per-org, never per-workspace",

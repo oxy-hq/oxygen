@@ -107,7 +107,7 @@ crates/api-frontline/                              @luong-komorebi @NTtanh
 crates/route-catalog/                              @luong-komorebi @NTtanh
 crates/app/src/server/api/work/                    @luong-komorebi @NTtanh
 crates/app/src/server/api/chat/                    @luong-komorebi @NTtanh
-crates/app/src/server/api/notifications/           @luong-komorebi @NTtanh
+crates/api-notifications/                          @luong-komorebi @NTtanh
 # The notifications page and its settings UI (#3626, #3640), uncovered until
 # 2026-10-19. A feature leaf inside the shared components/ tree, like Crew/.
 web-app/src/pages/Notifications/                   @luong-komorebi @NTtanh

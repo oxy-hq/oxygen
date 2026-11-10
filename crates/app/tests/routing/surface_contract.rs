@@ -48,6 +48,22 @@ const BACKLOG: &[(&str, &str)] = &[
     // workspace context: schedule cleanup on delete, the directory read, logo bytes
     ("api-tenancy", "server::api::workspaces"),
     ("api-tenancy", "server::api::workspace_logo"),
+    // notifications: the Slack DM channel links a person to their Slack user by
+    // email and reads the org's installation (the bot token). Slack is its own
+    // context still inside oxy-app; these clear when it leaves.
+    (
+        "api-notifications",
+        "integrations::slack::linking::by_email",
+    ),
+    (
+        "api-notifications",
+        "integrations::slack::services::installations",
+    ),
+    // and its integration test, which seeds a person's existing Slack link
+    (
+        "api-notifications",
+        "integrations::slack::services::user_links",
+    ),
 ];
 
 /// `path` is `prefix` or lies under it — on a segment boundary, so

@@ -122,6 +122,7 @@ fn server_files() -> Vec<(String, String)> {
     walk(&manifest.join("../api-documents/src"), &mut out);
     // Likewise `src/server/api/source_upload.rs`.
     walk(&manifest.join("../api-source-upload/src"), &mut out);
+    walk(&manifest.join("../api-notifications/src"), &mut out);
     out.retain(|(rel, _)| !is_test_file(rel));
     out
 }

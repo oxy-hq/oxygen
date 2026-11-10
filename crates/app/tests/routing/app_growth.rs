@@ -127,7 +127,6 @@ const SERVER_API: &[&str] = &[
     "metric_tree_projection",
     "metrics",
     "middlewares",
-    "notifications",
     "oidc_exchange",
     "operating_graph",
     "org_api_access",

@@ -76,7 +76,6 @@ pub mod metric_tree_probe;
 pub mod metric_tree_projection;
 pub mod metrics;
 pub mod middlewares;
-pub mod notifications;
 pub mod oidc_exchange;
 pub mod operating_graph;
 pub mod org_api_access;

@@ -209,25 +209,32 @@ pub async fn run_worker(
     // The surfaces' singleton ticks (`SurfaceSeams::global_ticks`); this process
     // runs the global driver when its role says so, and the driver reads them.
     global_ticks: Vec<crate::server::router::GlobalTickSeam>,
+    // The notifications surface's boot hooks (`SurfaceSeams::notifications`):
+    // a worker both raises and delivers notifications, so it refuses to start
+    // without them.
+    notifications: Option<crate::server::router::NotificationsSeam>,
 ) -> Result<(), OxyError> {
     // Before anything is built: a worker without an executor for a kind
     // `oxy-app` queues would claim those tasks and fail them as unknown.
     crate::server::router::require_task_kinds(&custom_tasks).map_err(OxyError::RuntimeError)?;
     crate::server::router::install_global_ticks(&global_ticks);
+    crate::server::router::require_notifications(notifications.as_ref())
+        .map_err(OxyError::RuntimeError)?;
 
     // The worker is a separate PROCESS, so `start_server_and_web_app`'s
     // registration does not reach it — and background work is where `notify`
     // will mostly be called from. Registering here keeps the boot log honest
     // about push in the process that will actually be sending it.
-    if !crate::server::api::notifications::web_push::register_if_configured() {
+    // The notifications hooks: the inline transport, the run observers —
+    // workers drive most global runs to their end, so their failures are
+    // announced from here (`oxy.run_failed`), and an Ask answer someone asked to
+    // hear about (`oxy.ask_finished`) and its questions (`oxy.ask_waiting`) —
+    // and the push transports.
+    if let Some(hooks) = notifications
+        && !(hooks.install)()
+    {
         tracing::info!("no push transport configured — notifications are inbox-only");
     }
-    // Workers drive most global runs to their end, so their failures are
-    // announced from here (`oxy.run_failed`), and an Ask answer someone asked
-    // to hear about (`oxy.ask_finished`) and its questions (`oxy.ask_waiting`).
-    crate::server::api::notifications::platform::run_failed::install();
-    crate::server::api::notifications::platform::ask_finished::install();
-    crate::server::api::notifications::platform::ask_waiting::install();
 
     // Same first line as `start_server_and_web_app`, and for a sharper reason
     // here. `current_process_role()` falls back to `Role::All` when nothing set
@@ -301,7 +308,9 @@ pub async fn run_worker(
         .await
         .map_err(OxyError::RuntimeError)?;
     // As at `oxy serve` boot: a rollback's mutes, into the settings table.
-    crate::server::api::notifications::settings::reconcile::at_boot().await;
+    if let Some(hooks) = notifications {
+        (hooks.after_migrations)().await;
+    }
     // As at `oxy serve` boot: the feature-flag cache, with its refresh. The
     // worker runs three flag-gated paths — the worker-fleet compile
     // (`compile_config_gate`), the reconcile tick and `self_heal`

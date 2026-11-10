@@ -88,6 +88,22 @@ fn frontline_crew_routes() -> Vec<(Method, String)> {
     ]
 }
 
+/// `oxy-api-notifications`' routes, moved out of `oxy-app`'s
+/// `build_global_routes` (cloud only, like the rest of the global tree): the
+/// inbox, the badge, settings and a device.
+fn notification_routes() -> Vec<(Method, String)> {
+    let id = "00000000-0000-0000-0000-000000000000";
+    vec![
+        (Method::GET, "/notifications".to_string()),
+        (Method::GET, "/notifications/unread".to_string()),
+        (Method::GET, "/notifications/settings".to_string()),
+        (Method::PATCH, format!("/notifications/devices/{id}")),
+        // Not `/notifications/{id}/read`: that handler answers 404 for an id
+        // that is not the caller's, so a 404 there proves nothing about mounting.
+        (Method::POST, "/notifications/read-all".to_string()),
+    ]
+}
+
 /// The router `serve` builds in `mode`, from the seams boot hands it.
 async fn served(mode: ServeMode) -> Router {
     let (router, _external_router, _preagg) = api_router(
@@ -238,4 +254,37 @@ async fn local_mode_mounts_the_custom_app_health_read_too() {
         return;
     }
     custom_app_health_answers_from_its_handler(ServeMode::Local).await;
+}
+
+#[tokio::test]
+async fn cloud_mode_mounts_the_notification_routes() {
+    if db_unavailable() {
+        return;
+    }
+    assert_cloud_mounts(notification_routes()).await;
+}
+
+#[tokio::test]
+async fn local_mode_drops_the_notification_routes() {
+    if db_unavailable() {
+        return;
+    }
+    assert_local_drops(notification_routes()).await;
+}
+
+/// The composition hands `serve` and `worker` everything the notifications
+/// surface needs to deliver, so neither refuses to boot: both queue kinds and
+/// the boot hooks.
+#[test]
+fn the_composition_carries_the_notifications_surface() {
+    let seams = surface_seams();
+    assert_eq!(seams.require_notifications(), Ok(()));
+    assert_eq!(
+        oxy_app::server::router::require_task_kinds(&seams.tasks),
+        Ok(())
+    );
+    let kinds: Vec<&str> = seams.tasks.iter().map(|t| t.kind).collect();
+    for kind in oxy_app::server::router::NOTIFICATION_TASK_KINDS {
+        assert!(kinds.contains(&kind), "no executor for `{kind}`: {kinds:?}");
+    }
 }

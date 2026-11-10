@@ -154,16 +154,6 @@ const ALLOWED: &[(&str, &str)] = &[
          `every_allowlist_entry_still_covers_a_spawn`",
     ),
     (
-        "app/src/server/api/notifications/settings/summary_task.rs",
-        "a queue executor's own task: `QuietSummaryExecutor::execute` runs the summary \
-         under a spawn and reports through the task's channels",
-    ),
-    (
-        "app/src/server/api/notifications/task.rs",
-        "a queue executor's own task: `NotificationDeliverExecutor::execute` delivers \
-         under a spawn and reports through the task's channels",
-    ),
-    (
         "app/src/server/api/projects/agent_ask/start.rs",
         "drives a custom-app ask in the request's process when `AskAdmission` refuses \
          the queue (an app's staging host); every other ask is queued. Documented in \
@@ -220,6 +210,17 @@ const ALLOWED: &[(&str, &str)] = &[
          measure breakdown each run their warehouse queries concurrently inside one \
          spawned task and send every result over the response's channel; nothing is \
          persisted and the task ends with the last query",
+    ),
+    // ---- api-notifications ----
+    (
+        "api-notifications/src/settings/summary_task.rs",
+        "a queue executor's own task: `QuietSummaryExecutor::execute` runs the summary \
+         under a spawn and reports through the task's channels",
+    ),
+    (
+        "api-notifications/src/task.rs",
+        "a queue executor's own task: `NotificationDeliverExecutor::execute` delivers \
+         under a spawn and reports through the task's channels",
     ),
     // ---- api-tenancy ----
     (
@@ -652,7 +653,7 @@ mod scanner_tests {
         // A handler that is *about* testing is production code and stays scanned.
         for production in [
             "api-custom-apps/src/admin/apps/test_notification.rs",
-            "app/src/server/api/notifications/platform/self_test.rs",
+            "api-notifications/src/platform/self_test.rs",
             "app/src/server/api/test_run.rs",
             "app/src/server/api/contests.rs",
         ] {

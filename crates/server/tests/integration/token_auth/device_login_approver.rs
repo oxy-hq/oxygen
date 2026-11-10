@@ -17,8 +17,8 @@
 use axum::http::StatusCode;
 use entity::notifications;
 use entity::org_members::OrgRole;
-use oxy_app::server::api::notifications::platform::kinds::CLI_APPROVAL;
-use oxy_app::server::api::notifications::platform::render;
+use oxy_api_notifications::platform::kinds::CLI_APPROVAL;
+use oxy_api_notifications::platform::render;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use uuid::Uuid;

@@ -20,7 +20,7 @@ use sea_orm::{DatabaseConnection, DbErr};
 use uuid::Uuid;
 
 use crate::emails::billing_past_due::{PastDueEmail, send_past_due_email};
-use crate::server::api::notifications::platform::{PlatformNotice, PlatformSent, notify, people};
+use oxy_app_core::notifications::platform::{PlatformNotice, PlatformSent, notify, people};
 
 /// Record each notification's inbox notice and spawn its email. `public_url`
 /// is captured from the `BillingService`'s `StripeConfig` so it doesn't need

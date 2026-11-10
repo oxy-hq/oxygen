@@ -2,7 +2,7 @@
 //!
 //! [`send`] is the write path for a custom app's `ctx.notify` (the
 //! platform's own notices store no content and are written by
-//! `notifications::platform::send` in `oxy-app`):
+//! [`super::platform::send`]):
 //!
 //! 1. An idempotency key that was already used answers with the first send,
 //!    and nothing is written.
@@ -14,8 +14,8 @@
 //!    can never refer to a send that rolled back.
 //!
 //! Who the recipients are is decided before this ([`super::recipients`]);
-//! which channel reaches each of them, after it (`notifications::delivery` in
-//! `oxy-app`).
+//! which channel reaches each of them, after it (`delivery` in
+//! `oxy-api-notifications`).
 
 use chrono::Utc;
 use entity::{notification_sends, notifications};
@@ -133,8 +133,8 @@ pub fn thread_key(app: Option<Uuid>, thread: &str) -> String {
 /// With a `workspace_id` the delivery task is queued in the same transaction.
 /// With none nothing is queued and the caller delivers inline: delivery is the
 /// push, email and Slack transport, which needs `AppState`'s secrets and HTTP
-/// clients and so stays in `oxy-app` (`notifications::send::send` wraps this
-/// function and does it).
+/// clients and so is the notifications surface's (`oxy-api-notifications`'s
+/// `send::send` wraps this function and does it).
 pub async fn send(db: &DatabaseConnection, out: Outgoing) -> Result<Sent, SendError> {
     let hash = out.idempotency_key.as_deref().map(key_hash);
     if let Some(prior) = prior_send(db, &out, hash.as_deref()).await? {

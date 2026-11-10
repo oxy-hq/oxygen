@@ -1406,30 +1406,6 @@ pub(super) fn build_custom_task_registry(
             Arc::new(AnomalyNotifyExecutor { db: db.clone() }),
         );
     }
-    // A custom app's `ctx.notify`: push, email and Slack for one send, queued
-    // in the send's own transaction. A pod that predates the kind fails the
-    // task as unknown and the retry policy lands it on one that knows.
-    {
-        use crate::server::api::notifications::task::{
-            NOTIFICATION_DELIVER_KIND, NotificationDeliverExecutor,
-        };
-        reg.register(
-            NOTIFICATION_DELIVER_KIND,
-            Arc::new(NotificationDeliverExecutor { db: db.clone() }),
-        );
-    }
-    // The pushes quiet hours held, told as one when the window ends. Queued
-    // by a delivery run, due hours later (`available_at`); a pod without the
-    // kind fails it and the holds stay in the inbox.
-    {
-        use crate::server::api::notifications::settings::summary_task::{
-            QUIET_SUMMARY_KIND, QuietSummaryExecutor,
-        };
-        reg.register(
-            QUIET_SUMMARY_KIND,
-            Arc::new(QuietSummaryExecutor { db: db.clone() }),
-        );
-    }
     // A custom app's procedure run, queued by `POST …/procedures/{id}/runs`.
     // It builds its own context from the caller the request authenticated —
     // never from this driver's platform, which has no subject. A pod without
@@ -1505,12 +1481,15 @@ pub(super) fn build_custom_task_registry(
         ),
     );
     // The surfaces' kinds, handed in by the composition root
-    // (`SurfaceSeams::tasks`): the custom-app kinds, and the experiment and
+    // (`SurfaceSeams::tasks`): the custom-app kinds, the experiment and
     // simulation kinds (`oxy-api-experiment`: a simulation run, the price job,
-    // read-back, the estimate, the interim reading). A kind absent here fails
-    // its tasks as unknown, so `SurfaceSeams::require_custom_apps` refuses to
-    // start a process without the custom-app ones, and `oxy-server`'s own test
-    // holds the experiment ones to the composition.
+    // read-back, the estimate, the interim reading), and the notification kinds
+    // (`oxy-api-notifications`: a send's push, email and Slack delivery —
+    // `ctx.notify`'s and every platform notice's, queued in the send's own
+    // transaction — and the summary of the pushes quiet hours held). A kind
+    // absent here fails its tasks as unknown, so `require_task_kinds` refuses to
+    // start a process without the custom-app and notification ones, and
+    // `oxy-server`'s own test holds the experiment ones to the composition.
     let deps = crate::server::router::TaskDeps { db, preagg };
     for seam in tasks {
         reg.register(seam.kind, (seam.build)(&deps));

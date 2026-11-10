@@ -126,7 +126,8 @@ fn app_src() -> PathBuf {
 /// Every `.rs` under `src` — plus `oxy-app-core` (where `compiled_reader`
 /// itself now lives), `oxy-custom-apps`, `oxy-api-custom-apps` (the custom-app
 /// vertical lifted out of `src/server/api`) and `oxy-api-documents` and
-/// `oxy-api-source-upload`, extracted from `src/server/api` and still served
+/// `oxy-api-source-upload` and `oxy-api-notifications`, extracted from
+/// `src/server/api` and still served
 /// by this binary — as
 /// (crate-relative path, contents).
 fn source_files() -> Vec<(String, String)> {
@@ -171,6 +172,13 @@ fn source_files() -> Vec<(String, String)> {
         &source_upload,
         &source_upload,
         "../api-source-upload/src/",
+        &mut out,
+    );
+    let notifications = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-notifications/src");
+    walk(
+        &notifications,
+        &notifications,
+        "../api-notifications/src/",
         &mut out,
     );
     out

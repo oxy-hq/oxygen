@@ -65,6 +65,8 @@ const REQUIRED_GROUPS: &[&str] = &[
     // PIN sign-in on the public seam.
     "/api/orgs/{org_id}/frontline",
     "/api/frontline/",
+    // `oxy-api-notifications`, on the api seam at the root.
+    "/api/notifications",
     "/api/customer-apps",
     // `oxy-api-custom-apps`, on the public seam; `/api/customer-apps` above is
     // the admin console's mount and does not cover it.

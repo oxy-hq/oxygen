@@ -83,6 +83,8 @@ pub async fn api_router(
         example_apps: _,
         // Documentation only — `build_openapi_doc` merges it, not the router.
         openapi: _,
+        // Run by `serve` and `worker` at boot, around migrations.
+        notifications: _,
     } = seams;
     // Boot cleanup only where the startup pass runs: a `serve` replica
     // (`--no-workers`) resumes nothing, so every row it would reconcile belongs
@@ -513,6 +515,7 @@ pub async fn internal_api_router(
         example_apps: _,
         // Documentation only — `build_openapi_doc` merges it, not the router.
         openapi: _,
+        notifications: _,
     } = seams;
     let app_state = AppState {
         enterprise,

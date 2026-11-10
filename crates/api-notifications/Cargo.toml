@@ -1,0 +1,80 @@
+[package]
+name = "oxy-api-notifications"
+version.workspace = true
+authors.workspace = true
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
+# oxy-app — the catalog sits above it for exactly that reason.
+description = "Notifications HTTP surface — the inbox, settings, devices and catalogue routes, and the push, email and Slack delivery behind them — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# What this surface takes from oxy-app, all through `oxy_app::surface` plus the
+# Slack backlog rows `crates/app/tests/routing/surface_contract.rs` lists (the
+# Slack DM channel links a person by email and reads the org's installation,
+# until Slack leaves oxy-app). The write path every source shares, the email
+# renderer and the mailer are oxy-app-core's. oxy-app never depends back on this
+# crate. default-features off so a `--no-default-features` build of oxy-server
+# keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }        # AppState, the notification write path, emails
+oxy-custom-apps = { workspace = true }     # an app's environments and live build
+oxy-oltp = { workspace = true }            # the org's inbox store
+oxy-metric-monitoring = { workspace = true } # an anomaly notice's severity order
+oxy-slack-client = { workspace = true }
+oxy = { workspace = true }                 # database client
+oxy-auth = { workspace = true }            # AuthenticatedUserExtractor, device-login codes
+oxy-shared = { workspace = true }          # http builder, fleet_role::RouteRoleDecl
+entity = { workspace = true }
+agentic-core = { workspace = true }
+agentic-runtime = { workspace = true }     # the task executors, the run observers
+agentic-pipeline = { workspace = true }    # run source types
+
+async-trait = { workspace = true }
+axum = { workspace = true }
+base64 = { workspace = true, features = ["std"] }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+# Web Push payload encryption (RFC 8291 aes128gcm): web_push_payload.rs.
+ece = { workspace = true }
+futures = { workspace = true }
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
+reqwest = { workspace = true, features = ["form", "json"] }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tower = { workspace = true, features = ["util"] }
+# Mints throwaway EC/RSA keys for the APNs and FCM JWT tests, so no private
+# key is committed (the secret scanner rightly rejects one). Already in the
+# tree via jsonwebtoken's `aws_lc_rs` backend.
+aws-lc-rs = { workspace = true }
+# The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
+# from crates/app/tests/common), which clones a per-run template database and
+# needs every migrator `Schema::All` can apply — same list as oxy-api-frontline.
+migration = { workspace = true }
+airhouse = { workspace = true }
+agentic-http = { workspace = true }
+# `platform_notices::ask_finished` drives the analytics router, which takes a
+# `PlatformContext` stub built from these.
+agentic-analytics = { workspace = true }
+agentic-automation = { workspace = true }
+agentic-connector = { workspace = true }
+oxy-airlayer-compat = { workspace = true }
+wiremock = { workspace = true }            # slack_notify_dm: a fake Slack
+oxy-cameras = { workspace = true }
+tempfile = { workspace = true }
+oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
+
+[lints]
+workspace = true

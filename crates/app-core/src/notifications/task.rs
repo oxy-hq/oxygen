@@ -3,8 +3,9 @@
 //! Queued in the same transaction as the send and its signals
 //! ([`super::send`]), drained by whichever pod takes it — serve or worker, both
 //! register the push transport — and it outlives the function invocation that
-//! queued it. What it does is `notifications::delivery::deliver_send` in
-//! `oxy-app`, which also holds the executor that runs this kind; this file is
+//! queued it. What it does is `delivery::deliver_send` in
+//! `oxy-api-notifications`, which also holds the executor that runs this kind
+//! (handed to the driver through `SurfaceSeams::tasks`); this file is
 //! the enqueue side of the queue plumbing, after `anomaly_notify`.
 //!
 //! **Retries resend only what failed.** A channel the provider refused is

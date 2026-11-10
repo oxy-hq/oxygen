@@ -117,8 +117,6 @@
 
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
-#[path = "../../../app/tests/platform/notification_categories/fixture.rs"]
-mod notification_fixture;
 #[path = "../../../app/tests/common/oltp_fx.rs"]
 mod oltp_fx;
 
@@ -130,7 +128,6 @@ mod app_preflight;
 mod app_role_memo;
 mod app_scoped_secrets;
 mod canary_coverage;
-mod console_test_notification;
 mod custom_app_access_control;
 mod custom_app_activity_roles;
 mod custom_app_agent_ask_caller;
@@ -178,7 +175,6 @@ mod home_preferences;
 mod invocation_queries;
 mod me_apps;
 mod nonprod_function_uploads;
-mod notification_function_action;
 mod platform_facts;
 mod preview_automation_run_handlers;
 mod preview_read_only_session;

@@ -178,6 +178,10 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // this scan is what is left. The one IdeOnly route (write-back apply) and
         // the two compile-boundary `ConfigManager` reads are exempted above.
         "../api-experiment/src",
+        // Notifications, moved out of `build_global_routes` where all 13 routes
+        // were `route_fleet`. Declared FleetOk by hand in its `route_roles()`
+        // now, so this scan is what stops a handler taking a working copy.
+        "../api-notifications/src",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

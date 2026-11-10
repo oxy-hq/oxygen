@@ -51,7 +51,11 @@ pub(crate) fn flat_api() -> Router {
         .merge(oxy_api_tenancy::onboarding::routes())
         .merge(oxy_api_documents::routes())
         .merge(oxy_api_frontline::routes())
-        .merge(oxy_api_custom_apps::routes());
+        .merge(oxy_api_notifications::routes())
+        .merge(
+            oxy_api_custom_apps::routes()
+                .layer(axum::Extension(oxy_api_notifications::live_kinds())),
+        );
     let public_seam =
         oxy_api_frontline::public_routes().merge(oxy_api_custom_apps::public_routes());
     oxy_app::server::router::flat_api_surface(

@@ -4,7 +4,8 @@
 //! They live in the composition root because they drive the API **as served**:
 //! `oxy-app`'s routes together with the extracted surface crates (`/orgs` and the
 //! rest of tenancy is `oxy-api-tenancy`'s), behind the one `/api` auth stack.
-//! Only this crate depends on both.
+//! Only this crate depends on both — which is also why the notification tests
+//! that span the custom-app and notifications surfaces live here.
 //!
 //! `token_auth` owns a database cloned from the per-run template, using
 //! `oxy-app`'s harness included by path rather than copied (it owns the
@@ -13,5 +14,16 @@
 
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
+#[path = "../../../api-notifications/tests/integration/notification_categories/fixture.rs"]
+mod notification_fixture;
+#[path = "../../../app/tests/common/oltp_fx.rs"]
+mod oltp_fx;
 
+// Notifications driven through a custom app: the console's "Test notifications"
+// (`oxy-api-custom-apps`, reading the catalogue through the port the
+// notifications surface implements) and a notification's function action (the
+// notifications surface running an app's function). Each needs both surfaces,
+// and a surface may not depend on another, so they are the composition root's.
+mod console_test_notification;
+mod notification_function_action;
 mod token_auth;

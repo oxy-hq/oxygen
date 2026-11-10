@@ -352,7 +352,7 @@ pub async fn setup_github(
                     // Tell whoever is waiting on it. Best-effort: the workspace
                     // is ready either way, and the list polls while it clones.
                     if let Err(e) =
-                        oxy_app::surface::notices::notify_workspace_ready(&db, workspace_id).await
+                        oxy_app_core::notifications::platform::workspace_ready::notify_workspace_ready(&db, workspace_id).await
                     {
                         tracing::warn!(?e, %workspace_id, "workspace-ready notice not sent");
                     }

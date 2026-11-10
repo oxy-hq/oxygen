@@ -2,12 +2,14 @@
 //! app, to see it reach your phone.
 //!
 //! - `GET /api/customer-apps/{id}/notification-kinds` — the kinds the app's live
-//!   build declares ([`catalog::live`]), each with its label, level and whether
-//!   a mute applies, and whether the app can tell the caller anything at all.
+//!   build declares, each with its label, level and whether a mute applies, and
+//!   whether the app can tell the caller anything at all. The catalogue is the
+//!   notifications surface's, read through the [`LiveKinds`] port `oxy-server`
+//!   layers onto these routes (one surface never imports another).
 //! - `POST /api/customer-apps/{id}/notification-test` `{ "kind": "…" }` — one
 //!   notification of that kind, from the app, to the caller alone.
 //!
-//! The send is `ctx.notify`'s ([`send::send`]): the content in the org's store,
+//! The send is `ctx.notify`'s ([`send`]): the content in the org's store,
 //! an inbox row, then a queued delivery that applies the caller's mutes. So a
 //! muted kind does not reach their devices, a critical one does, and tapping
 //! it opens the app. Push and the inbox only, never email or Slack, as with
@@ -22,11 +24,13 @@
 //! notifications. Two clicks in one window are one send: the key's unique
 //! index decides, so replicas need no lock.
 
-use axum::Json;
+use std::sync::Arc;
+
 use axum::body::Bytes;
 use axum::extract::Path;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use axum::{Extension, Json};
 use chrono::{DateTime, Utc};
 use entity::{apps, notification_sends};
 use oxy::database::client::establish_connection;
@@ -37,11 +41,11 @@ use serde_json::json;
 use tracing::instrument;
 use uuid::Uuid;
 
-use oxy_app::surface::notifications::{
-    AppRef, COOLDOWN, Outgoing, SendError, SourceCatalogue, cooldown_left, key_hash, live, send,
-};
 use oxy_app_core::agent_refusal::RefuseSandboxAgent;
 use oxy_app_core::audience::PersonReach;
+use oxy_app_core::notifications::catalog::live_kinds::{KindSummary, LiveKinds};
+use oxy_app_core::notifications::platform::self_test::{COOLDOWN, cooldown_left};
+use oxy_app_core::notifications::send::{AppRef, Outgoing, SendError, key_hash, send};
 
 /// The environment a test's send is recorded under: the live build's, whose
 /// `ctx.notify` calls the kinds describe. It scopes the idempotency key only.
@@ -62,20 +66,16 @@ pub struct KindView {
 }
 
 /// Every kind the catalogue describes or a function may send, in kind order.
-pub fn kinds_of(catalogue: &SourceCatalogue) -> Vec<KindView> {
-    catalogue
-        .kinds_with([])
-        .into_iter()
-        .map(|kind| {
-            let info = catalogue.describe(&kind);
-            KindView {
-                level: info.level.as_str(),
-                kind: info.kind,
-                label: info.label,
-                description: info.description,
-                category: info.category_labels,
-                mutable: info.mutable,
-            }
+pub fn kinds_of(kinds: &[KindSummary]) -> Vec<KindView> {
+    kinds
+        .iter()
+        .map(|info| KindView {
+            level: info.level.as_str(),
+            kind: info.kind.clone(),
+            label: info.label.clone(),
+            description: info.description.clone(),
+            category: info.category_labels.clone(),
+            mutable: info.mutable,
         })
         .collect()
 }
@@ -95,25 +95,26 @@ pub enum TestOutcome {
     },
 }
 
-/// Send `user_id` one notification of `kind` from `app`, at `now`.
+/// Send `user_id` one notification of `kind` from `app`, at `now`, reading the
+/// app's kinds through `catalogue`.
 pub async fn send_test(
     db: &DatabaseConnection,
+    catalogue: &dyn LiveKinds,
     user_id: Uuid,
     app: &apps::Model,
     kind: &str,
     now: DateTime<Utc>,
 ) -> Result<TestOutcome, SendError> {
-    let catalogue = live::load(db, app).await?;
-    if !catalogue.kinds_with([]).contains(kind) {
+    let kinds = catalogue.live_kinds(db, app).await?;
+    let Some(info) = kinds.into_iter().find(|k| k.kind == kind) else {
         return Ok(TestOutcome::UnknownKind);
-    }
+    };
     if !in_audience(db, user_id, app).await? {
         return Ok(TestOutcome::NotInAudience);
     }
     if let Some(retry_after_secs) = cooling_down(db, user_id, app.id, now).await? {
         return Ok(TestOutcome::RateLimited { retry_after_secs });
     }
-    let info = catalogue.describe(kind);
     let out = Outgoing {
         org_id: app.org_id,
         app: Some(AppRef {
@@ -135,7 +136,9 @@ pub async fn send_test(
         thread_key: None,
         recipients: vec![user_id],
     };
-    let sent = send::send(db, out).await?;
+    // `oxy_app_core`'s send, not the notifications surface's inline-delivering
+    // wrapper: this send always has a workspace, so it is always queued.
+    let sent = send(db, out).await?;
     if sent.deduplicated {
         // Another click in this window sent it first.
         let retry_after_secs = cooling_down(db, user_id, app.id, now).await?.unwrap_or(1);
@@ -219,6 +222,7 @@ pub fn parse(raw: &[u8]) -> Result<String, &'static str> {
 /// `GET /api/customer-apps/{id}/notification-kinds`
 #[instrument(skip_all, fields(app = %id, user = %user.id))]
 pub async fn list_kinds(
+    Extension(catalogue): Extension<Arc<dyn LiveKinds>>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Path(id): Path<Uuid>,
 ) -> Response {
@@ -230,21 +234,22 @@ pub async fn list_kinds(
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => return internal(e.into()),
     };
-    let catalogue = match live::load(&db, &app).await {
-        Ok(c) => c,
+    let kinds = match catalogue.live_kinds(&db, &app).await {
+        Ok(kinds) => kinds,
         Err(e) => return internal(e.into()),
     };
     let reachable = match in_audience(&db, user.id, &app).await {
         Ok(r) => r,
         Err(e) => return internal(e.into()),
     };
-    Json(json!({ "reachable": reachable, "kinds": kinds_of(&catalogue) })).into_response()
+    Json(json!({ "reachable": reachable, "kinds": kinds_of(&kinds) })).into_response()
 }
 
 /// `POST /api/customer-apps/{id}/notification-test`
 #[instrument(skip_all, fields(app = %id, user = %user.id))]
 pub async fn send_test_notification(
     _: RefuseSandboxAgent,
+    Extension(catalogue): Extension<Arc<dyn LiveKinds>>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Path(id): Path<Uuid>,
     raw: Bytes,
@@ -261,7 +266,7 @@ pub async fn send_test_notification(
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => return internal(e.into()),
     };
-    match send_test(&db, user.id, &app, &kind, Utc::now()).await {
+    match send_test(&db, catalogue.as_ref(), user.id, &app, &kind, Utc::now()).await {
         Ok(TestOutcome::Sent { id }) => Json(json!({ "id": id, "kind": kind })).into_response(),
         Ok(TestOutcome::UnknownKind) => refuse(StatusCode::BAD_REQUEST, "unknown_kind"),
         Ok(TestOutcome::NotInAudience) => refuse(StatusCode::CONFLICT, "not_in_audience"),

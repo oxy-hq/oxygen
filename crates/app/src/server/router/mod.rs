@@ -39,8 +39,9 @@ pub use openapi::{build_openapi_doc, openapi_router};
 pub use protected::{api_auth_layers, external_auth_layers};
 pub use seams::{
     AdminSection, BackgroundDeps, BackgroundSeam, CUSTOM_APP_BACKGROUND_JOBS,
-    CUSTOM_APP_TASK_KINDS, ExampleAppsSeam, GlobalTickSeam, MigrateReport, OuterMount, SurfaceSeam,
-    SurfaceSeams, TaskDeps, TaskSeam, global_ticks, install_global_ticks, require_task_kinds,
+    CUSTOM_APP_TASK_KINDS, ExampleAppsSeam, GlobalTickSeam, MigrateReport, NOTIFICATION_TASK_KINDS,
+    NotificationsSeam, OuterMount, SurfaceSeam, SurfaceSeams, TaskDeps, TaskSeam, global_ticks,
+    install_global_ticks, require_notifications, require_task_kinds,
 };
 
 // `AppState` moved to `oxy-app-core` so the router and future per-surface crates

@@ -190,6 +190,45 @@ pub(crate) async fn run_global_ticks(db: &DatabaseConnection, now: DateTime<Utc>
     total
 }
 
+/// The notifications surface's process hooks (`oxy-api-notifications`).
+///
+/// Every `oxy serve` and `oxy worker` both raises notifications (billing, the
+/// anomaly delivery, a failed run, a device-code request) and delivers them (the
+/// `notification_deliver` task, or inline for an org with no workspace), so both
+/// run these, at the points they ran when the surface was a module of this
+/// crate, and both refuse to start without them
+/// ([`SurfaceSeams::require_notifications`], [`require_notifications`]). A
+/// process that skipped them would boot, write every inbox row, and deliver
+/// nothing: the fail-silent inversion `internal-docs/domain-boundaries.md`
+/// warns about.
+#[derive(Clone, Copy)]
+pub struct NotificationsSeam {
+    /// Before migrations: install the inline transport the write path below this
+    /// crate delivers through (`oxy_app_core::notifications::inline`), the
+    /// agentic-runtime observers that raise run notices (`oxy.run_failed`,
+    /// `oxy.ask_finished`, `oxy.ask_waiting`), and the push transports. Answers
+    /// whether any push transport is configured, for the boot log.
+    pub install: fn() -> bool,
+    /// After migrations: the settings reconcile (mutes written while a release
+    /// was rolled back, into the settings table). Best-effort, never a reason
+    /// not to start.
+    pub after_migrations: fn() -> Pin<Box<dyn Future<Output = ()> + Send>>,
+}
+
+/// Refuse to boot a process without the notifications hooks. `oxy worker` takes
+/// the seam on its own (it is not handed all of [`SurfaceSeams`]), so the check
+/// is a function as well as a method.
+pub fn require_notifications(seam: Option<&NotificationsSeam>) -> Result<(), String> {
+    match seam {
+        Some(_) => Ok(()),
+        None => Err(
+            "the surface seams hand in no notifications hooks (`SurfaceSeams::notifications`); \
+             without them this process would write inbox rows and deliver none of them"
+                .to_string(),
+        ),
+    }
+}
+
 /// Builds the router `serve` mounts at the top level of the outer router,
 /// beside `/api`. It is given the Layer-1 preagg cache the API router owns,
 /// because a route mounted outside the API router has no `AppState` to read it
@@ -306,6 +345,9 @@ pub struct SurfaceSeams {
     pub post_migrate: Option<MigrateReport>,
     /// The demo seed's custom-app half; `None` seeds the rows only.
     pub example_apps: Option<ExampleAppsSeam>,
+    /// The notifications surface's boot hooks; `serve` and `worker` refuse to
+    /// start without them.
+    pub notifications: Option<NotificationsSeam>,
 }
 
 /// The `TaskSpec::Custom` kinds `oxy-app`'s own enqueue sites queue for custom
@@ -323,6 +365,16 @@ pub const CUSTOM_APP_TASK_KINDS: [&str; 6] = [
     "custom_app_sandbox_oltp",
     "custom_app_env_oltp_branch",
 ];
+
+/// The `TaskSpec::Custom` kinds `oxy-app`'s own sources queue for the
+/// notifications surface: `notification_deliver` (every send, from
+/// `oxy_app_core::notifications`) and `notification_quiet_summary` (queued by a
+/// delivery run, which is the surface's own, but drained by any node). Their
+/// executors are `oxy-api-notifications`'s, handed in through
+/// [`SurfaceSeams::tasks`]; `oxy-server`'s tests hold the constants to these
+/// strings.
+pub const NOTIFICATION_TASK_KINDS: [&str; 2] =
+    ["notification_deliver", "notification_quiet_summary"];
 
 /// The background jobs a serve process needs for custom apps (usage rows,
 /// storage measurement, sandbox expiry, retention). Without the usage drain,
@@ -348,6 +400,7 @@ pub fn require_task_kinds(tasks: &[TaskSeam]) -> Result<(), String> {
     }
     let missing: Vec<&str> = CUSTOM_APP_TASK_KINDS
         .iter()
+        .chain(NOTIFICATION_TASK_KINDS.iter())
         .copied()
         .filter(|k| !seen.contains(k))
         .collect();
@@ -355,7 +408,7 @@ pub fn require_task_kinds(tasks: &[TaskSeam]) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "the surface seams hand in no executor for the custom-app task kind(s) {missing:?}; \
+            "the surface seams hand in no executor for the task kind(s) {missing:?}; \
              tasks of those kinds would be queued and then fail as unknown"
         ))
     }
@@ -391,6 +444,12 @@ impl SurfaceSeams {
         }
         Ok(())
     }
+
+    /// The startup check for any process that raises or delivers notifications
+    /// (`serve`, `worker`): see [`NotificationsSeam`].
+    pub fn require_notifications(&self) -> Result<(), String> {
+        require_notifications(self.notifications.as_ref())
+    }
 }
 
 #[cfg(test)]
@@ -424,7 +483,11 @@ mod tests {
 
     fn complete() -> SurfaceSeams {
         SurfaceSeams {
-            tasks: CUSTOM_APP_TASK_KINDS.iter().map(|k| task(k)).collect(),
+            tasks: CUSTOM_APP_TASK_KINDS
+                .iter()
+                .chain(NOTIFICATION_TASK_KINDS.iter())
+                .map(|k| task(k))
+                .collect(),
             background: CUSTOM_APP_BACKGROUND_JOBS.iter().map(|n| job(n)).collect(),
             outer: Some(|_| Router::new()),
             ..SurfaceSeams::empty()
@@ -485,6 +548,28 @@ mod tests {
         let err = seams.require_custom_apps().unwrap_err();
         assert!(err.contains("custom_app_sandbox_oltp"), "{err}");
         assert!(require_task_kinds(&seams.tasks).is_err());
+    }
+
+    #[test]
+    fn a_missing_notification_kind_is_a_startup_error_that_names_it() {
+        let mut seams = complete();
+        seams.tasks.retain(|t| t.kind != "notification_deliver");
+        let err = require_task_kinds(&seams.tasks).unwrap_err();
+        assert!(err.contains("notification_deliver"), "{err}");
+    }
+
+    /// No hooks means inbox rows with no delivery, so it is a boot error.
+    #[test]
+    fn missing_notification_hooks_are_a_startup_error() {
+        assert!(SurfaceSeams::empty().require_notifications().is_err());
+        let seams = SurfaceSeams {
+            notifications: Some(NotificationsSeam {
+                install: || false,
+                after_migrations: || Box::pin(async {}),
+            }),
+            ..SurfaceSeams::empty()
+        };
+        assert_eq!(seams.require_notifications(), Ok(()));
     }
 
     #[test]

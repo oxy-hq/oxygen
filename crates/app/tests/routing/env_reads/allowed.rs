@@ -50,7 +50,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_APNS_TOPIC",
-        "crates/app/src/server/api/notifications/simulator_push.rs",
+        "crates/api-notifications/src/simulator_push.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -550,7 +550,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_FCM_SERVICE_ACCOUNT_JSON",
-        "crates/app/src/server/api/notifications/fcm.rs",
+        "crates/api-notifications/src/fcm.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -1000,17 +1000,17 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_VAPID_PRIVATE_KEY",
-        "crates/app/src/server/api/notifications/web_push.rs",
+        "crates/api-notifications/src/web_push.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_VAPID_PUBLIC_KEY",
-        "crates/app/src/server/api/notifications/web_push.rs",
+        "crates/api-notifications/src/web_push.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_VAPID_SUBJECT",
-        "crates/app/src/server/api/notifications/web_push.rs",
+        "crates/api-notifications/src/web_push.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

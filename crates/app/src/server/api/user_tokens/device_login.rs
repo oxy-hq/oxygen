@@ -64,8 +64,8 @@ use super::ManageTokens;
 use super::cli_login::{self, Collected};
 use super::error::TokenError;
 use super::handlers::{TokenWithSecret, parse};
-use crate::server::api::notifications::platform::cli_approval::notify_cli_approval;
 use crate::server::api::public_rate_limit::{self, PublicRoute};
+use oxy_app_core::notifications::platform::cli_approval::notify_cli_approval;
 
 /// What a person's own refusal records, for the CLI to print.
 const DECLINED: &str = "the request was declined in the browser";

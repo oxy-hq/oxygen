@@ -151,6 +151,16 @@ filter = "kind(test) & package(=oxy-api-experiment) & binary(=integration) & !te
 test-group = "db-per-test"
 retries = 2
 
+# `oxy-api-notifications`' integration group moved out of oxy-app's `platform`
+# binary with the notifications surface — same harness (`tests/common/mod.rs` by
+# `#[path]`, own database per test), same group. `slack_notify_dm`, which was
+# the `slack` binary's, reaches the shared `OXY_DATABASE_URL` directly and keeps
+# its `serial-db` seat in its own override further down.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-notifications) & binary(=integration) & !test(/^(slack_notify_dm)::/)"
+test-group = "db-per-test"
+retries = 2
+
 # `oxy-server`'s integration binary: the API-token suite (`token_auth`), which
 # drives the served flat tree and owns a database cloned from the per-run
 # template (`common::test_db`, `oxy-app`'s harness by path), so it contends for
@@ -219,7 +229,7 @@ retries = 2
 # The real fix is porting these onto `common::fresh_db()`; see
 # `internal-docs/testing.md`. Until then they belong here.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=slack) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|admin_membership_audit|audit_append_only|slack_resolution|slack_oauth_state|slack_oauth_install|slack_uninstall|slack_user_links|slack_cross_org_collision|slack_notify_dm|projects_query|local_mode_router)::/)"
+filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=slack) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|admin_membership_audit|audit_append_only|slack_resolution|slack_oauth_state|slack_oauth_install|slack_uninstall|slack_user_links|slack_cross_org_collision|projects_query|local_mode_router)::/)"
 test-group = "serial-db"
 retries = 2
 
@@ -228,6 +238,13 @@ retries = 2
 # `projects_query` above.
 [[profile.default.overrides]]
 filter = "kind(test) & package(=oxy-api-experiment) & binary(=integration) & test(/^(simulation_router)::/)"
+test-group = "serial-db"
+retries = 2
+
+# `oxy-api-notifications`' `slack_notify_dm`, which was the `slack` binary's:
+# it calls `establish_connection()` on the shared database (see the note above).
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-notifications) & binary(=integration) & test(/^(slack_notify_dm)::/)"
 test-group = "serial-db"
 retries = 2
 

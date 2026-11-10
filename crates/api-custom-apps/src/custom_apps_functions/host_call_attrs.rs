@@ -966,7 +966,8 @@ mod tests {
             "src/custom_apps_functions/host",
             // The storage module moved down with the serving lift.
             "../custom-apps/src/storage",
-            "../app/src/server/api/notifications",
+            // The notifications surface moved out of `oxy-app`.
+            "../api-notifications/src",
             // The notification input and recipient errors moved to the prelude.
             "../app-core/src/notifications",
         ];
