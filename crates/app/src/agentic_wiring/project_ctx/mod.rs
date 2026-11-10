@@ -1527,7 +1527,10 @@ async fn build_airhouse_connector<S: DiskSlot>(
                     "airhouse connector failed to connect to {host}:{port}/{database} as {user}: {e}"
                 ))
             })?;
-        Ok(Arc::new(conn))
+        // Every requester at this key shares the connection and its DuckDB
+        // session, so a statement that changes session state is refused
+        // rather than handed on to the next one.
+        Ok(Arc::new(conn.shared_session()))
     })
     .await
 }

@@ -23,6 +23,7 @@
 //! config is the tracked follow-up for operators who need transport encryption.
 
 mod fetch;
+mod session_state;
 mod typed;
 
 use std::collections::HashMap;
@@ -146,6 +147,10 @@ pub struct AirhouseConnector {
     /// Lets a connector pool detect a dead connection on checkout without a
     /// round-trip or contending on the query mutex.
     alive: Arc<AtomicBool>,
+    /// Set by [`AirhouseConnector::shared_session`]: this connection serves
+    /// more than one requester, so statements that change session state are
+    /// refused ([`session_state`]).
+    shared_session: bool,
 }
 
 impl AirhouseConnector {
@@ -200,7 +205,26 @@ impl AirhouseConnector {
             client: Arc::new(tokio::sync::Mutex::new(client)),
             cached_schema,
             alive,
+            shared_session: false,
         })
+    }
+
+    /// Mark this connection as shared between requesters (a pooled
+    /// connection): from now on it refuses any statement whose effect outlives
+    /// it on the server-side session (`SET`, a temp object, `USE`, `ATTACH`,
+    /// `PRAGMA`, transaction control), since the next requester would inherit
+    /// it. See [`session_state`].
+    pub fn shared_session(mut self) -> Self {
+        self.shared_session = true;
+        self
+    }
+
+    fn refuse_session_state(&self, sql: &str) -> Result<(), ConnectorError> {
+        if self.shared_session {
+            session_state::refuse_on_shared_session(sql)
+        } else {
+            Ok(())
+        }
     }
 
     /// True while the underlying pgwire connection is still open. Cheap,
@@ -239,6 +263,7 @@ impl DatabaseConnector for AirhouseConnector {
         sample_limit: u64,
     ) -> Result<ExecutionResult, ConnectorError> {
         let sql = normalize_sql(sql);
+        self.refuse_session_state(sql)?;
 
         match classify(sql) {
             // DDL/DML: execute directly, return empty results.
@@ -464,6 +489,7 @@ impl DatabaseConnector for AirhouseConnector {
     )]
     async fn execute_query_full(&self, sql: &str) -> Result<TypedRowStream, ConnectorError> {
         let sql = normalize_sql(sql);
+        self.refuse_session_state(sql)?;
 
         match classify(sql) {
             // DDL/DML: execute directly, no row stream.
@@ -609,6 +635,7 @@ impl DatabaseConnector for AirhouseConnector {
         // `DESCRIBE` to save, so delegate — and every non-opted-in caller keeps
         // the typed path via the trait default.
         let sql = normalize_sql(sql);
+        self.refuse_session_state(sql)?;
         if classify(sql) != StatementKind::Subquery {
             return self.execute_query_full(sql).await;
         }
@@ -647,6 +674,7 @@ impl DatabaseConnector for AirhouseConnector {
         &self,
         sql: &str,
     ) -> Result<Option<Vec<TypedValue>>, ConnectorError> {
+        self.refuse_session_state(sql)?;
         let Some(probe) = first_row_statement(sql) else {
             return agentic_connector::first_row_of(self.execute_query_full_untyped(sql).await?)
                 .await;
