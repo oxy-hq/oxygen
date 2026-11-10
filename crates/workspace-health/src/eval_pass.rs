@@ -9,26 +9,27 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait,
 use serde_json::json;
 use std::collections::HashMap;
 
-use super::SignalsRow;
-use super::alert::{
+use crate::alert::{
     AlertDecision, AlertInput, HealthAlert, decide_transition, push_slack, reminder_interval,
 };
-use super::evaluator::{
+use crate::evaluator::{
     DimensionFailure, HealthStatus, HealthThresholds, WorkspaceHealth, WorkspaceSignals, evaluate,
 };
-use super::queries::{WorkspaceLabel, gather_signals, gather_workspace_labels};
-use super::reconcile::{DriftVerdict, LiveReconcileRunner, ReconcileRunner};
-use super::smoke::config::smoke_due;
-use super::smoke::runner::resolve_smoke_settings;
-use super::smoke::{LiveSmokeRunner, SmokeProbeStatus, SmokeRunner, SmokeVerdict, probe_statuses};
-use crate::integrations::slack::client::SlackClient;
+use crate::queries::{WorkspaceLabel, gather_signals, gather_workspace_labels};
+use crate::reconcile::{DriftVerdict, ReconcileRunner};
+use crate::rollup::SignalsRow;
+use crate::smoke::config::smoke_due;
+use crate::smoke::{
+    SmokeProbeStatus, SmokeRunner, SmokeVerdict, probe_statuses, resolve_smoke_settings,
+};
 use oxy::config::health_check::SmokeTestConfig;
+use oxy_slack_client::SlackClient;
 
 /// Everything an eval needs that doesn't vary per workspace. Grouped so the
 /// per-workspace entry point stays a two-argument function as the pass grows.
 struct EvalCtx<'a> {
     db: &'a DatabaseConnection,
-    reconcile: &'a LiveReconcileRunner,
+    reconcile: &'a dyn ReconcileRunner,
     /// Trait object rather than the concrete runner so tests can substitute a
     /// probe that inspects the database at the moment it is called — that is how
     /// the "stamp before probe" ordering below is pinned.
@@ -377,7 +378,7 @@ async fn resolve_smoke(
     // probed. Only an explicit `enabled: false` switches it off — and that clears
     // the stamp and the stored config, so re-enabling probes immediately rather
     // than waiting out an interval measured from a run under a different config.
-    let settings = resolve_smoke_settings(ctx.db, workspace_id).await;
+    let settings = resolve_smoke_settings(ctx.smoke, workspace_id).await;
     if !settings.config.enabled {
         return SmokeOutcome {
             verdicts: Vec::new(),
@@ -431,6 +432,18 @@ async fn resolve_smoke(
     }
 }
 
+/// What runs the active checks for one eval: the reconcile checks and the smoke
+/// probes, and the instant the pass is measured from. The live runners build the
+/// workspace's project context, which only `oxy-app` can compose, so they are
+/// `oxy-api-workspace-health`'s; this crate takes them as trait objects.
+pub struct EvalRunners<'a> {
+    pub reconcile: &'a dyn ReconcileRunner,
+    pub smoke: &'a dyn SmokeRunner,
+    /// The pass's reference instant. The reconcile runner's windows were
+    /// resolved against the same one, so the stamp and the windows agree.
+    pub now: chrono::DateTime<chrono::Utc>,
+}
+
 /// Single-workspace eval: gather this workspace's signals (synthesizing an empty
 /// set when it has no activity), evaluate, push Slack on a transition, and upsert
 /// `workspace_health_state`. Same logic as the fleet sweep, scoped to one id.
@@ -439,10 +452,11 @@ async fn resolve_smoke(
 /// elapsed — the "Run smoke test" button. Scheduled fires pass `false` and keep
 /// the 6h cadence, so the button is the only thing that can make the probes cost
 /// more than the config asked for.
-pub(crate) async fn run_eval_pass_single(
+pub async fn run_eval_pass_single(
     db: &DatabaseConnection,
     workspace_id: uuid::Uuid,
     force_smoke: bool,
+    runners: EvalRunners<'_>,
 ) -> Result<String, String> {
     let thresholds = HealthThresholds::from_env();
     let mut signals = gather_signals(db, &thresholds, Some(workspace_id))
@@ -452,9 +466,6 @@ pub(crate) async fn run_eval_pass_single(
         .next()
         .unwrap_or_else(|| WorkspaceSignals::empty(workspace_id));
 
-    let now = chrono::Utc::now();
-    let reconcile = LiveReconcileRunner::from_env(now).with_db(db.clone());
-    let smoke = LiveSmokeRunner::from_env().with_db(db.clone());
     let slack = ops_slack_target();
     let labels = match gather_workspace_labels(db).await {
         Ok(l) => l,
@@ -467,13 +478,13 @@ pub(crate) async fn run_eval_pass_single(
 
     let ctx = EvalCtx {
         db,
-        reconcile: &reconcile,
-        smoke: &smoke,
+        reconcile: runners.reconcile,
+        smoke: runners.smoke,
         slack_client: &client,
         slack: &slack,
         labels: &labels,
         thresholds: &thresholds,
-        now,
+        now: runners.now,
         force_smoke,
     };
     let alerted = eval_and_persist(&ctx, &mut signals).await;
@@ -658,14 +669,33 @@ fn ops_slack_target() -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::api::admin::workspace_health::evaluator::{
-        DimensionResult, HealthDimension,
-    };
-    use crate::server::api::admin::workspace_health::reconcile::{
-        VerdictMeta, unreachable_verdict,
-    };
-    use crate::server::test_support::{SKIP_MSG, test_db};
+    use crate::evaluator::{DimensionResult, HealthDimension};
+    use crate::reconcile::{VerdictMeta, unreachable_verdict};
+    use crate::test_support::{SKIP_MSG, test_db};
     use sea_orm::EntityTrait;
+
+    /// No reconcile checks and no smoke probes — what the live runners return
+    /// for a workspace with no project context, which every test workspace here
+    /// is (a random id with no `workspaces` row).
+    struct NoChecks;
+
+    #[async_trait::async_trait]
+    impl ReconcileRunner for NoChecks {
+        async fn run_checks(&self, _workspace_id: uuid::Uuid) -> Vec<DriftVerdict> {
+            Vec::new()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SmokeRunner for NoChecks {
+        async fn run_smoke(
+            &self,
+            _workspace_id: uuid::Uuid,
+            _settings: &crate::smoke::SmokeSettings,
+        ) -> Vec<SmokeVerdict> {
+            Vec::new()
+        }
+    }
 
     #[tokio::test]
     async fn single_eval_persists_healthy_row_for_idle_workspace() {
@@ -674,7 +704,12 @@ mod tests {
             return;
         };
         let ws = uuid::Uuid::new_v4();
-        let summary = run_eval_pass_single(&db, ws, false).await.unwrap();
+        let runners = EvalRunners {
+            reconcile: &NoChecks,
+            smoke: &NoChecks,
+            now: chrono::Utc::now(),
+        };
+        let summary = run_eval_pass_single(&db, ws, false, runners).await.unwrap();
         assert_eq!(summary, "evaluated=1 alerted=0");
         let row = entity::workspace_health_state::Entity::find_by_id(ws)
             .one(&db)
@@ -700,7 +735,7 @@ mod tests {
         async fn run_smoke(
             &self,
             workspace_id: uuid::Uuid,
-            _settings: &super::super::smoke::runner::SmokeSettings,
+            _settings: &crate::smoke::SmokeSettings,
         ) -> Vec<SmokeVerdict> {
             let stamp = entity::workspace_health_state::Entity::find_by_id(workspace_id)
                 .one(&self.db)
@@ -729,7 +764,7 @@ mod tests {
             db: db.clone(),
             seen: seen.clone(),
         };
-        let reconcile = LiveReconcileRunner::from_env(chrono::Utc::now());
+        let reconcile = NoChecks;
         let slack = None;
         let labels = HashMap::new();
         let thresholds = HealthThresholds::from_env();
@@ -848,7 +883,7 @@ mod tests {
         async fn run_smoke(
             &self,
             _workspace_id: uuid::Uuid,
-            _settings: &super::super::smoke::runner::SmokeSettings,
+            _settings: &crate::smoke::SmokeSettings,
         ) -> Vec<SmokeVerdict> {
             self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Vec::new()
@@ -873,7 +908,7 @@ mod tests {
         let runner = CountingRunner {
             calls: calls.clone(),
         };
-        let reconcile = LiveReconcileRunner::from_env(chrono::Utc::now());
+        let reconcile = NoChecks;
         let slack = None;
         let labels = HashMap::new();
         let thresholds = HealthThresholds::from_env();
@@ -1080,7 +1115,7 @@ mod tests {
             description: None,
             actual_label: "Actual".to_string(),
             expected_label: "Expected".to_string(),
-            window: super::super::reconcile::ResolvedWindow {
+            window: crate::reconcile::ResolvedWindow {
                 dates: ["2026-07-12".to_string(), "2026-07-18".to_string()],
                 timezone: "UTC".to_string(),
             },
@@ -1094,7 +1129,7 @@ mod tests {
     fn cached_smoke_verdicts_survive_a_payload_round_trip() {
         // This is the carry-forward path: on the ~35 eval passes between two 6h
         // smoke runs, the dimension's value comes from here.
-        use crate::server::api::admin::workspace_health::smoke::{SmokeProbeKind, failed};
+        use crate::smoke::{SmokeProbeKind, failed};
         let stored = json!({
             "smoke": [ failed(SmokeProbeKind::Semantic, "orders", "boom".into(), 7) ]
         });

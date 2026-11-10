@@ -101,7 +101,7 @@ fn fmt(d: NaiveDate) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::api::admin::workspace_health::reconcile::{Grain, WeekStart, Window};
+    use crate::reconcile::{Grain, WeekStart, Window};
     use chrono::TimeZone;
 
     fn at(y: i32, m: u32, d: u32) -> chrono::DateTime<chrono::Utc> {

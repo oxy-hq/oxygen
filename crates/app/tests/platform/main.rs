@@ -22,7 +22,7 @@
 //!   `airway_compile_boundary`, `file_credentials_at_compile`, `revision_miss_not_from_disk`,
 //!   `semantic_scan_from_memory`, `context_documents_boundary`, `anomaly_bulk_status`,
 //!   `connector_vars_from_workspace_secrets`,
-//!   `anomaly_notify`, `workspace_health_history`, `usage_report`, the two
+//!   `anomaly_notify`, `usage_report`, the two
 //!   `workspace_previews_*` modules, `preview_routes`, `preview_ttl`, `encryption_key_check` and `master_key_kms` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
@@ -129,7 +129,6 @@ mod usage_report;
 mod walker_storage_divergence;
 mod work_item_gates;
 mod workspace_details_fields;
-mod workspace_health_history;
 mod workspace_path_backdoor;
 mod workspace_path_escape_hatch;
 mod workspace_path_needs_is_dir;

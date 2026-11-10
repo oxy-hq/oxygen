@@ -1,0 +1,64 @@
+[package]
+name = "oxy-api-workspace-health"
+version.workspace = true
+authors.workspace = true
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
+# oxy-app — the catalog sits above it for exactly that reason.
+description = "Workspace health HTTP surface — the staff console's rollup, eval trigger and history routes, the health_eval_workspace task executor, and the live reconcile and smoke runners — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# What this surface takes from oxy-app, all through `oxy_app::surface`: the
+# admin seam, the workspace project context the live runners build, the admin
+# scope fence and DB helpers. oxy-app never depends back on this crate.
+# default-features off so a `--no-default-features` build of oxy-server keeps
+# dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }        # AppState
+oxy-workspace-health = { workspace = true }
+oxy = { workspace = true }                 # health_check config, Toast integration model, secrets
+oxy-airlayer-compat = { workspace = true }
+oxy-auth = { workspace = true }            # AuthenticatedUserExtractor
+oxy-shared = { workspace = true }
+entity = { workspace = true }
+agentic-core = { workspace = true }
+agentic-runtime = { workspace = true }     # the task executor
+agentic-pipeline = { workspace = true }    # the eval enqueue, platform/project contexts
+agentic-analytics = { workspace = true }   # the measure runner a semantic operand runs on
+
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+humantime = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+serde_yaml = { workspace = true }
+# Both harnesses are oxy-app's, included by path: the in-source DB tests'
+# (`server/test_support.rs`, the central and runtime migrators against
+# `OXY_DATABASE_URL`) and the integration tests' (`tests/common`, which clones a
+# per-run template database and needs every migrator `Schema::All` can apply —
+# same list as oxy-api-tenancy).
+migration = { workspace = true }
+oxy-cameras = { workspace = true }
+airhouse = { workspace = true }
+oxy-oltp = { workspace = true }
+tempfile = { workspace = true }
+url = { workspace = true }
+oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
+rand = { workspace = true }             # the harness's lock-retry jitter
+
+[lints]
+workspace = true

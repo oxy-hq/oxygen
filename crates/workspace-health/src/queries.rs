@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use super::evaluator::{HealthThresholds, WorkspaceSignals};
 
-pub(crate) use oxy_app_core::customer_runs::exclude_daemon_runs;
+pub use oxy_app_core::customer_runs::exclude_daemon_runs;
 
 #[derive(Debug, FromQueryResult)]
 struct RunAggRow {
@@ -260,7 +260,7 @@ mod staff_run_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::test_support::{SKIP_MSG, test_db};
+    use crate::test_support::{SKIP_MSG, test_db};
     use sea_orm::ConnectionTrait;
 
     #[tokio::test]

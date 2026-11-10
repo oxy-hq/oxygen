@@ -9,9 +9,7 @@
 //! Own database per test through `common::fresh_db`.
 
 use chrono::{DateTime, Duration, SubsecRound, Utc};
-use oxy_app::server::api::admin::workspace_health_history::{
-    MAX_TRANSITIONS, RETENTION_DAYS, history_of, record,
-};
+use oxy_workspace_health::history::{MAX_TRANSITIONS, RETENTION_DAYS, history_of, record};
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use serde_json::{Value, json};
 use uuid::Uuid;

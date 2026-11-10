@@ -14,6 +14,7 @@ members = [
   "crates/api-source-upload",
   "crates/api-experiment",
   "crates/api-notifications",
+  "crates/api-workspace-health",
   "crates/app-core",
   "crates/auth",
   "crates/authz",
@@ -57,6 +58,7 @@ members = [
   "crates/airhouse",
   "crates/platform",
   "crates/workspace-fs",
+  "crates/workspace-health",
   "crates/workspace-hack",
   "web-app",
 ]
@@ -124,6 +126,7 @@ oxy-platform = { path = "crates/platform" }
 oxy-project = { path = "crates/project" }
 oxy-semantic = { path = "crates/semantic" }
 oxy-shared = { path = "crates/shared" }
+oxy-workspace-health = { path = "crates/workspace-health" }
 oxy-test-utils = { path = "crates/test-utils" }
 oxy-unifi = { path = "crates/integration/unifi" }
 oxy-workspace-fs = { path = "crates/workspace-fs" }

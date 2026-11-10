@@ -231,7 +231,10 @@ fn surface_seams() -> SurfaceSeams {
         // it would serve an empty catalog.
         catalog: oxy_route_catalog::catalog(),
         // Staff-console sections, each behind the capability it names.
-        admin: oxy_api_tenancy::admin_sections(),
+        admin: oxy_api_tenancy::admin_sections()
+            .into_iter()
+            .chain(oxy_api_workspace_health::admin_sections())
+            .collect(),
         // Operations the surfaces document, merged into the served OpenAPI
         // document (`oxyc schema` reads it).
         openapi: vec![oxy_api_tenancy::openapi()],
@@ -246,6 +249,7 @@ fn surface_seams() -> SurfaceSeams {
             .into_iter()
             .chain(oxy_api_experiment::tasks())
             .chain(oxy_api_notifications::tasks())
+            .chain(oxy_api_workspace_health::tasks())
             .collect(),
         background: custom_apps_seams::background(),
         global_ticks: oxy_api_experiment::global_ticks(),

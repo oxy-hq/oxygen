@@ -218,8 +218,8 @@ internal-docs/anomaly-monitoring.md                @haitrr @luong-komorebi
 crates/simulation/                                 @haitrr @NTtanh
 
 # Workspace health & reconciliation (override: carved out of admin/ above)
-crates/app/src/server/api/admin/workspace_health/  @haitrr @luong-komorebi
-crates/app/src/server/health_eval_executor.rs      @haitrr @luong-komorebi
+crates/workspace-health/                           @haitrr @luong-komorebi
+crates/api-workspace-health/                       @haitrr @luong-komorebi
 
 # Airform (dbt-style modeling)
 crates/airform/                                    @haitrr @luong-komorebi

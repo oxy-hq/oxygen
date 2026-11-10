@@ -222,6 +222,12 @@ const ALLOWED: &[(&str, &str)] = &[
         "a queue executor's own task: `NotificationDeliverExecutor::execute` delivers \
          under a spawn and reports through the task's channels",
     ),
+    // ---- api-workspace-health ----
+    (
+        "api-workspace-health/src/executor.rs",
+        "a queue executor's own task: `HealthEvalTaskExecutor::execute` runs the \
+         health eval under a spawn and reports through the task's channels",
+    ),
     // ---- api-tenancy ----
     (
         "api-tenancy/src/admin/orgs.rs",

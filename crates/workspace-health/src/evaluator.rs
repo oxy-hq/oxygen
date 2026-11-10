@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::server::api::admin::workspace_health::app_availability::AppAvailabilityVerdict;
-use crate::server::api::admin::workspace_health::reconcile::DriftVerdict;
-use crate::server::api::admin::workspace_health::smoke::SmokeVerdict;
+use crate::app_availability::AppAvailabilityVerdict;
+use crate::reconcile::DriftVerdict;
+use crate::smoke::SmokeVerdict;
 
 /// Workspace status. Declaration order matters: `Ord` makes
 /// `Unhealthy > Degraded > Healthy`, so the worst dimension is `.max()`.
@@ -574,7 +574,7 @@ mod tests {
 
     #[test]
     fn a_broken_probe_makes_the_workspace_unhealthy() {
-        use crate::server::api::admin::workspace_health::smoke::{SmokeProbeKind, failed, passed};
+        use crate::smoke::{SmokeProbeKind, failed, passed};
         let mut s = base();
         s.smoke = vec![
             passed(SmokeProbeKind::Connection, "bigquery", 12),
@@ -593,7 +593,7 @@ mod tests {
 
     #[test]
     fn a_timed_out_probe_is_degraded_not_unhealthy() {
-        use crate::server::api::admin::workspace_health::smoke::{SmokeProbeKind, timed_out};
+        use crate::smoke::{SmokeProbeKind, timed_out};
         let mut s = base();
         s.smoke = vec![timed_out(
             SmokeProbeKind::Connection,
@@ -610,7 +610,7 @@ mod tests {
     #[test]
     fn cap_notes_are_healthy_and_never_move_the_dimension() {
         // A workspace with more topics than `max_targets` is large, not sick.
-        use crate::server::api::admin::workspace_health::smoke::{SmokeProbeKind, note, passed};
+        use crate::smoke::{SmokeProbeKind, note, passed};
         let mut s = base();
         s.smoke = vec![
             passed(SmokeProbeKind::Semantic, "orders", 30),
@@ -627,9 +627,7 @@ mod tests {
 
     #[test]
     fn worst_probe_leads_and_the_rest_are_counted() {
-        use crate::server::api::admin::workspace_health::smoke::{
-            SmokeProbeKind, failed, timed_out,
-        };
+        use crate::smoke::{SmokeProbeKind, failed, timed_out};
         let mut s = base();
         s.smoke = vec![
             timed_out(

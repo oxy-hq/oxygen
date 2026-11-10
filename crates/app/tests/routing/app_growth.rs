@@ -58,7 +58,6 @@ const SERVER: &[&str] = &[
     "factory_replay",
     "feature_flags",
     "git_fetch_maintenance",
-    "health_eval_executor",
     "http_cache",
     "ide_proxy",
     "metrics_server",

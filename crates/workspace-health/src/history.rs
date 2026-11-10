@@ -6,7 +6,8 @@
 //! can say that a workspace was unhealthy for three hours on Tuesday, and that
 //! it is the fourth time this month, instead of only "unhealthy since 09:10".
 //!
-//! Written from the evaluation, read by one admin route. Each row holds the
+//! Written from the evaluation, read by one admin route (in
+//! `oxy-api-workspace-health`). Each row holds the
 //! status left, the status entered and the dimensions failing at that moment,
 //! as names and statuses. Reason strings are not kept: they can quote a
 //! connector's error text, and the ones for the current state are on the state
@@ -17,24 +18,15 @@
 //! workspace that goes unhealthy on `pipeline` and later picks up `queue`
 //! without recovering has one row, naming `pipeline`.
 
-use axum::{
-    Json,
-    extract::{Path, Query},
-    http::StatusCode,
-    response::Response,
-};
 use chrono::{DateTime, Duration, FixedOffset, Utc};
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, FromQueryResult, Statement};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use uuid::Uuid;
-
-use super::{connect, db_err, error_body, scope};
 
 /// Rows older than this are deleted by the evaluation that writes a new one —
 /// all but the newest of them, which says what the kept period opened in.
 pub const RETENTION_DAYS: i64 = 90;
-const DEFAULT_DAYS: i64 = 30;
+pub const DEFAULT_DAYS: i64 = 30;
 /// The most transitions one read returns. A workspace that flaps hourly for a
 /// month makes ~1,400; past this the response says it was cut.
 pub const MAX_TRANSITIONS: usize = 200;
@@ -217,40 +209,11 @@ pub async fn history_of(
     })
 }
 
-#[derive(Debug, Deserialize)]
-pub struct HistoryParams {
-    days: Option<i64>,
-}
-
 /// The window asked for, held to what is kept. Asking for more than
 /// [`RETENTION_DAYS`] would return a window whose far end has been deleted and
 /// call the gap "no changes".
-fn window_days(asked: Option<i64>) -> i64 {
+pub fn window_days(asked: Option<i64>) -> i64 {
     asked.unwrap_or(DEFAULT_DAYS).clamp(1, RETENTION_DAYS)
-}
-
-/// `GET /admin/workspace-health/{workspace_id}/history?days=` — a workspace's
-/// status changes, newest first. Postgres only.
-///
-/// Fenced on the workspace's org like the eval trigger beside it: a bounded
-/// grant reads the history of its own orgs' workspaces, and one outside the
-/// grant answers the 404 a missing workspace does.
-pub async fn workspace_health_history(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
-    Path(workspace_id): Path<Uuid>,
-    Query(params): Query<HistoryParams>,
-) -> Result<Json<HealthHistory>, Response> {
-    let db = connect().await?;
-    scope::deny_out_of_scope_for_workspace(&db, &actor, workspace_id)
-        .await
-        .map_err(|status| match status {
-            StatusCode::NOT_FOUND => error_body(status, "workspace_not_found", None),
-            other => error_body(other, "scope_unreadable", None),
-        })?;
-    let history = history_of(&db, workspace_id, window_days(params.days), Utc::now())
-        .await
-        .map_err(db_err)?;
-    Ok(Json(history))
 }
 
 #[cfg(test)]

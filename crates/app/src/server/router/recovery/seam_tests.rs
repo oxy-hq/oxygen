@@ -53,8 +53,14 @@ fn the_registry_holds_the_kinds_the_seam_hands_in_and_no_others() {
 fn the_in_tree_kinds_are_registered_without_the_seam() {
     let reg = registry(&[]);
     assert!(reg.get("preagg_cycle").is_some());
+}
+
+/// The health eval is `oxy-api-workspace-health`'s: absent without the seam,
+/// present once it is handed in.
+#[test]
+fn the_health_eval_kind_comes_only_from_the_seam() {
     assert!(
-        reg.get(crate::server::health_eval_executor::HEALTH_EVAL_KIND)
-            .is_some()
+        registry(&[]).get("health_eval_workspace").is_none(),
+        "`oxy-app` must not register the health eval itself"
     );
 }

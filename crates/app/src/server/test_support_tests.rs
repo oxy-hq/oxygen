@@ -53,7 +53,7 @@ use sqlx::Connection;
 use sqlx::postgres::PgConnection;
 use std::time::Duration;
 
-use super::{AdvisoryLock, SKIP_MSG, database_url};
+use super::test_support::{AdvisoryLock, SKIP_MSG, database_url};
 
 /// Gives a just-started waiter time to actually reach its first blocking (or
 /// first polling) statement before connection C starts, so the comparison

@@ -1378,8 +1378,8 @@ async fn retire_orphaned_runs(
 }
 
 /// Build the host-side registry of `TaskSpec::Custom` executors injected into
-/// the global-run driver. Currently just per-workspace health eval; future
-/// Custom kinds register here. See `internal-docs/agentic-runtime-integration.md`
+/// the global-run driver: the kinds `oxy-app` runs itself, then the ones the
+/// extracted surfaces hand in (`SurfaceSeams::tasks`). See `internal-docs/agentic-runtime-integration.md`
 /// ("One-shot queue work: `TaskSpec::Custom` + `CustomTaskRegistry`").
 pub(super) fn build_custom_task_registry(
     db: &sea_orm::DatabaseConnection,
@@ -1387,13 +1387,8 @@ pub(super) fn build_custom_task_registry(
     tasks: &[TaskSeam],
     schema_cache: Option<crate::server::api::projects::agent_ask::executor::SchemaCache>,
 ) -> Arc<agentic_runtime::worker::CustomTaskRegistry> {
-    use crate::server::health_eval_executor::{HEALTH_EVAL_KIND, HealthEvalTaskExecutor};
     use crate::server::preagg_executor::PreaggTaskExecutor;
     let mut reg = agentic_runtime::worker::CustomTaskRegistry::new();
-    reg.register(
-        HEALTH_EVAL_KIND,
-        Arc::new(HealthEvalTaskExecutor { db: db.clone() }),
-    );
     // Insights delivery, queued after a monitor scan whose `.monitor.yml` has a
     // `notify:` block. Nothing can queue one before every pod parses that
     // block — an older pod refuses the file outright — so the kind and its
@@ -1486,9 +1481,10 @@ pub(super) fn build_custom_task_registry(
     // read-back, the estimate, the interim reading), and the notification kinds
     // (`oxy-api-notifications`: a send's push, email and Slack delivery —
     // `ctx.notify`'s and every platform notice's, queued in the send's own
-    // transaction — and the summary of the pushes quiet hours held). A kind
-    // absent here fails its tasks as unknown, so `require_task_kinds` refuses to
-    // start a process without the custom-app and notification ones, and
+    // transaction — and the summary of the pushes quiet hours held), and the
+    // per-workspace health eval (`oxy-api-workspace-health`). A kind absent here
+    // fails its tasks as unknown, so `require_task_kinds` refuses to start a
+    // process without the custom-app, notification and health ones, and
     // `oxy-server`'s own test holds the experiment ones to the composition.
     let deps = crate::server::router::TaskDeps { db, preagg };
     for seam in tasks {

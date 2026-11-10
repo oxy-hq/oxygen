@@ -288,3 +288,12 @@ fn the_composition_carries_the_notifications_surface() {
         assert!(kinds.contains(&kind), "no executor for `{kind}`: {kinds:?}");
     }
 }
+
+/// `serve` and `worker` both drain the health eval the schedule tick queues.
+#[test]
+fn the_composition_carries_the_health_eval() {
+    let kinds: Vec<&str> = surface_seams().tasks.iter().map(|t| t.kind).collect();
+    for kind in oxy_app::server::router::HEALTH_TASK_KINDS {
+        assert!(kinds.contains(&kind), "no executor for `{kind}`: {kinds:?}");
+    }
+}

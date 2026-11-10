@@ -17,6 +17,7 @@ edition.workspace = true
 # of oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }     # AppState (router state) + the audit reader
+oxy-workspace-health = { workspace = true } # the partner console's health rollup
 oxy-tenancy = { workspace = true }      # org teams / app-access grants
 oxy-custom-apps = { workspace = true }  # publish_authz (consent_enabled), the access and app-resolution cache flushes
 oxy-server-authz = { workspace = true } # partner_authz, partner_allows, assume_liveness, enforce_for

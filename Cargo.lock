@@ -9951,6 +9951,7 @@ dependencies = [
  "oxy-shared",
  "oxy-tenancy",
  "oxy-test-utils",
+ "oxy-workspace-health",
  "sea-orm",
  "serde",
  "serde_json",
@@ -9964,6 +9965,46 @@ dependencies = [
  "url",
  "utoipa",
  "utoipa-axum",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-api-workspace-health"
+version = "0.5.159"
+dependencies = [
+ "agentic-analytics",
+ "agentic-core",
+ "agentic-pipeline",
+ "agentic-runtime",
+ "airhouse",
+ "async-trait",
+ "axum",
+ "chrono",
+ "entity",
+ "futures",
+ "humantime",
+ "migration",
+ "oxy",
+ "oxy-airlayer-compat",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-cameras",
+ "oxy-oltp",
+ "oxy-shared",
+ "oxy-test-utils",
+ "oxy-workspace-health",
+ "rand 0.10.2",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
  "uuid",
  "workspace-hack",
 ]
@@ -10624,6 +10665,7 @@ dependencies = [
  "oxy-api-notifications",
  "oxy-api-source-upload",
  "oxy-api-tenancy",
+ "oxy-api-workspace-health",
  "oxy-app",
  "oxy-app-core",
  "oxy-app-dylib",
@@ -10829,6 +10871,39 @@ version = "0.5.159"
 dependencies = [
  "async-trait",
  "oxy-shared",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-workspace-health"
+version = "0.5.159"
+dependencies = [
+ "agentic-core",
+ "agentic-runtime",
+ "async-trait",
+ "chrono",
+ "chrono-tz 0.10.4",
+ "entity",
+ "humantime",
+ "migration",
+ "minijinja",
+ "oxy",
+ "oxy-airlayer-compat",
+ "oxy-app-core",
+ "oxy-metric-monitoring",
+ "oxy-observability",
+ "oxy-shared",
+ "oxy-slack-client",
+ "rand 0.10.2",
+ "reqwest 0.13.4",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "uuid",
  "workspace-hack",
 ]
 

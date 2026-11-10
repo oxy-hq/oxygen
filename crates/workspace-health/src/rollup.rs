@@ -1,40 +1,18 @@
-//! Internal cross-tenant workspace health rollup.
-//!
-//! `evaluator` is pure (signal counts -> status); `queries` gathers signals
-//! from shared Postgres; `alert` decides what is worth telling Slack — status
-//! transitions, plus a recurring reminder for as long as a workspace stays
-//! unhealthy — and pushes it. `history` keeps each status change, which the
-//! state row overwrites.
-pub(crate) mod alert;
-pub(crate) mod app_availability;
-pub(crate) mod eval_pass;
-pub(crate) mod evaluator;
-pub mod history;
-pub(crate) mod queries;
-pub(crate) mod reconcile;
-pub(crate) mod smoke;
+//! The cross-tenant health rollup as the console reads it: the persisted sweep
+//! state, joined with display labels, worst-first. Pure Postgres read — no live
+//! evaluation. The admin route that serves it is `oxy-api-workspace-health`'s;
+//! the partner console reads the same rows through [`health_rollup`].
 
-use axum::{
-    Json, Router,
-    extract::{Path, Query},
-    http::StatusCode,
-    response::{IntoResponse, Response},
-    routing::{get, post},
-};
-use oxy_auth::extractor::AuthenticatedUserExtractor;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
-use serde::{Deserialize, Serialize};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use serde::Serialize;
 
-use crate::server::router::AppState;
-use evaluator::WorkspaceSignals;
-
-use super::internal_jobs::{connect, db_err, error_body};
-use super::scope;
+use crate::evaluator::WorkspaceSignals;
+use crate::queries;
 
 /// Raw per-workspace signal counts, surfaced so the per-workspace Health tab
 /// can show the underlying numbers behind each dimension's reason string.
 #[derive(Serialize)]
-pub(crate) struct SignalsRow {
+pub struct SignalsRow {
     failed_runs: i64,
     timed_out_runs: i64,
     total_runs: i64,
@@ -106,59 +84,6 @@ pub struct WorkspaceHealthResponse {
     pub workspaces: Vec<WorkspaceHealthRow>,
 }
 
-pub(crate) fn router() -> Router<AppState> {
-    Router::new()
-        .route("/workspace-health", get(list_workspace_health))
-        .route(
-            "/workspace-health/{workspace_id}/eval",
-            post(trigger_workspace_health_eval),
-        )
-        .route(
-            "/workspace-health/{workspace_id}/history",
-            get(history::workspace_health_history),
-        )
-}
-
-/// Cross-tenant health rollup, worst-first. Pure Postgres read (FleetOk): the
-/// rollup is computed by the periodic sweep and persisted; this endpoint returns
-/// the stored payload verbatim, joined with fresh display labels. No live signal
-/// gathering, no external calls.
-///
-/// "Cross-tenant" is what an unbounded grant sees. A bounded grant gets the
-/// rollup of the workspaces in the orgs it names — the same `Some(ids)` narrowing
-/// the partner-scoped view already uses — and a workspace with no org is
-/// platform-level, so it is not among them.
-pub async fn list_workspace_health(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
-) -> Result<Json<WorkspaceHealthResponse>, Response> {
-    let db = connect().await?;
-    let reach = scope::list_scope(&db, &actor)
-        .await
-        .map_err(IntoResponse::into_response)?;
-    let in_reach = match reach {
-        None => None,
-        Some(orgs) => Some(workspaces_of(&db, orgs).await.map_err(db_err)?),
-    };
-    let workspaces = health_rollup(&db, in_reach.as_deref())
-        .await
-        .map_err(db_err)?;
-    Ok(Json(WorkspaceHealthResponse { workspaces }))
-}
-
-/// The workspaces belonging to `orgs` — what a bounded grant's rollup is narrowed to.
-async fn workspaces_of(
-    db: &sea_orm::DatabaseConnection,
-    orgs: Vec<uuid::Uuid>,
-) -> Result<Vec<uuid::Uuid>, sea_orm::DbErr> {
-    entity::workspaces::Entity::find()
-        .select_only()
-        .column(entity::workspaces::Column::Id)
-        .filter(entity::workspaces::Column::OrgId.is_in(orgs))
-        .into_tuple()
-        .all(db)
-        .await
-}
-
 /// The rollup rows, worst-first, joined with display labels. `workspace_ids =
 /// None` returns every workspace (the staff cross-tenant view); `Some(ids)` scopes
 /// to that set (the partner-scoped view over its managed clients' workspaces).
@@ -191,64 +116,6 @@ pub async fn health_rollup(
     // Worst-first: Unhealthy > Degraded > Healthy.
     workspaces.sort_by_key(|w| std::cmp::Reverse(status_rank(&w.status)));
     Ok(workspaces)
-}
-
-/// Response to an on-demand eval trigger: the `run_id` of the enqueued eval so
-/// the client can correlate/poll. The refreshed row is fetched separately once
-/// `checked_at` advances.
-#[derive(Serialize)]
-pub struct TriggerEvalResponse {
-    pub run_id: String,
-}
-
-/// `?smoke=true` runs the workspace's smoke probes on this pass even if their
-/// (default 6h) cadence has not elapsed — the Health tab's "Run smoke test"
-/// button. Absent → false, the plain "Re-evaluate" trigger, which re-reads the
-/// passive Postgres signals and reuses the last smoke verdicts.
-///
-/// It forces the *clock*, not the *config*: a workspace with
-/// `smoke_test: { enabled: false }` runs no probes either way, so the button
-/// can't bill an opted-out workspace for warehouse queries and agent tokens.
-#[derive(Deserialize, Default)]
-pub struct TriggerEvalParams {
-    #[serde(default)]
-    pub smoke: bool,
-}
-
-/// Enqueue an on-demand health eval for a single workspace and return its
-/// `run_id` (HTTP 202). The eval (Postgres signals + reconciliation + Slack on a
-/// transition, plus the smoke probes when `?smoke=true`) is a `TaskScope::Global`
-/// `health_eval_workspace` task drained by the worker fleet — not run inline — so
-/// a slow Toast reconciliation or a cold warehouse can't tie up the request and
-/// the run survives an instance restart. The client polls the workspace-health
-/// read until `checked_at` advances past the trigger.
-///
-/// `FleetOk` in `role_manifest.rs`: this handler only enqueues (a plain Postgres
-/// insert), so it serves on any replica. The workspace-context build +
-/// working-copy `reconcile.yml` fallthrough happen in the fleet executor that
-/// drains the task — which lands on an FS-owning node on its own — so route
-/// classification does not need to pin the request to the ide. The query param
-/// does not change that: it rides in the task payload, not the request path.
-///
-/// Fenced on the workspace's org: a bounded grant cannot spend another tenant's
-/// warehouse queries and agent tokens on a smoke run, and a workspace outside the
-/// grant answers the same 404 a missing one does.
-pub async fn trigger_workspace_health_eval(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
-    Path(workspace_id): Path<uuid::Uuid>,
-    Query(params): Query<TriggerEvalParams>,
-) -> Result<Response, Response> {
-    let db = connect().await?;
-    scope::deny_out_of_scope_for_workspace(&db, &actor, workspace_id)
-        .await
-        .map_err(|status| match status {
-            StatusCode::NOT_FOUND => error_body(status, "workspace_not_found", None),
-            other => error_body(other, "scope_unreadable", None),
-        })?;
-    let run_id = agentic_pipeline::scheduler::enqueue_health_eval(&db, workspace_id, params.smoke)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e).into_response())?;
-    Ok((StatusCode::ACCEPTED, Json(TriggerEvalResponse { run_id })).into_response())
 }
 
 /// The status/reasons/dimensions/signals/reconciliation parts of a row, taken

@@ -13,21 +13,18 @@ use futures::StreamExt;
 use oxy::config::health_check::SmokeTestConfig;
 use sea_orm::DatabaseConnection;
 
-use super::config::{SmokeLimits, resolve_compiled_config, smoke_config_from_value};
-use super::probes::{self, ProbeFailure};
-use super::targets::{Target, collect_targets};
-use super::{SmokeProbeKind, SmokeVerdict, failed, passed, timed_out, unavailable};
-use crate::agentic_wiring::project_ctx::OxyProjectContext;
-use crate::server::router::recovery::build_workspace_ctx;
+use oxy_app::surface::workspace_runtime::{OxyProjectContext, build_workspace_ctx};
+use oxy_workspace_health::smoke::config::SmokeLimits;
+use oxy_workspace_health::smoke::{
+    SmokeProbeKind, SmokeRunner, SmokeSettings, SmokeVerdict, failed, passed, timed_out,
+    unavailable,
+};
 
-#[async_trait]
-pub trait SmokeRunner: Send + Sync {
-    async fn run_smoke(
-        &self,
-        workspace_id: uuid::Uuid,
-        settings: &SmokeSettings,
-    ) -> Vec<SmokeVerdict>;
-}
+use probes::ProbeFailure;
+use targets::{Target, collect_targets};
+
+mod probes;
+mod targets;
 
 pub struct LiveSmokeRunner {
     limits: SmokeLimits,
@@ -50,74 +47,21 @@ impl LiveSmokeRunner {
     }
 }
 
-/// A resolved smoke config plus whether the workspace actually asked for it.
-///
-/// The distinction only matters when a probe can't be set up. A workspace that
-/// wrote `smoke_test:` in its `config.yml` and then gets no verdicts deserves a
-/// Degraded "we couldn't check" — silence there would be a false OK. A workspace
-/// that merely inherited the default has promised nothing, so the same failure
-/// is silent rather than painting every context-less workspace amber.
-pub(crate) struct SmokeSettings {
-    pub config: SmokeTestConfig,
-    pub explicit: bool,
-}
-
-/// Resolve the workspace's smoke config: the promoted compiled revision first,
-/// then the working copy's own `config.yml` (local mode / draft branch, where
-/// there is no compiled row to read).
-///
-/// An absent `smoke_test:` block resolves to `SmokeTestConfig::default()` —
-/// connections only — so opting into health checks at all buys a cheap
-/// credential check for free. It buys nothing for a workspace that *didn't*
-/// opt in: the smoke run is gated inside an eval pass, so with no `health_check:`
-/// block nothing here runs on its own, only on the manual
-/// `POST /workspace-health/{id}/eval` path. Opting *out* of the probe while
-/// staying opted into health checks is `smoke_test: { enabled: false }`.
-pub(crate) async fn resolve_smoke_settings(
-    db: &DatabaseConnection,
-    workspace_id: uuid::Uuid,
-) -> SmokeSettings {
-    // A promoted revision is authoritative: if it has no `smoke_test` block, the
-    // workspace genuinely has none, and we must not pay to build a workspace
-    // context just to re-learn that on every eval pass.
-    if let Some(compiled) = resolve_compiled_config(workspace_id).await {
-        return match smoke_config_from_value(Some(&compiled)) {
-            Some(config) => SmokeSettings {
-                config,
-                explicit: true,
-            },
-            None => SmokeSettings {
-                config: SmokeTestConfig::default(),
-                explicit: false,
-            },
-        };
-    }
-
-    // No compiled revision (local mode / draft branch) — read the working copy.
-    let from_fs = match build_workspace_ctx(workspace_id, db).await {
-        Some(ctx) => ctx
-            .workspace_manager()
+#[async_trait]
+impl SmokeRunner for LiveSmokeRunner {
+    /// The working copy's `health_check.smoke_test`, read through the
+    /// workspace's project context — only reached when there is no promoted
+    /// compiled revision (local mode / draft branch).
+    async fn working_copy_config(&self, workspace_id: uuid::Uuid) -> Option<SmokeTestConfig> {
+        let ctx = build_workspace_ctx(workspace_id, self.db.as_ref()?).await?;
+        ctx.workspace_manager()
             .config_manager
             .get_config()
             .health_check
             .as_ref()
-            .and_then(|hc| hc.smoke_test.clone()),
-        None => None,
-    };
-    match from_fs {
-        Some(config) => SmokeSettings {
-            config,
-            explicit: true,
-        },
-        None => SmokeSettings {
-            config: SmokeTestConfig::default(),
-            explicit: false,
-        },
+            .and_then(|hc| hc.smoke_test.clone())
     }
-}
 
-#[async_trait]
-impl SmokeRunner for LiveSmokeRunner {
     async fn run_smoke(
         &self,
         workspace_id: uuid::Uuid,
@@ -235,9 +179,9 @@ async fn execute(ctx: &Arc<OxyProjectContext>, target: &Target) -> Result<(), Pr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::api::admin::workspace_health::evaluator::HealthStatus;
-    use crate::server::api::admin::workspace_health::smoke::config::smoke_config_from_value;
     use oxy::config::health_check::{SemanticProbeConfig, SmokeAgentProbe};
+    use oxy_workspace_health::evaluator::HealthStatus;
+    use oxy_workspace_health::smoke::config::smoke_config_from_value;
 
     fn settings(config: SmokeTestConfig, explicit: bool) -> SmokeSettings {
         SmokeSettings { config, explicit }

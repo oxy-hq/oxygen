@@ -123,6 +123,10 @@ fn server_files() -> Vec<(String, String)> {
     // Likewise `src/server/api/source_upload.rs`.
     walk(&manifest.join("../api-source-upload/src"), &mut out);
     walk(&manifest.join("../api-notifications/src"), &mut out);
+    // Moved out of `src/server/api/admin/workspace_health` and
+    // `src/server/health_eval_executor.rs`.
+    walk(&manifest.join("../workspace-health/src"), &mut out);
+    walk(&manifest.join("../api-workspace-health/src"), &mut out);
     out.retain(|(rel, _)| !is_test_file(rel));
     out
 }

@@ -610,27 +610,27 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_HEALTH_FAIL_RATE_DEGRADED",
-        "crates/app/src/server/api/admin/workspace_health/evaluator.rs",
+        "crates/workspace-health/src/evaluator.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_HEALTH_FAIL_RATE_UNHEALTHY",
-        "crates/app/src/server/api/admin/workspace_health/evaluator.rs",
+        "crates/workspace-health/src/evaluator.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_HEALTH_MIN_RUNS",
-        "crates/app/src/server/api/admin/workspace_health/evaluator.rs",
+        "crates/workspace-health/src/evaluator.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_HEALTH_REALERT_HOURS",
-        "crates/app/src/server/api/admin/workspace_health/alert.rs",
+        "crates/workspace-health/src/alert.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_HEALTH_WINDOW_HOURS",
-        "crates/app/src/server/api/admin/workspace_health/evaluator.rs",
+        "crates/workspace-health/src/evaluator.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -790,12 +790,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_OPS_SLACK_BOT_TOKEN",
-        "crates/app/src/server/api/admin/workspace_health/eval_pass.rs",
+        "crates/workspace-health/src/eval_pass.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_OPS_SLACK_CHANNEL",
-        "crates/app/src/server/api/admin/workspace_health/eval_pass.rs",
+        "crates/workspace-health/src/eval_pass.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -855,12 +855,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_RECONCILE_PCT_UNHEALTHY",
-        "crates/app/src/server/api/admin/workspace_health/reconcile/runner.rs",
+        "crates/api-workspace-health/src/reconcile_runner.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_RECONCILE_REPORT_TIMEOUT_SECS",
-        "crates/app/src/server/api/admin/workspace_health/reconcile/runner.rs",
+        "crates/api-workspace-health/src/reconcile_runner.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -915,22 +915,22 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_SMOKE_AGENT_TIMEOUT_SECS",
-        "crates/app/src/server/api/admin/workspace_health/smoke/config.rs",
+        "crates/workspace-health/src/smoke/config.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_SMOKE_CONCURRENCY",
-        "crates/app/src/server/api/admin/workspace_health/smoke/config.rs",
+        "crates/workspace-health/src/smoke/config.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_SMOKE_PROBE_TIMEOUT_SECS",
-        "crates/app/src/server/api/admin/workspace_health/smoke/config.rs",
+        "crates/workspace-health/src/smoke/config.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_SMOKE_TOTAL_TIMEOUT_SECS",
-        "crates/app/src/server/api/admin/workspace_health/smoke/config.rs",
+        "crates/workspace-health/src/smoke/config.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -990,7 +990,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_TOAST_BASE_URL",
-        "crates/app/src/server/api/admin/workspace_health/reconcile/toast/mod.rs",
+        "crates/workspace-health/src/reconcile/toast/mod.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

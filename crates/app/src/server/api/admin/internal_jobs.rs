@@ -69,7 +69,7 @@ pub(crate) fn router() -> Router<AppState> {
 
 // Connect-on-demand helper
 
-pub(crate) async fn connect() -> Result<DatabaseConnection, Response> {
+pub async fn connect() -> Result<DatabaseConnection, Response> {
     oxy::database::client::establish_connection()
         .await
         .map_err(|e| {
@@ -197,15 +197,11 @@ pub(crate) struct ErrorBody {
     pub(crate) message: Option<String>,
 }
 
-pub(crate) fn error_body(
-    status: StatusCode,
-    code: &'static str,
-    message: Option<String>,
-) -> Response {
+pub fn error_body(status: StatusCode, code: &'static str, message: Option<String>) -> Response {
     (status, Json(ErrorBody { code, message })).into_response()
 }
 
-pub(crate) fn db_err(e: DbErr) -> Response {
+pub fn db_err(e: DbErr) -> Response {
     tracing::error!(?e, "internal-jobs: DB error");
     error_body(
         StatusCode::INTERNAL_SERVER_ERROR,

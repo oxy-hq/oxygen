@@ -12,8 +12,8 @@ use std::sync::Arc;
 use oxy::config::health_check::{SemanticProbeConfig, SmokeTestConfig};
 
 use super::probes::{self, SemanticTarget};
-use super::{SmokeProbeKind, SmokeVerdict, failed, note, unavailable};
-use crate::agentic_wiring::project_ctx::OxyProjectContext;
+use oxy_app::surface::workspace_runtime::OxyProjectContext;
+use oxy_workspace_health::smoke::{SmokeProbeKind, SmokeVerdict, failed, note, unavailable};
 
 /// One thing to probe. `kind`/`label` drive the verdict's identity, so they are
 /// derived here rather than threaded through every probe.
@@ -157,7 +157,7 @@ fn cap<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::api::admin::workspace_health::evaluator::HealthStatus;
+    use oxy_workspace_health::evaluator::HealthStatus;
 
     #[test]
     fn cap_under_the_limit_adds_no_note() {

@@ -17,7 +17,7 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::server::api::admin::workspace_health::eval_pass::run_eval_pass_single;
+use crate::run_eval_pass_single;
 
 /// The `kind` discriminator for the per-workspace health eval Custom task.
 pub const HEALTH_EVAL_KIND: &str = "health_eval_workspace";
@@ -119,7 +119,7 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::test_support::{SKIP_MSG, test_db};
+    use crate::test_support::{SKIP_MSG, test_db};
 
     // Constructing the executor needs a connection even though the negative
     // paths reject before querying.

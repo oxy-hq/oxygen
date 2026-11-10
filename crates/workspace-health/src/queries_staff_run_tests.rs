@@ -13,8 +13,8 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{exclude_daemon_runs, gather_signals};
-use crate::server::api::admin::workspace_health::evaluator::HealthThresholds;
-use crate::server::test_support::{SKIP_MSG, test_db};
+use crate::evaluator::HealthThresholds;
+use crate::test_support::{SKIP_MSG, test_db};
 
 /// One failed root run of `source_type` in `ws`, carrying `metadata`. Returns
 /// its id.

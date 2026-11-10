@@ -376,6 +376,13 @@ pub const CUSTOM_APP_TASK_KINDS: [&str; 6] = [
 pub const NOTIFICATION_TASK_KINDS: [&str; 2] =
     ["notification_deliver", "notification_quiet_summary"];
 
+/// The `TaskSpec::Custom` kind the health schedule tick and the console's
+/// "Re-evaluate" / "Run now" queue (`agentic_pipeline::scheduler`): one
+/// workspace's health eval. Its executor is `oxy-api-workspace-health`'s,
+/// handed in through [`SurfaceSeams::tasks`]; a test there holds its constant
+/// to this string.
+pub const HEALTH_TASK_KINDS: [&str; 1] = ["health_eval_workspace"];
+
 /// The background jobs a serve process needs for custom apps (usage rows,
 /// storage measurement, sandbox expiry, retention). Without the usage drain,
 /// page views and events queue until the bounded queue sheds them.
@@ -401,6 +408,7 @@ pub fn require_task_kinds(tasks: &[TaskSeam]) -> Result<(), String> {
     let missing: Vec<&str> = CUSTOM_APP_TASK_KINDS
         .iter()
         .chain(NOTIFICATION_TASK_KINDS.iter())
+        .chain(HEALTH_TASK_KINDS.iter())
         .copied()
         .filter(|k| !seen.contains(k))
         .collect();
@@ -486,6 +494,7 @@ mod tests {
             tasks: CUSTOM_APP_TASK_KINDS
                 .iter()
                 .chain(NOTIFICATION_TASK_KINDS.iter())
+                .chain(HEALTH_TASK_KINDS.iter())
                 .map(|k| task(k))
                 .collect(),
             background: CUSTOM_APP_BACKGROUND_JOBS.iter().map(|n| job(n)).collect(),
@@ -556,6 +565,14 @@ mod tests {
         seams.tasks.retain(|t| t.kind != "notification_deliver");
         let err = require_task_kinds(&seams.tasks).unwrap_err();
         assert!(err.contains("notification_deliver"), "{err}");
+    }
+
+    #[test]
+    fn a_missing_health_kind_is_a_startup_error_that_names_it() {
+        let mut seams = complete();
+        seams.tasks.retain(|t| t.kind != "health_eval_workspace");
+        let err = require_task_kinds(&seams.tasks).unwrap_err();
+        assert!(err.contains("health_eval_workspace"), "{err}");
     }
 
     /// No hooks means inbox rows with no delivery, so it is a boot error.

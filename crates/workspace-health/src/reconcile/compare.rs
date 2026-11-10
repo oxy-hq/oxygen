@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::ResolvedWindow;
 use super::segments::SegmentReport;
-use crate::server::api::admin::workspace_health::evaluator::HealthStatus;
+use crate::evaluator::HealthStatus;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -202,7 +202,7 @@ fn degraded(meta: &VerdictMeta, reason: String) -> DriftVerdict {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::api::admin::workspace_health::evaluator::HealthStatus;
+    use crate::evaluator::HealthStatus;
 
     fn tol(abs: f64, pct: f64, c: Combinator) -> Tolerance {
         Tolerance {

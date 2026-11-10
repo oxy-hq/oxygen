@@ -13,7 +13,7 @@ use super::ResolvedWindow;
 /// carry the window's timezone onto the request. Any user-supplied
 /// `time_dimensions` is intentionally replaced — reconcile always controls the
 /// comparison period so both sides align.
-pub(super) fn semantic_request(
+pub fn semantic_request(
     query: &QueryRequest,
     time_dimension: &str,
     window: &ResolvedWindow,
@@ -39,7 +39,7 @@ pub(super) fn semantic_request(
 /// window's time dimension by day instead, so a datetime column yields one
 /// local date per group (in the window's timezone, which `semantic_request`
 /// carries) rather than a raw timestamp that joins nothing.
-pub(super) fn grouped_semantic_request(
+pub fn grouped_semantic_request(
     query: &QueryRequest,
     time_dimension: &str,
     window: &ResolvedWindow,
@@ -69,7 +69,7 @@ pub(super) fn grouped_semantic_request(
 /// resolved window plus the `timezone` they were resolved in, so an author can
 /// convert their column to the same calendar. Values are rendered BARE — the
 /// SQL author quotes them.
-pub(super) fn render_sql(sql: &str, window: &ResolvedWindow) -> Result<String, String> {
+pub fn render_sql(sql: &str, window: &ResolvedWindow) -> Result<String, String> {
     minijinja::Environment::new()
         .render_str(
             sql,
@@ -83,7 +83,7 @@ pub(super) fn render_sql(sql: &str, window: &ResolvedWindow) -> Result<String, S
 }
 
 /// Coerce the first cell of a SQL scalar result to `f64`.
-pub(super) fn cell_to_f64(cell: &CellValue) -> Result<f64, String> {
+pub fn cell_to_f64(cell: &CellValue) -> Result<f64, String> {
     match cell {
         CellValue::Number(n) => Ok(*n),
         CellValue::Text(s) => s
@@ -98,7 +98,7 @@ pub(super) fn cell_to_f64(cell: &CellValue) -> Result<f64, String> {
 /// is read from the column named like it (case-insensitive), in `keys` order;
 /// the value is the one remaining column, or the column named `value` when
 /// more than one remains.
-pub(super) fn grouped_rows(
+pub fn grouped_rows(
     columns: &[String],
     rows: &[QueryRow],
     keys: &[String],

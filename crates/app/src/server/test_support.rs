@@ -238,7 +238,3 @@ pub(crate) const AIRWAY_DEPLOYMENT_LOCK_KEY: i64 = 0x4149_5257_4450;
 
 /// Message to print when skipping, so a skipped run says which knob to turn.
 pub(crate) const SKIP_MSG: &str = "skipping: OXY_DATABASE_URL not set";
-
-#[cfg(test)]
-#[path = "test_support_tests.rs"]
-mod tests;

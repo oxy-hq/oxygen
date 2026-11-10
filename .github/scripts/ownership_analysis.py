@@ -57,6 +57,9 @@ AREAS = [
     ("crates/app/src/custom_app_template",                "Custom Apps — template"),
     ("sdk/create-oxy-app",                                "Custom Apps — scaffold SDK"),
     # NOTE: list a nested path BEFORE its parent — the AREAS loop takes the first match.
+    ("crates/workspace-health",                           "Workspace health & reconcile"),
+    ("crates/api-workspace-health",                       "Workspace health & reconcile"),
+    # Pre-extraction path — without it the extraction reads as authorship.
     ("crates/app/src/server/api/admin/workspace_health",  "Workspace health & reconcile"),
     ("crates/app/src/server/api/admin/airway_config",     "Airway admission (admin)"),
     ("crates/app/src/server/api/admin/airhouse.rs",       "Airhouse fleet console (admin)"),

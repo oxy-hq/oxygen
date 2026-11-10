@@ -41,8 +41,6 @@ const BACKLOG: &[(&str, &str)] = &[
         "api-tenancy",
         "server::api::org_teams::service::write_access",
     ),
-    ("api-tenancy", "server::api::admin::WorkspaceHealthRow"),
-    ("api-tenancy", "server::api::admin::health_rollup"),
     // billing: seat sync when a member is added or removed
     ("api-tenancy", "server::api::billing::billing_service"),
     // workspace context: schedule cleanup on delete, the directory read, logo bytes

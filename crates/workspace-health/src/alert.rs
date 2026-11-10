@@ -3,8 +3,8 @@ use uuid::Uuid;
 
 use super::evaluator::{DimensionFailure, HealthStatus};
 use super::queries::WorkspaceLabel;
-use crate::integrations::slack::client::SlackClient;
 use oxy_shared::errors::OxyError;
+use oxy_slack_client::SlackClient;
 
 /// Default gap between reminders for a workspace that stays unhealthy.
 const DEFAULT_REALERT_HOURS: i64 = 6;
@@ -247,8 +247,8 @@ pub async fn push_slack(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::api::admin::workspace_health::evaluator::HealthDimension;
-    use crate::server::api::admin::workspace_health::evaluator::HealthStatus::*;
+    use crate::evaluator::HealthDimension;
+    use crate::evaluator::HealthStatus::*;
 
     fn at(hours_ago: i64) -> DateTime<FixedOffset> {
         (Utc::now() - chrono::Duration::hours(hours_ago)).fixed_offset()

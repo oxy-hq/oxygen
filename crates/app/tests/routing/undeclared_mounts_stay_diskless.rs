@@ -182,6 +182,11 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // were `route_fleet`. Declared FleetOk by hand in its `route_roles()`
         // now, so this scan is what stops a handler taking a working copy.
         "../api-notifications/src",
+        // Workspace health's console routes, moved out of `admin/` onto the
+        // admin seam. The handlers read and enqueue in Postgres; the live
+        // runners that build a workspace context run in the task executor, on
+        // a worker, not on a request path.
+        "../api-workspace-health/src/handlers.rs",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

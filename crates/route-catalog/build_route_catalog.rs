@@ -209,6 +209,14 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_tenancy",
         function: "admin_routes",
     },
+    // `oxy-api-workspace-health`: the console's health rollup, eval trigger and
+    // history, through the same admin seam.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_workspace_health",
+        function: "admin_routes",
+    },
     Seed {
         surface: "org",
         prefix: "/api",
@@ -304,7 +312,8 @@ const SEEDS: &[Seed] = &[
 /// Both lists watch `crates/api-github/src`, `crates/api-tenancy/src`,
 /// `crates/api-documents/src`, `crates/api-frontline/src`,
 /// `crates/api-custom-apps/src`, `crates/api-source-upload/src`,
-/// `crates/api-experiment/src` and `crates/api-notifications/src`, none of which `oxy-app` depends on
+/// `crates/api-experiment/src`, `crates/api-notifications/src` and
+/// `crates/api-workspace-health/src`, none of which `oxy-app` depends on
 /// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
 /// reverse). Editing any of them therefore re-runs this build script and
 /// recompiles `oxy-app` — the workspace's largest crate — before the small
@@ -335,6 +344,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-source-upload/src",
     "crates/api-experiment/src",
     "crates/api-notifications/src",
+    "crates/api-workspace-health/src",
     // `crates/oltp/src/api`, not the whole crate: every handler the OLTP routes
     // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
     // the wider path would only pull ~15 unrelated modules (`provisioner`,
@@ -365,6 +375,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-source-upload/src",
     "crates/api-experiment/src",
     "crates/api-notifications/src",
+    "crates/api-workspace-health/src",
     // Mounts `/oltp/me/connection` and `/oltp/me/erd`, merged into the served
     // app as `oxy_oltp::api::router` — `role_manifest.rs` asserts that merge.
     // Missing here since #2851, so both routes were live and absent from the

@@ -78,6 +78,8 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/admin/compiles",
     "/api/admin/internal-jobs",
     "/api/admin/feature-flags",
+    // `oxy-api-workspace-health`, on the admin seam.
+    "/api/admin/workspace-health",
     "/api/control/",
     "/api/fleet/",
     "/api/{workspace_id}/threads",

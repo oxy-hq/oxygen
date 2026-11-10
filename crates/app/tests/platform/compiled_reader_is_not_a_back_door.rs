@@ -88,7 +88,7 @@ const ALLOWED: &[(&str, &str)] = &[
          before there is a manager.",
     ),
     (
-        "src/server/api/admin/workspace_health/smoke/config.rs",
+        "../workspace-health/src/smoke/config.rs",
         "Reads the compiled config BEFORE building a workspace context, \
          deliberately — a promoted revision with no `smoke_test` block is \
          authoritative, and building a context to re-learn that on every eval \
@@ -126,7 +126,8 @@ fn app_src() -> PathBuf {
 /// Every `.rs` under `src` — plus `oxy-app-core` (where `compiled_reader`
 /// itself now lives), `oxy-custom-apps`, `oxy-api-custom-apps` (the custom-app
 /// vertical lifted out of `src/server/api`) and `oxy-api-documents` and
-/// `oxy-api-source-upload` and `oxy-api-notifications`, extracted from
+/// `oxy-api-source-upload` and `oxy-api-notifications`, and workspace health's
+/// two crates, extracted from
 /// `src/server/api` and still served
 /// by this binary — as
 /// (crate-relative path, contents).
@@ -179,6 +180,15 @@ fn source_files() -> Vec<(String, String)> {
         &notifications,
         &notifications,
         "../api-notifications/src/",
+        &mut out,
+    );
+    let health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../workspace-health/src");
+    walk(&health, &health, "../workspace-health/src/", &mut out);
+    let api_health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-health/src");
+    walk(
+        &api_health,
+        &api_health,
+        "../api-workspace-health/src/",
         &mut out,
     );
     out

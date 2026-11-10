@@ -36,20 +36,8 @@ pub mod standing_tokens;
 pub mod usage_report;
 mod user_scope;
 pub mod users_admin;
-// `pub(crate)`: the module stays internal and only what a caller outside this crate
-// needs is re-exported below, matching the narrower `admin::apps` pattern (export the
-// fns, not the whole module) — the two readers the extracted
-// `oxy-api-partner-console` surface uses, and the two handlers, which
-// `tests/platform/admin_staff_scope` drives as a bounded grant.
-pub(crate) mod workspace_health;
-
-/// The trail of workspace status changes, re-exported for the tests that drive
-/// it against a database (`tests/platform/workspace_health_history.rs`).
-pub use workspace_health::history as workspace_health_history;
-pub use workspace_health::{
-    TriggerEvalParams, WorkspaceHealthResponse, WorkspaceHealthRow, health_rollup,
-    list_workspace_health, trigger_workspace_health_eval,
-};
+// `workspace_health` is the `oxy-api-workspace-health` surface's (an `AdminSection`
+// under `PlatformOperate`), its domain `oxy-workspace-health`.
 
 use axum::Router;
 use axum::middleware;
@@ -214,7 +202,6 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // tenant's behalf" — but its own ACTION, because the action name is what
         // lands in an audit row and in the grant UI.
         .merge(airhouse::router().route_layer(cap(Action::PlatformAirhouse)))
-        .merge(workspace_health::router().route_layer(cap(Action::PlatformOperate)))
         // The weekly custom-app usage report. A cross-tenant read, so the handlers
         // narrow it to the orgs the caller's grant reaches (`scope::list_scope`);
         // this layer cannot. The same capability decides who is emailed the report

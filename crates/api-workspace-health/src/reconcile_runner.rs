@@ -17,34 +17,31 @@ use agentic_pipeline::platform::ProjectContext;
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 
-use super::config::{
+use oxy::config::model::ToastAnalyticsIntegration;
+use oxy::service::secret_manager::SecretManagerService;
+use oxy_app::surface::workspace_runtime::{OxyProjectContext, build_workspace_ctx};
+use oxy_workspace_health::reconcile::config::{
     ExternalKey, ExternalSpec, GroupByPlan, Operand, OperandKind, ReconcileCheck,
     parse_reconcile_config,
 };
-use super::oxy_query::{
+use oxy_workspace_health::reconcile::oxy_query::{
     cell_to_f64, grouped_rows, grouped_semantic_request, render_sql, semantic_request,
 };
-use super::segments::{GroupedSide, fan_out, segment_error};
-use super::source::{ExternalRequest, ExternalValue, ReconcileError, SourceCtx, source_for};
-use super::window::resolve_window;
-use super::{
-    DriftVerdict, ResolvedWindow, VerdictMeta, compare, error_verdict, unreachable_verdict,
+use oxy_workspace_health::reconcile::segments::{GroupedSide, fan_out, segment_error};
+use oxy_workspace_health::reconcile::source::{
+    ExternalRequest, ExternalValue, ReconcileError, SourceCtx, source_for,
 };
-use crate::agentic_wiring::OxyProjectContext;
-use crate::server::router::recovery::build_workspace_ctx;
-use oxy::config::model::ToastAnalyticsIntegration;
-use oxy::service::secret_manager::SecretManagerService;
+use oxy_workspace_health::reconcile::window::resolve_window;
+use oxy_workspace_health::reconcile::{
+    DriftVerdict, ReconcileRunner, ResolvedWindow, VerdictMeta, compare, error_verdict,
+    unreachable_verdict,
+};
 
 /// Which slot of a check an operand fills.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Side {
     Actual,
     Expected,
-}
-
-#[async_trait]
-pub trait ReconcileRunner: Send + Sync {
-    async fn run_checks(&self, workspace_id: uuid::Uuid) -> Vec<DriftVerdict>;
 }
 
 pub struct LiveReconcileRunner {
@@ -750,8 +747,8 @@ impl ReconcileRunner for LiveReconcileRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::api::admin::workspace_health::evaluator::HealthStatus;
     use chrono::TimeZone;
+    use oxy_workspace_health::evaluator::HealthStatus;
 
     struct FakeReconcileRunner {
         verdicts: Vec<DriftVerdict>,
@@ -827,11 +824,11 @@ mod tests {
 
     #[test]
     fn sql_scalar_reduces_first_cell() {
-        use super::super::oxy_query::cell_to_f64;
         use agentic_core::result::{CellValue, QueryRow};
+        use oxy_workspace_health::reconcile::oxy_query::cell_to_f64;
         // Shape a one-cell result like execute_query(sql, 1) returns; the runner
         // reduces res.result.rows[0].0[0] via cell_to_f64.
-        let rows = vec![QueryRow(vec![CellValue::Number(1234.5)])];
+        let rows = [QueryRow(vec![CellValue::Number(1234.5)])];
         let cell = &rows.first().unwrap().0[0];
         assert_eq!(cell_to_f64(cell).unwrap(), 1234.5);
 
@@ -840,10 +837,10 @@ mod tests {
         assert!(empty.first().is_none());
     }
 
-    use super::super::Tolerance;
-    use super::super::compare::Combinator;
-    use super::super::config::Grain;
-    use super::super::config::{Operand, SemanticSpec, Window};
+    use oxy_workspace_health::reconcile::Tolerance;
+    use oxy_workspace_health::reconcile::compare::Combinator;
+    use oxy_workspace_health::reconcile::config::Grain;
+    use oxy_workspace_health::reconcile::config::{Operand, SemanticSpec, Window};
 
     fn semantic_operand(measure: &str) -> Operand {
         let mut query = oxy_airlayer_compat::engine::query::QueryRequest::new();
@@ -880,8 +877,7 @@ mod tests {
                 offset: 1,
                 freshness: None,
                 timezone: None,
-                week_start:
-                    crate::server::api::admin::workspace_health::reconcile::WeekStart::Sunday,
+                week_start: oxy_workspace_health::reconcile::WeekStart::Sunday,
             },
             tolerance: Tolerance {
                 abs: 1.0,
@@ -1269,7 +1265,7 @@ checks:
         assert_eq!(seg.disputed[0].expected, 0.0);
         assert_eq!(
             seg.disputed[0].missing,
-            Some(super::super::segments::MissingSide::Expected)
+            Some(oxy_workspace_health::reconcile::segments::MissingSide::Expected)
         );
     }
 

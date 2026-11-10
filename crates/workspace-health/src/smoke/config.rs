@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use oxy::config::health_check::{HealthCheckConfig, SmokeTestConfig, resolve_smoke_interval};
 
-use crate::server::api::compiled_reader::resolve_workspace_config;
+use oxy_app_core::compiled_reader::resolve_workspace_config;
 
 /// Per-probe time budgets and fan-out, env-overridable so ops can retune a
 /// pathological workspace without a redeploy. Every value is clamped to at least

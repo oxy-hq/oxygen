@@ -95,6 +95,7 @@ pub mod fleet {
 /// revision's semantic model, never a working copy), the workspace manager
 /// behind it, the compile-boundary scan root, and the driver's tick interval.
 pub mod workspace_runtime {
+    pub use crate::agentic_wiring::OxyProjectContext;
     pub use crate::server::api::semantic::resolve_compiled_scan_source;
     pub use crate::server::preagg_workspace::build_workspace_manager;
     pub use crate::server::router::recovery::{
@@ -161,8 +162,8 @@ pub mod seed {
 /// `oxy-app` requires of it.
 pub mod seams {
     pub use crate::server::router::{
-        BackgroundDeps, BackgroundSeam, ExampleAppsSeam, GlobalTickSeam, MigrateReport,
-        NOTIFICATION_TASK_KINDS, NotificationsSeam, TaskDeps, TaskSeam,
+        BackgroundDeps, BackgroundSeam, ExampleAppsSeam, GlobalTickSeam, HEALTH_TASK_KINDS,
+        MigrateReport, NOTIFICATION_TASK_KINDS, NotificationsSeam, TaskDeps, TaskSeam,
     };
 }
 
@@ -211,6 +212,13 @@ pub use crate::server::api::admin::assume;
 pub mod admin_scope {
     pub use crate::server::api::admin::org_filter::{scope_org_filter, scope_org_filter_checked};
     pub use crate::server::api::admin::scope::*;
+}
+
+/// The admin console's connect-on-demand database handle and its JSON error
+/// body (`{ code, message }`), so an extracted admin section answers a failed
+/// connect or query exactly the way the in-tree sections do.
+pub mod admin_db {
+    pub use crate::server::api::admin::internal_jobs::{connect, db_err, error_body};
 }
 
 /// Whether Factory access is enforced in an org (the `apps_first_experience` flag),

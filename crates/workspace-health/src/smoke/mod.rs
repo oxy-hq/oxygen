@@ -17,16 +17,14 @@
 //! * targets skipped by the `max_targets` cap → Healthy, with a reason. Caps are
 //!   recorded, never silent, but a large workspace is not a degraded one.
 
-pub(crate) mod config;
-pub(crate) mod probes;
-pub(crate) mod runner;
-pub(crate) mod targets;
+pub mod config;
+pub mod runner;
 
 use serde::{Deserialize, Serialize};
 
-use super::evaluator::HealthStatus;
+use crate::evaluator::HealthStatus;
 
-pub(crate) use runner::{LiveSmokeRunner, SmokeRunner};
+pub use runner::{SmokeRunner, SmokeSettings, resolve_smoke_settings};
 
 /// Which probe produced a verdict. Serialized into the health payload, so the
 /// admin UI can group checks by kind.
