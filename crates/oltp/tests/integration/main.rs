@@ -32,6 +32,7 @@
 //! again in the way that looks green.
 
 mod branches_local;
+mod grant_audit;
 mod grants;
 mod neon_live;
 

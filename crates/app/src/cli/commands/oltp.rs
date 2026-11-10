@@ -39,8 +39,9 @@ pub enum OltpCommand {
     Dsn(DsnArgs),
     /// Open `psql` against the org's database. Debugging, not routine access.
     Connect(DsnArgs),
-    /// Audit every role: what it is, and whether it is still confined. Note this
-    /// checks what each role is a member OF (confinement), not what is a member
+    /// Audit every role: what it is, whether it is still confined, and what it
+    /// can reach outside its own schema (writers, the analyst and PUBLIC). Note
+    /// confinement checks what each role is a member OF, not what is a member
     /// of IT — so a lingering owner→writer membership left by a failed
     /// `deprovision --writer` is invisible here (harmless: the owner already
     /// dominates the writer).
@@ -564,12 +565,55 @@ async fn audit(db: &DatabaseConnection, t: OrgArgs) -> Result<(), OxyError> {
             "\n{findings} role(s) hold authority they should not. Re-run `oxy oltp provision` \
              to re-mint them, or `oxy oltp rotate --role <r>` for one."
         );
-        return Err(OxyError::RuntimeError(format!(
-            "{findings} role(s) are not confined"
-        )));
+    } else {
+        println!("\nall non-admin roles confined");
     }
-    println!("\nall non-admin roles confined");
-    Ok(())
+
+    // What each role can reach, not just what it is: a grant outside its own
+    // schema is how one writer reads another's rows (`grant_audit`).
+    let grants = oxy_oltp::grant_audit::tenant_findings(db, &client, &tenant)
+        .await
+        .map_err(|e| OxyError::RuntimeError(e.to_string()))?;
+    let drifted = print_grant_findings(&grants);
+
+    match (findings, drifted) {
+        (0, 0) => Ok(()),
+        (f, 0) => Err(OxyError::RuntimeError(format!(
+            "{f} role(s) are not confined"
+        ))),
+        (0, d) => Err(OxyError::RuntimeError(format!(
+            "{d} role(s) hold privileges outside their scope"
+        ))),
+        (f, d) => Err(OxyError::RuntimeError(format!(
+            "{f} role(s) are not confined and {d} hold privileges outside their scope"
+        ))),
+    }
+}
+
+/// Print each role's grant findings; returns how many roles have any.
+fn print_grant_findings(report: &[oxy_oltp::grant_audit::RoleFindings]) -> usize {
+    println!("\ngrants outside each role's scope");
+    let mut drifted = 0usize;
+    for role in report {
+        if role.findings.is_empty() {
+            println!("  {:<28} none", role.role);
+            continue;
+        }
+        drifted += 1;
+        println!("  {:<28} {} finding(s)", role.role, role.findings.len());
+        for f in &role.findings {
+            println!("    - {f}");
+        }
+    }
+    if drifted > 0 {
+        println!(
+            "\n{drifted} role(s) hold privileges outside their scope. Revoke each one above \
+             as the owner; `oxy oltp provision` refuses a writer that still holds any (OXY03)."
+        );
+    } else {
+        println!("\nno role holds privileges outside its scope");
+    }
+    drifted
 }
 
 /// Rotate one role's password, reseal it, and re-assert confinement.

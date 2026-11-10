@@ -207,6 +207,70 @@ async fn ensure_writer_is_idempotent_and_records_one_role_row() {
     .await;
 }
 
+/// Through the real provisioner: a clean tenant has no grant findings for any
+/// writer, the analyst or `PUBLIC`; a hand-made grant into another writer's
+/// schema shows up in the audit and stops the next `ensure_writer` (`OXY03`).
+#[tokio::test]
+async fn a_drifted_grant_is_audited_and_stops_the_next_provision() {
+    with_fx(|fx| async move {
+        fx.provisioner
+            .provision(fx.org_id)
+            .await
+            .expect("provision");
+        let app = fx.writer("audited");
+        let pipeline = fx.pipeline_writer("audited");
+        let app_creds = fx
+            .ensure_writer(&app, GrantLevel::ReadWrite)
+            .await
+            .expect("ensure the app writer");
+        fx.ensure_writer(&pipeline, GrantLevel::ReadWrite)
+            .await
+            .expect("ensure the pipeline writer");
+
+        let tenant = fx.tenant_row().await.expect("tenant row");
+        let su = tenant_superuser_conn(fx.org_id).await;
+        let clean = oxy_oltp::grant_audit::tenant_findings(&fx.db, &su, &tenant)
+            .await
+            .expect("audit runs");
+        assert!(
+            clean.iter().all(|r| r.findings.is_empty()),
+            "a freshly provisioned tenant has no findings: {clean:?}"
+        );
+
+        let table = format!("{}.ledger", pipeline.schema_name());
+        su.batch_execute(&format!(
+            "CREATE TABLE {table} (id int); \
+             GRANT USAGE ON SCHEMA {} TO \"{role}\"; GRANT SELECT ON {table} TO \"{role}\"",
+            pipeline.schema_name(),
+            role = app_creds.role_name,
+        ))
+        .await
+        .expect("hand-made grant");
+
+        let drifted = oxy_oltp::grant_audit::tenant_findings(&fx.db, &su, &tenant)
+            .await
+            .expect("audit runs");
+        let app_row = drifted
+            .iter()
+            .find(|r| r.role == app_creds.role_name)
+            .expect("the app writer is audited");
+        assert!(
+            app_row.findings.contains(&format!("SELECT on {table}")),
+            "{drifted:?}"
+        );
+
+        let err = fx
+            .ensure_writer(&app, GrantLevel::ReadWrite)
+            .await
+            .expect_err("re-provisioning a drifted writer is refused")
+            .to_string();
+        assert!(err.contains("outside its own schema"), "{err}");
+
+        fx.cleanup().await;
+    })
+    .await;
+}
+
 /// The app-delete/rename guards refuse on `writer_is_provisioned`, and the
 /// operator's way out is `deprovision_writer`. Pin the whole loop against a real
 /// cluster — and assert the ACTUAL DDL, not just control-plane rows: the schema

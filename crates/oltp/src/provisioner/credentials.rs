@@ -144,6 +144,7 @@ impl OltpProvisioner {
         if want_visible {
             self.set_analytics_visibility(org_id, writer, true).await?;
         }
+        self.assert_writer_grants(&tenant, writer, grant).await?;
 
         Ok(WriterCredentials {
             schema_name: writer.schema_name(),
@@ -322,6 +323,9 @@ impl OltpProvisioner {
         if stored_visible && grant == GrantLevel::ReadWrite {
             self.set_analytics_visibility(org_id, writer, true).await?;
         }
+        // Last: the new password is sealed, so a refusal here leaves a working,
+        // stored credential and an operator with the findings to revoke.
+        self.assert_writer_grants(&tenant, writer, grant).await?;
 
         info!(role = %role_name, "rotated OLTP writer password");
         Ok(WriterCredentials {
@@ -1187,6 +1191,34 @@ impl OltpProvisioner {
             statements.push(crate::roles::grant_schema_creation_sql(&role_name)?);
         }
         self.run_batch(tenant, &owner_password, statements).await
+    }
+
+    /// Refuse a writer that holds anything outside its own schema, or whose
+    /// schema-mates can reach other writers' data through `PUBLIC` (`OXY03`),
+    /// the way `assert_confined_sql` refuses an over-privileged role. Grants
+    /// only ever add, so a hand-made one would otherwise survive every
+    /// re-provision unnoticed.
+    ///
+    /// A separate step from [`Self::apply_writer_ddl`], run once the
+    /// credential is sealed: `rotate_writer` sets the new password before it
+    /// applies the grants, and a refusal between the two would leave the
+    /// stored ciphertext holding the old one.
+    async fn assert_writer_grants(
+        &self,
+        tenant: &oltp_tenants::Model,
+        writer: &WriterRef,
+        grant: GrantLevel,
+    ) -> Result<(), ProvisionerError> {
+        let owner_password = self.owner_password(tenant, tenant.org_id)?;
+        let role_name = schema::qualify_role(
+            &tenant.provider,
+            &tenant.database_name,
+            &writer.role_name(grant),
+        );
+        let scope = crate::grant_audit::GrantScope::for_writer(writer, grant, &role_name);
+        let statement = crate::grant_audit::assert_role_grants_sql(&scope)?;
+        self.run_batch(tenant, &owner_password, vec![statement])
+            .await
     }
 }
 
