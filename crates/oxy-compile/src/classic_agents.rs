@@ -1,23 +1,26 @@
-//! Classic `.agent.yml` agents are retired; the compile refuses them.
+//! Classic `.agent.yml` agents are retired; the compile says so.
 //!
-//! The classic runtime is gone: nothing loads a `*.agent.yml`. The one agent
-//! kind is the agentic agent (`*.agentic.yml`). Three findings, located at the
-//! file that holds the problem:
+//! The classic runtime is gone: nothing loads a `*.agent.yml`, and an
+//! automation step whose `agent_ref` names one fails when it runs. The one
+//! agent kind is the agentic agent (`*.agentic.yml`). This module is phase 1 of
+//! `internal-docs/2026-11-09-classic-agent-retirement.md`: it makes both
+//! situations visible at compile time. Phase 2 turns the two classic warnings
+//! into a refusal behind the `compile_refuse_classic_agents` flag
+//! ([`crate::compile::ConfigGate::refuses_classic_agents`], default off): the
+//! revision fails, through the same per-file failure list every other refusal
+//! uses ([`ClassicAgentWarning::refusal`]), and the previous revision keeps
+//! serving. Flag off, it is the warning alone.
+//!
+//! Two warnings, one channel. They are `tracing::warn!` events with a stable
+//! `event` field ([`EVENT`]), the channel the retired-automation-step warning
+//! already uses, so platform telemetry can count the workspaces that still hold
+//! a classic file. There is no per-revision diagnostics column to add them to:
+//! `revisions.error_summary` carries failures only, and a warning is not one.
 //!
 //! - a discovered `*.agent.yml` file ([`FileKind::RetiredAgent`]), which
-//!   compiles to no row: **refused**;
-//! - an automation step whose `agent_ref` names a `.agent.yml` path:
-//!   **refused**;
-//! - an automation step whose `agent_ref` names no agent that compiled in this
-//!   revision: a warning only, since the agent may be added later.
-//!
-//! A refusal fails the revision through the same per-file failure list every
-//! other refusal uses ([`ClassicAgentWarning::refusal`]), so the previous
-//! revision keeps serving; the walker keeps the retired kind so a classic file
-//! pushed after retirement fails loudly instead of vanishing. The warning is a
-//! `tracing::warn!` event with a stable `event` field ([`EVENT`]): there is no
-//! per-revision diagnostics column, as `revisions.error_summary` carries
-//! failures only (`internal-docs/2026-11-09-classic-agent-retirement.md`).
+//!   compiles to no row;
+//! - an automation step whose `agent_ref` names a `.agent.yml` path, or names
+//!   no agent that compiled in this revision.
 //!
 //! The ref check runs over the compiled rows, after every file has compiled, so
 //! "an agent behind it" means exactly the `agent_definitions` rows the revision
@@ -46,8 +49,9 @@ const MIGRATE: &str = "Convert it to a `.agentic.yml` agent: `oxy migrate-agents
 pub(crate) struct ClassicAgentWarning {
     pub path: String,
     pub message: String,
-    /// Whether it fails the revision: a classic file, or a ref naming one. A
-    /// ref that names no compiled agent is only ever a warning.
+    /// Whether the `compile_refuse_classic_agents` flag turns it into a
+    /// failure: a classic file, or a ref naming one. A ref that names no
+    /// compiled agent is only ever a warning.
     pub refusable: bool,
 }
 
@@ -58,7 +62,7 @@ impl ClassicAgentWarning {
         warn!(path = %self.path, event = EVENT, "{}", self.message);
     }
 
-    /// The failure that replaces this finding when it is refusable. It carries
+    /// The failure that replaces this warning when the flag is on. It carries
     /// the warning's text (the file, or the step and the classic path it
     /// names) and how to list every classic file in the workspace.
     pub(crate) fn refusal(&self) -> FileFailure {
@@ -66,9 +70,9 @@ impl ClassicAgentWarning {
             path: self.path.clone(),
             kind: FailureKind::Validation,
             message: format!(
-                "{}. This fails the revision, and the previous revision keeps serving. \
-                 List every classic file in the workspace with \
-                 `oxy migrate-agents --dry-run --json`",
+                "{}. The compile_refuse_classic_agents flag is on, so this fails the revision \
+                 and the previous revision keeps serving. List every classic file in the \
+                 workspace with `oxy migrate-agents --dry-run --json`",
                 self.message
             ),
         }
@@ -131,9 +135,9 @@ pub(crate) fn agent_ref_warnings(rows: &[CompiledRow]) -> Vec<ClassicAgentWarnin
 
 /// Every spelling a compiled agent answers to: its path, its path minus the
 /// extension, its last-segment stem, and its compile key (`name:`). Deliberately
-/// a superset of what the runtime resolves (path first, then name, then a
-/// unique stem): the no-agent check only warns, and a missed warning costs less
-/// than a false "cannot run".
+/// a superset of what the runtime resolves (stem to name today, path first in
+/// phase 0a): while this only warns, a missed warning costs less than a false
+/// "cannot run".
 fn known_agent_refs(rows: &[CompiledRow]) -> HashSet<String> {
     let mut known = HashSet::new();
     for row in rows {

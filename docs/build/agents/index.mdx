@@ -14,9 +14,7 @@ in your [World Model](/guide/build/world-model), generates and runs SQL,
 validates the result, and explains it back in plain language.
 
 <Note>
-The classic `.agent.yml` format is retired: a project that still holds one, or
-an automation whose `agent_ref` names one, fails to compile and keeps serving its
-previous version until it is converted. Run `oxy migrate-agents` (add
+The classic `.agent.yml` format is retired. Run `oxy migrate-agents` (add
 `--dry-run` to preview, `--json` for a machine-readable report) to translate
 classic agents to `.agentic.yml` and update every `agent_ref` in your project.
 A file using a field with no equivalent (`omni_query`, `anonymize`, routing) is

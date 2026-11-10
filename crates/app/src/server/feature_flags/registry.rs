@@ -200,6 +200,26 @@ pub static FLAGS: &[FlagDef] = &[
         sunset: Some("2027-01-31"),
     },
     FlagDef {
+        key: super::rollout::COMPILE_REFUSE_CLASSIC_AGENTS_FLAG,
+        description: "Fail, instead of warn on, a compile that finds a classic *.agent.yml \
+                      file or an automation agent_ref naming one (classic-agent \
+                      retirement memo, internal-docs/2026-11-09-classic-agent-retirement.md, \
+                      phase 2). Each failure names the file and points at `oxy \
+                      migrate-agents --dry-run --json`. The previous revision keeps serving, \
+                      so a workspace that still holds a classic file stops picking up \
+                      changes until it migrates: run the gate census (memo 5.2) first, then \
+                      turn this on in dev, staging and production in that order. A new \
+                      flag, so it has no environment override.",
+        default_enabled: false,
+        variants: BOOLEAN,
+        unit: Unit::Org,
+        // Read by the compile, which has no org context beyond the workspace.
+        per_org: false,
+        client: false,
+        kind: FlagKind::Rollout,
+        sunset: Some("2027-03-31"),
+    },
+    FlagDef {
         key: super::rollout::IDE_RETIRED_FLAG,
         description: "Retire the in-product IDE on this deployment, before its code is \
                       deleted (factory-retirement.md, phase 5). When on: the web app hides \

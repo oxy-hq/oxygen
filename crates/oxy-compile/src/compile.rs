@@ -206,6 +206,14 @@ pub trait ConfigGate: Send + Sync {
     fn refuses_retired_automation_steps(&self) -> bool {
         crate::automation_check::refusal_enabled()
     }
+
+    /// Whether a classic `.agent.yml` file, or an automation `agent_ref`
+    /// naming one, fails the compile rather than warns (`oxy-app`: the
+    /// `compile_refuse_classic_agents` flag, which has no environment
+    /// override). A compile with no gate only warns.
+    fn refuses_classic_agents(&self) -> bool {
+        false
+    }
 }
 
 /// Public inputs to a compile run.
@@ -464,8 +472,7 @@ pub(crate) struct CompileBatch {
     pub(crate) rows: Vec<CompiledRow>,
     pub(crate) failures: Vec<FileFailure>,
     pub(crate) compiled: u32,
-    /// Classic-agent warnings that are not refusals ([`crate::classic_agents`]):
-    /// a ref naming no compiled agent. Logged, not stored.
+    /// Classic-agent warnings ([`crate::classic_agents`]). Logged, not stored.
     pub(crate) warnings: Vec<ClassicAgentWarning>,
 }
 
@@ -485,6 +492,10 @@ pub(crate) struct AutomationRefusals {
     /// Fail on the two workspace writes whatever the switch says: a cloud
     /// compile ([`ConfigGate::compiles_for_cloud_roles`]).
     pub workspace_writes: bool,
+    /// Fail on a classic `.agent.yml` file and on an `agent_ref` naming one
+    /// ([`crate::classic_agents`]): the `compile_refuse_classic_agents` flag
+    /// ([`ConfigGate::refuses_classic_agents`]).
+    pub classic_agents: bool,
 }
 
 pub(crate) async fn compile_files(
@@ -501,7 +512,7 @@ pub(crate) async fn compile_files(
 
     for file in files {
         if file.kind == FileKind::RetiredAgent {
-            // Never compiled: no row. Refused below with the classic refs.
+            // Warned about, never compiled: no row, no failure.
             batch.warnings.push(retired_file_warning(file).await);
             continue;
         }
@@ -529,14 +540,13 @@ pub(crate) async fn compile_files(
         }
     }
     batch.warnings.extend(agent_ref_warnings(&batch.rows));
-    // A classic file, or a ref naming one, fails the revision; a ref naming no
-    // compiled agent stays a warning.
-    let (refused, warned): (Vec<_>, Vec<_>) = batch.warnings.drain(..).partition(|w| w.refusable);
-    warned.iter().for_each(ClassicAgentWarning::log);
-    batch
-        .failures
-        .extend(refused.iter().map(ClassicAgentWarning::refusal));
-    batch.warnings = warned;
+    batch.warnings.iter().for_each(ClassicAgentWarning::log);
+    if refusals.classic_agents {
+        let refused = batch.warnings.iter().filter(|w| w.refusable);
+        batch
+            .failures
+            .extend(refused.map(ClassicAgentWarning::refusal));
+    }
     batch
 }
 
@@ -569,6 +579,7 @@ async fn drive_compile(
         AutomationRefusals {
             retired_steps: refuse_retired_steps,
             workspace_writes: for_cloud_roles,
+            classic_agents: config_gate.is_some_and(|gate| gate.refuses_classic_agents()),
         },
     )
     .await;
@@ -739,6 +750,7 @@ async fn compile_one(file: &DiscoveredFile) -> Result<Vec<CompiledRow>, FileFail
         AutomationRefusals {
             retired_steps: crate::automation_check::refusal_enabled(),
             workspace_writes: false,
+            classic_agents: false,
         },
     )
     .await
@@ -1738,6 +1750,7 @@ mod tests {
             AutomationRefusals {
                 retired_steps: false,
                 workspace_writes: false,
+                classic_agents: false,
             },
         )
         .await;

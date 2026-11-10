@@ -12,8 +12,8 @@
 use oxy_app::server::compile_config_gate::runtime_config_gate;
 use oxy_app::server::compile_reconcile;
 use oxy_app::server::feature_flags::rollout::{
-    COMPILE_RECONCILE, COMPILE_REFUSE_FILE_CREDENTIALS, COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS,
-    is_on,
+    COMPILE_RECONCILE, COMPILE_REFUSE_CLASSIC_AGENTS_FLAG, COMPILE_REFUSE_FILE_CREDENTIALS,
+    COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS, is_on,
 };
 use oxy_app::server::feature_flags::{cache, store};
 
@@ -43,6 +43,9 @@ async fn with_the_variables_unset_a_flag_row_turns_the_gate_on() {
     store::upsert(&db, COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS.flag, true)
         .await
         .expect("flip compile_refuse_retired_automation_steps on");
+    store::upsert(&db, COMPILE_REFUSE_CLASSIC_AGENTS_FLAG, true)
+        .await
+        .expect("flip compile_refuse_classic_agents on");
 
     // Before the load the gates read the registry default — the state a
     // process that never called `init` stays in for its whole life.
@@ -63,6 +66,10 @@ async fn with_the_variables_unset_a_flag_row_turns_the_gate_on() {
     assert!(
         runtime_config_gate().refuses_retired_automation_steps(),
         "the compile gate the worker installs carries the flag into oxy-compile"
+    );
+    assert!(
+        runtime_config_gate().refuses_classic_agents(),
+        "the classic-agent refusal reaches oxy-compile the same way"
     );
     assert!(
         !is_on(&COMPILE_REFUSE_FILE_CREDENTIALS),
