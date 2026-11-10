@@ -9,6 +9,7 @@ use crate::loader::JsModuleLoader;
 use crate::ops::oxy_policy_ext;
 use crate::policy::{AuditLog, PolicyDecision};
 use crate::store::PolicySource;
+use crate::v8_platform;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -43,6 +44,8 @@ impl PolicyEngine {
             .map_err(|e| EngineError::Boot(format!("{}: {e}", script.display())))?;
         let script = ModuleSpecifier::from_file_path(&path)
             .map_err(|()| EngineError::Boot(format!("not a file path: {}", path.display())))?;
+        // The engine's V8 flags, before this or any isolate exists.
+        v8_platform::init();
         let mut runtime = JsRuntime::new(RuntimeOptions {
             module_loader: Some(Rc::new(JsModuleLoader)),
             extensions: vec![oxy_policy_ext::init()],
@@ -109,6 +112,13 @@ impl PolicyEngine {
             .borrow::<AuditLog>()
             .0
             .clone()
+    }
+
+    /// A handle another thread can use to stop this isolate mid-decision
+    /// (`terminate_execution`): the decision in flight then fails with
+    /// [`EngineError::Script`]. How a host bounds a runaway `decide`.
+    pub fn isolate_handle(&mut self) -> v8::IsolateHandle {
+        self.runtime.v8_isolate().thread_safe_handle()
     }
 
     /// The isolate's live heap, in bytes, measured after asking V8 to collect

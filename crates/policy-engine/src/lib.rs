@@ -42,10 +42,13 @@ mod ops;
 mod policy;
 mod store;
 pub mod sync;
+mod v8_platform;
 
 pub use engine::{EngineError, PolicyEngine};
 pub use policy::{AuditLog, Bounds, Policy, PolicyDecision, Variant};
 pub use store::{OltpWriter, POLICY_OVERRIDES_TABLE, PolicySource, StoreError};
 
+#[cfg(test)]
+mod terminate_gap_tests;
 #[cfg(test)]
 mod tests;
