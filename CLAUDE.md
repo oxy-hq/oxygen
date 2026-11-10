@@ -30,8 +30,8 @@ crates/
                             #   so a surface edit doesn't rebuild oxy-app. oxy-server hands it in
   app-dylib/                # (oxy-app-dylib) dev-only dynamic-linking shim, EXCLUDED from the
                             #   workspace; built only by `--features dev-dynamic` (just dev-backend-dyn)
-  app-core/                 # (oxy-app-core) Shared app-layer seam: audit, serve_mode,
-                            #   org/custom-app subdomain dispatch, member authz
+  app-core/                 # (oxy-app-core) What every surface needs, nothing a context owns:
+                            #   request state, authz plumbing, audit, seams. Scoped (S9)
   tenancy/                  # (oxy-tenancy) Tenancy domain logic shared across contexts: org teams +
                             #   app-access grants. Below oxy-app and the api-* surfaces; no routes
   core/                     # (oxy) Core platform library, published as "oxy"
@@ -71,7 +71,7 @@ sdk/cli/skills/             # THE Oxy platform skills — published to oxy-hq/sk
 ```
 
 Many crates carry their own `CLAUDE.md` — all `agentic/*`, `authz`, `cameras`,
-`integration/unifi`, plus the two largest (`core`, `app`). Read the local one first.
+`integration/unifi`, `app-core`, plus the two largest (`core`, `app`). Read the local one first.
 
 ## Build & Test
 

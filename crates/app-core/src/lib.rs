@@ -1,10 +1,11 @@
 //! Shared seam between the `oxy-app` HTTP layer and the crates split out of it.
 //!
-//! Everything here was previously a module of `oxy-app`. It lives in its own
-//! crate so the per-surface crates (admin, integrations, custom apps, …) can
-//! depend on the pieces they share *without* depending on each other — that is
-//! what lets their frontends compile in parallel instead of serially inside one
-//! 140k-line crate.
+//! What every HTTP surface needs in order to be a surface, and nothing a single
+//! bounded context owns: request state and context, authorization plumbing,
+//! cross-cutting services, and seam traits. `oxy-app` and every `api-*` surface
+//! depend on it, so an edit here rebuilds all of them; keep it small and stable.
+//! The charter (and where code goes instead) is `crates/app-core/CLAUDE.md`, rule
+//! S9 in `internal-docs/domain-boundaries.md`; `charter_tests` enforces it.
 //!
 //! Nothing in here may depend on a per-surface crate. If something in this crate
 //! needs a surface, the dependency is pointing the wrong way.
@@ -61,3 +62,6 @@ pub mod workspace_org;
 pub mod workspace_repo_facts;
 
 pub use app_state::AppState;
+
+#[cfg(test)]
+mod charter_tests;
