@@ -7,12 +7,16 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use sea_orm_migration::prelude::*;
 
 mod run_notify_requested;
+mod run_retention_indexes;
 mod run_source_file_index;
 mod task_queue_notify_payload;
 mod task_queue_retry_attempt;
 mod task_queue_root_task_id;
 mod task_queue_run_id_index;
 pub use run_notify_requested::AddRunNotifyRequested;
+pub use run_retention_indexes::{
+    AddRunRetentionIndexes, RUN_RETENTION_INDEX_SQL, RUN_THREAD_INDEX_SQL,
+};
 pub use run_source_file_index::{AddRunSourceFileIndex, RUN_SOURCE_FILE_INDEX_SQL};
 pub use task_queue_notify_payload::{AddTaskQueueNotifyPayload, MAX_TASK_ID_IN_PAYLOAD};
 pub use task_queue_retry_attempt::AddTaskQueueRetryAttempt;
@@ -56,6 +60,7 @@ impl MigratorTrait for RuntimeMigrator {
             Box::new(AddTaskQueueNotifyPayload),
             Box::new(AddTaskQueueRootTaskId),
             Box::new(AddTaskQueueRunIdIndex),
+            Box::new(AddRunRetentionIndexes),
         ]
     }
 

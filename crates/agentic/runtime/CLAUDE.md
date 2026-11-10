@@ -27,6 +27,7 @@ The legacy flat paths (`agentic_runtime::coordinator`, `agentic_runtime::state`,
 - **The coordinator never retries.** A `Failed` outcome that reaches it is terminal. Retries live on the queue row (`TaskPolicy::retry` → `crud/retry.rs`, `transport/durable/retry.rs`), opted into per run by `DurableTransport::retry_failed_root`. Every claim is scoped to a root (`claim_task_under_root`); an unscoped `DurableTransport` reaps, prunes and enqueues but claims nothing.
 - The queue NOTIFY carries `task:<task_id>`; a scoped poller wakes only for its own tree (`router/wake.rs`). Anything unattributable must wake everyone — never drop a wake you can't parse.
 - The `agentic_runs` table has no domain-specific columns — only `source_type` and `metadata` (JSONB).
+- **Finished runs are deleted after `OXY_RUN_RETENTION_DAYS` (90)** by oxy-app's `server::router::run_retention`, child trees and cascades included; a chat thread goes only when all of it is idle. A new table that stores a run id *and reads that run back while its own row is live* (a verdict shown from the run, a settle that joins it) must add a `NOT EXISTS` guard there, or its run disappears under it. A link or record that can dangle needs nothing.
 - `PipelineHandle<Ev>` requires `Ev: DomainEvents` — domains provide the concrete type, runtime handles it generically.
 
 ## Key Types

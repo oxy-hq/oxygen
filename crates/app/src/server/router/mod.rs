@@ -18,6 +18,7 @@ mod protected;
 mod public;
 pub(crate) mod recovery;
 pub(crate) mod role_router;
+pub mod run_retention;
 mod seams;
 mod secrets;
 mod tokens;

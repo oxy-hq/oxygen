@@ -25,11 +25,13 @@
 //! can name it and the lenient path can fall back to the old behaviour.
 
 pub mod hosts;
+pub mod retention;
 pub mod role;
 
 use std::sync::{Arc, OnceLock};
 
 pub use hosts::HostsConfig;
+pub use retention::RunRetentionSetting;
 pub use role::RoleSetting;
 
 /// A value the deployment set that the process cannot use. The message names
@@ -58,6 +60,8 @@ pub struct BootConfig {
     /// (`oxy_auth::token::service`), as the deployment set it. Strict: a value
     /// [`BootConfig::service_tokens`] cannot parse refuses the boot.
     pub service_tokens: Option<String>,
+    /// `OXY_RUN_RETENTION_DAYS`: how long a finished run is kept.
+    pub run_retention: RunRetentionSetting,
 }
 
 static BOOT: OnceLock<Arc<BootConfig>> = OnceLock::new();
@@ -74,6 +78,7 @@ impl BootConfig {
                 var("OXY_INTERNAL_ORGS").as_deref(),
             ),
             service_tokens: var("OXY_SERVICE_TOKENS"),
+            run_retention: RunRetentionSetting::parse(var("OXY_RUN_RETENTION_DAYS")),
         }
     }
 
@@ -86,6 +91,7 @@ impl BootConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.role.validate()?;
         self.hosts.validate()?;
+        self.run_retention.validate()?;
         self.service_tokens().map(|_| ())
     }
 
@@ -156,6 +162,7 @@ mod tests {
         assert_eq!(cfg.hosts.api_url, None);
         assert!(cfg.internal_orgs.is_empty());
         assert_eq!(cfg.service_tokens, None);
+        assert_eq!(cfg.run_retention.days(), Some(90));
         assert_eq!(cfg.validate(), Ok(()));
     }
 

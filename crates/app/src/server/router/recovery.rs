@@ -409,6 +409,7 @@ pub(crate) fn spawn_recovery(
         super::drive_policy::announce(policy);
         crate::server::compile_reconcile::announce();
         spawn_airhouse_tenant_sweeper(db.clone(), shutdown.clone());
+        super::run_retention::spawn(db.clone(), shutdown.clone());
         spawn_latency_worker(
             db.clone(),
             runtime.clone(),
