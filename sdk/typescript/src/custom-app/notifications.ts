@@ -5,9 +5,7 @@
 // A custom app is its own page, never inside Oxygen's shell, so a person
 // who lives in one app — crew on a kiosk, a single-app user — never sees
 // Oxygen's bell. The app's host forwards `/api/*` to the product API with the
-// app's own session, so the app reads the same inbox the product does
-// (`crates/api-notifications/src/`). Design:
-// internal-docs/custom-app-notifications.md.
+// app's own session, so the app reads the same inbox the product does.
 
 import {
   GENERAL_CATEGORY,

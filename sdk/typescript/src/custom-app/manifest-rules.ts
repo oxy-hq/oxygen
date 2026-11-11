@@ -1,7 +1,6 @@
 // The two name rules the server enforces on `oxy-app.json`, stated once.
 //
-// `is_valid_slug` (crates/app/src/server/api/admin/apps/ops.rs) and
-// `is_valid_function_name` (custom_apps_publish.rs) are the authority; these
+// The server's own slug and function-name validation is the authority; these
 // are their mirrors, and `scripts/gen-manifest-schema.mjs` writes them into
 // the JSON Schema (`slug.pattern`, `functions.propertyNames.pattern`) so a
 // manifest editor and every validator over the schema enforce the same thing.

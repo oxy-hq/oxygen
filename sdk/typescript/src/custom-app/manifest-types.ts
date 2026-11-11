@@ -20,7 +20,7 @@ import type { OxyAppWidget } from "./widgets";
 
 /**
  * Declaration of a single Oxy Function shipped in the bundle's
- * `functions/` dir. See `internal-docs/customer-apps-functions.md`.
+ * `functions/` dir.
  *
  * All fields optional except that at least one invocation surface
  * (`route`, `schedule`, `airwayStep` or `webhook`) must be active. Absent =

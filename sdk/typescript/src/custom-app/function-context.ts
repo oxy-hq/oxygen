@@ -3,9 +3,8 @@
 // `oxy-app.json`). Each function is `export default async (req, ctx) => Response`.
 //
 // Until now functions were written untyped: the `ctx` object is assembled
-// entirely by the Rust host (`__buildCtx` in
-// `crates/app/src/server/api/custom_apps_functions/runtime.rs`) and never had
-// a TypeScript counterpart. `OxyFunctionContext` below is that counterpart —
+// entirely by the host when it builds the isolate, and never had a
+// TypeScript counterpart. `OxyFunctionContext` below is that counterpart —
 // it mirrors the host-provided `ctx.*` members one-for-one so function authors
 // get autocomplete + type-checking. Import it as:
 //
@@ -83,9 +82,8 @@ export type OxyIdentityKind = "user" | "system";
  *
  * Assembled server-side on every invocation from the authenticated session —
  * **nothing on it is client-supplied**, which is the entire reason to read
- * identity here instead of from the request body. See
- * `internal-docs/custom-apps-user-identity.md` for the full contract, including
- * what the client-side `useShellContext()` can and cannot be trusted for.
+ * identity here instead of from the request body. Note that the client-side
+ * `useShellContext()` is a different thing and is not verified identity.
  */
 export interface OxyFunctionUser {
   /**
@@ -188,7 +186,7 @@ export interface OxyFunctionUser {
   kind?: OxyIdentityKind;
   /**
    * Where the caller may act, derived by the platform from their assignments
-   * (`internal-docs/operating-graph.md` §3.3): a system invocation or an app
+   * — a system invocation or an app
    * admin everywhere; a holder of an org-wide position everywhere; an
    * assigned person exactly their places; an unassigned org member
    * everywhere and an unassigned frontline worker nowhere. Apply it with
@@ -496,7 +494,7 @@ export interface OxySemanticApi {
    * primary entity is bound to the org's locations registry, over the keys the
    * caller's places carry in that system. A caller who reaches everywhere is
    * left alone; a query naming no bound view is refused rather than answered
-   * whole. `internal-docs/operating-graph.md` §3.6.
+   * whole.
    */
   query(spec: Record<string, unknown> & { scope?: "reach" }): Promise<unknown>;
 }

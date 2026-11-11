@@ -234,7 +234,7 @@ function orgRefusal(status: number): string | undefined {
     case 400:
       return "the slug is reserved, or the body was rejected — a slug is lowercase words joined by single hyphens";
     case 403:
-      return "creating a tenant needs `Cap::CreateOrgs` (Action::PlatformOrgCreate), which administering one does not imply — and an active `oxyc assume` session closes /admin";
+      return "creating a tenant needs the org-creation capability, which administering one does not imply — and an active `oxyc assume` session closes /admin";
     case 409:
       return "an organization with that slug already exists";
     case 500:

@@ -4,8 +4,7 @@
 // One factory, `createTestContext(manifest, options)`, returning an
 // `OxyFunctionContext` that refuses where the host refuses, in the host's own
 // words, answers reads from the shape zoo, and records every host op the
-// function makes. Spec: `internal-docs/sdk-testing-context.md`. Held to the
-// host by `sdk_testing_drift.rs` beside `host.rs`.
+// function makes, and is held to the host by a drift test on the host side.
 //
 // NOT for use inside a function: the isolate never loads it, and `oxyc
 // publish` bundles only what a function imports. Pure TypeScript, no React —

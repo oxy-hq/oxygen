@@ -1,7 +1,7 @@
 // World-model types. Mirror the `/<project_id>/semantic/world-model*`
-// wire shapes emitted by `crates/app/src/server/api/world_model_graph.rs`
-// (serde snake_case) — the same graph the IDE's World Model surface
-// renders. Kept in sync with the Rust `Wm*` structs by hand; field
+// wire shapes the world-model graph endpoints emit (snake_case) — the
+// same graph the IDE's World Model surface renders. Kept in sync with the
+// server's own structs by hand; field
 // names match the JSON verbatim.
 //
 // UI-only selection/state types from the web app are deliberately not

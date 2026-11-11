@@ -119,8 +119,8 @@ export const PHASES: readonly Phase[] = [
     title: "the organization, its owner, and the blank `Default` workspace",
     surface: "admin",
     automation: "automated",
-    how: "`POST /api/admin/orgs` `{name, slug?, owner_email}` → `{org, owner_status, default_workspace_id}`. The route is **IdeOnly** (`CREATE_ORG_ROLE` in `crates/api-tenancy/src/admin/orgs.rs`) because it scaffolds a working copy, so it is answered by the Factory pod",
-    who: "staff holding `Action::PlatformOrgCreate` (`Cap::CreateOrgs`) — NOT an App Operator",
+    how: "`POST /api/admin/orgs` `{name, slug?, owner_email}` → `{org, owner_status, default_workspace_id}`. It scaffolds a working copy, so it is answered by the one pod that holds the workspace filesystem rather than by any replica",
+    who: "staff holding the org-creation capability — NOT an App Operator, whose reach is custom apps and nothing else",
     idempotent: false,
     wrong:
       'a taken or reserved slug is a 4xx; an `owner_email` with no account yet answers 200 with `owner_status: "invited"`, which reads as success while nobody can sign in until the invitation is accepted (7-day expiry)',
@@ -131,8 +131,8 @@ export const PHASES: readonly Phase[] = [
     title: "a subscription, so the org's own routes stop answering 402",
     surface: "admin",
     automation: "manual",
-    how: "`POST /api/admin/orgs/{org_id}/billing/provision-subscription`. A new org is created billing-`Incomplete`, and `Incomplete` does not grant access (`crates/billing/src/state.rs` `grants_access`)",
-    who: "the Global Owner only — the billing sub-router escalates to the strict owner guard (`Ring::GlobalOwnerOnly`)",
+    how: "`POST /api/admin/orgs/{org_id}/billing/provision-subscription`. A new org is created billing-`Incomplete`, and `Incomplete` does not grant access",
+    who: "the Global Owner only — the billing routes escalate to a stricter guard than the rest of the admin surface",
     idempotent: true,
     wrong:
       'every org-scoped and workspace-scoped route behind `subscription_guard` answers `402 {code: "subscription_required"}` — including the GitHub import that gives a workspace its remote. On a deployment with no Stripe configuration, or with the `billing` flag off, the guard short-circuits and this phase does not apply',
@@ -146,12 +146,12 @@ export const PHASES: readonly Phase[] = [
     surface: "admin",
     automation: "manual",
     how: "`oxyc oltp provision --org <slug> --writer app:<slug> --branch staging` → `POST /api/admin/orgs/{org_id}/oltp/provision`; read back with `GET /api/admin/orgs/{org_id}/oltp` and `GET …/oltp/branches/staging`",
-    who: "staff holding `Action::PlatformOltp`",
+    who: "staff holding the OLTP-provisioning capability",
     idempotent: true,
     wrong:
       "`503` means the deployment has no OLTP provider at all; `409` is provider state a person resolves; a provider quota (a Neon project cap bit production on 2026-10-21) surfaces as a failed provision, not as a refusal. A function whose store is missing fails at runtime naming the operator step",
     manualBecause:
-      "it buys a billable project at a paid provider, and `internal-docs/data-placement.md` rules that there is no automatic provisioning. The org's shared staging branch is the same decision; only a custom-app ENVIRONMENT's branch is lifecycle-managed",
+      "it buys a billable project at a paid provider, and the data-placement rule is that there is no automatic provisioning. The org's shared staging branch is the same decision; only a custom-app ENVIRONMENT's branch is lifecycle-managed",
     needs: ["org"]
   },
   {
@@ -172,7 +172,7 @@ export const PHASES: readonly Phase[] = [
     surface: "admin",
     automation: "verified",
     how: "`GET /api/admin/workspaces-meta?org_id=<uuid>` lists them; `GET /api/admin/workspaces/{id}/detail` is the only read that carries `git_remote_url` and `current_revision_id`",
-    who: "staff holding `Action::PlatformOrgs`",
+    who: "staff holding the org-administration capability",
     idempotent: true,
     wrong:
       "`status` is not Ready, or `current_revision_id` is null — nothing is compiled, so per-request reads answer *retryable* and Workspace Health reports Degraded. A workspace with a remote and no revision is a Factory that has not pulled",
@@ -184,7 +184,7 @@ export const PHASES: readonly Phase[] = [
     surface: "admin",
     automation: "automated",
     how: "the server provisions it on workspace creation; `POST /api/admin/workspaces/{workspace_id}/airhouse/provision` (no body) repairs or backfills, and `GET /api/admin/airhouse` is the fleet read",
-    who: "staff holding `Action::PlatformAirhouse`",
+    who: "staff holding the Airhouse-administration capability",
     idempotent: true,
     wrong:
       '`status: "none"` (no tenant) or `service_account_ready: false` — the workspace cannot mint the credential every query uses, so reads fail rather than return nothing. `409` means the global tenant name is taken and a person has to resolve it',

@@ -6,8 +6,7 @@
 // `logo_url`) because only it knows which host scheme is in play — an org
 // subdomain serves apps at `/a/<slug>/` same-origin, while a dedicated
 // custom-app subdomain needs absolute product-host URLs. Never derive
-// product URLs client-side. See
-// `crates/app/src/server/api/custom_apps_shell_context.rs`.
+// product URLs client-side: the shell-context endpoint is the authority.
 
 import * as React from "react";
 import type { OxyReach } from "../custom-app/function-context";

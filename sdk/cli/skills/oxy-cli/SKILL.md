@@ -1,6 +1,6 @@
 ---
 name: oxy-cli
-description: Use when you need data out of an Oxy deployment — querying a customer's warehouse or semantic layer, reading threads/runs/apps/orgs, checking why an endpoint 4xxs, or reproducing a customer-reported bug against real data. Also when you need to know which endpoints exist or what body one takes. Triggers on "query the customer's data", "what does this API return", "debug this in production/dev", "which endpoint", "check the thread/run/app", "oxyc", "oxy api".
+description: Use when you need data out of an Oxy deployment — querying a customer's warehouse or semantic layer, reading threads/runs/apps/orgs, checking why an endpoint 4xxs, or reproducing a customer-reported bug against real data. Also when you need to know which endpoints exist or what body one takes, and (staff) when standing a new customer account up or checking which of its steps have landed. Triggers on "query the customer's data", "what does this API return", "debug this in production/dev", "which endpoint", "check the thread/run/app", "oxyc", "oxy api", "stand up a new customer", "new account setup", "oxyc bootstrap".
 ---
 
 # Getting data out of Oxy with `oxyc`
@@ -10,7 +10,10 @@ resolves the token, picks the right credential for the surface, and can tell
 you what endpoints exist.
 
 ```bash
-# Not published to npm yet, so `npx @oxy-hq/cli` 404s. From a checkout:
+npm i -g @oxy-hq/cli    # or: npx @oxy-hq/cli <command>
+oxyc <command>
+
+# From a checkout instead, when you want the build in your working tree:
 node <repo>/sdk/cli/dist/main.mjs <command>
 ```
 
@@ -123,6 +126,43 @@ Orgs take a slug or UUID, users a UUID. Rules on a flag with `per_org: false` ar
 (422, exit 6), and rules saved behind an off kill switch do not apply until `set --on`.
 Treat a running split as immutable. `oxyc flags org <org>` is what a member of that org
 sees.
+
+## Standing a customer up (staff)
+
+`oxyc bootstrap` is the sequence a new customer account goes through, and the part of
+it a command can do. **Staff only, and it says so rather than failing oddly:** most
+phases read or write the admin surface, creating the organization needs the
+org-creation capability, and the subscription phase is the Global Owner's alone. A
+customer's own agent cannot run this and should not try.
+
+    oxyc bootstrap plan   <customer> [--crews]        # the whole sequence; reads nothing, writes nothing
+    oxyc bootstrap run    <customer> --owner <email>  # do the phases oxyc can, print the rest
+    oxyc bootstrap verify <customer> [--json]         # which phases have landed
+
+Shared flags: `--name <display>`, `--repo <owner/repo>`, `--app <slug>`, `--writer
+app:<slug>|pipeline:<source>` (repeatable), `--crews`, `--phase <id>` (repeatable).
+`run` also takes `--owner`, `--dry-run` and `--yes`. The phases are `repo`, `org`,
+`billing`, `oltp`, `git-link`, `workspace`, `airhouse`, `app`, `secrets` and — with
+`--crews` — `frontline`.
+
+**`run` is safe to re-run**, which is the whole point: a half-finished standup is the
+common case. It reads every phase before it writes, and writes only what is missing —
+exactly two things, the organization and the workspace's Airhouse tenant — then prints
+a checklist for the rest. It never buys the OLTP store (a billable project at a paid
+provider), never provisions a subscription, never sets a secret's value and never
+enrols a worker.
+
+**It works one surface at a time.** The admin surface is refused while an
+`oxyc assume` session is live, and the import that gives a workspace its git remote is
+org-scoped — so a standup crosses between staff and tenant credentials twice. `plan`
+prints the stage boundaries; `run` refuses before writing anything rather than
+half-writing.
+
+`verify` distinguishes **`unknown` from `no`**: a phase it could not read — an expired
+token, or an assume session closing the admin surface — is not a phase that has not
+happened, and only `no` fails. Exit `9` means a phase has not landed, `8` that a live
+assume session blocked the attempt. `--json` gives `{id, landed, detail, next}` per
+phase, which is the form to branch on.
 
 ## An agent's own credential
 

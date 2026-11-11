@@ -1,9 +1,7 @@
 // Runtime app-config injected into the browser by oxy when it serves
 // a custom-app bundle's HTML. Lets a single bundle serve any
 // registered app without having `(orgId, projectId)` baked in at
-// build time — see
-// `crates/app/src/server/api/custom_apps_serve.rs::inject_app_config`
-// on the server side.
+// build time — the serving layer injects it into the page on the way out.
 
 /**
  * Shape of `window.__OXY_APP__` written by oxy at serve time.

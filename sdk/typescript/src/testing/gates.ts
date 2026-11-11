@@ -3,9 +3,8 @@
 // `declares(spec)` read it (`sdk/cli/src/publish/capabilities.ts`).
 //
 // THE MANIFEST IS THE WHOLE `oxy-app.json` PLUS A FUNCTION NAME
-// (`internal-docs/sdk-testing-context.md` §7, answer 3): the app's `slug`
-// derives the OLTP and Airhouse schema (`app_writer_name` in the `oltp` crate:
-// hyphens to underscores), and `destinations` / `customerWarehouseWrites` are
+// the app's `slug` derives the OLTP and Airhouse schema (hyphens become
+// underscores), and `destinations` / `customerWarehouseWrites` are
 // per function. Making a caller split them invites the two halves to disagree.
 
 import { contextError } from "./host-error";
@@ -56,8 +55,8 @@ function flag(spec: Record<string, unknown>, a: string, b: string): boolean {
 }
 
 /**
- * `MAX_NAME_LEN` in `crates/oltp/src/schema.rs`: 63 (Postgres) less `app_` and
- * the longest role suffix `_rw`.
+ * The server's schema-name limit: 63 (Postgres' identifier cap) less `app_`
+ * and the longest role suffix `_rw`.
  */
 export const MAX_SCHEMA_NAME_LEN = 56;
 

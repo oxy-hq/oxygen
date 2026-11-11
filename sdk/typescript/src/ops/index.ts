@@ -1,7 +1,7 @@
 // `@oxy-hq/sdk/ops` — the operating graph, applied inside an Oxy Function.
 //
 // The platform states where a caller may act (`ctx.user.reach`, derived from
-// their assignments — see `internal-docs/operating-graph.md` §3.3); this is
+// their assignments); this is
 // how a function applies it. Library code, versioned with the SDK, and
 // replaceable: an app that needs a tighter rule wraps `reachOf` and keeps the
 // rest. It may tighten, never widen — the reach the platform hands in is the
@@ -98,7 +98,7 @@ export function predicate(reach: Reach, column: string, params: unknown[]): stri
 
 /**
  * The app-admin gate, decided in one place. `appRole` is derived by the
- * platform (`Ring::AppAdmin`) and is the ONE field on `ctx.user` a function
+ * platform from app-admin standing, and is the ONE field on `ctx.user` a function
  * may gate on; `orgRole` and `teams` are there to explain, not to decide.
  */
 export function isAdmin(ctx: Pick<ReachCtx, "user">): boolean {

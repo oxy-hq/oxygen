@@ -187,6 +187,16 @@ what changed). **Is it already in the customer's warehouse?** → read it there.
 with `_` can't back a schema. Both stores are written **as the app**, whoever
 invoked the function, so a scheduled run writes like a click.
 
+**A store has to exist before your schema can.** The org's OLTP Postgres is bought
+and provisioned for the account, not created by publishing, so on a new or
+part-provisioned account `ctx.oltp` fails for a reason that is nothing to do with your
+code — and the same is true of a secret that was set in staging but never in
+production. You cannot provision it yourself. What to ask for by name: Oxy staff run
+`oxyc bootstrap verify <org>`, which reports every account-level step as landed,
+missing or unreadable and names the command that fixes each one. Quote the phase it
+reports (`oltp`, `secrets`, `airhouse`) and you will get a straight answer instead of
+a round trip.
+
 **Facts, in practice.** Airhouse is DuckLake: no `PRIMARY KEY`, `UNIQUE`,
 indexes or foreign keys — publish refuses a migration carrying one. So:
 

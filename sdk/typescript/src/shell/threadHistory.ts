@@ -6,8 +6,8 @@
 // The transcript returns each turn's events already run through the same
 // processor the live SSE stream uses, so the dock rebuilds the reasoning
 // trace, charts, and answer with `buildTraceSteps` / the chart filter /
-// `extractAnswer` — identical to a live run. See
-// `crates/app/src/server/api/custom_apps_threads.rs`.
+// `extractAnswer` — identical to a live run, and to what the
+// thread-history endpoint returns.
 
 import * as React from "react";
 import { getOxyAppLogger } from "../custom-app/logger";

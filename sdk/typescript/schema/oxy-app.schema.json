@@ -261,7 +261,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Declaration of a single Oxy Function shipped in the bundle's `functions/` dir. See `internal-docs/customer-apps-functions.md`.\n\nAll fields optional except that at least one invocation surface (`route`, `schedule`, `airwayStep` or `webhook`) must be active. Absent = `route: true` (HTTP-invocable via `useFunction`)."
+      "description": "Declaration of a single Oxy Function shipped in the bundle's `functions/` dir.\n\nAll fields optional except that at least one invocation surface (`route`, `schedule`, `airwayStep` or `webhook`) must be active. Absent = `route: true` (HTTP-invocable via `useFunction`)."
     },
     "OxyAppAirwayStepManifest": {
       "type": "object",

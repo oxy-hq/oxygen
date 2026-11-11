@@ -20,8 +20,7 @@
 // }
 // ```
 //
-// See `crates/app/src/server/api/custom_apps.rs` for the server-side
-// query contract.
+// The server's custom-app query endpoints are the contract these mirror.
 
 // One-call agent asks: start an ask and wait for its answer.
 export type { AskOptions, AskResult, AskStatus } from "./ask";

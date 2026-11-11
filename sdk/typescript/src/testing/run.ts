@@ -10,8 +10,7 @@
 // throws in production, and `btoa` / `atob` are the runtime's own, with its
 // `TypeError`s.
 //
-// THE EXPLICIT PER-CALL FORM ONLY (`internal-docs/sdk-testing-context.md` §7,
-// answer 7). A vitest environment that removes the globals for a whole file is
+// THE EXPLICIT PER-CALL FORM ONLY. A vitest environment that removes the globals for a whole file is
 // what an app would eventually want, and may follow; shipping both now would
 // mean two mechanisms with one job. Because this mutates `globalThis`, two
 // `run` calls must not overlap: vitest runs one test at a time per file unless

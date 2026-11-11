@@ -18,9 +18,9 @@
  * `FunctionCapabilities`, when `ABSENT_GLOBALS` differs from `oxyc`'s lint
  * list, or when `FETCH_RULES` differs from `is_safe_outbound`. One direction
  * only: this file is checked against the host, the host is never checked
- * against this file (`internal-docs/sdk-testing-context.md` §7, answer 9).
+ * against this file.
  *
- * THE RUST TEST READS TEXT, NOT TYPESCRIPT: after stripping comments it takes
+ * THE HOST'S DRIFT TEST READS TEXT, NOT TYPESCRIPT: after stripping comments it takes
  * the block from `export const HOST_OPS` to `] as const;`, every object whose
  * key line ends `: {` and carries `source:` and `refusal:` lines, the
  * `hostField:` / `ops:` lines of `GATES`, the `name:` / `member:` lines of

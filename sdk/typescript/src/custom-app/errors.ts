@@ -111,7 +111,10 @@ export interface CustomAppErrorReport {
   docs?: string;
 }
 
-const ARCH_DOC = "internal-docs/customer-apps.md";
+// Attached as `docs` on a report a host renders, so it has to be somewhere
+// the reader can actually open: the custom-app contract is documented in
+// the public skills repo, not in this repository.
+const ARCH_DOC = "https://github.com/oxy-hq/skills";
 
 /** Interpret a thrown error as a structured report for UI display. */
 export function interpretCustomAppError(err: unknown): CustomAppErrorReport {
