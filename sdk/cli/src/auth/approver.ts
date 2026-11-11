@@ -39,21 +39,43 @@ export function plausibleEmail(text: string): boolean {
 }
 
 /**
+ * Whether the `--approver` FLAG names anyone — before it is checked. On a CI
+ * runner a named approver is what makes a device-code request worth starting:
+ * someone is told about it.
+ *
+ * The flag only, never `OXY_APPROVER`: an exported approver is honoured only
+ * where the device code was chosen explicitly (`approverFrom`'s `envHonored`),
+ * so counting it here would start a request on a runner and then drop the one
+ * person who would have been told.
+ */
+export function approverNamed(opts: Record<string, unknown>, source: string | undefined): boolean {
+  return source === "cli" && typeof opts.approver === "string" && opts.approver.trim() !== "";
+}
+
+/**
  * The approver the flags (or `OXY_APPROVER`) name, or `undefined`. A usage
  * error — before anything is sent — when the FLAG is given without
  * `--no-browser`, or when the value cannot be an email. An empty value is no
  * value, and a value that came from the environment (`source === "env"`) is
  * simply not used by a browser round: an engineer who exports `OXY_APPROVER`
  * for their agents must still be able to run `oxyc login` themselves.
+ *
+ * `envHonored` is whether the device code was CHOSEN (`--no-browser`,
+ * `--no-wait`, a Claude Code cloud session: `exportedApproverApplies`), not
+ * merely detected. Where oxyc switched by itself — an engineer's own login
+ * over SSH, in a Codespace — an exported approver is that engineer's setting
+ * for their agents, and using it would hand their login to someone else to
+ * approve. So it is dropped there, as in a browser round.
  */
 export function approverFrom(
   opts: Record<string, unknown>,
   noBrowser: boolean,
-  source: string | undefined = "cli"
+  source: string | undefined = "cli",
+  envHonored: boolean = noBrowser
 ): string | undefined {
   const email = typeof opts.approver === "string" ? opts.approver.trim() : "";
   if (email === "") return undefined;
-  if (!noBrowser && source === "env") return undefined;
+  if (source === "env" && (!noBrowser || !envHonored)) return undefined;
   if (!noBrowser) {
     throw usageError(
       "--approver is only valid with --no-browser",

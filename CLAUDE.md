@@ -145,7 +145,7 @@ curl** when you need real data out of dev/staging/prod, and instead of guessing
 a route.
 
 ```bash
-oxyc login --env dev              # browser; same credentials file the old `oxy login` wrote
+oxyc login --env dev              # browser (URL + code when headless; --no-wait to return it); same credentials file the old `oxy login` wrote
 oxyc routes threads --env dev     # discovery, SERVED by GET /api/_catalog — not a baked table
 oxyc schema /api/orgs --env dev   # request/response shape for one endpoint
 oxyc api /api/orgs --env dev -q '.[].name'   # -f/-F/--input/-q/--paginate, like gh api

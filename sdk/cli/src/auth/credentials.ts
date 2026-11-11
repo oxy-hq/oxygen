@@ -122,9 +122,16 @@ export function readStore(): CredentialStore {
  * credential leak with no symptom.
  */
 export function writeStore(store: CredentialStore): void {
-  const path = credentialsPath();
+  writePrivateJson(credentialsPath(), store, "credentials");
+}
+
+/**
+ * Write `value` to `path` as JSON, atomically, owner-only. `stem` names the
+ * temp file. Shared by the credentials file and the pending-login file
+ * (`pending.ts`), which holds a verifier that can collect a token.
+ */
+export function writePrivateJson(path: string, value: unknown, stem: string): void {
   const dir = dirname(path);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
   // THE TEMP FILE IS A SIBLING OF THE TARGET, not something in `os.tmpdir()`.
   // `rename(2)` cannot cross a filesystem boundary, and `/tmp` is a separate
   // mount on plenty of machines (a tmpfs on most Linux distributions, a
@@ -134,9 +141,13 @@ export function writeStore(store: CredentialStore): void {
   //
   // The unit test cannot see this: it points OXY_CREDENTIALS_PATH inside
   // tmpdir(), so both paths were on the same mount there either way.
-  const tmp = join(dir, `.credentials.${process.pid}.${Date.now()}.tmp`);
+  const tmp = join(dir, `.${stem}.${process.pid}.${Date.now()}.tmp`);
   try {
-    writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+    // Inside the `try`: a read-only or unwritable HOME (an ephemeral CI or
+    // cloud container) fails here, and must read as this message, not a raw
+    // `EACCES`/`EEXIST` stack.
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
     renameSync(tmp, path);
   } catch (cause) {
     try {

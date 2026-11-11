@@ -36,6 +36,7 @@ import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 import { printableLines } from "../util/printable.js";
 import { type HostCredential, saveCredential } from "./credentials.js";
 import { deviceRound } from "./device.js";
+import { loadPending, resumePendingLogin } from "./pending.js";
 import { createPkce, type Pkce } from "./pkce.js";
 
 /** What `/api/user` gives back. Only the two fields the login flow reports. */
@@ -54,6 +55,11 @@ export interface LoginOptions {
    * loopback, for a machine whose `127.0.0.1` no browser can reach.
    */
   noBrowser?: boolean;
+  /**
+   * `--browser`: the loopback, even where a request `--no-wait` started is
+   * waiting to be collected. Without it, that request is collected first.
+   */
+  forceBrowser?: boolean;
   /**
    * With `noBrowser`: the email of the person who must approve. The platform
    * tells them (push, email, Slack, the inbox); they type the code this
@@ -153,6 +159,8 @@ export async function login(
  * alternative is a login that cannot succeed until someone finishes a deploy.
  */
 async function obtainToken(target: string, opts: LoginOptions): Promise<Minted> {
+  const pending = opts.forceBrowser ? undefined : loadPending(target);
+  if (pending) return resumePendingLogin(target, pending, opts);
   const pkce = createPkce();
   if (opts.noBrowser) {
     const minted = await deviceRound(target, opts, pkce);

@@ -29,6 +29,11 @@ interface Run {
 }
 
 function oxyc(...args: string[]): Run {
+  return oxycEnv({}, ...args);
+}
+
+/** `oxyc` with these variables over the isolated environment below. */
+function oxycEnv(extra: Record<string, string>, ...args: string[]): Run {
   if (!existsSync(BIN)) {
     throw new Error(
       `${BIN} is missing — run \`pnpm build\` (or \`pnpm test\`, which builds first)`
@@ -45,6 +50,9 @@ function oxyc(...args: string[]): Run {
       OXY_TOKEN: "",
       // An approver exported in the developer's shell would turn a plain case into a usage error.
       OXY_APPROVER: "",
+      // CI is a Linux box with no display, which `oxyc login` would read as
+      // headless and switch to the device code; these cases pin the browser.
+      OXYC_HEADLESS: "0",
       NO_COLOR: "1",
       // The bare-customer cases reach `launch`, which would otherwise spawn a
       // real `claude` process. Dry-run prints the command instead — the same
@@ -52,7 +60,8 @@ function oxyc(...args: string[]): Run {
       OXYC_DRY_RUN: "1",
       // A dossier root under the build dir, so a launch cannot clone into a
       // developer's real `~/.oxyc`.
-      OXYC_DOSSIER_ROOT: join(BIN, "..", "__no_such_dossiers__")
+      OXYC_DOSSIER_ROOT: join(BIN, "..", "__no_such_dossiers__"),
+      ...extra
     }
   });
   return { status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
@@ -167,6 +176,37 @@ describe("exit codes", () => {
       const r = oxyc(...args);
       expect(r.status, args.join(" ")).toBe(ExitCode.USAGE);
       expect(r.stderr).toContain("--approver must be an email address");
+      expect(r.stdout).toBe("");
+    }
+  });
+
+  it("refuses an approval on a CI runner at once, as AUTH, instead of waiting for nobody", () => {
+    for (const args of [
+      ["login"],
+      ["tokens", "create", "--agent"],
+      ["tokens", "create", "--sandbox-agent", "--app", "acme/store"]
+    ]) {
+      // An exported approver is not the flag: it would be dropped, so nobody would be told.
+      const r = oxycEnv(
+        { OXYC_HEADLESS: "", CI: "true", GITHUB_ACTIONS: "true", OXY_APPROVER: "ada@example.com" },
+        ...args
+      );
+      expect(r.status, args.join(" ")).toBe(ExitCode.AUTH);
+      expect(r.stderr).toContain("nobody on this GitHub Actions runner can approve");
+      expect(r.stderr).toContain("--service-account");
+      expect(r.stdout).toBe("");
+    }
+  });
+
+  it("refuses --no-wait where there is nothing to come back for, before any request", () => {
+    for (const [args, says] of [
+      [["login", "--no-wait", "--browser"], "--no-wait is only valid with the device code"],
+      [["login", "--no-wait", "--login-env", "staging"], "--no-wait starts one login on one env"],
+      [["login", "--no-wait", "--assume", "acme", "-r", "why"], "--no-wait starts one login"]
+    ] as const) {
+      const r = oxyc(...args);
+      expect(r.status, args.join(" ")).toBe(ExitCode.USAGE);
+      expect(r.stderr).toContain(says);
       expect(r.stdout).toBe("");
     }
   });

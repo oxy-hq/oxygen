@@ -220,6 +220,20 @@ oxyc assume end                                    # or --all
 oxyc login --login-env dev,staging                 # log into several at once
 ```
 
+**No browser on this machine** (a Claude Code remote session, SSH, a
+Codespace): `oxyc login` notices and prints a URL and a code to open on any
+device, like `gh auth login`. An agent asked to log a person in there cannot
+show a URL from a command that is still waiting, so split it:
+`oxyc login --env <env> --no-wait` prints the URL on stdout and exits — hand
+it to the person — and once they say it is approved, `oxyc login --env <env>`
+finishes. This is the person's login, run because they asked; it is still
+never your own credential (see "An agent's own credential").
+
+**In CI** nobody can approve, so `oxyc login` and `tokens create --agent` exit
+`4` at once. Use `OXY_TOKEN` from a secret, or `--service-account` under GitHub
+Actions OIDC. `-q` needs a `jq` binary; without one, drop `-q` and read the JSON body
+`oxyc api` prints.
+
 The session hangs off your **account**, not this terminal — your browser is in
 there too, and `end` gets you out of both.
 

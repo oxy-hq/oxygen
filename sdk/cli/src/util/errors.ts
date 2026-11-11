@@ -159,7 +159,9 @@ export function usageError(message: string, hint?: string): CliError {
 export function authError(target: string, env: string, tokenEnv: string): CliError {
   return new CliError(`not authenticated for ${target}`, {
     code: ExitCode.AUTH,
-    hint: `oxyc login --env ${env}   (or set ${tokenEnv})`
+    // `oxyc login` works headless too (a URL and a code); CI has no person, so
+    // it is named apart.
+    hint: `oxyc login --env ${env}   (or set ${tokenEnv}; in CI, ${tokenEnv} from a secret or --service-account)`
   });
 }
 

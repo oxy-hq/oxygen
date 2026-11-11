@@ -47,8 +47,9 @@ oxyc tokens create --sandbox-agent --app <org>/<app> --env <deployment>
   in, type the code the terminal shows, and approve. The token is printed
   exactly as above. The rule does not change: never open or approve that page
   yourself, with a browser tool or any other way.
-- **Name who approves with `--approver <email>`** (or `OXY_APPROVER`), only
-  with `--no-browser`: the engineer is told by push, email and Slack; they type
+- **Name who approves with `--approver <email>`** (or `OXY_APPROVER`, which
+  counts with `--no-browser`, `oxyc login --no-wait` or in a cloud session, never
+  where oxyc only detected SSH or a Codespace), with the device code: the engineer is told by push, email and Slack; they type
   the code from your output on the page. Use the email your engineer gave you,
   and still show them the code `oxyc` printed, since the notice does not carry
   it. Only that person can open the request: if you were given no address, omit

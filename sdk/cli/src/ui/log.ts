@@ -31,6 +31,15 @@ export function warn(message: string): void {
   write(`${err.yellow("warning:")} ${message}`);
 }
 
+/**
+ * Something the person must act on — an approval URL and its code. Never
+ * suppressed by `--quiet`: hiding it leaves a command waiting on an approval
+ * nobody was told about.
+ */
+export function say(message: string): void {
+  write(message);
+}
+
 /** A failure, on its way to a non-zero exit. */
 export function error(message: string): void {
   write(`${err.red("error:")} ${message}`);

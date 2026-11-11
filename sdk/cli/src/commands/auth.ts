@@ -13,6 +13,7 @@ import { isAgentTokenRow, variableCredentialSteps } from "../auth/agent-token.js
 import { clearCredential, loadCredential } from "../auth/credentials.js";
 import { keepPastExit } from "../auth/exit-revoke.js";
 import { adminStatusLine, type LoginOptions, login } from "../auth/login.js";
+import { startPendingLogin } from "../auth/pending.js";
 import {
   describeExpiry,
   describeReach,
@@ -27,6 +28,32 @@ import { out } from "../ui/tty.js";
 import { CliError, ExitCode } from "../util/errors.js";
 import { printable } from "../util/printable.js";
 import { runAssumeStart } from "./assume.js";
+
+/**
+ * The `oxyc login` that collects a `--no-wait` request, spelled with the
+ * flags that name the same deployment. `production` is the default `--env`.
+ */
+export function finishCommand(flags: { env?: unknown; target?: unknown }): string {
+  if (typeof flags.target === "string" && flags.target) {
+    return `oxyc login --target ${flags.target}`;
+  }
+  const env = typeof flags.env === "string" ? flags.env : "production";
+  return env === "production" ? "oxyc login" : `oxyc login --env ${env}`;
+}
+
+/**
+ * `oxyc login --no-wait`: start a device-code login on one deployment, print
+ * the approval URL alone on stdout, and exit. `finish` is the command that
+ * collects it — `main.ts` spells it with the same `--env` / `--target`.
+ */
+export async function runLoginNoWait(
+  ctx: Context,
+  opts: LoginOptions,
+  finish: string
+): Promise<void> {
+  const url = await startPendingLogin(ctx.target(), opts, finish);
+  process.stdout.write(`${url}\n`);
+}
 
 /**
  * Log into one deployment, or several.

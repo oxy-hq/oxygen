@@ -19,6 +19,7 @@
 import { Command } from "commander";
 import { clearAllCaches, unknownCacheEntries } from "./api/cache.js";
 import { hintToShow } from "./auth/agent-token.js";
+import { resolveApproval } from "./auth/approval.js";
 import { approverFrom, approverOption } from "./auth/approver.js";
 import { runExitRevokes } from "./auth/exit-revoke.js";
 import type { BootstrapFlags } from "./bootstrap/target.js";
@@ -41,7 +42,14 @@ import {
 import { runAppsDrift } from "./commands/apps-drift.js";
 import { MAX_WAIT_SECONDS, runAsk } from "./commands/ask.js";
 import { runAssumeEnd, runAssumeStart, runAssumeStatus } from "./commands/assume.js";
-import { runLogin, runLogout, runToken, runWhoami } from "./commands/auth.js";
+import {
+  finishCommand,
+  runLogin,
+  runLoginNoWait,
+  runLogout,
+  runToken,
+  runWhoami
+} from "./commands/auth.js";
 import { runBootstrapPlan, runBootstrapRun, runBootstrapVerify } from "./commands/bootstrap.js";
 import { runChecks } from "./commands/checks.js";
 import { runList, runPath } from "./commands/customers.js";
@@ -300,9 +308,19 @@ function buildProgram(): Command {
         [] as string[]
       )
       .option("--assume [slug|uuid|url]", "act as this org immediately after logging in")
+      // `--browser` FIRST, so neither flag sets a default: unset is "decide
+      // from the machine" (`headless.ts`), not "the browser".
+      .option(
+        "--browser",
+        "log in through this machine's browser, even where oxyc detects none (SSH, a remote session)"
+      )
       .option(
         "--no-browser",
-        "approve by device code from any device, for a machine no browser can reach (a container, CI, a remote box)"
+        "print a URL and a code to approve from any device, like `gh auth login` — the default where no browser can reach this machine"
+      )
+      .option(
+        "--no-wait",
+        "with the device code: print the approval URL on stdout and exit; run `oxyc login` again once approved to finish"
       )
       .addOption(approverOption("with --no-browser"))
       .option("-r, --reason <why>", "why you are acting as that org — recorded in the audit log")
@@ -334,6 +352,20 @@ function buildProgram(): Command {
         "one session names one org on one deployment"
       );
     }
+    // Commander's `--no-wait` is `wait: false`.
+    const noWait = opts.wait === false;
+    if (noWait && opts.browser === true) {
+      throw usageError(
+        "--no-wait is only valid with the device code, not --browser",
+        "the browser login finishes in this process; there is nothing to come back for"
+      );
+    }
+    if (noWait && (envs.length > 1 || assumeFlag !== undefined)) {
+      throw usageError(
+        "--no-wait starts one login on one env, and is not valid with --login-env or --assume",
+        "pass --assume to the `oxyc login` that finishes it"
+      );
+    }
     if (envs.length > 1 && opts.target) {
       throw usageError(
         "--target is only valid when logging into a single env",
@@ -349,10 +381,17 @@ function buildProgram(): Command {
             org: typeof assumeFlag === "string" && assumeFlag ? assumeFlag : undefined,
             reason: String(opts.reason)
           };
-    // Commander's `--no-browser` is `browser: false`; it defaults to true.
-    const noBrowser = opts.browser === false;
-    const approver = approverFrom(opts, noBrowser, cmd.getOptionValueSource("approver"));
-    await runLogin(createContext(globals(opts)), envs, assume, { noBrowser, approver });
+    const { noBrowser, approver } = resolveApproval(opts, cmd.getOptionValueSource("approver"), {
+      noWait,
+      what: "the login"
+    });
+    const forceBrowser = opts.browser === true;
+    const ctx = createContext(globals(opts));
+    if (noWait) {
+      await runLoginNoWait(ctx, { noBrowser, approver }, finishCommand(opts));
+      return;
+    }
+    await runLogin(ctx, envs, assume, { noBrowser, approver, forceBrowser });
   });
 
   const assume = program
@@ -692,9 +731,14 @@ function buildProgram(): Command {
         "--name <label>",
         "with --agent or --sandbox-agent: its name in the token list and the audit log"
       )
+      // `--browser` FIRST, as on `login`: unset is "decide from the machine".
+      .option(
+        "--browser",
+        "with --agent or --sandbox-agent: approve in this machine's browser, even where oxyc detects none"
+      )
       .option(
         "--no-browser",
-        "with --agent or --sandbox-agent: approve by device code from any device, for a machine no browser can reach (a container, CI, a remote box)"
+        "with --agent or --sandbox-agent: approve by device code from any device — the default where no browser can reach this machine (a cloud session, SSH)"
       )
       .addOption(approverOption("with --no-browser, on --agent or --sandbox-agent"))
       .addHelpText(
@@ -719,9 +763,16 @@ function buildProgram(): Command {
     const apps = opts.app as string[];
     const hours = opts.hours as string | undefined;
     const name = opts.name as string | undefined;
-    // Commander's `--no-browser` is `browser: false`; it defaults to true.
-    const noBrowser = opts.browser === false;
-    const approver = approverFrom(opts, noBrowser, cmd.getOptionValueSource("approver"));
+    // Only a mint has an approval to route; plain `tokens create` opens a page.
+    const minting = Boolean(opts.agent || opts.sandboxAgent);
+    const browserFlag = opts.browser as boolean | undefined;
+    const approverSource = cmd.getOptionValueSource("approver");
+    const { noBrowser, approver } = minting
+      ? resolveApproval(opts, approverSource, { what: "the token" })
+      : (() => {
+          const plain = browserFlag === false;
+          return { noBrowser: plain, approver: approverFrom(opts, plain, approverSource) };
+        })();
     // Two different tokens. Asked for both, neither is minted.
     if (opts.agent && opts.sandboxAgent) {
       throw usageError(
@@ -737,7 +788,9 @@ function buildProgram(): Command {
     }
     if (opts.standing && noBrowser) {
       throw usageError(
-        "--standing is not available with --no-browser",
+        browserFlag === false
+          ? "--standing is not available with --no-browser"
+          : "--standing needs a browser on this machine, and oxyc detected none (pass --browser if one can reach it)",
         "a token approved by device code never carries staff or partner access — mint it where a browser can open, or drop --standing"
       );
     }
@@ -761,9 +814,9 @@ function buildProgram(): Command {
     }
     // The flags mean nothing without it, and silently opening the page
     // would look like the mint had been asked for.
-    if (apps.length > 0 || hours !== undefined || name !== undefined || noBrowser) {
+    if (apps.length > 0 || hours !== undefined || name !== undefined || browserFlag !== undefined) {
       throw usageError(
-        "--app, --hours, --name and --no-browser are only valid with --agent or --sandbox-agent",
+        "--app, --hours, --name and --browser/--no-browser are only valid with --agent or --sandbox-agent",
         "plain `oxyc tokens create` opens the page that creates a personal access token"
       );
     }

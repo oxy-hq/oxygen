@@ -37,7 +37,7 @@ name with its install line the first time a command needs it.
 ## Quick start
 
 ```bash
-oxyc login --env dev                        # browser flow; stores a token
+oxyc login --env dev                        # browser flow (a URL + code where there is no browser); stores a token
 oxyc whoami --env dev                       # verify it against the deployment
 
 oxyc routes threads                         # find the endpoint
@@ -170,7 +170,7 @@ answer, and the answer goes to stdout so it pipes. It is the route a custom app'
 ## Authentication
 
 ```bash
-oxyc login [--env <e>] [--login-env <e...>] [--assume <org> -r <why>] [--no-browser [--approver <email>]]
+oxyc login [--env <e>] [--login-env <e...>] [--assume <org> -r <why>] [--browser | --no-browser [--approver <email>] [--no-wait]]
 oxyc whoami [--json]        # who the credential is, and what it can reach
 oxyc token                  # print the bearer, for a raw curl
 oxyc login-link [--next <path>] [--json] [--open]   # a one-time URL that signs a browser in
@@ -179,8 +179,8 @@ oxyc tokens list [--json]   # your personal access tokens
 oxyc tokens revoke <id>
 oxyc tokens revoke --current   # end the token in OXY_TOKEN
 oxyc tokens create          # opens Account → Personal access tokens
-oxyc tokens create --sandbox-agent --app <org>/<app> [--app …] [--hours 8] [--name …] [--no-browser [--approver <email>]]
-oxyc tokens create --agent [--standing] [--hours 8] [--name …] [--no-browser [--approver <email>]]
+oxyc tokens create --sandbox-agent --app <org>/<app> [--app …] [--hours 8] [--name …] [--browser | --no-browser [--approver <email>]]
+oxyc tokens create --agent [--standing] [--hours 8] [--name …] [--browser | --no-browser [--approver <email>]]
 ```
 
 **An agent runs on its own token, never on the person's `oxyc login`.** Which
@@ -301,6 +301,37 @@ approved by device code **never carries staff or partner access**, since
 whoever started the request collects it and the approver cannot see who that
 is. `--standing --no-browser` is a usage error (exit `2`), and a login made
 this way reaches only what its approver's organization memberships do.
+
+**`oxyc login` picks the device code itself where no browser can reach this
+machine**, the way `gh auth login` prints a URL and a code: in a Claude Code
+remote session (`CLAUDE_CODE_REMOTE`), a GitHub Codespace, over SSH (unless
+`BROWSER` names an opener, as VS Code Remote-SSH does), and on Linux with no
+`DISPLAY`/`WAYLAND_DISPLAY` (WSL excepted). It says which, on stderr.
+`--browser` forces the loopback, `--no-browser` the device code, and
+`OXYC_HEADLESS=1`/`0` does either without a flag. `tokens create --agent` and
+`--sandbox-agent` decide the same way.
+
+**On a CI runner** (`CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`) nobody can
+approve anything, so `oxyc login` and `tokens create --agent|--sandbox-agent`
+refuse at once with exit `4` instead of waiting ten minutes, and name what needs
+no person: `OXY_TOKEN` from a CI secret, or a GitHub OIDC service account
+(`--service-account`). Pass `--no-browser --approver <email>` to have a person
+approve from their device anyway (an exported `OXY_APPROVER` counts with
+`--no-browser`, `--no-wait` or in a Claude Code cloud session, never where oxyc
+only detected SSH or a Codespace; on a runner only the flag lifts the refusal); `OXYC_HEADLESS` or `CLAUDE_CODE_REMOTE` also
+lifts the refusal. The approval URL and code are printed even with `--quiet`.
+
+**`oxyc login --no-wait`** is the device code for a caller that cannot watch a
+command still running — an agent sees a command's output only when it ends.
+It starts the request, prints the approval URL **alone on stdout** (the code
+and the next step on stderr) and exits `0`. Once the person has approved,
+**`oxyc login` again, with the same `--env`/`--target`**, collects that same
+request in one poll and caches the token as any login does; before approval it
+prints the URL again and waits. The request (device code and PKCE verifier) is
+kept in `login-pending.json` beside the credentials file, owner-only, until it
+is collected, refused or lapses (ten minutes). `--browser` skips it.
+`--no-wait` is a usage error (exit `2`) with `--browser`, `--login-env` or
+`--assume`; pass `--assume` to the `oxyc login` that finishes.
 
 **`--approver <email>`** (env `OXY_APPROVER`, valid only with `--no-browser`;
 anything else is a usage error, exit `2`) names who must approve, so nobody

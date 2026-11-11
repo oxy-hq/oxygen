@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { CliError, ExitCode } from "../util/errors.js";
-import { approverFrom, plausibleEmail } from "./approver.js";
+import { approverFrom, approverNamed, plausibleEmail } from "./approver.js";
 
 const refusal = (run: () => unknown): CliError => {
   try {
@@ -27,6 +27,18 @@ describe("approverFrom", () => {
     expect(approverFrom({ approver: "ada@example.com" }, true, "env")).toBe("ada@example.com");
   });
 
+  it("drops an exported approver where oxyc switched to the device code by itself", () => {
+    // An engineer's own login over SSH: OXY_APPROVER is their setting for agents.
+    expect(approverFrom({ approver: "lead@example.com" }, true, "env", false)).toBeUndefined();
+    expect(approverFrom({ approver: "lead@example.com" }, true, "env", true)).toBe(
+      "lead@example.com"
+    );
+    // The flag is the person's choice for this run, detected or not.
+    expect(approverFrom({ approver: "lead@example.com" }, true, "cli", false)).toBe(
+      "lead@example.com"
+    );
+  });
+
   it("is a usage error without --no-browser", () => {
     const cause = refusal(() => approverFrom({ approver: "ada@example.com" }, false));
     expect(cause.code).toBe(ExitCode.USAGE);
@@ -49,5 +61,14 @@ describe("plausibleEmail", () => {
     expect(plausibleEmail(`${"a".repeat(246)}@oxy.tech`)).toBe(false);
     expect(plausibleEmail("a@b\n")).toBe(false);
     expect(plausibleEmail("a\u0000@b")).toBe(false);
+  });
+});
+
+describe("approverNamed", () => {
+  it("counts the flag, never an exported OXY_APPROVER", () => {
+    expect(approverNamed({ approver: "ada@example.com" }, "cli")).toBe(true);
+    expect(approverNamed({ approver: "ada@example.com" }, "env")).toBe(false);
+    expect(approverNamed({ approver: "  " }, "cli")).toBe(false);
+    expect(approverNamed({}, undefined)).toBe(false);
   });
 });

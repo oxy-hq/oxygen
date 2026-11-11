@@ -52,8 +52,8 @@ import type { Pkce } from "./pkce.js";
 /** The page a person approves on. The user code rides in the URL, and is shown there to compare. */
 export const DEVICE_PAGE = "/cli-auth/device";
 
-/** What the start answers. */
-interface Started {
+/** What the start answers: one request, collectable by whoever holds the verifier. */
+export interface DeviceRequest {
   device_code: string;
   user_code: string;
   expires_in: number;
@@ -64,8 +64,14 @@ interface Started {
 const SLOW_DOWN_STEP_S = 5;
 /** Network failures in a row a poll survives before it gives up. */
 const MAX_POLL_FAILURES = 3;
+/**
+ * Seconds past the request's own lifetime the poll keeps asking. The
+ * deployment answers `expired_token` at the lifetime; this is the bound for a
+ * deployment that keeps answering `pending` or 429 instead.
+ */
+const DEADLINE_GRACE_S = 30;
 
-const defaultSleep = (ms: number) =>
+export const defaultSleep = (ms: number) =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, ms).unref?.();
   });
@@ -96,7 +102,7 @@ async function startRequest(
   hostname: string,
   query: string | undefined,
   approver: string | undefined
-): Promise<Started | undefined> {
+): Promise<DeviceRequest | undefined> {
   const url = `${base(target)}/api/auth/cli/device`;
   const ask = askFromQuery(query);
   let response: Response;
@@ -120,7 +126,7 @@ async function startRequest(
       detail: printableLines(text.slice(0, 2000)).trim() || undefined
     });
   }
-  const body = parseBody(text) as Partial<Started>;
+  const body = parseBody(text) as Partial<DeviceRequest>;
   if (typeof body.device_code !== "string" || typeof body.user_code !== "string") {
     throw new CliError("the deployment started no device-code request", {
       code: ExitCode.UNAVAILABLE
@@ -135,27 +141,30 @@ async function startRequest(
 }
 
 /** Say where to approve. Stderr only: stdout stays the one line a shell evaluates. */
-function announce(
+export function announce(
   target: string,
-  started: Started,
+  started: DeviceRequest,
   purpose: BrowserPurpose,
   approver: string | undefined
 ): void {
   const code = printable(started.user_code);
   const url = deviceUrl(target, started.user_code);
-  log.info(`To ${purpose.opening}, open this on any device where you are signed in to Oxygen:`);
-  log.info(`  ${url}`);
-  log.info(`and type this code on that page: ${code}`);
+  // `say`, not `info`: `--quiet` must not hide what the person has to act on.
+  log.say(`To ${purpose.opening}, open this on any device where you are signed in to Oxygen:`);
+  log.say(`  ${url}`);
+  log.say(`and type this code on that page: ${code}`);
   // The same words whether or not the email names an account: the deployment
   // does not say, and neither do we.
   if (approver) {
-    log.info(
+    log.say(
       `Approval request sent to ${printable(approver)} — they type the code ${code} on ${url}.`
     );
   }
-  log.info(
-    `Waiting for approval (the request lapses in ${Math.round(started.expires_in / 60)} min)…`
-  );
+}
+
+/** The line a caller that waits prints after `announce`. */
+export function announceWaiting(secondsLeft: number): void {
+  log.info(`Waiting for approval (the request lapses in ${Math.round(secondsLeft / 60)} min)…`);
 }
 
 /**
@@ -218,21 +227,40 @@ function stepFrom(
   });
 }
 
-/** Poll until the request is decided, collecting the token once. */
-async function pollUntilDecided(
+/**
+ * Poll until the request is decided, collecting the token once.
+ *
+ * `firstWait` is seconds before the first poll: the interval for a request
+ * just started, `0` for one `oxyc login --no-wait` started earlier, which may
+ * already be approved.
+ */
+export async function pollUntilDecided(
   target: string,
-  pkce: Pkce,
-  started: Started,
+  verifier: string,
+  started: DeviceRequest,
   wording: { refused: CodeRefused; purpose: BrowserPurpose },
-  sleep: (ms: number) => Promise<void>
+  sleep: (ms: number) => Promise<void>,
+  firstWait: number = started.interval
 ): Promise<Minted> {
   const url = `${base(target)}/api/auth/cli/device/poll`;
-  const body = { device_code: started.device_code, code_verifier: pkce.verifier };
+  const body = { device_code: started.device_code, code_verifier: verifier };
   let interval = started.interval;
-  let wait = interval;
+  let wait = firstWait;
   let failures = 0;
+  // Counted in the waits asked for, not the wall clock, so a test's `sleep`
+  // drives it. Each request adds a little real time on top: a bound, not a timer.
+  let waited = 0;
   for (;;) {
-    await sleep(wait * 1000);
+    if (waited + wait > started.expires_in + DEADLINE_GRACE_S) {
+      throw new CliError(`timed out waiting for someone to ${wording.purpose.waitingFor}`, {
+        code: ExitCode.UNAVAILABLE,
+        detail: `the request lapsed after ${Math.round(started.expires_in / 60)} min with no decision.`,
+        hint: `run \`${wording.purpose.retry} --no-browser\` again, and approve it sooner`,
+        serverCode: "expired_token"
+      });
+    }
+    if (wait > 0) await sleep(wait * 1000);
+    waited += wait;
     let response: Response;
     try {
       response = await post(url, body);
@@ -273,11 +301,35 @@ export async function deviceRound(
   ask: { query?: string; purpose?: BrowserPurpose; refused?: CodeRefused } = {}
 ): Promise<Minted | undefined> {
   const purpose = ask.purpose ?? LOGIN_PURPOSE;
+  const started = await deviceStart(target, opts, pkce, { query: ask.query, purpose });
+  if (!started) return undefined;
+  announceWaiting(started.expires_in);
+  const wording = { refused: ask.refused ?? LOGIN_CODE_REFUSED, purpose };
+  return pollUntilDecided(target, pkce.verifier, started, wording, opts.sleep ?? defaultSleep);
+}
+
+/**
+ * Start a request and say where to approve it, without waiting for it.
+ * `undefined` when the deployment has no device-code route.
+ */
+export async function deviceStart(
+  target: string,
+  opts: LoginOptions,
+  pkce: Pkce,
+  ask: { query?: string; purpose?: BrowserPurpose } = {},
+  /**
+   * Run between the start and the announcement — `--no-wait` records the
+   * request here, so a failure to record it is reported before anyone is told
+   * to approve a request nothing could collect.
+   */
+  beforeAnnounce?: (started: DeviceRequest) => void
+): Promise<DeviceRequest | undefined> {
   const hostname = opts.hostname ?? osHostname();
   const approver = opts.approver?.trim() || undefined;
   const started = await startRequest(target, pkce, hostname, ask.query, approver);
-  if (!started) return undefined;
-  announce(target, started, purpose, approver);
-  const wording = { refused: ask.refused ?? LOGIN_CODE_REFUSED, purpose };
-  return pollUntilDecided(target, pkce, started, wording, opts.sleep ?? defaultSleep);
+  if (started) {
+    beforeAnnounce?.(started);
+    announce(target, started, ask.purpose ?? LOGIN_PURPOSE, approver);
+  }
+  return started;
 }

@@ -154,6 +154,38 @@ describe("deviceRound", () => {
     expect(waits).toEqual([5000, 5000]);
   });
 
+  it("gives up at the request's lifetime when the deployment never says it lapsed", async () => {
+    startReply = {
+      status: 200,
+      body: { device_code: "dev-code", user_code: "BCDF-GHJK", expires_in: 60, interval: 5 }
+    };
+    pollReplies = [pending];
+    const cause = await refusalOf(deviceRound(target, opts(), createPkce()));
+    expect(cause.code).toBe(ExitCode.UNAVAILABLE);
+    expect(cause.serverCode).toBe("expired_token");
+    // 60 s of life plus 30 s of grace, at 5 s a poll.
+    expect(waits.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(90_000);
+    expect(polls.length).toBe(18);
+  });
+
+  it("prints the URL and the code even under --quiet", async () => {
+    pollReplies = [approved];
+    let said = "";
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      said += String(chunk);
+      return true;
+    });
+    try {
+      await deviceRound(target, opts(), createPkce());
+    } finally {
+      spy.mockRestore();
+    }
+    expect(process.env.OXYC_QUIET).toBe("1");
+    expect(said).toContain(`${target}/cli-auth/device?code=BCDF-GHJK`);
+    expect(said).toContain("type this code on that page: BCDF-GHJK");
+    expect(said).not.toContain("Waiting for approval");
+  });
+
   it("is undefined on a deployment with no device-code route", async () => {
     startReply = { status: 404, body: { error: "not found" } };
     expect(await deviceRound(target, opts(), createPkce())).toBeUndefined();
