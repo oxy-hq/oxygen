@@ -8,6 +8,7 @@
 
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 import { cx } from "../cx";
+import { forgetScroll } from "./layers";
 import { fillHeight, nearestScroller } from "./scroller";
 import { present } from "./tone";
 
@@ -63,7 +64,11 @@ export function PhonePage({ children, tabBar, stickyAction, scrollKey }: PhonePa
   useEffect(() => {
     if (lastKey.current === scrollKey) return;
     lastKey.current = scrollKey;
-    nearestScroller(ref.current).scrollTop = 0;
+    const scroller = nearestScroller(ref.current);
+    // A sheet closing in the same commit (the More list choosing a tab) would put
+    // the old tab's position back a frame later.
+    forgetScroll(scroller);
+    scroller.scrollTop = 0;
   }, [scrollKey]);
 
   const docked = present(tabBar) || present(stickyAction);

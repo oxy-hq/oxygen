@@ -1,8 +1,8 @@
 // The rail's narrow-screen form: a menu button (in the top bar) opening a
 // left drawer of the same entries, each with its name. On a touch screen the
-// rail's only labels are hover tooltips, which never show, so below 768px
-// OxyShell hides the rail and renders this instead (see `.oxy-shell--navsheet`
-// in shell.css). Mirrors web-app/src/components/Shell/ShellNavSheet.tsx;
+// rail's only labels are hover tooltips, which never show, so below 768px, and
+// on a phone on its side, OxyShell hides the rail and renders this instead (see
+// `.oxy-shell--navsheet` in shell.css, whose query is NAV_SHEET_QUERY). Mirrors web-app/src/components/Shell/ShellNavSheet.tsx;
 // written without a dialog library because the SDK carries none.
 
 import {
@@ -166,7 +166,12 @@ export function trapTab(e: KeyboardEvent, panel: HTMLElement | null) {
   }
 }
 
-/** The menu button. Hidden by shell.css except below 768px in an
+/** Where the drawer stands in for the rail: below 768px, and on a phone on its
+ *  side (the phone layout's landscape half), whose 390px cannot hold the rail's
+ *  items at a 44px touch size. Kept equal to the query in shell.css. */
+export const NAV_SHEET_QUERY = "(max-width: 767.98px), (pointer: coarse) and (max-height: 500px)";
+
+/** The menu button. Hidden by shell.css except under NAV_SHEET_QUERY in an
  *  `.oxy-shell--navsheet` shell. */
 export function NavSheetTrigger({ sheet }: { sheet: NavSheetState }) {
   return (
@@ -201,8 +206,9 @@ export function NavSheetPanel({
 
   // Focus moves into the drawer on open and back to the menu button on close,
   // so a keyboard user is never stranded behind the overlay. Escape closes,
-  // and so does widening past the breakpoint, where the rail is back and an
-  // open drawer would only cover it.
+  // and so does leaving the query (widening past 768px, a phone turned from its
+  // side to a tablet's height), where the rail is back and an open drawer would
+  // only cover it.
   useEffect(() => {
     if (!open) return;
     closeRef.current?.focus();
@@ -211,15 +217,15 @@ export function NavSheetPanel({
       if (e.key === "Escape") setOpen(false);
       else if (e.key === "Tab") trapTab(e, panelRef.current);
     };
-    const wide = window.matchMedia?.("(min-width: 768px)");
+    const narrow = window.matchMedia?.(NAV_SHEET_QUERY);
     const onWide = () => {
-      if (wide?.matches) setOpen(false);
+      if (narrow && !narrow.matches) setOpen(false);
     };
     window.addEventListener("keydown", onKey);
-    wide?.addEventListener?.("change", onWide);
+    narrow?.addEventListener?.("change", onWide);
     return () => {
       window.removeEventListener("keydown", onKey);
-      wide?.removeEventListener?.("change", onWide);
+      narrow?.removeEventListener?.("change", onWide);
       trigger?.focus();
     };
   }, [open, setOpen, triggerRef]);

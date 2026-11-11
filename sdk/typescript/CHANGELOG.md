@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.1] - 2026-11-11
+
+### Fixed
+
+- **Closing a PhoneSheet puts the page back exactly where it was.** The scroll lock
+  froze the page behind but did not remember its position, so a list that rendered
+  shorter while a sheet was open (or in the commit that opened it) came back at the
+  top, and a Back could land on the browser's saved, clamped position. The lock now
+  keeps the position the person left, puts it back when the last sheet (or the Ask
+  panel on a phone) closes, and holds it for a second while the list is still too
+  short or a Back lands. It lets go the moment the person touches the page, anything
+  else scrolls it (an app bringing a saved row into view), the URL is another page's,
+  or `PhonePage`'s `scrollKey` starts a new tab at its top.
+- **A phone on its side gets the navigation drawer instead of a 32px rail.** At
+  844x390 the rail's items were 32px, and at 44px a workspace's apps do not fit the
+  height. Under `NAV_SHEET_QUERY` (below 768px, or a coarse pointer no taller than
+  500px) the shell shows the menu button and its 44px drawer rows; a rail still
+  shown there (`hideTopBar`, an app's own `ShellRail`) has 44px items. A tablet and a
+  desktop keep the rail as it was.
+- **A read that answers 200 without rows no longer takes the app down.** `useQuery`
+  cached the body before reading rows from it, so the next component mounting the
+  same query threw `rows.map` of undefined inside the SDK's effect and React
+  unmounted the app. Such a body is now an `OxyApiError` with code `malformed_read`
+  in the hook's `error`, never cached, and `refetch` recovers; `useSemanticQuery`
+  reports the same error instead of a TypeError. A body cut off mid-read keeps its
+  own (network or abort) error.
+
 ## [2.28.0] - 2026-11-10
 
 ### Added

@@ -273,6 +273,28 @@
   color: var(--oxy-shell-primary);
 }
 
+/* A rail still showing on a phone on its side (`hideTopBar` leaves the nav sheet
+   no menu button, and a ShellRail an app renders itself has none either): 44px
+   items, filling the rail's width, where the nav scrolls once they outgrow the
+   screen. Same query as the nav sheet's landscape half. */
+@media (pointer: coarse) and (max-height: 500px) {
+  .oxy-rail__top,
+  .oxy-rail__nav,
+  .oxy-rail__bottom {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .oxy-rail__nav {
+    overscroll-behavior: contain;
+  }
+
+  .oxy-rail__item {
+    height: 2.75rem;
+    width: 2.75rem;
+  }
+}
+
 /* ─── Workspace tile ────────────────────────────────────────────────────── */
 
 .oxy-workspace-tile {
@@ -306,13 +328,18 @@
   color: var(--oxy-shell-primary);
 }
 
-/* ─── Nav sheet (the rail below 768px) ──────────────────────────────────── */
+/* ─── Nav sheet (the rail below 768px, and on a phone on its side) ──────── */
 
 /* On a phone the rail's names are hover tooltips that never show, and its
    48px is an eighth of the screen: OxyShell hides it and a menu button in
    the top bar opens the same entries, named, in a left drawer. The rows are
    44px touch targets at full opacity — the label carries the hierarchy, not
-   the rail's fade. 767.98px pairs with the web-app's `md` (48rem). */
+   the rail's fade. 767.98px pairs with the web-app's `md` (48rem).
+   A phone on its side (844x390) is wider than that, but its rail's 32px items
+   are no touch target, and at 44px a workspace's apps (ten in Poke House's,
+   ~480px) do not fit the 342px under the logo. So it gets the drawer too, by
+   the phone layout's landscape half (PHONE_LAYOUT_QUERY): a coarse pointer no
+   taller than 500px. A touch tablet and a short desktop window keep the rail. */
 .oxy-navsheet-trigger {
   display: none;
   height: 2.25rem;
@@ -340,7 +367,7 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
 }
 
-@media (max-width: 767.98px) {
+@media (max-width: 767.98px), (pointer: coarse) and (max-height: 500px) {
   .oxy-shell--navsheet > .oxy-rail {
     display: none;
   }

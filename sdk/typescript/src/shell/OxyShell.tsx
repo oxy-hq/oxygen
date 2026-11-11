@@ -252,9 +252,10 @@ export function OxyShell({
       <OxyMark className='oxy-rail__item-img' />
     </span>
   );
-  // Below 768px the rail gives way to NavSheet, whose menu button lives in the
-  // top bar — so only when there is a top bar to hold it. `hideTopBar` keeps
-  // the rail at every width rather than leave a phone with no navigation.
+  // Below 768px, and on a phone on its side (NAV_SHEET_QUERY), the rail gives
+  // way to NavSheet, whose menu button lives in the top bar — so only when
+  // there is a top bar to hold it. `hideTopBar` keeps the rail at every width
+  // rather than leave a phone with no navigation.
   const navSheet = !hideTopBar && !degraded;
   const sheet = useNavSheet();
 

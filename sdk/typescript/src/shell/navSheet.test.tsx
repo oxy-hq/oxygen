@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 //
 // `<OxyShell>` on a phone: the rail's names are hover tooltips a touch screen
-// never shows, so below 768px the shell swaps the rail for a menu button that
-// opens the same entries, named, in a drawer. Mounted for real against a fake
+// never shows, so below 768px (and on a phone on its side) the shell swaps the
+// rail for a menu button that opens the same entries, named, in a drawer. Mounted for real against a fake
 // shell-context; the breakpoint itself lives in shell.css, checked as text.
 
 import { readFileSync } from "node:fs";
@@ -11,7 +11,9 @@ import { fileURLToPath } from "node:url";
 import * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { click, mount, type Page, servePage, settle } from "../custom-app/notifications.harness";
+import { NAV_SHEET_QUERY } from "./NavSheet";
 import { OxyShell, type OxyShellProps } from "./OxyShell";
+import { PHONE_LAYOUT_QUERY } from "./phone/usePhoneLayout";
 import type { ShellContextData } from "./shellContext";
 
 const SHELL_CONTEXT: ShellContextData = {
@@ -121,18 +123,23 @@ describe("OxyShell nav sheet", () => {
     expect(main.compareDocumentPosition(drawer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("closes when the window widens past the breakpoint", async () => {
+  it("closes when the window leaves the drawer's query", async () => {
     const listeners: Array<() => void> = [];
+    const asked: string[] = [];
     const query = {
-      matches: false,
+      matches: true,
       addEventListener: (_: string, fn: () => void) => listeners.push(fn),
       removeEventListener: () => {}
     };
-    vi.stubGlobal("matchMedia", () => query);
+    vi.stubGlobal("matchMedia", (q: string) => {
+      asked.push(q);
+      return query;
+    });
     await render();
     await click(trigger());
     expect(sheet()).not.toBeNull();
-    query.matches = true;
+    expect(asked).toContain(NAV_SHEET_QUERY);
+    query.matches = false;
     await React.act(async () => {
       for (const fn of listeners) fn();
     });
@@ -157,13 +164,36 @@ describe("OxyShell nav sheet", () => {
 
 describe("shell.css nav sheet breakpoint", () => {
   const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "shell.css"), "utf8");
-  const start = css.indexOf("@media (max-width: 767.98px)");
+  const start = css.indexOf(`@media ${NAV_SHEET_QUERY} {`);
   const block = css.slice(start, css.indexOf("\n}\n", start));
 
-  it("hides the rail and shows the menu button below 768px only", () => {
+  it("hides the rail and shows the menu button under NAV_SHEET_QUERY only", () => {
     expect(start).toBeGreaterThanOrEqual(0);
     expect(block).toMatch(/\.oxy-shell--navsheet > \.oxy-rail \{\s*display: none;/);
     expect(block).toMatch(/\.oxy-navsheet-trigger \{\s*display: inline-flex;/);
     expect(css).toMatch(/\.oxy-navsheet-trigger \{\s*display: none;/);
+  });
+
+  // A phone on its side (844x390) is wider than 768px, and its rail's 32px items
+  // were no touch target. It takes the drawer by the phone layout's landscape
+  // half; a touch tablet (taller) and a desktop (fine pointer) keep the rail.
+  it("covers a phone on its side, by the phone layout's landscape half", () => {
+    expect(NAV_SHEET_QUERY).toBe(
+      "(max-width: 767.98px), (pointer: coarse) and (max-height: 500px)"
+    );
+    expect(PHONE_LAYOUT_QUERY.split(", ")[1]).toBe(NAV_SHEET_QUERY.split(", ")[1]);
+  });
+
+  // Where the rail stays on a phone on its side (`hideTopBar`, or an app's own
+  // ShellRail), its items are 44px, and padding no longer squeezes them.
+  it("gives a rail on a phone on its side 44px items", () => {
+    const head = "@media (pointer: coarse) and (max-height: 500px) {";
+    const at = css.indexOf(head);
+    expect(at).toBeGreaterThanOrEqual(0);
+    const rail = css.slice(at, css.indexOf("\n}\n", at));
+    expect(rail).toMatch(/\.oxy-rail__item \{\s*height: 2\.75rem;\s*width: 2\.75rem;/);
+    expect(rail).toMatch(
+      /\.oxy-rail__nav,\s*\.oxy-rail__bottom \{\s*padding-left: 0;\s*padding-right: 0;/
+    );
   });
 });

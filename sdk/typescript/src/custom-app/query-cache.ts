@@ -3,7 +3,7 @@
 // is intentionally NOT aborted on a single consumer's unmount — others may
 // still need it; consumers guard their own setState with a `cancelled` flag.
 
-import { apiErrorFromResponse } from "./errors";
+import { apiErrorFromResponse, OxyApiError } from "./errors";
 import type { SentQueryParam } from "./query-params";
 
 export type QueryResult = { columns: string[]; rows: unknown[][] };
@@ -12,6 +12,44 @@ export type Fetcher = (path: string, init: RequestInit) => Promise<Response>;
 const SWR_TTL_MS = 30_000;
 const inflight = new Map<string, Promise<QueryResult>>();
 const cache = new Map<string, { at: number; data: QueryResult }>();
+
+/** True when `body` is rows a hook can map: `columns` and `rows` arrays, each row an array. */
+export function isQueryResult(body: unknown): body is QueryResult {
+  if (!body || typeof body !== "object") return false;
+  const { columns, rows } = body as { columns?: unknown; rows?: unknown };
+  return Array.isArray(columns) && Array.isArray(rows) && rows.every(Array.isArray);
+}
+
+/**
+ * A read's 2xx answer as rows, or the error a hook reports for it. A 200 can
+ * carry something else (`{}`, an error page a proxy answered with): mapped as
+ * rows it throws `rows.map` of undefined, and cached first, it threw again
+ * inside the next mount's effect, where nothing catches it and React unmounts
+ * the app. So it is checked before anything keeps it, and fails like any other
+ * failed read: the hook's `error`, and `refetch` to try again.
+ */
+export async function readRows(resp: Response): Promise<QueryResult> {
+  let body: unknown;
+  try {
+    body = await resp.json();
+  } catch (e) {
+    // Only a body that is not JSON; a dropped connection or an abort mid-body is
+    // that error, not a read "without rows".
+    if (!(e instanceof SyntaxError)) throw e;
+    body = undefined;
+  }
+  return checkRows(body, resp.status);
+}
+
+/** `body` when it is rows, else the error `readRows` throws. */
+export function checkRows<T extends QueryResult>(body: unknown, status: number): T {
+  if (isQueryResult(body)) return body as T;
+  throw new OxyApiError({
+    status,
+    message: "The data service answered without any rows.",
+    code: "malformed_read"
+  });
+}
 
 /** The params a SQL template names, as `paramsToSend` builds them. */
 export type QueryParams = Record<string, SentQueryParam>;
@@ -38,8 +76,15 @@ export function getCached(
   db: string | undefined,
   params?: QueryParams
 ): QueryResult | undefined {
-  const e = cache.get(queryKey(projectId, db, sql, params));
-  return e && Date.now() - e.at < SWR_TTL_MS ? e.data : undefined;
+  const key = queryKey(projectId, db, sql, params);
+  const e = cache.get(key);
+  if (!e || Date.now() - e.at >= SWR_TTL_MS) return undefined;
+  // Read in an effect: an entry that is not rows must never reach the mapping.
+  if (!isQueryResult(e.data)) {
+    cache.delete(key);
+    return undefined;
+  }
+  return e.data;
 }
 
 /** Fetch with in-flight dedup + cache. `force` bypasses the fresh-cache
@@ -77,7 +122,7 @@ export async function sharedQuery(
     if (!resp.ok) {
       throw await apiErrorFromResponse(resp);
     }
-    const data = (await resp.json()) as QueryResult;
+    const data = await readRows(resp);
     cache.set(key, { at: Date.now(), data });
     return data;
   })().finally(() => inflight.delete(key));

@@ -42,7 +42,7 @@ import {
   type ResolvedCustomAppManifest
 } from "./manifest";
 import { isSafeLinkHref, isTableStart, splitTableRow } from "./markdown";
-import { getCached, sharedQuery } from "./query-cache";
+import { checkRows, getCached, sharedQuery } from "./query-cache";
 import { paramsToSend, type QueryParam } from "./query-params";
 import { newTraceparent, withInvocationIds } from "./traceparent";
 import { holdUpdates, withClientBuild } from "./updates";
@@ -727,12 +727,20 @@ export function useSemanticQuery<Row = Record<string, unknown>>(
         if (!resp.ok) {
           throw await apiErrorFromResponse(resp);
         }
-        return resp.json() as Promise<{
+        // Checked before mapping, as useQuery's reads are: a 200 without rows is
+        // a failed read with a message, not `rows.map` of undefined.
+        return checkRows<{
           columns: string[];
           rows: unknown[][];
           truncated: boolean;
           sql?: string;
-        }>;
+        }>(
+          await resp.json().catch((e: unknown) => {
+            if (e instanceof SyntaxError) return undefined;
+            throw e;
+          }),
+          resp.status
+        );
       })
       .then(({ columns, rows, truncated, sql }) => {
         if (cancelled) return;
