@@ -19,6 +19,11 @@
 //! `health_eval_workspace` task executor. The partner console reads
 //! [`rollup::health_rollup`] from here directly.
 
+// The release build overflows rustc's default (128) computing the layout of
+// `eval_pass::eval_and_persist`'s future. 256 is what rustc suggests, and what
+// `oxy-api-workspace-health` and the other surface crates carry.
+#![recursion_limit = "256"]
+
 pub mod alert;
 pub mod app_availability;
 pub mod eval_pass;
