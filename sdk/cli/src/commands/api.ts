@@ -171,7 +171,7 @@ export async function runApi(ctx: Context, rawPath: string, flags: ApiFlags): Pr
     }).catch((cause) => {
       throw onBundleMount(cause, path);
     });
-    emit(formatBody(merged, { jq: flags.jq, md: flags.md, silent: flags.silent }));
+    emit(await formatBody(merged, { jq: flags.jq, md: flags.md, silent: flags.silent }));
     return;
   }
 
@@ -193,7 +193,7 @@ export async function runApi(ctx: Context, rawPath: string, flags: ApiFlags): Pr
   }
 
   noteNullBody(response.body, bearer);
-  emit(formatBody(response.body, { jq: flags.jq, md: flags.md, silent: flags.silent }));
+  emit(await formatBody(response.body, { jq: flags.jq, md: flags.md, silent: flags.silent }));
 }
 
 /**

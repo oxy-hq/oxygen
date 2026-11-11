@@ -31,8 +31,10 @@ pnpm link --global              # or, for `oxyc` on PATH
 ```
 
 Requires `node >= 20`. `gh` (authenticated) is required for the customer
-commands, `jq` for `--jq`, `git` for the repo commands. Each is reported by
-name with its install line the first time a command needs it.
+commands, `git` for the repo commands. Each is reported by name with its
+install line the first time a command needs it. `--jq` needs nothing extra. It
+uses `jq` when it is on PATH and an embedded copy of jq when it is not, as
+`gh api -q` does.
 
 ## Quick start
 
@@ -96,7 +98,7 @@ is where an app's bundle is served. The app registry API is `api/customer-apps/â
 | `-F, --field <k=v>` | typed parameter â€” `true`, `3`, `["a"]`, `@file`, `@-` |
 | `-H, --header <name:value>` | extra header (repeatable) |
 | `--input <file\|->` | raw request body from a file, or `-` for stdin |
-| `-q, --jq <expr>` | filter the response through `jq` |
+| `-q, --jq <expr>` | filter the response through jq (the `jq` binary, else an embedded jq) |
 | `--md` | render the result as a markdown table |
 | `--paginate` | follow every page and return one document |
 | `--paginate-key <field>` | the field holding the rows, when the guess is wrong |

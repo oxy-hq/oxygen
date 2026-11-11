@@ -63,6 +63,9 @@ importers:
       commander:
         specifier: ^15.0.0
         version: 15.0.0
+      jq-wasm:
+        specifier: 3.0.0-jq-1.8.2
+        version: 3.0.0-jq-1.8.2
       picocolors:
         specifier: ^1.1.1
         version: 1.1.1
@@ -4269,6 +4272,10 @@ packages:
 
   jose@6.2.14:
     resolution: {integrity: sha512-3JasLuki1NRLQvY4wCoC37KZk4qxoBx2k2aFqLxT84IezqW0bkJKnNtxnZj/Fu1xsQivoc/lytxaRHJoGLjJ1A==}
+
+  jq-wasm@3.0.0-jq-1.8.2:
+    resolution: {integrity: sha512-jgWSEBJSd0lYR4Q5Fw8333MxQS5jCRI+g9KwAGL7yK1spwzTJy8C5uOS08wbpKE0Gz8oQYLlRpNLE/W70Ksp2g==}
+    engines: {node: '>=20'}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -9520,6 +9527,8 @@ snapshots:
   jiti@2.7.0: {}
 
   jose@6.2.14: {}
+
+  jq-wasm@3.0.0-jq-1.8.2: {}
 
   js-tokens@4.0.0: {}
 

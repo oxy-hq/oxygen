@@ -57,6 +57,7 @@ never sent to the server as a literal.
 
 - `--jq '<expr>'` on the server-side shape, **always**, before you look at a
   large response. Dumping a full thread list into context is the common waste.
+  It needs no `jq` on PATH (oxyc embeds jq), so use it in CI and cloud VMs too.
 - `--md` turns an array of objects into a markdown table — far fewer tokens
   than the same rows as JSON, which repeats every field name per row.
 - `--cache 5m` when you are walking the same endpoints repeatedly.
@@ -231,8 +232,7 @@ never your own credential (see "An agent's own credential").
 
 **In CI** nobody can approve, so `oxyc login` and `tokens create --agent` exit
 `4` at once. Use `OXY_TOKEN` from a secret, or `--service-account` under GitHub
-Actions OIDC. `-q` needs a `jq` binary; without one, drop `-q` and read the JSON body
-`oxyc api` prints.
+Actions OIDC. `-q` works there too: oxyc embeds jq when the runner has none.
 
 The session hangs off your **account**, not this terminal — your browser is in
 there too, and `end` gets you out of both.

@@ -28,6 +28,21 @@ function git(args: string[], cwd?: string): { stdout: string; stderr: string; st
   };
 }
 
+let installed: boolean | undefined;
+
+/**
+ * Whether a `git` binary is on PATH — asked once per process.
+ *
+ * For a caller that can do without a repo, so a machine with no git is "not
+ * in a repo" to it rather than an error. A command that NEEDS git calls the
+ * functions below directly and gets `git failed to start` with its install
+ * line, never a misleading "not a working tree".
+ */
+export function gitInstalled(): boolean {
+  installed ??= spawnSync("git", ["--version"], { stdio: "ignore" }).error === undefined;
+  return installed;
+}
+
 /** Is `dir` inside a git working tree? */
 export function isRepo(dir: string): boolean {
   return git(["rev-parse", "--is-inside-work-tree"], dir).status === 0;

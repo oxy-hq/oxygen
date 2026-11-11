@@ -13,10 +13,9 @@
  * markdown tables more reliably than either JSON or aligned ASCII.
  */
 
-import { spawnSync } from "node:child_process";
 import { type Column, table } from "../ui/render.js";
 import { stdoutIsTty } from "../ui/tty.js";
-import { CliError, ExitCode } from "../util/errors.js";
+import { runJq } from "./jq.js";
 import { parseJson } from "./request.js";
 
 export interface OutputOptions {
@@ -28,46 +27,6 @@ export interface OutputOptions {
   silent?: boolean;
   /** Pretty-print JSON even when piped. */
   pretty?: boolean;
-}
-
-/**
- * Run `--jq` by shelling out to jq.
- *
- * The alternatives were each worse. A WASM jq adds megabytes to a package
- * whose selling point is `npx` start-up; a hand-written JSONPath subset would
- * be a *different language* wearing jq's flag name, and the first `--jq` that
- * silently means something else is worse than not having the flag. jq is
- * already a stated prerequisite of the tooling this command absorbs, so the
- * dependency is not new — and when it is missing the error says so and names
- * the install line, rather than producing wrong output.
- */
-export function runJq(input: string, program: string): string {
-  const result = spawnSync("jq", ["-r", program], {
-    input,
-    encoding: "utf8",
-    maxBuffer: 256 * 1024 * 1024
-  });
-
-  if (result.error) {
-    const isMissing = (result.error as NodeJS.ErrnoException).code === "ENOENT";
-    throw new CliError(
-      isMissing
-        ? "--jq needs the `jq` binary, which is not on PATH"
-        : `jq failed: ${result.error.message}`,
-      {
-        code: isMissing ? ExitCode.USAGE : ExitCode.FAILURE,
-        hint: isMissing ? "brew install jq   (or apt-get install jq)" : undefined
-      }
-    );
-  }
-  if (result.status !== 0) {
-    throw new CliError(`jq exited ${result.status}`, {
-      code: ExitCode.USAGE,
-      detail: result.stderr?.trim() || undefined,
-      hint: "check the jq program — `oxyc api <path>` without --jq shows the shape"
-    });
-  }
-  return result.stdout;
 }
 
 /**
@@ -216,11 +175,11 @@ function findFirstArray(payload: unknown): unknown[] | undefined {
  * `--md` would have flattened, and `--md` then runs on jq's output so
  * `--jq '.threads' --md` is a table of exactly the rows you selected.
  */
-export function formatBody(body: string, opts: OutputOptions): string {
+export async function formatBody(body: string, opts: OutputOptions): Promise<string> {
   if (opts.silent) return "";
 
   let current = body;
-  if (opts.jq) current = runJq(current, opts.jq);
+  if (opts.jq) current = await runJq(current, opts.jq);
 
   if (opts.md) {
     const rendered = toMarkdown(parseJson(current));

@@ -54,7 +54,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { loadCatalog, loadOpenApi, searchRoutes } from "../api/catalog.js";
 import { paramsToQuery, parseFields } from "../api/fields.js";
-import { runJq } from "../api/output.js";
+import { runJq } from "../api/jq.js";
 import { isExternalSurface, normalizePath, substitutePlaceholders } from "../api/paths.js";
 import { parseJson, request } from "../api/request.js";
 import { markMcpSession } from "../api/user-agent.js";
@@ -932,7 +932,7 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
       }
 
       const jq = args.jq as string | undefined;
-      if (jq) return text(runJq(response.body, jq));
+      if (jq) return text(await runJq(response.body, jq));
       return text(response.body);
     }
 

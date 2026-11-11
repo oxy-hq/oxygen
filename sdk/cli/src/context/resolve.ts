@@ -25,7 +25,7 @@ import { dossierPath, isCloned, slugForDirectory } from "../customer/dossier.js"
 import { type Customer, customersOrg, resolveCustomer } from "../github/customers.js";
 import * as log from "../ui/log.js";
 import { authError, CliError, ExitCode } from "../util/errors.js";
-import { repoRoot } from "../util/git.js";
+import { gitInstalled, repoRoot } from "../util/git.js";
 import { loadForTargetResolution, type ResolvedEnv, resolveEnv } from "./target.js";
 
 /** Flags every command shares. Kept in one shape so `main.ts` wires them once. */
@@ -207,7 +207,8 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
       // wins. Otherwise infer from the checkout we are standing in, which is
       // what makes the placeholders free inside a customer session.
       if (flags.customer) return resolveCustomer(flags.customer, { refresh: flags.refresh });
-      const slug = slugForDirectory(cwd);
+      // No git installed means no checkout to infer from — see `repoDir`.
+      const slug = gitInstalled() ? slugForDirectory(cwd) : undefined;
       if (!slug) return undefined;
       const [, name] = slug.split("/");
       if (!name) return undefined;
@@ -228,7 +229,9 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
         if (isCloned(slug)) return dossierPath(slug);
       }
       // `--here`: working in one of our own repos on a customer's behalf.
-      return repoRoot(cwd);
+      // Asked on every command, so no git installed means no repo here, not
+      // an error: `oxyc api …` must work in a bare container with no checkout.
+      return gitInstalled() ? repoRoot(cwd) : undefined;
     });
 
   const stored = (): ResolvedCredential | undefined =>
