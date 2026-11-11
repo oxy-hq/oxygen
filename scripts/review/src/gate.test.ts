@@ -5,7 +5,7 @@ import { ownersFor, parseCodeowners } from "./codeowners.ts";
 import { collectFeedback, discussion, parseFeedback, threadReplies } from "./feedback.ts";
 import { finding, must, prMeta, reviewState } from "./fixtures.ts";
 import type { GateInput } from "./gate.ts";
-import { evaluateGate, evaluateRisk } from "./gate.ts";
+import { evaluateGate, evaluateRisk, riskReport, touchedAreas } from "./gate.ts";
 import type {
   DiffFile,
   GitHub,
@@ -121,12 +121,102 @@ test("high-risk approval needs a non-author owner of each risky area", () => {
     [review("bob", "APPROVED")]
   );
   assert.equal(both.state, "failure");
-  assert.match(both.description, /migrations \(carol\)/);
+  assert.match(both.description, /^Needs an approval: migrations, .+ \(carol\)$/);
   assert.equal(
     risk(["crates/billing/src/x.rs"], [review("zed", "APPROVED")]).state,
     "success",
     "team-only ownership accepts any non-author approval"
   );
+});
+
+test("every high-risk area says why it needs a person, in a few words", () => {
+  for (const area of HIGH_RISK) {
+    assert.ok(area.reason.trim().length > 0, area.id);
+    assert.ok(area.reason.length <= 45, `${area.id}: keep the reason short`);
+  }
+});
+
+test("the failing status carries each reason when it fits, and drops them when not", () => {
+  const rules = parseCodeowners(OWNERS);
+  const risk = (files: string[]) =>
+    evaluateRisk({ files, reviews: [], author: "zed", rules, highRisk: HIGH_RISK }).description;
+  const authz = must(HIGH_RISK.find((a) => a.id === "authz"));
+  assert.equal(
+    risk(["crates/authz/src/a.rs"]),
+    `Needs an approval: authz, ${authz.reason} (alice or bob)`
+  );
+  const all = risk([
+    "crates/authz/src/a.rs",
+    "crates/migration/src/m.rs",
+    "crates/billing/src/b.rs",
+    ".github/workflows/x.yaml",
+    "scripts/review/gate.ts"
+  ]);
+  assert.ok(all.length <= 140);
+  assert.ok(!all.includes(authz.reason), "too long with reasons, so ids and owners only");
+  assert.match(all, /^Needs an approval: authz \(alice or bob\); migrations \(carol\)/);
+});
+
+test("a touched high-risk area carries its reason and the files that put it there", () => {
+  const touched = touchedAreas(
+    [
+      "web-app/src/x.ts",
+      "crates/migration/src/m.rs",
+      "crates/authz/src/a.rs",
+      "crates/authz/src/a.rs"
+    ],
+    HIGH_RISK
+  );
+  assert.deepEqual(
+    touched.map((a) => [a.id, a.files]),
+    [
+      ["authz", ["crates/authz/src/a.rs"]],
+      ["migrations", ["crates/migration/src/m.rs"]]
+    ],
+    "config order, each file once"
+  );
+  assert.equal(touched[0]?.reason, HIGH_RISK.find((a) => a.id === "authz")?.reason);
+  assert.deepEqual(touchedAreas(["web-app/src/x.ts"], HIGH_RISK), []);
+});
+
+test("the gate's report says, per area, why, which files and who approved or can", () => {
+  const rules = parseCodeowners(OWNERS);
+  const risk = evaluateRisk({
+    files: ["crates/authz/src/a.rs", "crates/migration/src/m.rs"],
+    reviews: [{ user: { login: "bob" }, state: "APPROVED" }],
+    author: "alice",
+    rules,
+    highRisk: HIGH_RISK
+  });
+  assert.deepEqual(
+    risk.areas.map((a) => [a.id, a.owners, a.approvedBy]),
+    [
+      ["authz", ["alice", "bob"], "bob"],
+      ["migrations", ["carol"], null]
+    ]
+  );
+  const report = riskReport(risk.areas);
+  const [authz, migrations] = risk.areas.map((a) => a.reason);
+  assert.equal(
+    report,
+    [
+      "### high-risk-approval",
+      "",
+      `- **authz** (${authz}): approved by bob · \`crates/authz/src/a.rs\``,
+      `- **migrations** (${migrations}): needs carol · \`crates/migration/src/m.rs\``,
+      ""
+    ].join("\n")
+  );
+  assert.doesNotMatch(report, /@/, "a re-run of the gate must not ping owners");
+  const many = Array.from({ length: 9 }, (_, i) => `crates/billing/src/f${i}.rs`);
+  const billing = evaluateRisk({
+    files: many,
+    reviews: [],
+    author: "a",
+    rules,
+    highRisk: HIGH_RISK
+  });
+  assert.match(riskReport(billing.areas), /and 4 more$/m);
 });
 
 test("feedback parsing", () => {

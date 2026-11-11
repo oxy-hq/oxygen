@@ -117,6 +117,34 @@ export interface RiskInput {
   highRisk: readonly RiskArea[];
 }
 
+/** A HIGH_RISK area a PR touches: why it needs a person, and the files that put it there. */
+export interface TouchedArea {
+  id: string;
+  reason: string;
+  files: string[];
+}
+
+/** One touched area as the gate judged it. No `owners` means anyone but the author. */
+export interface AreaVerdict extends TouchedArea {
+  owners: string[];
+  approvedBy: string | null;
+}
+
+/** The HIGH_RISK areas `files` touch, in config order, each with its reason. */
+export function touchedAreas(
+  files: readonly string[],
+  highRisk: readonly RiskArea[]
+): TouchedArea[] {
+  const unique = [...new Set(files)];
+  return highRisk.flatMap((area) => {
+    const hit = unique.filter((path) => matchesAny(path, area.paths));
+    return hit.length ? [{ id: area.id, reason: area.reason, files: hit }] : [];
+  });
+}
+
+const whoCan = (a: AreaVerdict): string =>
+  a.owners.length ? a.owners.join(" or ") : "anyone but the author";
+
 /** `high-risk-approval`: a non-author approval from an owner of a risky path touched. */
 export function evaluateRisk({
   files,
@@ -124,35 +152,48 @@ export function evaluateRisk({
   author,
   rules,
   highRisk
-}: RiskInput): CommitStatus & { areas: string[] } {
-  const areas = new Map<string, Set<string>>();
-  for (const path of files) {
-    for (const area of highRisk) {
-      if (!matchesAny(path, area.paths)) continue;
-      const owners = areas.get(area.id) ?? new Set<string>();
-      for (const o of ownersFor(path, rules)) if (!o.includes("/")) owners.add(o);
-      areas.set(area.id, owners);
-    }
-  }
-  if (!areas.size)
-    return { state: "success", description: "No high-risk paths touched", areas: [] };
+}: RiskInput): CommitStatus & { areas: AreaVerdict[] } {
   const approvers = [...latestReviews(reviews)]
     .filter(([who, s]) => s === "APPROVED" && who !== author)
     .map(([who]) => who);
-  const missing: string[] = [];
-  for (const [id, owners] of areas) {
-    const ok = owners.size ? approvers.some((a) => owners.has(a)) : approvers.length > 0;
-    if (!ok)
-      missing.push(
-        owners.size ? `${id} (${[...owners].join(" or ")})` : `${id} (anyone but the author)`
-      );
-  }
-  const ids = [...areas.keys()];
-  if (!missing.length)
-    return { state: "success", description: cap(`Approved for ${ids.join(", ")}`), areas: ids };
-  return {
-    state: "failure",
-    description: cap(`Needs an approval: ${missing.join("; ")}`),
-    areas: ids
-  };
+  const areas = touchedAreas(files, highRisk).map((area): AreaVerdict => {
+    // Teams (`org/team`) are not resolved to members, so only named people count.
+    const owners = [
+      ...new Set(
+        area.files.flatMap((path) => ownersFor(path, rules)).filter((o) => !o.includes("/"))
+      )
+    ];
+    const approvedBy = approvers.find((who) => !owners.length || owners.includes(who)) ?? null;
+    return { ...area, owners, approvedBy };
+  });
+  if (!areas.length)
+    return { state: "success", description: "No high-risk paths touched", areas: [] };
+  const ids = areas.map((a) => a.id).join(", ");
+  const missing = areas.filter((a) => !a.approvedBy);
+  if (!missing.length) return { state: "success", description: cap(`Approved for ${ids}`), areas };
+  // With each reason when that fits the description; without, when it does not.
+  const needs = (why: boolean) =>
+    `Needs an approval: ${missing.map((a) => `${a.id}${why ? `, ${a.reason}` : ""} (${whoCan(a)})`).join("; ")}`;
+  const long = needs(true);
+  return { state: "failure", description: cap(long.length <= 140 ? long : needs(false)), areas };
+}
+
+const MAX_FILES = 5;
+
+/** Up to MAX_FILES paths as code, then how many more. */
+function fileList(files: readonly string[]): string {
+  const shown = files.slice(0, MAX_FILES).map((f) => `\`${f}\``);
+  const more = files.length - shown.length;
+  return more > 0 ? `${shown.join(", ")} and ${more} more` : shown.join(", ");
+}
+
+/**
+ * The gate run's step summary, behind the status's Details link: one line per area with
+ * its reason, who approved or can, and its files. Owners carry no `@`, so a re-run pings
+ * nobody.
+ */
+export function riskReport(areas: readonly AreaVerdict[]): string {
+  const line = (a: AreaVerdict) =>
+    `- **${a.id}** (${a.reason}): ${a.approvedBy ? `approved by ${a.approvedBy}` : `needs ${whoCan(a)}`} · ${fileList(a.files)}`;
+  return ["### high-risk-approval", "", ...areas.map(line), ""].join("\n");
 }

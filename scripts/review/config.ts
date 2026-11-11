@@ -14,6 +14,11 @@ export interface ReleaseRule {
 
 export interface RiskArea {
   id: string;
+  /**
+   * Why a person must approve this area, in a few words (at most 45 characters): it goes
+   * in the status line, the review's summary comment and the gate run's summary.
+   */
+  reason: string;
   paths: readonly string[];
 }
 
@@ -182,10 +187,12 @@ export const IGNORE: readonly string[] = [
 ];
 
 // Paths where a person must approve (the `high-risk-approval` status). Short on
-// purpose: everything else is reviewed by the pipeline alone.
+// purpose: everything else is reviewed by the pipeline alone. Each area says why in a few
+// words, which the status line carries.
 export const HIGH_RISK: readonly RiskArea[] = [
   {
     id: "authz",
+    reason: "who may see or do what",
     paths: [
       "crates/authz/**",
       "crates/auth/**",
@@ -193,12 +200,28 @@ export const HIGH_RISK: readonly RiskArea[] = [
       "crates/app/src/server/authz/**"
     ]
   },
-  { id: "migrations", paths: ["crates/migration/**"] },
-  { id: "billing", paths: ["crates/billing/**"] },
-  { id: "ci", paths: [".github/workflows/**", ".github/actions/**"] },
+  {
+    id: "migrations",
+    reason: "changes prod data a revert won't undo",
+    paths: ["crates/migration/**"]
+  },
+  {
+    id: "billing",
+    reason: "charges customers' money",
+    paths: ["crates/billing/**"]
+  },
+  {
+    id: "ci",
+    reason: "runs with secrets, sets merge checks",
+    paths: [".github/workflows/**", ".github/actions/**"]
+  },
   // The reviewer and gate themselves, the roadmap parser the gate runs included: a PR
   // must not grade its own homework unseen.
-  { id: "reviewer", paths: ["scripts/review/**", "scripts/roadmap/**"] }
+  {
+    id: "reviewer",
+    reason: "a PR would grade its own review",
+    paths: ["scripts/review/**", "scripts/roadmap/**"]
+  }
 ];
 
 // Lens patterns are matched against code, not prose: a doc that mentions `Command::new`,

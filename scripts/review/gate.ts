@@ -7,12 +7,13 @@
 //   --roadmap `roadmap` from the PR's files, its body's `Roadmap:` trailer, the
 //           roadmap doc at the PR head and, with no trailer, the review's judgement
 
+import { appendFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { parseTrailer } from "../roadmap/trailer.ts";
 import * as config from "./config.ts";
 import { parseCodeowners } from "./src/codeowners.ts";
 import type { GateInput } from "./src/gate.ts";
-import { evaluateGate, evaluateRisk } from "./src/gate.ts";
+import { evaluateGate, evaluateRisk, riskReport } from "./src/gate.ts";
 import * as gh from "./src/github.ts";
 import { isReleaseAppPr, isReleaseBump, listingAsDiff } from "./src/release.ts";
 import { evaluateRoadmap } from "./src/roadmap.ts";
@@ -108,10 +109,21 @@ if (args.risk) {
     .getFile(repo, ".github/CODEOWNERS", meta.base.sha ?? meta.base.ref)
     .catch(() => "");
   const rules = parseCodeowners(owners);
-  await report(
-    config.RISK_CONTEXT,
-    evaluateRisk({ files, reviews, author: meta.user.login, rules, highRisk: config.HIGH_RISK })
-  );
+  const risk = evaluateRisk({
+    files,
+    reviews,
+    author: meta.user.login,
+    rules,
+    highRisk: config.HIGH_RISK
+  });
+  await report(config.RISK_CONTEXT, risk);
+  // The status description has 140 characters, too few for why: the reasons go in the
+  // run's summary, which the status links to.
+  if (risk.areas.length) {
+    const summary = process.env.GITHUB_STEP_SUMMARY;
+    if (summary) appendFileSync(summary, riskReport(risk.areas));
+    else console.log(riskReport(risk.areas));
+  }
 }
 
 if (args.roadmap) {

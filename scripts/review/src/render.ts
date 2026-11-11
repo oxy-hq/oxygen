@@ -1,6 +1,7 @@
 // The words a PR author reads. One summary comment, edited in place; inline comments
 // for findings worth interrupting someone for.
 
+import type { TouchedArea } from "./gate.ts";
 import { isClosed } from "./state.ts";
 import type {
   Finding,
@@ -41,6 +42,8 @@ export interface SummaryView {
   runUrl?: string;
   reason?: string | null;
   carriedFrom?: string | null;
+  /** HIGH_RISK areas the PR touches, so the summary says why it needs a person. */
+  highRisk?: readonly TouchedArea[];
 }
 
 const sha = (s: string | null | undefined): string => `\`${(s ?? "").slice(0, 9)}\``;
@@ -107,6 +110,13 @@ function details(f: Finding, withBody: boolean): string {
     `<sub>${meta.join(" · ")}</sub>`,
     "</details>"
   ].join("\n");
+}
+
+/** One line: which high-risk areas the PR touches, and why each needs a person. */
+function riskSection(areas: readonly TouchedArea[] | undefined): string {
+  if (!areas?.length) return "";
+  const list = areas.map((a) => `**${a.id}** (${oneLine(a.reason)})`).join(" · ");
+  return `High-risk, a person must approve: ${list}\n`;
 }
 
 function closedSection(state: ReviewState): string {
@@ -200,6 +210,7 @@ export function renderSummary(
       table(open),
       "",
       ...open.map((f) => details(f, withBody)),
+      riskSection(view.highRisk),
       closedSection(state),
       possibleSection(state.possible),
       coverageSection(view, state.roadmap),

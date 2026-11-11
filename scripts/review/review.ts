@@ -8,6 +8,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import * as config from "./config.ts";
+import { touchedAreas } from "./src/gate.ts";
 import * as gh from "./src/github.ts";
 import { runPass } from "./src/llm.ts";
 import type { Loaded } from "./src/load.ts";
@@ -165,7 +166,15 @@ async function publish(args: Args, load: Loaded, outcome: RoundOutcome): Promise
       warn(view, `closed findings were not marked in their threads: ${messageOf(e)}`)
     );
   }
-  const body = summaryBody(state, { ...view, ...(args.runUrl ? { runUrl: args.runUrl } : {}) });
+  const highRisk = touchedAreas(
+    load.files.flatMap((f) => [f.path, f.oldPath]),
+    config.HIGH_RISK
+  );
+  const body = summaryBody(state, {
+    ...view,
+    highRisk,
+    ...(args.runUrl ? { runUrl: args.runUrl } : {})
+  });
   if (args.post) {
     await upsertSummary({ gh, repo: args.repo, pr: args.pr, existing: load.summary, body });
     if (!load.summary) await minimizeLegacy({ gh, comments: load.comments });

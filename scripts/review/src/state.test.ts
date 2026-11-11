@@ -198,6 +198,25 @@ test("an oversized summary drops finding bodies before it breaks the comment lim
   assert.ok(body.length <= 60_000);
 });
 
+test("the summary says in one line why a high-risk area needs a person", () => {
+  const render = (view: SummaryView) =>
+    renderSummary(
+      { ...emptyState(1, STATE_VERSION), head: "abc", status: "complete", verdict: "LGTM" },
+      view,
+      { marker: SUMMARY_MARKER, stateBlock: "" }
+    );
+  const highRisk = [
+    { id: "authz", reason: "who may see or do what", files: ["crates/authz/src/a.rs"] },
+    { id: "ci", reason: "runs with secrets", files: [".github/workflows/x.yaml"] }
+  ];
+  assert.ok(
+    render({ cost: 0, ms: 0, highRisk }).includes(
+      "High-risk, a person must approve: **authz** (who may see or do what) · **ci** (runs with secrets)\n"
+    )
+  );
+  assert.ok(!render({ cost: 0, ms: 0, highRisk: [] }).includes("High-risk"));
+});
+
 test("an incomplete review says so and what to do", () => {
   const body = renderSummary(
     { ...emptyState(1, STATE_VERSION), head: "abc", status: "incomplete" },
