@@ -1454,7 +1454,8 @@ export const RunDbtModelsView = ({ item }: { item: ArtifactItem }) => {
                 <p className='font-medium font-mono text-xs'>
                   {successCount > 0 && <span className='text-success'>{successCount} ok</span>}
                   {errorCount > 0 && (
-                    <span className={successCount > 0 ? "· text-destructive" : "text-destructive"}>
+                    <span className='text-destructive'>
+                      {successCount > 0 && " · "}
                       {errorCount} err
                     </span>
                   )}
