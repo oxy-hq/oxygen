@@ -55,12 +55,12 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
     ("api-tenancy/src/admin/orgs.rs", "create_default_workspace"),
     // `POST /{workspace_id}/source-uploads/reports` reads the pipeline
     // definition through `ConfigManager`, which owns the compiled-vs-disk
-    // choice and pins the request's revision; `oxy_api_source_upload::
+    // choice and pins the request's revision; `oxy_api_airway::
     // route_roles()` declares the route FleetOk. Today the call is spelled as a
     // field (`workspace.config_manager`), so nothing matches — this reserves the
     // slot so naming the type later does not read as a new disk access. The
     // working-copy needles still apply to the file.
-    ("api-source-upload/src/source_upload.rs", "ConfigManager"),
+    ("api-airway/src/source_upload.rs", "ConfigManager"),
     // The demo seed (`oxy seed`, and the integration fixture) deploys the example
     // apps from a workspace path it is handed. It is a CLI step, mounted on no
     // route at all, so no pod placement applies.
@@ -170,7 +170,7 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // writes to S3 and reads the pipeline definition through
         // `ConfigManager`, which owns the compiled-vs-disk choice — the handler
         // itself never reaches for a working copy.
-        "../api-source-upload/src",
+        "../api-airway/src",
         // Experiments and declared worlds, moved out of `build_workspace_routes`
         // where 18 of the 19 routes were `route_fleet`: the `MethodRouter<FleetState>`
         // type refused a working-copy extractor at compile time, and as plain

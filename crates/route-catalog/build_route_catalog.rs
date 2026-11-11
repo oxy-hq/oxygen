@@ -285,7 +285,7 @@ const SEEDS: &[Seed] = &[
     Seed {
         surface: "workspace",
         prefix: "/api/{workspace_id}",
-        module: "oxy_api_source_upload",
+        module: "oxy_api_airway",
         function: "routes",
     },
     // `oxy-api-experiment`: experiments and declared worlds, inside the
@@ -311,7 +311,7 @@ const SEEDS: &[Seed] = &[
 /// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
 /// Both lists watch `crates/api-github/src`, `crates/api-tenancy/src`,
 /// `crates/api-documents/src`, `crates/api-frontline/src`,
-/// `crates/api-custom-apps/src`, `crates/api-source-upload/src`,
+/// `crates/api-custom-apps/src`, `crates/api-airway/src`,
 /// `crates/api-experiment/src`, `crates/api-notifications/src` and
 /// `crates/api-workspace-health/src`, none of which `oxy-app` depends on
 /// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
@@ -341,7 +341,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-documents/src",
     "crates/api-frontline/src",
     "crates/api-custom-apps/src",
-    "crates/api-source-upload/src",
+    "crates/api-airway/src",
     "crates/api-experiment/src",
     "crates/api-notifications/src",
     "crates/api-workspace-health/src",
@@ -372,7 +372,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-documents/src",
     "crates/api-frontline/src",
     "crates/api-custom-apps/src",
-    "crates/api-source-upload/src",
+    "crates/api-airway/src",
     "crates/api-experiment/src",
     "crates/api-notifications/src",
     "crates/api-workspace-health/src",

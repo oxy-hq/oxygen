@@ -9596,6 +9596,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-airway"
+version = "0.5.160"
+dependencies = [
+ "agentic-airway",
+ "aws-config",
+ "aws-sdk-s3",
+ "axum",
+ "base64 0.23.0",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-shared",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-custom-apps"
 version = "0.5.160"
 dependencies = [
@@ -9897,25 +9918,6 @@ dependencies = [
  "url",
  "uuid",
  "wiremock",
- "workspace-hack",
-]
-
-[[package]]
-name = "oxy-api-source-upload"
-version = "0.5.160"
-dependencies = [
- "agentic-airway",
- "aws-config",
- "aws-sdk-s3",
- "axum",
- "oxy",
- "oxy-app",
- "oxy-app-core",
- "oxy-shared",
- "serde",
- "serde_json",
- "tracing",
- "uuid",
  "workspace-hack",
 ]
 
@@ -10615,9 +10617,9 @@ name = "oxy-route-catalog"
 version = "0.5.160"
 dependencies = [
  "axum",
+ "oxy-api-airway",
  "oxy-api-custom-apps",
  "oxy-api-experiment",
- "oxy-api-source-upload",
  "oxy-api-tenancy",
  "oxy-app",
  "tokio",
@@ -10665,13 +10667,13 @@ dependencies = [
  "migration",
  "once_cell",
  "oxy",
+ "oxy-api-airway",
  "oxy-api-custom-apps",
  "oxy-api-documents",
  "oxy-api-experiment",
  "oxy-api-frontline",
  "oxy-api-github",
  "oxy-api-notifications",
- "oxy-api-source-upload",
  "oxy-api-tenancy",
  "oxy-api-workspace-health",
  "oxy-app",

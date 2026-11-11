@@ -136,7 +136,6 @@ const SERVER_API: &[&str] = &[
     "org_subdomain",
     "org_teams",
     "partner_publish_consent",
-    "pipeline",
     "preagg",
     "projects",
     "public_rate_limit",

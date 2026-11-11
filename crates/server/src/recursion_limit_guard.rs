@@ -4,8 +4,8 @@
 //! out can pass rustc's default query depth (128) in the optimized build only.
 //! No PR job compiles with `--release`, so the first anyone hears of it is the
 //! image build failing on main — which it did from 2026-10-02 to 2026-10-05,
-//! after `oxy-api-source-upload` was split out of `oxy-app` and left `oxy-app`'s
-//! limit behind (#3476). The attribute is per crate and has no workspace-wide
+//! after `oxy-api-source-upload` (now `oxy-api-airway`) was split out of
+//! `oxy-app` and left `oxy-app`'s limit behind (#3476). The attribute is per crate and has no workspace-wide
 //! spelling, so the next crate split out loses it the same way.
 //!
 //! The crates are read off the filesystem rather than listed, so a surface

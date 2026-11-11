@@ -6,29 +6,16 @@
 //! filesystem and 502d on a stateless serve node when the ide was down; it is
 //! gone. This FleetOk endpoint serves the list from the boundary, falling
 //! through to the filesystem in local / not-yet-promoted mode — mirroring
-//! `automation.rs`.
+//! `oxy-app`'s `automation.rs`. Moved here from `oxy-app`'s `api/pipeline.rs`
+//! on 2026-11-11 (Pending 5, `api-airway`).
 
 use axum::extract::{self, Query};
 use axum::http::StatusCode;
 use base64::Engine;
-use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
-
-/// Decode a `path_b64` route param tolerantly — accept both the
-/// `URL_SAFE_NO_PAD` form our listers emit and the standard-padded form the FE
-/// `btoa` path historically produced. Shared by the automation + pipeline
-/// single-file fetches. Returns the decoded workspace-relative path.
-pub(crate) fn decode_path_b64(path_b64: &str) -> Option<String> {
-    let bytes = URL_SAFE_NO_PAD.decode(path_b64).ok().or_else(|| {
-        let pad = (4 - path_b64.len() % 4) % 4;
-        STANDARD
-            .decode(format!("{path_b64}{}", "=".repeat(pad)))
-            .ok()
-    })?;
-    String::from_utf8(bytes).ok()
-}
+use oxy_app::surface::WorkspaceManagerReadOnly;
 
 #[derive(Debug, Deserialize)]
 pub struct ListPipelinesQuery {

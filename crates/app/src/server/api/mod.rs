@@ -82,7 +82,6 @@ pub mod org_api_access;
 pub mod org_subdomain;
 pub mod org_teams;
 pub mod partner_publish_consent;
-pub mod pipeline;
 pub mod preagg;
 pub mod projects;
 pub mod public_rate_limit;

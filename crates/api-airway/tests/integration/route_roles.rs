@@ -6,7 +6,7 @@
 //! would answer FleetOk by default: the assertion would pass for the wrong
 //! reason. The guard belongs where both halves are visible, which is here.
 
-use oxy_api_source_upload::route_roles;
+use oxy_api_airway::route_roles;
 use oxy_app::surface::roles::{RouteRole, classify, install_route_declarations_for_tests_with};
 
 const WORKSPACE: &str = "22222222-2222-2222-2222-222222222222";

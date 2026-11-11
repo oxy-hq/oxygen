@@ -143,7 +143,7 @@ fn public_seam_routes() -> SeamRouter {
 /// The sibling crates merged inside the `/{workspace_id}` nest.
 fn workspace_seam_routes() -> SeamRouter {
     oxy_api_tenancy::onboarding::workspace_routes()
-        .merge(oxy_api_source_upload::routes())
+        .merge(oxy_api_airway::routes())
         .merge(oxy_api_custom_apps::workspace_routes())
         .merge(oxy_api_experiment::workspace_routes())
 }
@@ -186,8 +186,9 @@ fn workspace_seam_routes() -> SeamRouter {
 /// reconcile — ride `notifications`, without which `serve` and `worker` refuse
 /// to start.
 ///
-/// `oxy-api-source-upload` rides the workspace seam and declares its one route
-/// FleetOk: an S3 write that must not need the ide.
+/// `oxy-api-airway` rides the workspace seam and declares its three routes
+/// FleetOk: the report upload (an S3 write that must not need the ide) and the
+/// two `/airway-pipelines` reads (the compile boundary and a static list).
 ///
 /// `oxy-api-experiment` rides the workspace seam too (experiments and declared
 /// worlds under `/{workspace_id}`), declaring write-back apply IdeOnly (it creates
@@ -212,7 +213,7 @@ fn surface_seams() -> SurfaceSeams {
             routes: workspace_seam_routes(),
             decls: oxy_api_tenancy::onboarding::workspace_route_roles()
                 .iter()
-                .chain(oxy_api_source_upload::route_roles())
+                .chain(oxy_api_airway::route_roles())
                 .chain(oxy_api_custom_apps::workspace_route_roles())
                 .chain(oxy_api_experiment::workspace_route_roles())
                 .copied()

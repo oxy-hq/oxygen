@@ -15,7 +15,7 @@ use crate::api::{
     agent, api_keys, apps, artifacts, automation, chart, cohort, competitors, compile,
     compile_staging, data, database, execution_analytics, file, foot_traffic, integration,
     local_setup, metric_anomalies, metric_tree, metric_tree_probe, metric_tree_projection, metrics,
-    org_subdomain, pipeline, preagg, result_files, schedules, semantic, thread, traces, video,
+    org_subdomain, preagg, result_files, schedules, semantic, thread, traces, video,
     workspace_logo, workspace_members, workspace_oxy_access, workspaces, world_model,
     world_model_graph,
 };
@@ -73,16 +73,9 @@ pub(super) fn build_workspace_routes(
         // for backward compatibility.
         .route_fleet("/automations", get(automation::list_automations))
         .route_fleet("/automations/{path_b64}", get(automation::get_automation))
-        // Same boundary-backed pattern for Airway pipelines (`/agentic-airway`
-        // is IdeOnly + in a crate that can't reach `compiled_reader`).
-        .route_fleet("/airway-pipelines", get(pipeline::list_pipelines))
-        // Static connector metadata for the New Pipeline wizard's marketplace
-        // picker. Served rather than duplicated in the frontend so the list
-        // has one source of truth (`source_factory::NA_MARKETPLACES`).
-        .route_fleet(
-            "/airway-pipelines/sp-api/marketplaces",
-            get(pipeline::list_sp_api_marketplaces),
-        )
+        // `/airway-pipelines` (the boundary-backed pipeline listing and the
+        // sp_api marketplace list) moved to `oxy-api-airway`, merged inside this
+        // nest through the workspace seam, FleetOk as before.
         .nest("/threads", build_thread_routes(&app_state))
         .nest("/agents", build_agent_routes(&app_state))
         .nest("/api-keys", build_api_key_routes(&app_state))
@@ -134,7 +127,7 @@ pub(super) fn build_workspace_routes(
         )
         .route_fleet("/org-subdomain", get(org_subdomain::get_org_subdomain))
         .route_fleet("/logo", get(workspace_logo::get_workspace_logo))
-        // `/source-uploads` moved to the `oxy-api-source-upload` sibling crate,
+        // `/source-uploads` moved to the `oxy-api-airway` sibling crate,
         // merged inside this nest by `oxy-server` through the workspace seam.
         .nest(
             "/app-integrations",

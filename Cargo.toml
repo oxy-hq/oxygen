@@ -11,7 +11,7 @@ members = [
   "crates/route-catalog",
   "crates/tenancy",
   "crates/custom-apps",
-  "crates/api-source-upload",
+  "crates/api-airway",
   "crates/api-experiment",
   "crates/api-notifications",
   "crates/api-workspace-health",

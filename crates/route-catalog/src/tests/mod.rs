@@ -100,7 +100,7 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/{workspace_id}/sql/",
     "/api/{workspace_id}/integrations",
     "/api/{workspace_id}/onboarding",
-    // `oxy-api-source-upload`, on the workspace seam.
+    // `oxy-api-airway`, on the workspace seam.
     "/api/{workspace_id}/source-uploads",
     "/api/{workspace_id}/cameras",
     "/external/api/",

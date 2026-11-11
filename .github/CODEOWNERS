@@ -266,7 +266,7 @@ web-app/src/components/airway/                     @hotay @nresh
 web-app/src/pages/quickbooks/                      @hotay @nresh
 # Uploadable airway sources — Tay's feature (#2942, #2992, #2998). Luong
 # extracted it into a sibling crate (#3397), so he backs up rather than owns.
-crates/api-source-upload/                          @hotay @luong-komorebi
+crates/api-airway/                          @hotay @luong-komorebi
 # Airway admission policy (override: carved out of admin/ above — Tay owns airway)
 crates/app/src/server/api/admin/airway_config/     @hotay @luong-komorebi
 

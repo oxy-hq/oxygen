@@ -1,18 +1,18 @@
 [package]
-name = "oxy-api-source-upload"
+name = "oxy-api-airway"
 version.workspace = true
 authors.workspace = true
 # Editing this crate re-runs oxy-route-catalog's build script (it watches this
 # tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
 # oxy-app — the catalog was moved above it for exactly that reason.
-description = "Source-report upload HTTP surface (validated writes into the S3 landing zone file-based airway sources read) — a sibling crate mounted by oxy-server"
+description = "Airway's HTTP surface: the boundary-backed pipeline listing, the sp_api marketplace list, and source-report uploads into the S3 landing zone file-based sources read. A sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# The only oxy-app dependency: the `WorkspaceEditor` guard and the
-# `WorkspaceManagerReadOnly` extractor. oxy-app never depends back on this
+# The only oxy-app dependency, through `oxy_app::surface`: the `WorkspaceEditor`
+# guard and the `WorkspaceManagerReadOnly` extractor. oxy-app never depends back on this
 # crate. default-features off so a `--no-default-features` build of oxy-server
 # keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
@@ -24,6 +24,7 @@ oxy-shared = { workspace = true }
 agentic-airway = { workspace = true }
 
 axum = { workspace = true, features = ["multipart"] }
+base64 = { workspace = true }
 aws-config = { workspace = true, features = ["behavior-version-latest"] }
 aws-sdk-s3 = { workspace = true }
 serde = { workspace = true }
@@ -31,6 +32,9 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+serde_yaml = { workspace = true }
 
 [lints]
 workspace = true

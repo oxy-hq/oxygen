@@ -105,9 +105,11 @@ AREAS = [
     # components/. Two prefixes, one row.
     ("web-app/src/pages/airway",                          "Airway ELT (UI)"),
     ("web-app/src/components/airway",                     "Airway ELT (UI)"),
-    # Uploadable airway sources — extracted to a sibling crate 2026-10 (#3397);
-    # the old path keeps the feature history attributed.
-    ("crates/api-source-upload",                          "Source uploads"),
+    # Airway's HTTP surface. Extracted as crates/api-source-upload 2026-10
+    # (#3397), renamed crates/api-airway 2026-11-11; the old paths keep the
+    # feature history attributed.
+    ("crates/api-airway",                                 "Airway surface"),
+    ("crates/api-source-upload",                          "Airway surface"),
     ("crates/app/src/server/api/source_upload.rs",        "Source uploads"),
     ("crates/agentic/runtime",                            "Agentic runtime / task queue"),
     ("crates/agentic/core",                               "Agentic FSM core"),

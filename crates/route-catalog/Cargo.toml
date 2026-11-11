@@ -20,7 +20,7 @@ oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
 # `surface_seams`), so `factory_routes` can say which pod serves every
 # customer route, the surfaces' included.
 oxy-api-tenancy = { path = "../api-tenancy", default-features = false }
-oxy-api-source-upload = { path = "../api-source-upload", default-features = false }
+oxy-api-airway = { path = "../api-airway", default-features = false }
 oxy-api-experiment = { path = "../api-experiment" }
 axum = { workspace = true }
 uuid = { workspace = true }

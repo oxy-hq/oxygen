@@ -39,7 +39,7 @@ oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
 oxy-custom-apps = { workspace = true }
 oxy-app-core = { workspace = true }
 oxy-route-catalog = { path = "../route-catalog" }
-oxy-api-source-upload = { path = "../api-source-upload" }
+oxy-api-airway = { path = "../api-airway" }
 oxy-api-experiment = { path = "../api-experiment" }
 oxy-api-notifications = { path = "../api-notifications" }
 oxy-api-workspace-health = { path = "../api-workspace-health" }

@@ -11,12 +11,11 @@
 use axum::extract::{self, Query};
 use axum::http::StatusCode;
 use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
-use crate::server::api::pipeline::decode_path_b64;
 
 #[derive(Debug, Deserialize)]
 pub struct ListAutomationsQuery {
@@ -131,4 +130,18 @@ pub async fn get_automation(
         path: file_path,
         content,
     }))
+}
+
+/// Decode a `path_b64` route param tolerantly — accept both the
+/// `URL_SAFE_NO_PAD` form our listers emit and the standard-padded form the FE
+/// `btoa` path historically produced. Used by the automation single-file fetch.
+/// Returns the decoded workspace-relative path.
+fn decode_path_b64(path_b64: &str) -> Option<String> {
+    let bytes = URL_SAFE_NO_PAD.decode(path_b64).ok().or_else(|| {
+        let pad = (4 - path_b64.len() % 4) % 4;
+        STANDARD
+            .decode(format!("{path_b64}{}", "=".repeat(pad)))
+            .ok()
+    })?;
+    String::from_utf8(bytes).ok()
 }

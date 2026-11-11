@@ -121,7 +121,7 @@ fn server_files() -> Vec<(String, String)> {
     // server, so still in scope. Labelled `../api-documents/src/…`.
     walk(&manifest.join("../api-documents/src"), &mut out);
     // Likewise `src/server/api/source_upload.rs`.
-    walk(&manifest.join("../api-source-upload/src"), &mut out);
+    walk(&manifest.join("../api-airway/src"), &mut out);
     walk(&manifest.join("../api-notifications/src"), &mut out);
     // Moved out of `src/server/api/admin/workspace_health` and
     // `src/server/health_eval_executor.rs`.
