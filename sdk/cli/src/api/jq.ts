@@ -46,7 +46,8 @@ export async function runJq(input: string, program: string, opts: JqOptions = {}
  * the embedded engine is unaffected by — so answering the query beats failing
  * it. Before this, a `-q` on a loaded machine died with `jq failed: spawn
  * EAGAIN` and no answer, while a perfectly good engine sat in the same
- * process; CI hit it intermittently with 89 concurrent test workers forking.
+ * process. (The bad-filter test's intermittent CI failure, once put down to
+ * this, kept happening with this fallback in place: it was `EPIPE`, below.)
  *
  * Anything outside this set still throws: a binary that spawns and refuses is
  * a fact worth surfacing, not something to paper over.
@@ -61,7 +62,18 @@ const UNUSABLE_BINARY = new Set([
   "ENOMEM"
 ]);
 
-/** `undefined` when the binary cannot be run at all; throws on a failing filter. */
+/**
+ * `undefined` when the binary cannot be run at all; throws on a failing filter.
+ *
+ * `EPIPE` is not a spawn failure: jq ran and exited before Node finished
+ * writing its stdin. A compile error does that because jq compiles before it
+ * reads (certain on a body bigger than the pipe, a race on a small one), and
+ * `halt` does it on a body bigger than the pipe. Node reports it in `error`
+ * yet still waits for the exit and collects the output, so when jq exited on
+ * its own its status and stderr are the answer, as at the end of a shell
+ * pipeline. Read as a failed spawn, a bad filter came back as `jq failed:
+ * spawnSync jq EPIPE` and FAILURE instead of jq's message and USAGE.
+ */
 function runBinaryJq(input: string, program: string, binary: string): string | undefined {
   const result = spawnSync(binary, ["-r", program], {
     input,
@@ -69,8 +81,9 @@ function runBinaryJq(input: string, program: string, binary: string): string | u
     maxBuffer: 256 * 1024 * 1024
   });
 
-  if (result.error) {
-    const code = (result.error as NodeJS.ErrnoException).code;
+  const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  const stoppedReading = code === "EPIPE" && result.status !== null;
+  if (result.error && !stoppedReading) {
     if (code !== undefined && UNUSABLE_BINARY.has(code)) return undefined;
     throw new CliError(`jq failed: ${result.error.message}`, { code: ExitCode.FAILURE });
   }

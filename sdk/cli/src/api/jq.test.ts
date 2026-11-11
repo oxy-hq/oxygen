@@ -25,6 +25,15 @@ const ORGS = JSON.stringify([
 ]);
 const THREADS = JSON.stringify({ threads: [{ title: "Q3 revenue" }, { title: "churn" }] });
 
+/**
+ * More than any pipe holds, so a jq that exits with its input unread (a
+ * compile error, `halt` after the first value) is certain to leave Node's
+ * write to its stdin unfinished. With the 113-byte `ORGS` a compile error's
+ * EPIPE is a race instead: measured on Linux arm64, 5 calls in 2000 idle and
+ * about 1 in 7 under load.
+ */
+const PAST_THE_PIPE = ORGS + " ".repeat(8 * 1024 * 1024);
+
 /** Filter → body → exactly what `jq -r` prints. */
 const DOC_EXAMPLES: [string, string, string][] = [
   [".[].name", ORGS, "acme\nglobex\n"],
@@ -118,9 +127,32 @@ describe("a bad filter", () => {
     expect(error.code).toBe(ExitCode.USAGE);
     expect(error.message).toBe("jq exited 3");
   });
+
+  /**
+   * jq compiles before it reads, so a bad filter exits 3 with its stdin unread,
+   * and Node reports the unfinished write as an EPIPE `error` beside that exit
+   * status. Read as a failed spawn it became `jq failed: spawnSync jq EPIPE`
+   * and FAILURE — the race the test above lost in CI on main.
+   */
+  it.runIf(hasJqBinary)(
+    "is still the usage error when jq exits before reading the body",
+    async () => {
+      const error = await failure(runJq(PAST_THE_PIPE, ".[] | nope("));
+      expect(error.code).toBe(ExitCode.USAGE);
+      expect(error.message).toBe("jq exited 3");
+      expect(error.detail).toMatch(/syntax error/);
+    }
+  );
 });
 
 describe("runJq", () => {
+  it.runIf(hasJqBinary)(
+    "keeps what jq printed when it stops before reading the whole body",
+    async () => {
+      expect(await runJq(PAST_THE_PIPE, ".[0].name, halt")).toBe("acme\n");
+    }
+  );
+
   it("falls back to the embedded engine when the binary is not installed", async () => {
     expect(await runJq(ORGS, "length", { binary: "oxyc-no-such-jq" })).toBe("2\n");
   });
@@ -133,8 +165,8 @@ describe("runJq", () => {
    *
    * A directory is the portable way to make `spawnSync` fail with something
    * other than ENOENT (EACCES or EISDIR depending on the platform), which is
-   * exactly the branch this covers — CI reached it as EAGAIN under 89
-   * concurrent test workers, which a test cannot ask for on demand.
+   * exactly the branch this covers — a loaded machine reaches it as EAGAIN,
+   * which a test cannot ask for on demand.
    */
   it("falls back when the binary exists but cannot be spawned", async () => {
     expect(await runJq(ORGS, "length", { binary: import.meta.dirname })).toBe("2\n");
