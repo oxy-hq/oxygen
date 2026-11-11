@@ -124,6 +124,21 @@ describe("runJq", () => {
   it("falls back to the embedded engine when the binary is not installed", async () => {
     expect(await runJq(ORGS, "length", { binary: "oxyc-no-such-jq" })).toBe("2\n");
   });
+
+  /**
+   * Not installed is not the only way a binary cannot run. A machine out of
+   * processes or file descriptors fails the spawn itself, and the answer is
+   * the same: use the engine that is already in this process rather than
+   * failing a query that has a correct answer.
+   *
+   * A directory is the portable way to make `spawnSync` fail with something
+   * other than ENOENT (EACCES or EISDIR depending on the platform), which is
+   * exactly the branch this covers — CI reached it as EAGAIN under 89
+   * concurrent test workers, which a test cannot ask for on demand.
+   */
+  it("falls back when the binary exists but cannot be spawned", async () => {
+    expect(await runJq(ORGS, "length", { binary: import.meta.dirname })).toBe("2\n");
+  });
 });
 
 /**

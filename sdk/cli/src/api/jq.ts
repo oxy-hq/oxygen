@@ -36,7 +36,32 @@ export async function runJq(input: string, program: string, opts: JqOptions = {}
   return runEmbeddedJq(input, program);
 }
 
-/** `undefined` when the binary is not installed; throws on a failing filter. */
+/**
+ * Spawn errors that mean "this binary cannot run here", as opposed to "your
+ * filter is wrong".
+ *
+ * `ENOENT` is jq not installed, and falling back to the embedded engine for it
+ * was always the behaviour. The rest are the machine being out of processes,
+ * file descriptors or memory, which is not the caller's fault either and which
+ * the embedded engine is unaffected by — so answering the query beats failing
+ * it. Before this, a `-q` on a loaded machine died with `jq failed: spawn
+ * EAGAIN` and no answer, while a perfectly good engine sat in the same
+ * process; CI hit it intermittently with 89 concurrent test workers forking.
+ *
+ * Anything outside this set still throws: a binary that spawns and refuses is
+ * a fact worth surfacing, not something to paper over.
+ */
+const UNUSABLE_BINARY = new Set([
+  "ENOENT",
+  "EACCES",
+  "EPERM",
+  "EAGAIN",
+  "EMFILE",
+  "ENFILE",
+  "ENOMEM"
+]);
+
+/** `undefined` when the binary cannot be run at all; throws on a failing filter. */
 function runBinaryJq(input: string, program: string, binary: string): string | undefined {
   const result = spawnSync(binary, ["-r", program], {
     input,
@@ -45,7 +70,8 @@ function runBinaryJq(input: string, program: string, binary: string): string | u
   });
 
   if (result.error) {
-    if ((result.error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    const code = (result.error as NodeJS.ErrnoException).code;
+    if (code !== undefined && UNUSABLE_BINARY.has(code)) return undefined;
     throw new CliError(`jq failed: ${result.error.message}`, { code: ExitCode.FAILURE });
   }
   if (result.status !== 0) throw badFilter(result.status, result.stderr);
