@@ -1,5 +1,5 @@
 // A binary is its own crate root, so the `recursion_limit` in lib.rs does not
-// apply here. Laying out the futures reached from `cli()` exceeds rustc's
+// apply here. Laying out the futures reached from `oxy_app::cli::run` exceeds rustc's
 // default query depth since SeaORM 2.0 deepened its query types.
 #![recursion_limit = "256"]
 
@@ -25,7 +25,6 @@ use human_panic::Metadata;
 use human_panic::setup_panic;
 use oxy::sentry_config;
 use oxy::theme::StyledText;
-use oxy_app::cli::commands::cli;
 use oxy_app::observability_boot;
 use oxy_app::server::router::{SurfaceSeam, SurfaceSeams};
 use oxy_telemetry::otel::OtelConfig;
@@ -380,15 +379,21 @@ fn main() {
         // soft NOFILE of 256, which busy instances exhaust (EMFILE).
         raise_fd_limit();
 
-        let exit_code = match cli(surface_seams()).await {
-            Ok(_) => 0,
-            Err(e) => {
-                tracing::error!(error = %e, "Application error");
-                sentry_config::capture_error_with_context(&*e, "CLI execution failed");
-                eprintln!("{}", format!("{e}").error());
-                1
-            }
-        };
+        // The parser is `oxy-cli-shim`'s and knows no command; oxy-app owns
+        // every subcommand today, so it is the one owner.
+        let owners = vec![oxy_cli_shim::Owner::of::<oxy_app::cli::SubCommand>(
+            |command, seams| Box::pin(oxy_app::cli::run(command, seams)),
+        )];
+        let exit_code =
+            match oxy_cli_shim::run(owners, surface_seams(), oxy_app::cli::prepare).await {
+                Ok(_) => 0,
+                Err(e) => {
+                    tracing::error!(error = %e, "Application error");
+                    sentry_config::capture_error_with_context(&*e, "CLI execution failed");
+                    eprintln!("{}", format!("{e}").error());
+                    1
+                }
+            };
 
         observability_boot::shutdown().await;
 

@@ -15,6 +15,7 @@ members = [
   "crates/api-experiment",
   "crates/api-notifications",
   "crates/api-workspace-health",
+  "crates/cli-shim",
   "crates/app-core",
   "crates/auth",
   "crates/authz",

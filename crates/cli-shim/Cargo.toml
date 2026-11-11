@@ -1,0 +1,16 @@
+[package]
+name = "oxy-cli-shim"
+version.workspace = true
+authors.workspace = true
+description = "The `oxy` binary's argument parser: parses argv and hands the subcommand to the crate that owns it. Knows no subcommand, no server and no platform crate. (Not `oxyc`, the TypeScript API client.)"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+clap = { workspace = true, features = ["derive", "env"] }
+rustc_version_runtime = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

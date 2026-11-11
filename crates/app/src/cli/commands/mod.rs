@@ -36,7 +36,6 @@ use ::oxy::config::test_config::TestFileConfig;
 use ::oxy::config::*;
 use ::oxy::sentry_config;
 use ::oxy::theme::StyledText;
-use clap::CommandFactory;
 use clap::Parser;
 use model::{Automation, Config};
 use oxy_shared::errors::OxyError;
@@ -50,65 +49,13 @@ use std::process::exit;
 use ::oxy::config::WorkingCopy;
 use tracing::debug;
 
-#[derive(Parser, Debug)]
-#[clap(
-    author,
-    version,
-    long_version = if cfg!(debug_assertions) {
-        Box::leak(format!(
-            "version {}, built locally as debug, rust ver {}",
-            env!("CARGO_PKG_VERSION"),
-            rustc_version_runtime::version(),
-        ).into_boxed_str()) as &'static str
-    } else {
-        Box::leak(format!(
-            "version: {}\n\
-            rust version: {}\n\
-            commit: {commit_link}\n\
-            workflow url: {workflow_link}\n",
-            env!("CARGO_PKG_VERSION"),
-            rustc_version_runtime::version(),
-            commit_link = match (
-                option_env!("GITHUB_SERVER_URL"),
-                option_env!("GITHUB_REPOSITORY"),
-                option_env!("GITHUB_SHA")
-            ) {
-                (Some(server), Some(repo), Some(sha)) => format!("{}/{}/commit/{} ({})", server, repo, sha, sha),
-                _ => option_env!("GITHUB_SHA").unwrap_or("unknown").to_string(),
-            },
-            workflow_link = match (
-                option_env!("GITHUB_SERVER_URL"),
-                option_env!("GITHUB_REPOSITORY"),
-                option_env!("GITHUB_RUN_ID")
-            ) {
-                (Some(server), Some(repo), Some(run_id)) => format!("{}/{}/actions/runs/{} ({})", server, repo, run_id, run_id),
-                _ => option_env!("GITHUB_RUN_ID").unwrap_or("unknown").to_string(),
-            },
-        ).into_boxed_str()) as &'static str
-    },
-)]
-struct Args {
-    /// The question to ask or command to execute
-    ///
-    /// When no subcommand is provided, this input will be processed
-    /// as a question for the default AI agent or as a query suggestion.
-    #[clap(default_value = "")]
-    input: String,
-
-    /// Output format: 'text' (default) or 'code' for SQL
-    ///
-    /// Control how results are displayed in the terminal.
-    /// Use 'code' for syntax-highlighted SQL output.
-    #[clap(long, value_name = "FORMAT")]
-    output: Option<String>,
-
-    /// Subcommand to execute
-    #[clap(subcommand)]
-    command: Option<SubCommand>,
-}
-
-#[derive(Parser, Debug)]
-enum SubCommand {
+// Every subcommand `oxy` runs today, in the order `--help` lists them.
+// Registered with the `oxy-cli-shim` parser by `oxy-server` as one owner; the
+// top-level arguments (`[INPUT]`, `--output`) and `--version` are the shim's.
+// A plain comment, not `///`: clap would print a doc comment on this enum as
+// the root command's `about`, above `Usage:`.
+#[derive(clap::Subcommand, Debug)]
+pub enum SubCommand {
     /// Execute automation (.automation.yml or .procedure.yml) or SQL (.sql) files
     ///
     /// Run SQL queries against databases or execute automations for data processing.
@@ -242,7 +189,7 @@ pub struct BuildArgs {
 }
 
 #[derive(Parser, Debug)]
-struct SyncArgs {
+pub struct SyncArgs {
     /// Specific database to sync (syncs all if not specified)
     ///
     /// Target a single database connection from your config.yml
@@ -270,7 +217,7 @@ struct SyncArgs {
 pub use crate::cli::{ServeArgs, StartArgs};
 
 #[derive(Parser, Debug)]
-struct GenConfigSchemaArgs {
+pub struct GenConfigSchemaArgs {
     /// Check for uncommitted schema changes in git
     ///
     /// Verify that generated schema files match the current
@@ -280,7 +227,7 @@ struct GenConfigSchemaArgs {
 }
 
 #[derive(Parser, Debug)]
-struct ValidateArgs {
+pub struct ValidateArgs {
     /// Validate a specific file instead of all configuration files
     ///
     /// Provide a path to an automation (.automation.yml) or agentic agent
@@ -452,7 +399,7 @@ pub(crate) fn install_panic_hook() {
 mod panic_hook_tests {
     /// Child half of `the_shipped_hook_writes_one_structured_panic_line`: the
     /// boot order of a server process — stderr capture first, then the hook
-    /// `cli()` installs — then a panic.
+    /// `prepare` installs — then a panic.
     #[test]
     fn panic_hook_child_body() {
         if std::env::var("OXY_PANIC_HOOK_CHILD").is_err() {
@@ -464,7 +411,7 @@ mod panic_hook_tests {
         oxy_telemetry::stderr_capture::finish(std::time::Duration::from_secs(5));
     }
 
-    /// `cli()` replaces the panic hook after `logging::init` installed the
+    /// `prepare` replaces the panic hook after `logging::init` installed the
     /// capture's. The capture's own test calls `install` alone and so could not
     /// see that the shipped hook threw its structured line away; this one runs
     /// the real order in a child process and reads the child's stderr.
@@ -516,14 +463,9 @@ mod panic_hook_tests {
     }
 }
 
-pub async fn cli(
-    // Surface routes composed by the top `oxy-server` crate, named by where each
-    // seam sits relative to the auth stack, and forwarded to `serve`/`start` (the
-    // only subcommands that mount them); `worker` takes only the task kinds.
-    // Empty for every other command.
-    seams: crate::server::router::SurfaceSeams,
-) -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
+/// What every command needs before it runs, called by the shim once argv is
+/// parsed (`name` is the subcommand, `None` when there is none).
+pub fn prepare(name: Option<&str>) {
     install_panic_hook();
 
     // Register the application's managed-connection resolver with oxy core
@@ -533,31 +475,7 @@ pub async fn cli(
     crate::managed_connection_resolver::install();
 
     // Add breadcrumb for CLI command
-    if let Some(ref command) = args.command {
-        let command_name = match command {
-            SubCommand::Run(_) => "run",
-            SubCommand::Build(_) => "build",
-            SubCommand::Compile(_) => "compile",
-            SubCommand::Sync(_) => "sync",
-            SubCommand::Validate(_) => "validate",
-            SubCommand::Migrate => "migrate",
-            SubCommand::MigrateAutomations(_) => "migrate-automations",
-            SubCommand::MigrateAgents(_) => "migrate-agents",
-            SubCommand::Start(_) => "start",
-            SubCommand::Serve(_) => "serve",
-            SubCommand::Test(_) => "test",
-            SubCommand::GenConfigSchema(_) => "gen-config-schema",
-            SubCommand::Oltp(_) => "oltp",
-            SubCommand::Seed(_) => "seed",
-            SubCommand::Looker(_) => "looker",
-            SubCommand::Intent(_) => "intent",
-            SubCommand::Agentic(_) => "agentic",
-            SubCommand::Airway(_) => "airway",
-            SubCommand::Admin(_) => "admin",
-            SubCommand::Worker(_) => "worker",
-            SubCommand::Cameras(_) => "cameras",
-        };
-
+    if let Some(command_name) = name {
         sentry_config::add_breadcrumb(
             &format!("Executing CLI command: {}", command_name),
             "cli",
@@ -565,9 +483,19 @@ pub async fn cli(
         );
         sentry_config::add_operation_context(command_name, None);
     }
+}
 
-    match args.command {
-        Some(SubCommand::GenConfigSchema(args)) => {
+/// Run one of [`SubCommand`].
+pub async fn run(
+    command: SubCommand,
+    // Surface routes composed by the top `oxy-server` crate, named by where each
+    // seam sits relative to the auth stack, and forwarded to `serve`/`start` (the
+    // only subcommands that mount them); `worker` takes only the task kinds.
+    // Empty for every other command.
+    seams: crate::server::router::SurfaceSeams,
+) -> Result<(), Box<dyn Error>> {
+    match command {
+        SubCommand::GenConfigSchema(args) => {
             let schemas_path = std::path::Path::new("json-schemas");
             if !schemas_path.exists() {
                 std::fs::create_dir_all(schemas_path)?;
@@ -623,15 +551,15 @@ pub async fn cli(
                 }
             }
         }
-        Some(SubCommand::Run(run_args)) => {
+        SubCommand::Run(run_args) => {
             sentry_config::add_operation_context("run", Some(&run_args.file));
             handle_run_command(run_args).await?;
         }
-        Some(SubCommand::Test(test_args)) => {
+        SubCommand::Test(test_args) => {
             sentry_config::add_operation_context("test", test_args.file.as_deref());
             test::handle_test_command(test_args).await?;
         }
-        Some(SubCommand::Build(_)) => {
+        SubCommand::Build(_) => {
             sentry_config::add_operation_context("build", None);
 
             // Nothing is left to build: the vector-embeddings reindex built an enum
@@ -639,14 +567,14 @@ pub async fn cli(
             // with their metadata caches. Kept so existing scripts do not fail.
             println!("{}", "Nothing to build".info());
         }
-        Some(SubCommand::Compile(compile_args)) => {
+        SubCommand::Compile(compile_args) => {
             sentry_config::add_operation_context("compile", None);
             if let Err(e) = compile::run_compile(compile_args).await {
                 eprintln!("{}", format!("Compile failed: {e}").error());
                 exit(1);
             }
         }
-        Some(SubCommand::Sync(sync_args)) => {
+        SubCommand::Sync(sync_args) => {
             sentry_config::add_operation_context("sync", None);
             if let Some(ref db) = sync_args.database {
                 sentry_config::add_database_context(db, None);
@@ -676,7 +604,7 @@ pub async fn cli(
                     .join("\n---\n")
             )
         }
-        Some(SubCommand::Validate(args)) => {
+        SubCommand::Validate(args) => {
             let config: ::oxy::config::ConfigManager<WorkingCopy> = ConfigBuilder::new()
                 .with_workspace_path(&resolve_local_workspace_path()?)?
                 .build_with_working_copy(Origin::Disk, OnMissing::Fail)
@@ -741,13 +669,13 @@ pub async fn cli(
                 }
             }
         }
-        Some(SubCommand::Oltp(args)) => {
+        SubCommand::Oltp(args) => {
             if let Err(e) = crate::cli::commands::oltp::oltp(args).await {
                 eprintln!("{}", format!("{e}").error());
                 exit(1);
             }
         }
-        Some(SubCommand::Migrate) => {
+        SubCommand::Migrate => {
             if let Err(e) = migrate().await {
                 eprintln!("{}", format!("Migration failed: {e}").error());
                 exit(1);
@@ -763,19 +691,19 @@ pub async fn cli(
                 );
             }
         }
-        Some(SubCommand::MigrateAutomations(args)) => {
+        SubCommand::MigrateAutomations(args) => {
             if let Err(e) = migrate_automations(args) {
                 eprintln!("{}", format!("Automation migration failed: {e}").error());
                 exit(1);
             }
         }
-        Some(SubCommand::MigrateAgents(args)) => {
+        SubCommand::MigrateAgents(args) => {
             if let Err(e) = migrate_agents(args) {
                 eprintln!("{}", format!("Agent migration failed: {e}").error());
                 exit(1);
             }
         }
-        Some(SubCommand::Start(start_args)) => {
+        SubCommand::Start(start_args) => {
             if let Err(e) = start::start_database_and_server(start_args, seams).await {
                 // Returned rather than `exit(1)`-ed: `main` prints the same
                 // message, records it to Sentry, and — the reason this changed —
@@ -784,7 +712,7 @@ pub async fn cli(
                 return Err(OxyError::RuntimeError(format!("Failed to start: {e}")).into());
             }
         }
-        Some(SubCommand::Serve(serve_args)) => {
+        SubCommand::Serve(serve_args) => {
             if let Err(e) = start_server_and_web_app(serve_args, seams).await {
                 // Returned rather than `exit(1)`-ed: `main` prints the same
                 // message, records it to Sentry, and — the reason this changed —
@@ -793,7 +721,7 @@ pub async fn cli(
                 return Err(OxyError::RuntimeError(format!("Server failed: {e}")).into());
             }
         }
-        Some(SubCommand::Worker(worker_args)) => {
+        SubCommand::Worker(worker_args) => {
             if let Err(e) = worker::run_worker(
                 worker_args,
                 seams.tasks,
@@ -809,35 +737,31 @@ pub async fn cli(
                 return Err(OxyError::RuntimeError(format!("Worker failed: {e}")).into());
             }
         }
-        Some(SubCommand::Seed(seed_args)) => {
+        SubCommand::Seed(seed_args) => {
             handle_seed_command(seed_args, seams.example_apps).await?;
         }
 
-        Some(SubCommand::Looker(looker_args)) => {
+        SubCommand::Looker(looker_args) => {
             looker::handle_looker_command(looker_args).await?;
         }
-        Some(SubCommand::Intent(intent_args)) => {
+        SubCommand::Intent(intent_args) => {
             intent::handle_intent_command(intent_args).await?;
         }
 
-        Some(SubCommand::Agentic(agentic_args)) => {
+        SubCommand::Agentic(agentic_args) => {
             agentic_cli::handle_agentic_command(agentic_args).await?;
         }
 
-        Some(SubCommand::Airway(airway_args)) => {
+        SubCommand::Airway(airway_args) => {
             airway::handle_airway_command(airway_args).await?;
         }
 
-        Some(SubCommand::Admin(admin_args)) => {
+        SubCommand::Admin(admin_args) => {
             admin::handle_admin_command(admin_args).await?;
         }
 
-        Some(SubCommand::Cameras(cameras_args)) => {
+        SubCommand::Cameras(cameras_args) => {
             cameras::handle_cameras_command(cameras_args).await?;
-        }
-
-        None => {
-            Args::command().print_help().unwrap();
         }
     }
 

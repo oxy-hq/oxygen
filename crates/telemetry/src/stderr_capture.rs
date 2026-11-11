@@ -29,7 +29,7 @@
 //!    survives a process that dies before the reader thread drains the pipe.
 //!    The process's real panic hook is installed later by `oxy_app::cli` and
 //!    *replaces* whatever is there, so that hook calls [`report_panic`]; the
-//!    hook [`install`] sets only covers the window before `cli()` runs.
+//!    hook [`install`] sets only covers the window before `oxy_app::cli::prepare` runs.
 //! 6. If the reader ever fails, fd 2 is pointed back at the original stderr
 //!    before the thread exits. The degraded state is "stray lines are
 //!    unstructured again", never "fd 2 is a pipe nobody reads" — which would
@@ -193,7 +193,7 @@ impl Normalizer {
 
     /// The default panic hook prints `thread '…' panicked at loc:`, the
     /// message, then either a `note: run with RUST_BACKTRACE=1` line or a
-    /// `stack backtrace:` and its frames. Only reachable before `cli()`
+    /// `stack backtrace:` and its frames. Only reachable before `oxy_app::cli::prepare`
     /// replaces the process's hook (see the module doc): there, the capture's
     /// own hook has already written the panic as one structured line and then
     /// runs the previous hook, whose plain-text copy is dropped here.
@@ -685,7 +685,7 @@ mod unix {
         true
     }
 
-    /// Covers panics between `install` and the process hook `cli()` sets.
+    /// Covers panics between `install` and the process hook `oxy_app::cli::prepare` sets.
     /// Chains to the previous hook (Sentry's integration, `human_panic`, or
     /// the default), whose plain-text copy the normalizer drops.
     fn install_early_panic_hook() {

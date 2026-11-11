@@ -10110,7 +10110,6 @@ dependencies = [
  "rayon",
  "regex",
  "reqwest 0.13.4",
- "rustc_version_runtime",
  "rustls 0.23.43",
  "schemars 0.8.22",
  "scopeguard",
@@ -10326,6 +10325,15 @@ dependencies = [
  "tracing",
  "uuid",
  "webpki-roots 1.0.7",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-cli-shim"
+version = "0.5.159"
+dependencies = [
+ "clap",
+ "rustc_version_runtime",
  "workspace-hack",
 ]
 
@@ -10673,6 +10681,7 @@ dependencies = [
  "oxy-authz",
  "oxy-billing",
  "oxy-cameras",
+ "oxy-cli-shim",
  "oxy-custom-apps",
  "oxy-observability",
  "oxy-oltp",

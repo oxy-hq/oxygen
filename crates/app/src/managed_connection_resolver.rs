@@ -7,7 +7,7 @@
 //! integrations — does the mint / analyst lookup and returns a ready
 //! Postgres-wire DSN; core wraps it in a `ConnectorX`.
 //!
-//! Registered once at startup via [`install`], called from `cli()` before any
+//! Registered once at startup via [`install`], called from `oxy_app::cli::prepare` before any
 //! subcommand runs, so every entry point that may open a managed connection
 //! has it.
 
@@ -99,7 +99,7 @@ impl ManagedConnectionResolver for AppManagedConnectionResolver {
 }
 
 /// Register the application's managed-connection resolver with oxy core. Called
-/// once from `cli()` at startup, before any subcommand can build a managed
+/// once from `oxy_app::cli::prepare` at startup, before any subcommand can build a managed
 /// connector. Idempotent (first registration wins).
 pub fn install() {
     oxy::connector::set_managed_connection_resolver(Arc::new(AppManagedConnectionResolver));
