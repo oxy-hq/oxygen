@@ -156,7 +156,7 @@ impl Schema {
     }
 }
 
-/// The side migrators, in the order `run_all_migrators` (`cli/commands/serve.rs`)
+/// The side migrators, in the order `run_all_migrators` (`cli/commands/migrate.rs`)
 /// runs them: airway's tables reference the runtime's, and OLTP's reference
 /// `organizations`.
 async fn migrate_domains(db: &DatabaseConnection) {

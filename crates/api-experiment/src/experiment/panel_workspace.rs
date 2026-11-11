@@ -23,7 +23,7 @@ use oxy_app::surface::workspace_runtime::resolve_compiled_scan_source;
 use oxy_app_core::workspace_cache::{SemanticEngineCache, new_semantic_engine_cache};
 
 /// One cache for the process's price jobs. A worker has no `AppState` to carry
-/// the request path's cache (see the note in `cli/commands/worker.rs`), and the
+/// the request path's cache (see the note in `crates/server/src/commands/worker.rs`), and the
 /// price job reads one promoted revision, which is exactly what the key names.
 static ENGINE_CACHE: LazyLock<Arc<SemanticEngineCache>> = LazyLock::new(new_semantic_engine_cache);
 

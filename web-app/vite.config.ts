@@ -294,7 +294,7 @@ export default defineConfig(({ mode }) => {
       //   cert: "../localhost+2.pem",
       // },
       // Proxy everything the backend serves (all under /api/* — see
-      // crates/app/src/cli/commands/serve.rs where the api_router is nested
+      // crates/server/src/commands/serve.rs where the api_router is nested
       // under /api) so Slack webhooks, OAuth callbacks, and API calls routed
       // through the dev tunnel all reach the Rust backend on :3000.
       // Loopback by ADDRESS, not by name.

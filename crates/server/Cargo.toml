@@ -51,6 +51,20 @@ oxy-observability = { workspace = true }
 oxy-telemetry = { workspace = true }
 
 axum = { workspace = true }
+# The long-lived commands (`src/commands`): `serve`'s listener, SPA embed and
+# Swagger UI; `worker`'s runtime; `start`'s Airhouse and Docker bring-up.
+agentic-runtime = { workspace = true }
+airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "preview-sql"] }
+axum-server = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+include_dir = { workspace = true }
+oxy-auth = { workspace = true }
+oxy-shared = { workspace = true }
+sea-orm = { workspace = true }
+tokio-util = { workspace = true }
+tower-serve-static = { workspace = true }
+url = { workspace = true }
+utoipa-swagger-ui = { workspace = true, features = ["axum"] }
 dotenv = { workspace = true }
 human-panic = { workspace = true }
 libc = { workspace = true }
@@ -75,23 +89,18 @@ sentry = { workspace = true, features = ["test"] }
 # compose. It reuses oxy-app's harness (`#[path]`-included from
 # crates/app/tests/common), which clones a per-run template database and needs
 # every migrator `Schema::All` can apply — the same list as oxy-api-tenancy.
-oxy-auth = { workspace = true }
 oxy-authz = { workspace = true }
 oxy-oltp = { workspace = true }
 oxy-billing = { workspace = true }
 oxy-cameras = { workspace = true }
-airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "preview-sql"] }
 agentic-pipeline = { workspace = true }
-agentic-runtime = { workspace = true }
 entity = { workspace = true }
 migration = { workspace = true }
 chrono = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
-sea-orm = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 tower = { workspace = true, features = ["util"] }
-url = { workspace = true }
 uuid = { workspace = true }
 oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
 # `console_test_notification` and `notification_function_action`: the
@@ -102,9 +111,6 @@ futures = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
 oxy-server-authz = { workspace = true }
-# `served_router_tests`: build `api_router` (ServeMode, its shutdown token) and
-# drive it with `oneshot`.
-tokio-util = { workspace = true }
 
 [lints]
 workspace = true

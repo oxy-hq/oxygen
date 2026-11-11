@@ -28,6 +28,10 @@ const SRC: &[&str] = &[
     "airway_boot",
     "airway_boot_tests",
     "cli",
+    // 2026-11-11: re-exports only, no code. What `oxy-server`'s `serve` /
+    // `start` / `worker` take from here, the binary's counterpart of
+    // `surface`. It shrinks to nothing as the router and the base leave.
+    "host",
     "integrations",
     "managed_connection_resolver",
     "observability_boot",

@@ -145,7 +145,7 @@ impl RuntimeState {
     /// release_claims_for_worker`) is a separate, orchestrator-layer concern
     /// and is the caller's responsibility to invoke after this returns — see
     /// `spawn_shutdown_hook` in `oxy-app`'s `server::router::recovery` and the
-    /// `oxy worker` shutdown sequence in `cli::commands::worker`, both of
+    /// `oxy worker` shutdown sequence in `oxy-server`'s `commands::worker`, both of
     /// which may legitimately depend on both layers.
     ///
     /// Only a run that is still unfinished in the database is marked. A

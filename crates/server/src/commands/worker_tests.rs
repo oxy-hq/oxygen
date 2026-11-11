@@ -302,7 +302,7 @@ fn require_database_url_rejects_unknown_auth_mode() {
 /// rather than trusting the derivation to keep an escape hatch.
 #[test]
 fn inproc_global_worker_env_override_wins_in_both_directions() {
-    use crate::server::router::recovery::{INPROC_GLOBAL_WORKER_ENV, inproc_global_worker_enabled};
+    use oxy_app::host::router::recovery::{INPROC_GLOBAL_WORKER_ENV, inproc_global_worker_enabled};
 
     let _g = ENV_LOCK.lock().unwrap();
     let prev = std::env::var(INPROC_GLOBAL_WORKER_ENV).ok();

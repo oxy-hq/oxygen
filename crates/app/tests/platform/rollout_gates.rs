@@ -84,13 +84,23 @@ async fn with_the_variables_unset_a_flag_row_turns_the_gate_on() {
 /// hole was a missing call, not a wrong one.
 #[test]
 fn every_process_that_compiles_loads_the_flag_cache_at_boot() {
-    let commands = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cli/commands");
+    // `serve` and `worker` are `oxy-server`'s commands; `compile` is oxy-app's.
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     for (file, call) in [
-        ("serve.rs", "init_feature_flags().await?"),
-        ("worker.rs", "serve::init_feature_flags().await?"),
-        ("compile.rs", "feature_flags::cache::load_once().await?"),
+        (
+            "server/src/commands/serve.rs",
+            "init_feature_flags().await?",
+        ),
+        (
+            "server/src/commands/worker.rs",
+            "serve::init_feature_flags().await?",
+        ),
+        (
+            "app/src/cli/commands/compile.rs",
+            "feature_flags::cache::load_once().await?",
+        ),
     ] {
-        let path = commands.join(file);
+        let path = crates.join(file);
         let source =
             std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         assert!(

@@ -206,7 +206,7 @@ fn the_serve_mount_the_functions_fixture_copies_still_matches_production() {
         "`surface_seams` no longer hands `custom_apps_seams::outer` to `SurfaceSeams::outer`"
     );
     // `serve` mounts whatever it is handed, and nothing of its own beside it.
-    let serve = code("crates/app/src/cli/commands/serve.rs");
+    let serve = code("crates/server/src/commands/serve.rs");
     assert!(
         serve.contains(".merge(outer(preagg_ctx))"),
         "`serve.rs` no longer merges the outer mount `SurfaceSeams::outer` hands in"

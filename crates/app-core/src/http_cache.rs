@@ -1,5 +1,5 @@
 //! Validator helpers for the two surfaces that serve an HTML shell with
-//! `Cache-Control: no-cache` — the admin SPA (`cli::commands::serve`) and
+//! `Cache-Control: no-cache` — the admin SPA (`oxy-server`'s `commands::serve`) and
 //! custom-app bundles (`oxy_api_custom_apps::serve`).
 //!
 //! Both must revalidate on every load, so both need a validator, and a

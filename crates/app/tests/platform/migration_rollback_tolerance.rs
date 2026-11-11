@@ -58,7 +58,7 @@ const LEDGERS: &[&str] = &[
     "seaql_migrations_cameras",
 ];
 
-/// Mirrors `run_all_migrators` in `cli/commands/serve.rs` — same migrators, same
+/// Mirrors `run_all_migrators` in `cli/commands/migrate.rs` — same migrators, same
 /// order (the airway migrator FKs into the runtime's `agentic_runs`, and the
 /// airhouse wrapper pre-stamps from the central table, so order is load-bearing).
 ///

@@ -234,13 +234,13 @@ pub(crate) fn dev_login_emails() -> &'static [String] {
 }
 
 /// The env var that enabled the bypass, for the startup banner. `None` when off.
-pub(crate) fn dev_login_source() -> Option<&'static str> {
+pub fn dev_login_source() -> Option<&'static str> {
     DEV_LOGIN.source.map(DevLoginSource::env_var)
 }
 
 /// Whether the active allow-list is only honored for loopback callers, so the
 /// startup banner can say which of the two very different things is true.
-pub(crate) fn dev_login_is_loopback_only() -> bool {
+pub fn dev_login_is_loopback_only() -> bool {
     DEV_LOGIN
         .source
         .is_some_and(DevLoginSource::requires_loopback)
@@ -254,7 +254,7 @@ pub(crate) fn dev_login_is_loopback_only() -> bool {
 /// answering a caller from this alone re-opens the leak
 /// [`dev_login_reachable_by`] exists to close. That function is what
 /// `GET /auth/config` reports.
-pub(crate) fn is_dev_login_enabled() -> bool {
+pub fn is_dev_login_enabled() -> bool {
     !dev_login_emails().is_empty()
 }
 

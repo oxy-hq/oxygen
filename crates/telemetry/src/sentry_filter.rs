@@ -168,7 +168,7 @@ pub const HTTP_TRACE_TARGET: &str = "oxy_telemetry::http_trace";
 ///
 /// **No `Breadcrumb` for it, deliberately.** It would not land where it looks
 /// like it should. `create_trace_layer()` wraps the whole router from the
-/// outside (`cli/commands/serve.rs`), while `NewSentryLayer` is applied inside
+/// outside (`crates/server/src/commands/serve.rs`), while `NewSentryLayer` is applied inside
 /// `finalize_router` (`server/router/entry.rs`) — so by the time `on_failure`
 /// classifies the response, the per-request hub has been popped and the
 /// handler's own event has ALREADY been captured. A breadcrumb added there goes

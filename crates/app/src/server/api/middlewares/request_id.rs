@@ -28,7 +28,7 @@
 //! 3. **Response headers**, which is the only way a browser (or a support ticket)
 //!    can name the request that went wrong.
 //!
-//! Mounted on the OUTER router in `cli/commands/serve.rs` so it covers `/api`,
+//! Mounted on the OUTER router in `oxy-server`'s `commands/serve.rs` so it covers `/api`,
 //! the `/customer-apps/{*path}` serve tree and the static SPA fallback alike.
 
 use axum::extract::{FromRequestParts, Request};

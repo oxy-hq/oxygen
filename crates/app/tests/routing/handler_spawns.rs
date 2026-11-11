@@ -107,6 +107,14 @@ const ALLOWED: &[(&str, &str)] = &[
          the thread. Best effort, re-clickable; a TaskSpec would make it durable",
     ),
     (
+        "app/src/integrations/slack/boot.rs",
+        "backlog: not a request path. `oxy serve` calls it once at boot (it moved \
+         here from `cli/commands/serve.rs`, which this walk does not reach). The \
+         Socket Mode loop is per-process like the socket it holds; the hourly \
+         sweep of `slack_oauth_states` / `slack_seen_events` runs on every \
+         replica, harmlessly (idempotent deletes). A global tick would run it once",
+    ),
+    (
         "app/src/integrations/slack/socket_mode/client.rs",
         "backlog: socket mode (local development) acks each envelope on the \
          socket, then dispatches it. Per-process by nature, like the socket; \

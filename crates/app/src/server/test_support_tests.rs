@@ -12,7 +12,7 @@
 //! being indexed. So a session merely *waiting* to take this lock can stall
 //! an unrelated `CREATE INDEX CONCURRENTLY` elsewhere in the same database —
 //! and when the lock holder is itself the one running that statement (the
-//! real migration-bootstrap shape in `test_db()`/`cli::commands::serve`),
+//! real migration-bootstrap shape in `test_db()`/`cli::commands::migrate`),
 //! the wait becomes circular: the holder can't finish without the waiter's
 //! snapshot clearing, and the waiter's snapshot can't clear until the
 //! holder releases. That snapshot wait IS a real, trackable lock-manager

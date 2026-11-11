@@ -11,6 +11,7 @@
 #[cfg(feature = "dev-dynamic")]
 extern crate oxy_app_dylib as _;
 
+mod commands;
 mod custom_apps_seams;
 mod logging;
 #[cfg(test)]
@@ -45,7 +46,7 @@ use std::env;
 /// harder reason: they are the commands that call
 /// `observability_boot::finalize()`, the only thing that drains its unbounded
 /// channel. Anything else would hold every span it closes until it exits.
-/// `oxy-app`'s `observability_boot::entry_point_tests` reads this list, so a
+/// `commands::entry_point_tests` reads this list, so a
 /// command added here without a `finalize` fails the build.
 fn server_command(args: &[String]) -> Option<&str> {
     args.iter()
@@ -379,11 +380,17 @@ fn main() {
         // soft NOFILE of 256, which busy instances exhaust (EMFILE).
         raise_fd_limit();
 
-        // The parser is `oxy-cli-shim`'s and knows no command; oxy-app owns
-        // every subcommand today, so it is the one owner.
-        let owners = vec![oxy_cli_shim::Owner::of::<oxy_app::cli::SubCommand>(
-            |command, seams| Box::pin(oxy_app::cli::run(command, seams)),
-        )];
+        // The parser is `oxy-cli-shim`'s and knows no command. This binary
+        // owns the long-lived ones (`start`, `serve`, `worker`), listed first;
+        // oxy-app owns the one-shot rest.
+        let owners = vec![
+            oxy_cli_shim::Owner::of::<commands::ServerCommand>(|command, seams| {
+                Box::pin(commands::run(command, seams))
+            }),
+            oxy_cli_shim::Owner::of::<oxy_app::cli::SubCommand>(|command, seams| {
+                Box::pin(oxy_app::cli::run(command, seams))
+            }),
+        ];
         let exit_code =
             match oxy_cli_shim::run(owners, surface_seams(), oxy_app::cli::prepare).await {
                 Ok(_) => 0,

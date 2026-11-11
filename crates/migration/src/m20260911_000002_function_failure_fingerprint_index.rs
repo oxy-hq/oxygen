@@ -20,7 +20,7 @@ use sea_orm_migration::sea_orm::{ConnectionTrait, Statement};
 /// (`exec_with_connection`), so no migration could build concurrently — which
 /// older comments here still say. 2.0's `exec_up_with` gives each migration its
 /// own transaction unless `use_transaction()` says otherwise, and boot
-/// (`cli/commands/serve.rs`) and the test template both call `Migrator::up` on
+/// (`crates/app/src/cli/commands/migrate.rs`) and the test template both call `Migrator::up` on
 /// a plain connection, not a transaction. Verified: a test database built that
 /// way records this migration and holds the index with `indisvalid = true`.
 ///

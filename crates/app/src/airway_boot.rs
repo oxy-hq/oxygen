@@ -34,8 +34,8 @@
 //!
 //! | entry point | seam |
 //! |---|---|
-//! | `oxy serve`, and `oxy start` which delegates to it — every `OXY_ROLE` (`ide`, `serve`, `worker`, `all`) | [`crate::cli::commands::serve::start_server_and_web_app`], after migrations and before the router (and its in-process worker fleet) is built |
-//! | `oxy worker` — the standalone fleet worker | [`crate::cli::commands::worker::run_worker`], after migrations and before `WorkerRuntime::start` |
+//! | `oxy serve`, and `oxy start` which delegates to it — every `OXY_ROLE` (`ide`, `serve`, `worker`, `all`) | `oxy-server`'s `commands::serve::start_server_and_web_app`, after migrations and before the router (and its in-process worker fleet) is built |
+//! | `oxy worker` — the standalone fleet worker | `oxy-server`'s `commands::worker::run_worker`, after migrations and before `WorkerRuntime::start` |
 //! | `oxy airway run` / `backfill` / `coverage` | `cli::commands::airway::connect_db`, the one connect path all three share |
 //!
 //! Deliberately absent, each for a reason that is checkable rather than a

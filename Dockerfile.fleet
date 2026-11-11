@@ -73,7 +73,7 @@ COPY crates/app-dylib/src crates/app-dylib/src
 RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY . .
-COPY --from=web-builder /app/web-app/dist /app/crates/app/dist
+COPY --from=web-builder /app/web-app/dist /app/crates/server/dist
 RUN cargo build --release
 
 # Stage 4: Runtime image

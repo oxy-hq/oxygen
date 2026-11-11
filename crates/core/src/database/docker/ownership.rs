@@ -307,7 +307,7 @@ mod tests {
     /// state is tracked across lines, since a message can open on one line and
     /// carry `postgresql://…` on the next. Assumes what holds for the file scanned
     /// here: no block comments and no raw string ending in a backslash. Twin of
-    /// `code` in `crates/app/src/cli/commands/serve_shutdown_tests.rs`.
+    /// `code` in `crates/server/src/commands/serve_shutdown_tests.rs`.
     fn code(src: &str) -> String {
         let chars: Vec<char> = src.chars().collect();
         let mut out = String::with_capacity(src.len());

@@ -896,7 +896,7 @@ async fn a_task_with_no_queue_row_is_not_a_lost_claim() {
 // to NULL, status to `queued`). So every test here calls it BEFORE the
 // release, matching the real call sites (`spawn_shutdown_hook` in
 // `oxy-app`'s `server::router::recovery`, and `release_queue_claims` in
-// `cli::commands::worker`), which mark first and drain second. Calling it
+// `oxy-server`'s `commands::worker`), which mark first and drain second. Calling it
 // after release (as an earlier draft of this test did) always matches zero
 // rows regardless of the `source_type` guard, silently testing nothing.
 

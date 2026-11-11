@@ -2,7 +2,7 @@
 //!
 //! Compression moves from **once per request** to **once per publish**.
 //! Before this, every asset response ran through the `CompressionLayer` on
-//! `/customer-apps/{*path}` (`cli/commands/serve.rs`), so the same
+//! `/customer-apps/{*path}` (`crates/server/src/commands/serve.rs`), so the same
 //! immutable `main-a1b2c3.js` was re-compressed on every request, on every
 //! replica, forever — pure CPU burn on the hot path, since a
 //! content-hashed asset's bytes never change.

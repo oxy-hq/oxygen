@@ -252,7 +252,7 @@ if [[ "$OXY_URL" != http://* && "$OXY_URL" != https://* ]]; then
     die "--oxy-url must start with http:// or https://: $OXY_URL"
 fi
 
-# The Oxy API tree is mounted under `/api` (see crates/app/src/cli/commands/serve.rs).
+# The Oxy API tree is mounted under `/api` (see crates/server/src/commands/serve.rs).
 # The frontend SPA's fallback service catches any path that doesn't match a
 # route and returns index.html with a 200 — so a missing /api turns into the
 # worker getting HTML on every `/control/*` poll and choking on JSON parse.

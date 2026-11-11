@@ -162,7 +162,7 @@ done
 
 # Every probe below goes to a PUBLIC port on purpose. `enforce_role` — the
 # middleware that classifies a route and self-proxies IdeOnly to the ide — wraps
-# only the public surface (crates/app/src/cli/commands/serve.rs). Drive the
+# only the public surface (crates/server/src/commands/serve.rs). Drive the
 # auth-disabled internal port and you bypass the very thing under test, and every
 # IdeOnly route answers 503 locally instead of proxying.
 case "$MODE" in

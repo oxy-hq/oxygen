@@ -197,7 +197,7 @@ impl ConcurrencyCaps {
 /// either. `axum::serve(...).with_graceful_shutdown(...)` waits for
 /// in-flight connections, so a parked scrape keeps the health task alive
 /// until `drain_background` gives up on it; that join is bounded at 5s and
-/// then abandoned (`cli/commands/worker.rs`). Since `release_queue_claims`
+/// then abandoned (`oxy-server`'s `commands/worker.rs`). Since `release_queue_claims`
 /// runs AFTER `drain_background` rather than inside it, a parked scrape
 /// therefore DELAYS the release by up to that 5s — it cannot hang it. At the
 /// default recovery interval this 5s used to be the ENTIRE shutdown budget,

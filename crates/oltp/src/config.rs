@@ -133,7 +133,7 @@ impl OltpConfig {
             // ROLE) there is not something a missing variable should decide. The
             // admin URL must be given EXPLICITLY. `oxy start` (dev box) supplies
             // it — pointed at the throwaway Docker cluster it just started, not
-            // the control plane (see `cli::commands::start`) — but this parser
+            // the control plane (see `oxy-server`'s `commands::start`) — but this parser
             // never infers it, so a production `serve` with `local` and no admin
             // URL stays `Misconfigured` rather than reaching for the control plane.
             "local" => match get(OLTP_ADMIN_URL_VAR) {

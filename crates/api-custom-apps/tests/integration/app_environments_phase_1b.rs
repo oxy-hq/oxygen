@@ -24,7 +24,7 @@
 //! - a queued task naming staging is refused by the runner, not run.
 //!
 //! The `/api` write refusal runs in the outer stack, before any route; it is
-//! pinned through the shipped stack in `cli::commands::serve`'s tests and in
+//! pinned through the shipped stack in `oxy-server`'s `commands::serve` tests and in
 //! `oxy_app_core::custom_app_env_request`.
 
 use agentic_core::delegation::{TaskAssignment, TaskOutcome, TaskSpec};

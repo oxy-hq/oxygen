@@ -180,7 +180,7 @@
   "OXY_VAPID_PRIVATE_KEY": {"kind": "deployment", "default": "unset (web push skipped)", "gates": "Web Push: the VAPID private key (PKCS#8 PEM). All three VAPID vars or none."},
   "OXY_VAPID_PUBLIC_KEY": {"kind": "deployment", "default": "unset (web push skipped)", "gates": "Web Push: the VAPID public key (base64url)."},
   "OXY_VAPID_SUBJECT": {"kind": "deployment", "default": "unset (web push skipped)", "gates": "Web Push: the VAPID subject (`mailto:`)."},
-  "OXY_WORKER_HEALTH_PORT": {"kind": "deployment", "default": "see `cli/commands/worker.rs`", "gates": "The port `oxy worker` serves its health and `/metrics` endpoints on."},
+  "OXY_WORKER_HEALTH_PORT": {"kind": "deployment", "default": "see `crates/server/src/commands/worker.rs`", "gates": "The port `oxy worker` serves its health and `/metrics` endpoints on."},
   "OXY_WORKER_MAX_INFLIGHT": {"kind": "deployment", "default": "32", "gates": "Tasks one worker process runs at once; the worker metrics report the cap."},
   "OXY_WORKER_RECOVERY_INTERVAL_SECS": {"kind": "deployment", "default": "30", "gates": "How often `oxy worker` runs its recovery tick."},
   "OXY_WORKTREE_IDLE_TIMEOUT_SECS": {"kind": "deployment", "default": "21600 (6 h)", "gates": "How long an unused branch worktree is kept before the sweep removes it."},

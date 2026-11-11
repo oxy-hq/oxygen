@@ -6,7 +6,7 @@ pub mod clean;
 mod compile;
 mod intent;
 mod looker;
-mod migrate;
+pub(crate) mod migrate;
 mod migrate_agents;
 mod migrate_automations;
 /// `pub` so integration tests can drive the seed directly (see
@@ -21,10 +21,7 @@ mod seed_llm_keys;
 pub(crate) mod seed_partners;
 pub(crate) mod seed_platform_grants;
 mod seed_threads;
-pub(crate) mod serve;
-mod start;
 mod test;
-mod worker;
 
 use crate::cli::commands::migrate::migrate;
 use crate::cli::commands::migrate_agents::{MigrateAgentsArgs, migrate_agents};
@@ -39,7 +36,6 @@ use ::oxy::theme::StyledText;
 use clap::Parser;
 use model::{Automation, Config};
 use oxy_shared::errors::OxyError;
-use serve::start_server_and_web_app;
 use std::backtrace;
 use std::error::Error;
 use std::path::PathBuf;
@@ -49,9 +45,10 @@ use std::process::exit;
 use ::oxy::config::WorkingCopy;
 use tracing::debug;
 
-// Every subcommand `oxy` runs today, in the order `--help` lists them.
-// Registered with the `oxy-cli-shim` parser by `oxy-server` as one owner; the
-// top-level arguments (`[INPUT]`, `--output`) and `--version` are the shim's.
+// The one-shot subcommands `oxy` runs, in the order `--help` lists them after
+// `oxy-server`'s own (`start`, `serve`, `worker`). Registered with the
+// `oxy-cli-shim` parser by `oxy-server` as an owner; the top-level arguments
+// (`[INPUT]`, `--output`) and `--version` are the shim's.
 // A plain comment, not `///`: clap would print a doc comment on this enum as
 // the root command's `about`, above `Usage:`.
 #[derive(clap::Subcommand, Debug)]
@@ -109,18 +106,6 @@ pub enum SubCommand {
     /// in place and reported, unless `--force` drops the field. Never
     /// overwrites; collisions are reported. Run `--dry-run --json` first.
     MigrateAgents(MigrateAgentsArgs),
-    /// Start with Docker PostgreSQL (recommended)
-    ///
-    /// Launch PostgreSQL in Docker and start the Oxy web server.
-    /// Uses postgres:18-alpine container for modern PostgreSQL features.
-    /// Data persists in Docker volume 'oxy-postgres-data'.
-    Start(StartArgs),
-    /// Start the web server (requires OXY_DATABASE_URL)
-    ///
-    /// Launch the Oxy server. Requires OXY_DATABASE_URL environment variable
-    /// to be set to a PostgreSQL connection string.
-    /// For automatic PostgreSQL setup, use 'oxy start' instead.
-    Serve(ServeArgs),
     /// Generate JSON schema files for configuration validation
     ///
     /// Create or update schema files used by IDEs and tools
@@ -159,13 +144,6 @@ pub enum SubCommand {
     /// not reachable through the user-facing API; reserve them for ops
     /// runbook flows.
     Admin(admin::AdminArgs),
-    /// Run an agentic worker process standalone (no HTTP server).
-    ///
-    /// Drains the durable task queue (`agentic_task_queue`) from a separate
-    /// process so the worker fleet can scale independently of the HTTP
-    /// frontend. Pair with `oxy serve --no-workers` for fleets where the
-    /// HTTP server is HTTP-only. Requires OXY_DATABASE_URL.
-    Worker(worker::WorkerArgs),
     /// Camera fleet operator commands.
     ///
     /// Hosts deployment-wide actions for the camera fleet (currently:
@@ -213,8 +191,6 @@ pub struct SyncArgs {
     )]
     overwrite: bool,
 }
-
-pub use crate::cli::{ServeArgs, StartArgs};
 
 #[derive(Parser, Debug)]
 pub struct GenConfigSchemaArgs {
@@ -488,10 +464,9 @@ pub fn prepare(name: Option<&str>) {
 /// Run one of [`SubCommand`].
 pub async fn run(
     command: SubCommand,
-    // Surface routes composed by the top `oxy-server` crate, named by where each
-    // seam sits relative to the auth stack, and forwarded to `serve`/`start` (the
-    // only subcommands that mount them); `worker` takes only the task kinds.
-    // Empty for every other command.
+    // What `oxy-server` composes from the surface crates. Of the commands here
+    // only `migrate` (the post-migrate report) and `seed` (the example apps)
+    // read it; the commands that mount routes are `oxy-server`'s own.
     seams: crate::server::router::SurfaceSeams,
 ) -> Result<(), Box<dyn Error>> {
     match command {
@@ -701,40 +676,6 @@ pub async fn run(
             if let Err(e) = migrate_agents(args) {
                 eprintln!("{}", format!("Agent migration failed: {e}").error());
                 exit(1);
-            }
-        }
-        SubCommand::Start(start_args) => {
-            if let Err(e) = start::start_database_and_server(start_args, seams).await {
-                // Returned rather than `exit(1)`-ed: `main` prints the same
-                // message, records it to Sentry, and — the reason this changed —
-                // flushes the platform-telemetry exporters, so the failure that
-                // crash-loops a pod is the last thing HyperDX shows for it.
-                return Err(OxyError::RuntimeError(format!("Failed to start: {e}")).into());
-            }
-        }
-        SubCommand::Serve(serve_args) => {
-            if let Err(e) = start_server_and_web_app(serve_args, seams).await {
-                // Returned rather than `exit(1)`-ed: `main` prints the same
-                // message, records it to Sentry, and — the reason this changed —
-                // flushes the platform-telemetry exporters, so the failure that
-                // crash-loops a pod is the last thing HyperDX shows for it.
-                return Err(OxyError::RuntimeError(format!("Server failed: {e}")).into());
-            }
-        }
-        SubCommand::Worker(worker_args) => {
-            if let Err(e) = worker::run_worker(
-                worker_args,
-                seams.tasks,
-                seams.global_ticks,
-                seams.notifications,
-            )
-            .await
-            {
-                // Returned rather than `exit(1)`-ed: `main` prints the same
-                // message, records it to Sentry, and — the reason this changed —
-                // flushes the platform-telemetry exporters, so the failure that
-                // crash-loops a pod is the last thing HyperDX shows for it.
-                return Err(OxyError::RuntimeError(format!("Worker failed: {e}")).into());
             }
         }
         SubCommand::Seed(seed_args) => {

@@ -112,8 +112,8 @@ impl ServeArgs {
         // Otherwise derive from the process role: only the stateless serve
         // replica offloads everything to the worker fleet. Shared invariant so a
         // single `OXY_ROLE=all` instance always runs its own in-process workers.
-        !crate::server::role_manifest::role_runs_inprocess_workers(
-            crate::server::role_manifest::current_process_role(),
+        !oxy_app::host::role_manifest::role_runs_inprocess_workers(
+            oxy_app::host::role_manifest::current_process_role(),
         )
     }
 }
@@ -189,7 +189,7 @@ mod tests {
         // mutex. Today only this test touches OXY_DISABLE_INPROCESS_WORKERS,
         // but the lock is here so a future test added to this binary
         // doesn't race against this one. Matches the ENV_LOCK pattern in
-        // crates/app/src/cli/commands/worker_tests.rs.
+        // crates/server/src/commands/worker_tests.rs.
         static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _g = ENV_LOCK.lock().unwrap();
         let prev = std::env::var("OXY_DISABLE_INPROCESS_WORKERS").ok();
@@ -218,7 +218,7 @@ mod tests {
             std::env::remove_var("OXY_DISABLE_INPROCESS_WORKERS");
             std::env::set_var("OXY_ROLE", "serve");
         }
-        crate::server::role_manifest::init_process_role_from_env();
+        oxy_app::host::role_manifest::init_process_role_from_env();
         let args = ServeArgs::parse_from(["oxy"]);
         assert!(
             args.workers_disabled(),
@@ -233,7 +233,7 @@ mod tests {
             std::env::remove_var("OXY_DISABLE_INPROCESS_WORKERS");
             std::env::set_var("OXY_ROLE", "all");
         }
-        crate::server::role_manifest::init_process_role_from_env();
+        oxy_app::host::role_manifest::init_process_role_from_env();
         let args = ServeArgs::parse_from(["oxy"]);
         assert!(
             !args.workers_disabled(),
@@ -249,7 +249,7 @@ mod tests {
             std::env::set_var("OXY_ROLE", "serve");
             std::env::set_var("OXY_DISABLE_INPROCESS_WORKERS", "0");
         }
-        crate::server::role_manifest::init_process_role_from_env();
+        oxy_app::host::role_manifest::init_process_role_from_env();
         let args = ServeArgs::parse_from(["oxy"]);
         assert!(
             !args.workers_disabled(),

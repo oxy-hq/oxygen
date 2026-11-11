@@ -45,7 +45,7 @@ after the skill's checklist says the work really is request-scoped.
 
 | Module | Owns |
 | ------ | ---- |
-| `cli/` | Command surface. `cli/commands/` has one file per command: `serve.rs`, `start.rs`, `run.rs`, `worker.rs`, `compile.rs`, `migrate*.rs`, `admin.rs`, `clean.rs`, … `mod.rs` builds the clap tree. HTTP-client commands (`publish`, `login`, `proxy`, `assume`, `api`) are not here — they are `oxyc` (`sdk/cli`). |
+| `cli/` | Command surface. `cli/commands/` has one file per one-shot command: `run.rs`, `compile.rs`, `migrate*.rs` (`migrate.rs` also holds the migration runner `serve`/`worker` call), `admin.rs`, `clean.rs`, … `mod.rs` declares them as `SubCommand`. The long-lived `serve` / `start` / `worker` are `oxy-server`'s (`crates/server/src/commands/`), reaching oxy-app through `host.rs`. HTTP-client commands (`publish`, `login`, `proxy`, `assume`, `api`) are not here — they are `oxyc` (`sdk/cli`). |
 | `server/` | The Axum server (~80k LOC) — see breakdown below. |
 | `agentic_wiring/` | Adapts `oxy` state into the shape `agentic-pipeline` needs (`project_ctx.rs` is a 1.8k-line god file — a decomposition target). Has its own `CLAUDE.md`. |
 | `integrations/` | External integrations, notably the Slack bot (`integrations/slack/`). |
@@ -79,7 +79,7 @@ own schedule ticks.
 ## Key entry points
 
 - `cli::run` / `cli::prepare` — oxy-app's subcommands (`cli::SubCommand`), registered with the `oxy-cli-shim` parser by `crates/server/src/main.rs`, which owns argv parsing and `--version` (S10 in `internal-docs/domain-boundaries.md`); log format auto-detects local vs cloud (JSON).
-- `oxy serve` (`cli/commands/serve.rs`) — production HTTP path; `--enterprise` is the default
+- `oxy serve` (`crates/server/src/commands/serve.rs`) — production HTTP path; `--enterprise` is the default
   shape for tests/demos, `--local` is the single-user/no-auth laptop mode only.
 - `server/router/entry.rs` — top-level router assembly.
 - `server/role_manifest.rs` — the map every new route must be classified in.

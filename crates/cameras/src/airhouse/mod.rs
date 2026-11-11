@@ -291,7 +291,7 @@ fn ensured() -> &'static RwLock<HashSet<Uuid>> {
 ///
 /// **Where the DDL actually runs:** in production, the
 /// `airhouse::register_post_provision_hook` registered at app startup
-/// (see `crates/app/src/cli/commands/serve.rs`) fires this same
+/// (see `crates/server/src/commands/serve.rs`) fires this same
 /// `ensure_schema` from `TenantProvisioner::provision`, so by the time
 /// any edge box hits us the tables already exist. This function's
 /// `ensured()` short-circuit + idempotent `CREATE TABLE IF NOT EXISTS`

@@ -2,6 +2,7 @@
 //! See internal-docs/2026-04-21-universal-slack-bot-design.md
 
 pub mod blocks;
+pub mod boot;
 pub mod chart_render;
 /// `client` was extracted to the `oxy-slack-client` crate (shared with
 /// `oxy-cameras`). Re-exported here so every in-crate `client::` path is

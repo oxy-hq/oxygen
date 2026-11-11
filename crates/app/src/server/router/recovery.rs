@@ -40,7 +40,7 @@ use oxy_app_core::serve_mode::{LOCAL_WORKSPACE_ID, ServeMode};
 /// A process-lifetime registry rather than a value threaded through the
 /// router return type, deliberately: `api_router` already returns a tuple
 /// consumed at nine call sites (most of them tests), and
-/// [`serve_application`](crate::cli::commands::serve) — the only place that
+/// `serve_application` (`oxy-server`'s `commands/serve.rs`) — the only place that
 /// owns the shutdown wait — never sees the `AgenticState` the hook is built
 /// from. Threading a third element through would be six signature changes to
 /// move a value whose lifetime is the process anyway, which is exactly what
@@ -217,7 +217,7 @@ pub(crate) fn register_shutdown_hook(handle: tokio::task::JoinHandle<()>) {
 /// cancelled the server is unwinding from an error rather than a signal, so
 /// the hooks will never fire and waiting on them would just burn the full
 /// timeout and log a shutdown warning for a failure that isn't one.
-pub(crate) async fn await_shutdown_hooks(shutdown_token: &tokio_util::sync::CancellationToken) {
+pub async fn await_shutdown_hooks(shutdown_token: &tokio_util::sync::CancellationToken) {
     if !shutdown_token.is_cancelled() {
         return;
     }
@@ -260,11 +260,11 @@ pub(crate) async fn await_shutdown_hooks(shutdown_token: &tokio_util::sync::Canc
 /// node). Firing is exactly-once across replicas via the scheduler `next_run_at`
 /// CAS, so several eligible nodes running it concurrently is safe — no leader
 /// election needed.
-pub(crate) const INPROC_GLOBAL_WORKER_ENV: &str = "OXY_INPROC_GLOBAL_WORKER";
+pub const INPROC_GLOBAL_WORKER_ENV: &str = "OXY_INPROC_GLOBAL_WORKER";
 const INPROC_GLOBAL_WORKER_INTERVAL_ENV: &str = "OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS";
 pub const DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS: u64 = 30;
 
-pub(crate) fn inproc_global_worker_enabled() -> bool {
+pub fn inproc_global_worker_enabled() -> bool {
     // Explicit env override wins, in both directions.
     if let Ok(v) = std::env::var(INPROC_GLOBAL_WORKER_ENV) {
         return matches!(v.as_str(), "1" | "true" | "yes" | "on");
@@ -321,7 +321,7 @@ pub(super) fn inproc_global_worker_interval() -> std::time::Duration {
 /// `DRIVER_LEASE_TTL_SECS`; hence the pass runs a second time after
 /// [`LAPSED_LEASE_PASS_DELAY`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StartupPass {
+pub enum StartupPass {
     /// Run it — this process is the one whose death orphaned the runs
     /// (`oxy serve`, whose own direct-drives went down with it).
     Run,
@@ -362,7 +362,7 @@ const LAPSED_LEASE_PASS_DELAY: std::time::Duration =
 /// process was direct-driving was selected anyway. Direct drives hold the
 /// lease now (`agentic_runtime::lifecycle::driver_lease`), which is what makes
 /// the second, delayed startup pass safe.
-pub(crate) fn spawn_recovery(
+pub fn spawn_recovery(
     agentic_state: Arc<AgenticState>,
     mode: ServeMode,
     // The node's Layer-1 preagg cache, from the same `AppState` the HTTP

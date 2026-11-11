@@ -240,7 +240,7 @@ where
 /// `X-Forwarded-Host`. No env-var setup needed for local or cloud
 /// deployments. (When whitelabelling lands, per-app allowed origins
 /// belong in the DB, not a global env var.)
-pub(crate) fn build_cors_layer() -> CorsLayer {
+pub fn build_cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_private_network(true)
         .allow_origin(AllowOrigin::predicate(|origin, parts| {

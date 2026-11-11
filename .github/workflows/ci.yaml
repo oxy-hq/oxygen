@@ -1077,8 +1077,8 @@ jobs:
           save-cache: "false"
 
       # `cargo build` embeds the web-app dist into the oxy binary via
-      # `include_dir!` in crates/app/src/cli/commands/serve.rs. The dist
-      # path is a committed symlink: `crates/app/dist -> ../../web-app/dist`.
+      # `include_dir!` in crates/server/src/commands/serve.rs. The dist
+      # path is a committed symlink: `crates/server/dist -> ../../web-app/dist`.
       # If `web-app/dist` is empty when cargo runs, the binary serves 404
       # on `/` — every Playwright/agentic flow then fails because the
       # frontend never loads. Build the web-app first so the symlink
@@ -1254,8 +1254,8 @@ jobs:
           } >>"$GITHUB_STEP_SUMMARY"
 
       # `cargo build` embeds the web-app dist into the oxy binary via
-      # `include_dir!` in crates/app/src/cli/commands/serve.rs. The dist
-      # path is a committed symlink: `crates/app/dist -> ../../web-app/dist`.
+      # `include_dir!` in crates/server/src/commands/serve.rs. The dist
+      # path is a committed symlink: `crates/server/dist -> ../../web-app/dist`.
       # If `web-app/dist` is empty when cargo runs, the binary serves 404
       # on `/` — every Playwright/agentic flow then fails because the
       # frontend never loads. Build the web-app first so the symlink

@@ -20,7 +20,8 @@ CLI + HTTP-server library where almost all the code lives.
 ```
 crates/
   server/                   # (oxy-server) the `oxy` BINARY — composition root (main.rs + router
-                            #   assembly) that mounts the API surfaces. Default member.
+                            #   assembly) that mounts the API surfaces, and the long-lived
+                            #   commands serve/start/worker. Default member.
   app/                      # (oxy-app) CLI + HTTP server LIBRARY (the bulk of the code; lib-only)
   api-<context>/            # (oxy-api-*) HTTP surface crates oxy-server mounts — one bounded context
                             #   each (github, tenancy, documents, frontline, custom-apps, source-upload,

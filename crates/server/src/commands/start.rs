@@ -1,5 +1,5 @@
-use crate::cli::StartArgs;
-use crate::cli::commands::serve::start_server_and_web_app;
+use super::args::StartArgs;
+use super::serve::start_server_and_web_app;
 use oxy::database::docker;
 use oxy::state_dir::get_state_dir;
 use oxy::theme::StyledText;
@@ -7,7 +7,7 @@ use oxy_shared::errors::OxyError;
 
 pub async fn start_database_and_server(
     args: StartArgs,
-    seams: crate::server::router::SurfaceSeams,
+    seams: oxy_app::host::router::SurfaceSeams,
 ) -> Result<(), OxyError> {
     println!(
         "{}",

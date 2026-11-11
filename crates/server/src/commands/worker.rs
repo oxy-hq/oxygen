@@ -43,14 +43,14 @@ use tokio::signal;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::cli::commands::serve;
+use super::serve;
 // Aliased: this module already has a `spawn_recovery` (the reaper pre-pass
 // loop below), and the two are genuinely different jobs — one reaps stale
 // queue rows, the other drives runs.
-use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use crate::server::router::recovery::{StartupPass, spawn_recovery as spawn_run_drivers};
-use crate::server::worker_health::{self, WorkerHealthState};
-use crate::server::worker_runtime::WorkerRuntime;
+use oxy_app::host::router::recovery::{StartupPass, spawn_recovery as spawn_run_drivers};
+use oxy_app::host::worker::PreaggCacheCtx;
+use oxy_app::host::worker::WorkerRuntime;
+use oxy_app::host::worker::{WorkerHealthState, worker_health};
 
 /// Default cadence for the standalone-worker recovery loop. Same default the
 /// in-process driver uses (`OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS`).
@@ -205,20 +205,20 @@ pub async fn run_worker(
     args: WorkerArgs,
     // The custom-app task kinds this worker can run, handed in by the composition
     // root (`SurfaceSeams::tasks`).
-    custom_tasks: Vec<crate::server::router::TaskSeam>,
+    custom_tasks: Vec<oxy_app::host::router::TaskSeam>,
     // The surfaces' singleton ticks (`SurfaceSeams::global_ticks`); this process
     // runs the global driver when its role says so, and the driver reads them.
-    global_ticks: Vec<crate::server::router::GlobalTickSeam>,
+    global_ticks: Vec<oxy_app::host::router::GlobalTickSeam>,
     // The notifications surface's boot hooks (`SurfaceSeams::notifications`):
     // a worker both raises and delivers notifications, so it refuses to start
     // without them.
-    notifications: Option<crate::server::router::NotificationsSeam>,
+    notifications: Option<oxy_app::host::router::NotificationsSeam>,
 ) -> Result<(), OxyError> {
     // Before anything is built: a worker without an executor for a kind
     // `oxy-app` queues would claim those tasks and fail them as unknown.
-    crate::server::router::require_task_kinds(&custom_tasks).map_err(OxyError::RuntimeError)?;
-    crate::server::router::install_global_ticks(&global_ticks);
-    crate::server::router::require_notifications(notifications.as_ref())
+    oxy_app::host::router::require_task_kinds(&custom_tasks).map_err(OxyError::RuntimeError)?;
+    oxy_app::host::router::install_global_ticks(&global_ticks);
+    oxy_app::host::router::require_notifications(notifications.as_ref())
         .map_err(OxyError::RuntimeError)?;
 
     // The worker is a separate PROCESS, so `start_server_and_web_app`'s
@@ -257,20 +257,20 @@ pub async fn run_worker(
     // anyway. An explicit `OXY_ROLE` still wins.
     oxy_app_core::config::BootConfig::init()
         .map_err(|e| OxyError::ConfigurationError(format!("worker: {e}")))?;
-    let role = crate::server::role_manifest::init_process_role_from_env_with_default(
-        crate::server::role_manifest::Role::Worker,
+    let role = oxy_app::host::role_manifest::init_process_role_from_env_with_default(
+        oxy_app::host::role_manifest::Role::Worker,
     );
 
     require_database_url()?;
     // A worker is never the single process unless OXY_ROLE=all says so; its
     // secrets and custom-app files must come from state every node can read.
-    crate::server::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
+    oxy_app::host::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
     // And it is never the guest-mode single process either: refuse without a
     // sign-in provider, as `serve` does for its fleet roles.
-    crate::server::auth_provider_check::check(
+    oxy_app::host::auth_provider_check::check(
         role,
         false,
-        crate::server::auth_provider_check::provider_configured(),
+        oxy_app::host::auth_provider_check::provider_configured(),
     )
     .map_err(OxyError::RuntimeError)?;
 
@@ -289,22 +289,22 @@ pub async fn run_worker(
 
     // As at `oxy serve` boot: in Kubernetes, the master key from `server_keys`
     // (sealed by KMS), before and after migrations.
-    crate::server::shared_state_check::load_master_key()
+    oxy_app::host::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;
-    if args.skip_migrations || serve::skip_migrations_requested() {
+    if args.skip_migrations || oxy_app::host::migrations::skip_migrations_requested() {
         tracing::info!("worker: skipping migrations (--skip-migrations or OXY_SKIP_MIGRATIONS)");
     } else {
         tracing::info!("worker: running database migrations");
-        serve::run_database_migrations(args.enterprise).await?;
+        oxy_app::host::migrations::run_database_migrations(args.enterprise).await?;
         tracing::info!("worker: migrations complete");
     }
     // As at `oxy serve` boot: a key that cannot open this database's sealed
     // values is refused before the worker claims anything off the queue.
-    crate::server::shared_state_check::load_master_key()
+    oxy_app::host::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;
-    crate::server::shared_state_check::check_encryption_key()
+    oxy_app::host::shared_state_check::check_encryption_key()
         .await
         .map_err(OxyError::RuntimeError)?;
     // As at `oxy serve` boot: a rollback's mutes, into the settings table.
@@ -326,10 +326,10 @@ pub async fn run_worker(
     // top of each airway run, so it also covers any connector this process
     // builds outside a run. A standalone worker drains `TaskSpec::Airway` off
     // the queue, so it is one of the three entry points that can build a
-    // source connector; see `crate::airway_boot` for the full roster. Never
+    // source connector; see `oxy_app::airway_boot` for the full roster. Never
     // fails boot: a malformed row is a warning here and a legible run failure
     // where the operator can see it.
-    crate::airway_boot::install_deployment_tier_from_env().await;
+    oxy_app::airway_boot::install_deployment_tier_from_env().await;
 
     // Wire the product observability store, as `start_server_and_web_app`
     // does. `main` installs the `SpanCollectorLayer` for this command too
@@ -349,7 +349,7 @@ pub async fn run_worker(
     // Before `WorkerRuntime::start` and the run drivers, so the sinks exist
     // before the first invocation this process can run. `OXY_CLICKHOUSE_*`
     // comes from the pod spec, so unlike `oxy start` nothing has to boot first.
-    crate::observability_boot::finalize().await;
+    oxy_app::observability_boot::finalize().await;
 
     let max_inflight = read_max_inflight();
     let recovery_interval = resolve_recovery_interval(args.recovery_interval_secs);
@@ -460,7 +460,7 @@ pub async fn run_worker(
     // `oxy_queue_depth_claimed`) against `oxy_worker_capacity`.
     let health_handle = match health_port {
         Some(port) => {
-            let metrics_state = crate::server::worker_metrics::MetricsState {
+            let metrics_state = oxy_app::host::worker::MetricsState {
                 worker_id: std::sync::Arc::new(worker_id.clone()),
                 version,
                 db: std::sync::Arc::new(
@@ -472,7 +472,7 @@ pub async fn run_worker(
                             ))
                         })?,
                 ),
-                capacity: crate::server::worker_metrics::ConcurrencyCaps::from_env(),
+                capacity: oxy_app::host::worker::ConcurrencyCaps::from_env(),
             };
             Some(
                 worker_health::spawn(port, health_state, Some(metrics_state), shutdown.clone())

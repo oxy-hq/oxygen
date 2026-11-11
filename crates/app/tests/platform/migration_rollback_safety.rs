@@ -467,7 +467,7 @@ async fn migrations_are_rollback_safe() {
     let mut found: Vec<Loss> = Vec::new();
     let mut seen: BTreeSet<(&'static str, String)> = BTreeSet::new();
 
-    // The order `run_all_migrators` uses (`cli/commands/serve.rs`): the central
+    // The order `run_all_migrators` uses (`cli/commands/migrate.rs`): the central
     // chain first, then the side migrators that reference its tables.
     walk::<migration::Migrator>(&db, "central", &mut baseline, &mut found, &mut seen).await;
     walk::<agentic_runtime::migration::RuntimeMigrator>(

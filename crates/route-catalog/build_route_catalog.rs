@@ -119,7 +119,7 @@ struct Seed {
 /// Roots of the live HTTP surface, mirroring `server/router/entry.rs`.
 ///
 /// `build_public_routes` / `build_global_routes` / `build_protected_routes` are
-/// merged into one router that `cli/commands/serve.rs` nests under `/api`;
+/// merged into one router that `crates/server/src/commands/serve.rs` nests under `/api`;
 /// `build_external_api_router` mounts the curated API-key surface under
 /// `/external/api`. The sibling API crates arrive through three seams the
 /// `oxy-server` composition root fills: `SurfaceSeams::api`, merged beside the

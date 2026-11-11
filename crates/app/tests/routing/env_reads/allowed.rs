@@ -420,7 +420,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_DATABASE_HOST",
-        "crates/app/src/cli/commands/worker.rs",
+        "crates/server/src/commands/worker.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -440,7 +440,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_DATABASE_NAME",
-        "crates/app/src/cli/commands/worker.rs",
+        "crates/server/src/commands/worker.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -475,12 +475,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_DATABASE_URL",
-        "crates/app/src/cli/commands/serve.rs",
+        "crates/server/src/commands/serve.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
         "OXY_DATABASE_URL",
-        "crates/app/src/cli/commands/worker.rs",
+        "crates/server/src/commands/worker.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -530,7 +530,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_DISABLE_INPROCESS_WORKERS",
-        "crates/app/src/cli/types.rs",
+        "crates/server/src/commands/args.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -715,7 +715,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_OBSERVABILITY_BACKEND",
-        "crates/app/src/cli/commands/start.rs",
+        "crates/server/src/commands/start.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -740,7 +740,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_OLTP_ADMIN_URL",
-        "crates/app/src/cli/commands/start.rs",
+        "crates/server/src/commands/start.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -770,7 +770,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_OLTP_PROVIDER",
-        "crates/app/src/cli/commands/start.rs",
+        "crates/server/src/commands/start.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -910,7 +910,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_SKIP_MIGRATIONS",
-        "crates/app/src/cli/commands/serve.rs",
+        "crates/app/src/cli/commands/migrate.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -1015,7 +1015,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_WORKER_HEALTH_PORT",
-        "crates/app/src/cli/commands/worker.rs",
+        "crates/server/src/commands/worker.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (
@@ -1030,7 +1030,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_WORKER_RECOVERY_INTERVAL_SECS",
-        "crates/app/src/cli/commands/worker.rs",
+        "crates/server/src/commands/worker.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
     ),
     (

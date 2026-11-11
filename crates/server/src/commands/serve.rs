@@ -1,7 +1,4 @@
-use crate::cli::ServeArgs;
-use crate::server::http_cache::{if_none_match, weak_etag};
-use agentic_pipeline::{AirwayMigrator, AnalyticsMigrator, AutomationMigrator};
-use agentic_runtime::migration::RuntimeMigrator;
+use super::args::ServeArgs;
 use axum::handler::Handler;
 use axum::http::HeaderValue;
 use axum::response::IntoResponse;
@@ -12,20 +9,18 @@ use axum::{
     routing::get_service,
 };
 use include_dir::{Dir, include_dir};
-use migration::{Migrator, MigratorTrait};
 use oxy::{
     config::resolve_local_workspace_path,
     database::{client::establish_connection, docker},
     state_dir::get_state_dir,
     theme::StyledText,
 };
+use oxy_app::host::http_cache::{if_none_match, weak_etag};
 use oxy_app_core::http_cache::wants_html;
 use oxy_app_core::serve_mode::ServeMode;
-use oxy_cameras::CamerasMigrator;
 use oxy_shared::errors::OxyError;
 use std::future::IntoFuture;
 use std::net::SocketAddr;
-use std::time::{Duration, Instant};
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 use tower::{ServiceBuilder, service_fn};
@@ -37,7 +32,7 @@ const ASSETS_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 pub async fn start_server_and_web_app(
     args: ServeArgs,
-    seams: crate::server::router::SurfaceSeams,
+    seams: oxy_app::host::router::SurfaceSeams,
 ) -> Result<(), OxyError> {
     // Every deployment variable the app layer reads, parsed once and validated:
     // a value the process cannot use refuses the boot here, naming the variable,
@@ -46,18 +41,18 @@ pub async fn start_server_and_web_app(
         .map_err(|e| OxyError::ConfigurationError(format!("serve: {e}")))?;
     // OXY_ROLE → ide | serve | worker | all (default). Read once so the
     // routing middleware can enforce the FS-routing boundary.
-    let role = crate::server::role_manifest::init_process_role_from_env();
+    let role = oxy_app::host::role_manifest::init_process_role_from_env();
 
     // Any role but `all` shares state with other nodes, and these settings are
     // what make the state shareable. Refuse here, before anything is built,
     // rather than boot onto this node's disk.
-    crate::server::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
+    oxy_app::host::shared_state_check::check_process_env(role).map_err(OxyError::RuntimeError)?;
     // Same reason for sign-in: a fleet process with no provider would serve
     // every request as the guest user.
-    crate::server::auth_provider_check::check(
+    oxy_app::host::auth_provider_check::check(
         role,
         args.local,
-        crate::server::auth_provider_check::provider_configured(),
+        oxy_app::host::auth_provider_check::provider_configured(),
     )
     .map_err(OxyError::RuntimeError)?;
 
@@ -91,7 +86,7 @@ pub async fn start_server_and_web_app(
     // log line at startup rather than being inferred from the absence of
     // notifications.
     let notifications = seams.notifications;
-    crate::server::router::require_notifications(notifications.as_ref())
+    oxy_app::host::router::require_notifications(notifications.as_ref())
         .map_err(OxyError::RuntimeError)?;
     if let Some(hooks) = notifications
         && !(hooks.install)()
@@ -144,22 +139,22 @@ pub async fn start_server_and_web_app(
     // In Kubernetes: the master key, from `server_keys` (sealed by KMS), before
     // anything can seal a value. Again after migrations, for a database that had
     // no `server_keys` yet.
-    crate::server::shared_state_check::load_master_key()
+    oxy_app::host::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;
-    if skip_migrations_requested() {
+    if oxy_app::host::migrations::skip_migrations_requested() {
         println!("serve: OXY_SKIP_MIGRATIONS set — skipping migrations (run by the migrate Job)");
     } else {
         println!("serve: running database migrations");
-        run_database_migrations(args.enterprise).await?;
+        oxy_app::host::migrations::run_database_migrations(args.enterprise).await?;
     }
     // Every role, `all` included: refuse a key that cannot open what this
     // database's secrets were sealed with. After migrations, because the check
     // value lives in `server_keys`.
-    crate::server::shared_state_check::load_master_key()
+    oxy_app::host::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;
-    crate::server::shared_state_check::check_encryption_key()
+    oxy_app::host::shared_state_check::check_encryption_key()
         .await
         .map_err(OxyError::RuntimeError)?;
     // Mutes made on a previous release while it was rolled back to reach the
@@ -185,7 +180,7 @@ pub async fn start_server_and_web_app(
     // vendor) and the admin policy preview. Must precede
     // `create_web_application`, which mounts those routes and starts the
     // in-process worker fleet. Never fails boot — see `airway_boot`.
-    crate::airway_boot::install_deployment_tier_from_env().await;
+    oxy_app::airway_boot::install_deployment_tier_from_env().await;
     println!("serve: airway deployment tier resolved, finding available port");
 
     // Now that OXY_CLICKHOUSE_* is set (either externally for `oxy serve` or
@@ -193,7 +188,7 @@ pub async fn start_server_and_web_app(
     // observability backend and spawn the bridge that drains the span channel
     // into it. No-op when OXY_OBSERVABILITY_BACKEND is unset — the layer was
     // never installed and there's no receiver to drain.
-    crate::observability_boot::finalize().await;
+    oxy_app::observability_boot::finalize().await;
 
     // Detect whether any cloud auth provider is configured — used only to
     // surface an informational log when `--local` is requested with providers
@@ -216,7 +211,7 @@ pub async fn start_server_and_web_app(
     // bundle's data hooks would 401 in `oxy start --local`.
     {
         let yaml_provider =
-            !args.local && crate::server::auth_provider_check::provider_configured();
+            !args.local && oxy_app::host::auth_provider_check::provider_configured();
         oxy_auth::built_in::set_auth_configured(yaml_provider);
     }
 
@@ -281,65 +276,7 @@ pub async fn start_server_and_web_app(
     oxy_app_core::serve_mode::set_process_mode(mode);
 
     if matches!(mode, ServeMode::Cloud) {
-        use crate::integrations::slack::config::SlackConfig;
-        match SlackConfig::from_env() {
-            SlackConfig::Enabled(cfg) => {
-                tracing::info!("Slack integration enabled");
-
-                // Socket Mode: open a persistent WebSocket connection when an
-                // app-level token is configured. HTTP webhooks remain active
-                // regardless — Socket Mode is purely additive.
-                if let Some(app_level_token) = cfg.app_level_token.clone() {
-                    tracing::info!("slack: Socket Mode enabled (OXY_SLACK_APP_LEVEL_TOKEN set)");
-                    tokio::spawn(async move {
-                        crate::integrations::slack::socket_mode::run_socket_loop(app_level_token)
-                            .await;
-                    });
-                } else {
-                    tracing::info!("slack: using HTTP webhooks (OXY_SLACK_APP_LEVEL_TOKEN unset)");
-                }
-
-                // Background cleanup: delete stale Slack rows hourly.
-                // - slack_oauth_states: TTL 15 min, but we keep rows 7 days for audit.
-                // - slack_seen_events: keep rows 10 minutes (just enough for Slack retry window).
-                tokio::spawn(async {
-                    use chrono::Duration as CDuration;
-                    use tokio::time::{Duration, sleep};
-                    loop {
-                        sleep(Duration::from_secs(3600)).await;
-                        match crate::integrations::slack::oauth::state::sweep_expired().await {
-                            Ok(n) if n > 0 => {
-                                tracing::info!("cleaned up {n} expired slack_oauth_states rows")
-                            }
-                            Ok(_) => {}
-                            Err(e) => tracing::warn!("slack_oauth_states cleanup failed: {e}"),
-                        }
-                        match crate::integrations::slack::services::seen_events::SeenEventsService::sweep(
-                            CDuration::minutes(10),
-                        )
-                        .await
-                        {
-                            Ok(n) if n > 0 => {
-                                tracing::info!("cleaned up {n} old slack_seen_events rows")
-                            }
-                            Ok(_) => {}
-                            Err(e) => tracing::warn!("slack_seen_events cleanup failed: {e}"),
-                        }
-                    }
-                });
-            }
-            SlackConfig::Disabled => {
-                tracing::info!("Slack integration disabled via OXY_SLACK_ENABLED=false");
-            }
-            SlackConfig::Misconfigured => {
-                tracing::warn!(
-                    "Slack integration is misconfigured — one or more of \
-                     OXY_SLACK_CLIENT_ID / OXY_SLACK_CLIENT_SECRET / \
-                     OXY_SLACK_SIGNING_SECRET / OXY_SLACK_APP_BASE_URL is unset. \
-                     Webhooks will return 503."
-                );
-            }
-        }
+        oxy_app::host::start_slack_background();
     }
 
     let shutdown_token = CancellationToken::new();
@@ -349,7 +286,7 @@ pub async fn start_server_and_web_app(
 
     let disable_inprocess_workers = args.workers_disabled();
     tracing::info!(
-        role = crate::server::role_manifest::current_process_role().as_str(),
+        role = oxy_app::host::role_manifest::current_process_role().as_str(),
         in_process_workers = !disable_inprocess_workers,
         "serve: fleet config derived from OXY_ROLE (workers + global driver run \
          in-process for every role except `serve`; override with --no-workers / \
@@ -361,7 +298,7 @@ pub async fn start_server_and_web_app(
     // `serve` replica in a fleet; a mistake for a lone instance.
     if disable_inprocess_workers {
         tracing::warn!(
-            role = crate::server::role_manifest::current_process_role().as_str(),
+            role = oxy_app::host::role_manifest::current_process_role().as_str(),
             "serve: this node will NOT drain the agentic_task_queue — scheduled \
              and manual jobs, ELT, and compiles will NOT execute here. Correct \
              for a stateless `serve` replica when another OXY_ROLE=all/ide/worker \
@@ -416,7 +353,7 @@ pub(super) async fn init_feature_flags() -> Result<(), OxyError> {
     // first load. FAIL-FAST here (`?`): an unloaded cache reads the registry
     // default for `billing` (OFF = paywall skipped for every org), so serve must
     // not accept requests with an unknown billing state.
-    crate::server::feature_flags::cache::init().await
+    oxy_app::host::feature_flags::init().await
 }
 
 /// One-shot bootstrap: if `OXY_GLOBAL_ADMINS` is set, ensure each email is
@@ -453,253 +390,6 @@ async fn init_service_tokens() -> Result<(), OxyError> {
         .await
         .map_err(|e| OxyError::RuntimeError(format!("service token principals: {e}")))?;
     tracing::info!(count, "service tokens configured");
-    Ok(())
-}
-
-/// A fixed, process-independent key for the Postgres session-level advisory lock
-/// that serialises startup migrations. Every oxy process uses this same key, so
-/// concurrent migrators (the split fleet starting the ide + serve nodes
-/// together, or `oxy start` bringing up serve + a worker) take turns instead of
-/// racing the non-idempotent `CREATE TYPE` enum DDL — which otherwise crashes one
-/// node with "duplicate key value violates unique constraint
-/// pg_type_typname_nsp_index". The value is arbitrary; it only has to be
-/// distinct from the OTHER advisory keys oxy uses in the SAME single-bigint
-/// space — Postgres does not separate the session (`pg_advisory_lock`) and
-/// transaction (`pg_try_advisory_xact_lock`) variants into different
-/// namespaces. The per-workspace lazy-compile lock in
-/// `server/api/middlewares/workspace_context.rs` is the only other user; it
-/// keys off `workspace_id & 0x7fff_ffff_ffff_ffff`, so a workspace UUID whose
-/// low 63 bits equal this key COULD collide (~1-in-2^63). The collision is
-/// benign: a lazy-compile that loses this lock during the brief boot-migration
-/// window just skips its non-blocking dedup and re-attempts on the next
-/// request — no lost work. Pick future advisory keys deliberately rather than
-/// assuming this space is otherwise empty.
-const MIGRATION_ADVISORY_LOCK_KEY: i64 = 0x0078_795F_6D69_6772; // "\0xy_migr"
-
-/// How long [`run_database_migrations`] polls for [`MIGRATION_ADVISORY_LOCK_KEY`]
-/// before giving up.
-///
-/// Must comfortably exceed how long a full `run_all_migrators` can take on a
-/// cold database — a release can ship several `CREATE INDEX CONCURRENTLY`
-/// migrations at once (see `migration::m20260911_000002_*`), each of which
-/// waits out every other session's in-flight transaction before it can
-/// finish. The pool's own startup timeouts (`ACQUIRE_TIMEOUT` = 30s,
-/// `CONNECT_TIMEOUT` = 10s, `oxy_platform::db::client`) bound a single
-/// connection operation, not "wait for a sibling node's entire migration
-/// run" — this is deliberately much larger. Past this bound, either a
-/// migrator died while holding the lock or something else is wrong, and the
-/// node should fail its boot loudly rather than hang.
-const MIGRATION_LOCK_WAIT_BOUND: Duration = Duration::from_secs(300);
-
-/// First retry delay when polling the lock; doubles up to
-/// [`MIGRATION_LOCK_POLL_MAX_BACKOFF`] between attempts.
-const MIGRATION_LOCK_POLL_INITIAL_BACKOFF: Duration = Duration::from_millis(100);
-const MIGRATION_LOCK_POLL_MAX_BACKOFF: Duration = Duration::from_secs(1);
-
-/// How often, while waiting, to print that we're still waiting.
-const MIGRATION_LOCK_LOG_INTERVAL: Duration = Duration::from_secs(10);
-
-/// True when `OXY_SKIP_MIGRATIONS` is set. The long-lived pods — serve, compile,
-/// worker — consult this so a dedicated migrate Job / the canonical StatefulSet
-/// migrator owns the schema and the rest skip on boot (uniform intent across the
-/// fleet). `oxy migrate` itself NEVER consults this — it always runs the full
-/// migrator, since it IS the dedicated migrator.
-pub(crate) fn skip_migrations_requested() -> bool {
-    std::env::var("OXY_SKIP_MIGRATIONS")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-}
-
-pub(crate) async fn run_database_migrations(_enterprise: bool) -> Result<(), OxyError> {
-    println!("migrations: establishing database connection (this builds the connection pool)");
-    let db = establish_connection()
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("Failed to connect to database: {}", e)))?;
-
-    // Serialise migrations across processes with a session-level advisory lock.
-    // Multiple oxy nodes booting together (the split fleet, or `oxy start`'s
-    // serve + worker) would otherwise run these migrators concurrently, and the
-    // `CREATE TYPE` enum migrations are NOT concurrency-safe → a duplicate-key
-    // crash on `pg_type`. Holding the lock makes the losers WAIT, then find every
-    // migration already applied (a no-op). The lock is held on one dedicated
-    // pooled connection (pool max is 80, so it never starves the migrators) and
-    // released even when a migrator fails, so a failure can't wedge other nodes
-    // behind a stuck lock. A process that dies mid-migration drops its
-    // connection, and Postgres releases the lock on disconnect too.
-    //
-    // A waiter POLLS for the lock (`acquire_migration_lock`) rather than
-    // blocking inside `pg_advisory_lock` — see that function's docs for why a
-    // blocking wait here can deadlock against this very migrator's own
-    // `CREATE INDEX CONCURRENTLY` migrations.
-    let mut lock_conn = db
-        .get_postgres_connection_pool()
-        .acquire()
-        .await
-        .map_err(|e| {
-            OxyError::RuntimeError(format!(
-                "migrations: failed to acquire lock connection: {e}"
-            ))
-        })?;
-    acquire_migration_lock(&mut lock_conn).await?;
-    println!("migrations: advisory lock held, running SeaORM migrations");
-
-    let result = run_all_migrators(&db).await;
-
-    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
-        .bind(MIGRATION_ADVISORY_LOCK_KEY)
-        .execute(&mut *lock_conn)
-        .await
-    {
-        tracing::warn!("migrations: failed to release advisory lock (frees on disconnect): {e}");
-    }
-
-    result
-}
-
-/// Polls `pg_try_advisory_lock` for [`MIGRATION_ADVISORY_LOCK_KEY`] rather
-/// than blocking in `pg_advisory_lock`.
-///
-/// A blocking wait holds this connection's implicit transaction — and the
-/// snapshot that comes with it — open for however long the wait takes. This
-/// migrator's own `run_all_migrators` includes `CREATE INDEX CONCURRENTLY`
-/// migrations (`use_transaction() -> Some(false)`), which must wait for
-/// every *other* session's open snapshot to clear before they can finish. So
-/// a second node blocking here while waiting for this lock is a snapshot the
-/// lock holder's own concurrent index build is waiting on — the holder can't
-/// finish migrating, can't release the lock, and the waiter can't stop
-/// waiting. That snapshot wait IS a real, trackable lock-manager wait —
-/// `WaitForOlderSnapshots` goes through `VirtualXactLock` and shows up in
-/// `pg_locks` as a `virtualxid` wait — so the deadlock detector isn't blind
-/// to it. What it can't see is the OTHER leg: `lock_conn` is its own idle,
-/// separate connection, which isn't waiting on anything from Postgres's
-/// point of view. "This connection only releases once `db`'s migration
-/// finishes" is a dependency this function's own code enforces, not one any
-/// backend-to-backend wait expresses — so the cycle has no edge back to the
-/// holder, and the detector reports nothing wrong.
-///
-/// Polling instead keeps every attempt to one short statement, so no
-/// snapshot is ever held open between attempts and the cycle can't form.
-/// Logs progress every [`MIGRATION_LOCK_LOG_INTERVAL`] and fails with a
-/// named cause after [`MIGRATION_LOCK_WAIT_BOUND`] rather than hanging.
-async fn acquire_migration_lock(lock_conn: &mut sqlx::PgConnection) -> Result<(), OxyError> {
-    let start = Instant::now();
-    let mut backoff = MIGRATION_LOCK_POLL_INITIAL_BACKOFF;
-    let mut next_log = MIGRATION_LOCK_LOG_INTERVAL;
-    loop {
-        let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
-            .bind(MIGRATION_ADVISORY_LOCK_KEY)
-            .fetch_one(&mut *lock_conn)
-            .await
-            .map_err(|e| {
-                OxyError::RuntimeError(format!("migrations: failed to poll advisory lock: {e}"))
-            })?;
-        if locked {
-            return Ok(());
-        }
-
-        let elapsed = start.elapsed();
-        if elapsed >= MIGRATION_LOCK_WAIT_BOUND {
-            return Err(OxyError::RuntimeError(format!(
-                "migrations: advisory lock {MIGRATION_ADVISORY_LOCK_KEY} still held after \
-                 {:.0}s — another node's migrator likely died while holding it, or is still \
-                 migrating a cold database. Giving up rather than hanging.",
-                elapsed.as_secs_f64()
-            )));
-        }
-        if elapsed >= next_log {
-            println!(
-                "migrations: still waiting for the advisory lock (held by another node) — \
-                 {:.0}s elapsed",
-                elapsed.as_secs_f64()
-            );
-            next_log += MIGRATION_LOCK_LOG_INTERVAL;
-        }
-        tokio::time::sleep(jittered_backoff(backoff)).await;
-        backoff = (backoff * 2).min(MIGRATION_LOCK_POLL_MAX_BACKOFF);
-    }
-}
-
-/// Equal-jitter backoff: half of `backoff` fixed, half random — so several
-/// nodes waiting on the same lock don't retry in lockstep.
-fn jittered_backoff(backoff: Duration) -> Duration {
-    let half_ms = (backoff.as_millis() as u64 / 2).max(1);
-    Duration::from_millis(half_ms + rand::random_range(0..=half_ms))
-}
-
-/// Run every domain's migrator in dependency order. The caller holds the
-/// migration advisory lock — see [`run_database_migrations`].
-async fn run_all_migrators(db: &sea_orm::DatabaseConnection) -> Result<(), OxyError> {
-    // Run SeaORM migrations for PostgreSQL
-    Migrator::up(db, None)
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("Failed to run database migrations: {}", e)))?;
-    println!("migrations: SeaORM migrations complete");
-
-    // Run orchestrator runtime migrations (separate tracking table).
-    RuntimeMigrator::up(db, None)
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("runtime migrations failed: {}", e)))?;
-    println!("migrations: runtime migrations complete");
-
-    // Run analytics domain extension migrations (separate tracking table).
-    AnalyticsMigrator::up(db, None)
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("analytics migrations failed: {}", e)))?;
-    println!("migrations: analytics migrations complete");
-
-    // Run automation state migrations (separate tracking table).
-    AutomationMigrator::up(db, None)
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("workflow migrations failed: {}", e)))?;
-    println!("migrations: workflow migrations complete");
-
-    // Run airway extension migrations (separate tracking table). Must
-    // follow the runtime migrator — `airway_run_extensions.run_id` FKs
-    // to `agentic_runs.id`.
-    AirwayMigrator::up(db, None)
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("airway migrations failed: {}", e)))?;
-    println!("migrations: airway migrations complete");
-
-    // Run airhouse migrations (separate tracking table). The wrapper pre-stamps
-    // `seaql_migrations_airhouse` from the central tracking table so existing
-    // deployments don't re-run migrations whose tables already exist.
-    airhouse::migration::up(db)
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("airhouse migrations failed: {}", e)))?;
-    println!("migrations: airhouse migrations complete");
-
-    // Per-org OLTP migrations (separate tracking table). Must follow the
-    // central migrator — `oltp_tenants.org_id` FKs to `organizations.id`.
-    oxy_oltp::migration::up(db)
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("oltp migrations failed: {}", e)))?;
-    println!("migrations: oltp migrations complete");
-
-    // Camera fleet domain migrations (separate tracking table). No FK deps on
-    // other domains — sites.workspace_id is a loose UUID per
-    // domain-boundaries.md P3.
-    //
-    // We intentionally do NOT register a post-provision hook for the
-    // cameras DDL: provisioning Airhouse is "this workspace wants a
-    // data warehouse" — not "this workspace wants cameras". Eagerly
-    // creating `oxy_cam_*` tables in every tenant would clutter
-    // warehouses that never touch the camera fleet. Instead, the DDL
-    // fires lazily at camera-intent points (see
-    // `oxy_cameras::service::onboarding::import` and
-    // `oxy_cameras::service::registration::register_edge_box`), with
-    // the lazy ensure on the ingest path
-    // (`oxy_cameras::airhouse::connect_and_ensure`) as a final safety
-    // net.
-    CamerasMigrator::up(db, None)
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("cameras migrations failed: {}", e)))?;
-    println!("migrations: cameras migrations complete");
-
-    // Observability schema (DuckDB / Postgres / ClickHouse) is initialized by
-    // the backend itself during `*Storage::open()` in `main.rs`, so no separate
-    // migration step is needed here.
-
     Ok(())
 }
 
@@ -754,14 +444,14 @@ async fn create_web_application(
     startup_cwd: std::path::PathBuf,
     shutdown_token: CancellationToken,
     disable_inprocess_workers: bool,
-    seams: crate::server::router::SurfaceSeams,
+    seams: oxy_app::host::router::SurfaceSeams,
 ) -> Result<Router, OxyError> {
     // Taken before `api_router` consumes the seams: the document is assembled below.
     let surface_openapi = seams.openapi.clone();
     let outer = seams.outer.ok_or_else(|| {
         OxyError::RuntimeError("the surface seams hand in no outer mount".to_string())
     })?;
-    let (api_router, external_api_router, preagg_ctx) = crate::server::router::api_router(
+    let (api_router, external_api_router, preagg_ctx) = oxy_app::host::router::api_router(
         mode,
         enterprise,
         observability,
@@ -774,7 +464,7 @@ async fn create_web_application(
     .map_err(|e| OxyError::RuntimeError(format!("Failed to create API router: {}", e)))?;
     // Assembled by `router::openapi` so `oxyc openapi` serves the exact
     // same document offline — one spec, two consumers.
-    let openapi_doc = crate::server::router::build_openapi_doc(surface_openapi).await;
+    let openapi_doc = oxy_app::host::router::build_openapi_doc(surface_openapi).await;
     println!("create_web_application: openapi_router done, assembling final router");
     let static_service = service_fn(handle_static_files);
 
@@ -817,16 +507,16 @@ async fn create_web_application(
         // URI segment-by-segment to the role manifest; no-op when OXY_ROLE is
         // unset. Stamps X-Oxy-Served-By on every response.
         .layer(axum::middleware::from_fn(
-            crate::server::role_middleware::enforce_role,
+            oxy_app::host::middleware::enforce_role,
         ))
         // Admission control sits OUTSIDE enforce_role (sheds before routing /
         // proxy work) but INSIDE CORS (so the 503 still carries CORS headers).
         // Above the in-flight ceiling it returns 503 + Retry-After so a spike
         // backs off instead of cascading across the fleet; probes are exempt.
         .layer(axum::middleware::from_fn(
-            crate::server::admission::admission_control,
+            oxy_app::host::middleware::admission_control,
         ))
-        .layer(crate::server::router::build_cors_layer())
+        .layer(oxy_app::host::router::build_cors_layer())
         // Innermost of the trace pair: the request span must be current when
         // it records a failed response's own message as `error.message`.
         .layer(axum::middleware::from_fn(
@@ -881,7 +571,7 @@ async fn create_web_application(
                 // `_external`: inside this nest the prefix is already stripped,
                 // and both the classification and the forward need it back.
                 .layer(axum::middleware::from_fn(
-                    crate::server::role_middleware::enforce_role_external,
+                    oxy_app::host::middleware::enforce_role_external,
                 ))
                 .layer(axum::middleware::from_fn(
                     oxy_telemetry::http_trace::record_error_body,
@@ -903,7 +593,7 @@ async fn create_web_application(
         // preflight, a shed 503 and a static-fallback 404 all carry the header,
         // none of which reach a handler that could stamp it.
         .layer(axum::middleware::from_fn(
-            crate::server::api::middlewares::request_id::request_id_middleware,
+            oxy_app::host::middleware::request_id_middleware,
         ));
     Ok(router)
 }
@@ -912,9 +602,9 @@ async fn create_internal_application(
     enterprise: bool,
     observability: Option<std::sync::Arc<dyn oxy_observability::ObservabilityStore>>,
     shutdown_token: CancellationToken,
-    seams: crate::server::router::SurfaceSeams,
+    seams: oxy_app::host::router::SurfaceSeams,
 ) -> Result<Router, OxyError> {
-    let internal_router = crate::server::router::internal_api_router(
+    let internal_router = oxy_app::host::router::internal_api_router(
         enterprise,
         observability,
         shutdown_token,
@@ -944,9 +634,7 @@ async fn create_internal_application(
 /// OUTSIDE this layer (it is the outermost layer of the top router), so the
 /// id is already on the request when the span is made.
 fn create_trace_layer() -> oxy_telemetry::http_trace::OxyTraceLayer {
-    oxy_telemetry::http_trace::trace_layer(
-        crate::server::api::middlewares::request_id::REQUEST_ID_HEADER,
-    )
+    oxy_telemetry::http_trace::trace_layer(oxy_app::host::middleware::REQUEST_ID_HEADER)
 }
 
 async fn handle_static_files(
@@ -1167,7 +855,7 @@ async fn serve_application(
     // `budget_bytes = resolve_budget()` this block silently did nothing and the
     // gauges stayed lazy, which is the exact defect it was added to prevent.
     // Prod happened to be covered only because it runs at `info`.
-    let bundle_cache_budget_bytes = crate::server::api::custom_apps_bundle_cache::resolve_budget();
+    let bundle_cache_budget_bytes = oxy_app::host::bundle_cache_budget();
     tracing::info!(
         target: "oxy.custom_app.bundle_cache",
         budget_bytes = bundle_cache_budget_bytes,
@@ -1183,8 +871,8 @@ async fn serve_application(
     // observability is a degradation, and taking the serve fleet down over it
     // would make the monitoring a source of outages instead of a witness to
     // them.
-    if let Some(port) = crate::server::metrics_server::resolve_metrics_port(None) {
-        match crate::server::metrics_server::start(port, shutdown_token.clone()).await {
+    if let Some(port) = oxy_app::host::metrics_server::resolve_metrics_port(None) {
+        match oxy_app::host::metrics_server::start(port, shutdown_token.clone()).await {
             Ok(_handle) => {}
             Err(e) => tracing::warn!(
                 error = %e,
@@ -1226,15 +914,15 @@ async fn serve_application(
     // its own port under `pnpm run dev`, and isn't mounted at all in local
     // mode, so this URL is the one that's always right. DEVELOPMENT.md owns
     // the browser flow.
-    if crate::api::auth::is_dev_login_enabled() {
+    if oxy_app::host::dev_login::is_dev_login_enabled() {
         // Name the variable that actually enabled it: on a debug build with no
         // explicit opt-in that is OXY_GLOBAL_ADMINS, and someone reading
         // "OXY_DEV_LOGIN_EMAILS" would go looking for a var they never set.
-        let source = crate::api::auth::dev_login_source().unwrap_or("OXY_DEV_LOGIN_EMAILS");
+        let source = oxy_app::host::dev_login::dev_login_source().unwrap_or("OXY_DEV_LOGIN_EMAILS");
         // "anyone who can reach this server" is only true for an explicit
         // allow-list; an inferred one is refused off-box, and saying otherwise
         // would train readers to ignore the louder message.
-        let reach = if crate::api::auth::dev_login_is_loopback_only() {
+        let reach = if oxy_app::host::dev_login::dev_login_is_loopback_only() {
             "this machine only (loopback) — set OXY_DEV_LOGIN_EMAILS to serve other hosts"
         } else {
             "anyone who can reach this server"
@@ -1317,8 +1005,8 @@ async fn serve_application(
             }
         } else {
             tracing::warn!("No TLS cert/key files found, using bundled default cert/key.");
-            let default_cert: &[u8] = include_bytes!("../../../../../localhost+2.pem");
-            let default_key: &[u8] = include_bytes!("../../../../../localhost+2-key.pem");
+            let default_cert: &[u8] = include_bytes!("../../../../localhost+2.pem");
+            let default_key: &[u8] = include_bytes!("../../../../localhost+2-key.pem");
             match axum_server::tls_rustls::RustlsConfig::from_pem(
                 default_cert.to_vec(),
                 default_key.to_vec(),
@@ -1419,7 +1107,7 @@ async fn serve_application(
     // is also after `shutdown_token` was cancelled — so the shutdown hooks
     // are already running. Wait for them (bounded) rather than letting
     // process exit race the claim release they perform.
-    crate::server::router::recovery::await_shutdown_hooks(&shutdown_observer).await;
+    oxy_app::host::router::recovery::await_shutdown_hooks(&shutdown_observer).await;
 
     result
 }
@@ -1510,9 +1198,7 @@ fn wrap_outer_service(
             axum::extract::Request,
         >::new_from_top())
         .layer(axum::middleware::from_fn_with_state(
-            std::sync::Arc::new(
-                crate::server::api::projects::workspace_actions::PlanesWorkspaceActions,
-            )
+            std::sync::Arc::new(oxy_app::host::middleware::PlanesWorkspaceActions)
                 as std::sync::Arc<dyn oxy_app_core::custom_app_env_request::WorkspaceActions>,
             oxy_app_core::custom_app_env_request::environment_guard_middleware,
         ))
@@ -1523,7 +1209,7 @@ fn wrap_outer_service(
             oxy_app_core::org_host_dispatch::org_host_dispatch_middleware,
         ))
         .layer(axum::middleware::from_fn(
-            crate::server::api::middlewares::sentry_surface::tag_custom_app_surface,
+            oxy_app::host::middleware::tag_custom_app_surface,
         ))
         .service(main)
 }
@@ -1742,8 +1428,8 @@ mod tests {
     /// produce this same canonical path.
     #[tokio::test]
     async fn a_function_call_on_an_app_subdomain_is_classified_by_its_canonical_path() {
-        use crate::server::role_manifest::{RouteRole, classify};
-        crate::server::role_manifest::install_route_declarations_for_tests();
+        use oxy_app::host::role_manifest::{RouteRole, classify};
+        oxy_app::host::role_manifest::install_route_declarations_for_tests();
 
         let routed = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
         let seen = routed.clone();
@@ -1822,8 +1508,8 @@ mod tests {
         ASSETS_CACHE_CONTROL, HTML_CACHE_CONTROL, finalize_html, handle_static_files,
         is_static_file_request,
     };
-    use crate::server::http_cache::weak_etag;
     use axum::http::{HeaderMap, StatusCode, header};
+    use oxy_app::host::http_cache::weak_etag;
     use tower::service_fn;
 
     /// Drive the real handler, the way the router mounts it.

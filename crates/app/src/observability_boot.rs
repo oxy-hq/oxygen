@@ -10,11 +10,11 @@
 //!    `start`, `worker`). Stash the receiver in [`stash_receiver`].
 //! 2. Later, in each of those commands' boot, call [`finalize`] to resolve the
 //!    backend, spawn the bridge task, and register the global store:
-//!    - `serve.rs` (`start_server_and_web_app`, which `oxy start` delegates
+//!    - `oxy-server`'s `serve.rs` (`start_server_and_web_app`, which `oxy start` delegates
 //!      to) — by which point `OXY_CLICKHOUSE_*` is set for both paths
 //!      (externally for `oxy serve`, by `oxy start` once its container is
 //!      ready);
-//!    - `worker.rs` (`run_worker`), before the run drivers start.
+//!    - `oxy-server`'s `worker.rs` (`run_worker`), before the run drivers start.
 //!
 //! Spans emitted between step 1 and step 2 accumulate in the unbounded channel
 //! and get flushed as soon as the bridge spawns.
@@ -25,8 +25,9 @@
 //! until 2026-09 — its latency worker closes a span every poll, and prod
 //! worker pods grew ~10 MiB/h until the 1 GiB limit OOM-killed them. Every
 //! other command (the one-shot CLI commands) never reaches a `finalize`, which
-//! is why `main.rs` does not give them the layer. `entry_point_tests` holds
-//! `main.rs`'s list and the `finalize` call sites together.
+//! is why `main.rs` does not give them the layer. `oxy-server`'s
+//! `commands::entry_point_tests` holds `main.rs`'s list and the `finalize` call
+//! sites together.
 //!
 //! If ClickHouse is unavailable at step 2, [`finalize`] keeps retrying in the
 //! background ([`retry`]) instead of giving up. It used to drop the receiver on
@@ -38,8 +39,6 @@
 //! A store installed by the retry is only in the global, so request handlers
 //! must read it through `AppState::observability()`, never the boot-time field.
 
-#[cfg(test)]
-mod entry_point_tests;
 mod retry;
 
 use std::sync::Arc;

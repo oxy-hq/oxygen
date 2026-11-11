@@ -14,7 +14,7 @@
 //! by construction, not by accident:
 //!
 //! - `ANY /customer-apps/{*path}` — the custom-app bundle serve tree, mounted
-//!   at the top level because it is browser-facing (`cli/commands/serve.rs`).
+//!   at the top level because it is browser-facing (`oxy-server`'s `commands/serve.rs`).
 //! - `/apidoc` and `/apidoc/openapi.json` — Swagger UI and the spec itself.
 //! - The worker health port (`/healthz`, `/readyz`, `/metrics`), served only
 //!   when `oxy worker --health-port` is set.

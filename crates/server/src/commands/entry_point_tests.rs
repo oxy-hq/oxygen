@@ -1,7 +1,12 @@
-//! Every command that installs the span layer must drain it.
+//! Source scans of the long-lived commands' boot paths. Each asserts a call
+//! that must sit on a boot path, which needs a database to run but which the
+//! source states directly. They lived in `oxy-app` beside what they guard
+//! until the commands moved here.
+//!
+//! # The span channel
 //!
 //! `main.rs` installs the `SpanCollectorLayer` for its server commands and
-//! parks the receiver of an UNBOUNDED channel; only [`super::finalize`] ever
+//! parks the receiver of an UNBOUNDED channel; only `oxy_app::observability_boot::finalize` ever
 //! reads it. A command in that list without a `finalize` keeps every span it
 //! closes for as long as it runs. `oxy worker` shipped exactly that way: its
 //! latency worker closes a `driver_tick` span every poll, and prod worker pods
@@ -21,25 +26,25 @@
 const DRAINS: &[(&str, &str, &str, &str)] = &[
     (
         "serve",
-        include_str!("../cli/commands/serve.rs"),
+        include_str!("serve.rs"),
         "fn start_server_and_web_app(",
         "observability_boot::finalize().await",
     ),
     (
         "start",
-        include_str!("../cli/commands/start.rs"),
+        include_str!("start.rs"),
         "fn start_database_and_server(",
         "start_server_and_web_app(",
     ),
     (
         "worker",
-        include_str!("../cli/commands/worker.rs"),
+        include_str!("worker.rs"),
         "fn run_worker(",
         "observability_boot::finalize().await",
     ),
 ];
 
-const MAIN_RS: &str = include_str!("../../../server/src/main.rs");
+const MAIN_RS: &str = include_str!("../main.rs");
 
 #[test]
 fn every_command_that_collects_spans_drains_them() {
@@ -71,7 +76,7 @@ fn every_command_that_collects_spans_drains_them() {
 /// drivers are what execute function invocations on a worker.
 #[test]
 fn the_worker_drains_before_it_can_run_anything() {
-    let body = fn_body(include_str!("../cli/commands/worker.rs"), "fn run_worker(")
+    let body = fn_body(include_str!("worker.rs"), "fn run_worker(")
         .expect("worker.rs has no `fn run_worker(`");
     let at = |needle: &str| {
         body.find(needle)
@@ -118,10 +123,87 @@ fn fn_body(src: &str, signature: &str) -> Option<String> {
 
 /// Drop `//` comments. Crude — it does not understand strings or block
 /// comments — and the failure direction is safe: stripping too much can only
-/// make a guard stricter. Same shape as `role_manifest_tests::strip_line_comments`.
+/// make a guard stricter.
 fn strip_line_comments(src: &str) -> String {
     src.lines()
         .map(|l| l.find("//").map_or(l, |i| &l[..i]))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Every process that serves requests or drains work must declare its role.
+///
+/// The failure mode is the reason this is a source scan rather than a call
+/// test: `current_process_role()` falls back to `Role::All` when nothing set
+/// the `OnceLock`, and `All` is the value that means "this node owns the
+/// workspace files". So omitting the call is silent — the process comes up and
+/// claims a filesystem it does not have.
+///
+/// `oxy worker` did exactly that. Three separate reads take the wrong branch on
+/// a standalone worker as a result: `OxyProjectContext::context_root` globs an
+/// absent working copy instead of materialising the boundary (the "no databases
+/// configured" failure its own comment names), the workspace middleware
+/// publishes the `WorkingCopy` extension, and a missing root reads as
+/// "materializing" rather than as a worker's normal state.
+///
+/// A new long-running entry point belongs in this list.
+#[test]
+fn every_long_running_entry_point_declares_its_role() {
+    // A prefix, so `_with_default` counts: `oxy worker` declares `Worker` when
+    // `OXY_ROLE` is unset, and matching the bare `()` form would have made this
+    // guard fail for a call that is MORE correct than the one it was written
+    // against.
+    const INIT: &str = "init_process_role_from_env";
+    for (command, src) in [
+        ("oxy serve", include_str!("serve.rs")),
+        ("oxy worker", include_str!("worker.rs")),
+    ] {
+        // Comments stripped first. `worker.rs` carries a NOTE block explaining
+        // why a SECOND bare init must never come back, and that prose contains
+        // this very literal — so without stripping, deleting the real call
+        // would leave this guard green. A test satisfied by a comment about
+        // the thing is not a test of the thing.
+        let src = &strip_line_comments(src);
+        assert!(
+            src.contains(INIT),
+            "`{command}` never calls `{INIT}`, so `current_process_role()` \
+             answers `All` for it — the role that owns the workspace files. \
+             Nothing fails loudly; the pod just starts describing itself wrong.",
+        );
+    }
+}
+
+/// `oxy worker` must seed the role EXACTLY once, and with an explicit default.
+///
+/// The bug this pins actually shipped: main's #2822 added
+/// `_with_default(Worker)` while this branch had already added a bare
+/// `init_process_role_from_env()` below it. They do not conflict textually, so
+/// the merge kept both — and the second is not idempotent. `PROCESS_ROLE` is a
+/// `OnceLock` so the role stays `Worker`, but `set_process_owns_workspace_files`
+/// is an `AtomicBool::store`, and the bare form resolves `Role::All` when
+/// `OXY_ROLE` is unset, storing `true` over the `false` written moments before.
+///
+/// The pod then answers `process_can_compile() == false` (reads the `OnceLock`)
+/// and `process_owns_workspace_files() == true` (reads the atomic) — the exact
+/// split-brain the role manifest exists to prevent, and worse than either end
+/// alone because the two disagree.
+#[test]
+fn oxy_worker_seeds_the_role_once_and_never_with_the_bare_default() {
+    let src = strip_line_comments(include_str!("worker.rs"));
+    assert!(
+        src.contains("init_process_role_from_env_with_default("),
+        "`oxy worker` must declare its role explicitly; running the command IS \
+         the declaration."
+    );
+    // The bare form, as a call. `_with_default(` does not match this because
+    // the next char after the fn name is `_`, not `(`.
+    assert!(
+        !src.contains("init_process_role_from_env()"),
+        "`oxy worker` calls the bare `init_process_role_from_env()` as well as \
+         `_with_default`. That is not a harmless duplicate: the bare form \
+         resolves `Role::All` when `OXY_ROLE` is unset, and its \
+         `set_process_owns_workspace_files(true)` overwrites the `false` the \
+         explicit call just stored — leaving the process claiming a workspace \
+         working copy it does not have."
+    );
 }

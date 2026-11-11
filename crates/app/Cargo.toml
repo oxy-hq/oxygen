@@ -117,12 +117,10 @@ log = { workspace = true }
 
 # Web framework
 axum = { workspace = true, features = ["multipart"] }
-axum-server = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true, features = ["cors", "trace", "timeout", "compression-br", "compression-gzip"] }
 utoipa = { workspace = true, features = ["uuid", "chrono", "axum_extras"] }
 utoipa-axum = { workspace = true }
-utoipa-swagger-ui = { workspace = true, features = ["axum"] }
 
 # HTTP client. `stream` enables reqwest::Body::wrap_stream for the ide_proxy
 # reverse-proxy (forwards IdeOnly request bodies without buffering).
@@ -166,8 +164,6 @@ tokio-util = { workspace = true }
 # decisions a listener must not make for itself.
 tokio-postgres = { workspace = true }
 tokio-stream = { workspace = true }
-include_dir = { workspace = true }
-tower-serve-static = { workspace = true }
 xxhash-rust = { workspace = true, features = ["xxh3"] }
 constant_time_eq = { workspace = true }
 hmac = { workspace = true }

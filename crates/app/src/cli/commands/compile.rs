@@ -23,7 +23,7 @@ use oxy_compile::{
 use oxy_shared::errors::OxyError;
 use uuid::Uuid;
 
-use super::serve;
+use super::migrate;
 
 #[derive(Parser, Debug, Clone)]
 pub struct CompileArgs {
@@ -89,11 +89,11 @@ pub async fn run_compile(args: CompileArgs) -> Result<(), OxyError> {
         )));
     }
 
-    if args.skip_migrations || serve::skip_migrations_requested() {
+    if args.skip_migrations || migrate::skip_migrations_requested() {
         tracing::info!("compile: skipping migrations (--skip-migrations or OXY_SKIP_MIGRATIONS)");
     } else {
         tracing::info!("compile: running database migrations");
-        serve::run_database_migrations(args.enterprise).await?;
+        migrate::run_database_migrations(args.enterprise).await?;
     }
 
     let db = establish_connection()

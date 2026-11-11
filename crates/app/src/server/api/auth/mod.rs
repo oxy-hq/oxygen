@@ -29,10 +29,9 @@ pub use ops::{build_session_cookie, build_session_cookie_with_max_age, is_reques
 
 // The two handlers stay `pub` (mounted from `router/public.rs`, whose `pub`
 // signatures name `PeerAddr`); every query about the allow-list is crate-only.
+pub(crate) use dev_login::dev_login_reachable_by;
 pub use dev_login::{PeerAddr, dev_login, dev_login_get};
-pub(crate) use dev_login::{
-    dev_login_is_loopback_only, dev_login_reachable_by, dev_login_source, is_dev_login_enabled,
-};
+pub use dev_login::{dev_login_is_loopback_only, dev_login_source, is_dev_login_enabled};
 pub use handlers::*;
 pub(crate) use ops::clear_session_cookie;
 // The ticket redemption (`api::user_tokens::browser_session`) answers as a
