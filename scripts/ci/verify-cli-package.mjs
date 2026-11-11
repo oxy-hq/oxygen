@@ -12,10 +12,20 @@
  *
  * Nothing else in the pipeline looks at the tarball, so this does. It is cheap:
  * `npm pack --dry-run` resolves the file list without writing anything.
+ *
+ * IT ALSO CHECKS WHAT IS INSIDE TWO OF THOSE FILES, because the file list is
+ * not the whole story. This package is public and the repository it is built
+ * from is not, and the build shipped both the other way round once: `sourcemap`
+ * with no `sourcemapExcludeSources` embedded all 159 source files verbatim in
+ * `dist/main.mjs.map`, so `npm pack` handed anyone the CLI's whole source, and
+ * `minify: false` left every developer comment in the bundle, Rust paths and
+ * `internal-docs/` filenames among them. Both are off now in
+ * `sdk/cli/tsdown.config.ts` — a comment there explains why — but a comment is
+ * weaker than a check, and flipping either back is one word.
  */
 
 import { execFileSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -75,6 +85,47 @@ for (const path of FORBIDDEN) {
       `${path} is in the tarball — npm will strip it. Ship it as \`_gitignore\` and rename at render time.`
     );
   }
+}
+
+// ── What is INSIDE the bundle and its map ────────────────────────────────────
+//
+// CI builds immediately before running this, so `dist` is present. A missing
+// bundle is itself worth reporting rather than skipping: it means this check
+// ran against nothing.
+const BUNDLE = join(PKG, "dist", "main.mjs");
+const BUNDLE_MAP = `${BUNDLE}.map`;
+
+/** Names that mean nothing to a reader who has the package and not the repo. */
+const INTERNAL = [
+  { what: "a Rust source path", re: /crates\/[a-z0-9/_-]+\.rs/g },
+  { what: "an internal-docs file", re: /internal-docs\/[a-z0-9.-]+\.(?:md|mdx)/g },
+  { what: "an internal authority name", re: /\b(?:Ring|Cap|Action)::[A-Za-z]+/g }
+];
+
+if (!existsSync(BUNDLE)) {
+  problems.push(`dist/main.mjs is missing — build sdk/cli before this check, or it proves nothing`);
+} else {
+  const bundle = readFileSync(BUNDLE, "utf8");
+  for (const { what, re } of INTERNAL) {
+    const hits = [...new Set(bundle.match(re) ?? [])];
+    if (hits.length > 0) {
+      problems.push(
+        `dist/main.mjs names ${what}: ${hits.slice(0, 3).join(", ")}` +
+          `${hits.length > 3 ? ` (+${hits.length - 3} more)` : ""} — ` +
+          `state the behaviour instead, or check \`comments\` in tsdown.config.ts`
+      );
+    }
+  }
+}
+
+if (!existsSync(BUNDLE_MAP)) {
+  problems.push("dist/main.mjs.map is missing — build sdk/cli before this check");
+} else if (JSON.parse(readFileSync(BUNDLE_MAP, "utf8")).sourcesContent !== undefined) {
+  problems.push(
+    "dist/main.mjs.map carries `sourcesContent` — that publishes this repository's " +
+      "source to npm. Set `sourcemapExcludeSources` in tsdown.config.ts; the map still " +
+      "resolves a stack frame to a file and a line without it."
+  );
 }
 
 // A template that lost most of its files still passes the checks above if the
