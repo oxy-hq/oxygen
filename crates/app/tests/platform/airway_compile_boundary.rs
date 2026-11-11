@@ -478,7 +478,7 @@ pub(super) async fn seed_workspace_at(db: &DatabaseConnection, root: &std::path:
 /// arms `compile_workspace`'s idempotency short-circuit; `None` mints a unique
 /// `local-<uuid>` and opts out of it entirely. A fixture that always passes
 /// `None` therefore never exercises the path every cloud compile takes.
-async fn compile_at(
+pub(super) async fn compile_at(
     db: &DatabaseConnection,
     ws_id: Uuid,
     root: &std::path::Path,

@@ -49,6 +49,13 @@ pub use seams::{
 // `crate::server::router::AppState` call site (~52 files) is unchanged.
 pub use oxy_app_core::AppState;
 
+/// The background driver's context cache, reached the way its ticks reach it.
+/// Exposed only for `tests/platform/worker_ctx_follows_promote.rs`.
+#[doc(hidden)]
+pub use recovery::worker_ctx::worker_project_ctx;
+#[doc(hidden)]
+pub use workspace_cache::{WorkspaceContextCache, new_workspace_context_cache};
+
 /// An `AppState` carrying nothing but its caches. The router needs a state value
 /// to finish each route's handlers with, and a test that mounts one handler
 /// needs the same — the semantic caches are `pub(crate)`, so it cannot build one

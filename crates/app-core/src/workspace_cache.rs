@@ -77,6 +77,9 @@ pub fn new_semantic_engine_cache() -> Arc<SemanticEngineCache> {
 
 struct Entry<V> {
     built_at: Instant,
+    /// What the value was built FROM, for [`TtlCache::get_or_build_tagged`].
+    /// `None` for an entry written by the untagged API.
+    tag: Option<Uuid>,
     value: Arc<V>,
 }
 
@@ -106,14 +109,32 @@ impl<V: Send + Sync + 'static> TtlCache<V> {
     }
 
     pub fn insert(&self, key: Uuid, value: Arc<V>) {
+        self.insert_tagged(key, None, value);
+    }
+
+    /// [`Self::insert`], recording the `tag` the value was built from.
+    pub fn insert_tagged(&self, key: Uuid, tag: Option<Uuid>, value: Arc<V>) {
         let mut guard = self.inner.lock().expect("ttl cache mutex poisoned");
         guard.insert(
             key,
             Entry {
                 built_at: Instant::now(),
+                tag,
                 value,
             },
         );
+    }
+
+    /// [`Self::lookup`], where an entry built from a different `tag` is a miss
+    /// (and is dropped, exactly like an expired one).
+    pub fn lookup_tagged(&self, key: Uuid, tag: Option<Uuid>) -> Option<Arc<V>> {
+        let mut guard = self.inner.lock().expect("ttl cache mutex poisoned");
+        let entry = guard.get(&key)?;
+        if entry.built_at.elapsed() >= self.ttl || entry.tag != tag {
+            guard.remove(&key);
+            return None;
+        }
+        Some(entry.value.clone())
     }
 
     /// Look up; on miss run `build` outside the lock and (if it succeeds)
@@ -129,6 +150,34 @@ impl<V: Send + Sync + 'static> TtlCache<V> {
         }
         let v = build().await?;
         self.insert(key, v.clone());
+        Some(v)
+    }
+
+    /// [`Self::get_or_build`] for a value that is a function of some versioned
+    /// input — the worker's workspace context is a function of the promoted
+    /// revision. `tag` names the version the caller sees NOW; an entry built
+    /// from another one counts as expired, so a change of input is picked up on
+    /// the next lookup instead of after the TTL.
+    ///
+    /// The tag must be something the caller reads, not something derived from
+    /// the cached value: a derived tag that can legitimately differ from the
+    /// input (a last-known-good revision pinned in place of a broken promoted
+    /// one) would never match and rebuild on every lookup.
+    pub async fn get_or_build_tagged<F, Fut>(
+        &self,
+        key: Uuid,
+        tag: Option<Uuid>,
+        build: F,
+    ) -> Option<Arc<V>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Option<Arc<V>>>,
+    {
+        if let Some(v) = self.lookup_tagged(key, tag) {
+            return Some(v);
+        }
+        let v = build().await?;
+        self.insert_tagged(key, tag, v.clone());
         Some(v)
     }
 }
@@ -187,6 +236,63 @@ mod tests {
         cache.insert(b, Arc::new(2));
         assert_eq!(*cache.lookup(a).unwrap(), 1);
         assert_eq!(*cache.lookup(b).unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn same_tag_hits_and_a_changed_tag_rebuilds() {
+        let cache: Arc<TtlCache<u32>> = TtlCache::with_ttl(Duration::from_secs(60));
+        let key = Uuid::new_v4();
+        let r1 = Some(Uuid::new_v4());
+        let r2 = Some(Uuid::new_v4());
+
+        let v1 = cache
+            .get_or_build_tagged(key, r1, || async { Some(Arc::new(1u32)) })
+            .await
+            .unwrap();
+        let again = cache
+            .get_or_build_tagged(key, r1, || async {
+                panic!("same tag within the TTL must hit");
+            })
+            .await
+            .unwrap();
+        assert!(Arc::ptr_eq(&v1, &again));
+
+        // The input moved on well inside the TTL: the old entry is a miss.
+        let v2 = cache
+            .get_or_build_tagged(key, r2, || async { Some(Arc::new(2u32)) })
+            .await
+            .unwrap();
+        assert_eq!(
+            *v2, 2,
+            "a changed tag must rebuild, not serve the old value"
+        );
+        assert_eq!(*cache.lookup_tagged(key, r2).unwrap(), 2);
+        assert!(
+            cache.lookup_tagged(key, r1).is_none(),
+            "the old tag no longer matches"
+        );
+    }
+
+    #[tokio::test]
+    async fn tag_from_some_to_none_and_back_rebuilds() {
+        let cache: Arc<TtlCache<u32>> = TtlCache::with_ttl(Duration::from_secs(60));
+        let key = Uuid::new_v4();
+        let r1 = Some(Uuid::new_v4());
+        cache.insert_tagged(key, None, Arc::new(0));
+        assert!(cache.lookup_tagged(key, r1).is_none(), "None != Some");
+        cache.insert_tagged(key, r1, Arc::new(1));
+        assert!(cache.lookup_tagged(key, None).is_none(), "Some != None");
+    }
+
+    #[tokio::test]
+    async fn tagged_entry_still_expires_on_ttl() {
+        let cache: Arc<TtlCache<u32>> = TtlCache::with_ttl(Duration::from_millis(40));
+        let key = Uuid::new_v4();
+        let r1 = Some(Uuid::new_v4());
+        cache.insert_tagged(key, r1, Arc::new(1));
+        assert!(cache.lookup_tagged(key, r1).is_some());
+        tokio::time::sleep(Duration::from_millis(70)).await;
+        assert!(cache.lookup_tagged(key, r1).is_none());
     }
 
     #[tokio::test]

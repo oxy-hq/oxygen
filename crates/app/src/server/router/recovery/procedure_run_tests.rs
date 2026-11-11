@@ -185,8 +185,9 @@ async fn a_single_process_executes_the_run_it_queued() {
     submit(&db, &task).await.expect("queue the run");
 
     let preagg = PreaggCacheCtx::default();
-    let ctx = build_cloud_project_ctx(workspace_id, &path, &db, &preagg)
+    let ctx = build_cloud_project_ctx_inner(workspace_id, &path, &db, &preagg)
         .await
+        .map(Arc::new)
         .expect("the driver builds a context for the workspace");
     let runtime = Arc::new(RuntimeState::new());
     let router = agentic_runtime::router::noop_router();

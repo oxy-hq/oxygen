@@ -20,8 +20,10 @@ use crate::agentic_wiring::OxyProjectContext;
 
 const DEFAULT_TTL: Duration = Duration::from_secs(600);
 
+#[doc(hidden)]
 pub type WorkspaceContextCache = TtlCache<OxyProjectContext>;
 
+#[doc(hidden)]
 pub fn new_workspace_context_cache() -> Arc<WorkspaceContextCache> {
     TtlCache::with_ttl(DEFAULT_TTL)
 }

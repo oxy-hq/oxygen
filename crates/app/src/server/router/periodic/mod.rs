@@ -176,14 +176,20 @@ async fn drive_workspace(deps: &TickDeps, ws: &claim::Claimed) -> usize {
         tracing::debug!(target: "recovery", %workspace_id, "periodic tick: workspace has no path yet");
         return 0;
     };
-    let Some(project_ctx) = deps
-        .ws_cache
-        .get_or_build(workspace_id, || async {
-            recovery::build_cloud_project_ctx(workspace_id, path, db, &deps.preagg).await
-        })
-        .await
+    // Tagged with the claim's promoted revision, same as the latency tick: the
+    // two share this cache, so an untagged lookup here would serve (and an
+    // untagged insert would leave) a context from before a promote.
+    let Some(project_ctx) = super::recovery::worker_ctx::worker_project_ctx(
+        &deps.ws_cache,
+        workspace_id,
+        path,
+        ws.current_revision_id,
+        db,
+        &deps.preagg,
+    )
+    .await
     else {
-        // build_cloud_project_ctx already logged the failure cause.
+        // build_cloud_project_ctx_inner already logged the failure cause.
         return 0;
     };
     let platform: Arc<dyn PlatformContext> = project_ctx.clone();

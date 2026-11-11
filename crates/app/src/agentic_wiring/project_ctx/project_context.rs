@@ -23,6 +23,13 @@ impl ProjectContext for OxyProjectContext {
         self.workspace_manager.workspace_id
     }
 
+    /// Set only on the background driver's contexts; see `revision_rebuild`.
+    async fn at_current_promoted_revision(
+        &self,
+    ) -> Option<Arc<dyn agentic_pipeline::platform::PlatformContext>> {
+        self.rebuilt_at_current_revision().await
+    }
+
     fn requester(&self) -> Option<agentic_pipeline::platform::Requester> {
         self.subject
             .map(|user_id| agentic_pipeline::platform::Requester {

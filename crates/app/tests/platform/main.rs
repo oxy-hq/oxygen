@@ -20,6 +20,7 @@
 //!
 //! * `admin_staff_scope`, `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
 //!   `airway_compile_boundary`, `file_credentials_at_compile`, `revision_miss_not_from_disk`,
+//!   `worker_ctx_follows_promote`,
 //!   `semantic_scan_from_memory`, `context_documents_boundary`, `anomaly_bulk_status`,
 //!   `connector_vars_from_workspace_secrets`,
 //!   `anomaly_notify`, `usage_report`, the two
@@ -128,6 +129,7 @@ mod toast_webhook_compile_boundary;
 mod usage_report;
 mod walker_storage_divergence;
 mod work_item_gates;
+mod worker_ctx_follows_promote;
 mod workspace_details_fields;
 mod workspace_path_backdoor;
 mod workspace_path_escape_hatch;

@@ -780,11 +780,16 @@ impl PipelineTaskExecutor {
         // below, so no lease is held and the deferral correctly skips
         // `release_airway_lease`. If this load ever moves below the acquire,
         // that stops being true and the deferral must release first.
-        let yaml =
-            match crate::pipeline_ref::load_pipeline_yaml(self.platform.as_ref(), pipeline_ref)
+        //
+        // A `NotInRevision` is retried ONCE on a context at the workspace's
+        // current promoted revision (see `airway_load`): this executor's
+        // platform is pinned for the whole drive, so without that the deferral
+        // re-asks the same stale revision on every re-claim.
+        let loaded =
+            match airway_load::load_pipeline_yaml_at_current_revision(&self.platform, pipeline_ref)
                 .await
             {
-                Ok(y) => y,
+                Ok(l) => l,
                 Err(e) => match action_for_load_failure(e) {
                     LoadFailureAction::Defer {
                         delay_secs,
@@ -804,18 +809,40 @@ impl PipelineTaskExecutor {
         // Render with the same `variables` that `start_airway_run`
         // validated against, so the worker's document matches what the
         // submitter saw.
-        let spec = agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(&yaml, variables)
+        let spec = agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(&loaded.yaml, variables)
             .map_err(|e| format!("airway: parse `{pipeline_ref}`: {e}"))?;
-        self.launch_prepared_airway(
-            run_id,
-            pipeline_ref,
-            spec,
-            resources,
-            backfill_from.zip(backfill_to),
-            admission,
-            LaunchMode::Production,
-        )
-        .await
+        // Loaded at a newer revision: the whole launch — lease, secrets,
+        // destination — runs on that revision's platform, never the new YAML
+        // under the old revision's config.
+        let refreshed = loaded
+            .refreshed
+            .map(|platform| self.with_platform(platform));
+        refreshed
+            .as_ref()
+            .unwrap_or(self)
+            .launch_prepared_airway(
+                run_id,
+                pipeline_ref,
+                spec,
+                resources,
+                backfill_from.zip(backfill_to),
+                admission,
+                LaunchMode::Production,
+            )
+            .await
+    }
+
+    /// This executor with another platform and everything else shared.
+    fn with_platform(&self, platform: Arc<dyn PlatformContext>) -> Self {
+        Self {
+            platform,
+            builder_bridges: self.builder_bridges.clone(),
+            schema_cache: self.schema_cache.clone(),
+            builder_test_runner: self.builder_test_runner.clone(),
+            db: self.db.clone(),
+            state: self.state.clone(),
+            custom_executors: self.custom_executors.clone(),
+        }
     }
 
     /// Everything [`Self::execute_airway`] does once the pipeline is loaded and
@@ -1752,6 +1779,7 @@ impl agentic_airway::CredentialProvider for PlatformAirhouseCredentialProvider {
     }
 }
 
+mod airway_load;
 mod automation;
 mod cursor_reset;
 mod preview_hold;

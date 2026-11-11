@@ -325,6 +325,20 @@ pub trait ProjectContext: Send + Sync {
     fn sandbox_environment(&self) -> Option<String> {
         None
     }
+
+    /// A context rebuilt at the workspace's CURRENT promoted revision, when
+    /// that differs from the one this context is pinned to. `None` =
+    /// unchanged, not pinned, or this host cannot rebuild.
+    ///
+    /// For a long-lived holder of a context — a driver that built one executor
+    /// for a whole run — whose read just missed a ref the promoted revision
+    /// may now serve. Without it a `NotInRevision` deferral re-asks the same
+    /// pinned revision on every re-claim and can never succeed within the
+    /// drive. A context returned here is pinned to the current revision, so
+    /// asking it again answers `None`: a caller retries at most once.
+    async fn at_current_promoted_revision(&self) -> Option<Arc<dyn PlatformContext>> {
+        None
+    }
 }
 
 /// Who owns a conversation thread, and which workspace it belongs to.

@@ -830,13 +830,17 @@ async fn recover_all_workspaces(
             continue;
         };
 
-        let Some(project_ctx) = ws_cache
-            .get_or_build(ws.id, || async {
-                build_cloud_project_ctx(ws.id, path, db, &preagg).await
-            })
-            .await
+        let Some(project_ctx) = worker_ctx::worker_project_ctx(
+            &ws_cache,
+            ws.id,
+            path,
+            ws.current_revision_id,
+            db,
+            &preagg,
+        )
+        .await
         else {
-            // build_cloud_project_ctx already logged the failure cause.
+            // build_cloud_project_ctx_inner already logged the failure cause.
             continue;
         };
         let platform: Arc<dyn PlatformContext> = project_ctx.clone();
@@ -1199,25 +1203,32 @@ async fn tick_cloud(
         // Resolve workspace path from the workspaces table — cached
         // contexts are keyed by workspace_id, but the FIRST build per id
         // needs the path. Cheap one-row lookup; skipped on cache hits.
-        let path = match entity::workspaces::Entity::find_by_id(ws_id).one(db).await {
-            Ok(found) => match classify_workspace(found.map(|ws| ws.path)) {
-                WorkspaceOutcome::Drive(p) => p,
-                WorkspaceOutcome::Retire(reason) => {
-                    // `all_pending`, not `pending`. Once this workspace is known
-                    // unrunnable, every run pointing at it is unrunnable
-                    // regardless of whether THIS node would have driven it.
-                    // Passing the filtered list leaves a declined kind — a
-                    // compile on a worker, an airway run on a deferring ide —
-                    // orphaned and re-selected forever.
-                    //
-                    // Merge note: this argument was written for the
-                    // workspace-row-missing case and applies MORE broadly since
-                    // #3062, which retires path-less workspaces through this same
-                    // arm. Neither branch had both halves.
-                    retire_orphaned_runs(db, ws_id, &all_pending, reason).await;
-                    continue;
+        //
+        // The row also gives the promoted revision, which tags the cached
+        // context: a promote since it was built rebuilds it (see
+        // `worker_ctx::worker_project_ctx`).
+        let (path, promoted) = match entity::workspaces::Entity::find_by_id(ws_id).one(db).await {
+            Ok(found) => {
+                let promoted = found.as_ref().and_then(|ws| ws.current_revision_id);
+                match classify_workspace(found.map(|ws| ws.path)) {
+                    WorkspaceOutcome::Drive(p) => (p, promoted),
+                    WorkspaceOutcome::Retire(reason) => {
+                        // `all_pending`, not `pending`. Once this workspace is known
+                        // unrunnable, every run pointing at it is unrunnable
+                        // regardless of whether THIS node would have driven it.
+                        // Passing the filtered list leaves a declined kind — a
+                        // compile on a worker, an airway run on a deferring ide —
+                        // orphaned and re-selected forever.
+                        //
+                        // Merge note: this argument was written for the
+                        // workspace-row-missing case and applies MORE broadly since
+                        // #3062, which retires path-less workspaces through this same
+                        // arm. Neither branch had both halves.
+                        retire_orphaned_runs(db, ws_id, &all_pending, reason).await;
+                        continue;
+                    }
                 }
-            },
+            }
             // A lookup FAILURE is the one case that must still skip. It says
             // the database was briefly unreachable, not that the workspace is
             // gone — retiring on it would destroy live runs during a blip.
@@ -1227,11 +1238,8 @@ async fn tick_cloud(
             }
         };
 
-        let Some(ctx) = ws_cache
-            .get_or_build(ws_id, || async {
-                build_cloud_project_ctx(ws_id, &path, db, preagg).await
-            })
-            .await
+        let Some(ctx) =
+            worker_ctx::worker_project_ctx(ws_cache, ws_id, &path, promoted, db, preagg).await
         else {
             // Nothing is compiled for this workspace and this node cannot
             // compile a working copy, so no context to run its work under. A
@@ -1622,7 +1630,7 @@ fn with_db_secrets_manager(
 /// only a `workspace_id` (resolving its path from the `workspaces` table).
 /// Returns `None` when the workspace has no path (e.g. a local-mode sentinel) —
 /// the caller degrades gracefully. Cloud path only; reuses
-/// [`build_cloud_project_ctx`]. Not cached here — callers that touch many
+/// [`build_cloud_project_ctx_inner`]. Not cached here — callers that touch many
 /// checks should build once per workspace and reuse.
 pub async fn build_workspace_ctx(
     workspace_id: uuid::Uuid,
@@ -1694,24 +1702,6 @@ pub async fn build_workspace_ctx(
     Some(Arc::new(ctx))
 }
 
-/// Deserialize a compiled `config.yml` and stamp the workspace path onto it.
-///
-/// `workspace_path` is `#[serde(skip)]` on `Config`, so a config that came from
-/// Postgres carries none — every downstream file resolver (`resolve_file`, the
-/// DuckDB dataset dir, a BigQuery `key_path`) would resolve against an empty
-/// path. The request middleware stamps it for exactly this reason; so do we.
-///
-pub(super) async fn build_cloud_project_ctx(
-    workspace_id: uuid::Uuid,
-    path: &str,
-    db: &DatabaseConnection,
-    preagg: &PreaggCacheCtx,
-) -> Option<Arc<OxyProjectContext>> {
-    build_cloud_project_ctx_inner(workspace_id, path, db, preagg)
-        .await
-        .map(Arc::new)
-}
-
 /// Why [`build_requester_base_ctx`] built nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RequesterBaseError {
@@ -1741,10 +1731,20 @@ pub(crate) async fn build_requester_base_ctx(
     build_cloud_project_ctx_result(workspace_id, path, db, &PreaggCacheCtx::default()).await
 }
 
-/// [`build_cloud_project_ctx`] before the `Arc`, so a caller that has more to
-/// attach (`build_workspace_ctx` resolves a semantic scan root) can do it
+/// The revision a driver context built from `row` would pin now: the same
+/// resolve [`build_cloud_project_ctx_inner`] makes, from a row the caller just
+/// read. Lives here, beside the build, because this file is where the driver
+/// resolves its `Origin` — the one place outside the request middleware allowed
+/// to name `compiled_reader` (`tests/platform/compiled_reader_is_not_a_back_door.rs`).
+pub(super) async fn driver_revision_for(row: &entity::workspaces::Model) -> Option<uuid::Uuid> {
+    crate::server::api::compiled_reader::resolve_request_revision_for_workspace(row, None).await
+}
+
+/// The driver's workspace context, before the `Arc`, so a caller that has more
+/// to attach (`build_workspace_ctx` resolves a semantic scan root, the driver's
+/// cache a revision rebuilder — `worker_ctx::worker_project_ctx`) can do it
 /// without unwrapping one.
-async fn build_cloud_project_ctx_inner(
+pub(super) async fn build_cloud_project_ctx_inner(
     workspace_id: uuid::Uuid,
     path: &str,
     db: &DatabaseConnection,
@@ -1865,6 +1865,8 @@ async fn assemble_cloud_project_ctx(
         .with_db(Arc::new(db.clone()))
         .with_preagg(preagg))
 }
+
+pub(crate) mod worker_ctx;
 
 #[cfg(test)]
 mod agent_ask_tests;

@@ -6,7 +6,8 @@ use agentic_analytics::config::ResolvedModelInfo;
 use agentic_connector::{ConnectorConfig, DatabaseConnector};
 use agentic_pipeline::SharedMetricSink;
 use agentic_pipeline::platform::{
-    CompileDispatcher, MonitorScanPort, PreviewScope, ProjectContext, ResolvedPipelineDestination,
+    CompileDispatcher, MonitorScanPort, PlatformContext, PreviewScope, ProjectContext,
+    ResolvedPipelineDestination,
 };
 use async_trait::async_trait;
 
@@ -155,6 +156,13 @@ impl ProjectContext for PreviewPlatformContext {
 
     /// Nor is it a sandbox's.
     fn sandbox_environment(&self) -> Option<String> {
+        None
+    }
+
+    /// `None`: a preview is pinned to ITS revision on purpose. Re-resolving it
+    /// to the workspace's promoted revision would run main's content under the
+    /// preview's name.
+    async fn at_current_promoted_revision(&self) -> Option<Arc<dyn PlatformContext>> {
         None
     }
 }

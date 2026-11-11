@@ -37,6 +37,7 @@ mod function_context;
 mod monitor_scan;
 mod preview_hold;
 mod project_context;
+pub(crate) mod revision_rebuild;
 mod workspace_context;
 
 /// Adapter that exposes a [`WorkspaceManager`] as a [`ProjectContext`] and
@@ -119,6 +120,11 @@ pub struct OxyProjectContext {
     /// Build each DuckDB directory connector's own database instead of
     /// cloning the process's cached one. See [`Self::with_own_directory_databases`].
     own_directory_databases: bool,
+    /// How to rebuild this context at the workspace's current promoted
+    /// revision. Set only on the background driver's cached contexts (see
+    /// [`revision_rebuild`]); `None` everywhere else, so an HTTP or preview
+    /// context never re-resolves its revision mid-request.
+    revision_rebuilder: Option<Arc<dyn revision_rebuild::RevisionRebuilder>>,
 }
 
 impl OxyProjectContext {
@@ -136,6 +142,7 @@ impl OxyProjectContext {
             semantic_scan_required: false,
             hold: crate::server::previews::request_hold::current(),
             own_directory_databases: false,
+            revision_rebuilder: None,
         }
     }
 
