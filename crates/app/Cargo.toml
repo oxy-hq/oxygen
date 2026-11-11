@@ -226,6 +226,9 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 chrono = { workspace = true }
 
 [dev-dependencies]
+# `routing::base_boundary` parses oxy-app's own sources to resolve `use` trees and
+# `super::` paths exactly; a line scanner misreads nested-brace imports.
+syn = { workspace = true, features = ["full", "parsing", "visit", "printing"] }
 # `usage_fixtures`: an in-memory stand-in for a workspace's Airhouse and a fixed
 # usage history, for the report's two-store test.
 oxy-custom-apps = { workspace = true, features = ["test-fixtures"] }

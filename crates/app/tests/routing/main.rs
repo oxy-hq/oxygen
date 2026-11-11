@@ -31,6 +31,7 @@
 #![recursion_limit = "256"]
 
 mod app_growth;
+mod base_boundary;
 mod config_write_routes;
 mod env_reads;
 mod fleet_canary;

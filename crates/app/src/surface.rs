@@ -17,6 +17,12 @@
 //!
 //! Add an item here only if it is platform. If it is someone's domain, lower
 //! it instead.
+//!
+//! Not every entry below is platform yet: some are context reaches filed here
+//! before their context left. Which entry goes down, up or sideways when
+//! `oxy-app` dissolves is the table under "End state" in
+//! `domain-boundaries.md`; the modules that go down are `BASE` in
+//! `tests/routing/base_boundary.rs`.
 
 /// Role guards — the axum extractors that decide access (`oxy-authz` rings).
 /// Take one in a handler instead of deciding by hand (see `crates/authz/CLAUDE.md`).

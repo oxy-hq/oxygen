@@ -934,6 +934,7 @@ statrs = "0.19"
 strip-ansi-escapes = "=0.2.1"
 strsim = "0.11"
 syntect = "5.3"
+syn = { version = "2", default-features = false }
 tabled = "0.21.0"
 terminal-light = "1.9.0"
 terminal_size = "0.4.4"

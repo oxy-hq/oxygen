@@ -142,8 +142,10 @@ portable-atomic = { version = "1", features = ["require-cas"] }
 postcard = { version = "1", features = ["use-std"] }
 postgres-types = { version = "0.2", default-features = false, features = ["with-chrono-0_4", "with-cidr-0_2", "with-serde_json-1", "with-uuid-1"] }
 potential_utf = { version = "0.1", default-features = false, features = ["alloc", "zerovec"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 prost = { version = "0.13", features = ["prost-derive"] }
 quick-xml = { version = "0.38", features = ["overlapped-lists", "serialize"] }
+quote = { version = "1" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", features = ["small_rng"] }
 rand_core = { version = "0.6", default-features = false, features = ["std"] }
@@ -186,6 +188,7 @@ sqlx-mysql = { version = "0.9", default-features = false, features = ["any", "ch
 sqlx-postgres = { version = "0.9", default-features = false, features = ["any", "chrono", "migrate", "offline", "rust_decimal", "time", "uuid"] }
 stable_deref_trait = { version = "1" }
 subtle = { version = "2", features = ["const-generics"] }
+syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 testcontainers = { version = "0.27", features = ["blocking", "http_wait", "reusable-containers"] }
 testcontainers-modules = { version = "0.15", features = ["clickhouse", "mysql", "postgres"] }
 thiserror = { version = "2" }
@@ -283,6 +286,7 @@ prettyplease = { version = "0.2", default-features = false, features = ["verbati
 proc-macro2 = { version = "1", features = ["span-locations"] }
 prost = { version = "0.13", features = ["prost-derive"] }
 quick-xml = { version = "0.38", features = ["overlapped-lists", "serialize"] }
+quote = { version = "1" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", features = ["small_rng"] }
 rand_core = { version = "0.6", default-features = false, features = ["std"] }
