@@ -2,6 +2,130 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.160] - 2026-11-11
+
+### 🚀 Features
+
+- Policy-engine phase 2 — policies read from postgres through the op, and a duckdb sync to parquet (#3949)
+- Home page v3 behind its own home_v3 flag (#3964)
+- Netsuite pipelines accept transaction_custom_fields and pass them to airway (#3941)
+- Per-org feature flag targeting and A/B splits (#3963)
+- Oxygen and custom apps on a phone: shell fixes and a phone kit in the sdk (sdk 2.27.0) (#3947)
+- Oxyc workspace clone opens a workspace's repository in your own editor (#4001)
+- Service tokens, a platform credential configured as code for ferret (#4007)
+- An ide_retired flag hides the IDE and points at the repository (#4002)
+- Oxyc bootstrap, and the plan for 10 then 100 customers (#3979)
+- Compile warns on classic .agent.yml agents and on agent_ref targets that name one (#4021)
+- Oxy migrate-agents translates classic agents to .agentic.yml (#4027)
+- Finished runs are deleted after 90 days, a chat thread only once all of it is idle (#4026)
+- The compiler refuses classic agents behind a rollout flag (#4034)
+- Oltp grant audit refuses and reports privileges outside a role's schema (#4042)
+- Custom-app ask can wait for its answer instead of streaming it (#4040)
+- Airhouse broker marks shared-pool credentials with the shared_session claim (#4047)
+- One workspace per org; the github import connects the org's workspace (#4050)
+- Sdk useAskAgent and oxyc ask return an agent's answer in one call (sdk 2.28.0) (#4046)
+- Custom-app invocations readable by slug behind the logs gate (#4055)
+- Oxyc login prints a URL and code where no browser can reach, and --no-wait returns it (#4059)
+- Oxyc -q works with no jq binary by embedding jq (jq-wasm) (#4060)
+
+### 🐛 Bug Fixes
+
+- Custom-app route call settles cancelled when its caller hangs up (#3952)
+- Factory gate lets plain members read a custom app's live feed and weather (#3968)
+- Production error surfaced by weekly Sentry triage (#3654)
+- Ask oxygen dock focuses its composer on every open (#3971)
+- Custom-app publish limits, coded rollback 404s and unambiguous activity attribution (#3973)
+- Agentic shutdown no longer relabels finished recovered runs as failed (#3982)
+- Sdk phone sheets keep back inside the app under the platform runtime (#3977)
+- Production error surfaced by weekly Sentry triage (#3998)
+- Rate limits are shared across replicas, and per-process state is written down (#3989)
+- Spawn and env-read guards follow the experiment and emails crate moves (#4000)
+- Sdk phone kit controls are at least 44px to tap (#3996)
+- The configuration inventory lists the periodic driver's tick batch variable (#4004)
+- Custom-app functions set --no-turboshaft-loop-unrolling so optimised allocating loops stop (#4009)
+- Service-token list is read through the boot config (#4011)
+- Custom apps' external API queries with ?branch= reached the ide without their prefix and got 405 (#4013)
+- Test containers are pinned by name and label, and test databases clean up after themselves (#4008)
+- Custom-app broker counts a host call still queued when the isolate finishes (#4014)
+- Workspace health agent probe reads the agent from the compiled revision, not a file the fleet pod lacks (#4015)
+- Airhouse parquet uploads failed on pods because duckdb's parquet reader was downloaded, not linked (#4016)
+- Health agent probe reports an agent definition that does not parse as broken, not unavailable (#4017)
+- Agentic agent loader refuses an agent id that reads outside the workspace (#4018)
+- The airhouse read pool keys on role, not on every user (#3984)
+- Agent lookup reads the compiled row by path, and a failed read is retryable (#4022)
+- Connector errors no longer carry credentials into user-visible text (#4024)
+- The preview context states its working root, so the trait-override guard passes on main (#4030)
+- Policy engine sets --no-turboshaft-loop-unrolling so a runaway decide can be terminated (#4031)
+- Airhouse pooled connections refuse statements that change shared session state (#4037)
+- Classic-agent compile refusal goes back behind its rollout flag (#4044)
+- Sdk phone back closes today and ask; ask covers a phone's screen; opt-in tab bar entry (#4052)
+- Health check "run now" enqueues the eval instead of running it in the handler (#4049)
+- Oxyc logs reads <org>/<app> without walking the staff app registry (#4053)
+- Published packages stop carrying paths into a private repository (#4067)
+- A jq binary that cannot be spawned falls back to the embedded engine (#4072)
+
+### 💼 Other
+
+- Bump @oxy-hq/cli to 0.12.1 and check the tarball's contents in CI (#4069)
+
+### 🚜 Refactor
+
+- Orchestrator dead code — per-node retry/fallback, circuit breaker, global claim, stuck-run sweeper (#3950)
+- Emails moves into oxy-app-core as a module (#3980)
+- Experiment and simulation leave oxy-app for the oxy-api-experiment surface (#3988)
+- One shared http client, and the map of the duplicated infrastructure clients (#3993)
+- Delete the retired data-app and workflow-yml remnants, and the legacy removal plan (#3991)
+- One configuration inventory, a typed boot config, and rollout gates that expire (#3995)
+- Queued chat by default and a guard against spawns in handlers (#3986)
+- Drop the dead legacy tables, and the schema hygiene plan (#3992)
+- Remove the ide tests and modeling surfaces (factory retirement, phase 5 first cut) (#3987)
+- Frontline grants and admin move into api-frontline (#3983)
+- Metric-tree grouping, baseline and inputs logic moves into oxy-metric-monitoring (#3981)
+- Every agent run takes a ref, never a path (#4028)
+- Metric-tree scenario, projection and series logic moves into oxy-metric-monitoring (#4025)
+- Delete classic-agent residue and make the compile refusal unconditional (#4035)
+- Retire policy-engine prototype; functions see their build id (#4041)
+- Notifications move out of oxy-app into api-notifications (#4038)
+- Extract workspace health into oxy-workspace-health and oxy-api-workspace-health (#4054)
+- Oxy's argument parser moves into oxy-cli-shim; doc records the no-oxy-app end state (#4056)
+- Serve, start and worker move up into oxy-server; oxy-app exposes them through host (#4057)
+
+### 📚 Documentation
+
+- Every pr carries a demo section, in the template and claude.md (#3966)
+- Oxy-app takes no new context (S8), with a guard test and the measured build cost of its size (#3978)
+- Plan for moving oxy subcommands to oxyc, leaving the binary to start the server (#4020)
+- Classic agent retirement — decision memo and plan (#4019)
+- Org versus workspace grain — decision memo (#4033)
+- Oxy-app-core gets a charter (S9) and a guard on its module list (#4023)
+- Router assembly lifts after the contexts leave oxy-app, not as (b) part 2 (#4062)
+
+### ⚡ Performance
+
+- Orchestrator queue keys trees on root_task_id, indexes run_id, caps queue stats (#3967)
+- A run's event stream is woken across pods by notify, and polls only as a safety net (#3994)
+- The periodic driver claims workspaces per tick instead of scanning them all on every node (#3990)
+- Custom-app agent-run stream wakes on the run-events NOTIFY instead of a 250ms poll (#4048)
+
+### 🎨 Styling
+
+- Credential-use enum carries its own doc, not the minting function's (#4029)
+
+### 🧪 Testing
+
+- Custom-app monitoring contract ferret depends on (#3972)
+- Mark oxy-app's base out with a shrink-only boundary guard (#4066)
+
+### ⚙️ Miscellaneous Tasks
+
+- Skip the claude review on the release app's own release PR pushes (#3962)
+- Reconcile builder knowledge cards with sdk/cli/skills (#4032)
+- Reconcile builder knowledge cards with sdk/cli/skills (#4036)
+- Classic-agent census script, and drop the stale examples schemas (#4045)
+- Review gate says why a PR needs a high-risk approval (#4063)
+- Release @oxy-hq/cli 0.12.0 (#4065)
+- Pin airway 0.1.62 (sp_api Brand Analytics Search Terms) (#4064)
+
 ## [0.5.159] - 2026-11-05
 
 ### 🚀 Features
@@ -91,6 +215,7 @@ All notable changes to this project will be documented in this file.
 - Drop coverage and stop the public mirror re-running checks (#3921)
 - Deploy metrics reads staging, release checks and production fixes from infrastructure (#3935)
 - Internal-only Platform Pulse workflow commits the weekly delivery readings (#3933)
+- Release 0.5.159 (#3909)
 
 ## [0.5.158] - 2026-10-29
 
