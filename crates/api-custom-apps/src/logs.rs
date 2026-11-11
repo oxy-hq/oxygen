@@ -122,6 +122,8 @@ pub struct ClientErrorResponse {
 
 mod environment;
 mod filters;
+/// `/invocations` — the recorded invocations, behind this module's gate.
+pub mod invocations;
 
 fn clamp(hours: Option<u32>, limit: Option<u32>) -> (u32, u32) {
     (

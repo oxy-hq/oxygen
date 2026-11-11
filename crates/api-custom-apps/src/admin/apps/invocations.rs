@@ -274,27 +274,89 @@ pub(crate) async fn list(
     caller: &Caller<'_>,
     q: &InvocationQuery,
 ) -> Result<Vec<InvocationSummary>, ScopeError> {
-    let app_id = app.id;
     let limit = parse_limit(q.limit)?;
+    let named = match q.build.as_deref().filter(|b| !b.is_empty()) {
+        Some(raw) => Some(builds_named(db, app.id, raw).await?),
+        None => None,
+    };
+    // In the query, before `LIMIT`: a page is `limit` rows the caller may read.
+    let scope = row_scope(db, app, caller, q, named.as_deref().unwrap_or_default()).await?;
+    let mut rows = RowFilter::default();
+    if let Some(environment) = scope {
+        // A sandbox agent token reads the sandbox it has now, not an earlier
+        // one that had the name (`custom_apps_sandbox_instance`).
+        let agent = super::agent_scope::instance_since(db, app, caller.user, &environment);
+        rows.since = agent.await?;
+        rows.environment = Some(environment.name());
+    }
+    fetch(db, app.id, q, limit, named, rows).await
+}
+
+/// The non-production environment a `?build=` names, when only one serves
+/// it: what [`row_scope`] reads a named build as on the console, for a read
+/// that must ask the caller about that environment before listing it. `None`
+/// when production runs the build, or nothing serves it.
+pub(crate) async fn environment_of_build(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    raw: &str,
+) -> Result<Option<AppEnvironment>, ScopeError> {
+    let builds = builds_named(db, app.id, raw).await?;
+    environment_of(db, app, &builds).await
+}
+
+/// `app`'s invocations in the environment a caller was already admitted to
+/// (`None`: every environment), newest first: the slug-addressed read
+/// (`crate::logs::invocations`), whose access check is the logs route's and
+/// was made before this call. `function`, `build` and `limit` mean what they
+/// mean on [`list`]; the query's own `environment` is not read here.
+pub(crate) async fn list_in_environment(
+    db: &DatabaseConnection,
+    app_id: Uuid,
+    environment: Option<String>,
+    q: &InvocationQuery,
+) -> Result<Vec<InvocationSummary>, ScopeError> {
+    let limit = parse_limit(q.limit)?;
+    let named = match q.build.as_deref().filter(|b| !b.is_empty()) {
+        Some(raw) => Some(builds_named(db, app_id, raw).await?),
+        None => None,
+    };
+    let rows = RowFilter {
+        environment,
+        since: None,
+    };
+    fetch(db, app_id, q, limit, named, rows).await
+}
+
+/// Which rows of the app a read may return: one environment's (`None` is
+/// every environment's), from `since` on when set.
+#[derive(Default)]
+struct RowFilter {
+    environment: Option<String>,
+    since: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// The invocation query both listings run, filtered in SQL before `LIMIT`.
+/// `named` is the builds `?build=` named (`None` when it named none); an
+/// empty set matches nothing.
+async fn fetch(
+    db: &DatabaseConnection,
+    app_id: Uuid,
+    q: &InvocationQuery,
+    limit: u64,
+    named: Option<Vec<Uuid>>,
+    rows: RowFilter,
+) -> Result<Vec<InvocationSummary>, ScopeError> {
     let mut find =
         AppFunctionInvocations::find().filter(app_function_invocations::Column::AppId.eq(app_id));
     if let Some(function) = q.function.as_deref().filter(|f| !f.is_empty()) {
         find = find.filter(app_function_invocations::Column::FunctionName.eq(function));
     }
-    let named = match q.build.as_deref().filter(|b| !b.is_empty()) {
-        Some(raw) => Some(builds_named(db, app_id, raw).await?),
-        None => None,
-    };
-    // In the query, before `LIMIT`: a page is `limit` rows the caller may read.
-    let scope = row_scope(db, app, caller, q, named.as_deref().unwrap_or_default()).await?;
-    if let Some(environment) = scope {
-        find = find.filter(app_function_invocations::Column::Environment.eq(environment.name()));
-        // A sandbox agent token reads the sandbox it has now, not an earlier
-        // one that had the name (`custom_apps_sandbox_instance`).
-        let agent = super::agent_scope::instance_since(db, app, caller.user, &environment);
-        if let Some(since) = agent.await? {
-            find = find.filter(app_function_invocations::Column::CreatedAt.gte(since));
-        }
+    if let Some(environment) = rows.environment {
+        find = find.filter(app_function_invocations::Column::Environment.eq(environment));
+    }
+    if let Some(since) = rows.since {
+        find = find.filter(app_function_invocations::Column::CreatedAt.gte(since));
     }
     if let Some(builds) = named {
         if builds.is_empty() {

@@ -81,9 +81,34 @@ export function staffCreds(ctx: Context): Creds {
  */
 export function ensureOk(response: ApiResponse, creds?: { bearer?: string }): void {
   if (response.status >= 200 && response.status < 300) return;
-  throw isSandboxAgentToken(creds?.bearer)
-    ? sandboxTokenError(response)
-    : errorForResponse(response);
+  if (isSandboxAgentToken(creds?.bearer)) throw sandboxTokenError(response);
+  if (isBareRefusal(response)) throw bareRefusal(response);
+  throw errorForResponse(response);
+}
+
+/**
+ * A bare `403` with no body: how the staff app console's guards refuse —
+ * `block_admin_while_acting` (an active assume-role session), and the
+ * standing and `PlatformApps` guards (no grant for this console). The CLI
+ * cannot tell which, so the hint names both. Refusals that say why in a
+ * body are left as they are.
+ */
+function isBareRefusal(response: ApiResponse): boolean {
+  return response.status === 403 && response.body.trim() === "";
+}
+
+/** `errorForResponse`, with the two reasons the console refuses this way. */
+function bareRefusal(response: ApiResponse): CliError {
+  const base = errorForResponse(response);
+  return new CliError(base.message, {
+    code: base.code,
+    hint:
+      "the staff app console refused: either you are acting as a tenant (`oxyc assume status`), " +
+      "which it refuses outright, or your staff grant does not include this console",
+    remedy:
+      "if you are in an assume session, name the app as <org-slug>/<app-slug> — `oxyc logs` and " +
+      "`oxyc invocations list` read it by slug there — or end the session with `oxyc assume end`"
+  });
 }
 
 /** The app registry API: where every credential lists, reads and runs an app. */

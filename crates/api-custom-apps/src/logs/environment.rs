@@ -94,6 +94,17 @@ impl Admitted {
         self.since
             .is_none_or(|since| line_is_of_instance(timestamp, since))
     }
+
+    /// The environment as Postgres stores it on an invocation row: the log
+    /// store spells production `""`, `app_function_invocations` spells it
+    /// `production`; every other environment is its name in both.
+    pub(super) fn stored_name(&self) -> String {
+        if self.environment.is_empty() {
+            AppEnvironment::Production.name()
+        } else {
+            self.environment.clone()
+        }
+    }
 }
 
 /// A sandbox agent token's log read (sandbox agent credential design §1, row

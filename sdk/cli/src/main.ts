@@ -1314,7 +1314,10 @@ function buildProgram(): Command {
     invocations
       .command("list <app>")
       .description("every function's invocations, newest first")
-      .option("--app-env <environment>", "narrow to one environment")
+      .option(
+        "--app-env <environment>",
+        "one environment (by <org>/<app>, default: production only, or the one --build ran in)"
+      )
       .option("--build <id>", "narrow to one build (its id, or the build UUID)")
       .option("--function <name>", "narrow to one function")
       .option("--limit <n>", "max rows (default 50)")

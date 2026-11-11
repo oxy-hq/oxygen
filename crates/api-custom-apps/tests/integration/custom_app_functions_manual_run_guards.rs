@@ -34,7 +34,7 @@
 use crate::common::read_repo_file;
 use crate::custom_app_functions_manual_run::{
     CALLS_ROUTE, ERRORS_ROUTE, FUNCTION_INVOCATIONS_ROUTE, FUNCTIONS_ROUTE, HELD_ROUTE,
-    INVOCATIONS_ROUTE, LOGS_ROUTE, RUN_DETAIL_ROUTE, RUNS_ROUTE,
+    INVOCATIONS_ROUTE, LOGS_ROUTE, RUN_DETAIL_ROUTE, RUNS_ROUTE, SLUG_INVOCATIONS_ROUTE,
 };
 
 /// `rel` (from the repo root) with whole-line comments dropped, every whitespace
@@ -252,5 +252,27 @@ fn the_log_route_the_readback_test_copies_still_matches_production() {
         copy.contains(".route(LOGS_ROUTE,get(custom_apps_logs::get_logs))")
             && copy.contains(".route(ERRORS_ROUTE,get(custom_apps_logs::get_errors))"),
         "the read-back test no longer mounts the production log and client-error handlers"
+    );
+}
+
+/// `slug_invocation_reads` mounts the slug invocation read on a router of its
+/// own, for the reason the log read does: production mounts it inside
+/// `public_routes`, and it authenticates in its handler.
+#[test]
+fn the_slug_invocation_route_the_test_copies_still_matches_production() {
+    let public = code("crates/api-custom-apps/src/lib.rs");
+    assert!(
+        public.contains(&format!(
+            ".route(\"{SLUG_INVOCATIONS_ROUTE}\",get(logs::invocations::get_invocations))"
+        )),
+        "`oxy-api-custom-apps` no longer mounts `logs::invocations::get_invocations` on \
+         `{SLUG_INVOCATIONS_ROUTE}`; the read test exercises a path production does not serve"
+    );
+    let copy = code(
+        "crates/api-custom-apps/tests/integration/custom_app_functions_manual_run/slug_invocation_reads.rs",
+    );
+    assert!(
+        copy.contains(".route(SLUG_INVOCATIONS_ROUTE,get(slug_invocations::get_invocations))"),
+        "the read test no longer mounts the production slug invocation handler"
     );
 }

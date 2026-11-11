@@ -124,6 +124,7 @@ pub const SANDBOX_ALLOWED: &[Allowed] = &[
 pub const PUBLIC_ROUTES: &[(&str, bool)] = &[
     ("/customer-apps/{org_slug}/{app_slug}/logs", true),
     ("/customer-apps/{org_slug}/{app_slug}/errors", false),
+    ("/customer-apps/{org_slug}/{app_slug}/invocations", false),
     ("/customer-apps/{org_slug}/{app_slug}/debug", false),
     ("/customer-apps/{org_slug}/{app_slug}/health", false),
     ("/customer-apps/{org_slug}/{app_slug}/availability", false),

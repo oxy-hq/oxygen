@@ -505,7 +505,12 @@ const SANDBOX_TOOLS = [
       type: "object",
       properties: {
         app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
-        appEnv: { type: "string", description: "Narrow to one environment." },
+        appEnv: {
+          type: "string",
+          description:
+            "One environment. With app as <org>/<app> the default is production only (or the " +
+            "environment a non-production build ran in); pass dev-<handle> to see a sandbox."
+        },
         build: { type: "string", description: "Narrow to one build (its id, or the build UUID)." },
         function: { type: "string", description: "Narrow to one function." },
         limit: { type: "number", description: "Max rows (default 50)." }

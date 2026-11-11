@@ -31,7 +31,8 @@
 //! invocation id, and the fixture the read-backs share), `build_handshake`
 //! (`x-oxy-live-build` and the stale-caller 409), `invocation_listings`,
 //! `invocation_reach`, `sandbox_build_reach`, `agent_draft_build_reach`,
-//! `held_readback`, `call_trace_readback`, `run_readback` and `log_reads`;
+//! `held_readback`, `call_trace_readback`, `run_readback`, `log_reads` and
+//! `slug_invocation_reads`;
 //! `publish_token_router` (a real token through real authentication),
 //! `run_stream_scope` (a custom app's own run stream and cancel) and
 //! `partner_audit` (what a partner reads of the audit trail). They hang here
@@ -57,8 +58,10 @@ mod run_audit;
 mod run_readback;
 mod run_stream_scope;
 mod sandbox_build_reach;
+mod slug_invocation_reads;
 
 pub(crate) use log_reads::{ERRORS_ROUTE, LOGS_ROUTE};
+pub(crate) use slug_invocation_reads::SLUG_INVOCATIONS_ROUTE;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

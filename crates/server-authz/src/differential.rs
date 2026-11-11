@@ -805,6 +805,41 @@ fn app_admin_ring_matches_the_shipped_role_resolution() {
     }
 }
 
+/// `GET /customer-apps/{org}/{app}/invocations` (`logs::invocations`) is the
+/// `/logs` read to the letter: `require_app_admin` for every environment, and
+/// `may_open_non_production` on top for a non-production one.
+///
+/// Oracle = the shipped `/logs` gate, which that route calls
+/// (`logs::environment::admitted`): `resolve_app_role` = admin, i.e. an org
+/// officer, an app-admin row, or staff — and for staging or a sandbox, staff
+/// alone. This pins the read the owner approved for the slug route: org officers
+/// and per-app admins read production's invocations; a plain member, an app
+/// member and a `develop_apps` partner do not; nobody but staff reads another
+/// environment's.
+#[test]
+fn app_invocations_read_is_the_logs_read() {
+    for restricted in [false, true] {
+        let resource = Resource::app_with_visibility(app_id(), org(), restricted);
+        for s in app_scenarios() {
+            let logs_gate = s.is_staff || s.is_org_owner || s.is_org_admin || s.is_app_admin;
+            let facts = s.facts();
+            let production = allows(&facts, Action::AppAdmin, &resource);
+            assert_eq!(
+                production, logs_gate,
+                "production invocations (restricted={restricted}) — scenario {:?}",
+                s.name
+            );
+            let non_production = production && allows(&facts, Action::AppNonProduction, &resource);
+            assert_eq!(
+                non_production,
+                logs_gate && s.is_staff,
+                "non-production invocations (restricted={restricted}) — scenario {:?}",
+                s.name
+            );
+        }
+    }
+}
+
 /// The same resolution under an API token (API-tokens design §4.4): the
 /// session's verdict at an admin ceiling over the workspace the app was
 /// published from, and nobody below it.

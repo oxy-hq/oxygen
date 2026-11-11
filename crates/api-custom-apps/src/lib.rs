@@ -520,6 +520,13 @@ pub fn public_routes() -> Router<AppState> {
             "/customer-apps/{org_slug}/{app_slug}/errors",
             get(logs::get_errors),
         )
+        // The app's recorded function invocations, by slug, behind the `/logs`
+        // gate (app admin; non-production also needs non-production reach).
+        // Metadata only — see `logs::invocations`.
+        .route(
+            "/customer-apps/{org_slug}/{app_slug}/invocations",
+            get(logs::invocations::get_invocations),
+        )
         // Trusted-publishing OIDC exchange — unauthenticated by construction: the
         // GitHub Actions OIDC JWT in the Authorization header IS the credential.
         // Returns a short-lived, app-scoped publish token.
@@ -624,6 +631,7 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
         fleet("/customer-apps/health"),
         fleet("/customer-apps/{org_slug}/{app_slug}/logs"),
         fleet("/customer-apps/{org_slug}/{app_slug}/errors"),
+        fleet("/customer-apps/{org_slug}/{app_slug}/invocations"),
         fleet("/custom-domains/authorize"),
         fleet("/custom-domains/session"),
         fleet("/custom-domains/tls-ask"),

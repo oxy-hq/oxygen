@@ -1,5 +1,5 @@
 /**
- * `oxyc invocations list` / `held` — the admin-only read-back of what ran in
+ * `oxyc invocations list` / `held` — the read-back of what ran in
  * an app's environment, driven with `globalThis.fetch` stubbed.
  */
 
@@ -106,11 +106,10 @@ describe("runInvocationsList", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("GETs /api/customer-apps/{id}/invocations with no query by default", async () => {
+  it("GETs /api/customer-apps/{org}/{app}/invocations with no query by default", async () => {
     stubFetch(
       {
-        ...appsRoutes(),
-        [`GET /api/customer-apps/${APP_ID}/invocations`]: () => ({
+        "GET /api/customer-apps/acme/store/invocations": () => ({
           status: 200,
           body: { invocations: [ROW] }
         })
@@ -128,14 +127,13 @@ describe("runInvocationsList", () => {
 
     expect(JSON.parse(printed.trim())).toEqual({ invocations: [ROW] });
     const call = calls.find((c) => c.url.includes("/invocations"));
-    expect(call?.url).toBe(`${TARGET}/api/customer-apps/${APP_ID}/invocations`);
+    expect(call?.url).toBe(`${TARGET}/api/customer-apps/acme/store/invocations`);
   });
 
   it("prints each row's id, function, environment and status without --json", async () => {
     stubFetch(
       {
-        ...appsRoutes(),
-        [`GET /api/customer-apps/${APP_ID}/invocations`]: () => ({
+        "GET /api/customer-apps/acme/store/invocations": () => ({
           status: 200,
           body: { invocations: [ROW] }
         })
@@ -159,8 +157,7 @@ describe("runInvocationsList", () => {
   it("builds ?function=&environment=&build=&limit= in that order", async () => {
     stubFetch(
       {
-        ...appsRoutes(),
-        [`GET /api/customer-apps/${APP_ID}/invocations?function=submit-order&environment=dev-a1&build=k3x9&limit=10`]:
+        "GET /api/customer-apps/acme/store/invocations?function=submit-order&environment=dev-a1&build=k3x9&limit=10":
           () => ({ status: 200, body: { invocations: [] } })
       },
       calls
@@ -178,7 +175,7 @@ describe("runInvocationsList", () => {
       calls.some(
         (c) =>
           c.url ===
-          `${TARGET}/api/customer-apps/${APP_ID}/invocations?function=submit-order&environment=dev-a1&build=k3x9&limit=10`
+          `${TARGET}/api/customer-apps/acme/store/invocations?function=submit-order&environment=dev-a1&build=k3x9&limit=10`
       )
     ).toBe(true);
   });
@@ -194,11 +191,128 @@ describe("runInvocationsList", () => {
     expect(calls).toHaveLength(0);
   });
 
+  // The console list and `{id}/invocations` refuse a caller inside an
+  // assume-role session; the slug route is the `/logs` gate. A slug pair must
+  // therefore reach it and nothing else.
+  it("reads <org>/<app> with one request and never walks the registry", async () => {
+    stubFetch(
+      {
+        "GET /api/customer-apps/acme/store/invocations": () => ({
+          status: 200,
+          body: { invocations: [] }
+        })
+      },
+      calls
+    );
+
+    await runInvocationsList(fakeContext({ bearer: "tok" }), "acme/store", { json: true });
+
+    expect(calls).toEqual([
+      { method: "GET", url: `${TARGET}/api/customer-apps/acme/store/invocations` }
+    ]);
+  });
+
+  // The slug route reads every environment for a caller with non-production
+  // reach and production alone for one without, and says which.
+  async function listWith(
+    environments: string,
+    appEnv?: string
+  ): Promise<{ stdout: string; stderr: string }> {
+    const query = appEnv === undefined ? "" : `?environment=${appEnv}`;
+    stubFetch(
+      {
+        [`GET /api/customer-apps/acme/store/invocations${query}`]: () => ({
+          status: 200,
+          body: { invocations: [ROW], environments }
+        })
+      },
+      calls
+    );
+    let stdout = "";
+    let stderr = "";
+    const out = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout += String(chunk);
+      return true;
+    });
+    const err = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr += String(chunk);
+      return true;
+    });
+    try {
+      await runInvocationsList(fakeContext({ bearer: "tok" }), "acme/store", {
+        appEnv,
+        json: true
+      });
+    } finally {
+      out.mockRestore();
+      err.mockRestore();
+    }
+    return { stdout, stderr };
+  }
+
+  it("notes on stderr when a read naming no environment was limited to production", async () => {
+    const { stdout, stderr } = await listWith("production");
+    expect(stderr).toMatch(/production only.*non-production environments/);
+    // stdout keeps its shape, with the added field.
+    expect(JSON.parse(stdout.trim())).toEqual({ invocations: [ROW], environments: "production" });
+  });
+
+  it("says nothing when the read covered every environment", async () => {
+    const { stdout, stderr } = await listWith("all");
+    expect(stderr).toBe("");
+    expect(JSON.parse(stdout.trim())).toEqual({ invocations: [ROW], environments: "all" });
+  });
+
+  it("says nothing when production was the environment asked for", async () => {
+    const { stderr } = await listWith("production", "production");
+    expect(stderr).toBe("");
+  });
+
+  it("keeps the console route by id for an app UUID", async () => {
+    stubFetch(
+      {
+        [`GET /api/customer-apps/${APP_ID}`]: () => ({
+          status: 200,
+          body: { id: APP_ID, slug: "store", org_slug: "acme" }
+        }),
+        [`GET /api/customer-apps/${APP_ID}/invocations`]: () => ({
+          status: 200,
+          body: { invocations: [] }
+        })
+      },
+      calls
+    );
+
+    await runInvocationsList(fakeContext({ bearer: "tok" }), APP_ID, { json: true });
+
+    expect(calls.map((c) => c.url)).toEqual([
+      `${TARGET}/api/customer-apps/${APP_ID}`,
+      `${TARGET}/api/customer-apps/${APP_ID}/invocations`
+    ]);
+  });
+
+  it("says what to do when the console refuses an assume session (a bare 403)", async () => {
+    stubFetch(
+      {
+        // The console refuses the registry detail first, as it does every route.
+        [`GET /api/customer-apps/${APP_ID}`]: () => ({ status: 403, body: undefined })
+      },
+      calls
+    );
+    const err = await runInvocationsList(fakeContext({ bearer: "tok" }), APP_ID, {
+      json: true
+    }).catch((e: unknown) => e as CliError);
+    expect((err as CliError).code).toBe(ExitCode.AUTH);
+    expect((err as CliError).hint).toMatch(/acting as a tenant.*or your staff grant/);
+    expect((err as CliError).remedy).toMatch(
+      /assume session.*<org-slug>\/<app-slug>.*oxyc assume end/
+    );
+  });
+
   it("maps 403 to exit 4", async () => {
     stubFetch(
       {
-        ...appsRoutes(),
-        [`GET /api/customer-apps/${APP_ID}/invocations`]: () => ({
+        "GET /api/customer-apps/acme/store/invocations": () => ({
           status: 403,
           body: { error: "non_production_refused", message: "nope" }
         })
@@ -209,6 +323,8 @@ describe("runInvocationsList", () => {
       json: true
     }).catch((e: unknown) => e as CliError);
     expect((err as CliError).code).toBe(ExitCode.AUTH);
+    // A refusal that says why is not the assume-session one.
+    expect((err as CliError).remedy).toBeUndefined();
   });
 });
 
