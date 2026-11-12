@@ -723,6 +723,36 @@ approves once, from any device.
 4. **Ship** with the commands above, each with `--token-env OXY_TOKEN`.
    `promote` and `rollback` need `--yes`, because there is no terminal to ask.
 
+**Sharing the setup with a team.** The repo already shares what it can: the
+hook and its settings entry reach every teammate who clones it. The cloud
+environment cannot be shared that way. Claude Code has no file that defines
+an environment's network access, variables or secrets. The way to share one
+is an **organization environment**, which only an Owner of the team's Claude
+organization creates (claude.ai admin settings → Cloud environments). Members
+can read its variables but not its secrets, and one secret value serves
+everyone who uses it. So set it up in two layers:
+
+- **One shared environment, with no token in it.** The Owner creates an
+  organization environment with **Limited** network access. It allows
+  `app.oxygen-hq.com`, `*.oxy.tech` and the default package managers, and its
+  setup script runs `npm install -g @oxy-hq/cli`. Teammates pick it, and each
+  session gets its credential from step 3: the person approves their own
+  token, which ends in hours and is recorded as theirs.
+- **A personal environment, for someone who wants no approval per session.**
+  They create their own environment with the same network access. They add
+  their own network secret, with their own personal access token (`oxy_pat_…`,
+  from Account → Personal access tokens), and `OXY_TOKEN=from-proxy`. What
+  they do is still recorded as them.
+
+Two things to avoid:
+
+- **A network secret on the shared environment.** Every member's session then
+  acts as whoever owns that token, staff access included, and Oxy's audit log
+  shows all of it as that one person.
+- **A browser session token as a secret's value.** If `oxyc whoami` says the
+  credential is "a browser session", the secret holds a session token, which
+  expires much sooner than a personal access token. Replace it.
+
 **A token approved by device code never carries staff or partner access.**
 `--standing --no-browser` is a usage error (exit `2`). The token from step 3
 reaches only what the approver's org memberships do. That is enough when they
