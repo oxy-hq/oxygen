@@ -235,6 +235,7 @@ fn surface_seams() -> SurfaceSeams {
         admin: oxy_api_tenancy::admin_sections()
             .into_iter()
             .chain(oxy_api_workspace_health::admin_sections())
+            .chain(oxy_api_airway::admin_sections())
             .collect(),
         // Operations the surfaces document, merged into the served OpenAPI
         // document (`oxyc schema` reads it).
@@ -383,13 +384,17 @@ fn main() {
 
         // The parser is `oxy-cli-shim`'s and knows no command. This binary
         // owns the long-lived ones (`start`, `serve`, `worker`), listed first;
-        // oxy-app owns the one-shot rest.
+        // oxy-app owns most of the one-shot rest, and a context that has left
+        // oxy-app brings its own (`oxy airway`, from `oxy-api-airway`).
         let owners = vec![
             oxy_cli_shim::Owner::of::<commands::ServerCommand>(|command, seams| {
                 Box::pin(commands::run(command, seams))
             }),
             oxy_cli_shim::Owner::of::<oxy_app::cli::SubCommand>(|command, seams| {
                 Box::pin(oxy_app::cli::run(command, seams))
+            }),
+            oxy_cli_shim::Owner::of::<oxy_api_airway::Command>(|command, _seams| {
+                Box::pin(oxy_api_airway::run(command))
             }),
         ];
         let exit_code =

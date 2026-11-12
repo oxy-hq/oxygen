@@ -147,8 +147,8 @@ use std::time::{Duration, Instant};
 /// | --- | ----- |
 /// | `0x0787_5EED` | `oxy-app` `server::test_support::MIGRATION_LOCK_KEY` |
 /// | `0x4149_5257_4450` | `oxy-app` `test_support::AIRWAY_DEPLOYMENT_LOCK_KEY` |
-/// | `0x4149_5257_4159` | `oxy-app` `admin::airway_config::handlers_tests::LOCK_KEY` |
-/// | `0x0041_4952_5741_5950` | `oxy-app` `admin::airway_config::preview_scan_tests::LOCK_KEY` |
+/// | `0x4149_5257_4159` | `oxy-api-airway` `admin::handlers_tests::LOCK_KEY` |
+/// | `0x0041_4952_5741_5950` | `oxy-api-airway` `admin::preview_scan_tests::LOCK_KEY` |
 /// | `0x0078_795F_6D69_6772` | `oxy serve` boot migration (`MIGRATION_ADVISORY_LOCK_KEY`) |
 /// | `0x5348_5244_5450` | `containers::RUN_DB_LOCK_KEY` (on the server's `postgres` database) |
 /// | workspace-id derived | per-workspace lazy compile (`middlewares::workspace_context`) |

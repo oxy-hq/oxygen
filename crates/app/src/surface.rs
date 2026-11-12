@@ -205,7 +205,7 @@ pub use crate::server::router::AdminSection;
 pub mod roles {
     pub use crate::server::role_manifest::{
         RouteRole, classify, current_process_role, ensure_fs_writable, init_process_role_from_env,
-        install_route_declarations_for_tests_with,
+        install_route_declarations_for_tests_with, role_runs_inprocess_workers,
     };
 }
 

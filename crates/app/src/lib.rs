@@ -19,7 +19,6 @@
 pub const BUILD_SHA: &str = env!("GIT_HASH");
 
 pub mod agentic_wiring;
-pub mod airway_boot;
 pub mod cli;
 /// Moved to `oxy_app_core::emails`; re-exported so `crate::emails::*` call sites don't move.
 pub use oxy_app_core::emails;

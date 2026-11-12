@@ -71,11 +71,6 @@ pub(crate) mod handlers;
 pub(crate) mod preview;
 pub(crate) mod preview_scan;
 
-use axum::Router;
-use axum::routing::{get, put};
-
-use crate::server::router::AppState;
-
 /// Every source kind the admin surface shows a card for, even with no
 /// config row yet — matches `AirwayPipelineSpec::source.kind` spellings
 /// (`crates/agentic/airway/src/config.rs`). Task 3's preview and Task 5's
@@ -92,34 +87,3 @@ pub(crate) const KNOWN_SOURCE_KINDS: &[&str] = &[
     "netsuite",
     "sp_api",
 ];
-
-pub(crate) fn router() -> Router<AppState> {
-    Router::new().nest(
-        "/airway",
-        Router::new()
-            .route("/config", get(handlers::get_config))
-            .route(
-                "/config/{source_kind}",
-                put(handlers::put_global_config).delete(handlers::delete_global_config),
-            )
-            .route(
-                "/config/{source_kind}/workspaces/{workspace_id}",
-                put(handlers::put_workspace_override).delete(handlers::delete_workspace_override),
-            )
-            // Distinct path depth from the `PUT`/`DELETE` route above, so
-            // axum matches them separately.
-            .route(
-                "/config/{source_kind}/preview",
-                get(preview::preview_policy),
-            )
-            // The operational tier. A sibling of `/config`, not a child:
-            // `/config/{source_kind}` would swallow it as a source kind, and
-            // it is deployment-wide rather than per kind in any case.
-            .route(
-                "/deployment-config",
-                get(deployment::get_deployment_config)
-                    .put(deployment::put_deployment_config)
-                    .delete(deployment::delete_deployment_config),
-            ),
-    )
-}

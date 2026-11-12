@@ -217,6 +217,14 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_workspace_health",
         function: "admin_routes",
     },
+    // `oxy-api-airway`: the console's airway admission policy and deployment
+    // tier, through the same admin seam.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_airway",
+        function: "admin_routes",
+    },
     Seed {
         surface: "org",
         prefix: "/api",

@@ -61,6 +61,7 @@ AREAS = [
     ("crates/api-workspace-health",                       "Workspace health & reconcile"),
     # Pre-extraction path — without it the extraction reads as authorship.
     ("crates/app/src/server/api/admin/workspace_health",  "Workspace health & reconcile"),
+    # Moved into crates/api-airway 2026-11-11; the old path keeps its history.
     ("crates/app/src/server/api/admin/airway_config",     "Airway admission (admin)"),
     ("crates/app/src/server/api/admin/airhouse.rs",       "Airhouse fleet console (admin)"),
     ("crates/app/src/server/api/admin/oltp.rs",           "OLTP console (admin)"),

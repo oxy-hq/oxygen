@@ -27,9 +27,7 @@ use agentic_airway::deployment_config::{DeploymentValues, drift};
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 
 use super::{DeploymentTierBoot, install_deployment_tier, install_deployment_tier_from_env};
-use crate::server::test_support::{
-    self, AIRWAY_DEPLOYMENT_LOCK_KEY, AdvisoryLock, SKIP_MSG, test_db,
-};
+use crate::test_support::{self, AIRWAY_DEPLOYMENT_LOCK_KEY, AdvisoryLock, SKIP_MSG, test_db};
 
 async fn lock() -> AdvisoryLock {
     let url = test_support::database_url().expect("OXY_DATABASE_URL set (test_db confirmed it)");

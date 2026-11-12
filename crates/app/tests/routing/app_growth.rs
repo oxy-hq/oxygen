@@ -25,8 +25,6 @@ use std::path::Path;
 
 const SRC: &[&str] = &[
     "agentic_wiring",
-    "airway_boot",
-    "airway_boot_tests",
     "cli",
     // 2026-11-11: re-exports only, no code. What `oxy-server`'s `serve` /
     // `start` / `worker` take from here, the binary's counterpart of

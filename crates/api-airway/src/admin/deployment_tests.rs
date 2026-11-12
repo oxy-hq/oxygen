@@ -11,7 +11,7 @@
 //! The lock matters more here than for the policy tier: this table has exactly
 //! **one row**, so every test in this file writes the same row. Two of them in
 //! parallel would not merely interleave, they would overwrite each other. And
-//! this is not the only file that writes it — `crate::airway_boot_tests` does
+//! this is not the only file that writes it — `crate::boot`'s tests do
 //! too, which is why the key lives on `test_support` rather than here.
 
 use agentic_airway::deployment_config::{COLUMNS, DeploymentValues, SINGLETON_ID};
@@ -22,9 +22,7 @@ use super::{
     DeploymentWriteError, DriftReport, build_response, delete_deployment, load_row,
     upsert_deployment, values_from_row,
 };
-use crate::server::test_support::{
-    self, AIRWAY_DEPLOYMENT_LOCK_KEY, AdvisoryLock, SKIP_MSG, test_db,
-};
+use crate::test_support::{self, AIRWAY_DEPLOYMENT_LOCK_KEY, AdvisoryLock, SKIP_MSG, test_db};
 
 async fn lock() -> AdvisoryLock {
     let url = test_support::database_url().expect("OXY_DATABASE_URL set (test_db confirmed it)");

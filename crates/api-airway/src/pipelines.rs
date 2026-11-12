@@ -20,6 +20,9 @@ use oxy_app::surface::WorkspaceManagerReadOnly;
 #[derive(Debug, Deserialize)]
 pub struct ListPipelinesQuery {
     /// Active branch hint; the boundary only serves the workspace default branch.
+    /// Accepted so a client sending it is not refused, and never read: a
+    /// replica answers from the promoted revision.
+    #[allow(dead_code)]
     pub branch: Option<String>,
 }
 

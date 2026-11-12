@@ -179,8 +179,8 @@ pub async fn start_server_and_web_app(
     // (the create-pipeline wizard's table picker, which does connect to the
     // vendor) and the admin policy preview. Must precede
     // `create_web_application`, which mounts those routes and starts the
-    // in-process worker fleet. Never fails boot — see `airway_boot`.
-    oxy_app::airway_boot::install_deployment_tier_from_env().await;
+    // in-process worker fleet. Never fails boot — see `oxy_api_airway::boot`.
+    oxy_api_airway::boot::install_deployment_tier_from_env().await;
     println!("serve: airway deployment tier resolved, finding available port");
 
     // Now that OXY_CLICKHOUSE_* is set (either externally for `oxy serve` or

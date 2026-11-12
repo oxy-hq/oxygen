@@ -22,7 +22,7 @@
 //!
 //! [`agentic_airway::installed_values`] reads *this* process's `OnceLock`.
 //! Every oxy-app entry point that can build an airway connector installs at
-//! boot (`crate::airway_boot`), so on a healthy fleet the replica answering
+//! boot (`crate::boot`), so on a healthy fleet the replica answering
 //! this request has installed — but it installed *its own* boot-time read of
 //! the row, which on a rolling deploy is not necessarily the row as it stands
 //! now, and on a replica that failed to resolve it is nothing at all. Neither
@@ -55,7 +55,7 @@ use sea_orm::sea_query::OnConflict;
 use sea_orm::{ActiveValue::Set, DatabaseConnection, DbErr, EntityTrait};
 use serde::Serialize;
 
-use super::super::internal_jobs::{connect, db_err, error_body};
+use oxy_app::surface::admin_db::{connect, db_err, error_body};
 
 /// Where the `installed` half of the response came from.
 ///
@@ -86,13 +86,13 @@ pub struct InstalledScope {
 
 impl InstalledScope {
     fn observe(installed: bool) -> Self {
-        let role = crate::server::role_manifest::current_process_role();
+        let role = oxy_app::surface::roles::current_process_role();
         Self {
             scope: "answering_process",
             process_role: role.as_str(),
             pid: std::process::id(),
             hostname: std::env::var("HOSTNAME").ok().filter(|h| !h.is_empty()),
-            process_runs_airway: crate::server::role_manifest::role_runs_inprocess_workers(role),
+            process_runs_airway: oxy_app::surface::roles::role_runs_inprocess_workers(role),
             installed_in_this_process: installed,
         }
     }

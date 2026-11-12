@@ -431,7 +431,9 @@ pub(crate) fn evaluate_pipeline(
     // nothing in this scan ever issues a request, so `access_token` is never
     // called.
     let tokens = read_only.then(|| {
-        agentic_airway::QuickBooksTokens::ReadOnly(std::sync::Arc::new(PlaceholderAccessToken))
+        agentic_airway::QuickBooksTokens::ReadOnly(std::sync::Arc::new(
+            agentic_airway::placeholder::PlaceholderAccessToken,
+        ))
     });
     let connector = build_source_connector(&source, tokens, environment)
         .map_err(|e| format!("connector could not be built: {e}"))?;
@@ -442,25 +444,6 @@ pub(crate) fn evaluate_pipeline(
         &connector.contracts(),
         policy,
     )))
-}
-
-/// Stands in for the host's access-token source when previewing a quickbooks
-/// pipeline in read-only token custody.
-///
-/// It can never be called: the preview builds connectors and reads their
-/// declared resources/contracts, and issues no request. Returning an error
-/// rather than [`agentic_airway::placeholder::PLACEHOLDER_SECRET`] keeps that
-/// true by construction — if a future arm ever *does* authenticate at
-/// construction time, this fails loudly instead of sending a fake bearer token
-/// from a staff admin route. Shared with the workspace previews' Airway change
-/// check (`server::previews::analyze`), which builds connectors the same way.
-pub(crate) struct PlaceholderAccessToken;
-
-#[async_trait::async_trait]
-impl agentic_airway::AccessTokenSource for PlaceholderAccessToken {
-    async fn access_token(&self) -> Result<String, String> {
-        Err("preview scan never issues requests; no access token is available".into())
-    }
 }
 
 #[cfg(test)]

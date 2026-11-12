@@ -103,13 +103,13 @@ const ALLOWED: &[(&str, &str)] = &[
          never cached, and it never updates a slug or deletes a row",
     ),
     (
-        "server/api/admin/airway_config/handlers_tests.rs",
+        "api-airway/src/admin/handlers_tests.rs",
         "test fixture: inserts an org per case under a fresh uuid slug so the \
          platform-scope cases have something to scope against. Inserts only — a \
          miss is never cached — and it never updates a slug nor deletes a row",
     ),
     (
-        "server/api/admin/airway_config/preview_scan_tests.rs",
+        "api-airway/src/admin/preview_scan_tests.rs",
         "test fixture, same shape as its sibling above: inserts an org per case \
          under a fresh uuid slug so the preview's platform-scope cases have \
          something to scope against. Inserts only — a miss is never cached — and \

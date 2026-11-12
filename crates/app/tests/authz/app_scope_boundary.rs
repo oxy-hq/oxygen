@@ -539,9 +539,9 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
         ),
         (
             // Named explicitly because the router sweep above cannot see this
-            // one: it resolves `admin/{router}.rs`, and `airway_config` is a
-            // DIRECTORY module (`airway_config/mod.rs` + `handlers.rs`) — as are
-            // `apps`, `partners` and `workspace_health`. That blindness is
+            // one: it was a DIRECTORY module (`airway_config/mod.rs` +
+            // `handlers.rs`), and since 2026-11-11 it is `oxy-api-airway`'s
+            // `admin` module, mounted through the admin seam. That blindness is
             // exactly how these two shipped unfenced: a bounded grant could
             // `PUT /admin/airway/config/{kind}/workspaces/{any}` and pin another
             // tenant's pipelines to a policy that halts them.
@@ -550,9 +550,9 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
             // bigger change than this one: the other three would come with it,
             // their handlers live in sub-modules the sweep's search space does
             // not reach, and its route-chunk parse assumes one indent level. So
-            // this list carries airway_config today, and the gap is written
+            // this list carries the airway section, and the gap is written
             // down rather than left to be rediscovered.
-            "crates/app/src/server/api/admin/airway_config/handlers.rs",
+            "crates/api-airway/src/admin/handlers.rs",
             &["put_workspace_override", "delete_workspace_override"],
         ),
         (
@@ -1155,14 +1155,8 @@ fn a_delegation_denial_carries_its_reason_to_the_client() {
 #[test]
 fn scoped_admin_reads_on_the_airway_console_filter_by_scope() {
     let sites: &[(&str, &str)] = &[
-        (
-            "crates/app/src/server/api/admin/airway_config/handlers.rs",
-            "get_config",
-        ),
-        (
-            "crates/app/src/server/api/admin/airway_config/preview.rs",
-            "preview_policy",
-        ),
+        ("crates/api-airway/src/admin/handlers.rs", "get_config"),
+        ("crates/api-airway/src/admin/preview.rs", "preview_policy"),
     ];
 
     for (file, handler) in sites {
@@ -1189,7 +1183,7 @@ fn scoped_admin_reads_on_the_airway_console_filter_by_scope() {
             body.contains("scope_org_filter"),
             "`{handler}` ({file}) does not call `scope_org_filter(..)`. Every read on this \
              console that returns per-tenant rows narrows them; the docs in \
-             `airway_config/mod.rs` and `handlers.rs` state that as a property of the \
+             `oxy-api-airway`'s `admin/mod.rs` and `handlers.rs` state that as a property of the \
              whole surface."
         );
     }

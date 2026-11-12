@@ -227,8 +227,8 @@ fn jittered_backoff(backoff: Duration) -> Duration {
 /// Advisory-lock key for the singleton `airway_deployment_config` row.
 ///
 /// Shared rather than declared twice on purpose: two test files write that row
-/// — `server::api::admin::airway_config::deployment_tests` and
-/// `airway_boot_tests` — and there is exactly **one** of it, so they must
+/// — `oxy-api-airway`'s `admin::deployment_tests` and `boot_tests`, which
+/// include this file by path — and there is exactly **one** of it, so they must
 /// contend on the *same* key. Two different keys would let them run
 /// concurrently and overwrite each other's row rather than merely interleave,
 /// which is the failure the lock exists to prevent. Distinct from

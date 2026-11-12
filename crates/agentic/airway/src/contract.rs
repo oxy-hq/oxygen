@@ -19,7 +19,7 @@
 //! described would arrive at the UI wearing a *checked vendor fact*. Those are
 //! different states to an operator: `opaque` means "the vendor exposes no
 //! version", `undeclared` means "nobody has said", and only the second is what
-//! `require_declared` refuses. `crates/app/.../airway_config/preview.rs`
+//! `require_declared` refuses. `crates/api-airway/src/admin/preview.rs`
 //! carries the same distinction for the admin policy preview; the two agree by
 //! construction because both are driven off `contracts()`.
 //!

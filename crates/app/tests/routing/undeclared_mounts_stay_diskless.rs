@@ -66,6 +66,11 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
     // route at all, so no pod placement applies.
     ("api-custom-apps/src/seed_apps.rs", "workspace_path"),
     ("api-custom-apps/src/seed.rs", "workspace_path"),
+    // `oxy airway run` / `backfill` / `coverage` resolve the local workspace
+    // (`resolve_local_workspace_path`) and run the pipeline in-process. A CLI
+    // command, moved here from `oxy-app` with the airway context, mounted on no
+    // route, so no pod placement applies.
+    ("api-airway/src/cli.rs", "workspace_path"),
     // `POST /{workspace_id}/experiments/{name}/write-back/apply` creates a git
     // worktree and branch in the workspace root: `oxy_api_experiment::
     // workspace_route_roles()` declares it IdeOnly, the handler runs on

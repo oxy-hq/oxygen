@@ -2,7 +2,7 @@
 //! build its source connector offline, read what it advertises, and classify.
 //!
 //! No I/O of any kind, so [`prepare_all`] runs under `spawn_blocking`, as
-//! `admin::airway_config::preview_scan` does. Connectors are built with
+//! `oxy-api-airway`'s `admin::preview_scan` does. Connectors are built with
 //! placeholder credentials (`agentic_airway::placeholder`): construction issues
 //! no request, and this module only reads `resources()`,
 //! `table_name_mappings()` and `column_hints()`.
@@ -130,7 +130,7 @@ pub(crate) fn offline_connector(
     substitute_secret_vars(&mut source.config);
     let tokens = read_only.then(|| {
         agentic_airway::QuickBooksTokens::ReadOnly(std::sync::Arc::new(
-            crate::server::api::admin::airway_config::preview_scan::PlaceholderAccessToken,
+            agentic_airway::placeholder::PlaceholderAccessToken,
         ))
     });
     build_source_connector(&source, tokens, Environment::Production).map_err(|e| e.to_string())

@@ -206,8 +206,8 @@ async fn connect_db() -> Result<sea_orm::DatabaseConnection, OxyError> {
     // airway's process-wide `GlobalConfig` from `airway_deployment_config`
     // before any connector exists — `run_pipeline` would install it too, but
     // only for the runs, and only after this command has already had a chance
-    // to build one. Never fails the command; see `crate::airway_boot`.
-    crate::airway_boot::install_deployment_tier(Some(&db)).await;
+    // to build one. Never fails the command; see `crate::boot`.
+    crate::boot::install_deployment_tier(Some(&db)).await;
 
     Ok(db)
 }
@@ -306,7 +306,7 @@ async fn cmd_run(args: AirwayRunArgs) -> Result<(), OxyError> {
         .build()
         .await?;
 
-    let project_ctx = Arc::new(crate::agentic_wiring::OxyProjectContext::new(
+    let project_ctx = Arc::new(oxy_app::surface::workspace_runtime::OxyProjectContext::new(
         workspace_manager,
     ));
     let platform: Arc<dyn agentic_pipeline::platform::PlatformContext> = project_ctx.clone();
@@ -489,7 +489,7 @@ async fn airway_context(
         .await?
         .build()
         .await?;
-    let project_ctx = Arc::new(crate::agentic_wiring::OxyProjectContext::new(
+    let project_ctx = Arc::new(oxy_app::surface::workspace_runtime::OxyProjectContext::new(
         workspace_manager,
     ));
     let platform: Arc<dyn agentic_pipeline::platform::PlatformContext> = project_ctx.clone();

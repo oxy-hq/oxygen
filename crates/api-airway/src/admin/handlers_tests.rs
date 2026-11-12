@@ -37,7 +37,7 @@ use super::{
     KNOWN_SOURCE_KINDS, delete_global, delete_override, deny_out_of_scope_for_workspace,
     list_airway_config, upsert_global, upsert_override,
 };
-use crate::server::test_support::{self, AdvisoryLock, SKIP_MSG, test_db};
+use crate::test_support::{self, AdvisoryLock, SKIP_MSG, test_db};
 
 /// Arbitrary but fixed, and distinct from `test_support::MIGRATION_LOCK_KEY`
 /// and every other advisory-lock caller — keys share one namespace per

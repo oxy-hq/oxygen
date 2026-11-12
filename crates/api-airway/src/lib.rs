@@ -11,14 +11,26 @@
 //! - `GET /airway-pipelines/sp-api/marketplaces` — the `sp_api` connector's
 //!   marketplaces, for the New Pipeline wizard ([`pipelines`]).
 //!
-//! The run surface (`/agentic-airway`) stays in `agentic-http`. The staff
-//! console's `/admin/airway` section and the `oxy airway` command join next.
+//! Beside them, the rest of the airway context that used to live in `oxy-app`:
+//!
+//! - [`admin_sections`] — the staff console's `/admin/airway` section (the
+//!   per-source-kind admission policy and the deployment-wide operational
+//!   tier), mounted through the admin seam behind `PlatformOperate`;
+//! - [`boot`] — installing airway's deployment tier at process start, which
+//!   `oxy serve`, `oxy worker` and every `oxy airway` command do first;
+//! - [`Command`] — the `oxy airway` subcommands, registered with
+//!   `oxy-cli-shim` as their own owner.
+//!
+//! The run surface (`/agentic-airway`) stays in `agentic-http`.
 
 // Laying out `upload_report`'s future exceeds rustc's default query depth of
 // 128 in the `--release` build that produces the image — and only there: a
 // dev-profile build stays under it, so PR CI passes. rustc's own suggestion.
 #![recursion_limit = "256"]
 
+mod admin;
+pub mod boot;
+mod cli;
 mod pipelines;
 mod source_upload;
 
@@ -98,6 +110,111 @@ fn upload_routes() -> Router<AppState> {
         // names the size. The handler stays the authority on the file itself.
         .layer(DefaultBodyLimit::max(MAX_REPORT_BYTES + 64 * 1024))
 }
+
+/// The staff console's airway section, mounted under `/api/admin` through the
+/// admin seam behind `PlatformOperate`, the capability it had in `oxy-app`:
+/// deployment-wide operational config, beside `workspace_health`, `routing`
+/// and `metrics`. No route declarations: the console is FleetOk wholesale.
+///
+/// The per-workspace half carries its own scope fence, because the capability
+/// layer cannot: `Resource::platform()` has no org, so a bounded grant passes
+/// every capability gate. `admin::handlers` fences both override writes and
+/// filters the overrides `get_config` returns; `admin::preview` narrows the
+/// cross-tenant scan with `scope_org_filter` and reports the withheld rest as a
+/// count.
+///
+/// KNOWN LIMITATION, accepted rather than overlooked: the **global row stays
+/// fleet-wide**. A grant bounded to two orgs can still `PUT
+/// /airway/config/{kind}` and change the policy every tenant resolves against.
+/// It belongs to no org, so there is nothing to fence it on. The three ways to
+/// close it were each worse than the gap: a third owner-only gate on the field
+/// operators most need; refusing the global write for any bounded grant (the
+/// surface then silently does half of what its UI shows); or a per-org row,
+/// which contradicts what the row is (airway resolves admission per source
+/// kind, fleet-wide, in `agentic_pipeline::airway_config::resolve_admission`).
+/// It is acceptable because `PlatformOperate` is already the capability for
+/// fleet-wide operational config, a scoped grant is issued to staff, not
+/// tenants, and the save-confirmation gate previews the fleet-wide blast
+/// radius. If that stops holding, the per-org row is the direction to take.
+pub fn admin_sections() -> Vec<oxy_app::surface::AdminSection> {
+    vec![oxy_app::surface::AdminSection {
+        capability: oxy_app::surface::Action::PlatformOperate,
+        routes: admin_routes(),
+        decls: Vec::new(),
+    }]
+}
+
+/// Relative to `/admin`. Its own function so the route catalog can seed it,
+/// and the chain is written here rather than delegated to `admin::router()`:
+/// the catalog's walker resolves a call by module suffix, and `admin::router`
+/// also names `oxy-app`'s whole staff console, so it walked the wrong one.
+pub fn admin_routes() -> Router<AppState> {
+    use admin::{deployment, handlers, preview};
+    use axum::routing::put;
+
+    Router::new().nest(
+        "/airway",
+        Router::new()
+            .route("/config", get(handlers::get_config))
+            .route(
+                "/config/{source_kind}",
+                put(handlers::put_global_config).delete(handlers::delete_global_config),
+            )
+            .route(
+                "/config/{source_kind}/workspaces/{workspace_id}",
+                put(handlers::put_workspace_override).delete(handlers::delete_workspace_override),
+            )
+            // Distinct path depth from the `PUT`/`DELETE` route above, so
+            // axum matches them separately.
+            .route(
+                "/config/{source_kind}/preview",
+                get(preview::preview_policy),
+            )
+            // The operational tier. A sibling of `/config`, not a child:
+            // `/config/{source_kind}` would swallow it as a source kind, and
+            // it is deployment-wide rather than per kind in any case.
+            .route(
+                "/deployment-config",
+                get(deployment::get_deployment_config)
+                    .put(deployment::put_deployment_config)
+                    .delete(deployment::delete_deployment_config),
+            ),
+    )
+}
+
+// `oxy airway`: its own owner in `oxy-cli-shim`, registered by `oxy-server`.
+// The variant's doc is the command's `--help` text, carried over verbatim. A
+// plain comment, not a doc comment: clap's derive turns a doc on this enum into
+// the `about` of the whole `oxy` command, as `oxy-server`'s `ServerCommand`
+// notes too.
+#[derive(clap::Subcommand, Debug)]
+pub enum Command {
+    /// Run airway ELT pipelines.
+    ///
+    /// Execute a `.airway.yml` pipeline (extract → normalize → load)
+    /// and stream progress events. Requires OXY_DATABASE_URL to be set.
+    Airway(cli::AirwayArgs),
+}
+
+/// Run `oxy airway …`. The error propagates to the shim, as it did from
+/// `oxy-app`'s dispatcher.
+pub async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        Command::Airway(args) => cli::handle_airway_command(args).await?,
+    }
+    Ok(())
+}
+
+/// `oxy-app`'s in-source DB harness, shared by path (see `oxy-workspace-health`):
+/// the admin section's and the boot's tests write the same singleton
+/// `airway_deployment_config` row and contend on its one lock key.
+///
+/// Kept below every builder: `oxy-route-catalog`'s walker stops reading a file
+/// at its first `#[cfg(test)]` module, so one placed above `routes()` hides it.
+#[cfg(test)]
+#[path = "../../app/src/server/test_support.rs"]
+#[allow(dead_code)]
+mod test_support;
 
 #[cfg(test)]
 mod tests {

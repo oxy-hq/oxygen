@@ -186,9 +186,9 @@ fn accumulate(counts: &mut QueueStatusCounts, status: &str, n: i64) {
 // Error helpers
 
 /// Shared error body shape for every admin write route that reuses `connect`
-/// / `db_err` from this module (`internal_jobs` itself, plus
-/// `airway_config`'s Task 2 write handlers) — `pub(crate)` specifically so
-/// a validation-style 400 elsewhere in `admin/` doesn't have to invent a
+/// / `db_err` from this module (`internal_jobs` itself, plus `oxy-api-airway`'s
+/// admin write handlers, through `surface::admin_db`) — `pub(crate)` specifically
+/// so a validation-style 400 elsewhere in `admin/` doesn't have to invent a
 /// one-off shape the frontend would need to special-case.
 #[derive(Serialize)]
 pub(crate) struct ErrorBody {

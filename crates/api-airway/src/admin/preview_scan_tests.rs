@@ -21,7 +21,7 @@ use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
 use uuid::Uuid;
 
 use super::{Scan, scan_pipelines};
-use crate::server::test_support::{self, AdvisoryLock, SKIP_MSG, test_db};
+use crate::test_support::{self, AdvisoryLock, SKIP_MSG, test_db};
 use agentic_airway::{ContractPolicy, Environment};
 
 /// Distinct from `handlers_tests::LOCK_KEY` and `MIGRATION_LOCK_KEY` — keys

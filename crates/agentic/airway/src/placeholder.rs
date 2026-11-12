@@ -2,7 +2,7 @@
 //!
 //! Two callers build a connector from a stored `.airway.yml` without ever
 //! running it: the staff contract-policy preview
-//! (`admin/airway_config/preview_scan.rs` in `oxy-app`) and the workspace
+//! (`admin/preview_scan.rs` in `oxy-api-airway`) and the workspace
 //! previews' Airway change check, which reads `resources()` and
 //! `table_name_mappings()` off the live and the branch spec. Both need the
 //! connector to *construct*, and neither may read the secret store. This module
@@ -15,6 +15,23 @@
 /// Placeholder written in place of every `*_var` credential reference. Never
 /// leaves the process — it exists only so a connector *constructs*.
 pub const PLACEHOLDER_SECRET: &str = "oxy-preview-placeholder";
+
+/// Stands in for the host's access-token source when a quickbooks pipeline in
+/// read-only token custody is built offline.
+///
+/// It can never be called: an offline build reads the connector's declared
+/// resources and contracts and issues no request. Returning an error rather
+/// than [`PLACEHOLDER_SECRET`] keeps that true by construction: if a future arm
+/// ever *does* authenticate at construction time, this fails loudly instead of
+/// sending a fake bearer token. Shared by both offline callers above.
+pub struct PlaceholderAccessToken;
+
+#[async_trait::async_trait]
+impl crate::AccessTokenSource for PlaceholderAccessToken {
+    async fn access_token(&self) -> Result<String, String> {
+        Err("an offline connector build never issues requests; no access token is available".into())
+    }
+}
 
 /// `*_var` keys that are **not** substitutable credential references and must
 /// survive [`substitute_secret_vars`] untouched.

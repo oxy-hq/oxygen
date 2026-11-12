@@ -11,10 +11,12 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# The only oxy-app dependency, through `oxy_app::surface`: the `WorkspaceEditor`
-# guard and the `WorkspaceManagerReadOnly` extractor. oxy-app never depends back on this
-# crate. default-features off so a `--no-default-features` build of oxy-server
-# keeps dropping V8.
+# The only oxy-app dependency, through `oxy_app::surface` only: the guards and
+# workspace extractors, the staff console's admin_db / admin_scope / roles, the
+# AdminSection seam type, and the workspace runtime `oxy airway` builds its
+# project context from. oxy-app never depends back on this crate.
+# default-features off so a `--no-default-features` build of oxy-server keeps
+# dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }  # AppState (the router state type)
 oxy = { workspace = true }
@@ -22,9 +24,23 @@ oxy-shared = { workspace = true }
 # Report validation runs the real airway source over the bytes, and the upload
 # zone is derived by the same function the pipeline run uses.
 agentic-airway = { workspace = true }
+# `oxy airway run` / `backfill` / `coverage` drive the pipeline facade and the
+# runtime's run tables directly, as the command did in oxy-app.
+agentic-pipeline = { workspace = true }
+agentic-runtime = { workspace = true }
+entity = { workspace = true }
+migration = { workspace = true }
+oxy-auth = { workspace = true }
+sea-orm = { workspace = true }
 
 axum = { workspace = true, features = ["multipart"] }
 base64 = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+clap = { workspace = true, features = ["derive", "env"] }
+minijinja = { workspace = true, features = ["loader"] }
+thiserror = { workspace = true }
+tokio = { workspace = true }
 aws-config = { workspace = true, features = ["behavior-version-latest"] }
 aws-sdk-s3 = { workspace = true }
 serde = { workspace = true }
@@ -35,6 +51,12 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 serde_yaml = { workspace = true }
+oxy-authz = { workspace = true }   # the platform-scope cases build a bounded grant
+tower = { workspace = true, features = ["util"] }   # `oneshot` in the admin mount test
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+# oxy-app's in-source DB harness (`server/test_support.rs`), included by path:
+# its lock-retry jitter.
+rand = { workspace = true }
 
 [lints]
 workspace = true

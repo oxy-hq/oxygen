@@ -135,5 +135,5 @@ pub async fn install_deployment_tier_from_env() -> DeploymentTierBoot {
 }
 
 #[cfg(test)]
-#[path = "airway_boot_tests.rs"]
+#[path = "boot_tests.rs"]
 mod tests;

@@ -326,10 +326,10 @@ pub async fn run_worker(
     // top of each airway run, so it also covers any connector this process
     // builds outside a run. A standalone worker drains `TaskSpec::Airway` off
     // the queue, so it is one of the three entry points that can build a
-    // source connector; see `oxy_app::airway_boot` for the full roster. Never
+    // source connector; see `oxy_api_airway::boot` for the full roster. Never
     // fails boot: a malformed row is a warning here and a legible run failure
     // where the operator can see it.
-    oxy_app::airway_boot::install_deployment_tier_from_env().await;
+    oxy_api_airway::boot::install_deployment_tier_from_env().await;
 
     // Wire the product observability store, as `start_server_and_web_app`
     // does. `main` installs the `SpanCollectorLayer` for this command too

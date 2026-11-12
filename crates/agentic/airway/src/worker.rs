@@ -352,7 +352,7 @@ async fn run_pipeline(
     // ── Install the deployment (operational) tier ──────────────────────────
     //
     // A *fallback* install. The primary one is at process boot, in `oxy-app`'s
-    // `airway_boot` — airway's `GlobalConfig` is process-wide, so installing
+    // `oxy_api_airway::boot` — airway's `GlobalConfig` is process-wide, so installing
     // there also covers the connector sites that never reach a run (source
     // discovery, policy preview). This call keeps `agentic-airway` correct for
     // a process with no such seam (an integration test, an embedder) and is

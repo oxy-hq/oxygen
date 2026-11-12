@@ -49,7 +49,7 @@
 //! "has a reader" is not "reaches every client".
 //!
 //! [`install_once`] runs at **process boot**, from `oxy-app`'s
-//! `airway_boot::install_deployment_tier`, wired into each of the three entry
+//! `oxy_api_airway::boot::install_deployment_tier`, wired into each of the three entry
 //! points that can build a source connector (`oxy serve` — and so `oxy start`
 //! — under every `OXY_ROLE`; `oxy worker`; `oxy airway`). That is what makes
 //! the roster below reach everything: the tier is a *process-wide* `OnceLock`,
@@ -380,7 +380,7 @@ pub fn drift(configured: &DeploymentValues, installed: &DeploymentValues) -> Vec
 /// logged. A caller presenting this to an operator must label it as this
 /// process's state; it is not the deployment's, and on a rolling deploy the
 /// replicas need not agree. See
-/// `crates/app/src/server/api/admin/airway_config/deployment.rs`.
+/// `crates/api-airway/src/admin/deployment.rs`.
 pub fn installed_values() -> Option<DeploymentValues> {
     global::installed().map(DeploymentValues::from_global)
 }
@@ -466,7 +466,7 @@ static INSTALLED: OnceCell<()> = OnceCell::const_new();
 /// Resolve the deployment tier from the database and install it for this
 /// process — **once**, however many runs this process drains.
 ///
-/// Called at **process boot** by `oxy-app`'s `airway_boot`, and again from
+/// Called at **process boot** by `oxy-api-airway`'s `boot`, and again from
 /// `run_pipeline` immediately before the first source is built — the second
 /// call is the fallback for a process with no oxy-app boot seam, and a no-op
 /// once boot has succeeded. See the module doc for the split, and `worker.rs`
