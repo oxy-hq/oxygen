@@ -47,6 +47,32 @@
 #     --provenance flag and no NODE_AUTH_TOKEN are needed.
 #   - pnpm publish does NOT yet support OIDC (pnpm/pnpm#9812), so the publish
 #     step shells out to `npm publish` while build/install stay on pnpm.
+#
+# ------------------------------------------------------------------------------
+# WHAT THIS WORKFLOW CANNOT DO: DEPRECATE A VERSION
+# ------------------------------------------------------------------------------
+# Asked for and deliberately not added, because it cannot work here. The OIDC
+# exchange yields PUBLISH credentials: `npm publish` and `npm stage` work,
+# `npm deprecate` and `npm whoami` do not. (Trusted publishing gained opt-in
+# dist-tag permissions in September 2026; deprecate was not part of it.) A
+# `npm deprecate` step would fail on auth at the moment someone needed it.
+#
+# Read as of 2026-11-12 from the trusted-publishing announcements and a report
+# on the npm CLI tracker rather than from docs.npmjs.com, which does not state
+# the limitation either way — so re-check before concluding it still holds.
+#
+# Making it work would mean a granular npm token as a repo secret, which is the
+# long-lived credential trusted publishing exists to remove, and this repo
+# holds no npm token at all. That is a security trade for a rare operation, so
+# it is a decision rather than a TODO. Until someone takes it, deprecating is
+# one command from a logged-in session:
+#
+#     npm deprecate "@oxy-hq/cli@<version>" "<why, and what to use instead>"
+#
+# Deprecate rather than unpublish: a deprecation warns on install and leaves
+# existing installs working, while unpublishing breaks anyone pinned to the
+# version. npm also refuses to publish over an existing version, so a bad
+# tarball is superseded by a bump, never replaced — see the release model below.
 # ------------------------------------------------------------------------------
 
 name: SDK Publish
