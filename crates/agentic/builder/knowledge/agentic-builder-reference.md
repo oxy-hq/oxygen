@@ -2,7 +2,7 @@
 source:
   - sdk/cli/skills/oxy-agents/SKILL.md
   - sdk/cli/skills/oxy-agents/references/quick-reference.md
-reconciled-hash: 91afd7525a7d8e001cb8f3a8d20bb5de836e1550
+reconciled-hash: adb0606050b251a654e73db9d3cc495e1b6fadfe
 note: |
   Authored condensation of the platform skills listed above. Not auto-synced —
   scripts/sync-skills.sh only copies the verbatim YAML templates. Re-condense
@@ -21,10 +21,10 @@ you do not define its states or its tools.
 
 - **`.agentic.yml` is the agent.** The classic `.agent.yml` format has been
   removed — never create one or copy one from an old workspace.
-- **Translate classic agents with `oxy migrate-agents`** — when a compile warns
-  `classic agent format (.agent.yml) is retired` (a deployment that has turned
-  the refusal on fails the revision with that message instead), or an
-  automation's `agent_ref` still names a `.agent.yml`. First `oxy migrate-agents --dry-run
+- **Translate classic agents with `oxy migrate-agents`** — when a compile fails
+  the revision with `classic agent format (.agent.yml) is retired`, or with an
+  automation step whose `agent_ref` names a `.agent.yml`. Until both are gone
+  the workspace keeps serving its previous revision. First `oxy migrate-agents --dry-run
   --json <dir>` (writes nothing; lists each classic file, dropped fields such as
   `tools: visualize` or inline `tests:`, what `cannot be mapped` — `omni_query`,
   `anonymize`, `type: routing`; those files stay put unless `--force` drops the
@@ -233,8 +233,8 @@ ignored).
 - `oxy test [<file>.test.yml]` runs LLM-judged evals — with no file, every
   `*.test.yml` (`target:`, inferred from `sales.agentic.test.yml` →
   `sales.agentic.yml`; `settings: {runs: 3, concurrency: 5, judge_model}`;
-  `cases: [{name, prompt, expected, tags}]`; `--min-accuracy 0.8` exits 1
-  below it).
+  `cases: [{name, prompt, expected, tags}]`; the target must be an
+  `.agentic.yml`; `--tag`, `--case`, `--min-accuracy 0.8` exits 1 below it).
 - **`oxy build` does not check agents** — it does nothing any more.
 - A JSON schema *is* published for `.agentic.yml`; an editor header on line 1
   is optional — preserve it if present:
@@ -244,6 +244,8 @@ ignored).
 
 | Symptom | Fix |
 | --- | --- |
+| compile fails: `classic agent format (.agent.yml) is retired` | `oxy migrate-agents` (dry-run first); previous revision serves meanwhile |
+| `YAML parse error: …` | duplicate key, `thinking: false`, or unknown `semantic_engine.vendor` |
 | `no databases configured` | name a database, or give context views a `datasource` |
 | agent can't see a table | add its database to `databases:` |
 | wrong model / auth error on first question | `llm.ref` isn't a config.yml `name:` (silent Claude fallback), or the key secret is unset |
