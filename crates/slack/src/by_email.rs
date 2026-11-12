@@ -1,7 +1,7 @@
 //! Find an Oxygen member in their org's Slack by email, so a notification can
 //! DM someone who has never talked to the bot.
 //!
-//! The reverse of [`super::auto_match`]: that links a Slack user who messaged
+//! The reverse of `oxy-app`'s `slack::linking::auto_match`: that links a Slack user who messaged
 //! the bot, by the email Slack holds for them; this links an Oxygen member the
 //! platform wants to reach, by the email Oxygen holds for them. The trust is
 //! the same one, an address both systems verified, inside the org that
@@ -24,7 +24,7 @@ use sea_orm::sea_query::OnConflict;
 use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
-use crate::integrations::slack::services::user_links::LinkMethod;
+use crate::user_links::LinkMethod;
 
 /// The scope `users.lookupByEmail` needs. An installation granted before it
 /// was requested has none, and every lookup would be refused.

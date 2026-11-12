@@ -40,6 +40,7 @@ members = [
   "crates/semantic",
   "crates/shared",
   "crates/simulation",
+  "crates/slack",
   "crates/test-utils",
   "crates/world-model",
   "crates/infrastructure/llm/oxy-llm",
@@ -117,6 +118,7 @@ oxy-git = { path = "crates/git" }
 oxy-llm = { path = "crates/infrastructure/llm/oxy-llm" }
 oxy-looker = { path = "crates/integration/looker" }
 oxy-slack-client = { path = "crates/integration/slack-client" }
+oxy-slack = { path = "crates/slack" }
 oxy-metric-monitoring = { path = "crates/metric-monitoring" }
 oxy-migration-tolerance = { path = "crates/migration-tolerance" }
 oxy-observability = { path = "crates/observability" }

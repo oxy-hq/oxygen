@@ -23,8 +23,8 @@ use uuid::Uuid;
 
 use super::people::PeopleInbox;
 use super::{ANOMALY_NOTIFY_KIND, AnomalyNotifyPayload};
-use crate::integrations::slack::config::SlackConfig;
-use crate::integrations::slack::services::installations::InstallationsService;
+use oxy_slack::config::SlackConfig;
+use oxy_slack::installations::InstallationsService;
 
 pub struct AnomalyNotifyExecutor {
     pub db: DatabaseConnection,

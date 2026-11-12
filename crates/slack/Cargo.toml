@@ -1,0 +1,26 @@
+[package]
+name = "oxy-slack"
+version.workspace = true
+authors.workspace = true
+description = "Slack's domain half that more than one context needs: the integration's configuration, the org's installation (the bot token), a person's Slack link and the link-by-email lookup. No HTTP surface; the Slack routes and the bot are oxy-app's."
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+exclude.workspace = true
+
+[dependencies]
+# No oxy-app: oxy-app, oxy-api-notifications (the Slack DM) and the anomaly
+# notifier all read these, and two of them are surfaces that may not import
+# each other (S3).
+oxy = { workspace = true }               # env var names, database client, org secrets
+oxy-shared = { workspace = true }
+oxy-slack-client = { workspace = true }  # users.lookupByEmail
+entity = { workspace = true }
+sea-orm = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

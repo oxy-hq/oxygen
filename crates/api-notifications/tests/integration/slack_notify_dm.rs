@@ -12,13 +12,9 @@ use entity::{org_members, organizations, slack_user_links, users};
 use oxy::database::client::establish_connection;
 use oxy_api_notifications::channels::ChannelOutcome;
 use oxy_api_notifications::slack_dm::{SlackDm, SlackMessage};
-use oxy_app::integrations::slack::services::installations::{
-    InstallationsService, UpsertInstallation,
-};
-use oxy_app::integrations::slack::services::user_links::{
-    CreateLink, LinkMethod, UserLinksService,
-};
 use oxy_oltp::inbox::InboxMessage;
+use oxy_slack::installations::{InstallationsService, UpsertInstallation};
+use oxy_slack::user_links::{CreateLink, LinkMethod, UserLinksService};
 use oxy_slack_client::SlackClient;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,

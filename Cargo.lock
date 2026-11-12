@@ -9919,6 +9919,7 @@ dependencies = [
  "oxy-metric-monitoring",
  "oxy-oltp",
  "oxy-shared",
+ "oxy-slack",
  "oxy-slack-client",
  "oxy-test-utils",
  "reqwest 0.13.4",
@@ -10113,6 +10114,7 @@ dependencies = [
  "oxy-semantic",
  "oxy-server-authz",
  "oxy-shared",
+ "oxy-slack",
  "oxy-slack-client",
  "oxy-telemetry",
  "oxy-tenancy",
@@ -10791,6 +10793,21 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tracing",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-slack"
+version = "0.5.160"
+dependencies = [
+ "chrono",
+ "entity",
+ "oxy",
+ "oxy-shared",
+ "oxy-slack-client",
+ "sea-orm",
+ "tracing",
+ "uuid",
  "workspace-hack",
 ]
 

@@ -24,6 +24,7 @@ oxy-custom-apps = { workspace = true }     # an app's environments and live buil
 oxy-oltp = { workspace = true }            # the org's inbox store
 oxy-metric-monitoring = { workspace = true } # an anomaly notice's severity order
 oxy-slack-client = { workspace = true }
+oxy-slack = { workspace = true }         # installation, links, link-by-email
 oxy = { workspace = true }                 # database client
 oxy-auth = { workspace = true }            # AuthenticatedUserExtractor, device-login codes
 oxy-shared = { workspace = true }          # http builder, fleet_role::RouteRoleDecl

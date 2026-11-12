@@ -213,6 +213,7 @@ sentry = { workspace = true }
 omni = { workspace = true }
 oxy-looker = { workspace = true }
 oxy-slack-client = { workspace = true }
+oxy-slack = { workspace = true }
 
 # Database migration
 migration = { workspace = true }

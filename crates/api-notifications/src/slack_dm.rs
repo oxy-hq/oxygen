@@ -29,8 +29,8 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::channels::ChannelOutcome;
-use oxy_app::integrations::slack::linking::by_email::{SlackIdentity, link_by_email};
-use oxy_app::integrations::slack::services::installations::InstallationsService;
+use oxy_slack::by_email::{SlackIdentity, link_by_email};
+use oxy_slack::installations::InstallationsService;
 
 /// Slack refuses a section whose text is longer than this.
 const SECTION_LIMIT: usize = 3000;
