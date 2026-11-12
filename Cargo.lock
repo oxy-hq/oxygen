@@ -9938,6 +9938,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-slack"
+version = "0.5.160"
+dependencies = [
+ "agentic-analytics",
+ "agentic-core",
+ "agentic-pipeline",
+ "async-trait",
+ "axum",
+ "base64 0.23.0",
+ "chrono",
+ "entity",
+ "futures",
+ "headless_chrome",
+ "hex",
+ "hmac 0.13.0",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-shared",
+ "oxy-slack",
+ "oxy-slack-client",
+ "rand 0.10.2",
+ "reqwest 0.13.4",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sha2 0.11.0",
+ "tokio",
+ "tokio-tungstenite",
+ "tower 0.5.3",
+ "tracing",
+ "urlencoding",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-tenancy"
 version = "0.5.160"
 dependencies = [
@@ -10073,7 +10112,6 @@ dependencies = [
  "glob",
  "governor",
  "handlebars",
- "headless_chrome",
  "hex",
  "hmac 0.13.0",
  "home",
@@ -10136,7 +10174,6 @@ dependencies = [
  "sentry",
  "serde",
  "serde_json",
- "serde_urlencoded",
  "serde_with",
  "serde_yaml",
  "serial_test",
@@ -10158,7 +10195,6 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tokio-stream",
- "tokio-tungstenite",
  "tokio-util",
  "tower 0.5.3",
  "tower-http 0.7.0",
@@ -10691,6 +10727,7 @@ dependencies = [
  "oxy-api-frontline",
  "oxy-api-github",
  "oxy-api-notifications",
+ "oxy-api-slack",
  "oxy-api-tenancy",
  "oxy-api-workspace-health",
  "oxy-app",

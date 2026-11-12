@@ -30,7 +30,7 @@ pub async fn get_chart(
         .then(|| runtime_artifact::chart_key(workspace_id, &file_path));
 
     // Fast path: this pod wrote the chart, or shares a volume with whoever did.
-    // No mirror here — the writer mirrors (`slack::chart_render::write_chart_json`),
+    // No mirror here — the writer mirrors (`oxy_api_slack::chart_render::write_chart_json`),
     // which is what makes the S3 fallback below reliable enough for this route to
     // leave the singleton.
     let local = workspace_manager

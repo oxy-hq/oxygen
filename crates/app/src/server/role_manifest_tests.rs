@@ -944,12 +944,13 @@ fn the_public_router_declares_every_route_it_mounts() {
     );
 
     let declared = body.matches(".route_fleet(").count() + body.matches(".route_ide(").count();
-    // The file declares 51. A floor of 40 let eleven disappear unnoticed, which
+    // The file declares 41 (46 until Slack's five public routes left for
+    // `oxy-api-slack`, 2026-11-12). A floor of 40 once let eleven disappear unnoticed, which
     // is most of a surface — near enough to the real count to notice a subtree
     // going quiet, loose enough that adding or removing a handful does not make
     // this the test everyone edits without reading.
     assert!(
-        declared >= 45,
+        declared >= 36,
         "only {declared} declared mounts found — the parser broke, or this file \
          moved. A guard that silently stops covering anything is the shape this \
          whole area exists to remove.",

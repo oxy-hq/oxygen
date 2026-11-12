@@ -68,7 +68,7 @@ const ALLOWED: &[(&str, &str)] = &[
         "Same, on the public webhook router.",
     ),
     (
-        "src/integrations/slack/workspace.rs",
+        "../api-slack/src/workspace.rs",
         "Same, off the HTTP path entirely.",
     ),
     (
@@ -126,7 +126,7 @@ fn app_src() -> PathBuf {
 /// Every `.rs` under `src` — plus `oxy-app-core` (where `compiled_reader`
 /// itself now lives), `oxy-custom-apps`, `oxy-api-custom-apps` (the custom-app
 /// vertical lifted out of `src/server/api`) and `oxy-api-documents` and
-/// `oxy-api-airway` and `oxy-api-notifications`, and workspace health's
+/// `oxy-api-airway`, `oxy-api-notifications` and `oxy-api-slack`, and workspace health's
 /// two crates, extracted from
 /// `src/server/api` and still served
 /// by this binary — as
@@ -182,6 +182,8 @@ fn source_files() -> Vec<(String, String)> {
         "../api-notifications/src/",
         &mut out,
     );
+    let slack = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-slack/src");
+    walk(&slack, &slack, "../api-slack/src/", &mut out);
     let health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../workspace-health/src");
     walk(&health, &health, "../workspace-health/src/", &mut out);
     let api_health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-health/src");

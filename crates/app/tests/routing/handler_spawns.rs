@@ -74,48 +74,48 @@ const ALLOWED: &[(&str, &str)] = &[
          agent's events and is awaited before the target returns",
     ),
     (
-        "app/src/integrations/slack/events/agentic_bridge.rs",
+        "api-slack/src/events/agentic_bridge.rs",
         "only pumps this run's own event channel: translates the agent's events \
          into renderer items and is awaited before the run returns",
     ),
     (
-        "app/src/integrations/slack/events/execution.rs",
+        "api-slack/src/events/execution.rs",
         "drives one Slack agent run beside the renderer that drains its channel, \
          awaited in the same function. The run reads its agent by ref from the \
          compiled revision, so it is pod-agnostic; the backlog is the caller's \
          detach (below), not this",
     ),
     (
-        "app/src/integrations/slack/webhooks/events.rs",
+        "api-slack/src/webhooks/events.rs",
         "backlog: answers Slack's 3-second ack and runs the event (an agent run) \
          after the response. A pod that dies mid-run loses that reply; a \
          TaskSpec would make it durable. `seen_events` dedups Slack's retries",
     ),
     (
-        "app/src/integrations/slack/webhooks/handlers/pick_workspace.rs",
+        "api-slack/src/webhooks/handlers/pick_workspace.rs",
         "backlog: the workspace-picker button acks, then runs the held question \
          after the response. Same shape and fix as `webhooks/events.rs`",
     ),
     (
-        "app/src/integrations/slack/webhooks/handlers/submit_workspace_picker.rs",
+        "api-slack/src/webhooks/handlers/submit_workspace_picker.rs",
         "backlog: the picker modal's submit acks, then dispatches the held \
          question after the response. Same shape and fix as `webhooks/events.rs`",
     ),
     (
-        "app/src/integrations/slack/webhooks/handlers/view_sql_artifacts.rs",
+        "api-slack/src/webhooks/handlers/view_sql_artifacts.rs",
         "backlog: the View-SQL button acks, then uploads the run's SQL files to \
          the thread. Best effort, re-clickable; a TaskSpec would make it durable",
     ),
     (
-        "app/src/integrations/slack/boot.rs",
+        "api-slack/src/boot.rs",
         "backlog: not a request path. `oxy serve` calls it once at boot (it moved \
-         here from `cli/commands/serve.rs`, which this walk does not reach). The \
+         here from `oxy-app`'s `cli/commands/serve.rs`). The \
          Socket Mode loop is per-process like the socket it holds; the hourly \
          sweep of `slack_oauth_states` / `slack_seen_events` runs on every \
          replica, harmlessly (idempotent deletes). A global tick would run it once",
     ),
     (
-        "app/src/integrations/slack/socket_mode/client.rs",
+        "api-slack/src/socket_mode/client.rs",
         "backlog: socket mode (local development) acks each envelope on the \
          socket, then dispatches it. Per-process by nature, like the socket; \
          the dispatched run is the same backlog as `webhooks/events.rs`",
@@ -396,8 +396,9 @@ fn crates_root() -> &'static Path {
 /// The trees this rule covers: the handler layer and every surface crate.
 fn scan_roots() -> Vec<PathBuf> {
     let crates = crates_root();
-    // `app/src/integrations` holds the Slack and eval request paths, which
-    // sat outside the handler layer and so outside this rule.
+    // `app/src/integrations` holds the eval request path, which sits outside
+    // the handler layer and so outside this rule. (Slack's, which also did,
+    // is `oxy-api-slack` now, covered as an `api-*` crate.)
     let mut roots = vec![
         crates.join("app/src/server/api"),
         crates.join("app/src/integrations"),
@@ -600,7 +601,7 @@ fn handlers_do_not_spawn_outside_the_allowlist() {
     assert!(
         files
             .iter()
-            .any(|f| rel_of(f).starts_with("app/src/integrations/slack/")),
+            .any(|f| rel_of(f).starts_with("api-slack/src/")),
         "walk did not cover the Slack request path"
     );
 

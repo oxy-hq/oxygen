@@ -276,7 +276,7 @@ pub async fn start_server_and_web_app(
     oxy_app_core::serve_mode::set_process_mode(mode);
 
     if matches!(mode, ServeMode::Cloud) {
-        oxy_app::host::start_slack_background();
+        oxy_api_slack::boot::start_background();
     }
 
     let shutdown_token = CancellationToken::new();

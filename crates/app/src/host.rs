@@ -101,6 +101,3 @@ pub mod worker {
 
 /// The custom-app bundle cache's byte budget, sized at boot.
 pub use crate::server::api::custom_apps_bundle_cache::resolve_budget as bundle_cache_budget;
-
-/// The Slack integration's background work: Socket Mode and the row sweeps.
-pub use crate::integrations::slack::boot::start_background as start_slack_background;

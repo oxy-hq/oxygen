@@ -141,7 +141,7 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     // ---- Surfaced, awaiting a decision. See the divergence note below. ----
     (
-        "app/src/integrations/slack/oauth/callback.rs",
+        "api-slack/src/oauth/callback.rs",
         "KNOWN DIVERGENCE, not an exemption: re-verifies the actor at OAuth-callback time from a \
          raw `org_members` row. Slack redirects the browser back with no Authorization header, so \
          there is no request auth context and no OrgContext — and the synthetic-Owner override \

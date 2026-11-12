@@ -62,6 +62,8 @@ const BASE: &[&str] = &[
     // leaves (too big to share a rebuild with the rest).
     "agentic_wiring",
     "server::preagg_workspace",
+    // The runtime-artifact S3 mirror (`oxy-compile`'s blob store only).
+    "server::runtime_artifact",
 ];
 
 /// `(base module, target prefix)`: a reach from the base into a module that

@@ -123,6 +123,7 @@ fn api_seam_routes() -> SeamRouter {
         .merge(oxy_api_documents::routes())
         .merge(oxy_api_frontline::routes())
         .merge(oxy_api_notifications::routes())
+        .merge(oxy_api_slack::routes())
         // The environment planes writes pin a semantic branch through a port
         // `oxy-app` implements (a surface may not depend on `oxy-app`). The
         // staff console's "Test notifications" reads an app's kinds through a
@@ -137,7 +138,9 @@ fn api_seam_routes() -> SeamRouter {
 
 /// The sibling crates merged beside the public tree, outside the auth stack.
 fn public_seam_routes() -> SeamRouter {
-    oxy_api_frontline::public_routes().merge(oxy_api_custom_apps::public_routes())
+    oxy_api_frontline::public_routes()
+        .merge(oxy_api_custom_apps::public_routes())
+        .merge(oxy_api_slack::public_routes())
 }
 
 /// The sibling crates merged inside the `/{workspace_id}` nest.
@@ -190,6 +193,12 @@ fn workspace_seam_routes() -> SeamRouter {
 /// FleetOk: the report upload (an S3 write that must not need the ide) and the
 /// two `/airway-pipelines` reads (the compile boundary and a static list).
 ///
+/// `oxy-api-slack` fills two seams, as frontline does: Slack's webhooks, the
+/// OAuth callback and the account-link page ride `public` (no user credential:
+/// each webhook is signature-verified in its handler), and the org's install
+/// and installation routes ride `api` with the org middlewares re-applied. All
+/// seven are FleetOk (Postgres and Slack's API).
+///
 /// `oxy-api-experiment` rides the workspace seam too (experiments and declared
 /// worlds under `/{workspace_id}`), declaring write-back apply IdeOnly (it creates
 /// a git worktree in the working copy). Its five task kinds join the custom-app
@@ -206,6 +215,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_frontline::route_roles())
                 .chain(oxy_api_notifications::route_roles())
                 .chain(oxy_api_custom_apps::route_roles())
+                .chain(oxy_api_slack::route_roles())
                 .copied()
                 .collect(),
         },
@@ -224,6 +234,7 @@ fn surface_seams() -> SurfaceSeams {
             decls: oxy_api_frontline::public_route_roles()
                 .iter()
                 .chain(oxy_api_custom_apps::public_route_roles())
+                .chain(oxy_api_slack::public_route_roles())
                 .copied()
                 .collect(),
         },

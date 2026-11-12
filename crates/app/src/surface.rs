@@ -121,6 +121,13 @@ pub mod metric_tree_exec {
     pub use crate::server::api::metric_tree::workspace_databases;
 }
 
+/// The S3 mirror of a runtime artifact (a chart image, a query result) written
+/// to one pod's disk, so a read on another pod finds it. The Slack bot mirrors
+/// the chart PNGs it renders.
+pub mod runtime_artifact {
+    pub use crate::server::runtime_artifact::{chart_key, mirror};
+}
+
 /// Git operations on the workspace root working copy, as the workspace
 /// handlers perform them: switching to and deleting a branch.
 pub mod workspace_git {

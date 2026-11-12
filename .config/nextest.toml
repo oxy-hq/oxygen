@@ -207,17 +207,18 @@ filter = "kind(test) & package(=oxy-api-github) & binary(=integration)"
 test-group = "db-per-test"
 retries = 2
 
-# The `authz`, `slack` and `platform` binaries are mixed, and the difference is
-# not cosmetic: these eleven modules do NOT use `tests/common/mod.rs`. They reach
+# The `authz` and `platform` binaries are mixed, and the difference is
+# not cosmetic: these modules do NOT use `tests/common/mod.rs`. They reach
 # the ambient shared `OXY_DATABASE_URL` with no per-test database, so they read
 # and write the same `public` schema as the `serial-db` members above — which run
 # `Migrator::up` on it. Running them in parallel is the `CREATE TABLE` /
 # `pg_type_typname_nsp_index` race described at the top of this section, and
-# serializing `oxy` against itself doesn't help if oxy-app's slack tests are
+# serializing `oxy` against itself doesn't help if oxy-app's tests are
 # querying those tables mid-DDL.
 #
 # Two routes in:
-#   * nine call `oxy::database::client::establish_connection()` directly;
+#   * four call `oxy::database::client::establish_connection()` directly (and
+#     the six that were the `slack` binary's, now `oxy-api-slack`'s, below);
 #   * `projects_query`, `local_mode_router`, `simulation_router` (now
 #     `oxy-api-experiment`) and `staging_preview_cookie_retired` (now
 #     `oxy-api-custom-apps`) call `api_router(..)`, which
@@ -231,13 +232,22 @@ retries = 2
 #
 # `tests/authz/shared_db_registry.rs` fails the build if this list drifts from
 # the set of modules that actually reach the shared database. Everything else in
-# those binaries — the source-scanning boundary tests, `slack_app_home`,
+# those binaries — the source-scanning boundary tests,
 # `thread_role_guards` — stays ungrouped and fully parallel.
 #
 # The real fix is porting these onto `common::fresh_db()`; see
 # `internal-docs/testing.md`. Until then they belong here.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=slack) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|admin_membership_audit|audit_append_only|slack_resolution|slack_oauth_state|slack_oauth_install|slack_uninstall|slack_user_links|slack_cross_org_collision|projects_query|local_mode_router)::/)"
+filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|admin_membership_audit|audit_append_only|projects_query|local_mode_router)::/)"
+test-group = "serial-db"
+retries = 2
+
+# `oxy-api-slack`'s six shared-database modules, which were oxy-app's `slack`
+# binary's: they call `establish_connection()` on the shared database (see the
+# note above). `slack_app_home` and `slack_webhook_events` are in-process and
+# stay parallel.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-slack) & binary(=integration) & test(/^(slack_resolution|slack_oauth_state|slack_oauth_install|slack_uninstall|slack_user_links|slack_cross_org_collision)::/)"
 test-group = "serial-db"
 retries = 2
 

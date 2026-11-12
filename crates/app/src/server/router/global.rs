@@ -174,8 +174,8 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
             "the compile operator surface reads the revisions tables",
         )
     // NOTE: Slack webhook + OAuth-callback + magic-link routes are NOT
-    // registered here. They must live in `public.rs` because the routes
-    // in this file sit inside the auth middleware layer, and:
+    // registered here. They ride `SurfaceSeams::public` (`oxy-api-slack`),
+    // outside the auth middleware layer this file sits inside, because:
     //   - Slack's webhook POSTs (/slack/events, /slack/interactivity) have
     //     no user auth — they're signature-verified inside the handler.
     //   - The OAuth callback is reached via a browser redirect from
@@ -263,17 +263,9 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
             "/workspaces/{id}/rename",
             patch(workspaces::rename_workspace),
         )
-        // Slack installation management. The admin check is the `OrgAdmin` extractor on the
-        // handlers themselves, not a hand-rolled role match — `get_status` is member-level.
-        .route_fleet(
-            "/slack/install",
-            post(crate::integrations::slack::oauth::install::start_install),
-        )
-        .route_fleet(
-            "/slack/installation",
-            get(crate::integrations::slack::oauth::status::get_status)
-                .delete(crate::integrations::slack::oauth::disconnect::disconnect),
-        )
+        // Slack installation management (`/slack/install`, `/slack/installation`)
+        // is `oxy-api-slack`'s, merged through `SurfaceSeams::api` with this
+        // tree's `org_middleware` + subscription guard re-applied.
         .map_router(|r| {
             r.layer(middleware::from_fn(
                 subscription_guard::subscription_guard_middleware,

@@ -133,7 +133,6 @@ enum_dispatch = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 colored = { workspace = true }
 indicatif = { workspace = true }
-headless_chrome = { workspace = true }
 
 # Database
 sea-orm = { workspace = true }
@@ -157,7 +156,6 @@ tempfile = { workspace = true }
 minijinja = { workspace = true, features = ["loader"] }
 once_cell = { workspace = true }
 scopeguard = { workspace = true }
-tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
 # Only for the AsyncMessage variant the chat listener matches on; the
 # connection itself is minted by agentic-runtime, which owns the TLS and IAM
@@ -192,7 +190,6 @@ indoc = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 lazy_static = { workspace = true }
 email_address = { workspace = true }
-serde_urlencoded = { workspace = true }
 slugify = { workspace = true }
 syntect = { workspace = true }
 tabled = { workspace = true }

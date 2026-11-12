@@ -104,8 +104,8 @@ tests share one binary per crate. So scope down, always:
 | Everything | `just test` — CI's job, rarely yours |
 
 Integration tests live in **grouped** binaries, and this is workspace-wide, not an
-`oxy-app` quirk: `oxy-app` has six by domain (`tests/authz/`, `tests/slack/`,
-`tests/custom_apps/`, `tests/airhouse/`, `tests/platform/`, `tests/routing/`), and **every other crate with
+`oxy-app` quirk: `oxy-app` has four by domain (`tests/authz/`, `tests/airhouse/`,
+`tests/platform/`, `tests/routing/`), and **every other crate with
 integration tests runs a single `tests/integration/` group**. Add a new case as a `mod`
 inside the matching group — **a new top-level `tests/*.rs` adds a whole new link to every
 full run.** A module is not a target, so run one with

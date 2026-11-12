@@ -1,17 +1,17 @@
 //! Fails the build when a test starts using the shared database without being
 //! serialized for it.
 //!
-//! `oxy-app`'s six integration binaries are mixed. Most of what's in them is
+//! `oxy-app`'s four integration binaries are mixed. Most of what's in them is
 //! in-process — source scanning, router shape, pure authz decisions — and runs at
-//! full parallelism. Twelve modules are not. They reach the raw shared
+//! full parallelism. Six modules are not. They reach the raw shared
 //! `OXY_DATABASE_URL` with no per-test database, so they touch the same `public`
 //! schema that the `serial-db` members (`oxy`, `oxy-cameras`, `agentic-*`) run
 //! `Migrator::up` against, and one of them *writes* to `agentic_runs`. Those
-//! twelve are pinned into `serial-db` by an explicit list in
+//! six are pinned into `serial-db` by an explicit list in
 //! `.config/nextest.toml`.
 //!
 //! Two routes in, which is the reason this gate looks for more than one string:
-//! ten call `oxy::database::client::establish_connection()` directly, and
+//! four call `oxy::database::client::establish_connection()` directly, and
 //! `projects_query`/`local_mode_router` reach it through `api_router(..)`.
 //!
 //! An explicit list is only as good as its freshness, and this one fails in the
@@ -25,7 +25,9 @@
 //! `tests/integration` group, and its DB-backed modules carry exactly the race
 //! described above. So every crate whose integration group includes the harness
 //! is scanned too, and is held to the same rule against its own package's
-//! `serial-db` override.
+//! `serial-db` override. So is a crate whose group reaches the shared database
+//! without the harness: `oxy-api-slack`'s tests, moved out of `oxy-app`'s
+//! `slack` binary, call `establish_connection()` directly.
 //!
 //! Checked in both directions on purpose. A module that starts using the shared
 //! connection has to be added (or ported to `common::fresh_db`); a module that
@@ -80,7 +82,7 @@ const SHARED_HARNESS: &str = "app/tests/common";
 /// The cost of scanning a binary that turns out to be clean is zero. The cost of
 /// omitting one is a race nobody sees until CI flakes in another crate. So: all
 /// of them, and any new one goes here on the day it's created.
-const MIXED_BINARIES: &[&str] = &["authz", "slack", "platform", "airhouse", "routing"];
+const MIXED_BINARIES: &[&str] = &["authz", "platform", "airhouse", "routing"];
 
 /// Ways a test reaches a database.
 ///
@@ -114,8 +116,9 @@ fn scanned_dirs() -> BTreeMap<String, Vec<PathBuf>> {
 
 /// `(package, tests/integration dir)` for every crate under `crates/` — nested
 /// ones like `crates/agentic/*` included — whose integration group includes
-/// [`SHARED_HARNESS`]. Generic on purpose: no crate is named here, so the next
-/// extraction that reuses the harness is covered the day it lands.
+/// [`SHARED_HARNESS`] or has a module that reaches the shared database without
+/// it. Generic on purpose: no crate is named here, so the next extraction is
+/// covered the day it lands, whichever way its tests reach the database.
 fn harness_sharing_siblings() -> Vec<(String, PathBuf)> {
     let mut crate_dirs = Vec::new();
     find_crate_dirs(&crates_root(), 0, &mut crate_dirs);
@@ -125,7 +128,8 @@ fn harness_sharing_siblings() -> Vec<(String, PathBuf)> {
         .filter(|dir| dir.canonicalize().ok() != app_dir.canonicalize().ok())
         .filter_map(|dir| {
             let group = dir.join("tests").join("integration");
-            includes_shared_harness(&group).then(|| (package_name(&dir), group))
+            (includes_shared_harness(&group) || group_reaches_shared_db(&group))
+                .then(|| (package_name(&dir), group))
         })
         .collect()
 }
@@ -203,6 +207,17 @@ fn modules_using_shared_db() -> BTreeMap<String, BTreeSet<String>> {
             (package, found)
         })
         .collect()
+}
+
+/// True when any module of `group` reaches the shared database. A missing
+/// directory reaches nothing.
+fn group_reaches_shared_db(group: &Path) -> bool {
+    if !group.is_dir() {
+        return false;
+    }
+    let mut found = BTreeSet::new();
+    scan_group(group, &mut found);
+    !found.is_empty()
 }
 
 /// Adds every module in one test group that reaches the shared database.

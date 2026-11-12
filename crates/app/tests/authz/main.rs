@@ -11,7 +11,7 @@
 //! fully parallel. But `authz_loader_differential`, `org_invitations` and
 //! `admin_membership_audit` call `establish_connection()` against the raw shared
 //! `OXY_DATABASE_URL` with no per-test database, so `.config/nextest.toml` pins
-//! those three (and seven in `tests/slack/`) into `serial-db`. They skip when the
+//! those three (and `oxy-api-slack`'s six) into `serial-db`. They skip when the
 //! var is unset, which is why a laptop run looks clean and only CI would show
 //! the race. `shared_db_registry` fails the build if that list drifts.
 //!

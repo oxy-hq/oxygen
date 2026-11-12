@@ -54,7 +54,7 @@ const ALLOWED: &[(&str, &str)] = &[
          `workspaces.path` column as a label and never calls the resolver",
     ),
     (
-        "src/integrations/slack/workspace.rs",
+        "../api-slack/src/workspace.rs",
         "the one place a Slack message resolves a workspace: boundary first, the \
          path only for the ide fallback. Resolution and execution both go through \
          it so the agent that is chosen and the run that executes it agree on a \
@@ -76,7 +76,7 @@ const ALLOWED: &[(&str, &str)] = &[
          refuses before calling it",
     ),
     (
-        "src/integrations/slack/chart_render.rs",
+        "../api-slack/src/chart_render.rs",
         "renders a chart into the local state dir",
     ),
 ];
@@ -119,11 +119,13 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
     let mut offenders = Vec::new();
     // `oxy-api-documents` was extracted from `src/server/api/documents` and
     // still serves requests from this binary, so the guard follows it. Paths
-    // there read `../api-documents/src/…`. `oxy-api-airway` likewise.
+    // there read `../api-documents/src/…`. `oxy-api-airway` and
+    // `oxy-api-slack` likewise.
     let mut walk = vec![
         root.clone(),
         manifest.join("../api-documents/src"),
         manifest.join("../api-airway/src"),
+        manifest.join("../api-slack/src"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

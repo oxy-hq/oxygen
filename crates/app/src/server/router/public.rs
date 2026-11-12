@@ -72,15 +72,9 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
             "/webhooks/toast/orders",
             post(webhooks::toast::toast_order_webhook),
         )
-        // Slack-originated traffic. None of these carry a user Authorization
-        // header; they're either signature-verified (webhooks) or reached
-        // via a browser redirect from slack.com (OAuth callback / magic-link
-        // landing page, which uses OptionalAuthenticatedUser to handle
-        // logged-in vs logged-out cases itself).
-        .route_fleet(
-            "/slack/oauth/callback",
-            get(crate::integrations::slack::oauth::callback::callback),
-        )
+        // Slack-originated traffic (the webhooks, the OAuth callback, the
+        // account-link landing page) is `oxy-api-slack`'s, merged beside this
+        // tree through `SurfaceSeams::public`.
         // Public: Intuit redirects the bare browser here after consent. The
         // state nonce (single-use, 15-min TTL) is the CSRF/replay guard.
         .route_fleet(
@@ -95,22 +89,6 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
         .route_fleet(
             "/oauth/{provider}/callback",
             get(crate::integrations::quickbooks::oauth::callback::callback_by_slug),
-        )
-        .route_fleet(
-            "/slack/events",
-            post(crate::integrations::slack::webhooks::events::handle_events_route),
-        )
-        .route_fleet(
-            "/slack/interactivity",
-            post(crate::integrations::slack::webhooks::interactivity::handle_interactivity),
-        )
-        .route_fleet(
-            "/slack/link",
-            get(crate::integrations::slack::linking::landing::landing),
-        )
-        .route_fleet(
-            "/slack/link/confirm",
-            post(crate::integrations::slack::linking::landing::confirm),
         )
         // Project-scoped proxies for custom-app bundles. Auth is
         // performed inline (session cookie or API key) so these sit
