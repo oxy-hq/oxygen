@@ -1189,7 +1189,14 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # resource is in the VENDOR roster only, so a seller pipeline never gains it. A
 # vendor pipeline that omits `resources:` WILL pull it on its next run. bmg's
 # `amazon_vc` names its four resources, so it does not.
-airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.62", default-features = false, features = [
+#
+# 0.1.63 carries airway-internal#248 for the `netsuite` source: an opt-in
+# `item_locations` resource (SuiteQL `aggregateItemLocation`), one row per item
+# x location with safety stock and reorder point, a full snapshot.
+# `git diff --name-only 0.1.62 0.1.63` is `netsuite.rs` and the version lines:
+# no shared module, no trait change, no new dependency. Opt-in, so an existing
+# netsuite pipeline extracts exactly what it did before.
+airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.63", default-features = false, features = [
   "duckdb",
   "postgres",
 ] }
