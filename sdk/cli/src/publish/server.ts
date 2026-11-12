@@ -9,7 +9,7 @@
 import { withUserAgent } from "../api/user-agent.js";
 import { readRefusal, sandboxRefusalHint, withReason } from "../apps/sandbox-token.js";
 import { requestGithubIdToken } from "../auth/oidc.js";
-import { isSandboxAgentToken } from "../auth/token-kind.js";
+import { bearerHeader, isSandboxAgentToken } from "../auth/token-kind.js";
 import * as log from "../ui/log.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 import { printableLines } from "../util/printable.js";
@@ -132,7 +132,7 @@ async function listOrgWorkspaces(
   org: string,
   token: string
 ): Promise<WorkspaceRow[]> {
-  const headers = { authorization: `Bearer ${token}` };
+  const headers = bearerHeader(token);
   try {
     const orgs = await send(`${base(target)}/api/orgs`, { headers }, LOOKUP_TIMEOUT_MS);
     if (!orgs.ok) return [];
@@ -214,7 +214,7 @@ export async function uploadBundle(req: UploadRequest): Promise<PublishResult> {
   const url = `${base(req.target)}/api/customer-apps/publish`;
   const response = await send(
     url,
-    { method: "POST", headers: { authorization: `Bearer ${req.token}` }, body: form },
+    { method: "POST", headers: bearerHeader(req.token), body: form },
     UPLOAD_TIMEOUT_MS
   );
   if (!response.ok) throw publishRefused(response.status, await response.text(), req.token);

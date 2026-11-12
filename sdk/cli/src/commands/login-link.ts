@@ -159,6 +159,8 @@ function describeCredential(token: string): string {
       return "a legacy API key";
     case "session":
       return "a session token";
+    case "proxy":
+      return "whatever the environment's network secret attaches (from-proxy), not accepted as one";
     case "personal":
       return "not accepted as one";
   }

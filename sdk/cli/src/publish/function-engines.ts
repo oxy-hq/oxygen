@@ -27,6 +27,7 @@
  */
 
 import { withUserAgent } from "../api/user-agent.js";
+import { bearerHeader } from "../auth/token-kind.js";
 import { CliError, ExitCode } from "../util/errors.js";
 import { GATED_CAPABILITIES } from "./capabilities.js";
 import { type CtxCall, describeLintIssue, type FunctionLintIssue } from "./function-lint.js";
@@ -64,7 +65,7 @@ export async function fetchDatabaseEngines(
   let response: Response;
   try {
     response = await fetch(url, {
-      headers: withUserAgent({ authorization: `Bearer ${token}` }),
+      headers: withUserAgent(bearerHeader(token)),
       signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS)
     });
   } catch (cause) {

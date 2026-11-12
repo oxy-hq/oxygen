@@ -92,6 +92,51 @@ describe("the cloud-session hook", () => {
     expect(mint.status, mint.stderr).not.toBe(ExitCode.USAGE);
   });
 
+  /**
+   * `OXY_TOKEN=from-proxy`: the network secret is the credential, so the hook
+   * prints no mint line and checks the secret is attached with `oxyc whoami`.
+   * `oxyc` is a stub here that exits with the code a real whoami would.
+   */
+  const runWithProxy = (whoamiExit: number, tokenFile = false) => {
+    const home = mkdtempSync(join(tmpdir(), "oxyc-hook-"));
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "oxyc"), `#!/bin/sh\nexit ${whoamiExit}\n`, { mode: 0o755 });
+    if (tokenFile) {
+      mkdirSync(join(home, ".config/oxy"), { recursive: true });
+      writeFileSync(join(home, ".config/oxy/agent-token.env"), "export OXY_TOKEN=oxy_pat_x\n");
+    }
+    const hook = spawnSync("bash", [`${template}${HOOK}`], {
+      encoding: "utf8",
+      input: "{}",
+      env: {
+        PATH: `${bin}:${process.env.PATH}`,
+        HOME: home,
+        CLAUDE_CODE_REMOTE: "true",
+        OXY_ENV: "http://127.0.0.1:9",
+        OXY_TOKEN: "from-proxy"
+      }
+    });
+    rmSync(home, { recursive: true, force: true });
+    expect(hook.status).toBe(0);
+    expect(hook.stdout).not.toContain("oxyc tokens create");
+    return hook.stdout;
+  };
+
+  it("names the network secret when OXY_TOKEN=from-proxy and whoami works", () => {
+    expect(runWithProxy(0)).toContain("credential is the environment's network secret");
+  });
+
+  it("says the network secret is not attached when whoami fails", () => {
+    const out = runWithProxy(ExitCode.AUTH);
+    expect(out).toContain("'oxyc whoami --env http://127.0.0.1:9' fails");
+    expect(out).toContain("Allowed websites");
+  });
+
+  it("says a minted token file replaces the sentinel", () => {
+    expect(runWithProxy(0, true)).toContain("replaces it in every command");
+  });
+
   it("leaves no file the template ships unclassified", () => {
     const manifest = loadManifest(`${template}.oxyc-managed`);
     const paths = walkFiles(template).map(repoPathFor);

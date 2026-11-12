@@ -22,7 +22,7 @@ import {
   sandboxRefusalHint,
   withReason
 } from "../apps/sandbox-token.js";
-import { isSandboxAgentToken } from "../auth/token-kind.js";
+import { bearerHeader, isSandboxAgentToken } from "../auth/token-kind.js";
 import { type Context, notAuthenticated } from "../context/resolve.js";
 import { err } from "../ui/tty.js";
 import { resolveDataInput } from "../util/data-input.js";
@@ -241,7 +241,7 @@ export async function fnCall(
   const { orgSlug, appSlug } = await resolveOrgAppSlug(creds, app);
   const url = `${creds.target.replace(/\/+$/, "")}/customer-apps/${orgSlug}/${appSlug}/fn/${encodeURIComponent(fn)}`;
   const headers = withUserAgent({ "content-type": "application/json" });
-  if (creds.bearer) headers.authorization = `Bearer ${creds.bearer}`;
+  Object.assign(headers, bearerHeader(creds.bearer));
   if (creds.apiKey) headers["x-api-key"] = creds.apiKey;
   if (!isProduction(appEnv)) headers[APP_ENV_HEADER] = appEnv as string;
 

@@ -14,6 +14,7 @@ import { clearCredential, loadCredential } from "../auth/credentials.js";
 import { keepPastExit } from "../auth/exit-revoke.js";
 import { adminStatusLine, type LoginOptions, login } from "../auth/login.js";
 import { startPendingLogin } from "../auth/pending.js";
+import { proxyCredentialSteps } from "../auth/proxy-credential.js";
 import {
   describeExpiry,
   describeReach,
@@ -21,7 +22,7 @@ import {
   revokeCallingToken,
   type Token
 } from "../auth/token-api.js";
-import { isRevocable, isSandboxAgentToken } from "../auth/token-kind.js";
+import { isProxyCredential, isRevocable, isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context, ResolvedCredential } from "../context/resolve.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
@@ -185,7 +186,21 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
     timeoutMs: 30_000
   });
   if (response.status === 401 || response.status === 403) {
-    throw notAccepted(ctx, credential.source, "is no longer accepted");
+    throw notAccepted(ctx, credential, "is no longer accepted");
+  }
+  // Behind the proxy the kind is unknown until the server says, and a sandbox
+  // agent token is the one credential `/api/user` answers 404.
+  if (response.status === 404 && isProxyCredential(bearer)) {
+    const described = await describeSandboxToken(target, bearer, { fresh: true }).catch(
+      () => undefined
+    );
+    if (described) {
+      const text = json
+        ? described.body.trim()
+        : [...sandboxTokenLines(target, described.token), proxyLine()].join("\n");
+      process.stdout.write(`${text}\n`);
+      return;
+    }
   }
   if (response.status < 200 || response.status >= 300) {
     throw new CliError(`could not read /api/user (${response.status})`, {
@@ -204,7 +219,7 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
   if (payload === null || payload === undefined) {
     throw notAccepted(
       ctx,
-      credential.source,
+      credential,
       "no longer resolves to a user",
       "GET /api/user answered 200 with a null body, which is what an expired session looks like."
     );
@@ -227,7 +242,13 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
   if (customer)
     lines.push(`${out.bold("customer")}    ${customer.name}  (from the repo you are in)`);
   lines.push(...(await tokenLines(target, bearer)));
+  if (isProxyCredential(bearer)) lines.push(proxyLine());
   process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+/** Where the credential came from, under `OXY_TOKEN=from-proxy`: nowhere on this machine. */
+function proxyLine(): string {
+  return `${out.bold("via")}         the environment's network secret (from-proxy: no token on this machine)`;
 }
 
 /**
@@ -244,11 +265,20 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
  */
 function notAccepted(
   ctx: Context,
-  source: ResolvedCredential["source"],
+  credential: ResolvedCredential,
   what: string,
   detail?: string
 ): CliError {
   const target = ctx.target();
+  const { source } = credential;
+  if (isProxyCredential(credential.token)) {
+    const variable = ctx.flags.tokenEnv ?? "OXY_TOKEN";
+    return new CliError(`the credential the proxy attaches for ${target} ${what}`, {
+      code: ExitCode.AUTH,
+      detail,
+      hint: proxyCredentialSteps(variable)
+    });
+  }
   if (source !== "env") {
     const whose = source === "file" ? "the cached token" : "the token";
     return new CliError(`${whose} for ${target} ${what}`, {

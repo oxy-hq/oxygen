@@ -707,6 +707,19 @@ approves once, from any device.
    every later command. To iterate in a sandbox, mint
    `--sandbox-agent --app <org>/<app>` into the same file instead. A token
    lasts 8 hours by default (`--hours`, up to 168). On exit `4`, mint again.
+
+   **Or a network secret, which nobody approves per session.** The
+   environment's owner adds one in its settings: Allowed websites
+   `app.oxygen-hq.com` (and `*.oxy.tech`), header `Authorization`, prefix
+   `Bearer`, and a personal access token or service account token as the
+   value. They also set `OXY_TOKEN=from-proxy` in its environment variables.
+   The proxy then adds the token to each request after it leaves the VM, so it
+   is never in a file, a variable or your context, and `oxyc` sends none.
+   The hook checks it with `oxyc whoami` and says if it is not attached. On
+   exit `4`, report it: the secret's hosts, header or token are wrong, and
+   only the owner can fix them. Do not mint a token over it unasked. A sandbox
+   still needs an `--sandbox-agent` token minted into the file, which replaces
+   the sentinel.
 4. **Ship** with the commands above, each with `--token-env OXY_TOKEN`.
    `promote` and `rollback` need `--yes`, because there is no terminal to ask.
 
@@ -729,9 +742,10 @@ belong to the app's org. Staff shipping a customer's app have three ways:
     plan, the deprecated promoting publish.
 - **Mint the standing token where a browser opens.** On the engineer's own
   machine, run `oxyc tokens create --agent --standing --hours <n>`. They put
-  the value in the cloud environment's variables as `OXY_TOKEN`. Anyone who
-  uses that environment can read it, so keep `--hours` short and revoke the
-  token when the task is done.
+  the value in the cloud environment as a network secret, with
+  `OXY_TOKEN=from-proxy` (step 3). As a plain `OXY_TOKEN` variable instead,
+  anyone who uses that environment can read it. Either way, keep `--hours`
+  short and revoke the token when the task is done.
 - **Leave the ship step to the engineer.** Hand back the sandbox's build and
   the `oxyc promote --from dev-<handle>` command.
 

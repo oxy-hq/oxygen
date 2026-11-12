@@ -8,7 +8,7 @@
  * `X-API-Key` surface.
  */
 
-import { usableAsApiKey } from "../auth/token-kind.js";
+import { bearerHeader, usableAsApiKey } from "../auth/token-kind.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 import { proxyHint } from "../util/proxy.js";
 import { cacheKey, readCache, writeCache } from "./cache.js";
@@ -70,20 +70,18 @@ export function buildUrl(target: string, path: string): string {
 export function authHeaders(opts: RequestOptions): Record<string, string> {
   const explicit = Object.keys(opts.headers ?? {}).map((h) => h.toLowerCase());
   const headers: Record<string, string> = {};
+  // Nothing for `OXY_TOKEN=from-proxy`: the egress proxy adds it.
+  const bearer = bearerHeader(opts.bearer).authorization;
   if (isExternalSurface(opts.path)) {
     const key = opts.apiKey ?? (opts.bearer && usableAsApiKey(opts.bearer) ? opts.bearer : "");
     if (key && !explicit.includes("x-api-key")) headers["X-API-Key"] = key;
     // The bearer goes along too when there is one: some external routes accept
     // either, and sending both never makes a request that would have worked
     // fail — the server picks the one it recognises.
-    if (opts.bearer && !explicit.includes("authorization")) {
-      headers.Authorization = `Bearer ${opts.bearer}`;
-    }
+    if (bearer && !explicit.includes("authorization")) headers.Authorization = bearer;
     return headers;
   }
-  if (opts.bearer && !explicit.includes("authorization")) {
-    headers.Authorization = `Bearer ${opts.bearer}`;
-  }
+  if (bearer && !explicit.includes("authorization")) headers.Authorization = bearer;
   return headers;
 }
 
@@ -137,14 +135,18 @@ export async function request(opts: RequestOptions): Promise<ApiResponse> {
     });
   } catch (cause) {
     const message = (cause as Error).message;
+    // Node's fetch says only "fetch failed"; the reason is one level down.
+    const reason = transportReason(cause);
     // A timeout and a refused connection are both "the deployment did not
     // answer", which is retryable — distinct from a request the server
     // rejected, and the distinction is what an agent branches on.
-    throw new CliError(`request to ${url} failed: ${message}`, {
+    throw new CliError(`request to ${url} failed: ${message}${reason ? ` (${reason})` : ""}`, {
       code: ExitCode.UNAVAILABLE,
       hint: message.includes("timed out")
         ? "the deployment may be starting up — retry, or raise --timeout"
-        : (proxyHint() ?? `check the target is reachable: ${opts.target}`)
+        : reason && CERT_ERRORS.has(reason)
+          ? certificateHint(process.versions.node)
+          : (proxyHint() ?? `check the target is reachable: ${opts.target}`)
     });
   }
 
@@ -229,4 +231,49 @@ export function parseJson(body: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * TLS failures that mean "this machine does not trust that certificate" —
+ * almost always a proxy re-signing traffic with a CA Node was not given.
+ */
+const CERT_ERRORS = new Set([
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "CERT_UNTRUSTED"
+]);
+
+/**
+ * What to do about an untrusted certificate. `NODE_EXTRA_CA_CERTS` works on
+ * every Node oxyc supports; `--use-system-ca` only on 22.15+ and 23.8+, and an
+ * older Node refuses to START with an unknown flag in NODE_OPTIONS, which would
+ * break every node process in that shell. So it is offered only where it exists.
+ */
+export function certificateHint(nodeVersion: string): string {
+  const base =
+    "this machine does not trust the certificate it was shown — behind a TLS-inspecting proxy (a Claude Code cloud session, a corporate network), give Node its CA: NODE_EXTRA_CA_CERTS=<file>";
+  return supportsSystemCa(nodeVersion) ? `${base}, or NODE_OPTIONS=--use-system-ca` : base;
+}
+
+/** Whether this Node has `--use-system-ca`: 22.15+ on 22, 23.8+, and every later major. */
+export function supportsSystemCa(nodeVersion: string): boolean {
+  const [major = 0, minor = 0] = nodeVersion.split(".").map((n) => Number.parseInt(n, 10) || 0);
+  if (major === 22) return minor >= 15;
+  if (major === 23) return minor >= 8;
+  return major >= 24;
+}
+
+/**
+ * The code under Node fetch's "fetch failed" (`ECONNREFUSED`,
+ * `SELF_SIGNED_CERT_IN_CHAIN`, `ENOTFOUND`…), or `undefined`. Without it a
+ * certificate problem and an unreachable host read the same, and only one of
+ * them is fixed by trusting a CA.
+ */
+export function transportReason(cause: unknown): string | undefined {
+  const inner = (cause as { cause?: { code?: unknown } } | null)?.cause;
+  return typeof inner?.code === "string" && /^[A-Z0-9_]+$/.test(inner.code)
+    ? inner.code
+    : undefined;
 }

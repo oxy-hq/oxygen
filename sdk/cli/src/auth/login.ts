@@ -38,6 +38,7 @@ import { type HostCredential, saveCredential } from "./credentials.js";
 import { deviceRound } from "./device.js";
 import { loadPending, resumePendingLogin } from "./pending.js";
 import { createPkce, type Pkce } from "./pkce.js";
+import { bearerHeader } from "./token-kind.js";
 
 /** What `/api/user` gives back. Only the two fields the login flow reports. */
 interface UserResponse {
@@ -451,7 +452,7 @@ async function fetchUser(target: string, token: string): Promise<UserResponse> {
   let response: Response;
   try {
     response = await fetch(url, {
-      headers: withUserAgent({ Authorization: `Bearer ${token}` }),
+      headers: withUserAgent(bearerHeader(token)),
       signal: AbortSignal.timeout(30_000)
     });
   } catch (cause) {

@@ -30,7 +30,12 @@ import {
 } from "../auth/login.js";
 import { createPkce } from "../auth/pkce.js";
 import { describeExpiry, revokeCallingToken } from "../auth/token-api.js";
-import { isHeaderSafeSecret, isRevocable, isWellFormedSandboxToken } from "../auth/token-kind.js";
+import {
+  isHeaderSafeSecret,
+  isProxyCredential,
+  isRevocable,
+  isWellFormedSandboxToken
+} from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
@@ -340,6 +345,14 @@ export async function runTokensRevokeCurrent(ctx: Context): Promise<void> {
     throw usageError(
       "--current revokes a token from the environment, and this one is your cached login",
       `\`oxyc logout\` revokes it and removes it from this machine — or set ${variable} to the token to end`
+    );
+  }
+  if (isProxyCredential(credential.token)) {
+    // The proxy would attach the network secret's token, and this would end
+    // it for every session in the environment. That is the web app's act.
+    throw usageError(
+      `--current revokes the token in ${variable}, and ${variable}=from-proxy holds none`,
+      "the token is the cloud environment's network secret: revoke it in the web app (Account → Personal access tokens), then delete the secret"
     );
   }
   if (!isRevocable(credential.token)) {

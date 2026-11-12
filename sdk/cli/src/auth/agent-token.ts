@@ -24,6 +24,7 @@
 import { AUTH_HINT } from "../api/request.js";
 import { STOP_AND_REPORT } from "../apps/sandbox-token.js";
 import { type CliError, ExitCode } from "../util/errors.js";
+import { proxyCredentialSteps } from "./proxy-credential.js";
 import { credentialShape } from "./token-kind.js";
 
 /** The `source` a deployment stamps on a token minted through the agent approval. */
@@ -65,8 +66,11 @@ export function variableCredentialSteps(variable: string): string {
  * `undefined` for every other credential, whose own hint stands.
  */
 function variableCredentialAuthHint(): string | undefined {
-  if (!fromVariable || credentialShape(fromVariable.token) !== "personal") return undefined;
+  if (!fromVariable) return undefined;
   const { variable } = fromVariable;
+  const shape = credentialShape(fromVariable.token);
+  if (shape === "proxy") return proxyCredentialSteps(variable);
+  if (shape !== "personal") return undefined;
   return (
     `the token in ${variable} may have expired or been revoked, or it lacks the role — a login cannot fix that: ${variable} wins over the login cache\n` +
     `${variableCredentialSteps(variable)}\n` +

@@ -10,7 +10,7 @@
 
 import { APP_ENV_HEADER, isProduction } from "../apps/environment.js";
 import type { Creds, ResolvedApp } from "../apps/resolve.js";
-import { isMachineIdentity } from "../auth/token-kind.js";
+import { bearerHeader, isMachineIdentity } from "../auth/token-kind.js";
 import { fetchEnvironment } from "../commands/env.js";
 import type { Context } from "../context/resolve.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
@@ -55,7 +55,8 @@ export function refuseMachineBrowser(ctx: Context, oidcAvailable: boolean): void
 
 /** The credential as request headers: the bearer, else what `creds.headers` carries (an API key). */
 export function credentialHeaders(creds: Creds): Record<string, string> {
-  if (creds.bearer) return { authorization: `Bearer ${creds.bearer}` };
+  // The proxy sentinel is a credential with nothing to send: the proxy adds it.
+  if (creds.bearer) return bearerHeader(creds.bearer);
   const headers: Record<string, string> = {};
   for (const [name, value] of Object.entries(creds.headers ?? {})) {
     headers[name.toLowerCase()] = value;

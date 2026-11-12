@@ -28,13 +28,51 @@ export type CredentialShape =
   | "publish"
   /** `oxy_<hex>` — a legacy API key. Not a token: `oxy_pat_` is never one of these. */
   | "legacy_key"
+  /**
+   * `OXY_TOKEN=from-proxy` — no credential on this machine at all. The
+   * environment's egress proxy adds `Authorization` to requests for the hosts
+   * it lists (a Claude Code cloud environment's network secret), so the kind
+   * is unknown here: only the server knows what the proxy attached.
+   */
+  | "proxy"
   /** Anything else: the session JWT an older `oxyc login` cached. */
   | "session";
 
 /** What `oxyc tokens create --sandbox-agent` prints. */
 export const SANDBOX_TOKEN_PREFIX = "oxy_sbx_";
 
+/**
+ * The value of `OXY_TOKEN` (or the `--token-env` variable) that says the
+ * credential is added on the way out, by the egress proxy, and never held here.
+ *
+ * A SENTINEL IN THE VARIABLE, NOT A SEPARATE SWITCH, so it rides every path a
+ * token already does: `--token-env`, `oxyc mcp`'s variable-only rule, a child
+ * process's environment. Every header this CLI builds goes through
+ * {@link bearerHeader}, which sends nothing for it — the proxy then adds the
+ * header to a request that has none (`proxy-bearer.test.ts` holds every site
+ * to that). A site that forgot would send `Bearer from-proxy`, which the
+ * server turns away: it fails closed, never open.
+ */
+export const PROXY_CREDENTIAL = "from-proxy";
+
+/** Whether the credential is the {@link PROXY_CREDENTIAL} sentinel. */
+export function isProxyCredential(token: string | undefined): boolean {
+  return token === PROXY_CREDENTIAL;
+}
+
+/**
+ * `{ authorization: "Bearer <token>" }`, or nothing for the proxy sentinel.
+ *
+ * THE ONE PLACE A BEARER HEADER IS BUILT. Lower-case name: header names are
+ * case-insensitive, and `fetch` sends them lower-cased anyway.
+ */
+export function bearerHeader(token: string | undefined): Record<string, string> {
+  if (!token || isProxyCredential(token)) return {};
+  return { authorization: `Bearer ${token}` };
+}
+
 export function credentialShape(token: string): CredentialShape {
+  if (isProxyCredential(token)) return "proxy";
   if (token.startsWith("oxy_pat_")) return "personal";
   if (token.startsWith("oxy_sat_")) return "service_account";
   if (token.startsWith("oxy_ci_")) return "ci";
@@ -101,7 +139,13 @@ export function isHeaderSafeSecret(secret: string | undefined): secret is string
  */
 export function usableAsApiKey(token: string): boolean {
   const shape = credentialShape(token);
-  return shape !== "session" && shape !== "publish" && shape !== "sandbox_agent";
+  return (
+    shape !== "session" &&
+    shape !== "publish" &&
+    shape !== "sandbox_agent" &&
+    // Nothing here to send: the proxy adds `Authorization`, not `X-API-Key`.
+    shape !== "proxy"
+  );
 }
 
 /** Whether `DELETE /api/auth/token` can end it — new-format tokens only. */

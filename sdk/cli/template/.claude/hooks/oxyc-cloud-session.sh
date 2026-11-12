@@ -48,7 +48,20 @@ if [ -n "$HOST" ] && ! curl -fsS --max-time 10 -o /dev/null "https://$HOST/api/h
   echo "  access must allow it (Custom: app.oxygen-hq.com, *.oxy.tech) — ask the user to add it."
 fi
 
-if [ -n "${OXY_TOKEN:-}" ]; then
+if [ "${OXY_TOKEN:-}" = "from-proxy" ]; then
+  # The environment's network secret: its proxy adds Authorization on the way
+  # out, so no token is in this VM. A minted token file, sourced before every
+  # command, replaces the sentinel.
+  if [ -s "$TOKEN_FILE" ]; then
+    echo "oxyc: OXY_TOKEN=from-proxy, but the agent token in $TOKEN_FILE replaces it in every command."
+  elif command -v oxyc >/dev/null 2>&1 && ! oxyc whoami --env "$ENV" >/dev/null 2>&1; then
+    echo "oxyc: OXY_TOKEN=from-proxy (a network secret), but 'oxyc whoami --env $ENV' fails. Run it to"
+    echo "  see why, and tell the user: the secret's Allowed websites must cover ${HOST:-the Oxy host}, with"
+    echo "  header Authorization and prefix Bearer. Do not mint a token in its place without asking."
+  else
+    echo "oxyc: credential is the environment's network secret (OXY_TOKEN=from-proxy); no token is in this VM."
+  fi
+elif [ -n "${OXY_TOKEN:-}" ]; then
   echo "oxyc: credential is OXY_TOKEN from the environment."
 elif [ -s "$TOKEN_FILE" ]; then
   echo "oxyc: credential is the agent token in $TOKEN_FILE (it expires: on exit 4, mint again)."

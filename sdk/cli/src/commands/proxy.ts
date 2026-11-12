@@ -32,7 +32,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 
 import { withUserAgent } from "../api/user-agent.js";
 import { APP_ENV_HEADER } from "../apps/environment.js";
-import { isSandboxAgentToken } from "../auth/token-kind.js";
+import { bearerHeader, isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
@@ -205,7 +205,7 @@ export function buildRequestHeaders(
     headers[APP_ENV_HEADER.toLowerCase()] = app.env;
   }
   const hasAuth = "cookie" in headers || "authorization" in headers;
-  if (!hasAuth && !isAuthPath(path) && token) headers.authorization = `Bearer ${token}`;
+  if (!hasAuth && !isAuthPath(path)) Object.assign(headers, bearerHeader(token));
   return headers;
 }
 

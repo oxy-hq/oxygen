@@ -184,7 +184,10 @@ export default function oxyApp(opts: OxyAppPluginOptions = {}): Plugin {
         envVar("OXY_TARGET") ??
         envVar("OXY_BASE_URL") ??
         DEFAULT_DEV_PROXY_TARGET;
-      const devToken = envVar("OXY_TOKEN");
+      // `from-proxy` is oxyc's sentinel for "the egress proxy adds the
+      // credential" (a cloud network secret): there is nothing to attach.
+      const rawToken = envVar("OXY_TOKEN");
+      const devToken = rawToken === "from-proxy" ? undefined : rawToken;
 
       // Dev identity comes from oxy-app.json (committed). projectId is
       // optional here — `buildStart` resolves it from oxy when absent — so

@@ -207,7 +207,9 @@ variable exits `4` instead of quietly running on the person's cached login.
    (`oxy_ci_…`) or a sandbox agent token (`oxy_sbx_…`) — a legacy API key
    (`oxy_…`), a publish token, or a session token. A blank value counts as
    unset. An agent token is a personal access token by its prefix: only its
-   own description tells it from a login (`oxyc whoami`).
+   own description tells it from a login (`oxyc whoami`). The value
+   `from-proxy` means the token is not on this machine at all: see
+   [A token the proxy adds](#a-token-the-proxy-adds).
 2. **The login cache** — what `oxyc login` stored for this deployment.
 3. **GitHub OIDC**, in a GitHub Actions job granted `id-token: write`: the job's
    OIDC token is exchanged, once per process, for a fifteen-minute token acting
@@ -461,6 +463,40 @@ Stdout is the URL and nothing else; what the link is goes to stderr.
 - **`--json`** prints `{ "url", "expires_at", "session_seconds" }` instead.
   **`--open`** also opens the link in your default browser — which uses it, so
   the printed URL will not work a second time.
+
+### A token the proxy adds
+
+`OXY_TOKEN=from-proxy` says an egress proxy adds the credential to each
+request on its way out, and `oxyc` sends none. Use it in a Claude Code cloud
+environment whose Oxy token is a **network secret**: the token stays in
+Anthropic's proxy, never in the VM, so neither the agent nor a log can read it.
+
+1. In the cloud environment's settings, add a network secret: **Allowed
+   websites** `app.oxygen-hq.com` (and `*.oxy.tech` for dev and staging),
+   header `Authorization`, prefix `Bearer`, value a personal access token or a
+   service account token.
+2. In its environment variables, set `OXY_TOKEN=from-proxy`. It is not a
+   secret.
+3. `oxyc whoami --env <env>` prints who the secret is, and a `via` line naming
+   the network secret.
+
+What changes under the sentinel:
+
+- **No `Authorization` and no `X-API-Key` is sent** by any command, and the
+  login cache and GitHub OIDC are not tried. A host the secret does not list
+  gets a request with no credential.
+- **The token's kind is unknown here.** `oxyc` reads a kind off a token's
+  prefix to choose a path before it asks (a sandbox agent token's limits, a
+  service account's machine surface). Under `from-proxy` none of those apply,
+  and the deployment decides. `whoami` asks the server, so it still reports
+  the token; the sandbox loop needs its `oxy_sbx_` token in the variable.
+- **A refusal names the secret, not `oxyc login`.** A 401 says to check the
+  secret's hosts, header and prefix, and that the token may have expired.
+- **`tokens revoke --current` refuses.** It would end the secret's token for
+  every session in the environment; revoke it in the web app, then delete the
+  secret.
+- A token minted into `~/.config/oxy/agent-token.env` (the cloud hook's file)
+  sets `OXY_TOKEN` before every command, so it replaces the sentinel.
 
 ### CI without a stored secret
 
@@ -1709,7 +1745,7 @@ its own token (`tokens create --agent` or `--sandbox-agent`) does not: there,
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `OXY_TOKEN` | — | any credential, sent as a bearer; overrides the login cache and GitHub OIDC |
+| `OXY_TOKEN` | — | any credential, sent as a bearer; overrides the login cache and GitHub OIDC. `from-proxy`: an egress proxy adds it, so none is sent ([A token the proxy adds](#a-token-the-proxy-adds)) |
 | `OXY_API_KEY` | — | a legacy API key or an API token, for the `/external/api` surface and for `checks run` |
 | `OXY_SERVICE_ACCOUNT` | — | the **ID** of the service account a GitHub OIDC exchange acts as (`--service-account`); never `<org>/<name>` |
 | `OXY_AGENT` | detected | the name of the agent driving `oxyc`, sent in the user agent — see below |
@@ -1736,7 +1772,7 @@ its own token (`tokens create --agent` or `--sandbox-agent`) does not: there,
 
 **In a Claude Code cloud session,** the repo's SessionStart hook installs
 `oxyc` and keeps an agent token across shell calls. The environment must allow
-the Oxy hosts. Setup: the `oxy-custom-apps` skill, "Headless and cloud
+the Oxy hosts, or hold a network secret for them with `OXY_TOKEN=from-proxy`. Setup: the `oxy-custom-apps` skill, "Headless and cloud
 sessions".
 
 **An agent should set `OXY_AGENT`.** Every request `oxyc` makes to a deployment
