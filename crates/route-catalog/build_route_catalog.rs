@@ -121,11 +121,12 @@ struct Seed {
 /// `build_public_routes` / `build_global_routes` / `build_protected_routes` are
 /// merged into one router that `crates/server/src/commands/serve.rs` nests under `/api`;
 /// `build_external_api_router` mounts the curated API-key surface under
-/// `/external/api`. The sibling API crates arrive through three seams the
+/// `/external/api`. The sibling API crates arrive through the seams the
 /// `oxy-server` composition root fills: `SurfaceSeams::api`, merged beside the
 /// org tree at `/api`, `SurfaceSeams::workspace`, merged *inside* the
-/// `/{workspace_id}` tree, and `SurfaceSeams::public`, merged beside the public
-/// tree, and `SurfaceSeams::admin`, merged inside `/admin`. A crate can use
+/// `/{workspace_id}` tree, `SurfaceSeams::public`, merged beside the public
+/// tree, `SurfaceSeams::admin`, merged inside `/admin`, and
+/// `SurfaceSeams::external`, merged into the curated external tree. A crate can use
 /// more than one — `oxy-api-tenancy` and `oxy-api-frontline` do, which is why
 /// each has more than one seed.
 const SEEDS: &[Seed] = &[
@@ -320,11 +321,27 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_experiment",
         function: "workspace_routes",
     },
+    // `oxy-api-world-model` fills two seams: the live feed, foot traffic and
+    // competitors ride `SurfaceSeams::workspace` inside the `/{workspace_id}`
+    // tree, and the same four plus the LLM proxy ride `SurfaceSeams::external`,
+    // merged into the curated tree the seed below walks.
+    Seed {
+        surface: "workspace",
+        prefix: "/api/{workspace_id}",
+        module: "oxy_api_world_model",
+        function: "workspace_routes",
+    },
     Seed {
         surface: "external",
         prefix: "/external/api/{workspace_id}",
         module: "workspace",
         function: "build_external_workspace_routes",
+    },
+    Seed {
+        surface: "external",
+        prefix: "/external/api/{workspace_id}",
+        module: "oxy_api_world_model",
+        function: "external_routes",
     },
 ];
 
@@ -337,7 +354,8 @@ const SEEDS: &[Seed] = &[
 /// `crates/api-documents/src`, `crates/api-frontline/src`,
 /// `crates/api-custom-apps/src`, `crates/api-airway/src`,
 /// `crates/api-experiment/src`, `crates/api-notifications/src`,
-/// `crates/api-workspace-health/src` and `crates/api-slack/src`, none of which `oxy-app` depends on
+/// `crates/api-workspace-health/src`, `crates/api-slack/src` and
+/// `crates/api-world-model/src`, none of which `oxy-app` depends on
 /// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
 /// reverse). Editing any of them therefore re-runs this build script and
 /// recompiles `oxy-app` — the workspace's largest crate — before the small
@@ -370,6 +388,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-notifications/src",
     "crates/api-workspace-health/src",
     "crates/api-slack/src",
+    "crates/api-world-model/src",
     // `crates/oltp/src/api`, not the whole crate: every handler the OLTP routes
     // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
     // the wider path would only pull ~15 unrelated modules (`provisioner`,
@@ -402,6 +421,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-notifications/src",
     "crates/api-workspace-health/src",
     "crates/api-slack/src",
+    "crates/api-world-model/src",
     // Mounts `/oltp/me/connection` and `/oltp/me/erd`, merged into the served
     // app as `oxy_oltp::api::router` — `role_manifest.rs` asserts that merge.
     // Missing here since #2851, so both routes were live and absent from the

@@ -302,6 +302,13 @@ pub struct SurfaceSeams {
     /// must be reachable without a session belong here — frontline PIN sign-in
     /// is how a worker gets a session at all.
     pub public: SurfaceSeam,
+    /// API-KEY ONLY, workspace-scoped. Merged into the curated
+    /// `/external/api/{workspace_id}` tree that standalone apps call, before its
+    /// workspace context, API-key-only auth and wide-open CORS layers, so these
+    /// routes inherit all three. Routes only, no declarations: the curated tree
+    /// drops its own too, and every route on it falls to the FleetOk default.
+    /// Mounted in both serve modes.
+    pub external: Router<AppState>,
     /// STAFF CONSOLE. Sections merged inside `/api/admin`, each behind the
     /// capability it names — see [`AdminSection`]. Cloud-only, like `api`:
     /// local mode never mounts the global tree that holds `/admin`.

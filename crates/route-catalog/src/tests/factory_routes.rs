@@ -187,7 +187,8 @@ fn served_declarations() -> Vec<(&'static str, String, RouteRole)> {
         .iter()
         .chain(oxy_api_airway::route_roles())
         .chain(oxy_api_custom_apps::workspace_route_roles())
-        .chain(oxy_api_experiment::workspace_route_roles());
+        .chain(oxy_api_experiment::workspace_route_roles())
+        .chain(oxy_api_world_model::workspace_route_roles());
     decls.extend(
         workspace_seam.map(|d| (d.method, format!("/api/{{workspace_id}}{}", d.path), d.role)),
     );

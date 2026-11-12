@@ -12,12 +12,11 @@ use axum::routing::{delete, get, post, put};
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
 use crate::api::{
-    agent, api_keys, apps, artifacts, automation, chart, cohort, competitors, compile,
-    compile_staging, data, database, execution_analytics, file, foot_traffic, integration,
-    local_setup, metric_anomalies, metric_tree, metric_tree_probe, metric_tree_projection, metrics,
-    org_subdomain, preagg, result_files, schedules, semantic, thread, traces, video,
-    workspace_logo, workspace_members, workspace_oxy_access, workspaces, world_model,
-    world_model_graph,
+    agent, api_keys, apps, artifacts, automation, chart, cohort, compile, compile_staging, data,
+    database, execution_analytics, file, integration, local_setup, metric_anomalies, metric_tree,
+    metric_tree_probe, metric_tree_projection, metrics, org_subdomain, preagg, result_files,
+    schedules, semantic, thread, traces, video, workspace_logo, workspace_members,
+    workspace_oxy_access, workspaces, world_model_graph,
 };
 
 use oxy_shared::fleet_role::RouteRole;
@@ -268,15 +267,9 @@ pub(super) fn build_workspace_routes(
             "/semantic/anomalies",
             build_metric_anomaly_routes(&app_state, agentic_state.clone()),
         )
-        // FleetOk since the live feed stopped being process-local: publishers
-        // append to `world_model_events` and every pod tails that table onto
-        // its own bus, so any replica can serve a subscriber. Pinning it to the
-        // ide would make watching the panel depend on the singleton for no
-        // remaining reason. The handler reads Postgres and nothing else.
-        .route_fleet(
-            "/world-model/events",
-            get(world_model::world_model_events_sse),
-        )
+        // `/world-model/events`, foot traffic and competitors are
+        // `oxy-api-world-model`'s, merged inside this nest by `oxy-server`
+        // through `SurfaceSeams::workspace`.
         .route_fleet("/world-model/cameras", get(video::list_cameras))
         .route_fleet(
             "/world-model/weather/{layer}/{z}/{x}/{y}",
@@ -285,18 +278,6 @@ pub(super) fn build_workspace_routes(
         .route_fleet(
             "/world-model/weather/current",
             post(video::weather_current_batch),
-        )
-        .route_fleet(
-            "/world-model/foot-traffic/current",
-            post(foot_traffic::foot_traffic_current_batch),
-        )
-        .route_fleet(
-            "/world-model/foot-traffic/radar",
-            post(foot_traffic::foot_traffic_radar_batch),
-        )
-        .route_fleet(
-            "/world-model/competitors",
-            post(competitors::get_competitors),
         )
         .route_fleet(
             "/results/files/{file_id}",
@@ -362,15 +343,9 @@ pub(super) fn build_external_workspace_routes(
         .route_fleet("/sql/query", post(data::execute_sql_query))
         .route_fleet("/semantic", post(semantic::execute_semantic_query))
         .route_fleet("/semantic/compile", post(semantic::compile_semantic_query))
-        // FleetOk since the live feed stopped being process-local: publishers
-        // append to `world_model_events` and every pod tails that table onto
-        // its own bus, so any replica can serve a subscriber. Pinning it to the
-        // ide would make watching the panel depend on the singleton for no
-        // remaining reason. The handler reads Postgres and nothing else.
-        .route_fleet(
-            "/world-model/events",
-            get(world_model::world_model_events_sse),
-        )
+        // `/world-model/events`, foot traffic, competitors and the LLM proxy are
+        // `oxy-api-world-model`'s, merged into this tree by `oxy-server` through
+        // `SurfaceSeams::external`.
         .route_fleet("/world-model/cameras", get(video::list_cameras))
         // Camera live streaming for standalone apps: registry, WHEP
         // signaling, HLS proxy. Same handlers as the operator tree —
@@ -401,26 +376,6 @@ pub(super) fn build_external_workspace_routes(
         .route_fleet(
             "/world-model/weather/current",
             post(video::weather_current_batch),
-        )
-        .route_fleet(
-            "/world-model/foot-traffic/current",
-            post(foot_traffic::foot_traffic_current_batch),
-        )
-        .route_fleet(
-            "/world-model/foot-traffic/radar",
-            post(foot_traffic::foot_traffic_radar_batch),
-        )
-        .route_fleet(
-            "/world-model/competitors",
-            post(competitors::get_competitors),
-        )
-        // Thin LLM passthrough for the standalone voice assistant: takes an
-        // Anthropic Messages payload (system + messages + optional tools),
-        // resolves the workspace Anthropic key server-side, and returns the raw
-        // content blocks — so the app never ships a provider key in the browser.
-        .route_fleet(
-            "/world-model/llm/messages",
-            post(world_model::proxy_llm_messages),
         )
         // Anomaly monitoring: list, scan, update status, explain — used by
         // standalone apps (e.g. world-model-app) that can't reach the internal

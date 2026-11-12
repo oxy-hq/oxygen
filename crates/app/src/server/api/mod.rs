@@ -8,7 +8,6 @@ pub mod automation;
 pub mod billing;
 pub mod catalog;
 pub mod chart;
-pub mod competitors;
 pub mod compile;
 pub mod compile_staging;
 /// Moved to `oxy-app-core`; the old path stays so no call site changes.
@@ -59,8 +58,6 @@ pub mod database;
 // crate, mounted by `oxy-server`. oxy-app no longer depends on it.
 pub mod execution_analytics;
 pub mod file;
-pub mod foot_traffic;
-mod foot_traffic_seed;
 // The GitHub HTTP surface moved to the `oxy-api-github` sibling crate, mounted by
 // `oxy-server`. oxy-app no longer depends on it.
 pub mod chat;
@@ -104,5 +101,4 @@ pub mod workspace_org;
 pub mod workspace_oxy_access;
 pub mod workspace_previews;
 pub mod workspaces;
-pub mod world_model;
 pub mod world_model_graph;

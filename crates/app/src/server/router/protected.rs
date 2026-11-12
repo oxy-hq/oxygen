@@ -273,8 +273,14 @@ pub(super) fn build_external_api_router(
     app_state: AppState,
     agentic_state: Arc<AgenticState>,
     mode: ServeMode,
+    // The external seam (`SurfaceSeams::external`): surface crates' routes for
+    // standalone apps, merged here so they get the same workspace context, auth
+    // and CORS as the curated routes beside them.
+    extra_external_routes: Router<AppState>,
 ) -> Router {
-    let curated = build_external_workspace_routes(&app_state, agentic_state).into_router();
+    let curated = build_external_workspace_routes(&app_state, agentic_state)
+        .into_router()
+        .merge(extra_external_routes);
 
     // Resolve the `{workspace_id}` context exactly as the main surface does,
     // per mode. Runs AFTER auth (it needs the authenticated user).

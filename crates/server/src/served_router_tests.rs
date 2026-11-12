@@ -297,3 +297,164 @@ fn the_composition_carries_the_health_eval() {
         assert!(kinds.contains(&kind), "no executor for `{kind}`: {kinds:?}");
     }
 }
+
+/// One request with an optional API key and JSON body, for the world-model
+/// routes, whose handlers reject an empty body before they answer.
+async fn status_with(
+    router: &Router,
+    method: &Method,
+    path: &str,
+    api_key: Option<&str>,
+    json: &str,
+) -> StatusCode {
+    let mut req = Request::builder()
+        .method(method)
+        .uri(path)
+        .header("content-type", "application/json");
+    if let Some(key) = api_key {
+        req = req.header("x-api-key", key);
+    }
+    router
+        .clone()
+        .oneshot(req.body(Body::from(json.to_string())).unwrap())
+        .await
+        .expect("oneshot")
+        .status()
+}
+
+/// `oxy-api-world-model`'s routes, as `(method, path under /{workspace_id}, body)`.
+/// "Served" is "not the router's 404", as above: foot traffic answers 503 with
+/// no BestTime key configured, which is its handler speaking. (The feed's SSE is
+/// a stream, so it is left out; the external tree also checks the LLM proxy.)
+fn world_model_routes() -> Vec<(Method, &'static str, &'static str)> {
+    vec![
+        (
+            Method::POST,
+            "/world-model/competitors",
+            r#"{"anchors":[]}"#,
+        ),
+        (Method::POST, "/world-model/foot-traffic/current", "[]"),
+        (Method::POST, "/world-model/foot-traffic/radar", "[]"),
+    ]
+}
+
+/// The workspace seam carries the world-model app into the `/{workspace_id}`
+/// tree. Local mode, because there the guest user and the nil workspace get a
+/// request past auth and workspace context to the router, so a 404 can only be
+/// the router's own.
+#[tokio::test]
+async fn the_workspace_tree_mounts_the_world_model_app() {
+    if db_unavailable() {
+        return;
+    }
+    let router = served(ServeMode::Local).await;
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    assert_eq!(
+        status_with(
+            &router,
+            &Method::POST,
+            &format!("/{ws}/world-model/nothing-mounts-this"),
+            None,
+            "{}"
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+        "control: an unmounted path must be 404, or a non-404 below proves nothing"
+    );
+    for (method, path, body) in world_model_routes() {
+        let got = status_with(&router, &method, &format!("/{ws}{path}"), None, body).await;
+        assert_ne!(
+            got,
+            StatusCode::NOT_FOUND,
+            "{method} /{{ws}}{path} must be served, got {got}"
+        );
+    }
+}
+
+/// The external seam carries the world-model app, and the LLM proxy, into the
+/// curated `/external/api/{workspace_id}` tree, behind its API-key-only auth.
+/// Auth runs before routing there, so the check needs a real key: a legacy key
+/// for the local guest user, minted the way the key endpoint mints one.
+#[tokio::test]
+async fn the_external_tree_mounts_the_world_model_app() {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    if db_unavailable() {
+        return;
+    }
+    let (router, external, _preagg) = api_router(
+        ServeMode::Local,
+        false,
+        None,
+        std::path::PathBuf::new(),
+        tokio_util::sync::CancellationToken::new(),
+        false,
+        surface_seams(),
+    )
+    .await
+    .expect("router built");
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    // The first guest request creates the guest user the key will belong to.
+    status(&router, &Method::GET, "/live").await;
+    let db = sea_orm::Database::connect(std::env::var("OXY_DATABASE_URL").unwrap())
+        .await
+        .expect("connect");
+    let guest = entity::users::Entity::find()
+        .filter(entity::users::Column::Email.eq(oxy_auth::user::LOCAL_GUEST_EMAIL))
+        .one(&db)
+        .await
+        .expect("query the guest")
+        .expect("the guest user exists after a guest request");
+    let key = oxy_auth::ApiKeyService::create_api_key(
+        &db,
+        oxy_auth::CreateApiKeyParams {
+            user_id: guest.id,
+            name: "served-router".into(),
+            expires_at: None,
+            project_id: ws,
+        },
+        &oxy_auth::ApiKeyConfig::default(),
+    )
+    .await
+    .expect("mint a key")
+    .key;
+
+    let unmounted = format!("/{ws}/world-model/nothing-mounts-this");
+    assert_eq!(
+        status_with(&external, &Method::POST, &unmounted, Some(&key), "{}").await,
+        StatusCode::NOT_FOUND,
+        "control: with the key, an unmounted path must reach the 404 fallback"
+    );
+    assert_eq!(
+        status_with(&external, &Method::POST, &unmounted, None, "{}").await,
+        StatusCode::UNAUTHORIZED,
+        "control: without the key nothing gets past auth, mounted or not"
+    );
+    for (method, path, body) in world_model_routes() {
+        let got = status_with(
+            &external,
+            &method,
+            &format!("/{ws}{path}"),
+            Some(&key),
+            body,
+        )
+        .await;
+        assert_ne!(
+            got,
+            StatusCode::NOT_FOUND,
+            "external {method} /{{ws}}{path} must be served, got {got}"
+        );
+    }
+    let got = status_with(
+        &external,
+        &Method::POST,
+        &format!("/{ws}/world-model/llm/messages"),
+        Some(&key),
+        r#"{"messages":[]}"#,
+    )
+    .await;
+    assert_ne!(
+        got,
+        StatusCode::NOT_FOUND,
+        "external LLM proxy must be served, got {got}"
+    );
+}

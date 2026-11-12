@@ -149,6 +149,13 @@ fn workspace_seam_routes() -> SeamRouter {
         .merge(oxy_api_airway::routes())
         .merge(oxy_api_custom_apps::workspace_routes())
         .merge(oxy_api_experiment::workspace_routes())
+        .merge(oxy_api_world_model::workspace_routes())
+}
+
+/// The sibling crates merged into the curated `/external/api/{workspace_id}`
+/// tree standalone apps call.
+fn external_seam_routes() -> SeamRouter {
+    oxy_api_world_model::external_routes()
 }
 
 /// Every surface this composition root mounts, by seam. `cli` forwards it into
@@ -199,6 +206,12 @@ fn workspace_seam_routes() -> SeamRouter {
 /// and installation routes ride `api` with the org middlewares re-applied. All
 /// seven are FleetOk (Postgres and Slack's API).
 ///
+/// `oxy-api-world-model` fills two seams: the live feed, foot traffic and
+/// competitors ride `workspace` (all FleetOk: Postgres and the vendors' APIs),
+/// and the same four plus the LLM proxy ride `external`, the curated
+/// `/external/api` tree standalone apps call with an API key. Its tailer,
+/// reaper and camera bridge join `background`.
+///
 /// `oxy-api-experiment` rides the workspace seam too (experiments and declared
 /// worlds under `/{workspace_id}`), declaring write-back apply IdeOnly (it creates
 /// a git worktree in the working copy). Its five task kinds join the custom-app
@@ -226,6 +239,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_airway::route_roles())
                 .chain(oxy_api_custom_apps::workspace_route_roles())
                 .chain(oxy_api_experiment::workspace_route_roles())
+                .chain(oxy_api_world_model::workspace_route_roles())
                 .copied()
                 .collect(),
         },
@@ -238,6 +252,8 @@ fn surface_seams() -> SurfaceSeams {
                 .copied()
                 .collect(),
         },
+        // Routes only: the curated external tree carries no declarations.
+        external: external_seam_routes(),
         // The route table `/api/_catalog` serves, generated above oxy-app (see
         // `oxy-route-catalog`). Passed, not global: a composition that dropped
         // it would serve an empty catalog.
@@ -264,7 +280,10 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_notifications::tasks())
             .chain(oxy_api_workspace_health::tasks())
             .collect(),
-        background: custom_apps_seams::background(),
+        background: custom_apps_seams::background()
+            .into_iter()
+            .chain(oxy_api_world_model::background())
+            .collect(),
         global_ticks: oxy_api_experiment::global_ticks(),
         outer: Some(custom_apps_seams::outer),
         outer_decls: oxy_api_custom_apps::serve::serve_dispatch_roles().to_vec(),

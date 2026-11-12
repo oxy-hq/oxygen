@@ -18,3 +18,4 @@ pub mod timeout;
 pub mod token_grant_scope;
 pub mod token_usage;
 pub mod workspace_context;
+pub mod workspace_extractor;

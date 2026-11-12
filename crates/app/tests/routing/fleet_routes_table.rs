@@ -44,13 +44,14 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// (`oxy-api-airway`), the custom-app routes (`oxy-api-custom-apps`: the
 /// serve route and its function entry on the outer router, and `/apps/mine` and the
 /// `/customer-apps` console on the api seam), since 2026-11-12 the org's Slack
-/// install and installation (`oxy-api-slack`), and a handful of workspace routes
-/// that have since been removed or re-nested.
+/// install and installation (`oxy-api-slack`) and the world-model app's live
+/// feed, foot traffic and competitors (`oxy-api-world-model`), and a handful of
+/// workspace routes that have since been removed or re-nested.
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 41;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 45;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];

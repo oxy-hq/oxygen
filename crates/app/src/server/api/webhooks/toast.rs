@@ -42,11 +42,11 @@ use serde::Deserialize;
 use sha2::Sha256;
 use uuid::Uuid;
 
-use crate::server::api::world_model::{OrderEvent, publish_order};
 use crate::server::router::AppState;
 use crate::server::service::secret_manager::SecretManagerService;
 use oxy::config::ReadOnly;
 use oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+use oxy_world_model::live_feed::{OrderEvent, publish_order};
 
 #[derive(Debug, Deserialize)]
 pub struct ToastWebhookQuery {

@@ -108,7 +108,6 @@ const SERVER_API: &[&str] = &[
     "chart",
     "chat",
     "cohort",
-    "competitors",
     "compile",
     "compile_staging",
     "compile_status_tests",
@@ -117,8 +116,6 @@ const SERVER_API: &[&str] = &[
     "database",
     "execution_analytics",
     "file",
-    "foot_traffic",
-    "foot_traffic_seed",
     "healthcheck",
     "integration",
     "local_setup",
@@ -158,7 +155,6 @@ const SERVER_API: &[&str] = &[
     "workspace_oxy_access",
     "workspace_previews",
     "workspaces",
-    "world_model",
     "world_model_graph",
 ];
 

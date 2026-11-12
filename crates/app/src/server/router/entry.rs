@@ -69,6 +69,7 @@ pub async fn api_router(
                 routes: extra_public_routes,
                 decls: extra_public_decls,
             },
+        external: extra_external_routes,
         catalog,
         admin,
         tasks,
@@ -299,19 +300,9 @@ pub async fn api_router(
     // camera loops (final-drains on SIGTERM).
     oxy_cameras::service::ingest_buffer::spawn(agentic_state.shutdown_token.clone());
 
-    // Bridge camera domain events (compliance ingest, health transitions)
-    // onto the world-model SSE bus.
-    oxy_cameras::service::events::set_sink(Box::new(
-        crate::server::api::world_model::publish_camera_domain_event,
-    ));
-
-    // World-model live feed. Publishers append to `world_model_events`; this
-    // tailer is what turns those rows back into SSE frames on THIS pod, so it
-    // must run everywhere — the publishing pod included. Without it a webhook
-    // that lands on a serve replica reaches nobody, which is the bug it exists
-    // to close. The reaper trims the retained window.
-    crate::server::api::world_model::spawn_world_model_tailer();
-    crate::server::api::world_model::spawn_world_model_reaper();
+    // The world-model live feed's tailer and reaper, and the bridge that puts
+    // camera domain events on it, are `oxy-api-world-model`'s: started above
+    // with the other surface jobs (`SurfaceSeams::background`).
 
     let app_state = AppState {
         enterprise,
@@ -427,7 +418,12 @@ pub async fn api_router(
     // `agentic_state` (never a second AgenticState) and returned separately so
     // the caller mounts it OUTSIDE the global `build_cors_layer` — that's what
     // lets its own permissive CORS govern preflight for these routes.
-    let external_router = build_external_api_router(app_state.clone(), agentic_state, mode);
+    let external_router = build_external_api_router(
+        app_state.clone(),
+        agentic_state,
+        mode,
+        extra_external_routes,
+    );
 
     // The Layer-1 cache is handed back so the caller can reach the surfaces it
     // mounts OUTSIDE this router — today the `/customer-apps/{*path}` serve
@@ -501,6 +497,8 @@ pub async fn internal_api_router(
                 routes: extra_public_routes,
                 decls: _extra_public_decls,
             },
+        // The internal router mounts no external tree.
+        external: _,
         catalog,
         admin,
         // The internal router starts no jobs, drives no queue and mounts no

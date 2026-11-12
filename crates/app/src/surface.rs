@@ -44,6 +44,9 @@ pub use crate::server::api::middlewares::workspace_context::{
     WorkspaceRootWorkingCopy, enqueue_lazy_compile,
 };
 
+/// The workspace row the workspace middleware resolved (401 where it did not run).
+pub use crate::server::api::middlewares::workspace_extractor::WorkspaceExtractor;
+
 /// The fence that keeps a sandbox agent token (`oxy_sbx_`) to the one shape it
 /// may reach on the `/customer-apps` serve tree. Asked before authentication by
 /// the serve route, which sits above this crate. Platform authz, not a tenant

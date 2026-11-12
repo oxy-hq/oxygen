@@ -242,7 +242,7 @@ pub async fn list_cameras(
 // what fills the CAMERAS tab in LIVE EVENTS without owner-level Protect
 // access.
 
-use crate::server::api::world_model::{CameraStateEvent, publish_camera_event};
+use oxy_world_model::live_feed::{CameraStateEvent, publish_camera_event};
 
 /// Spawn the background watcher. Called once from server startup; idempotent.
 pub fn spawn_camera_watcher(workspace_id: Uuid, api_key: String) {

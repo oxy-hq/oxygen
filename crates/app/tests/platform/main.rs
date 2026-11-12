@@ -137,4 +137,3 @@ mod workspace_path_needs_is_dir;
 mod workspace_previews_lifecycle;
 mod workspace_previews_serving;
 mod workspace_repo_facts;
-mod world_model_cross_pod;

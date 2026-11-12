@@ -43,6 +43,7 @@ oxy-api-airway = { path = "../api-airway" }
 oxy-api-experiment = { path = "../api-experiment" }
 oxy-api-notifications = { path = "../api-notifications" }
 oxy-api-slack = { path = "../api-slack", default-features = false }
+oxy-api-world-model = { path = "../api-world-model" }
 oxy-api-workspace-health = { path = "../api-workspace-health" }
 oxy-cli-shim = { path = "../cli-shim" }
 # Dev-dynamic-linking shim, pulled in only by the `dev-dynamic` feature above.

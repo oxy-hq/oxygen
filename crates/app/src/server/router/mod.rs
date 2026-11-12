@@ -26,12 +26,8 @@ mod workspace;
 pub(crate) mod workspace_cache;
 
 use axum::Router;
-use axum::extract::FromRequestParts;
 use axum::http::header::{HeaderName, HeaderValue};
-use axum::http::request::Parts;
-use axum::http::{HeaderMap, Method, StatusCode, header};
-use entity::workspaces as workspace_entity;
-use std::future::Future;
+use axum::http::{HeaderMap, Method, header};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub use entry::{api_router, internal_api_router};
@@ -214,29 +210,9 @@ impl axum::extract::FromRef<FleetState> for AppState {
     }
 }
 
-#[derive(Clone)]
-pub struct WorkspaceExtractor(pub workspace_entity::Model);
-
-impl<S> FromRequestParts<S> for WorkspaceExtractor
-where
-    S: Send + Sync,
-{
-    type Rejection = StatusCode;
-
-    fn from_request_parts(
-        parts: &mut Parts,
-        _state: &S,
-    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
-        let result = parts
-            .extensions
-            .get::<workspace_entity::Model>()
-            .cloned()
-            .map(WorkspaceExtractor)
-            .ok_or(StatusCode::UNAUTHORIZED);
-
-        async move { result }
-    }
-}
+/// The workspace the workspace middleware resolved. Defined beside that
+/// middleware (base), re-exported here at the path the handlers have always used.
+pub use crate::server::api::middlewares::workspace_extractor::WorkspaceExtractor;
 
 /// CORS policy for the API surface.
 ///

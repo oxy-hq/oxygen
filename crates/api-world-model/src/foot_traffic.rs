@@ -26,7 +26,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, OnceCell};
 
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
+use oxy_app::surface::WorkspaceManagerReadOnly;
 
 const BESTTIME_LIVE_URL: &str = "https://besttime.app/api/v1/forecasts/live";
 // `/radar/filter` serves BestTime's web UI (HTML). The JSON equivalent
@@ -200,7 +200,7 @@ async fn ensure_caches_loaded() {
     CACHE_LOADED
         .get_or_init(|| async {
             let parsed: PersistedCaches = match serde_json::from_str(
-                super::foot_traffic_seed::SEED_JSON,
+                crate::foot_traffic_seed::SEED_JSON,
             ) {
                 Ok(p) => p,
                 Err(e) => {

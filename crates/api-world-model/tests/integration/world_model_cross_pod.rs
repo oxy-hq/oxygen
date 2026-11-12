@@ -1,6 +1,6 @@
 //! Cross-pod delivery for the world-model live feed.
 //!
-//! The bug this pins: the broadcast bus in `world_model.rs` is per process.
+//! The bug this pins: the broadcast bus in `events.rs` is per process.
 //! `POST /api/webhooks/toast/orders` is `FleetOk` and runs on a `serve`
 //! replica; `GET /api/{ws}/world-model/events` was `IdeOnly` and proxied to the
 //! ide. Publisher and subscriber were therefore never in the same process, so
@@ -23,9 +23,10 @@
 
 use entity::world_model_events;
 use futures::StreamExt;
-use oxy_app::server::api::world_model::{
-    OrderEvent, live_events, publish_order, recent_events, spawn_world_model_tailer, subscribe,
+use oxy_api_world_model::events::{
+    live_events, recent_events, spawn_world_model_tailer, subscribe,
 };
+use oxy_world_model::live_feed::{OrderEvent, publish_order};
 use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::json;
 use std::time::Duration;

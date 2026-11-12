@@ -204,20 +204,21 @@ const ALLOWED: &[(&str, &str)] = &[
          scheduled TaskSpec on the singleton role is the fix",
     ),
     (
-        "app/src/server/api/world_model.rs",
-        "process-lifetime loops started once by `api_router` behind OnceLocks, not a \
-         request's work: the outbox writer draining this pod's publish channel into \
-         `world_model_events`, the tailer fanning new rows onto this pod's in-memory \
-         buses (per pod by definition), and the retention reaper. The reaper is \
-         idempotent so duplicates only race, but it is the one of the three that \
-         could be a scheduled TaskSpec: backlog",
-    ),
-    (
         "app/src/server/api/world_model_graph/handlers.rs",
         "only pumps this request's own SSE stream: filter counts, instance detail and \
          measure breakdown each run their warehouse queries concurrently inside one \
          spawned task and send every result over the response's channel; nothing is \
          persisted and the task ends with the last query",
+    ),
+    // ---- api-world-model ----
+    (
+        "api-world-model/src/events.rs",
+        "process-lifetime loops started once per process by the surface's background \
+         seam behind OnceLocks, not a request's work: the tailer fanning new \
+         `world_model_events` rows onto this pod's in-memory buses (per pod by \
+         definition) and the retention reaper. The reaper is idempotent so duplicates \
+         only race, but it could be a scheduled TaskSpec: backlog. (The outbox writer \
+         moved down to `oxy-world-model`, below this rule's roots.)",
     ),
     // ---- api-notifications ----
     (

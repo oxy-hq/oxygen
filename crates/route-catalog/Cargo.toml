@@ -22,6 +22,7 @@ oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
 oxy-api-tenancy = { path = "../api-tenancy", default-features = false }
 oxy-api-airway = { path = "../api-airway", default-features = false }
 oxy-api-experiment = { path = "../api-experiment" }
+oxy-api-world-model = { path = "../api-world-model" }
 axum = { workspace = true }
 uuid = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

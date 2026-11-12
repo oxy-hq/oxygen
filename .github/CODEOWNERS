@@ -198,7 +198,7 @@ internal-docs/semantic-validation-standardization.md  @haitrr @luong-komorebi
 # World Model graph
 crates/world-model/                                @haitrr @NTtanh
 crates/app/src/server/api/world_model_graph/       @haitrr @NTtanh
-crates/app/src/server/api/world_model*.rs          @haitrr @NTtanh
+crates/api-world-model/                            @haitrr @NTtanh
 web-app/src/pages/ide/WorldModel/                  @haitrr @NTtanh
 
 # Metric Tree & Anomaly Monitoring
@@ -240,7 +240,7 @@ internal-docs/experiments*.md                      @haitrr @luong-komorebi
 # Cameras / edge / video analytics fleet
 crates/cameras/                                    @hotay @luong-komorebi
 crates/app/src/server/api/video.rs                 @hotay @luong-komorebi
-crates/app/src/server/api/foot_traffic*.rs         @hotay @luong-komorebi
+crates/api-world-model/src/foot_traffic*.rs       @hotay @luong-komorebi
 internal-docs/video-processing-fleet-architecture.md  @hotay @luong-komorebi
 internal-docs/camera-fleet-local-testing.md        @hotay @luong-komorebi
 internal-docs/smoke-test-camera-fleet.md           @hotay @luong-komorebi
