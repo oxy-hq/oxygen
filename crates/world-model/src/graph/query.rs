@@ -1,40 +1,15 @@
 use oxy_airlayer_compat::engine::promotions::Promotions;
-use oxy_airlayer_compat::schema::models::{EntityType, MeasureType};
+use oxy_airlayer_compat::schema::models::EntityType;
 use std::collections::HashMap;
 
 use agentic_semantic::compile::{CompiledQuery, resolve_and_compile_cached};
 use agentic_semantic::config::{
     ArrayFilter, ScalarFilter, SemanticFilter, SemanticFilterType, SemanticQueryConfig,
 };
-use entity::workspace_members::WorkspaceRole;
 use oxy::adapters::workspace::manager::WorkspaceManager;
-use uuid::Uuid;
 
-use crate::server::api::data::{build_connector, run_with_connector};
-
-use super::source::ModelSource;
 use super::types::*;
-use oxy::config::ReadOnly;
-
-/// Resolve the `.world-model.yml` display config for a handler that labels
-/// with it, tolerating a config that is missing or does not parse (`None`):
-/// the display degrades. Compile-boundary first (serve replicas have no
-/// working copy), FS fallback — see [`WorldModelConfig::resolve`].
-///
-/// A read that FAILED is not tolerated. It is not "no config", and the
-/// config carries allowlists; the handler answers the retryable 503.
-pub(super) async fn resolve_world_model_config<S: oxy::config::DiskSlot>(
-    workspace_manager: &WorkspaceManager<S>,
-) -> Result<Option<oxy_world_model::WorldModelConfig>, super::source::WmError> {
-    use oxy_world_model::WorldModelConfigError::{Invalid, Unavailable};
-    // By variant, not `retryable()`: a third kind of failure must be given an
-    // answer here before it compiles, not fall into the one that degrades.
-    match oxy_world_model::WorldModelConfig::resolve(&workspace_manager.config_manager).await {
-        Ok(config) => Ok(config),
-        Err(e @ Unavailable(_)) => Err(super::source::config_unavailable(e)),
-        Err(Invalid(_)) => Ok(None),
-    }
-}
+use super::warehouse::GraphWarehouse;
 
 // ── World Model — SQL helpers ─────────────────────────────────────────────────
 
@@ -45,29 +20,13 @@ pub(super) async fn resolve_world_model_config<S: oxy::config::DiskSlot>(
 /// `EngineKey`'s fingerprint DESCRIBES a database list, so building an engine
 /// from a different list caches it under a fingerprint that does not match it.
 /// The compiler cannot catch that, and the symptom is a query compiled in the
-/// wrong dialect — so the type makes them one value instead.
+/// wrong dialect — so the type makes them one value instead. A caller holding
+/// the workspace engine cache builds one keyed by the scan it read.
 #[derive(Clone)]
-pub(crate) struct CachedEngine {
-    pub(crate) cache: std::sync::Arc<crate::server::router::workspace_cache::SemanticEngineCache>,
-    pub(crate) key: oxy_airlayer_compat::EngineKey,
-    pub(crate) databases: Vec<oxy_airlayer_compat::DatabaseConfig>,
-}
-
-impl CachedEngine {
-    /// For a caller that resolved its scan through [`ModelSource`]: keyed by
-    /// what that scan read.
-    pub(super) fn for_source<S: oxy::config::DiskSlot>(
-        engine_cache: &crate::server::api::middlewares::workspace_context::SemanticEngineCacheCtx,
-        workspace_manager: &WorkspaceManager<S>,
-        source: &ModelSource,
-    ) -> Self {
-        let databases = database_configs(workspace_manager);
-        Self {
-            cache: engine_cache.cache.clone(),
-            key: source.engine_key(engine_cache, &databases),
-            databases,
-        }
-    }
+pub struct CachedEngine {
+    pub cache: std::sync::Arc<oxy_airlayer_compat::SemanticEngineCache>,
+    pub key: oxy_airlayer_compat::EngineKey,
+    pub databases: Vec<oxy_airlayer_compat::DatabaseConfig>,
 }
 
 /// The whole workspace's databases, as the dialect map wants them.
@@ -76,7 +35,7 @@ impl CachedEngine {
 /// on `oxy_airlayer_compat::database_config`, which this defers to. What this
 /// adds is the LIST: it was transcribed at six call sites in this module, each
 /// its own chance to forget one.
-pub(crate) fn database_configs<S: oxy::config::DiskSlot>(
+pub fn database_configs<S: oxy::config::DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
 ) -> Vec<oxy_airlayer_compat::DatabaseConfig> {
     workspace_manager
@@ -88,7 +47,7 @@ pub(crate) fn database_configs<S: oxy::config::DiskSlot>(
 }
 
 /// Find the view where `entity_name` is declared as Primary.
-pub(super) fn primary_view_of<'a>(
+pub fn primary_view_of<'a>(
     layer: &'a oxy_airlayer_compat::SemanticLayer,
     entity_name: &str,
 ) -> Option<&'a oxy_airlayer_compat::View> {
@@ -102,7 +61,7 @@ pub(super) fn primary_view_of<'a>(
 /// Get key columns for `entity_name` in `view`.
 /// `is_primary`: true = Primary declaration, false = Foreign declaration.
 /// Returns logical dimension names (use `entity_key_exprs_in_view` for SQL).
-pub(super) fn entity_keys_in_view(
+pub fn entity_keys_in_view(
     view: &oxy_airlayer_compat::View,
     entity_name: &str,
     is_primary: bool,
@@ -136,7 +95,7 @@ pub(super) fn entity_keys_in_view(
 /// would produce an empty `IN ()` that matches nothing, zeroing the reachable
 /// count. Skipping it filters on what the seed actually constrains, matching
 /// the instance-detail child count (which filters on the first FK column only).
-pub(super) fn child_fk_filters(
+pub fn child_fk_filters(
     fk_dim_refs: &[String],
     parent_pk_rows: &[Vec<serde_json::Value>],
 ) -> Vec<agentic_semantic::config::SemanticFilter> {
@@ -168,17 +127,17 @@ pub(super) fn child_fk_filters(
 /// is the *finer* (child / fan-out) side and references `target_entity`'s PK via
 /// `fk_dim_refs`, so `target_entity` is the coarser side.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct EntityLink {
+pub struct EntityLink {
     /// The entity on the other end of the relationship.
-    pub(super) target_entity: String,
+    pub target_entity: String,
     /// "{view}.{fk_col}" refs on the child (self) side pointing at `target`'s PK.
-    pub(super) fk_dim_refs: Vec<String>,
+    pub fk_dim_refs: Vec<String>,
     /// Whether this is the solid `parent:` spine or a dashed foreign cross-link.
-    pub(super) kind: LinkKind,
+    pub kind: LinkKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum LinkKind {
+pub enum LinkKind {
     /// The `parent:` declaration — the single solid hierarchy edge.
     Parent,
     /// A Foreign entity that resolves to a Primary elsewhere — a dashed edge.
@@ -196,7 +155,7 @@ pub(super) enum LinkKind {
 ///
 /// The resulting navigable graph is exactly the drawn graph — no edge appears in
 /// the traversal that the user can't already see.
-pub(super) fn build_entity_links(
+pub fn build_entity_links(
     views: &[oxy_airlayer_compat::View],
     view: &oxy_airlayer_compat::View,
     parent_entity: Option<&str>,
@@ -239,19 +198,19 @@ pub(super) fn build_entity_links(
 /// Per-entity metadata needed to build the instance drill-down semantic
 /// queries. Hoisted out of the filter-counts handler so the expansion-plan
 /// helpers below can be unit-tested against it.
-pub(super) struct EntityMeta {
-    pub(super) entity_name: String,
-    pub(super) view_name: String,
-    pub(super) datasource: String,
+pub struct EntityMeta {
+    pub entity_name: String,
+    pub view_name: String,
+    pub datasource: String,
     /// "{view}.{pk_dim}" refs — used in SemanticFilter fields and dimension selects.
-    pub(super) pk_dim_refs: Vec<String>,
+    pub pk_dim_refs: Vec<String>,
     /// Navigable relationships this entity participates in (parent spine +
     /// foreign cross-links). Drives the undirected instance-drill-down BFS.
-    pub(super) links: Vec<EntityLink>,
+    pub links: Vec<EntityLink>,
     /// Dims to SELECT for a sample row: PK dims first, then label dim if any.
-    pub(super) sample_dims: Vec<String>,
-    pub(super) pk_count: usize,
-    pub(super) has_label_dim: bool,
+    pub sample_dims: Vec<String>,
+    pub pk_count: usize,
+    pub has_label_dim: bool,
 }
 
 /// Reverse adjacency over the navigable link graph: target entity → its
@@ -261,9 +220,7 @@ pub(super) struct EntityMeta {
 /// shared by every traversal (schema reachability, the direct-join fast
 /// path, and the cross-datasource legacy BFS fallback) instead of being
 /// recomputed inline at each call site.
-pub(super) fn build_inbound_index(
-    entity_metas: &[EntityMeta],
-) -> HashMap<&str, Vec<(usize, &[String])>> {
+pub fn build_inbound_index(entity_metas: &[EntityMeta]) -> HashMap<&str, Vec<(usize, &[String])>> {
     let mut inbound: HashMap<&str, Vec<(usize, &[String])>> = HashMap::new();
     for (i, meta) in entity_metas.iter().enumerate() {
         for link in &meta.links {
@@ -281,7 +238,7 @@ pub(super) fn build_inbound_index(
 /// the graph UI. This is a static property of the `.view.yml` relationships
 /// alone, so unlike matched-row reachability it needs no IO and can be
 /// computed once up front instead of discovered hop-by-hop at query time.
-pub(super) fn schema_reachable_entities(
+pub fn schema_reachable_entities(
     entity_metas: &[EntityMeta],
     inbound: &HashMap<&str, Vec<(usize, &[String])>>,
     meta_idx: &HashMap<&str, usize>,
@@ -432,20 +389,20 @@ mod schema_reachability_tests {
 /// matched count, the PK rows for inbound children, the FK values for outbound
 /// targets, and the display sample — replacing the old separate count + pk +
 /// fk-select + sample queries.
-pub(super) struct WmExpansionPlan {
+pub struct WmExpansionPlan {
     /// Dimensions to SELECT, in column order.
-    pub(super) dims: Vec<String>,
+    pub dims: Vec<String>,
     /// Column index of each PK dimension (in `pk_dim_refs` order).
-    pub(super) pk_cols: Vec<usize>,
+    pub pk_cols: Vec<usize>,
     /// Column index of the label dimension, if the entity has one.
-    pub(super) label_col: Option<usize>,
+    pub label_col: Option<usize>,
     /// (target entity, column index of that link's first FK column).
-    pub(super) link_cols: Vec<(String, usize)>,
+    pub link_cols: Vec<(String, usize)>,
 }
 
 /// Build the expansion column layout for `meta`. De-duplicates dimensions that
 /// coincide (e.g. a PK column reused as an FK) via a first-seen index map.
-pub(super) fn wm_expansion_plan(meta: &EntityMeta) -> WmExpansionPlan {
+pub fn wm_expansion_plan(meta: &EntityMeta) -> WmExpansionPlan {
     let mut dims: Vec<String> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
     fn col_of(r: &str, dims: &mut Vec<String>, index: &mut HashMap<String, usize>) -> usize {
@@ -488,26 +445,23 @@ pub(super) fn wm_expansion_plan(meta: &EntityMeta) -> WmExpansionPlan {
 }
 
 /// Result of executing one entity's expansion query.
-pub(super) struct WmExpansionResult {
+pub struct WmExpansionResult {
     /// Distinct-PK count — the node's `matched` value.
-    pub(super) matched: u64,
+    pub matched: u64,
     /// Distinct PK rows (all columns), for building inbound-child FK filters.
-    pub(super) pk_rows: Vec<Vec<serde_json::Value>>,
+    pub pk_rows: Vec<Vec<serde_json::Value>>,
     /// Per outbound link: (target entity, that link's distinct FK values).
-    pub(super) fk_values: Vec<(String, Vec<serde_json::Value>)>,
+    pub fk_values: Vec<(String, Vec<serde_json::Value>)>,
     /// Up to 3 display strings and their nav keys.
-    pub(super) sample: Vec<String>,
-    pub(super) sample_keys: Vec<String>,
+    pub sample: Vec<String>,
+    pub sample_keys: Vec<String>,
 }
 
 /// Parse the rows of an expansion query into a [`WmExpansionResult`] using the
 /// column layout from [`wm_expansion_plan`]. Pure — no IO — so it is unit-tested
 /// directly. `matched` counts **distinct** PK tuples (an FK fanning out to
 /// several rows per instance never inflates the count).
-pub(super) fn parse_expansion_rows(
-    rows: &[Vec<String>],
-    plan: &WmExpansionPlan,
-) -> WmExpansionResult {
+pub fn parse_expansion_rows(rows: &[Vec<String>], plan: &WmExpansionPlan) -> WmExpansionResult {
     let project = |row: &[String], cols: &[usize]| -> Vec<String> {
         cols.iter()
             .map(|&c| row.get(c).cloned().unwrap_or_default())
@@ -571,21 +525,21 @@ pub(super) fn parse_expansion_rows(
 /// Rule: if `label: <dim>` is declared, use that dimension; otherwise join all PK
 /// columns with " · ".  Used by the instance picker, instance detail (init, parent,
 /// child samples) so the behaviour is identical everywhere.
-pub(super) struct EntityDisplaySpec {
+pub struct EntityDisplaySpec {
     /// View-qualified dimension refs to SELECT (all PKs first, then label dim if any).
-    pub(super) dims: Vec<String>,
+    pub dims: Vec<String>,
     /// Number of leading PK columns in `dims`.
-    pub(super) pk_count: usize,
+    pub pk_count: usize,
     /// Whether a label dim was appended after the PK columns.
-    pub(super) has_label_dim: bool,
+    pub has_label_dim: bool,
     /// Unqualified label dim name (for attr-map lookup).
-    pub(super) label_name: Option<String>,
+    pub label_name: Option<String>,
     /// Unqualified PK col names (for attr-map and search expressions).
-    pub(super) pk_names: Vec<String>,
+    pub pk_names: Vec<String>,
 }
 
 impl EntityDisplaySpec {
-    pub(super) fn for_entity(
+    pub fn for_entity(
         view: &oxy_airlayer_compat::View,
         entity_name: &str,
         display_field: Option<&str>,
@@ -622,7 +576,7 @@ impl EntityDisplaySpec {
     }
 
     /// Build a display string from a SELECT result row (columns ordered as `self.dims`).
-    pub(super) fn display_from_row(&self, row: &[String]) -> String {
+    pub fn display_from_row(&self, row: &[String]) -> String {
         if self.has_label_dim {
             let v = row.get(self.pk_count).cloned().unwrap_or_default();
             if !v.is_empty() {
@@ -633,7 +587,7 @@ impl EntityDisplaySpec {
     }
 
     /// Build a display string from attribute name→value pairs (e.g. the attrs query).
-    pub(super) fn display_from_attrs(&self, attrs: &[(String, String)]) -> String {
+    pub fn display_from_attrs(&self, attrs: &[(String, String)]) -> String {
         if let Some(ref lbl) = self.label_name
             && let Some((_, v)) = attrs.iter().find(|(n, _)| n == lbl)
             && !v.is_empty()
@@ -653,7 +607,7 @@ impl EntityDisplaySpec {
         }
     }
 
-    pub(super) fn join_pks_from_row(&self, row: &[String]) -> String {
+    pub fn join_pks_from_row(&self, row: &[String]) -> String {
         let parts: Vec<&str> = row[..self.pk_count.min(row.len())]
             .iter()
             .map(|s| s.as_str())
@@ -674,7 +628,7 @@ impl EntityDisplaySpec {
 /// endpoints accept: the plain first PK value for single-PK entities, or a
 /// JSON array string of the PK columns for composite PKs. `display` prefers the
 /// label column, falling back to PK columns joined with " · ".
-pub(super) fn sample_row_to_display_key(
+pub fn sample_row_to_display_key(
     row: &[String],
     pk_count: usize,
     has_label_dim: bool,
@@ -711,33 +665,17 @@ fn join_pk_parts(pk_vals: &[String], row: &[String]) -> String {
     }
 }
 
-fn sql_quote(name: &str) -> String {
-    format!("\"{}\"", name.replace('"', "\"\""))
-}
-
 /// Return the injected `_row_count` measure reference for a view.
-pub(super) fn count_measure_ref(view: &oxy_airlayer_compat::View) -> String {
+pub fn count_measure_ref(view: &oxy_airlayer_compat::View) -> String {
     format!("{}.{}", view.name, "__oxy_row_count")
 }
 
-fn measure_agg(measure_type: MeasureType, expr: &str) -> Option<String> {
-    match measure_type {
-        MeasureType::Sum => Some(format!("SUM({expr})")),
-        MeasureType::Count => Some("COUNT(*)".to_string()),
-        MeasureType::Average => Some(format!("AVG({expr})")),
-        MeasureType::Min => Some(format!("MIN({expr})")),
-        MeasureType::Max => Some(format!("MAX({expr})")),
-        MeasureType::CountDistinct => Some(format!("COUNT(DISTINCT {expr})")),
-        _ => None,
-    }
-}
-
-pub(super) fn apply_world_model_config(
+pub fn apply_world_model_config(
     entities: &mut Vec<WmEntity>,
     edges: &mut Vec<WmEdge>,
-    cfg: &oxy_world_model::WorldModelConfig,
+    cfg: &crate::WorldModelConfig,
 ) {
-    use oxy_world_model::{WmEntityConfig, WmFieldConfig};
+    use crate::{WmEntityConfig, WmFieldConfig};
     use std::collections::{HashMap, HashSet};
 
     let entity_map: HashMap<&str, &WmEntityConfig> =
@@ -820,10 +758,10 @@ pub(super) fn apply_world_model_config(
 
 #[cfg(test)]
 mod wm_config_tests {
-    use oxy_airlayer_compat::schema::models::AdditivityClass;
+    use oxy_airlayer_compat::schema::models::{AdditivityClass, MeasureType};
 
     use super::*;
-    use oxy_world_model::{WmEntityConfig, WmFieldConfig, WorldModelConfig};
+    use crate::{WmEntityConfig, WmFieldConfig, WorldModelConfig};
 
     fn make_entity(id: &str) -> WmEntity {
         WmEntity {
@@ -1274,10 +1212,10 @@ mod wm_config_tests {
 /// Build per-entity drill-down metadata for every Primary entity in the layer.
 /// Shared by the filter-counts BFS and the scoped sample-browser endpoint so
 /// both traverse the exact same navigable link graph.
-pub(super) fn build_entity_metas(
+pub fn build_entity_metas(
     layer: &oxy_airlayer_compat::SemanticLayer,
     promotions: &Promotions,
-    wm_cfg: Option<&oxy_world_model::WorldModelConfig>,
+    wm_cfg: Option<&crate::WorldModelConfig>,
 ) -> Vec<EntityMeta> {
     let get_display_field = |entity_id: &str| -> Option<String> {
         wm_cfg
@@ -1328,21 +1266,19 @@ pub(super) fn build_entity_metas(
 /// surface. The sample browser is low-QPS, so it is not the reason the cache
 /// exists — but it reads the same workspace as the handlers around it, and a
 /// second door here is how the cache stopped meaning anything the first time.
-pub(super) struct WmExecCtx {
-    pub(super) workspace_manager: WorkspaceManager<ReadOnly>,
-    pub(super) user_id: Uuid,
-    pub(super) role: WorkspaceRole,
-    pub(super) scan: oxy::config::ScanDir,
-    pub(super) databases: Vec<oxy_airlayer_compat::DatabaseConfig>,
-    pub(super) layer: oxy_airlayer_compat::SemanticLayer,
-    pub(super) engine_cache:
-        std::sync::Arc<crate::server::router::workspace_cache::SemanticEngineCache>,
-    pub(super) engine_key: oxy_airlayer_compat::EngineKey,
+pub struct WmExecCtx {
+    /// The caller's warehouse, scoped to who is asking.
+    pub warehouse: std::sync::Arc<dyn GraphWarehouse>,
+    pub scan: oxy::config::ScanDir,
+    pub databases: Vec<oxy_airlayer_compat::DatabaseConfig>,
+    pub layer: oxy_airlayer_compat::SemanticLayer,
+    pub engine_cache: std::sync::Arc<oxy_airlayer_compat::SemanticEngineCache>,
+    pub engine_key: oxy_airlayer_compat::EngineKey,
 }
 
 impl WmExecCtx {
     /// Compile a config to `(sql, database_name)`; `None` on compile failure.
-    pub(super) async fn compile_full(&self, cfg: SemanticQueryConfig) -> Option<(String, String)> {
+    pub async fn compile_full(&self, cfg: SemanticQueryConfig) -> Option<(String, String)> {
         let sp = self.scan.clone();
         let dbs = self.databases.clone();
         let layer = self.layer.clone();
@@ -1372,7 +1308,7 @@ impl WmExecCtx {
     /// Run one expansion query and parse it into matched PK rows + outbound FK
     /// values (the fuel the BFS needs to reach the next hop). Empty on any
     /// failure so an unreachable node just contributes nothing.
-    pub(super) async fn run_expansion(
+    pub async fn run_expansion(
         &self,
         datasource: &str,
         cfg: SemanticQueryConfig,
@@ -1388,17 +1324,10 @@ impl WmExecCtx {
         let Some((sql, _db)) = self.compile_full(cfg).await else {
             return empty();
         };
-        let Ok(connector) = build_connector(
-            &self.workspace_manager,
-            self.user_id,
-            self.role.clone(),
-            datasource,
-        )
-        .await
-        else {
+        let Ok(connection) = self.warehouse.connect(datasource).await else {
             return empty();
         };
-        let rows = run_with_connector(&connector, &sql).await;
+        let rows = connection.rows(&sql).await;
         parse_expansion_rows(&rows, plan)
     }
 }
@@ -1415,7 +1344,7 @@ fn parse_key_values(key: &str) -> Vec<String> {
 
 /// The seed's PK as a single composite row (`Vec<Value>`, one entry per PK
 /// column). Used to seed BFS `pk_rows` when the pre-fetch query returns nothing.
-pub(super) fn seed_pk_row(key: &str) -> Vec<serde_json::Value> {
+pub fn seed_pk_row(key: &str) -> Vec<serde_json::Value> {
     parse_key_values(key)
         .into_iter()
         .map(serde_json::Value::String)
@@ -1429,7 +1358,7 @@ pub(super) fn seed_pk_row(key: &str) -> Vec<serde_json::Value> {
 /// first PK column against the literal JSON string `["2","4"]` (which matches
 /// nothing and zeroed every reachable count). Empty only when the entity has no
 /// PK dims.
-pub(super) fn seed_self_filters(meta: &EntityMeta, key: &str) -> Vec<SemanticFilter> {
+pub fn seed_self_filters(meta: &EntityMeta, key: &str) -> Vec<SemanticFilter> {
     let values = parse_key_values(key);
     let mk = |field: String, value: String| SemanticFilter {
         field,
@@ -1547,7 +1476,7 @@ struct BfsNeighbor {
 /// The returned filters constrain only `target`'s own view (its PK for an
 /// outbound/coarser target, its FK for an inbound/finer one), so the caller can
 /// drop them straight into a paginated `SELECT` over that entity.
-pub(super) async fn resolve_target_filters(
+pub async fn resolve_target_filters(
     exec: &WmExecCtx,
     entity_metas: &[EntityMeta],
     seed_entity: &str,
@@ -1759,7 +1688,7 @@ fn assemble_hop_filters<'a>(
 
 /// Map an airlayer subtree (component edges only) into UI node/edge DTOs.
 /// Returns None when `root_id` is absent from the tree.
-pub(super) fn breakdown_structure(
+pub fn breakdown_structure(
     tree: &oxy_airlayer_compat::engine::metric_tree::MetricTree,
     root_id: &str,
 ) -> Option<(Vec<WmBreakdownNode>, Vec<WmBreakdownEdge>)> {
@@ -1864,7 +1793,7 @@ fn instance_filter_for_view(
 /// `orders` has no `city` key of its own, but the join graph resolves
 /// `orders → stores → cities`, and every hop is many-to-one so nothing fans out.
 ///
-/// Deliberately *not* [`instance_filter_for_view`], which pins the *target* view
+/// Deliberately *not* `instance_filter_for_view`, which pins the *target* view
 /// through a direct foreign key. That is the right rule for a breakdown, which
 /// values one view at a time and can mark an unreachable view unvalued. Here it
 /// would refuse every measure more than one hop from the entity — which is most
@@ -1873,7 +1802,7 @@ fn instance_filter_for_view(
 /// `key` is the instance key as the world-model API spells it: a JSON array for
 /// a composite key, else a bare scalar. `None` means the entity has no primary
 /// view to pin.
-pub(crate) fn instance_scope_filters(
+pub fn instance_scope_filters(
     layer: &oxy_airlayer_compat::SemanticLayer,
     entity: &str,
     key: &str,
@@ -1912,13 +1841,13 @@ pub(crate) fn instance_scope_filters(
 /// In-memory valuation plan for a breakdown: one `SemanticQueryConfig` per view
 /// group (measures = that view's subtree nodes, in node order), plus the node ids
 /// that have no join path to the instance (streamed unvalued).
-pub(super) struct BreakdownValuePlan {
+pub struct BreakdownValuePlan {
     /// (view_name, node_ids in column order, config).
-    pub(super) groups: Vec<(String, Vec<String>, SemanticQueryConfig)>,
-    pub(super) unvalued: Vec<String>,
+    pub groups: Vec<(String, Vec<String>, SemanticQueryConfig)>,
+    pub unvalued: Vec<String>,
 }
 
-pub(super) fn breakdown_value_plan(
+pub fn breakdown_value_plan(
     layer: &oxy_airlayer_compat::SemanticLayer,
     nodes: &[WmBreakdownNode],
     entity: &str,

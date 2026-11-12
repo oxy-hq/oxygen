@@ -9,12 +9,29 @@ fn code(src: &str) -> String {
         .join("\n")
 }
 
-/// Every handler-side file of the module: comments stripped, test modules cut.
+/// Every handler-side file of the module, and the cores they call in
+/// `oxy-world-model`: comments stripped, test modules cut.
 fn module_code() -> Vec<(&'static str, String)> {
     [
         ("handlers.rs", include_str!("handlers.rs")),
-        ("query.rs", include_str!("query.rs")),
         ("source.rs", include_str!("source.rs")),
+        ("warehouse.rs", include_str!("warehouse.rs")),
+        (
+            "graph/assemble.rs",
+            include_str!("../../../../../world-model/src/graph/assemble.rs"),
+        ),
+        (
+            "graph/breakdown.rs",
+            include_str!("../../../../../world-model/src/graph/breakdown.rs"),
+        ),
+        (
+            "graph/instances.rs",
+            include_str!("../../../../../world-model/src/graph/instances.rs"),
+        ),
+        (
+            "graph/query.rs",
+            include_str!("../../../../../world-model/src/graph/query.rs"),
+        ),
     ]
     .into_iter()
     .map(|(name, src)| {

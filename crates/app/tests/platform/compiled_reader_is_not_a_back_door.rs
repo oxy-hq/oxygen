@@ -127,7 +127,8 @@ fn app_src() -> PathBuf {
 /// itself now lives), `oxy-custom-apps`, `oxy-api-custom-apps` (the custom-app
 /// vertical lifted out of `src/server/api`) and `oxy-api-documents` and
 /// `oxy-api-airway`, `oxy-api-notifications`, `oxy-api-slack` and
-/// `oxy-api-world-model`, and workspace health's
+/// `oxy-api-world-model` (with `oxy-world-model`, where the graph's cores
+/// went down to), and workspace health's
 /// two crates, extracted from
 /// `src/server/api` and still served
 /// by this binary — as
@@ -190,6 +191,13 @@ fn source_files() -> Vec<(String, String)> {
         &world_model,
         &world_model,
         "../api-world-model/src/",
+        &mut out,
+    );
+    let world_model_domain = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../world-model/src");
+    walk(
+        &world_model_domain,
+        &world_model_domain,
+        "../world-model/src/",
         &mut out,
     );
     let health = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../workspace-health/src");

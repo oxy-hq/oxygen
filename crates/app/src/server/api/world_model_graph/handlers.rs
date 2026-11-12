@@ -4,11 +4,9 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
 };
 use futures::stream::{FuturesUnordered, StreamExt as _};
-use oxy_airlayer_compat::engine::promotions::Promotions;
 use oxy_airlayer_compat::schema::models::{EntityType, MeasureType};
 use std::collections::HashMap;
 
-use agentic_semantic::compile::{CompiledQuery, resolve_and_compile, resolve_and_compile_cached};
 use agentic_semantic::config::{
     ScalarFilter, SemanticFilter, SemanticFilterType, SemanticOrder, SemanticQueryConfig,
 };
@@ -22,14 +20,13 @@ use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, SemanticEngineCacheCtx, SemanticLayerCacheCtx, WorkspaceManagerReadOnly,
 };
 use crate::server::api::semantic::{ErrorResponse, WorkspacePath};
-use entity::workspace_members::WorkspaceRole;
-use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::utils::create_sse_stream;
 
-use super::query::*;
 use super::source::*;
-use super::types::*;
-use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
+use super::warehouse::WorkspaceWarehouse;
+use oxy_world_model::graph::query::*;
+use oxy_world_model::graph::types::*;
+use oxy_world_model::graph::{build_world_model_response, instances_core, measure_breakdown_core};
 
 /// `GET /{workspace_id}/semantic/world-model`
 ///
@@ -62,182 +59,6 @@ pub async fn get_world_model(
         })
 }
 
-/// The set of fully-qualified measure ids (`view.measure`) that decompose
-/// into a metric-tree driver breakdown — a measure has one when it is the
-/// target (`to`) of a component edge. Drives each measure's `has_breakdown`.
-fn breakdownable_measures(
-    layer: &oxy_airlayer_compat::SemanticLayer,
-) -> std::collections::HashSet<String> {
-    use oxy_airlayer_compat::engine::metric_tree::EdgeKind;
-    let tree = oxy_semantic::build_metric_tree(layer);
-    tree.edges
-        .iter()
-        .filter(|e| e.kind == EdgeKind::Component)
-        .map(|e| e.to.clone())
-        .collect()
-}
-
-/// Build one entity node (and push its promotion / FK edges) for `view`'s
-/// primary entity. Returns `None` for a view with no primary entity.
-fn build_entity_node(
-    view: &oxy_airlayer_compat::schema::models::View,
-    layer: &oxy_airlayer_compat::SemanticLayer,
-    promotions: &Promotions,
-    breakdownable: &std::collections::HashSet<String>,
-    edges: &mut Vec<WmEdge>,
-) -> Option<WmEntity> {
-    let primary = view
-        .entities
-        .iter()
-        .find(|e| e.entity_type == EntityType::Primary)?;
-    let entity_name = &primary.name;
-    let depth = promotions.ancestry(entity_name).len();
-
-    let dimensions: Vec<WmDimension> = view
-        .dimensions
-        .iter()
-        .map(|d| WmDimension {
-            name: d.name.clone(),
-            dim_type: format!("{:?}", d.dimension_type).to_lowercase(),
-            label: None,
-            description: d.description.clone(),
-        })
-        .collect();
-
-    let own_measures: Vec<WmMeasure> = view
-        .measures
-        .as_ref()
-        .map(|ms| {
-            ms.iter()
-                .filter(|m| !m.name.starts_with('_'))
-                .map(|m| WmMeasure {
-                    name: m.name.clone(),
-                    measure_type: m.measure_type.clone(),
-                    additivity: m.measure_type.additivity_class(),
-                    label: None,
-                    description: m.description.clone(),
-                    expr: m.expr.clone(),
-                    has_breakdown: breakdownable.contains(&format!("{}.{}", view.name, m.name)),
-                    default_cohort: m.default_cohort.clone(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let induced_measures: Vec<WmInducedMeasure> = promotions
-        .induced_for_view(&view.name)
-        .into_iter()
-        .filter(|im| !im.source_measure.starts_with('_'))
-        .map(|im| {
-            let source = layer
-                .views
-                .iter()
-                .find(|v| v.name == im.source_view)
-                .and_then(|v| v.measures.as_ref())
-                .and_then(|ms| ms.iter().find(|m| m.name == im.source_measure));
-            WmInducedMeasure {
-                name: im.source_measure.clone(),
-                measure_type: source
-                    .map(|m| m.measure_type.clone())
-                    .unwrap_or(MeasureType::Custom),
-                additivity: im.additivity,
-                label: None,
-                description: source.and_then(|m| m.description.clone()),
-                expr: source.and_then(|m| m.expr.clone()),
-                promoted_from: im.source_view.clone(),
-                path: im.path.clone(),
-                default_cohort: source.and_then(|m| m.default_cohort.clone()),
-            }
-        })
-        .collect();
-
-    if let Some(parent) = promotions.parent_of(entity_name) {
-        edges.push(WmEdge {
-            from: entity_name.clone(),
-            to: parent.to_string(),
-            functional: true,
-        });
-    }
-
-    // FK cross-reference edges: Foreign entity declarations signal a join
-    // relationship without a promotion hierarchy. Emit dashed edges so the
-    // graph shows these structural cross-links alongside solid parent edges.
-    for foreign in view
-        .entities
-        .iter()
-        .filter(|e| e.entity_type == EntityType::Foreign)
-    {
-        let fk_target = &foreign.name;
-        // Skip if already covered by the parent edge (avoids parallel edges).
-        if promotions.parent_of(entity_name) == Some(fk_target.as_str()) {
-            continue;
-        }
-        // Only draw an edge if the target is also a primary entity somewhere
-        // in the layer (otherwise there's no node to connect to).
-        let target_exists = layer.views.iter().any(|v| {
-            v.entities
-                .iter()
-                .any(|e| e.entity_type == EntityType::Primary && e.name == *fk_target)
-        });
-        if target_exists {
-            edges.push(WmEdge {
-                from: entity_name.clone(),
-                to: fk_target.clone(),
-                functional: false,
-            });
-        }
-    }
-
-    Some(WmEntity {
-        id: entity_name.clone(),
-        label: entity_name.clone(),
-        view: view.name.clone(),
-        description: view.description.clone(),
-        depth,
-        display_field: None,
-        dimensions,
-        own_measures,
-        induced_measures,
-    })
-}
-
-/// Assemble the world-model graph (entity nodes + promotion/FK edges) from a
-/// parsed semantic model, apply the `.world-model.yml` display config, and
-/// sort by depth.
-///
-/// Shared by the workspace-scoped [`get_world_model`] handler and the
-/// customer-app gate handler
-/// ([`crate::server::api::projects::world_model`]) — they differ only in the
-/// gate they enter through; both read the layer from the compile boundary.
-pub(crate) fn build_world_model_response(
-    layer: &oxy_airlayer_compat::SemanticLayer,
-    config: Option<&oxy_world_model::WorldModelConfig>,
-) -> Result<WorldModelResponse, String> {
-    let promotions = Promotions::build(&layer.views)
-        .map_err(|e| format!("Failed to build promotion closure: {e}"))?;
-    let breakdownable = breakdownable_measures(layer);
-
-    let mut entities: Vec<WmEntity> = Vec::new();
-    let mut edges: Vec<WmEdge> = Vec::new();
-    for view in &layer.views {
-        if let Some(entity) =
-            build_entity_node(view, layer, &promotions, &breakdownable, &mut edges)
-        {
-            entities.push(entity);
-        }
-    }
-
-    // Apply the .world-model.yml display config when the workspace has one
-    // (filter + label overrides). The caller resolved it, because a read that
-    // failed is its to answer — see `WorldModelConfig::resolve`.
-    if let Some(cfg) = config {
-        apply_world_model_config(&mut entities, &mut edges, cfg);
-    }
-
-    entities.sort_by_key(|e| e.depth);
-    Ok(WorldModelResponse { entities, edges })
-}
-
 /// `GET /{workspace_id}/semantic/world-model/instances`
 pub async fn get_world_model_instances(
     WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
@@ -259,252 +80,29 @@ pub async fn get_world_model_instances(
         )
     })?;
     refuse_entity_database(&workspace_manager, &layer, &q.entity)?;
-    let engine = Some(CachedEngine::for_source(
+    let engine = Some(cached_engine_for_source(
         &engine_cache,
         &workspace_manager,
         &source,
     ));
+    let warehouse = WorkspaceWarehouse {
+        workspace_manager: workspace_manager.clone(),
+        user_id: user.id,
+        role,
+    };
+    // The IDE's list is the warehouse's view of the world: no reach, no places.
     instances_core(
         &workspace_manager,
-        user.id,
-        role,
+        &warehouse,
         &layer,
         source.scan(),
         engine,
         &q,
-        None,
+        vec![],
     )
     .await
     .map(extract::Json)
-}
-
-/// Core of the world-model instance listing — shared by the workspace
-/// [`get_world_model_instances`] handler and the customer-app gate handler
-/// ([`crate::server::api::projects::world_model`]). Compiles a bounded
-/// `SELECT <pk,label> … LIMIT n` scan over the entity's primary view and runs
-/// it through the agentic connector; not cached (a bounded scan, and a
-/// workspace-keyed cache wouldn't invalidate on an out-of-band working-copy
-/// change). `layer` is borrowed; `scan_path` / `workspace_path` come from the
-/// caller — the FS scan path for the IDE, the compile-boundary revision for the
-/// gate.
-/// `engine` is the caller's cached engine handle when it has one. Like
-/// [`measure_breakdown_core`], the two callers differ: the workspace handler
-/// holds a `SemanticEngineCacheCtx`, while the customer-app handler enters
-/// through `enter_semantic_boundary`, which carries no `AppState`. `None`
-/// keeps the per-request build both callers used before.
-pub(crate) async fn instances_core<S: DiskSlot>(
-    workspace_manager: &WorkspaceManager<S>,
-    user_id: uuid::Uuid,
-    role: WorkspaceRole,
-    layer: &oxy_airlayer_compat::SemanticLayer,
-    scan: oxy::config::ScanDir,
-    engine: Option<CachedEngine>,
-    q: &WmInstancesQuery,
-    graph: Option<&GraphScope>,
-) -> Result<WmInstancesResponse, (StatusCode, extract::Json<ErrorResponse>)>
-where
-    ConfigManager<S>: ResolveWorkspaceFile,
-{
-    let is_search = q.search.as_deref().is_some_and(|s| !s.is_empty());
-    let view = primary_view_of(layer, &q.entity).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            extract::Json(ErrorResponse {
-                message: format!("Entity '{}' not found", q.entity),
-            }),
-        )
-    })?;
-    let _table = view
-        .table
-        .as_deref()
-        .or(view.sql.as_deref())
-        .ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                extract::Json(ErrorResponse {
-                    message: format!("Entity '{}' has no table", q.entity),
-                }),
-            )
-        })?;
-    let pk_cols = entity_keys_in_view(view, &q.entity, true);
-    if pk_cols.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            extract::Json(ErrorResponse {
-                message: format!("Entity '{}' has no key columns", q.entity),
-            }),
-        ));
-    }
-
-    // Look up display_field from .world-model.yml (silently ignore load errors here —
-    // the instances endpoint is a picker convenience, not security-critical).
-    // Compile boundary first (serve replicas have no working copy), FS fallback.
-    let display_field =
-        oxy_world_model::WorldModelConfig::resolve(&workspace_manager.config_manager)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|cfg| cfg.entities.into_iter().find(|e| e.id == q.entity))
-            .and_then(|ec| ec.display_field);
-    let disp = EntityDisplaySpec::for_entity(view, &q.entity, display_field.as_deref());
-
-    // Build the semantic query: PK dimension(s) + optional display label dimension.
-    // resolve_and_compile handles table aliasing, dialect, and database routing.
-    // `scan_path` is caller-supplied (FS or compile-boundary tempdir).
-    let databases = super::query::database_configs(&workspace_manager);
-
-    let order_by = disp.dims.first().cloned().unwrap_or_default();
-
-    // Choose the search filter based on what the display field is:
-    //   - text label dim  → Contains (substring LIKE)
-    //   - PK as display   → Equals (exact key match)
-    let search_filter: Vec<SemanticFilter> = match q.search.as_deref().filter(|s| !s.is_empty()) {
-        None => vec![],
-        Some(term) => {
-            let (field, op) = if disp.has_label_dim {
-                let label_field = disp.dims[disp.pk_count].clone();
-                (
-                    label_field,
-                    SemanticFilterType::Contains(ScalarFilter { value: term.into() }),
-                )
-            } else {
-                let pk_field = disp.dims.first().cloned().unwrap_or_default();
-                (
-                    pk_field,
-                    SemanticFilterType::Eq(ScalarFilter { value: term.into() }),
-                )
-            };
-            vec![SemanticFilter {
-                field,
-                filter_type: op,
-            }]
-        }
-    };
-
-    // For no-search: scan limit+1 to detect whether more records exist.
-    let scan_limit = Some((q.limit as u64) + if is_search { 0 } else { 1 });
-
-    // Reach goes INTO the query, before the LIMIT: a viewer scoped to one
-    // store whose label sorts past the page must still get that store on
-    // page one, which a filter applied after the scan cannot promise.
-    let mut filters = search_filter;
-    if let Some(graph) = graph {
-        filters.extend(reach_filter(graph, view, &q.entity).await?);
-    }
-
-    let semantic_config = SemanticQueryConfig {
-        topic: None,
-        dimensions: disp.dims.clone(),
-        measures: vec![],
-        time_dimensions: vec![],
-        filters,
-        orders: vec![SemanticOrder {
-            field: order_by,
-            direction: "asc".to_string(),
-        }],
-        limit: scan_limit,
-        offset: None,
-    };
-
-    let layer_clone = layer.clone();
-    let (base_sql, database_name) = tokio::task::spawn_blocking(move || match engine {
-        // `cached.databases`, not the local `databases`: the fingerprint in
-        // `cached.key` describes THAT list, and caching an engine under a
-        // fingerprint that does not describe it is the dialect bug one level in.
-        Some(cached) => resolve_and_compile_cached(
-            &cached.cache,
-            cached.key,
-            &scan,
-            &cached.databases,
-            &semantic_config,
-            None,
-            Some(layer_clone),
-        ),
-        None => resolve_and_compile(&scan, &databases, &semantic_config, None, Some(layer_clone)),
-    })
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            extract::Json(ErrorResponse {
-                message: e.to_string(),
-            }),
-        )
-    })?
-    .map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            extract::Json(ErrorResponse {
-                message: e.to_string(),
-            }),
-        )
-    })
-    .map(|compiled| match compiled {
-        CompiledQuery::Warehouse { sql, database_name } => (sql, database_name),
-        // This call passes no `PreaggContext`, so the compiler never returns
-        // this variant — but if one is ever attached here, take the warehouse
-        // SQL the variant carries rather than the rollup's. The rollup SQL is
-        // DuckDB `read_parquet(...)` and is executed by
-        // `agentic_semantic::preagg`, never by the warehouse connector this
-        // path hands it to; the old arm also blanked the database name, which
-        // would have routed it to whichever database `config.yml` lists first.
-        CompiledQuery::Preaggregation {
-            warehouse_sql,
-            warehouse_database,
-            ..
-        } => (warehouse_sql, warehouse_database),
-    })?;
-
-    let payload = SQLParams {
-        sql: base_sql,
-        database: database_name,
-        filters: None,
-        connections: None,
-        result_format: None,
-        untyped: false,
-    };
-    let rows = match run_via_agentic_connector(workspace_manager, user_id, role, &payload).await {
-        Ok(SemanticQueryResponse::Json(r)) => r,
-        _ => vec![],
-    };
-
-    let all_items: Vec<WmInstanceItem> = rows
-        .into_iter()
-        .skip(1) // skip header row
-        .map(|row| {
-            let key = row.first().cloned().unwrap_or_default();
-            let display = disp.display_from_row(&row);
-            let display = if display.is_empty() {
-                key.clone()
-            } else {
-                display
-            };
-            WmInstanceItem {
-                key,
-                display,
-                location: None,
-            }
-        })
-        .collect();
-
-    // For non-search we fetched limit+1 rows to detect overflow; trim to limit.
-    let has_more = !is_search && all_items.len() > q.limit;
-    let mut items: Vec<WmInstanceItem> = if has_more {
-        all_items.into_iter().take(q.limit).collect()
-    } else {
-        all_items
-    };
-    if let Some(graph) = graph {
-        attach_places(graph, view, &mut items).await;
-    }
-    let total = items.len();
-
-    let response = WmInstancesResponse {
-        total,
-        has_more,
-        items,
-    };
-    Ok(response)
+    .map_err(|(status, message)| (status, extract::Json(ErrorResponse { message })))
 }
 
 /// `GET /{workspace_id}/semantic/world-model/filter-instances`
@@ -546,12 +144,14 @@ pub async fn get_world_model_filter_instances(
         ));
     }
 
-    let databases = super::query::database_configs(&workspace_manager);
+    let databases = database_configs(&workspace_manager);
     let engine_key = source.engine_key(&engine_cache, &databases);
     let exec = WmExecCtx {
-        workspace_manager: workspace_manager.clone(),
-        user_id: user.id,
-        role: role.clone(),
+        warehouse: std::sync::Arc::new(WorkspaceWarehouse {
+            workspace_manager: workspace_manager.clone(),
+            user_id: user.id,
+            role: role.clone(),
+        }),
         scan: source.scan(),
         databases,
         layer: (*layer).clone(),
@@ -681,7 +281,7 @@ pub async fn post_world_model_filter_counts(
     // hoisted to module scope so the expansion-plan helpers can share it).
     let entity_metas: Vec<EntityMeta> = build_entity_metas(&layer, &promotions, wm_cfg.as_ref());
 
-    let databases = super::query::database_configs(&workspace_manager);
+    let databases = database_configs(&workspace_manager);
 
     // Get-or-build the cached engine. `SemanticEngine` is `Send + Sync`, so this
     // is a bare `Arc` shared by every compile below — no lock, and nothing a
@@ -1698,7 +1298,7 @@ pub async fn get_world_model_instance_detail(
             )
         })?;
 
-    let databases = super::query::database_configs(&workspace_manager);
+    let databases = database_configs(&workspace_manager);
 
     // Shared PK filters used across all per-instance queries.
     //
@@ -2479,7 +2079,7 @@ pub async fn get_world_model_measure_breakdown(
         )
     })?;
     refuse_breakdown_database(&workspace_manager, &layer, &q)?;
-    let databases = super::query::database_configs(&workspace_manager);
+    let databases = database_configs(&workspace_manager);
     // Surfaced, not swallowed: this is the airlayer validation error for the
     // workspace's own semantic files, and it is what makes an empty driver-tree
     // panel diagnosable.
@@ -2500,346 +2100,13 @@ pub async fn get_world_model_measure_breakdown(
                 )
             })?,
     );
-    let rx = measure_breakdown_core(workspace_manager, user.id, role, &layer, engine, q)
+    let warehouse = WorkspaceWarehouse {
+        workspace_manager: workspace_manager.clone(),
+        user_id: user.id,
+        role,
+    };
+    let rx = measure_breakdown_core(&workspace_manager, &warehouse, &layer, engine, q)
         .await
-        .map_err(|(s, e)| (s, extract::Json(e)))?;
+        .map_err(|(s, message)| (s, extract::Json(ErrorResponse { message })))?;
     Ok(Sse::new(create_sse_stream(rx)).keep_alive(KeepAlive::default()))
-}
-
-/// Core of the world-model measure-breakdown (driver-tree) stream — shared by
-/// the workspace [`get_world_model_measure_breakdown`] handler and the
-/// customer-app gate handler ([`crate::server::api::projects::world_model`]).
-///
-/// Builds the breakdown structure, plans + compiles the per-view value
-/// queries, then spawns a task that streams `Init → Value* → Done` on the
-/// returned channel. `workspace_manager` is moved into the spawned task;
-/// `layer` is borrowed (cloned only where the blocking compile needs an owned
-/// copy). The terminal `Done` is always emitted once every value query
-/// resolves. Errors are the transport-agnostic `(StatusCode, ErrorResponse)`
-/// tuple so each caller wraps the body its own way.
-///
-/// `engine` is the caller's cached engine when it has one. The two callers
-/// differ here and cannot share an entry: the workspace handler reads the
-/// working copy and holds a `SemanticEngineCacheCtx`, while the customer-app
-/// handler enters through `enter_semantic_boundary`, which is headers-driven
-/// and has no `AppState` to carry a cache. `None` falls back to building one
-/// for this request, which is what both callers did before.
-pub(crate) async fn measure_breakdown_core<S: DiskSlot>(
-    workspace_manager: WorkspaceManager<S>,
-    user_id: uuid::Uuid,
-    role: WorkspaceRole,
-    layer: &oxy_airlayer_compat::SemanticLayer,
-    engine: Option<std::sync::Arc<oxy_airlayer_compat::SemanticEngine>>,
-    q: WmMeasureBreakdownQuery,
-) -> Result<tokio::sync::mpsc::Receiver<WmMeasureBreakdownEvent>, (StatusCode, ErrorResponse)>
-where
-    ConfigManager<S>: ResolveWorkspaceFile,
-{
-    let view = primary_view_of(layer, &q.entity).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            ErrorResponse {
-                message: format!("Entity '{}' not found", q.entity),
-            },
-        )
-    })?;
-    let primary_view = view.name.clone();
-    let pk_cols = entity_keys_in_view(view, &q.entity, true);
-    let datasource = q
-        .datasource
-        .clone()
-        .or_else(|| view.datasource.clone())
-        .unwrap_or_default();
-    let root_id = format!("{}.{}", primary_view, q.measure);
-
-    let tree = oxy_semantic::build_metric_tree(layer);
-    let (nodes, edges) = breakdown_structure(&tree, &root_id).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            ErrorResponse {
-                message: format!("Measure '{root_id}' not found in metric tree"),
-            },
-        )
-    })?;
-
-    let key_values: Vec<String> =
-        serde_json::from_str::<Vec<String>>(&q.key).unwrap_or_else(|_| vec![q.key.clone()]);
-
-    let plan = breakdown_value_plan(
-        layer,
-        &nodes,
-        &q.entity,
-        &key_values,
-        &pk_cols,
-        &primary_view,
-    );
-
-    // Compile all view-group SQLs up front (pure, blocking).
-    let layer_clone = layer.clone();
-    let databases = super::query::database_configs(&workspace_manager);
-    let cfgs: Vec<SemanticQueryConfig> = plan.groups.iter().map(|(_, _, c)| c.clone()).collect();
-    let compiled: Vec<Option<String>> = tokio::task::spawn_blocking(move || {
-        // The caller's cached engine when it had one; otherwise build for this
-        // request (the customer-app caller has no cache to reach — see the
-        // doc comment on this function).
-        let engine = match engine {
-            Some(e) => e,
-            None => match oxy_airlayer_compat::build_engine(layer_clone, &databases) {
-                Ok(e) => std::sync::Arc::new(e),
-                Err(e) => {
-                    tracing::warn!(error = %e, "measure-breakdown: engine build failed");
-                    return vec![None; cfgs.len()];
-                }
-            },
-        };
-        cfgs.iter()
-            .map(|cfg| {
-                agentic_semantic::compile_with_engine(&engine, cfg)
-                    .map_err(|e| {
-                        tracing::warn!(error = %e, "measure-breakdown: SQL compile failed");
-                    })
-                    .ok()
-            })
-            .collect()
-    })
-    .await
-    .unwrap_or_else(|_| vec![None; plan.groups.len()]);
-
-    let connector = build_connector(&workspace_manager, user_id, role, &datasource)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                ErrorResponse {
-                    message: e.to_string(),
-                },
-            )
-        })?;
-
-    let (tx, rx) = tokio::sync::mpsc::channel::<WmMeasureBreakdownEvent>(64);
-    let group_node_ids: Vec<Vec<String>> =
-        plan.groups.iter().map(|(_, ids, _)| ids.clone()).collect();
-    let unvalued = plan.unvalued.clone();
-
-    tokio::spawn(async move {
-        tx.send(WmMeasureBreakdownEvent::Init {
-            root: root_id,
-            nodes,
-            edges,
-        })
-        .await
-        .ok();
-
-        for node_id in unvalued {
-            tx.send(WmMeasureBreakdownEvent::Value {
-                node_id,
-                value: None,
-                unvalued_reason: Some("no join path to instance".to_string()),
-            })
-            .await
-            .ok();
-        }
-
-        // Run each view-group query concurrently; emit one Value per node.
-        let mut futs: FuturesUnordered<_> = compiled
-            .into_iter()
-            .zip(group_node_ids)
-            .map(|(sql, node_ids)| {
-                let connector = connector.clone();
-                async move {
-                    let rows = match sql {
-                        Some(ref s) => run_with_connector(&connector, s).await,
-                        None => vec![],
-                    };
-                    (node_ids, rows.into_iter().next().unwrap_or_default())
-                }
-            })
-            .collect();
-
-        while let Some((node_ids, row)) = futs.next().await {
-            for (i, node_id) in node_ids.into_iter().enumerate() {
-                let value = row.get(i).cloned();
-                tx.send(WmMeasureBreakdownEvent::Value {
-                    node_id,
-                    value,
-                    unvalued_reason: None,
-                })
-                .await
-                .ok();
-            }
-        }
-
-        tx.send(WmMeasureBreakdownEvent::Done).await.ok();
-    });
-
-    Ok(rx)
-}
-
-/// The operating graph, as an instances request sees it: the org whose
-/// registry a bound entity resolves against, a handle to read it, and the
-/// viewer's reach when the listing is scoped. The customer-app route
-/// supplies it from the gate context it already holds; the workspace route
-/// passes nothing, so the IDE's instance list is the warehouse's view of
-/// the world and carries no places.
-pub struct GraphScope {
-    pub db: sea_orm::DatabaseConnection,
-    pub org_id: uuid::Uuid,
-    /// `Some` for `scope=reach`. An everywhere reach adds no filter.
-    pub reach: Option<crate::server::api::operating_graph::reach::Reach>,
-}
-
-fn bound_primary(
-    view: &oxy_airlayer_compat::View,
-) -> Option<(String, oxy_airlayer_compat::EntityBinding)> {
-    let e = view.entities.iter().find(|e| {
-        matches!(
-            e.entity_type,
-            oxy_airlayer_compat::schema::models::EntityType::Primary
-        )
-    })?;
-    let binding = oxy_airlayer_compat::entity_binding(e)?;
-    let key = e.get_keys().into_iter().next()?;
-    Some((key, binding))
-}
-
-/// The `in` filter that pins a scoped listing to the viewer's places: over
-/// the bound key, with the keys their places carry in the bound system, or
-/// one value no key equals. A scoped request on an entity that is not bound
-/// is refused — the same rule `semantic.query` applies — rather than
-/// answered whole.
-async fn reach_filter(
-    graph: &GraphScope,
-    view: &oxy_airlayer_compat::View,
-    entity: &str,
-) -> Result<Vec<SemanticFilter>, (StatusCode, extract::Json<ErrorResponse>)> {
-    use crate::server::api::operating_graph::binding::{
-        NO_REACH_SENTINEL, external_ids_for_locations,
-    };
-    let Some(reach) = graph.reach.as_ref() else {
-        return Ok(vec![]);
-    };
-    let Some((key, binding)) = bound_primary(view) else {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            extract::Json(ErrorResponse {
-                message: format!(
-                    "scope `reach` needs entity '{entity}' bound to the locations registry"
-                ),
-            }),
-        ));
-    };
-    if reach.everywhere {
-        return Ok(vec![]);
-    }
-    let mut keys =
-        external_ids_for_locations(&graph.db, graph.org_id, &binding.system, &reach.locations)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    extract::Json(ErrorResponse {
-                        message: format!("reach could not be resolved: {e}"),
-                    }),
-                )
-            })?;
-    if keys.is_empty() {
-        keys.push(NO_REACH_SENTINEL.to_string());
-    }
-    Ok(vec![SemanticFilter {
-        field: format!("{}.{}", view.name, key),
-        filter_type: SemanticFilterType::In(agentic_semantic::config::ArrayFilter {
-            values: keys.into_iter().map(serde_json::Value::String).collect(),
-        }),
-    }])
-}
-
-/// When the entity is bound to the locations registry, name each instance's
-/// place. Best-effort: a lookup that fails leaves the items as they were,
-/// because a list of stores is still a list of stores without the mapping.
-async fn attach_places(
-    graph: &GraphScope,
-    view: &oxy_airlayer_compat::View,
-    items: &mut [WmInstanceItem],
-) {
-    use crate::server::api::operating_graph::binding::locations_by_external_ids;
-    let Some((_, binding)) = bound_primary(view) else {
-        return;
-    };
-    if items.is_empty() {
-        return;
-    }
-    let keys: Vec<String> = items.iter().map(|i| i.key.clone()).collect();
-    match locations_by_external_ids(&graph.db, graph.org_id, &binding.system, &keys).await {
-        Ok(places) => {
-            for item in items.iter_mut() {
-                item.location = places
-                    .get(&item.key)
-                    .map(|p| super::types::WmInstanceLocation {
-                        id: p.id,
-                        name: p.name.clone(),
-                        kind: p.kind.clone(),
-                        parent_id: p.parent_id,
-                    });
-            }
-        }
-        Err(e) => tracing::warn!(error = %e, "world model instances: places not resolved"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A one-view layer whose single measure may or may not declare a cohort.
-    /// Built by deserializing rather than by hand: `View`/`Measure` carry tens
-    /// of optional fields and a literal would say nothing about which matter.
-    fn layer_with(default_cohort: Option<&str>) -> oxy_airlayer_compat::SemanticLayer {
-        let mut measure = serde_json::json!({ "name": "wage_pct", "type": "sum" });
-        if let Some(c) = default_cohort {
-            measure["default_cohort"] = serde_json::json!(c);
-        }
-        serde_json::from_value(serde_json::json!({
-            "views": [{
-                "name": "sales",
-                "entities": [{ "name": "store_id", "type": "primary", "key": "store_id" }],
-                "measures": [measure],
-            }],
-        }))
-        .expect("fixture layer should deserialize")
-    }
-
-    fn own_measures_of(layer: &oxy_airlayer_compat::SemanticLayer) -> Vec<WmMeasure> {
-        let promotions = Promotions::build(&layer.views).expect("fixture promotions should build");
-        let mut edges = Vec::new();
-        build_entity_node(
-            &layer.views[0],
-            layer,
-            &promotions,
-            &std::collections::HashSet::new(),
-            &mut edges,
-        )
-        .expect("fixture view has a primary entity")
-        .own_measures
-    }
-
-    /// The World Model panel decides whether to offer "Compared to peers" from
-    /// the graph alone — it has no other way to know a cohort exists without
-    /// spending two entity-grain warehouse pulls to be told there is none.
-    #[test]
-    fn a_measures_declared_cohort_reaches_the_graph() {
-        let layer = layer_with(Some("store_id.size_matched"));
-        let measures = own_measures_of(&layer);
-        assert_eq!(measures.len(), 1);
-        assert_eq!(
-            measures[0].default_cohort.as_deref(),
-            Some("store_id.size_matched")
-        );
-    }
-
-    /// The common case today, and the one the toggle must not render for.
-    #[test]
-    fn a_measure_without_a_cohort_carries_none() {
-        let layer = layer_with(None);
-        assert_eq!(own_measures_of(&layer)[0].default_cohort, None);
-    }
 }

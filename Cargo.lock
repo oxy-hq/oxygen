@@ -11032,9 +11032,15 @@ dependencies = [
 name = "oxy-world-model"
 version = "0.5.160"
 dependencies = [
+ "agentic-semantic",
+ "async-trait",
  "chrono",
  "entity",
+ "futures",
+ "http 1.5.0",
  "oxy",
+ "oxy-airlayer-compat",
+ "oxy-semantic",
  "sea-orm",
  "serde",
  "serde_json",
@@ -11042,6 +11048,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tracing",
+ "utoipa",
  "uuid",
  "workspace-hack",
 ]

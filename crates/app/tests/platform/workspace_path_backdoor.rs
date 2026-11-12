@@ -120,13 +120,15 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
     // `oxy-api-documents` was extracted from `src/server/api/documents` and
     // still serves requests from this binary, so the guard follows it. Paths
     // there read `../api-documents/src/…`. `oxy-api-airway`, `oxy-api-slack`
-    // and `oxy-api-world-model` likewise.
+    // and `oxy-api-world-model` likewise, and `oxy-world-model`, where the
+    // World Model Graph's cores went down to.
     let mut walk = vec![
         root.clone(),
         manifest.join("../api-documents/src"),
         manifest.join("../api-airway/src"),
         manifest.join("../api-slack/src"),
         manifest.join("../api-world-model/src"),
+        manifest.join("../world-model/src"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

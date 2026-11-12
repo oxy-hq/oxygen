@@ -1,10 +1,10 @@
 //! The cohort wire contract — shared verbatim by both surfaces.
 //!
-//! Owned here, next to the IDE handler, and imported by
-//! [`crate::server::api::projects::cohort`], mirroring how
-//! `api::metric_tree` owns `OpportunityRequest` and the customer-app twin
-//! imports it. One definition means the two surfaces cannot drift into
-//! answering the same question with different shapes.
+//! Owned here, below both surfaces: the IDE's `semantic/cohort` handler and
+//! its customer-app twin (`oxy-app`'s `projects::cohort`) import it, the way
+//! both metric-tree surfaces import `OpportunityRequest`. One definition
+//! means the two surfaces cannot drift into answering the same question with
+//! different shapes.
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

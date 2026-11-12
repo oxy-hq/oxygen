@@ -10,27 +10,29 @@
 //! `world_model.rs`, which serves the live world-model *app* (cameras,
 //! weather, event SSE, LLM proxy).
 //!
-//! Module layout (mechanical split of the former single file):
-//! - [`types`]   — the public `Wm*` serde DTOs.
-//! - [`query`]   — internal SQL/traversal helpers and their unit tests.
+//! The cores both this surface and the customer-app twins answer from — the
+//! `Wm*` DTOs, the entity graph, the instance listing, the measure breakdown
+//! and the SQL/traversal helpers — are `oxy_world_model::graph`, re-exported
+//! here. What stays:
 //! - [`source`]  — where the model is read from (compile boundary first), and
 //!   which databases a pod with no working copy refuses.
+//! - [`warehouse`] — the connector the cores run on, as the platform builds it.
 //! - [`handlers`] — the six HTTP handlers.
 
 mod handlers;
-mod query;
 mod source;
-mod types;
+mod warehouse;
 
 pub use handlers::{
     get_world_model, get_world_model_filter_instances, get_world_model_instance_detail,
     get_world_model_instances, get_world_model_measure_breakdown, post_world_model_filter_counts,
 };
-pub use types::*;
+pub use oxy_world_model::graph::types::*;
 
 // Transport-agnostic reuse cores shared with the customer-app-gated
 // `projects/world_model.rs` handlers and the metric-tree ops.
-pub(crate) use handlers::{
-    GraphScope, build_world_model_response, instances_core, measure_breakdown_core,
+pub(crate) use oxy_world_model::graph::{
+    build_world_model_response, instance_scope_filters, instances_core, instances_view,
+    measure_breakdown_core,
 };
-pub(crate) use query::instance_scope_filters;
+pub(crate) use warehouse::WorkspaceWarehouse;

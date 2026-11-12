@@ -36,8 +36,10 @@
 //! ## Scope and precision
 //!
 //! The walk covers `crates/app/src/server/api/**`, `crates/app/src/integrations/**`
-//! (Slack and eval request paths) and every `crates/api-*/src/**`: the handler
-//! layer and the surface crates `oxy-server` mounts. Test code is out:
+//! (Slack and eval request paths), every `crates/api-*/src/**`, and the request-path
+//! cores in `crates/world-model/src/{graph,cohort}/**` that the World Model handlers
+//! call into: the handler layer, the surface crates `oxy-server` mounts, and the
+//! handler bodies lowered out of them. Test code is out:
 //! files under a `tests/` directory, `tests.rs` and `*_tests.rs` modules, the few
 //! `#[cfg(test)] mod x;` files named in [`TEST_ONLY_FILES`], and every
 //! `#[cfg(test)] mod … { … }` block (cut on rustfmt's column-0 `}`), so a test that
@@ -205,10 +207,18 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     (
         "app/src/server/api/world_model_graph/handlers.rs",
-        "only pumps this request's own SSE stream: filter counts, instance detail and \
-         measure breakdown each run their warehouse queries concurrently inside one \
-         spawned task and send every result over the response's channel; nothing is \
-         persisted and the task ends with the last query",
+        "only pumps this request's own SSE stream: filter counts and instance detail \
+         each run their warehouse queries concurrently inside one spawned task and send \
+         every result over the response's channel; nothing is persisted and the task \
+         ends with the last query",
+    ),
+    // ---- oxy-world-model: request-path cores lowered from the handlers ----
+    (
+        "world-model/src/graph/breakdown.rs",
+        "only pumps this request's own SSE stream: the measure breakdown runs its \
+         view-group queries concurrently inside one spawned task and sends each \
+         node's value over the response's channel; nothing is persisted and the task ends with the \
+         last query",
     ),
     // ---- api-world-model ----
     (
@@ -403,6 +413,12 @@ fn scan_roots() -> Vec<PathBuf> {
     let mut roots = vec![
         crates.join("app/src/server/api"),
         crates.join("app/src/integrations"),
+        // The World Model graph and cohort cores, lowered out of oxy-app's
+        // handlers into `oxy-world-model`: still request paths, so still this
+        // rule's. The rest of that crate (the live-feed outbox writer) is
+        // process plumbing, not a handler, and stays outside.
+        crates.join("world-model/src/graph"),
+        crates.join("world-model/src/cohort"),
     ];
     let Ok(entries) = fs::read_dir(crates) else {
         return roots;

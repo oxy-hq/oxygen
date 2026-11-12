@@ -1,8 +1,8 @@
 //! Peer-cohort comparison over the semantic model — the IDE/workspace surface.
 //!
 //! IDE twin of [`crate::server::api::projects::cohort`], and the pair follows
-//! the metric-tree precedent exactly: **this module owns the wire types and
-//! the pure helpers, the customer-app module imports them**, so the two
+//! the metric-tree precedent exactly: **the wire types and the pure helpers
+//! are shared (`oxy_world_model::cohort`) and both modules import them**, so the two
 //! surfaces cannot answer the same question with different shapes. What
 //! differs between them is only how a request gets in and where the semantic
 //! model comes from:
@@ -31,8 +31,8 @@
 //! `oxy-route-classification` skill.
 //!
 //! Three contracts the response shape exists to preserve, all easy to break by
-//! "tidying" — restated here rather than only in the twin because this is now
-//! the module that owns the types:
+//! "tidying" — restated here, beside the IDE handler, because the types they
+//! constrain are shared with the twin:
 //!
 //!  1. **`excluded` is not optional detail.** A subject that cannot be
 //!     compared comes back with a reason. The feature exists partly because in
@@ -46,14 +46,16 @@
 //!     them cannot drift from the query that produced the numbers.
 
 mod error;
-mod resolve;
-mod wire;
 
 pub use error::{CohortError, CohortErrorBody};
-pub(crate) use resolve::{
+// The wire contract and the pure helpers are `oxy_world_model::cohort`, below
+// both surfaces.
+pub(crate) use oxy_world_model::cohort::{
     COHORT_TIMEOUT, parse_statistic, prepare_cohort_layer, resolve_cohort_name,
 };
-pub use wire::{CohortRequest, CohortResponse, CohortSubjectDto, ExcludedSubjectDto};
+pub use oxy_world_model::cohort::{
+    CohortRequest, CohortResponse, CohortSubjectDto, ExcludedSubjectDto,
+};
 
 use std::sync::Arc;
 

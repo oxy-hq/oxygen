@@ -87,7 +87,7 @@ const ALLOWED: &[(&str, &str)] = &[
          workspace's.",
     ),
     (
-        "crates/app/src/server/api/world_model_graph/handlers.rs",
+        "crates/world-model/src/graph/breakdown.rs",
         "`measure_breakdown_core`'s fallback for the customer-app caller, which \
          enters through `enter_semantic_boundary` — headers-driven, with no \
          `AppState` to carry a cache. The workspace caller passes its cached \
@@ -96,7 +96,7 @@ const ALLOWED: &[(&str, &str)] = &[
     (
         "crates/app/src/server/api/projects/metric_tree.rs",
         "`run_baseline_query`, on the same customer-app boundary as \
-         `world_model_graph/handlers.rs` above: these routes are mounted in \
+         the world-model breakdown above: these routes are mounted in \
          `router/public.rs`, which does not carry `workspace_middleware`, so \
          the `SemanticEngineCacheCtx` extension that supplies the cache is \
          never inserted. `SemanticBoundary` holds a `CustomAppContext` and a \

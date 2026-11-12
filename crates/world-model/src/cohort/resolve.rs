@@ -1,7 +1,7 @@
 //! Pure cohort helpers — no HTTP, no database, no filesystem.
 //!
-//! Shared by both surfaces ([`super`] and
-//! [`crate::server::api::projects::cohort`]) because the answers must not
+//! Shared by both surfaces (the IDE's `semantic/cohort` and the customer
+//! app's, both in `oxy-app` today) because the answers must not
 //! differ: which statistic a string means, whether the truncation guard could
 //! be installed, and which cohort a measure defaults to are facts about the
 //! semantic model, not about who is asking.
@@ -15,11 +15,11 @@ use oxy_airlayer_compat::engine::metric_tree_ops::BenchmarkStatistic;
 ///
 /// One constant for both surfaces: they query the same warehouse, so the
 /// deadline is one number in one place rather than two that can be tuned
-/// apart — the same reasoning as `BASELINE_TIMEOUT` in `api::metric_tree`.
-pub(crate) const COHORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+/// apart — the same reasoning as `BASELINE_TIMEOUT` in `oxy-app`'s `api::metric_tree`.
+pub const COHORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
 /// Parse the statistic, defaulting to `median`.
-pub(crate) fn parse_statistic(raw: Option<&str>) -> Result<BenchmarkStatistic, String> {
+pub fn parse_statistic(raw: Option<&str>) -> Result<BenchmarkStatistic, String> {
     match raw.unwrap_or("median") {
         "median" => Ok(BenchmarkStatistic::Median),
         "p75" => Ok(BenchmarkStatistic::P75),
@@ -38,10 +38,7 @@ pub(crate) fn parse_statistic(raw: Option<&str>) -> Result<BenchmarkStatistic, S
 /// stops a truncated entity pull being medianed as if it were the whole
 /// population. So a `false` becomes an `Err` here and the caller must not
 /// build an engine.
-pub(crate) fn prepare_cohort_layer(
-    layer: &SemanticLayer,
-    entity: &str,
-) -> Result<SemanticLayer, String> {
+pub fn prepare_cohort_layer(layer: &SemanticLayer, entity: &str) -> Result<SemanticLayer, String> {
     let mut augmented = layer.clone();
     if !augment_layer_for_cohort(&mut augmented, entity) {
         // Surface it. Proceeding here would resolve the cohort with the
@@ -63,7 +60,7 @@ pub(crate) fn prepare_cohort_layer(
 /// `cohorts:` yet, which is why both surfaces answer it as a recognisable
 /// `cohort_not_resolved` rather than folding it into a generic failure: the
 /// World Model panel renders it as "no peer cohort declared for this measure".
-pub(crate) fn resolve_cohort_name(
+pub fn resolve_cohort_name(
     layer: &SemanticLayer,
     entity: &str,
     measure: &str,

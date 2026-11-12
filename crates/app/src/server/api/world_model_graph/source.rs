@@ -23,6 +23,8 @@ use crate::server::api::semantic::{
     ErrorResponse, QueryScanSource, resolve_query_scan_source, semantic_err,
 };
 use crate::server::servability;
+use oxy_world_model::graph::CachedEngine;
+use oxy_world_model::graph::query::database_configs;
 
 /// The error every handler here answers with.
 pub(super) type WmError = (StatusCode, Json<ErrorResponse>);
@@ -164,7 +166,7 @@ pub(super) fn refuse_entity_database<S: DiskSlot>(
     layer: &oxy_airlayer_compat::SemanticLayer,
     entity: &str,
 ) -> Result<(), WmError> {
-    match super::query::primary_view_of(layer, entity) {
+    match oxy_world_model::graph::query::primary_view_of(layer, entity) {
         Some(view) => {
             refuse_databases_this_pod_cannot_open(workspace_manager, [view.datasource.as_deref()])
         }
@@ -189,7 +191,7 @@ pub(super) async fn load_entity_model<S: DiskSlot>(
 pub(super) fn refuse_breakdown_database<S: DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
     layer: &oxy_airlayer_compat::SemanticLayer,
-    q: &super::types::WmMeasureBreakdownQuery,
+    q: &oxy_world_model::graph::WmMeasureBreakdownQuery,
 ) -> Result<(), WmError> {
     match q.datasource.as_deref() {
         Some(name) => refuse_databases_this_pod_cannot_open(workspace_manager, [Some(name)]),
@@ -224,3 +226,39 @@ pub(super) async fn display_config<S: DiskSlot>(
 #[cfg(test)]
 #[path = "source_tests.rs"]
 mod tests;
+
+/// Resolve the `.world-model.yml` display config for a handler that labels
+/// with it, tolerating a config that is missing or does not parse (`None`):
+/// the display degrades. Compile-boundary first (serve replicas have no
+/// working copy), FS fallback — see `WorldModelConfig::resolve`.
+///
+/// A read that FAILED is not tolerated. It is not "no config", and the
+/// config carries allowlists; the handler answers the retryable 503.
+pub(super) async fn resolve_world_model_config<S: DiskSlot>(
+    workspace_manager: &WorkspaceManager<S>,
+) -> Result<Option<oxy_world_model::WorldModelConfig>, WmError> {
+    use oxy_world_model::WorldModelConfigError::{Invalid, Unavailable};
+    // By variant, not `retryable()`: a third kind of failure must be given an
+    // answer here before it compiles, not fall into the one that degrades.
+    match oxy_world_model::WorldModelConfig::resolve(&workspace_manager.config_manager).await {
+        Ok(config) => Ok(config),
+        Err(e @ Unavailable(_)) => Err(config_unavailable(e)),
+        Err(Invalid(_)) => Ok(None),
+    }
+}
+
+/// The cached engine for a caller that resolved its scan through
+/// [`ModelSource`]: keyed by what that scan read, with the databases the key
+/// was fingerprinted from.
+pub(super) fn cached_engine_for_source<S: DiskSlot>(
+    engine_cache: &SemanticEngineCacheCtx,
+    workspace_manager: &WorkspaceManager<S>,
+    source: &ModelSource,
+) -> CachedEngine {
+    let databases = database_configs(workspace_manager);
+    CachedEngine {
+        cache: engine_cache.cache.clone(),
+        key: source.engine_key(engine_cache, &databases),
+        databases,
+    }
+}

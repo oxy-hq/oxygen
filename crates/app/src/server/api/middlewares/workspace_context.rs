@@ -2413,9 +2413,19 @@ mod tests {
                 "world_model_graph/handlers.rs",
                 include_str!("../world_model_graph/handlers.rs"),
             ),
+            // The graph cores, lowered into `oxy-world-model`: the IDE
+            // handlers above hand them the engine they keyed.
             (
-                "world_model_graph/query.rs",
-                include_str!("../world_model_graph/query.rs"),
+                "oxy-world-model graph/query.rs",
+                include_str!("../../../../../world-model/src/graph/query.rs"),
+            ),
+            (
+                "oxy-world-model graph/instances.rs",
+                include_str!("../../../../../world-model/src/graph/instances.rs"),
+            ),
+            (
+                "oxy-world-model graph/breakdown.rs",
+                include_str!("../../../../../world-model/src/graph/breakdown.rs"),
             ),
             (
                 "world_model_graph/source.rs",

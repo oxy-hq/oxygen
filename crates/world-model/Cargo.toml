@@ -2,7 +2,7 @@
 name = "oxy-world-model"
 version.workspace = true
 authors.workspace = true
-description = "The world-model context's domain half: `.world-model.yml` config and the live feed's write side"
+description = "The world-model context's domain half: `.world-model.yml` config, the World Model Graph and cohort cores, and the live feed's write side"
 documentation.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -19,6 +19,15 @@ sea-orm = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
+# `graph` and `cohort`: the cores compile semantic queries and answer with
+# airlayer's model and cohort types.
+agentic-semantic = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+oxy-airlayer-compat = { workspace = true }
+oxy-semantic = { workspace = true }
+utoipa = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
