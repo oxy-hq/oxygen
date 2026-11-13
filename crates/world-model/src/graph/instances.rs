@@ -16,7 +16,7 @@ use super::warehouse::GraphWarehouse;
 
 /// Core of the world-model instance listing — shared by the workspace
 /// `get_world_model_instances` handler and the customer-app gate handler
-/// (`oxy-app`'s `projects::world_model`). Compiles a bounded
+/// (`oxy-api-world-model`'s `customer_app::world_model`). Compiles a bounded
 /// `SELECT <pk,label> … LIMIT n` scan over the entity's primary view and runs
 /// it through the agentic connector; not cached (a bounded scan, and a
 /// workspace-keyed cache wouldn't invalidate on an out-of-band working-copy

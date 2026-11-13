@@ -4,13 +4,13 @@
 //! Customer-app-gated variants of the IDE's workspace-scoped
 //! `/semantic/world-model*` handlers. They enter through the customer-app
 //! gate and load the semantic model from the compile boundary (via
-//! [`super::semantic_boundary`]) so they run on the stateless serve fleet.
+//! `oxy_app::surface::custom_app_semantic`) so they run on the stateless serve fleet.
 //! The graph-assembly, instance-listing and breakdown cores are shared with
-//! the workspace handlers in [`crate::server::api::world_model_graph`]
+//! the workspace handlers in [`crate::graph`]
 //! (both answer from `oxy_world_model::graph`) — only the layer/path
 //! acquisition differs. What is this route's alone is the operating graph:
 //! a listing scoped to the viewer's reach, and the places its instances map
-//! to ([`GraphScope`]).
+//! to (`GraphScope`).
 
 use axum::extract::{Path, Query};
 use axum::http::{HeaderMap, StatusCode, Uri};
@@ -20,12 +20,12 @@ use entity::workspace_members::WorkspaceRole;
 use oxy::utils::create_sse_stream;
 use uuid::Uuid;
 
-use crate::server::api::projects::semantic_boundary::{
+use crate::graph::WorkspaceWarehouse;
+use agentic_semantic::config::{SemanticFilter, SemanticFilterType};
+use oxy_app::surface::custom_app_semantic::{
     cache_lookup, cache_store, enter_semantic_boundary, err, err_with_code, load_layer,
     wants_refresh,
 };
-use crate::server::api::world_model_graph::WorkspaceWarehouse;
-use agentic_semantic::config::{SemanticFilter, SemanticFilterType};
 use oxy_world_model::graph::{
     WmInstanceItem, WmInstanceLocation, WmInstancesQuery, WmMeasureBreakdownQuery,
     build_world_model_response, instances_core, instances_view, measure_breakdown_core,
@@ -121,7 +121,7 @@ pub async fn get_world_model_instances(
     // goes into the scan rather than over the page.
     let reach = if q.scope.as_deref() == Some("reach") {
         Some(
-            crate::server::api::operating_graph::reach::reach_for_viewer(
+            oxy_custom_apps::reach::reach_for_viewer(
                 &boundary.app.db,
                 boundary.app.org_id,
                 &boundary.app.user,
@@ -219,7 +219,7 @@ pub(crate) struct GraphScope {
     pub db: sea_orm::DatabaseConnection,
     pub org_id: uuid::Uuid,
     /// `Some` for `scope=reach`. An everywhere reach adds no filter.
-    pub reach: Option<crate::server::api::operating_graph::reach::Reach>,
+    pub reach: Option<oxy_app_core::operating_graph::reach::Reach>,
 }
 
 fn bound_primary(
@@ -246,9 +246,7 @@ async fn reach_filter(
     view: &oxy_airlayer_compat::View,
     entity: &str,
 ) -> Result<Vec<SemanticFilter>, (StatusCode, String)> {
-    use crate::server::api::operating_graph::binding::{
-        NO_REACH_SENTINEL, external_ids_for_locations,
-    };
+    use oxy_app_core::operating_graph::binding::{NO_REACH_SENTINEL, external_ids_for_locations};
     let Some(reach) = graph.reach.as_ref() else {
         return Ok(vec![]);
     };
@@ -289,7 +287,7 @@ async fn attach_places(
     view: &oxy_airlayer_compat::View,
     items: &mut [WmInstanceItem],
 ) {
-    use crate::server::api::operating_graph::binding::locations_by_external_ids;
+    use oxy_app_core::operating_graph::binding::locations_by_external_ids;
     let Some((_, binding)) = bound_primary(view) else {
         return;
     };

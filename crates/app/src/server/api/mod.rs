@@ -94,4 +94,3 @@ pub mod workspace_org;
 pub mod workspace_oxy_access;
 pub mod workspace_previews;
 pub mod workspaces;
-pub mod world_model_graph;

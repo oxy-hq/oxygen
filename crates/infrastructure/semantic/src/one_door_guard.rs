@@ -104,17 +104,17 @@ const ALLOWED: &[(&str, &str)] = &[
          (`server/api/metric_tree.rs`) takes the extractor and IS cached.",
     ),
     (
-        "crates/app/src/server/api/projects/cohort.rs",
+        "crates/api-world-model/src/customer_app/cohort.rs",
         "`post_cohort` runs `augment_layer_for_cohort` first, which installs a \
          synthetic `__cohort_total__` count-distinct measure the truncation \
          guard reads — so the layer is unique to the request, exactly like \
          `post_opportunity` above. It is also on the customer-app boundary \
-         (mounted in `router/public.rs`), so no `SemanticEngineCacheCtx` \
+         (mounted on the public seam), so no `SemanticEngineCacheCtx` \
          extension exists to supply a cache in the first place.",
     ),
     (
         "crates/api-world-model/src/cohort/mod.rs",
-        "The IDE twin of `projects/cohort.rs` above (`oxy-api-world-model`'s): \
+        "The IDE twin of `customer_app/cohort.rs` above (`oxy-api-world-model`'s): \
          `prepare_ide_cohort` runs \
          `augment_layer_for_cohort` first, installing the synthetic \
          `__cohort_total__` measure the truncation guard reads, so the layer \

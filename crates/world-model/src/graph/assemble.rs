@@ -152,7 +152,7 @@ fn build_entity_node(
 ///
 /// Shared by the workspace-scoped `get_world_model` handler and the
 /// customer-app gate handler
-/// (`oxy-app`'s `projects::world_model`) — they differ only in the
+/// (`oxy-api-world-model`'s `customer_app::world_model`) — they differ only in the
 /// gate they enter through; both read the layer from the compile boundary.
 pub fn build_world_model_response(
     layer: &oxy_airlayer_compat::SemanticLayer,

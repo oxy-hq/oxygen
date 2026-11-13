@@ -18,6 +18,7 @@ edition.workspace = true
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }     # AppState
 oxy-world-model = { workspace = true }  # the live feed's write half; the graph + cohort cores
+oxy-custom-apps = { workspace = true }  # the customer-app twins: the viewer's reach (`reach::reach_for_viewer`)
 oxy-airlayer-compat = { workspace = true }
 oxy-auth = { workspace = true }
 agentic-semantic = { workspace = true }
@@ -26,6 +27,9 @@ oxy = { workspace = true }
 oxy-shared = { workspace = true }       # fleet_role::RouteRoleDecl
 entity = { workspace = true }
 agentic-core = { workspace = true }
+agentic-connector = { workspace = true }  # `WorkspaceWarehouse` holds the platform's connector
+async-trait = { workspace = true }
+sentry = { workspace = true }            # the cohort twin carries the request's hub onto the blocking pool
 agentic-llm = { workspace = true }
 agentic-pipeline = { workspace = true }
 async-stream = { workspace = true }
@@ -55,6 +59,7 @@ tempfile = { workspace = true }
 oxy-compile = { workspace = true }       # world_model_diskless compiles a workspace, then deletes it
 oxy-test-utils = { workspace = true }    # tests/common takes its Postgres from here
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+tower = { workspace = true, features = ["util"] }  # the public twins' mount test drives the router
 
 [lints]
 workspace = true

@@ -108,7 +108,7 @@ pub struct SqlErrorResponse {
 /// from `run_via_agentic_connector` to `agentic_error_response`. Exposed
 /// crate-wide so the `semantic` module can compose compile → execute
 /// without re-implementing the connector error mapping.
-pub(crate) enum SqlExecuteError {
+pub enum SqlExecuteError {
     Connector(ConnectorError),
     Other(OxyError),
 }
@@ -120,7 +120,7 @@ impl From<OxyError> for SqlExecuteError {
 }
 
 impl SqlExecuteError {
-    pub(crate) fn debug_string(&self) -> String {
+    pub fn debug_string(&self) -> String {
         match self {
             Self::Connector(e) => format!("{e:?}"),
             Self::Other(e) => format!("{e:?}"),
@@ -284,7 +284,7 @@ fn cap_ide_result_rows(sql: &str) -> (String, bool) {
 /// according to the requested `result_format`. Every `DatabaseType` in
 /// `oxy::config::model` has a landing spot in `OxyProjectContext`, so this
 /// is now the single path for every Dev Portal query.
-pub(crate) async fn run_via_agentic_connector<S: DiskSlot>(
+pub async fn run_via_agentic_connector<S: DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
     user_id: Uuid,
     role: WorkspaceRole,

@@ -11,7 +11,9 @@
 //! `X-Oxy-Needs-Recompile` 503 contract when the boundary isn't populated.
 //!
 //! Extracted so the metric-tree and world-model handler modules don't each
-//! reimplement (and drift on) the gate + boundary logic.
+//! reimplement (and drift on) the gate + boundary logic. The world-model and
+//! cohort twins are `oxy-api-world-model`'s and take it through the prelude
+//! (`oxy_app::surface::custom_app_semantic`); the metric-tree twins are here.
 
 use axum::Json;
 use axum::http::{HeaderMap, StatusCode};
@@ -34,7 +36,7 @@ struct ApiErr {
 
 /// `{ message }` JSON error — same envelope the other customer-app
 /// endpoints use, so the SDK renders errors uniformly.
-pub(crate) fn err(status: StatusCode, msg: impl Into<String>) -> Response {
+pub fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (
         status,
         Json(ApiErr {
@@ -46,11 +48,7 @@ pub(crate) fn err(status: StatusCode, msg: impl Into<String>) -> Response {
 }
 
 /// `{ message, code }` JSON error — `code` lets the SDK pattern-match.
-pub(crate) fn err_with_code(
-    status: StatusCode,
-    msg: impl Into<String>,
-    code: &'static str,
-) -> Response {
+pub fn err_with_code(status: StatusCode, msg: impl Into<String>, code: &'static str) -> Response {
     (
         status,
         Json(ApiErr {
@@ -65,14 +63,14 @@ pub(crate) fn err_with_code(
 /// the gate context, the per-request project context, and the resolved scan
 /// (the compiled revision's files on a serve replica, the working copy's
 /// directory where one is held).
-pub(crate) struct SemanticBoundary {
+pub struct SemanticBoundary {
     pub app: CustomAppContext,
     pub proj_ctx: OxyProjectContext,
     pub scan: ScanDir,
 }
 
 impl SemanticBoundary {
-    pub(crate) fn project_id(&self) -> Uuid {
+    pub fn project_id(&self) -> Uuid {
         self.app.project_id
     }
 }
@@ -84,7 +82,7 @@ impl SemanticBoundary {
 /// `503 + X-Oxy-Needs-Recompile` contract as `semantic_query.rs` (and
 /// enqueues a lazy recompile) so the SDK's retry path kicks in rather than
 /// the handler compiling against an empty directory.
-pub(crate) async fn enter_semantic_boundary(
+pub async fn enter_semantic_boundary(
     headers: &HeaderMap,
     project_id: Uuid,
 ) -> Result<SemanticBoundary, Response> {
@@ -155,9 +153,7 @@ pub(crate) async fn enter_semantic_boundary(
 
 /// Parse the airlayer semantic model from a scan, off the async runtime
 /// (it's blocking CPU work that parses every `.view.yml`/`.topic.yml`).
-pub(crate) async fn load_layer(
-    scan: ScanDir,
-) -> Result<oxy_airlayer_compat::SemanticLayer, Response> {
+pub async fn load_layer(scan: ScanDir) -> Result<oxy_airlayer_compat::SemanticLayer, Response> {
     // Sentry hubs are per thread: carry the request's onto the blocking pool so
     // a panic while parsing the model is captured under the custom-app surface
     // tag (`middlewares::sentry_surface`), not on the pool thread's bare hub.
@@ -178,7 +174,7 @@ pub(crate) async fn load_layer(
 
 /// Parse the `?refresh` flag from the raw query string (present, or
 /// `refresh=…`) — the cache-bypass convention shared with `semantic_query.rs`.
-pub(crate) fn wants_refresh(query: Option<&str>) -> bool {
+pub fn wants_refresh(query: Option<&str>) -> bool {
     query
         .map(|q| {
             q.split('&')
@@ -194,7 +190,7 @@ pub(crate) fn wants_refresh(query: Option<&str>) -> bool {
 /// A staging request pinned to a semantic revision reads and writes its own
 /// partition (`db` = the pin), so a branch's answer never serves live, and
 /// live's never answers staging.
-pub(crate) fn cache_lookup(
+pub fn cache_lookup(
     boundary: &SemanticBoundary,
     ns: &'static str,
     key: &str,
@@ -216,7 +212,7 @@ pub(crate) fn cache_lookup(
 /// Serialize `value`, store it under `(project_id, ns, key)`, and respond
 /// with the JSON body. Only successful responses reach here — errors are
 /// never cached.
-pub(crate) fn cache_store<T: Serialize>(
+pub fn cache_store<T: Serialize>(
     boundary: &SemanticBoundary,
     ns: &'static str,
     key: &str,

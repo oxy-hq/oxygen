@@ -143,6 +143,7 @@ fn public_seam_routes() -> SeamRouter {
         .merge(oxy_api_identity::public_routes())
         .merge(oxy_api_custom_apps::public_routes())
         .merge(oxy_api_slack::public_routes())
+        .merge(oxy_api_world_model::public_routes())
 }
 
 /// The sibling crates merged inside the `/{workspace_id}` nest.
@@ -264,6 +265,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_identity::public_route_roles())
                 .chain(oxy_api_custom_apps::public_route_roles())
                 .chain(oxy_api_slack::public_route_roles())
+                .chain(oxy_api_world_model::public_route_roles())
                 .copied()
                 .collect(),
         },

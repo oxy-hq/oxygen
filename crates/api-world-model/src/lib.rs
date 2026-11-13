@@ -29,8 +29,9 @@
 //!
 //! The World Model *Graph* (`/semantic/world-model*`, [`graph`]) and peer
 //! cohorts (`/semantic/cohort`, [`cohort`]) ride the workspace tree only. Their
-//! cores are `oxy_world_model::{graph, cohort}`, shared with the customer-app
-//! twins that stay in `oxy-app` until the custom-app gate splits.
+//! cores are `oxy_world_model::{graph, cohort}`, shared with their customer-app
+//! twins ([`customer_app`]: `/projects/{project_id}/semantic/{world-model*,cohort}`),
+//! which ride the public seam behind the customer-app gate.
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`): an async handler's future can
@@ -40,6 +41,7 @@
 mod camera_bridge;
 pub mod cohort;
 mod competitors;
+pub mod customer_app;
 pub mod events;
 mod foot_traffic;
 mod foot_traffic_seed;
@@ -104,8 +106,8 @@ pub fn workspace_routes() -> Router<AppState> {
             get(graph::get_world_model_measure_breakdown),
         )
         // Peer cohorts — the World Model instance panel's "compared to peers"
-        // section. IDE twin of the customer-app mount in `oxy-app`'s
-        // `public.rs`; the two share `oxy_world_model::cohort`'s wire types and
+        // section. IDE twin of the customer-app mount in
+        // `public_routes`; the two share `oxy_world_model::cohort`'s wire types and
         // differ only in how a caller gets in and whether the population is
         // reach-scoped. Not beside the metric-tree routes: those are a
         // sub-router so `metric_tree_probe` times exactly them, and a cohort
@@ -124,6 +126,60 @@ pub fn external_routes() -> Router<AppState> {
             "/world-model/llm/messages",
             post(llm_proxy::proxy_llm_messages),
         )
+}
+
+/// The public seam's share: the customer-app twins, merged beside `oxy-app`'s
+/// public tree under `/api`, outside the auth stack. A bundle authenticates
+/// inline at the customer-app gate (`crate::customer_app`).
+pub fn public_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/projects/{project_id}/semantic/world-model",
+            get(customer_app::world_model::get_world_model),
+        )
+        .route(
+            "/projects/{project_id}/semantic/world-model/instances",
+            get(customer_app::world_model::get_world_model_instances),
+        )
+        .route(
+            "/projects/{project_id}/semantic/world-model/measure-breakdown",
+            get(customer_app::world_model::get_measure_breakdown),
+        )
+        // Peer cohorts. Scoped to the caller's reach, so unlike the
+        // population-wide IDE twin it refuses rather than answers when the
+        // entity is not bound to the locations registry.
+        .route(
+            "/projects/{project_id}/semantic/cohort",
+            post(customer_app::cohort::post_cohort),
+        )
+}
+
+/// Pod placement for [`public_routes`], relative to `/api`. All four read the
+/// compile boundary and Postgres only: a custom app must not go down with the
+/// Factory.
+pub fn public_route_roles() -> &'static [RouteRoleDecl] {
+    &[
+        RouteRoleDecl {
+            method: "GET",
+            path: "/projects/{project_id}/semantic/world-model",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/projects/{project_id}/semantic/world-model/instances",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/projects/{project_id}/semantic/world-model/measure-breakdown",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "POST",
+            path: "/projects/{project_id}/semantic/cohort",
+            role: RouteRole::FleetOk,
+        },
+    ]
 }
 
 /// Pod placement for [`workspace_routes`], relative to the workspace tree.
@@ -228,6 +284,68 @@ mod tests {
                 found.len()
             );
             assert_eq!(found[0].role, RouteRole::FleetOk, "{method} {path}");
+        }
+    }
+    /// The customer-app twins came from `oxy-app`'s public tree, where
+    /// `route_fleet` declared them; here the declaration is a list, so hold it.
+    /// Each is declared FleetOk exactly once — not merely unclassified, which
+    /// also reads FleetOk and is what a dropped row would look like.
+    #[test]
+    fn the_customer_app_twins_are_declared_fleet_ok_exactly_once() {
+        let declared = public_route_roles();
+        assert_eq!(declared.len(), 4);
+        for decl in declared {
+            let same = declared
+                .iter()
+                .filter(|d| d.method == decl.method && d.path == decl.path)
+                .count();
+            assert_eq!(
+                same, 1,
+                "{} {}: declared {same} times",
+                decl.method, decl.path
+            );
+            assert_eq!(
+                decl.role,
+                RouteRole::FleetOk,
+                "{} {}",
+                decl.method,
+                decl.path
+            );
+        }
+    }
+
+    /// A declaration with no route behind it (or a route moved without its
+    /// declaration) leaves the two lists disagreeing. TRACE, which no route
+    /// here takes, answers 405 from a mounted path and 404 from an unmounted
+    /// one, without running a handler.
+    #[tokio::test]
+    async fn every_declared_twin_is_mounted() {
+        use axum::body::Body;
+        use axum::http::{Method, Request, StatusCode};
+        use tower::ServiceExt;
+
+        let router = public_routes().with_state(oxy_app::surface::bare_app_state());
+        for decl in public_route_roles() {
+            let uri = decl
+                .path
+                .replace("{project_id}", "00000000-0000-0000-0000-000000000001");
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::TRACE)
+                        .uri(&uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{} is declared but not mounted",
+                decl.path
+            );
         }
     }
 }

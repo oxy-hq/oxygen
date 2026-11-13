@@ -361,6 +361,15 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_world_model",
         function: "workspace_routes",
     },
+    // ...and its customer-app twins (the World Model graph and peer cohorts a
+    // bundle reads at `/projects/{project_id}/semantic/*`) ride
+    // `SurfaceSeams::public`, beside the public tree.
+    Seed {
+        surface: "public",
+        prefix: "/api",
+        module: "oxy_api_world_model",
+        function: "public_routes",
+    },
     Seed {
         surface: "external",
         prefix: "/external/api/{workspace_id}",

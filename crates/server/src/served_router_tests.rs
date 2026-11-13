@@ -541,6 +541,49 @@ async fn both_modes_mount_the_identity_handshakes() {
     }
 }
 
+/// The public seam carries the world model's customer-app twins beside the
+/// public tree, in both modes, outside the auth stack (a bundle passes the
+/// customer-app gate inline). PUT, which none of them takes, answers 405 from a
+/// mounted path and 404 from an unmounted one, before any gate runs.
+#[tokio::test]
+async fn both_modes_mount_the_world_model_customer_app_twins() {
+    if db_unavailable() {
+        return;
+    }
+    let project = "00000000-0000-0000-0000-000000000001";
+    for mode in [ServeMode::Cloud, ServeMode::Local] {
+        let router = served(mode).await;
+        assert_eq!(
+            status(
+                &router,
+                &Method::PUT,
+                &format!("/projects/{project}/semantic/nothing-mounts-this")
+            )
+            .await,
+            StatusCode::NOT_FOUND,
+            "control ({mode:?}): an unmounted path must be 404"
+        );
+        for path in [
+            "semantic/world-model",
+            "semantic/world-model/instances",
+            "semantic/world-model/measure-breakdown",
+            "semantic/cohort",
+        ] {
+            let got = status(
+                &router,
+                &Method::PUT,
+                &format!("/projects/{project}/{path}"),
+            )
+            .await;
+            assert_eq!(
+                got,
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{mode:?}: /projects/{{id}}/{path} must be mounted, got {got}"
+            );
+        }
+    }
+}
+
 /// The workspace seam carries the legacy keys and the token inventory into the
 /// `/{workspace_id}` tree. PUT, which neither path takes, answers 405 from a
 /// mounted path and 404 from an unmounted one, whatever the handler would say.

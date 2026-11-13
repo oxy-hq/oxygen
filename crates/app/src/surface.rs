@@ -138,15 +138,36 @@ pub mod metric_tree_exec {
     pub use oxy_app_core::write_hold::active as request_holds_writes;
 }
 
-/// The warehouse the World Model Graph cores (`oxy_world_model::graph`) run
-/// on, as the platform builds it for every Dev Portal query: the same
-/// connector, subject, role and preview hold. The IDE handlers' own fan-outs
-/// (filter counts, instance detail) build that connector directly. Platform runtime, not graph
-/// logic — the graph lives in `oxy-world-model`. It stays in `oxy-app` while
-/// the customer-app twin (`projects::world_model`) does too.
+/// The connector the platform builds for every Dev Portal query (the same
+/// builder, subject, role and preview hold), and the two ways a query runs on
+/// it. `oxy-api-world-model`'s `WorkspaceWarehouse` — the warehouse the World
+/// Model Graph cores (`oxy_world_model::graph`) run on — is built from these,
+/// and the IDE handlers' own fan-outs (filter counts, instance detail) use them
+/// directly. Platform runtime, not graph logic.
 pub mod world_model_exec {
-    pub use crate::server::api::data::{build_connector, run_with_connector};
-    pub use crate::server::api::world_model_graph::WorkspaceWarehouse;
+    pub use crate::server::api::data::{
+        SQLParams, SemanticQueryResponse, build_connector, run_via_agentic_connector,
+        run_with_connector,
+    };
+}
+
+/// What a custom app's semantic read does before it touches the model, as the
+/// data plane does it for every such read (`/projects/{project_id}/semantic/*`):
+/// the customer-app gate, the project context, the scan resolved compile
+/// boundary first (a stateless replica with nothing compiled answers the
+/// `503 semantic_needs_recompile` contract and queues a compile), the
+/// project-scoped result cache (`project_id` first, read after the gate,
+/// `?refresh` honoured), the `{ message, code }` envelope, and the versioned
+/// body parser the bundle SDK's POSTs go through. Platform runtime on the
+/// workspace runtime, not any one context's logic: `oxy-api-world-model`'s
+/// world-model and cohort twins use it, and so do the metric-tree twins still
+/// in `oxy-app`.
+pub mod custom_app_semantic {
+    pub use crate::server::api::custom_apps_gates::parse_versioned_body;
+    pub use crate::server::api::projects::semantic_boundary::{
+        SemanticBoundary, cache_lookup, cache_store, enter_semantic_boundary, err, err_with_code,
+        load_layer, wants_refresh,
+    };
 }
 
 /// The S3 mirror of a runtime artifact (a chart image, a query result) written

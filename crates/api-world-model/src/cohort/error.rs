@@ -1,7 +1,7 @@
 //! Failure modes of the IDE cohort handler, and the `{ message, code }`
 //! envelope they answer with.
 //!
-//! The envelope is deliberately the same one `projects::cohort` produces via
+//! The envelope is deliberately the same one `customer_app::cohort` produces via
 //! `semantic_boundary::err_with_code`. A client that learned to branch on
 //! `code == "cohort_not_resolved"` against one surface must not have to learn
 //! a second dialect for the other — and the World Model panel does exactly
@@ -140,7 +140,7 @@ mod tests {
 
     /// Every code this surface can emit is one the customer-app twin already
     /// emits for the same condition. Pinned as a list so adding a variant
-    /// forces the question "what does `projects::cohort` call this?".
+    /// forces the question "what does `customer_app::cohort` call this?".
     #[test]
     fn every_error_code_matches_the_customer_app_surface() {
         let cases: Vec<(CohortError, &str, StatusCode)> = vec![

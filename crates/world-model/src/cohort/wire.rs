@@ -1,7 +1,7 @@
 //! The cohort wire contract — shared verbatim by both surfaces.
 //!
 //! Owned here, below both surfaces: the IDE's `semantic/cohort` handler and
-//! its customer-app twin (`oxy-app`'s `projects::cohort`) import it, the way
+//! its customer-app twin (`oxy-api-world-model`'s `customer_app::cohort`) import it, the way
 //! both metric-tree surfaces import `OpportunityRequest`. One definition
 //! means the two surfaces cannot drift into answering the same question with
 //! different shapes.

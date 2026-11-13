@@ -897,14 +897,11 @@ fn the_customer_app_data_plane_is_fleet_ok() {
         ("POST", format!("{sem}/metric-tree/distribution")),
         ("POST", format!("{sem}/metric-tree/baseline")),
         ("POST", format!("{sem}/metric-tree/projection")),
-        ("GET", format!("{sem}/world-model/measure-breakdown")),
-        ("GET", format!("{sem}/world-model/instances")),
         // Pure ops, FleetOk all along.
         ("GET", format!("{sem}/metric-tree")),
         ("GET", format!("{sem}/metric-tree/revenue/sensitivity")),
         ("POST", format!("{sem}/metric-tree/predict")),
         ("GET", format!("{sem}/metric-tree/time-dimensions")),
-        ("GET", format!("{sem}/world-model")),
     ];
     for (method, path) in &fleet_ok {
         assert_eq!(

@@ -198,7 +198,6 @@ internal-docs/semantic-validation-standardization.md  @haitrr @luong-komorebi
 
 # World Model graph
 crates/world-model/                                @haitrr @NTtanh
-crates/app/src/server/api/world_model_graph/       @haitrr @NTtanh
 crates/api-world-model/                            @haitrr @NTtanh
 web-app/src/pages/ide/WorldModel/                  @haitrr @NTtanh
 

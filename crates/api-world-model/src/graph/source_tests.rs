@@ -15,10 +15,7 @@ fn module_code() -> Vec<(&'static str, String)> {
     [
         ("handlers.rs", include_str!("handlers.rs")),
         ("source.rs", include_str!("source.rs")),
-        (
-            "warehouse.rs",
-            include_str!("../../../app/src/server/api/world_model_graph/warehouse.rs"),
-        ),
+        ("warehouse.rs", include_str!("warehouse.rs")),
         (
             "graph/assemble.rs",
             include_str!("../../../world-model/src/graph/assemble.rs"),
@@ -82,8 +79,8 @@ use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use uuid::Uuid;
 
 use oxy_app::surface::{SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath};
-// Renamed for the reader: `oxy-app`'s customer-app handler
-// `projects::world_model::get_world_model` has the same name. (It was
+// Renamed for the reader: the customer-app handler
+// `customer_app::world_model::get_world_model` has the same name. (It was
 // `sentry_surface`'s gate-entry check, matching calls by name, that needed
 // it while both lived in `oxy-app`.)
 use crate::graph::get_world_model as ide_world_model_handler;

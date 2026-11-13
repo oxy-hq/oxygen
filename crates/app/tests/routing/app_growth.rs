@@ -142,7 +142,6 @@ const SERVER_API: &[&str] = &[
     "workspace_oxy_access",
     "workspace_previews",
     "workspaces",
-    "world_model_graph",
 ];
 
 /// The module names a directory declares at its top level: `foo.rs` and `foo/`

@@ -112,10 +112,13 @@ fn is_custom_app_namespace(name: &str) -> bool {
 /// execute nothing, so they are not listed; `oxy::database` is Oxy's own
 /// Postgres, not a tenant warehouse. Prefixes, matched a path segment at a time
 /// by [`is_data_plane_module`].
-const DATA_PLANE_MODULE_PREFIXES: [&str; 5] = [
-    // `/query`, `/semantic-query`, agent ask, automation run, cohort, metric
-    // tree, world model — every handler behind `check_custom_app_gates`.
+const DATA_PLANE_MODULE_PREFIXES: [&str; 6] = [
+    // `/query`, `/semantic-query`, agent ask, automation run, metric tree —
+    // the handlers behind `check_custom_app_gates` still in `oxy-app`.
     "oxy_app::server::api::projects",
+    // The world model's customer-app twins (graph, instances, measure
+    // breakdown, cohort), behind the same gate since they left `projects`.
+    "oxy_api_world_model::customer_app",
     // The connector those handlers and `ctx.warehouse` host calls execute through.
     "agentic_connector",
     // Compiles semantic queries and reads pre-aggregations (`execute_preagg_sql`).
@@ -939,6 +942,8 @@ mod tests {
             "oxy_app::server::api::projects",
             "oxy_app::server::api::projects::query",
             "oxy_app::server::api::projects::semantic_query",
+            "oxy_api_world_model::customer_app::cohort",
+            "oxy_api_world_model::customer_app::world_model",
             "agentic_connector",
             "agentic_connector::duckdb",
             "agentic_semantic::preagg",
@@ -950,6 +955,9 @@ mod tests {
         for module in [
             "oxy_app::server::api::threads",
             "oxy_app::server::api::projects_admin",
+            // The IDE twins: workspace-scoped, behind the workspace middleware.
+            "oxy_api_world_model::cohort",
+            "oxy_api_world_model::graph",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

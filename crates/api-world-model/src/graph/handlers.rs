@@ -12,9 +12,10 @@ use agentic_semantic::config::{
 };
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
+use super::WorkspaceWarehouse;
 use oxy::utils::create_sse_stream;
 use oxy_app::surface::workspace_runtime::ErrorResponse;
-use oxy_app::surface::world_model_exec::{WorkspaceWarehouse, build_connector, run_with_connector};
+use oxy_app::surface::world_model_exec::{build_connector, run_with_connector};
 use oxy_app::surface::{
     EffectiveWorkspaceRole, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
     WorkspaceManagerReadOnly, WorkspacePath,

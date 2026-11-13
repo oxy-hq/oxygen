@@ -14,7 +14,7 @@ use super::warehouse::GraphWarehouse;
 
 /// Core of the world-model measure-breakdown (driver-tree) stream — shared by
 /// the workspace `get_world_model_measure_breakdown` handler and the
-/// customer-app gate handler (`oxy-app`'s `projects::world_model`).
+/// customer-app gate handler (`oxy-api-world-model`'s `customer_app::world_model`).
 ///
 /// Builds the breakdown structure, plans + compiles the per-view value
 /// queries, then spawns a task that streams `Init → Value* → Done` on the

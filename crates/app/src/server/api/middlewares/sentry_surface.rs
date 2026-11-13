@@ -617,9 +617,10 @@ mod tests {
         "enter_semantic_boundary",
     ];
 
-    /// Every source file under `src/server` and under `oxy-api-custom-apps`
+    /// Every source file under `src/server`, under `oxy-api-custom-apps`
     /// (`../api-custom-apps/src`, where the function runtime, the job executor
-    /// and publish now live) but this one, as `(path relative to the crate,
+    /// and publish now live) and under `oxy-api-world-model`'s customer-app
+    /// twins (`../api-world-model/src/customer_app`) but this one, as `(path relative to the crate,
     /// raw source)`, sorted — the one traversal both the walk's
     /// scope and the entry-point derivation read, so a violation in either
     /// reports in a deterministic order. This module is left out: it defines
@@ -629,6 +630,12 @@ mod tests {
         let mut files = Vec::new();
         rust_files(&crate_root.join("src/server"), &mut files);
         rust_files(&crate_root.join("../api-custom-apps/src"), &mut files);
+        // The world model's customer-app twins, which enter through
+        // `enter_semantic_boundary` from `oxy-api-world-model`.
+        rust_files(
+            &crate_root.join("../api-world-model/src/customer_app"),
+            &mut files,
+        );
         files.sort();
         files
             .into_iter()
@@ -874,7 +881,7 @@ mod tests {
         };
         const THROUGH_THE_HELPER: [&str; 2] = [
             "src/server/api/projects/metric_tree.rs",
-            "src/server/api/projects/cohort.rs",
+            "../api-world-model/src/customer_app/cohort.rs",
         ];
         const THROUGH_THE_GATE: [&str; 2] = [
             "src/server/api/projects/query.rs",

@@ -1,13 +1,13 @@
 //! Peer-cohort comparison over the semantic model — the IDE/workspace surface.
 //!
-//! IDE twin of `oxy-app`'s `server::api::projects::cohort`, and the pair follows
+//! IDE twin of [`crate::customer_app::cohort`], and the pair follows
 //! the metric-tree precedent exactly: **the wire types and the pure helpers
 //! are shared (`oxy_world_model::cohort`) and both modules import them**, so the two
 //! surfaces cannot answer the same question with different shapes. What
 //! differs between them is only how a request gets in and where the semantic
 //! model comes from:
 //!
-//! | | IDE (here) | Customer app (`projects::cohort`) |
+//! | | IDE (here) | Customer app (`customer_app::cohort`) |
 //! | --- | --- | --- |
 //! | Entry | `workspace_middleware` + `AuthenticatedUserExtractor` | `enter_semantic_boundary` (custom-app gate chain) |
 //! | Layer | `resolve_query_scan_source` — compile boundary, working copy second | `load_layer` off the boundary's scan handle |

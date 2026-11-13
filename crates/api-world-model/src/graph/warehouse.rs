@@ -1,4 +1,4 @@
-//! `oxy-app`'s side of the graph cores' execution seam
+//! The platform's side of the graph cores' execution seam
 //! ([`oxy_world_model::graph::GraphWarehouse`]): the connector the platform
 //! builds for every Dev Portal query, scoped to the caller.
 
@@ -12,7 +12,7 @@ use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
 use oxy_world_model::graph::{GraphConnection, GraphWarehouse};
 use uuid::Uuid;
 
-use crate::server::api::data::{
+use oxy_app::surface::world_model_exec::{
     SQLParams, SemanticQueryResponse, build_connector, run_via_agentic_connector,
     run_with_connector,
 };
