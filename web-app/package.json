@@ -26,6 +26,8 @@
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.32.0",
     "@formkit/auto-animate": "^0.10.0",
+    "@headless-tree/core": "1.8.0",
+    "@headless-tree/react": "1.8.0",
     "@lottiefiles/react-lottie-player": "^3.6.0",
     "@microsoft/fetch-event-source": "2.0.1",
     "@radix-ui/react-alert-dialog": "^1.2.1",

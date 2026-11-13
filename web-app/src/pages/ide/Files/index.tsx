@@ -1,5 +1,4 @@
 import { Eye } from "lucide-react";
-import { useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CopyButton } from "@/components/CopyBlock";
 import ErrorAlert from "@/components/ui/ErrorAlert";
@@ -20,7 +19,6 @@ import { oxycCloneCommand } from "../WorkspaceRepositoryPanel/utils";
 import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
 import { apiErrorMessage } from "./errors";
-import { ancestorFolders, buildTree } from "./utils";
 
 /**
  * The Factory's file browser: the served revision's files, read-only. It reads
@@ -34,18 +32,10 @@ const FilesPage = () => {
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const files = useRevisionFiles();
   const selectedPath = useSelectedPath();
-  const tree = useMemo(() => buildTree(files.data ?? []), [files.data]);
 
   const cloneCommand = oxycCloneCommand(project.id);
   const filesRoutes = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.FILES;
   const open = (entry: RevisionFileEntry) => navigate(filesRoutes.FILE(encodeBase64(entry.path)));
-  const initiallyOpen = useMemo(
-    () => [
-      ...tree.children.flatMap((c) => (c.type === "folder" ? [c.path] : [])),
-      ...(selectedPath ? ancestorFolders(selectedPath) : [])
-    ],
-    [tree, selectedPath]
-  );
 
   return (
     <div className='flex min-h-0 flex-1 flex-col' data-testid='ide-files-page'>
@@ -66,7 +56,7 @@ const FilesPage = () => {
       </div>
       <ResizablePanelGroup direction='horizontal' className='min-h-0 flex-1'>
         <ResizablePanel defaultSize={24} minSize={15} maxSize={45}>
-          <div className='h-full overflow-auto'>
+          <div className='flex h-full min-h-0 flex-col'>
             {files.isPending ? (
               <div className='flex justify-center p-4'>
                 <Spinner />
@@ -78,12 +68,7 @@ const FilesPage = () => {
             ) : files.data.length === 0 ? (
               <p className='p-4 text-muted-foreground text-sm'>The served revision has no files.</p>
             ) : (
-              <FileTree
-                root={tree}
-                selectedPath={selectedPath}
-                initiallyOpen={initiallyOpen}
-                onSelect={open}
-              />
+              <FileTree entries={files.data} selectedPath={selectedPath} onSelect={open} />
             )}
           </div>
         </ResizablePanel>
