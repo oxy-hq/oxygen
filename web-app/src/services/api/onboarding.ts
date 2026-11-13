@@ -5,31 +5,6 @@ export interface OnboardingResult {
   workspace_id: string;
 }
 
-export interface OnboardingResetRequest {
-  /** Secret names to delete (e.g. `ANTHROPIC_API_KEY`). */
-  secret_names: string[];
-  /** Warehouse database names to remove from `config.yml`. The backend also
-   * deletes the associated `password_var` secret for each entry. */
-  database_names: string[];
-  /** Model names to remove from `config.yml`. The backend also deletes the
-   * associated `key_var` secret for each entry. */
-  model_names: string[];
-  /** File paths (relative to the workspace root) to delete. */
-  file_paths: string[];
-  /** Directory paths (relative to the workspace root) to recursively delete.
-   * Used for wiping generated trees such as `.databases/<warehouse>/`. */
-  directory_paths: string[];
-}
-
-export interface OnboardingResetResponse {
-  secrets_deleted: string[];
-  databases_removed: string[];
-  models_removed: string[];
-  files_deleted: string[];
-  directories_deleted: string[];
-  warnings: string[];
-}
-
 interface GithubSetupKeyVar {
   var_name: string;
   vendor: string;
@@ -125,22 +100,6 @@ export class OnboardingService {
   static async getGithubSetup(workspaceId: string): Promise<GithubSetupResponse> {
     const response = await apiClient.get<GithubSetupResponse>(
       `/${workspaceId}/onboarding/github-setup`
-    );
-    return response.data;
-  }
-
-  /**
-   * Revert the server-side side effects of a partial onboarding run (secrets,
-   * warehouse entries in config.yml, and generated files). Each list is handled
-   * idempotently — missing entries are silently skipped.
-   */
-  static async resetOnboarding(
-    workspaceId: string,
-    manifest: OnboardingResetRequest
-  ): Promise<OnboardingResetResponse> {
-    const response = await apiClient.post<OnboardingResetResponse>(
-      `/${workspaceId}/onboarding/reset`,
-      manifest
     );
     return response.data;
   }

@@ -73,15 +73,11 @@ export default function useWorkspaceReadiness(): WorkspaceReadiness {
   // accounts at all — whoever runs it is the operator.
   const canFinishSetup = isLocalMode || !!(user?.is_owner || user?.is_app_admin);
 
-  // `onboarding/github-setup` reads config.yml off the working copy, so the
-  // manifest pins the whole `/{workspace_id}/onboarding/*` subtree to IdeOnly
-  // (`role_manifest.rs`) — and unlike `/details` and `/status` it is NOT in
-  // `degrades_when_ide_unreachable`, so a serve replica answers 502 with
-  // `x-oxy-required-role: ide` while the Factory pod restarts. The Axios
-  // interceptor turns that into the app-wide "Oxygen Factory is temporarily
-  // unavailable" banner. Firing it on every Home load meant every rollout put
-  // that banner in front of every user, none of whom had asked for anything
-  // the Factory owns.
+  // `onboarding/github-setup` once read config.yml off the working copy and was
+  // pinned to the Factory pod, so every rollout put the app-wide "Oxygen
+  // Factory is temporarily unavailable" banner in front of every Home visitor.
+  // It reads the compiled revision now and any replica answers it, but the
+  // probe still feeds nothing but staff setup rows.
   //
   // So Home only probes when THIS browser is tracking a setup for THIS
   // workspace (mid-wizard, or deferred via "Skip for now"), plus legacy local

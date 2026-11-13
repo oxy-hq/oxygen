@@ -138,7 +138,7 @@ fn print_next_steps(compiled: bool, workspace_id: Uuid, path: &str) {
              --workspace-id {workspace_id} --promote --skip-migrations"
         );
     }
-    println!("  OXY_ROLE=ide cargo run -p oxy-server -- serve --enterprise");
+    println!("  OXY_ROLE=all cargo run -p oxy-server -- serve --enterprise");
     println!(
         "  http://localhost:5173/dev-login?as=member   (staff | owner | member | operator | partner)"
     );

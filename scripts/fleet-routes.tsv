@@ -114,12 +114,9 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/{workspace_id}/databases/inspect-schema-tables	fleet-ok	Fixture	same caveat
 *	/api/{workspace_id}/databases/inspect-schemas	fleet-ok	Fixture	same caveat
 *	/api/{workspace_id}/databases/test-connection	ide-only	Fixture	same caveat
-*	/api/{workspace_id}/events	ide-only	Fixture	SSE (`run::automation_events`, `run.rs:303`) — needs a real `source_id` (an automation/procedure run) with events to stream; connects but idles without one
-*	/api/{workspace_id}/events/lookup	ide-only	Fixture	SSE (`task::agentic_events`, `task.rs:66`) — needs a real run/thread reference
-*	/api/{workspace_id}/events/sync	ide-only	Fixture	non-SSE poll variant (`automation_events_sync`) of the row above; same fixture need
 *	/api/{workspace_id}/execution-analytics	fleet-ok	Struct	404 verified live
 *	/api/{workspace_id}/execution-analytics/{*rest}	fleet-ok	Ext	RESOLVED: not a fleet bug. get_summary() gates on state.observability, which is the ClickHouse-only store (crates/app/src/observability_setup.rs: "ClickHouse is the sole backend"); this fleet has no OXY_CLICKHOUSE_* creds (same absence as /traces). Router comment "aggregate the runtime tables" is misleading (implies Postgres) but FleetOk classification is still correct -- ClickHouse, when configured, is reachable identically from every replica. Live-confirmed 500 "Observability not configured" on every node uniformly.
-*	/api/{workspace_id}/integrations/looker	ide-only	Now	lists the Looker integrations named in config.yml; an empty list when none is configured
+*	/api/{workspace_id}/integrations/looker	fleet-ok	Now	lists the Looker integrations named in the served revision's config; an empty list when none is configured
 *	/api/{workspace_id}/integrations/quickbooks/authorize	fleet-ok	Ext	starts QuickBooks OAuth; no creds
 *	/api/{workspace_id}/logo	fleet-ok	Now	reads workspace logo (default/placeholder), read-only
 *	/api/{workspace_id}/logs	fleet-ok	Now	Postgres/runtime read; real data plausible from the seeded schedule/threads
@@ -128,11 +125,10 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/{workspace_id}/meta	fleet-ok	Now	verified live 200
 *	/api/{workspace_id}/metrics	fleet-ok	Struct	404 verified live
 *	/api/{workspace_id}/metrics/{*rest}	fleet-ok	Ext	RESOLVED: not a fleet bug, same root cause as execution-analytics above -- get_metrics_list() also gates on state.observability (ClickHouse). Live-confirmed 500 "Failed to query metrics" on every node uniformly.
-*	/api/{workspace_id}/onboarding-readiness	ide-only	Now	read-only readiness check against the working copy
-*	/api/{workspace_id}/onboarding/github-setup	ide-only	Ext	GitHub-specific, no creds
-*	/api/{workspace_id}/onboarding/reset	ide-only	Destr	resets onboarding state for the shared workspace — could confuse other agents' concurrent work
-*	/api/{workspace_id}/onboarding/test-llm-key	ide-only	Now	tests whichever LLM key is configured; the request itself is safely buildable regardless of outcome
-*	/api/{workspace_id}/onboarding/upload-warehouse-files	ide-only	Fixture	needs a real file upload; a disposable scratch CSV is harmless
+*	/api/{workspace_id}/onboarding-readiness	fleet-ok	Now	read-only readiness check against the compiled workspace
+*	/api/{workspace_id}/onboarding/github-setup	fleet-ok	Ext	GitHub-specific, no creds
+*	/api/{workspace_id}/onboarding/test-llm-key	fleet-ok	Now	tests whichever LLM key is configured; the request itself is safely buildable regardless of outcome; touches no workspace
+*	/api/{workspace_id}/onboarding/upload-warehouse-files	fleet-ok	Fixture	needs a real file upload; a disposable scratch CSV is harmless; on a cloud role it loads into Airhouse and writes no checkout
 *	/api/{workspace_id}/org-subdomain	fleet-ok	Now	reads real workspace subdomain config
 *	/api/{workspace_id}/oxy-access	fleet-ok	Now	verified live 200; `POST` (lock Oxy staff out) is destructive-to-access — avoid on the shared workspace, `DELETE` (unlock) is always safe to run afterward if needed
 *	/api/{workspace_id}/previews	fleet-ok	Ext	staff only. `GET` lists (free); `POST {"branch"}` compiles the branch's head as a staging revision and records the preview — from GitHub when the branch is pushed, replayed to the ide when only its working copy has it; `DELETE ?branch=` removes one. `?branch=` names the preview, so it does not raise the role

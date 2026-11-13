@@ -260,10 +260,11 @@ fn a_handler_that_asks_for_a_working_copy_is_on_an_ide_only_route() {
     }
 
     assert!(
-        // 3, not 20: the IDE removal (2026-11-09) deleted the file, git and
-        // database-write handlers. What is left asking for a working copy is the
-        // connection test, the anomaly scan and the Looker integrations list.
-        checked >= 3,
+        // 2, not 20: the IDE removal (2026-11-09) deleted the file, git and
+        // database-write handlers, and the Looker list reads the served
+        // revision now. What is left asking for a working copy is the
+        // connection test and the anomaly scan.
+        checked >= 2,
         "only {checked} handlers matched — the parser broke; fix it rather than \
          letting the guard pass vacuously",
     );

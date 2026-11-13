@@ -3,11 +3,10 @@
 //! # Why this is not a flag on `/documents/search`
 //!
 //! It started as one. `GET /documents/search?ask=true` is a smaller diff and a
-//! smaller client, and it is wrong: producing an answer means resolving an
-//! agent's config out of the workspace working copy, which pins the handler to
-//! the ide singleton. Search reads Postgres and must keep running on every
-//! replica, because a library nobody can search while the ide restarts is a
-//! library nobody trusts. One route cannot be both, so there are two.
+//! smaller client, and it is wrong: answering resolves an agent and calls a
+//! model, so it is slow, costs money and can fail on its own, while search only
+//! reads Postgres. A library nobody can search because the answering path is
+//! down is a library nobody trusts. One route cannot be both, so there are two.
 //!
 //! The visible consequence is the honest one: search never gets slower or more
 //! expensive because answering exists, and answering can be down while search
@@ -129,9 +128,8 @@ pub struct AskResponse {
 
 /// `POST /api/documents/ask`
 ///
-/// Declared IdeOnly in [`crate::route_roles`]: [`DocumentAgent`] resolves an
-/// agent config through the workspace working copy. See the module docs for
-/// why that is not a reason to move search with it.
+/// Served by the fleet like every document route: [`DocumentAgent`] resolves
+/// its agent from the workspace's compiled revision, so any replica answers.
 #[instrument(skip_all, fields(org = %req.org_id, session = ?req.session_id))]
 pub async fn ask(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,

@@ -14,7 +14,6 @@ pub mod compile_maintenance;
 pub mod compile_oltp;
 pub mod compile_reconcile;
 pub mod compile_request;
-pub mod compile_trigger;
 pub mod compile_worker;
 pub use oxy_app_core::default_branch;
 pub mod factory_access;

@@ -1,6 +1,7 @@
-//! Every route this crate mounts touches a working copy, so every one must be
-//! IdeOnly — but one: `upload-warehouse-files` loads into the workspace's
-//! Airhouse on a cloud role and needs no checkout, so it is FleetOk. Asserted
+//! The org-scoped routes clone and scaffold onto a working copy, so they are
+//! IdeOnly. The workspace-scoped ones read the compiled workspace (readiness,
+//! GitHub setup), touch none (the LLM key test) or load into Airhouse (the
+//! warehouse upload), so they are FleetOk. Asserted
 //! here rather than in `oxy-app`'s `global_route_roles.rs`, which is where the
 //! org-scoped three used to live.
 //!
@@ -57,19 +58,24 @@ fn every_org_scoped_route_reaches_the_ide() {
     }
 }
 
+/// These read the compiled workspace (or touch none), so a serve pod answers
+/// them rather than forwarding them to a Factory.
 #[test]
-fn every_workspace_scoped_route_reaches_the_ide() {
+fn every_workspace_scoped_route_is_served_by_the_fleet() {
     install();
     for (method, path) in [
         ("GET", format!("/api/{WORKSPACE}/onboarding-readiness")),
         ("GET", format!("/api/{WORKSPACE}/onboarding/github-setup")),
-        ("POST", format!("/api/{WORKSPACE}/onboarding/reset")),
         ("POST", format!("/api/{WORKSPACE}/onboarding/test-llm-key")),
+        (
+            "POST",
+            format!("/api/{WORKSPACE}/onboarding/upload-warehouse-files"),
+        ),
     ] {
         assert_eq!(
             classify(method, &path),
-            RouteRole::IdeOnly,
-            "{method} {path} reads or writes the workspace working copy",
+            RouteRole::FleetOk,
+            "{method} {path}"
         );
     }
 }
@@ -91,18 +97,22 @@ fn the_declaration_list_covers_every_mounted_route() {
     assert_eq!(route_roles().len(), 3, "org-scoped routes changed");
     assert_eq!(
         workspace_route_roles().len(),
-        5,
+        4,
         "workspace-scoped routes changed",
     );
-    let fleet: Vec<&str> = route_roles()
+    let ide: Vec<&str> = route_roles()
         .iter()
         .chain(workspace_route_roles())
-        .filter(|d| d.role != RouteRole::IdeOnly)
+        .filter(|d| d.role == RouteRole::IdeOnly)
         .map(|d| d.path)
         .collect();
     assert_eq!(
-        fleet,
-        ["/onboarding/upload-warehouse-files"],
-        "this crate mounts nothing else a stateless replica can serve",
+        ide,
+        [
+            "/orgs/{org_id}/onboarding/demo",
+            "/orgs/{org_id}/onboarding/new",
+            "/orgs/{org_id}/onboarding/github",
+        ],
+        "only the org-scoped scaffolding still needs a Factory",
     );
 }

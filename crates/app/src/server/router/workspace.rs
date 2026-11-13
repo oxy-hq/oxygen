@@ -134,9 +134,8 @@ pub(super) fn build_workspace_routes(
             get(agent::check_builder_availability),
         )
         // `/onboarding-readiness`, `/onboarding/github-setup` and the
-        // `/onboarding/*` subtree moved to the `oxy-api-onboarding` sibling
-        // crate; they are merged into this nest by `oxy-server` and declared
-        // at that seam, since `route_ide` cannot reach across the crate line.
+        // `/onboarding/*` subtree live in `oxy-api-tenancy`; `oxy-server`
+        // merges them into this nest.
         .route_fleet("/sql/{pathb64}", post(data::execute_sql))
         .route_fleet("/sql/query", post(data::execute_sql_query))
         // Semantic-model endpoints the IDE uses. The legacy `/semantic`
@@ -506,7 +505,7 @@ fn build_database_routes(app_state: &AppState) -> RoleRouter {
 
 fn build_integration_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone())
-        .route_ide("/looker", get(integration::list_looker_integrations))
+        .route_fleet("/looker", get(integration::list_looker_integrations))
         .route_fleet(
             "/quickbooks/authorize",
             post(crate::integrations::quickbooks::oauth::authorize::authorize),

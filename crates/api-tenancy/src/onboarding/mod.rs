@@ -1,6 +1,6 @@
 //! Onboarding HTTP surface: workspace creation (demo / new / GitHub import),
-//! LLM-key and warehouse-credential readiness checks, onboarding reset
-//! ("start over"), and warehouse data-file uploads.
+//! LLM-key and warehouse-credential readiness checks, and warehouse data-file
+//! uploads.
 //!
 //! - [`dto`]: request/response serde types shared across handlers.
 //! - [`ops`]: internal database, filesystem, and multipart helpers plus the
@@ -55,16 +55,16 @@ pub use ops::MAX_UPLOAD_BODY_BYTES;
 /// `router_roles()`. Paths are absolute: both seams MERGE this crate rather than
 /// nesting it, so there is no prefix to join against.
 ///
-/// IdeOnly, all but one, and none of it is a judgement call. `demo`/`new`/
-/// `github` clone a repository and scaffold `config.yml` through raw `std::fs`
-/// and git; reset rewrites that checkout; the readiness and key checks read it.
-/// None of them can be answered by a replica with no working copy, and the
-/// failure would be silent — a clone into a directory the process does not own.
+/// Only the org-scoped `demo`/`new`/`github` are IdeOnly: they clone a
+/// repository and scaffold `config.yml` through raw `std::fs` and git, which a
+/// replica with no working copy cannot do, and the failure would be silent — a
+/// clone into a directory the process does not own.
 ///
-/// The exception is `upload-warehouse-files`: on a cloud role it loads the
-/// files into the workspace's Airhouse and writes nothing to a checkout, so a
-/// serve pod answers it (FleetOk). It writes into the working copy only on
-/// `OXY_ROLE=all`, which serves every route itself.
+/// The workspace-scoped half ([`workspace_route_roles`]) is all FleetOk: the
+/// readiness and GitHub-setup checks read the compiled revision, the key check
+/// calls the provider, and on a cloud role the upload loads into the
+/// workspace's Airhouse and writes nothing to a checkout (it writes into the
+/// working copy only on `OXY_ROLE=all`, which serves every route itself).
 pub fn route_roles() -> &'static [RouteRoleDecl] {
     const IDE: RouteRole = RouteRole::IdeOnly;
     &[
@@ -89,28 +89,22 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
 /// The workspace-scoped half, merged inside the `/{workspace_id}` nest. Paths
 /// are relative to that nest, which is where the seam merges them.
 pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
-    const IDE: RouteRole = RouteRole::IdeOnly;
     const FLEET: RouteRole = RouteRole::FleetOk;
     &[
         RouteRoleDecl {
             method: "GET",
             path: "/onboarding-readiness",
-            role: IDE,
+            role: FLEET,
         },
         RouteRoleDecl {
             method: "GET",
             path: "/onboarding/github-setup",
-            role: IDE,
-        },
-        RouteRoleDecl {
-            method: "POST",
-            path: "/onboarding/reset",
-            role: IDE,
+            role: FLEET,
         },
         RouteRoleDecl {
             method: "POST",
             path: "/onboarding/test-llm-key",
-            role: IDE,
+            role: FLEET,
         },
         RouteRoleDecl {
             method: "POST",
@@ -134,7 +128,7 @@ fn global_onboarding_routes() -> Router<AppState> {
         .route("/github", post(setup_github))
 }
 
-/// Workspace-scoped onboarding routes (readiness checks, reset, LLM-key test,
+/// Workspace-scoped onboarding routes (readiness checks, LLM-key test,
 /// warehouse file uploads). Merged INSIDE the `/{workspace_id}` nest by
 /// `oxy-server` via the workspace seam, so they inherit `workspace_middleware`
 /// (which resolves the workspace context) exactly as they did when they lived in
@@ -151,7 +145,6 @@ pub fn workspace_routes() -> Router<AppState> {
 /// unexpectedly with outer CORS preflight handling on axum 0.8.
 fn build_onboarding_routes() -> Router<AppState> {
     Router::new()
-        .route("/reset", post(reset_onboarding))
         .route("/test-llm-key", post(test_llm_key))
         .route("/upload-warehouse-files", post(upload_warehouse_files))
         .layer(DefaultBodyLimit::max(MAX_UPLOAD_BODY_BYTES))

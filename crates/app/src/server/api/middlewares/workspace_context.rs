@@ -1296,10 +1296,10 @@ pub async fn enqueue_lazy_compile(db: &sea_orm::DatabaseConnection, workspace_id
             if crate::server::compile_reconcile::request_check(db, workspace_id).await {
                 return;
             }
-            return enqueue_compile_deduped(db, workspace_id, None, None, "lazy self-heal").await;
+            return enqueue_compile_deduped(db, workspace_id, "lazy self-heal").await;
         }
         Heal::WorkingCopy => {
-            return enqueue_compile_deduped(db, workspace_id, None, None, "lazy self-heal").await;
+            return enqueue_compile_deduped(db, workspace_id, "lazy self-heal").await;
         }
     };
     // The same content again, so a failure backs off the way a self-heal
@@ -1319,31 +1319,21 @@ pub async fn enqueue_lazy_compile(db: &sea_orm::DatabaseConnection, workspace_id
     .await
 }
 
-/// Shared enqueue path for every *automatic* compile trigger: the lazy
-/// self-heal above and the post-pull / post-restore triggers in
-/// `server::compile_trigger`.
-///
-/// `git_sha` decides idempotency, and the two callers genuinely differ:
-///
-///   * `None` (self-heal) — the working tree is the identity. `oxy-compile`
-///     mints a unique `local-<uuid>` and deliberately opts out of the
-///     idempotency index, so every call produces a fresh revision.
-///   * `Some(sha)` (content change) — an addressable commit. The
-///     `(workspace_id, git_sha)` lookup then short-circuits a redundant
-///     compile down to a cheap promote. Passing `None` here instead would
-///     mint a new revision row on *every* pull, including no-op pulls.
+/// The lazy self-heal's enqueue: the working tree is the identity, so there is
+/// no commit to dedupe on. `oxy-compile` mints a unique `local-<uuid>` and
+/// opts out of the idempotency index, so every call produces a fresh revision;
+/// the enqueue-side dedupe in [`enqueue_compile_deduped_as`] is what keeps a
+/// burst of requests from queuing a burst of compiles.
 pub(crate) async fn enqueue_compile_deduped(
     db: &sea_orm::DatabaseConnection,
     workspace_id: Uuid,
-    git_sha: Option<String>,
-    branch: Option<String>,
     reason: &str,
 ) {
     let how = CompileEnqueue {
         from_git: false,
-        new_content: git_sha.is_some(),
+        new_content: false,
     };
-    enqueue_compile_deduped_as(db, workspace_id, git_sha, branch, reason, how).await
+    enqueue_compile_deduped_as(db, workspace_id, None, None, reason, how).await
 }
 
 /// The two things an automatic trigger decides about the compile it queues.

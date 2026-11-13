@@ -126,15 +126,12 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 /**
- * `GET /{ws}/onboarding/github-setup` reads config.yml off the working copy, so
- * the manifest pins it IdeOnly and it does NOT degrade — a serve replica
- * answers 502 `x-oxy-required-role: ide` whenever the Factory pod is
- * restarting, which the Axios interceptor turns into the app-wide "Oxygen
- * Factory is temporarily unavailable" banner. Home calling it unconditionally
- * meant every rollout showed that banner to every user. These tests pin the
- * gate that keeps Home off that route.
+ * `GET /{ws}/onboarding/github-setup` feeds only the staff "Finish setup" rows.
+ * It was pinned to the Factory pod once, and Home calling it unconditionally
+ * meant every rollout showed every user the "Factory unavailable" banner. These
+ * tests pin the gate that keeps Home off that route.
  */
-describe("useWorkspaceReadiness — the IdeOnly setup probe", () => {
+describe("useWorkspaceReadiness — the staff setup probe", () => {
   it("is not called at all on a normal Home visit", () => {
     renderHook(() => useWorkspaceReadiness());
     expect(probeWasEnabled()).toBe(false);

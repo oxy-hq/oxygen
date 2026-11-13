@@ -1,15 +1,9 @@
-//! The document library reads on the fleet; only the answer needs the ide.
+//! The whole document library, answering included, is served by the fleet.
 //!
 //! Moved here from `oxy-app`'s `tests/routing/global_route_roles.rs` with the
 //! routes. `oxy-app` cannot depend on this crate, so the declaration set its
-//! harness installs no longer contains `/documents/ask`: `classify` would answer
-//! with the FleetOk default and the IdeOnly assertion would fail for the wrong
-//! reason. The guard belongs where both halves are visible, which is here.
-//!
-//! Hand-written for the same reason the file it came from is: `ask::ask` takes
-//! no `WorkspaceManagerWorkingCopy` — it builds a project context from the org's
-//! workspace row — so no type gate can see it, and declaring it FleetOk would
-//! compile.
+//! harness installs does not contain this crate's routes. The guard belongs
+//! where the declarations are visible, which is here.
 //!
 //! Only one test installs: the declaration registry is a process-wide
 //! once-cell, installed once per test process.
@@ -31,28 +25,16 @@ fn install() {
     install_route_declarations_for_tests_with(extra);
 }
 
-/// Answering was first written as `?ask=true` on `/documents/search`, which
-/// would have dragged every search in the product onto the singleton — a read
-/// that dies when the ide restarts is the HA bug the split fleet exists to
-/// prevent. Assert both directions, so a later merge of the two routes fails
-/// here rather than in production.
-///
-/// The session store sits one segment under the `IdeOnly` route and is not it,
-/// which is only true if the manifest matches on the whole path rather than a
-/// prefix. A prefix match would proxy the session list to the singleton, and
-/// looking at your own past questions would stop working whenever the ide
-/// restarts.
+/// Answering was first written as `?ask=true` on `/documents/search`, and then
+/// pinned to the ide because it read its agent off the working copy. It reads
+/// the compiled revision now, so every document route, `ask` included, is served
+/// by whichever replica takes it: a read that dies when one pod restarts is the
+/// HA bug the split fleet exists to prevent.
 #[test]
-fn asking_reaches_the_ide_and_every_other_document_route_does_not() {
+fn every_document_route_is_served_by_the_fleet() {
     install();
-
-    assert_eq!(
-        classify("POST", "/api/documents/ask"),
-        RouteRole::IdeOnly,
-        "writing an answer resolves an agent config from the working copy",
-    );
-
     for (method, path) in [
+        ("POST", "/api/documents/ask".to_string()),
         ("GET", "/api/documents/search".to_string()),
         ("GET", "/api/documents".to_string()),
         ("GET", format!("/api/documents/{DOC}")),
@@ -70,17 +52,13 @@ fn asking_reaches_the_ide_and_every_other_document_route_does_not() {
         assert_eq!(
             classify(method, &path),
             RouteRole::FleetOk,
-            "{method} {path} reads and writes Postgres (and presigns S3) only",
+            "{method} {path}"
         );
     }
 }
 
-/// The declaration list is the only thing naming the ide route, so dropping it
-/// silently sends `ask` to a replica with no working copy. Count it.
+/// Nothing here needs a Factory, so nothing is declared.
 #[test]
-fn the_declaration_list_names_only_the_ask_route() {
-    let decls = route_roles();
-    assert_eq!(decls.len(), 1, "document route declarations changed");
-    assert_eq!(decls[0].path, "/documents/ask");
-    assert_eq!(decls[0].role, RouteRole::IdeOnly);
+fn the_declaration_list_is_empty() {
+    assert!(route_roles().is_empty(), "a document route was declared");
 }

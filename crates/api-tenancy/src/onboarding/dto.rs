@@ -137,44 +137,6 @@ pub struct GithubSetupMissingVar {
     pub required: bool,
 }
 
-/// Manifest of onboarding side-effects to revert.
-///
-/// Each list is handled idempotently — missing entries are silently skipped so
-/// the client can send a best-effort manifest derived from its local state.
-#[derive(Deserialize, Default)]
-pub struct OnboardingResetRequest {
-    /// Secret names to delete (e.g. `ANTHROPIC_API_KEY`).
-    #[serde(default)]
-    pub secret_names: Vec<String>,
-    /// Database names to remove from `config.yml`. For each database, the
-    /// associated password secret (via `password_var`) is also deleted.
-    #[serde(default)]
-    pub database_names: Vec<String>,
-    /// Model names to remove from `config.yml`. For each model, the associated
-    /// API key secret (via `key_var`) is also deleted.
-    #[serde(default)]
-    pub model_names: Vec<String>,
-    /// File paths (relative to the workspace root) to delete.
-    #[serde(default)]
-    pub file_paths: Vec<String>,
-    /// Directory paths (relative to the workspace root) to recursively delete.
-    /// Used for wiping generated trees such as `.databases/<warehouse>/`.
-    #[serde(default)]
-    pub directory_paths: Vec<String>,
-}
-
-#[derive(Serialize, Default)]
-pub struct OnboardingResetResponse {
-    pub secrets_deleted: Vec<String>,
-    pub databases_removed: Vec<String>,
-    pub models_removed: Vec<String>,
-    pub files_deleted: Vec<String>,
-    pub directories_deleted: Vec<String>,
-    /// Human-readable warnings for individual entries that could not be
-    /// reverted — the overall request still returns 200 to stay idempotent.
-    pub warnings: Vec<String>,
-}
-
 #[derive(Serialize, Debug)]
 pub struct SkippedUpload {
     pub name: String,

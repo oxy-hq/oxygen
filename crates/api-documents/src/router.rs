@@ -11,7 +11,7 @@ use axum::routing::{get, patch, post};
 use oxy_app::surface::org_middleware;
 use oxy_app::surface::subscription_guard_middleware;
 use oxy_app_core::AppState;
-use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
+use oxy_shared::fleet_role::RouteRoleDecl;
 
 use crate::{ask, ask_sessions, categories, handlers, manage, review, search, shelf, versions};
 
@@ -30,17 +30,13 @@ pub fn routes() -> Router<AppState> {
 /// Paths are absolute: `oxy-server` merges this crate at the protected-tree
 /// root, so there is no prefix to join.
 ///
-/// One entry, and the rest is deliberate: every other route here is Postgres
-/// for the rows and a presigned object-store URL for the bytes, so it stays
-/// FleetOk by default — reading the sanitiser SOP has to survive a deploy.
-/// `ask` resolves an agent config out of the workspace working copy, which only
-/// the ide singleton holds. `"*"` as `route_ide` declared it inside `oxy-app`.
+/// Empty: every route here is Postgres for the rows and a presigned
+/// object-store URL for the bytes, and `ask` reads its agent from the compiled
+/// revision (`DocumentAgent::resolve`, `ConfigManager::agent_by_ref`), so all of
+/// them take the FleetOk default. The seam stays so a future route that does
+/// need a Factory has somewhere to say so.
 pub fn route_roles() -> &'static [RouteRoleDecl] {
-    &[RouteRoleDecl {
-        method: "*",
-        path: "/documents/ask",
-        role: RouteRole::IdeOnly,
-    }]
+    &[]
 }
 
 /// Documents — read side. NOT nested under `/orgs/{org_id}`, and that is the

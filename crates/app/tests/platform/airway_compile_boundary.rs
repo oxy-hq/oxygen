@@ -474,9 +474,9 @@ pub(super) async fn seed_workspace_at(db: &DatabaseConnection, root: &std::path:
 
 /// Run the real compiler over `root` and promote the result.
 ///
-/// `git_sha` matters more than it looks. `compile_after_content_change` — the
-/// production trigger — resolves HEAD and passes `Some(sha)`, which is what
-/// arms `compile_workspace`'s idempotency short-circuit; `None` mints a unique
+/// `git_sha` matters more than it looks. A compile from git passes the
+/// commit's `Some(sha)`, which is what arms `compile_workspace`'s idempotency
+/// short-circuit; `None` mints a unique
 /// `local-<uuid>` and opts out of it entirely. A fixture that always passes
 /// `None` therefore never exercises the path every cloud compile takes.
 pub(super) async fn compile_at(

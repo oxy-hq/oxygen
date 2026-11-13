@@ -16,8 +16,12 @@ pub fn role_runs_inprocess_workers(role: Role) -> bool {
     !matches!(role, Role::Serve)
 }
 
+/// Whether this process may write the workspace filesystem: only one that owns
+/// the workspace files (`Ide`, or `All` in single-process mode). This was
+/// `role != Serve`, which let a `worker` through, so a write a worker reached
+/// went to a checkout that process does not have.
 pub fn process_is_fs_writable() -> bool {
-    current_process_role() != Role::Serve
+    role_owns_workspace_files(current_process_role())
 }
 
 pub fn ensure_fs_writable(operation: &str) -> Result<(), OxyError> {
@@ -25,9 +29,10 @@ pub fn ensure_fs_writable(operation: &str) -> Result<(), OxyError> {
         return Ok(());
     }
     Err(OxyError::RuntimeError(format!(
-        "refused workspace filesystem write ({operation}) on a stateless serve \
-         replica — writes must run on the filesystem-owning environment (the ide). \
-         This indicates a route-classification bug: the route should be IdeOnly."
+        "refused workspace filesystem write ({operation}) on a process that owns \
+         no working copy (serve or worker) — writes must run where the workspace \
+         files are (the ide, or single-process mode). This indicates a \
+         route-classification bug: the route should be IdeOnly."
     )))
 }
 

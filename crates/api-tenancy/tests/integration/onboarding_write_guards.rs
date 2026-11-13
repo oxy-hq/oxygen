@@ -1,17 +1,15 @@
-//! Who may undo an onboarding run, and who may drop files into a workspace.
+//! Who may drop files into a workspace.
 //!
-//! `POST /{ws}/onboarding/reset` removes databases and models from `config.yml`
-//! and deletes their secrets. `POST /{ws}/onboarding/upload-warehouse-files`
-//! writes files into the working copy. `workspace_middleware` proves a caller
-//! may *open* the workspace, not that they may change it, so each handler has to
-//! name a role guard itself. Neither did (#3754), so any member could do either,
-//! a read-only token included.
+//! `POST /{ws}/onboarding/upload-warehouse-files` writes files into the working
+//! copy (or, on a cloud role, loads them into Airhouse). `workspace_middleware`
+//! proves a caller may *open* the workspace, not that they may change it, so the
+//! handler has to name a role guard itself. It did not (#3754), so any member
+//! could upload, a read-only token included.
 //!
-//! Both are `WorkspaceAdmin`. The reset rewrites databases and secrets, and every
-//! other route that does (`POST /databases`, `/secrets/*`) is `WorkspaceAdmin`.
-//! The upload exists only to feed the next step of the same flow, `POST
-//! /databases` with `dataset` pointed at the upload, which is `WorkspaceAdmin`
-//! too: an Editor who could upload could never use what they uploaded.
+//! It is `WorkspaceAdmin`. The upload exists only to feed the next step of the
+//! same flow, `POST /databases` with `dataset` pointed at the upload, which is
+//! `WorkspaceAdmin` too: an Editor who could upload could never use what they
+//! uploaded.
 //!
 //! Drives the mounted `workspace_routes()` behind the real `workspace_middleware`
 //! over a per-test database and a working copy in a temp dir. Each role is
@@ -36,7 +34,7 @@ use oxy_auth::types::AuthenticatedUser;
 use oxy_authz::{RoleCeiling, TokenGrant};
 use oxy_server_authz::workspace_role::EffectiveWorkspaceRole;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -208,17 +206,6 @@ async fn send(who: &Who, request: Request<Body>) -> (StatusCode, Value) {
     )
 }
 
-async fn reset(fx: &Fx, who: &Who) -> (StatusCode, Value) {
-    let body = json!({ "database_names": ["uploads"] }).to_string();
-    let request = Request::builder()
-        .method("POST")
-        .uri(format!("/{}/onboarding/reset", fx.ws))
-        .header("content-type", "application/json")
-        .body(Body::from(body))
-        .unwrap();
-    send(who, request).await
-}
-
 async fn upload(fx: &Fx, who: &Who) -> StatusCode {
     let body = format!(
         "--{BOUNDARY}\r\n\
@@ -252,12 +239,6 @@ async fn resolved_role(fx: &Fx, who: &Who) -> String {
     String::from_utf8(bytes.to_vec()).expect("utf-8 role")
 }
 
-fn config_lists_uploads(fx: &Fx) -> bool {
-    std::fs::read_to_string(fx.root.path().join("config.yml"))
-        .expect("read config.yml")
-        .contains("name: uploads")
-}
-
 fn uploaded(fx: &Fx) -> bool {
     fx.root.path().join(UPLOADED).exists()
 }
@@ -274,89 +255,6 @@ async fn each_caller_resolves_to_the_workspace_role_it_is_named_for() {
     assert_eq!(resolved_role(&fx, &admin).await, "admin");
     assert_eq!(resolved_role(&fx, &member).await, "member");
     assert_eq!(resolved_role(&fx, &viewer).await, "viewer");
-}
-
-// ── reset ────────────────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn a_viewer_cannot_reset_onboarding() {
-    let fx = setup().await;
-    let who = viewer(&fx).await;
-    let (status, body) = reset(&fx, &who).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "body: {body}");
-    assert!(
-        config_lists_uploads(&fx),
-        "a refused reset must leave config.yml alone"
-    );
-}
-
-#[tokio::test]
-async fn a_workspace_member_cannot_reset_onboarding() {
-    let fx = setup().await;
-    let who = person(&fx, OrgRole::Member).await;
-    let (status, body) = reset(&fx, &who).await;
-    assert_eq!(
-        status,
-        StatusCode::FORBIDDEN,
-        "the reset deletes databases and secrets, which is WorkspaceAdmin \
-         everywhere else; an Editor-level member must not reach it. body: {body}"
-    );
-    assert!(
-        config_lists_uploads(&fx),
-        "a refused reset must leave config.yml alone"
-    );
-}
-
-#[tokio::test]
-async fn a_workspace_admin_still_resets_onboarding() {
-    let fx = setup().await;
-    let who = person(&fx, OrgRole::Admin).await;
-    let (status, body) = reset(&fx, &who).await;
-    assert_eq!(status, StatusCode::OK, "body: {body}");
-    assert_eq!(
-        body["databases_removed"],
-        json!(["uploads"]),
-        "body: {body}"
-    );
-    assert!(
-        !config_lists_uploads(&fx),
-        "the admin's reset must actually remove the database"
-    );
-}
-
-/// An org Member a `workspace_members` row raises to workspace Admin. The org
-/// Admin above passes the model's org-officer term; this caller can only pass
-/// through the per-workspace elevation the loader reads from that row, so it
-/// is the case where the two would part if the loader stopped loading it.
-#[tokio::test]
-async fn a_member_raised_to_workspace_admin_resets_onboarding() {
-    let fx = setup().await;
-    let who = person(&fx, OrgRole::Member).await;
-    let now = chrono::Utc::now().fixed_offset();
-    workspace_members::ActiveModel {
-        id: ActiveValue::Set(Uuid::new_v4()),
-        workspace_id: ActiveValue::Set(fx.ws),
-        user_id: ActiveValue::Set(who.user.id),
-        role: ActiveValue::Set(WorkspaceRole::Admin),
-        created_at: ActiveValue::Set(now),
-        updated_at: ActiveValue::Set(now),
-    }
-    .insert(&fx.db)
-    .await
-    .expect("seed workspace override");
-    assert_eq!(resolved_role(&fx, &who).await, "admin");
-
-    let (status, body) = reset(&fx, &who).await;
-    assert_eq!(status, StatusCode::OK, "body: {body}");
-    assert_eq!(
-        body["databases_removed"],
-        json!(["uploads"]),
-        "body: {body}"
-    );
-    assert!(
-        !config_lists_uploads(&fx),
-        "the elevated member's reset must actually remove the database"
-    );
 }
 
 // ── upload ───────────────────────────────────────────────────────────────────
@@ -389,5 +287,34 @@ async fn a_workspace_admin_still_uploads_warehouse_files() {
     assert!(
         uploaded(&fx),
         "the admin's upload must land in the working copy"
+    );
+}
+
+/// An org Member a `workspace_members` row raises to workspace Admin. The org
+/// Admin above passes the model's org-officer term; this caller can only pass
+/// through the per-workspace elevation the loader reads from that row, so it
+/// is the case where the two would part if the loader stopped loading it.
+#[tokio::test]
+async fn a_member_raised_to_workspace_admin_uploads_warehouse_files() {
+    let fx = setup().await;
+    let who = person(&fx, OrgRole::Member).await;
+    let now = chrono::Utc::now().fixed_offset();
+    workspace_members::ActiveModel {
+        id: ActiveValue::Set(Uuid::new_v4()),
+        workspace_id: ActiveValue::Set(fx.ws),
+        user_id: ActiveValue::Set(who.user.id),
+        role: ActiveValue::Set(WorkspaceRole::Admin),
+        created_at: ActiveValue::Set(now),
+        updated_at: ActiveValue::Set(now),
+    }
+    .insert(&fx.db)
+    .await
+    .expect("seed workspace override");
+    assert_eq!(resolved_role(&fx, &who).await, "admin");
+
+    assert_eq!(upload(&fx, &who).await, StatusCode::CREATED);
+    assert!(
+        uploaded(&fx),
+        "the elevated member's upload must land in the working copy"
     );
 }

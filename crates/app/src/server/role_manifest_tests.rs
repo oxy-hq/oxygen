@@ -652,6 +652,19 @@ fn fs_write_guard_refuses_on_serve_role() {
 }
 
 #[test]
+fn fs_write_guard_refuses_on_worker_role() {
+    // SAFETY: nextest isolates this test in its own single-threaded process.
+    // A worker owns no working copy either; it used to pass (`role != Serve`).
+    unsafe { std::env::set_var("OXY_ROLE", "worker") };
+    init_process_role_from_env();
+    assert!(!process_is_fs_writable(), "a worker owns no working copy");
+    assert!(
+        ensure_fs_writable("test write").is_err(),
+        "a worker must refuse a workspace FS write"
+    );
+}
+
+#[test]
 fn fs_write_guard_allows_fs_owning_roles() {
     // SAFETY: nextest isolates this test in its own single-threaded process.
     // `all` is the default; assert the guard is a no-op for an FS-owning role.
@@ -678,8 +691,8 @@ fn method_wildcard_matches_any_verb() {
     );
 }
 
-/// Per-sub-route drift guard for `build_integration_routes()`, MIXED: the
-/// OAuth authorize routes are fleet-servable, `GET /looker` is not.
+/// Per-sub-route drift guard for `build_integration_routes()`: every route in
+/// it is fleet-servable now, so each one is on the reviewed list with a reason.
 #[test]
 fn every_integration_sub_route_is_classified() {
     let src = include_str!("router/workspace.rs");
@@ -689,13 +702,15 @@ fn every_integration_sub_route_is_classified() {
         // client secret through the workspace secret manager. No working copy,
         // no .git, no local state dir — so any replica can serve it.
         "/oauth/{provider}/authorize",
+        // Lists the Looker integrations named in the served revision's config.
+        "/looker",
     ];
     assert_sub_routes_classified(
         src,
         "build_integration_routes",
         "/integrations",
         INTEGRATION_FLEET_OK,
-        1,
+        0,
     );
 }
 

@@ -44,7 +44,6 @@ const TEST_EXTENSION: &str = ".test";
 pub(super) trait ConfigStorage {
     async fn load_config(&self) -> Result<Config, OxyError>;
     async fn load_config_with_fallback(&self) -> Config;
-    async fn write_config(&self, config: &Config) -> Result<(), OxyError>;
     async fn load_automation_config<P: AsRef<Path>>(
         &self,
         automation_ref: P,
@@ -412,20 +411,6 @@ impl ConfigStorage for FsStorage {
         };
         config.workspace_path = self.project_path.clone();
         config
-    }
-
-    async fn write_config(&self, config: &Config) -> Result<(), OxyError> {
-        let resolved_path = PathBuf::from(&self.project_path).join(&self.config_path);
-        let config_yml = serde_yaml::to_string(config).map_err(|e| {
-            OxyError::ConfigurationError(format!("Failed to serialize config: {e}"))
-        })?;
-        fs::write(&resolved_path, config_yml).await.map_err(|e| {
-            OxyError::IOError(format!(
-                "Failed to write config to file {}: {e}",
-                resolved_path.display()
-            ))
-        })?;
-        Ok(())
     }
 
     async fn load_automation_config<P: AsRef<Path>>(

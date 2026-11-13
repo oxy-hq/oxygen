@@ -2,12 +2,9 @@
 //!
 //! # Why these are on the fleet while [`super::ask`] is not
 //!
-//! Asking runs a model, which means reading an agent config off the workspace
-//! working copy, which pins that one handler to the ide singleton. These four
-//! read and write Postgres and nothing else, so they stay `FleetOk` — the same
-//! rule that kept `/documents/search` off the singleton. Note the segment
-//! counts: `/documents/ask` is `IdeOnly` and `/documents/ask/sessions` is not,
-//! and the guard test asserts both so a later change cannot collapse them.
+//! These four read and write Postgres and nothing else, so they are `FleetOk`,
+//! like `/documents/search` and `/documents/ask` itself (which reads its agent
+//! from the compiled revision).
 //!
 //! # Authorization is ownership, and there is no override
 //!

@@ -53,7 +53,6 @@ const SERVER: &[&str] = &[
     "compile_oltp",
     "compile_reconcile",
     "compile_request",
-    "compile_trigger",
     "compile_worker",
     "compile_worker_tests",
     "factory_access",

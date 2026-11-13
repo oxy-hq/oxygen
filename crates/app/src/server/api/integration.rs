@@ -1,4 +1,4 @@
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerWorkingCopy;
+use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
 use axum::{http::StatusCode, response::Json};
 use oxy::config::model::IntegrationType;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
@@ -18,11 +18,12 @@ pub struct LookerIntegrationInfo {
 }
 
 /// The Looker integrations declared in `config.yml`, with the explores each
-/// one names. Read from the config, not from Looker: the field lists that used
-/// to come back here were read from a cache `oxy looker sync` wrote to the
-/// Factory's disk, and that cache is gone.
+/// one names. Read from the served revision's compiled config, not from Looker
+/// or a working copy, so any replica answers. The field lists that used to come
+/// back here were read from a cache `oxy looker sync` wrote to the Factory's
+/// disk, and that cache is gone.
 pub async fn list_looker_integrations(
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
+    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     AuthenticatedUserExtractor(_user): AuthenticatedUserExtractor,
 ) -> Result<Json<Vec<LookerIntegrationInfo>>, StatusCode> {
     let integrations = workspace_manager
