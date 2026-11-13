@@ -12,11 +12,11 @@ use axum::routing::{delete, get, post, put};
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
 use crate::api::{
-    agent, api_keys, apps, artifacts, automation, chart, cohort, compile, compile_staging, data,
-    database, execution_analytics, file, integration, local_setup, metric_anomalies, metric_tree,
+    agent, api_keys, apps, artifacts, automation, chart, compile, compile_staging, data, database,
+    execution_analytics, file, integration, local_setup, metric_anomalies, metric_tree,
     metric_tree_probe, metric_tree_projection, metrics, org_subdomain, preagg, result_files,
     schedules, semantic, thread, traces, video, workspace_logo, workspace_members,
-    workspace_oxy_access, workspaces, world_model_graph,
+    workspace_oxy_access, workspaces,
 };
 
 use oxy_shared::fleet_role::RouteRole;
@@ -186,23 +186,6 @@ pub(super) fn build_workspace_routes(
         .route_fleet("/semantic/preagg-rebuild", post(preagg::rebuild_preagg))
         .route_fleet("/semantic/compile", post(semantic::compile_semantic_query))
         .route_fleet("/semantic", post(semantic::execute_semantic_query))
-        // Peer cohorts — the World Model instance panel's "compared to peers"
-        // section. IDE twin of the customer-app mount in `public.rs`; the two
-        // share `api::cohort`'s wire types and differ only in how a caller
-        // gets in and whether the population is reach-scoped.
-        //
-        // FleetOk for the same reason as the metric-tree block below: the scan
-        // root resolves through `semantic::resolve_query_scan_source` (compile
-        // boundary first, working copy second) and warehouse execution needs
-        // only config + secrets. No `.git`, no state dir, and the branch a
-        // request reads is pinned by `workspace_middleware`, not here. Pinned
-        // by `workspace_cohort_route_is_fleet_ok`.
-        //
-        // Deliberately NOT inside `build_metric_tree_routes`: that sub-router
-        // exists so `metric_tree_probe` times exactly those ten routes, and a
-        // cohort resolution is a different query shape whose latency would
-        // pollute that signal.
-        .route_fleet("/semantic/cohort", post(cohort::post_cohort))
         // Metric tree — structure + pure analysis ops over the semantic model.
         // Merged as its own sub-router so the diagnostic probe layers over
         // these ten routes and nothing else.
@@ -219,34 +202,10 @@ pub(super) fn build_workspace_routes(
         // `oxy-api-experiment`'s: merged inside this nest by `oxy-server` through
         // `SurfaceSeams::workspace`, with the IdeOnly write-back apply declared
         // in its `workspace_route_roles`.
-        // The world-model graph reads the semantic model through the compile
-        // boundary (`world_model_graph::source`), as the metric tree does, so
-        // any replica serves it. The handlers take `WorkspaceManagerReadOnly`:
-        // one that reached for the working copy would not compile here.
-        .route_fleet(
-            "/semantic/world-model",
-            get(world_model_graph::get_world_model),
-        )
-        .route_fleet(
-            "/semantic/world-model/instances",
-            get(world_model_graph::get_world_model_instances),
-        )
-        .route_fleet(
-            "/semantic/world-model/filter-instances",
-            get(world_model_graph::get_world_model_filter_instances),
-        )
-        .route_fleet(
-            "/semantic/world-model/filter-counts",
-            post(world_model_graph::post_world_model_filter_counts),
-        )
-        .route_fleet(
-            "/semantic/world-model/instance-detail",
-            get(world_model_graph::get_world_model_instance_detail),
-        )
-        .route_fleet(
-            "/semantic/world-model/measure-breakdown",
-            get(world_model_graph::get_world_model_measure_breakdown),
-        )
+        // The World Model Graph (`/semantic/world-model*`) and peer cohorts
+        // (`/semantic/cohort`) are `oxy-api-world-model`'s, merged inside this
+        // nest by `oxy-server` through `SurfaceSeams::workspace`, all FleetOk
+        // in its `workspace_route_roles`.
         // Anomaly inbox — backed by oxy-metric-monitoring. Nested so the
         // `Extension<Arc<AgenticState>>` layer scopes only to these routes
         // (same pattern as `build_schedule_routes` below).

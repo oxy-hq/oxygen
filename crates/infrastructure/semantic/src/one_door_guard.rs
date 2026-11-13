@@ -113,8 +113,9 @@ const ALLOWED: &[(&str, &str)] = &[
          extension exists to supply a cache in the first place.",
     ),
     (
-        "crates/app/src/server/api/cohort/mod.rs",
-        "The IDE twin of `projects/cohort.rs` above: `prepare_ide_cohort` runs \
+        "crates/api-world-model/src/cohort/mod.rs",
+        "The IDE twin of `projects/cohort.rs` above (`oxy-api-world-model`'s): \
+         `prepare_ide_cohort` runs \
          `augment_layer_for_cohort` first, installing the synthetic \
          `__cohort_total__` measure the truncation guard reads, so the layer \
          and the engine built from it are unique to the request.",

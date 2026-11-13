@@ -107,7 +107,6 @@ const SERVER_API: &[&str] = &[
     "catalog",
     "chart",
     "chat",
-    "cohort",
     "compile",
     "compile_staging",
     "compile_status_tests",

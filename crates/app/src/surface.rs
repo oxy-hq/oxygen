@@ -40,8 +40,9 @@ pub use crate::server::api::middlewares::subscription_guard::subscription_guard_
 
 /// Workspace-scoped request context, as the workspace seam provides it.
 pub use crate::server::api::middlewares::workspace_context::{
-    SemanticEngineCacheCtx, WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath,
-    WorkspaceRootWorkingCopy, enqueue_lazy_compile,
+    EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
+    WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath, WorkspaceRootWorkingCopy,
+    enqueue_lazy_compile,
 };
 
 /// The workspace row the workspace middleware resolved (401 where it did not run).
@@ -103,9 +104,18 @@ pub mod fleet {
 /// the project context the global driver builds for a workspace (the promoted
 /// revision's semantic model, never a working copy), the workspace manager
 /// behind it, the compile-boundary scan root, and the driver's tick interval.
+///
+/// [`resolve_query_scan_source`](workspace_runtime::resolve_query_scan_source)
+/// is the request-time resolution beside it: the compiled revision first, the
+/// working copy second where this node holds one, so an IDE branch that has not
+/// compiled yet still reads. With it, the `{ message }` envelope the semantic
+/// routes answer a refusal with.
 pub mod workspace_runtime {
     pub use crate::agentic_wiring::OxyProjectContext;
-    pub use crate::server::api::semantic::resolve_compiled_scan_source;
+    pub use crate::server::api::semantic::{
+        ErrorResponse, QueryScanSource, resolve_compiled_scan_source, resolve_query_scan_source,
+        semantic_err,
+    };
     pub use crate::server::preagg_workspace::build_workspace_manager;
     pub use crate::server::router::recovery::{
         DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS, build_workspace_ctx,
@@ -122,6 +132,20 @@ pub mod workspace_runtime {
 pub mod metric_tree_exec {
     pub use crate::agentic_wiring::metric_tree_runner::{RunnerPreagg, build_query_executor};
     pub use crate::server::api::metric_tree::workspace_databases;
+    /// Whether this request is a held preview — `build_query_executor`'s
+    /// `holds_writes`, read on the request's own task.
+    pub use crate::server::previews::request_hold::active as request_holds_writes;
+}
+
+/// The warehouse the World Model Graph cores (`oxy_world_model::graph`) run
+/// on, as the platform builds it for every Dev Portal query: the same
+/// connector, subject, role and preview hold. The IDE handlers' own fan-outs
+/// (filter counts, instance detail) build that connector directly. Platform runtime, not graph
+/// logic — the graph lives in `oxy-world-model`. It stays in `oxy-app` while
+/// the customer-app twin (`projects::world_model`) does too.
+pub mod world_model_exec {
+    pub use crate::server::api::data::{build_connector, run_with_connector};
+    pub use crate::server::api::world_model_graph::WorkspaceWarehouse;
 }
 
 /// The S3 mirror of a runtime artifact (a chart image, a query result) written
@@ -192,7 +216,7 @@ pub mod testing {
     pub use crate::server::api::admin::app_publish_tokens;
     pub use crate::server::api::middlewares::{app_publish_token_scope, workspace_context};
     pub use crate::server::api::{
-        billing, custom_apps_gates, projects, schedules, secrets, semantic, world_model_graph,
+        billing, custom_apps_gates, projects, schedules, secrets, semantic,
     };
     pub use crate::server::router::{
         SurfaceSeam, SurfaceSeams, api_router, external_auth_layers, flat_api_surface,

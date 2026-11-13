@@ -1,38 +1,13 @@
-//! World Model graph endpoints for the IDE:
+//! The World Model Graph's execution seam, as the platform builds it.
 //!
-//! The entity-centric world model (every primary entity in the semantic
-//! model, its measures, and promotion edges) plus instance drill-down
-//! (instance picker, filter counts, instance detail, measure breakdown).
-//!
-//! Split out of `semantic.rs` (file-size guideline): these handlers share
-//! the semantic-model load + query-execution path with the semantic
-//! endpoints but form a self-contained surface. Distinct from
-//! `world_model.rs`, which serves the live world-model *app* (cameras,
-//! weather, event SSE, LLM proxy).
-//!
-//! The cores both this surface and the customer-app twins answer from — the
-//! `Wm*` DTOs, the entity graph, the instance listing, the measure breakdown
-//! and the SQL/traversal helpers — are `oxy_world_model::graph`, re-exported
-//! here. What stays:
-//! - [`source`]  — where the model is read from (compile boundary first), and
-//!   which databases a pod with no working copy refuses.
-//! - [`warehouse`] — the connector the cores run on, as the platform builds it.
-//! - [`handlers`] — the six HTTP handlers.
+//! The IDE handlers are `oxy-api-world-model`'s (`graph`), and the cores they
+//! and the customer-app twin (`projects::world_model`) answer from are
+//! `oxy_world_model::graph`. What stays here is [`WorkspaceWarehouse`]: the
+//! `GraphWarehouse` those cores run on, built on the connector every Dev
+//! Portal query uses. It stays because the twin needs it too, and the twin
+//! waits on the custom-app gate split; the IDE surface takes it through
+//! `oxy_app::surface::world_model_exec`.
 
-mod handlers;
-mod source;
 mod warehouse;
 
-pub use handlers::{
-    get_world_model, get_world_model_filter_instances, get_world_model_instance_detail,
-    get_world_model_instances, get_world_model_measure_breakdown, post_world_model_filter_counts,
-};
-pub use oxy_world_model::graph::types::*;
-
-// Transport-agnostic reuse cores shared with the customer-app-gated
-// `projects/world_model.rs` handlers and the metric-tree ops.
-pub(crate) use oxy_world_model::graph::{
-    build_world_model_response, instance_scope_filters, instances_core, instances_view,
-    measure_breakdown_core,
-};
-pub(crate) use warehouse::WorkspaceWarehouse;
+pub use warehouse::WorkspaceWarehouse;

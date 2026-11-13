@@ -88,6 +88,10 @@ AREAS = [
     ("crates/agentic/semantic",                           "Semantic (agentic shim)"),
     ("crates/world-model",                                "World Model (backend)"),
     ("crates/app/src/server/api/world_model_graph",       "World Model (backend)"),
+    # The IDE graph + cohort handlers moved into crates/api-world-model 2026-11-12;
+    # the old paths keep their history.
+    ("crates/api-world-model",                            "World Model (backend)"),
+    ("crates/app/src/server/api/cohort",                  "World Model (backend)"),
     ("web-app/src/pages/ide/WorldModel",                  "World Model (UI)"),
     ("crates/metric-monitoring",                          "Metric tree & anomaly monitoring"),
     ("crates/simulation",                                 "Metric-tree scenario simulation"),

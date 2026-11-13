@@ -61,7 +61,6 @@ pub mod file;
 // The GitHub HTTP surface moved to the `oxy-api-github` sibling crate, mounted by
 // `oxy-server`. oxy-app no longer depends on it.
 pub mod chat;
-pub mod cohort;
 pub mod healthcheck;
 pub mod integration;
 pub mod local_setup;

@@ -16,13 +16,11 @@ use oxy::config::DiskSlot;
 use oxy_airlayer_compat::engine::promotions::Promotions;
 use uuid::Uuid;
 
-use crate::server::api::middlewares::workspace_context::{
-    SemanticEngineCacheCtx, SemanticLayerCacheCtx,
-};
-use crate::server::api::semantic::{
+use oxy_app::surface::fleet::servability;
+use oxy_app::surface::workspace_runtime::{
     ErrorResponse, QueryScanSource, resolve_query_scan_source, semantic_err,
 };
-use crate::server::servability;
+use oxy_app::surface::{SemanticEngineCacheCtx, SemanticLayerCacheCtx};
 use oxy_world_model::graph::CachedEngine;
 use oxy_world_model::graph::query::database_configs;
 

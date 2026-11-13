@@ -66,7 +66,7 @@ fn database_is_serve_safe(db: &Database) -> bool {
 /// `None` among them is a view that names no database: it may resolve to any,
 /// so it puts every configured one in scope. A name `databases` does not list
 /// is not this function's to judge; the query says so itself.
-pub(crate) fn first_needing_working_copy<'a>(
+pub fn first_needing_working_copy<'a>(
     databases: &[Database],
     datasources: impl IntoIterator<Item = Option<&'a str>>,
 ) -> Option<String> {

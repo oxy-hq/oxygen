@@ -34,16 +34,16 @@ use oxy_airlayer_compat::engine::query::{FilterOperator, QueryFilter};
 // One definition of the contract, shared with the IDE surface so the two
 // cannot drift. `COHORT_TIMEOUT` is THE deadline, not a copy of it: both
 // surfaces query the same warehouse.
-use crate::server::api::cohort::{
-    COHORT_TIMEOUT, CohortRequest, CohortResponse, parse_statistic, prepare_cohort_layer,
-    resolve_cohort_name,
-};
 use crate::server::api::custom_apps_gates::parse_versioned_body;
 use crate::server::api::operating_graph::binding::NO_REACH_SENTINEL;
 use crate::server::api::projects::semantic_boundary::{
     cache_lookup, cache_store, enter_semantic_boundary, err_with_code, load_layer, wants_refresh,
 };
 use crate::server::router::AppState;
+use oxy_world_model::cohort::{
+    COHORT_TIMEOUT, CohortRequest, CohortResponse, parse_statistic, prepare_cohort_layer,
+    resolve_cohort_name,
+};
 
 // ── Reach scoping (this surface only) ───────────────────────────────────────
 

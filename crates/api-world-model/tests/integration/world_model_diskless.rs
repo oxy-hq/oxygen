@@ -5,7 +5,8 @@
 //! `semantics_scan_path()`, the working copy. They resolve the scan through
 //! `resolve_query_scan_source` now, as the metric tree does. The claim is only
 //! worth a test that takes the checkout away, which is the shape of
-//! `custom_app_functions_diskless` — whose fixtures this reuses:
+//! `oxy-api-custom-apps`' `custom_app_functions_diskless` — whose fixtures
+//! `diskless_fixture` copies:
 //!
 //! 1. a workspace with a view, an entity and a `.world-model.yml` is compiled
 //!    and promoted;
@@ -28,28 +29,29 @@ use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::config::{OnMissing, ReadOnly};
 use oxy::workspace_fs_probe::leaks;
-use oxy_app::surface::testing::router::{AppState, bare_app_state};
-use oxy_app::surface::testing::semantic::{ErrorResponse, WorkspacePath};
-use oxy_app::surface::testing::workspace_context::{
-    EffectiveWorkspaceRole, SemanticEngineCacheCtx, SemanticLayerCacheCtx, WorkspaceManagerReadOnly,
-};
-use oxy_app::surface::testing::world_model_graph::{
-    WmFilterCountsRequest, WmInstanceDetailQuery, WmInstancesQuery, WmMeasureBreakdownQuery,
+use oxy_api_world_model::graph::{
     get_world_model, get_world_model_instance_detail, get_world_model_instances,
     get_world_model_measure_breakdown, post_world_model_filter_counts,
 };
+use oxy_app::surface::testing::router::{AppState, bare_app_state};
+use oxy_app::surface::workspace_runtime::ErrorResponse;
+use oxy_app::surface::{
+    EffectiveWorkspaceRole, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
+    WorkspaceManagerReadOnly, WorkspacePath,
+};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
+use oxy_world_model::graph::{
+    WmFilterCountsRequest, WmInstanceDetailQuery, WmInstancesQuery, WmMeasureBreakdownQuery,
+};
 use sea_orm::EntityTrait;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::custom_app_functions_diskless::{
-    AsDisklessReplica, queued_compiles, uncompiled_workspace,
+use crate::diskless_fixture::{
+    AsDisklessReplica, Tenant, compile, postgres_entry, queued_compiles, tenant,
+    uncompiled_workspace, write_config,
 };
-use crate::custom_app_functions_fixture::{Tenant, seeded_tenant, throwaway_org};
-use crate::custom_app_functions_shape_zoo::{compile, write_config};
-use crate::warehouse_writes_on_engines::postgres_entry;
 
 /// One entity (`order`) over one view reading `datasource`.
 fn write_view(root: &FsPath, datasource: &str) {
@@ -253,7 +255,7 @@ async fn request(t: &Tenant, workspace: Uuid, absent: &FsPath) -> Request {
 
 #[tokio::test]
 async fn the_graph_and_its_instances_are_served_with_the_working_copy_gone() {
-    let t = throwaway_org(&seeded_tenant().await).await;
+    let t = tenant().await;
     let root = write_config(&postgres_entry("pg").await);
     write_model(root.path(), "pg");
     let workspace = compile(&t, root.path()).await;
@@ -294,7 +296,7 @@ async fn the_graph_and_its_instances_are_served_with_the_working_copy_gone() {
 
 #[tokio::test]
 async fn a_model_this_pod_cannot_read_yet_is_a_retryable_503_not_an_empty_graph() {
-    let t = throwaway_org(&seeded_tenant().await).await;
+    let t = tenant().await;
     let workspace = uncompiled_workspace(&t).await;
     let absent = std::path::PathBuf::from(format!("/nonexistent/workspaces/{workspace}"));
     assert_eq!(
@@ -325,7 +327,7 @@ async fn a_model_this_pod_cannot_read_yet_is_a_retryable_503_not_an_empty_graph(
 
 #[tokio::test]
 async fn a_database_in_the_checkout_is_refused_by_name_not_listed_empty() {
-    let t = throwaway_org(&seeded_tenant().await).await;
+    let t = tenant().await;
     // A DuckDB file in the checkout. No `OXY_COMPILE_BLOB_S3_BUCKET` in a test
     // process, so the compiler mirrors nothing to S3: the data is only there.
     let root = write_config("  - name: duck\n    type: duckdb\n    path: local.duckdb\n");
@@ -385,7 +387,7 @@ async fn a_database_in_the_checkout_is_refused_by_name_not_listed_empty() {
 /// about a config read that fails, this case has to keep drawing the graph.
 #[tokio::test]
 async fn a_revision_with_no_display_config_draws_every_entity_on_a_replica() {
-    let t = throwaway_org(&seeded_tenant().await).await;
+    let t = tenant().await;
     let root = write_config(&postgres_entry("pg").await);
     write_view(root.path(), "pg");
     let workspace = compile(&t, root.path()).await;

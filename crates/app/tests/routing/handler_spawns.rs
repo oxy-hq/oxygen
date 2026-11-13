@@ -206,7 +206,7 @@ const ALLOWED: &[(&str, &str)] = &[
          scheduled TaskSpec on the singleton role is the fix",
     ),
     (
-        "app/src/server/api/world_model_graph/handlers.rs",
+        "api-world-model/src/graph/handlers.rs",
         "only pumps this request's own SSE stream: filter counts and instance detail \
          each run their warehouse queries concurrently inside one spawned task and send \
          every result over the response's channel; nothing is persisted and the task \

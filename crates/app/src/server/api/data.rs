@@ -381,7 +381,7 @@ where
 /// row 0 stripped). The header is consistent with what `run_via_agentic_connector`
 /// returns — callers that previously did `.skip(1)` after `run_via_agentic_connector`
 /// can use this directly with `.first()` / `.next()`.
-pub(crate) async fn run_with_connector(
+pub async fn run_with_connector(
     connector: &Arc<dyn DatabaseConnector>,
     sql: &str,
 ) -> Vec<Vec<String>> {
@@ -404,7 +404,7 @@ pub(crate) async fn run_with_connector(
 /// On either capability: what `OxyProjectContext::build_connector_for` does
 /// with a subject and a role, without needing a `WorkingCopy` manager to
 /// build the context from — same builder, same preview hold.
-pub(crate) async fn build_connector<S: DiskSlot>(
+pub async fn build_connector<S: DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
     user_id: Uuid,
     role: WorkspaceRole,

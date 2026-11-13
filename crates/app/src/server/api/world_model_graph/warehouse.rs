@@ -19,10 +19,10 @@ use crate::server::api::data::{
 
 /// A workspace's warehouses as one caller reaches them: the same builder,
 /// subject and role, and preview hold as the IDE's query endpoints.
-pub(crate) struct WorkspaceWarehouse<S: DiskSlot> {
-    pub(crate) workspace_manager: WorkspaceManager<S>,
-    pub(crate) user_id: Uuid,
-    pub(crate) role: WorkspaceRole,
+pub struct WorkspaceWarehouse<S: DiskSlot> {
+    pub workspace_manager: WorkspaceManager<S>,
+    pub user_id: Uuid,
+    pub role: WorkspaceRole,
 }
 
 #[async_trait]

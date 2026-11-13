@@ -14,4 +14,7 @@
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
 
+mod diskless_fixture;
 mod world_model_cross_pod;
+// Moved from `oxy-api-custom-apps`' group with the graph handlers it drives.
+mod world_model_diskless;

@@ -549,27 +549,6 @@ fn workspace_metric_tree_routes_are_fleet_ok() {
 }
 
 #[test]
-fn workspace_cohort_route_is_fleet_ok() {
-    // The IDE peer-cohort route, classified with its metric-tree neighbours
-    // rather than with the IDE editor surface. It reads the same compile
-    // boundary through the same `resolve_query_scan_source`, holds a
-    // `WorkspaceManagerReadOnly`, and touches no `.git` and no state dir — so
-    // pinning it to the singleton would make the World Model panel's "compared
-    // to peers" section stop rendering whenever the ide restarts, which is the
-    // HA bug the split exists to prevent, in reverse.
-    //
-    // Note it is NOT under `/semantic/metric-tree`, so
-    // `workspace_metric_tree_routes_are_fleet_ok` above does not cover it.
-    let ws = "d9830be4-c6a4";
-    assert_eq!(
-        classify("POST", &format!("/api/{ws}/semantic/cohort")),
-        RouteRole::FleetOk,
-        "the workspace cohort route must stay FleetOk (compile-boundary scan \
-         root — see resolve_query_scan_source)"
-    );
-}
-
-#[test]
 fn runtime_routes_are_ide_only() {
     // The DuckDB / local-execution subset. Each one EXECUTES in-process on the
     // ide (a query, a run, a process-local event stream), so it cannot be
@@ -642,38 +621,10 @@ fn unknown_routes_default_to_fleet_ok() {
         classify("GET", "/api/d9830be4-c6a4/world-model/cameras"),
         RouteRole::FleetOk
     );
-    // `/semantic/world-model*` read the semantic model through the compile
-    // boundary (`world_model_graph::source`), as the metric tree does, so
-    // any replica serves them. They were IdeOnly while the handlers scanned
-    // `semantics_scan_path()`: a serve replica has no working copy and
-    // 500'd ("Failed to load semantic model", oxygen-internal 2026-07-27).
-    // `nothing_here_reads_the_working_copy_directly` keeps that scan out.
-    for (method, path) in [
-        ("GET", "/api/d9830be4-c6a4/semantic/world-model"),
-        ("GET", "/api/d9830be4-c6a4/semantic/world-model/instances"),
-        (
-            "GET",
-            "/api/d9830be4-c6a4/semantic/world-model/filter-instances",
-        ),
-        (
-            "POST",
-            "/api/d9830be4-c6a4/semantic/world-model/filter-counts",
-        ),
-        (
-            "GET",
-            "/api/d9830be4-c6a4/semantic/world-model/instance-detail",
-        ),
-        (
-            "GET",
-            "/api/d9830be4-c6a4/semantic/world-model/measure-breakdown",
-        ),
-    ] {
-        assert_eq!(
-            classify(method, path),
-            RouteRole::FleetOk,
-            "{method} {path} reads the compiled revision — must serve from any replica"
-        );
-    }
+    // `/semantic/world-model*` and `/semantic/cohort` are `oxy-api-world-model`'s
+    // now, declared FleetOk there and pinned by its
+    // `the_graph_and_cohort_routes_are_declared_fleet_ok`: this harness cannot
+    // see that crate's declarations, so a pin here would pass on the default.
     // Customer-apps batch mutations touch only Postgres + the S3 build
     // store (never the workspace FS), so — like their per-app siblings —
     // they classify FleetOk by default and serve from any replica.

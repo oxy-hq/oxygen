@@ -299,17 +299,13 @@ fn opportunity_scope(
     let Some(instance) = req.instance.as_ref() else {
         return Ok(Vec::new());
     };
-    crate::server::api::world_model_graph::instance_scope_filters(
-        layer,
-        &instance.entity,
-        &instance.key,
-    )
-    .ok_or_else(|| {
-        MetricTreeError::NotFound(format!(
-            "cannot scope '{}' to '{}': no entity named '{}' in the semantic model",
-            req.target, instance.key, instance.entity
-        ))
-    })
+    oxy_world_model::graph::instance_scope_filters(layer, &instance.entity, &instance.key)
+        .ok_or_else(|| {
+            MetricTreeError::NotFound(format!(
+                "cannot scope '{}' to '{}': no entity named '{}' in the semantic model",
+                req.target, instance.key, instance.entity
+            ))
+        })
 }
 
 /// `POST .../semantic/metric-tree/opportunity` — segment opportunity sizing.
@@ -462,17 +458,13 @@ pub(crate) fn baseline_scope_core(
     let Some(instance) = instance else {
         return Ok(Vec::new());
     };
-    crate::server::api::world_model_graph::instance_scope_filters(
-        layer,
-        &instance.entity,
-        &instance.key,
-    )
-    .ok_or_else(|| {
-        format!(
-            "cannot scope to '{}': no entity named '{}' in the semantic layer",
-            instance.key, instance.entity
-        )
-    })
+    oxy_world_model::graph::instance_scope_filters(layer, &instance.entity, &instance.key)
+        .ok_or_else(|| {
+            format!(
+                "cannot scope to '{}': no entity named '{}' in the semantic layer",
+                instance.key, instance.entity
+            )
+        })
 }
 
 /// Build the executor and run the baseline's per-view value and per-group fit
@@ -614,17 +606,13 @@ fn opportunity_scope_from_drill(
     let Some(instance) = req.instance.as_ref() else {
         return Ok(Vec::new());
     };
-    crate::server::api::world_model_graph::instance_scope_filters(
-        layer,
-        &instance.entity,
-        &instance.key,
-    )
-    .ok_or_else(|| {
-        MetricTreeError::NotFound(format!(
-            "cannot scope '{}' to '{}': no entity named '{}' in the semantic model",
-            req.target, instance.key, instance.entity
-        ))
-    })
+    oxy_world_model::graph::instance_scope_filters(layer, &instance.entity, &instance.key)
+        .ok_or_else(|| {
+            MetricTreeError::NotFound(format!(
+                "cannot scope '{}' to '{}': no entity named '{}' in the semantic model",
+                req.target, instance.key, instance.entity
+            ))
+        })
 }
 
 /// `POST .../semantic/metric-tree/drill` — recursive gap decomposition.

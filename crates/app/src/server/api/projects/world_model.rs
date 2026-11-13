@@ -24,12 +24,12 @@ use crate::server::api::projects::semantic_boundary::{
     cache_lookup, cache_store, enter_semantic_boundary, err, err_with_code, load_layer,
     wants_refresh,
 };
-use crate::server::api::world_model_graph::{
-    WmInstanceItem, WmInstanceLocation, WmInstancesQuery, WmMeasureBreakdownQuery,
-    WorkspaceWarehouse, build_world_model_response, instances_core, instances_view,
-    measure_breakdown_core,
-};
+use crate::server::api::world_model_graph::WorkspaceWarehouse;
 use agentic_semantic::config::{SemanticFilter, SemanticFilterType};
+use oxy_world_model::graph::{
+    WmInstanceItem, WmInstanceLocation, WmInstancesQuery, WmMeasureBreakdownQuery,
+    build_world_model_response, instances_core, instances_view, measure_breakdown_core,
+};
 
 /// `GET .../world-model` — the entity/measure graph (nodes + promotion/FK
 /// edges), with the `.world-model.yml` display config applied.

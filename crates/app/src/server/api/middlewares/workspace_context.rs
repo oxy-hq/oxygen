@@ -2405,13 +2405,14 @@ mod tests {
         // The world-model family is one of them now: it scanned
         // `semantics_scan_path()` unconditionally and so passed `None`, until
         // its routes became `FleetOk` and its scan moved to
-        // `world_model_graph::source`.
+        // `graph::source` (now `oxy-api-world-model`'s).
         for (name, src) in [
             ("semantic.rs", include_str!("../semantic.rs")),
             ("preagg.rs", include_str!("../preagg.rs")),
+            // The IDE handlers, lifted into `oxy-api-world-model`.
             (
-                "world_model_graph/handlers.rs",
-                include_str!("../world_model_graph/handlers.rs"),
+                "oxy-api-world-model graph/handlers.rs",
+                include_str!("../../../../../api-world-model/src/graph/handlers.rs"),
             ),
             // The graph cores, lowered into `oxy-world-model`: the IDE
             // handlers above hand them the engine they keyed.
@@ -2428,8 +2429,8 @@ mod tests {
                 include_str!("../../../../../world-model/src/graph/breakdown.rs"),
             ),
             (
-                "world_model_graph/source.rs",
-                include_str!("../world_model_graph/source.rs"),
+                "oxy-api-world-model graph/source.rs",
+                include_str!("../../../../../api-world-model/src/graph/source.rs"),
             ),
         ] {
             let flat = one_line(src);

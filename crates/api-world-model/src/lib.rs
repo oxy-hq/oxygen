@@ -1,6 +1,7 @@
 //! The world-model app's HTTP surface: the live event feed, foot traffic,
-//! competitors and the LLM proxy the standalone world-model app calls (Pending 8
-//! in `internal-docs/domain-boundaries.md`).
+//! competitors and the LLM proxy the standalone world-model app calls, and the
+//! IDE's World Model Graph and peer cohorts (Pending 8 in
+//! `internal-docs/domain-boundaries.md`).
 //!
 //! Two trees mount it, as they mounted these handlers when they lived in
 //! `oxy-app`'s `build_workspace_routes` and `build_external_workspace_routes`:
@@ -15,7 +16,10 @@
 //!
 //! Every route is FleetOk: the feed reads Postgres, foot traffic and
 //! competitors call their vendors (and read `foot_traffic_by_store.yml` through
-//! the compile boundary), and the proxy calls Anthropic with the workspace's key.
+//! the compile boundary), the proxy calls Anthropic with the workspace's key,
+//! and the graph and cohort routes read the semantic model through the compile
+//! boundary (working copy second, where the node holds one) and run on the
+//! workspace's warehouses.
 //!
 //! The live feed's write half is `oxy_world_model::live_feed`, below `oxy-app`,
 //! because the Toast webhook and the UniFi watcher still publish from there. The
@@ -23,8 +27,10 @@
 //! `world_model_events`, the reaper, and the SSE route. [`background`] starts the
 //! tailer and the reaper, and registers the camera-domain bridge.
 //!
-//! The World Model *Graph* (`/semantic/world-model/*`) and peer cohorts are a
-//! different surface and still in `oxy-app`.
+//! The World Model *Graph* (`/semantic/world-model*`, [`graph`]) and peer
+//! cohorts (`/semantic/cohort`, [`cohort`]) ride the workspace tree only. Their
+//! cores are `oxy_world_model::{graph, cohort}`, shared with the customer-app
+//! twins that stay in `oxy-app` until the custom-app gate splits.
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`): an async handler's future can
@@ -32,10 +38,12 @@
 #![recursion_limit = "256"]
 
 mod camera_bridge;
+pub mod cohort;
 mod competitors;
 pub mod events;
 mod foot_traffic;
 mod foot_traffic_seed;
+pub mod graph;
 mod llm_proxy;
 
 use axum::Router;
@@ -66,8 +74,43 @@ fn shared_routes() -> Router<AppState> {
 }
 
 /// The workspace seam's share: merged inside `/api/{workspace_id}`.
+///
+/// The graph and cohort routes are the IDE's, so they ride this tree only — not
+/// the external one, whose API-key auth and open CORS they were never under.
 pub fn workspace_routes() -> Router<AppState> {
     shared_routes()
+        // The World Model Graph. The handlers take `WorkspaceManagerReadOnly`
+        // and resolve the model through `graph::source` (compile boundary
+        // first), as the metric tree does, so any replica serves them.
+        .route("/semantic/world-model", get(graph::get_world_model))
+        .route(
+            "/semantic/world-model/instances",
+            get(graph::get_world_model_instances),
+        )
+        .route(
+            "/semantic/world-model/filter-instances",
+            get(graph::get_world_model_filter_instances),
+        )
+        .route(
+            "/semantic/world-model/filter-counts",
+            post(graph::post_world_model_filter_counts),
+        )
+        .route(
+            "/semantic/world-model/instance-detail",
+            get(graph::get_world_model_instance_detail),
+        )
+        .route(
+            "/semantic/world-model/measure-breakdown",
+            get(graph::get_world_model_measure_breakdown),
+        )
+        // Peer cohorts — the World Model instance panel's "compared to peers"
+        // section. IDE twin of the customer-app mount in `oxy-app`'s
+        // `public.rs`; the two share `oxy_world_model::cohort`'s wire types and
+        // differ only in how a caller gets in and whether the population is
+        // reach-scoped. Not beside the metric-tree routes: those are a
+        // sub-router so `metric_tree_probe` times exactly them, and a cohort
+        // resolution's latency would pollute that signal.
+        .route("/semantic/cohort", post(cohort::post_cohort))
 }
 
 /// The external seam's share: merged inside `/external/api/{workspace_id}`.
@@ -108,7 +151,85 @@ pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
             path: "/world-model/competitors",
             role: RouteRole::FleetOk,
         },
+        // The graph and cohort routes: the scan root resolves through the
+        // compile boundary first, working copy second, and warehouse execution
+        // needs only config + secrets. No `.git`, no state dir, and the branch
+        // a request reads is pinned by `workspace_middleware`, not here.
+        RouteRoleDecl {
+            method: "GET",
+            path: "/semantic/world-model",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/semantic/world-model/instances",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/semantic/world-model/filter-instances",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "POST",
+            path: "/semantic/world-model/filter-counts",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/semantic/world-model/instance-detail",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/semantic/world-model/measure-breakdown",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "POST",
+            path: "/semantic/cohort",
+            role: RouteRole::FleetOk,
+        },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The graph and cohort routes came from `oxy-app`, where `route_fleet`'s
+    /// type proved the role. Here the role is a declaration, so hold it: each
+    /// is DECLARED FleetOk — not merely unclassified, which also reads FleetOk
+    /// and is what a dropped row would look like. A read pinned to the
+    /// singleton would stop the World Model panel whenever the ide restarts.
+    /// That no handler here reaches for the working copy is held by
+    /// `graph::source`'s `nothing_here_reads_the_working_copy_directly` and
+    /// `oxy-app`'s `undeclared_mounts_stay_diskless`.
+    #[test]
+    fn the_graph_and_cohort_routes_are_declared_fleet_ok() {
+        let declared = workspace_route_roles();
+        for (method, path) in [
+            ("GET", "/semantic/world-model"),
+            ("GET", "/semantic/world-model/instances"),
+            ("GET", "/semantic/world-model/filter-instances"),
+            ("POST", "/semantic/world-model/filter-counts"),
+            ("GET", "/semantic/world-model/instance-detail"),
+            ("GET", "/semantic/world-model/measure-breakdown"),
+            ("POST", "/semantic/cohort"),
+        ] {
+            let found: Vec<_> = declared
+                .iter()
+                .filter(|d| d.method == method && d.path == path)
+                .collect();
+            assert_eq!(
+                found.len(),
+                1,
+                "{method} {path}: declared {} times",
+                found.len()
+            );
+            assert_eq!(found[0].role, RouteRole::FleetOk, "{method} {path}");
+        }
+    }
 }
 
 /// The live feed's process-lifetime jobs, started by `api_router` on every

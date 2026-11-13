@@ -1,6 +1,6 @@
 //! Peer-cohort comparison over the semantic model — the IDE/workspace surface.
 //!
-//! IDE twin of [`crate::server::api::projects::cohort`], and the pair follows
+//! IDE twin of `oxy-app`'s `server::api::projects::cohort`, and the pair follows
 //! the metric-tree precedent exactly: **the wire types and the pure helpers
 //! are shared (`oxy_world_model::cohort`) and both modules import them**, so the two
 //! surfaces cannot answer the same question with different shapes. What
@@ -50,11 +50,9 @@ mod error;
 pub use error::{CohortError, CohortErrorBody};
 // The wire contract and the pure helpers are `oxy_world_model::cohort`, below
 // both surfaces.
-pub(crate) use oxy_world_model::cohort::{
-    COHORT_TIMEOUT, parse_statistic, prepare_cohort_layer, resolve_cohort_name,
-};
-pub use oxy_world_model::cohort::{
-    CohortRequest, CohortResponse, CohortSubjectDto, ExcludedSubjectDto,
+use oxy_world_model::cohort::{
+    COHORT_TIMEOUT, CohortRequest, CohortResponse, parse_statistic, prepare_cohort_layer,
+    resolve_cohort_name,
 };
 
 use std::sync::Arc;
@@ -68,13 +66,12 @@ use oxy_airlayer_compat::{DatabaseConfig, SemanticEngine, SemanticLayer};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use uuid::Uuid;
 
-use crate::agentic_wiring::metric_tree_runner::{
-    OxyMetricTreeRunner, RunnerPreagg, build_query_executor,
+use oxy_app::surface::metric_tree_exec::{
+    RunnerPreagg, build_query_executor, request_holds_writes, workspace_databases,
 };
-use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly,
-};
-use crate::server::api::semantic::resolve_query_scan_source;
+use oxy_app::surface::workspace_runtime::resolve_query_scan_source;
+use oxy_app::surface::{EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly};
+use oxy_app_core::preagg_context::RollupFreshness;
 
 /// `POST /api/{workspace_id}/semantic/cohort` — peer-cohort comparison for the
 /// IDE's World Model panel.
@@ -97,7 +94,7 @@ pub async fn post_cohort(
             .renewal_threshold_secs_or(&workspace_manager.config_manager),
         // A read surface: a cohort comparison is a display of the data, so a
         // rollup a cycle behind beats a warehouse scan.
-        freshness: crate::server::preagg_context::RollupFreshness::ServeStale,
+        freshness: RollupFreshness::ServeStale,
     };
     let caller = Caller {
         workspace_manager,
@@ -137,8 +134,11 @@ async fn prepare_ide_cohort(
     let source = resolve_query_scan_source(workspace_manager)
         .await
         .map_err(|e| CohortError::ScanUnavailable(e.message()))?;
-    let layer = OxyMetricTreeRunner::load_layer_at(&source.scan)
-        .map_err(|e| CohortError::LayerLoad(e.to_string()))?;
+    // The text the metric-tree runner's `load_layer_at` gave this refusal.
+    let layer = source
+        .scan
+        .load_layer()
+        .map_err(|e| CohortError::LayerLoad(format!("failed to load semantic model: {e}")))?;
 
     let cohort_name = resolve_cohort_name(&layer, &req.entity, &req.measure, req.cohort.as_deref())
         .map_err(CohortError::CohortNotResolved)?;
@@ -154,7 +154,7 @@ async fn prepare_ide_cohort(
         ))
     })?;
 
-    let databases = OxyMetricTreeRunner::list_databases_sync(workspace_manager);
+    let databases = workspace_databases(workspace_manager);
     // Not cached, and deliberately: `prepare_cohort_layer` rewrote the layer
     // for this request's entity, so this engine is unique to the request and
     // shares nothing with the workspace's.
@@ -179,7 +179,7 @@ async fn run_cohort(
 ) -> Result<CohortResponse, CohortError> {
     let handle = tokio::runtime::Handle::current();
     // Read on the request's task: the blocking thread below is off it.
-    let holds_writes = crate::server::previews::request_hold::active();
+    let holds_writes = request_holds_writes();
 
     let run = tokio::task::spawn_blocking(move || {
         // Unlike the customer-app twin this executor is unwrapped: there is no

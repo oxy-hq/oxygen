@@ -384,7 +384,7 @@ where
     Ok((ScanDir::Real(scan_path), SemanticTarget::File(full_path)))
 }
 
-pub(crate) fn semantic_err(
+pub fn semantic_err(
     status: StatusCode,
     message: String,
 ) -> (StatusCode, extract::Json<ErrorResponse>) {
@@ -493,7 +493,7 @@ impl ScanUnavailable {
 /// `None` for a non-default branch on a node that HAS a working copy. The IDE
 /// previewing uncommitted edits on a feature branch therefore still reads the
 /// FS, exactly as before.
-pub(crate) async fn resolve_query_scan_source<S: oxy::config::DiskSlot>(
+pub async fn resolve_query_scan_source<S: oxy::config::DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
 ) -> Result<QueryScanSource, ScanUnavailable> {
     let workspace_id = workspace_manager.workspace_id;

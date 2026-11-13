@@ -338,6 +338,22 @@ fn world_model_routes() -> Vec<(Method, &'static str, &'static str)> {
     ]
 }
 
+/// The IDE's World Model Graph and peer cohorts, `oxy-api-world-model`'s since
+/// they left `oxy-app`, on the workspace tree only. Each probe is a request its
+/// extractors reject (a missing query or body field: 400 / 422) or the model
+/// load refuses (no compiled model: 503), so none can be its handler's own 404.
+fn world_model_graph_routes() -> Vec<(Method, &'static str, &'static str)> {
+    vec![
+        (Method::GET, "/semantic/world-model", ""),
+        (Method::GET, "/semantic/world-model/instances", ""),
+        (Method::GET, "/semantic/world-model/filter-instances", ""),
+        (Method::POST, "/semantic/world-model/filter-counts", "{}"),
+        (Method::GET, "/semantic/world-model/instance-detail", ""),
+        (Method::GET, "/semantic/world-model/measure-breakdown", ""),
+        (Method::POST, "/semantic/cohort", "{}"),
+    ]
+}
+
 /// The workspace seam carries the world-model app into the `/{workspace_id}`
 /// tree. Local mode, because there the guest user and the nil workspace get a
 /// request past auth and workspace context to the router, so a 404 can only be
@@ -361,7 +377,10 @@ async fn the_workspace_tree_mounts_the_world_model_app() {
         StatusCode::NOT_FOUND,
         "control: an unmounted path must be 404, or a non-404 below proves nothing"
     );
-    for (method, path, body) in world_model_routes() {
+    for (method, path, body) in world_model_routes()
+        .into_iter()
+        .chain(world_model_graph_routes())
+    {
         let got = status_with(&router, &method, &format!("/{ws}{path}"), None, body).await;
         assert_ne!(
             got,

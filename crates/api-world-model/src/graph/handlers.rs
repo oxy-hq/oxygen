@@ -12,21 +12,21 @@ use agentic_semantic::config::{
 };
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
-use crate::server::api::data::{
-    SQLParams, SemanticQueryResponse, build_connector, run_via_agentic_connector,
-    run_with_connector,
-};
-use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, SemanticEngineCacheCtx, SemanticLayerCacheCtx, WorkspaceManagerReadOnly,
-};
-use crate::server::api::semantic::{ErrorResponse, WorkspacePath};
 use oxy::utils::create_sse_stream;
+use oxy_app::surface::workspace_runtime::ErrorResponse;
+use oxy_app::surface::world_model_exec::{WorkspaceWarehouse, build_connector, run_with_connector};
+use oxy_app::surface::{
+    EffectiveWorkspaceRole, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
+    WorkspaceManagerReadOnly, WorkspacePath,
+};
+use oxy_app_core::AppState;
 
 use super::source::*;
-use super::warehouse::WorkspaceWarehouse;
 use oxy_world_model::graph::query::*;
 use oxy_world_model::graph::types::*;
-use oxy_world_model::graph::{build_world_model_response, instances_core, measure_breakdown_core};
+use oxy_world_model::graph::{
+    GraphWarehouse as _, build_world_model_response, instances_core, measure_breakdown_core,
+};
 
 /// `GET /{workspace_id}/semantic/world-model`
 ///
@@ -66,7 +66,7 @@ pub async fn get_world_model_instances(
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     layer_cache: SemanticLayerCacheCtx,
     engine_cache: SemanticEngineCacheCtx,
-    axum::extract::State(_app_state): axum::extract::State<crate::server::router::AppState>,
+    axum::extract::State(_app_state): axum::extract::State<AppState>,
     Path(WorkspacePath { workspace_id: _ }): Path<WorkspacePath>,
     axum::extract::Query(q): axum::extract::Query<WmInstancesQuery>,
 ) -> Result<extract::Json<WmInstancesResponse>, (StatusCode, extract::Json<ErrorResponse>)> {
@@ -117,7 +117,7 @@ pub async fn get_world_model_filter_instances(
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     layer_cache: SemanticLayerCacheCtx,
     engine_cache: SemanticEngineCacheCtx,
-    axum::extract::State(_app_state): axum::extract::State<crate::server::router::AppState>,
+    axum::extract::State(_app_state): axum::extract::State<AppState>,
     axum::extract::Query(q): axum::extract::Query<WmFilterInstancesQuery>,
 ) -> Result<extract::Json<WmInstancesResponse>, (StatusCode, extract::Json<ErrorResponse>)> {
     let err = |code: StatusCode, message: String| (code, extract::Json(ErrorResponse { message }));
@@ -214,18 +214,16 @@ pub async fn get_world_model_filter_instances(
         )
     })?;
 
-    let payload = SQLParams {
-        sql,
-        database: database_name,
-        filters: None,
-        connections: None,
-        result_format: None,
-        untyped: false,
+    // Any failure is an empty page, as it was when this ran the connector inline.
+    let warehouse = WorkspaceWarehouse {
+        workspace_manager: workspace_manager.clone(),
+        user_id: user.id,
+        role,
     };
-    let rows = match run_via_agentic_connector(&workspace_manager, user.id, role, &payload).await {
-        Ok(SemanticQueryResponse::Json(r)) => r,
-        _ => vec![],
-    };
+    let rows = warehouse
+        .query(&database_name, sql)
+        .await
+        .unwrap_or_default();
 
     let mut all_items: Vec<WmInstanceItem> = rows
         .into_iter()
@@ -264,7 +262,7 @@ pub async fn post_world_model_filter_counts(
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     layer_cache: SemanticLayerCacheCtx,
     engine_cache: SemanticEngineCacheCtx,
-    axum::extract::State(_app_state): axum::extract::State<crate::server::router::AppState>,
+    axum::extract::State(_app_state): axum::extract::State<AppState>,
     Path(WorkspacePath { workspace_id: _ }): Path<WorkspacePath>,
     extract::Json(req): extract::Json<WmFilterCountsRequest>,
 ) -> Result<

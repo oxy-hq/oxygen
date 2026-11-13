@@ -49,6 +49,13 @@ merged into the protected tree before `apply_middleware` (cloud mode only). They
 re-apply their own `org_middleware` + `subscription_guard`; oxy-app no longer
 depends on them.
 
+Likewise the IDE's World Model Graph (`/semantic/world-model*`) and peer cohorts
+(`/semantic/cohort`) are absent from the workspace tree below: they live in
+`oxy-api-world-model` (`workspace_routes()`, roles in `workspace_route_roles()`)
+and arrive through the `SurfaceSeams::workspace` seam, merged inside the
+`/{workspace_id}` nest before the workspace middleware. Their customer-app twins
+are still mounted by `public.rs`.
+
 ## Route tree
 
 The tree below is a hand-written orientation map — read it to learn the *shape*
@@ -174,7 +181,6 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /builder-availability · /onboarding-readiness
 ├── /sql/{pathb64} · /sql/query
 ├── /semantic · /semantic/compile · /semantic/topic/{file_path_b64} · /semantic/view/{file_path_b64}   (compile + execute go through airlayer + agentic-connector)
-├── /semantic/cohort                       (peer-cohort comparison; IDE twin of the customer-app mount in public.rs)
 └── /results/files/{file_id}               (get, delete)
 ```
 

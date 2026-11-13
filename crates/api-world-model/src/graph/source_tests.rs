@@ -15,22 +15,25 @@ fn module_code() -> Vec<(&'static str, String)> {
     [
         ("handlers.rs", include_str!("handlers.rs")),
         ("source.rs", include_str!("source.rs")),
-        ("warehouse.rs", include_str!("warehouse.rs")),
+        (
+            "warehouse.rs",
+            include_str!("../../../app/src/server/api/world_model_graph/warehouse.rs"),
+        ),
         (
             "graph/assemble.rs",
-            include_str!("../../../../../world-model/src/graph/assemble.rs"),
+            include_str!("../../../world-model/src/graph/assemble.rs"),
         ),
         (
             "graph/breakdown.rs",
-            include_str!("../../../../../world-model/src/graph/breakdown.rs"),
+            include_str!("../../../world-model/src/graph/breakdown.rs"),
         ),
         (
             "graph/instances.rs",
-            include_str!("../../../../../world-model/src/graph/instances.rs"),
+            include_str!("../../../world-model/src/graph/instances.rs"),
         ),
         (
             "graph/query.rs",
-            include_str!("../../../../../world-model/src/graph/query.rs"),
+            include_str!("../../../world-model/src/graph/query.rs"),
         ),
     ]
     .into_iter()
@@ -56,7 +59,7 @@ fn nothing_here_reads_the_working_copy_directly() {
         ] {
             assert!(
                 !code.contains(forbidden),
-                "world_model_graph/{file} uses `{forbidden}`: resolve the scan through \
+                "graph/{file} uses `{forbidden}`: resolve the scan through \
                  `source::ModelSource` (compile boundary first) and key caches by what it read"
             );
         }
@@ -78,15 +81,13 @@ use axum::http::StatusCode;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use uuid::Uuid;
 
-use crate::server::api::middlewares::workspace_context::{
-    SemanticLayerCacheCtx, WorkspaceManagerReadOnly,
-};
-use crate::server::api::semantic::WorkspacePath;
-// Renamed because `sentry_surface`'s gate-entry check matches calls by name,
-// and the custom-app handler `projects::world_model::get_world_model` enters
-// the gate; a bare call here reads to it as a cross-file call of that one.
-use crate::server::api::world_model_graph::get_world_model as ide_world_model_handler;
-use crate::server::router::workspace_cache::{new_semantic_engine_cache, new_semantic_layer_cache};
+use oxy_app::surface::{SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath};
+// Renamed for the reader: `oxy-app`'s customer-app handler
+// `projects::world_model::get_world_model` has the same name. (It was
+// `sentry_surface`'s gate-entry check, matching calls by name, that needed
+// it while both lived in `oxy-app`.)
+use crate::graph::get_world_model as ide_world_model_handler;
+use oxy_app_core::workspace_cache::{new_semantic_engine_cache, new_semantic_layer_cache};
 
 /// A working copy with one entity (`order`), plus whatever `at_root` adds.
 fn workspace(at_root: impl FnOnce(&std::path::Path)) -> tempfile::TempDir {
