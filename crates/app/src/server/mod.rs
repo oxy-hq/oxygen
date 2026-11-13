@@ -18,9 +18,7 @@ pub mod compile_trigger;
 pub mod compile_worker;
 pub use oxy_app_core::default_branch;
 pub mod factory_access;
-pub mod factory_replay;
 pub mod feature_flags;
-pub mod git_fetch_maintenance;
 pub mod http_cache;
 pub mod ide_proxy;
 pub mod metrics_server;
@@ -58,6 +56,5 @@ pub mod worker_metrics;
 pub mod worker_runtime;
 pub mod workspace_fs;
 pub use oxy_app_core::workspace_repo_facts;
-pub mod worktree_registry;
 
 pub use router::{AppState, WorkspaceExtractor, api_router, openapi_router};

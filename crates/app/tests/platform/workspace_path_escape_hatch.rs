@@ -45,12 +45,6 @@ const ALLOWED: &[(&str, &str)] = &[
          instead. Route-classified IdeOnly.",
     ),
     (
-        "src/server/api/file.rs",
-        "the IDE file editor: read, write, rename, delete inside the working \
-         copy. Same — the working copy is the subject, not an implementation \
-         detail. Fully-FS builder, classified IdeOnly.",
-    ),
-    (
         "src/server/api/metric_anomalies/scan.rs",
         "BACKLOG. `.monitor.yml` IS compiled and read at the pinned revision; \
          this is the FS fallback, now gated by `WorkspaceAbsent`. The handler \

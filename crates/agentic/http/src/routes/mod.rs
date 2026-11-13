@@ -88,8 +88,7 @@ pub use automation::{
 };
 pub use notify::request_run_notice;
 pub use run::{
-    RevertFileChangesRequest, UpdateThinkingModeRequest, answer_builder_run, answer_run,
-    cancel_run, create_builder_run, create_run, revert_file_changes, stream_events,
+    UpdateThinkingModeRequest, answer_run, cancel_run, create_run, stream_events,
     update_thinking_mode,
 };
 pub use thread::{get_run_by_thread, list_runs_by_thread};

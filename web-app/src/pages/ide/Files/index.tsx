@@ -1,48 +1,112 @@
-import { ChevronsRight } from "lucide-react";
-import type React from "react";
-import { useState } from "react";
-import { Outlet } from "react-router-dom";
-import { Button } from "@/components/ui/shadcn/button";
+import { Eye } from "lucide-react";
+import { useMemo } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { CopyButton } from "@/components/CopyBlock";
+import ErrorAlert from "@/components/ui/ErrorAlert";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup
 } from "@/components/ui/shadcn/resizable";
-import { FilesProvider } from "./FilesContext";
-import FilesSidebar from "./FilesSidebar";
+import { Spinner } from "@/components/ui/shadcn/spinner";
+import useRevisionFiles from "@/hooks/api/revisionFiles/useRevisionFiles";
+import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import { decodeBase64, encodeBase64 } from "@/libs/encoding";
+import ROUTES from "@/libs/utils/routes";
+import type { RevisionFileEntry } from "@/services/api/revisionFiles";
+import useCurrentOrg from "@/stores/useCurrentOrg";
+import WorkspaceRepositoryPanel from "../WorkspaceRepositoryPanel";
+import { oxycCloneCommand } from "../WorkspaceRepositoryPanel/utils";
+import FileTree from "./components/FileTree";
+import FileViewer from "./components/FileViewer";
+import { apiErrorMessage } from "./errors";
+import { ancestorFolders, buildTree } from "./utils";
 
-const FilesLayout: React.FC = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+/**
+ * The Factory's file browser: the served revision's files, read-only. It reads
+ * the compiled workspace (a pinned preview's, when pinned), never a working
+ * copy, git or GitHub. Changing a file is clone, edit, push: with nothing
+ * selected the page shows the repository and how to open it.
+ */
+const FilesPage = () => {
+  const navigate = useNavigate();
+  const { project } = useCurrentProjectBranch();
+  const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
+  const files = useRevisionFiles();
+  const selectedPath = useSelectedPath();
+  const tree = useMemo(() => buildTree(files.data ?? []), [files.data]);
+
+  const cloneCommand = oxycCloneCommand(project.id);
+  const filesRoutes = ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.FILES;
+  const open = (entry: RevisionFileEntry) => navigate(filesRoutes.FILE(encodeBase64(entry.path)));
+  const initiallyOpen = useMemo(
+    () => [
+      ...tree.children.flatMap((c) => (c.type === "folder" ? [c.path] : [])),
+      ...(selectedPath ? ancestorFolders(selectedPath) : [])
+    ],
+    [tree, selectedPath]
+  );
 
   return (
-    <FilesProvider>
-      <ResizablePanelGroup direction='horizontal' className='flex-1'>
-        {sidebarOpen ? (
-          <>
-            <ResizablePanel defaultSize={20} minSize={10} className='min-w-[200px]'>
-              <FilesSidebar setSidebarOpen={setSidebarOpen} />
-            </ResizablePanel>
-            <ResizableHandle />
-          </>
-        ) : (
-          <div className='flex items-start border-r bg-sidebar-background px-1 py-2'>
-            <Button
-              variant='ghost'
-              size='icon'
-              onClick={() => setSidebarOpen(true)}
-              tooltip={{ content: "Expand Sidebar", side: "right" }}
-              className='h-8 w-8'
-            >
-              <ChevronsRight className='h-4 w-4' />
-            </Button>
+    <div className='flex min-h-0 flex-1 flex-col' data-testid='ide-files-page'>
+      <div className='flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-4 py-2 text-sm'>
+        <Eye className='size-4 text-muted-foreground' aria-hidden />
+        <span className='font-medium'>Files</span>
+        <span className='text-muted-foreground'>
+          Read-only: what the workspace serves. To change a file, clone it, edit and push:
+        </span>
+        <span className='flex items-center gap-1' data-testid='ide-files-clone-hint'>
+          <code className='rounded bg-muted px-1.5 py-0.5 font-mono text-xs'>{cloneCommand}</code>
+          <CopyButton
+            text={cloneCommand}
+            label='Copy oxyc workspace clone command'
+            testId='ide-files-clone-copy'
+          />
+        </span>
+      </div>
+      <ResizablePanelGroup direction='horizontal' className='min-h-0 flex-1'>
+        <ResizablePanel defaultSize={24} minSize={15} maxSize={45}>
+          <div className='h-full overflow-auto'>
+            {files.isPending ? (
+              <div className='flex justify-center p-4'>
+                <Spinner />
+              </div>
+            ) : files.isError ? (
+              <div className='p-3'>
+                <ErrorAlert title='Could not list files' message={apiErrorMessage(files.error)} />
+              </div>
+            ) : files.data.length === 0 ? (
+              <p className='p-4 text-muted-foreground text-sm'>The served revision has no files.</p>
+            ) : (
+              <FileTree
+                root={tree}
+                selectedPath={selectedPath}
+                initiallyOpen={initiallyOpen}
+                onSelect={open}
+              />
+            )}
           </div>
-        )}
-        <ResizablePanel defaultSize={sidebarOpen ? 80 : 100} minSize={20} className='relative'>
-          <Outlet />
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel defaultSize={76} minSize={40}>
+          <div className='flex h-full min-h-0 flex-col'>
+            {selectedPath ? <FileViewer path={selectedPath} /> : <WorkspaceRepositoryPanel />}
+          </div>
         </ResizablePanel>
       </ResizablePanelGroup>
-    </FilesProvider>
+    </div>
   );
 };
 
-export default FilesLayout;
+/** The file the URL names (`/ide/files/<base64 path>`), or none. */
+function useSelectedPath(): string | null {
+  const { "*": encoded } = useParams();
+  if (!encoded) return null;
+  try {
+    return decodeBase64(encoded);
+  } catch {
+    return null;
+  }
+}
+
+export default FilesPage;

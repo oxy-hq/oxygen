@@ -1,6 +1,6 @@
-import Editor from "@monaco-editor/react";
 import { BadgeCheck, Zap } from "lucide-react";
 import SqlArtifactPanel from "@/components/ArtifactPanel/ArtifactsContent/sql";
+import CodeView from "@/components/Code/CodeView";
 import SqlResultsTable from "@/components/sql/SqlResultsTable";
 import ErrorAlert from "@/components/ui/ErrorAlert";
 import { Panel, PanelContent, PanelHeader } from "@/components/ui/panel";
@@ -9,7 +9,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/
 import type { ArtifactItem, AutomationItem, SqlItem } from "@/hooks/analyticsSteps";
 import type { AnalyticsDisplayBlock, SseEvent } from "@/hooks/useAnalyticsRun";
 import { extractDisplayBlockForSeq } from "@/hooks/useAnalyticsRun";
-import useTheme from "@/stores/useTheme";
 import { VERIFIED_SQL_FILE_TOOLTIP, VERIFIED_TOOLTIP } from "../constants";
 import {
   AnalyzeDbtProjectView,
@@ -84,8 +83,6 @@ const AnalyticsArtifactSidebar = ({
   isRunning = false,
   onClose
 }: Props) => {
-  const theme = useTheme((s) => s.theme);
-  const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
   // ── kind === "automation" → full DAG panel ─────────────────────────────────
   if (item.kind === "automation") {
     return (
@@ -147,21 +144,7 @@ const AnalyticsArtifactSidebar = ({
                 Compiled SQL
               </div>
               <div style={{ height: sqlHeight }}>
-                <Editor
-                  height='100%'
-                  width='100%'
-                  theme={monacoTheme}
-                  defaultValue={item.sql}
-                  language='sql'
-                  value={item.sql}
-                  loading={<Spinner />}
-                  options={{
-                    readOnly: true,
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    minimap: { enabled: false }
-                  }}
-                />
+                <CodeView value={item.sql} language='sql' />
               </div>
             </div>
             {item.error && (

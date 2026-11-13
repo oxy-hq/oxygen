@@ -19,14 +19,8 @@ export { DatabaseService } from "./database";
 export { FileService } from "./files";
 export { FrontlineService } from "./frontline";
 export { GitHubApiService } from "./github";
-export { IntegrationService, type LookerIntegrationInfo } from "./integrations";
 export { ArtifactService, BuilderService, ChartService } from "./misc";
 export { OnboardingService } from "./onboarding";
 export { ThreadService } from "./threads";
 export { UserService } from "./users";
-export {
-  type CommitEntry,
-  type DirtyEntry,
-  type DirtyKind,
-  WorkspaceService
-} from "./workspaces";
+export { WorkspaceService } from "./workspaces";

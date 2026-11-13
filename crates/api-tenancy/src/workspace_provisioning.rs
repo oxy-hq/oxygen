@@ -366,6 +366,7 @@ pub async fn register_workspace<C: ConnectionTrait>(
         current_revision_id: Set(None),
         default_branch: Set(default_branch),
         repo_subdir: Set(repo_subdir),
+        default_branch_attempted_at: Set(None),
     }
     .insert(conn)
     .await

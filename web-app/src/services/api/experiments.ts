@@ -12,8 +12,7 @@ import type {
   RegisterResponse,
   ResultOutcome,
   ResultResponse,
-  RunStatus,
-  WriteBackResponse
+  RunStatus
 } from "@/types/experiment";
 import { apiClient } from "./axios";
 
@@ -192,18 +191,6 @@ export class ExperimentService {
       throw new Error(messageOf(res.data) ?? "The result request was refused (409).");
     }
     return { kind: "report", result: res.data as ResultResponse };
-  }
-
-  /** Create the review branch carrying the coefficient patch. `IdeOnly` on the server. */
-  static async applyWriteBack(projectId: string, name: string): Promise<WriteBackResponse> {
-    try {
-      const response = await apiClient.post<WriteBackResponse>(
-        `${experimentPath(projectId, name)}/write-back/apply`
-      );
-      return response.data;
-    } catch (error) {
-      rethrow(error, "propose changes to the semantic model");
-    }
   }
 
   /** Create an experiment and its draft design. 409 when the name exists, 422 when invalid. */

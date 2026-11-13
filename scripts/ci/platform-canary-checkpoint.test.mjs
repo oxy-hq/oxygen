@@ -124,3 +124,13 @@ test("withDatabase appends to the databases list, so the default database stays 
     "models: []\ndatabases:\n  - name: canary_airhouse\n    type: airhouse_managed\n"
   );
 });
+
+test("withDatabase writes a database's fields, and turns an empty flow list into a block list", () => {
+  assert.equal(
+    withDatabase("databases: []\nmodels: []\n", "canary_warehouse", "clickhouse", {
+      host: "http://localhost:18123",
+      password_var: "CANARY_WAREHOUSE_PASSWORD"
+    }),
+    "databases:\n  - name: canary_warehouse\n    type: clickhouse\n    host: http://localhost:18123\n    password_var: CANARY_WAREHOUSE_PASSWORD\nmodels: []\n"
+  );
+});

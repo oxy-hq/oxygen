@@ -1,28 +1,5 @@
 import { apiClient } from "./axios";
 
-interface LookerExplore {
-  model: string;
-  name: string;
-  description: string | null;
-}
-
-export interface LookerIntegrationInfo {
-  name: string;
-  explores: LookerExplore[];
-}
-
-export class IntegrationService {
-  static async listLookerIntegrations(
-    projectId: string,
-    branchName: string
-  ): Promise<LookerIntegrationInfo[]> {
-    const response = await apiClient.get(`/${projectId}/integrations/looker`, {
-      params: { branch: branchName }
-    });
-    return response.data;
-  }
-}
-
 /**
  * OAuth providers connectable from Settings → Integrations.
  *

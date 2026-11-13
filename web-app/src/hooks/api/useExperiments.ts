@@ -158,14 +158,6 @@ export function useExperimentResult(name: string) {
   });
 }
 
-/** Create the review branch that carries the coefficient patch. */
-export function useApplyWriteBack(name: string) {
-  const projectId = useProjectId();
-  return useMutation({
-    mutationFn: () => ExperimentService.applyWriteBack(projectId, name)
-  });
-}
-
 /** The experiment's one design (draft or frozen). */
 export function useExperimentDesign(name: string, status?: string) {
   const projectId = useProjectId();

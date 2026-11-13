@@ -3,30 +3,11 @@ import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import useViewFiles from "./useViewFiles";
 
-vi.mock("./files/useFileTree", () => ({
+vi.mock("./useSemanticObjects", () => ({
   default: () => ({
     data: {
-      primary: [
-        {
-          name: "semantics",
-          path: "semantics",
-          is_dir: true,
-          children: [
-            {
-              name: "orders.view.yml",
-              path: "semantics/views/orders.view.yml",
-              is_dir: false,
-              children: []
-            },
-            {
-              name: "sales.topic.yml",
-              path: "semantics/topics/sales.topic.yml",
-              is_dir: false,
-              children: []
-            }
-          ]
-        }
-      ]
+      views: [{ name: "orders", path: "semantics/views/orders.view.yml" }],
+      topics: [{ name: "sales", path: "semantics/topics/sales.topic.yml" }]
     },
     isLoading: false,
     error: null
@@ -34,7 +15,7 @@ vi.mock("./files/useFileTree", () => ({
 }));
 
 describe("useViewFiles", () => {
-  it("flattens only .view.yml files", () => {
+  it("lists only the views", () => {
     const { result } = renderHook(() => useViewFiles());
     expect(result.current.viewFiles).toHaveLength(1);
     expect(result.current.viewFiles[0]).toMatchObject({

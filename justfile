@@ -725,7 +725,7 @@ routing-check port="3000" ws="70787bb2-e11b-5488-b2c3-02e60d5fc7d3":
 #   just verify --build      # rebuild the fleet image first
 #   just verify --group a    # HTTP only    /  --group b  # flows only
 #   just verify --keep       # leave the stacks up
-#   just verify --expensive  # add ide-pipeline-quickbooks (~$3.20/run on a cold cache)
+#   just verify --expensive  # no-op since ide-pipeline-quickbooks went with the IDE
 #   just verify --dry-run    # print every flow invocation, run none of them
 verify *FLAGS:
     ./scripts/verify-all.sh {{ FLAGS }}

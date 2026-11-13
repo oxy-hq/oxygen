@@ -414,3 +414,153 @@ async fn a_workspace_with_no_github_connection_is_skipped_for_hours() {
     assert_eq!(row.last_outcome.as_deref(), Some("no_token"));
     assert!(due_in(&row) > 5 * 60 * 60, "got {}s", due_in(&row));
 }
+
+// ── Recording a missing default branch ───────────────────────────────────────
+
+mod default_branch {
+    use super::*;
+    use std::time::Duration;
+
+    use oxy::github::{BranchHeadError, DefaultBranchError};
+    use oxy_app::server::compile_reconcile::default_branch::{
+        DefaultBranchSource, MAX_PER_TICK, record_missing_with,
+    };
+
+    const BUDGET: Duration = Duration::from_secs(5);
+
+    /// Knows `live`; `down` never answers (transport), `odd` answers without a
+    /// branch (an unmapped status); every other repository is gone.
+    struct OneRepository;
+
+    #[async_trait::async_trait]
+    impl DefaultBranchSource for OneRepository {
+        async fn default_branch(
+            &self,
+            owner: &str,
+            repo: &str,
+            _timeout: Duration,
+        ) -> Result<String, DefaultBranchError> {
+            match repo {
+                "live" => Ok("trunk".into()),
+                "down" => Err(BranchHeadError::Unavailable("connection reset".into()).into()),
+                "odd" => Err(DefaultBranchError::NoAnswer("HTTP 451".into())),
+                _ => Err(BranchHeadError::NotFound {
+                    owner: owner.into(),
+                    repo: repo.into(),
+                    branch: "(default)".into(),
+                }
+                .into()),
+            }
+        }
+    }
+
+    async fn workspace(db: &DatabaseConnection, remote: &str) -> Uuid {
+        workspace_with_id(db, Uuid::new_v4(), remote).await
+    }
+
+    async fn workspace_with_id(db: &DatabaseConnection, id: Uuid, remote: &str) -> Uuid {
+        workspaces::ActiveModel {
+            id: ActiveValue::Set(id),
+            name: ActiveValue::Set(remote.into()),
+            git_remote_url: ActiveValue::Set(Some(remote.into())),
+            status: ActiveValue::Set(workspaces::WorkspaceStatus::Ready),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("seed workspace")
+        .id
+    }
+
+    async fn branch_of(db: &DatabaseConnection, id: Uuid) -> Option<String> {
+        workspaces::Entity::find_by_id(id)
+            .one(db)
+            .await
+            .expect("load")
+            .expect("exists")
+            .default_branch
+    }
+
+    /// More unresolvable workspaces than one pass asks about, and a resolvable
+    /// one: the unresolvable ones are marked as asked, so the next pass reaches
+    /// the resolvable one instead of asking about the same five again. A GitLab
+    /// remote is never asked at all.
+    #[tokio::test]
+    async fn unresolvable_workspaces_do_not_starve_a_resolvable_one() {
+        let db = test_db_with(Schema::All).await;
+        let gitlab = workspace(&db, "https://gitlab.com/acme/elsewhere.git").await;
+        for n in 0..=MAX_PER_TICK {
+            workspace(&db, &format!("https://github.com/acme/gone-{n}.git")).await;
+        }
+        let live = workspace(&db, "https://github.com/acme/live.git").await;
+
+        let source = || async { Some(Box::new(OneRepository) as Box<dyn DefaultBranchSource>) };
+        let mut recorded = 0;
+        for _ in 0..3 {
+            recorded += record_missing_with(&db, BUDGET, |_| source())
+                .await
+                .recorded;
+        }
+        assert_eq!(recorded, 1);
+        assert_eq!(branch_of(&db, live).await.as_deref(), Some("trunk"));
+        assert_eq!(branch_of(&db, gitlab).await, None);
+
+        // Every github.com workspace has been asked once; within the hour a
+        // pass asks nobody again.
+        let asked = std::sync::atomic::AtomicUsize::new(0);
+        let again = record_missing_with(&db, BUDGET, |_| {
+            asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            source()
+        })
+        .await;
+        assert_eq!(again.recorded, 0);
+        assert_eq!(
+            asked.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "nobody is asked again"
+        );
+    }
+
+    /// A repository GitHub keeps failing on, sorted first: the request that
+    /// never completed stops the pass, but the workspace is stamped, so the
+    /// next pass reaches the one behind it instead of asking the same
+    /// repository on every tick. A repository that answers without a branch
+    /// (`odd`) does not stop the pass at all.
+    #[tokio::test]
+    async fn a_repository_github_keeps_failing_on_does_not_block_the_next_pass() {
+        let db = test_db_with(Schema::All).await;
+        let down =
+            workspace_with_id(&db, Uuid::from_u128(1), "https://github.com/acme/down.git").await;
+        let odd =
+            workspace_with_id(&db, Uuid::from_u128(2), "https://github.com/acme/odd.git").await;
+        let live =
+            workspace_with_id(&db, Uuid::from_u128(3), "https://github.com/acme/live.git").await;
+        let source = || async { Some(Box::new(OneRepository) as Box<dyn DefaultBranchSource>) };
+
+        let first = record_missing_with(&db, BUDGET, |_| source()).await;
+        assert!(first.stopped && !first.rate_limited, "{first:?}");
+        assert_eq!(first.recorded, 0);
+        assert_eq!(
+            branch_of(&db, live).await,
+            None,
+            "the pass stopped at `down`"
+        );
+
+        let second = record_missing_with(&db, BUDGET, |_| source()).await;
+        assert!(!second.stopped, "{second:?}");
+        assert_eq!(second.recorded, 1);
+        assert_eq!(branch_of(&db, live).await.as_deref(), Some("trunk"));
+        for id in [down, odd] {
+            let row = workspaces::Entity::find_by_id(id)
+                .one(&db)
+                .await
+                .expect("load")
+                .expect("exists");
+            assert!(
+                row.default_branch_attempted_at.is_some(),
+                "{id} was stamped"
+            );
+            assert_eq!(row.default_branch, None);
+        }
+    }
+}

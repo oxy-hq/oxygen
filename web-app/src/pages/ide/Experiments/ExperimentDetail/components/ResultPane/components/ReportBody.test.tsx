@@ -621,7 +621,8 @@ describe("ReportBody", () => {
     expect(section).toHaveTextContent("1.42");
     expect(section).toHaveTextContent("0.9 to unbounded above");
     expect(section).toHaveTextContent("sales_semantics/views/store_days.view.yml");
-    expect(screen.getByTestId("experiment-writeback-apply")).toBeInTheDocument();
+    // Applying it is an edit in the workspace's repository, not a button.
+    expect(screen.getByTestId("workspace-repository-notice")).toBeInTheDocument();
     // The patch names the prior it would replace.
     expect(screen.getByTestId("experiment-report-patch-replaces")).toHaveTextContent(
       "1.1 (fitted from history); the edge's own coefficient is 1.05"

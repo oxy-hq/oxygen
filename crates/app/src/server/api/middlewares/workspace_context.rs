@@ -705,12 +705,6 @@ pub async fn workspace_middleware(
         Err(refusal) => return Ok(refusal),
     };
 
-    // A deployment that retired the IDE refuses its routes here, after the caller
-    // is authorized (the answer names the repository). A no-op with the flag off.
-    if let Some(refusal) = crate::server::factory_access::ide_retired::refusal_for(&request) {
-        return Ok(refusal);
-    }
-
     // A preview request (`x-oxy-preview-revision`) from staff, naming a ready
     // staging revision of this workspace, reads that revision. Every other
     // request — the IDE on the same branch included, which sends no header — is
@@ -718,19 +712,9 @@ pub async fn workspace_middleware(
     let (mut request, preview) =
         crate::server::previews::pin::for_request(workspace_id, query.branch.as_deref(), request)
             .await;
-    if preview.is_none()
-        && let Some(response) = forward_deferred_branch_escalation(&mut request).await
-    {
-        return Ok(response);
-    }
-    // From here on `?branch=` means "read this branch's working copy": it
-    // picks the revision and the directory a manager is built on. On a route
-    // where it names what is acted on instead, it means neither.
-    // With the IDE retired there is no working copy to read: the request is
-    // served from the compiled revision whatever branch it names.
-    let working_copy_branch = query.branch.filter(|_| {
-        !branch_names_a_resource(&request) && !crate::server::factory_access::ide_retired::is_on()
-    });
+    // There is no working copy to read: the request is served from the
+    // compiled revision whatever branch it names.
+    let working_copy_branch: Option<String> = None;
 
     // Resolve the one revision this request reads — ONCE — and pin it for the
     // whole downstream (config resolution below + every compiled reader the
@@ -858,39 +842,6 @@ async fn forward_with_original_uri(
         *request.uri_mut() = original;
     }
     crate::server::ide_proxy::forward_to_ide(upstream, request).await
-}
-
-/// Whether this request's `?branch=` names what it acts on — the branch to
-/// compile on `POST /compile/staging` — rather than a working copy to read.
-/// Asked of the URI the outer stack routed on: inside the workspace nest axum
-/// has rewritten `Uri` to the remainder.
-fn branch_names_a_resource(request: &Request<axum::body::Body>) -> bool {
-    request
-        .extensions()
-        .get::<axum::extract::OriginalUri>()
-        .is_some_and(|original| {
-            crate::server::role_middleware::branch_names_a_resource(original.0.path())
-        })
-}
-
-/// Finish the branch escalation `enforce_role` deferred for a request carrying
-/// the preview header. The preview did not apply (not staff, no servable
-/// preview, or the header disagreed with `?branch=`), so the request goes where
-/// it would have gone without the header — the ide, which serves `?branch=`
-/// from its working copy. `None` when nothing was deferred, or there is no ide
-/// to send it to (then it is served here, exactly as a replica always has).
-async fn forward_deferred_branch_escalation(
-    request: &mut Request<axum::body::Body>,
-) -> Option<Response> {
-    request
-        .extensions()
-        .get::<crate::server::previews::pin::DeferredBranchEscalation>()?;
-    let upstream = crate::server::ide_proxy::ide_upstream()?;
-    if crate::server::ide_proxy::already_forwarded(request) {
-        return None;
-    }
-    let taken = std::mem::replace(request, Request::new(axum::body::Body::empty()));
-    Some(forward_with_original_uri(upstream, taken).await)
 }
 
 /// The access half of [`workspace_middleware`] and nothing else: authorize the
@@ -1706,17 +1657,6 @@ async fn try_attach_workspace_manager(
             crate::server::api::workspaces::detached::unresolved_branch_status(branch_name)
         })?;
 
-    // Record worktree access for the lifecycle reaper (ide-local; see
-    // server::worktree_registry). Only worktree paths are tracked — the main
-    // working copy (default branch) resolves to the workspace root, which is
-    // never reaped.
-    if effective_path
-        .components()
-        .any(|c| c.as_os_str().to_str() == Some(oxy_git::cli::worktree::WORKTREES_DIR))
-    {
-        crate::server::worktree_registry::registry().touch(&effective_path);
-    }
-
     // Compile-boundary fast path: when the workspace has a promoted revision,
     // hydrate the workspace `Config` from `workspace_compiled_configs` instead
     // of re-parsing `config.yml` from disk on every request. This is the
@@ -1932,44 +1872,6 @@ async fn try_attach_workspace_manager(
 
 #[cfg(test)]
 mod tests {
-    /// `POST /compile/staging?branch=feat/x` names the branch to compile. If
-    /// the middleware read it as a working copy to serve, a replica would
-    /// count a dropped branch hint and the node with the files would build a
-    /// manager on a worktree the request never reads.
-    #[test]
-    fn a_branch_that_names_what_is_compiled_is_not_a_working_copy_to_read() {
-        use axum::extract::OriginalUri;
-        let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
-        let arriving = |original: Option<String>| {
-            // What a handler inside the nest sees: the remainder.
-            let mut request = axum::extract::Request::new(axum::body::Body::empty());
-            *request.uri_mut() = "/compile/staging?branch=feat%2Fx".parse().unwrap();
-            if let Some(original) = original {
-                request
-                    .extensions_mut()
-                    .insert(OriginalUri(original.parse().unwrap()));
-            }
-            request
-        };
-        let staging = format!("/api/{ws}/compile/staging?branch=feat%2Fx");
-        assert!(super::branch_names_a_resource(&arriving(Some(staging))));
-        // Every other workspace route keeps reading `?branch=` as it did.
-        for path in [
-            "threads",
-            "compile/status",
-            "compile/staging/status",
-            "files",
-        ] {
-            let other = format!("/api/{ws}/{path}?branch=feat%2Fx");
-            assert!(
-                !super::branch_names_a_resource(&arriving(Some(other))),
-                "{path}"
-            );
-        }
-        // Not routed through a nest: nothing says which route this is.
-        assert!(!super::branch_names_a_resource(&arriving(None)));
-    }
-
     #[test]
     fn self_heal_backoff_doubles_per_consecutive_failure_up_to_six_hours() {
         use super::lazy_compile_backoff_secs as b;

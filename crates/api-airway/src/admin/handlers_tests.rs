@@ -94,6 +94,7 @@ async fn seed_workspace_in_org(db: &DatabaseConnection, org_id: Option<Uuid>) ->
         current_revision_id: Set(None),
         default_branch: Set(None),
         repo_subdir: Set(None),
+        default_branch_attempted_at: Set(None),
     }
     .insert(db)
     .await

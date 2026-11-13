@@ -51,21 +51,31 @@ pub struct PipelineFile {
     /// tab, never a wrong write.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_kind: Option<String>,
+    /// For a QuickBooks source: the client id and secret names its Reconnect
+    /// button needs (names only, never a secret value), read from the same
+    /// definition as `source_kind`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quickbooks: Option<oxy::config::QuickBooksSource>,
 }
 
 /// Test-only: the listing itself always goes through `to_file_with_kind`,
 /// with the kind coming from `PipelineEntry` (both origins fill it in core).
 #[cfg(test)]
 fn to_file(relative_path: String) -> PipelineFile {
-    to_file_with_kind(relative_path, None)
+    to_file_with_kind(relative_path, None, None)
 }
 
-fn to_file_with_kind(relative_path: String, source_kind: Option<String>) -> PipelineFile {
+fn to_file_with_kind(
+    relative_path: String,
+    source_kind: Option<String>,
+    quickbooks: Option<oxy::config::QuickBooksSource>,
+) -> PipelineFile {
     let path_b64 = URL_SAFE_NO_PAD.encode(relative_path.as_bytes());
     PipelineFile {
         path: relative_path,
         path_b64,
         source_kind,
+        quickbooks,
     }
 }
 
@@ -101,7 +111,7 @@ pub async fn list_pipelines(
     Ok(extract::Json(
         pipelines
             .into_iter()
-            .map(|p| to_file_with_kind(p.file_path, p.source_kind))
+            .map(|p| to_file_with_kind(p.file_path, p.source_kind, p.quickbooks))
             .collect(),
     ))
 }
@@ -109,6 +119,30 @@ pub async fn list_pipelines(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_quickbooks_source_names_its_client_and_secrets_and_others_name_none() {
+        let def = serde_json::json!({
+            "source": { "kind": "quickbooks", "config": {
+                "client_id": "abc", "client_secret_var": "QB_SECRET",
+                "refresh_token_var": "QB_REFRESH"
+            } },
+        });
+        let qb = oxy::config::pipeline_quickbooks_source(&def).expect("a quickbooks source");
+        assert_eq!(qb.client_id, "abc");
+        assert_eq!(qb.client_secret_var, "QB_SECRET");
+        assert_eq!(qb.refresh_token_var, "QB_REFRESH");
+        for other in [
+            serde_json::json!({ "source": { "kind": "toast", "config": {} } }),
+            serde_json::json!({ "source": { "kind": "quickbooks", "config": { "client_id": "abc" } } }),
+        ] {
+            assert_eq!(
+                oxy::config::pipeline_quickbooks_source(&other),
+                None,
+                "{other}"
+            );
+        }
+    }
 
     #[test]
     fn source_kind_is_read_from_the_definition() {

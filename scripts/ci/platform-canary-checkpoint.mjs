@@ -35,8 +35,9 @@
  *      rule in Chromium and a login page this server may not embed.
  *
  * Every identity comes from a supported path: `dev-login` mints the users, the
- * admin API creates the org, membership and grant, the workspace API adds
- * the database and mints the key. Nothing writes to Postgres by hand.
+ * admin API creates the org, membership and grant, the workspace API mints the
+ * key, and the database is a `config.yml` edit of the single-process server's
+ * workspace directory (the product no longer writes `config.yml`). Nothing writes to Postgres by hand.
  *
  * The server must have dev sign-in on for two addresses — a staff one in
  * `OXY_GLOBAL_ADMINS` and the canary user in `OXY_DEV_LOGIN_EMAILS` — plus
@@ -508,53 +509,69 @@ async function ensureClickHouse(opts) {
   note("exists");
 }
 
-async function ensureWarehouse(opts, canary, workspaceId) {
-  step(`workspace database ${WAREHOUSE_NAME}`);
+/**
+ * The blank workspace's `config.yml` on this machine. The server runs as one
+ * process (`oxy serve`, `OXY_ROLE=all`) beside this script, so the workspace
+ * directory it reports is readable here. The product no longer writes
+ * `config.yml` (the databases API and file editing went with the IDE), so the
+ * canary edits the file the way an engineer edits a repository, then compiles.
+ */
+async function workspaceConfig(opts, canary, orgId, workspaceId) {
   const list = await must(
     opts.target,
     canary.token,
     "GET",
-    `/api/${workspaceId}/databases`,
+    `/api/orgs/${orgId}/workspaces`,
     undefined,
-    "list databases"
+    "list workspaces"
   );
-  if (list.json.some((d) => d.name === WAREHOUSE_NAME)) {
+  const dir = list.json.find((w) => w.id === workspaceId)?.path;
+  const file = dir ? join(dir, "config.yml") : null;
+  if (!file || !existsSync(dir)) {
+    fail(
+      `workspace ${workspaceId} has no directory on this machine (${dir ?? "no path"}): ` +
+        "the canary needs a single-process server running beside it"
+    );
+  }
+  const text = existsSync(file) ? readFileSync(file, "utf8") : "databases: []\nmodels: []\n";
+  return { file, text };
+}
+
+async function ensureWarehouse(opts, canary, orgId, workspaceId) {
+  step(`workspace database ${WAREHOUSE_NAME}`);
+  const { file, text } = await workspaceConfig(opts, canary, orgId, workspaceId);
+  if (new RegExp(`name:\\s*${WAREHOUSE_NAME}\\s*$`, "m").test(text)) {
     note("already configured; leaving it (reconfigure by using a fresh --org-slug)");
     return;
   }
   // The password lands in the workspace secrets store as `<NAME>_PASSWORD`, and
   // config.yml carries only its `password_var`. The one database is also the
   // default, which is what `sql_read`'s `ctx.query` reaches.
-  await must(
-    opts.target,
-    canary.token,
-    "POST",
-    `/api/${workspaceId}/databases`,
-    {
-      warehouses: [
-        {
-          type: "clickhouse",
-          name: WAREHOUSE_NAME,
-          config: {
-            host: opts.clickhouseUrl,
-            user: opts.clickhouseUser,
-            password: opts.clickhousePassword,
-            database: opts.clickhouseDatabase
-          }
-        }
-      ]
-    },
-    "add database"
+  const passwordVar = `${WAREHOUSE_NAME.toUpperCase()}_PASSWORD`;
+  const secret = await api(opts.target, canary.token, "POST", `/api/${workspaceId}/secrets`, {
+    name: passwordVar,
+    value: opts.clickhousePassword
+  });
+  if (secret.status !== 409 && (secret.status < 200 || secret.status >= 300)) {
+    fail(`store ${passwordVar}: ${secret.status} ${secret.text.slice(0, 200)}`);
+  }
+  writeFileSync(
+    file,
+    withDatabase(text, WAREHOUSE_NAME, "clickhouse", {
+      host: opts.clickhouseUrl,
+      user: opts.clickhouseUser,
+      password_var: passwordVar,
+      database: opts.clickhouseDatabase
+    })
   );
   note(`added ${WAREHOUSE_NAME} → ${opts.clickhouseDatabase}`);
 }
 
 /**
  * `--airhouse`: the workspace's Airhouse tenant, and `canary_airhouse` in its
- * config.yml. The databases API takes no `airhouse_managed` type, so the entry
- * goes in the way the IDE's Airhouse panel adds it: an edit of config.yml.
+ * config.yml, edited on disk like the warehouse above.
  */
-async function ensureAirhouse(opts, canary, workspaceId) {
+async function ensureAirhouse(opts, canary, orgId, workspaceId) {
   step(`Airhouse tenant and workspace database ${AIRHOUSE_NAME}`);
   // Idempotent; the canary user is the org's Owner, which provisioning needs.
   const tenant = `canary-${workspaceId.slice(0, 8)}`;
@@ -567,21 +584,12 @@ async function ensureAirhouse(opts, canary, workspaceId) {
     "provision Airhouse"
   );
   note(`tenant ${provisioned.json?.tenant_id ?? tenant}`);
-  const file = `/api/${workspaceId}/files/${Buffer.from("config.yml").toString("base64")}?branch=main`;
-  const config = await must(opts.target, canary.token, "GET", file, undefined, "read config.yml");
-  const text = typeof config.json === "string" ? config.json : config.text;
+  const { file, text } = await workspaceConfig(opts, canary, orgId, workspaceId);
   if (new RegExp(`name:\\s*${AIRHOUSE_NAME}\\s*$`, "m").test(text)) {
     note("already configured; leaving it");
     return;
   }
-  await must(
-    opts.target,
-    canary.token,
-    "POST",
-    file,
-    { data: withDatabase(text, AIRHOUSE_NAME, "airhouse_managed") },
-    "write config.yml"
-  );
+  writeFileSync(file, withDatabase(text, AIRHOUSE_NAME, "airhouse_managed"));
   note(`added ${AIRHOUSE_NAME} (airhouse_managed)`);
 }
 
@@ -591,10 +599,17 @@ async function ensureAirhouse(opts, canary, workspaceId) {
  * is the workspace default `sql_read` reads. Text, not a YAML round trip: the
  * script has no YAML parser, and a round trip would rewrite the rest of the file.
  */
-export function withDatabase(config, name, type) {
+export function withDatabase(config, name, type, fields = {}) {
+  const extra = (indent) =>
+    Object.entries(fields).map(([key, value]) => `${indent}  ${key}: ${value}`);
   const lines = config.replace(/\n*$/, "").split("\n");
+  // A flow-style empty list (`databases: []`) becomes a block list.
+  const empty = lines.findIndex((line) => /^databases:\s*\[\]\s*$/.test(line));
+  if (empty >= 0) lines[empty] = "databases:";
   const at = lines.findIndex((line) => /^databases:\s*$/.test(line));
-  if (at < 0) return `${lines.join("\n")}\ndatabases:\n  - name: ${name}\n    type: ${type}\n`;
+  if (at < 0) {
+    return `${[...lines, "databases:", `  - name: ${name}`, `    type: ${type}`, ...extra("  ")].join("\n")}\n`;
+  }
   const first = lines.slice(at + 1).find((line) => line.trim() !== "");
   const indent = /^(\s*)-/.exec(first ?? "")?.[1] ?? "  ";
   // The list runs until the next top-level key: a line that starts with
@@ -602,15 +617,14 @@ export function withDatabase(config, name, type) {
   let end = at + 1;
   while (end < lines.length && !/^[^\s-]/.test(lines[end])) end++;
   while (end > at + 1 && lines[end - 1].trim() === "") end--;
-  lines.splice(end, 0, `${indent}- name: ${name}`, `${indent}  type: ${type}`);
+  lines.splice(end, 0, `${indent}- name: ${name}`, `${indent}  type: ${type}`, ...extra(indent));
   return `${lines.join("\n")}\n`;
 }
 
-async function compileAndPromote(opts, staff, canary, workspaceId) {
+async function compileAndPromote(opts, staff, _canary, workspaceId) {
   step("compile and promote the workspace");
-  // Not `POST /{ws}/compile`: that route ships the default branch's HEAD, and a
-  // blank org workspace has no commit, so it answers 409. The admin route is what
-  // the console's "Run compile now" uses and takes a workspace without a SHA.
+  // The admin route is what the console's "Run compile now" uses and takes a
+  // workspace without a SHA (a blank org workspace has no commit).
   await must(
     opts.target,
     staff.token,
@@ -623,14 +637,14 @@ async function compileAndPromote(opts, staff, canary, workspaceId) {
   for (;;) {
     const s = await must(
       opts.target,
-      canary.token,
+      staff.token,
       "GET",
-      `/api/${workspaceId}/compile/status?branch=main`,
+      `/api/admin/compiles?workspace_id=${workspaceId}&limit=1`,
       undefined,
       "compile status"
     );
-    const latest = s.json.latest;
-    if (latest?.status === "ready" && s.json.current_revision_id === latest.revision_id) {
+    const latest = s.json.rows?.[0];
+    if (latest?.status === "ready" && latest.is_current_for_workspace) {
       note(`revision ${latest.revision_id} ready and promoted (${latest.duration_ms ?? "?"} ms)`);
       return;
     }
@@ -889,8 +903,8 @@ async function main() {
     const { orgId, workspaceId } = await ensureOrg(opts, staff, canary);
     await ensureOltp(opts, staff, orgId);
     await ensureClickHouse(opts);
-    await ensureWarehouse(opts, canary, workspaceId);
-    if (opts.airhouse) await ensureAirhouse(opts, canary, workspaceId);
+    await ensureWarehouse(opts, canary, orgId, workspaceId);
+    if (opts.airhouse) await ensureAirhouse(opts, canary, orgId, workspaceId);
     await compileAndPromote(opts, staff, canary, workspaceId);
     const apiKey = await mintApiKey(opts, canary, workspaceId);
 

@@ -24,7 +24,7 @@ import ThreadPage from "@/pages/thread";
 import CustomerWorldModelPage from "@/pages/world-model";
 import "@xyflow/react/dist/style.css";
 import React, { Suspense, useEffect, useRef } from "react";
-import { HotkeysProvider, useHotkeys } from "react-hotkeys-hook";
+import { HotkeysProvider } from "react-hotkeys-hook";
 import { toast } from "sonner";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { Spinner } from "@/components/ui/shadcn/spinner";
@@ -33,8 +33,6 @@ import ContextGraphPage from "@/pages/context-graph";
 import WorldModelView from "@/pages/ide/WorldModel";
 import { ErrorBoundary } from "@/sentry";
 import { ActingShell } from "./components/admin/ActingShell";
-import { BuilderDialog } from "./components/BuilderDialog";
-import { FileQuickOpen } from "./components/FileQuickOpen";
 import OrgGuard from "./components/OrgGuard";
 import OrgSubdomainAuthGate from "./components/OrgSubdomainAuthGate";
 import OwnerRedirect from "./components/OwnerRedirect";
@@ -53,7 +51,6 @@ import { PreviewPinProvider } from "./contexts/PreviewPinContext";
 import { useWorkspace } from "./hooks/api/workspaces/useWorkspaces";
 import useAuthConfig from "./hooks/auth/useAuthConfig";
 import useAppsFirstExperience from "./hooks/useAppsFirstExperience";
-import useIdeRetired from "./hooks/useIdeRetired";
 import useOauthConnectReturn from "./hooks/useOauthConnectReturn";
 import useVersionCheck from "./hooks/useVersionCheck";
 import { LOCAL_WORKSPACE_ID } from "./libs/utils/constants";
@@ -77,23 +74,18 @@ import OnboardingPage from "./pages/onboarding";
 import PostLoginDispatcher from "./pages/PostLoginDispatcher";
 import QuickBooksConnected from "./pages/quickbooks/QuickBooksConnected";
 import useAskDock from "./stores/useAskDock";
-import useBuilderDialog from "./stores/useBuilderDialog";
 import useCurrentOrg from "./stores/useCurrentOrg";
 import useCurrentWorkspace from "./stores/useCurrentWorkspace";
 import { useDatabaseOperationStore } from "./stores/useDatabaseOperation";
-import useFileQuickOpen from "./stores/useFileQuickOpen";
 import useSettingsDialog from "./stores/useSettingsDialog";
 import type { AuthConfigResponse } from "./types/auth";
 
-// Lazy-load the entire IDE subtree. The IDE pulls in Monaco, monaco-yaml,
-// and the editors vendor chunk (~300-400KB gzipped); users who never visit
-// /ide should not pay for it on initial load.
+// Lazy-load the entire IDE subtree: users who never visit /ide should not pay
+// for it on initial load.
 const IdePage = React.lazy(() => import("./pages/ide"));
 
-const FilesLayout = React.lazy(() => import("./pages/ide/Files"));
-const EditorPage = React.lazy(() => import("./pages/ide/Files/Editor"));
+const IdeFilesPage = React.lazy(() => import("./pages/ide/Files"));
 const DatabaseLayout = React.lazy(() => import("./pages/ide/Database"));
-const RetiredIdePanel = React.lazy(() => import("./pages/ide/RetiredIdePanel"));
 const QueryWorkspacePage = React.lazy(() => import("./pages/ide/Database/QueryWorkspace"));
 const SemanticLayerPage = React.lazy(() => import("./pages/ide/SemanticLayer"));
 const ExperimentsListPage = React.lazy(() => import("./pages/ide/Experiments"));
@@ -187,7 +179,7 @@ const RouteFallback = () => (
 );
 
 // Last workspace WorkspaceLayout rendered. Deliberately module-scoped rather
-// than a `useRef`: the chrome this guards (`useAskDock`, `useBuilderDialog`,
+// than a `useRef`: the chrome this guards (`useAskDock`,
 // `useDatabaseOperationStore`) lives in module-level zustand stores that
 // outlive any unmount, so the marker has to outlive it too. A component ref
 // is re-seeded whenever WorkspaceLayout unmounts between two workspaces —
@@ -225,28 +217,12 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
   // Settings → Connections leaves the SPA for the provider's consent screen and
   // returns with ?oxy_connected=ok; this reopens the dialog and confirms it.
   useOauthConnectReturn();
-  const { setIsOpen: setBuilderDialogOpen } = useBuilderDialog();
-  const { setIsOpen: setFileQuickOpenOpen } = useFileQuickOpen();
-  // IDE retired: the Builder (⌘I) and file quick-open (⌘P) read and edit the
-  // working copy, whose routes the server refuses, so neither is bound or mounted.
-  const ideRetired = useIdeRetired();
-  useHotkeys("meta+i", () => setBuilderDialogOpen(!useBuilderDialog.getState().isOpen), {
-    preventDefault: true,
-    useKey: true,
-    enabled: !ideRetired
-  });
-  useHotkeys("meta+p", () => setFileQuickOpenOpen(true), {
-    preventDefault: true,
-    useKey: true,
-    enabled: !ideRetired
-  });
   // react-hotkeys-hook's useKey matching misfired on bare "k" (closing the
   // panel mid-typing); bind ⌘K/Ctrl+K manually with explicit modifier checks.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey)) return;
       e.preventDefault();
-      if (useBuilderDialog.getState().isOpen || useFileQuickOpen.getState().isOpen) return;
       useAskDock.getState().toggle();
     };
     window.addEventListener("keydown", onKey);
@@ -286,7 +262,7 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
   }, [isPending, isError, setWorkspace, data]);
 
   // Several pieces of chrome are deliberately kept mounted across route
-  // changes (the Ask dock, the ⌘I builder dialog) so collapsing/switching
+  // changes (the Ask dock) so collapsing/switching
   // pages never loses a draft — but that also means they survive a
   // workspace switch, since only the `:wsId` route param changes.
   // `wsId` (from `useParams`) changes synchronously with navigation, so this
@@ -302,7 +278,6 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
     if (!wsId) return;
     if (lastSeenWsId && lastSeenWsId !== wsId) {
       useAskDock.getState().newChat();
-      useBuilderDialog.getState().setIsOpen(false);
       useDatabaseOperationStore.getState().clearSyncState();
     }
     lastSeenWsId = wsId;
@@ -404,12 +379,6 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
 
   const shell = (
     <HotkeysProvider>
-      {!ideRetired && (
-        <>
-          <BuilderDialog />
-          <FileQuickOpen />
-        </>
-      )}
       <SettingsDialog />
       {/* Apps-first has no opener for it (the rail switcher and the Factory
           picker's "Manage sets of apps" are gone), so it is not mounted. */}
@@ -466,26 +435,14 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
                 </FactoryGuard>
               }
             >
-              {authConfig.ide_retired ? (
-                <>
-                  {/* IDE retired: where Files and the Database client were, the
-                  repository and how to open it in your own editor. */}
-                  <Route path='files/*' element={<RetiredIdePanel />} />
-                  <Route path='database/*' element={<RetiredIdePanel />} />
-                </>
-              ) : (
-                <>
-                  {/* Files routes */}
-                  <Route path='files' element={<FilesLayout />}>
-                    <Route path=':pathb64' element={<EditorPage />} />
-                  </Route>
+              {/* Files: the served revision, read-only, beside the repository and
+              how to open it. */}
+              <Route path='files/*' element={<IdeFilesPage />} />
 
-                  {/* Database routes */}
-                  <Route path='database' element={<DatabaseLayout />}>
-                    <Route index element={<QueryWorkspacePage />} />
-                  </Route>
-                </>
-              )}
+              {/* SQL client: runs queries against the compiled database config. */}
+              <Route path='database' element={<DatabaseLayout />}>
+                <Route index element={<QueryWorkspacePage />} />
+              </Route>
 
               {/* Semantic model — explorer + metric tree */}
               <Route path='semantic' element={<SemanticLayerPage />} />
@@ -553,7 +510,7 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
               <Route index element={<Navigate to='world-model' replace />} />
             </Route>
             <Route path='onboarding' element={<AgenticSetupPage />} />
-            {/* Reads the file tree and the modeling lineage: both the Factory's. */}
+            {/* A back-office view: reads the served revision (`/context-graph/sources`). */}
             <Route
               path='context-graph'
               element={

@@ -4,8 +4,8 @@
 //!   * `POST /{workspace_id}/compile/staging?branch=<b>` — FleetOk. Finds the
 //!     branch's head commit, reuses a ready staging (or main) revision of that
 //!     SHA, and otherwise queues a compile with `kind = staging`, never
-//!     promoted. A branch GitHub does not have is replayed to the node with
-//!     the working copy when there is one, and refused by name when not.
+//!     promoted. A branch GitHub does not have is refused by name (in
+//!     single-process mode the directory still answers it).
 //!   * `GET /{workspace_id}/compile/staging/status?git_sha=<sha>` — FleetOk.
 //!     Where that compile stands: `ready` + the revision id once it has
 //!     compiled.
@@ -20,7 +20,6 @@
 //! Mechanics: `internal-docs/compile-boundary.md` § "Staging revisions".
 
 use axum::Json;
-use axum::body::Bytes;
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -31,7 +30,6 @@ use uuid::Uuid;
 
 use crate::server::api::middlewares::role_guards::WorkspaceEditor;
 use crate::server::compile_request::{self, CompileState, Refusal, Target};
-use crate::server::factory_replay::Arrived;
 
 #[derive(Deserialize)]
 pub struct StagingCompileQuery {
@@ -54,7 +52,6 @@ pub async fn enqueue_staging_compile(
     _: WorkspaceEditor,
     Path(workspace_id): Path<Uuid>,
     Query(q): Query<StagingCompileQuery>,
-    arrived: Arrived,
 ) -> Result<Response, (StatusCode, String)> {
     let db = connect().await?;
     let workspace = entity::workspaces::Entity::find_by_id(workspace_id)
@@ -63,18 +60,12 @@ pub async fn enqueue_staging_compile(
         .map_err(internal)?
         .ok_or_else(|| not_found(workspace_id))?;
     let target = Target::Branch(&q.branch);
-    let refusal =
-        match compile_request::compile(&db, &workspace, target, RevisionKind::Staging).await {
-            Ok(state) => return Ok(Json(state).into_response()),
-            Err(refusal) => refusal,
-        };
-    // Only a working copy has this branch: the node that holds one answers.
-    if refusal.needs_working_copy()
-        && let Some(answer) = arrived.replayed_to_factory(Bytes::new()).await
-    {
-        return Ok(answer);
+    // A branch GitHub does not have is refused with the reason: nothing is
+    // sent on to a Factory.
+    match compile_request::compile(&db, &workspace, target, RevisionKind::Staging).await {
+        Ok(state) => Ok(Json(state).into_response()),
+        Err(refusal) => Err(refused(refusal)),
     }
-    Err(refused(refusal))
 }
 
 /// GET /{workspace_id}/compile/staging/status?git_sha=<sha>

@@ -1,5 +1,5 @@
+import CodeDiffView from "@/components/Code/CodeDiffView";
 import Markdown from "@/components/Markdown";
-import BaseMonacoEditor from "@/components/MonacoEditor/BaseMonacoEditor";
 import { Button } from "@/components/ui/shadcn/button";
 
 export interface FileChangePayload {
@@ -28,28 +28,6 @@ export function parseFileChange(prompt: string): FileChangePayload | null {
   return null;
 }
 
-function languageFromPath(filePath: string): string {
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    rs: "rust",
-    ts: "typescript",
-    tsx: "typescript",
-    js: "javascript",
-    jsx: "javascript",
-    py: "python",
-    sql: "sql",
-    yml: "yaml",
-    yaml: "yaml",
-    json: "json",
-    toml: "toml",
-    md: "markdown",
-    sh: "shell",
-    html: "html",
-    css: "css"
-  };
-  return map[ext] ?? "plaintext";
-}
-
 interface FileChangeDiffProps {
   payload: FileChangePayload;
   suggestions: string[];
@@ -70,24 +48,12 @@ const FileChangeDiff = ({ payload, suggestions, onAnswer, isAnswering }: FileCha
             <span className='font-medium text-destructive text-xs'>File will be deleted</span>
           </div>
           <div style={{ height: 200 }}>
-            <BaseMonacoEditor
-              value=''
-              original={payload.old_content}
-              language={languageFromPath(payload.file_path)}
-              diffMode
-              options={{ renderSideBySide: false, readOnly: true }}
-            />
+            <CodeDiffView original={payload.old_content} modified='' />
           </div>
         </div>
       ) : (
         <div className='overflow-hidden rounded-md border border-border' style={{ height: 360 }}>
-          <BaseMonacoEditor
-            value={payload.new_content}
-            original={payload.old_content}
-            language={languageFromPath(payload.file_path)}
-            diffMode
-            options={{ renderSideBySide: false, readOnly: true }}
-          />
+          <CodeDiffView original={payload.old_content} modified={payload.new_content} />
         </div>
       )}
       {suggestions.length > 0 && (

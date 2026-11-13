@@ -13,6 +13,42 @@ pub struct PipelineEntry {
     /// parse — a surface gated on it stays hidden rather than appearing and
     /// then failing.
     pub source_kind: Option<String>,
+    /// For a `quickbooks` source, the client id and the secret names its
+    /// Reconnect button needs ([`pipeline_quickbooks_source`]); `None` for any
+    /// other source, or one missing a field.
+    pub quickbooks: Option<QuickBooksSource>,
+}
+
+/// What reconnecting a QuickBooks pipeline needs from its definition: the
+/// client id and the names of the secrets that hold the client secret and the
+/// refresh token. Names only, never a secret value.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct QuickBooksSource {
+    pub client_id: String,
+    pub client_secret_var: String,
+    pub refresh_token_var: String,
+}
+
+/// The [`QuickBooksSource`] of a pipeline definition whose `source.kind` is
+/// `quickbooks` and whose `source.config` names all three fields.
+pub fn pipeline_quickbooks_source(definition: &serde_json::Value) -> Option<QuickBooksSource> {
+    let source = definition.get("source")?;
+    if source.get("kind").and_then(|k| k.as_str()) != Some("quickbooks") {
+        return None;
+    }
+    let config = source.get("config")?;
+    let field = |name: &str| -> Option<String> {
+        match config.get(name)? {
+            serde_json::Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        }
+    };
+    Some(QuickBooksSource {
+        client_id: field("client_id")?,
+        client_secret_var: field("client_secret_var")?,
+        refresh_token_var: field("refresh_token_var")?,
+    })
 }
 
 /// `source.kind` out of a pipeline definition, if it names one.

@@ -87,21 +87,20 @@ fn a_chat_runs_on_any_pod() {
     }
 }
 
-/// The Builder copilot and onboarding edit workspace files, and a Builder run
-/// is driven in the memory of the process that started it: its start, its
-/// answers and undoing its edits stay with the Factory. A route added without
-/// a declaration falls to the one catch-all, which is the Factory's too.
+/// A route added without a declaration falls to the one catch-all, the
+/// Factory's. The Builder routes are gone: the Builder was removed with the IDE.
 #[test]
-fn the_builder_and_undeclared_routes_stay_on_the_factory() {
+fn undeclared_routes_stay_on_the_factory_and_the_builder_routes_are_gone() {
     for (method, path) in [
         ("POST", "/builder/runs"),
         ("POST", "/builder/runs/{id}/answer"),
         ("POST", "/runs/{id}/revert-file-changes"),
     ] {
-        assert_eq!(
-            declared(method, path),
-            Some(RouteRole::IdeOnly),
-            "{method} {path}"
+        assert!(
+            !router_roles()
+                .iter()
+                .any(|d| d.method == method && d.path == path),
+            "{method} {path} is removed"
         );
     }
     assert_eq!(declared("*", "/{*rest}"), Some(RouteRole::IdeOnly));
@@ -110,23 +109,6 @@ fn the_builder_and_undeclared_routes_stay_on_the_factory() {
         .filter(|d| d.path.contains("{*"))
         .count();
     assert_eq!(wildcards, 1, "one catch-all, and it is the IdeOnly one");
-}
-
-/// The constants a refusal names are the routes declared above, under the
-/// mount `oxy-app` nests this router at.
-#[test]
-fn a_refusal_names_the_declared_builder_routes() {
-    use crate::routes::run::{BUILDER_ANSWER_ROUTE, BUILDER_START_ROUTE};
-    for route in [BUILDER_START_ROUTE, BUILDER_ANSWER_ROUTE] {
-        let path = route
-            .strip_prefix("/analytics")
-            .expect("the analytics mount");
-        assert_eq!(
-            declared("POST", path),
-            Some(RouteRole::IdeOnly),
-            "{route} must be a route the Factory serves"
-        );
-    }
 }
 
 /// The automation routes a customer reaches — starting, cancelling and

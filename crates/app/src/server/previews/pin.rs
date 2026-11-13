@@ -29,14 +29,6 @@ pub const REQUEST_HEADER: &str = "x-oxy-preview-revision";
 /// `<branch>@<revision_id>`.
 pub const RESPONSE_HEADER: &str = "x-oxy-preview";
 
-/// Set by `enforce_role` on a serve replica that kept a `?branch=` request on
-/// the fleet because it carried the preview header, instead of escalating it
-/// to the ide. The workspace middleware finishes the decision once it knows
-/// the caller: if the preview does not apply after all, the request goes to
-/// the ide exactly as it would have without the header.
-#[derive(Clone, Copy, Debug)]
-pub struct DeferredBranchEscalation;
-
 /// A request pinned to a preview revision.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PreviewPin {

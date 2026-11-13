@@ -1,4 +1,4 @@
-import BaseMonacoEditor from "@/components/MonacoEditor/BaseMonacoEditor";
+import CodeView from "@/components/Code/CodeView";
 import type { ArtifactItem } from "@/hooks/analyticsSteps";
 import { parseToolJson } from "../analyticsArtifactHelpers";
 
@@ -20,11 +20,7 @@ export const LookupSchemaView = ({ item }: { item: ArtifactItem }) => {
           <p className='mb-1.5 font-medium text-muted-foreground text-xs'>Schema</p>
           {schema ? (
             <div className='min-h-0 flex-1 overflow-hidden rounded border'>
-              <BaseMonacoEditor
-                value={schema}
-                language='json'
-                options={{ readOnly: true, minimap: { enabled: false } }}
-              />
+              <CodeView value={schema} language='json' />
             </div>
           ) : (
             <div className='rounded border bg-muted/20 px-3 py-2'>

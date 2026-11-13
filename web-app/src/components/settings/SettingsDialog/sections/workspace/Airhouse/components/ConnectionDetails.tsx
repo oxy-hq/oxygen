@@ -1,6 +1,4 @@
-import { DatabaseZap } from "lucide-react";
 import type React from "react";
-import { Button } from "@/components/ui/shadcn/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/shadcn/card";
 import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import useFactoryAccess from "@/hooks/useFactoryAccess";
@@ -9,18 +7,14 @@ import { CopyableField } from "./CopyableField";
 
 interface ConnectionDetailsProps {
   connection: AirhouseConnectionInfo;
-  onAddToConfig: (name: string) => void;
-  isAddingToConfig: boolean;
 }
 
-export const ConnectionDetails: React.FC<ConnectionDetailsProps> = ({
-  connection,
-  onAddToConfig,
-  isAddingToConfig
-}) => {
+export const ConnectionDetails: React.FC<ConnectionDetailsProps> = ({ connection }) => {
+  // The config.yml pointer is for whoever works on the workspace's files: apps-first,
+  // only a Factory user is shown it.
   const appsFirst = useAppsFirstExperience();
   const factoryUser = useFactoryAccess();
-  const showConfigAction = !appsFirst || factoryUser;
+  const showConfigHint = !appsFirst || factoryUser;
   return (
     <Card>
       <CardHeader>
@@ -35,22 +29,12 @@ export const ConnectionDetails: React.FC<ConnectionDetailsProps> = ({
         <CopyableField label='Database' value={connection.dbname} />
         <CopyableField label='Role' value={connection.role} />
       </CardContent>
-      {/* Writing config.yml is the Factory's; apps-first, only a Factory user is
-          offered it. */}
-      {showConfigAction && (
-        <CardFooter className='flex flex-col items-start gap-2'>
-          <Button
-            variant='outline'
-            onClick={() => onAddToConfig(connection.dbname)}
-            disabled={isAddingToConfig}
-          >
-            <DatabaseZap className='h-4 w-4' />
-            {isAddingToConfig ? "Adding…" : "Add to config.yml"}
-          </Button>
+      {showConfigHint && (
+        <CardFooter>
           <p className='text-muted-foreground text-xs'>
-            Adds an <code>airhouse_managed</code> database entry to your <code>config.yml</code> so
-            agents and the SQL IDE can use it automatically. Commit the file to persist the change
-            across deployments.
+            To let agents use it, add an <code>airhouse_managed</code> database entry named{" "}
+            <code>{connection.dbname}</code> to the workspace's <code>config.yml</code> in its
+            repository and push it.
           </p>
         </CardFooter>
       )}

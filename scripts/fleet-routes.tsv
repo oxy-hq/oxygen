@@ -41,7 +41,6 @@
 #   | Struct (404 by construction -- a nest_all/nest_typed bare-prefix companion, not
 #   independently addressable; the real surface is the neighboring {*rest} row. Also a
 #   {*rest} catch-all whose routes each have a row of their own, so nothing reaches it).
-*	/api/{workspace_id}/abort-rebase	ide-only	Fixture	only meaningful mid-conflict; needs a fixture that induces one
 *	/api/{workspace_id}/agentic-airway/{*rest}	ide-only	Struct	catch-all for an airway route added without a declaration — every route the router mounts today has a row of its own below, so no request reaches it
 POST	/api/{workspace_id}/agentic-airway/backfill	fleet-ok	Fixture	single-window backfill — needs a real `pipeline_ref` on a windowed source (toast / quickbooks / sp_api) and that source's credential to complete
 GET	/api/{workspace_id}/agentic-airway/backfill-ranges	fleet-ok	Fixture	needs a real `pipeline_ref`
@@ -81,8 +80,6 @@ GET	/api/{workspace_id}/agentic-workflows/threads/{thread_id}/run	fleet-ok	Now	s
 *	/api/{workspace_id}/agents	fleet-ok	Now	verified live 200 — 4 real agents
 *	/api/{workspace_id}/airway-pipelines	fleet-ok	Now	verified live 200 — 5 real pipelines (`sql_ingest`, `toast_pos`, `weather`, `clickhouse_ingest`, `ubereats`)
 *	/api/{workspace_id}/analytics/{*rest}	ide-only	Struct	catch-all for an analytics route added without a declaration — every route the router mounts has a row of its own below, so no request reaches it
-POST	/api/{workspace_id}/analytics/builder/runs	ide-only	Fixture	the Builder copilot and onboarding start: edits the working copy and is driven in the Factory's memory; needs a real LLM key
-POST	/api/{workspace_id}/analytics/builder/runs/{id}/answer	ide-only	Fixture	an answer to a suspended Builder run; needs one first
 GET	/api/{workspace_id}/analytics/coordinator/active-runs	fleet-ok	Fixture	Postgres only; each row's status is the row's own (`user_facing_status`), no longer overlaid from the answering process's run map
 GET	/api/{workspace_id}/analytics/coordinator/live	fleet-ok	Now	SSE tailing the workspace's active runs in `agentic_runs` every 2 s — a plain GET that never ends, not yet in this script's case table
 GET	/api/{workspace_id}/analytics/coordinator/queue	fleet-ok	Fixture	Postgres only (`agentic_task_queue` joined to `agentic_runs`)
@@ -90,12 +87,11 @@ GET	/api/{workspace_id}/analytics/coordinator/recovery	fleet-ok	Fixture	Postgres
 GET	/api/{workspace_id}/analytics/coordinator/runs	fleet-ok	Fixture	Postgres only (run history, with LLM cost and duration baselines from the event rows)
 POST	/api/{workspace_id}/analytics/coordinator/runs/{id}/retry	fleet-ok	Fixture	needs a failed workflow or airway run id; writes Postgres and enqueues `Global`; a reaped airway run is re-seeded through `submit_airway_run`, so an unservable ref is the start route's 503 — not yet in this script's case table
 GET	/api/{workspace_id}/analytics/coordinator/runs/{id}/tree	fleet-ok	Fixture	needs a real run id; Postgres only, each node's status the row's own — not yet in this script's case table
-POST	/api/{workspace_id}/analytics/runs	fleet-ok	Fixture	`POST /runs` against one of 4 real agents — needs a real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` value; queued while `queued_chat_and_workflow_starts` is on, driven in the accepting process while it is off. A Builder or onboarding start on a serve pod is refused `421` naming `/analytics/builder/runs`
+POST	/api/{workspace_id}/analytics/runs	fleet-ok	Fixture	`POST /runs` against one of 4 real agents — needs a real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` value; queued while `queued_chat_and_workflow_starts` is on, driven in the accepting process while it is off. A Builder or onboarding start is refused `410 builder_removed`
 POST	/api/{workspace_id}/analytics/runs/{id}/answer	fleet-ok	Fixture	needs a suspended chat run; an answer to a Builder run on a serve pod is refused `421` naming the Builder answer route
 POST	/api/{workspace_id}/analytics/runs/{id}/cancel	fleet-ok	Fixture	needs a live run id; writes the durable cancel flag the driver's lease polls
 GET	/api/{workspace_id}/analytics/runs/{id}/events	fleet-ok	Fixture	needs a real run id; polls the event log when another process drives
 POST	/api/{workspace_id}/analytics/runs/{id}/notify	fleet-ok	Fixture	needs a real analytics run id on the caller's own thread; one UPDATE of its `agentic_runs` row, and for a run that already ended the `oxy.ask_finished` notice written and its delivery queued — not yet in this script's case table
-POST	/api/{workspace_id}/analytics/runs/{id}/revert-file-changes	ide-only	Fixture	undoes a Builder edit in the working copy; needs a Builder run that changed files
 PATCH	/api/{workspace_id}/analytics/runs/{id}/thinking_mode	fleet-ok	Fixture	needs a real analytics run id; one UPDATE of its `analytics_run_extensions` row — not yet in this script's case table
 GET	/api/{workspace_id}/analytics/threads/{thread_id}/run	fleet-ok	Now	use a real thread id — all 3 fixture threads are `source_type: analytics`, real history expected
 GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
@@ -103,53 +99,27 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/{workspace_id}/api-keys/{id}	fleet-ok	Fixture	needs a key from the row above
 *	/api/{workspace_id}/api-keys/{id}/activity	fleet-ok	Fixture	needs a key from the create row; session only (a key gets 403); Postgres-only read (audit_events, api_token_usage_daily)
 *	/api/{workspace_id}/api-keys/{id}/extend	fleet-ok	Fixture	needs a key from the create row; session only (a key gets 403); `POST {"days": 30}` on the disposable key is safe
-GET	/api/{workspace_id}/app-integrations	fleet-ok	Now	verified live 200, empty list — a legitimately empty fixture, not a failure
-POST	/api/{workspace_id}/app-integrations	ide-only	Fixture	creates a real Toast/weather/BestTime row + writes `config.yml`; disposable via the `DELETE` row above
-*	/api/{workspace_id}/app-integrations/{kind}	ide-only	Fixture	`DELETE` — fixture has zero integrations configured (verified live), so nothing to target without creating one first
+*	/api/{workspace_id}/app-integrations	fleet-ok	Now	verified live 200, empty list — a legitimately empty fixture, not a failure
 *	/api/{workspace_id}/artifacts/{id}	fleet-ok	Fixture	needs a real artifact id produced by a prior run
 *	/api/{workspace_id}/automations	fleet-ok	Now	verified live 200 — 23 real automations (alias of `/procedures`)
 *	/api/{workspace_id}/automations/{path_b64}	fleet-ok	Now	base64 one of the 23 real paths
 *	/api/{workspace_id}/blocks	fleet-ok	Fixture	`get_blocks` needs a source/run reference param — needs a real run first
-*	/api/{workspace_id}/branches	ide-only	Now	verified live 200
-*	/api/{workspace_id}/branches/{branch_name}	ide-only	Destr	deletes a real branch in the shared working copy — create a disposable branch first
 *	/api/{workspace_id}/builder-availability	fleet-ok	Now	simple availability check, no fixture needed
 *	/api/{workspace_id}/charts/{file_path}	fleet-ok	Fixture	needs a chart already produced by a prior run
-*	/api/{workspace_id}/compile	ide-only	Now	enqueues a real, idempotent compile of the shared Demo workspace — produces a new revision, doesn't destroy anything. Could race a concurrent compile from another agent; that's a timing risk, not a destructive one
-*	/api/{workspace_id}/compile/status	ide-only	Now	needs `?branch=` (confirmed live: 400 without it) — buildable with `?branch=main`
 *	/api/{workspace_id}/compile/staging	fleet-ok	Ext	`POST ?branch=<b>` queues a staging compile of the branch's head. A branch that is on GitHub compiles from the commit GitHub has, on any node; one GitHub does not have (the Demo workspace has no remote) is replayed by the replica to the ide, and answers 409 `[no_git_remote]` with the ide down. Its `?branch=` names the branch to compile, so it does not raise the role
 *	/api/{workspace_id}/compile/staging/status	fleet-ok	Now	`GET ?git_sha=<sha>` — Postgres only; `pending` for a commit nothing has compiled, so any 40-hex value is a real read
-*	/api/{workspace_id}/continue-rebase	ide-only	Fixture	same as abort-rebase
 *	/api/{workspace_id}/custom-apps	fleet-ok	Now	verified live 200 — 1 real published app (`oxy-starter`)
-GET	/api/{workspace_id}/databases	fleet-ok	Now	one path, two roles via `route_split` (`workspace.rs:600-606`) — verified live 200, 11 real entries
-POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't touch the 11 existing ones), but writes the **shared** `config.yml` other agents' compiles read, and **there is no `DELETE /databases/{name}` route** — no easy undo once added
+*	/api/{workspace_id}/databases	fleet-ok	Now	verified live 200, 11 real entries
 *	/api/{workspace_id}/databases/{database_name}/schema	fleet-ok	Now	CORRECTED (this was wrongly logged as a bug; it is not): a live query against "local" (DuckDB, dataset: .db/, no s3_mirror on this fixture) targets a path INSIDE the workspace working copy -- a stateless replica genuinely does not have it and cannot ever serve it. ide=200 (owns the working copy) / serve=500 (refuses) is the CORRECT, required shape, not a defect -- build_connector_for_db (crates/app/src/agentic_wiring/project_ctx/mod.rs) has since gained an s3_mirror fall-through (mirrored DuckDB works anywhere); neither fixture configures a mirror, so this specific case still refuses by design. fleet-assert.sh asserts this via the workspace_local compare mode: ide must be 2xx, every replica must be 5xx (never a quiet 2xx/empty result) -- see assert_workspace_local_refusal in that script for the full contract and why the response BODY isn't asserted here (get_database_schema discards the message into a bare StatusCode with no body).
-*	/api/{workspace_id}/databases/build	ide-only	Fixture	`build_embeddings` — needs a target database; slow/heavy
-*	/api/{workspace_id}/databases/clean	ide-only	Destr	purges cached/derived data for a database — could disrupt the shared fixture's semantic state for other agents
 *	/api/{workspace_id}/databases/inspect	fleet-ok	Fixture	needs a reachable DB — DuckDB-backed ones most plausible, but see the `{database_name}/schema` Undetermined entry above: even `local` 500'd live, so success here isn't confirmed
 *	/api/{workspace_id}/databases/inspect-schema-tables	fleet-ok	Fixture	same caveat
 *	/api/{workspace_id}/databases/inspect-schemas	fleet-ok	Fixture	same caveat
-*	/api/{workspace_id}/databases/sync	ide-only	Fixture	same caveat, runs on the ide against working-copy-relative DuckDB paths
 *	/api/{workspace_id}/databases/test-connection	ide-only	Fixture	same caveat
-*	/api/{workspace_id}/discard-all	ide-only	Destr	discards uncommitted changes in the **shared** working copy — could destroy another agent's in-progress edit right now; do not run against the fixture while others are active
 *	/api/{workspace_id}/events	ide-only	Fixture	SSE (`run::automation_events`, `run.rs:303`) — needs a real `source_id` (an automation/procedure run) with events to stream; connects but idles without one
 *	/api/{workspace_id}/events/lookup	ide-only	Fixture	SSE (`task::agentic_events`, `task.rs:66`) — needs a real run/thread reference
 *	/api/{workspace_id}/events/sync	ide-only	Fixture	non-SSE poll variant (`automation_events_sync`) of the row above; same fixture need
 *	/api/{workspace_id}/execution-analytics	fleet-ok	Struct	404 verified live
 *	/api/{workspace_id}/execution-analytics/{*rest}	fleet-ok	Ext	RESOLVED: not a fleet bug. get_summary() gates on state.observability, which is the ClickHouse-only store (crates/app/src/observability_setup.rs: "ClickHouse is the sole backend"); this fleet has no OXY_CLICKHOUSE_* creds (same absence as /traces). Router comment "aggregate the runtime tables" is misleading (implies Postgres) but FleetOk classification is still correct -- ClickHouse, when configured, is reachable identically from every replica. Live-confirmed 500 "Observability not configured" on every node uniformly.
-*	/api/{workspace_id}/fetch	ide-only	Now	verified live 200 — likely a no-op: `revision-info` shows empty SHAs (`base_sha`/`head_sha` = `""`), i.e. no git remote is actually configured on this fixture
-*	/api/{workspace_id}/files	ide-only	Now	real file tree of the working copy
-*	/api/{workspace_id}/files/{pathb64}	ide-only	Now	`GET` an existing file (e.g. `config.yml`); `POST` write — use a scratch path, not a real fixture file
-*	/api/{workspace_id}/files/{pathb64}/delete-file	ide-only	Destr	only safe on a scratch file you created yourself
-*	/api/{workspace_id}/files/{pathb64}/delete-folder	ide-only	Destr	same, folder
-*	/api/{workspace_id}/files/{pathb64}/from-git	ide-only	Now	read-only, git-committed version of a real file
-*	/api/{workspace_id}/files/{pathb64}/new-file	ide-only	Fixture	creates a real file in the shared working copy — use a scratch path (e.g. `_fleet_probe/scratch.txt`), then delete it
-*	/api/{workspace_id}/files/{pathb64}/new-folder	ide-only	Fixture	same, disposable folder
-*	/api/{workspace_id}/files/{pathb64}/rename-file	ide-only	Fixture	rename the scratch file above, not a fixture file
-*	/api/{workspace_id}/files/{pathb64}/rename-folder	ide-only	Fixture	same
-*	/api/{workspace_id}/files/{pathb64}/revert	ide-only	Fixture	needs the create/edit fixture above first
-*	/api/{workspace_id}/files/diff-summary	ide-only	Now	empty diff if clean is still a valid response
-*	/api/{workspace_id}/force-push	ide-only	Destr	could rewrite the shared workspace's branch history — needs a disposable branch, never the shared one
-*	/api/{workspace_id}/git-state	ide-only	Now	verified live 200
 *	/api/{workspace_id}/integrations/looker	ide-only	Now	lists the Looker integrations named in config.yml; an empty list when none is configured
 *	/api/{workspace_id}/integrations/quickbooks/authorize	fleet-ok	Ext	starts QuickBooks OAuth; no creds
 *	/api/{workspace_id}/logo	fleet-ok	Now	reads workspace logo (default/placeholder), read-only
@@ -170,14 +140,7 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/previews/refresh	fleet-ok	Ext	staff only. `POST ?branch=<b>` moves a preview to the branch's current head; same sources as creating one
 *	/api/{workspace_id}/procedures	fleet-ok	Now	verified live 200 — 23 real automations
 *	/api/{workspace_id}/procedures/{path_b64}	fleet-ok	Now	base64 one of the 23 real paths
-*	/api/{workspace_id}/pull-changes	ide-only	Now	likely a no-op given no configured remote (see `/fetch`); still exercises the route
-*	/api/{workspace_id}/push-changes	ide-only	Destr	probably a no-op today, but treat as destructive in principle — a configured remote would push real commits
-*	/api/{workspace_id}/recent-commits	ide-only	Now	verified live 200
-*	/api/{workspace_id}/reset-to-commit	ide-only	Destr	rewrites the shared working copy's HEAD — needs a disposable branch
-*	/api/{workspace_id}/resolve-conflict-file	ide-only	Fixture	only meaningful mid-merge-conflict
-*	/api/{workspace_id}/resolve-conflict-with-content	ide-only	Fixture	same
 *	/api/{workspace_id}/results/files/{file_id}	fleet-ok	Fixture	needs a real result-file id from a prior run
-*	/api/{workspace_id}/revision-info	ide-only	Now	verified live 200
 *	/api/{workspace_id}/runs/{source_id}/{run_index}	fleet-ok	Fixture	`DELETE` cancel — needs a real running/queued run first
 *	/api/{workspace_id}/secrets	fleet-ok	Now	verified live 200, empty; `POST` create is disposable
 *	/api/{workspace_id}/secrets/{id}	fleet-ok	Fixture	needs a secret created first
@@ -199,6 +162,11 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/semantic/metric-tree/predict	fleet-ok	Fixture	needs a real measure id + driver inputs
 *	/api/{workspace_id}/semantic/metric-tree/time-dimensions	fleet-ok	Now	`GET` with e.g. `orders.total_order_value`, minimal params
 *	/api/{workspace_id}/semantic/monitors	fleet-ok	Now	verified live 200 — 13 real monitors
+*	/api/{workspace_id}/semantic/objects	fleet-ok	Now	the served revision's views and topics, names and paths; replaced the file-tree walk the semantic explorer did through `/files`
+*	/api/{workspace_id}/context-graph/sources	fleet-ok	Now	the served revision's views, topics, automations, analytics agents and verified-query paths for the Context Graph page; replaced its `/files` reads
+*	/api/{workspace_id}/revision	fleet-ok	Now	the revision a request reads (a pinned preview's when pinned) and the commit it compiled from, for the Factory's top bar; replaced the IDE header's branch switcher
+*	/api/{workspace_id}/revision/files	fleet-ok	Now	the served revision's compiled files, by path, for the Factory's read-only file browser; replaced the IDE file tree's `/files` read
+*	/api/{workspace_id}/revision/files/content	fleet-ok	Now	one compiled file's content (a YAML artifact's stored definition re-serialised, SQL and documents as text) for the read-only file browser
 *	/api/{workspace_id}/semantic/preagg-status	fleet-ok	Now	safe read; see the "differs between nodes" table
 *	/api/{workspace_id}/semantic/topic/{file_path_b64}	fleet-ok	Now	base64 a real `.topic.yml` under `examples/semantics/topics`
 *	/api/{workspace_id}/semantic/view/{file_path_b64}	fleet-ok	Now	base64 a real `.view.yml` under `examples/semantics/views`
@@ -214,8 +182,6 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/source-uploads/{*rest}	fleet-ok	Ext	RESOLVED: not a fixture gap. `POST .../reports` (crates/app/src/server/api/source_upload.rs:542-644) validates every multipart field first, then calls `zone()` (source_upload.rs:100-119), which reads env var `OXY_SOURCE_UPLOAD_ZONE` (format `s3://bucket/prefix`) and hard-503s `"report uploads require OXY_SOURCE_UPLOAD_ZONE"` if unset. Confirmed absent from docker-compose.fleet.yml; only commented out in `.env.example:107`. Uniform across every node (no S3 bucket configured anywhere in this fleet), so this is a missing external credential, not a diskless-replica differential -- moved out of Fixture into Ext.
 *	/api/{workspace_id}/sql/{pathb64}	fleet-ok	Fixture	executes a real `.sql` file (`examples/example_sql/*.sql` exist); needs a reachable DB
 *	/api/{workspace_id}/sql/query	fleet-ok	Fixture	needs a real SQL string + a reachable DB — DuckDB-backed ones most plausible
-*	/api/{workspace_id}/status	ide-only	Now	verified live 200
-*	/api/{workspace_id}/switch-branch	ide-only	Destr	switches the shared working copy's active branch for **every** concurrent request against this workspace, including the other four agents' — do not run right now
 *	/api/{workspace_id}/threads	fleet-ok	Now	verified live 200 — 3 real threads (see fixture-discrepancy note above)
 *	/api/{workspace_id}/threads/{id}	fleet-ok	Now	`GET` one of the 3 real ids; `DELETE` is destructive, same caveat as bulk-delete
 *	/api/{workspace_id}/threads/{id}/messages	fleet-ok	Now	real message history for one of the 3 threads
@@ -223,8 +189,6 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/threads/bulk-delete	fleet-ok	Destr	deletes real shared seeded threads other agents may reference
 *	/api/{workspace_id}/traces	fleet-ok	Ext	verified live `500`, `"Failed to query traces"` — confirms ClickHouse absence, matching `product-context.md` ("observability is ClickHouse-only, no default in any mode")
 *	/api/{workspace_id}/traces/{*rest}	fleet-ok	Ext	same
-*	/api/{workspace_id}/unresolve-conflict-file	ide-only	Fixture	only meaningful mid-conflict
-*	/api/{workspace_id}/worktrees	ide-only	Now	diagnostic read; zero entries is valid (no branch switch has happened)
 *	/api/{workspace_id}/world-model/cameras	fleet-ok	Ext	verified live `503`, `"unifi integration not configured for this workspace"`
 *	/api/{workspace_id}/world-model/competitors	fleet-ok	Fixture	`app-integrations` verified empty — needs a competitor-tracking integration configured, likely terminates in Ext without a real key
 *	/api/{workspace_id}/world-model/events	fleet-ok	Now	SSE; every pod tails `world_model_events` onto its own bus, so any replica serves it — connects and idles with no fixture data

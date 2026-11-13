@@ -38,10 +38,8 @@ export class DatabaseService {
     return response.data;
   }
 
-  static async listDatabases(projectId: string, branchName: string): Promise<DatabaseInfo[]> {
-    const response = await apiClient.get(`/${projectId}/databases`, {
-      params: { branch: branchName }
-    });
+  static async listDatabases(projectId: string): Promise<DatabaseInfo[]> {
+    const response = await apiClient.get(`/${projectId}/databases`);
     return response.data;
   }
 

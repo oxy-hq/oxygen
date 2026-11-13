@@ -1,101 +1,27 @@
 ---
-title: Branch-aware editing
-description: How Oxygen handles protected branches and feature-branch forks in the IDE
+title: Branches and editing
+description: How a workspace's files change — in its repository, with a push
 type: how-to
 audience: admin
 tier: standard
 ---
 
-Workspaces that import from GitHub use a branch-aware editing flow.
-You serve from one branch (typically the deployed one) and Oxygen
-automatically creates a feature branch when an editor would otherwise
-write to a protected branch.
+A workspace's agents, automations, semantic model and `config.yml` are files
+in its Git repository, and that repository is where they change. Oxygen no
+longer edits files in the product: the in-app editor, its branch switcher and
+its commit and push buttons were removed.
 
-Two settings on every workspace control the behaviour:
+To change a workspace:
 
-- **`protected_branches`** — list of branches where saving a file
-  triggers Oxygen to create a feature branch instead of overwriting the
-  current branch.
-- **`base_branch`** — the branch new feature branches fork from. When
-  unset, they fork from whatever the workspace currently has checked
-  out.
+1. Open the Developer Portal and choose **Work in your editor** in the
+   sidebar. It shows the repository, a `git clone` line, an **Open in VS
+   Code** link and the `oxyc workspace clone` command.
+2. Edit the files with your own editor or an agent, on any branch you like.
+3. Push to the workspace's default branch. The push compiles and deploys the
+   change; nobody needs to press anything in Oxygen.
 
-These live in your workspace's `config.yml` and are editable from the
-IDE (or from **Manage → Workspaces → Branches**).
+To try a branch before it reaches the default branch, push it and open a
+preview of it (**Settings → Previews**).
 
-## `protected_branches`
-
-<ParamField path="protected_branches" type="string[]" default="[default_branch]">
-  Branches where saving a file in the IDE auto-creates a feature branch
-  instead of overwriting the current branch. Defaults to the
-  repository's default branch (usually `main`).
-</ParamField>
-
-When the IDE is viewing a file on a protected branch, the **Save**
-button becomes **Save to new branch** and shows a *"Saving will create
-a new branch"* hint. Pressing save creates a worktree at
-`<user-slug>/<timestamp>` (e.g. `alice/2026-04-15-113742`), writes the
-file there, and switches the IDE to that branch.
-
-```yaml config.yml
-protected_branches:
-  - main
-  - develop
-```
-
-## `base_branch`
-
-<ParamField path="base_branch" type="string">
-  Branch used as the fork point when Oxygen auto-creates a feature
-  branch. When unset, new branches fork from whatever the workspace
-  currently has checked out.
-</ParamField>
-
-If your workspace serves from a dedicated deployment branch, you
-usually want new work to fork from a different integration branch.
-`base_branch` is the switch:
-
-```yaml config.yml
-# Workspace serves from `deploy` (protected). New feature branches
-# fork from `main` so they start from the latest integration work,
-# not from whatever has been deployed.
-protected_branches:
-  - deploy
-base_branch: main
-```
-
-`base_branch` only affects **newly created** branches. Switching to a
-branch that already exists always uses that branch's existing ref as
-the starting point.
-
-### When to use it
-
-Use `base_branch` when your workflow has a clear split between:
-
-- **A deployment / serving branch** — the one Oxygen runs against.
-- **An integration branch** — the one humans merge PRs into and where
-  new work should start.
-
-If your repository has only one long-lived branch, leave `base_branch`
-unset.
-
-## Full example
-
-```yaml config.yml
-databases:
-  - name: warehouse
-    type: postgres
-    ...
-
-models:
-  - name: openai-4o-mini
-    vendor: openai
-    model_ref: gpt-4o-mini
-
-defaults:
-  database: warehouse
-
-protected_branches:
-  - deploy
-base_branch: main
-```
+A workspace with no repository has nowhere to edit: connect one in
+**Settings** first.

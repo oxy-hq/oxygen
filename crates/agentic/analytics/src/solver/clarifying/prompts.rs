@@ -2,7 +2,6 @@
 
 use agentic_core::orchestrator::CompletedTurn;
 
-use crate::types::{MissingMember, MissingMemberKind};
 use crate::{AnalyticsDomain, AnalyticsIntent};
 
 use super::super::prompts::{format_history_section, format_session_turns_section};
@@ -35,43 +34,4 @@ of what it should represent. Leave missing_members as an empty array when all ne
 members exist in the catalog.",
         raw_question = intent.raw_question,
     )
-}
-
-// Delegation helpers
-
-/// Build the `(request, context)` pair for a builder delegation that asks the
-/// builder agent to create the given missing semantic members.
-pub fn build_delegation_request(
-    question: &str,
-    missing: &[MissingMember],
-) -> (String, serde_json::Value) {
-    use std::fmt::Write;
-
-    let mut request = String::from(
-        "The analytics pipeline could not fully answer the user's question because \
-         the semantic model is missing the following members. Please create them.\n\n",
-    );
-
-    for m in missing {
-        let kind = match m.kind {
-            MissingMemberKind::Measure => "measure",
-            MissingMemberKind::Dimension => "dimension",
-        };
-        writeln!(
-            request,
-            "- {kind} `{name}`: {desc}",
-            name = m.name,
-            desc = m.description
-        )
-        .expect("write to String cannot fail");
-    }
-
-    write!(request, "\nOriginal user question: {question}").expect("write to String cannot fail");
-
-    let context = serde_json::json!({
-        "missing_members": missing,
-        "original_question": question,
-    });
-
-    (request, context)
 }

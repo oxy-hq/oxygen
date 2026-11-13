@@ -1,10 +1,7 @@
-import { Hammer, Loader2, Maximize2, RotateCcw, Sparkles, X } from "lucide-react";
+import { Hammer, Loader2, Maximize2, Sparkles, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { toast } from "sonner";
 import ErrorAlert from "@/components/ui/ErrorAlert";
-import { Button } from "@/components/ui/shadcn/button";
 import { Dialog, DialogContent } from "@/components/ui/shadcn/dialog";
-import useRevertBuilderFileChanges from "@/hooks/api/analytics/useRevertBuilderFileChanges";
 import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import type { BuilderFileChange } from "@/hooks/useBuilderActivity";
 import { useBuilderActivity } from "@/hooks/useBuilderActivity";
@@ -20,7 +17,10 @@ interface BuilderDelegationPanelProps {
   onClose: () => void;
 }
 
-/** A file change reverted via the audit event carries this description prefix. */
+/**
+ * A file change reverted via the audit event carries this description prefix.
+ * The panel only shows a past run: reverting went with the Builder.
+ */
 const REVERTED_PREFIX = "Reverted:";
 
 export default function BuilderDelegationPanel({
@@ -36,13 +36,6 @@ export default function BuilderDelegationPanel({
     error: streamError
   } = useBuilderDelegationEvents(projectId, childRunId, true);
   const [fullscreen, setFullscreen] = useState<BuilderFileChange | null>(null);
-  // Optimistic: the child run's SSE is one-shot, so a revert's audit event
-  // won't re-stream — track locally for immediate feedback (a reload
-  // re-derives the reverted state from the persisted "Reverted:" event).
-  const [revertedPaths, setRevertedPaths] = useState<Set<string>>(new Set());
-
-  const revertMutation = useRevertBuilderFileChanges(projectId);
-
   // Empty — delegated builder runs auto-accept; no manual accept/reject here.
   const changeDecisions = useMemo(() => new Map<number, "accepted" | "rejected">(), []);
   const activityItems = useBuilderActivity(events, changeDecisions);
@@ -60,50 +53,7 @@ export default function BuilderDelegationPanel({
     return Array.from(byPath.values());
   }, [activityItems]);
 
-  const isReverted = useCallback(
-    (c: BuilderFileChange) =>
-      revertedPaths.has(c.filePath) || c.description.startsWith(REVERTED_PREFIX),
-    [revertedPaths]
-  );
-
-  const revertablePaths = useMemo(
-    () => fileChanges.filter((c) => !isReverted(c)).map((c) => c.filePath),
-    [fileChanges, isReverted]
-  );
-
-  const doRevert = useCallback(
-    (filePaths: string[]) => {
-      if (filePaths.length === 0) return;
-      revertMutation.mutate(
-        { runId: childRunId, filePaths },
-        {
-          onSuccess: (res) => {
-            setRevertedPaths((prev) => {
-              const next = new Set(prev);
-              for (const r of res.reverted) next.add(r.file_path);
-              return next;
-            });
-            toast.success(
-              res.reverted.length === 1
-                ? "Change reverted"
-                : plainNames
-                  ? `Reverted ${res.reverted.length} changes`
-                  : `Reverted ${res.reverted.length} files`
-            );
-          },
-          onError: (err: unknown) => {
-            const msg =
-              err && typeof err === "object" && "response" in err
-                ? ((err as { response?: { data?: { error?: string } } }).response?.data?.error ??
-                  "Failed to revert change")
-                : "Failed to revert change";
-            toast.error(msg);
-          }
-        }
-      );
-    },
-    [revertMutation, childRunId, plainNames]
-  );
+  const isReverted = (c: BuilderFileChange) => c.description.startsWith(REVERTED_PREFIX);
 
   // A failed stream is not a finished run: what is shown may be missing or partial.
   const subtitle = isStreaming
@@ -128,21 +78,6 @@ export default function BuilderDelegationPanel({
           </div>
         </div>
         <div className='ml-2 flex items-center gap-1'>
-          {revertablePaths.length > 1 && (
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={revertMutation.isPending}
-              onClick={() => doRevert(revertablePaths)}
-            >
-              {revertMutation.isPending ? (
-                <Loader2 className='h-3.5 w-3.5 animate-spin' />
-              ) : (
-                <RotateCcw className='h-3.5 w-3.5' />
-              )}
-              Revert all
-            </Button>
-          )}
           <button
             type='button'
             onClick={onClose}
@@ -177,7 +112,6 @@ export default function BuilderDelegationPanel({
         {fileChanges.length > 0 ? (
           <div className='space-y-4'>
             {fileChanges.map((change) => {
-              const reverted = isReverted(change);
               return (
                 <div key={change.id} className='rounded-lg border'>
                   <div className='flex items-center justify-between gap-2 border-b px-3 py-2'>
@@ -185,24 +119,10 @@ export default function BuilderDelegationPanel({
                       {plainNames ? objectNameFromPath(change.filePath) : change.filePath}
                     </span>
                     <div className='flex shrink-0 items-center gap-1'>
-                      {reverted ? (
+                      {isReverted(change) && (
                         <span className='rounded bg-muted px-2 py-0.5 text-[11px] text-muted-foreground'>
                           Reverted
                         </span>
-                      ) : (
-                        <Button
-                          variant='ghost'
-                          size='sm'
-                          disabled={revertMutation.isPending}
-                          onClick={() => doRevert([change.filePath])}
-                        >
-                          {revertMutation.isPending ? (
-                            <Loader2 className='h-3.5 w-3.5 animate-spin' />
-                          ) : (
-                            <RotateCcw className='h-3.5 w-3.5' />
-                          )}
-                          Revert
-                        </Button>
                       )}
                       <button
                         type='button'

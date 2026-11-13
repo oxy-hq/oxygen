@@ -1,4 +1,4 @@
-import BaseMonacoEditor from "@/components/MonacoEditor/BaseMonacoEditor";
+import CodeDiffView from "@/components/Code/CodeDiffView";
 import type { ArtifactItem } from "@/hooks/analyticsSteps";
 import { parseToolJson } from "../analyticsArtifactHelpers";
 
@@ -30,28 +30,6 @@ function parseFileChangePrompt(prompt: string): FileChangePayload | null {
     // not a file-change prompt
   }
   return null;
-}
-
-function languageFromPath(filePath: string): string {
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    rs: "rust",
-    ts: "typescript",
-    tsx: "typescript",
-    js: "javascript",
-    jsx: "javascript",
-    py: "python",
-    sql: "sql",
-    yml: "yaml",
-    yaml: "yaml",
-    json: "json",
-    toml: "toml",
-    md: "markdown",
-    sh: "shell",
-    html: "html",
-    css: "css"
-  };
-  return map[ext] ?? "plaintext";
 }
 
 function findFileChangePayload(
@@ -259,16 +237,10 @@ export const FileChangeToolView = ({
           )}
           {filePath !== "?" ? (
             <div className='min-h-0 flex-1 overflow-hidden rounded-md border border-border'>
-              <BaseMonacoEditor
-                value={isDelete ? "" : newSnippet}
+              <CodeDiffView
                 original={oldSnippet}
-                language={languageFromPath(filePath)}
-                diffMode
-                options={{ renderSideBySide: false, readOnly: true }}
-                originalEditorOptions={{ lineNumbers: "off" }}
-                modifiedEditorOptions={{
-                  lineNumbers: isUpdate && startLine > 1 ? (n) => String(n + startLine - 1) : "on"
-                }}
+                modified={isDelete ? "" : newSnippet}
+                startLine={isUpdate && startLine > 1 ? startLine : 1}
               />
             </div>
           ) : !toolError ? (

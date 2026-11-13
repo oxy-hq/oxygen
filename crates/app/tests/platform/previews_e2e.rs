@@ -114,13 +114,13 @@ async fn the_page_reads_the_branch_and_says_so(fx: &Fx, staging: Uuid) {
 async fn a_write_is_refused_before_it_runs(fx: &Fx, staging: Uuid) {
     let config = fx.repo.root.join("config.yml");
     let before = std::fs::read_to_string(&config).unwrap();
-    let added = json!({ "warehouses": [{ "name": "added", "type": "clickhouse" }] });
-    let write = call(&fx.staff, "POST", databases(fx), Some(added), Some(staging)).await;
+    let rebuild = format!("/{}/semantic/preagg-rebuild", fx.ws);
+    let write = call(&fx.staff, "POST", rebuild, Some(json!({})), Some(staging)).await;
     assert_eq!(write.status, StatusCode::CONFLICT, "{}", write.body);
     assert_eq!(write.body["code"], "preview_read_only");
     assert_eq!(
         write.body["message"],
-        "Adding a database isn't available in a preview; merge the branch to run it"
+        "Rebuilding pre-aggregations isn't available in a preview; merge the branch to run it"
     );
     assert!(
         write.preview.is_some(),

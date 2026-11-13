@@ -1,15 +1,13 @@
 import { Cctv, CloudSun, type LucideIcon, Pizza, Users } from "lucide-react";
-import { Button } from "@/components/ui/shadcn/button";
+import type React from "react";
 import { cn } from "@/libs/shadcn/utils";
 import type { AppIntegration, AppIntegrationKind } from "@/services/api/appIntegrations";
 
 interface AppCardProps {
   kind: AppIntegrationKind;
   integration: AppIntegration | null;
-  loading: boolean;
-  onConfigure: () => void;
-  /** The server refuses the write (the IDE is retired); the section says why. */
-  configureDisabled?: boolean;
+  /** Shown under the details, e.g. Toast's webhook how-to. */
+  footer?: React.ReactNode;
 }
 
 interface KindMeta {
@@ -45,13 +43,7 @@ const META: Record<AppIntegrationKind, KindMeta> = {
   }
 };
 
-export function AppCard({
-  kind,
-  integration,
-  loading,
-  onConfigure,
-  configureDisabled = false
-}: AppCardProps) {
+export function AppCard({ kind, integration, footer }: AppCardProps) {
   const meta = META[kind];
   const Icon = meta.icon;
   const connected = integration !== null;
@@ -80,16 +72,7 @@ export function AppCard({
 
       {integration && <AppCardDetails integration={integration} />}
 
-      <div className='flex justify-end'>
-        <Button
-          size='sm'
-          variant='outline'
-          onClick={onConfigure}
-          disabled={loading || configureDisabled}
-        >
-          {connected ? "Edit" : "Connect"}
-        </Button>
-      </div>
+      {footer}
     </div>
   );
 }

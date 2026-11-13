@@ -1,4 +1,4 @@
-import { Pencil, Play, Plus } from "lucide-react";
+import { Play } from "lucide-react";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Select,
@@ -42,9 +42,6 @@ interface WorldsBarProps {
   arm: Arm;
   onArmChange: (arm: Arm) => void;
   onRun: () => void;
-  onNewWorld: () => void;
-  /** Disabled when no world is selected — there is nothing to edit yet. */
-  onEditWorld: () => void;
 }
 
 /** `race` queues every arm of one world at once — the profit race, which is only
@@ -66,9 +63,7 @@ export function WorldsBar({
   onWorldChange,
   arm,
   onArmChange,
-  onRun,
-  onNewWorld,
-  onEditWorld
+  onRun
 }: WorldsBarProps) {
   return (
     <section className='flex flex-col gap-1.5'>
@@ -77,21 +72,11 @@ export function WorldsBar({
           title='Worlds'
           subtitle={isLoading ? "loading…" : `${worlds.length} declared`}
         />
-        <button
-          type='button'
-          onClick={onNewWorld}
-          aria-label='New world'
-          data-testid='simulation-new-world-button'
-          className='flex shrink-0 items-center gap-1 text-[9.5px] text-muted-foreground uppercase tracking-wider hover:text-foreground'
-        >
-          <Plus className='size-3' />
-          New
-        </button>
       </div>
       {!isLoading && worlds.length === 0 ? (
         <p className='text-[11px] text-muted-foreground leading-relaxed'>
-          No <span className='font-mono'>.simulation.yml</span> on this branch — start one with{" "}
-          <span className='font-mono'>New</span> above, rather than hand-writing the file.
+          No <span className='font-mono'>.simulation.yml</span> in the workspace — a world is a file
+          in the workspace's repository.
         </p>
       ) : (
         <>
@@ -115,18 +100,6 @@ export function WorldsBar({
                 ))}
               </SelectContent>
             </Select>
-            <Button
-              type='button'
-              variant='ghost'
-              size='sm'
-              aria-label={world ? `Edit ${world}` : "Edit world"}
-              data-testid='simulation-edit-world-button'
-              className='h-7 shrink-0 px-2'
-              disabled={!world}
-              onClick={onEditWorld}
-            >
-              <Pencil className='size-3' />
-            </Button>
           </div>
           {/* The arm is picked here rather than declared in the world, because a
               world is what happens and a policy is what someone does about it. */}

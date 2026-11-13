@@ -19,14 +19,6 @@ export interface CreateAnalyticsRunRequest {
 }
 
 /**
- * A Builder or onboarding run edits workspace files, so it starts and is
- * answered on routes only the Factory serves. A chat starts and is answered on
- * routes any server answers.
- */
-const startsABuilderRun = (body: CreateAnalyticsRunRequest) =>
-  body.domain === "builder" || body.onboarding_context != null;
-
-/**
  * A chat's answer can land on a server that is not the one driving the run (with
  * queued starts off, a chat is driven in the memory of the server that took its
  * start). That server answers `503` with `retryable` and `Retry-After`, and a
@@ -557,8 +549,9 @@ export class AnalyticsService {
     projectId: string,
     body: CreateAnalyticsRunRequest
   ): Promise<CreateAnalyticsRunResponse> {
-    const path = startsABuilderRun(body) ? "analytics/builder/runs" : "analytics/runs";
-    const response = await apiClient.post(`/${projectId}/${path}`, body);
+    // Every run starts on the chat route. A Builder or onboarding start is
+    // refused there with `410 builder_removed`: the Builder went with the IDE.
+    const response = await apiClient.post(`/${projectId}/analytics/runs`, body);
     return response.data;
   }
 
@@ -591,11 +584,8 @@ export class AnalyticsService {
   }
 
   /**
-   * `builder`: the run is a Builder or onboarding run, so the answer goes straight to
-   * the Builder answer route (the chat route refuses one on every server). Without
-   * it (a run whose kind the caller does not know) the chat route is tried first and
-   * its `421` names the Builder route — a second round trip that a page navigating
-   * away in between would lose.
+   * Answer a suspended run. An answer to a Builder run is refused with
+   * `410 builder_removed`: the Builder went with the IDE.
    *
    * A chat answer is retried while its server says another server drives the run
    * (see `postChatAnswer`); `signal` stops those retries.
@@ -604,47 +594,13 @@ export class AnalyticsService {
     projectId: string,
     runId: string,
     answer: string,
-    { builder = false, signal }: { builder?: boolean; signal?: AbortSignal } = {}
+    { signal }: { signal?: AbortSignal } = {}
   ): Promise<{ ok: boolean; resumed?: boolean }> {
-    if (builder) {
-      const res = await apiClient.post(`/${projectId}/analytics/builder/runs/${runId}/answer`, {
-        answer
-      });
-      return res.data;
-    }
-    try {
-      return await postChatAnswer(`/${projectId}/analytics/runs/${runId}/answer`, answer, signal);
-    } catch (err: unknown) {
-      // A Builder run is answered on its own route, which the Factory serves. The
-      // chat route says so with 421 and the Builder answer route.
-      if (isAxiosError(err) && err.response?.status === 421) {
-        const res = await apiClient.post(`/${projectId}/analytics/builder/runs/${runId}/answer`, {
-          answer
-        });
-        return res.data;
-      }
-      throw err;
-    }
+    return postChatAnswer(`/${projectId}/analytics/runs/${runId}/answer`, answer, signal);
   }
 
   static async cancelRun(projectId: string, runId: string): Promise<void> {
     await apiClient.post(`/${projectId}/analytics/runs/${runId}/cancel`);
-  }
-
-  /**
-   * Revert builder-applied file change(s) for a run. Pass `filePaths` to
-   * revert specific files; omit (or pass an empty array) to revert every
-   * file the builder changed in this run.
-   */
-  static async revertBuilderFileChanges(
-    projectId: string,
-    runId: string,
-    filePaths?: string[]
-  ): Promise<{ ok: boolean; reverted: { file_path: string; action: string }[] }> {
-    const res = await apiClient.post(`/${projectId}/analytics/runs/${runId}/revert-file-changes`, {
-      file_paths: filePaths ?? []
-    });
-    return res.data;
   }
 
   static async updateThinkingMode(

@@ -1,29 +1,19 @@
-import { ArrowUp, Hammer, MessageCircleQuestion, Play, Zap } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, MessageCircleQuestion, Play } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { HighlightTextarea } from "@/components/ui/HighlightTextarea";
 import { Button } from "@/components/ui/shadcn/button";
 import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/ui/shadcn/select";
 import { Spinner } from "@/components/ui/shadcn/spinner";
-import useFileTree from "@/hooks/api/files/useFileTree";
 import useThreadMutation from "@/hooks/api/threads/useThreadMutation";
-import useBuilderAvailable from "@/hooks/api/useBuilderAvailable";
 import useRunAutomationThread from "@/hooks/automation/useRunAutomationThread";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { useEnterSubmit } from "@/hooks/useEnterSubmit";
-import useFactoryAccess from "@/hooks/useFactoryAccess";
-import useIdeRetired from "@/hooks/useIdeRetired";
-import { useMentionHighlight } from "@/hooks/useMentionHighlight";
-import { cn } from "@/libs/shadcn/utils";
-import { flattenFiles, getActiveMention, getCleanObjectName } from "@/libs/utils/mention";
 import ROUTES from "@/libs/utils/routes";
 import { getShortTitle } from "@/libs/utils/string";
-import { getFileTypeIcon } from "@/pages/ide/Files/FilesSidebar/utils";
 import type { ThinkingMode } from "@/services/api/analytics";
 import { setPendingThinkingMode } from "@/stores/analyticsThinkingMode";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import type { FileTreeModel } from "@/types/file";
-import { detectFileType } from "@/utils/fileTypes";
 import AgentsDropdown, { type Agent } from "./AgentsDropdown";
 import AutomationsDropdown, { type AutomationOption } from "./AutomationsDropdown";
 import SelectItemWithDetail from "./SelectItemWithDetail";
@@ -63,16 +53,6 @@ const ChatPanel = ({
   const [agent, setAgent] = useState<Agent | null>(null);
   const [automation, setAutomation] = useState<AutomationOption | null>(null);
 
-  const {
-    isAvailable: builderConfigured,
-    isLoading: isCheckingBuilder,
-    isBuiltin
-  } = useBuilderAvailable();
-  // The Builder edits workspace files, so it starts on a Factory route: offered
-  // only to someone the server lets into the Factory.
-  const factoryAccess = useFactoryAccess();
-  const isBuilderAvailable = builderConfigured && factoryAccess;
-
   const { mutate: createThread, isPending } = useThreadMutation((data) => {
     switch (data.source_type) {
       case "analytics":
@@ -92,7 +72,6 @@ const ChatPanel = ({
     // path the panel stays mounted, so a lingering message could be
     // re-submitted and create a duplicate thread.
     setMessage("");
-    setMentions(new Map());
     if (onThreadCreated) {
       onThreadCreated(data.id);
     } else {
@@ -102,9 +81,6 @@ const ChatPanel = ({
 
   const autoSubmitDone = useRef(false);
 
-  const [autoApprove, setAutoApprove] = useState(
-    () => localStorage.getItem("builder_auto_approve") === "true"
-  );
   const [message, setMessage] = useState(initialMessage ?? "");
 
   // Auto-submit when navigated with prefilled question + agent (e.g. from onboarding)
@@ -116,15 +92,8 @@ const ChatPanel = ({
     }
   }, [autoSubmit, message, agent, isPending]);
 
-  const [cursorPos, setCursorPos] = useState(0);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [mentions, setMentions] = useState<Map<string, string>>(new Map());
-  const [mentionDismissed, setMentionDismissed] = useState(false);
-  const textareaElRef = useRef<HTMLTextAreaElement | null>(null);
   const { formRef, onKeyDown: enterSubmitKeyDown } = useEnterSubmit();
   const [mode, setMode] = useState<string>(lockMode ?? "ask");
-  // IDE retired: the Builder edits files, so Build mode is not offered.
-  const ideRetired = useIdeRetired();
   const [thinkingMode, setThinkingMode] = useState<ThinkingMode>("auto");
 
   // When the agent picker is hidden, resolve and lock in the workspace
@@ -140,127 +109,18 @@ const ChatPanel = ({
     }
   }, [hideAgentPicker, agent, agentsLoaded, agentOptions, initialAgentPath]);
 
-  const isBuildMode = mode === "build" && isBuiltin;
-
-  const { data: fileTreeData } = useFileTree(isBuildMode);
-  const allFiles = useMemo(() => {
-    if (!fileTreeData) return [];
-    return flattenFiles(fileTreeData.primary);
-  }, [fileTreeData]);
-
-  const activeMention = isBuildMode ? getActiveMention(message, cursorPos) : null;
-  const mentionResults = useMemo(() => {
-    if (!activeMention) return [];
-    const q = activeMention.query.toLowerCase();
-    return allFiles
-      .filter((f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [activeMention, allFiles]);
-  const showMentionPopup = activeMention !== null && mentionResults.length > 0 && !mentionDismissed;
-  const mentionHighlight = useMentionHighlight(message, mentions);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on result count change only
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [mentionResults.length]);
-
-  const textareaRef = useCallback((node: HTMLTextAreaElement | null) => {
-    textareaElRef.current = node;
-  }, []);
-
-  const insertMention = (file: FileTreeModel) => {
-    if (!activeMention) return;
-    const before = message.slice(0, activeMention.startIndex);
-    const after = message.slice(cursorPos);
-    const displayName = getCleanObjectName(file.name);
-    const mention = `@${displayName}`;
-    const newMessage = `${before}${mention} ${after}`;
-    setMessage(newMessage);
-    setMentions((prev) => new Map(prev).set(displayName, file.path));
-    const newCursorPos = before.length + mention.length + 1;
-    setCursorPos(newCursorPos);
-    requestAnimationFrame(() => {
-      const el = textareaElRef.current;
-      if (el) {
-        el.focus();
-        el.setSelectionRange(newCursorPos, newCursorPos);
-      }
-    });
-  };
-
   const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (showMentionPopup) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedIndex((prev) => (prev + 1) % mentionResults.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedIndex((prev) => (prev - 1 + mentionResults.length) % mentionResults.length);
-        return;
-      }
-      if (e.key === "Tab" || e.key === "Enter") {
-        e.preventDefault();
-        insertMention(mentionResults[selectedIndex]);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setMentionDismissed(true);
-        return;
-      }
-    }
-    if (e.key === "Backspace" && isBuildMode) {
-      const before = message.slice(0, cursorPos);
-      for (const [displayName] of mentions) {
-        const withSpace = `@${displayName} `;
-        const withoutSpace = `@${displayName}`;
-        const removeLen = before.endsWith(withSpace)
-          ? withSpace.length
-          : before.endsWith(withoutSpace)
-            ? withoutSpace.length
-            : 0;
-        if (removeLen > 0) {
-          e.preventDefault();
-          const newCursorPos = cursorPos - removeLen;
-          setMessage(message.slice(0, newCursorPos) + message.slice(cursorPos));
-          setCursorPos(newCursorPos);
-          setMentions((prev) => {
-            const next = new Map(prev);
-            next.delete(displayName);
-            return next;
-          });
-          requestAnimationFrame(() => {
-            const el = textareaElRef.current;
-            if (el) el.setSelectionRange(newCursorPos, newCursorPos);
-          });
-          return;
-        }
-      }
-    }
     enterSubmitKeyDown(e);
   };
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setMessage(e.target.value);
-    if (isBuildMode) setCursorPos(e.target.selectionStart ?? e.target.value.length);
-    setMentionDismissed(false);
-  };
-
-  const handleTextareaSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
-    if (isBuildMode) setCursorPos((e.target as HTMLTextAreaElement).selectionStart ?? 0);
   };
 
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (isPending) return;
-    let input = message;
-    if (isBuildMode) {
-      for (const [displayName, filePath] of mentions) {
-        input = input.replaceAll(`@${displayName}`, `<@${filePath}|${displayName}>`);
-      }
-    }
+    const input = message;
     const title = getShortTitle(message);
 
     switch (mode) {
@@ -272,18 +132,6 @@ const ChatPanel = ({
           source_type: agent.isAnalytics ? "analytics" : "agent",
           input
         });
-        break;
-      case "build":
-        // Available means the built-in builder with a model (check_builder_availability),
-        // and its threads are analytics threads run by `__builder__`.
-        if (isBuilderAvailable) {
-          createThread({
-            title: title,
-            source: "__builder__",
-            source_type: "analytics",
-            input
-          });
-        }
         break;
       case "workflow":
         if (!automation) return;
@@ -303,8 +151,6 @@ const ChatPanel = ({
     switch (mode) {
       case "ask":
         return !message || !agent;
-      case "build":
-        return !message || !isBuilderAvailable || isCheckingBuilder;
       case "workflow":
         return !automation;
     }
@@ -315,8 +161,6 @@ const ChatPanel = ({
     switch (mode) {
       case "ask":
         return "Start your request, and let Oxygen handle everything.";
-      case "build":
-        return "Enter anything you want to build, and Oxygen will figure out the rest.";
       case "workflow":
         return "Enter a title for this automation run.";
     }
@@ -328,46 +172,14 @@ const ChatPanel = ({
       onSubmit={handleFormSubmit}
       className='relative mx-auto flex w-full max-w-[672px] flex-col gap-1 rounded-md border bg-background p-2'
     >
-      {showMentionPopup && (
-        <div className='absolute right-0 bottom-full left-0 z-10 mb-1 max-h-52 overflow-y-auto rounded-md border bg-popover p-1 shadow-md'>
-          {mentionResults.map((file, index) => {
-            const fileType = detectFileType(file.path);
-            const FileIcon = getFileTypeIcon(fileType, file.name);
-            return (
-              <button
-                key={file.path}
-                type='button'
-                className={cn(
-                  "flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden",
-                  index === selectedIndex
-                    ? "bg-accent text-accent-foreground"
-                    : "text-popover-foreground"
-                )}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  insertMention(file);
-                }}
-                onMouseEnter={() => setSelectedIndex(index)}
-              >
-                {FileIcon && <FileIcon className='size-4 text-muted-foreground' />}
-                <span className='flex-1 truncate text-left'>{file.path}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
       <HighlightTextarea
-        ref={textareaRef}
         disabled={isPending}
         name='question'
         autoFocus
         onKeyDown={handleTextareaKeyDown}
         value={message}
         onChange={handleTextareaChange}
-        onSelect={handleTextareaSelect}
-        onClick={handleTextareaSelect}
         placeholder={placeholder}
-        highlight={isBuildMode ? mentionHighlight : undefined}
         overlayClassName='px-0 py-2 text-base md:text-sm'
         className='customScrollbar max-h-[200px] resize-none border-none bg-transparent px-0 text-base shadow-none outline-none placeholder:text-base hover:border-none focus-visible:border-none focus-visible:shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 md:text-sm md:placeholder:text-sm'
       />
@@ -392,21 +204,6 @@ const ChatPanel = ({
                   <MessageCircleQuestion className='size-4' />
                   Ask
                 </SelectItemWithDetail>
-                {!ideRetired && (
-                  <SelectItemWithDetail
-                    className='cursor-pointer'
-                    value='build'
-                    disabled={!isBuilderAvailable || isCheckingBuilder}
-                    detail={{
-                      title: "Build",
-                      description:
-                        "Build semantic models, agents, and automations by describing what you need in natural language."
-                    }}
-                  >
-                    <Hammer className='size-4' />
-                    Build
-                  </SelectItemWithDetail>
-                )}
                 <SelectItemWithDetail
                   className='cursor-pointer'
                   value='workflow'
@@ -448,25 +245,6 @@ const ChatPanel = ({
             ))}
           {mode === "workflow" && (
             <AutomationsDropdown onSelect={setAutomation} automation={automation} />
-          )}
-          {isBuildMode && (
-            <button
-              type='button'
-              role='switch'
-              aria-checked={autoApprove}
-              onClick={() => {
-                const next = !autoApprove;
-                setAutoApprove(next);
-                localStorage.setItem("builder_auto_approve", String(next));
-              }}
-              className={cn(
-                "inline-flex h-7 shrink-0 touch-manipulation items-center gap-1 rounded-md px-2 font-medium text-xs transition-colors hover:bg-accent",
-                autoApprove ? "text-primary" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Zap className={cn("h-3 w-3 transition-colors", autoApprove && "fill-primary")} />
-              Auto-approve
-            </button>
           )}
           <Button
             size='sm'

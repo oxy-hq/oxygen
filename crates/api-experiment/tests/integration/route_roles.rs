@@ -1,5 +1,6 @@
-//! Experiments and simulations read and enqueue on the fleet; only write-back
-//! apply needs the ide.
+//! Experiments and simulations read and enqueue on the fleet: every route is
+//! FleetOk. (Write-back apply, the one route that needed the ide, was removed
+//! with the IDE.)
 //!
 //! Inside `oxy-app` the routes went through `route_fleet` / `route_ide`, whose
 //! types proved the role; a seam router is a plain `Router<AppState>`, so the
@@ -32,27 +33,15 @@ fn install() {
     install_route_declarations_for_tests_with(extra);
 }
 
-/// Write-back apply creates a git worktree and branch in the working copy,
-/// which only the ide singleton holds; a fleet replica relays it. Everything
-/// else — the designs, the price, the run, the sealed result, the worlds and
-/// their runs — is Postgres, the compile boundary or an enqueue, and a read
-/// that dies when the ide restarts is the HA bug the split fleet exists to
-/// prevent. Assert both directions, so a declaration that is dropped, or added
-/// to the wrong path, fails here rather than in production. A handler that
-/// grows a working-copy read on a FleetOk route is not something this test can
-/// see; the diskless scan named above is.
+/// The designs, the price, the run, the sealed result, the worlds and their
+/// runs are Postgres, the compile boundary or an enqueue, and a read that dies
+/// when one pod restarts is the HA bug the split fleet exists to prevent. A
+/// declaration added to one of these paths fails here rather than in
+/// production. A handler that grows a working-copy read on a FleetOk route is
+/// not something this test can see; the diskless scan named above is.
 #[test]
-fn write_back_apply_reaches_the_ide_and_every_other_route_does_not() {
+fn every_route_serves_from_any_replica() {
     install();
-
-    assert_eq!(
-        classify(
-            "POST",
-            &format!("/api/{WS}/experiments/promo_pilot/write-back/apply")
-        ),
-        RouteRole::IdeOnly,
-        "applying a write-back creates a worktree in the working copy",
-    );
 
     for (method, path) in [
         ("GET", format!("/api/{WS}/experiments")),

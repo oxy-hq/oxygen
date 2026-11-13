@@ -232,9 +232,10 @@ before passing `--yes` — say which design (`design <name>` prints its hash).
 - A report: state its `verdict` (not a bare "significant"), and repeat every
   line under `assumptions` — a switchback's carryover and pull-forward
   assumptions are part of the result.
-- `write-back <name>` opens a branch writing the measured coefficient into the
-  World Model file. It needs the deployment that holds the workspace's working
-  copy (503 elsewhere); review the branch like any other change.
+- A report may propose a measured coefficient for a World Model edge
+  (`write_back` in the result: the file, edge and value). Oxygen does not write
+  the repository: make that edit in the workspace's repository (`oxyc workspace
+  clone`) and push it like any other change.
 
 ## Branch on exit codes
 

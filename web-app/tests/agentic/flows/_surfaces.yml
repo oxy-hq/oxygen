@@ -25,9 +25,7 @@
   paths:
     - "src/pages/ide/"
   flows:
-    - ide-save
-    - ide-create-file
-    - ide-compile-error
+    - ide-world-model-graph
 
 - surface: threads
   paths:
@@ -99,23 +97,11 @@
 - surface: semantic-layer-explorer
   paths:
     - "src/pages/ide/SemanticLayer/"
-    - "src/pages/ide/Files/Editor/Topic/"
-    - "src/pages/ide/Files/Editor/View/"
-    - "src/pages/ide/Files/Editor/components/SemanticExplorer/"
-    - "src/pages/ide/Files/Editor/components/SemanticQueryPanel/"
     - "src/hooks/api/useTopicFiles.ts"
     - "src/hooks/api/useViewFiles.ts"
+    - "src/hooks/api/useSemanticObjects.ts"
   flows:
     - semantic-object-detail
-    - semantic-builder-ask
-    - chat-early-run-failure
-
-- surface: analytics-run-lifecycle
-  paths:
-    - "src/hooks/useAnalyticsRun.ts"
-    - "src/pages/thread/analytics/"
-  flows:
-    - chat-early-run-failure
 
 - surface: world-model
   paths:
@@ -138,15 +124,6 @@
     - observability-clusters
     - observability-metrics
     - observability-execution-analytics
-
-- surface: context-graph
-  paths:
-    - "src/pages/context-graph/"
-    - "src/hooks/api/contextGraph/"
-    - "src/services/api/contextGraph.ts"
-    - "src/types/contextGraph.ts"
-  flows:
-    - context-graph-fleet
 
 - surface: admin-airhouse
   paths:
@@ -208,12 +185,9 @@
     - "src/pages/airway/"
     - "src/components/airway/"
     - "src/pages/ide/pipelines/"
-    - "src/pages/ide/Files/Editor/Airway/"
     - "src/hooks/api/airway/"
     - "src/services/api/airway.ts"
   flows:
-    - ide-pipeline-quickbooks
-    - ide-pipeline-sp-api
     - airway-pipeline-run
 
 - surface: experiments

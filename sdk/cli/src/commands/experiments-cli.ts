@@ -18,8 +18,7 @@ import {
   runExperimentsRegister,
   runExperimentsResult,
   runExperimentsStatus,
-  runExperimentsUse,
-  runExperimentsWriteBack
+  runExperimentsUse
 } from "./experiments.js";
 
 type Opts = Record<string, unknown>;
@@ -183,11 +182,4 @@ export function registerExperiments(program: Command, w: Wiring): void {
         json: json(opts)
       });
     });
-
-  verb(
-    "write-back <name>",
-    "open a branch writing the measured coefficient into the World Model"
-  ).action(async (name: string, opts: Opts) => {
-    await runExperimentsWriteBack(ctx(opts), name, { json: json(opts) });
-  });
 }

@@ -15,7 +15,6 @@ const DatabaseTable: React.FC = () => {
           <TableRow>
             <TableHead>Database</TableHead>
             <TableHead>Datasets</TableHead>
-            <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

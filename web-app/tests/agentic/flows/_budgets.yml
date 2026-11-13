@@ -19,17 +19,6 @@
   cold_usd: 0.50
   warm_usd: 0.005
 
-- flow: ide-save
-  cold_usd: 0.30
-  warm_usd: 0.005
-
-- flow: ide-create-file
-  # 2 act steps (switch to Files tab, click New File + type + Enter) + 2
-  # structural waits + one judge call. No streaming/build phase, comparable
-  # to ide-save's own shape.
-  cold_usd: 0.30
-  warm_usd: 0.005
-
 - flow: chat-panel-agent-switch
   cold_usd: 0.40
   warm_usd: 0.005
@@ -40,10 +29,6 @@
   # cost is dominated by the single analytics run plus the nav/search/click
   # acts.
   cold_usd: 0.60
-  warm_usd: 0.005
-
-- flow: ide-compile-error
-  cold_usd: 0.30
   warm_usd: 0.005
 
 - flow: metric-tree
@@ -107,20 +92,6 @@
   cold_usd: 1.55
   warm_usd: 0.05
 
-- flow: ide-pipeline-quickbooks
-  # 4 act steps (open wizard, pick source, pick destination, type name) +
-  # asserts on the credential inputs. All steps use data-testids so cold
-  # converges in 1-2 iterations each; no streaming/build phase.
-  cold_usd: 0.40
-  warm_usd: 0.005
-
-- flow: ide-pipeline-sp-api
-  # Same shape as ide-pipeline-quickbooks: 4 act steps (open wizard, pick
-  # source, pick destination, type name) then asserts on the credential
-  # inputs. All steps use data-testids, no streaming/build phase.
-  cold_usd: 0.40
-  warm_usd: 0.005
-
 - flow: launcher-home
   # 3 cases covering the launcher's key surfaces. No streaming LLM run in
   # fallback-home or rail-chat-and-home (just clicks + visibility checks).
@@ -150,15 +121,6 @@
   # Navigate to /admin/apps, open the seeded app's console, Unpublish +
   # confirm, Publish + confirm, then DOM assertions + one judge call. Three
   # act steps, no streaming LLM run. Replaces admin-custom-apps-tabs.
-  cold_usd: 0.30
-  warm_usd: 0.005
-
-- flow: ide-yaml-diagnostics
-  # One act step (focus + type a malformed line) plus three wait_fors and one
-  # judge call. No streaming run. `.world-model.yml` matches none of the
-  # `fileMatch` globs in monacoConfig.ts, so no schema is fetched and a slow or
-  # firewalled raw.githubusercontent.com cannot suppress the marker.
-  # Not in the CI matrix yet — see the flow header.
   cold_usd: 0.30
   warm_usd: 0.005
 
@@ -206,15 +168,6 @@
   # execution — pure navigation + deterministic text/selector reads plus one
   # judge call per case.
   cold_usd: 0.35
-  warm_usd: 0.01
-
-- flow: context-graph-fleet
-  # Two act steps (filter to SQL Queries, click one node) — no agent run, no
-  # query execution. Nodes have no testids (ReactFlow generic), so clicking
-  # by visible label costs a bit more than a testid-anchored click. Measured
-  # cold on the fleet: $0.51 (57s wall clock, dominated by the ~145-file
-  # bulk hydration wait, not LLM iterations).
-  cold_usd: 0.55
   warm_usd: 0.01
 
 - flow: admin-airhouse-fleet
@@ -304,18 +257,6 @@
   # no CI bucket: it was authored against the wire contract before the
   # service-account and inventory routes existed, and has never been run.
   cold_usd: 0.50
-  warm_usd: 0.01
-
-- flow: chat-early-run-failure
-  # Local-mode, isolated instance (NOT the docker-compose fleet — see the
-  # flow header). One act to switch the `.view.yml` editor out of its
-  # structured Explorer mode, one act to break the file (select-all +
-  # collapse + type — see header for why), one act for the ControlOrMeta+s save,
-  # one navigate + one chat submit. No LLM tokens spent on the run itself —
-  # it 400s before any model call. Measured cold during authoring: $0.02–
-  # $0.10 depending on how many iterations the selector-picking steps took;
-  # warm is the judge floor (~$0.002).
-  cold_usd: 0.35
   warm_usd: 0.01
 
 - flow: experiments-price-draft

@@ -22,9 +22,6 @@
 //! off, whatever the admin page says; `tests/platform/rollout_gates.rs` guards
 //! the three boot paths.
 //!
-//! `ide_retired` is a rollout gate born as a flag: it has no variable to carry
-//! over, so it has no [`RolloutGate`] and is read with `cache::is_enabled`.
-//!
 //! Retiring a gate: `internal-docs/feature-flags.md`, "Rollout gates and their
 //! sunset".
 //!
@@ -52,12 +49,6 @@ pub const COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS_FLAG: &str =
 /// has no environment override and no [`RolloutGate`]; read with
 /// `cache::is_enabled`.
 pub const COMPILE_REFUSE_CLASSIC_AGENTS_FLAG: &str = "compile_refuse_classic_agents";
-
-/// Registry key of the gate that retires the in-product IDE on a deployment: the
-/// web app hides its file, database and git entry points and shows where the
-/// repository is instead, and the server refuses the IDE's routes with `410 Gone`
-/// (`server::ide_retired`). A new gate, so it has no environment override.
-pub const IDE_RETIRED_FLAG: &str = "ide_retired";
 
 /// The deprecated overrides. Read only by [`is_on`], and inventoried in
 /// `internal-docs/configuration.md` as rollout gates.
@@ -221,16 +212,5 @@ mod tests {
         assert_eq!(def.kind, super::super::registry::FlagKind::Rollout);
         assert!(!def.default_enabled, "the refusal ships off");
         assert_eq!(def.sunset, Some("2027-03-31"));
-    }
-
-    #[test]
-    fn ide_retired_is_a_registered_rollout_flag_that_starts_off() {
-        let def = super::super::registry::get(IDE_RETIRED_FLAG).expect("ide_retired is registered");
-        assert_eq!(def.kind, super::super::registry::FlagKind::Rollout);
-        assert!(
-            !def.default_enabled,
-            "the IDE stays on until a deployment turns it off"
-        );
-        assert!(def.sunset.is_some());
     }
 }

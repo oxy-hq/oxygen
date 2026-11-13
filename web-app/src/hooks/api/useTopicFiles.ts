@@ -1,6 +1,5 @@
 import { useMemo } from "react";
-import type { FileTreeModel } from "@/types/file";
-import useFileTree from "./files/useFileTree";
+import useSemanticObjects from "./useSemanticObjects";
 
 export interface TopicFileOption {
   value: string; // Topic name: "foo" (what gets stored in the form)
@@ -9,33 +8,20 @@ export interface TopicFileOption {
   searchText: string; // For filtering: "foo semantics/topics/foo.topic.yml"
 }
 
-function flattenTopicFiles(
-  nodes: FileTreeModel[],
-  result: TopicFileOption[] = []
-): TopicFileOption[] {
-  for (const node of nodes) {
-    if (node.is_dir) {
-      flattenTopicFiles(node.children, result);
-    } else if (node.name.endsWith(".topic.yml") || node.name.endsWith(".topic.yaml")) {
-      const topicName = node.name.replace(/\.topic\.ya?ml$/, "");
-      result.push({
-        value: topicName,
-        label: topicName,
-        path: node.path,
-        searchText: `${topicName} ${node.path}`.toLowerCase()
-      });
-    }
-  }
-  return result;
-}
-
+/** The served revision's topics, as picker options. */
 export default function useTopicFiles() {
-  const { data: fileTree, isLoading, error } = useFileTree();
+  const { data, isLoading, error } = useSemanticObjects();
 
-  const topicFiles = useMemo(() => {
-    if (!fileTree?.primary) return [];
-    return flattenTopicFiles(fileTree.primary);
-  }, [fileTree]);
+  const topicFiles = useMemo(
+    (): TopicFileOption[] =>
+      (data?.topics ?? []).map((t) => ({
+        value: t.name,
+        label: t.name,
+        path: t.path,
+        searchText: `${t.name} ${t.path}`.toLowerCase()
+      })),
+    [data]
+  );
 
   const getPathByTopicName = (topicName: string): string | undefined => {
     return topicFiles.find((t) => t.value === topicName)?.path;

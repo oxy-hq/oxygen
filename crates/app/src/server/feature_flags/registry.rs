@@ -219,28 +219,6 @@ pub static FLAGS: &[FlagDef] = &[
         kind: FlagKind::Rollout,
         sunset: Some("2027-03-31"),
     },
-    FlagDef {
-        key: super::rollout::IDE_RETIRED_FLAG,
-        description: "Retire the in-product IDE on this deployment, before its code is \
-                      deleted (factory-retirement.md, phase 5). When on: the web app hides \
-                      Files, the Database client, the git half of the IDE header and chat's \
-                      Build mode, and shows the workspace's repository (clone, open in VS \
-                      Code, oxyc workspace clone) where Files was; the server answers every \
-                      route that edits files, runs git or compiles the working copy with \
-                      410 ide_retired (naming the repository), and a ?branch= request is no \
-                      longer sent to the Factory. The rest of the back office under /ide, \
-                      chat, runs and data flow are untouched. When off, everything is as \
-                      before. When it is on everywhere, the removal PR deletes the IDE and \
-                      this flag.",
-        default_enabled: false,
-        variants: BOOLEAN,
-        unit: Unit::Org,
-        // Read from `GET /auth/config` and per request, neither with an org.
-        per_org: false,
-        client: false,
-        kind: FlagKind::Rollout,
-        sunset: Some("2027-03-31"),
-    },
 ];
 
 pub fn get(key: &str) -> Option<&'static FlagDef> {

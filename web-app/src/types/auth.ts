@@ -179,13 +179,6 @@ export interface AuthConfigResponse {
    */
   home_v3?: boolean;
   /**
-   * Mirror of the backend `ide_retired` rollout flag (global): the IDE's Files,
-   * Database client, git header and chat's Build mode are hidden, and the
-   * workspace's repository is shown where Files was. Read it through
-   * `useIdeRetired`. Absent (an older server) reads as off.
-   */
-  ide_retired?: boolean;
-  /**
    * Whether the dev-only sign-in bypass is reachable **by this caller** — the
    * server computes it per request, not once per process. An allow-list
    * inferred from the staff roster (debug builds, no `OXY_DEV_LOGIN_EMAILS`)

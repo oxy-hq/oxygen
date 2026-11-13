@@ -101,7 +101,6 @@ const BACKLOG: &[(&str, &str)] = &[
     ("server::api::middlewares", "server::factory_access"),
     ("server::api::middlewares", "server::feature_flags"),
     ("server::api::middlewares", "server::previews"),
-    ("server::api::middlewares", "server::worktree_registry"),
     // `IdeState` and `FleetState` are base types defined in the router's
     // `mod.rs`, which goes up last. They clear when the two move beside
     // `role_router`.
@@ -113,10 +112,6 @@ const BACKLOG: &[(&str, &str)] = &[
         "server::role_manifest",
         "server::router::route_declarations",
     ),
-    // The role middleware refuses for a retired Factory and lets a preview
-    // header escalate.
-    ("server::role_middleware", "server::factory_access"),
-    ("server::role_middleware", "server::previews"),
     // `SurfaceSeams::catalog` carries the route catalog type.
     ("server::router::seams", "server::route_catalog"),
 ];

@@ -1,9 +1,7 @@
-import { Editor } from "@monaco-editor/react";
 import { ErrorBoundary } from "react-error-boundary";
+import CodeView from "@/components/Code/CodeView";
 import SqlResultsTable from "@/components/sql/SqlResultsTable";
 import ErrorAlert from "@/components/ui/ErrorAlert";
-import { Spinner } from "@/components/ui/shadcn/spinner";
-import useTheme from "@/stores/useTheme";
 import type { OmniQueryArtifact } from "@/types/artifact";
 
 type Props = {
@@ -26,8 +24,6 @@ const getCleanOmniObject = (value: OmniQueryArtifact["content"]["value"]) => {
 };
 
 const OmniQueryArtifactPanel = ({ artifact }: Props) => {
-  const theme = useTheme((s) => s.theme);
-  const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
   return (
     <div className='flex h-full flex-col'>
       {/* Omni Query JSON Section */}
@@ -42,24 +38,12 @@ const OmniQueryArtifactPanel = ({ artifact }: Props) => {
             />
           }
         >
-          <Editor
-            height='200px'
-            width='100%'
-            theme={monacoTheme}
-            defaultValue={JSON.stringify(getCleanOmniObject(artifact.content.value), null, 2)}
-            language='json'
-            value={JSON.stringify(getCleanOmniObject(artifact.content.value), null, 2)}
-            loading={<Spinner />}
-            options={{
-              readOnly: true,
-              scrollBeyondLastLine: false,
-              formatOnPaste: true,
-              formatOnType: true,
-              automaticLayout: true,
-              minimap: { enabled: false },
-              wordWrap: "on"
-            }}
-          />
+          <div className='h-50 overflow-hidden rounded border'>
+            <CodeView
+              value={JSON.stringify(getCleanOmniObject(artifact.content.value), null, 2)}
+              language='json'
+            />
+          </div>
         </ErrorBoundary>
       </div>
 
@@ -76,22 +60,7 @@ const OmniQueryArtifactPanel = ({ artifact }: Props) => {
             />
           }
         >
-          <Editor
-            height='100%'
-            width='100%'
-            theme={monacoTheme}
-            defaultValue={artifact.content.value.sql}
-            language='sql'
-            value={artifact.content.value.sql}
-            loading={<Spinner />}
-            options={{
-              readOnly: true,
-              scrollBeyondLastLine: true,
-              formatOnPaste: true,
-              formatOnType: true,
-              automaticLayout: true
-            }}
-          />
+          <CodeView value={artifact.content.value.sql} language='sql' />
         </ErrorBoundary>
       </div>
 

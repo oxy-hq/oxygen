@@ -26,7 +26,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/hooks/useCanUsePreviews", () => ({ default: () => mocks.staff }));
 vi.mock("@/services/api/previews", () => ({ PreviewService: { list: mocks.list } }));
-vi.mock("@/pages/ide", () => ({ useIDE: () => ({ insideIDE: false }) }));
 vi.mock("@/stores/useCurrentWorkspace", () => ({
   default: () => ({
     workspace: {
@@ -36,9 +35,6 @@ vi.mock("@/stores/useCurrentWorkspace", () => ({
       protected_branches: ["main"]
     }
   })
-}));
-vi.mock("@/stores/useIdeBranch", () => ({
-  default: () => ({ getCurrentBranch: () => undefined })
 }));
 
 import useCurrentWorkspaceBranch from "@/hooks/useCurrentWorkspaceBranch";

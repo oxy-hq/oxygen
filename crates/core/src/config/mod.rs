@@ -16,10 +16,13 @@ mod builder;
 mod compiled;
 pub mod constants;
 mod context_documents;
+mod context_graph;
 mod manager;
 mod naming;
 pub mod oxy;
+mod revision_files;
 pub mod scan;
+mod served_revision;
 mod storage;
 
 use anyhow;
@@ -34,12 +37,16 @@ use oxy_shared::errors::OxyError;
 pub use agent_census::compiled_agent_counts;
 pub use artifacts::{
     AgentEntry, AgentRef, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocument,
-    ContextDocuments, PipelineEntry, SimulationEntry, VerifiedQueryEntry, pipeline_source_kind,
+    ContextDocuments, PipelineEntry, QuickBooksSource, SimulationEntry, VerifiedQueryEntry,
+    pipeline_quickbooks_source, pipeline_source_kind,
 };
 pub use builder::{ConfigBuilder, OnMissing};
+pub use context_graph::{ContextGraphSources, GraphArtifact};
 pub use manager::{ConfigManager, DiskSlot, Origin, ReadOnly, ResolveWorkspaceFile, WorkingCopy};
 pub use naming::artifact_name;
+pub use revision_files::{RevisionFile, RevisionFileEntry, RevisionFileKind};
 pub use scan::{CompiledSemanticFiles, ScanDir, SemanticEntity, SemanticFile, SemanticTarget};
+pub use served_revision::ServedRevision;
 
 impl Config {
     pub fn validate_config(&self) -> anyhow::Result<()> {

@@ -162,6 +162,7 @@ mod tests {
             current_revision_id: Set(None),
             default_branch: Set(None),
             repo_subdir: Set(None),
+            default_branch_attempted_at: Set(None),
         }
         .insert(db)
         .await

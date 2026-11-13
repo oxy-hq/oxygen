@@ -1,11 +1,10 @@
 import { get } from "lodash";
-import { Code, Play, Plus, Save, X } from "lucide-react";
-import type { editor } from "monaco-editor";
-import { useCallback, useRef, useState } from "react";
+import { Code, Play, Plus, X } from "lucide-react";
+import { useCallback, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 import { toast } from "sonner";
 import { format as formatSQL } from "sql-formatter";
-import { BaseMonacoEditor, useMonacoSetup } from "@/components/MonacoEditor";
+import CodeEditor from "@/components/Code/CodeEditor";
 import DatabaseSelector from "@/components/sql/DatabaseSelector";
 import ErrorAlert from "@/components/ui/ErrorAlert";
 import {
@@ -25,10 +24,6 @@ import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import { DatabaseService } from "@/services/api";
 import useDatabaseClient, { type SqlExecutionError } from "@/stores/useDatabaseClient";
-
-interface QueryEditorProps {
-  onSave: () => void;
-}
 
 /**
  * Pull a structured `SqlExecutionError` out of an axios error body, or return
@@ -61,7 +56,7 @@ function parseSqlExecutionError(error: unknown): SqlExecutionError | undefined {
   };
 }
 
-export default function QueryEditor({ onSave }: QueryEditorProps) {
+export default function QueryEditor() {
   const { project, branchName } = useCurrentProjectBranch();
   const {
     tabs,
@@ -76,7 +71,6 @@ export default function QueryEditor({ onSave }: QueryEditorProps) {
     setTabError
   } = useDatabaseClient();
 
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [tabToClose, setTabToClose] = useState<{
     id: string;
     name: string;
@@ -87,8 +81,8 @@ export default function QueryEditor({ onSave }: QueryEditorProps) {
   // Reads the active tab through `getActiveTab()` instead of closing over
   // `activeTab`: `updateTab` rebuilds `tabs` via `.map()` on every keystroke,
   // so a dep on the tab object would change this callback's identity on every
-  // character — and `useMonacoSetup` disposes and re-registers the Cmd+Enter
-  // command whenever `onExecute` changes. Every other dep here is stable.
+  // character, and the editor's Cmd+Enter handler would be rebuilt with it.
+  // Every other dep here is stable.
   const handleRunQuery = useCallback(async () => {
     const tab = getActiveTab();
     if (!tab?.content.trim()) {
@@ -148,13 +142,10 @@ export default function QueryEditor({ onSave }: QueryEditorProps) {
   }, [getActiveTab, project.id, branchName, setTabExecuting, setTabResults, setTabError]);
 
   // `handleRunQuery` catches its own failures (they land on the tab via `setTabError`),
-  // so the promise carries nothing. Memoized for the same reason as above: a fresh
-  // `onExecute` identity re-registers the Cmd+Enter command.
+  // so the promise carries nothing. Memoized for the same reason as above.
   const handleExecuteShortcut = useCallback(() => {
     void handleRunQuery();
   }, [handleRunQuery]);
-
-  useMonacoSetup({ onSave, onExecute: handleExecuteShortcut });
 
   const handleNewTab = () => {
     const result = addTab({ selectedDatabase: activeTab?.selectedDatabase });
@@ -206,10 +197,6 @@ export default function QueryEditor({ onSave }: QueryEditorProps) {
     }
   }, [activeTab, updateTab]);
 
-  const handleEditorMount = (editor: editor.IStandaloneCodeEditor) => {
-    editorRef.current = editor;
-  };
-
   return (
     <div className='flex h-full flex-col bg-background'>
       <div className='flex items-center justify-between border-b px-2 py-1'>
@@ -230,16 +217,6 @@ export default function QueryEditor({ onSave }: QueryEditorProps) {
           >
             {activeTab?.isExecuting ? <Spinner /> : <Play className='h-4 w-4' />}
             <span>Run</span>
-          </Button>
-          <Button
-            variant='ghost'
-            size='sm'
-            onClick={onSave}
-            disabled={!activeTab}
-            className='h-7 px-2'
-          >
-            <Save className='h-4 w-4' />
-            <span>Save</span>
           </Button>
           <Button
             variant='ghost'
@@ -303,15 +280,12 @@ export default function QueryEditor({ onSave }: QueryEditorProps) {
               />
             }
           >
-            <BaseMonacoEditor
+            <CodeEditor
               value={activeTab.content}
               onChange={handleContentChange}
-              onMount={handleEditorMount}
+              onExecute={handleExecuteShortcut}
               language='sql'
-              options={{
-                minimap: { enabled: false },
-                scrollBeyondLastLine: true
-              }}
+              placeholder='SELECT … (Cmd/Ctrl+Enter runs it)'
             />
           </ErrorBoundary>
         ) : (

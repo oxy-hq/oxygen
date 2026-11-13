@@ -5,7 +5,6 @@ import { AskDock } from "@/components/Ask/AskDock";
 import { OpenFactoryDialog } from "@/components/admin/OpenFactoryDialog";
 import { OxygenFactoryMark } from "@/components/OxygenFactoryMark";
 import { PreviewBar } from "@/components/PreviewBar";
-import WorkspaceStatus from "@/components/WorkspaceStatus";
 import { useActingSession } from "@/hooks/api/adminAssume/useActingSession";
 import useOrgCustomApps from "@/hooks/api/customApps/useOrgCustomApps";
 import { useAppUnreadCounts } from "@/hooks/api/notifications";
@@ -65,8 +64,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const path = location.pathname;
   const inIde = /\/ide(\/|$)/.test(path);
   const hideRail = inIde || /\/onboarding(\/|$)/.test(path);
-  // The IDE renders its own ProjectStatus — don't double-banner it.
-  const hideStatus = inIde;
 
   // In local mode ws.ROOT is "" — the index route is "/".
   const isHome = path === org.HOME || path === ws.HOME || path === (ws.ROOT || "/");
@@ -253,7 +250,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             impersonation would actually do damage. */}
         <div className='flex min-h-0 w-full flex-1'>
           <main className='relative flex h-full min-w-0 flex-1 flex-col bg-background'>
-            {!hideStatus && <WorkspaceStatus />}
             <div className='w-full min-w-0 flex-1 overflow-hidden'>{children}</div>
           </main>
           {/* The Ask dock is a flex sibling — opening it compacts <main>

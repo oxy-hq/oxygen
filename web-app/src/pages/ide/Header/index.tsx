@@ -1,59 +1,39 @@
 import { Home } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
-import { Card } from "@/components/ui/shadcn/card";
-import useRevisionInfo from "@/hooks/api/workspaces/useRevisionInfo";
-import useIdeRetired from "@/hooks/useIdeRetired";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
-import useIdeBranch from "@/stores/useIdeBranch";
-import { GitActions } from "./components/GitActions";
 import { GithubIcon } from "./components/GithubIcon";
-import { IDEProjectSwitcher } from "./components/IDEProjectSwitcher";
-import { IdeGitProvider } from "./context/IdeGitContext";
-import { useGithubUrls } from "./hooks/useGithubUrls";
+import RevisionInfo from "./components/RevisionInfo";
+import { githubRepoUrl } from "./githubRepoUrl";
 
-// Stable reference so memoised consumers don't invalidate every render
-// before the workspace loads.
-const EMPTY_PROTECTED_BRANCHES: string[] = [];
-
+/**
+ * The Factory's top bar: home, the workspace's name, and what it is serving
+ * (the branch and commit of the compiled revision, and when it compiled),
+ * with the repository on GitHub at the right. An org has one workspace, so
+ * there is no switcher, and there is no branch to switch: a push compiles.
+ */
 const Header = () => {
-  const { workspace: project } = useCurrentWorkspace();
+  const { workspace } = useCurrentWorkspace();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const navigate = useNavigate();
-  // IDE retired: no git half (branch, diff, pull/push, compile). The server
-  // refuses those routes; the repository panel replaces them.
-  const ideRetired = useIdeRetired();
 
-  // `useCurrentWorkspaceBranch` throws without a workspace; Header renders
-  // during initial load too, so resolve the branch manually.
-  const { getCurrentBranch } = useIdeBranch();
-  const activeBranch = project?.active_branch?.name ?? "";
-  const ideBranch = project ? (getCurrentBranch(project.id) ?? activeBranch) : activeBranch;
-  const defaultBranch = project?.default_branch ?? "main";
-  const isOnMain = ideBranch === defaultBranch;
-
-  const caps = project?.capabilities;
-  const canDiff = !!caps?.can_diff;
-  const protectedBranches = project?.protected_branches ?? EMPTY_PROTECTED_BRANCHES;
-
-  // Header sits above <IdeGitProvider> so we read revisionInfo directly;
-  // React Query dedupes by key so the provider's internal call shares it.
-  const { data: revisionInfo } = useRevisionInfo(!ideRetired && canDiff && !!project?.id);
-  const { repoUrl: githubRepoUrl } = useGithubUrls({
-    remoteUrl: revisionInfo?.remote_url,
-    branch: ideBranch,
-    defaultBranch,
-    isOnMain
+  const repoUrl = githubRepoUrl({
+    remoteUrl: workspace?.git_remote_url,
+    branch: workspace?.default_branch || "main",
+    subdir: workspace?.repo_subdir
   });
 
   const handleHomeClick = () => {
-    navigate(project?.id ? ROUTES.ORG(orgSlug).WORKSPACE(project.id).HOME : ROUTES.ROOT);
+    navigate(workspace?.id ? ROUTES.ORG(orgSlug).WORKSPACE(workspace.id).HOME : ROUTES.ROOT);
   };
 
   return (
-    <Card className='flex gap-2 rounded-none border-y-0 border-t-0 border-b bg-sidebar-background p-1 shadow-none'>
+    <header
+      className='flex h-10 shrink-0 items-center gap-2 border-b bg-sidebar-background px-1'
+      data-testid='ide-header'
+    >
       <Button
         variant='ghost'
         size='sm'
@@ -63,35 +43,25 @@ const Header = () => {
       >
         <Home className='h-4 w-4' />
       </Button>
-      <IDEProjectSwitcher />
-      {githubRepoUrl && (
+      <span className='max-w-48 truncate font-medium text-sm' data-testid='ide-workspace-name'>
+        {workspace?.name ?? "…"}
+      </span>
+      <span className='h-4 w-px shrink-0 bg-border' aria-hidden />
+      <RevisionInfo remoteUrl={workspace?.git_remote_url} />
+      {repoUrl && (
         <Button
+          asChild
           size='sm'
-          onClick={(e) => {
-            e.preventDefault();
-            window.open(githubRepoUrl, "_blank", "noopener");
-          }}
-          title='Open on GitHub'
           variant='ghost'
+          className='ml-auto h-8 w-8'
+          title='Open on GitHub'
         >
-          <GithubIcon className='h-3.5 w-3.5' />
+          <a href={repoUrl} target='_blank' rel='noopener noreferrer' aria-label='Open on GitHub'>
+            <GithubIcon className='h-3.5 w-3.5' />
+          </a>
         </Button>
       )}
-      <div className='flex flex-1 items-center justify-end gap-2'>
-        {!ideRetired && (
-          <IdeGitProvider
-            workspaceId={project?.id}
-            branch={ideBranch}
-            defaultBranch={defaultBranch}
-            isOnMain={isOnMain}
-            protectedBranches={protectedBranches}
-            capabilities={project?.capabilities}
-          >
-            <GitActions />
-          </IdeGitProvider>
-        )}
-      </div>
-    </Card>
+    </header>
   );
 };
 

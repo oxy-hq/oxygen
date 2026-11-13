@@ -1,6 +1,5 @@
 import { useMemo } from "react";
-import type { FileTreeModel } from "@/types/file";
-import useFileTree from "./files/useFileTree";
+import useSemanticObjects from "./useSemanticObjects";
 
 export interface ViewFileOption {
   value: string;
@@ -9,30 +8,20 @@ export interface ViewFileOption {
   searchText: string;
 }
 
-function flattenViewFiles(nodes: FileTreeModel[], result: ViewFileOption[] = []): ViewFileOption[] {
-  for (const node of nodes) {
-    if (node.is_dir) {
-      flattenViewFiles(node.children, result);
-    } else if (node.name.endsWith(".view.yml") || node.name.endsWith(".view.yaml")) {
-      const viewName = node.name.replace(/\.view\.ya?ml$/, "");
-      result.push({
-        value: viewName,
-        label: viewName,
-        path: node.path,
-        searchText: `${viewName} ${node.path}`.toLowerCase()
-      });
-    }
-  }
-  return result;
-}
-
+/** The served revision's views, as picker options. */
 export default function useViewFiles() {
-  const { data: fileTree, isLoading, error } = useFileTree();
+  const { data, isLoading, error } = useSemanticObjects();
 
-  const viewFiles = useMemo(() => {
-    if (!fileTree?.primary) return [];
-    return flattenViewFiles(fileTree.primary);
-  }, [fileTree]);
+  const viewFiles = useMemo(
+    (): ViewFileOption[] =>
+      (data?.views ?? []).map((v) => ({
+        value: v.name,
+        label: v.name,
+        path: v.path,
+        searchText: `${v.name} ${v.path}`.toLowerCase()
+      })),
+    [data]
+  );
 
   return { viewFiles, isLoading, error };
 }

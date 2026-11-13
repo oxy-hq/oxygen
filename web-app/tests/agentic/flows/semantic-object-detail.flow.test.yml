@@ -2,9 +2,7 @@
 #
 # Read a TOPIC's detail and a VIEW's detail from the Semantic Model page, and
 # run a query off the topic. These are the per-artifact detail reads, which no
-# existing flow covers: `semantic-builder-ask` drives the VIEW explorer inside
-# the FILE EDITOR route (/ide/files/<b64>) against `oxymart`, and never touches
-# a topic or the /ide/semantic page at all.
+# other flow covers.
 #
 # WHY THIS FLOW EXISTS — two shipped bugs, one page
 # -------------------------------------------------
@@ -19,7 +17,7 @@
 #    legible message. Both explorers render whatever string comes back straight
 #    into an ErrorAlert — `<ErrorAlert title='Error loading topic'
 #    message={loadingTopicError} />`
-#    (web-app/src/pages/ide/Files/Editor/Topic/index.tsx:15) and
+#    (web-app/src/pages/ide/SemanticLayer/explorer/Topic/index.tsx) and
 #    `title='Error loading view'` (.../View/index.tsx:13) — so an "os error 2"
 #    reaches the user verbatim.
 #
@@ -33,15 +31,11 @@
 # same surface answers the 503 "… a (re)compile has been enqueued — retry
 # shortly", so that string is a symptom here too.
 #
-# ONE READ THIS FLOW DELIBERATELY LEANS ON: the object LIST in the left sidebar
-# is NOT a boundary read. `SemanticObjectsList` sources it from `useTopicFiles()`
-# / `useViewFiles()`, both of which wrap `useFileTree()` — the working-copy file
-# tree, an IdeOnly read (web-app/src/hooks/api/useTopicFiles.ts,
-# .../useViewFiles.ts). So this flow crosses BOTH sides in one journey: the list
-# has to survive the in-binary self-proxy to the ide node, and the detail has to
-# be served from Postgres by the replica itself. Its labels are file stems (the
-# hooks strip `.topic.yml` / `.view.yml`), which is why the testids below read
-# `retail_analytics` and `economic_factors`.
+# The object LIST in the left sidebar is a boundary read too:
+# `SemanticObjectsList` sources it from `useTopicFiles()` / `useViewFiles()`,
+# which read `GET /semantic/objects` (FleetOk, the served revision). Its labels
+# are file stems, which is why the testids below read `retail_analytics` and
+# `economic_factors`.
 #
 # Navigation is rail-driven rather than URL-driven (`goto:/` then
 # [data-testid=rail-core] then [data-testid=ide-nav-semantic]) so the flow

@@ -2,12 +2,8 @@ import type { Artifact } from "@/types/artifact";
 import { apiClient } from "./axios";
 
 export class ChartService {
-  static async getChart(projectId: string, branchName: string, file_path: string): Promise<string> {
-    const response = await apiClient.get(`/${projectId}/charts/${file_path}`, {
-      params: {
-        branch: branchName
-      }
-    });
+  static async getChart(projectId: string, file_path: string): Promise<string> {
+    const response = await apiClient.get(`/${projectId}/charts/${file_path}`);
     return response.data;
   }
 }

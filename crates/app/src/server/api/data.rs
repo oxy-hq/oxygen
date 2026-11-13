@@ -1,4 +1,3 @@
-use crate::server::api::middlewares::role_guards::WorkspaceAdmin;
 use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspacePath,
 };
@@ -44,7 +43,6 @@ use agentic_connector::{
 };
 use axum::extract::{self, Path};
 use axum::http::StatusCode;
-use axum::response::Response;
 use entity::workspace_members::WorkspaceRole;
 use oxy::adapters::{session_filters::SessionFilters, workspace::manager::WorkspaceManager};
 use oxy::config::model::ConnectionOverrides;
@@ -79,12 +77,6 @@ pub struct SQLParams {
     /// (`projects::query::run_sql_query`).
     #[serde(default)]
     pub untyped: bool,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct EmbeddingsBuildResponse {
-    pub success: bool,
-    pub message: String,
 }
 
 /// Structured error body returned by the SQL execute endpoints.
@@ -496,25 +488,6 @@ pub async fn execute_sql_query(
     payload: extract::Json<SQLParams>,
 ) -> Result<extract::Json<SemanticQueryResponse>, (StatusCode, extract::Json<SqlErrorResponse>)> {
     execute_sql(workspace, user, role, path, payload).await
-}
-
-/// The workspace "Build" action. Nothing is left for it to build: the reindex
-/// built an enum index nothing read and was removed, and the Omni sync went with
-/// the Looker and Omni metadata caches. It answers success so the Settings →
-/// Databases → Build button and old scripts keep working until they are removed.
-pub async fn build_embeddings(
-    // Its siblings on the same router, `/databases/sync` and `/databases/clean`,
-    // are `WorkspaceAdmin`, and its one caller (Settings → Databases → Build)
-    // renders only for a workspace admin, so the guard stays.
-    _: WorkspaceAdmin,
-    Path(WorkspacePath {
-        workspace_id: _workspace_id,
-    }): Path<WorkspacePath>,
-) -> Result<extract::Json<EmbeddingsBuildResponse>, Response> {
-    Ok(extract::Json(EmbeddingsBuildResponse {
-        success: true,
-        message: "Nothing to build".to_string(),
-    }))
 }
 
 #[cfg(test)]

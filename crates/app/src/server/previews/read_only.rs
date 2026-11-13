@@ -103,7 +103,6 @@ pub const ALLOWED: &[(&str, &str)] = &[
     ("POST", "/databases/test-connection"),
 ];
 
-const GIT: &str = "Changing the workspace's git state";
 const SECRETS: &str = "Changing secrets";
 
 /// Mutating routes a preview refuses, with what the refusal says. `"*"` means
@@ -158,11 +157,6 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
         "Aborting an experiment",
     ),
     (
-        "POST",
-        "/experiments/{name}/write-back/apply",
-        "Writing an experiment result back to a git branch",
-    ),
-    (
         "*",
         "/semantic/preagg-rebuild",
         "Rebuilding pre-aggregations",
@@ -172,7 +166,6 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
         "/analytics/coordinator/runs/{id}/retry",
         "Retrying a run",
     ),
-    ("*", "/compile", "Compiling the workspace"),
     ("*", "/compile/staging", "Compiling the workspace"),
     // Schedules.
     ("POST", "/agentic-schedules", "Creating a schedule"),
@@ -184,43 +177,7 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
         "/agentic-schedules/{id}/backfill",
         "Backfilling a schedule",
     ),
-    // Files and the Builder Agent's edits.
-    ("*", "/files/{*rest}", "Editing files"),
-    (
-        "*",
-        "/analytics/builder/{*rest}",
-        "Building with the Builder Agent",
-    ),
-    (
-        "*",
-        "/analytics/runs/{id}/revert-file-changes",
-        "Reverting the Builder Agent's changes",
-    ),
-    ("*", "/app-integrations", "Changing an app integration"),
-    (
-        "*",
-        "/app-integrations/{kind}",
-        "Changing an app integration",
-    ),
-    // Git.
-    ("*", "/abort-rebase", GIT),
-    ("*", "/continue-rebase", GIT),
-    ("*", "/discard-all", GIT),
-    ("*", "/fetch", GIT),
-    ("*", "/force-push", GIT),
-    ("*", "/pull-changes", GIT),
-    ("*", "/push-changes", GIT),
-    ("*", "/reset-to-commit", GIT),
-    ("*", "/resolve-conflict-file", GIT),
-    ("*", "/resolve-conflict-with-content", GIT),
-    ("*", "/unresolve-conflict-file", GIT),
-    ("*", "/switch-branch", GIT),
-    ("*", "/branches/{branch_name}", GIT),
     // Configuration and access.
-    ("*", "/databases", "Adding a database"),
-    ("*", "/databases/sync", "Syncing a database"),
-    ("*", "/databases/build", "Building embeddings"),
-    ("*", "/databases/clean", "Cleaning database data"),
     ("*", "/secrets", SECRETS),
     ("*", "/secrets/{*rest}", SECRETS),
     ("*", "/custom-apps/{app_id}/secrets", SECRETS),

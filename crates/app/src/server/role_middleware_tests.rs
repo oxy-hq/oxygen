@@ -12,7 +12,10 @@ fn install_roles() {
 
 fn nested_router() -> Router {
     let workspace_routes = Router::new()
-        .route("/compile", post(|| async { "should not reach" }))
+        .route(
+            "/databases/test-connection",
+            post(|| async { "should not reach" }),
+        )
         .route("/threads", get(|| async { "threads ok" }));
     let api_routes = Router::new().nest("/{workspace_id}", workspace_routes);
     Router::new()
@@ -29,7 +32,7 @@ async fn ide_only_route_on_serve_replica_returns_421_through_nest() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/compile")
+            HttpRequest::post("/api/some-uuid/databases/test-connection")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -61,7 +64,7 @@ async fn worker_with_upstream_does_not_forward_ide_route() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/compile")
+            HttpRequest::post("/api/some-uuid/databases/test-connection")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -86,7 +89,7 @@ async fn already_forwarded_ide_route_on_serve_breaks_loop() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/compile")
+            HttpRequest::post("/api/some-uuid/databases/test-connection")
                 .header("x-oxy-forwarded-by", "serve")
                 .body(Body::empty())
                 .unwrap(),
@@ -199,7 +202,7 @@ async fn all_role_accepts_everything() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/compile")
+            HttpRequest::post("/api/some-uuid/databases/test-connection")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -217,287 +220,102 @@ async fn all_role_accepts_everything() {
     );
 }
 
-mod branch_escalation {
+/// `?branch=` escalates nothing: there is no working copy to read, so a fleet
+/// route naming a branch is served on the replica it lands on and nothing is
+/// forwarded to a Factory, even with an ide upstream configured.
+mod branch_is_served_locally {
     use super::*;
 
-    #[test]
-    fn a_branch_escalates_a_fleet_route() {
-        assert_eq!(
-            escalate_for_branch(RouteRole::FleetOk, Some("branch=feature-x")),
-            RouteRole::IdeOnly
-        );
-        assert_eq!(
-            escalate_for_branch(RouteRole::FleetOk, Some("limit=10&branch=feature-x&x=1")),
-            RouteRole::IdeOnly
-        );
-    }
-
-    #[test]
-    fn nothing_de_escalates_an_ide_route() {
-        for query in [None, Some(""), Some("branch="), Some("branch=main")] {
-            assert_eq!(
-                escalate_for_branch(RouteRole::IdeOnly, query),
-                RouteRole::IdeOnly,
-                "query {query:?} must not relax an IdeOnly route"
-            );
-        }
-    }
-
-    #[test]
-    fn an_empty_or_absent_branch_does_not_escalate() {
-        for query in [None, Some(""), Some("branch="), Some("limit=10")] {
-            assert_eq!(
-                escalate_for_branch(RouteRole::FleetOk, query),
-                RouteRole::FleetOk,
-                "query {query:?} must not pin a fleet route to the ide"
-            );
-        }
-    }
-
-    #[test]
-    fn a_lookalike_parameter_does_not_escalate() {
-        for query in ["default_branch=x", "branchy=x", "base_branch=main"] {
-            assert_eq!(
-                escalate_for_branch(RouteRole::FleetOk, Some(query)),
-                RouteRole::FleetOk,
-                "{query} is not a branch hint"
-            );
-        }
-    }
-
-    /// The airway control routes are `FleetOk`, and a replica cannot read a
-    /// draft branch — it would answer from the promoted revision and say
-    /// nothing. So the same route, asked about a branch, must still go to the
-    /// ide. Composed from the real classification and the escalation, which is
-    /// what `enforce_role` does with them.
-    #[test]
-    fn an_airway_request_naming_a_branch_still_goes_to_the_ide() {
-        install_roles();
-        let ws = "d9830be4-c6a4";
-        for (method, path) in [
-            ("POST", format!("/api/{ws}/agentic-airway/runs")),
-            ("POST", format!("/api/{ws}/agentic-airway/backfill")),
-            ("POST", format!("/api/{ws}/agentic-airway/reset-cursors")),
-            ("POST", format!("/api/{ws}/agentic-airway/reset-schema")),
-        ] {
-            let classified = classify(method, &path);
-            assert_eq!(
-                classified,
-                RouteRole::FleetOk,
-                "{method} {path}: precondition — served by any replica without a branch"
-            );
-            assert_eq!(
-                escalate_for_branch(classified, Some("branch=feature-x")),
-                RouteRole::IdeOnly,
-                "{method} {path}?branch= must reach the node that holds the draft"
-            );
-        }
-    }
-
-    /// The world-model routes read the compiled revision, and the IDE page
-    /// that calls them names its branch on every request. A replica would
-    /// answer a draft branch from the promoted revision and say nothing, so
-    /// a request that names one still goes to the ide.
-    #[test]
-    fn a_world_model_request_naming_a_branch_still_goes_to_the_ide() {
-        install_roles();
-        let ws = "d9830be4-c6a4";
-        for (method, path) in [
-            ("GET", format!("/api/{ws}/semantic/world-model")),
-            ("GET", format!("/api/{ws}/semantic/world-model/instances")),
-            (
-                "POST",
-                format!("/api/{ws}/semantic/world-model/filter-counts"),
-            ),
-        ] {
-            let classified = classify(method, &path);
-            assert_eq!(
-                classified,
-                RouteRole::FleetOk,
-                "{method} {path}: precondition — served by any replica without a branch"
-            );
-            assert_eq!(
-                escalate_for_branch(classified, Some("branch=feature-x")),
-                RouteRole::IdeOnly,
-                "{method} {path}?branch= must reach the node that holds the draft"
-            );
-        }
-    }
-}
-
-/// Workspace previews on a serve replica: a `?branch=` fleet route carrying the
-/// preview header stays on the fleet (the workspace middleware finishes the
-/// decision), one without it escalates exactly as before, and the previews API
-/// — whose `?branch=` names a preview, not a working copy — never escalates.
-mod preview_header {
-    use super::*;
-    use crate::server::previews::pin::DeferredBranchEscalation;
-
-    const WS: &str = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
+    const WS: &str = "7a4e3c1e-0b5f-4c36-9d55-3f1c2b8a9e01";
 
     fn router() -> Router {
-        async fn threads(req: axum::extract::Request) -> String {
-            let deferred = req.extensions().get::<DeferredBranchEscalation>().is_some();
-            format!("served here, deferred={deferred}")
-        }
         let workspace_routes = Router::new()
-            .route("/threads", get(threads))
-            .route(
-                "/previews",
-                get(|| async { "list" })
-                    .delete(|| async { "deleted" })
-                    .post(|| async { "created" }),
-            )
-            .route("/previews/refresh", post(|| async { "refreshed" }))
-            .route("/previews/checks", get(|| async { "checks" }))
-            .route("/previews/runs", get(|| async { "runs" }))
-            .route("/compile/staging", post(|| async { "staged" }))
-            .route("/compile/status", get(|| async { "compile status" }));
+            .route("/threads", get(|| async { "served here" }))
+            .route("/compile/staging", post(|| async { "staged" }));
         let api_routes = Router::new().nest("/{workspace_id}", workspace_routes);
         Router::new()
             .nest("/api", api_routes)
             .layer(middleware::from_fn(enforce_role))
     }
 
-    async fn call(method: &str, uri: &str, header: Option<&str>) -> (StatusCode, String) {
-        let mut req = HttpRequest::builder().method(method).uri(uri);
-        if let Some(h) = header {
-            req = req.header(crate::server::previews::pin::REQUEST_HEADER, h);
-        }
-        let resp = router()
-            .oneshot(req.body(Body::empty()).unwrap())
-            .await
+    async fn call(method: &str, uri: &str) -> (StatusCode, axum::http::HeaderMap, String) {
+        let req = HttpRequest::builder()
+            .method(method)
+            .uri(uri)
+            .body(Body::empty())
             .unwrap();
-        let status = resp.status();
+        let resp = router().oneshot(req).await.unwrap();
+        let (status, headers) = (resp.status(), resp.headers().clone());
         let body = to_bytes(resp.into_body(), 4096).await.unwrap();
-        (status, String::from_utf8_lossy(&body).into_owned())
+        (status, headers, String::from_utf8_lossy(&body).into_owned())
     }
 
-    fn as_serve() {
+    fn serve_replica_with_an_ide_upstream() {
         install_roles();
-        unsafe { std::env::set_var("OXY_ROLE", "serve") };
+        unsafe {
+            std::env::set_var("OXY_ROLE", "serve");
+            std::env::set_var("OXY_IDE_UPSTREAM", "http://ide.invalid:80");
+        }
         crate::server::role_manifest::init_process_role_from_env();
     }
 
-    #[tokio::test]
-    async fn without_the_header_a_branch_escalates_as_before() {
-        as_serve();
-        let (status, _) = call("GET", &format!("/api/{WS}/threads?branch=feat%2Fx"), None).await;
-        // No ide upstream in this process, so escalation surfaces as the 421.
-        assert_eq!(status, StatusCode::MISDIRECTED_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn with_the_header_a_fleet_route_stays_and_the_decision_is_deferred() {
-        as_serve();
-        let (status, body) = call(
-            "GET",
-            &format!("/api/{WS}/threads?branch=feat%2Fx"),
-            Some("5f0e6c1e-7c3e-4d0a-9f8a-2b1f6f0d9c11"),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, "served here, deferred=true");
-    }
-
-    #[tokio::test]
-    async fn the_previews_api_is_never_escalated_by_its_branch_parameter() {
-        as_serve();
-        let (status, body) = call(
-            "DELETE",
-            &format!("/api/{WS}/previews?branch=feat%2Fx"),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body, "deleted");
-    }
-
-    /// `?branch=` on the checks route names the preview whose check to read
-    /// (Postgres), not a working copy — so a serve replica answers it.
-    #[tokio::test]
-    async fn the_checks_route_is_never_escalated_by_its_branch_parameter() {
-        as_serve();
-        let (status, body) = call(
-            "GET",
-            &format!("/api/{WS}/previews/checks?branch=feat%2Fx"),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body, "checks");
-    }
-
-    /// Creating and refreshing a preview, and staging a branch for a custom
-    /// app, compile a pushed branch from the commit GitHub has: a replica
-    /// answers them itself, and their `?branch=` names the branch to compile.
-    /// This is what lets a preview be made with the ide down.
-    #[tokio::test]
-    async fn compiling_a_branch_is_served_by_the_replica_it_lands_on() {
-        as_serve();
-        for (uri, served) in [
-            (format!("/api/{WS}/previews"), "created"),
-            (
-                format!("/api/{WS}/previews/refresh?branch=feat%2Fx"),
-                "refreshed",
-            ),
-            (
-                format!("/api/{WS}/compile/staging?branch=feat%2Fx"),
-                "staged",
-            ),
-        ] {
-            let (status, body) = call("POST", &uri, None).await;
-            assert_eq!(status, StatusCode::OK, "{uri}: {body}");
-            assert_eq!(body, served, "{uri}");
+    fn restore() {
+        unsafe {
+            std::env::remove_var("OXY_ROLE");
+            std::env::remove_var("OXY_IDE_UPSTREAM");
         }
     }
 
-    /// The Compile button's status describes the working copy — its HEAD, its
-    /// tracking ref, how far the serving revision is from it — so it stays
-    /// with the node that has one.
     #[tokio::test]
-    async fn the_compile_buttons_status_still_needs_the_node_with_the_files() {
-        as_serve();
-        let (status, _) = call(
-            "GET",
-            &format!("/api/{WS}/compile/status?branch=main"),
-            None,
-        )
-        .await;
-        // No ide upstream in this process, so the pin surfaces as the 421.
-        assert_eq!(status, StatusCode::MISDIRECTED_REQUEST);
+    async fn a_branch_on_a_fleet_route_is_served_here() {
+        serve_replica_with_an_ide_upstream();
+        for uri in [
+            format!("/api/{WS}/threads?branch=feat%2Fx"),
+            format!("/api/{WS}/threads?branch=main"),
+        ] {
+            let (status, headers, body) = call("GET", &uri).await;
+            assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+            assert_eq!(body, "served here");
+            assert!(
+                headers.get(HEADER_FORWARDED_VIA).is_none(),
+                "{uri} was forwarded to a Factory"
+            );
+        }
+        restore();
     }
 
-    /// Same for the held procedure runs list: `?branch=` names the preview
-    /// whose runs to list, all of it Postgres.
     #[tokio::test]
-    async fn the_runs_route_is_never_escalated_by_its_branch_parameter() {
-        as_serve();
-        let (status, body) = call(
-            "GET",
-            &format!("/api/{WS}/previews/runs?branch=feat%2Fx"),
-            None,
+    async fn compiling_a_branch_is_served_by_the_replica_it_lands_on() {
+        serve_replica_with_an_ide_upstream();
+        let (status, headers, body) = call(
+            "POST",
+            &format!("/api/{WS}/compile/staging?branch=feat%2Fx"),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body, "runs");
+        assert_eq!(body, "staged");
+        assert!(headers.get(HEADER_FORWARDED_VIA).is_none());
+        restore();
     }
 }
 
-/// The `/external/api` surface layers the role middleware INSIDE its `nest`, so
-/// the URI it sees has the prefix stripped (`/{ws}/sql/query`). Both the
-/// classification and the forward to the ide need the full path back. Before
-/// `enforce_role_external`, the classification matched nothing and the forward
-/// sent the stripped path, which the ide answered with its SPA fallback —
-/// `405 Allow: GET,HEAD` for every custom-app query carrying `?branch=main`.
+/// The `/external/api` surface layers the middleware INSIDE its `nest`, so the
+/// request it sees has the prefix stripped. The prefix is put back for the
+/// classification (an IdeOnly agentic route is still IdeOnly behind the
+/// prefix) and for the forward (the ide must receive what the client sent);
+/// `?branch=` on its own moves nothing, as everywhere since the IDE went.
 mod external_surface {
     use super::*;
+    use axum::routing::delete;
 
-    const WS: &str = "some-uuid";
+    const WS: &str = "7a4e3c1e-0b5f-4c36-9d55-3f1c2b8a9e01";
 
     fn external_router() -> Router {
         let workspace_routes = Router::new()
-            .route("/compile", post(|| async { "should not reach" }))
+            .route(
+                "/analytics/coordinator/queue",
+                delete(|| async { "should not reach" }),
+            )
             .route("/sql/query", post(|| async { "served here" }));
         Router::new().nest(
             "/external/api",
@@ -507,19 +325,29 @@ mod external_surface {
         )
     }
 
-    async fn post_external(path: &str) -> (StatusCode, String) {
-        let resp = external_router()
-            .oneshot(HttpRequest::post(path).body(Body::empty()).unwrap())
-            .await
+    async fn call(method: &str, uri: &str) -> (StatusCode, String) {
+        let req = HttpRequest::builder()
+            .method(method)
+            .uri(uri)
+            .body(Body::empty())
             .unwrap();
+        let resp = external_router().oneshot(req).await.unwrap();
         let status = resp.status();
         let body = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
         (status, String::from_utf8_lossy(&body).into_owned())
     }
 
-    /// An `IdeOnly` route reached through the external prefix is classified by
-    /// its `/api/...` declaration — not let through because `/{ws}/compile`
-    /// matches no declaration and defaults to `FleetOk`.
+    fn restore() {
+        unsafe {
+            std::env::remove_var("OXY_ROLE");
+            std::env::remove_var("OXY_IDE_UPSTREAM");
+        }
+    }
+
+    /// An IdeOnly route behind the external prefix is classified by its
+    /// `/api/...` declaration, not let through because the stripped
+    /// `/{ws}/analytics/coordinator/queue` matches nothing and would default
+    /// to FleetOk. With no upstream the refusal names the path the client sent.
     #[tokio::test]
     async fn an_ide_only_route_is_classified_by_its_full_path() {
         install_roles();
@@ -529,19 +357,21 @@ mod external_surface {
         }
         crate::server::role_manifest::init_process_role_from_env();
 
-        let (status, body) = post_external(&format!("/external/api/{WS}/compile")).await;
+        let path = format!("/external/api/{WS}/analytics/coordinator/queue");
+        let (status, body) = call("DELETE", &path).await;
 
         assert_eq!(status, StatusCode::MISDIRECTED_REQUEST, "{body}");
         assert!(
-            body.contains(&format!("/external/api/{WS}/compile")),
+            body.contains(&path),
             "the refusal names the path the client sent: {body}"
         );
-        unsafe { std::env::remove_var("OXY_ROLE") };
+        restore();
     }
 
-    /// The ide receives the path and query the client sent, prefix included.
+    /// The ide receives the path and query the client sent, prefix included —
+    /// not the stripped remainder, which its static fallback would answer 405.
     #[tokio::test]
-    async fn a_branch_request_reaches_the_ide_with_the_external_prefix() {
+    async fn an_ide_only_route_reaches_the_ide_with_the_external_prefix() {
         install_roles();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -554,134 +384,33 @@ mod external_surface {
         }
         crate::server::role_manifest::init_process_role_from_env();
 
-        let path = format!("/external/api/{WS}/sql/query?branch=main");
-        let (status, body) = post_external(&path).await;
+        let path = format!("/external/api/{WS}/analytics/coordinator/queue?scope=stale");
+        let (status, body) = call("DELETE", &path).await;
 
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body, path, "the ide must route what the client sent");
-        unsafe {
-            std::env::remove_var("OXY_ROLE");
-            std::env::remove_var("OXY_IDE_UPSTREAM");
-        }
+        restore();
     }
 
-    /// Without a branch the query stays on this replica, as on `/api`.
+    /// A FleetOk route stays on this replica — with or without `?branch=`,
+    /// which escalates nothing now that there is no working copy to read.
     #[tokio::test]
-    async fn a_query_without_a_branch_is_served_here() {
-        install_roles();
-        unsafe { std::env::set_var("OXY_ROLE", "serve") };
-        crate::server::role_manifest::init_process_role_from_env();
-
-        let (status, body) = post_external(&format!("/external/api/{WS}/sql/query")).await;
-
-        assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body, "served here");
-        unsafe { std::env::remove_var("OXY_ROLE") };
-    }
-}
-
-/// With the `ide_retired` flag on, on a serve replica: a refused IDE route is
-/// answered here with the 410 (never forwarded, never a 421), a kept `IdeOnly`
-/// route still goes to the Factory exactly as before, and a fleet route naming
-/// `?branch=` is served here with no escalation. The workspace layer below
-/// stands in for `workspace_middleware` by calling the same
-/// `ide_retired::refusal_for` it calls; the database half of that middleware is
-/// not what is under test. Nextest runs each test in its own process, so the
-/// flag and the process role set here reach no other test.
-mod ide_retired_on_serve {
-    use super::*;
-    use crate::server::feature_flags::rollout::IDE_RETIRED_FLAG;
-    use crate::server::previews::pin::DeferredBranchEscalation;
-
-    const WS: &str = "7a4e3c1e-0b5f-4c36-9d55-3f1c2b8a9e01";
-
-    async fn refuse_like_workspace_middleware(
-        req: axum::extract::Request,
-        next: axum::middleware::Next,
-    ) -> Response {
-        match crate::server::factory_access::ide_retired::refusal_for(&req) {
-            Some(refusal) => refusal,
-            None => next.run(req).await,
-        }
-    }
-
-    fn router() -> Router {
-        async fn threads(req: axum::extract::Request) -> String {
-            let deferred = req.extensions().get::<DeferredBranchEscalation>().is_some();
-            format!("served here, deferred={deferred}")
-        }
-        let workspace_routes = Router::new()
-            .route("/files", get(|| async { "should not reach" }))
-            .route("/compile/status", get(|| async { "compile status" }))
-            .route("/threads", get(threads))
-            .layer(middleware::from_fn(refuse_like_workspace_middleware));
-        let api_routes = Router::new().nest("/{workspace_id}", workspace_routes);
-        Router::new()
-            .nest("/api", api_routes)
-            .layer(middleware::from_fn(enforce_role))
-    }
-
-    async fn get_path(uri: &str) -> (StatusCode, axum::http::HeaderMap, String) {
-        let resp = router()
-            .oneshot(HttpRequest::get(uri).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        let (status, headers) = (resp.status(), resp.headers().clone());
-        let body = to_bytes(resp.into_body(), 8192).await.unwrap();
-        (status, headers, String::from_utf8_lossy(&body).into_owned())
-    }
-
-    fn retired_serve_replica() {
+    async fn a_fleet_route_is_served_here_with_or_without_a_branch() {
         install_roles();
         unsafe {
             std::env::set_var("OXY_ROLE", "serve");
             std::env::remove_var("OXY_IDE_UPSTREAM");
         }
         crate::server::role_manifest::init_process_role_from_env();
-        crate::server::feature_flags::cache::override_for_tests(IDE_RETIRED_FLAG, true);
-    }
 
-    fn restore() {
-        crate::server::feature_flags::cache::override_for_tests(IDE_RETIRED_FLAG, false);
-        unsafe { std::env::remove_var("OXY_ROLE") };
-    }
-
-    #[tokio::test]
-    async fn a_refused_route_is_answered_here_with_the_410() {
-        retired_serve_replica();
-        let (status, headers, body) = get_path(&format!("/api/{WS}/files")).await;
-        assert_eq!(status, StatusCode::GONE, "{body}");
-        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(json["error"], "ide_retired");
-        assert!(headers.get(HEADER_FORWARDED_VIA).is_none(), "not forwarded");
-        assert!(
-            headers
-                .get(HEADER_SERVED_BY)
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .starts_with("serve@")
-        );
-        restore();
-    }
-
-    #[tokio::test]
-    async fn a_kept_ide_route_still_goes_to_the_factory() {
-        retired_serve_replica();
-        let (status, headers, body) = get_path(&format!("/api/{WS}/compile/status")).await;
-        // No upstream configured: the route the replica would forward answers
-        // 421 naming the ide, as it always has.
-        assert_eq!(status, StatusCode::MISDIRECTED_REQUEST, "{body}");
-        assert_eq!(headers.get(HEADER_REQUIRED_ROLE).unwrap(), "ide");
-        restore();
-    }
-
-    #[tokio::test]
-    async fn a_branch_on_a_fleet_route_is_served_here_without_escalation() {
-        retired_serve_replica();
-        let (status, _, body) = get_path(&format!("/api/{WS}/threads?branch=x")).await;
-        assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body, "served here, deferred=false");
+        for uri in [
+            format!("/external/api/{WS}/sql/query"),
+            format!("/external/api/{WS}/sql/query?branch=main"),
+        ] {
+            let (status, body) = call("POST", &uri).await;
+            assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+            assert_eq!(body, "served here", "{uri}");
+        }
         restore();
     }
 }

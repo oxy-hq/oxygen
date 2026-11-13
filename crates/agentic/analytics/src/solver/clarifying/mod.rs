@@ -37,7 +37,7 @@ use super::{
 // Prompt builders
 
 mod prompts;
-pub(super) use prompts::{build_delegation_request, build_triage_user_prompt};
+pub(super) use prompts::build_triage_user_prompt;
 
 pub(crate) enum ClarifyOutcome {
     /// Normal path: pass the intent to Specifying.
@@ -453,68 +453,9 @@ impl AnalyticsSolver {
             }
         }
 
-        // ── Builder delegation: ask the builder agent to create missing members ──
-        //
-        // HARD-DISABLED: the analytics → builder hand-off (the "Builder Agent"
-        // auto-invocation that fires from Clarifying when the semantic model is
-        // missing members) is currently too buggy to ship, so it is gated off
-        // here.  With delegation disabled the pipeline simply falls through to
-        // Specifying and answers the question as best it can with the existing
-        // catalog — the same behavior the original code used on delegation
-        // failure.  Flip `BUILDER_DELEGATION_ENABLED` back to `true` to restore
-        // the hand-off once it is stable.  Explicit builder usage (Cmd+I file
-        // edits) is unaffected — it goes through the builder pipeline
-        // directly, not this branch.
-        //
-        // When the triage LLM reports missing semantic members (measures or
-        // dimensions that the catalog doesn't have) and confidence is below the
-        // shortcut threshold, suspend the pipeline and delegate to the builder
-        // agent.  On success the pipeline resumes into Clarifying with an
-        // updated catalog; on failure it falls through to Specifying as before.
-        //
-        // Guard: skip delegation when resuming (`had_user_answer`).  If we are
-        // re-entering Clarifying after a builder delegation that failed, the
-        // triage LLM will report the same missing members — without this guard
-        // we would delegate again in an infinite loop.  When the builder
-        // succeeded, the catalog is fresh and the members should be found, so
-        // `missing_members` will be empty and this branch won't fire anyway.
-        const BUILDER_DELEGATION_ENABLED: bool = false;
-        if BUILDER_DELEGATION_ENABLED
-            && !had_user_answer
-            && !hypothesis.missing_members.is_empty()
-            && semantic_confidence < SEMANTIC_CONFIDENCE_THRESHOLD
-        {
-            let (request, context) =
-                build_delegation_request(&intent.raw_question, &hypothesis.missing_members);
-
-            self.store_suspension_data(SuspendedRunData {
-                from_state: "clarifying".to_string(),
-                original_input: intent.raw_question.clone(),
-                trace_id: String::new(), // filled by orchestrator
-                stage_data: serde_json::json!({}),
-                question: request.clone(),
-                suggestions: vec![],
-            });
-
-            return Err((
-                AnalyticsError::NeedsUserInput {
-                    prompt: format!(
-                        "Delegating to builder: creating {} missing semantic member(s)",
-                        hypothesis.missing_members.len()
-                    ),
-                },
-                BackTarget::Suspend {
-                    reason: SuspendReason::Delegation {
-                        target: agentic_core::delegation::DelegationTarget::Agent {
-                            agent_id: "__builder__".to_string(),
-                        },
-                        request,
-                        context,
-                        policy: None,
-                    },
-                },
-            ));
-        }
+        // The analytics → Builder delegation (create missing semantic members)
+        // was removed with the IDE: a missing member is answered from what the
+        // catalog has, in Specifying.
 
         // Ground is dropped: pass the raw question and triage-derived question_type
         // directly to Specifying, which now owns catalog discovery + resolution in one loop.

@@ -49,7 +49,7 @@ export const useScheduleAgents = (): UseQueryResult<AgentInfo[]> => {
   const { project, branchName } = useCurrentProjectBranch();
   return useQuery({
     queryKey: queryKeys.agent.list(project.id, branchName),
-    queryFn: () => AgentService.listAgents(project.id, branchName),
+    queryFn: () => AgentService.listAgents(project.id),
     select: agenticOnly
   });
 };

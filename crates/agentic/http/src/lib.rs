@@ -20,8 +20,6 @@
 //! | GET    | `/analytics/runs/:id/events`  | SSE stream (live + catch-up)         |
 //! | POST   | `/analytics/runs/:id/answer`  | Deliver answer to a suspended run    |
 //! | POST   | `/analytics/runs/:id/cancel`  | Cancel a running or suspended run    |
-//! | POST   | `/analytics/builder/runs`     | Start a Builder or onboarding run    |
-//! | POST   | `/analytics/builder/runs/:id/answer` | Answer a suspended Builder run |
 
 pub mod coordinator;
 pub mod db;
@@ -183,25 +181,6 @@ pub fn router_roles() -> &'static [RouteRoleDecl] {
             path: "/runs/{id}/events",
             role: FleetOk,
         },
-        // The Builder copilot and onboarding: they edit workspace files, and a
-        // Builder run is driven in the memory of the process that started it,
-        // so its start and its answers go to the Factory. Undoing a Builder
-        // edit writes the working copy too.
-        RouteRoleDecl {
-            method: "POST",
-            path: "/builder/runs",
-            role: IdeOnly,
-        },
-        RouteRoleDecl {
-            method: "POST",
-            path: "/builder/runs/{id}/answer",
-            role: IdeOnly,
-        },
-        RouteRoleDecl {
-            method: "POST",
-            path: "/runs/{id}/revert-file-changes",
-            role: IdeOnly,
-        },
         // A route added without a declaration of its own.
         RouteRoleDecl {
             method: "*",
@@ -218,21 +197,10 @@ where
 {
     Router::new()
         .route("/runs", post(routes::create_run))
-        // The same handlers, on routes the role manifest pins to the Factory:
-        // what the IDE's Builder copilot and onboarding call. See `router_roles`.
-        .route("/builder/runs", post(routes::create_builder_run))
-        .route(
-            "/builder/runs/{id}/answer",
-            post(routes::answer_builder_run),
-        )
         .route("/runs/{id}/events", get(routes::stream_events))
         .route("/runs/{id}/answer", post(routes::answer_run))
         .route("/runs/{id}/cancel", post(routes::cancel_run))
         .route("/runs/{id}/notify", post(routes::request_run_notice))
-        .route(
-            "/runs/{id}/revert-file-changes",
-            post(routes::revert_file_changes),
-        )
         .route(
             "/runs/{id}/thinking_mode",
             patch(routes::update_thinking_mode),

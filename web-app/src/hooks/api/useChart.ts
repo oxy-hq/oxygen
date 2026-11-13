@@ -8,7 +8,7 @@ export default function useChart(file_path: string, enabled = true) {
 
   return useQuery({
     queryKey: queryKeys.chart.get(project.id, branchName, file_path),
-    queryFn: () => ChartService.getChart(project.id, branchName, file_path),
+    queryFn: () => ChartService.getChart(project.id, file_path),
     enabled
   });
 }

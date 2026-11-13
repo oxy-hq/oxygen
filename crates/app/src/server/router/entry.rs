@@ -186,14 +186,6 @@ pub async fn api_router(
         crate::server::previews::maintenance::MaintenanceConfig::from_env(),
     );
 
-    // Keep `origin/*` tracking refs warm so every surface that reports remote
-    // state (compile freshness badge, ahead/behind counts) answers from a
-    // recent fetch instead of whenever the user last happened to fetch by hand.
-    // Fetch-only: never touches HEAD, the index, or the working tree.
-    crate::server::git_fetch_maintenance::spawn_git_fetch_maintenance(
-        crate::server::git_fetch_maintenance::GitFetchMaintenanceConfig::from_env(),
-    );
-
     // Audit retention: the log is write-heavy, so keep a rolling 30-day window.
     // Idempotent daily sweep; verification anchors on the oldest retained event so a
     // prune doesn't report a false chain break.
@@ -277,20 +269,6 @@ pub async fn api_router(
         agentic_state.db.clone(),
         agentic_state.shutdown_token.clone(),
     );
-
-    // Worktree reaper (plan-2 lifecycle broker, step 1): on the `ide`
-    // singleton, reclaim git worktrees that are idle AND clean so the
-    // working-copy disk stays bounded. Clean-gated, so it never discards
-    // uncommitted work, and a reaped worktree's branch ref survives. Ide-only:
-    // no other role has the worktrees on local disk.
-    if crate::server::role_manifest::current_process_role()
-        == crate::server::role_manifest::Role::Ide
-    {
-        crate::server::worktree_registry::spawn_worktree_reaper(
-            crate::server::worktree_registry::registry(),
-            agentic_state.shutdown_token.clone(),
-        );
-    }
 
     // Camera ingest write-coalescing flusher: buffers high-frequency
     // events/health and flushes one batched INSERT per (tenant, stream) per
@@ -667,13 +645,7 @@ async fn new_agentic_state(
         AgenticState::new(shutdown_token, db, thread_owner)
             .with_builder_test_runner(Arc::new(OxyTestRunner))
             .with_router(router)
-            .with_queued_starts(crate::server::queued_analytics::queued_starts_enabled)
-            .with_working_copy(|| {
-                use crate::server::role_manifest::{
-                    current_process_role, role_owns_workspace_files,
-                };
-                role_owns_workspace_files(current_process_role())
-            }),
+            .with_queued_starts(crate::server::queued_analytics::queued_starts_enabled),
     );
     // A run driven on another pod appends to `agentic_run_events` and NOTIFYs
     // `oxy_run_events`; the listener above hands the run id to this state's

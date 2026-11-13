@@ -10,7 +10,7 @@
  * revision, `?branch=` its label), the IDE sends only `?branch=`.
  *
  * End to end on the client: the real provider, the real
- * `useCurrentWorkspaceBranch`, a real service (`AgentService`) through the real
+ * `useCurrentWorkspaceBranch`, a real service (`SemanticService`) through the real
  * `apiClient` and its interceptors — only the network adapter is swapped for
  * one that records what would have gone on the wire.
  */
@@ -25,15 +25,12 @@ import type { WorkspacePreview } from "@/types/workspace";
 
 const mocks = vi.hoisted(() => ({
   staff: true,
-  insideIDE: false,
-  ideBranch: undefined as string | undefined,
   sseHeaders: [] as Record<string, string>[],
   list: vi.fn<(workspaceId: string) => Promise<WorkspacePreview[]>>()
 }));
 
 vi.mock("@/hooks/useCanUsePreviews", () => ({ default: () => mocks.staff }));
 vi.mock("@/services/api/previews", () => ({ PreviewService: { list: mocks.list } }));
-vi.mock("@/pages/ide", () => ({ useIDE: () => ({ insideIDE: mocks.insideIDE }) }));
 vi.mock("@/stores/useCurrentWorkspace", () => ({
   default: () => ({
     workspace: {
@@ -44,9 +41,6 @@ vi.mock("@/stores/useCurrentWorkspace", () => ({
     }
   })
 }));
-vi.mock("@/stores/useIdeBranch", () => ({
-  default: () => ({ getCurrentBranch: () => mocks.ideBranch })
-}));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock("@microsoft/fetch-event-source", () => ({
   fetchEventSource: async (_url: string, opts: { headers: Record<string, string> }) => {
@@ -56,9 +50,9 @@ vi.mock("@microsoft/fetch-event-source", () => ({
 
 import useCurrentWorkspaceBranch from "@/hooks/useCurrentWorkspaceBranch";
 import { getActivePreviewRevision } from "@/libs/utils/preview";
-import { AgentService } from "@/services/api/agents";
 import { apiClient } from "@/services/api/axios";
 import fetchSSE from "@/services/api/fetchSSE";
+import { SemanticService } from "@/services/api/semantic";
 import { PreviewPinProvider, usePreviewPin } from "./PreviewPinContext";
 
 const HEADER = "x-oxy-preview-revision";
@@ -81,12 +75,12 @@ let listAgents: () => Promise<unknown> = async () => undefined;
 let exitPreview: () => void = () => {};
 let navigateTo: (to: string) => void = () => {};
 
-/** A surface doing what ~160 real ones do: pass `branchName` to its service. */
+/** A branch-aware surface (the semantic model): it passes `branchName` to its service. */
 function Surface() {
   const { branchName } = useCurrentWorkspaceBranch();
   const { exit } = usePreviewPin();
   const navigate = useNavigate();
-  listAgents = () => AgentService.listAgents("ws-1", branchName);
+  listAgents = () => SemanticService.listObjects("ws-1", branchName);
   exitPreview = exit;
   navigateTo = (to) => {
     void navigate(to);
@@ -136,8 +130,6 @@ describe("x-oxy-preview-revision", () => {
   const originalAdapter = apiClient.defaults.adapter;
   beforeEach(() => {
     mocks.staff = true;
-    mocks.insideIDE = false;
-    mocks.ideBranch = undefined;
     mocks.sseHeaders = [];
     mocks.list.mockReset();
     mocks.list.mockResolvedValue([
@@ -170,20 +162,7 @@ describe("x-oxy-preview-revision", () => {
     expect(mocks.sseHeaders.at(-1)).toMatchObject({ [HEADER]: REV });
   });
 
-  it("is NOT sent by the IDE on the same branch — that is the working copy, not a preview", async () => {
-    mocks.insideIDE = true;
-    mocks.ideBranch = "feat/x";
-    await renderAt("/acme/workspaces/ws-1/ide/files");
-
-    expect(await lastSent()).toEqual({ branchParam: "feat/x", previewHeader: undefined });
-
-    await act(() => fetchSSE("/api/ws-1/threads/t1/ask", { onMessage: vi.fn() }));
-    expect(mocks.sseHeaders.at(-1)).not.toHaveProperty(HEADER);
-  });
-
   it("is sent from inside the IDE too, once the page is pinned", async () => {
-    mocks.insideIDE = true;
-    mocks.ideBranch = "feat/other";
     await renderAt(`/acme/workspaces/ws-1/ide/files?preview=${REV}`);
     expect(await lastSent()).toEqual({ branchParam: "feat/x", previewHeader: REV });
   });

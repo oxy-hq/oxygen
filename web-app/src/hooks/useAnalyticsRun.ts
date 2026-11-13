@@ -40,12 +40,18 @@ function isDelegationSuspension(questions: HumanInputQuestion[]): boolean {
  * Pull a human-readable message out of an Axios-style error. The agentic
  * API returns `{ "error": "<cause>" }` (or, on older paths, a plain text
  * body) for a failed run start/resume — surface that instead of the
- * generic "Request failed with status code 400".
+ * generic "Request failed with status code 400". A refusal that names a code
+ * in `error` carries its sentence in `message` (`410 builder_removed`), which
+ * wins.
  */
 function extractApiErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === "object" && "response" in err) {
     const data = (err as { response?: { data?: unknown } }).response?.data;
     if (typeof data === "string" && data.trim()) return data;
+    if (data && typeof data === "object" && "message" in data) {
+      const m = (data as { message?: unknown }).message;
+      if (typeof m === "string" && m.trim()) return m;
+    }
     if (data && typeof data === "object" && "error" in data) {
       const m = (data as { error?: unknown }).error;
       if (typeof m === "string" && m.trim()) return m;
@@ -258,9 +264,6 @@ export function sseEventToUiBlock(ev: SseEvent): UiBlock {
 
 export interface UseAnalyticsRunOptions {
   projectId: string;
-  /** The runs this hook drives are Builder runs (the caller knows: a Builder
-   *  thread). A run it starts with the Builder agent counts too. */
-  builder?: boolean;
 }
 
 export interface UseAnalyticsRunResult {
@@ -291,13 +294,7 @@ export interface UseAnalyticsRunResult {
   isAnswering: boolean;
 }
 
-export function useAnalyticsRun({
-  projectId,
-  builder = false
-}: UseAnalyticsRunOptions): UseAnalyticsRunResult {
-  // Whether the run's answers go to the Builder route (see `submitAnswer`).
-  const builderRunRef = useRef(builder);
-  builderRunRef.current = builder || builderRunRef.current;
+export function useAnalyticsRun({ projectId }: UseAnalyticsRunOptions): UseAnalyticsRunResult {
   const [state, setState] = useState<AnalyticsRunState>({ tag: "idle" });
   const abortRef = useRef<AbortController | null>(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -492,12 +489,13 @@ export function useAnalyticsRun({
     ) => {
       setIsStarting(true);
       setState({ tag: "running", runId: "", events: [] });
-      builderRunRef.current = builder || agentId === "__builder__";
       AnalyticsService.createRun(projectId, {
         agent_id: agentId,
         question,
         thread_id: threadId,
         thinking_mode: thinkingMode,
+        // The server refuses a Builder start with `410 builder_removed`, whose
+        // message the failed state shows.
         ...(agentId === "__builder__" && { domain: "builder", model })
       })
         .then(({ run_id }) => {
@@ -519,7 +517,7 @@ export function useAnalyticsRun({
         })
         .finally(() => setIsStarting(false));
     },
-    [projectId, openStream, builder]
+    [projectId, openStream]
   );
 
   const reconnect = useCallback(
@@ -537,7 +535,6 @@ export function useAnalyticsRun({
       setState({ tag: "running", runId, events });
       setIsAnswering(true);
       AnalyticsService.submitAnswer(projectId, runId, text, {
-        builder: builderRunRef.current,
         signal: answerController?.signal
       })
         .then((res) => {

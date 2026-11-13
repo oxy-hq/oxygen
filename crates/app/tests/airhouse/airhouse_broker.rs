@@ -89,6 +89,7 @@ pub(super) async fn seed_workspace(db: &DatabaseConnection, name: &str) -> Uuid 
         current_revision_id: ActiveValue::Set(None),
         default_branch: ActiveValue::Set(None),
         repo_subdir: ActiveValue::Set(None),
+        default_branch_attempted_at: ActiveValue::Set(None),
     }
     .insert(db)
     .await

@@ -187,16 +187,12 @@ describe("ExperimentService calls", () => {
     await ExperimentService.getRun("p", "a b");
     await ExperimentService.getProposals("p", "a b");
     await ExperimentService.abort("p", "a b", { reason: "why", levers: "off" });
-    await ExperimentService.applyWriteBack("p", "a b");
 
     expect(get.mock.calls.map((c) => c[0])).toEqual([
       "/p/experiments/a%20b/run",
       "/p/experiments/a%20b/proposals"
     ]);
-    expect(post.mock.calls.map((c) => c[0])).toEqual([
-      "/p/experiments/a%20b/abort",
-      "/p/experiments/a%20b/write-back/apply"
-    ]);
+    expect(post.mock.calls.map((c) => c[0])).toEqual(["/p/experiments/a%20b/abort"]);
   });
 
   it("sends the abort reason and lever choice as the body", async () => {

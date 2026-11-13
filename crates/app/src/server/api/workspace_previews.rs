@@ -27,12 +27,10 @@
 //! `404 preview_not_found` for refreshing one that does not exist.
 //!
 //! Create and refresh compile a branch that is on GitHub from the commit
-//! GitHub has, so any pod serves them. A branch only a working copy has is
-//! replayed to the node that holds one (`server::factory_replay`); with none
-//! to ask, the answer is the `409` above.
+//! GitHub has, so any pod serves them. A branch GitHub does not have is the
+//! `409` above (single-process mode still compiles it from the directory).
 
 use axum::Json;
-use axum::body::Bytes;
 use axum::extract::{Extension, Path, Query};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -40,7 +38,6 @@ use oxy_auth::extractor::AuthenticatedUserExtractor;
 use serde::{Deserialize, Serialize};
 
 use crate::server::api::middlewares::role_guards::WorkspacePreviewer;
-use crate::server::factory_replay::Arrived;
 use crate::server::previews::checks::ChecksResponse;
 use crate::server::previews::runs::{
     self as runs, RunDetail, RunRequestError, RunSummary, SubmitRun, Submitted,
@@ -157,25 +154,16 @@ pub async fn list_previews(
     }))
 }
 
-/// The preview a create or refresh recorded — or, for a branch only a working
-/// copy has, whatever the node that holds one answers to the same request.
-/// With no such node to ask, the refusal stands.
+/// The preview a create or refresh recorded, or the refusal with its reason.
+/// A branch GitHub does not have is refused: nothing is sent on to a Factory.
 async fn staged(
     db: &sea_orm::DatabaseConnection,
     outcome: Result<entity::workspace_previews::Model, PreviewRequestError>,
-    arrived: &Arrived,
-    body: Bytes,
 ) -> Result<Response, PreviewApiError> {
-    let refusal = match outcome {
-        Ok(row) => return Ok((StatusCode::ACCEPTED, Json(one(db, row).await?)).into_response()),
-        Err(refusal) => refusal,
-    };
-    if refusal.needs_working_copy()
-        && let Some(answer) = arrived.replayed_to_factory(body).await
-    {
-        return Ok(answer);
+    match outcome {
+        Ok(row) => Ok((StatusCode::ACCEPTED, Json(one(db, row).await?)).into_response()),
+        Err(refusal) => Err(refusal.into()),
     }
-    Err(refusal.into())
 }
 
 /// Preview a branch: compile its head into a staging revision (or reuse the
@@ -184,7 +172,6 @@ pub async fn create_preview(
     _: WorkspacePreviewer,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Extension(ws): Extension<entity::workspaces::Model>,
-    arrived: Arrived,
     Json(body): Json<CreatePreviewBody>,
 ) -> Result<Response, PreviewApiError> {
     let db = db().await?;
@@ -195,8 +182,7 @@ pub async fn create_preview(
         requested_by: user.id,
     })
     .await;
-    let replayable = serde_json::json!({ "branch": body.branch }).to_string();
-    staged(&db, created, &arrived, replayable.into()).await
+    staged(&db, created).await
 }
 
 /// Move a preview to its branch's current head.
@@ -204,7 +190,6 @@ pub async fn refresh_preview(
     _: WorkspacePreviewer,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Extension(ws): Extension<entity::workspaces::Model>,
-    arrived: Arrived,
     Query(q): Query<BranchParam>,
 ) -> Result<Response, PreviewApiError> {
     let db = db().await?;
@@ -215,7 +200,7 @@ pub async fn refresh_preview(
         requested_by: user.id,
     })
     .await;
-    staged(&db, refreshed, &arrived, Bytes::new()).await
+    staged(&db, refreshed).await
 }
 
 /// Stop listing a preview. Its revisions age out under staging retention.

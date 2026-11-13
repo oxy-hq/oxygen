@@ -121,7 +121,7 @@ export function printResult(result: Obj): void {
   );
   const writeBack = obj(result.write_back);
   if (writeBack.available)
-    say(`write-back available: oxyc experiments write-back ${str(result.experiment) ?? "<name>"}`);
+    say("write-back available: make the proposed edit in the workspace's repository and push it");
   else line("write-back", writeBack.reason);
 }
 

@@ -143,11 +143,6 @@ pub struct AuthConfigResponse {
     /// (ask first, big apps, Today folded, simple and full views). The web app reads
     /// it only where `apps_first_experience` is on.
     pub home_v3: bool,
-    /// Mirror of the backend `ide_retired` rollout flag: the web app hides the IDE's
-    /// file, database and git entry points (and chat's Build mode) and shows the
-    /// workspace's repository where Files was. The server refuses those routes
-    /// itself (410 `ide_retired`) whatever a client does with this.
-    pub ide_retired: bool,
     /// True when `OXY_DEV_LOGIN_EMAILS` is set, i.e. the dev sign-in bypass is
     /// available. Drives the "Dev sign-in" button on the login page — the one
     /// affordance a browser-automation tool can click without OAuth or email.

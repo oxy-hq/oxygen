@@ -27,7 +27,6 @@ pub mod queued_answer;
 pub mod queued_run;
 pub mod recovery;
 pub mod retry;
-pub mod revert;
 pub mod run_execution;
 mod run_metadata;
 pub mod scheduler;
@@ -60,7 +59,6 @@ pub use crate::executor::PREVIEW_AIRWAY_SAMPLE;
 pub use crate::headless::{
     HeadlessError, run_agentic_answer, run_agentic_eval, run_agentic_streaming,
 };
-pub use crate::revert::{RevertedFile, revert_builder_file_changes};
 pub use crate::run_metadata::{STARTED_BY_KEY, stamp_started_by};
 pub use crate::start_guard::START_INTERRUPTED;
 pub use agentic_airway::preview as airway_preview;

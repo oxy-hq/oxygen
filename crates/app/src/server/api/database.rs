@@ -4,21 +4,15 @@ use crate::server::api::middlewares::role_guards::WorkspaceAdmin;
 use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath,
 };
-use crate::{
-    cli::commands::clean::{clean_all, clean_cache, clean_database_folder, clean_vectors},
-    server::service::{
-        project::{
-            database_config::DatabaseConfigBuilder,
-            models::{WarehouseConfig, WarehousesFormData},
-        },
-        sync::{SyncFilter, sync_databases},
-    },
+use crate::server::service::project::{
+    database_config::DatabaseConfigBuilder,
+    models::{WarehouseConfig, WarehousesFormData},
 };
 use agentic_connector::{ConnectorConfig, SnowflakeAuth, SsoUrlCallback};
 use axum::{
     extract::{Json, Path, Query},
     http::StatusCode,
-    response::{IntoResponse, Response, sse::Sse},
+    response::{IntoResponse, sse::Sse},
 };
 use oxy::config::ResolveWorkspaceFile;
 use oxy::config::model::{DatabaseType, SemanticModels, SnowflakeAuthType};
@@ -30,9 +24,7 @@ use oxy::semantic::inspector::{
 };
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use scopeguard::guard;
-use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use utoipa::ToSchema;
@@ -141,147 +133,6 @@ pub async fn get_database_schema(
         .collect();
 
     Ok(Json(DatabaseSchemaResponse { tables }))
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct DatabaseSyncResponse {
-    pub success: bool,
-    pub message: String,
-    pub sync_time_secs: Option<f64>,
-}
-
-// support deserializing datasets as either a single string or a list of strings
-/// Deserialize a query param that can be:
-/// - absent → None
-/// - a single string → Some(vec![string]) (also splits on commas)
-/// - a JSON array of strings → Some(vec![...])
-fn deserialize_string_list<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let opt = Option::<serde_json::Value>::deserialize(deserializer)?;
-    match opt {
-        None => Ok(None),
-        Some(serde_json::Value::String(s)) => {
-            // Support comma-separated values in a single string
-            let items: Vec<String> = s
-                .split(',')
-                .map(|v| v.trim().to_string())
-                .filter(|v| !v.is_empty())
-                .collect();
-            if items.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(items))
-            }
-        }
-        Some(serde_json::Value::Array(arr)) => {
-            let mut result = Vec::with_capacity(arr.len());
-            for v in arr {
-                match v {
-                    serde_json::Value::String(s) => result.push(s),
-                    _ => return Err(de::Error::custom("Expected string in array")),
-                }
-            }
-            Ok(Some(result))
-        }
-        _ => Err(de::Error::custom("Invalid type for string list param")),
-    }
-}
-
-#[derive(Deserialize, ToSchema)]
-pub struct SyncDatabaseQuery {
-    pub database: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_string_list")]
-    pub datasets: Option<Vec<String>>,
-    /// Specific tables to sync in "schema.table" format.
-    /// When provided, only these tables are synced (overrides datasets).
-    #[serde(default, deserialize_with = "deserialize_string_list")]
-    pub tables: Option<Vec<String>>,
-}
-
-pub async fn sync_database(
-    _: WorkspaceAdmin,
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
-    Path(WorkspacePath {
-        workspace_id: _workspace_id,
-    }): Path<WorkspacePath>,
-    AuthenticatedUserExtractor(_user): AuthenticatedUserExtractor,
-    Query(params): Query<SyncDatabaseQuery>,
-) -> Result<Json<DatabaseSyncResponse>, StatusCode> {
-    let filter = if params.database.is_some() || params.tables.is_some() {
-        Some(SyncFilter {
-            database: params.database,
-            datasets: params.datasets.unwrap_or_default(),
-            tables: params.tables.unwrap_or_default(),
-        })
-    } else {
-        None
-    };
-
-    let overwrite = true; // Always overwrite
-
-    let config = workspace_manager.config_manager;
-    let secrets_manager = workspace_manager.secrets_manager;
-
-    match sync_databases(config.clone(), secrets_manager.clone(), filter, overwrite).await {
-        Ok(results) => {
-            let success_count = results.iter().filter(|r| r.is_ok()).count();
-            let error_count = results.iter().filter(|r| r.is_err()).count();
-
-            // Calculate average sync time from successful results
-            let total_sync_time: f64 = results
-                .iter()
-                .filter_map(|result| match result {
-                    Ok(sync_metrics) => Some(sync_metrics.sync_time_secs),
-                    Err(_) => None,
-                })
-                .sum();
-
-            let avg_sync_time = if success_count > 0 {
-                Some(total_sync_time / success_count as f64)
-            } else {
-                None
-            };
-
-            let error_messages: Vec<String> = results
-                .iter()
-                .filter_map(|result| match result {
-                    Err(e) => Some(e.to_string()),
-                    Ok(_) => None,
-                })
-                .collect();
-
-            let message = if error_count == 0 {
-                if success_count == 1 {
-                    "Database synced successfully".to_string()
-                } else {
-                    format!("{success_count} databases synced successfully")
-                }
-            } else if success_count == 0 {
-                format!("Failed to sync: {}", error_messages.join("; "))
-            } else {
-                format!(
-                    "{success_count} databases synced, {error_count} failed: {}",
-                    error_messages.join("; ")
-                )
-            };
-
-            Ok(Json(DatabaseSyncResponse {
-                success: error_count == 0,
-                message,
-                sync_time_secs: avg_sync_time,
-            }))
-        }
-        Err(e) => {
-            tracing::error!("Database sync failed: {}", e);
-            Ok(Json(DatabaseSyncResponse {
-                success: false,
-                message: format!("Database sync failed: {e}"),
-                sync_time_secs: None,
-            }))
-        }
-    }
 }
 
 pub async fn list_databases(
@@ -419,195 +270,6 @@ pub async fn list_databases(
     }
 
     Ok(Json(databases))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CleanRequest {
-    target: Option<CleanTarget>, // "all", "DatabasesFolder", "Vectors", "Cache"
-                                 // DatabasesFolder: semantic models and build artifacts
-                                 // Vectors: LanceDB embeddings and search indexes
-                                 // Cache: temporary files, logs, and chart cache
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CleanTarget {
-    All,
-    DatabasesFolder,
-    Vectors,
-    Cache,
-}
-#[derive(Debug, Serialize)]
-pub struct CleanResponse {
-    success: bool,
-    message: String,
-    cleaned_items: Vec<String>,
-}
-
-pub async fn clean_data(
-    _: WorkspaceAdmin,
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
-    Query(params): Query<CleanRequest>,
-) -> Result<Json<CleanResponse>, StatusCode> {
-    let target = params.target.unwrap_or(CleanTarget::All);
-
-    let mut cleaned_items = Vec::new();
-    let mut success = true;
-    let mut error_message = String::new();
-
-    match target {
-        CleanTarget::All => match clean_all(false, &workspace_manager.config_manager).await {
-            Ok(_) => {
-                cleaned_items.extend(vec![
-                    "Databases folder".to_string(),
-                    "Vector store".to_string(),
-                    "Cache".to_string(),
-                ]);
-            }
-            Err(e) => {
-                success = false;
-                error_message = format!("Failed to clean all: {e}");
-            }
-        },
-        CleanTarget::DatabasesFolder => {
-            match clean_database_folder(false, &workspace_manager.config_manager).await {
-                Ok(_) => cleaned_items.push("Databases folder".to_string()),
-                Err(e) => {
-                    success = false;
-                    error_message = format!("Failed to clean databases folder: {e}");
-                }
-            }
-        }
-        CleanTarget::Vectors => match clean_vectors(false, &workspace_manager.config_manager).await
-        {
-            Ok(_) => cleaned_items.push("Vector store".to_string()),
-            Err(e) => {
-                success = false;
-                error_message = format!("Failed to clean vectors: {e}");
-            }
-        },
-        CleanTarget::Cache => match clean_cache(false, &workspace_manager.config_manager).await {
-            Ok(_) => cleaned_items.push("Cache".to_string()),
-            Err(e) => {
-                success = false;
-                error_message = format!("Failed to clean cache: {e}");
-            }
-        },
-    }
-
-    if success {
-        Ok(Json(CleanResponse {
-            success: true,
-            message: format!("Successfully cleaned: {}", cleaned_items.join(", ")),
-            cleaned_items,
-        }))
-    } else {
-        tracing::error!("{}", error_message);
-        Err(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct CreateDatabaseConfigResponse {
-    pub success: bool,
-    pub message: String,
-    pub databases_added: Vec<String>,
-}
-
-/// Creates database configurations and updates the config.yml file
-#[utoipa::path(
-    post,
-    path = "/workspaces/{workspace_id}/databases",
-    request_body = WarehousesFormData,
-    params(
-        ("workspace_id" = Uuid, Path, description = "Workspace ID")
-    ),
-    responses(
-        (status = 201, description = "Database configurations created successfully", body = CreateDatabaseConfigResponse),
-        (status = 400, description = "Bad request - validation failed"),
-        (status = 409, description = "Conflict - database with same name already exists"),
-        (status = 500, description = "Internal server error")
-    ),
-    security(
-        ("ApiKey" = [])
-    ),
-    tag = "Databases"
-)]
-pub async fn create_database_config(
-    _: WorkspaceAdmin,
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
-    Path(WorkspacePath { workspace_id: _ }): Path<WorkspacePath>,
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
-    Json(warehouses_form): Json<WarehousesFormData>,
-) -> Result<Response, StatusCode> {
-    let repo_path = workspace_manager.config_manager.workspace_path();
-
-    tracing::info!(
-        "Creating database configurations {:?}",
-        warehouses_form.warehouses
-    );
-    let databases = DatabaseConfigBuilder::build_configs(
-        &warehouses_form,
-        repo_path,
-        user.id,
-        &workspace_manager.secrets_manager,
-    )
-    .await?;
-
-    let database_names: Vec<String> = databases.iter().map(|db| db.name.clone()).collect();
-
-    // Defense in depth: this handler mutates `config.yml`. If the route is ever
-    // misclassified `FleetOk` and lands on a stateless replica, fail loudly here
-    // rather than write to an ephemeral disk nobody else will read.
-    crate::server::role_manifest::ensure_fs_writable("add databases to config.yml").map_err(
-        |e| {
-            tracing::error!(error = %e, "add_databases refused");
-            StatusCode::INTERNAL_SERVER_ERROR
-        },
-    )?;
-
-    // Add databases to the config and write to config.yml
-    match workspace_manager
-        .config_manager
-        .add_databases(databases)
-        .await
-    {
-        Ok(_) => {
-            let response = CreateDatabaseConfigResponse {
-                success: true,
-                message: format!(
-                    "{} database configuration(s) created successfully",
-                    database_names.len()
-                ),
-                databases_added: database_names,
-            };
-            Ok((StatusCode::CREATED, Json(response)).into_response())
-        }
-        Err(e) => {
-            tracing::error!("Failed to add databases to config: {}", e);
-
-            // Check if it's a duplicate database error
-            if e.to_string().contains("already exists") {
-                Ok((
-                    StatusCode::CONFLICT,
-                    Json(json!({
-                        "success": false,
-                        "error": e.to_string()
-                    })),
-                )
-                    .into_response())
-            } else {
-                Ok((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({
-                        "success": false,
-                        "error": format!("Failed to update configuration: {}", e)
-                    })),
-                )
-                    .into_response())
-            }
-        }
-    }
 }
 
 #[derive(Deserialize, ToSchema)]

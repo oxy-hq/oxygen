@@ -57,9 +57,7 @@ const SERVER: &[&str] = &[
     "compile_worker",
     "compile_worker_tests",
     "factory_access",
-    "factory_replay",
     "feature_flags",
-    "git_fetch_maintenance",
     "http_cache",
     "ide_proxy",
     "metrics_server",
@@ -92,7 +90,6 @@ const SERVER: &[&str] = &[
     "worker_metrics",
     "worker_runtime",
     "workspace_fs",
-    "worktree_registry",
 ];
 
 const SERVER_API: &[&str] = &[
@@ -109,12 +106,10 @@ const SERVER_API: &[&str] = &[
     "chat",
     "compile",
     "compile_staging",
-    "compile_status_tests",
     "custom_apps_gates",
     "data",
     "database",
     "execution_analytics",
-    "file",
     "healthcheck",
     "integration",
     "local_setup",

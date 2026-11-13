@@ -14,7 +14,6 @@ afterEach(() => {
 it("importing a persisted store leaves no timer for the environment teardown to race", async () => {
   vi.useFakeTimers();
   vi.resetModules();
-  await import("@/stores/useIdeBranch");
   await import("@/stores/useDatabaseOperation");
   expect(vi.getTimerCount()).toBe(0);
 });

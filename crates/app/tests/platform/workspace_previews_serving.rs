@@ -245,7 +245,7 @@ fn app(user: AuthenticatedUser) -> Router {
         .route("/probe", get(probe))
         .route("/spawn-probe", get(spawn_probe))
         .route("/agentic-schedules", post(action))
-        .route("/files/{path}", post(action))
+        .route("/semantic/preagg-rebuild", post(action))
         .route("/sql/query", post(action))
         .layer(middleware::from_fn_with_state(state, workspace_middleware));
     Router::new()
@@ -332,11 +332,9 @@ async fn without_the_header_a_branch_request_is_served_as_today() {
     let r = call(&fx.staff, "GET", uri(&fx, "probe"), None).await;
     assert_eq!(r.body["which"], "main");
     assert_eq!(r.preview_header, None);
-    assert_eq!(
-        branch_hints_dropped(),
-        before + 1,
-        "today's replica behaviour: the hint is dropped and counted"
-    );
+    // No working copy is read for `?branch=` any more, so the hint is not even
+    // looked at: nothing is dropped, nothing counted.
+    assert_eq!(branch_hints_dropped(), before);
 
     // …and never refused.
     let r = call(&fx.staff, "POST", uri(&fx, "agentic-schedules"), None).await;
@@ -360,7 +358,11 @@ async fn a_customer_sending_the_header_gets_todays_behaviour() {
     assert_eq!(r.status, StatusCode::OK);
     assert_eq!(r.body["which"], "main", "the pin is ignored for a customer");
     assert_eq!(r.preview_header, None);
-    assert_eq!(branch_hints_dropped(), before + 1);
+    assert_eq!(
+        branch_hints_dropped(),
+        before,
+        "the hint is not read at all"
+    );
 
     let r = call(
         &fx.customer,
@@ -403,7 +405,7 @@ async fn a_preview_refuses_actions_before_they_run_and_still_answers_queries() {
 
     for (route, what) in [
         ("agentic-schedules", "Creating a schedule"),
-        ("files/Zm9v", "Editing files"),
+        ("semantic/preagg-rebuild", "Rebuilding pre-aggregations"),
     ] {
         let r = call(&fx.staff, "POST", uri(&fx, route), pin.clone()).await;
         assert_eq!(r.status, StatusCode::CONFLICT, "{route}");

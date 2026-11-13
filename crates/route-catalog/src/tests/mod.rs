@@ -84,7 +84,6 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/fleet/",
     "/api/{workspace_id}/threads",
     "/api/{workspace_id}/agents",
-    "/api/{workspace_id}/files",
     "/api/{workspace_id}/databases",
     "/api/{workspace_id}/secrets",
     "/api/{workspace_id}/api-keys",
@@ -506,13 +505,13 @@ fn describe_reports_the_fleet_role() {
     // reason that says nothing about the catalog.
     oxy_app::server::role_manifest::install_route_declarations_for_tests();
 
-    // `/files` reads the working copy, so it is pinned to the ide; the
-    // thread list is served from Postgres and runs anywhere.
-    let files = routes()
+    // Testing a warehouse connection still runs on the ide; the thread list
+    // is served from Postgres and runs anywhere.
+    let test_connection = routes()
         .iter()
-        .find(|r| r.method == "GET" && r.path == "/api/{workspace_id}/files")
-        .expect("files listing route");
-    assert_eq!(describe(files).role, "ide-only");
+        .find(|r| r.method == "POST" && r.path == "/api/{workspace_id}/databases/test-connection")
+        .expect("test-connection route");
+    assert_eq!(describe(test_connection).role, "ide-only");
 
     let threads = routes()
         .iter()

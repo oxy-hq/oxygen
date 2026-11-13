@@ -261,6 +261,15 @@ export type AirwayFile = {
    * then failing.
    */
   source_kind?: string;
+  /**
+   * For a QuickBooks source: the client id and the secret names its Reconnect
+   * button needs (names only, never a value), from the compiled definition.
+   */
+  quickbooks?: {
+    client_id: string;
+    client_secret_var: string;
+    refresh_token_var: string;
+  };
 };
 
 /** One report the server accepted and wrote to the landing zone. */

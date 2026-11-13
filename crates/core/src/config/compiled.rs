@@ -6,7 +6,9 @@
 //! middleware and arrives here as `Origin::Compiled { revision_id }` on the
 //! manager, so nothing in this module needs to know which pod it runs on.
 
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -61,6 +63,7 @@ pub(super) async fn list_pipelines_at(
         .into_iter()
         .map(|m| PipelineEntry {
             source_kind: crate::config::artifacts::pipeline_source_kind(&m.definition),
+            quickbooks: crate::config::artifacts::pipeline_quickbooks_source(&m.definition),
             name: m.name,
             file_path: m.file_path,
         })
@@ -345,9 +348,50 @@ pub(super) async fn list_verified_queries_at(
         .collect())
 }
 
+/// The paths of every verified query at a revision, sorted, without their SQL.
+/// For a caller that only names them (the Context Graph); the body stays in
+/// Postgres rather than crossing the wire to be dropped.
+pub(super) async fn list_verified_query_paths_at(
+    revision_id: Uuid,
+) -> Result<Vec<String>, ArtifactError> {
+    verified_query_paths_select(revision_id)
+        .into_tuple::<String>()
+        .all(&conn().await?)
+        .await
+        .map_err(|e| ArtifactError::Backend(e.to_string()))
+}
+
+/// The query behind [`list_verified_query_paths_at`]: `file_path` only.
+fn verified_query_paths_select(revision_id: Uuid) -> Select<entity::verified_queries::Entity> {
+    entity::verified_queries::Entity::find()
+        .select_only()
+        .column(entity::verified_queries::Column::FilePath)
+        .filter(entity::verified_queries::Column::RevisionId.eq(revision_id))
+        .order_by_asc(entity::verified_queries::Column::FilePath)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Context Graph names verified queries; it must not pull every SQL
+    /// body to do it.
+    #[test]
+    fn verified_query_paths_select_only_the_path_in_order() {
+        use sea_orm::{DbBackend, QueryTrait};
+        let sql = verified_query_paths_select(Uuid::nil())
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(
+            sql.starts_with(r#"SELECT "verified_queries"."file_path" FROM"#),
+            "{sql}"
+        );
+        assert!(!sql.contains("content"), "{sql}");
+        assert!(
+            sql.contains(r#"ORDER BY "verified_queries"."file_path" ASC"#),
+            "{sql}"
+        );
+    }
 
     /// `llm.ref` is nested, so a caller reaching for it must not trip over an
     /// agent that declares no `llm:` block at all — the listing still has to

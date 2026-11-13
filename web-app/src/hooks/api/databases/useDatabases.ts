@@ -13,7 +13,7 @@ export default function useDatabases(
   const projectId = project.id;
   return useQuery<DatabaseInfo[], Error>({
     queryKey: queryKeys.database.list(projectId, branchName),
-    queryFn: () => DatabaseService.listDatabases(projectId, branchName),
+    queryFn: () => DatabaseService.listDatabases(projectId),
     enabled,
     refetchOnWindowFocus: refetchOnWindowFocus,
     refetchOnMount

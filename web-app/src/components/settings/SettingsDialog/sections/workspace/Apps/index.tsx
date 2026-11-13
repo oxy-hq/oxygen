@@ -1,23 +1,26 @@
 import { AppWindow } from "lucide-react";
 import type React from "react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { CanWorkspaceAdmin } from "@/components/auth/Can";
-import RetiredIdeNotice from "@/components/RetiredIdeNotice";
+import WorkspaceRepositoryNotice from "@/components/WorkspaceRepositoryNotice";
 import { useAppIntegrations } from "@/hooks/api/appIntegrations/useAppIntegrations";
-import useIdeRetired from "@/hooks/useIdeRetired";
 import type { AppIntegration, AppIntegrationKind } from "@/services/api/appIntegrations";
+import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import NoAccessNotice from "../../../components/NoAccessNotice";
 import SectionHeader from "../../../components/SectionHeader";
 import { AppCard } from "./components/AppCard";
-import { ConfigureAppDialog } from "./components/ConfigureAppDialog";
+import { ToastWebhookSetup } from "./components/ToastWebhookSetup";
 
 const APP_KINDS: AppIntegrationKind[] = ["toast", "openweathermap", "besttime", "unifi"];
 
+/**
+ * The workspace's app integrations, read-only. An integration is declared in
+ * `config.yml`, so connecting or changing one is a change to the workspace's
+ * repository.
+ */
 const Apps: React.FC = () => {
-  const { data, isLoading } = useAppIntegrations();
-  const [activeKind, setActiveKind] = useState<AppIntegrationKind | null>(null);
-  // IDE retired: configuring an app writes config.yml, which the server refuses.
-  const ideRetired = useIdeRetired();
+  const { data } = useAppIntegrations();
+  const { workspace } = useCurrentWorkspace();
 
   const byKind = useMemo(() => {
     const map = new Map<AppIntegrationKind, AppIntegration>();
@@ -36,7 +39,7 @@ const Apps: React.FC = () => {
           description='External services that feed downstream dashboards. Credentials live in the workspace secrets store and are referenced from config.yml.'
         />
 
-        {ideRetired && <RetiredIdeNotice />}
+        <WorkspaceRepositoryNotice />
 
         <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
           {APP_KINDS.map((kind) => (
@@ -44,20 +47,12 @@ const Apps: React.FC = () => {
               key={kind}
               kind={kind}
               integration={byKind.get(kind) ?? null}
-              loading={isLoading}
-              onConfigure={() => setActiveKind(kind)}
-              configureDisabled={ideRetired}
+              footer={
+                kind === "toast" ? <ToastWebhookSetup projectId={workspace?.id ?? ""} /> : null
+              }
             />
           ))}
         </div>
-
-        {activeKind && !ideRetired && (
-          <ConfigureAppDialog
-            kind={activeKind}
-            existing={byKind.get(activeKind) ?? null}
-            onClose={() => setActiveKind(null)}
-          />
-        )}
       </div>
     </CanWorkspaceAdmin>
   );

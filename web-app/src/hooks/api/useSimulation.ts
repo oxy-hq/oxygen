@@ -1,6 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import useCreateFile from "@/hooks/api/files/useCreateFile";
-import useSaveFile from "@/hooks/api/files/useSaveFile";
 import queryKeys from "@/hooks/api/queryKey";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { SimulationService } from "@/services/api/simulation";
@@ -69,40 +67,6 @@ export function useValidateSimulationSpec() {
 
   return useMutation({
     mutationFn: (spec: SimulationSpecInput) => SimulationService.validateSpec(projectId, spec)
-  });
-}
-
-/**
- * Writes a validated world to its `.simulation.yml` — a new file (`isNew`) via
- * create-then-save, matching `NewObjectButton`'s flow, or an overwrite of an
- * existing one. Callers validate first (`useValidateSimulationSpec`); this
- * hook only persists.
- */
-export function useSaveSimulationWorld() {
-  const { project, branchName } = useCurrentProjectBranch();
-  const projectId = project?.id ?? "";
-  const queryClient = useQueryClient();
-  const createFile = useCreateFile();
-  const saveFile = useSaveFile();
-
-  return useMutation({
-    mutationFn: async ({
-      pathb64,
-      yaml,
-      isNew
-    }: {
-      pathb64: string;
-      yaml: string;
-      isNew: boolean;
-    }) => {
-      if (isNew) {
-        await createFile.mutateAsync(pathb64);
-      }
-      await saveFile.mutateAsync({ pathb64, data: yaml });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.simulation.list(projectId, branchName) });
-    }
   });
 }
 

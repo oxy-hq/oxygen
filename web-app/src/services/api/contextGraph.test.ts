@@ -1,10 +1,8 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DatabaseInfo } from "@/types/database";
-import { AgentService } from "./agents";
 import { ContextGraphService } from "./contextGraph";
 import { DatabaseService } from "./database";
-import { FileService } from "./files";
 
 // A stateless replica answers `datasets: null` for every database, because the
 // semantic sync directory lives in the working copy it does not have. The ide
@@ -46,17 +44,20 @@ const IDE_ANSWER: DatabaseInfo[] = [
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  vi.spyOn(AgentService, "listAgents").mockResolvedValue([]);
-  vi.spyOn(FileService, "getFileTree").mockResolvedValue({
-    primary: []
-  } as unknown as Awaited<ReturnType<typeof FileService.getFileTree>>);
+  vi.spyOn(ContextGraphService, "fetchSources").mockResolvedValue({
+    views: [],
+    topics: [],
+    automations: [],
+    agents: [],
+    sql_queries: []
+  });
 });
 
 describe("ContextGraphService.getContextGraph — datasets null vs {}", () => {
   it("flags tablesUnknown when a database answers null (replica could not look)", async () => {
     vi.spyOn(DatabaseService, "listDatabases").mockResolvedValue(SERVE_REPLICA_ANSWER);
 
-    const graph = await ContextGraphService.getContextGraph("ws", "main");
+    const graph = await ContextGraphService.getContextGraph("ws");
 
     expect(graph.tablesUnknown).toBe(true);
     expect(graph.nodes.filter((n) => n.type === "table")).toHaveLength(0);
@@ -65,7 +66,7 @@ describe("ContextGraphService.getContextGraph — datasets null vs {}", () => {
   it("does not flag tablesUnknown when every database answered, even with none synced", async () => {
     vi.spyOn(DatabaseService, "listDatabases").mockResolvedValue(IDE_ANSWER);
 
-    const graph = await ContextGraphService.getContextGraph("ws", "main");
+    const graph = await ContextGraphService.getContextGraph("ws");
 
     expect(graph.tablesUnknown).toBe(false);
     // `training: {}` contributes nothing, `primary_database` contributes one.
@@ -76,15 +77,64 @@ describe("ContextGraphService.getContextGraph — datasets null vs {}", () => {
 
   it("separates the two states that both yield zero table nodes", async () => {
     vi.spyOn(DatabaseService, "listDatabases").mockResolvedValue([db("training", {}, false)]);
-    const lookedAndFoundNone = await ContextGraphService.getContextGraph("ws", "main");
+    const lookedAndFoundNone = await ContextGraphService.getContextGraph("ws");
 
     vi.spyOn(DatabaseService, "listDatabases").mockResolvedValue([db("training", null, false)]);
-    const couldNotLook = await ContextGraphService.getContextGraph("ws", "main");
+    const couldNotLook = await ContextGraphService.getContextGraph("ws");
 
     // Identical node counts — this is precisely why the flag has to exist.
     expect(lookedAndFoundNone.nodes.filter((n) => n.type === "table")).toHaveLength(0);
     expect(couldNotLook.nodes.filter((n) => n.type === "table")).toHaveLength(0);
     expect(lookedAndFoundNone.tablesUnknown).toBe(false);
     expect(couldNotLook.tablesUnknown).toBe(true);
+  });
+});
+
+// The graph is built from the compiled revision (`GET /context-graph/sources`),
+// not from workspace files: each artifact's `definition` is its parsed YAML.
+describe("ContextGraphService.getContextGraph — compiled sources", () => {
+  it("draws views, topics and automations from their definitions, with their edges", async () => {
+    vi.spyOn(DatabaseService, "listDatabases").mockResolvedValue([]);
+    vi.spyOn(ContextGraphService, "fetchSources").mockResolvedValue({
+      views: [
+        {
+          name: "orders",
+          path: "semantics/views/orders.view.yml",
+          definition: { name: "orders", datasource: "db", table: "orders" }
+        }
+      ],
+      topics: [
+        {
+          name: "sales",
+          path: "semantics/topics/sales.topic.yml",
+          definition: { name: "sales", views: ["orders"] }
+        }
+      ],
+      automations: [
+        {
+          name: "daily",
+          path: "automations/daily.automation.yml",
+          definition: {
+            name: "daily",
+            tasks: [{ type: "execute_sql", sql_file: "queries/a.sql" }]
+          }
+        }
+      ],
+      agents: [],
+      sql_queries: ["queries/a.sql", "queries/unused.sql"]
+    });
+
+    const graph = await ContextGraphService.getContextGraph("ws");
+
+    const ids = graph.nodes.map((n) => n.id);
+    expect(ids).toContain("view:semantics/views/orders.view.yml");
+    expect(ids).toContain("topic:semantics/topics/sales.topic.yml");
+    expect(ids).toContain("automation:automations/daily.automation.yml");
+    // Only a referenced query is drawn.
+    expect(ids).toContain("sql_query:queries/a.sql");
+    expect(ids).not.toContain("sql_query:queries/unused.sql");
+    expect(graph.edges.map((e) => e.id)).toContain(
+      "topic:semantics/topics/sales.topic.yml->view:semantics/views/orders.view.yml"
+    );
   });
 });

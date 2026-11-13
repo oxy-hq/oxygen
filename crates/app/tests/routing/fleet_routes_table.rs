@@ -116,8 +116,9 @@ fn declared() -> BTreeMap<(String, String), &'static str> {
 #[test]
 fn every_row_is_one_the_script_can_read() {
     let rows = table();
-    // The script refuses a table under 200 rows as truncated.
-    assert!(rows.len() >= 200, "only {} rows parsed", rows.len());
+    // The script refuses a table under 180 rows as truncated (200 until the IDE
+    // removal deleted ~40 routes and their rows, 2026-11-09).
+    assert!(rows.len() >= 180, "only {} rows parsed", rows.len());
 
     let mut seen = BTreeSet::new();
     for row in &rows {

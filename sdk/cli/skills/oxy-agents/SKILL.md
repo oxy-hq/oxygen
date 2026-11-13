@@ -37,9 +37,10 @@ the pipeline. You do not define its states or its tools.
   Jinja (`{{ databases.x.dialect }}`) is passed to the model literally, and a
   classic `name:` is dropped, so the agent's id becomes its file stem.
 - **There is no `kind:` field.** Every `.agentic.yml` runs the same analytics
-  pipeline. A file named `app_builder.agentic.yml` is not special. Generating
-  views or agent files is the in-product **Builder Agent** (chat Build mode),
-  and no `.agentic.yml` configures it.
+  pipeline. A file named `app_builder.agentic.yml` is not special, and no
+  `.agentic.yml` writes views or agent files: those are edited in the
+  workspace's repository (`oxyc workspace clone`, or the Factory's "Work in
+  your editor" panel) and pushed, which compiles them.
 - **Automations are a different file.** Deterministic multi-step work is an
   automation, `.automation.yml` (`.procedure.yml` still works). `.workflow.yml`
   is no longer recognised at all. An agent can *run* an automation it finds in

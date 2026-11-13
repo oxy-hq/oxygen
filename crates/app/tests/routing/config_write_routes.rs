@@ -1,4 +1,4 @@
-//! Routes that write `config.yml` must be `IdeOnly`, and must say so twice.
+//! Handlers that write `config.yml` must guard the filesystem.
 //!
 //! `POST /api/{ws}/databases` wrote the working copy while classified `FleetOk`
 //! by the unlisted-route default. On a stateless replica the parent directory
@@ -30,9 +30,9 @@ fn repo_file(rel: &str) -> String {
 /// gap this list exists to close — see the counter-check below, which fails if
 /// the set of writing methods grows.
 const WRITE_HANDLERS: &[(&str, &str)] = &[
-    ("src/server/api/database.rs", "add_databases"),
-    ("src/server/api/apps.rs", "upsert_integration"),
-    ("src/server/api/apps.rs", "remove_integration_by_kind"),
+    // `POST /databases` and the app-integration writes were removed with the
+    // IDE: Settings shows databases and integrations read-only, and config.yml
+    // is edited in the workspace's repository.
     // Moved out of oxy-app into the `oxy-api-onboarding` sibling crate, now
     // `oxy-api-tenancy`'s `onboarding` module. The
     // path is relative to `crates/app`, and the guard still applies: crossing a
@@ -72,51 +72,6 @@ fn every_config_writing_handler_guards_the_filesystem() {
          the handler.",
         missing.join("\n  ")
     );
-}
-
-/// The routes those handlers sit behind, as `(method, path)` pairs the manifest
-/// must classify `IdeOnly`.
-const WRITE_ROUTES: &[(&str, &str)] = &[
-    ("POST", "/api/{workspace_id}/databases"),
-    ("POST", "/api/{workspace_id}/app-integrations"),
-    ("DELETE", "/api/{workspace_id}/app-integrations/{kind}"),
-];
-
-#[test]
-fn every_config_writing_route_is_ide_only() {
-    oxy_app::server::role_manifest::install_route_declarations_for_tests();
-    // Ask the real classifier rather than grepping the manifest: a route can be
-    // correctly `IdeOnly` through a `{*rest}` wildcard with no verbatim entry of
-    // its own, and a verbatim entry can still be shadowed by a `FleetOk`
-    // carve-out scanned first. Only `classify` knows which.
-    let unclassified: Vec<String> = WRITE_ROUTES
-        .iter()
-        .filter(|(method, pattern)| {
-            let concrete = concrete_path(pattern);
-            oxy_app::server::role_manifest::classify(method, &concrete)
-                != oxy_app::server::role_manifest::RouteRole::IdeOnly
-        })
-        .map(|(method, path)| format!("{method} {path}"))
-        .collect();
-
-    assert!(
-        unclassified.is_empty(),
-        "these routes write `config.yml` in the working copy but do not classify \
-         `IdeOnly`:\n  {}\n\n\
-         Unlisted routes default to FleetOk (the last line of `classify`), so they \
-         run on stateless replicas that have no working copy.",
-        unclassified.join("\n  ")
-    );
-}
-
-/// Turn a manifest-style pattern into a URI the classifier can match, the way a
-/// real request would arrive.
-fn concrete_path(pattern: &str) -> String {
-    pattern
-        .split('/')
-        .map(|seg| if seg.starts_with('{') { "x" } else { seg })
-        .collect::<Vec<_>>()
-        .join("/")
 }
 
 /// Counter-check: if `ConfigManager` grows a new method that writes
@@ -202,8 +157,11 @@ fn the_external_api_surface_classifies_like_the_main_one() {
             "/api/x/world-model/events",
             "/external/api/x/world-model/events",
         ),
-        ("GET", "/api/x/git-state", "/external/api/x/git-state"),
-        ("POST", "/api/x/databases", "/external/api/x/databases"),
+        (
+            "POST",
+            "/api/x/databases/test-connection",
+            "/external/api/x/databases/test-connection",
+        ),
         ("GET", "/api/x/threads", "/external/api/x/threads"),
     ] {
         assert_eq!(

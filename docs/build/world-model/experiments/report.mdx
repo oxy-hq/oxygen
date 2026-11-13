@@ -253,10 +253,10 @@ the measured coefficient and its interval, the file it would change, where
 the number came from (the experiment's name and a fingerprint of its locked
 design), and the value it would replace.
 
-**Propose to semantic model** (workspace editors and above) creates a new
-branch with a single commit that sets the coefficient on that edge, and
-offers **Open branch** to review it in the IDE. Nothing is written to main.
-You review the branch and merge it the usual way.
+To apply it, make that one edit to the view file in your workspace's
+repository (the section names the file, the edge and the value) and push it.
+Oxygen never writes your repository; the change compiles and deploys like any
+other push.
 
 A slope is proposed only when **all** of these hold:
 
@@ -279,11 +279,9 @@ the number of orders. The World Model declared that one extra order is worth
 orders, so the report proposes the measured slope, near **$30 per order**, as
 a replacement for the declared $25.
 
-Clicking **Propose to semantic model** creates a branch named like
-`hai/experiment-promo-orders-driver-2026-10-16-101500` with one commit, whose
-message names the experiment and the value it replaces. **Open branch** shows
-the edited view file in the IDE. Merge it like any other change, or delete the
-branch.
+To apply it, set the coefficient on that edge in the view file the section
+names, commit with a message that names the experiment and the value it
+replaces, and push it like any other change.
 
 In the "barely moved" example, the promo raised orders by almost nothing. The
 slope's range is unbounded, nothing is proposed, and the check says *the

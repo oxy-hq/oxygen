@@ -79,9 +79,6 @@ const dependencies = {
     "@radix-ui/react-visually-hidden"
   ],
 
-  // Code editors - large, feature-specific chunk
-  editors: ["@monaco-editor/react", "monaco-editor", "monaco-yaml"],
-
   // Data visualization - large but specific use case
   visualization: ["echarts", "@xyflow/react", "elkjs"],
 
@@ -157,7 +154,6 @@ const chunkEntries: [string, string[]][] = [
   ["react-dom-vendor", dependencies.reactDom],
   ["react-ui", dependencies.reactUI],
   ["radix-ui", dependencies.radixUI],
-  ["editor-vendor", dependencies.editors],
   ["visualization", dependencies.visualization],
   ["content-processing", dependencies.contentProcessing],
   ["data-vendor", dependencies.dataVendor],
@@ -227,22 +223,7 @@ export default defineConfig(({ mode }) => {
         // "refractor/core", "refractor/all", and "refractor/<lang>" (no lib/ or lang/ prefix).
         { find: "refractor/lib/core", replacement: "refractor/core" },
         { find: "refractor/lib/all", replacement: "refractor/all" },
-        { find: /^refractor\/lang\/([^/]+)\.js$/, replacement: "refractor/$1" },
-        // monaco-yaml pulls in monaco-worker-manager@2 (last published 2022, so
-        // not fixable upstream), whose worker.js imports
-        // "monaco-editor/esm/vs/editor/editor.worker.js". monaco-editor 0.56
-        // rewrote its exports map to:
-        //     "./*.js": "./esm/vs/*.js",
-        //     "./*":    "./esm/vs/*.js"
-        // so that legacy spelling resolves to esm/vs/esm/vs/... and no longer
-        // exists. "monaco-editor/editor/editor.worker.js" matches the "./*.js"
-        // entry and lands on the same file, which still exports `initialize`.
-        // Anchored to that one specifier on purpose: a wildcard would also
-        // silently redirect a path monaco had MOVED rather than merely remapped.
-        {
-          find: "monaco-editor/esm/vs/editor/editor.worker.js",
-          replacement: "monaco-editor/editor/editor.worker.js"
-        }
+        { find: /^refractor\/lang\/([^/]+)\.js$/, replacement: "refractor/$1" }
       ]
     },
     plugins: [

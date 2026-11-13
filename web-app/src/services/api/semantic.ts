@@ -176,6 +176,20 @@ export class SemanticService {
     }
   }
 
+  /**
+   * The views and topics of the revision the workspace serves (`GET
+   * /semantic/objects`, any replica). The list the semantic explorer and the
+   * view and topic pickers read; it replaced walking the working copy's file
+   * tree.
+   */
+  static async listObjects(projectId: string, branchName?: string): Promise<SemanticObjects> {
+    const params = branchName ? { branch: branchName } : {};
+    const response = await apiClient.get<SemanticObjects>(`/${projectId}/semantic/objects`, {
+      params
+    });
+    return response.data;
+  }
+
   static async getViewDetails(
     projectId: string,
     filePathB64: string,
@@ -194,6 +208,18 @@ export class SemanticService {
       throw error;
     }
   }
+}
+
+/** One view or topic of the served revision: its name and workspace-relative path. */
+export interface SemanticObject {
+  name: string;
+  path: string;
+}
+
+/** `GET /semantic/objects`. */
+export interface SemanticObjects {
+  views: SemanticObject[];
+  topics: SemanticObject[];
 }
 
 // ── Preagg status ─────────────────────────────────────────────────────────────

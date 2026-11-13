@@ -18,8 +18,3 @@ export function parseQualifiedName(name: string): { schema: string | null; label
   }
   return { schema: null, label: name };
 }
-
-/** Double-quote a SQL identifier, escaping any embedded quote. */
-export function quoteIdent(ident: string): string {
-  return `"${ident.replace(/"/g, '""')}"`;
-}

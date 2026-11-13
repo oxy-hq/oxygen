@@ -32,19 +32,13 @@ fn only_serve_offloads_workers_single_all_in_one_drains_its_own_queue() {
 #[test]
 fn every_database_route_that_touches_the_working_copy_is_ide_only() {
     let ws = "d9830be4-c6a4";
-    for (method, path) in [
-        ("POST", ""),
-        ("POST", "/sync"),
-        ("POST", "/clean"),
-        ("POST", "/test-connection"),
-        ("POST", "/build"),
-    ] {
-        assert_eq!(
-            classify(method, &format!("/api/{ws}/databases{path}")),
-            RouteRole::IdeOnly,
-            "{method} /databases{path} mutates the working copy"
-        );
-    }
+    // `POST /databases` and `/databases/{sync,clean,build}` were removed with the
+    // IDE; testing a connection still writes a key file to the working copy.
+    assert_eq!(
+        classify("POST", &format!("/api/{ws}/databases/test-connection")),
+        RouteRole::IdeOnly,
+        "POST /databases/test-connection writes the working copy"
+    );
 
     // The list degrades rather than failing without a working copy, and the
     // launcher readiness check calls it on every page load.
@@ -120,21 +114,14 @@ fn pattern_matches_concrete_uri() {
 #[test]
 fn ide_routes_classify_against_live_uri() {
     // The real shape the middleware sees: `/api` prefix + nested workspace.
+    // The IDE's file, git and compile routes are gone (factory-retirement.md,
+    // phase 5); what stays IdeOnly is data flow and provisioning.
     assert_eq!(
-        classify("POST", "/api/d9830be4-c6a4/compile"),
+        classify("POST", "/api/d9830be4-c6a4/databases/test-connection"),
         RouteRole::IdeOnly
     );
     assert_eq!(
-        classify("POST", "/api/d9830be4-c6a4/files/cGF0aA"),
-        RouteRole::IdeOnly
-    );
-    assert_eq!(
-        classify("DELETE", "/api/d9830be4-c6a4/files/cGF0aA/delete-file"),
-        RouteRole::IdeOnly
-    );
-    // Real flat git route (NOT under `/git/` — that segment doesn't exist).
-    assert_eq!(
-        classify("POST", "/api/d9830be4-c6a4/pull-changes"),
+        classify("POST", "/api/d9830be4-c6a4/semantic/anomalies/scan"),
         RouteRole::IdeOnly
     );
     // The `/onboarding/*` routes moved to the `oxy-api-onboarding` sibling
@@ -143,17 +130,9 @@ fn ide_routes_classify_against_live_uri() {
     // depend on that crate, so its declarations are absent from the set this
     // test installs and `classify` would answer with the FleetOk default —
     // a failure that says nothing about the product.
-    assert_eq!(
-        classify("POST", "/api/d9830be4-c6a4/switch-branch"),
-        RouteRole::IdeOnly
-    );
     // `/orgs/{id}/onboarding/github` moved with the rest of the onboarding
     // surface — asserted in `crates/api-tenancy/tests/integration/onboarding_route_roles.rs`.
-    // The two halves of /details: git state needs the ide, metadata does not.
-    assert_eq!(
-        classify("GET", "/api/d9830be4-c6a4/git-state"),
-        RouteRole::IdeOnly
-    );
+    // The workspace's metadata is Postgres.
     assert_eq!(
         classify("GET", "/api/d9830be4-c6a4/meta"),
         RouteRole::FleetOk
@@ -172,16 +151,6 @@ fn ide_routes_classify_against_live_uri() {
         classify("GET", "/api/orgs/some-org/workspaces"),
         RouteRole::FleetOk
     );
-    // Git/working-copy STATE reads (regression: "Workspace directory not
-    // found" on a serve replica).
-    assert_eq!(
-        classify("GET", "/api/d9830be4-c6a4/git-state"),
-        RouteRole::IdeOnly
-    );
-    assert_eq!(
-        classify("GET", "/api/d9830be4-c6a4/status"),
-        RouteRole::IdeOnly
-    );
     // `/world-model/events` used to belong in this list and no longer does.
     // Its publishers append to `world_model_events` and every pod tails that
     // table onto its own bus, so the feed is no longer process-local and any
@@ -193,26 +162,18 @@ fn ide_routes_classify_against_live_uri() {
 }
 
 /// What still runs only where the working copy is: an airway run started on
-/// a route nothing declares, a Data App's run (removed with Data Apps, #3835),
-/// and the Builder — its start, its answers and undoing its edits. A chat and
+/// a route nothing declares. The Builder (its start, its answers and undoing
+/// its edits) was removed with the IDE, and a Data App's run with Data Apps
+/// (#3835). A chat and
 /// an automation are not among them any more: they read the promoted revision
 /// on every role (factory-retirement.md phase 3d), see
 /// `chat_and_automation_runs_are_fleet_ok`.
 #[test]
 fn run_exec_surface_that_needs_the_working_copy_stays_ide_only() {
     let ws = "d9830be4-c6a4";
-    let cases: [(&str, String); 5] = [
+    let cases: [(&str, String); 2] = [
         ("POST", format!("/api/{ws}/agentic-workflows/run")),
         ("POST", format!("/api/{ws}/agentic-airway/run")),
-        ("POST", format!("/api/{ws}/analytics/builder/runs")),
-        (
-            "POST",
-            format!("/api/{ws}/analytics/builder/runs/r-1/answer"),
-        ),
-        (
-            "POST",
-            format!("/api/{ws}/analytics/runs/r-1/revert-file-changes"),
-        ),
     ];
     for (method, path) in cases {
         assert_eq!(
@@ -296,16 +257,6 @@ fn agentic_run_history_reads_are_fleet_ok() {
             "{path} is a Postgres run-history read — must serve from any replica"
         );
     }
-    // Undoing a Builder edit writes the working copy: the carve-outs above
-    // must not widen to it.
-    assert_eq!(
-        classify(
-            "POST",
-            &format!("/api/{ws}/analytics/runs/r-1/revert-file-changes")
-        ),
-        RouteRole::IdeOnly,
-        "undoing a Builder edit writes the working copy — must stay IdeOnly"
-    );
 }
 
 /// The ops dashboard's run history, recovery counts and queue health are
@@ -359,12 +310,6 @@ fn coordinator_postgres_reads_are_fleet_ok() {
 fn coordinator_routes_that_need_the_driving_process_stay_ide_only() {
     let ws = "d9830be4-c6a4";
     for (method, path) in [
-        // The route that shares `/runs/{id}/…` with thinking_mode and still
-        // writes the working copy.
-        (
-            "POST",
-            format!("/api/{ws}/analytics/runs/r-1/revert-file-changes"),
-        ),
         // A carved-out path under a method it was not declared for.
         ("POST", format!("/api/{ws}/analytics/coordinator/runs")),
         ("DELETE", format!("/api/{ws}/analytics/coordinator/queue")),
@@ -557,11 +502,8 @@ fn runtime_routes_are_ide_only() {
     let ws = "d9830be4-c6a4";
     // (A chat start is not among them since phase 3d: it reads the compiled
     // revision on every role — `chat_and_automation_runs_are_fleet_ok`. The
-    // Builder's start is: it edits the working copy.)
-    let runtime: [(&str, String); 2] = [
-        ("POST", format!("/api/{ws}/analytics/builder/runs")),
-        ("POST", format!("/api/{ws}/agentic-airway/run")),
-    ];
+    // Builder's start was, until the Builder was removed with the IDE.)
+    let runtime: [(&str, String); 1] = [("POST", format!("/api/{ws}/agentic-airway/run"))];
     for (method, path) in &runtime {
         assert_eq!(
             classify(method, path),
@@ -724,53 +666,15 @@ fn fs_write_guard_allows_fs_owning_roles() {
 
 #[test]
 fn method_wildcard_matches_any_verb() {
-    // `/branches` is a `method: "*"` IdeOnly entry — both verbs match.
-    assert_eq!(classify("GET", "/api/abc/branches"), RouteRole::IdeOnly);
+    // The analytics catch-all is a `method: "*"` IdeOnly entry — every verb
+    // matches.
     assert_eq!(
-        classify("DELETE", "/api/abc/branches/feature-x"),
+        classify("GET", "/api/abc/analytics/not-a-route"),
         RouteRole::IdeOnly
     );
-}
-
-/// Router-DERIVED drift guard — the automated router ⇄ manifest cross-check
-/// the hand-maintained `manifest_covers_*` tests lack. Parses the route
-/// paths straight out of `router/workspace.rs` for the builders that are
-/// ENTIRELY filesystem/git (every route in them touches the working copy on
-/// the singleton) and asserts each classifies IdeOnly. A new route added to
-/// one of these builders is checked automatically — there is no separate
-/// list to forget.
-///
-/// This canNOT cover MIXED builders (only some routes touch disk), e.g.
-/// `build_app_routes`'s `/source` + `/file` reads vs its fleet-served
-/// `/run` / `/result`. Those need a per-route test + the
-/// `oxy-route-classification` skill at authoring time — that gap is exactly
-/// how `/apps/source` shipped FleetOk and 404'd on the serve fleet.
-#[test]
-fn fully_fs_builder_routes_classify_ide_only() {
-    let src = include_str!("router/workspace.rs");
-    // (builder fn, mount prefix beneath /api/{workspace_id})
-    let builders = [("build_git_routes", ""), ("build_file_routes", "/files")];
-    let ws = "/api/d9830be4-c6a4";
-    let mut checked = 0;
-    for (builder, prefix) in builders {
-        for route in route_paths_in_fn(src, builder) {
-            let tail = if route == "/" { "" } else { route.as_str() };
-            let concrete = concretize(&format!("{ws}{prefix}{tail}"));
-            assert!(
-                ["GET", "POST", "PUT", "DELETE", "PATCH"]
-                    .iter()
-                    .any(|m| classify(m, &concrete) == RouteRole::IdeOnly),
-                "{prefix}{route} (mounted by {builder}) classifies FleetOk — every \
-                 route in a fully-filesystem builder must be mounted with `route_ide`, \
-                 or a serve replica with no working copy 404s/500s it.",
-            );
-            checked += 1;
-        }
-    }
-    assert!(
-        checked >= 25,
-        "parsed only {checked} routes from the FS builders — the source parser likely \
-         broke; fix the parser rather than weakening the guard",
+    assert_eq!(
+        classify("DELETE", "/api/abc/analytics/not-a-route/x"),
+        RouteRole::IdeOnly
     );
 }
 
@@ -1059,56 +963,12 @@ fn concretize(pattern: &str) -> String {
     out
 }
 
-/// Drift guard (hand-maintained — NOT router-introspecting). Every flat
-/// route mounted by `build_git_routes()`
-/// (router/workspace.rs) touches the working copy / shells out to git, so
-/// each MUST classify IdeOnly; a route that's FleetOk lands on a serve
-/// replica with no working copy → 500. This test asserts the list below
-/// classifies IdeOnly, so it catches a route that's in the list but mounted
-/// on the wrong door. It does NOT see new routes added to the router — so a
-/// new git route must be named in TWO places: its `route_ide` mount, and
-/// this list. (Since the path table went away, `classify` reads what the
-/// router declared, so router and manifest can no longer disagree — only
-/// this hand-written list can fall behind the router.)
-#[test]
-fn manifest_covers_every_git_route() {
-    let ws = "/api/d9830be4-c6a4";
-    // (method, flat path) pairs straight from build_git_routes().
-    let git_routes = [
-        ("GET", format!("{ws}/branches")),
-        ("DELETE", format!("{ws}/branches/main")),
-        ("POST", format!("{ws}/switch-branch")),
-        ("POST", format!("{ws}/pull-changes")),
-        ("POST", format!("{ws}/fetch")),
-        ("POST", format!("{ws}/push-changes")),
-        ("POST", format!("{ws}/abort-rebase")),
-        ("POST", format!("{ws}/continue-rebase")),
-        ("POST", format!("{ws}/resolve-conflict-file")),
-        ("POST", format!("{ws}/unresolve-conflict-file")),
-        ("POST", format!("{ws}/resolve-conflict-with-content")),
-        ("POST", format!("{ws}/force-push")),
-        ("POST", format!("{ws}/discard-all")),
-        ("GET", format!("{ws}/recent-commits")),
-        ("GET", format!("{ws}/revision-info")),
-        ("POST", format!("{ws}/reset-to-commit")),
-    ];
-    for (method, path) in &git_routes {
-        assert_eq!(
-            classify(method, path),
-            RouteRole::IdeOnly,
-            "git route {method} {path} must be IdeOnly (touches working copy)"
-        );
-    }
-    // `onboarding-readiness` moved out with the rest of the onboarding surface
-    // — see `crates/api-tenancy/tests/integration/onboarding_route_roles.rs`.
-}
-
 /// Coverage guard for routes that read NODE-LOCAL state the compile
 /// boundary does not materialise (git state, process-local BROADCASTER
 /// SSE). A serve replica has no working copy and no in-process run owner,
 /// so these degrade silently there ("Workspace directory not found", a
 /// truncated stream) unless classified IdeOnly. Hand-maintained, same
-/// limitation as `manifest_covers_every_git_route`: it catches a route
+/// limitation as any hand-written list: it catches a route
 /// moved off `route_ide`, not a brand-new router route nobody listed —
 /// that's the behavioral canary's job (see internal-docs/compile-boundary.md
 /// "the role-classification canary"). Name a new state-touching route in TWO
@@ -1117,13 +977,6 @@ fn manifest_covers_every_git_route() {
 fn manifest_covers_state_touching_routes() {
     let ws = "/api/d9830be4-c6a4";
     let ide_only = [
-        // git/working-copy state reads (workspace_root + detect_git_mode)
-        ("GET", format!("{ws}/git-state")),
-        ("GET", format!("{ws}/status")),
-        // The Builder edits the working copy and is driven in the Factory's
-        // memory (a chat and an automation are not: phase 3d).
-        ("POST", format!("{ws}/analytics/builder/runs")),
-        ("POST", format!("{ws}/analytics/builder/runs/r1/answer")),
         // Airway's chunked backfill still drives in the accepting process.
         // (Its `/runs/{id}/events` is NOT here: that stream tails Postgres on
         // a timer because its driver is a worker in another process, so it has
@@ -1701,14 +1554,6 @@ fn compiling_a_branch_for_a_preview_or_a_staging_build_is_fleet_ok() {
         );
         let concrete = path.replace("{workspace_id}", ws);
         assert_eq!(classify("POST", &concrete), RouteRole::FleetOk, "{path}");
-    }
-    // The Compile button and its status still read the working copy.
-    for (method, path) in [("POST", "compile"), ("GET", "compile/status")] {
-        assert_eq!(
-            classify(method, &format!("/api/{ws}/{path}")),
-            RouteRole::IdeOnly,
-            "{method} /{path}"
-        );
     }
 }
 

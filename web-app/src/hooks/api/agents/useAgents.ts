@@ -7,6 +7,6 @@ export default function useAgents() {
   const { project, branchName } = useCurrentProjectBranch();
   return useQuery({
     queryKey: queryKeys.agent.list(project.id, branchName),
-    queryFn: () => AgentService.listAgents(project.id, branchName)
+    queryFn: () => AgentService.listAgents(project.id)
   });
 }

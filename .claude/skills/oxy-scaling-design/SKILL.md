@@ -29,7 +29,7 @@ description: Use when the user asks about Oxy's multi-instance scaling, the spli
 
 ## What still needs the Factory
 
-128 routes on 2026-10-05, inventoried by feature in `internal-docs/factory-retirement.md` §1. In short: file editing, git and the rest of the IDE; compile, and creating or refreshing a preview; **starting a chat** (the largest remaining piece of real traffic); Data App runs; workspaces whose database is a file in the repo; and workspaces with no git remote, for which the Factory's volume is the only copy.
+128 routes on 2026-10-05, inventoried by feature in `internal-docs/factory-retirement.md` §1. File editing, git, the Compile button and the rest of the IDE were removed on 2026-11-09 (phase 5; what it left is listed there). In short, what remains: creating or refreshing a preview of an unpushed branch; **starting a chat** (the largest remaining piece of real traffic); Data App runs; workspaces whose database is a file in the repo; and workspaces with no git remote, for which the Factory's volume is the only copy.
 
 ## What is pending
 

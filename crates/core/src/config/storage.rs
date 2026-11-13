@@ -578,16 +578,21 @@ impl ConfigStorage for FsStorage {
             // gated on it could never appear locally. A file that will not
             // parse yields `None` rather than failing the listing: a broken
             // pipeline should still be visible so it can be fixed.
-            let source_kind = fs::read_to_string(&path)
+            let definition = fs::read_to_string(&path)
                 .await
                 .ok()
-                .and_then(|text| serde_yaml::from_str::<serde_json::Value>(&text).ok())
+                .and_then(|text| serde_yaml::from_str::<serde_json::Value>(&text).ok());
+            let source_kind = definition
                 .as_ref()
                 .and_then(crate::config::artifacts::pipeline_source_kind);
+            let quickbooks = definition
+                .as_ref()
+                .and_then(crate::config::artifacts::pipeline_quickbooks_source);
             out.push(PipelineEntry {
                 name: yaml_name(&path, &relative).await,
                 file_path: relative,
                 source_kind,
+                quickbooks,
             });
         }
         Ok(out)

@@ -81,3 +81,21 @@ export interface Topic {
     value: unknown;
   }>;
 }
+
+/** One compiled artifact: its name, workspace-relative path and parsed YAML. */
+export interface ContextGraphArtifact {
+  name: string;
+  path: string;
+  definition: Record<string, unknown>;
+}
+
+/** `GET /context-graph/sources`: the served revision's artifacts. */
+export interface ContextGraphSources {
+  views: ContextGraphArtifact[];
+  topics: ContextGraphArtifact[];
+  automations: ContextGraphArtifact[];
+  /** Analytics agents (`.agentic.yml`), the agent kind the compile records. */
+  agents: ContextGraphArtifact[];
+  /** Verified query paths; the graph draws one only where it is referenced. */
+  sql_queries: string[];
+}

@@ -145,6 +145,16 @@ function findingsIn(file: string, readable: (text: string) => boolean = isReadab
  *  Factory user or staff. Each says which. */
 const FLAG_OFF_OR_FACTORY_TEXT: readonly { file: string; text: string; why: string }[] = [
   {
+    file: "components/settings/SettingsDialog/sections/workspace/Airhouse/components/ConnectionDetails.tsx",
+    text: "to the workspace's",
+    why: "The config.yml pointer under the connection details renders only with the flag off or for a Factory user (showConfigHint)."
+  },
+  {
+    file: "components/settings/SettingsDialog/sections/workspace/Airhouse/components/ConnectionDetails.tsx",
+    text: "in its repository and push it.",
+    why: "Same footer: flag off or a Factory user only (showConfigHint)."
+  },
+  {
     file: "components/Shell/TopBar/Breadcrumb.tsx",
     text: "Workspace",
     why: "Fallback when there is neither an org name nor a workspace name: local mode only."

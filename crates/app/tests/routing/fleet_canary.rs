@@ -257,6 +257,7 @@ fn fake_workspace() -> entity::workspaces::Model {
         current_revision_id: None,
         default_branch: None,
         repo_subdir: None,
+        default_branch_attempted_at: None,
     }
 }
 

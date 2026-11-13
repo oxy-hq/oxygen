@@ -76,6 +76,7 @@ async fn seed_unpromoted_workspace(db: &DatabaseConnection, label: &str) -> Uuid
         current_revision_id: ActiveValue::Set(None),
         default_branch: ActiveValue::Set(None),
         repo_subdir: ActiveValue::Set(None),
+        default_branch_attempted_at: ActiveValue::Set(None),
     }
     .insert(db)
     .await
@@ -186,6 +187,7 @@ pub(crate) async fn seed_workspace(db: &DatabaseConnection, label: &str) -> (Uui
         current_revision_id: ActiveValue::Set(None),
         default_branch: ActiveValue::Set(None),
         repo_subdir: ActiveValue::Set(None),
+        default_branch_attempted_at: ActiveValue::Set(None),
     }
     .insert(db)
     .await

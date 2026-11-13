@@ -61,7 +61,6 @@ vi.mock("@/hooks/useCurrentProjectBranch", () => ({
 vi.mock("@/hooks/api/useBuilderAvailable", () => ({ default: mockUseBuilderAvailable }));
 
 // Read by the builder input for @-mentions; it needs a QueryClient of its own.
-vi.mock("@/hooks/api/files/useFileTree", () => ({ default: () => ({ data: undefined }) }));
 
 // lottie-web paints a canvas at import time and jsdom has no canvas.
 vi.mock("@lottiefiles/react-lottie-player", () => ({ Player: "div" }));
@@ -442,23 +441,6 @@ describe("AnalyticsThread — opening a thread", () => {
 
 // ── Re-clicking an open pill ──────────────────────────────────────────────────
 
-/** A finished builder run that wrote one file, so the run shows that file's pill. */
-const pastBuilderRunWriting = (filePath: string): AnalyticsRunSummary =>
-  pastRun({
-    agent_id: "__builder__",
-    ui_events: [
-      sseEventToUiBlock(
-        sseEv("file_changed", {
-          file_path: filePath,
-          description: "",
-          new_content: "",
-          old_content: "",
-          is_deletion: false
-        })
-      )
-    ]
-  });
-
 describe("AnalyticsThread — re-clicking an open pill closes it", () => {
   const step = (name: string) => [{ name, task_type: "execute_sql" }];
 
@@ -470,21 +452,6 @@ describe("AnalyticsThread — re-clicking an open pill closes it", () => {
 
     selectInTrace("my_proc");
     expect(screen.queryByRole("heading", { name: "my_proc" })).toBeNull();
-  });
-
-  it("closes a file preview when its file-change pill is clicked again", () => {
-    mockUseQuery.mockReturnValue({
-      data: [pastBuilderRunWriting("models/orders.view.yml")],
-      isLoading: false,
-      isFetching: false
-    });
-    renderThread(BUILDER_THREAD);
-    const filePill = screen.getByRole("button", { name: "orders" });
-    fireEvent.click(filePill);
-    expect(screen.getByTestId("file-preview").textContent).toBe("models/orders.view.yml");
-
-    fireEvent.click(filePill);
-    expect(screen.queryByTestId("file-preview")).toBeNull();
   });
 
   it("closes a builder delegation's panel when its pill is clicked again", () => {
@@ -644,23 +611,6 @@ describe("AnalyticsThread — a pill says whether its panel is open", () => {
     expect(viewDetails()).toHaveAttribute("aria-pressed", "true");
     // The pill for the same automation says the same.
     expect(pills("my_proc")[0]).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("presses a file-change pill while its file preview is open", () => {
-    mockUseQuery.mockReturnValue({
-      data: [pastBuilderRunWriting("models/orders.view.yml")],
-      isLoading: false,
-      isFetching: false
-    });
-    renderThread(BUILDER_THREAD);
-    const filePill = screen.getByRole("button", { name: "orders" });
-    expect(filePill).toHaveAttribute("aria-pressed", "false");
-
-    fireEvent.click(filePill);
-    expect(filePill).toHaveAttribute("aria-pressed", "true");
-
-    fireEvent.click(filePill);
-    expect(filePill).toHaveAttribute("aria-pressed", "false");
   });
 });
 

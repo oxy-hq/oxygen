@@ -19,10 +19,8 @@ export type AgentInfo = {
 };
 
 export const AgentService = {
-  async listAgents(projectId: string, branchName?: string): Promise<AgentInfo[]> {
-    const params: Record<string, string> = {};
-    if (branchName) params.branch = branchName;
-    const res = await apiClient.get<AgentInfo[]>(`/${projectId}/agents`, { params });
+  async listAgents(projectId: string): Promise<AgentInfo[]> {
+    const res = await apiClient.get<AgentInfo[]>(`/${projectId}/agents`);
     return res.data;
   }
 };

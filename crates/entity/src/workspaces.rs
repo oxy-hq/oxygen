@@ -91,6 +91,10 @@ pub struct Model {
     /// Where the workspace root sits inside its repository, `/`-separated.
     /// NULL or empty = the repository root.
     pub repo_subdir: Option<String>,
+    /// When the periodic compile check last asked GitHub for the default branch
+    /// and recorded nothing; NULL when never asked. See
+    /// `compile_reconcile/default_branch.rs`.
+    pub default_branch_attempted_at: Option<DateTimeWithTimeZone>,
     #[sea_orm(
         belongs_to,
         from = "git_namespace_id",

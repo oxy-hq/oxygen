@@ -1,12 +1,14 @@
 import { Zap } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import useFileTree from "@/hooks/api/files/useFileTree";
 import { useMentionHighlight } from "@/hooks/useMentionHighlight";
 import { cn } from "@/libs/shadcn/utils";
-import { flattenFiles, getActiveMention, getCleanObjectName } from "@/libs/utils/mention";
-import { getFileTypeIcon } from "@/pages/ide/Files/FilesSidebar/utils";
+import { getActiveMention, getCleanObjectName } from "@/libs/utils/mention";
+import { getFileTypeIcon } from "@/libs/workspaceFiles/utils";
 import MessageInputShell from "@/pages/thread/analytics/MessageInputShell";
 import type { FileTreeModel } from "@/types/file";
+
+const NO_FILES: FileTreeModel[] = [];
+
 import { detectFileType } from "@/utils/fileTypes";
 
 // --- Component ---
@@ -19,7 +21,6 @@ interface BuilderMessageInputProps {
   showWarning?: boolean;
   autoApprove?: boolean;
   onAutoApproveChange?: (value: boolean) => void;
-  enableFileMentions?: boolean;
 }
 
 const BuilderMessageInput = ({
@@ -29,8 +30,7 @@ const BuilderMessageInput = ({
   isLoading = false,
   showWarning = false,
   autoApprove = false,
-  onAutoApproveChange,
-  enableFileMentions = true
+  onAutoApproveChange
 }: BuilderMessageInputProps) => {
   const [message, setMessage] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
@@ -39,12 +39,9 @@ const BuilderMessageInput = ({
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const textareaElRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const { data: fileTreeData } = useFileTree(enableFileMentions);
-
-  const allFiles = useMemo(() => {
-    if (!fileTreeData) return [];
-    return flattenFiles(fileTreeData.primary);
-  }, [fileTreeData]);
+  // File mentions read the working copy's file tree, which was removed with
+  // the IDE: nothing to suggest.
+  const allFiles: FileTreeModel[] = NO_FILES;
 
   const mentionHighlight = useMentionHighlight(message, mentions);
 
@@ -59,7 +56,7 @@ const BuilderMessageInput = ({
         return name.includes(q) || path.includes(q);
       })
       .slice(0, 8);
-  }, [activeMention, allFiles]);
+  }, [activeMention]);
 
   const showMentionPopup = activeMention !== null && mentionResults.length > 0 && !mentionDismissed;
 
@@ -183,7 +180,7 @@ const BuilderMessageInput = ({
       disabled={disabled}
       isLoading={isLoading}
       showWarning={showWarning}
-      placeholder='Ask a follow-up question... (@ to mention a file)'
+      placeholder='Ask a follow-up question...'
       textareaRef={textareaElRef}
       onSelect={handleSelect}
       onClick={handleSelect}

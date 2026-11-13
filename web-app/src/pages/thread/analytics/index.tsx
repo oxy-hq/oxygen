@@ -56,7 +56,6 @@ import { AnalyticsDisplayBlockItem } from "./analyticsArtifactHelpers";
 import BuilderActivityPanel from "./BuilderActivityPanel";
 import BuilderDelegationPanel from "./BuilderDelegationPanel";
 import { parseFileChange } from "./FileChangeDiff";
-import FilePreviewPanel from "./FilePreviewPanel";
 import Header from "./Header";
 import MessageInputShell from "./MessageInputShell";
 import SuspensionPrompt from "./SuspensionPrompt";
@@ -293,7 +292,6 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
   const [changeDecisions, setChangeDecisions] = useState<Map<number, "accepted" | "rejected">>(
     () => new Map()
   );
-  const [selectedFileChange, setSelectedFileChange] = useState<BuilderFileChange | null>(null);
   const [selectedDelegation, setSelectedDelegation] = useState<BuilderDelegationItem | null>(null);
   const [selectedDisplayBlocks, setSelectedDisplayBlocks] = useState<AnalyticsDisplayBlock[]>([]);
   // Accepted changes captured per-run when a run reaches terminal state, so they
@@ -319,7 +317,9 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
 
   const queryClient = useQueryClient();
   const { state, start, reconnect, answer, stop, reset, isStarting, isAnswering } = useAnalyticsRun(
-    { projectId: project.id, builder: thread.source === "__builder__" }
+    {
+      projectId: project.id
+    }
   );
   // Keep a stable ref so effects that only run on isTerminal can read the
   // current events without listing state as a reactive dependency.
@@ -330,7 +330,6 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
   const liveAcceptedChangesRef = useRef<BuilderFileChange[]>([]);
   // Track which terminal runs have already auto-opened the file preview so we
   // don't re-trigger when the user navigates away from the preview manually.
-  const autoOpenedRunIdRef = useRef<string | null>(null);
 
   const {
     data: allRuns = [],
@@ -455,7 +454,6 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
       state.questions.length === 1 && !!parseFileChange(state.questions[0].prompt);
     if (!isFileChange) return;
     setBuilderPanelOpen(true);
-    setSelectedFileChange(null);
   }, [isBuilder, state, autoApprove]);
   // Exclude the active run from history while it is being streamed / transitioning to
   // PastRunEntry to avoid rendering it twice (once live, once via allRuns).
@@ -556,12 +554,6 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
     if (isAutoApprovable) handleAnswer(ACCEPT_ANSWER);
   }, [autoApprove, state, handleAnswer]);
 
-  const handleSelectFileChange = useCallback((change: BuilderFileChange) => {
-    setSelectedFileChange((prev) => (prev?.id === change.id ? null : change));
-    setSelectedArtifact(null);
-    setBuilderPanelOpen(false);
-  }, []);
-
   const liveAcceptedChanges = useMemo(
     () =>
       builderActivityItems.filter(
@@ -571,36 +563,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
   );
   // Keep ref in sync so the isTerminal effect can read current value without a dep.
   liveAcceptedChangesRef.current = liveAcceptedChanges;
-
-  // Auto-open the file preview for the last accepted change once the run
-  // terminates. Re-evaluates as `liveAcceptedChanges` grows so we catch
-  // accepted file_changed events that arrive a tick after the run-done event.
-  // Guarded by run id so the preview isn't re-forced open after the user
-  // manually closes it.
   const currentRunId = "runId" in state ? state.runId : null;
-  useEffect(() => {
-    if (!isTerminal) return;
-    if (!currentRunId || autoOpenedRunIdRef.current === currentRunId) return;
-    const lastChange = [...liveAcceptedChanges].reverse().find((c) => !c.isDeletion);
-    if (!lastChange) return;
-    autoOpenedRunIdRef.current = currentRunId;
-    setSelectedFileChange(lastChange);
-    setSelectedArtifact(null);
-    setSelectedDelegation(null);
-    setBuilderPanelOpen(false);
-  }, [isTerminal, liveAcceptedChanges, currentRunId]);
-
-  // When the builder writes a newer version of the file currently open in the preview
-  // panel, update selectedFileChange so FilePreviewPanel remounts with fresh content.
-  useEffect(() => {
-    if (!selectedFileChange) return;
-    const latestForFile = [...liveAcceptedChanges]
-      .reverse()
-      .find((c) => c.filePath === selectedFileChange.filePath);
-    if (latestForFile && latestForFile.id !== selectedFileChange.id) {
-      setSelectedFileChange(latestForFile);
-    }
-  }, [liveAcceptedChanges, selectedFileChange]);
 
   // The events of the run the open artifact came from: the live stream while that run is
   // the live one, else the run list's copy. Another run's events would show that run's
@@ -636,14 +599,12 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
       if (item.kind === "builder_delegation") {
         setSelectedDelegation(isOpen ? null : item);
         setSelectedArtifact(null);
-        setSelectedFileChange(null);
         setBuilderPanelOpen(false);
         return;
       }
       setSelectedDelegation(null);
       setSelectedArtifact(isOpen ? null : { runId, item });
       setSelectedDisplayBlocks(blocks);
-      setSelectedFileChange(null);
       setBuilderPanelOpen(false);
     },
     [isOnScreen]
@@ -655,15 +616,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
 
       <ResizablePanelGroup direction={isMobile ? "vertical" : "horizontal"} className='flex-1'>
         <ResizablePanel
-          defaultSize={
-            isBuilder && builderPanelOpen
-              ? 50
-              : selectedFileChange
-                ? 50
-                : selectedArtifact
-                  ? 50
-                  : 100
-          }
+          defaultSize={isBuilder && builderPanelOpen ? 50 : selectedArtifact ? 50 : 100}
           minSize={30}
         >
           <div className='flex h-full w-full flex-1 flex-col py-4'>
@@ -684,8 +637,6 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                     run={run}
                     onSelectArtifact={handleSelectArtifact}
                     isSelected={isOnScreen}
-                    onSelectChange={handleSelectFileChange}
-                    selectedChangeId={selectedFileChange?.id}
                     capturedChanges={capturedRunChanges.get(run.run_id)}
                   />
                 ))}
@@ -732,8 +683,6 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                     }
                     isSelected={(item) => isOnScreen(currentRunId ?? "", item)}
                     acceptedChanges={liveAcceptedChanges}
-                    onSelectChange={handleSelectFileChange}
-                    selectedChangeId={selectedFileChange?.id}
                   >
                     {state.tag === "done" && (
                       <div className='flex flex-col gap-4'>
@@ -863,17 +812,6 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                 onAnswer={handleAnswer}
                 isAnswering={isAnswering}
                 onClose={() => setBuilderPanelOpen(false)}
-              />
-            </ResizablePanel>
-          </>
-        ) : selectedFileChange ? (
-          <>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={50} minSize={20} maxSize={70}>
-              <FilePreviewPanel
-                key={selectedFileChange.id}
-                change={selectedFileChange}
-                onClose={() => setSelectedFileChange(null)}
               />
             </ResizablePanel>
           </>

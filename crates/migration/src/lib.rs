@@ -252,6 +252,7 @@ mod m20261105_000001_feature_flag_targeting;
 mod m20261108_000001_workspace_periodic_ticks;
 mod m20261108_000040_rate_limit_windows;
 mod m20261108_000300_drop_dead_legacy_tables;
+mod m20261109_000110_workspace_default_branch_attempted_at;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
@@ -526,6 +527,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261108_000001_workspace_periodic_ticks::Migration),
             Box::new(m20261108_000040_rate_limit_windows::Migration),
             Box::new(m20261108_000300_drop_dead_legacy_tables::Migration),
+            Box::new(m20261109_000110_workspace_default_branch_attempted_at::Migration),
         ]
     }
 

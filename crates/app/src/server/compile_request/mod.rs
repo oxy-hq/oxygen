@@ -14,9 +14,8 @@
 //! remote or no connection ([`NotFromGit`]) — only a working copy has it. A
 //! process that owns working copies then compiles its own, as every branch
 //! compile did before ([`working_copy`]); a process that owns none answers
-//! [`Refusal::NeedsWorkingCopy`], naming the reason, and its route sends the
-//! request on to the node that has the files when there is one
-//! (`server::factory_replay`).
+//! [`Refusal::NeedsWorkingCopy`], naming the reason, and its route refuses
+//! with it: nothing is sent on to a Factory.
 //!
 //! **Kinds.** `staging` is the only kind compiled here: a revision that is
 //! never promoted, and that nothing reads unless it is pinned

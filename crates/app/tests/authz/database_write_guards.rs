@@ -1,20 +1,14 @@
-//! Who may test a warehouse connection, and who may rebuild a workspace's index.
+//! Who may test a warehouse connection.
 //!
 //! `POST /{ws}/databases/test-connection` builds a throwaway database config from
 //! the caller's request. For BigQuery that writes `<name>.key` into the working
 //! copy with the caller's content; for a password warehouse it may store a
-//! temporary secret. `POST /{ws}/databases/build` runs a
-//! reindex. `workspace_middleware` proves a caller may *open* the workspace, not
-//! that they may change it, and neither handler named a role guard, so any
-//! member could do either, a read-only token included.
+//! temporary secret. `workspace_middleware` proves a caller may *open* the
+//! workspace, not that they may change it, so the handler names `WorkspaceAdmin`.
+//! (Its old siblings on the same router — `POST /databases`, `/databases/sync`,
+//! `/databases/clean`, `/databases/build` — were removed with the IDE.)
 //!
-//! Both are `WorkspaceAdmin`, like their siblings on the same router
-//! (`POST /databases`, `/databases/sync`, `/databases/clean`). The connection
-//! test is step one of Add database, whose save is `WorkspaceAdmin`. The only
-//! caller of build is the Build button in Settings → Databases, which renders
-//! inside `CanWorkspaceAdmin` next to Clean.
-//!
-//! The handlers are mounted at their real paths behind the real
+//! The handler is mounted at its real path behind the real
 //! `workspace_middleware`, over a per-test database and a working copy in a
 //! temp dir, with `IdeState` as the router state (both handlers ask for a
 //! working copy, which resolves only there). Each role is derived the way a
@@ -30,7 +24,6 @@ use axum::{Router, middleware};
 use entity::org_members::OrgRole;
 use entity::workspaces::WorkspaceStatus;
 use entity::{org_members, organizations, users, workspaces};
-use oxy_app::api::data::build_embeddings;
 use oxy_app::api::database::test_database_connection;
 use oxy_app::api::middlewares::workspace_context::{EffectiveWorkspaceRole, workspace_middleware};
 use oxy_app::server::router::{IdeState, bare_app_state};
@@ -174,13 +167,12 @@ async fn role_probe(EffectiveWorkspaceRole(role): EffectiveWorkspaceRole) -> Str
     role.as_str().to_string()
 }
 
-/// The two handlers at the paths `build_database_routes` mounts them on, inside
+/// The handler at the path `build_database_routes` mounts it on, inside
 /// the `/{workspace_id}` nest, behind `workspace_middleware`.
 fn app(who: &Who) -> Router {
     let state = bare_app_state();
     let workspace = Router::new()
         .route("/databases/test-connection", post(test_database_connection))
-        .route("/databases/build", post(build_embeddings))
         .route("/role-probe", get(role_probe))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -218,15 +210,6 @@ async fn test_connection(fx: &Fx, who: &Who, warehouse: Value) -> (StatusCode, S
         .uri(format!("/{}/databases/test-connection", fx.ws))
         .header("content-type", "application/json")
         .body(Body::from(json!({ "warehouse": warehouse }).to_string()))
-        .unwrap();
-    send(who, request).await
-}
-
-async fn build(fx: &Fx, who: &Who) -> (StatusCode, String) {
-    let request = Request::builder()
-        .method("POST")
-        .uri(format!("/{}/databases/build", fx.ws))
-        .body(Body::empty())
         .unwrap();
     send(who, request).await
 }
@@ -323,37 +306,4 @@ async fn a_workspace_admin_still_tests_a_warehouse_connection() {
         body.contains("\"type\":\"complete\"") && body.contains("\"success\":true"),
         "the admin's test must run to a successful result: {body}"
     );
-}
-
-// ── build ────────────────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn a_viewer_cannot_build_the_workspace_index() {
-    let fx = setup().await;
-    let who = viewer(&fx).await;
-    let (status, body) = build(&fx, &who).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "body: {body}");
-}
-
-#[tokio::test]
-async fn a_workspace_member_cannot_build_the_workspace_index() {
-    let fx = setup().await;
-    let who = person(&fx, OrgRole::Member).await;
-    let (status, body) = build(&fx, &who).await;
-    assert_eq!(
-        status,
-        StatusCode::FORBIDDEN,
-        "build sits beside `/databases/clean` and `/databases/sync`, both \
-         WorkspaceAdmin, and its only UI is admin-only. body: {body}"
-    );
-}
-
-#[tokio::test]
-async fn a_workspace_admin_still_builds_the_workspace_index() {
-    let fx = setup().await;
-    let who = person(&fx, OrgRole::Admin).await;
-    let (status, body) = build(&fx, &who).await;
-    assert_eq!(status, StatusCode::OK, "body: {body}");
-    let body: Value = serde_json::from_str(&body).expect("json body");
-    assert_eq!(body["success"], json!(true), "body: {body}");
 }

@@ -21,10 +21,9 @@ mod fixture;
 
 use axum::http::StatusCode;
 use oxy::workspace_fs_probe::leaks;
-use serde_json::{Value, json};
+use serde_json::Value;
 use uuid::Uuid;
-use wiremock::matchers::{body_json, header, method, path, query_param};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{MockServer, ResponseTemplate};
 
 use fixture::{BRANCH, HEAD, MOVED, World, encode};
 
@@ -179,57 +178,40 @@ async fn an_unpushed_branch_gets_a_typed_refusal_on_a_pod_with_no_working_copy()
     assert_eq!(leaks(), 0);
 }
 
-/// The case that must not change while the Factory exists: the request is
-/// sent on to it unchanged, and its answer is the answer.
+/// A Factory being configured changes nothing: the branch replay went with the
+/// IDE (factory-retirement.md, phase 5), so an unpushed branch is refused here
+/// and the Factory is never asked; a pushed one compiles from GitHub.
 #[tokio::test]
-async fn an_unpushed_branch_is_replayed_to_the_factory_when_there_is_one() {
+async fn an_unpushed_branch_is_refused_even_when_a_factory_exists() {
     let factory = MockServer::start().await;
     let w = World::new(Some(&factory.uri())).await;
     w.fx.github_answers("local-only", ResponseTemplate::new(404))
         .await;
     w.fx.branch_is_at(BRANCH, HEAD).await;
-    let answer = json!({ "item": { "branch": "local-only", "status": "compiling" } });
-    Mock::given(method("POST"))
-        .and(path(w.previews()))
-        .and(header("x-oxy-forwarded-by", "serve"))
-        .and(body_json(json!({ "branch": "local-only" })))
-        .respond_with(
-            ResponseTemplate::new(202)
-                .insert_header("x-oxy-served-by", "ide@factory#1")
-                .set_body_json(&answer),
-        )
-        .mount(&factory)
-        .await;
-    Mock::given(method("POST"))
-        .and(path(format!("/api/{}/compile/staging", w.fx.ws)))
-        .and(query_param("branch", "local-only"))
-        .and(header("x-oxy-forwarded-by", "serve"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("staged by the factory"))
-        .mount(&factory)
-        .await;
 
-    let relayed = w.create("local-only").await;
-    assert_eq!(relayed.status, StatusCode::ACCEPTED, "{}", relayed.text);
-    assert_eq!(relayed.json(), answer);
-    assert_eq!(relayed.headers["x-oxy-served-by"], "ide@factory#1");
+    let refused = w.create("local-only").await;
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.text);
+    assert_eq!(refused.json()["reason"], "branch_not_pushed");
+    let staged = w.stage("local-only").await;
+    assert_eq!(staged.status, StatusCode::CONFLICT, "{}", staged.text);
     assert!(
-        relayed.headers.contains_key("x-oxy-forwarded-via"),
-        "the hop is visible"
+        !refused.headers.contains_key("x-oxy-forwarded-via"),
+        "nothing is sent on"
     );
-    assert_eq!(w.stage("local-only").await.text, "staged by the factory");
-    assert!(
-        w.fx.queued().await.is_empty(),
-        "this replica queued nothing"
-    );
-    assert!(w.preview_rows().await.is_empty(), "and recorded nothing");
+    assert!(w.fx.queued().await.is_empty(), "a refusal queues nothing");
+    assert!(w.preview_rows().await.is_empty(), "and records nothing");
 
-    // A branch GitHub has never goes near the Factory.
-    let before = factory.received_requests().await.unwrap_or_default().len();
     let pushed = w.create(BRANCH).await;
     assert_eq!(pushed.status, StatusCode::ACCEPTED, "{}", pushed.text);
     assert_eq!(pushed.json()["item"]["sha"], HEAD);
-    let after = factory.received_requests().await.unwrap_or_default().len();
-    assert_eq!(after, before, "the factory was not asked");
+    assert!(
+        factory
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty(),
+        "the factory was never asked"
+    );
 }
 
 /// Configured but stopped or restarting: the same refusal as having none, not

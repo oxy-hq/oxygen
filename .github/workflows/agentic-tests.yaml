@@ -45,10 +45,8 @@ on:
         options:
           - all
           - builder
-          - semantic
           - ask-agent
           - threads
-          - ide
           - metric-tree
         default: all
       oxy_binary_run_id:
@@ -106,11 +104,12 @@ jobs:
           # is no proxy at all. It failed, and the failure said nothing about
           # the product. Adding a flow whose name extends an existing one
           # widens that bucket without touching this file; the suffix stops it.
+          # The `semantic` and `ide` buckets ran semantic-builder-ask and ide-save,
+          # which drove the Builder and the Files editor; both were removed with
+          # the IDE (factory-retirement.md, phase 5), and so were the buckets.
           ALL='[
-            {"name":"semantic","flows":"semantic-builder-ask.flow.test.yml","mode":"cloud","port":3000},
             {"name":"ask-agent","flows":"chat-ask.flow.test.yml chat-panel-agent-switch.flow.test.yml","mode":"cloud","port":3000},
             {"name":"threads","flows":"threads-list.flow.test.yml","mode":"cloud","port":3000},
-            {"name":"ide","flows":"ide-save.flow.test.yml","mode":"cloud","port":3000},
             {"name":"metric-tree","flows":"metric-tree.flow.test.yml metric-tree-scenario.flow.test.yml","mode":"cloud","port":3000}
           ]'
           if [ -z "$FLOW_BUCKET" ] || [ "$FLOW_BUCKET" = "all" ]; then

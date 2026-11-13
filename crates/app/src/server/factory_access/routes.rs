@@ -17,7 +17,7 @@
 //! pipelines, the launcher's readiness reads, the world model's
 //! graph (the home's preview and the read-only page), what a custom app reads live (the
 //! order feed and store weather), and running a query. Reading
-//! is not the test — `GET /files` is the Factory's, `POST /sql/query` is a
+//! is not the test — `GET /secrets` is the Factory's, `POST /sql/query` is a
 //! customer's — what the route is *for* is.
 //!
 //! **Not in the table, so not gated here:**
@@ -65,9 +65,7 @@ pub enum Resolution {
 /// Routes a customer's surfaces call. Exact patterns only — see the module doc.
 pub const CUSTOMER: &[(&str, &str)] = &[
     // ── The shell, on every page ──────────────────────────────────────────────
-    // `/meta` carries `factory_access`, which is how the rail knows. `/git-state` and
-    // `/status` are the Factory's: the web app asks for them only when `/meta` says
-    // the caller may use the Factory (the shell's git half, the config banner).
+    // `/meta` carries `factory_access`, which is how the rail knows.
     ("GET", "/meta"),
     ("GET", "/logo"),
     ("GET", "/org-subdomain"),
@@ -171,38 +169,19 @@ pub const CUSTOMER: &[(&str, &str)] = &[
 /// Routes that author or operate the workspace. `{*rest}` entries claim a whole
 /// prefix; an exact [`CUSTOMER`] entry beneath one still wins for its own path.
 pub const FACTORY: &[(&str, &str)] = &[
-    // ── The working copy and git ──────────────────────────────────────────────
-    ("*", "/abort-rebase"),
-    ("*", "/continue-rebase"),
-    ("*", "/discard-all"),
-    ("*", "/fetch"),
-    ("*", "/force-push"),
-    ("*", "/pull-changes"),
-    ("*", "/push-changes"),
-    ("*", "/recent-commits"),
-    ("*", "/reset-to-commit"),
-    ("*", "/resolve-conflict-file"),
-    ("*", "/resolve-conflict-with-content"),
-    ("*", "/revision-info"),
-    ("*", "/switch-branch"),
-    ("*", "/unresolve-conflict-file"),
-    ("*", "/worktrees"),
-    // The working copy's git state and config validation. The web app's shell asks
-    // for them only for a Factory user (`WorkspaceService.getWorkspace`,
-    // `useWorkspaceStatus`), so a customer's page sends neither.
-    ("GET", "/git-state"),
-    ("GET", "/status"),
-    ("*", "/branches"),
-    ("*", "/branches/{*rest}"),
-    ("*", "/files"),
-    ("*", "/files/{*rest}"),
     // ── Compile, simulations ──────────────────────────────────────────────────
-    ("*", "/compile"),
     ("*", "/compile/{*rest}"),
     ("*", "/simulations"),
     ("*", "/simulations/{*rest}"),
     ("*", "/sql/{pathb64}"),
     // ── The semantic layer's editing and operating tools ──────────────────────
+    ("GET", "/semantic/objects"),
+    // The Context Graph page, a back-office view of the compiled workspace.
+    ("GET", "/context-graph/sources"),
+    // The served revision's git facts (the top bar) and its read-only files.
+    ("GET", "/revision"),
+    ("GET", "/revision/files"),
+    ("GET", "/revision/files/content"),
     ("*", "/semantic/topic/{file_path_b64}"),
     ("*", "/semantic/view/{file_path_b64}"),
     ("*", "/semantic/preagg-rebuild"),
@@ -224,15 +203,9 @@ pub const FACTORY: &[(&str, &str)] = &[
     ("*", "/agentic-schedules"),
     ("*", "/agentic-schedules/{*rest}"),
     ("*", "/analytics/coordinator/{*rest}"),
-    // The Builder copilot and onboarding: start a Builder run, answer one.
-    ("*", "/analytics/builder/{*rest}"),
-    ("POST", "/analytics/runs/{id}/revert-file-changes"),
     // ── Databases, integrations, secrets: setup that writes config ────────────
-    ("*", "/databases"),
     ("*", "/databases/{*rest}"),
     ("*", "/integrations/{*rest}"),
-    ("POST", "/app-integrations"),
-    ("DELETE", "/app-integrations/{kind}"),
     ("*", "/secrets"),
     ("*", "/secrets/{*rest}"),
     // ── Onboarding and setup ──────────────────────────────────────────────────
@@ -297,18 +270,14 @@ mod tests {
     #[test]
     fn authoring_routes_are_the_factorys_and_chat_is_a_customers() {
         for (method, path) in [
-            ("GET", "/files"),
-            ("POST", "/files/abc"),
-            ("POST", "/push-changes"),
-            ("POST", "/compile"),
+            ("POST", "/compile/staging"),
             ("PUT", "/secrets/abc"),
-            ("POST", "/databases"),
+            ("POST", "/databases/test-connection"),
+            ("GET", "/semantic/objects"),
             ("DELETE", "/agentic-schedules/abc"),
             ("POST", "/world-model/competitors"),
             ("GET", "/cameras/abc/preview/hls/a/b/c.m3u8"),
             // The shell asks for these only for a Factory user.
-            ("GET", "/git-state"),
-            ("GET", "/status"),
             ("GET", "/onboarding-readiness"),
             ("GET", "/onboarding/github-setup"),
         ] {
@@ -337,16 +306,6 @@ mod tests {
                 "{method} {path}"
             );
         }
-    }
-
-    /// The same path splits by verb: reading the database list is the launcher's,
-    /// creating one writes `config.yml`.
-    #[test]
-    fn an_exact_method_beats_the_wildcard_on_the_same_path() {
-        assert_eq!(surface_of("GET", "/databases"), Surface::Customer);
-        assert_eq!(surface_of("POST", "/databases"), Surface::Factory);
-        assert_eq!(surface_of("GET", "/app-integrations"), Surface::Customer);
-        assert_eq!(surface_of("POST", "/app-integrations"), Surface::Factory);
     }
 
     /// A customer reads the world model's graph; everything else under it, and any
@@ -433,14 +392,14 @@ mod tests {
     #[test]
     fn a_head_request_is_on_the_side_of_its_get_route() {
         assert_eq!(surface_of("HEAD", "/threads"), Surface::Customer);
-        assert_eq!(surface_of("HEAD", "/files/abc"), Surface::Factory);
+        assert_eq!(surface_of("HEAD", "/secrets/abc"), Surface::Factory);
         assert_eq!(surface_of("HEAD", "/databases"), Surface::Customer);
     }
 
     #[test]
     fn a_trailing_slash_does_not_change_the_answer() {
         assert_eq!(surface_of("GET", "/threads/"), Surface::Customer);
-        assert_eq!(surface_of("GET", "/files/"), Surface::Factory);
+        assert_eq!(surface_of("GET", "/secrets/"), Surface::Factory);
     }
 
     #[test]

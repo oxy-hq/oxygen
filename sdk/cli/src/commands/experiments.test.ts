@@ -217,9 +217,6 @@ function route(method: string, url: string, res: ServerResponse) {
     }
     return json(res, interimBody, interimStatus);
   }
-  if (method === "POST" && url === `${BASE}/promo/write-back/apply`) {
-    return json(res, { branch: "experiments/promo-write-back", file_path: "models/world.yml" });
-  }
   if (url.startsWith(`${BASE}/missing`)) {
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("no experiment named `missing`");
@@ -507,7 +504,7 @@ describe("experiments status / abort", () => {
   });
 });
 
-describe("experiments result / write-back", () => {
+describe("experiments result", () => {
   it("a sealed result is a state, not a failure", async () => {
     resultStatus = 409;
     resultBody = { sealed: true, state: "live" };
@@ -548,13 +545,6 @@ describe("experiments result / write-back", () => {
     ]) {
       expect(r.stdout).toContain(part);
     }
-  });
-
-  it("write-back reports the branch it opened", async () => {
-    const r = await oxyc("experiments", "write-back", "promo");
-    expect(r.status, r.stderr).toBe(0);
-    expect(sent()).toEqual([`POST ${BASE}/promo/write-back/apply`]);
-    expect(r.stdout).toContain("experiments/promo-write-back");
   });
 });
 

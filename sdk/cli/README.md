@@ -723,7 +723,6 @@ oxyc experiments status <name>                     # flips, guardrails, complian
 oxyc experiments abort <name> --reason <text> [--levers off|keep] [--yes]
 oxyc experiments interim <name> [--refresh [--wait]]  # the reading so far, badged not final
 oxyc experiments result <name>                     # sealed until reported
-oxyc experiments write-back <name>                 # branch writing the coefficient back
 ```
 
 A candidate is one design to price, tagged by `shape`:
@@ -745,8 +744,8 @@ prints that it is sealed and exits 0: there is deliberately no effect number
 before `reported`. `interim` is the registered analysis over the periods
 finished so far on a live or closing run, labelled not final (its interval is
 the fixed-horizon one, so reading it early overstates confidence); `--refresh`
-asks for a fresh one and a run not in progress exits 0 with its state. `write-back` needs the deployment that holds the
-workspace's working copy. Staff reach a tenant workspace only inside an
+asks for a fresh one and a run not in progress exits 0 with its state. A proposed coefficient
+(`write_back` in the result) is applied by editing the workspace's repository and pushing. Staff reach a tenant workspace only inside an
 `oxyc assume` session.
 
 ## Home layout

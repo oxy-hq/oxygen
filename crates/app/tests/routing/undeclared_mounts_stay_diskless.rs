@@ -71,17 +71,6 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
     // command, moved here from `oxy-app` with the airway context, mounted on no
     // route, so no pod placement applies.
     ("api-airway/src/cli.rs", "workspace_path"),
-    // `POST /{workspace_id}/experiments/{name}/write-back/apply` creates a git
-    // worktree and branch in the workspace root: `oxy_api_experiment::
-    // workspace_route_roles()` declares it IdeOnly, the handler runs on
-    // `IdeState` explicitly (the one working-copy extractor in the crate), and
-    // that crate's `tests/integration/route_roles.rs` asserts the declaration
-    // classifies. `apply.rs` is the git half the handler calls.
-    (
-        "api-experiment/src/api/experiment/write_back.rs",
-        "WorkspaceRootWorkingCopy",
-    ),
-    ("api-experiment/src/experiment/apply.rs", "GitClient"),
     // `GET /{workspace_id}/simulations` and `POST …/simulations/{name}/runs`
     // read the declared world through `ConfigManager`, which owns the
     // compiled-vs-disk choice (`simulation_definitions` through the compile

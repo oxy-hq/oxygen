@@ -1,15 +1,10 @@
-import { parse } from "yaml";
-import { encodeBase64 } from "@/libs/encoding";
 import type { ContextGraphEdge, ContextGraphNode } from "@/types/contextGraph";
-import { AgentService } from "./agents";
-import { FileService } from "./files";
 
 /**
- * An agent as the Context Graph draws it. Which agents exist comes from the
- * workspace's agent listing (`GET /{workspaceId}/agents`), which is the
- * compiled `.agentic.yml` agents for the selected branch — not from a file
- * name pattern. The graph used to find agents by `.agent.yml`, a retired kind,
- * so it drew none.
+ * An agent as the Context Graph draws it. Which agents exist, and their
+ * `context:`, come from the served revision's compiled `.agentic.yml` agents
+ * (`GET /context-graph/sources`) — not from a file name pattern. The graph used
+ * to find agents by `.agent.yml`, a retired kind, so it drew none.
  */
 export type GraphAgent = {
   name: string;
@@ -29,49 +24,6 @@ const CONTEXT_NODE_TYPES = new Set([
   "procedure",
   "workflow"
 ]);
-
-/** The workspace's agents, each with what its file says about its context. */
-export async function loadGraphAgents(
-  projectId: string,
-  branchName: string
-): Promise<GraphAgent[]> {
-  let listed: Awaited<ReturnType<typeof AgentService.listAgents>>;
-  try {
-    listed = await AgentService.listAgents(projectId, branchName);
-  } catch (error) {
-    console.error("Failed to list agents for the context graph:", error);
-    return [];
-  }
-  return Promise.all(
-    listed.map(async (agent) => ({
-      name: agent.name,
-      path: agent.path,
-      model: agent.model,
-      ...(await readAgentBody(projectId, branchName, agent.path))
-    }))
-  );
-}
-
-/** `description:` and `context:` from the agent's file; nothing if unreadable. */
-async function readAgentBody(
-  projectId: string,
-  branchName: string,
-  path: string
-): Promise<Pick<GraphAgent, "description" | "context">> {
-  try {
-    const content = await FileService.getFile(projectId, encodeBase64(path), branchName);
-    const parsed = (parse(content) ?? {}) as Record<string, unknown>;
-    return {
-      description: typeof parsed.description === "string" ? parsed.description : undefined,
-      context: Array.isArray(parsed.context)
-        ? parsed.context.filter((c): c is string => typeof c === "string")
-        : []
-    };
-  } catch (error) {
-    console.error(`Failed to read agent ${path}:`, error);
-    return { context: [] };
-  }
-}
 
 /**
  * Whether a workspace path matches a `context:` glob: `**` crosses

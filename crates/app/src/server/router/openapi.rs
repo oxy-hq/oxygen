@@ -33,7 +33,6 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         .routes(routes!(api_keys::delete_api_key))
         .routes(routes!(api_keys::extend::extend_api_key))
         .routes(routes!(workspaces::get_workspace))
-        .routes(routes!(workspaces::get_workspace_branches))
         .routes(routes!(thread::get_threads))
         .routes(routes!(thread::get_thread))
         .routes(routes!(thread::create_thread))
@@ -57,7 +56,6 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         .routes(routes!(user::get_current_user_public))
         .routes(routes!(workspaces::list_workspaces))
         // Database routes
-        .routes(routes!(database::create_database_config))
         .routes(routes!(database::test_database_connection))
         .layer(build_cors_layer())
         .layer(ServiceBuilder::new().layer(NewSentryLayer::<Request<Body>>::new_from_top()))

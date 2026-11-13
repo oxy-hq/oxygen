@@ -105,18 +105,16 @@ fn every_entry_names_a_route_that_exists() {
     );
 }
 
-/// Landmarks: the routes the IDE is built from are the Factory's and the ones a
+/// Landmarks: the routes the back office is built from are the Factory's and the ones a
 /// customer's surfaces are built from are not. If one of these flips, someone has
 /// changed what the Factory is, and should have meant to.
 #[test]
 fn the_landmarks_sit_where_the_plan_puts_them() {
     for (method, path) in [
-        ("GET", "/files"),
-        ("POST", "/files/{pathb64}"),
-        ("POST", "/compile"),
-        ("POST", "/push-changes"),
+        ("POST", "/compile/staging"),
+        ("GET", "/semantic/objects"),
         ("GET", "/semantic/topic/{file_path_b64}"),
-        ("POST", "/databases"),
+        ("POST", "/databases/test-connection"),
         ("PUT", "/secrets/{id}"),
         ("POST", "/world-model/competitors"),
         ("POST", "/agentic-airway/backfill"),

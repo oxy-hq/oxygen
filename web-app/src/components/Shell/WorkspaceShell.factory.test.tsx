@@ -17,7 +17,6 @@ vi.mock("@/hooks/api/adminAssume/useActingSession", () => ({
 }));
 vi.mock("@/components/Ask/AskDock", () => ({ AskDock: () => null }));
 vi.mock("@/components/PreviewBar", () => ({ PreviewBar: () => null }));
-vi.mock("@/components/WorkspaceStatus", () => ({ default: () => null }));
 vi.mock("./RailUserMenu", () => ({ RailUserMenu: () => null }));
 vi.mock("./RailWorkspaceSwitch", () => ({ RailWorkspaceSwitch: () => null }));
 vi.mock("./RailWorkspaceTile", () => ({ RailWorkspaceTile: () => null }));

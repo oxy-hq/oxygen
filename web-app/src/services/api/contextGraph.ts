@@ -1,41 +1,50 @@
-import { parse } from "yaml";
-import { encodeBase64 } from "@/libs/encoding";
 import type {
   ContextGraph,
   ContextGraphEdge,
   ContextGraphNode,
+  ContextGraphSources,
   Topic,
   View
 } from "@/types/contextGraph";
-import type { FileTreeModel } from "@/types/file";
+import { apiClient } from "./axios";
 import {
   addAgentNodes,
+  type GraphAgent,
   linkAutomationAgentSteps,
-  loadGraphAgents,
   sqlPathsInAgentContext
 } from "./contextGraphAgents";
 import { DatabaseService } from "./database";
-import { FileService } from "./files";
+
+type AutomationSource = {
+  name: string;
+  path: string;
+  description?: string;
+  tasks: unknown[];
+};
+
+type ProjectSources = {
+  views: View[];
+  topics: Topic[];
+  agents: GraphAgent[];
+  sqlQueries: Array<{ name: string; path: string }>;
+  automations: AutomationSource[];
+};
+
+/** The file name of `path` with `suffix` removed. */
+const stem = (path: string, suffix: RegExp): string =>
+  (path.split("/").pop() ?? path).replace(suffix, "") || "unknown";
 
 export class ContextGraphService {
   /**
    * Builds the complete context graph by fetching all assets and computing linkages
    */
-  static async getContextGraph(projectId: string, branchName: string): Promise<ContextGraph> {
-    // Fetch all necessary data in parallel
-    const [databases, fileTree, agents] = await Promise.all([
-      DatabaseService.listDatabases(projectId, branchName),
-      FileService.getFileTree(projectId, branchName),
-      loadGraphAgents(projectId, branchName)
+  static async getContextGraph(projectId: string): Promise<ContextGraph> {
+    // Fetch all necessary data in parallel. The artifacts come from the
+    // compiled revision; the page no longer reads workspace files.
+    const [databases, { views, topics, agents, sqlQueries, automations }] = await Promise.all([
+      DatabaseService.listDatabases(projectId),
+      ContextGraphService.loadProjectSources(projectId)
     ]);
-
-    // Parse semantic models, queries and automations from the file tree.
-    // Agents come from the agent listing above, not from file names.
-    const { views, topics, sqlQueries, automations } = await ContextGraphService.parseProjectFiles(
-      projectId,
-      branchName,
-      fileTree.primary
-    );
 
     // Build nodes
     const nodes: ContextGraphNode[] = [];
@@ -291,143 +300,71 @@ export class ContextGraphService {
   }
 
   /**
-   * Parses project files (views, topics, SQL queries, automations) from the file tree
+   * The served revision's compiled artifacts, in the shapes the graph builder
+   * reads. Each `definition` is the parsed YAML of the file at `path`, so this
+   * reads exactly the fields the old per-file YAML parse did.
    */
-  private static async parseProjectFiles(
-    projectId: string,
-    branchName: string,
-    fileTree: FileTreeModel[]
-  ): Promise<{
-    views: View[];
-    topics: Topic[];
-    sqlQueries: Array<{
-      name: string;
-      path: string;
-    }>;
-    automations: Array<{
-      name: string;
-      path: string;
-      description?: string;
-      tasks: unknown[];
-    }>;
-  }> {
-    const views: View[] = [];
-    const topics: Topic[] = [];
-    const sqlQueries: Array<{
-      name: string;
-      path: string;
-    }> = [];
-    const automations: Array<{
-      name: string;
-      path: string;
-      description?: string;
-      tasks: unknown[];
-    }> = [];
+  private static async loadProjectSources(projectId: string): Promise<ProjectSources> {
+    const sources = await ContextGraphService.fetchSources(projectId);
+    const field = <T>(def: Record<string, unknown>, key: string) => def[key] as T | undefined;
 
-    const projectFiles = ContextGraphService.findProjectFiles(fileTree);
+    const views: View[] = sources.views.map(({ path, definition: d }) => ({
+      name: field<string>(d, "name") ?? stem(path, /\.view\.ya?ml$/),
+      path,
+      description: field<string>(d, "description"),
+      datasource: field<string>(d, "datasource") ?? "",
+      table: field<string>(d, "table") ?? "",
+      entities: field<View["entities"]>(d, "entities"),
+      dimensions: field<View["dimensions"]>(d, "dimensions"),
+      measures: field<View["measures"]>(d, "measures")
+    }));
 
-    await Promise.all(
-      projectFiles.map(async (file) => {
-        try {
-          const content = await FileService.getFile(projectId, encodeBase64(file.path), branchName);
+    const topics: Topic[] = sources.topics.map(({ path, definition: d }) => ({
+      name: field<string>(d, "name") ?? stem(path, /\.topic\.ya?ml$/),
+      path,
+      description: field<string>(d, "description"),
+      views: field<string[]>(d, "views") ?? [],
+      base_view: field<string>(d, "base_view"),
+      default_filters: field<Topic["default_filters"]>(d, "default_filters")
+    }));
 
-          if (
-            file.type === "view" ||
-            file.type === "topic" ||
-            file.type === "procedure" ||
-            file.type === "workflow" ||
-            file.type === "automation"
-          ) {
-            const parsed = parse(content);
+    // The agent's `context:` as plain globs: a string entry is one, and an
+    // object entry (`{ name, type, src }`) contributes its `src` list.
+    const agents: GraphAgent[] = sources.agents.map(({ name, path, definition: d }) => ({
+      name,
+      path,
+      description: field<string>(d, "description"),
+      model: field<{ ref?: string }>(d, "llm")?.ref ?? field<string>(d, "model"),
+      context: (field<unknown[]>(d, "context") ?? []).flatMap((entry) => {
+        if (typeof entry === "string") return [entry];
+        const src = (entry as { src?: unknown } | null)?.src;
+        return Array.isArray(src) ? src.filter((s): s is string => typeof s === "string") : [];
+      })
+    }));
 
-            if (file.type === "view") {
-              views.push({
-                name: parsed.name,
-                path: file.path,
-                description: parsed.description,
-                datasource: parsed.datasource,
-                table: parsed.table,
-                entities: parsed.entities,
-                dimensions: parsed.dimensions,
-                measures: parsed.measures
-              });
-            } else if (file.type === "topic") {
-              topics.push({
-                name: parsed.name,
-                path: file.path,
-                description: parsed.description,
-                views: parsed.views || [],
-                base_view: parsed.base_view,
-                default_filters: parsed.default_filters
-              });
-            } else if (
-              file.type === "procedure" ||
-              file.type === "workflow" ||
-              file.type === "automation"
-            ) {
-              const automationName =
-                parsed.name ||
-                file.path
-                  .split("/")
-                  .pop()
-                  ?.replace(/\.(procedure|workflow|app|automation)\.yml$/, "") ||
-                "unknown";
-              automations.push({
-                name: automationName,
-                path: file.path,
-                description: parsed.description,
-                tasks: parsed.tasks || []
-              });
-            }
-          } else if (file.type === "sql") {
-            const queryName = file.path.split("/").pop()?.replace(".sql", "") || "unknown";
-            sqlQueries.push({
-              name: queryName,
-              path: file.path
-            });
-          }
-        } catch (error) {
-          console.error(`Failed to parse ${file.path}:`, error);
-        }
+    const automations: AutomationSource[] = sources.automations.map(
+      ({ name, path, definition: d }) => ({
+        name: field<string>(d, "name") ?? name,
+        path,
+        description: field<string>(d, "description"),
+        tasks: field<unknown[]>(d, "tasks") ?? []
       })
     );
 
-    return { views, topics, sqlQueries, automations };
+    const sqlQueries = sources.sql_queries.map((path) => ({
+      name: stem(path, /\.sql$/),
+      path
+    }));
+
+    return { views, topics, agents, sqlQueries, automations };
   }
 
-  /**
-   * Recursively finds all project files (views, topics, SQL, automations) in the file tree
-   */
-  private static findProjectFiles(
-    fileTree: FileTreeModel[],
-    basePath = ""
-  ): Array<{ path: string; type: string }> {
-    const files: Array<{ path: string; type: string }> = [];
-
-    fileTree.forEach((node) => {
-      const currentPath = basePath ? `${basePath}/${node.name}` : node.name;
-
-      if (node.is_dir && node.children) {
-        files.push(...ContextGraphService.findProjectFiles(node.children, currentPath));
-      } else if (!node.is_dir) {
-        if (node.name.endsWith(".view.yml") || node.name.endsWith(".view.yaml")) {
-          files.push({ path: currentPath, type: "view" });
-        } else if (node.name.endsWith(".topic.yml") || node.name.endsWith(".topic.yaml")) {
-          files.push({ path: currentPath, type: "topic" });
-        } else if (node.name.endsWith(".sql")) {
-          files.push({ path: currentPath, type: "sql" });
-        } else if (node.name.endsWith(".procedure.yml") || node.name.endsWith(".procedure.yaml")) {
-          files.push({ path: currentPath, type: "procedure" });
-        } else if (
-          node.name.endsWith(".automation.yml") ||
-          node.name.endsWith(".automation.yaml")
-        ) {
-          files.push({ path: currentPath, type: "automation" });
-        }
-      }
-    });
-
-    return files;
+  /** `GET /context-graph/sources` — FleetOk, read from the served revision. */
+  static async fetchSources(projectId: string): Promise<ContextGraphSources> {
+    const { data } = await apiClient.get<ContextGraphSources>(
+      `/${projectId}/context-graph/sources`
+    );
+    return data;
   }
 
   /**

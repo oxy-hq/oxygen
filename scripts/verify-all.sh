@@ -216,15 +216,12 @@ if [ "$DRY" = 1 ] || curl -sf --max-time 8 "$FLEET_URL/api/health" >/dev/null 2>
   fi
 
   fleet_flows "fleet workspace flows" flow@oxy.local \
-    chat-ask-fleet context-graph-fleet customer-apps-oxy-starter-fleet
+    chat-ask-fleet customer-apps-oxy-starter-fleet
   # Authored against `examples/` — the fleet's workspace — not `demo_project/`,
   # which is what the runner seeds when it spawns its own backend (phase 3).
-  # `ide-create-file` waits
-  # for the `agents` folder (its own comment names `examples/agents/`) and
   # `semantic-monitors-inbox` needs the 13 monitors in `examples/.monitor.yml`;
   # `demo_project` has neither, so run locally they can only time out, and the
   # timeout is indistinguishable from a product bug.
-  fleet_flows "fleet ide file write" flow@oxy.local ide-create-file
   fleet_flows "fleet monitors + inbox" flow@oxy.local semantic-monitors-inbox
   fleet_flows "fleet admin airhouse" e2e@oxy.tech admin-airhouse-fleet
   fleet_flows "fleet partner console" e2e@oxy.tech partners-console-fleet
@@ -269,19 +266,11 @@ bold "3. Runner-backed flows (enterprise, demo_project)"
 # and prove nothing (or fail outright) against a single process. Passing the
 # `.flow.test.yml` suffix makes each one match exactly itself.
 wet || printf '  as %-14s ' 'flow@oxy.local (the runner spawns + seeds its own backend)'
-LOCAL_FLOWS=(chat-ask.flow.test.yml chat-early-run-failure.flow.test.yml
-             ide-compile-error.flow.test.yml ide-save.flow.test.yml
-             ide-world-model-graph.flow.test.yml ide-yaml-diagnostics.flow.test.yml
-             launcher-home.flow.test.yml semantic-builder-ask.flow.test.yml)
+LOCAL_FLOWS=(chat-ask.flow.test.yml ide-world-model-graph.flow.test.yml
+             launcher-home.flow.test.yml)
 
-# Opt-in, because it costs more than the other ten together. Measured twice on
-# a cold cache: $3.42 and $3.16, against ~$0.03 for the whole rest of this
-# phase. It drives a five-step wizard the LLM has to re-find each time, and
-# both runs ended on an IDE still loading its file tree rather than on the
-# QuickBooks form — so the money buys a red that is about the fixture, not the
-# credentials card. Run it deliberately: `just verify --expensive`.
-EXPENSIVE_FLOWS=(ide-pipeline-quickbooks.flow.test.yml)
-[ "$EXPENSIVE" = 1 ] && LOCAL_FLOWS+=("${EXPENSIVE_FLOWS[@]}")
+# `--expensive` added ide-pipeline-quickbooks, removed with the IDE's New Pipeline
+# wizard; the flag is kept and adds nothing.
 if flow_run "${LOCAL_FLOWS[@]}" > "$LOG_DIR/b-local.log" 2>&1; then
   record "B: runner-backed flows" PASS "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-local.log" | tail -1)"
   ok "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-local.log" | tail -1)"

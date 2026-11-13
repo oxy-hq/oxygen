@@ -6,53 +6,55 @@ import { AnalyticsService } from "./analytics";
 import { apiClient } from "./axios";
 
 /**
- * A Builder run is answered on the Builder route; the chat route refuses one with
- * 421 on every server. A caller that knows goes straight there (one round trip, which
- * a page navigating away cannot cut in half); one that does not is sent on by the 421.
+ * The Builder went with the IDE, so nothing is sent to its deleted routes: a
+ * Builder start and an answer to a Builder run go to the chat routes, which
+ * refuse them with `410 builder_removed`.
  */
 
 let posted: string[] = [];
 const original = apiClient.defaults.adapter;
 
+const gone = (config: Parameters<AxiosAdapter>[0]) =>
+  Object.assign(new Error("gone"), {
+    isAxiosError: true,
+    response: {
+      status: 410,
+      data: { error: "builder_removed", message: "the Builder was removed with the IDE" },
+      headers: {},
+      config,
+      statusText: ""
+    },
+    config
+  });
+
 beforeEach(() => {
   posted = [];
-  const adapter: AxiosAdapter = async (config) => {
-    const url = config.url ?? "";
-    posted.push(url);
-    if (url.includes("/analytics/runs/") && url.endsWith("/answer")) {
-      const error = Object.assign(new Error("misdirected"), {
-        isAxiosError: true,
-        response: { status: 421, data: {}, headers: {}, config, statusText: "" },
-        config
-      });
-      throw error;
-    }
-    return {
-      data: { ok: true, resumed: true },
-      status: 200,
-      statusText: "OK",
-      headers: {},
-      config
-    };
+  apiClient.defaults.adapter = async (config) => {
+    posted.push(config.url ?? "");
+    throw gone(config);
   };
-  apiClient.defaults.adapter = adapter;
 });
 afterEach(() => {
   apiClient.defaults.adapter = original;
 });
 
-describe("AnalyticsService.submitAnswer", () => {
-  it("sends a Builder run's answer straight to the Builder route", async () => {
-    await AnalyticsService.submitAnswer("ws-1", "run-1", "Accept", { builder: true });
-    expect(posted).toEqual(["/ws-1/analytics/builder/runs/run-1/answer"]);
+describe("Builder requests after the Builder's removal", () => {
+  it("starts a Builder run on the chat route, which refuses it", async () => {
+    await expect(
+      AnalyticsService.createRun("ws-1", {
+        agent_id: "__builder__",
+        question: "q",
+        domain: "builder"
+      })
+    ).rejects.toMatchObject({ response: { status: 410 } });
+    expect(posted).toEqual(["/ws-1/analytics/runs"]);
   });
 
-  it("follows the chat route's 421 to the Builder route when it does not know", async () => {
-    await AnalyticsService.submitAnswer("ws-1", "run-1", "Accept");
-    expect(posted).toEqual([
-      "/ws-1/analytics/runs/run-1/answer",
-      "/ws-1/analytics/builder/runs/run-1/answer"
-    ]);
+  it("answers on the chat route once, without a second Builder-route try", async () => {
+    await expect(AnalyticsService.submitAnswer("ws-1", "run-1", "Accept")).rejects.toMatchObject({
+      response: { status: 410 }
+    });
+    expect(posted).toEqual(["/ws-1/analytics/runs/run-1/answer"]);
   });
 });
 

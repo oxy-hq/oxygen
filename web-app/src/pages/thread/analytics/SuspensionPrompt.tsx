@@ -2,13 +2,15 @@ import { ArrowRight, ArrowUp, ChevronLeft, ChevronRight, MessageSquare } from "l
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HighlightTextarea } from "@/components/ui/HighlightTextarea";
 import { Button } from "@/components/ui/shadcn/button";
-import useFileTree from "@/hooks/api/files/useFileTree";
 import { useMentionHighlight } from "@/hooks/useMentionHighlight";
 import { cn } from "@/libs/shadcn/utils";
-import { flattenFiles, getActiveMention, getCleanObjectName } from "@/libs/utils/mention";
-import { getFileTypeIcon } from "@/pages/ide/Files/FilesSidebar/utils";
+import { getActiveMention, getCleanObjectName } from "@/libs/utils/mention";
+import { getFileTypeIcon } from "@/libs/workspaceFiles/utils";
 import type { HumanInputQuestion } from "@/services/api/analytics";
 import type { FileTreeModel } from "@/types/file";
+
+const NO_FILES: FileTreeModel[] = [];
+
 import { detectFileType } from "@/utils/fileTypes";
 import FileChangeDiff, { parseFileChange } from "./FileChangeDiff";
 
@@ -65,11 +67,9 @@ const SuspensionPrompt = ({ questions, onAnswer, isAnswering }: SuspensionPrompt
     });
   };
 
-  const { data: fileTreeData } = useFileTree();
-  const allFiles = useMemo(() => {
-    if (!fileTreeData) return [];
-    return flattenFiles(fileTreeData.primary);
-  }, [fileTreeData]);
+  // File mentions read the working copy's file tree, which was removed with
+  // the IDE: nothing to suggest.
+  const allFiles: FileTreeModel[] = NO_FILES;
 
   const activeMention = getActiveMention(answers[safeIndex], cursorPos);
   const mentionResults = useMemo(() => {
@@ -78,7 +78,7 @@ const SuspensionPrompt = ({ questions, onAnswer, isAnswering }: SuspensionPrompt
     return allFiles
       .filter((f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q))
       .slice(0, 8);
-  }, [activeMention, allFiles]);
+  }, [activeMention]);
 
   const showMentionPopup = activeMention !== null && mentionResults.length > 0 && !mentionDismissed;
   const mentionHighlight = useMentionHighlight(answers[safeIndex], mentionMaps[safeIndex]);

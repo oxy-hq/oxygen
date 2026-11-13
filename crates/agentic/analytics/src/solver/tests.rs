@@ -1,11 +1,10 @@
-use super::clarifying::{build_delegation_request, build_triage_user_prompt};
+use super::clarifying::build_triage_user_prompt;
 use super::interpreting::build_interpret_user_prompt;
 use super::prompts::format_session_turns_section;
 use super::*;
 use crate::{
-    AnalyticsError, AnalyticsIntent, AnalyticsResult, AnalyticsSolution, LlmClient, MissingMember,
-    MissingMemberKind, QuerySpec, QuestionType, ResultShape, SemanticCatalog, SolutionPayload,
-    SolutionSource,
+    AnalyticsError, AnalyticsIntent, AnalyticsResult, AnalyticsSolution, LlmClient, QuerySpec,
+    QuestionType, ResultShape, SemanticCatalog, SolutionPayload, SolutionSource,
 };
 use agentic_connector::{ConnectorError, ExecutionResult, SqlDialect};
 use agentic_core::state::ProblemState;
@@ -1231,106 +1230,7 @@ fn triage_response_schema_does_not_contain_semantic_query() {
     );
 }
 
-// ── Delegation request formatting ────────────────────────────────────────
-
-#[test]
-fn delegation_request_mentions_each_missing_member() {
-    let missing = vec![
-        MissingMember {
-            name: "revenue_per_customer".into(),
-            kind: MissingMemberKind::Measure,
-            description: "total revenue / distinct customers".into(),
-        },
-        MissingMember {
-            name: "customer_segment".into(),
-            kind: MissingMemberKind::Dimension,
-            description: "customer segment based on spend tier".into(),
-        },
-    ];
-    let (request, context) = build_delegation_request("what is revenue per customer?", &missing);
-    assert!(
-        request.contains("revenue_per_customer"),
-        "request must mention measure name"
-    );
-    assert!(
-        request.contains("customer_segment"),
-        "request must mention dimension name"
-    );
-    assert!(request.contains("measure"), "request must mention kind");
-    assert!(request.contains("dimension"), "request must mention kind");
-    assert!(
-        request.contains("what is revenue per customer?"),
-        "request must include original question"
-    );
-
-    // Context round-trips
-    let ctx_members = context["missing_members"].as_array().unwrap();
-    assert_eq!(ctx_members.len(), 2);
-    assert_eq!(
-        context["original_question"],
-        "what is revenue per customer?"
-    );
-}
-
-/// Verifies that the delegation suspension data follows the pattern
-/// expected by the runtime coordinator: `from_state` is "clarifying" so
-/// resume re-enters triage with an updated catalog.
-#[test]
-fn delegation_suspension_data_has_clarifying_from_state() {
-    use agentic_core::human_input::SuspendedRunData;
-
-    let missing = vec![MissingMember {
-        name: "revenue_per_customer".into(),
-        kind: MissingMemberKind::Measure,
-        description: "revenue / customers".into(),
-    }];
-    let (request, _context) = build_delegation_request("what is revenue per customer?", &missing);
-
-    // Build the same SuspendedRunData that clarify_impl would produce.
-    let data = SuspendedRunData {
-        from_state: "clarifying".to_string(),
-        original_input: "what is revenue per customer?".to_string(),
-        trace_id: String::new(),
-        stage_data: serde_json::json!({}),
-        question: request,
-        suggestions: vec![],
-    };
-
-    assert_eq!(data.from_state, "clarifying");
-    assert_eq!(data.original_input, "what is revenue per customer?");
-}
-
-/// Verifies the delegation target is `__builder__` agent.
-#[test]
-fn delegation_targets_builder_agent() {
-    use agentic_core::delegation::{DelegationTarget, SuspendReason};
-
-    let missing = vec![MissingMember {
-        name: "churn_rate".into(),
-        kind: MissingMemberKind::Measure,
-        description: "monthly churn rate".into(),
-    }];
-    let (request, context) = build_delegation_request("what is our churn rate?", &missing);
-
-    let reason = SuspendReason::Delegation {
-        target: DelegationTarget::Agent {
-            agent_id: "__builder__".to_string(),
-        },
-        request,
-        context,
-        policy: None,
-    };
-
-    match reason {
-        SuspendReason::Delegation { target, .. } => match target {
-            DelegationTarget::Agent { agent_id } => {
-                assert_eq!(agent_id, "__builder__");
-            }
-            _ => panic!("expected DelegationTarget::Agent"),
-        },
-        _ => panic!("expected SuspendReason::Delegation"),
-    }
-}
+// ── Interpretation prompt ────────────────────────────────────────────────
 
 #[test]
 fn interpret_prompt_includes_last_turn_for_comparison() {

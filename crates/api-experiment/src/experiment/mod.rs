@@ -25,7 +25,6 @@ use uuid::Uuid;
 
 pub mod abort;
 pub mod adopt;
-pub mod apply;
 pub mod assignment;
 pub mod batch;
 pub mod candidate;

@@ -2,6 +2,7 @@ pub mod app_auth;
 pub mod auth;
 pub mod branch_head;
 pub mod client;
+pub mod default_branch;
 pub mod tarball;
 pub mod types;
 
@@ -9,6 +10,7 @@ pub use app_auth::*;
 pub use auth::*;
 pub use branch_head::BranchHeadError;
 pub use client::*;
+pub use default_branch::DefaultBranchError;
 pub use tarball::{TarballError, transport_error};
 pub use types::*;
 

@@ -18,7 +18,7 @@ use std::path::Path;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use oxy::github::default_git_client;
-use oxy_git::{DetachedHead, GitClient, HeadState};
+use oxy_git::{DetachedHead, GitClient};
 
 /// `code` of the refusal body. The frontend keys on it to show the message.
 pub const DETACHED_HEAD_CODE: &str = "detached_head";
@@ -73,44 +73,6 @@ pub(crate) fn unresolved_branch_status(branch: Option<&str>) -> StatusCode {
     }
 }
 
-/// Refuses when `worktree` is on a detached HEAD.
-///
-/// An in-progress rebase or merge detaches HEAD too. That state has its own UI
-/// (Resolve, abort, continue) and its own refusals, so it is left to them.
-pub(super) async fn require_attached_head(worktree: &Path) -> Result<(), DetachedHead> {
-    let git = default_git_client();
-    if git.is_in_conflict(worktree).await {
-        return Ok(());
-    }
-    match git.head_state(worktree).await {
-        Ok(HeadState::Detached { short_sha }) => Err(DetachedHead { short_sha }),
-        Ok(HeadState::Branch(_)) => Ok(()),
-        // Not a repository, or git could not run: the operation reports that
-        // itself, in its own words.
-        Err(e) => {
-            tracing::debug!(error = %e, worktree = %worktree.display(), "could not read HEAD; leaving it to the operation");
-            Ok(())
-        }
-    }
-}
-
-/// The branch a branch-only operation acts on: `?branch=`, or the repo default.
-/// Refused when the request names the detached label, or when the working copy
-/// it resolved to is detached whatever the request called it.
-pub(super) async fn require_branch(
-    query_branch: Option<String>,
-    worktree: &Path,
-) -> Result<String, DetachedHead> {
-    if let Some(detached) = query_branch
-        .as_deref()
-        .and_then(oxy_git::detached_label_refusal)
-    {
-        return Err(detached);
-    }
-    require_attached_head(worktree).await?;
-    Ok(super::ops::resolve_branch(query_branch, worktree).await)
-}
-
 /// What `HEAD` names in the workspace root, as the details response reports
 /// it: the `active_branch` name (the label when detached) and, only when
 /// detached, the short sha — so the frontend never has to parse the label.
@@ -121,39 +83,6 @@ pub(super) async fn active_head(root: &Path, default_branch: &str) -> (String, O
             (label, head.into_branch().err().map(|d| d.short_sha))
         }
         Err(_) => (default_branch.to_string(), None),
-    }
-}
-
-/// The commit and upstream that `branch` names in `worktree`.
-pub(super) struct RevisionTip {
-    pub sha: String,
-    pub message: String,
-    /// `origin/<branch>`; always `None` when detached.
-    pub tracking_sha: Option<String>,
-    pub detached: bool,
-}
-
-/// A detached HEAD has no branch ref and no upstream, so the tip is the commit
-/// `HEAD` names and there is nothing to push or pull. The middleware has
-/// already checked the label against the working copy.
-pub(super) async fn revision_tip(worktree: &Path, branch: &str) -> RevisionTip {
-    let git = default_git_client();
-    let detached = oxy_git::is_detached_label(branch);
-    let (sha, message) = if detached {
-        git.get_commit_by_sha(worktree, "HEAD").await
-    } else {
-        git.get_branch_commit(worktree, branch).await
-    };
-    let tracking_sha = if detached {
-        None
-    } else {
-        git.get_tracking_ref_sha(worktree, branch).await
-    };
-    RevisionTip {
-        sha,
-        message,
-        tracking_sha,
-        detached,
     }
 }
 

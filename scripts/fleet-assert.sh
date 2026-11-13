@@ -689,7 +689,8 @@ while IFS=$'\t' read -r m p r b n; do
   CAT_METHOD+=("$m"); CAT_PATH+=("$p"); CAT_ROLE+=("$r"); CAT_BUCKET+=("$b"); CAT_NOTES+=("$n")
 done < "$ROUTES_FILE"
 declared_total=${#CAT_PATH[@]}
-[ "$declared_total" -ge 200 ] || die "only $declared_total rows loaded from $ROUTES_FILE — the file looks truncated or malformed"
+# 180, not 200: the IDE removal (2026-11-09) deleted ~40 routes and their rows.
+[ "$declared_total" -ge 180 ] || die "only $declared_total rows loaded from $ROUTES_FILE — the file looks truncated or malformed"
 ok "loaded $declared_total declared routes ($(printf '%s\n' "${CAT_BUCKET[@]}" | sort | uniq -c | tr '\n' ' '))"
 
 # Paths this run actually exercised, keyed by the catalog's exact path string,
@@ -874,17 +875,8 @@ DISPOSABLE_ORG_ID=""; DISPOSABLE_WS_ID=""; DISPOSABLE_APP_ID=""
 INVITATION_ID=""; INVITATION_TOKEN=""
 # Extended fixtures (step 8b, below the original disposable-resource block) —
 # declared here so `set -u` never trips if a creation step is skipped.
-DISPOSABLE_WS_SCRATCH_B64=""
-SCRATCH_FILE_LIVE=0; SCRATCH_FOLDER_LIVE=0
-OWM_SECRET_ID=""; BESTTIME_SECRET_ID=""
-APP_INTEGRATION_OWM_LIVE=0; APP_INTEGRATION_BESTTIME_LIVE=0
 AUTOMATION_RUN_ID=""
 ANOM_ID=""
-SCRATCH_FILE_PATH="_fleet_probe/scratch.txt"
-SCRATCH_FILE_B64=$(pathb64_std "$SCRATCH_FILE_PATH")
-SCRATCH_FILE_RENAMED="_fleet_probe/scratch-renamed.txt"
-SCRATCH_FOLDER_PATH="_fleet_probe/scratch-folder"
-SCRATCH_FOLDER_B64=$(pathb64_std "$SCRATCH_FOLDER_PATH")
 
 if [ "$SKIP_FIXTURES" = "1" ]; then
   step "8. Fixture creation SKIPPED (--skip-fixtures)"
@@ -1033,86 +1025,6 @@ else
   fi
   rm -f "$out"
 
-  # scratch file + folder lifecycle, scoped under _fleet_probe/ in the SHARED
-  # workspace — additive-only, deleted at the end, never touches a real
-  # fixture file. Exercises 7 IdeOnly Fixture-bucket file routes: new-file,
-  # save (POST /{pathb64}), rename-file (PUT), delete-file, new-folder,
-  # delete-folder, plus the GET read-back added to the case table below.
-  # SCRATCH_FILE_CURRENT_B64 tracks whichever path/b64 pair is presently
-  # valid — updated after a successful rename — so the read-back case and the
-  # final cleanup always target the file that actually exists.
-  SCRATCH_FILE_CURRENT_B64="$SCRATCH_FILE_B64"
-  SCRATCH_FILE_LIVE=0 SCRATCH_FOLDER_LIVE=0
-  c=$(req POST "${S1_BASE}/api/${WS}/files/${SCRATCH_FILE_B64}/new-file" /dev/null)
-  if [ "$c" = "200" ] || [ "$c" = "201" ]; then
-    ok "created scratch file $SCRATCH_FILE_PATH"
-    mark_covered "/api/{workspace_id}/files/{pathb64}/new-file"
-    SCRATCH_FILE_LIVE=1
-    CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/files/${SCRATCH_FILE_B64}/delete-file")
-    req POST "${S1_BASE}/api/${WS}/files/${SCRATCH_FILE_B64}" /dev/null '{"data":"fleet-assert scratch content"}' >/dev/null
-    SCRATCH_FILE_RENAMED_B64=$(pathb64_std "$SCRATCH_FILE_RENAMED")
-    rc=$(req PUT "${S1_BASE}/api/${WS}/files/${SCRATCH_FILE_B64}/rename-file" /dev/null \
-      "$(printf '{"new_name":"%s"}' "$SCRATCH_FILE_RENAMED")")
-    if [ "$rc" = "200" ] || [ "$rc" = "201" ]; then
-      ok "renamed scratch file to $SCRATCH_FILE_RENAMED"
-      mark_covered "/api/{workspace_id}/files/{pathb64}/rename-file"
-      # The old path no longer exists post-rename, so the pre-rename cleanup
-      # entry above will 404 harmlessly (cleanup is best-effort and never
-      # checks status) — simpler and safer than rewriting it in place. Add
-      # the real one for the path that now exists, and point the read-back
-      # case at it too.
-      CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/files/${SCRATCH_FILE_RENAMED_B64}/delete-file")
-      SCRATCH_FILE_CURRENT_B64="$SCRATCH_FILE_RENAMED_B64"
-      # A second scratch file, renamed right back to its ORIGINAL name, so
-      # rename-folder (below) and the /revert route both have something of
-      # their own to act on without disturbing the file the read-back case
-      # (Fixture bucket "scratch-file-read") depends on.
-      SCRATCH_FILE2_PATH="_fleet_probe/scratch2.txt"
-      SCRATCH_FILE2_B64=$(pathb64_std "$SCRATCH_FILE2_PATH")
-      rc2=$(req POST "${S1_BASE}/api/${WS}/files/${SCRATCH_FILE2_B64}/new-file" /dev/null)
-      if [ "$rc2" = "200" ] || [ "$rc2" = "201" ]; then
-        req POST "${S1_BASE}/api/${WS}/files/${SCRATCH_FILE2_B64}" /dev/null '{"data":"v1"}' >/dev/null
-        req POST "${S1_BASE}/api/${WS}/files/${SCRATCH_FILE2_B64}" /dev/null '{"data":"v2 — this should be reverted"}' >/dev/null
-        rvc=$(req POST "${S1_BASE}/api/${WS}/files/${SCRATCH_FILE2_B64}/revert" /dev/null)
-        # revert discards uncommitted edits back to the last committed
-        # version. A file that was only ever new-file'd (never committed)
-        # has no committed version to revert TO — a 4xx/5xx here is the
-        # real, honest answer for a brand-new uncommitted file, not a
-        # fixture-design failure, and still exercises the handler for real.
-        [[ "$rvc" =~ ^2 ]] && ok "files/revert on uncommitted scratch file: $rvc" \
-                            || ok "files/revert on uncommitted scratch file: $rvc (no committed version to revert to — expected)"
-        mark_covered "/api/{workspace_id}/files/{pathb64}/revert"
-        CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/files/${SCRATCH_FILE2_B64}/delete-file")
-      else
-        skip "second scratch file (for revert) returned $rc2 — files/revert left uncovered"
-      fi
-    else
-      skip "files/rename-file returned $rc — rename-file left uncovered (the pre-rename file is still read + cleaned up)"
-    fi
-  else
-    skip "files/new-file returned $c — the scratch-file Fixture chain left uncovered"
-  fi
-  c=$(req POST "${S1_BASE}/api/${WS}/files/${SCRATCH_FOLDER_B64}/new-folder" /dev/null)
-  if [ "$c" = "200" ] || [ "$c" = "201" ]; then
-    ok "created scratch folder $SCRATCH_FOLDER_PATH"
-    mark_covered "/api/{workspace_id}/files/{pathb64}/new-folder"
-    SCRATCH_FOLDER_LIVE=1
-    CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/files/${SCRATCH_FOLDER_B64}/delete-folder")
-    SCRATCH_FOLDER_RENAMED="_fleet_probe/scratch-folder-renamed"
-    SCRATCH_FOLDER_RENAMED_B64=$(pathb64_std "$SCRATCH_FOLDER_RENAMED")
-    rfc=$(req PUT "${S1_BASE}/api/${WS}/files/${SCRATCH_FOLDER_B64}/rename-folder" /dev/null \
-      "$(printf '{"new_name":"%s"}' "$SCRATCH_FOLDER_RENAMED")")
-    if [ "$rfc" = "200" ] || [ "$rfc" = "201" ]; then
-      ok "renamed scratch folder to $SCRATCH_FOLDER_RENAMED"
-      mark_covered "/api/{workspace_id}/files/{pathb64}/rename-folder"
-      CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/files/${SCRATCH_FOLDER_RENAMED_B64}/delete-folder")
-      SCRATCH_FOLDER_B64="$SCRATCH_FOLDER_RENAMED_B64"
-    else
-      skip "files/rename-folder returned $rfc — rename-folder left uncovered (the pre-rename folder is still cleaned up)"
-    fi
-  else
-    skip "files/new-folder returned $c — the scratch-folder Fixture chain left uncovered"
-  fi
 fi
 
 # ══ EXTENDED FIXTURES (step 8b+) — the rest of the Fixture bucket ═══════════
@@ -1125,130 +1037,6 @@ if [ "$SKIP_FIXTURES" = "1" ]; then
   skip "extended Fixture-bucket coverage (apps/automations/integrations/semantic) — --skip-fixtures was passed"
 else
   ANOM_ID=""
-
-  step "8b. Disposable-workspace scratch file (backs the conflict-route probes below)"
-  if [ -n "$DISPOSABLE_WS_ID" ]; then
-    DISPOSABLE_WS_SCRATCH_PATH="_fleet_probe/repo-scratch.txt"
-    DISPOSABLE_WS_SCRATCH_B64=$(pathb64_std "$DISPOSABLE_WS_SCRATCH_PATH")
-    sfc=$(req POST "${S1_BASE}/api/${DISPOSABLE_WS_ID}/files/${DISPOSABLE_WS_SCRATCH_B64}/new-file" /dev/null)
-    if [[ "$sfc" =~ ^2 ]]; then
-      req POST "${S1_BASE}/api/${DISPOSABLE_WS_ID}/files/${DISPOSABLE_WS_SCRATCH_B64}" /dev/null '{"data":"fleet-assert probe"}' >/dev/null
-      ok "created a scratch file in the disposable workspace"
-    else
-      DISPOSABLE_WS_SCRATCH_B64=""
-      skip "could not create a scratch file in the disposable workspace ($sfc) — conflict-route probes left uncovered"
-    fi
-  else
-    skip "no disposable workspace — conflict-route + branch-lifecycle Fixture routes left uncovered"
-  fi
-
-  step "8d. Conflict/rebase no-op-path routes (disposable workspace — real requests, no genuine conflict state)"
-  # Per investigation (see the written report): none of these five routes
-  # probe git state before acting — abort/continue-rebase and
-  # resolve-conflict-file run `git … --abort`/`--continue`/`checkout --ours`
-  # unconditionally and surface git's failure as HTTP 200 {"success":false};
-  # resolve-conflict-with-content is a raw write+stage with no conflict
-  # awareness at all; only unresolve-conflict-file explicitly checks for
-  # REBASE_HEAD/MERGE_HEAD and errors cleanly when neither exists. No HTTP
-  # route in this codebase can ever put a fresh, remote-less workspace into a
-  # real conflict state (pull-changes — the only thing that can pause on one —
-  # bails immediately on "no remote configured"). So this exercises the
-  # real no-op/error branch of each handler, not conflict resolution itself —
-  # still a real, parameter-valid request reaching the handler, which is the
-  # bar this harness holds every other route to.
-  if [ -n "$DISPOSABLE_WS_ID" ] && [ -n "$DISPOSABLE_WS_SCRATCH_B64" ]; then
-    abc=$(req POST "${S1_BASE}/api/${DISPOSABLE_WS_ID}/abort-rebase" /dev/null)
-    [[ "$abc" =~ ^2 ]] && ok "abort-rebase (no rebase in progress — expect success:false in the body): $abc" \
-                        || bad "abort-rebase: expected 200, got $abc"
-    mark_covered "/api/{workspace_id}/abort-rebase"
-
-    coc=$(req POST "${S1_BASE}/api/${DISPOSABLE_WS_ID}/continue-rebase" /dev/null)
-    [[ "$coc" =~ ^2 ]] && ok "continue-rebase (no rebase in progress — expect success:false in the body): $coc" \
-                        || bad "continue-rebase: expected 200, got $coc"
-    mark_covered "/api/{workspace_id}/continue-rebase"
-
-    rcf=$(req POST "${S1_BASE}/api/${DISPOSABLE_WS_ID}/resolve-conflict-file?file=${DISPOSABLE_WS_SCRATCH_PATH}&side=mine" /dev/null)
-    [[ "$rcf" =~ ^2 ]] && ok "resolve-conflict-file (file not conflicted — expect success:false in the body): $rcf" \
-                        || bad "resolve-conflict-file: expected 200, got $rcf"
-    mark_covered "/api/{workspace_id}/resolve-conflict-file"
-
-    rcc=$(req POST "${S1_BASE}/api/${DISPOSABLE_WS_ID}/resolve-conflict-with-content?file=${DISPOSABLE_WS_SCRATCH_PATH}" /dev/null \
-      '{"content":"fleet-assert-scratch resolved content"}')
-    [[ "$rcc" =~ ^2 ]] && ok "resolve-conflict-with-content (conflict-agnostic write+stage): $rcc" \
-                        || bad "resolve-conflict-with-content: expected 2xx, got $rcc"
-    mark_covered "/api/{workspace_id}/resolve-conflict-with-content"
-
-    urc=$(req POST "${S1_BASE}/api/${DISPOSABLE_WS_ID}/unresolve-conflict-file?file=${DISPOSABLE_WS_SCRATCH_PATH}" /dev/null)
-    # This one DOES check state and errors cleanly with no active merge/rebase
-    # — any status is "real", but it should not be 2xx here (that would mean
-    # the state check is broken).
-    ok "unresolve-conflict-file (no active merge/rebase): $urc"
-    mark_covered "/api/{workspace_id}/unresolve-conflict-file"
-  else
-    skip "abort-rebase, continue-rebase, resolve-conflict-file, resolve-conflict-with-content, unresolve-conflict-file left uncovered (no disposable workspace/scratch file)"
-  fi
-
-  step "8e. Branch-lifecycle bonus (Destr-bucket, safe here — disposable workspace, never the shared Demo)"
-  if [ -n "$DISPOSABLE_WS_ID" ]; then
-    commit_sha=$(curl -s --max-time 10 -H "Authorization: $TOKEN" "${S1_BASE}/api/${DISPOSABLE_WS_ID}/recent-commits" \
-      | jq -r '(.commits? // .) | (.[0].sha // .[0].hash // .[0].id // empty)' 2>/dev/null)
-    if [ -n "$commit_sha" ]; then
-      rtc=$(req POST "${S1_BASE}/api/${DISPOSABLE_WS_ID}/reset-to-commit?commit=${commit_sha}&force=false" /dev/null)
-      [[ "$rtc" =~ ^2 ]] && ok "reset-to-commit (force=false, informational): $rtc" || bad "reset-to-commit: expected 2xx, got $rtc"
-      mark_covered "/api/{workspace_id}/reset-to-commit"
-    else
-      skip "no commit sha discovered on the disposable workspace — reset-to-commit left uncovered"
-    fi
-
-    swc=$(req POST "${S1_BASE}/api/${DISPOSABLE_WS_ID}/switch-branch" /dev/null \
-      '{"branch":"fleet-assert-scratch-branch","base_branch":"main"}')
-    [[ "$swc" =~ ^2 ]] && ok "switch-branch (new disposable branch): $swc" || bad "switch-branch: expected 2xx, got $swc"
-    mark_covered "/api/{workspace_id}/switch-branch"
-
-    dac=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X POST -H "Authorization: $TOKEN" \
-      "${S1_BASE}/api/${DISPOSABLE_WS_ID}/discard-all")
-    [[ "$dac" =~ ^2 ]] && ok "discard-all: $dac" || bad "discard-all: expected 2xx, got $dac"
-    mark_covered "/api/{workspace_id}/discard-all"
-  fi
-
-  step "8f. App-integrations (openweathermap, besttime) backed by disposable secrets as fake keys"
-  out=$(mktemp)
-  c=$(req POST "${S1_BASE}/api/${WS}/secrets" "$out" '{"name":"FLEET_ASSERT_SCRATCH_OWM_KEY","value":"fake-owm-key"}')
-  if [[ "$c" =~ ^2 ]]; then
-    OWM_SECRET_ID=$(jq -r '.id // empty' "$out")
-    [ -n "$OWM_SECRET_ID" ] && CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/secrets/${OWM_SECRET_ID}")
-  fi
-  rm -f "$out"
-  out=$(mktemp)
-  c=$(req POST "${S1_BASE}/api/${WS}/secrets" "$out" '{"name":"FLEET_ASSERT_SCRATCH_BESTTIME_KEY","value":"fake-besttime-key"}')
-  if [[ "$c" =~ ^2 ]]; then
-    BESTTIME_SECRET_ID=$(jq -r '.id // empty' "$out")
-    [ -n "$BESTTIME_SECRET_ID" ] && CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/secrets/${BESTTIME_SECRET_ID}")
-  fi
-  rm -f "$out"
-
-  ic=$(req POST "${S1_BASE}/api/${WS}/app-integrations" /dev/null \
-    '{"kind":"openweathermap","name":"fleet-assert-scratch-owm","api_key_var":"FLEET_ASSERT_SCRATCH_OWM_KEY"}')
-  if [[ "$ic" =~ ^2 ]]; then
-    ok "app-integrations: openweathermap row created (fake key — upstream calls will legitimately fail)"
-    APP_INTEGRATION_OWM_LIVE=1
-    mark_covered "/api/{workspace_id}/app-integrations"
-    CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/app-integrations/openweathermap")
-  else
-    skip "app-integrations openweathermap create returned $ic — weather/current + weather tile left uncovered"
-  fi
-
-  ic2=$(req POST "${S1_BASE}/api/${WS}/app-integrations" /dev/null \
-    '{"kind":"besttime","name":"fleet-assert-scratch-besttime","api_key_var":"FLEET_ASSERT_SCRATCH_BESTTIME_KEY"}')
-  if [[ "$ic2" =~ ^2 ]]; then
-    ok "app-integrations: besttime row created (fake key — upstream calls will legitimately fail)"
-    APP_INTEGRATION_BESTTIME_LIVE=1
-    CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/app-integrations/besttime")
-  else
-    skip "app-integrations besttime create returned $ic2 — foot-traffic/current + foot-traffic/radar left uncovered"
-  fi
-  # DELETE (both kinds) happens in step 10c, after the weather/foot-traffic
-  # CASE TABLE reads below use them.
 
   step "8g. Org logo (PUT then DELETE — self-reverting on the shared org's branding)"
   lc=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X PUT \
@@ -1470,12 +1258,7 @@ add Now  "customer-apps-serve-oxy-starter" GET "/customer-apps/local/oxy-starter
 # OXY_CUSTOMER_APPS_S3_BUCKET in this fleet) reads OXY_STATE_DIR — a node-local
 # path — with no role guard. See the written report for the full trace.
 
-# ── Workspace: git & working copy (Now) ─────────────────────────────────────
-add Now  "branches"          GET "/api/${WS}/branches"                 body   "/api/{workspace_id}/branches"
-add Now  "files-tree"        GET "/api/${WS}/files"                    body   "/api/{workspace_id}/files"
-add Now  "files-diff-summary" GET "/api/${WS}/files/diff-summary"      body   "/api/{workspace_id}/files/diff-summary"
-add Now  "fetch"             POST "/api/${WS}/fetch"                   status "/api/{workspace_id}/fetch"
-add Now  "git-state"         GET "/api/${WS}/git-state"                body   "/api/{workspace_id}/git-state"
+# ── Workspace: meta & settings (Now) ─────────────────────────────────────
 add Now  "logo"              GET "/api/${WS}/logo"                     status "/api/{workspace_id}/logo"  # binary image
 add Now  "logs"              GET "/api/${WS}/logs"                     body   "/api/{workspace_id}/logs"
 add Now  "members"           GET "/api/${WS}/members"                  body   "/api/{workspace_id}/members"
@@ -1485,19 +1268,12 @@ add Now  "test-llm-key"      POST "/api/${WS}/onboarding/test-llm-key" status "/
 add Now  "org-subdomain"     GET "/api/${WS}/org-subdomain"            body   "/api/{workspace_id}/org-subdomain"
 add Now  "oxy-access"        GET "/api/${WS}/oxy-access"               body   "/api/{workspace_id}/oxy-access"
 add Now  "procedures-list"   GET "/api/${WS}/procedures"               body   "/api/{workspace_id}/procedures"
-add Now  "pull-changes"      POST "/api/${WS}/pull-changes"            status "/api/{workspace_id}/pull-changes"
-add Now  "recent-commits"    GET "/api/${WS}/recent-commits"           body   "/api/{workspace_id}/recent-commits"
-add Now  "revision-info"     GET "/api/${WS}/revision-info"            body   "/api/{workspace_id}/revision-info"
 add Now  "secrets-list"      GET "/api/${WS}/secrets"                  body   "/api/{workspace_id}/secrets"
-add Now  "status"            GET "/api/${WS}/status"                  body   "/api/{workspace_id}/status"
 add Now  "threads-list"      GET "/api/${WS}/threads"                  body   "/api/{workspace_id}/threads"
-add Now  "worktrees"         GET "/api/${WS}/worktrees"                body   "/api/{workspace_id}/worktrees"   # normalized: idle_secs
 add Now  "world-model-events" GET "/api/${WS}/world-model/events"      status "/api/{workspace_id}/world-model/events" # SSE, connect-and-check only
 [ -n "$AUTOMATION_PATHB64" ] && add Now "procedures-detail" GET "/api/${WS}/procedures/${AUTOMATION_PATHB64}" body "/api/{workspace_id}/procedures/{path_b64}"
 [ -n "$THREAD_ID" ] && add Now "thread-get"      GET "/api/${WS}/threads/${THREAD_ID}"          body "/api/{workspace_id}/threads/{id}"
 [ -n "$THREAD_ID" ] && add Now "thread-messages" GET "/api/${WS}/threads/${THREAD_ID}/messages" body "/api/{workspace_id}/threads/{id}/messages"
-[ -n "$AGENT_PATHB64" ] && add Now "files-read-agent-yml" GET "/api/${WS}/files/${AGENT_PATHB64}"           body "/api/{workspace_id}/files/{pathb64}"
-[ -n "$AGENT_PATHB64" ] && add Now "files-from-git-agent-yml" GET "/api/${WS}/files/${AGENT_PATHB64}/from-git" body "/api/{workspace_id}/files/{pathb64}/from-git"
 
 # ── Workspace: agentic run surfaces (Now) ───────────────────────────────────
 add Now  "airway-pipelines"  GET "/api/${WS}/airway-pipelines"          body "/api/{workspace_id}/airway-pipelines"
@@ -1521,7 +1297,6 @@ addb Now "semantic-compile"  POST "/api/${WS}/semantic/compile"         body  '{
 add Now  "custom-apps-workspace" GET "/api/${WS}/custom-apps"           body "/api/{workspace_id}/custom-apps"
 add Now  "databases-list"    GET "/api/${WS}/databases?branch=main"     body "/api/{workspace_id}/databases"
 addb Now "compile-post"      POST "/api/${WS}/compile"                 status '{}' "/api/{workspace_id}/compile"
-add Now  "compile-status"    GET "/api/${WS}/compile/status?branch=main" body "/api/{workspace_id}/compile/status"
 # Postgres only: a commit nothing has compiled reads `pending` on every node,
 # with the ide up or down.
 add Now  "compile-staging-status" GET "/api/${WS}/compile/staging/status?git_sha=0000000000000000000000000000000000000000" body "/api/{workspace_id}/compile/staging/status"
@@ -1609,9 +1384,6 @@ fi
 [ -n "$DISPOSABLE_ORG_ID" ] && add Destr "disposable-org-get" GET "/api/orgs/${DISPOSABLE_ORG_ID}" body "/api/orgs/{org_id}"
 [ -n "$DISPOSABLE_ORG_ID" ] && [ -n "$DISPOSABLE_WS_ID" ] && add Destr "disposable-ws-get" GET "/api/orgs/${DISPOSABLE_ORG_ID}/workspaces/${DISPOSABLE_WS_ID}" status "/api/orgs/{org_id}/workspaces/{id}"
 [ -n "$DISPOSABLE_APP_ID" ] && add Destr "disposable-app-get" GET "/api/customer-apps/${DISPOSABLE_APP_ID}" body "/api/customer-apps/{*rest}"
-
-# ── Fixture bucket: scratch-file lifecycle ──────────────────────────────────
-add Fixture "scratch-file-read" GET "/api/${WS}/files/${SCRATCH_FILE_CURRENT_B64:-$SCRATCH_FILE_B64}" body "/api/{workspace_id}/files/{pathb64}"
 
 # ── Fixture bucket: world-model discovery chain ─────────────────────────────
 if [ -n "$ENTITY_NAME" ] && [ -n "$WM_SEED_KEY" ]; then
@@ -1709,38 +1481,21 @@ add Fixture "databases-inspect" POST "/api/${WS}/databases/inspect?database=loca
 # `addb` — only the method changes.
 add Fixture "databases-inspect-schemas" POST "/api/${WS}/databases/inspect-schemas?database=local" workspace_local "/api/{workspace_id}/databases/inspect-schemas"
 add Fixture "databases-inspect-schema-tables" POST "/api/${WS}/databases/inspect-schema-tables?database=local&schema=main" workspace_local "/api/{workspace_id}/databases/inspect-schema-tables"
-# test-connection and sync are IdeOnly — all three nodes self-proxy to the
-# SAME ide process that owns the working copy, so no serve/ide asymmetry is
-# possible here at all; status agreement is the correct, non-shallow check.
+# test-connection is IdeOnly — all three nodes self-proxy to the SAME ide
+# process, so no serve/ide asymmetry is possible here at all; status agreement
+# is the correct, non-shallow check.
 addb Fixture "databases-test-connection" POST "/api/${WS}/databases/test-connection" status \
   '{"warehouse":{"type":"duckdb","name":"local","config":{"file_search_path":".db/"}}}' "/api/{workspace_id}/databases/test-connection"
-add Fixture "databases-sync" POST "/api/${WS}/databases/sync?database=local" status "/api/{workspace_id}/databases/sync"
 
 # ── Fixture bucket: world-model proxy routes (weather/foot-traffic/competitors)
-# Real, comparable requests once a real integration row exists (see 8f) — the
-# upstream call itself legitimately fails on a fake key (502), which is still
-# a real, comparable response reaching the handler, not a fixture-design gap.
 # Competitors needs NO integration at all — it calls the public OSM Overpass
 # API directly.
 addb Fixture "world-model-competitors" POST "/api/${WS}/world-model/competitors" status \
   '{"anchors":[{"lat":40.7128,"lon":-74.006}],"radius_m":500}' "/api/{workspace_id}/world-model/competitors"
-if [ "$APP_INTEGRATION_OWM_LIVE" = "1" ]; then
-  addb Fixture "world-model-weather-current" POST "/api/${WS}/world-model/weather/current" status \
-    '[{"key":"probe","lat":40.7128,"lon":-74.006}]' "/api/{workspace_id}/world-model/weather/current"
-  add Fixture "world-model-weather-tile" GET "/api/${WS}/world-model/weather/temp_new/0/0/0" status \
-    "/api/{workspace_id}/world-model/weather/{layer}/{z}/{x}/{y}"
-else
-  skip "no openweathermap app-integration — world-model/weather/current, weather tile left uncovered"
-fi
-if [ "$APP_INTEGRATION_BESTTIME_LIVE" = "1" ]; then
-  addb Fixture "world-model-foot-traffic-current" POST "/api/${WS}/world-model/foot-traffic/current" status \
-    '[{"key":"probe","venue_name":"Fleet Assert Probe","venue_address":"1 Market St, San Francisco, CA"}]' \
-    "/api/{workspace_id}/world-model/foot-traffic/current"
-  addb Fixture "world-model-foot-traffic-radar" POST "/api/${WS}/world-model/foot-traffic/radar" status \
-    '[{"key":"probe","lat":37.7749,"lon":-122.4194,"radius":500}]' "/api/{workspace_id}/world-model/foot-traffic/radar"
-else
-  skip "no besttime app-integration — world-model/foot-traffic/current, foot-traffic/radar left uncovered"
-fi
+# weather and foot-traffic need an app integration, which is declared in the
+# workspace's config.yml and no longer written through the product API: left
+# uncovered here.
+skip "no app integration fixture — world-model/weather/* and world-model/foot-traffic/* left uncovered"
 
 # ── Fixture bucket: automation-run-id reads + coordinator + cancel no-op ────
 if [ -n "$AUTOMATION_RUN_ID" ]; then
@@ -1926,41 +1681,6 @@ for base in "$S1_BASE" "$S2_BASE" "$IDE_BASE"; do
   [ "$c" = "200" ] && ok "logout on $base: $c" || bad "logout on $base: expected 200, got $c"
 done
 mark_covered "/api/logout"
-
-# ── 10c. Finalize this run's own delete-only-verb fixtures NOW (counted) ───
-# These routes have DELETE as their only verb, so — unlike everything above —
-# there is no GET to fold coverage into. They must actually run, and run
-# BEFORE the coverage report below, to be counted honestly rather than
-# silently happening later in the EXIT trap (which is best-effort cleanup,
-# not something the coverage report can see). The trap's CLEANUP_CMDS entries
-# for these same resources are left in place as a redundant safety net —
-# deleting an already-deleted resource twice 404s harmlessly.
-step "10c. Finalize delete-only-verb fixtures (files, app-integrations)"
-if [ "$SCRATCH_FILE_LIVE" = "1" ]; then
-  dfc=$(req DELETE "${S1_BASE}/api/${WS}/files/${SCRATCH_FILE_CURRENT_B64:-$SCRATCH_FILE_B64}/delete-file" /dev/null)
-  [[ "$dfc" =~ ^2 ]] && ok "files/{pathb64}/delete-file: $dfc" || bad "files/{pathb64}/delete-file: expected 2xx, got $dfc"
-  mark_covered "/api/{workspace_id}/files/{pathb64}/delete-file"
-  # It was a real, passing GET during the CASE TABLE loop (scratch-file-read)
-  # and so is already queued in REPLAYABLE_GET — stop that replay now that
-  # we've just deleted the thing it would GET.
-  strip_replayable "/api/${WS}/files/${SCRATCH_FILE_CURRENT_B64:-$SCRATCH_FILE_B64}"
-fi
-if [ "$SCRATCH_FOLDER_LIVE" = "1" ]; then
-  dfoc=$(req DELETE "${S1_BASE}/api/${WS}/files/${SCRATCH_FOLDER_B64}/delete-folder" /dev/null)
-  [[ "$dfoc" =~ ^2 ]] && ok "files/{pathb64}/delete-folder: $dfoc" || bad "files/{pathb64}/delete-folder: expected 2xx, got $dfoc"
-  mark_covered "/api/{workspace_id}/files/{pathb64}/delete-folder"
-fi
-if [ "$APP_INTEGRATION_OWM_LIVE" = "1" ]; then
-  aic=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X DELETE -H "Authorization: $TOKEN" \
-    "${S1_BASE}/api/${WS}/app-integrations/openweathermap")
-  [[ "$aic" =~ ^2 ]] && ok "app-integrations/{kind} DELETE (openweathermap): $aic" || bad "app-integrations/{kind} DELETE (openweathermap): expected 2xx, got $aic"
-  mark_covered "/api/{workspace_id}/app-integrations/{kind}"
-fi
-if [ "$APP_INTEGRATION_BESTTIME_LIVE" = "1" ]; then
-  aic2=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X DELETE -H "Authorization: $TOKEN" \
-    "${S1_BASE}/api/${WS}/app-integrations/besttime")
-  [[ "$aic2" =~ ^2 ]] && ok "app-integrations/{kind} DELETE (besttime): $aic2" || bad "app-integrations/{kind} DELETE (besttime): expected 2xx, got $aic2"
-fi
 
 # ══ COVERAGE REPORT ═══════════════════════════════════════════════════════════
 step "11. Coverage report"

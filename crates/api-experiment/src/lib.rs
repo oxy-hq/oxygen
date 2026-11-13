@@ -18,8 +18,7 @@
 //!   merged INSIDE the `/{workspace_id}` nest, so the handlers inherit the auth
 //!   stack and `workspace_middleware` exactly as they did in `oxy-app`'s
 //!   `build_workspace_routes`. Every route is FleetOk — Postgres rows, the
-//!   compile boundary, or an enqueue — except write-back apply, which creates a
-//!   git worktree and branch in the working copy and is declared IdeOnly.
+//!   compile boundary, or an enqueue.
 //! * [`tasks`] — `SurfaceSeams::tasks`: the five `TaskSpec::Custom` kinds the
 //!   worker fleet runs for this context (a simulation run, the price job, the
 //!   read-back check, the estimate, the interim reading).
@@ -48,14 +47,10 @@ pub mod simulation;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{Request, State};
-use axum::handler::Handler;
-use axum::response::Response;
 use axum::routing::{get, post};
-use oxy_app::surface::fleet::IdeState;
 use oxy_app::surface::seams::{GlobalTickSeam, TaskSeam};
 use oxy_app_core::AppState;
-use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
+use oxy_shared::fleet_role::RouteRoleDecl;
 
 // The handler modules under the names the route table names them by: the
 // route-catalog walker (`crates/route-catalog/build_route_catalog.rs`) resolves
@@ -144,42 +139,15 @@ pub fn workspace_routes() -> Router<AppState> {
             "/experiments/{name}/interim",
             get(experiment_api::get_interim).post(experiment_api::post_interim),
         )
-        // Creates a git worktree + branch in the working copy: IdeOnly, see
-        // `apply_write_back_on_ide` and `workspace_route_roles`.
-        .route(
-            "/experiments/{name}/write-back/apply",
-            post(apply_write_back_on_ide),
-        )
 }
 
-/// Write-back apply takes `WorkspaceRootWorkingCopy`, which resolves only from
-/// `oxy-app`'s `IdeState` — the type gate that keeps a handler needing the
-/// working copy off a fleet route. A seam router is a `Router<AppState>`, so
-/// this adapter runs the handler on the ide state explicitly, and
-/// [`workspace_route_roles`] declares the route IdeOnly: the same two facts
-/// `route_ide` stated when the route lived inside `oxy-app`. A fleet replica
-/// never sees the request — `role_middleware` relays it to the ide — so the
-/// extractor's "no working copy here" answer is for a misconfigured fleet, not
-/// a normal path.
-async fn apply_write_back_on_ide(State(app): State<AppState>, req: Request) -> Response {
-    Handler::call(experiment_api::apply_write_back, req, IdeState(app)).await
-}
-
-/// The routes in [`workspace_routes`] that may not take the FleetOk default.
-/// Relative to `/{workspace_id}`, like `oxy-api-tenancy`'s onboarding
-/// declarations: `oxy-server` merges this crate inside the workspace nest.
-///
-/// One entry, and the rest is deliberate: every other route here is Postgres,
-/// the compile boundary or an enqueue, so it stays FleetOk by default — reading
-/// a sealed result has to survive a deploy. Write-back apply creates a git
-/// worktree and branch, which only the ide singleton holds. `"*"` as
-/// `route_ide` declared it inside `oxy-app`.
+/// The routes in [`workspace_routes`] that may not take the FleetOk default:
+/// none. Every route here is Postgres, the compile boundary or an enqueue.
+/// Relative to `/{workspace_id}`; `oxy-server` merges this crate inside the
+/// workspace nest. Write-back apply, the one IdeOnly route, was removed with
+/// the IDE.
 pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
-    &[RouteRoleDecl {
-        method: "*",
-        path: "/experiments/{name}/write-back/apply",
-        role: RouteRole::IdeOnly,
-    }]
+    &[]
 }
 
 /// The `TaskSpec::Custom` kinds this context queues, each with the executor
@@ -329,10 +297,6 @@ mod tests {
             ("GET", format!("/{ws}/experiments/promo_pilot/result")),
             ("GET", format!("/{ws}/experiments/promo_pilot/interim")),
             ("POST", format!("/{ws}/experiments/promo_pilot/interim")),
-            (
-                "POST",
-                format!("/{ws}/experiments/promo_pilot/write-back/apply"),
-            ),
         ] {
             let request = Request::builder()
                 .method(method)

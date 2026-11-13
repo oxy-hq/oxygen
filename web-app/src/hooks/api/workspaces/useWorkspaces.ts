@@ -1,21 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
-import useIdeRetired from "@/hooks/useIdeRetired";
 import { WorkspaceService, type WorkspaceSummary } from "@/services/api/workspaces";
 import useCurrentOrg from "@/stores/useCurrentOrg";
-import type { Workspace, WorkspaceBranchesResponse } from "@/types/workspace";
+import type { Workspace } from "@/types/workspace";
 import queryKeys from "../queryKey";
 import { deriveMaterializingState, shouldRetryWorkspaceQuery } from "./materializing";
 
 export const useWorkspace = (workspaceId: string) => {
-  // Apps-first: no `/git-state` for someone who may not use the Factory.
-  const gitStateOnlyForFactory = useAppsFirstExperience();
-  // IDE retired: no `/git-state` at all; the server refuses it.
-  const ideRetired = useIdeRetired();
   const query = useQuery<Workspace>({
     queryKey: queryKeys.workspaces.item(workspaceId),
-    queryFn: () =>
-      WorkspaceService.getWorkspace(workspaceId, { gitStateOnlyForFactory, ideRetired }),
+    queryFn: () => WorkspaceService.getWorkspace(workspaceId),
     // The working copy isn't on disk YET (pod restart / rolling update). That's
     // a readiness state, not a failure — keep retrying instead of surfacing it,
     // or the shell toasts and redirects on a condition that fixes itself.
@@ -26,167 +19,6 @@ export const useWorkspace = (workspaceId: string) => {
   return { ...query, ...deriveMaterializingState(query) };
 };
 
-export const useWorkspaceBranches = (workspaceId: string) => {
-  return useQuery<WorkspaceBranchesResponse>({
-    queryKey: queryKeys.workspaces.branches(workspaceId),
-    queryFn: () => WorkspaceService.getWorkspaceBranches(workspaceId),
-    enabled: !!workspaceId
-  });
-};
-
-export const useSwitchWorkspaceBranch = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({
-      workspaceId,
-      branchName,
-      baseBranch
-    }: {
-      workspaceId: string;
-      branchName: string;
-      baseBranch?: string;
-    }) => WorkspaceService.switchWorkspaceBranch(workspaceId, branchName, baseBranch),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.item(variables.workspaceId)
-      });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.branches(variables.workspaceId)
-      });
-    }
-  });
-};
-
-export const usePullChanges = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ workspaceId, branchName }: { workspaceId: string; branchName: string }) =>
-      WorkspaceService.pullChanges(workspaceId, branchName),
-    onSuccess: (_, variables) => {
-      // `refetchType: "all"` covers inactive observers so the status
-      // updates even if BranchInfo unmounts during navigation.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.revisionInfo(variables.workspaceId, variables.branchName),
-        refetchType: "all"
-      });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.file.all(variables.workspaceId, variables.branchName),
-        refetchType: "all"
-      });
-      // Pull does a `git fetch` under the hood — remote refs may have moved.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.branches(variables.workspaceId)
-      });
-    }
-  });
-};
-
-export const useFetchRemote = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ workspaceId, branchName }: { workspaceId: string; branchName: string }) =>
-      WorkspaceService.fetchRemote(workspaceId, branchName),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.revisionInfo(variables.workspaceId, variables.branchName),
-        refetchType: "all"
-      });
-      // Fetch can flip a branch's `origin` (e.g. `local_only` → `both`).
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.branches(variables.workspaceId)
-      });
-    }
-  });
-};
-
-export const useDeleteBranch = (workspaceId: string) => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (branchName: string) => WorkspaceService.deleteBranch(workspaceId, branchName),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.branches(workspaceId)
-      });
-    }
-  });
-};
-
-export const useForcePush = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ workspaceId, branchName }: { workspaceId: string; branchName: string }) =>
-      WorkspaceService.forcePushBranch(workspaceId, branchName),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.revisionInfo(variables.workspaceId, variables.branchName)
-      });
-      // Force-push may have created the remote ref — refresh the badge.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.branches(variables.workspaceId)
-      });
-    }
-  });
-};
-
-export const useDiscardAllChanges = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ workspaceId, branchName }: { workspaceId: string; branchName: string }) =>
-      WorkspaceService.discardAllChanges(workspaceId, branchName),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.revisionInfo(variables.workspaceId, variables.branchName)
-      });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.file.all(variables.workspaceId, variables.branchName)
-      });
-    }
-  });
-};
-
-export const usePushChanges = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({
-      workspaceId,
-      branchName,
-      commitMessage
-    }: {
-      workspaceId: string;
-      branchName: string;
-      commitMessage?: string;
-    }) => WorkspaceService.pushChanges(workspaceId, branchName, commitMessage),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.revisionInfo(variables.workspaceId, variables.branchName)
-      });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.file.all(variables.workspaceId, variables.branchName)
-      });
-      // First push creates the remote ref, flipping `origin` from
-      // `local_only` to `both` — refresh the badge.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaces.branches(variables.workspaceId)
-      });
-    }
-  });
-};
-
-/**
- * Fetches the workspace list for an org.
- *
- * Default reads the org id from the currentOrg Zustand store. Callers that
- * already know which org they're asking about (e.g. the dispatcher which
- * computes chosenOrg before the store is primed) should pass `orgIdOverride`
- * so the query key and fetched data can never drift out of sync with the
- * store while it catches up.
- */
 export const useAllWorkspaces = (orgIdOverride?: string) => {
   const storeOrgId = useCurrentOrg((s) => s.org?.id);
   const orgId = orgIdOverride ?? storeOrgId;

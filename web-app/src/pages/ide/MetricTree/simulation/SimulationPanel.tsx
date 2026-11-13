@@ -8,12 +8,11 @@ import {
   useStartSimulationRun
 } from "@/hooks/api/useSimulation";
 import useTheme from "@/stores/useTheme";
-import { POLICIES, type SimulationSummary } from "@/types/simulation";
+import { POLICIES } from "@/types/simulation";
 import { SectionHeader } from "../../components/semanticGraph";
 import { convergenceOptions, profitRaceOptions } from "./charts";
 import { EdgeLabel } from "./EdgeLabel";
 import { type Arm, PeriodStepper, RACE, RunPicker, WorldsBar } from "./RunControls";
-import { SimulationFormDialog } from "./SimulationForm";
 import { TruthBadge } from "./TruthBadge";
 
 /**
@@ -39,9 +38,6 @@ export default function SimulationPanel() {
   // The product is the default arm: a run nobody parameterised should be a run
   // of the thing we ship.
   const [arm, setArm] = useState<Arm>("machine");
-  // `undefined` means "closed"; otherwise which world the dialog edits, or
-  // `null` for "create a new one".
-  const [editingWorld, setEditingWorld] = useState<SimulationSummary | null | undefined>(undefined);
 
   // Defaults to the first declared world until someone picks a different one.
   const worldName = selectedWorld ?? worlds[0]?.name;
@@ -104,21 +100,6 @@ export default function SimulationPanel() {
             }
           );
         }}
-        onNewWorld={() => setEditingWorld(null)}
-        onEditWorld={() => {
-          const found = worlds.find((w) => w.name === worldName);
-          if (found) setEditingWorld(found);
-        }}
-      />
-
-      <SimulationFormDialog
-        open={editingWorld !== undefined}
-        onOpenChange={(open) => {
-          if (!open) setEditingWorld(undefined);
-        }}
-        world={editingWorld ?? undefined}
-        existingNames={worlds.map((w) => w.name)}
-        onSaved={(name) => setSelectedWorld(name)}
       />
 
       <RunPicker

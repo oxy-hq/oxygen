@@ -1,8 +1,6 @@
 import { isAxiosError } from "axios";
 import type React from "react";
-import { toast } from "sonner";
 import { AirhouseLogo } from "@/components/icons";
-import useAddAirhouseToConfig from "@/hooks/api/airhouse/useAddAirhouseToConfig";
 import useAirhouseConnection from "@/hooks/api/airhouse/useAirhouseConnection";
 import useProvisionAirhouse from "@/hooks/api/airhouse/useProvisionAirhouse";
 import useAuthConfig from "@/hooks/auth/useAuthConfig";
@@ -27,7 +25,6 @@ const Airhouse: React.FC = () => {
   const workspaceId = workspace?.id;
   const { data: connection, isLoading, error } = useAirhouseConnection(workspaceId);
   const provision = useProvisionAirhouse(workspaceId);
-  const addToConfig = useAddAirhouseToConfig();
 
   // Provisioning creates a tenant-wide resource and a service account; only
   // org Owner/Admin should be able to do it. Non-admins still see the page
@@ -50,21 +47,6 @@ const Airhouse: React.FC = () => {
       await provision.mutateAsync({ tenantName });
     } catch {
       // Error surfaced inline via `provision.error` in <ProvisionPrompt/>.
-    }
-  };
-
-  const handleAddToConfig = async (name: string) => {
-    try {
-      const result = await addToConfig.mutateAsync({ name });
-      if (result === "already_present") {
-        toast.info("airhouse_managed is already in config.yml");
-      } else {
-        toast.success(`Added '${name}' database to config.yml — commit to persist the change`);
-      }
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to add airhouse_managed to config.yml"
-      );
     }
   };
 
@@ -107,11 +89,7 @@ const Airhouse: React.FC = () => {
     }
     return (
       <>
-        <ConnectionDetails
-          connection={connection}
-          onAddToConfig={handleAddToConfig}
-          isAddingToConfig={addToConfig.isPending}
-        />
+        <ConnectionDetails connection={connection} />
         {/* Both catalog-index routes are org-admin-gated server-side
             (`require_workspace_admin`), the GET included — so a non-admin can't
             read this state at all. Rendering it anyway fired a 403 on every

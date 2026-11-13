@@ -300,8 +300,22 @@ const artifactKeys = {
 
 const contextGraphKeys = {
   all: ["context-graph"] as const,
+  // branchName is the preview LABEL (see PreviewPinContext): it keeps a pinned
+  // preview's graph cached apart from the live one. It is not sent as ?branch=.
   graph: (projectId: string, branchName: string) =>
     [...contextGraphKeys.all, "graph", projectId, branchName] as const
+};
+
+const revisionFileKeys = {
+  all: ["revision-files"] as const,
+  // branchName is the preview LABEL, as for contextGraphKeys: a pinned
+  // preview's files are cached apart from the live revision's.
+  served: (projectId: string, branchName: string) =>
+    [...revisionFileKeys.all, "served", projectId, branchName] as const,
+  list: (projectId: string, branchName: string) =>
+    [...revisionFileKeys.all, "list", projectId, branchName] as const,
+  file: (projectId: string, branchName: string, path: string) =>
+    [...revisionFileKeys.all, "file", projectId, branchName, path] as const
 };
 
 const integrationKeys = {
@@ -862,6 +876,8 @@ const appIntegrationKeys = {
 
 const semanticKeys = {
   all: ["semantic"] as const,
+  objects: (projectId: string, branchName: string) =>
+    [...semanticKeys.all, "objects", projectId, branchName] as const,
   topicDetails: (projectId: string, filePathB64: string | undefined, branchName?: string) =>
     [...semanticKeys.all, "topicDetails", projectId, filePathB64, branchName] as const,
   viewDetails: (projectId: string, filePathB64: string | undefined, branchName?: string) =>
@@ -1238,6 +1254,7 @@ const queryKeys = {
   config: configKeys,
   artifact: artifactKeys,
   contextGraph: contextGraphKeys,
+  revisionFiles: revisionFileKeys,
   integration: integrationKeys,
   slack: slackKeys,
   trace: traceKeys,

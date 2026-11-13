@@ -7,15 +7,15 @@
 
 use std::sync::Arc;
 
-use axum::routing::{delete, get, post, put};
+use axum::routing::{get, post, put};
 
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
 use crate::api::{
-    agent, api_keys, apps, artifacts, automation, chart, compile, compile_staging, data, database,
-    execution_analytics, file, integration, local_setup, metric_anomalies, metric_tree,
+    agent, api_keys, apps, artifacts, automation, chart, compile_staging, data, database,
+    execution_analytics, integration, local_setup, metric_anomalies, metric_tree,
     metric_tree_probe, metric_tree_projection, metrics, org_subdomain, preagg, result_files,
-    schedules, semantic, thread, traces, video, workspace_logo, workspace_members,
+    schedules, semantic, semantic_scan, thread, traces, video, workspace_logo, workspace_members,
     workspace_oxy_access, workspaces,
 };
 
@@ -28,22 +28,12 @@ use super::secrets::build_secret_routes;
 pub(super) fn build_workspace_routes(
     app_state: AppState,
     agentic_state: Arc<AgenticState>,
-    include_git_features: bool,
     include_local_setup: bool,
 ) -> RoleRouter {
     let mut router = RoleRouter::new(app_state.clone())
         // `/details` served both halves and was the last route needing the
         // ide-down degrade mechanism. The frontend fetches these two instead.
         .route_fleet("/meta", get(workspaces::get_workspace_meta))
-        .route_ide("/git-state", get(workspaces::get_workspace_git_state))
-        .route_ide("/status", get(workspaces::get_workspace_status))
-        // Diagnostic: the workspace's live git-worktree lifecycle on the ide
-        // (branch / idle / clean / would-reap). IdeOnly — the registry is
-        // ide-local, so the serve fleet forwards here.
-        .route_ide(
-            "/worktrees",
-            get(crate::server::worktree_registry::get_worktree_status),
-        )
         // Camera fleet operator endpoints (sites / cameras / edge-boxes /
         // UniFi integration). Mounted here so `workspace_middleware`
         // (cloud) / `local_context_middleware` (local) gate them, and
@@ -84,21 +74,11 @@ pub(super) fn build_workspace_routes(
             "/api-tokens",
             get(crate::server::api::user_tokens::inventory::list_workspace_tokens),
         )
-        .nest(
-            "/files",
-            build_file_routes(&app_state, include_git_features),
-        )
-        // Compile boundary surface: the user-facing Compile button in
-        // the IDE header. Gated by `WorkspaceEditor` and the active
-        // branch must match the workspace's default branch.
-        .route_ide("/compile", post(compile::enqueue_compile))
-        .route_ide("/compile/status", get(compile::compile_status))
         // Staging branch compile for a custom-app draft build to pin
         // (`oxyc publish --semantic-branch`). The POST asks GitHub where the
         // branch is and queues a compile of that commit; the status reads
-        // Postgres. Both FleetOk. A branch GitHub does not have is the one
-        // case that needs a working copy, and the handler sends that request
-        // on itself (`server::factory_replay`).
+        // Postgres. Both FleetOk. A branch GitHub does not have is refused
+        // with the reason.
         .route_fleet(
             "/compile/staging",
             post(compile_staging::enqueue_staging_compile),
@@ -170,6 +150,27 @@ pub(super) fn build_workspace_routes(
         // explorer + SQL preview panel keep working without re-introducing
         // a workflow dependency on the request path. Compile reaches
         // into airlayer via `agentic_automation::semantic_bridge`.
+        // The views and topics the workspace serves, for the explorer's list
+        // and the pickers: the revision (or single-process mode's directory).
+        .route_fleet(
+            "/semantic/objects",
+            get(semantic_scan::list_semantic_objects),
+        )
+        // The Context Graph page's views, topics, automations, agents and
+        // verified-query paths, from the served revision (it read `/files`).
+        .route_fleet(
+            "/context-graph/sources",
+            get(semantic_scan::get_context_graph_sources),
+        )
+        // The Factory's read-only file browser: the served revision's files
+        // and one file's content, from the compiled rows (it read `/files`).
+        // The revision this request reads and its commit, for the top bar.
+        .route_fleet("/revision", get(semantic_scan::get_served_revision))
+        .route_fleet("/revision/files", get(semantic_scan::get_revision_files))
+        .route_fleet(
+            "/revision/files/content",
+            get(semantic_scan::get_revision_file),
+        )
         .route_fleet(
             "/semantic/topic/{file_path_b64}",
             get(semantic::get_topic_details),
@@ -200,8 +201,7 @@ pub(super) fn build_workspace_routes(
         .merge(build_metric_tree_routes(&app_state))
         // Declared worlds and their runs, and experiments, are
         // `oxy-api-experiment`'s: merged inside this nest by `oxy-server` through
-        // `SurfaceSeams::workspace`, with the IdeOnly write-back apply declared
-        // in its `workspace_route_roles`.
+        // `SurfaceSeams::workspace`; every route there is FleetOk.
         // The World Model Graph (`/semantic/world-model*`) and peer cohorts
         // (`/semantic/cohort`) are `oxy-api-world-model`'s, merged inside this
         // nest by `oxy-server` through `SurfaceSeams::workspace`, all FleetOk
@@ -273,10 +273,6 @@ pub(super) fn build_workspace_routes(
             "/agentic-schedules",
             build_schedule_routes(&app_state, agentic_state),
         );
-
-    if include_git_features {
-        router = router.merge(build_git_routes(&app_state));
-    }
 
     if include_local_setup {
         router = router
@@ -368,38 +364,6 @@ pub(super) fn build_external_workspace_routes(
             agentic_router(agentic_state),
             agentic_http::router_roles(),
         )
-}
-
-/// Git-backed workspace routes: local and remote git operations on the
-/// workspace itself. Mounted only when `include_git_features` is true —
-/// local mode (`ServeMode::Local`) omits the entire set.
-fn build_git_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone())
-        .route_ide("/branches", get(workspaces::get_workspace_branches))
-        .route_ide("/branches/{branch_name}", delete(workspaces::delete_branch))
-        .route_ide("/switch-branch", post(workspaces::switch_workspace_branch))
-        .route_ide("/pull-changes", post(workspaces::pull_changes))
-        .route_ide("/fetch", post(workspaces::fetch_changes))
-        .route_ide("/push-changes", post(workspaces::push_changes))
-        .route_ide("/abort-rebase", post(workspaces::abort_rebase))
-        .route_ide("/continue-rebase", post(workspaces::continue_rebase))
-        .route_ide(
-            "/resolve-conflict-file",
-            post(workspaces::resolve_conflict_file),
-        )
-        .route_ide(
-            "/unresolve-conflict-file",
-            post(workspaces::unresolve_conflict_file),
-        )
-        .route_ide(
-            "/resolve-conflict-with-content",
-            post(workspaces::resolve_conflict_with_content),
-        )
-        .route_ide("/force-push", post(workspaces::force_push_branch))
-        .route_ide("/discard-all", post(workspaces::discard_all_changes))
-        .route_ide("/recent-commits", get(workspaces::get_recent_commits))
-        .route_ide("/revision-info", get(workspaces::get_revision_info))
-        .route_ide("/reset-to-commit", post(workspaces::reset_to_commit))
 }
 
 // `build_workflow_routes` and `build_automation_routes` were retired
@@ -542,39 +506,11 @@ fn build_schedule_routes(app_state: &AppState, agentic_state: Arc<AgenticState>)
         .map_router(|r| r.layer(Extension(agentic_state)))
 }
 
-fn build_file_routes(app_state: &AppState, include_git_features: bool) -> RoleRouter {
-    let mut router = RoleRouter::new(app_state.clone())
-        .route_ide("/", get(file::get_file_tree))
-        .route_ide("/{pathb64}", get(file::get_file).post(file::save_file))
-        .route_ide("/{pathb64}/delete-file", delete(file::delete_file))
-        .route_ide("/{pathb64}/delete-folder", delete(file::delete_folder))
-        .route_ide("/{pathb64}/rename-file", put(file::rename_file))
-        .route_ide("/{pathb64}/rename-folder", put(file::rename_folder))
-        .route_ide("/{pathb64}/new-file", post(file::create_file))
-        .route_ide("/{pathb64}/new-folder", post(file::create_folder));
-
-    if include_git_features {
-        router = router
-            .route_ide("/diff-summary", get(file::get_diff_summary))
-            .route_ide("/{pathb64}/from-git", get(file::get_file_from_git))
-            .route_ide("/{pathb64}/revert", post(file::revert_file));
-    }
-
-    router
-}
-
 fn build_database_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone())
         // The list degrades to `datasets: null` without a working copy and the
-        // launcher readiness check calls it on every page load; creating one
-        // writes `config.yml`.
-        .route_split(
-            "/",
-            "POST",
-            post(database::create_database_config),
-            "GET",
-            get(database::list_databases),
-        )
+        // launcher readiness check calls it on every page load.
+        .route_fleet("/", get(database::list_databases))
         .route_ide("/test-connection", post(database::test_database_connection))
         .route_fleet("/inspect", post(database::inspect_database_handler))
         .route_fleet("/inspect-schemas", post(database::inspect_schemas_handler))
@@ -582,9 +518,6 @@ fn build_database_routes(app_state: &AppState) -> RoleRouter {
             "/inspect-schema-tables",
             post(database::inspect_schema_tables_handler),
         )
-        .route_ide("/sync", post(database::sync_database))
-        .route_ide("/build", post(data::build_embeddings))
-        .route_ide("/clean", post(database::clean_data))
         .route_fleet(
             "/{database_name}/schema",
             get(database::get_database_schema),
@@ -611,15 +544,7 @@ fn build_integration_routes(app_state: &AppState) -> RoleRouter {
 /// BestTime integration entries surfaced in the Workspace Settings →
 /// Apps tab.
 fn build_app_integration_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone())
-        .route_split(
-            "/",
-            "POST",
-            post(apps::upsert_app),
-            "GET",
-            get(apps::list_apps),
-        )
-        .route_ide("/{kind}", delete(apps::delete_app))
+    RoleRouter::new(app_state.clone()).route_fleet("/", get(apps::list_apps))
 }
 
 /// Workspace previews, mounted at `/{workspace_id}/previews` BESIDE the
@@ -634,9 +559,7 @@ fn build_app_integration_routes(app_state: &AppState) -> RoleRouter {
 ///
 /// Every route here is on the fleet. Creating and refreshing ask GitHub where
 /// the branch is and queue a compile of that commit; the rest touch only
-/// Postgres. A branch GitHub does not have is the one case that needs a working
-/// copy, and those two handlers send that request on themselves
-/// (`server::factory_replay`).
+/// Postgres. A branch GitHub does not have is refused with the reason.
 pub(super) fn build_workspace_preview_routes(app_state: &AppState) -> RoleRouter {
     use crate::api::workspace_previews as previews;
     RoleRouter::new(app_state.clone())
@@ -719,13 +642,13 @@ mod tests {
         router.oneshot(req).await.unwrap().status()
     }
 
-    /// Every git-shaped route must 404 when `include_git_features: false`.
-    /// This is the invariant that guarantees local mode cannot reach a
-    /// git handler regardless of how the caller is wired.
+    /// The IDE's git and file routes are gone: every one 404s. Workspaces are
+    /// edited in their repository (`internal-docs/factory-retirement.md`,
+    /// phase 5).
     #[tokio::test]
-    async fn git_routes_absent_when_flag_disabled() {
+    async fn the_ide_git_and_file_routes_are_gone() {
         let state = test_app_state();
-        let router = build_workspace_routes(state.clone(), test_agentic_state(), false, false)
+        let router = build_workspace_routes(state.clone(), test_agentic_state(), false)
             .into_router()
             .with_state(state);
 
@@ -746,8 +669,20 @@ mod tests {
             ("GET", "/recent-commits"),
             ("GET", "/revision-info"),
             ("POST", "/reset-to-commit"),
+            ("GET", "/files"),
+            ("GET", "/files/Zm9vLnltbA=="),
+            ("POST", "/files/Zm9vLnltbA=="),
             ("GET", "/files/Zm9vLnltbA==/from-git"),
             ("POST", "/files/Zm9vLnltbA==/revert"),
+            ("GET", "/git-state"),
+            ("GET", "/status"),
+            ("GET", "/worktrees"),
+            ("POST", "/compile"),
+            ("GET", "/compile/status"),
+            ("POST", "/databases/sync"),
+            ("POST", "/databases/build"),
+            ("POST", "/databases/clean"),
+            ("DELETE", "/app-integrations/toast"),
         ];
 
         for (method, path) in cases {
@@ -756,34 +691,16 @@ mod tests {
             assert_eq!(
                 status,
                 StatusCode::NOT_FOUND,
-                "{method} {path} must 404 when git is disabled (got {status})"
+                "{method} {path} must 404: the IDE route is removed (got {status})"
             );
         }
-    }
-
-    /// Sanity check: when the flag is on, the same routes are mounted.
-    /// We only assert `!= 404` — the actual status depends on handler
-    /// behavior under a stripped harness, which is out of scope.
-    #[tokio::test]
-    async fn git_routes_present_when_flag_enabled() {
-        let state = test_app_state();
-        let router = build_workspace_routes(state.clone(), test_agentic_state(), true, false)
-            .into_router()
-            .with_state(state);
-
-        let status = status_for(router, "GET", "/branches").await;
-        assert_ne!(
-            status,
-            StatusCode::NOT_FOUND,
-            "/branches must be mounted when git is enabled"
-        );
     }
 
     /// Setup endpoints are mounted when `include_local_setup: true` (local mode).
     #[tokio::test]
     async fn setup_routes_present_when_include_local_setup_true() {
         let state = test_app_state();
-        let router = build_workspace_routes(state.clone(), test_agentic_state(), false, true)
+        let router = build_workspace_routes(state.clone(), test_agentic_state(), true)
             .into_router()
             .with_state(state);
 
@@ -803,7 +720,7 @@ mod tests {
     #[tokio::test]
     async fn setup_routes_absent_when_include_local_setup_false() {
         let state = test_app_state();
-        let router = build_workspace_routes(state.clone(), test_agentic_state(), true, false)
+        let router = build_workspace_routes(state.clone(), test_agentic_state(), false)
             .into_router()
             .with_state(state);
 
@@ -830,7 +747,7 @@ mod tests {
     #[tokio::test]
     async fn camera_operator_routes_mounted_inside_workspace_tree() {
         let state = test_app_state();
-        let router = build_workspace_routes(state.clone(), test_agentic_state(), false, false)
+        let router = build_workspace_routes(state.clone(), test_agentic_state(), false)
             .into_router()
             .with_state(state);
 

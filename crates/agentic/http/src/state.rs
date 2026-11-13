@@ -46,17 +46,6 @@ pub struct AgenticState {
     /// workflow on its own subject-less context. So the starts stay in the
     /// request's process until every driver is on a build that runs them.
     pub queued_starts: Arc<dyn Fn() -> bool + Send + Sync>,
-    /// Whether this process holds the workspace working copy (the Factory, or
-    /// a single-process `OXY_ROLE=all` server). A Builder run edits workspace
-    /// files and is driven in the memory of the process that started it, so a
-    /// process without the files refuses to start one, or to resume one, on the
-    /// customer routes and names the Builder routes instead
-    /// ([`crate::routes::run::BUILDER_START_ROUTE`]). The role manifest pins
-    /// those to the Factory.
-    ///
-    /// **True unless the host says otherwise**, which is what every process was
-    /// assumed to be before the analytics routes left the Factory.
-    pub holds_working_copy: Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
 impl AgenticState {
@@ -75,7 +64,6 @@ impl AgenticState {
             thread_owner,
             router: Arc::new(NoopTaskRouter),
             queued_starts: Arc::new(|| false),
-            holds_working_copy: Arc::new(|| true),
         }
     }
 
@@ -99,13 +87,6 @@ impl AgenticState {
         enabled: impl Fn() -> bool + Send + Sync + 'static,
     ) -> Self {
         self.queued_starts = Arc::new(enabled);
-        self
-    }
-
-    /// Say whether this process holds the workspace working copy
-    /// ([`Self::holds_working_copy`]). Without this it is assumed to.
-    pub fn with_working_copy(mut self, holds: impl Fn() -> bool + Send + Sync + 'static) -> Self {
-        self.holds_working_copy = Arc::new(holds);
         self
     }
 }

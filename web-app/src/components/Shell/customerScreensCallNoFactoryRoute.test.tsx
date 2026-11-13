@@ -5,14 +5,11 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import type { AxiosAdapter } from "axios";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BuilderDialog } from "@/components/BuilderDialog";
-import { FileQuickOpen } from "@/components/FileQuickOpen";
 import SettingsDialog from "@/components/settings/SettingsDialog";
 import { SidebarProvider } from "@/components/ui/shadcn/sidebar";
 import { ManageWorkspacesDialog } from "@/components/workspaces/components/ManageWorkspacesDialog";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { apiClient } from "@/services/api/axios";
-import useBuilderDialog from "@/stores/useBuilderDialog";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import type { Workspace } from "@/types/workspace";
@@ -21,9 +18,9 @@ import { WorkspaceShell } from "./WorkspaceShell";
 /**
  * A customer screen never calls a Factory route.
  *
- * `BuilderDialog` is mounted for every page and used to ask `GET /{workspace}/modeling`
- * on load (that route is gone now); once enforcement is on, such a request is a
- * `403 factory_access_required` per page load, and a toast for each. Rendering what
+ * A dialog mounted for every page used to ask `GET /{workspace}/modeling` on load
+ * (that route and the dialog are gone now); once enforcement is on, such a request
+ * is a `403 factory_access_required` per page load, and a toast for each. Rendering what
  * every page mounts, as someone the server will not let into the Factory, and
  * recording the requests it sends is the check that does not depend on remembering
  * which hook is mounted where.
@@ -99,8 +96,6 @@ function renderWhatEveryPageMounts() {
       <AuthProvider authConfig={authConfig}>
         <MemoryRouter initialEntries={["/acme/workspaces/ws-1/home"]}>
           <SidebarProvider>
-            <BuilderDialog />
-            <FileQuickOpen />
             <SettingsDialog />
             <ManageWorkspacesDialog />
             <WorkspaceShell>
@@ -129,7 +124,6 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useCurrentWorkspace.setState({ workspace: null });
-  useBuilderDialog.setState({ isOpen: false });
 });
 
 describe("what every page mounts", () => {
@@ -147,14 +141,5 @@ describe("what every page mounts", () => {
       return FACTORY_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
     });
     expect(factory).toEqual([]);
-  });
-
-  /// The control: the same screens do ask for the config status the banner reads
-  /// when the server lets the caller in, so the assertion above is not passing
-  /// because nothing renders.
-  it("does ask for the config status when the caller may use the Factory", async () => {
-    useCurrentWorkspace.setState({ workspace: customerWorkspace(true) });
-    renderWhatEveryPageMounts();
-    await waitFor(() => expect(requested.some((r) => r.includes("/status"))).toBe(true));
   });
 });

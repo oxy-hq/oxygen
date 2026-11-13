@@ -49,26 +49,8 @@ export type UpsertAppIntegrationBody =
     };
 
 export const AppIntegrationsService = {
-  async list(projectId: string, branchName: string): Promise<AppIntegration[]> {
-    const response = await apiClient.get<AppIntegration[]>(`/${projectId}/app-integrations`, {
-      params: { branch: branchName }
-    });
+  async list(projectId: string): Promise<AppIntegration[]> {
+    const response = await apiClient.get<AppIntegration[]>(`/${projectId}/app-integrations`);
     return response.data;
-  },
-
-  async upsert(
-    projectId: string,
-    branchName: string,
-    body: UpsertAppIntegrationBody
-  ): Promise<void> {
-    await apiClient.post(`/${projectId}/app-integrations`, body, {
-      params: { branch: branchName }
-    });
-  },
-
-  async remove(projectId: string, branchName: string, kind: AppIntegrationKind): Promise<void> {
-    await apiClient.delete(`/${projectId}/app-integrations/${kind}`, {
-      params: { branch: branchName }
-    });
   }
 };

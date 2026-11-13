@@ -738,12 +738,6 @@ export type InterimOutcome =
   | { kind: "interim"; interim: InterimResponse }
   | { kind: "not_in_progress"; state: string; error: string | null };
 
-/** `POST /experiments/{name}/write-back/apply`. */
-export interface WriteBackResponse {
-  branch: string;
-  file_path: string;
-}
-
 // ---- The design (one editable draft until registered) -----------------------
 
 /** An experiment's one design; `config` is the full `ExperimentConfig` JSON. Frozen once `frozen_at` is set. */

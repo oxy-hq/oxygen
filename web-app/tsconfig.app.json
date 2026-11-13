@@ -19,55 +19,7 @@
     "noFallthroughCasesInSwitch": true,
 
     "paths": {
-      "@/*": ["./src/*"],
-      // monaco-editor 0.56 rewrote its `exports` map to
-      //     "./*.js": "./esm/vs/*.js",
-      //     "./*":    "./esm/vs/*.js"
-      // so "monaco-editor/esm/vs/editor/editor.api" now resolves to
-      // esm/vs/esm/vs/... — nothing. The file is still shipped, just no longer
-      // reachable through the exports map, so these point straight at it: the
-      // typecheck-side twin of the `resolve.alias` in vite.config.ts, likewise
-      // anchored to literal specifiers rather than a pattern, so a path monaco
-      // MOVES fails instead of silently resolving elsewhere.
-      //
-      // Two dead spellings, two consumers, and the failure is silent either
-      // way — the imports live inside dependencies' own `.d.ts` files, where
-      // `skipLibCheck: true` swallows the failed resolution and hands back
-      // `any` (or an empty type). The guards in
-      // src/components/FileEditor/monacoConfig.ts turn both back into `tsc -b`
-      // errors; measured by deleting each entry in turn:
-      //
-      //   `@monaco-editor/react` imports the extensionless spelling, so the
-      //   extensionless entry is what serves it. Source of `Monaco`, and so of
-      //   `useMonaco()` and `beforeMount`'s argument.
-      //
-      //   `monaco-types` imports the `.js` spelling, so the `.js` entry is
-      //   what serves it. Source of `configureMonacoYaml`'s parameter type
-      //   via monaco-yaml.
-      //
-      // One key each, because `paths` matches the key literally: the extension
-      // substitution TypeScript performs is on the TARGET side (mapped path ->
-      // `.d.ts`), which is what lets both keys point at an extensionless
-      // target, and it never rewrites the key. So neither entry can stand in
-      // for the other, and both are load-bearing.
-      //
-      // An earlier revision of this comment claimed the extensionless entry was
-      // redundant, on the evidence that deleting it left the build green. That
-      // was the guard of the day being inert, not the mapping being covered —
-      // `Monaco` degrades to TypeScript's error type, which is invisible to a
-      // type-level predicate. Re-measured with the current guards:
-      //   drop extensionless -> TS2307 on the import; `Monaco` unresolved
-      //   drop `.js`         -> TS2307 + monacoYamlTypesResolved fires
-      //   drop both          -> both TS2307s + the yaml guard
-      //   drop neither       -> clean
-      // A green build is now evidence that both entries resolve, which it was
-      // not before.
-      "monaco-editor/esm/vs/editor/editor.api": [
-        "./node_modules/monaco-editor/esm/vs/editor/editor.api"
-      ],
-      "monaco-editor/esm/vs/editor/editor.api.js": [
-        "./node_modules/monaco-editor/esm/vs/editor/editor.api"
-      ]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src"],

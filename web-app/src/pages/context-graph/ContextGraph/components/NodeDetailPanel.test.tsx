@@ -107,28 +107,15 @@ describe("NodeDetailPanel", () => {
     expect(screen.getByText("A test agent")).toBeInTheDocument();
   });
 
-  it("shows 'Open in IDE' button for file node types", () => {
+  it("shows a file node's path, with no IDE link and no file contents", () => {
     render(
       <NodeDetailPanel
         node={makeNode({ type: "agent", data: { name: "a", path: "agents/test.yml" } })}
         onClose={vi.fn()}
       />
     );
-    expect(screen.getByTitle("Open in IDE")).toBeInTheDocument();
-  });
-
-  it("does not show 'Open in IDE' button for non-file node types", () => {
-    render(<NodeDetailPanel node={makeNode({ type: "table" })} onClose={vi.fn()} />);
+    expect(screen.getByText("agents/test.yml")).toBeInTheDocument();
     expect(screen.queryByTitle("Open in IDE")).not.toBeInTheDocument();
-  });
-
-  it("shows file contents section for file node types", () => {
-    render(
-      <NodeDetailPanel
-        node={makeNode({ type: "agent", data: { name: "a", path: "agents/test.yml" } })}
-        onClose={vi.fn()}
-      />
-    );
-    expect(screen.getByText("File Contents")).toBeInTheDocument();
+    expect(screen.queryByText("File Contents")).not.toBeInTheDocument();
   });
 });

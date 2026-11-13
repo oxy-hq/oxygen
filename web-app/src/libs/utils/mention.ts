@@ -1,4 +1,4 @@
-import { IGNORE_FILES_REGEX } from "@/pages/ide/Files/FilesSidebar/constants";
+import { IGNORE_FILES_REGEX } from "@/libs/workspaceFiles/constants";
 import type { FileTreeModel } from "@/types/file";
 
 export function getCleanObjectName(fileName: string) {

@@ -26,7 +26,6 @@ oxy-semantic = { workspace = true }
 oxy-platform = { workspace = true }         # owner notices
 oxy-auth = { workspace = true }             # AuthenticatedUserExtractor
 oxy-server-authz = { workspace = true }     # the Experiment* role guards
-oxy-git = { workspace = true }              # write-back: the worktree and branch
 oxy-shared = { workspace = true }           # OxyError + fleet_role::RouteRoleDecl
 entity = { workspace = true }
 agentic-core = { workspace = true }         # TaskSpec::Custom

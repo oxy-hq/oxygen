@@ -1,9 +1,9 @@
+import WorkspaceRepositoryNotice from "@/components/WorkspaceRepositoryNotice";
 import { formatRatio, formatRatioInterval } from "@/pages/ide/Experiments/format";
 import { priorSourceLabel } from "@/pages/ide/Experiments/prediction";
 import type { ResultResponse } from "@/types/experiment";
 import Section from "../../Section";
 import HowCalculated from "./HowCalculated";
-import WriteBackAction from "./WriteBackAction";
 
 /**
  * The lever as an instrument: a proposed slope onto a driver edge, or the reason
@@ -49,13 +49,13 @@ export default function WriteBackSection({ result }: { result: ResultResponse })
           <HowCalculated>
             <p>
               The ratio of the lever's effect on the target to its effect on the driver, as a patch
-              against the driver edge. Applying it creates a branch for you to review and merge; the
-              platform never writes to main.
+              against the driver edge. To apply it, make this edit to the file in the workspace's
+              repository and push it; the platform never writes the repository.
             </p>
           </HowCalculated>
         </div>
         <div className='mt-3'>
-          <WriteBackAction name={result.experiment} />
+          <WorkspaceRepositoryNotice className='text-muted-foreground text-xs' />
         </div>
       </Section>
     );

@@ -9,31 +9,6 @@ import SuspensionPrompt from "./SuspensionPrompt";
 // renders the chart loader; it is only reachable through the prompt's import graph.
 vi.mock("@lottiefiles/react-lottie-player", () => ({ Player: "div" }));
 
-// The prompt reads the workspace file tree to offer @-mentions. The real hook needs
-// a selected project and a QueryClient, neither of which this component owns.
-vi.mock("@/hooks/api/files/useFileTree", () => ({
-  default: () => ({
-    data: {
-      primary: [
-        {
-          name: "models",
-          path: "models",
-          is_dir: true,
-          children: [
-            {
-              name: "orders.view.yml",
-              path: "models/orders.view.yml",
-              is_dir: false,
-              children: []
-            }
-          ]
-        }
-      ],
-      repositories: []
-    }
-  })
-}));
-
 afterEach(() => {
   cleanup();
 });
@@ -209,20 +184,13 @@ describe("SuspensionPrompt — input display logic", () => {
     expect(onAnswer).not.toHaveBeenCalled();
   });
 
-  it("sends an @-mention as a file reference, not as the text the user sees", () => {
+  it("sends text with an @ as typed: there are no files to mention", () => {
     const onAnswer = vi.fn();
     render(
       <SuspensionPrompt questions={[q("Which view?")]} onAnswer={onAnswer} isAnswering={false} />
     );
-    fireEvent.change(textbox(), { target: { value: "use @ord" } });
-    expect(screen.getByText("models/orders.view.yml")).toBeTruthy();
-
-    // Enter picks the highlighted file while the popup is open; it does not submit.
+    fireEvent.change(textbox(), { target: { value: "use @orders" } });
     fireEvent.keyDown(textbox(), { key: "Enter", shiftKey: false });
-    expect(onAnswer).not.toHaveBeenCalled();
-    expect(textbox().value).toBe("use @orders ");
-
-    fireEvent.keyDown(textbox(), { key: "Enter", shiftKey: false });
-    expect(onAnswer).toHaveBeenCalledWith("use <@models/orders.view.yml|orders>");
+    expect(onAnswer).toHaveBeenCalledWith("use @orders");
   });
 });

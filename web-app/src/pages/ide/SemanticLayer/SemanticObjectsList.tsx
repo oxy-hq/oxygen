@@ -7,8 +7,8 @@ import {
 } from "@/components/ui/shadcn/sidebar";
 import useTopicFiles from "@/hooks/api/useTopicFiles";
 import useViewFiles from "@/hooks/api/useViewFiles";
+import { getFileTypeIcon } from "@/libs/workspaceFiles/utils";
 import { detectFileType } from "@/utils/fileTypes";
-import { getFileTypeIcon } from "../Files/FilesSidebar/utils";
 
 type SemanticObjectKind = "topic" | "view";
 

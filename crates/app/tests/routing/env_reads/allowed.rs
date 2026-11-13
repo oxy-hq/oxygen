@@ -589,11 +589,6 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
         "custom-apps domain setting; migrate into oxy-custom-apps' own config",
     ),
     (
-        "OXY_GIT_FETCH_INTERVAL_SECS",
-        "crates/app/src/server/git_fetch_maintenance.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
-    ),
-    (
         "OXY_GLOBAL_ADMINS",
         "crates/app/src/cli/commands/seed.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
@@ -1032,16 +1027,6 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
         "OXY_WORKER_RECOVERY_INTERVAL_SECS",
         "crates/server/src/commands/worker.rs",
         "CLI command switch read at the call site; migrate with the command's next change",
-    ),
-    (
-        "OXY_WORKTREE_IDLE_TIMEOUT_SECS",
-        "crates/app/src/server/worktree_registry.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
-    ),
-    (
-        "OXY_WORKTREE_SWEEP_INTERVAL_SECS",
-        "crates/app/src/server/worktree_registry.rs",
-        "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
 ];
 

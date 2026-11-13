@@ -21,11 +21,12 @@ pub async fn enforce_role(req: Request, next: Next) -> Response {
 
 /// [`enforce_role`] for the `/external/api` surface, which layers it INSIDE its
 /// `nest`. There axum has already stripped the prefix, so the request reads
-/// `/{ws}/sql/query`: no declaration matches that, and when `?branch=` then
-/// escalates it to `IdeOnly` the stripped path is what the ide receives — the
-/// static SPA fallback, `405 Allow: GET,HEAD` for every POST. That broke every
-/// custom app whose SDK sends `?branch=main` (Poke House's Command Center and
-/// Time to Serve on dev, 2026-11-09).
+/// `/{ws}/sql/query`: no declaration matches that, so an IdeOnly agentic route
+/// would default to FleetOk and run here, and a forward would hand the ide the
+/// stripped path — its static SPA fallback, `405 Allow: GET,HEAD` for every
+/// POST, which is what broke every custom app whose SDK sent `?branch=main`
+/// (Poke House's Command Center and Time to Serve on dev, 2026-11-09). The
+/// prefix is put back for both.
 pub async fn enforce_role_external(req: Request, next: Next) -> Response {
     enforce_role_under(EXTERNAL_API_PREFIX, req, next).await
 }
@@ -42,35 +43,9 @@ async fn enforce_role_under(prefix: &str, mut req: Request, next: Next) -> Respo
     let method = req.method().as_str().to_string();
     let path = format!("{prefix}{}", req.uri().path());
     let classified = classify(&method, &path);
-    // A deployment that retired the IDE sends nothing to the Factory for it:
-    // a refused route is served here so `workspace_middleware` can answer its
-    // 410 after authorizing the caller, and `?branch=` escalates nothing — the
+    // `?branch=` escalates nothing: there is no working copy to read, and the
     // request is served from the compiled revision on this pod.
-    let ide_retired = crate::server::factory_access::ide_retired::is_on();
-    if ide_retired
-        && crate::server::factory_access::ide_retired::refuses(&method, &path, classified)
-    {
-        return stamp(next.run(req).await, role);
-    }
-    let mut route_role = if ide_retired || branch_names_a_resource(&path) {
-        classified
-    } else {
-        escalate_for_branch(classified, req.uri().query())
-    };
-    // A preview request keeps a fleet route on the fleet: its `?branch=` names a
-    // compiled preview, not the ide's working copy. Whether the preview applies
-    // depends on who is asking, which is not known yet — so the workspace
-    // middleware finishes the decision, forwarding to the ide after all when it
-    // does not (see `previews::pin::DeferredBranchEscalation`).
-    if matches!(role, Role::Serve)
-        && classified == RouteRole::FleetOk
-        && route_role == RouteRole::IdeOnly
-        && crate::server::previews::pin::has_preview_header(req.headers())
-    {
-        route_role = RouteRole::FleetOk;
-        req.extensions_mut()
-            .insert(crate::server::previews::pin::DeferredBranchEscalation);
-    }
+    let route_role = classified;
     if route_role.accepted_by(role) {
         return stamp(next.run(req).await, role);
     }
@@ -139,42 +114,6 @@ fn restore_prefix(prefix: &str, req: &mut Request) {
         Err(e) => tracing::error!(%prefix, %rest, "cannot restore nested prefix: {e}"),
     }
 }
-
-fn escalate_for_branch(role: RouteRole, query: Option<&str>) -> RouteRole {
-    if matches!(role, RouteRole::IdeOnly) {
-        return role;
-    }
-    let has_branch = query.is_some_and(|q| {
-        q.split('&')
-            .filter_map(|pair| pair.split_once('='))
-            .any(|(k, v)| k == "branch" && !v.is_empty())
-    });
-    if has_branch { RouteRole::IdeOnly } else { role }
-}
-
-/// Routes whose `?branch=` names the resource being acted on rather than a
-/// working copy to read — the previews API (`DELETE /previews?branch=X`,
-/// `POST /previews/refresh?branch=X`, `GET /previews/checks?branch=X`,
-/// `GET /previews/runs?branch=X`) and the staging compile
-/// (`POST /compile/staging?branch=X`, the branch to compile). The escalation
-/// above would otherwise send a request no working copy answers to the ide.
-///
-/// The workspace middleware asks the same question, for the one of these that
-/// is mounted under it: there `?branch=` also picks the revision a request
-/// reads and the working copy a manager is built on.
-pub(crate) fn branch_names_a_resource(path: &str) -> bool {
-    const PATTERNS: &[&str] = &[
-        "/api/{workspace_id}/previews",
-        "/api/{workspace_id}/previews/refresh",
-        "/api/{workspace_id}/previews/checks",
-        "/api/{workspace_id}/previews/runs",
-        "/api/{workspace_id}/compile/staging",
-    ];
-    PATTERNS
-        .iter()
-        .any(|p| crate::server::role_manifest::pattern_matches(p, path))
-}
-
 fn required_role_for(route_role: RouteRole) -> &'static str {
     match route_role {
         RouteRole::IdeOnly => "ide",

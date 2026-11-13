@@ -22,10 +22,8 @@
 //!   ([`super::requester`]); the context is built for that user at that role.
 //!   A run with no record is failed, never driven as the driver.
 //! * **No Builder bridges of its own.** The run's pipeline is built without
-//!   them, as an ask's is. Nothing in an analytics run reaches for them today:
-//!   its delegation to the Builder is switched off in the solver
-//!   (`clarifying::BUILDER_DELEGATION_ENABLED = false`), and Phase 3b removes
-//!   it.
+//!   them, as an ask's is. Nothing in an analytics run reaches for them: its
+//!   delegation to the Builder was removed with the IDE.
 //! * **Its pipeline starts at most once**, through [`super::attempt`]: a
 //!   re-claimed run resumes from its suspension (recovery's), closes as
 //!   interrupted, or steps aside for the attempt still beating.

@@ -19,7 +19,6 @@
  *   abort <name> --reason        POST /experiments/{name}/abort           {reason, levers}
  *   result <name>                GET  /experiments/{name}/result
  *   interim <name> [--refresh]   GET (POST) /experiments/{name}/interim
- *   write-back <name>            POST /experiments/{name}/write-back/apply
  *
  * Register and retrospective send the hash of the draft as it was just read,
  * so a draft someone edited in between is a 409 rather than registered unseen.
@@ -405,20 +404,6 @@ export async function runExperimentsResult(
     return;
   }
   printResult(result);
-}
-
-export async function runExperimentsWriteBack(
-  ctx: Context,
-  name: string,
-  opts: { json: boolean }
-): Promise<void> {
-  const path = experimentPath(ctx, name, "write-back/apply");
-  const applied = await call<{ branch: string; file_path: string }>(ctx, "POST", path);
-  if (opts.json) {
-    emit(applied);
-    return;
-  }
-  say(`write-back opened branch ${applied.branch}, editing ${applied.file_path}`);
 }
 
 interface Interim {

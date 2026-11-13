@@ -275,16 +275,14 @@ fn app(user: AuthenticatedUser) -> Router {
         .route("/sources", get(p::list_sources).put(p::put_source))
         .with_state(oxy_app::server::router::IdeState(state.clone()))
         .layer(middleware::from_fn(workspace_access_middleware));
-    // `route_split`: the write needs a working copy (`IdeState`), the list
-    // does not (`FleetState`).
-    let databases = post(database::create_database_config)
-        .with_state(oxy_app::server::router::IdeState(state.clone()))
-        .merge(
-            get(database::list_databases)
-                .with_state(oxy_app::server::router::FleetState(state.clone())),
-        );
+    let databases = get(database::list_databases)
+        .with_state(oxy_app::server::router::FleetState(state.clone()));
+    // A write the preview refuses before any handler runs: the stub answers
+    // only if the read-only check let it through.
+    let rebuild = post(|| async { StatusCode::IM_A_TEAPOT });
     let workspace: Router = Router::new()
         .route("/databases", databases)
+        .route("/semantic/preagg-rebuild", rebuild)
         .merge(super::read_only_exec::routes(&state))
         .layer(middleware::from_fn_with_state(state, workspace_middleware));
     Router::new()

@@ -19,7 +19,6 @@ fn allowed(method: Method, path: &str) {
 #[test]
 fn reads_always_pass() {
     for path in [
-        "/files/Zm9v",
         "/agentic-schedules",
         "/agentic-schedules/abc",
         "/automations",
@@ -87,16 +86,7 @@ fn the_named_actions_are_refused_with_what_they_are() {
             "/semantic/anomalies/scan",
             "Running a monitor scan",
         ),
-        (Method::POST, "/files/Zm9v", "Editing files"),
-        (Method::POST, "/files/Zm9v/new-file", "Editing files"),
-        (Method::DELETE, "/files/Zm9v/delete-file", "Editing files"),
-        (Method::PUT, "/files/Zm9v/rename-file", "Editing files"),
-        (Method::POST, "/compile", "Compiling the workspace"),
-        (
-            Method::POST,
-            "/push-changes",
-            "Changing the workspace's git state",
-        ),
+        (Method::POST, "/compile/staging", "Compiling the workspace"),
     ] {
         assert_eq!(refused(method.clone(), path), what, "{method} {path}");
     }

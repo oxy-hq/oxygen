@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { encodeBase64 } from "@/libs/encoding";
-import { TopicExplorer } from "../Files/Editor/Topic";
-import { TopicExplorerProvider } from "../Files/Editor/Topic/contexts/TopicExplorerContext";
-import { ViewExplorer } from "../Files/Editor/View";
-import { ViewExplorerProvider } from "../Files/Editor/View/contexts/ViewExplorerContext";
+import { TopicExplorer } from "./explorer/Topic";
+import { TopicExplorerProvider } from "./explorer/Topic/contexts/TopicExplorerContext";
+import { ViewExplorer } from "./explorer/View";
+import { ViewExplorerProvider } from "./explorer/View/contexts/ViewExplorerContext";
 import SemanticObjectsList, { type SemanticObjectItem } from "./SemanticObjectsList";
 
 /** Explorer tab: pick a topic/view from the sidebar, explore it inline. */

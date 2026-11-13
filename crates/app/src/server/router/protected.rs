@@ -63,7 +63,7 @@ pub(super) fn build_protected_routes(
     // Beside the workspace tree, not in it: see `build_workspace_preview_routes`.
     let previews = build_workspace_preview_routes(&app_state)
         .map_router(|r| r.layer(middleware::from_fn(workspace_access_middleware)));
-    let workspace = build_workspace_routes(app_state.clone(), agentic_state, true, false)
+    let workspace = build_workspace_routes(app_state.clone(), agentic_state, false)
         .merge_declared(extra_workspace_routes, &extra_workspace_decls)
         .map_router(|r| {
             r.layer(middleware::from_fn(workspace_subscription_guard_middleware))
@@ -199,7 +199,7 @@ pub(super) fn build_local_protected_routes(
     // is merged separately rather than inherited — a CLI that can enumerate
     // production but not a developer's own box is the wrong way round.
     let root = RoleRouter::new(app_state.clone()).merge(build_catalog_routes(&app_state, catalog));
-    let workspace = build_workspace_routes(app_state.clone(), agentic_state, false, true)
+    let workspace = build_workspace_routes(app_state.clone(), agentic_state, true)
         .merge_declared(extra_workspace_routes, &extra_workspace_decls)
         .map_router(|r| {
             r.route_layer(middleware::from_fn_with_state(
@@ -430,11 +430,11 @@ mod tests {
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 
-        let git = "/api/d9830be4-c6a4-4f89-11d3-9a0c0305e82c/pull-changes";
+        let ide_route = "/api/d9830be4-c6a4-4f89-11d3-9a0c0305e82c/databases/test-connection";
         assert_eq!(
-            declared_role("POST", git),
+            declared_role("POST", ide_route),
             Some(RouteRole::IdeOnly),
-            "the registry must answer for a git route — apply_middleware did not install"
+            "the registry must answer for an IdeOnly route — apply_middleware did not install"
         );
     }
 }

@@ -9782,7 +9782,6 @@ dependencies = [
  "oxy-auth",
  "oxy-cameras",
  "oxy-experiment",
- "oxy-git",
  "oxy-metric-monitoring",
  "oxy-oltp",
  "oxy-platform",

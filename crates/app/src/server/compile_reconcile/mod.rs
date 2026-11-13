@@ -36,6 +36,7 @@
 //!   behind another and repeated failures back off.
 
 mod check;
+pub mod default_branch;
 pub mod env_pinner;
 pub mod env_pins;
 pub mod push;
@@ -69,6 +70,11 @@ const RATE_LIMIT_PAUSE: Duration = Duration::from_secs(15 * 60);
 /// can add to them. No check starts after the budget is spent, and a check
 /// in flight is cut off when it runs out.
 const TICK_BUDGET: Duration = Duration::from_secs(20);
+
+/// The share of [`TICK_BUDGET`] the default-branch pass may spend. Each lookup
+/// in it is asked with what is left of this, so one slow GitHub answer ends
+/// the pass instead of the tick; the checks get the rest.
+const DEFAULT_BRANCH_BUDGET: Duration = Duration::from_secs(5);
 
 /// Unix seconds before which this process asks GitHub nothing. Process-local
 /// on purpose: a rate limit belongs to a token, and every replica that hits it
@@ -149,6 +155,62 @@ pub async fn tick(db: &DatabaseConnection) -> Tick {
     if !enabled() || paused() {
         return Tick::default();
     }
+    // The budget covers the whole tick, the default-branch pass included.
+    let started = std::time::Instant::now();
+    // A remote-backed workspace with no recorded default branch gets no check
+    // row; learn the branch from GitHub first (the Factory's fetch sweep used
+    // to record it from the checkout). The futures are lazy: the checks start
+    // only once the pass is over.
+    sequence(default_branch_pass(db), check_due(db, started)).await
+}
+
+/// The default-branch pass, then the checks — always both. Whatever the pass
+/// came to (GitHub unwell, its budget spent, a rate limit), the checks of
+/// workspaces that already have a branch still run: a repository the pass
+/// keeps failing on must not stop every other workspace being checked. A rate
+/// limit pauses this process, which the check loop honours before each check.
+async fn sequence(
+    pass: impl std::future::Future<Output = default_branch::Pass>,
+    checks: impl std::future::Future<Output = Tick>,
+) -> Tick {
+    let pass = pass.await;
+    if pass.rate_limited {
+        pause();
+    } else if pass.stopped {
+        tracing::info!(
+            target: "compile_reconcile",
+            recorded = pass.recorded,
+            "the default-branch pass stopped early; the rest are asked on a later tick"
+        );
+    }
+    let mut tick = checks.await;
+    tick.rate_limited |= pass.rate_limited;
+    tick
+}
+
+/// [`default_branch::record_missing`] within [`DEFAULT_BRANCH_BUDGET`]. The
+/// outer timeout is a backstop for Postgres (each lookup already ends inside
+/// the budget), a second over so an in-flight lookup is cut off — and its
+/// workspace stamped — by the pass itself.
+async fn default_branch_pass(db: &DatabaseConnection) -> default_branch::Pass {
+    let backstop = DEFAULT_BRANCH_BUDGET + Duration::from_secs(1);
+    tokio::time::timeout(
+        backstop,
+        default_branch::record_missing(db, DEFAULT_BRANCH_BUDGET),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        tracing::warn!(target: "compile_reconcile", "the default-branch pass ran out of time");
+        default_branch::Pass {
+            stopped: true,
+            ..Default::default()
+        }
+    })
+}
+
+/// Seed check rows, then run the due checks with what is left of the tick's
+/// budget since `started`.
+async fn check_due(db: &DatabaseConnection, started: std::time::Instant) -> Tick {
     let interval = CHECK_INTERVAL.as_secs() as i64;
     if let Err(e) = state::seed(db, interval).await {
         tracing::warn!(target: "compile_reconcile", error = %e, "seeding checks failed");
@@ -162,8 +224,11 @@ pub async fn tick(db: &DatabaseConnection) -> Tick {
     };
 
     let mut tick = Tick::default();
-    let started = std::time::Instant::now();
     for due in due {
+        if paused() {
+            // A rate limit (here or in the default-branch pass): ask nothing.
+            break;
+        }
         if started.elapsed() >= TICK_BUDGET {
             // The rest are still due and are taken up on the next tick.
             break;
@@ -207,6 +272,10 @@ pub async fn tick(db: &DatabaseConnection) -> Tick {
     }
     tick
 }
+
+#[cfg(test)]
+#[path = "tick_tests.rs"]
+mod tick_tests;
 
 fn now_secs() -> i64 {
     chrono::Utc::now().timestamp()

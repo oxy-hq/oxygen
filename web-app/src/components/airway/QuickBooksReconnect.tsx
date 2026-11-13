@@ -3,16 +3,15 @@ import type React from "react";
 import { useMemo } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/shadcn/button";
-import useFile from "@/hooks/api/files/useFile";
 import { useQuickBooksConnect } from "@/hooks/api/quickbooks/useQuickBooksConnect";
+import { useAirwayFiles } from "@/hooks/api/schedules/useSchedules";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { useRole } from "@/hooks/useRole";
-import { encodeBase64 } from "@/libs/encoding";
-import { parseQuickBooksSource } from "@/pages/ide/pipelines/parsePipelineSource";
 
 /**
  * "Reconnect QuickBooks" button for a `quickbooks` airway pipeline. Reads
- * the pipeline's `.airway.yml` to recover the client id + secret var names,
+ * the client id + secret var names from the compiled pipeline list
+ * (`GET /airway-pipelines`, any replica),
  * then re-runs the Intuit Connect flow to mint a fresh refresh token (Intuit
  * refresh tokens expire after ~100 days idle). Renders nothing when the
  * pipeline isn't a QuickBooks source.
@@ -22,12 +21,20 @@ import { parseQuickBooksSource } from "@/pages/ide/pipelines/parsePipelineSource
  */
 const QuickBooksReconnect: React.FC<{ pipelineRef: string }> = ({ pipelineRef }) => {
   const { project } = useCurrentProjectBranch();
-  const pathb64 = useMemo(() => encodeBase64(pipelineRef), [pipelineRef]);
-  const { data: yaml } = useFile(pathb64);
+  const { data: pipelines } = useAirwayFiles();
   const { connect, connecting } = useQuickBooksConnect(project.id);
   const { workspace: wsRole, is } = useRole();
 
-  const qb = useMemo(() => (yaml ? parseQuickBooksSource(yaml) : null), [yaml]);
+  const qb = useMemo(() => {
+    const source = pipelines?.find((p) => p.path === pipelineRef)?.quickbooks;
+    return source
+      ? {
+          clientId: source.client_id,
+          clientSecretVar: source.client_secret_var,
+          refreshTokenVar: source.refresh_token_var
+        }
+      : null;
+  }, [pipelines, pipelineRef]);
   if (!qb) return null;
 
   const onReconnect = async () => {

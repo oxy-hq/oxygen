@@ -1,12 +1,13 @@
 //! HTTP surface for experiments — pricing (PR 3), run status and abort (PR 4),
-//! the sealed result read and write-back apply (PR 5).
+//! and the sealed result read (PR 5).
 //!
 //! Thin by construction: extract, call `experiment`, serialize. Every
 //! route reads or writes Postgres records (`experiments`, `experiment_designs`,
 //! `experiment_proposals`, `experiment_runs`) or enqueues a `TaskSpec`, so those
 //! are `FleetOk`; so is the PR 5 result read
-//! (`result.rs`). Write-back apply (`write_back.rs`) creates a git worktree and
-//! branch in the working copy, so it is `IdeOnly`.
+//! (`result.rs`). Write-back apply, which created a git branch in the working
+//! copy, was removed with the IDE: the proposed coefficient is shown, and a
+//! person makes the edit in the workspace's repository.
 
 pub mod designs;
 pub mod interim;
@@ -16,7 +17,6 @@ pub mod proposals;
 pub mod result;
 pub mod retrospective;
 pub mod run;
-pub mod write_back;
 
 use axum::http::StatusCode;
 use sea_orm::DatabaseConnection;
@@ -31,7 +31,6 @@ pub use proposals::list_proposals;
 pub use result::get_result;
 pub use retrospective::post_retrospective;
 pub use run::{abort_run, get_run};
-pub use write_back::apply_write_back;
 
 pub(crate) type ApiError = (StatusCode, String);
 

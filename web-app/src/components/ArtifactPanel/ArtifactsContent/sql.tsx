@@ -1,9 +1,7 @@
-import Editor from "@monaco-editor/react";
 import { ErrorBoundary } from "react-error-boundary";
+import CodeView from "@/components/Code/CodeView";
 import SqlResultsTable from "@/components/sql/SqlResultsTable";
 import ErrorAlert from "@/components/ui/ErrorAlert";
-import { Spinner } from "@/components/ui/shadcn/spinner";
-import useTheme from "@/stores/useTheme";
 import type { SqlArtifact } from "@/types/artifact";
 
 type Props = {
@@ -11,8 +9,6 @@ type Props = {
 };
 
 const SqlArtifactPanel = ({ artifact }: Props) => {
-  const theme = useTheme((s) => s.theme);
-  const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
   return (
     <div className='flex h-full flex-col'>
       <div className='flex-1'>
@@ -26,22 +22,7 @@ const SqlArtifactPanel = ({ artifact }: Props) => {
             />
           }
         >
-          <Editor
-            height='100%'
-            width='100%'
-            theme={monacoTheme}
-            defaultValue={artifact.content.value.sql_query}
-            language='sql'
-            value={artifact.content.value.sql_query}
-            loading={<Spinner />}
-            options={{
-              readOnly: true,
-              scrollBeyondLastLine: true,
-              formatOnPaste: true,
-              formatOnType: true,
-              automaticLayout: true
-            }}
-          />
+          <CodeView value={artifact.content.value.sql_query} language='sql' />
         </ErrorBoundary>
       </div>
 

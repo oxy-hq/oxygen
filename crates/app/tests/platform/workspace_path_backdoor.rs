@@ -26,13 +26,6 @@ use std::path::PathBuf;
 /// the requirement in its type.
 const ALLOWED: &[(&str, &str)] = &[
     (
-        "src/server/worktree_registry.rs",
-        "the worktree registry itself: `get_state_dir().join(\"workspaces\")` is \
-         where worktrees LIVE, so it cannot be handed a path by a manager built \
-         from one. A fourth door the guard did not detect until its matcher was \
-         tightened — the handler `get_worktree_status` takes only `Path<Uuid>`.",
-    ),
-    (
         "src/server/api/middlewares/workspace_context.rs",
         "the middleware that builds the manager — the path has to come from \
          somewhere before a manager exists",

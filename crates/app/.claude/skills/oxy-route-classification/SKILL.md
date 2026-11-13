@@ -85,12 +85,12 @@ A handler's manager carries the same fact per *pod* that the manifest carries pe
 A static list can only cover the routes someone remembered. Both of these are zero on a healthy fleet and asserted in `crates/app/tests/routing/fleet_canary.rs`:
 
 - `oxy::workspace_fs_probe::leaks()` — a workspace path was resolved on a pod that owns no working copy.
-- `compiled_reader::branch_hints_dropped()` — a request arrived with `?branch=` that a replica cannot honour. **A branch-aware route must be `IdeOnly`**: a replica skips the branch gate by design and answers with the promoted `main` revision, so the caller gets the wrong branch with no error. Non-zero names the misclassified route in the WARN. (`enforce_role` also escalates any `FleetOk` request carrying a non-empty `?branch=` to the Factory, previews excepted — so a client that sends the hint out of habit pins its own traffic there. Don't send it from a surface that is not the IDE.)
+- `compiled_reader::branch_hints_dropped()` — a request arrived with `?branch=` that a replica cannot honour. Since the IDE was removed (2026-11-09) no route reads a branch's working copy: a request is served from the compiled revision (a pinned preview's when pinned), and `enforce_role` escalates nothing by `?branch=`. A branch is compiled from GitHub (`compile_request`) or refused; it is never a reason to make a route `IdeOnly`.
 
 ## What's NOT in scope
 
 - A route that reads only the compile boundary / Postgres / S3 — `FleetOk` by design; do **not** pin it to the singleton. If it 404s on serve because the data isn't compiled, the fix is the compile boundary (`oxy-compile-boundary` skill), not IdeOnly. If it's a read inside a sub-router crate's IdeOnly surface, declare it FleetOk beside the route in that crate (above).
-- Pure IDE-editor / git-write routes — already IdeOnly; nothing to do.
+- IDE-editor / git-write routes — removed with the IDE (2026-11-09); do not add one back.
 - Routes `oxy-app` does not mount itself. A merge at a tree's ROOT has no prefix to hang a declaration on, so `oxy-cameras` and `airhouse` go through `merge_undeclared` with a reason and fall to `classify`'s default. That is the one hole left; if you add a working-copy route there, nothing catches it.
 
 ## Related

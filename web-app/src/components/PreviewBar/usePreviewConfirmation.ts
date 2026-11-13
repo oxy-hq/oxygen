@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useSyncExternalStore } from "react";
 import queryKeys from "@/hooks/api/queryKey";
 import { isPreviewRevisionServed, subscribePreviewServed } from "@/libs/utils/preview";
-import { githubRepoBase } from "@/pages/ide/Header/hooks/useGithubUrls";
+import { githubRepoBase } from "@/pages/ide/Header/githubRepoUrl";
 import type { RevisionInfo } from "@/types/settings";
 
 /**

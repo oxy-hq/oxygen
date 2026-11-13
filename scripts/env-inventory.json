@@ -105,7 +105,6 @@
   "OXY_FUNCTION_MAX_ORG_CONCURRENCY": {"kind": "deployment", "default": "48, clamped to the global cap (never 0)", "gates": "Per-org sub-limit of concurrent function invocations."},
   "OXY_FUNCTION_MAX_QUEUED": {"kind": "deployment", "default": "4 × MAX_CONCURRENCY (`0` disables)", "gates": "Invocations that may wait for a permit at once."},
   "OXY_FUNCTION_QUEUE_BUDGET_SECS": {"kind": "deployment", "default": "15", "gates": "How long an invocation may queue before it is shed."},
-  "OXY_GIT_FETCH_INTERVAL_SECS": {"kind": "deployment", "default": "300", "gates": "How often the Factory fetches each remote-backed workspace's remote."},
   "OXY_GLOBAL_ADMINS": {"kind": "deployment", "default": "unset (no bootstrap)", "gates": "Comma-separated emails bootstrapped as `is_app_admin` at `oxy serve` start and by `oxy seed`; the custom-apps staff check and the debug-build dev-login fallback read it too. Platform standing is still authorised through `oxy-authz`, never from this list."},
   "OXY_HEALTH_FAIL_RATE_DEGRADED": {"kind": "deployment", "default": "see `HealthThresholds::default`", "gates": "Workspace health: job failure rate that reads Degraded."},
   "OXY_HEALTH_FAIL_RATE_UNHEALTHY": {"kind": "deployment", "default": "see `HealthThresholds::default`", "gates": "Workspace health: job failure rate that reads Unhealthy."},
@@ -182,7 +181,5 @@
   "OXY_VAPID_SUBJECT": {"kind": "deployment", "default": "unset (web push skipped)", "gates": "Web Push: the VAPID subject (`mailto:`)."},
   "OXY_WORKER_HEALTH_PORT": {"kind": "deployment", "default": "see `crates/server/src/commands/worker.rs`", "gates": "The port `oxy worker` serves its health and `/metrics` endpoints on."},
   "OXY_WORKER_MAX_INFLIGHT": {"kind": "deployment", "default": "32", "gates": "Tasks one worker process runs at once; the worker metrics report the cap."},
-  "OXY_WORKER_RECOVERY_INTERVAL_SECS": {"kind": "deployment", "default": "30", "gates": "How often `oxy worker` runs its recovery tick."},
-  "OXY_WORKTREE_IDLE_TIMEOUT_SECS": {"kind": "deployment", "default": "21600 (6 h)", "gates": "How long an unused branch worktree is kept before the sweep removes it."},
-  "OXY_WORKTREE_SWEEP_INTERVAL_SECS": {"kind": "deployment", "default": "1800", "gates": "How often idle branch worktrees are swept."}
+  "OXY_WORKER_RECOVERY_INTERVAL_SECS": {"kind": "deployment", "default": "30", "gates": "How often `oxy worker` runs its recovery tick."}
 }

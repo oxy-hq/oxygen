@@ -16,14 +16,13 @@ fn a_trailing_slash_keeps_the_route_on_its_own_pod() {
     install_route_declarations_for_tests();
     let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
     for path in [
-        format!("/api/{ws}/files"),
-        format!("/api/{ws}/files/"),
-        format!("/api/{ws}/files/cGF0aA"),
+        format!("/api/{ws}/databases/test-connection"),
+        format!("/api/{ws}/databases/test-connection/"),
     ] {
         assert_eq!(
-            classify("GET", &path),
+            classify("POST", &path),
             RouteRole::IdeOnly,
-            "{path} reads the working copy and must reach the ide"
+            "{path} writes the working copy and must reach the ide"
         );
     }
 }

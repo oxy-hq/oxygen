@@ -49,39 +49,9 @@ async fn build_onboarding_llm_client(
     }
 }
 
-/// Where a Builder or onboarding run starts, relative to the analytics mount:
-/// the route the role manifest pins to the Factory
-/// ([`crate::router_roles`]). The customer route `POST /runs` names it when it
-/// refuses one on a process without the working copy.
-pub const BUILDER_START_ROUTE: &str = "/analytics/builder/runs";
-/// Where an answer to a Builder run goes, for the same reason: the run is
-/// driven in the Factory's memory, and only a process with the working copy
-/// may resume it.
-pub const BUILDER_ANSWER_ROUTE: &str = "/analytics/builder/runs/{id}/answer";
-
-/// The header every refusal that only the Factory can serve carries, as the
-/// role middleware's own misroute answer does.
-const HEADER_REQUIRED_ROLE: &str = "x-oxy-required-role";
-
-/// Which of the two routes a start or an answer arrived on. The handlers are
-/// shared; what they accept is not.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RunRoute {
-    /// `POST /runs`, `POST /runs/{id}/answer`: a customer's chat. On the customer
-    /// list, so the Factory gate lets every member through, and it never starts or
-    /// answers a Builder run, on any process.
-    Chat,
-    /// `POST /builder/runs`, `POST /builder/runs/{id}/answer`: on the Factory list
-    /// (the gate decides who), pinned to the Factory by the role manifest.
-    Builder,
-}
-
-/// Whether to refuse a Builder start: always on the chat route, which the
-/// Factory gate does not cover (a plain member would otherwise start a run that
-/// edits workspace files), and on the Builder route only where the files are not.
-fn refuses_builder_start(route: RunRoute, is_builder: bool, holds_working_copy: bool) -> bool {
-    is_builder && (route == RunRoute::Chat || !holds_working_copy)
-}
+/// The `error` of the answer to a Builder start or a Builder-run answer: the
+/// Builder, which edited workspace files, was removed with the IDE.
+pub const BUILDER_REMOVED: &str = "builder_removed";
 
 /// Whether an answer to a run whose drive is in another process's memory must
 /// not start a second drive here: the run's lease is live and not held by a
@@ -109,33 +79,27 @@ fn starts_a_builder_run(body: &CreateRunRequest) -> bool {
     body.domain.as_deref() == Some("builder") || body.onboarding_context.is_some()
 }
 
-/// Whether a run of this `source_type` may be resumed only by a process that
-/// holds the working copy: a Builder run (the Builder copilot, onboarding).
-fn resumes_only_with_the_files(source_type: Option<&str>) -> bool {
+/// Whether a run of this `source_type` is a Builder run (the Builder copilot,
+/// onboarding), which nothing resumes any more.
+fn is_a_builder_run(source_type: Option<&str>) -> bool {
     source_type == Some("builder")
 }
 
-/// The answer to a Builder start or a Builder answer on the chat routes (on any
-/// process), or on the Builder routes where the working copy is not:
-/// `421 Misdirected Request`, as the role middleware answers a route this process
-/// cannot serve, naming the route that reaches the Factory. Never a run against
-/// files that are not here, and never one the Factory gate did not admit.
-fn builder_needs_the_factory(what: &str, route: &str) -> Response {
-    let mut response = (
-        StatusCode::MISDIRECTED_REQUEST,
+/// `410 Gone` for a Builder start or an answer to a Builder run: the Builder
+/// edited workspace files and was removed with the IDE. A workspace is changed
+/// in its repository.
+fn builder_removed(what: &str) -> Response {
+    (
+        StatusCode::GONE,
         Json(serde_json::json!({
-            "error": format!(
-                "{what} edits workspace files; send it to {route}, which the Factory serves"
+            "error": BUILDER_REMOVED,
+            "message": format!(
+                "{what} is no longer possible: the Builder was removed with the IDE. \
+                 Change the workspace in its repository."
             ),
-            "route": route,
         })),
     )
-        .into_response();
-    response.headers_mut().insert(
-        HEADER_REQUIRED_ROLE,
-        axum::http::HeaderValue::from_static("ide"),
-    );
-    response
+        .into_response()
 }
 
 /// Build a structured error response for a failed pipeline start/resume.
@@ -184,7 +148,7 @@ fn pipeline_error_response(
     (status, Json(body)).into_response()
 }
 
-/// `POST /runs`: a customer's chat. Never a Builder run (see [`RunRoute`]).
+/// `POST /runs`: a chat. Never a Builder run (see [`builder_removed`]).
 pub async fn create_run(
     state: Extension<Arc<AgenticState>>,
     platform: Extension<Arc<dyn PlatformContext>>,
@@ -193,32 +157,10 @@ pub async fn create_run(
     user: AuthenticatedUserExtractor,
     body: Json<CreateRunRequest>,
 ) -> Response {
-    create_run_on(RunRoute::Chat, state, platform, bridges, query, user, body).await
-}
-
-/// `POST /builder/runs`: the Builder copilot and onboarding.
-pub async fn create_builder_run(
-    state: Extension<Arc<AgenticState>>,
-    platform: Extension<Arc<dyn PlatformContext>>,
-    bridges: Extension<BuilderBridges>,
-    query: axum::extract::RawQuery,
-    user: AuthenticatedUserExtractor,
-    body: Json<CreateRunRequest>,
-) -> Response {
-    create_run_on(
-        RunRoute::Builder,
-        state,
-        platform,
-        bridges,
-        query,
-        user,
-        body,
-    )
-    .await
+    create_run_on(state, platform, bridges, query, user, body).await
 }
 
 async fn create_run_on(
-    route: RunRoute,
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
     Extension(bridges): Extension<BuilderBridges>,
@@ -233,22 +175,16 @@ async fn create_run_on(
         "create_run: received request"
     );
 
-    // A Builder run edits the working copy and is driven in this process's
-    // memory. The chat route never starts one (the Factory gate does not cover
-    // it), and a process without the files (a serve replica) refuses it on the
-    // Builder route too; both before anything is written, naming the route the
-    // Factory serves.
-    if refuses_builder_start(
-        route,
-        starts_a_builder_run(&body),
-        (state.holds_working_copy)(),
-    ) {
+    // The Builder (the Builder domain, and onboarding, which ran it) edited the
+    // working copy; it was removed with the IDE. Refused before anything is
+    // written.
+    if starts_a_builder_run(&body) {
         tracing::info!(
             domain = ?body.domain,
             onboarding = body.onboarding_context.is_some(),
-            "create_run: a Builder start reached a process without the working copy"
+            "create_run: refused a Builder start"
         );
-        return builder_needs_the_factory("A Builder or onboarding run", BUILDER_START_ROUTE);
+        return builder_removed("Starting a Builder or onboarding run");
     }
 
     if let Some(ctx) = &body.onboarding_context
@@ -1104,8 +1040,8 @@ pub async fn stream_events(
 
 // ── POST /runs/:id/answer ─────────────────────────────────────────────────────
 
-/// `POST /runs/{id}/answer`: an answer to a customer's chat. Never to a Builder
-/// run (see [`RunRoute`]).
+/// `POST /runs/{id}/answer`: an answer to a chat. Never to a Builder run (see
+/// [`builder_removed`]).
 pub async fn answer_run(
     path: Path<RunIdPath>,
     state: Extension<Arc<AgenticState>>,
@@ -1113,22 +1049,10 @@ pub async fn answer_run(
     bridges: Extension<BuilderBridges>,
     body: Json<AnswerRequest>,
 ) -> Response {
-    answer_run_on(RunRoute::Chat, path, state, platform, bridges, body).await
-}
-
-/// `POST /builder/runs/{id}/answer`: an answer to a Builder or onboarding run.
-pub async fn answer_builder_run(
-    path: Path<RunIdPath>,
-    state: Extension<Arc<AgenticState>>,
-    platform: Extension<Arc<dyn PlatformContext>>,
-    bridges: Extension<BuilderBridges>,
-    body: Json<AnswerRequest>,
-) -> Response {
-    answer_run_on(RunRoute::Builder, path, state, platform, bridges, body).await
+    answer_run_on(path, state, platform, bridges, body).await
 }
 
 async fn answer_run_on(
-    route: RunRoute,
     Path(RunIdPath { id: run_id }): Path<RunIdPath>,
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
@@ -1139,16 +1063,11 @@ async fn answer_run_on(
         Ok(run) => run,
         Err(resp) => return resp,
     };
-    // A run's kind never changes, so the row the scope check read decides both
-    // Builder refusals below. Read from that row, not again: a second read that
-    // failed would skip the refusal.
-    let is_builder_run = resumes_only_with_the_files(scoped.source_type.as_deref());
-    // The chat route never answers a Builder run, on any process: the Factory
-    // gate does not cover it, and the Builder edits workspace files. Checked
-    // before the hot path, which would otherwise hand the answer straight to a
-    // Builder coordinator alive in this process.
-    if route == RunRoute::Chat && is_builder_run {
-        return builder_needs_the_factory("Answering a Builder run", BUILDER_ANSWER_ROUTE);
+    // A Builder run is never resumed: the Builder was removed with the IDE.
+    // Checked before the hot path, which would otherwise hand the answer to a
+    // coordinator alive in this process.
+    if is_a_builder_run(scoped.source_type.as_deref()) {
+        return builder_removed("Answering a Builder run");
     }
     // Hot path: the coordinator is still alive in memory — deliver the
     // answer through the answer channel. The coordinator receives it via
@@ -1170,14 +1089,6 @@ async fn answer_run_on(
     }
 
     let db = state.db.clone();
-
-    // A Builder run is resumed only where its files are. On a process without
-    // them the cold resume below would rebuild the Builder over a working copy
-    // that is not here; the Factory holds the run's answer channel, and its
-    // answer route reaches it.
-    if !(state.holds_working_copy)() && is_builder_run {
-        return builder_needs_the_factory("Answering a Builder run", BUILDER_ANSWER_ROUTE);
-    }
 
     // A chat that records its requester is continued through the queue: its
     // driver, wherever it was, is gone or parked it, and a driver on any pod
@@ -1547,46 +1458,6 @@ fn answer_response(
     }
 }
 
-// ── POST /runs/:id/revert-file-changes ───────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct RevertFileChangesRequest {
-    /// Files to revert. Empty / omitted reverts every file the builder
-    /// changed in this run.
-    #[serde(default)]
-    pub file_paths: Vec<String>,
-}
-
-/// Revert builder-applied file change(s) for a run. Used by the analytics
-/// suspend → builder-agent panel to undo edits the delegated builder
-/// auto-applied (e.g. a semantic-file fix that wasn't wanted).
-pub async fn revert_file_changes(
-    Path(RunIdPath { id: run_id }): Path<RunIdPath>,
-    Extension(state): Extension<Arc<AgenticState>>,
-    Extension(platform): Extension<Arc<dyn PlatformContext>>,
-    Json(body): Json<RevertFileChangesRequest>,
-) -> Response {
-    if let Err(resp) = run_in_workspace(&state.db, &run_id, platform.workspace_id()).await {
-        return resp;
-    }
-    match agentic_pipeline::revert_builder_file_changes(
-        &state.db,
-        &platform,
-        &run_id,
-        &body.file_paths,
-    )
-    .await
-    {
-        Ok(reverted) => {
-            Json(serde_json::json!({ "ok": true, "reverted": reverted })).into_response()
-        }
-        Err(e) => {
-            tracing::warn!(run_id = %run_id, error = %e, "revert_file_changes failed");
-            pipeline_error_response(StatusCode::BAD_REQUEST, &e, Some(&run_id))
-        }
-    }
-}
-
 // ── POST /runs/:id/cancel ─────────────────────────────────────────────────────
 
 pub async fn cancel_run(
@@ -1665,8 +1536,7 @@ mod tests {
 
     use super::{
         IDLE_POLL_INTERVAL, IDLE_TICKS_BEFORE_BACKOFF, REMOTE_DRIVER_POLL_INTERVAL,
-        ROW_CHECK_EVERY_N_TIMED_WAKES, RunRoute, driven_elsewhere, poll_after,
-        refuses_builder_start,
+        ROW_CHECK_EVERY_N_TIMED_WAKES, driven_elsewhere, poll_after,
     };
 
     /// The timer is a safety net behind the NOTIFY path: fast only for a
@@ -1719,26 +1589,6 @@ mod tests {
         );
     }
 
-    /// The chat route is on the customer list, so the Factory gate lets any member
-    /// through it: it must refuse a Builder start on every process, including the
-    /// Factory pod and a single-process server that hold the files.
-    #[test]
-    fn the_chat_route_never_starts_a_builder_run() {
-        for holds in [true, false] {
-            assert!(
-                refuses_builder_start(RunRoute::Chat, true, holds),
-                "holds={holds}"
-            );
-            assert!(
-                !refuses_builder_start(RunRoute::Chat, false, holds),
-                "holds={holds}"
-            );
-        }
-        // The Builder route (on the Factory list) starts one where the files are.
-        assert!(!refuses_builder_start(RunRoute::Builder, true, true));
-        assert!(refuses_builder_start(RunRoute::Builder, true, false));
-    }
-
     /// An answer never starts a second drive of a run another process drives.
     #[test]
     fn an_answer_does_not_resume_a_run_another_process_is_driving() {
@@ -1777,38 +1627,25 @@ mod tests {
     }
 
     #[test]
-    fn only_a_builder_run_needs_the_files_to_resume() {
-        use super::resumes_only_with_the_files;
-        assert!(resumes_only_with_the_files(Some("builder")));
+    fn only_a_builder_run_is_refused_an_answer() {
+        use super::is_a_builder_run;
+        assert!(is_a_builder_run(Some("builder")));
         for other in [Some("analytics"), Some("workflow"), Some("airway"), None] {
-            assert!(!resumes_only_with_the_files(other), "{other:?}");
+            assert!(!is_a_builder_run(other), "{other:?}");
         }
     }
 
-    /// The refusal reads like the role middleware's own misroute answer, so a
-    /// client handles both the same way, and names where to go instead.
+    /// A Builder start or answer is `410 Gone`, saying the Builder was removed.
     #[tokio::test]
-    async fn the_refusal_names_the_route_the_factory_serves() {
-        use super::{BUILDER_START_ROUTE, builder_needs_the_factory};
-        let response = builder_needs_the_factory("A Builder run", BUILDER_START_ROUTE);
-        assert_eq!(
-            response.status(),
-            axum::http::StatusCode::MISDIRECTED_REQUEST
-        );
-        assert_eq!(
-            response.headers().get("x-oxy-required-role").unwrap(),
-            "ide"
-        );
+    async fn the_builder_refusal_is_gone() {
+        use super::{BUILDER_REMOVED, builder_removed};
+        let response = builder_removed("Starting a Builder run");
+        assert_eq!(response.status(), axum::http::StatusCode::GONE);
         let body = axum::body::to_bytes(response.into_body(), 4096)
             .await
             .expect("body");
         let body: serde_json::Value = serde_json::from_slice(&body).expect("json");
-        assert_eq!(body["route"], BUILDER_START_ROUTE);
-        assert!(
-            body["error"]
-                .as_str()
-                .is_some_and(|e| e.contains(BUILDER_START_ROUTE))
-        );
+        assert_eq!(body["error"], BUILDER_REMOVED);
     }
 
     #[test]
