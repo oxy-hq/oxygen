@@ -111,12 +111,12 @@ pub struct OxyProjectContext {
     /// someone is editing in the IDE right now and an uncommitted edit must
     /// never page the on-call about a promoted revision that is fine.
     semantic_scan_required: bool,
-    /// Built for a held request (`previews::request_hold`) — a workspace
+    /// Built for a held request (`oxy_app_core::write_hold`) — a workspace
     /// preview, or a custom app's staging ask: every write it would make is
     /// held. Captured at construction, with the hold's app and sink, so a run
     /// driven on a spawned task keeps the answer the request had. See
     /// [`preview_hold`].
-    hold: Option<crate::server::previews::request_hold::HoldScope>,
+    hold: Option<oxy_app_core::write_hold::HoldScope>,
     /// Build each DuckDB directory connector's own database instead of
     /// cloning the process's cached one. See [`Self::with_own_directory_databases`].
     own_directory_databases: bool,
@@ -140,7 +140,7 @@ impl OxyProjectContext {
             db: None,
             semantic_scan: None,
             semantic_scan_required: false,
-            hold: crate::server::previews::request_hold::current(),
+            hold: oxy_app_core::write_hold::current(),
             own_directory_databases: false,
             revision_rebuilder: None,
         }
@@ -400,10 +400,10 @@ impl OxyProjectContext {
 /// the fix. Every other database — remote warehouses, DuckDB with an S3 mirror,
 /// airhouse — never touches a file and works anywhere.
 ///
-/// Inside a workspace-preview request (`previews::request_hold`) the connector
+/// Inside a workspace-preview request (`oxy_app_core::write_hold`) the connector
 /// is held: reads are sent, writes refused. A caller off the request's task
 /// that must hold too (the metric-tree runner's blocking threads) wraps with
-/// `request_hold::hold_if` itself.
+/// `write_hold::hold_if` itself.
 pub async fn build_connector_for_db<S: DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
     db_name: &str,
@@ -414,10 +414,12 @@ where
     ConfigManager<S>: ResolveWorkspaceFile,
 {
     let conn = build_unheld_connector(workspace_manager, db_name, subject, role).await?;
-    let held = crate::server::previews::request_hold::active();
-    let session =
-        crate::server::previews::hold::Session::of(&workspace_manager.config_manager, db_name);
-    Ok(crate::server::previews::request_hold::hold_if(
+    let held = oxy_app_core::write_hold::active();
+    let session = oxy_app_core::write_hold::connector::Session::of(
+        &workspace_manager.config_manager,
+        db_name,
+    );
+    Ok(oxy_app_core::write_hold::hold_if(
         held, conn, db_name, session,
     ))
 }

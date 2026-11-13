@@ -239,7 +239,7 @@ async fn run_projection_query(
     let engine = std::sync::Arc::new(build_engine(layer.clone(), &databases)?);
     let handle = tokio::runtime::Handle::current();
     // Read here: the executor builds its connectors on a blocking thread.
-    let holds_writes = crate::server::previews::request_hold::active();
+    let holds_writes = oxy_app_core::write_hold::active();
     let preagg = crate::agentic_wiring::metric_tree_runner::RunnerPreagg {
         cache: preagg_cache,
         renewal_threshold_secs: preagg_renewal_threshold_secs,

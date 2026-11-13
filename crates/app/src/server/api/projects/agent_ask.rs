@@ -41,8 +41,8 @@ use super::agent_ask_staging::{ask_scope, thread_source};
 use crate::server::api::custom_apps_gates::{
     CustomAppContextExt, check_custom_app_gates, parse_versioned_body,
 };
-use crate::server::previews::request_hold::scope_if;
 use crate::server::router::AppState;
+use oxy_app_core::write_hold::scope_if;
 
 pub mod caller;
 mod cancel;

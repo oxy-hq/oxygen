@@ -5,7 +5,7 @@
 //! preview run — an agent's SQL, a semantic query, anything a later change
 //! adds — reaches it through the connector the preview platform hands out, and
 //! [`HoldingConnector`] is that connector: it forwards a statement only when
-//! [`super::sql_kind`] classifies all of it as a read, and refuses everything
+//! [`crate::sql_kind`] classifies all of it as a read, and refuses everything
 //! else without sending a byte.
 //!
 //! **On Postgres the session is read-only too** ([`pg`]): every statement it
@@ -43,8 +43,8 @@ use async_trait::async_trait;
 use oxy::config::model::DatabaseType;
 use tokio::sync::{Mutex, MutexGuard};
 
-use super::request_hold::{HeldSink, HeldStatement, HoldScope};
-use super::sql_kind::{StatementKind, classify, first_non_read, is_all_read};
+use super::{HeldSink, HeldStatement, HoldScope};
+use crate::sql_kind::{StatementKind, classify, first_non_read, is_all_read};
 
 /// Whether a Postgres-dialect connector's session is made read-only.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -318,7 +318,7 @@ impl DatabaseConnector for HoldingConnector {
     }
 
     /// The Arrow path executes SQL on the inner connector directly, so handing
-    /// it out would bypass [`Self::admit`]. Callers fall back to
+    /// it out would bypass `Self::admit`. Callers fall back to
     /// `execute_query_full`, which is guarded.
     fn as_arrow(&self) -> Option<&dyn AsArrowConnector> {
         None
@@ -361,13 +361,13 @@ impl DatabaseConnector for HoldingConnector {
     }
 }
 
-#[path = "hold_pg.rs"]
+#[path = "connector_pg.rs"]
 pub mod pg;
 
 #[cfg(test)]
-#[path = "hold_tests.rs"]
+#[path = "connector_tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "hold_session_tests.rs"]
+#[path = "connector_session_tests.rs"]
 mod session_tests;

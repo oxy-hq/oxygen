@@ -808,11 +808,11 @@ pub async fn workspace_middleware(
         // rules hold for everything the handler calls (no rollups, partitioned
         // result caches) — the same scope a custom-app draft build reads in.
         // Inside it, the preview-request scope: whatever the handler runs holds
-        // its writes (`previews::request_hold`), whatever route it came in on.
+        // its writes (`oxy_app_core::write_hold`), whatever route it came in on.
         Some(revision_id) => {
             oxy_app_core::staging_pin_scope::with_staging_pin(
                 Some(revision_id),
-                crate::server::previews::request_hold::scope(serve),
+                oxy_app_core::write_hold::scope(serve),
             )
             .await
         }

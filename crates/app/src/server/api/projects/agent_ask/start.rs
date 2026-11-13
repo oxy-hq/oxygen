@@ -12,7 +12,7 @@
 //! closes as interrupted, never one that starts again from the top.
 //!
 //! **A staging ask is driven here** ([`drive_here`]). Its platform holds every
-//! write inside the request's process (`previews::request_hold`), and recovery
+//! write inside the request's process (`oxy_app_core::write_hold`), and recovery
 //! retires a run carrying the preview stamp at its stamp check, before any
 //! executor. Moving it would mean rebuilding the hold on the driver.
 //!
@@ -39,7 +39,7 @@ use uuid::Uuid;
 
 use super::{AskRequest, boxed, caller, err, err_with_hint, pipeline, task};
 use crate::server::api::custom_apps_gates::CustomAppContext;
-use crate::server::previews::request_hold::{HoldScope, scope_if};
+use oxy_app_core::write_hold::{HoldScope, scope_if};
 
 /// Queue a live ask: check its agent can start, then seed the run and its
 /// entry. Returns the run id. Registers nothing in this process — see

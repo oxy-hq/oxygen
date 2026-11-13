@@ -240,7 +240,7 @@ fn every_sql_accepting_method_is_guarded() {
     .expect("agentic-connector source is readable from the workspace");
     let trait_body = block_after(&trait_src, "pub trait DatabaseConnector");
     let impl_body = block_after(
-        include_str!("hold.rs"),
+        include_str!("connector.rs"),
         "impl DatabaseConnector for HoldingConnector",
     );
 

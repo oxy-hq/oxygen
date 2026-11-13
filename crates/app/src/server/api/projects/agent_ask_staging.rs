@@ -53,9 +53,9 @@ use oxy_custom_apps::thread_source::{
 use oxy_custom_apps::write_record::{WriteRecord, plane_for_dialect};
 
 use super::workspace_actions::{non_production_app, workspace_actions_mode};
-use crate::server::previews::request_hold::{HeldSink, HeldStatement, HoldScope};
 use crate::server::previews::sql_kind::StatementKind;
 use oxy_app_core::custom_app_env_request::environment_refused;
+use oxy_app_core::write_hold::{HeldSink, HeldStatement, HoldScope};
 
 /// The surface an ask's held rows are listed under, and their `mode`.
 pub const ASK_SURFACE: &str = "agent";

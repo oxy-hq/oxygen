@@ -135,7 +135,7 @@ pub mod metric_tree_exec {
     pub use crate::server::api::metric_tree::workspace_databases;
     /// Whether this request is a held preview — `build_query_executor`'s
     /// `holds_writes`, read on the request's own task.
-    pub use crate::server::previews::request_hold::active as request_holds_writes;
+    pub use oxy_app_core::write_hold::active as request_holds_writes;
 }
 
 /// The warehouse the World Model Graph cores (`oxy_world_model::graph`) run

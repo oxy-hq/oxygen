@@ -61,6 +61,7 @@ const CHARTER: &[(&str, Kind)] = &[
     ("workspace_cache", Request),
     ("workspace_org", Request),
     ("workspace_repo_facts", Request),
+    ("write_hold", Service),
 ];
 
 /// Modules that have an owner, and the crate they belong in. Sorted.

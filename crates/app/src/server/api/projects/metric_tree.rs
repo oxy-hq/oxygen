@@ -458,7 +458,7 @@ async fn run_baseline_query(
     let user_id = boundary.app.user.id;
     let handle = tokio::runtime::Handle::current();
     // Read here: the executor builds its connectors on a blocking thread.
-    let holds_writes = crate::server::previews::request_hold::active();
+    let holds_writes = oxy_app_core::write_hold::active();
     // This surface pins the layer to the compile-boundary tempdir and carries
     // no pre-aggregation cache of its own, so the short-circuit is off and the
     // other two fields are inert; `freshness` is stated anyway so a later

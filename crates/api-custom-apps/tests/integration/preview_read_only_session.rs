@@ -1,5 +1,5 @@
 //! A holding connector over Postgres runs its session read-only
-//! (`previews::hold::pg`), so a write the classifier cannot see — inside a
+//! (`oxy_app_core::write_hold::connector::pg`), so a write the classifier cannot see — inside a
 //! function a `SELECT` calls — is refused by the database, and `set_config`,
 //! the way back, is held.
 //!
@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex};
 use agentic_connector::{DatabaseConnector, PostgresConnector};
 use agentic_core::result::CellValue;
 use async_trait::async_trait;
-use oxy_app::surface::testing::previews::hold::HoldingConnector;
-use oxy_app::surface::testing::previews::request_hold::{HeldSink, HeldStatement, HoldScope};
 use oxy_app::surface::testing::previews::sql_kind::StatementKind;
+use oxy_app_core::write_hold::connector::HoldingConnector;
+use oxy_app_core::write_hold::{HeldSink, HeldStatement, HoldScope};
 use uuid::Uuid;
 
 use crate::common::{Schema, fresh_db};

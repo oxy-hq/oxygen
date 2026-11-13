@@ -31,7 +31,7 @@
 //!
 //! **Known limits.** Redshift is built on the same connector and reports the
 //! Postgres dialect, so it is told apart by its configured database type
-//! (`hold::Session::for_type`) and gets no `SET` and no rerouted sample: there
+//! (`connector::Session::for_type`) and gets no `SET` and no rerouted sample: there
 //! the classifier is the whole guard, as before, and `SELECT my_proc()` can
 //! still write through a function. The guarantee also covers only statements
 //! sent through the holding connector; anything holding the inner connector

@@ -1,5 +1,5 @@
 //! What a preview request EXECUTES cannot write — the execution-layer half of
-//! the read-only rule (`previews::request_hold`).
+//! the read-only rule (`oxy_app_core::write_hold`).
 //!
 //! The routes here are ALLOWED by `previews::read_only`: they are worth
 //! serving in a preview, and they run the branch's own SQL or automations. So

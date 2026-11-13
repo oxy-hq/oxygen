@@ -4,7 +4,7 @@
 //! must never write to one. [`classify`] is how it tells a read from a write:
 //! it parses with the connector's own dialect and answers per statement. Both
 //! preview fences read it — the step-level hold (`WorkspaceContext::review_sql`)
-//! and the connector backstop ([`super::hold::HoldingConnector`]) — so the two
+//! and the connector backstop ([`crate::write_hold::connector::HoldingConnector`]) — so the two
 //! cannot disagree about what a write is.
 //!
 //! **Fail closed.** `Read` is exactly `airhouse::sql_rules::is_read_only`'s

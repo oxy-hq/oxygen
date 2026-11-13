@@ -1,7 +1,7 @@
 //! A workspace-preview **request** cannot write — enforced where work
 //! executes, not by the route it arrived on.
 //!
-//! [`super::read_only`] refuses a preview request by route before a handler
+//! `oxy-app`'s `previews::read_only` refuses a preview request by route before a handler
 //! runs. That table cannot see what an allowed route does next: rendering a
 //! data app runs the branch's task SQL and HTTP calls, `/sql/*` runs whatever
 //! it is sent, and a chat run can delegate to a branch automation. So the
@@ -32,19 +32,30 @@
 //! Separate from the staging pin (`oxy_custom_apps::staging_pin`), which a
 //! custom-app draft build also runs under: that pin chooses what is READ, and
 //! says nothing about whether a write may go out.
+//!
+//! **Why it is in the base.** Two contexts run under it — workspace previews
+//! and custom apps' staging and sandbox asks — and the workspace runtime
+//! (`OxyProjectContext`, the connector builders) and the workspace middleware
+//! consult it, as do the surfaces that run a query (`oxy-api-world-model`'s
+//! cohort). One task-local, one decision: it is defined here once, and every
+//! caller imports it from here. What stays with previews is the route table
+//! (`read_only`) and the pin; what stays with custom apps is the [`HeldSink`]
+//! that records a staging ask's held statements.
 
 use std::future::Future;
 use std::sync::Arc;
 
+use crate::custom_app_environment::AppEnvironment;
 use agentic_automation::HttpReview;
 use agentic_connector::{DatabaseConnector, SqlDialect};
 use async_trait::async_trait;
 use futures::future::Either;
-use oxy_app_core::custom_app_environment::AppEnvironment;
 use uuid::Uuid;
 
-use super::hold::{HoldingConnector, Session};
-use super::sql_kind::StatementKind;
+use crate::sql_kind::StatementKind;
+use connector::{HoldingConnector, Session};
+
+pub mod connector;
 
 /// A statement a held connector refused, as a [`HeldSink`] is told it: never
 /// the SQL text, only what it would have done and where.
@@ -258,5 +269,5 @@ pub fn refusal(what: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "request_hold_tests.rs"]
+#[path = "write_hold_tests.rs"]
 mod tests;

@@ -20,7 +20,7 @@
 //! * **Writes are held — except the managed Airhouse's, which land in the
 //!   preview.** `review_sql` holds every statement that is not a read,
 //!   `review_http` everything but `GET`/`HEAD`, and every connector it hands
-//!   out is a `previews::hold::HoldingConnector` — on every database but the
+//!   out is a `oxy_app_core::write_hold::connector::HoldingConnector` — on every database but the
 //!   workspace's managed Airhouse (`airhouse_managed`). There (phase 2b S8,
 //!   [`airhouse_writes`]) a step's writes are rewritten into the preview's own
 //!   schemas, `preview_<key>__<live schema>`, registered and recorded before

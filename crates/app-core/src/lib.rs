@@ -60,6 +60,7 @@ pub mod widgets;
 pub mod workspace_cache;
 pub mod workspace_org;
 pub mod workspace_repo_facts;
+pub mod write_hold;
 
 pub use app_state::AppState;
 

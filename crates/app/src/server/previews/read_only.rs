@@ -19,7 +19,7 @@
 //! app runs the branch's task SQL and HTTP calls, and chat can reach for a
 //! branch automation. So [`ALLOWED`] is not "these only read"; it is "these
 //! are worth serving, and what they execute is held": the request runs inside
-//! [`super::request_hold::scope`], every connector it gets refuses a statement
+//! [`oxy_app_core::write_hold::scope`], every connector it gets refuses a statement
 //! that is not a read, an `http_request` step sends only `GET`/`HEAD`, no
 //! automation runner or builder bridge is built, and an Airway step is
 //! refused. A route whose writes the execution layer cannot hold belongs on
@@ -46,7 +46,7 @@ use crate::server::role_manifest::pattern_matches;
 
 /// Mutating routes a preview may still call. Not because they only read — a
 /// route cannot promise that — but because what they execute runs with its
-/// writes held (`super::request_hold`), so serving them shows the branch
+/// writes held (`oxy_app_core::write_hold`), so serving them shows the branch
 /// without changing anything.
 pub const ALLOWED: &[(&str, &str)] = &[
     // Chat. Starting a run is inspected: a Builder Agent run edits files and

@@ -54,7 +54,7 @@ fn every_mutating_route_is_classified_and_every_entry_is_real() {
     assert!(
         unclassified.is_empty(),
         "these mutating routes are on neither preview list — put each on ALLOWED \
-         (what it executes goes through `request_hold`, so its writes are held) or \
+         (what it executes goes through `write_hold`, so its writes are held) or \
          REFUSED (it changes something the execution layer cannot hold):\n  {}",
         unclassified.join("\n  ")
     );

@@ -14,7 +14,7 @@
 //!   branches staff are previewing, at which commit, and who asked. Everything
 //!   else (status, revision, error) is read off `revisions`, so there is no
 //!   second copy of compile state to drift.
-//! * **Serving** ([`pin`], [`read_only`], [`request_hold`]) — a request
+//! * **Serving** ([`pin`], [`read_only`], and the write hold, `oxy_app_core::write_hold`) — a request
 //!   carrying `x-oxy-preview-revision: <revision_id>`, from staff, naming a
 //!   ready staging (or main) revision of this workspace **at the commit a live
 //!   preview is at**, runs inside
@@ -22,7 +22,7 @@
 //!   answers from that revision on whichever pod serves it, rollups are skipped,
 //!   data-app caches are partitioned, and it may read but not run or change
 //!   anything — refused by route ([`read_only`]) and, on the routes that do run
-//!   something, held where it executes ([`request_hold`]: every connector
+//!   something, held where it executes (`oxy_app_core::write_hold`: every connector
 //!   refuses a write, no automation delegation, no Airway step, no write over
 //!   HTTP). The pin is an immutable revision id, never a branch name. Every
 //!   request without the header — the IDE on the same branch included — is
@@ -76,13 +76,11 @@ pub mod ddl;
 pub mod ddl_airhouse;
 pub mod ddl_duckdb;
 pub mod drop;
-pub mod hold;
 pub mod maintenance;
 pub mod namespace;
 pub mod pin;
 pub mod read_only;
 pub mod registry;
-pub mod request_hold;
 pub mod revisions;
 pub mod runs;
 pub mod runtime;

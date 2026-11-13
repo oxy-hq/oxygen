@@ -267,7 +267,7 @@ pub fn is_read_only_post(path: &str) -> bool {
 ///
 /// Not [`is_read_only_post`]: each writes a thread, message, run or run-row.
 /// They are allowed because the handler itself decides what happens next —
-/// `start_ask` runs its write held (`previews::request_hold`), refusing a
+/// `start_ask` runs its write held (`crate::write_hold`), refusing a
 /// caller who may not open the environment; `start_automation_run` refuses
 /// every such caller with a `409`, logged as held for one it may open
 /// (`projects::automation_run::staging_hold`). Only in an environment whose

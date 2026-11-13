@@ -147,11 +147,11 @@ pub(crate) fn agentic_error_response(
     // becomes 502 so the IDE shows a "warehouse is down" surface
     // distinguishable from "your SQL is wrong"; everything else
     // (decoder errors, internal driver bugs) is 500. A statement a workspace
-    // preview held (`previews::hold`) is the preview's `409 preview_read_only`:
+    // preview held (`oxy_app_core::write_hold::connector`) is the preview's `409 preview_read_only`:
     // nothing failed, and nothing was sent.
     let (status, body) = match err {
         SqlExecuteError::Connector(ConnectorError::QueryFailed(d))
-            if d.code.as_deref() == Some(crate::server::previews::hold::HELD_CODE) =>
+            if d.code.as_deref() == Some(oxy_app_core::write_hold::connector::HELD_CODE) =>
         {
             (
                 StatusCode::CONFLICT,

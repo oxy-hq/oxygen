@@ -33,13 +33,13 @@ use entity::users::UserStatus;
 use oxy_api_custom_apps::custom_apps_staging_held::{HeldQuery, list_held};
 use oxy_app::surface::testing::agentic_wiring::OxyProjectContext;
 use oxy_app::surface::testing::custom_apps_gates::build_project_context;
-use oxy_app::surface::testing::previews::request_hold::{HoldScope, scope_if};
 use oxy_app::surface::testing::projects::agent_ask::caller::{
     CallerRunResolver, RUN_CALLER_KEY, RunCaller,
 };
 use oxy_app::surface::testing::projects::agent_ask_staging::{
     ask_scope, staging_run_matches, thread_source,
 };
+use oxy_app_core::write_hold::{HoldScope, scope_if};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_auth::user::LOCAL_GUEST_EMAIL;

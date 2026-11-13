@@ -1,6 +1,6 @@
 //! What an [`OxyProjectContext`] built for a held request — a workspace
 //! preview, or a custom app's staging ask — does instead of writing
-//! (`server::previews::request_hold`).
+//! (`oxy_app_core::write_hold`).
 //!
 //! The context is the platform every request-path run executes on — a chat
 //! run and the children it drives, a data app's tasks, the metric-tree tools —
@@ -24,19 +24,19 @@ use std::sync::Arc;
 use agentic_connector::DatabaseConnector;
 
 use super::OxyProjectContext;
-use crate::server::previews::request_hold::{self, HoldScope};
+use oxy_app_core::write_hold::{self, HoldScope};
 
 impl OxyProjectContext {
     /// Whether this context holds every write: it was built for a held
     /// request, or is being used inside one.
     pub fn holds_writes(&self) -> bool {
-        self.hold.is_some() || request_hold::active()
+        self.hold.is_some() || write_hold::active()
     }
 
     /// The hold this context writes under — the one it was built in, else the
     /// current task's — or `None` when it holds nothing.
     pub fn hold_scope(&self) -> Option<HoldScope> {
-        self.hold.clone().or_else(request_hold::current)
+        self.hold.clone().or_else(write_hold::current)
     }
 
     /// The hold's wording for a refusal, defaulting to a workspace preview's.
@@ -50,11 +50,11 @@ impl OxyProjectContext {
         conn: Arc<dyn DatabaseConnector>,
         database: &str,
     ) -> Arc<dyn DatabaseConnector> {
-        let session = crate::server::previews::hold::Session::of(
+        let session = oxy_app_core::write_hold::connector::Session::of(
             &self.workspace_manager.config_manager,
             database,
         );
-        request_hold::hold_in(self.hold_scope().as_ref(), conn, database, session)
+        write_hold::hold_in(self.hold_scope().as_ref(), conn, database, session)
     }
 
     /// The connector a held context hands the pipeline for `db_name` — every

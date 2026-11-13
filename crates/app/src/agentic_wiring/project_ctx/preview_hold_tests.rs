@@ -10,7 +10,7 @@ use oxy::config::WorkingCopy;
 use oxy_test_utils::fixtures::TestFixture;
 
 use super::OxyProjectContext;
-use crate::server::previews::request_hold;
+use oxy_app_core::write_hold;
 
 /// A ClickHouse on the discard port: a statement that is sent fails to
 /// connect, one that is held never tries.
@@ -46,8 +46,8 @@ async fn a_context_built_for_a_preview_request_holds_every_write() {
     let wm = manager(&fixture).await;
     // Built inside the request, used outside it — as the spawned task that
     // drives a chat run uses it.
-    let ctx = request_hold::scope(async { OxyProjectContext::new(wm) }).await;
-    assert!(!request_hold::active());
+    let ctx = write_hold::scope(async { OxyProjectContext::new(wm) }).await;
+    assert!(!write_hold::active());
     assert!(ctx.holds_writes());
     assert!(
         ctx.is_workspace_preview(),

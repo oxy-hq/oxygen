@@ -10,8 +10,8 @@ use uuid::Uuid;
 
 use super::pg::READ_ONLY_SESSION;
 use super::{HELD_CODE, HoldingConnector, Session};
-use crate::server::previews::request_hold::{HeldSink, HeldStatement, HoldScope};
-use crate::server::previews::sql_kind::StatementKind;
+use crate::sql_kind::StatementKind;
+use crate::write_hold::{HeldSink, HeldStatement, HoldScope};
 
 /// A Postgres connector that records what reaches it, yielding around each
 /// call so concurrent callers get every chance to interleave; `set` decides

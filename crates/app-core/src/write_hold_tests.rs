@@ -6,12 +6,12 @@ use agentic_automation::HttpReview;
 use agentic_connector::{ConnectorError, DatabaseConnector, ExecutionResult, SqlDialect};
 use async_trait::async_trait;
 
+use super::connector::Session;
 use super::{
     HeldSink, HeldStatement, HoldScope, active, current, hold_if, hold_in, http_review, scope,
     scope_as,
 };
-use crate::server::previews::hold::Session;
-use crate::server::previews::sql_kind::StatementKind;
+use crate::sql_kind::StatementKind;
 
 /// Records every statement that reaches it.
 #[derive(Default)]
@@ -144,7 +144,7 @@ async fn a_staging_hold_tells_its_sink_and_names_staging() {
 /// every write, worded for a sandbox, naming the sandbox as its environment.
 #[tokio::test]
 async fn a_sandbox_hold_is_staging_s_in_its_own_scope() {
-    use oxy_app_core::custom_app_environment::AppEnvironment;
+    use crate::custom_app_environment::AppEnvironment;
 
     let heard = Arc::new(Heard::default());
     let app = uuid::Uuid::new_v4();
