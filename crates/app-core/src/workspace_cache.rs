@@ -217,13 +217,19 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
+    /// Long enough that the "still cached" lookup right after an insert cannot
+    /// outlive it on a loaded runner: the expiry clock is `std::time::Instant`,
+    /// so it cannot be paused. At 40 ms that lookup missed in CI.
+    const SHORT_TTL: Duration = Duration::from_millis(500);
+    const PAST_SHORT_TTL: Duration = Duration::from_millis(600);
+
     #[tokio::test]
     async fn ttl_expiration_forces_rebuild() {
-        let cache: Arc<TtlCache<u32>> = TtlCache::with_ttl(Duration::from_millis(40));
+        let cache: Arc<TtlCache<u32>> = TtlCache::with_ttl(SHORT_TTL);
         let key = Uuid::new_v4();
         cache.insert(key, Arc::new(1));
         assert!(cache.lookup(key).is_some());
-        tokio::time::sleep(Duration::from_millis(70)).await;
+        tokio::time::sleep(PAST_SHORT_TTL).await;
         assert!(cache.lookup(key).is_none(), "expired entry must be gone");
     }
 
@@ -286,12 +292,12 @@ mod tests {
 
     #[tokio::test]
     async fn tagged_entry_still_expires_on_ttl() {
-        let cache: Arc<TtlCache<u32>> = TtlCache::with_ttl(Duration::from_millis(40));
+        let cache: Arc<TtlCache<u32>> = TtlCache::with_ttl(SHORT_TTL);
         let key = Uuid::new_v4();
         let r1 = Some(Uuid::new_v4());
         cache.insert_tagged(key, r1, Arc::new(1));
         assert!(cache.lookup_tagged(key, r1).is_some());
-        tokio::time::sleep(Duration::from_millis(70)).await;
+        tokio::time::sleep(PAST_SHORT_TTL).await;
         assert!(cache.lookup_tagged(key, r1).is_none());
     }
 
