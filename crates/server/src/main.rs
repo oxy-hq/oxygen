@@ -122,6 +122,7 @@ fn api_seam_routes() -> SeamRouter {
         .merge(oxy_api_tenancy::onboarding::routes())
         .merge(oxy_api_documents::routes())
         .merge(oxy_api_frontline::routes())
+        .merge(oxy_api_identity::routes())
         .merge(oxy_api_notifications::routes())
         .merge(oxy_api_slack::routes())
         // The environment planes writes pin a semantic branch through a port
@@ -139,6 +140,7 @@ fn api_seam_routes() -> SeamRouter {
 /// The sibling crates merged beside the public tree, outside the auth stack.
 fn public_seam_routes() -> SeamRouter {
     oxy_api_frontline::public_routes()
+        .merge(oxy_api_identity::public_routes())
         .merge(oxy_api_custom_apps::public_routes())
         .merge(oxy_api_slack::public_routes())
 }
@@ -150,6 +152,7 @@ fn workspace_seam_routes() -> SeamRouter {
         .merge(oxy_api_custom_apps::workspace_routes())
         .merge(oxy_api_experiment::workspace_routes())
         .merge(oxy_api_world_model::workspace_routes())
+        .merge(oxy_api_identity::workspace_routes())
 }
 
 /// The sibling crates merged into the curated `/external/api/{workspace_id}`
@@ -212,6 +215,15 @@ fn external_seam_routes() -> SeamRouter {
 /// `/external/api` tree standalone apps call with an API key. Its tailer,
 /// reaper and camera bridge join `background`.
 ///
+/// `oxy-api-identity` fills six seams, each where its routes sat in
+/// `oxy-app`'s router: the caller's tokens, the session's halves of `oxyc
+/// login` and an org's API access ride `api` (the org half re-applies
+/// `org_middleware` + the subscription guard); the CLI's halves, the ticket
+/// redeem, the OIDC exchange and leak reports ride `public`; the legacy
+/// `/api-keys` and the workspace's `/api-tokens` ride `workspace`; the two
+/// token sections ride `admin`; the legacy key operations ride `openapi`; the
+/// token sweep rides `global_ticks`. Every route is FleetOk (Postgres only).
+///
 /// `oxy-api-experiment` rides the workspace seam too (experiments and declared
 /// worlds under `/{workspace_id}`), declaring write-back apply IdeOnly (it creates
 /// a git worktree in the working copy). Its five task kinds join the custom-app
@@ -226,6 +238,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_tenancy::partner_console::route_roles())
                 .chain(oxy_api_documents::route_roles())
                 .chain(oxy_api_frontline::route_roles())
+                .chain(oxy_api_identity::route_roles())
                 .chain(oxy_api_notifications::route_roles())
                 .chain(oxy_api_custom_apps::route_roles())
                 .chain(oxy_api_slack::route_roles())
@@ -240,6 +253,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_custom_apps::workspace_route_roles())
                 .chain(oxy_api_experiment::workspace_route_roles())
                 .chain(oxy_api_world_model::workspace_route_roles())
+                .chain(oxy_api_identity::workspace_route_roles())
                 .copied()
                 .collect(),
         },
@@ -247,6 +261,7 @@ fn surface_seams() -> SurfaceSeams {
             routes: public_seam_routes(),
             decls: oxy_api_frontline::public_route_roles()
                 .iter()
+                .chain(oxy_api_identity::public_route_roles())
                 .chain(oxy_api_custom_apps::public_route_roles())
                 .chain(oxy_api_slack::public_route_roles())
                 .copied()
@@ -263,10 +278,11 @@ fn surface_seams() -> SurfaceSeams {
             .into_iter()
             .chain(oxy_api_workspace_health::admin_sections())
             .chain(oxy_api_airway::admin_sections())
+            .chain(oxy_api_identity::admin_sections())
             .collect(),
         // Operations the surfaces document, merged into the served OpenAPI
         // document (`oxyc schema` reads it).
-        openapi: vec![oxy_api_tenancy::openapi()],
+        openapi: vec![oxy_api_tenancy::openapi(), oxy_api_identity::openapi()],
         // The custom-app task kinds a worker runs, the background jobs a serve
         // process starts, and the outer `/customer-apps/{*path}` mount. The task
         // executors and the sandbox maintenance job are still in `oxy-app` (the
@@ -284,7 +300,10 @@ fn surface_seams() -> SurfaceSeams {
             .into_iter()
             .chain(oxy_api_world_model::background())
             .collect(),
-        global_ticks: oxy_api_experiment::global_ticks(),
+        global_ticks: oxy_api_experiment::global_ticks()
+            .into_iter()
+            .chain(oxy_api_identity::global_ticks())
+            .collect(),
         outer: Some(custom_apps_seams::outer),
         outer_decls: oxy_api_custom_apps::serve::serve_dispatch_roles().to_vec(),
         function_runtime: Some(custom_apps_seams::function_runtime()),

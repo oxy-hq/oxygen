@@ -9887,6 +9887,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-identity"
+version = "0.5.160"
+dependencies = [
+ "axum",
+ "chrono",
+ "entity",
+ "garde",
+ "governor",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-authz",
+ "oxy-custom-apps",
+ "oxy-identity",
+ "oxy-server-authz",
+ "oxy-shared",
+ "oxy-telemetry",
+ "reqwest 0.13.4",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.5.3",
+ "tracing",
+ "utoipa",
+ "utoipa-axum",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-notifications"
 version = "0.5.160"
 dependencies = [
@@ -10729,6 +10761,7 @@ dependencies = [
  "oxy-api-airway",
  "oxy-api-custom-apps",
  "oxy-api-experiment",
+ "oxy-api-identity",
  "oxy-api-tenancy",
  "oxy-api-world-model",
  "oxy-app",
@@ -10783,6 +10816,7 @@ dependencies = [
  "oxy-api-experiment",
  "oxy-api-frontline",
  "oxy-api-github",
+ "oxy-api-identity",
  "oxy-api-notifications",
  "oxy-api-slack",
  "oxy-api-tenancy",

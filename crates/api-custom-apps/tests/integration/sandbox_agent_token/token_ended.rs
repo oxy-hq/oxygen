@@ -15,7 +15,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::fixture::{Agent, agent, send};
+use super::fixture::{Agent, agent, mint_with, send};
 use crate::sandbox_sweep::{sandboxes, teardowns};
 use crate::sandbox_teardown::sandbox;
 
@@ -73,8 +73,7 @@ async fn a_revoked_tokens_sandboxes_are_torn_down_a_day_later_and_recorded_once(
     ops::create(&agent.t.db, &agent.app, &sandbox("p"), &agent.t.guest())
         .await
         .expect("a colleague's sandbox");
-    let (status, body) = agent.api("DELETE", "/auth/token", None).await;
-    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    agent.end().await;
     let ended = ended_at(&agent, agent.token_id).await;
     let row = token_row(&agent, agent.token_id).await;
     assert_eq!(
@@ -142,14 +141,8 @@ async fn a_revoked_tokens_sandboxes_are_torn_down_a_day_later_and_recorded_once(
 async fn an_expired_tokens_sandbox_is_torn_down_a_day_after_the_expiry() {
     let agent = agent().await;
     create_all(&agent, &["dev-a"]).await;
-    let body = json!({
-        "name": "longer", "kind": "sandbox_agent", "apps": [agent.app.id], "expires_in_hours": 72,
-    });
-    let headers = [("cookie", agent.cookie.as_str())];
-    let (status, minted) = send("POST", "/user/tokens", &headers, Some(body)).await;
-    assert_eq!(status, StatusCode::CREATED, "{minted}");
-    let longer = Uuid::parse_str(minted["token"]["id"].as_str().expect("an id")).expect("a uuid");
-    let bearer = format!("Bearer {}", minted["secret"].as_str().expect("the secret"));
+    let (longer, secret) = mint_with(&agent.cookie, "longer", &[agent.app.id], false, 72).await;
+    let bearer = format!("Bearer {secret}");
     let uri = format!("/customer-apps/{}/environments", agent.app.id);
     let headers = [("authorization", bearer.as_str())];
     let (status, body) = send("POST", &uri, &headers, Some(json!({ "name": "dev-l" }))).await;

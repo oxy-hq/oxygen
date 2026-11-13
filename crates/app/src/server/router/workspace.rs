@@ -12,7 +12,7 @@ use axum::routing::{get, post, put};
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
 use crate::api::{
-    agent, api_keys, apps, artifacts, automation, chart, compile_staging, data, database,
+    agent, apps, artifacts, automation, chart, compile_staging, data, database,
     execution_analytics, integration, local_setup, metric_anomalies, metric_tree,
     metric_tree_probe, metric_tree_projection, metrics, org_subdomain, preagg, result_files,
     schedules, semantic, semantic_scan, thread, traces, video, workspace_logo, workspace_members,
@@ -67,13 +67,9 @@ pub(super) fn build_workspace_routes(
         // nest through the workspace seam, FleetOk as before.
         .nest("/threads", build_thread_routes(&app_state))
         .nest("/agents", build_agent_routes(&app_state))
-        .nest("/api-keys", build_api_key_routes(&app_state))
-        // Read-only, Postgres only (api_tokens, api_token_grants, org_members,
-        // users): any replica. The tokens that can reach this workspace.
-        .route_fleet(
-            "/api-tokens",
-            get(crate::server::api::user_tokens::inventory::list_workspace_tokens),
-        )
+        // `/api-keys` (the legacy keys) and `/api-tokens` (the tokens that can
+        // reach this workspace) moved to `oxy-api-identity`, merged inside this
+        // nest through the workspace seam, FleetOk as before.
         // Staging branch compile for a custom-app draft build to pin
         // (`oxyc publish --semantic-branch`). The POST asks GitHub where the
         // branch is and queues a compile of that commit; the status reads
@@ -437,22 +433,6 @@ fn build_metric_tree_routes(app_state: &AppState) -> RoleRouter {
             post(metric_tree_projection::post_projection),
         )
         .map_router(|r| r.layer(axum::middleware::from_fn(metric_tree_probe::probe)))
-}
-
-fn build_api_key_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone())
-        .route_fleet(
-            "/",
-            get(api_keys::list_api_keys).post(api_keys::create_api_key),
-        )
-        .route_fleet(
-            "/{id}",
-            get(api_keys::get_api_key).delete(api_keys::delete_api_key),
-        )
-        // Postgres only (api_keys + api_tokens + audit_events): any replica.
-        .route_fleet("/{id}/extend", post(api_keys::extend_api_key))
-        // Reads audit_events, api_token_usage_daily and api_tokens: any replica.
-        .route_fleet("/{id}/activity", get(api_keys::get_api_key_activity))
 }
 
 /// Schedule CRUD + run-now (§12 FU4b). Lives in the app crate so the

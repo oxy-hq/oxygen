@@ -57,6 +57,8 @@ async fn the_token_authenticates_on_api_only_and_reaches_the_loop_only() {
         "/orgs",
         "/customer-apps",
         "/admin/orgs-meta",
+        "/admin/sandbox-agent-tokens",
+        "/admin/standing-tokens",
         "/assume",
     ] {
         assert_eq!(get_as(&secret, uri).await.0, StatusCode::NOT_FOUND, "{uri}");
@@ -310,7 +312,7 @@ async fn the_token_is_told_its_minter_and_its_apps() {
     let user = AuthenticatedUser::from(fx.user.clone()).with_credential(Some(credential.clone()));
     let mut actor = RequestActor::session(user);
     actor.credential = Some(credential);
-    let described = oxy_app::api::user_tokens::introspect::get_calling_token(actor)
+    let described = oxy_api_identity::user_tokens::introspect::get_calling_token(actor)
         .await
         .unwrap_or_else(|_| panic!("the calling token is described"));
     let body = serde_json::to_value(&described.0).unwrap();

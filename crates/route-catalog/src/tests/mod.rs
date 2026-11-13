@@ -65,6 +65,15 @@ const REQUIRED_GROUPS: &[&str] = &[
     // PIN sign-in on the public seam.
     "/api/orgs/{org_id}/frontline",
     "/api/frontline/",
+    // The four route seams of `oxy-api-identity`: the caller's tokens and an
+    // org's API access on the api seam, the CLI's halves of `oxyc login` on the
+    // public seam (`/api/auth/` above is satisfied by oxy-app's own auth
+    // routes), and the staff sections on the admin seam. Its workspace seam
+    // is `/api/{workspace_id}/api-keys` below.
+    "/api/user/tokens",
+    "/api/orgs/{org_id}/service-accounts",
+    "/api/auth/cli/exchange",
+    "/api/admin/standing-tokens",
     // `oxy-api-notifications`, on the api seam at the root.
     "/api/notifications",
     "/api/customer-apps",

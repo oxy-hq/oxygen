@@ -193,7 +193,7 @@ const ALLOWED: &[(&str, &str)] = &[
          should enqueue the same TaskSpec, as the health check's now does",
     ),
     (
-        "app/src/server/api/user_tokens/device_login.rs",
+        "api-identity/src/user_tokens/device_login.rs",
         "sub-second fire-and-forget off the request's clock: `tell_approver` counts \
          the pending device logins and queues the notification through \
          `ctx.notify`'s delivery task — the durable part is already on the queue; the \

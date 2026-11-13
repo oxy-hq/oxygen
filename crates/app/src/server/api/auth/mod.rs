@@ -34,11 +34,12 @@ pub use dev_login::{PeerAddr, dev_login, dev_login_get};
 pub use dev_login::{dev_login_is_loopback_only, dev_login_source, is_dev_login_enabled};
 pub use handlers::*;
 pub(crate) use ops::clear_session_cookie;
-// The ticket redemption (`api::user_tokens::browser_session`) answers as a
-// login does: one function and the type it returns cross the boundary.
-pub(crate) use dto::AuthResponse;
+// The ticket redemption (`oxy-api-identity`'s `user_tokens::browser_session`)
+// answers as a login does: one function and the type it returns cross the
+// boundary, through `surface::session`.
+pub use dto::AuthResponse;
 pub use ops::validate_return_to_url;
-pub(crate) use token_session::token_session_response;
+pub use token_session::token_session_response;
 // `pub`: reused by the extracted `oxy-api-partner-console` surface (invite links).
 pub use ops::{extract_base_url_from_headers, extract_link_base_for_authenticated_request};
 

@@ -12,7 +12,7 @@
 use axum::http::StatusCode;
 use entity::service_accounts;
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
-use oxy_app::server::api::org_api_access::repo_resolve::{Resolved, stub_resolver_for_tests};
+use oxy_api_identity::org_api_access::repo_resolve::{Resolved, stub_resolver_for_tests};
 use oxy_auth::github_oidc::GithubOidcClaims;
 use oxy_auth::token::trust_policy_access::RepoIds;
 use oxy_custom_apps::github_oidc_keys::install_keys_for_tests;
@@ -179,7 +179,7 @@ pub(crate) async fn account_id(fx: &Fixture, org_id: Uuid, name: &str) -> Uuid {
 /// The audience this process's exchange requires: `oxy` while no public URL
 /// is configured, which is every test that does not set one.
 pub(crate) fn audience() -> String {
-    oxy_app::server::api::oidc_exchange::audience::audience()
+    oxy_api_identity::oidc_exchange::audience::audience()
 }
 
 /// Exchange `run`'s token for this deployment's audience, as the fixture

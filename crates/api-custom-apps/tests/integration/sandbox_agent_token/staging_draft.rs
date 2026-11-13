@@ -14,17 +14,19 @@ use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilt
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::fixture::{Agent, agent, app_model, mint, publish_as, published, send, tarball};
+use super::fixture::{Agent, agent, app_model, mint, mint_with, publish_as, published, tarball};
 use crate::sandbox_publish::{app_row, build_pk, input};
 
 /// A sandbox agent token for `apps`, minted with `staging` under `cookie`.
 pub(super) async fn mint_with_staging(cookie: &str, apps: &[Uuid]) -> (Uuid, String) {
-    let body = json!({ "name": "stager", "kind": "sandbox_agent", "apps": apps, "staging": true });
-    let (status, minted) = send("POST", "/user/tokens", &[("cookie", cookie)], Some(body)).await;
-    assert_eq!(status, StatusCode::CREATED, "mint with staging: {minted}");
-    let id = minted["token"]["id"].as_str().expect("a token id");
-    let secret = minted["secret"].as_str().expect("the secret").to_string();
-    (Uuid::parse_str(id).expect("a uuid"), secret)
+    mint_with(
+        cookie,
+        "stager",
+        apps,
+        true,
+        oxy_auth::token::sandbox::DEFAULT_HOURS,
+    )
+    .await
 }
 
 /// The fixture's agent, holding a token granted its app's staging instead of

@@ -93,7 +93,9 @@ web-app/src/pages/auth/                            @luong-komorebi @NTtanh
 # tokens, org service accounts, GitHub OIDC trusted access, and the sandbox
 # agent token. The token core sits in crates/auth/ above; these are the API and
 # settings surfaces over it, uncovered until 2026-10-12. All Luong so far.
-crates/app/src/server/api/user_tokens/             @luong-komorebi @hotay
+# Since 2026-11-13 the whole surface (personal tokens, legacy keys, org API
+# access, oxyc login, the OIDC exchange) is its own crate, `oxy-api-identity`.
+crates/api-identity/                               @luong-komorebi @hotay
 web-app/src/components/settings/SettingsDialog/sections/account/PersonalTokens/  @luong-komorebi @hotay
 web-app/src/components/settings/SettingsDialog/sections/organization/ApiAccess/  @luong-komorebi @hotay
 
@@ -299,7 +301,6 @@ crates/infrastructure/llm/                         @hotay @luong-komorebi
 crates/api-tenancy/src/onboarding/                 @nresh @luong-komorebi
 crates/api-tenancy/tests/integration/onboarding_route_roles.rs @nresh @luong-komorebi
 web-app/src/pages/onboarding/                      @nresh @luong-komorebi
-web-app/src/pages/create-workspace/                @nresh @luong-komorebi
 
 # Agentic browser test suite + skill
 web-app/tests/agentic/                             @nresh @luong-komorebi

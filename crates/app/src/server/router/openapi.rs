@@ -14,9 +14,7 @@ use utoipa::openapi::server::Server;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::api::{
-    agent, api_keys, data, database, healthcheck, projects, thread, user, workspaces,
-};
+use crate::api::{agent, data, database, healthcheck, projects, thread, user, workspaces};
 
 use super::{IdeState, build_cors_layer};
 
@@ -27,11 +25,8 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         .routes(routes!(healthcheck::liveness_check))
         .routes(routes!(healthcheck::version_info))
         .routes(routes!(agent::get_agents))
-        .routes(routes!(api_keys::create_api_key))
-        .routes(routes!(api_keys::list_api_keys))
-        .routes(routes!(api_keys::get_api_key))
-        .routes(routes!(api_keys::delete_api_key))
-        .routes(routes!(api_keys::extend::extend_api_key))
+        // The legacy API-key operations are `oxy-api-identity`'s, merged in
+        // through `SurfaceSeams::openapi`.
         .routes(routes!(workspaces::get_workspace))
         .routes(routes!(thread::get_threads))
         .routes(routes!(thread::get_thread))

@@ -1,12 +1,24 @@
 //! A sandbox agent token, as a handler or an op sees it — and a real one:
-//! minted through the token route under the minter's session, and presented
-//! to the routers production mounts.
+//! stored the way the token route stores one, for the minter of a session, and
+//! presented to the routers production mounts.
+//!
+//! Minted and ended through the token domain (`oxy_auth::token`), not the token
+//! routes: those are `oxy-api-identity`'s, and one surface may not depend on
+//! another, not even for its tests (`internal-docs/domain-boundaries.md` S3).
+//! What the routes add — who may mint, the org's policy, the lifecycle audit
+//! row, a token ending itself — is tested in `oxy-server`'s
+//! `token_auth::sandbox_agent*`, which mounts both surfaces.
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode, header};
-use entity::{app_admins, apps, users};
+use axum::http::{HeaderMap, Request, StatusCode, header};
+use chrono::{Duration, Utc};
+use entity::{api_tokens, app_admins, apps, users};
+use oxy::database::client::establish_connection;
 use oxy_api_custom_apps::custom_apps_publish::publish;
 use oxy_app_core::audit::RequestActor;
+use oxy_auth::token::credential::source;
+use oxy_auth::token::personal::{self, NewToken};
+use oxy_auth::token::sandbox::{self, GrantedApp, NewSandboxToken};
 use oxy_auth::token::{AppSandboxGrant, CredentialContext, StoredKind};
 use oxy_auth::types::AuthenticatedUser;
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
@@ -149,7 +161,9 @@ pub(crate) async fn published(t: &Tenant, slug: &str) -> apps::Model {
 }
 
 /// Make the guest Oxy staff by a **grant row** — a Global Admin over every
-/// org — not by `OXY_OWNER`: a grant row is what can be taken away.
+/// org — not by `OXY_OWNER`: a grant row is what can be taken away. Then the
+/// grant cache is dropped, as the grant API drops it after every write: the
+/// guest's earlier requests (the publishes above) cached it as no one.
 pub(crate) async fn grant_staff(db: &DatabaseConnection, email: &str) {
     app_admins::ActiveModel {
         id: ActiveValue::Set(Uuid::new_v4()),
@@ -163,6 +177,7 @@ pub(crate) async fn grant_staff(db: &DatabaseConnection, email: &str) {
     .insert(db)
     .await
     .expect("seed the staff grant");
+    oxy_server_authz::globals::invalidate_admin_cache();
 }
 
 /// Take the minter's staff grant away. No cache is touched: a sandbox agent
@@ -213,14 +228,94 @@ pub(crate) async fn agent() -> Agent {
     }
 }
 
-/// Mint a sandbox agent token for `apps` under the session `cookie`.
+/// Mint a sandbox agent token for `apps` under the session `cookie`, with the
+/// kind's default lifetime.
 pub(crate) async fn mint(cookie: &str, apps: &[Uuid]) -> (Uuid, String) {
-    let body = json!({ "name": "agent", "kind": "sandbox_agent", "apps": apps });
-    let (status, minted) = send("POST", "/user/tokens", &[("cookie", cookie)], Some(body)).await;
-    assert_eq!(status, StatusCode::CREATED, "mint: {minted}");
-    let id = minted["token"]["id"].as_str().expect("a token id");
-    let secret = minted["secret"].as_str().expect("the secret").to_string();
-    (Uuid::parse_str(id).expect("a uuid"), secret)
+    mint_with(cookie, "agent", apps, false, sandbox::DEFAULT_HOURS).await
+}
+
+/// Mint a sandbox agent token for `apps` as the user `cookie` is a session of,
+/// granted each app's staging too when `staging`, ending `hours` from now:
+/// `oxy_auth::token::sandbox::create`, which `POST /api/user/tokens` ends in.
+pub(crate) async fn mint_with(
+    cookie: &str,
+    name: &str,
+    apps: &[Uuid],
+    staging: bool,
+    hours: i64,
+) -> (Uuid, String) {
+    let minter = session_user(cookie).await;
+    let db = establish_connection().await.expect("connect");
+    let mut granted = Vec::new();
+    for id in apps {
+        let app = app_model(&db, *id).await;
+        granted.push(GrantedApp {
+            org_id: app.org_id,
+            app_id: app.id,
+        });
+    }
+    let minted = sandbox::create(
+        &db,
+        NewSandboxToken {
+            minter,
+            name: name.to_string(),
+            apps: granted,
+            staging,
+            expires_at: Utc::now() + Duration::hours(hours),
+            source: source::UI,
+        },
+    )
+    .await
+    .expect("mint a sandbox agent token");
+    (minted.row.id, minted.secret)
+}
+
+/// A personal access token named `name` for the user `cookie` is a session of,
+/// as a body naming nothing else mints one: all-access, no standing, the
+/// default lifetime. `(token id, secret)`.
+pub(crate) async fn mint_personal(cookie: &str, name: &str) -> (Uuid, String) {
+    let user_id = session_user(cookie).await;
+    let db = establish_connection().await.expect("connect");
+    let minted = personal::create(
+        &db,
+        NewToken {
+            user_id,
+            name: name.to_string(),
+            all_access: true,
+            platform: false,
+            partner: false,
+            grants: Vec::new(),
+            expires_at: Some(Utc::now() + Duration::days(personal::DEFAULT_LIFETIME_DAYS)),
+            source: source::UI,
+        },
+    )
+    .await
+    .expect("mint a personal token");
+    (minted.row.id, minted.secret)
+}
+
+/// End token `token_id` as `by` did, the way the token routes end one: the row
+/// revoked, then the credential cache told, so the next request reads it.
+pub(crate) async fn revoke(db: &DatabaseConnection, token_id: Uuid, by: Uuid, reason: &str) {
+    let row = api_tokens::Entity::find_by_id(token_id)
+        .one(db)
+        .await
+        .expect("read the token")
+        .expect("the token");
+    personal::revoke(db, row, by, reason)
+        .await
+        .expect("revoke the token");
+    oxy_auth::token::cache::invalidate_token(token_id);
+}
+
+/// The user a `Cookie` header's session belongs to.
+async fn session_user(cookie: &str) -> Uuid {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::COOKIE, cookie.parse().expect("a cookie header"));
+    let sub = oxy_app::surface::session::session_cookie_user_id(&headers)
+        .await
+        .expect("a live session");
+    Uuid::parse_str(&sub).expect("a user id")
 }
 
 /// The flat `/api` tree as `oxy-app` mounts it, with the custom-app surface
@@ -265,6 +360,17 @@ pub(crate) async fn send(
 impl Agent {
     pub(crate) fn bearer(&self) -> String {
         format!("Bearer {}", self.secret)
+    }
+
+    /// The token ends itself, as its own `DELETE /api/auth/token` does.
+    pub(crate) async fn end(&self) {
+        revoke(&self.t.db, self.token_id, self.t.guest_id, "self").await;
+    }
+
+    /// Whether `/api` still admits the token: a read of its own app's
+    /// environments, which it reaches while it is alive.
+    pub(crate) async fn admitted(&self) -> StatusCode {
+        self.app_get("environments").await.0
     }
 
     /// One request to `/api` with the token.

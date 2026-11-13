@@ -23,7 +23,7 @@ use sea_orm::{ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, E
 use sea_orm::{IntoActiveModel, Statement};
 use serde_json::json;
 
-use super::fixture::{Agent, agent, revoke_staff, send, token_actor};
+use super::fixture::{Agent, agent, revoke, revoke_staff, send, token_actor};
 use crate::custom_app_functions_fixture::invocations;
 use crate::custom_app_functions_manual_run::{platform, spawn_driver};
 
@@ -107,22 +107,17 @@ async fn the_token_stops_when_its_minter_is_deactivated() {
 
     let call = agent.call(Some(OWN), "whoami", json!({})).await;
     assert_eq!(call.status, StatusCode::UNAUTHORIZED, "{}", call.raw);
-    assert_eq!(agent.get("/auth/token").await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(agent.admitted().await, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
 async fn the_token_stops_when_its_minter_revokes_it() {
     let agent = with_a_working_sandbox().await;
-    let uri = format!("/user/tokens/{}", agent.token_id);
-    let (status, body) = send("DELETE", &uri, &[("cookie", &agent.cookie)], None).await;
-    assert!(
-        status.is_success(),
-        "the minter revokes it: {status} {body}"
-    );
+    revoke(&agent.t.db, agent.token_id, agent.t.guest_id, "user").await;
 
     let call = agent.call(Some(OWN), "whoami", json!({})).await;
     assert_eq!(call.status, StatusCode::UNAUTHORIZED, "{}", call.raw);
-    assert_eq!(agent.get("/auth/token").await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(agent.admitted().await, StatusCode::UNAUTHORIZED);
 }
 
 async fn run_status(agent: &Agent, run_id: &str) -> Option<String> {

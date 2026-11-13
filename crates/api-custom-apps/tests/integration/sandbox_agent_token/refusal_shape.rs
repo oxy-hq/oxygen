@@ -14,7 +14,9 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use super::fixture::{Agent, BOUNDARY, agent, api_router, multipart, published, send, tarball};
+use super::fixture::{
+    Agent, BOUNDARY, agent, api_router, mint_personal, multipart, published, tarball,
+};
 use crate::app_environments::seed_sandbox;
 use crate::common::demo_workspace_id;
 use crate::custom_app_functions_fixture::serve_router;
@@ -195,11 +197,7 @@ async fn scene() -> Scene {
     assert_eq!(status, StatusCode::CREATED, "{created}");
     seed_sandbox(&agent.t.db, agent.app.id, COLLEAGUES, agent.t.guest_id).await;
 
-    let cookie = [("cookie", agent.cookie.as_str())];
-    let named = Some(json!({ "name": "the minter's own" }));
-    let (status, minted) = send("POST", "/user/tokens", &cookie, named).await;
-    assert_eq!(status, StatusCode::CREATED, "{minted}");
-    let secret = minted["secret"].as_str().expect("the secret");
+    let (_, secret) = mint_personal(&agent.cookie, "the minter's own").await;
     Scene {
         bearer: agent.bearer(),
         personal: format!("Bearer {secret}"),
@@ -434,8 +432,7 @@ async fn the_token_is_refused_in_one_shape_and_nobody_elses_answer_changes() {
 
     // A dead token is a `401`, as every credential gets it: there is no
     // token left to answer in a shape.
-    let (status, body) = s.agent.api("DELETE", "/auth/token", None).await;
-    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    s.agent.end().await;
     oxy_auth::token::cache::clear();
     let dead = api(s.token(), "GET", &s.app("environments"), None).await;
     assert_eq!(dead.status, StatusCode::UNAUTHORIZED, "{dead:?}");

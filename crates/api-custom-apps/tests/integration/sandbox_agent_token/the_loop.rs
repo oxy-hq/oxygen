@@ -12,7 +12,9 @@
 use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
-use entity::{app_environments, app_function_invocations, audit_events};
+use entity::{
+    api_token_grants, api_tokens, app_environments, app_function_invocations, audit_events,
+};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -23,14 +25,27 @@ use crate::staging_functions::{data, held_rows};
 
 const SANDBOX: &str = "dev-a";
 
-/// A1, E2, E1, P1, E3: the token learns what it is, creates a sandbox that
-/// records it as the creator, and publishes a build to it.
+/// E2, E1, P1, E3: the token is what was minted, creates a sandbox that
+/// records it as the creator, and publishes a build to it. (A1, the token
+/// asking `GET /api/auth/token` what it is, is `oxy-api-identity`'s route:
+/// `oxy-server`'s `token_auth::sandbox_agent_reach`.)
 async fn create_and_publish(agent: &Agent) {
-    let (status, me) = agent.get("/auth/token").await;
-    assert_eq!(status, StatusCode::OK, "{me}");
-    assert_eq!(me["kind"], "sandbox_agent");
-    assert_eq!(me["apps"][0]["id"], json!(agent.app.id), "{me}");
-    assert_eq!(me["minter"]["user_id"], json!(agent.t.guest_id), "{me}");
+    let row = api_tokens::Entity::find_by_id(agent.token_id)
+        .one(&agent.t.db)
+        .await
+        .expect("read the token")
+        .expect("the token");
+    assert_eq!(row.kind, "sandbox_agent");
+    assert_eq!(row.principal_user_id, agent.t.guest_id, "the minter");
+    let grants = api_token_grants::Entity::find()
+        .filter(api_token_grants::Column::TokenId.eq(agent.token_id))
+        .all(&agent.t.db)
+        .await
+        .expect("read the grants");
+    assert!(
+        grants.iter().any(|g| g.app_id == Some(agent.app.id)),
+        "granted its app: {grants:?}"
+    );
 
     let (status, created) = agent.create(SANDBOX).await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
@@ -291,9 +306,9 @@ async fn a_minted_token_runs_the_whole_loop_in_a_sandbox_it_created() {
     );
 
     // A2: the token ends itself, and is refused from then on.
-    let (status, body) = agent.api("DELETE", "/auth/token", None).await;
-    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
-    assert_eq!(agent.get("/auth/token").await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(agent.admitted().await, StatusCode::OK);
+    agent.end().await;
+    assert_eq!(agent.admitted().await, StatusCode::UNAUTHORIZED);
     let row = entity::api_tokens::Entity::find_by_id(agent.token_id)
         .one(&agent.t.db)
         .await

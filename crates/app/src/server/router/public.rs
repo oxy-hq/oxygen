@@ -29,8 +29,8 @@ use crate::api::{auth, billing, healthcheck, user, webhooks};
 use crate::server::api::projects;
 
 use super::AppState;
+use super::mobile::build_public_mobile_routes;
 use super::role_router::RoleRouter;
-use super::tokens::build_public_token_routes;
 
 pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone())
@@ -38,7 +38,11 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
         .route_fleet("/ready", get(healthcheck::readiness_check))
         .route_fleet("/live", get(healthcheck::liveness_check))
         .route_fleet("/version", get(healthcheck::version_info))
-        .merge(build_public_token_routes(app_state))
+        // The mobile app's sign-in redeem and refresh. The personal-token
+        // handshakes beside them (`oxyc login`'s exchange, the device flow, the
+        // ticket redeem, the OIDC exchange, leak reports) are
+        // `oxy-api-identity`'s, through `SurfaceSeams::public`.
+        .merge(build_public_mobile_routes(app_state))
         .route_fleet("/auth/config", get(auth::get_config))
         .route_fleet("/auth/session", get(auth::get_session))
         .route_fleet("/auth/oauth/state", post(auth::issue_oauth_state))

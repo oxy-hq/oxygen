@@ -570,10 +570,10 @@ pub fn spawn_recovery(
                     // terminal, then start each workspace's next queued one.
                     // Row writes only — the runs themselves are queue work.
                     crate::server::previews::runs::sweep(&db).await;
-                    // Token hygiene: spent OIDC jtis and long-expired `ci`
-                    // tokens. Idempotent deletes, throttled per process, so
-                    // every driver running it is harmless.
-                    crate::server::token_sweep::sweep(&db).await;
+                    // Token hygiene (spent OIDC jtis, long-expired `ci`
+                    // tokens, expiry notices, unused tokens) is
+                    // `oxy-api-identity`'s tick, run with the other surfaces'
+                    // through `SurfaceSeams::global_ticks`.
                     // The weekly custom-app usage report: written once a week
                     // and emailed to the staff who want it. Claimed by a unique
                     // row per week and per address, throttled per process, so

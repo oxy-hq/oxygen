@@ -19,8 +19,8 @@ use crate::server::api::work;
 
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
+use super::mobile::build_mobile_routes;
 use super::role_router::RoleRouter;
-use super::tokens::{build_org_api_access_routes, build_token_routes};
 use super::{AdminSection, AppState};
 
 pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>) -> RoleRouter {
@@ -37,11 +37,12 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
         .collect();
     RoleRouter::new(app_state.clone())
         .route_fleet("/logout", get(user::logout))
-        // Personal access tokens and the calling-token pair. Merged HERE, not in
+        // The mobile app's sign-in approval. Merged HERE, not in
         // `build_protected_routes`: this builder is the route catalog's seed for
-        // the global tree, so a merge beside it would serve the routes and leave
-        // them out of `oxyc routes`.
-        .merge(build_token_routes(app_state))
+        // the global tree, so a merge beside it would serve the route and leave
+        // it out of `oxyc routes`. The personal-token routes it sat beside are
+        // `oxy-api-identity`'s, through `SurfaceSeams::api`.
+        .merge(build_mobile_routes(app_state))
         // ── Chat ────────────────────────────────────────────────────────────
         //
         // Every route here is `route_fleet`, INCLUDING the SSE stream, and that
@@ -202,9 +203,10 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
             get(crate::server::api::partner_publish_consent::get_consent)
                 .put(crate::server::api::partner_publish_consent::set_consent),
         )
-        // Organization → API access: service accounts, their tokens, and the
-        // inventory of every token reaching the org. Pure Postgres, FleetOk.
-        .merge(build_org_api_access_routes(app_state))
+        // Organization → API access (service accounts, their tokens, the
+        // inventory of every token reaching the org, its token policy) is
+        // `oxy-api-identity`'s, merged through `SurfaceSeams::api` with this
+        // tree's `org_middleware` + subscription guard re-applied.
         // Locations and tenant-defined roles. Under `/orgs/{org_id}` so the
         // `OrgAdmin` extractor can see the org it is guarding — a body-carried
         // org is invisible to a path-resolved guard, which is the hole

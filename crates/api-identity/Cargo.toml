@@ -1,0 +1,53 @@
+[package]
+name = "oxy-api-identity"
+version.workspace = true
+authors.workspace = true
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
+# oxy-app — the catalog was moved above it for exactly that reason.
+description = "Identity tokens HTTP surface (personal tokens, legacy API keys, org API access, oxyc login, OIDC exchange, leak response) — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# What this surface takes from oxy-app, all through `oxy_app::surface`: the
+# role guards, the org middlewares, the session response a token's browser
+# sign-in answers with, the staff-scope fence, the admin audit row's wire
+# shape and the seam types. The lifecycle audit is oxy-identity's. oxy-app
+# never depends back on this crate. default-features off so a
+# `--no-default-features` build of oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }  # AppState, the audit writer, the emails
+oxy-identity = { workspace = true }  # the token lifecycle audit
+oxy-custom-apps = { workspace = true }  # GitHub's OIDC signing keys
+oxy = { workspace = true }           # database client
+oxy-auth = { workspace = true }      # the token, key and OIDC primitives
+oxy-authz = { workspace = true }
+oxy-server-authz = { workspace = true }
+oxy-shared = { workspace = true }    # OxyError, fleet_role::RouteRoleDecl
+oxy-telemetry = { workspace = true } # the OIDC exchange's rejection metric
+entity = { workspace = true }
+
+axum = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+garde = { workspace = true, features = ["full"] }
+governor = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+utoipa = { workspace = true, features = ["uuid", "chrono", "axum_extras"] }
+utoipa-axum = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+oxy-app-core = { workspace = true, features = ["test-fixtures"] }
+tokio = { workspace = true, features = ["test-util"] }
+tower = { workspace = true, features = ["util"] }
+
+[lints]
+workspace = true

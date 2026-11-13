@@ -247,9 +247,9 @@ async fn nothing_else_on_the_api_exists(s: &Scene) {
             format!("/customer-apps/{sibling}/secrets?environment={OWN}"),
         ),
         ("GET", "/customer-apps".to_string()),
-        ("GET", "/admin/sandbox-agent-tokens".to_string()),
-        ("GET", "/admin/standing-tokens".to_string()),
-        ("GET", "/user/tokens".to_string()),
+        // The token routes (`/user/tokens`, `/admin/sandbox-agent-tokens`,
+        // `/admin/standing-tokens`) are `oxy-api-identity`'s, refused to the
+        // token in `oxy-server`'s `token_auth::sandbox_agent_reach`.
         ("GET", "/orgs".to_string()),
         ("GET", "/assume".to_string()),
     ];
@@ -259,7 +259,10 @@ async fn nothing_else_on_the_api_exists(s: &Scene) {
         assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}: {answer}");
     }
     // `?api_key=`: the token is never honoured from a URL.
-    let in_url = format!("/auth/token?api_key={}", s.agent.secret);
+    let in_url = format!(
+        "/customer-apps/{}/environments?api_key={}",
+        s.agent.app.id, s.agent.secret
+    );
     assert_eq!(
         send("GET", &in_url, &[], None).await.0,
         StatusCode::UNAUTHORIZED

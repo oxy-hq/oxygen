@@ -56,6 +56,15 @@ and arrive through the `SurfaceSeams::workspace` seam, merged inside the
 `/{workspace_id}` nest before the workspace middleware. Their customer-app twins
 are still mounted by `public.rs`.
 
+The token routes below — `/user/tokens*`, `/user/token-options`, `/auth/token`,
+`/auth/browser-ticket*`, `/auth/cli/*`, `/auth/oidc/exchange`,
+`/auth/tokens/revoke-leaked`, `/orgs/{org_id}/{service-accounts,tokens,token-policy}*`,
+`/admin/{sandbox-agent,standing}-tokens*` and the workspace's `/api-keys` and
+`/api-tokens` — are `oxy-api-identity`'s (2026-11-13), served at the same paths
+through the `api`, `public`, `workspace` and `admin` seams (roles in its
+`route_roles()`, `public_route_roles()` and `workspace_route_roles()`). Only the
+mobile app's `/auth/mobile/*` stays in this crate (`mobile.rs`).
+
 ## Route tree
 
 The tree below is a hand-written orientation map — read it to learn the *shape*

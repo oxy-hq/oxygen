@@ -34,6 +34,7 @@ oxy-api-github = { path = "../api-github" }
 oxy-api-tenancy = { path = "../api-tenancy" }
 oxy-api-documents = { path = "../api-documents" }
 oxy-api-frontline = { path = "../api-frontline" }
+oxy-api-identity = { path = "../api-identity" }
 # default-features off so the `custom-app-functions` feature above is the one switch for V8.
 oxy-api-custom-apps = { path = "../api-custom-apps", default-features = false }
 oxy-custom-apps = { workspace = true }

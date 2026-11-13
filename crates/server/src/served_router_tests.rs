@@ -477,3 +477,136 @@ async fn the_external_tree_mounts_the_world_model_app() {
         "external LLM proxy must be served, got {got}"
     );
 }
+
+/// `oxy-api-identity`'s api-seam routes (cloud only, like the global tree they
+/// left): the caller's tokens, the create dialog's options, and an org's API
+/// access under the org middleware ([`ORG`] makes it answer 400, never 404).
+/// Not `/auth/token`: its handler answers a session 404 by design.
+fn identity_token_routes() -> Vec<(Method, String)> {
+    vec![
+        (Method::GET, "/user/tokens".to_string()),
+        (Method::GET, "/user/token-options".to_string()),
+        (Method::POST, "/auth/cli/authorize".to_string()),
+        (Method::GET, format!("/orgs/{ORG}/service-accounts")),
+        (Method::GET, format!("/orgs/{ORG}/tokens")),
+        (Method::GET, format!("/orgs/{ORG}/token-policy")),
+    ]
+}
+
+#[tokio::test]
+async fn cloud_mode_mounts_the_identity_token_routes() {
+    if db_unavailable() {
+        return;
+    }
+    assert_cloud_mounts(identity_token_routes()).await;
+}
+
+#[tokio::test]
+async fn local_mode_drops_the_identity_token_routes() {
+    if db_unavailable() {
+        return;
+    }
+    assert_local_drops(identity_token_routes()).await;
+}
+
+/// `oxy-api-identity`'s public seam, served in BOTH modes, outside the auth
+/// stack: each answers its extractor's refusal of an empty body, never 404.
+#[tokio::test]
+async fn both_modes_mount_the_identity_handshakes() {
+    if db_unavailable() {
+        return;
+    }
+    for mode in [ServeMode::Cloud, ServeMode::Local] {
+        let router = served(mode).await;
+        assert_eq!(
+            status(&router, &Method::POST, "/auth/nothing-mounts-this").await,
+            StatusCode::NOT_FOUND,
+            "control ({mode:?}): an unmounted path must be 404"
+        );
+        for path in [
+            "/auth/cli/exchange",
+            "/auth/cli/device",
+            "/auth/cli/device/poll",
+            "/auth/browser-ticket/redeem",
+            "/auth/oidc/exchange",
+            "/auth/tokens/revoke-leaked",
+        ] {
+            let got = status(&router, &Method::POST, path).await;
+            assert_ne!(
+                got,
+                StatusCode::NOT_FOUND,
+                "{mode:?}: POST {path}, got {got}"
+            );
+        }
+    }
+}
+
+/// The workspace seam carries the legacy keys and the token inventory into the
+/// `/{workspace_id}` tree. PUT, which neither path takes, answers 405 from a
+/// mounted path and 404 from an unmounted one, whatever the handler would say.
+/// Local mode for the reason `the_workspace_tree_mounts_the_world_model_app`
+/// gives.
+#[tokio::test]
+async fn the_workspace_tree_mounts_the_legacy_keys_and_token_inventory() {
+    if db_unavailable() {
+        return;
+    }
+    let router = served(ServeMode::Local).await;
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    assert_eq!(
+        status(
+            &router,
+            &Method::PUT,
+            &format!("/{ws}/api-nothing-mounts-this")
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+        "control: an unmounted path must be 404"
+    );
+    for path in ["/api-keys", "/api-tokens"] {
+        let got = status(&router, &Method::PUT, &format!("/{ws}{path}")).await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "PUT /{{ws}}{path} must reach a mounted route, got {got}"
+        );
+    }
+}
+
+/// The admin seam carries the two token sections into the staff console, behind
+/// its guard: the guest is refused, which a path nobody mounts is not.
+#[tokio::test]
+async fn cloud_mode_mounts_the_token_staff_sections_behind_the_guard() {
+    if db_unavailable() {
+        return;
+    }
+    let router = served(ServeMode::Cloud).await;
+    let control = status(&router, &Method::GET, "/admin/nothing-mounts-this").await;
+    for path in ["/admin/sandbox-agent-tokens", "/admin/standing-tokens"] {
+        let got = status(&router, &Method::GET, path).await;
+        assert_ne!(
+            got, control,
+            "GET {path} answered like an unmounted path: {got}"
+        );
+        assert!(
+            got == StatusCode::FORBIDDEN || got == StatusCode::UNAUTHORIZED,
+            "GET {path} must refuse a non-staff caller, got {got}"
+        );
+    }
+}
+
+/// The composition runs the token sweep on the global driver's pass, and gives
+/// the console both token sections.
+#[test]
+fn the_composition_carries_the_identity_surface() {
+    let seams = surface_seams();
+    let ticks: Vec<&str> = seams.global_ticks.iter().map(|t| t.name).collect();
+    assert!(ticks.contains(&"token_sweep"), "{ticks:?}");
+    let caps: Vec<_> = seams.admin.iter().map(|s| s.capability).collect();
+    for cap in [
+        oxy_app::surface::Action::PlatformOperate,
+        oxy_app::surface::Action::PlatformGrants,
+    ] {
+        assert!(caps.contains(&cap), "no section behind {cap:?}");
+    }
+}

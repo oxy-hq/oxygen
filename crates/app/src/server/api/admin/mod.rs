@@ -29,9 +29,7 @@ pub mod org_filter;
 pub mod org_subdomains;
 pub mod partners;
 pub mod routing;
-pub mod sandbox_agent_tokens;
 pub mod scope;
-pub mod standing_tokens;
 pub mod usage_report;
 mod user_scope;
 pub mod users_admin;
@@ -178,10 +176,10 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // surface in `router::global`, behind the one `apps::guarded` stack.
         .merge(audit::router().route_layer(cap(Action::PlatformAudit)))
         .merge(app_publish_tokens::router().route_layer(cap(Action::PlatformApps)))
-        // Every staff member's sandbox agent tokens: the cross-admin view, which
-        // is what `operate_platform` buys. An App Operator may mint one and does
-        // not hold this; they manage their own on `/user/tokens`.
-        .merge(sandbox_agent_tokens::router().route_layer(cap(Action::PlatformOperate)))
+        // Every staff member's sandbox agent tokens (`PlatformOperate`) and every
+        // token carrying a standing (`PlatformGrants`) moved to
+        // `oxy-api-identity` and arrive through `extracted` below, behind the
+        // capabilities they had here.
         .merge(explorer::router().route_layer(cap(Action::PlatformExplorer)))
         .merge(metrics::router().route_layer(cap(Action::PlatformOperate)))
         // Org and workspace administration (`/orgs*`, `/workspaces*`) moved to
@@ -213,13 +211,6 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         .merge(partners::router().route_layer(cap(Action::PlatformPartners)))
         .merge(billing::router().route_layer(strict))
         .merge(app_admins::router().route_layer(cap(Action::PlatformGrants)))
-        // Every personal token that carries a standing, across owners. A token
-        // carrying `platform` or `partner` is the grant above in credential
-        // form, so the capability that governs who holds staff access governs
-        // it. Two more gates in the handlers: a browser session, and a grant
-        // that is not bounded to some orgs — a standing token is a credential
-        // for the whole deployment, so a bounded grant holds none of them.
-        .merge(standing_tokens::router().route_layer(cap(Action::PlatformGrants)))
         // Sections from extracted surface crates, each behind the capability it
         // names. Merged before the acting block below, so they are refused while
         // acting exactly as the in-tree sections are.

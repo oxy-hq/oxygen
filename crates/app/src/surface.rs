@@ -65,9 +65,10 @@ pub use crate::server::api::custom_apps_gates::build_project_context;
 /// Session, token and request helpers shared by every sign-in path.
 pub mod session {
     pub use crate::server::api::auth::{
-        build_session_cookie_with_max_age, create_auth_token, create_auth_token_with_ttl,
-        extract_base_url_from_headers, extract_link_base_for_authenticated_request,
-        is_request_secure, session_cookie_user_id, validate_return_to_url,
+        AuthResponse, build_session_cookie_with_max_age, create_auth_token,
+        create_auth_token_with_ttl, extract_base_url_from_headers,
+        extract_link_base_for_authenticated_request, is_request_secure, session_cookie_user_id,
+        token_session_response, validate_return_to_url,
     };
 }
 
@@ -246,6 +247,13 @@ pub use crate::server::api::admin::assume;
 pub mod admin_scope {
     pub use crate::server::api::admin::org_filter::{scope_org_filter, scope_org_filter_checked};
     pub use crate::server::api::admin::scope::*;
+}
+
+/// The admin audit log's row as the console reads it (`GET /admin/audit`), so a
+/// surface that lists audit rows (a legacy key's activity) answers with the same
+/// wire shape.
+pub mod admin_audit {
+    pub use crate::server::api::admin::audit::AuditEventDto;
 }
 
 /// The admin console's connect-on-demand database handle and its JSON error

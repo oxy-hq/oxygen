@@ -381,8 +381,7 @@ async fn an_ended_token_is_401_on_the_page_not_a_sign_in_redirect() {
     let a = &s.agent;
     assert_eq!(get(a, Some(OWN), "").await.status, StatusCode::OK);
 
-    let (status, _) = a.api("DELETE", "/auth/token", None).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    a.end().await;
 
     let answer = get(a, Some(OWN), "").await;
     assert_eq!(answer.status, StatusCode::UNAUTHORIZED);

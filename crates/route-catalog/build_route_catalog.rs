@@ -248,6 +248,36 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_frontline",
         function: "public_routes",
     },
+    // `oxy-api-identity` fills four route seams: the caller's tokens, the
+    // session's halves of `oxyc login` and an org's API access ride
+    // `SurfaceSeams::api`; the CLI's halves, the ticket redeem, the OIDC
+    // exchange and leak reports ride `SurfaceSeams::public`; the legacy
+    // `/api-keys` and `/api-tokens` ride `SurfaceSeams::workspace`; the two
+    // token sections ride `SurfaceSeams::admin`.
+    Seed {
+        surface: "org",
+        prefix: "/api",
+        module: "oxy_api_identity",
+        function: "routes",
+    },
+    Seed {
+        surface: "public",
+        prefix: "/api",
+        module: "oxy_api_identity",
+        function: "public_routes",
+    },
+    Seed {
+        surface: "workspace",
+        prefix: "/api/{workspace_id}",
+        module: "oxy_api_identity",
+        function: "workspace_routes",
+    },
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_identity",
+        function: "admin_routes",
+    },
     // `oxy-api-slack` fills the same two seams as frontline: the org's install
     // and installation at `/orgs/{org_id}/slack/*` ride `SurfaceSeams::api`,
     // Slack's webhooks, the OAuth callback and the link page ride
@@ -351,7 +381,7 @@ const SEEDS: &[Seed] = &[
 ///
 /// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
 /// Both lists watch `crates/api-github/src`, `crates/api-tenancy/src`,
-/// `crates/api-documents/src`, `crates/api-frontline/src`,
+/// `crates/api-documents/src`, `crates/api-frontline/src`, `crates/api-identity/src`,
 /// `crates/api-custom-apps/src`, `crates/api-airway/src`,
 /// `crates/api-experiment/src`, `crates/api-notifications/src`,
 /// `crates/api-workspace-health/src`, `crates/api-slack/src` and
@@ -382,6 +412,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-tenancy/src",
     "crates/api-documents/src",
     "crates/api-frontline/src",
+    "crates/api-identity/src",
     "crates/api-custom-apps/src",
     "crates/api-airway/src",
     "crates/api-experiment/src",
@@ -415,6 +446,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-tenancy/src",
     "crates/api-documents/src",
     "crates/api-frontline/src",
+    "crates/api-identity/src",
     "crates/api-custom-apps/src",
     "crates/api-airway/src",
     "crates/api-experiment/src",

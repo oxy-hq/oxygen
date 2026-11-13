@@ -49,7 +49,6 @@ pub(crate) mod test_support;
 #[cfg(test)]
 #[path = "test_support_tests.rs"]
 mod test_support_tests;
-mod token_sweep;
 mod token_usage_flush;
 pub mod worker_health;
 pub mod worker_metrics;

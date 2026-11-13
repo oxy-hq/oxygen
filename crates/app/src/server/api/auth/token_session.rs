@@ -1,6 +1,6 @@
 //! The login response of a **token session** — the browser session a personal
 //! access token opens with a ticket (`oxy_auth::token::browser_session`; the
-//! routes are `api::user_tokens::browser_session`).
+//! routes are `oxy-api-identity`'s `user_tokens::browser_session`).
 //!
 //! It answers in the shape every login does, so the web app stores it the way
 //! it stores any session. Two things differ, and both are the point:
@@ -28,7 +28,7 @@ use crate::server::authz::Caller;
 /// `credential`. `cookie_max_age_secs` sets the `oxy_session` cookie to lapse
 /// with the JWT; `None` leaves the cookie alone, for a browser that already
 /// holds it.
-pub(crate) async fn token_session_response(
+pub async fn token_session_response(
     request_headers: &HeaderMap,
     user: &users::Model,
     credential: &CredentialContext,

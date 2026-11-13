@@ -50,7 +50,7 @@ const NO_REQUEST_ACTOR: &[(&str, &str)] = &[
          through `for_request`",
     ),
     (
-        "app/src/server/api/oidc_exchange/reject.rs",
+        "api-identity/src/oidc_exchange/reject.rs",
         "a refused OIDC exchange: nothing authenticated, so there is no user and no \
          credential to build a request actor from",
     ),
@@ -357,9 +357,7 @@ fn code_after_a_comment_string_char_or_lifetime_is_still_seen() {
 #[test]
 fn test_files_are_recognised() {
     assert!(is_test_file("app/tests/authz/audit_append_only.rs"));
-    assert!(is_test_file(
-        "app/src/server/api/api_keys/lifecycle_tests.rs"
-    ));
-    assert!(!is_test_file("app/src/server/api/api_keys/lifecycle.rs"));
+    assert!(is_test_file("api-identity/src/api_keys/lifecycle_tests.rs"));
+    assert!(!is_test_file("api-identity/src/api_keys/lifecycle.rs"));
     assert!(!is_test_file("api-frontline/src/frontline_admin.rs"));
 }
