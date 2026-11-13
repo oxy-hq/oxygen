@@ -27,6 +27,7 @@ const OUTCOME: &str = "oxy.outcome";
 const STATUS: &str = "http.response.status_code";
 const REASON: &str = "oxy.reason";
 const SOURCE: &str = "oxy.source";
+const ROUTE: &str = "http.route";
 
 /// Where a compile read its tree from — the `source` label of
 /// [`compile_duration`]. Two values, spelled here so the recorder and any
@@ -329,6 +330,34 @@ pub fn compile_fetch_duration(ok: bool, seconds: f64) {
     });
 }
 
+/// Why a serve replica relayed a request to the ide pod: the route is
+/// classified IdeOnly.
+pub const IDE_FORWARD_IDE_ONLY: &str = "ide_only";
+/// The workspace had no compiled revision, so the ide served it off disk.
+pub const IDE_FORWARD_FAIL_SAFE: &str = "fail_safe";
+/// A custom-app function whose workspace needs a working copy.
+pub const IDE_FORWARD_FUNCTION: &str = "function";
+
+/// One request relayed to the ide pod.
+///
+/// `route` must be a route template (`/api/{workspace_id}/databases/test-connection`)
+/// or `"other"`, never a concrete path: a path carries workspace and
+/// object ids, and one series per id is the cardinality this module exists to
+/// prevent. `answered` is false when the ide could not be reached.
+pub fn ide_forward(reason: &'static str, route: &str, answered: bool) {
+    let outcome = if answered { "answered" } else { "unreachable" };
+    with_instruments(|i| {
+        i.ide_forwards.add(
+            1,
+            &[
+                KeyValue::new(REASON, reason),
+                KeyValue::new(ROUTE, route.to_string()),
+                KeyValue::new(OUTCOME, outcome),
+            ],
+        );
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,5 +376,6 @@ mod tests {
         oidc_exchange_rejected("replayed");
         compile_duration(COMPILE_SOURCE_GIT, COMPILE_OUTCOME_READY, 0.5);
         compile_fetch_duration(true, 1.2);
+        ide_forward(IDE_FORWARD_IDE_ONLY, "/api/{workspace_id}/x", true);
     }
 }

@@ -143,7 +143,12 @@ async fn placed_elsewhere(
     );
     Some(match (placement, upstream) {
         (Placement::Factory, Some(upstream)) => relayed(
-            ide_proxy::forward_to_ide_opt(upstream, replay(&arrived)).await,
+            ide_proxy::forward_to_ide_opt(
+                upstream,
+                replay(&arrived),
+                ide_proxy::ForwardReason::Function,
+            )
+            .await,
             project_id,
             servability,
         ),

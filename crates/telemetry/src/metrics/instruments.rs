@@ -264,6 +264,13 @@ pub struct Instruments {
     /// itself because it is the part that depends on GitHub.
     pub compile_fetch_duration: Histogram<f64>,
 
+    /// `oxy.ide.forwards` — requests a serve replica relayed to the ide pod, by
+    /// why (`oxy.reason`), which route (`http.route`, a route template, never a
+    /// concrete path) and whether the ide answered (`oxy.outcome`). It is the
+    /// traffic evidence for retiring that pod: a route that never shows up
+    /// here can be deleted rather than ported.
+    pub ide_forwards: Counter<u64>,
+
     /// Observable handles. Never read; held so their callbacks stay registered.
     _observables: Vec<ObservableHandle>,
 }
@@ -411,6 +418,15 @@ impl Instruments {
                 )
                 .with_unit("s")
                 .with_boundaries(COMPILE_FETCH_BUCKETS.to_vec())
+                .build(),
+            ide_forwards: meter
+                .u64_counter("oxy.ide.forwards")
+                .with_description(
+                    "Requests a serve replica relayed to the ide pod, by reason (ide_only, \
+                     fail_safe, function), route template and outcome (answered, unreachable). \
+                     A route that never appears here is unused by the fleet.",
+                )
+                .with_unit("{request}")
                 .build(),
 
             _observables: observables(meter),

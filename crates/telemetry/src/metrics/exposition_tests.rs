@@ -292,6 +292,7 @@ fn every_instrument_renders_with_its_intended_prometheus_type() {
     i.oidc_exchange_rejected.add(1, &[]);
     i.compile_duration.record(0.5, &[]);
     i.compile_fetch_duration.record(1.0, &[]);
+    i.ide_forwards.add(1, &[]);
 
     let body = render(&reader);
     let types: BTreeMap<&str, &str> = body
@@ -331,6 +332,7 @@ fn every_instrument_renders_with_its_intended_prometheus_type() {
         ("oxy_oidc_exchange_rejected_total", "counter"),
         ("oxy_compile_duration_seconds", "histogram"),
         ("oxy_compile_fetch_duration_seconds", "histogram"),
+        ("oxy_ide_forwards_total", "counter"),
     ] {
         assert_eq!(
             types.get(name),

@@ -69,7 +69,12 @@ async fn enforce_role_under(prefix: &str, mut req: Request, next: Next) -> Respo
             );
             restore_prefix(prefix, &mut req);
             return stamp_forwarded_via(
-                crate::server::ide_proxy::forward_to_ide(upstream, req).await,
+                crate::server::ide_proxy::forward_to_ide(
+                    upstream,
+                    req,
+                    crate::server::ide_proxy::ForwardReason::IdeOnly,
+                )
+                .await,
                 role,
             );
         }

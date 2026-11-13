@@ -29,7 +29,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::extract::Request;
+use axum::extract::{MatchedPath, Request};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use reqwest::Client;
@@ -132,6 +132,40 @@ pub fn forwarded_once(headers: &HeaderMap) -> bool {
     headers.contains_key(HEADER_FORWARDED_BY)
 }
 
+/// Why a request is being relayed to the ide pod. It labels
+/// `oxy_ide_forwards_total`, the traffic record for retiring that pod.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForwardReason {
+    /// The route is classified IdeOnly.
+    IdeOnly,
+    /// The workspace has no compiled revision yet, so the ide serves it off disk.
+    FailSafe,
+    /// A custom-app function whose workspace needs a working copy.
+    Function,
+}
+
+impl ForwardReason {
+    fn label(self) -> &'static str {
+        use oxy_telemetry::metrics::record as m;
+        match self {
+            Self::IdeOnly => m::IDE_FORWARD_IDE_ONLY,
+            Self::FailSafe => m::IDE_FORWARD_FAIL_SAFE,
+            Self::Function => m::IDE_FORWARD_FUNCTION,
+        }
+    }
+}
+
+/// The route template `req` is on, for the forward counter: the router's own
+/// match when the request has been routed, else the role declaration it
+/// classifies under, else `"other"`. Never the concrete path, which carries ids.
+fn route_label(req: &Request) -> String {
+    if let Some(matched) = req.extensions().get::<MatchedPath>() {
+        return matched.as_str().to_string();
+    }
+    crate::server::role_manifest::declared_pattern(req.method().as_str(), req.uri().path())
+        .unwrap_or_else(|| "other".to_string())
+}
+
 /// Reverse-proxy `req` to the ide upstream. `Ok(resp)` = the ide answered (any
 /// status). `Err(req)` = the ide could not be REACHED (connect / transport
 /// error); the request is handed BACK, rebuilt from its own parts so the
@@ -144,7 +178,19 @@ pub fn forwarded_once(headers: &HeaderMap) -> bool {
 ///
 /// Preserves method, path, query, and auth headers; STREAMS both bodies
 /// (SSE-safe; the upstream's own per-route body limit is the only ceiling).
-pub async fn forward_to_ide_opt(upstream_base: &str, req: Request) -> Result<Response, Request> {
+pub async fn forward_to_ide_opt(
+    upstream_base: &str,
+    req: Request,
+    reason: ForwardReason,
+) -> Result<Response, Request> {
+    let route = route_label(&req);
+    let forwarded = relay(upstream_base, req).await;
+    oxy_telemetry::metrics::record::ide_forward(reason.label(), &route, forwarded.is_ok());
+    forwarded
+}
+
+/// The relay itself, unmetered; [`forward_to_ide_opt`] counts it.
+async fn relay(upstream_base: &str, req: Request) -> Result<Response, Request> {
     let (parts, body) = req.into_parts();
     let path_and_query = parts
         .uri
@@ -226,8 +272,8 @@ pub async fn forward_to_ide_opt(upstream_base: &str, req: Request) -> Result<Res
 /// `role_middleware` no longer has a degrade arm, because a read that must
 /// survive the ide is fixed by classifying it `FleetOk`, not by serving a
 /// half-answer from a replica.
-pub async fn forward_to_ide(upstream_base: &str, req: Request) -> Response {
-    match forward_to_ide_opt(upstream_base, req).await {
+pub async fn forward_to_ide(upstream_base: &str, req: Request, reason: ForwardReason) -> Response {
+    match forward_to_ide_opt(upstream_base, req, reason).await {
         Ok(resp) => resp,
         Err(_unreachable) => ide_unreachable_response(),
     }
@@ -343,6 +389,58 @@ fn is_hop_by_hop(name: &str) -> bool {
 mod tests {
     use super::*;
     use axum::http::header;
+
+    /// The forward counter's route label is a template or `other`, never the
+    /// concrete path: the path carries workspace ids, one series per id.
+    #[test]
+    fn a_routed_request_is_labelled_by_its_matched_template() {
+        let req = Request::builder()
+            .uri("/api/7c1d/databases/test-connection")
+            .body(Body::empty())
+            .unwrap();
+        let (mut parts, body) = req.into_parts();
+        parts
+            .extensions
+            .insert(matched("/api/{workspace_id}/databases/test-connection"));
+        let req = Request::from_parts(parts, body);
+        assert_eq!(
+            route_label(&req),
+            "/api/{workspace_id}/databases/test-connection"
+        );
+    }
+
+    #[test]
+    fn an_unrouted_undeclared_request_is_other_not_its_path() {
+        let req = Request::builder()
+            .uri("/api/7c1d/nothing-declares-this/42")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(route_label(&req), "other");
+    }
+
+    /// `MatchedPath` has no public constructor; the router is the only way to
+    /// get one, so run a request through a one-route router and keep it.
+    fn matched(template: &'static str) -> MatchedPath {
+        use std::sync::{Arc, Mutex};
+        use tower::ServiceExt;
+        let seen: Arc<Mutex<Option<MatchedPath>>> = Arc::default();
+        let keep = seen.clone();
+        let app = axum::Router::new().route(
+            template,
+            axum::routing::get(move |m: MatchedPath| {
+                let keep = keep.clone();
+                async move {
+                    *keep.lock().unwrap() = Some(m);
+                }
+            }),
+        );
+        let concrete = template.replace("{workspace_id}", "x");
+        futures::executor::block_on(
+            app.oneshot(Request::get(concrete).body(Body::empty()).unwrap()),
+        )
+        .unwrap();
+        seen.lock().unwrap().take().expect("the route matched")
+    }
 
     #[test]
     fn hop_by_hop_classification() {

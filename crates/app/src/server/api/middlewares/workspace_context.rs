@@ -841,7 +841,12 @@ async fn forward_with_original_uri(
     {
         *request.uri_mut() = original;
     }
-    crate::server::ide_proxy::forward_to_ide(upstream, request).await
+    crate::server::ide_proxy::forward_to_ide(
+        upstream,
+        request,
+        crate::server::ide_proxy::ForwardReason::FailSafe,
+    )
+    .await
 }
 
 /// The access half of [`workspace_middleware`] and nothing else: authorize the

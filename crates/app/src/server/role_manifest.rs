@@ -85,7 +85,17 @@ pub fn declared_role_in(
     method: &str,
     request_path: &str,
 ) -> Option<RouteRole> {
-    let mut best: Option<(u32, RouteRole)> = None;
+    best_declaration_in(declared, method, request_path).map(|(_, role)| role)
+}
+
+/// The most specific declaration matching `method request_path`: its pattern
+/// and its role.
+fn best_declaration_in<'a>(
+    declared: &'a [(&'static str, String, RouteRole)],
+    method: &str,
+    request_path: &str,
+) -> Option<(&'a str, RouteRole)> {
+    let mut best: Option<(u32, &'a str, RouteRole)> = None;
     for (decl_method, pattern, role) in declared {
         if *decl_method != "*" && *decl_method != method {
             continue;
@@ -93,30 +103,38 @@ pub fn declared_role_in(
         if !pattern_matches(pattern, request_path) {
             continue;
         }
-        if best.is_none_or(|(best_rank, _)| specificity(decl_method, pattern) > best_rank) {
-            best = Some((specificity(decl_method, pattern), *role));
+        let rank = specificity(decl_method, pattern);
+        if best.is_none_or(|(best_rank, _, _)| rank > best_rank) {
+            best = Some((rank, pattern.as_str(), *role));
         }
     }
-    best.map(|(_, role)| role)
+    best.map(|(_, pattern, role)| (pattern, role))
+}
+
+/// The declared route pattern `method request_path` classifies under, when a
+/// declaration matches: a route template, so it is safe as a metric label
+/// where the concrete path (ids and all) is not.
+pub fn declared_pattern(method: &str, request_path: &str) -> Option<String> {
+    let path = normalise(request_path);
+    best_declaration_in(DECLARED.get()?, method, &path).map(|(pattern, _)| pattern.to_string())
+}
+
+/// `/external/api/..` reads as `/api/..`, and a trailing slash is dropped.
+fn normalise(request_path: &str) -> String {
+    let path = match request_path.strip_prefix("/external/api") {
+        Some(rest) => format!("/api{rest}"),
+        None => request_path.to_string(),
+    };
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        path
+    } else {
+        trimmed.to_string()
+    }
 }
 
 pub fn classify(method: &str, request_path: &str) -> RouteRole {
-    let normalised;
-    let request_path = match request_path.strip_prefix("/external/api") {
-        Some(rest) => {
-            normalised = format!("/api{rest}");
-            normalised.as_str()
-        }
-        None => request_path,
-    };
-
-    let trimmed = request_path.trim_end_matches('/');
-    let request_path = if trimmed.is_empty() {
-        request_path
-    } else {
-        trimmed
-    };
-
+    let request_path = &normalise(request_path);
     if let Some(role) = declared_role(method, request_path) {
         return role;
     }
