@@ -1,5 +1,5 @@
 //! `POST …/environments/{name}/reset` for the planes that have a reset
-//! (`internal-docs/2026-11-02-custom-app-branches-p1-plan.md`, B8): `storage`
+//! (`internal-docs/custom-app-sandboxes.md` §3, Planes and modes): `storage`
 //! empties the sandbox's silo, `secrets` deletes its own secret path, and
 //! `messages` deletes its `_outbox/` — each and nothing else, answering
 //! `{"plane", "status": "done"}`. Storage and secrets are a sandbox's alone:

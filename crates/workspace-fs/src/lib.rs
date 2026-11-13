@@ -1,7 +1,8 @@
 //! The `WorkspaceFs` port — the seam between the stateless serving plane and the
 //! filesystem-owning workspace environment.
 //!
-//! Design: `internal-docs/ephemeral-workspace-environments.md`
+//! Superseded: `internal-docs/factory-retirement.md` retires the server-side working
+//! copy, so this port gets no remote implementation (`multi-instance-fleet.md` §9).
 //!
 //! This crate holds ONLY the contract (the trait + its data types), so **both**
 //! planes can depend on it:

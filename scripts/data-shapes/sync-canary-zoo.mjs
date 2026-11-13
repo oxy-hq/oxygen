@@ -9,7 +9,7 @@
 // - sdk/typescript/src/testing/: `@oxy-hq/sdk/testing` is published, and an app's tests run
 //   against the installed package, not this repo. The zoo is NOT published from the SDK for the
 //   canary to import — that would make the SDK a data package and invert the dependency
-//   (internal-docs/sdk-testing-context.md §7, answer 5) — so the SDK carries its own copy.
+//   — so the SDK carries its own copy.
 //
 // Each copy's zoo table is named from the file's SHA-256, which a JSON import cannot recover, so
 // the digest travels beside the copy. Each consumer's own `shape-zoo-sync.test.ts` fails until

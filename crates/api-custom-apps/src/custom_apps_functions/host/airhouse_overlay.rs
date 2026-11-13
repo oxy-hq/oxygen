@@ -14,7 +14,7 @@
 //! transformation: a pinned statement (`AT (TIMESTAMP => …)`) no longer parses
 //! under our DuckDB-dialect parser, so nothing may check or rewrite it again.
 //! It goes out as-is, on an app Reader, because a schema-scoped Writer cannot
-//! time-travel (plan finding 2).
+//! time-travel.
 //!
 //! The copy that precedes a first write is `airhouse_overlay_copy`.
 

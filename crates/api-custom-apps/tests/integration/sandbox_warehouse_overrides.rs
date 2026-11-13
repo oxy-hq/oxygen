@@ -1,5 +1,5 @@
 //! An environment's warehouse overrides
-//! (`internal-docs/2026-11-02-custom-app-branches-p1-plan.md`, B5):
+//! (`internal-docs/custom-app-sandboxes.md` §3, Planes and modes):
 //! `planes.warehouse = {"mode": "mapped", "destinations": {<db>: <mapped>}}`.
 //!
 //! The route checks each override as a publish checks `nonProduction.destinations`

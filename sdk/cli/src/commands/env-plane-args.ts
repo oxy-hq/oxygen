@@ -5,7 +5,7 @@
  *
  * A plane's value on the wire is its mode string, or an object
  * `{"mode": "<mode>", …settings}` for a plane that has settings
- * (`internal-docs/2026-11-02-custom-app-branches-p1-plan.md`, A4). `--plane`
+ * (`internal-docs/custom-app-sandboxes.md` §5.1, the Environment object). `--plane`
  * carries only the string form; `--destination` and `--fetch-host` build the
  * warehouse and fetch planes' objects. An MCP tool may pass either. The server
  * owns which keys and modes exist (`400 invalid_planes`), so only the shape is

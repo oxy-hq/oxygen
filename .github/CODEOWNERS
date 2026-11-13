@@ -57,7 +57,6 @@ crates/app/.claude/skills/oxy-customer-apps-perf/             @luong-komorebi @N
 crates/app/src/server/api/admin/                   @luong-komorebi @haitrr
 web-app/src/pages/admin/                           @luong-komorebi @haitrr
 internal-docs/admin-surfaces.md                    @luong-komorebi @haitrr
-internal-docs/internal-jobs-admin-design.md        @luong-komorebi @haitrr
 # Airhouse fleet console (override: carved out of admin/ above — Luong built the
 # console, Tay owns the Airhouse fleet it operates on)
 crates/app/src/server/api/admin/airhouse.rs        @luong-komorebi @hotay
@@ -124,7 +123,6 @@ crates/tenancy/                                    @luong-komorebi @NTtanh
 crates/identity/                                   @luong-komorebi @hotay
 internal-docs/multi-instance-fleet.md              @luong-komorebi @NTtanh
 internal-docs/compile-boundary.md                  @luong-komorebi @NTtanh
-internal-docs/ephemeral-workspace-environments.md  @luong-komorebi @NTtanh
 internal-docs/architecture-review-checklist.md     @luong-komorebi @NTtanh
 .claude/skills/oxy-scaling-design/                 @luong-komorebi @NTtanh
 crates/app/.claude/skills/oxy-route-classification/           @luong-komorebi @NTtanh
@@ -255,7 +253,6 @@ internal-docs/congestion-evidence-clips.md         @hotay @luong-komorebi
 crates/airhouse/                                   @hotay @luong-komorebi
 crates/agentic/connector/                          @hotay @luong-komorebi
 internal-docs/airhouse-integration.md              @hotay @luong-komorebi
-internal-docs/airhouse-service-accounts-migration.md  @hotay @luong-komorebi
 
 # Airway ELT
 crates/agentic/airway/                             @hotay @nresh

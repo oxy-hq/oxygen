@@ -1,8 +1,8 @@
 // `createTestContext` against a manifest shaped like the platform canary's:
 // the gates refuse in the host's words, the calls are recorded under the
 // host's op names, `override` replaces a host op, `ctx.tx` follows `__runTx`,
-// and reads come from the zoo. The worked example of
-// `internal-docs/sdk-testing-context.md` §8, on the context itself.
+// and reads come from the zoo. The worked example for `createTestContext`,
+// run on the context itself.
 
 import { describe, expect, it } from "vitest";
 import type { OxyFunctionContext } from "../custom-app/function-context";

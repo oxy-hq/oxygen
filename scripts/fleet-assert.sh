@@ -15,9 +15,8 @@
 # a REAL request (real session, valid parameters, a response worth comparing)
 # reaches the handler — an unauthenticated probe that only reads
 # `x-oxy-served-by` proves the router classified the route, never that the
-# HANDLER behaves correctly on a node with no working copy. See
-# internal-docs/2026-08-25-fleet-http-route-coverage.md for the inventory this
-# harness's route table was built from, and its Methodology section for why
+# HANDLER behaves correctly on a node with no working copy. The route table is
+# scripts/fleet-routes.tsv; its header says where the rows come from and why
 # `route_declarations()` is the source of truth rather than grep.
 #
 # WHAT THIS CANNOT PROVE. Both nodes here run on one machine, so the workspace

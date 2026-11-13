@@ -4,7 +4,10 @@
 #     scripts/eval/ramen_shop/collect.sh <env> <out_dir>
 # `oxyc api` exits non-zero on the 409 a run that is not `reported` answers, and `set -e`
 # stops here: this script never judges a run that is still sealed. An evaluation, not CI.
-# Runbook: internal-docs/2026-09-30-experiments-pr5-results-plan.md, Task 11 Step 7.
+# Then put truth.json (the simulator's planted values) beside the results and run
+#   cargo run -p oxy-experiment --example ramen_shop_judge -- <out_dir>
+# Why one run per design plus a null run, and why a MISS is examined, never re-run:
+# internal-docs/experiments.md, Testing.
 set -euo pipefail
 : "${WORKSPACE_ID:?set WORKSPACE_ID}"
 env="${1:?usage: collect.sh <env> <out_dir>}"

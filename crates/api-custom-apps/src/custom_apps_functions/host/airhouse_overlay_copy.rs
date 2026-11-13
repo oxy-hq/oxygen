@@ -1,5 +1,6 @@
 //! The copy that precedes an environment's first write to a table under the
-//! `branch` and `snapshot` modes (plan task 4).
+//! `branch` and `snapshot` modes
+//! (`internal-docs/2026-11-02-custom-app-branches-design.md` §5.4).
 //!
 //! Before `INSERT INTO app_w.t …` lands in the sibling, the sibling's `t`
 //! must hold what production's holds, or the app would read back "its own
@@ -13,10 +14,10 @@
 //! reads stay on production and the next write copies again. That is safe
 //! because every copy starts over: `CREATE OR REPLACE` when the sibling has
 //! no such table, and a refill that begins with `DELETE` when migrations
-//! already made it (the refill keeps the sibling's columns, plan finding 4).
+//! already made it (the refill keeps the sibling's columns).
 //!
 //! The copy runs on the sibling-scoped Writer, so it reads production live,
-//! not at the pin (plan finding 2).
+//! not at the pin: a scoped Writer cannot time-travel.
 
 use agentic_core::result::CellValue;
 use airhouse::preview_sql::{CopyPlan, Prelude, ShadowState, cow_max_rows, registry};

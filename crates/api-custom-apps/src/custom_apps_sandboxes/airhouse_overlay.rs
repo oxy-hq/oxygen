@@ -1,6 +1,8 @@
 //! An environment's Airhouse overlay, after the fact: resetting it, and
-//! reporting what it holds (`internal-docs/2026-11-02-custom-app-branches-p3-
-//! plan.md` task 5). The writes that fill it are the host's
+//! reporting what it holds
+//! (`internal-docs/2026-11-02-custom-app-branches-design.md` §5.4; the
+//! user-facing rules are `internal-docs/custom-app-sandboxes.md` §3). The
+//! writes that fill it are the host's
 //! (`custom_apps_functions::host::airhouse_overlay`); the shadow registry that
 //! says which tables it holds is `airhouse::preview_sql::registry`, under the
 //! key [`overlay_key`].

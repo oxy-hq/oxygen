@@ -1,5 +1,5 @@
 //! `POST …/environments` with `from` copies the parent's build pointer
-//! (`internal-docs/2026-11-02-custom-app-branches-p1-plan.md`, B7): the new
+//! (`internal-docs/custom-app-sandboxes.md` §3, Lifecycle): the new
 //! sandbox serves the build its parent serves, and that build's migrations are
 //! queued into the sandbox's own homes through the task a sandbox publish
 //! queues. A parent with no build gives a sandbox with none, as before. Copying

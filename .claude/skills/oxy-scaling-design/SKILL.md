@@ -37,7 +37,7 @@ description: Use when the user asks about Oxy's multi-instance scaling, the spli
 - **Durable execution** — replay-deterministic agentic-runtime orchestrator (independent).
 - **Generated artifacts → S3** — charts/results/app-data already mirror via `runtime_artifact`; pre-aggregation rollups and the enum index are still written locally first.
 
-Superseded, do not build: the `WorkspaceFs` crate reorg, the serve-binary split, and the pool / per-workspace environment tiers of `ephemeral-workspace-environments.md`. There will be no server-side working copy to put behind a port.
+Superseded, do not build: the `WorkspaceFs` crate reorg, the serve-binary split, and the pool / per-workspace environment tiers of the retired ephemeral-workspace-environments design. There will be no server-side working copy to put behind a port.
 
 ## Hard constraints (don't violate)
 
@@ -68,7 +68,7 @@ Superseded, do not build: the `WorkspaceFs` crate reorg, the serve-binary split,
 ## Refs
 
 - Fleet guide (primary): `internal-docs/multi-instance-fleet.md`
-- Forward plan: `internal-docs/factory-retirement.md` (supersedes `ephemeral-workspace-environments.md`)
+- Forward plan: `internal-docs/factory-retirement.md`
 - Phase ledger + rejected alternatives: `internal-docs/multi-instance-fleet.md`
 - Operator runbook: `internal-docs/compile-boundary.md`
 - Worker fleet dev guide: `internal-docs/worker-fleet.md`; scope survey: `internal-docs/worker-fleet.md`

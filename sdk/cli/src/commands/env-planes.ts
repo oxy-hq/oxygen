@@ -1,7 +1,7 @@
 /**
  * `oxyc env update` and `oxyc env reset` — change which planes of an
  * environment are isolated, and put one back to a clean copy of its parent
- * (`internal-docs/2026-11-02-custom-app-branches-p1-plan.md`, A8–A12).
+ * (`internal-docs/custom-app-sandboxes.md` §6).
  *
  * `PUT …/environments/{name}/planes` REPLACES the stored `planes` object, so
  * `update` reads the environment (`planes_set`), merges the flags into it and

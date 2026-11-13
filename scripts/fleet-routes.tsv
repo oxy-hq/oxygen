@@ -5,9 +5,9 @@
 #
 # Provenance: method/path/role come verbatim from
 #   oxy_app::server::router::route_declarations() (crates/app/src/server/router/mod.rs).
-# bucket/notes come from internal-docs/2026-08-25-fleet-http-route-coverage.md, whose
-# own methodology built this same list the same way (see that doc's Methodology
-# section) -- cross-checked 1:1 against a route_declarations() dump when it was built
+# bucket/notes were carried over from a 2026-08-25 route-coverage inventory (retired from
+# internal-docs once this table superseded it; git history has it), built the same way
+# -- cross-checked 1:1 against a route_declarations() dump when it was built
 # (2026-08-25: 224/224 rows matched, zero unmatched on either side). Four rows are marked
 # RESOLVED where that investigation replaced the doc's 'Undetermined' verdict with a real answer
 # (two real bugs kept in bucket=Now so fleet-assert.sh asserts them and fails loudly;
@@ -32,8 +32,7 @@
 #   tuple sorted+deduped, and writes it to a scratch file. Run it with:
 #   cargo nextest run -p oxy-app --test routing -E 'test(zzz_dump...)'
 #   then delete the temporary test (git diff against the test file must come back
-#   empty). This is the exact recipe internal-docs/2026-08-25-fleet-http-route-coverage.md
-#   itself documents using, and the one this file's rows came from.
+#   empty). This is the recipe this file's rows came from.
 #
 # bucket values: Now (buildable today) | Fixture (needs a fixture, mostly uncovered
 #   here) | Destr (destructive; only disposable create/read/delete lifecycles are run)

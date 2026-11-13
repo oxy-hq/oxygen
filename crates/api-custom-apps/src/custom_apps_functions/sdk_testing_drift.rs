@@ -13,10 +13,10 @@
 //! comparison whose failure names what drifted.
 //!
 //! ONE DIRECTION. The contract is checked against the host, never the host
-//! against the contract (`internal-docs/sdk-testing-context.md` §7, answer 9):
+//! against the contract:
 //! `HOST_OPS` stays the source of truth in `host_call_attrs.rs`, and
 //! `tests/custom_apps/canary_coverage.rs` keeps scanning the canary, not the
-//! SDK. What this file does NOT do, on purpose (§7, answer 8): it carries no
+//! SDK. What this file does NOT do, on purpose: it carries no
 //! paging classification, because `classify_host_error`'s heuristics stay in
 //! one place and the context records what the host's own error carries.
 //!
