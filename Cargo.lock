@@ -9675,6 +9675,7 @@ dependencies = [
  "oxy-cameras",
  "oxy-compile",
  "oxy-custom-apps",
+ "oxy-identity",
  "oxy-observability",
  "oxy-oltp",
  "oxy-server-authz",
@@ -10183,6 +10184,7 @@ dependencies = [
  "oxy-compile",
  "oxy-custom-apps",
  "oxy-git",
+ "oxy-identity",
  "oxy-llm",
  "oxy-looker",
  "oxy-metric-monitoring",
@@ -10531,6 +10533,21 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-identity"
+version = "0.5.160"
+dependencies = [
+ "chrono",
+ "entity",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-shared",
+ "sea-orm",
+ "serde_json",
  "uuid",
  "workspace-hack",
 ]

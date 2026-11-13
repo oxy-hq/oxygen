@@ -110,7 +110,7 @@ fn a_mints_row_names_only_the_apps_of_its_own_org() {
         change: None,
     }
     .entries_with(
-        || super::super::system_audit::system_entry(audit::CREATED, &context),
+        || audit::system_entry(audit::CREATED, &context),
         |org| mint_in(&access, &granted, org),
     );
     assert_eq!(rows.len(), 2);

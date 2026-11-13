@@ -17,7 +17,7 @@
 //! queued together with the `token.expired_sandboxes_queued` audit event, so
 //! the event is written once per token, in the transaction of the change. It
 //! has one row per org of the token's granted apps, and each row names only
-//! that org's sandboxes (`user_tokens::sandboxes_queued`). A second replica's
+//! that org's sandboxes (`oxy_identity::token_lifecycle::sandboxes_queued`). A second replica's
 //! pass finds the rows already deleting and writes nothing.
 //!
 //! The rule is stated twice — [`ended_at`] and [`is_due`] in Rust for the look
@@ -36,7 +36,7 @@ use uuid::Uuid;
 
 use super::delete::{self, Expect};
 use super::{SandboxError, TeardownReason};
-use oxy_app::surface::token_audit::sandboxes_queued::{self, QueuedSandbox};
+use oxy_identity::token_lifecycle::sandboxes_queued::{self, QueuedSandbox};
 
 /// Ended tokens handled per pass; the next pass continues. Each holds at most
 /// `MAX_SANDBOXES_PER_TOKEN` sandboxes.

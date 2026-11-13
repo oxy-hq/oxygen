@@ -60,10 +60,8 @@ pub mod sandbox;
 pub mod sandbox_describe;
 pub(crate) mod sandbox_staff;
 pub mod sandbox_staging;
-pub mod sandboxes_queued;
 mod service;
 pub(crate) mod standing_staff;
-mod system_audit;
 pub(crate) mod view;
 
 use oxy_auth::extractor::{SESSION_REQUIRED, SessionAction};

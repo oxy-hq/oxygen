@@ -5,7 +5,7 @@
 //! live, so every `credential::` path still resolves.
 
 use chrono::{DateTime, Utc};
-use entity::service_accounts;
+use entity::{api_tokens, service_accounts};
 use oxy_authz::{SandboxAgentReach, SandboxApp, TokenGrant, TokenReach};
 use uuid::Uuid;
 
@@ -88,6 +88,19 @@ impl AccountLink {
             admin,
         })
     }
+}
+
+/// Whether a stored row mirrors an `api_keys` row: a legacy key, or a token
+/// the legacy endpoint minted. All-access with both standings, always. The
+/// row's counterpart of [`CredentialContext::is_legacy`].
+pub fn row_is_legacy(row: &api_tokens::Model) -> bool {
+    row.kind == StoredKind::LegacyKey.as_str() || row.legacy_api_key_id.is_some()
+}
+
+/// The `api_keys` id behind a legacy row. A legacy key's token id *is* its key
+/// id; a legacy-endpoint token names it.
+pub fn legacy_key_id(row: &api_tokens::Model) -> Uuid {
+    row.legacy_api_key_id.unwrap_or(row.id)
 }
 
 /// The stored kinds this release enforces. Any other `api_tokens.kind` —

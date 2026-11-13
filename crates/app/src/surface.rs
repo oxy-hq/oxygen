@@ -161,12 +161,6 @@ pub mod workspace_git {
     pub use crate::server::api::workspaces::{git_delete_branch, git_switch_branch};
 }
 
-/// The token lifecycle audit a sandbox's teardown writes when a sandbox agent
-/// token ended (`token.expired_sandboxes_queued`).
-pub mod token_audit {
-    pub use crate::server::api::user_tokens::sandboxes_queued;
-}
-
 /// The sandbox companies staff registered for a workspace's Airway samples
 /// (`workspace_preview_sources`). The fetch plane admits a QuickBooks call
 /// only to one of them.

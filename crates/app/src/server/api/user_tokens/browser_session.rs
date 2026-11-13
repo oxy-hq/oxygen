@@ -204,7 +204,8 @@ async fn record_opened(
         change: None,
     }
     .record(db, &actor)
-    .await
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]

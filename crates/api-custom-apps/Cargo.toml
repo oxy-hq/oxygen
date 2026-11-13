@@ -74,6 +74,7 @@ agentic-semantic = { workspace = true }
 oxy-airlayer-compat = { workspace = true }
 oxy-billing = { workspace = true }
 oxy-tenancy = { workspace = true }
+oxy-identity = { workspace = true }
 oxy-slack-client = { workspace = true }
 migration = { workspace = true }
 async-trait = { workspace = true }

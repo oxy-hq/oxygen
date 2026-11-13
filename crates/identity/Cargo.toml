@@ -1,0 +1,23 @@
+[package]
+name = "oxy-identity"
+version.workspace = true
+authors.workspace = true
+description = "Identity domain logic shared across bounded contexts (the personal-token lifecycle audit). Below oxy-app and every api-* surface; no routes (internal-docs/domain-boundaries.md S3, S9)"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+entity = { workspace = true }
+oxy-app-core = { workspace = true }
+oxy-auth = { workspace = true }
+oxy-shared = { workspace = true }
+
+chrono = { workspace = true }
+sea-orm = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

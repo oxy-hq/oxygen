@@ -7,8 +7,8 @@ use chrono::Utc;
 use oxy_app_core::audit::{AuditContext, AuditEntry};
 
 use super::*;
+use crate::server::api::user_tokens::audit::system_entry;
 use crate::server::api::user_tokens::audit::{CREATED, Event, GRANTS_CHANGED};
-use crate::server::api::user_tokens::system_audit::system_entry;
 
 fn org(n: u128) -> Uuid {
     Uuid::from_u128(0xA000 + n)

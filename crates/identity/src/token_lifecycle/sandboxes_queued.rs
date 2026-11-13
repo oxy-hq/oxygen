@@ -3,7 +3,8 @@
 //! (sandbox agent credential design §2, "Audit").
 //!
 //! One event per token, written with the system as its actor in the
-//! transaction that marks the sandboxes (`custom_apps_sandboxes::token_ended`).
+//! transaction that marks the sandboxes (`oxy-api-custom-apps`'
+//! `custom_apps_sandboxes::token_ended`).
 //! Like every lifecycle event it gets one row per org that concerns it, here
 //! the org of each app the token was granted, and the rows share one
 //! `event_id`.
@@ -17,15 +18,14 @@
 
 use chrono::{DateTime, Utc};
 use entity::{api_token_grants, api_tokens};
-use oxy_app_core::audit::{AuditContext, AuditEntry};
 use oxy_auth::token::personal;
+use oxy_shared::errors::OxyError;
 use sea_orm::ConnectionTrait;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::audit::{EXPIRED_SANDBOXES_QUEUED, Event, Own};
-use super::error::TokenError;
-use super::system_audit::system_entry;
+use super::{EXPIRED_SANDBOXES_QUEUED, Event, Own, system_entry};
+use oxy_app_core::audit::{AuditContext, AuditEntry, record_in_txn};
 
 /// `metadata.reason`, and the teardown's reason.
 const REASON: &str = "token_ended";
@@ -113,12 +113,14 @@ pub async fn record<C: ConnectionTrait>(
     token: &api_tokens::Model,
     ended_at: DateTime<Utc>,
     queued: &[QueuedSandbox],
-) -> Result<(), TokenError> {
+) -> Result<(), OxyError> {
     let grants = personal::grants_for(txn, &[token.id]).await?;
     let context = AuditContext::default();
     let base = || system_entry(EXPIRED_SANDBOXES_QUEUED, &context);
     for entry in entries(token, ended_at, &grants, queued, base) {
-        oxy_app_core::audit::record_in_txn(txn, entry).await?;
+        record_in_txn(txn, entry)
+            .await
+            .map_err(|e| OxyError::DBError(e.to_string()))?;
     }
     Ok(())
 }

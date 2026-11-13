@@ -1,6 +1,6 @@
 use super::*;
-use crate::server::api::user_tokens::system_audit::system_entry;
 use chrono::Utc;
+use oxy_app_core::audit::AuditContext;
 
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
@@ -140,7 +140,7 @@ fn a_legacy_rows_event_names_the_key_it_mirrors() {
 }
 
 fn rows(event: &Event<'_>, own: impl Fn(Option<Uuid>) -> Own) -> Vec<AuditEntry> {
-    let context = oxy_app_core::audit::AuditContext::default();
+    let context = AuditContext::default();
     event.entries_with(|| system_entry(event.action, &context), own)
 }
 

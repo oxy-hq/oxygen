@@ -38,7 +38,7 @@ const NO_REQUEST_ACTOR: &[(&str, &str)] = &[
          app itself (a schedule, a webhook, a queued run), not the HTTP request",
     ),
     (
-        "app/src/server/api/user_tokens/system_audit.rs",
+        "identity/src/token_lifecycle/system.rs",
         "token lifecycle rows no request wrote: a leak report (public, nothing \
          authenticated), the token sweeper on the global worker's tick, and the \
          sandbox maintenance loop ending a dead token's sandboxes",

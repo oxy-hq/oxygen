@@ -105,7 +105,8 @@ async fn record<C: ConnectionTrait>(
         change,
     }
     .record(txn, actor)
-    .await
+    .await?;
+    Ok(())
 }
 
 /// The `token.revoked` row of a token that went with its account.

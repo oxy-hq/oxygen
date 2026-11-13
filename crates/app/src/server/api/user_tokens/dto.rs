@@ -15,22 +15,14 @@ use uuid::Uuid;
 /// the UI offers it the same three actions.
 pub(crate) const KIND_LEGACY: &str = "legacy_key";
 
-/// Whether the row mirrors an `api_keys` row: a legacy key, or a token the
-/// legacy endpoint minted. All-access with both standings, always.
-pub(crate) fn is_legacy(row: &api_tokens::Model) -> bool {
-    row.kind == StoredKind::LegacyKey.as_str() || row.legacy_api_key_id.is_some()
-}
+/// Whether the row mirrors an `api_keys` row, and the key id behind it
+/// (`oxy_auth::token::credential`, where the lifecycle audit reads them too).
+pub(crate) use oxy_auth::token::credential::{legacy_key_id, row_is_legacy as is_legacy};
 
-/// The `api_keys` id behind a legacy row. A legacy key's token id *is* its key
-/// id; a legacy-endpoint token names it.
 /// Whether the row acts as a service account: an account's own `oxy_sat_`
 /// token, or an `oxy_ci_` token a trust policy minted for it.
 pub(crate) fn acts_as_account(row: &api_tokens::Model) -> bool {
     StoredKind::parse(&row.kind).is_some_and(StoredKind::acts_as_account)
-}
-
-pub(crate) fn legacy_key_id(row: &api_tokens::Model) -> Uuid {
-    row.legacy_api_key_id.unwrap_or(row.id)
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
