@@ -36,7 +36,7 @@ export default function CreateWorkspacePanel({
         <CardDescription>
           {preparing
             ? "Hang tight — we're getting everything ready."
-            : `For ${org.name}. Import from GitHub, start with a demo, or go blank.`}
+            : `For ${org.name}. Connect its GitHub repository.`}
         </CardDescription>
       </CardHeader>
       <CardContent>

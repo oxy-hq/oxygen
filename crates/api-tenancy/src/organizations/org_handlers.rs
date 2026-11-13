@@ -23,8 +23,8 @@ use super::ops::*;
 //
 // There is no `POST /orgs`. Customers do not create organizations: Oxy staff
 // onboard them through `POST /admin/orgs` and partners through
-// `POST /partners/{id}/orgs`, and each org arrives with a Ready `Default`
-// workspace so its owner's first sign-in lands on Home.
+// `POST /partners/{id}/orgs`. A new org has no workspace until its GitHub
+// import creates one, so it lands on its setup screen until then.
 
 /// GET /orgs
 /// Every organization the caller can reach.

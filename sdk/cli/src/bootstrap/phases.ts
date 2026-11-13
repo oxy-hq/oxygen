@@ -116,10 +116,10 @@ export const PHASES: readonly Phase[] = [
   },
   {
     id: "org",
-    title: "the organization, its owner, and the blank `Default` workspace",
+    title: "the organization and its owner",
     surface: "admin",
     automation: "automated",
-    how: "`POST /api/admin/orgs` `{name, slug?, owner_email}` → `{org, owner_status, default_workspace_id}`. It scaffolds a working copy, so it is answered by the one pod that holds the workspace filesystem rather than by any replica",
+    how: "`POST /api/admin/orgs` `{name, slug?, owner_email}` → `{org, owner_status, owner_email}`. The org gets no workspace: it shows its setup screen until `git-link` connects its repository",
     who: "staff holding the org-creation capability — NOT an App Operator, whose reach is custom apps and nothing else",
     idempotent: false,
     wrong:
@@ -163,7 +163,7 @@ export const PHASES: readonly Phase[] = [
     who: "a member of the org — so staff need `oxyc assume start --org <slug>`, which closes `/admin` for the session",
     idempotent: false,
     wrong:
-      "the workspace has `git_remote_url: null` — **the only path that records a remote is this import**. It connects the repository to the `Default` workspace every org is created with (same id), so until it runs that workspace has none. An org has one workspace: a second import answers `409 org_has_workspace` instead of creating `Default 2`",
+      "the workspace has `git_remote_url: null` — **the only path that records a remote is this import**. It creates the org's workspace, which an org does not have until then. An org has one workspace: a second import answers `409 org_has_workspace` instead of creating `Default 2`",
     needs: ["org", "billing"]
   },
   {

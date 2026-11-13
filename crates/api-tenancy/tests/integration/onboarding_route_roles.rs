@@ -1,9 +1,10 @@
-//! The org-scoped routes clone and scaffold onto a working copy, so they are
-//! IdeOnly. The workspace-scoped ones read the compiled workspace (readiness,
+//! The one org-scoped route, the GitHub import, clones onto a working copy, so
+//! it is IdeOnly; the demo and blank workspaces are gone, since a workspace
+//! exists only once a repository backs it. The workspace-scoped ones read the compiled workspace (readiness,
 //! GitHub setup), touch none (the LLM key test) or load into Airhouse (the
 //! warehouse upload), so they are FleetOk. Asserted
 //! here rather than in `oxy-app`'s `global_route_roles.rs`, which is where the
-//! org-scoped three used to live.
+//! org-scoped routes used to live.
 //!
 //! They moved because the routes did. `oxy-app` cannot depend on this crate
 //! (the dependency runs the other way), so its test harness builds a
@@ -13,9 +14,8 @@
 //!
 //! Neither automatic mechanism reaches these. `route_role_derivation` parses
 //! `oxy-app`'s `router/workspace.rs` and nothing else. The type gate does not
-//! see them either: `setup_demo` clones and scaffolds through the onboarding
-//! builder and raw `std::fs` rather than taking a working-copy extractor, so
-//! mounting it on the fleet door compiles clean.
+//! see them either: `setup_github` clones through git rather than taking a
+//! working-copy extractor, so mounting it on the fleet door compiles clean.
 
 use oxy_api_tenancy::onboarding::{route_roles, workspace_route_roles};
 use oxy_app::surface::roles::{RouteRole, classify, install_route_declarations_for_tests_with};
@@ -43,11 +43,7 @@ fn install() {
 #[test]
 fn every_org_scoped_route_reaches_the_ide() {
     install();
-    for (method, path) in [
-        ("POST", format!("/api/orgs/{ORG}/onboarding/demo")),
-        ("POST", format!("/api/orgs/{ORG}/onboarding/new")),
-        ("POST", format!("/api/orgs/{ORG}/onboarding/github")),
-    ] {
+    for (method, path) in [("POST", format!("/api/orgs/{ORG}/onboarding/github"))] {
         assert_eq!(
             classify(method, &path),
             RouteRole::IdeOnly,
@@ -94,7 +90,7 @@ fn the_warehouse_upload_is_served_by_the_fleet() {
 /// invisible means FleetOk. Count them rather than trusting the eye.
 #[test]
 fn the_declaration_list_covers_every_mounted_route() {
-    assert_eq!(route_roles().len(), 3, "org-scoped routes changed");
+    assert_eq!(route_roles().len(), 1, "org-scoped routes changed");
     assert_eq!(
         workspace_route_roles().len(),
         4,
@@ -108,11 +104,7 @@ fn the_declaration_list_covers_every_mounted_route() {
         .collect();
     assert_eq!(
         ide,
-        [
-            "/orgs/{org_id}/onboarding/demo",
-            "/orgs/{org_id}/onboarding/new",
-            "/orgs/{org_id}/onboarding/github",
-        ],
-        "only the org-scoped scaffolding still needs a Factory",
+        ["/orgs/{org_id}/onboarding/github"],
+        "only the GitHub import still needs a Factory",
     );
 }

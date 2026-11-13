@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blankStartCommand, bootstrapScript, shellQuote } from "./bootstrapScript";
+import { bootstrapScript, shellQuote } from "./bootstrapScript";
 
 const org = { id: "0b7f2c4e", slug: "northwind", name: "Northwind's Shop" };
 
@@ -16,12 +16,6 @@ describe("the oxyc set-up commands", () => {
     expect(at("orgs/0b7f2c4e/github/namespaces")).toBeGreaterThan(at("git push"));
     expect(at("-X POST orgs/0b7f2c4e/onboarding/github")).toBeGreaterThan(
       at("github/repositories")
-    );
-  });
-
-  it("starts a blank one with a single API call", () => {
-    expect(blankStartCommand(org)).toBe(
-      "oxyc api -X POST orgs/0b7f2c4e/onboarding/new -f name='Northwind'\\''s Shop'"
     );
   });
 });

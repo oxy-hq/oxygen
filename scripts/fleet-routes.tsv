@@ -215,9 +215,7 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/orgs/{org_id}/logo	fleet-ok	Fixture	`PUT` needs an image upload and mutates the shared org's branding; `DELETE` restores default
 *	/api/orgs/{org_id}/members	fleet-ok	Now	2 real members in the fixture org
 *	/api/orgs/{org_id}/members/{user_id}	fleet-ok	Destr	`PATCH`/`DELETE` mutate a real member of a 2-person shared org — risks removing an identity other agents rely on; invite a disposable member first
-*	/api/orgs/{org_id}/onboarding/demo	ide-only	Fixture	creates a brand-new workspace on disk from a template; additive, not destructive
 *	/api/orgs/{org_id}/onboarding/github	ide-only	Ext	needs a connected GitHub OAuth account; no `GITHUB_*` creds in this fleet
-*	/api/orgs/{org_id}/onboarding/new	ide-only	Fixture	creates a new empty workspace; additive — matches the `agentic-fixture-empty` workspace already present
 *	/api/orgs/{org_id}/partner-publish-consent	fleet-ok	Now	`GET` returns "no consent" safely; `PUT` needs the org to actually be partner-managed
 *	/api/orgs/{org_id}/slack/install	fleet-ok	Ext	redirects to slack.com OAuth; no `SLACK_*` creds
 *	/api/orgs/{org_id}/slack/installation	fleet-ok	Now	`GET` "not installed" is a real, valid response; `DELETE` disconnect is a safe no-op
@@ -226,7 +224,7 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/orgs/{org_id}/teams/{team_id}/members	fleet-ok	Fixture	needs a team + a second user
 *	/api/orgs/{org_id}/teams/{team_id}/members/{user_id}	fleet-ok	Fixture	same
 *	/api/orgs/{org_id}/workspaces	fleet-ok	Now	verified live 200 — 2 real workspaces
-*	/api/orgs/{org_id}/workspaces/{id}	ide-only	Destr	`DELETE` destroys a working copy outright — **never** point this at the shared Demo workspace; use a disposable one (create via onboarding/new first)
+*	/api/orgs/{org_id}/workspaces/{id}	ide-only	Destr	`DELETE` destroys a working copy outright — **never** point this at the shared Demo workspace; use a disposable one
 *	/api/orgs/{org_id}/workspaces/{id}/rename	fleet-ok	Destr	reversible, but renaming the SHARED workspace mid-session could confuse the four other agents currently using it
 *	/customer-apps/{*path}	fleet-ok	Now	RESOLVED (real bug, not an auth-shape mismatch): bearer-token auth succeeds fine here (proved live -- no auth-redirect, org+app DB rows resolve). The 404 is custom_apps_build_store::get_object's filesystem fallback (crates/app/src/server/api/custom_apps_build_store.rs:296-335): with no OXY_CUSTOMER_APPS_S3_BUCKET configured (true of this fleet), it reads OXY_STATE_DIR -- a NODE-LOCAL path -- with no role guard. Live-confirmed: ide=200 (real bundle bytes, sets oxy_custom_app_session cookie), both serve replicas=404 (silent, no error logged: NotFound -> Ok(None) -> cached absence). Asserted here on purpose -- expect this assertion to FAIL until either the fleet fixture configures a bucket or the FS fallback gets a current_process_role() guard like the DuckDB s3_mirror path already has.
 *	/customer-apps/{org}/{app}/fn/{name}	fleet-ok	Fixture	needs a published app that declares an Oxy Function; `oxy-starter`'s own description ("one file, no build step, two queries") suggests it defines none — verify before assuming a target exists

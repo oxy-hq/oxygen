@@ -169,8 +169,7 @@ beforeAll(async () => {
         return json(res, {
           org: { id: ORG_ID, slug: SLUG, name: "Poke House" },
           owner_status: "invited",
-          owner_email: "ops@poke.example",
-          default_workspace_id: WS_BLANK
+          owner_email: "ops@poke.example"
         });
       }
       if (path === `/api/admin/orgs/${ORG_ID}/billing/subscription`) {

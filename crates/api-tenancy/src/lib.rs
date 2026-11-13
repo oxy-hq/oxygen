@@ -131,7 +131,7 @@ pub fn admin_sections() -> Vec<AdminSection> {
     vec![AdminSection {
         capability: oxy_app::surface::Action::PlatformOrgs,
         routes: admin_routes(),
-        decls: vec![admin::orgs::CREATE_ORG_ROLE],
+        decls: vec![],
     }]
 }
 

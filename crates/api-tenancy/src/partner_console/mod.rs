@@ -52,11 +52,11 @@ pub use route_roles::route_roles;
 /// [`PartnerScope`] and 403s anyone holding no partner role in that org).
 /// Mounted by the `oxy-server` composition root.
 ///
-/// Every handler here but one is Postgres-only, so these routes are **FleetOk by
-/// default** — undeclared, which means HA-safe and not workspace-scoped. The one
-/// is `POST /orgs`, which scaffolds the new org's `Default` workspace onto
-/// node-local disk and is declared IdeOnly in [`route_roles`]. A route added
-/// here that touches the workspace FS, `.git`, or the state dir needs the same.
+/// Every handler here is Postgres-only — creating a client org included, which
+/// makes no workspace — so these routes are **FleetOk by default**: undeclared,
+/// which means HA-safe and not workspace-scoped. A route added here that touches
+/// the workspace FS, `.git`, or the state dir must be declared IdeOnly in
+/// [`route_roles`].
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/partners", get(list_my_partners))

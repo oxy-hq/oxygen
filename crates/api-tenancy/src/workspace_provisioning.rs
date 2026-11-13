@@ -1,12 +1,10 @@
 //! Creating a workspace: its working copy on node-local disk, and its row.
 //!
-//! One implementation for every door that makes a workspace. Onboarding's
-//! "start from scratch" (`POST /orgs/{org_id}/onboarding/new`) and both
-//! org-creation doors (`POST /admin/orgs`, `POST /partners/{id}/orgs`) call
-//! [`create_blank_workspace`]; the demo and GitHub imports reuse the pieces.
-//! Every new org gets a Ready `Default` workspace, because Home only exists
-//! under a workspace route and a customer's first sign-in should land there,
-//! not in a workspace wizard.
+//! The one door left is the GitHub import (`POST /orgs/{org_id}/onboarding/github`,
+//! [`adopt`]): a workspace exists only once a repository backs it. New orgs get
+//! none at creation, and the demo and blank workspaces are gone
+//! (`internal-docs/factory-retirement.md` phase 6), so an org shows its setup
+//! screen until its repository is connected.
 //!
 //! **An org has exactly one workspace.** It is the hidden key that binds the
 //! org to its configuration repository and keys its revisions, Airhouse tenant
@@ -23,9 +21,7 @@
 //! `oxy-app`, and `oxy-app` depends on neither.
 //!
 //! Everything here writes node-local disk, so every route that reaches it is
-//! IdeOnly — and [`create_blank_workspace`] refuses on a serve replica anyway,
-//! so a misclassified route fails loudly instead of scaffolding a working copy
-//! onto a pod that will never serve it.
+//! IdeOnly.
 
 use std::path::{Path, PathBuf};
 
@@ -35,8 +31,7 @@ use entity::workspaces::{self, WorkspaceStatus};
 use oxy::adapters::workspace::workspace_root_path;
 use oxy::database::client::establish_connection;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, DbErr, EntityTrait,
-    QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, Set,
 };
 use uuid::Uuid;
 
@@ -45,9 +40,6 @@ mod repository;
 
 pub use repository::RepositoryOrigin;
 
-/// Display name of the workspace every new org is created with.
-pub const DEFAULT_WORKSPACE_NAME: &str = "Default";
-
 #[derive(Debug, thiserror::Error)]
 pub enum ProvisionError {
     /// Another workspace in the same org already carries this display name.
@@ -55,14 +47,11 @@ pub enum ProvisionError {
     NameTaken(String),
     /// The org already has its one workspace. Connect a repository to it
     /// (`POST /orgs/{org_id}/onboarding/github`) rather than making another;
-    /// a demo or internal workspace gets an org of its own.
+    /// an internal workspace gets an org of its own.
     #[error(
         "org_has_workspace: this organization already has its workspace. Connect a repository to it instead of creating another."
     )]
     OrgHasWorkspace,
-    /// This process owns no working copy — a stateless serve replica.
-    #[error("{0}")]
-    NoWorkingCopy(String),
     #[error("{0}")]
     Filesystem(String),
     #[error("{0}")]
@@ -86,133 +75,6 @@ impl From<ProvisionError> for (StatusCode, String) {
 
 fn query_failed(e: DbErr) -> ProvisionError {
     ProvisionError::Database(format!("Failed to query workspaces: {e}"))
-}
-
-/// How a new workspace is named.
-pub enum WorkspaceName<'a> {
-    /// Exactly this. A clash within the org is [`ProvisionError::NameTaken`].
-    Exact(&'a str),
-    /// This, or the first free "`base` 2", "`base` 3", … within the org.
-    UniqueFrom(&'a str),
-}
-
-/// A blank workspace to create for `org_id`, attributed to `created_by`.
-pub struct BlankWorkspace<'a> {
-    pub org_id: Uuid,
-    pub created_by: Uuid,
-    pub name: WorkspaceName<'a>,
-}
-
-/// A workspace whose working copy is on disk and whose row was written on the
-/// caller's connection — possibly an open transaction that has not committed.
-///
-/// Settle it exactly once: [`finish`](Self::finish) after the row committed on
-/// a plain connection, [`commit`](Self::commit) to commit the transaction it was
-/// written in, or [`discard`](Self::discard) when the row never will. Dropping
-/// it unsettled leaves an orphaned directory with no row — harmless, and safer
-/// than a drop guard, which a cancelled request could fire after the commit
-/// landed and so delete the working copy of a live workspace.
-#[must_use = "settle a staged workspace with `finish`, `commit` or `discard`"]
-pub struct StagedWorkspace {
-    pub id: Uuid,
-    dir: PathBuf,
-}
-
-impl StagedWorkspace {
-    /// The row has committed: seed its health schedule, give it its Airhouse
-    /// tenant (cloud roles), and hand back its id.
-    pub async fn finish(self) -> Uuid {
-        seed_health_schedule(self.id).await;
-        provision_airhouse_tenant(self.id).await;
-        self.id
-    }
-
-    /// Commit `txn`, which holds this workspace's row, then [`finish`](Self::finish).
-    /// A failed commit removes the working copy, so neither half survives.
-    pub async fn commit(self, txn: DatabaseTransaction) -> Result<Uuid, DbErr> {
-        match txn.commit().await {
-            Ok(()) => Ok(self.finish().await),
-            Err(e) => {
-                self.discard();
-                Err(e)
-            }
-        }
-    }
-
-    /// The row will never commit: remove the working copy.
-    pub fn discard(self) {
-        if let Err(e) = std::fs::remove_dir_all(&self.dir) {
-            tracing::warn!(dir = ?self.dir, error = %e, "failed to remove discarded workspace directory");
-        }
-    }
-}
-
-/// Create a Ready blank workspace: a minimal `config.yml` in a fresh working
-/// copy, and its row written on `conn`. Pass an open transaction to make the
-/// row part of a larger write — the org-creation doors do, so an org is never
-/// committed without its workspace.
-pub async fn create_blank_workspace<C: ConnectionTrait>(
-    conn: &C,
-    spec: BlankWorkspace<'_>,
-) -> Result<StagedWorkspace, ProvisionError> {
-    oxy_app::surface::roles::ensure_fs_writable("create a workspace working copy")
-        .map_err(|e| ProvisionError::NoWorkingCopy(e.to_string()))?;
-
-    let id = Uuid::new_v4();
-    let staged = StagedWorkspace {
-        id,
-        dir: resolve_project_dir(id)?,
-    };
-    match scaffold_and_register(conn, &staged, spec).await {
-        Ok(()) => Ok(staged),
-        Err(e) => {
-            staged.discard();
-            Err(e)
-        }
-    }
-}
-
-/// The workspace every new org is created with — [`create_blank_workspace`]
-/// named [`DEFAULT_WORKSPACE_NAME`].
-pub async fn create_default_workspace<C: ConnectionTrait>(
-    conn: &C,
-    org_id: Uuid,
-    created_by: Uuid,
-) -> Result<StagedWorkspace, ProvisionError> {
-    let spec = BlankWorkspace {
-        org_id,
-        created_by,
-        name: WorkspaceName::UniqueFrom(DEFAULT_WORKSPACE_NAME),
-    };
-    create_blank_workspace(conn, spec).await
-}
-
-async fn scaffold_and_register<C: ConnectionTrait>(
-    conn: &C,
-    staged: &StagedWorkspace,
-    spec: BlankWorkspace<'_>,
-) -> Result<(), ProvisionError> {
-    if !staged.dir.join("config.yml").exists() {
-        oxy_project::write_minimal_config_yml(&staged.dir)
-            .await
-            .map_err(|e| ProvisionError::Filesystem(format!("Failed to write config.yml: {e}")))?;
-    }
-    let name = match spec.name {
-        WorkspaceName::Exact(name) => name.to_string(),
-        WorkspaceName::UniqueFrom(base) => {
-            unique_display_name(conn, base, Some(spec.org_id)).await?
-        }
-    };
-    let row = NewWorkspaceRow {
-        name: &name,
-        created_by: Some(spec.created_by),
-        org_id: Some(spec.org_id),
-        status: WorkspaceStatus::Ready,
-        repository: None,
-    };
-    // The directory is named after a fresh UUID, so this always creates.
-    register_workspace(conn, &staged.dir, staged.id, row).await?;
-    Ok(())
 }
 
 /// `<state_dir>/workspaces/<workspace_id>`, created if needed. The workspace
@@ -305,7 +167,7 @@ pub struct Registered {
 /// Insert the workspace row on `conn`. Idempotent on path: an already
 /// registered directory returns its existing id. Does NOT activate the
 /// workspace, and does not seed its health schedule — that needs a committed
-/// row, so it is [`StagedWorkspace::finish`]'s job (or [`seed_health_schedule`]).
+/// row, so it is the caller's job ([`seed_health_schedule`]).
 pub async fn register_workspace<C: ConnectionTrait>(
     conn: &C,
     project_dir: &Path,
@@ -475,8 +337,8 @@ pub async fn seed_health_schedule(workspace_id: Uuid) {
 mod tests {
     use super::*;
 
-    /// Org creation maps every provisioning failure to a 500, but onboarding
-    /// surfaces this mapping directly — a clash is the one thing a user fixes.
+    /// Onboarding surfaces this mapping directly: a clash is the one thing a
+    /// user fixes.
     #[test]
     fn only_a_name_clash_is_the_callers_to_fix() {
         assert_eq!(
@@ -484,7 +346,6 @@ mod tests {
             StatusCode::CONFLICT
         );
         for e in [
-            ProvisionError::NoWorkingCopy("x".into()),
             ProvisionError::Filesystem("x".into()),
             ProvisionError::Database("x".into()),
         ] {

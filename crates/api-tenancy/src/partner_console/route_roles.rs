@@ -1,6 +1,6 @@
 //! Which pod may serve this crate's routes, where one may not take the default.
 
-use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
+use oxy_shared::fleet_role::RouteRoleDecl;
 
 /// The routes in [`crate::partner_console::routes`] that may not take the FleetOk default.
 ///
@@ -9,15 +9,12 @@ use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 /// Paths are absolute: `oxy-server` merges this crate at the protected-tree
 /// root, so there is no prefix to join.
 ///
-/// Creating a client org creates its `Default` workspace, a working copy
-/// scaffolded onto node-local disk, so a stateless replica must not answer it.
-/// The org list on the same path's GET is a Postgres read and stays FleetOk.
+/// None, now: creating a client org writes only Postgres (it gets no
+/// workspace until its repository is connected), so every route here takes
+/// the FleetOk default. Kept, and still chained by `oxy-server`, so a route
+/// that needs a pod again has one place to say so.
 pub fn route_roles() -> &'static [RouteRoleDecl] {
-    &[RouteRoleDecl {
-        method: "POST",
-        path: "/partners/{partner_org_id}/orgs",
-        role: RouteRole::IdeOnly,
-    }]
+    &[]
 }
 
 #[cfg(test)]
@@ -32,7 +29,7 @@ mod tests {
     /// than silently falling to the FleetOk default at runtime. The one
     /// installing test in this binary: the registry is a process-wide once-cell.
     #[test]
-    fn creating_a_client_org_reaches_the_ide_and_nothing_else_does() {
+    fn every_partner_org_route_is_served_by_the_fleet() {
         let extra = route_roles()
             .iter()
             .map(|d| (d.method, d.path.to_string(), d.role))
@@ -40,21 +37,15 @@ mod tests {
         install_route_declarations_for_tests_with(extra);
 
         let orgs = format!("/api/partners/{PARTNER}/orgs");
-        assert_eq!(
-            classify("POST", &orgs),
-            RouteRole::IdeOnly,
-            "creating a client org scaffolds its Default workspace onto disk"
-        );
-        // The declaration names its verb, so it must not swallow the path's
-        // other verbs — or its neighbours.
         for (method, path) in [
+            ("POST", orgs.clone()),
             ("GET", orgs.clone()),
             ("PATCH", format!("{orgs}/{PARTNER}")),
         ] {
             assert_eq!(
                 classify(method, &path),
                 RouteRole::FleetOk,
-                "{method} {path} reads or writes only Postgres"
+                "{method} {path} writes only Postgres"
             );
         }
     }

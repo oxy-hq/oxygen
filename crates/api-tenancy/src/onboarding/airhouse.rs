@@ -215,29 +215,6 @@ fn uploaded_table(file: &str, outcome: &ImportOutcome) -> UploadedTable {
     }
 }
 
-/// Load the demo's dataset (`oxymart.csv`, from the binary) into the
-/// workspace's Airhouse, under the names the demo's views and SQL use
-/// (`oxymart.csv` is schema `oxymart`, view `csv`, over `main.oxymart`).
-/// Replaces an earlier load, so a retry converges.
-pub(super) async fn load_demo_dataset(
-    importer: &dyn WorkspaceImporter,
-    workspace_id: Uuid,
-) -> Result<Vec<ImportOutcome>, ImportError> {
-    importer.ready(workspace_id).await?;
-    let mut outcomes = Vec::new();
-    for (name, bytes) in oxy_project::demo_dataset_files() {
-        let scratch = tempfile::Builder::new()
-            .prefix("oxy-airhouse-demo-")
-            .tempfile()
-            .map_err(|e| ImportError::Read(format!("scratch file: {e}")))?;
-        std::fs::write(scratch.path(), bytes)
-            .map_err(|e| ImportError::Read(format!("scratch file: {e}")))?;
-        let file = ImportFile::named_like_a_file_database(scratch.path(), name, IfExists::Replace)?;
-        outcomes.push(importer.import(workspace_id, &file).await?);
-    }
-    Ok(outcomes)
-}
-
 #[cfg(test)]
 #[path = "airhouse_tests.rs"]
 mod tests;

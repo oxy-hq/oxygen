@@ -1,4 +1,4 @@
-//! Onboarding HTTP surface: workspace creation (demo / new / GitHub import),
+//! Onboarding HTTP surface: connecting an org's GitHub repository,
 //! LLM-key and warehouse-credential readiness checks, and warehouse data-file
 //! uploads.
 //!
@@ -27,8 +27,9 @@ use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 pub use handlers::*;
 pub use ops::MAX_UPLOAD_BODY_BYTES;
 
-/// Org-scoped onboarding routes: create a workspace from a demo seed, a blank
-/// project, or a GitHub import. These live at `/orgs/{org_id}/onboarding/*` and
+/// Org-scoped onboarding routes: connect the org's GitHub repository. There
+/// is no demo or blank workspace: a workspace exists only once a repository
+/// backs it (`internal-docs/factory-retirement.md` phase 6). These live at `/orgs/{org_id}/onboarding/*` and
 /// carry `org_middleware` + `subscription_guard`, mirroring oxy-app's
 /// `build_org_routes` (where they used to live): `org_middleware` reads the
 /// `{org_id}` path param and inserts the `OrgContext` that `OrgWorkspaceProvisioner` — and
@@ -42,8 +43,8 @@ pub use ops::MAX_UPLOAD_BODY_BYTES;
 /// as `build_org_routes`. Merged at the protected-tree root by `oxy-server` via
 /// the `SurfaceSeams::api` seam.
 ///
-/// These clone repos and scaffold `config.yml` onto node-local disk, so
-/// `role_manifest.rs` pins `POST /api/orgs/{org_id}/onboarding/{demo,new,github}`
+/// The import clones the repository onto node-local disk, so
+/// `role_manifest.rs` pins `POST /api/orgs/{org_id}/onboarding/github`
 /// as **IdeOnly** — the path shape here must stay exactly that for the
 /// path-keyed classifier to match (a bare `/onboarding/*` silently falls through
 /// to FleetOk and lets a stateless serve replica clone into a checkout it doesn't
@@ -55,8 +56,8 @@ pub use ops::MAX_UPLOAD_BODY_BYTES;
 /// `router_roles()`. Paths are absolute: both seams MERGE this crate rather than
 /// nesting it, so there is no prefix to join against.
 ///
-/// Only the org-scoped `demo`/`new`/`github` are IdeOnly: they clone a
-/// repository and scaffold `config.yml` through raw `std::fs` and git, which a
+/// Only the org-scoped `github` import is IdeOnly: it clones the
+/// repository onto disk through git, which a
 /// replica with no working copy cannot do, and the failure would be silent — a
 /// clone into a directory the process does not own.
 ///
@@ -67,23 +68,11 @@ pub use ops::MAX_UPLOAD_BODY_BYTES;
 /// working copy only on `OXY_ROLE=all`, which serves every route itself).
 pub fn route_roles() -> &'static [RouteRoleDecl] {
     const IDE: RouteRole = RouteRole::IdeOnly;
-    &[
-        RouteRoleDecl {
-            method: "POST",
-            path: "/orgs/{org_id}/onboarding/demo",
-            role: IDE,
-        },
-        RouteRoleDecl {
-            method: "POST",
-            path: "/orgs/{org_id}/onboarding/new",
-            role: IDE,
-        },
-        RouteRoleDecl {
-            method: "POST",
-            path: "/orgs/{org_id}/onboarding/github",
-            role: IDE,
-        },
-    ]
+    &[RouteRoleDecl {
+        method: "POST",
+        path: "/orgs/{org_id}/onboarding/github",
+        role: IDE,
+    }]
 }
 
 /// The workspace-scoped half, merged inside the `/{workspace_id}` nest. Paths
@@ -122,10 +111,7 @@ pub fn routes() -> Router<AppState> {
 }
 
 fn global_onboarding_routes() -> Router<AppState> {
-    Router::new()
-        .route("/demo", post(setup_demo))
-        .route("/new", post(setup_new))
-        .route("/github", post(setup_github))
+    Router::new().route("/github", post(setup_github))
 }
 
 /// Workspace-scoped onboarding routes (readiness checks, LLM-key test,

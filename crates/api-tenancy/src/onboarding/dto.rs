@@ -10,20 +10,6 @@ pub struct OnboardingResult {
     pub workspace_id: Uuid,
 }
 
-#[derive(Deserialize, Default)]
-pub struct DemoSetupRequest {
-    /// Project name (slug) — used as directory name inside the projects root.
-    /// Ignored in single-project mode (when PROJECT_DIR was provided to oxy serve).
-    pub name: Option<String>,
-}
-
-#[derive(Deserialize, Default)]
-pub struct NewSetupRequest {
-    /// Project name (slug) — used as directory name inside the projects root.
-    /// Ignored in single-project mode (when PROJECT_DIR was provided to oxy serve).
-    pub name: Option<String>,
-}
-
 #[derive(Deserialize)]
 pub struct GitHubSetupRequest {
     pub namespace_id: Uuid,

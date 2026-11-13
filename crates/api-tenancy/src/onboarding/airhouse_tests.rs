@@ -1,4 +1,4 @@
-//! The cloud-role upload and demo against an in-process DuckDB standing in for
+//! The cloud-role upload against an in-process DuckDB standing in for
 //! the workspace's tenant. The load itself (`airhouse::import::load`) runs for
 //! real; only the credential, the wire and provisioning are not modelled.
 
@@ -239,84 +239,4 @@ async fn a_file_named_into_an_app_schema_is_skipped_not_loaded() {
     assert_eq!(response.files, ["fine.csv"]);
     assert_eq!(response.skipped[0].name, "app_store_ops.csv");
     assert!(response.skipped[0].reason.contains("reserved"));
-}
-
-/// Every view expression, every example query and the automations' SQL shape
-/// run against the demo as loaded into the stand-in: the demo needs no edit to
-/// answer from Airhouse.
-#[tokio::test]
-async fn the_demo_dataset_answers_the_demos_views_and_sql_from_airhouse() {
-    let tenant = StandIn::new(Ready::Yes);
-    let outcomes = load_demo_dataset(&tenant, Uuid::new_v4()).await.unwrap();
-    let csv = oxy_project::demo_dataset_files()[0].1;
-    // Lines that hold something, less the header: the file may or may not end
-    // with a newline.
-    let data_rows = csv
-        .split(|b| *b == b'\n')
-        .filter(|line| !line.iter().all(u8::is_ascii_whitespace))
-        .count() as u64
-        - 1;
-    assert_eq!(outcomes.len(), 1);
-    assert_eq!(outcomes[0].rows, data_rows);
-    assert_eq!(tenant.count("oxymart.csv") as u64, data_rows);
-
-    let dir = tempfile::tempdir().unwrap();
-    oxy_project::copy_airhouse_demo_files_to(dir.path())
-        .await
-        .unwrap();
-
-    let views = dir.path().join("sales_semantics/views");
-    let mut checked = 0;
-    for entry in std::fs::read_dir(&views).unwrap() {
-        let path = entry.unwrap().path();
-        let view: serde_yaml::Value =
-            serde_yaml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        let table = view["table"].as_str().expect("a view names its table");
-        assert_eq!(view["datasource"].as_str(), Some("local"));
-        let mut exprs = Vec::new();
-        collect_exprs(&view, &mut exprs);
-        for expr in exprs {
-            // The semantic layer renders `table: "oxymart.csv"` unquoted.
-            tenant.rows(&format!("SELECT {expr} FROM {table} LIMIT 1"));
-            checked += 1;
-        }
-    }
-    assert!(checked > 50, "only {checked} expressions found");
-
-    for entry in std::fs::read_dir(dir.path().join("example_sql")).unwrap() {
-        let sql = std::fs::read_to_string(entry.unwrap().path()).unwrap();
-        assert!(!tenant.rows(&sql).is_empty(), "{sql}");
-    }
-
-    // The automations read the same name the example SQL now does.
-    for entry in std::fs::read_dir(dir.path().join("workflows")).unwrap() {
-        let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
-        assert!(text.contains("FROM oxymart.csv") && !text.contains("'oxymart.csv'"));
-    }
-
-    // Loading again replaces rather than refusing: a retried demo converges.
-    load_demo_dataset(&tenant, Uuid::new_v4()).await.unwrap();
-    assert_eq!(tenant.count("oxymart.csv") as u64, data_rows);
-}
-
-fn collect_exprs(value: &serde_yaml::Value, out: &mut Vec<String>) {
-    match value {
-        serde_yaml::Value::Mapping(map) => {
-            for (key, value) in map {
-                if key.as_str() == Some("expr")
-                    && let Some(expr) = value.as_str()
-                {
-                    out.push(expr.to_string());
-                } else {
-                    collect_exprs(value, out);
-                }
-            }
-        }
-        serde_yaml::Value::Sequence(items) => {
-            for item in items {
-                collect_exprs(item, out);
-            }
-        }
-        _ => {}
-    }
 }

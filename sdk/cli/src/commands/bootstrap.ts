@@ -61,7 +61,6 @@ interface CreatedOrg {
   org?: { id?: string; slug?: string; name?: string };
   owner_status?: string;
   owner_email?: string;
-  default_workspace_id?: string;
 }
 
 function selection(target: BootstrapTarget, flags: BootstrapFlags): Phase[] {
@@ -196,7 +195,7 @@ async function createOrg(
     `On ${ctx.target()}:\n` +
       `  org       a NEW organization ${target.name} (${target.slug}), billing Incomplete\n` +
       `  owner     ${target.ownerEmail} — added as Owner if the account exists, otherwise sent an Owner invitation that expires in 7 days\n` +
-      "  workspace a Ready blank `Default` workspace, with NO git remote — `git-link` is what gives one a remote\n"
+      "  workspace none — an org gets its workspace when `git-link` connects its repository\n"
   );
   if (flags.yes !== true) {
     await confirm("Create it?", {
@@ -214,11 +213,6 @@ async function createOrg(
   process.stdout.write(
     `${out.green(`created org ${created.org?.slug ?? target.slug}`)} (${created.org?.id ?? "no id in the response"})\n`
   );
-  if (created.default_workspace_id) {
-    process.stdout.write(
-      `  default workspace ${created.default_workspace_id} (blank, no remote)\n`
-    );
-  }
   if (created.owner_status === "invited") {
     // Said loudly: the call succeeded and nobody can sign in yet, which is the
     // one outcome here that reads as done and is not.

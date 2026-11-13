@@ -12,8 +12,8 @@
 //! able to orphan a customer.
 //!
 //! Everything here is one transaction: org → membership → billing row →
-//! attachment → audit (via `record_in_txn`) → the `Default` workspace's row. A
-//! half-created client is not a state we allow.
+//! attachment → audit (via `record_in_txn`). A half-created client is not a
+//! state we allow. The org gets no workspace: its GitHub import creates one.
 
 use axum::Json;
 use axum::extract::Path;
@@ -36,7 +36,6 @@ use crate::organizations::{
     is_reserved_slug, normalize_invite_email, send_invitation_email, slugify_name,
 };
 use crate::partner_console::partner_context::PartnerActor;
-use crate::workspace_provisioning::create_default_workspace;
 use oxy_app_core::audit::{self, AuditEntry};
 use oxy_server_authz::partner_authz::PartnerCapability;
 
@@ -57,13 +56,11 @@ pub struct CreatedOrg {
     /// - `"invited"` — an unknown email got an Owner-role invitation emailed.
     /// - `"none"` — no owner email was given; the org has no owner yet.
     pub owner_status: String,
-    /// The Ready blank `Default` workspace every new org is created with.
-    pub default_workspace_id: Uuid,
 }
 
-/// `POST /partners/{partner_org_id}/orgs` — create + attach a client org, with
-/// its `Default` workspace. That scaffolds a working copy, so this is the one
-/// IdeOnly route in the crate — see `route_roles` in `lib.rs`.
+/// `POST /partners/{partner_org_id}/orgs` — create + attach a client org. It
+/// gets no workspace until its repository is connected, so this writes only
+/// Postgres and any replica serves it.
 pub async fn create_org(
     PartnerActor(scope): PartnerActor,
     actor: oxy_app_core::audit::RequestActor,
@@ -213,23 +210,7 @@ pub async fn create_org(
     .await
     .map_err(internal("audit org.created"))?;
 
-    // Last in the transaction, so nothing after it can fail and orphan the
-    // working copy: every client org starts with a Ready blank workspace, and
-    // one that cannot be made rolls the whole client back with it.
-    let workspace = create_default_workspace(&txn, org_id, actor.id)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                %org_id,
-                error = %e,
-                "partner create_org: default workspace could not be created; org rolled back"
-            );
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    let default_workspace_id = workspace
-        .commit(txn)
-        .await
-        .map_err(internal("commit create org"))?;
+    txn.commit().await.map_err(internal("commit create org"))?;
 
     // Post-commit: email the Owner invitation for an unknown owner. The row +
     // token are already committed, so a send failure never fails the request.
@@ -263,7 +244,6 @@ pub async fn create_org(
             app_count: 0,
         },
         owner_status: owner_status.to_string(),
-        default_workspace_id,
     }))
 }
 

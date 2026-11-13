@@ -98,37 +98,6 @@ async fn connect() -> Result<sea_orm::DatabaseConnection, (StatusCode, String)> 
         })
 }
 
-/// Update the clone status and error message for a workspace row.
-pub(super) async fn update_workspace_status(
-    workspace_id: Uuid,
-    status: entity::workspaces::WorkspaceStatus,
-    error: Option<String>,
-) -> Result<(), String> {
-    use entity::workspaces;
-    use oxy::database::client::establish_connection;
-    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
-
-    let db = establish_connection()
-        .await
-        .map_err(|e| format!("Database connection failed: {e}"))?;
-
-    let existing = workspaces::Entity::find_by_id(workspace_id)
-        .one(&db)
-        .await
-        .map_err(|e| format!("Failed to load workspace {workspace_id}: {e}"))?
-        .ok_or_else(|| format!("Workspace {workspace_id} no longer exists"))?;
-
-    let mut active: workspaces::ActiveModel = existing.into();
-    active.status = Set(status);
-    active.error = Set(error);
-    active.updated_at = Set(chrono::Utc::now().into());
-    active
-        .update(&db)
-        .await
-        .map_err(|e| format!("Failed to update workspace {workspace_id}: {e}"))?;
-    Ok(())
-}
-
 /// True if `var_name` has a secret set for this workspace, resolved the same way
 /// the runtime resolves it: DB-only in cloud (so an env var set on the server
 /// can't mask a genuinely-missing workspace secret) and DB + env fallback in

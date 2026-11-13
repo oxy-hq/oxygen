@@ -1,25 +1,20 @@
-//! Every new org arrives with exactly one Ready workspace — or not at all.
+//! A new org arrives with no workspace.
 //!
 //! Customers no longer create orgs: Oxy staff (`POST /admin/orgs`) and partners
-//! onboard them. The owner's first sign-in should land on Home, which exists
-//! only under a workspace route, so creation leaves a Ready `Default` workspace
-//! behind — its row committed with the org's, its working copy on disk.
+//! onboard them. A workspace exists only once a repository backs it
+//! (`internal-docs/factory-retirement.md` phase 6), so creation leaves the org
+//! alone and it shows its setup screen until the repository is connected. That
+//! also makes creation Postgres-only: it works on a serve replica, where the old
+//! blank `Default` workspace could not be scaffolded.
 //!
-//! The second case is the half that matters when it goes wrong: a workspace
-//! that cannot be made must take the org down with it, not leave a tenant that
-//! looks created and has nowhere to land.
-//!
-//! Drives the real handler against a per-test database (`common::test_db`, which
-//! also points the process's state dir at a temp dir, so the working copy lands
-//! there). Global Owner standing comes from `OXY_OWNER`, the one standing that
-//! needs no grant row; nextest gives each test its own process, so setting it
-//! here reaches no other test.
-
-use std::path::Path;
+//! Drives the real handler against a per-test database (`common::test_db`).
+//! Global Owner standing comes from `OXY_OWNER`, the one standing that needs no
+//! grant row; nextest gives each test its own process, so setting it here
+//! reaches no other test.
 
 use axum::Json;
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use entity::workspaces::WorkspaceStatus;
 use entity::{org_members, organizations, users, workspaces};
 use oxy_api_tenancy::admin::orgs::{AdminCreateOrgBody, create_org};
@@ -82,7 +77,7 @@ fn fresh_slug() -> String {
 }
 
 #[tokio::test]
-async fn admin_create_org_yields_exactly_one_ready_workspace() {
+async fn admin_create_org_creates_no_workspace() {
     let db = test_db().await;
     let staff = seed_owner(&db).await;
 
@@ -95,32 +90,14 @@ async fn admin_create_org_yields_exactly_one_ready_workspace() {
         .all(&db)
         .await
         .expect("load workspaces");
-    assert_eq!(rows.len(), 1, "a new org has exactly one workspace");
-    let ws = &rows[0];
-    assert_eq!(ws.id, created.default_workspace_id, "the response names it");
-    assert_eq!(ws.status, WorkspaceStatus::Ready);
-    assert_eq!(ws.name, "Default");
-    assert_eq!(
-        ws.created_by,
-        Some(staff.id),
-        "attributed to the staff caller"
-    );
-    assert_eq!(created.org.workspace_count, 1);
-
-    let dir = ws
-        .path
-        .as_deref()
-        .expect("a workspace row carries its path");
-    assert!(
-        Path::new(dir).join("config.yml").is_file(),
-        "the working copy is scaffolded, not just the row: {dir}"
-    );
+    assert!(rows.is_empty(), "a new org has no workspace: {rows:?}");
+    assert_eq!(created.org.workspace_count, 0);
 }
 
-/// A serve replica refuses to scaffold a working copy. Reached through a
-/// misclassified route, org creation must fail whole: no org, no workspace.
+/// Creation writes only Postgres, so a serve replica (no working copy) answers
+/// it: the org is created, not refused.
 #[tokio::test]
-async fn an_org_whose_workspace_cannot_be_made_is_not_created() {
+async fn a_serve_replica_creates_an_org() {
     let db = test_db().await;
     let staff = seed_owner(&db).await;
     // SAFETY: process-per-test; the role is read once, into a once-cell.
@@ -128,20 +105,14 @@ async fn an_org_whose_workspace_cannot_be_made_is_not_created() {
     oxy_app::surface::roles::init_process_role_from_env();
 
     let slug = fresh_slug();
-    let refused = create_org(actor(&staff), HeaderMap::new(), body(&staff, &slug)).await;
-    assert_eq!(
-        refused.err(),
-        Some(StatusCode::INTERNAL_SERVER_ERROR),
-        "a workspace that cannot be made is a server error — never the 409 a \
-         client reads as 'slug taken'"
-    );
-
-    let org = organizations::Entity::find()
-        .filter(organizations::Column::Slug.eq(&slug))
+    let Json(created) = create_org(actor(&staff), HeaderMap::new(), body(&staff, &slug))
+        .await
+        .expect("a serve replica creates the org");
+    let org = organizations::Entity::find_by_id(created.org.id)
         .one(&db)
         .await
         .expect("look up org");
-    assert!(org.is_none(), "the org rolled back with its workspace");
+    assert_eq!(org.map(|o| o.slug), Some(slug));
 }
 
 /// Cloud refuses a nil-UUID workspace path outright — that id is the legacy
@@ -195,9 +166,8 @@ async fn the_workspace_list_never_offers_the_local_mode_nil_workspace() {
     .await
     .expect("list workspaces");
     let ids: Vec<Uuid> = listed.iter().map(|w| w.id).collect();
-    assert_eq!(
-        ids,
-        vec![created.default_workspace_id],
-        "only the workspace cloud can open is listed"
+    assert!(
+        ids.is_empty(),
+        "the nil workspace is never listed, so this org lists none: {ids:?}"
     );
 }

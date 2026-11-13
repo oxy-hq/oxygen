@@ -60,20 +60,6 @@ export interface UploadWarehouseFilesResponse {
 }
 
 export class OnboardingService {
-  static async setupDemo(orgId: string, name?: string): Promise<OnboardingResult> {
-    const response = await apiClient.post<OnboardingResult>(`/orgs/${orgId}/onboarding/demo`, {
-      name
-    });
-    return response.data;
-  }
-
-  static async setupNew(orgId: string, name?: string): Promise<OnboardingResult> {
-    const response = await apiClient.post<OnboardingResult>(`/orgs/${orgId}/onboarding/new`, {
-      name
-    });
-    return response.data;
-  }
-
   static async setupGitHub(
     orgId: string,
     namespaceId: string,

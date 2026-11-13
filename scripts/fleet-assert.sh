@@ -962,46 +962,19 @@ else
   # Staff-only create (`POST /orgs` is gone): needs `create_orgs`, which
   # $DEV_EMAIL holds as Global Owner/Admin. `owner_email` is the caller, an
   # existing user, so it is seeded Owner at once — the org routes below then
-  # answer as a member, not `assume_role_required`. IdeOnly (it scaffolds the
-  # org's Default workspace); S1 self-proxies it to the ide.
+  # answer as a member, not `assume_role_required`. Postgres only: the org
+  # gets no workspace, so any replica answers it.
   out=$(mktemp)
   c=$(req POST "${S1_BASE}/api/admin/orgs" "$out" "$(printf '{"name":"fleet-assert-scratch-org-%s","slug":"fleet-assert-scratch-org-%s","owner_email":"%s"}' "$ts" "$ts" "$DEV_EMAIL")")
   if [ "$c" = "200" ] || [ "$c" = "201" ]; then
     DISPOSABLE_ORG_ID=$(jq -r '.org.id // empty' "$out")
-    ok "created disposable org $DISPOSABLE_ORG_ID (default workspace $(jq -r '.default_workspace_id // "?"' "$out"))"
+    ok "created disposable org $DISPOSABLE_ORG_ID"
     CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/orgs/${DISPOSABLE_ORG_ID}")
 
-    out2=$(mktemp)
-    c2=$(req POST "${S1_BASE}/api/orgs/${DISPOSABLE_ORG_ID}/onboarding/new" "$out2" '{"name":"fleet-assert-scratch-workspace"}')
-    if [ "$c2" = "200" ] || [ "$c2" = "201" ]; then
-      DISPOSABLE_WS_ID=$(jq -r '.workspace_id // .id // empty' "$out2")
-      [ -n "$DISPOSABLE_WS_ID" ] && {
-        ok "created disposable workspace $DISPOSABLE_WS_ID (via onboarding/new)"
-        mark_covered "/api/orgs/{org_id}/onboarding/new"
-        CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/orgs/${DISPOSABLE_ORG_ID}/workspaces/${DISPOSABLE_WS_ID}")
-      }
-    else
-      skip "onboarding/new returned $c2 — disposable-workspace Destr routes left uncovered"
-    fi
-    rm -f "$out2"
-
-    # A second disposable workspace, via onboarding/demo — the request body
-    # is fully optional (`Option<Json<DemoSetupRequest>>` with a `Default`
-    # impl), so an empty POST is valid.
-    out2b=$(mktemp)
-    c2b=$(curl -s -o "$out2b" -w '%{http_code}' --max-time 30 -X POST -H "Authorization: $TOKEN" \
-      "${S1_BASE}/api/orgs/${DISPOSABLE_ORG_ID}/onboarding/demo")
-    if [[ "$c2b" =~ ^2 ]]; then
-      DISPOSABLE_DEMO_WS_ID=$(jq -r '.workspace_id // empty' "$out2b")
-      [ -n "$DISPOSABLE_DEMO_WS_ID" ] && {
-        ok "created disposable demo workspace $DISPOSABLE_DEMO_WS_ID (via onboarding/demo)"
-        mark_covered "/api/orgs/{org_id}/onboarding/demo"
-        CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/orgs/${DISPOSABLE_ORG_ID}/workspaces/${DISPOSABLE_DEMO_WS_ID}")
-      }
-    else
-      skip "onboarding/demo returned $c2b — orgs/{org_id}/onboarding/demo left uncovered"
-    fi
-    rm -f "$out2b"
+    # No disposable workspace: a workspace exists only once a repository
+    # backs it (onboarding/new and onboarding/demo are gone), so the
+    # workspace-scoped Destr routes below skip on an empty DISPOSABLE_WS_ID.
+    skip "no repository-less workspace can be created — disposable-workspace Destr routes left uncovered"
 
     # disposable custom app, scoped to the disposable org+workspace
     if [ -n "$DISPOSABLE_WS_ID" ]; then

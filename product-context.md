@@ -52,7 +52,7 @@ design behavior around it.
 ## Surfaces (for "which component is this?" triage)
 
 - **Home** (`/`) — the rail's **Chat** was "Threads".
-- **Onboarding is no longer the setup path** — staff or a partner provision orgs; landing on `/onboarding` means *no org*, not broken setup.
+- **Onboarding is no longer the setup path** — staff or a partner provision orgs; landing on `/onboarding` means *no org*, not broken setup. A **new org has no workspace** until its GitHub repository is connected, so its "being set up" screen is expected, not a failed provision; there is no demo or blank workspace.
 - **Developer Portal** (`/ide`) — the back office (semantic model, metric tree, world model, experiments, pipelines, coordinator, observability, camera fleet) stays under `/ide`; **file editing, git and Build mode are gone** (removed 2026-11-09). Authoring is clone-and-push: Files shows the served revision read-only (compiled definitions as YAML, beside the repository and how to clone it), and a push to the default branch compiles. The SQL client (`/ide/database`) stays for debugging; it runs queries but saves no files. Surfaces read the served revision (a pinned preview's, when pinned).
 - **Admin → Workspace Health** — **opt-in**: no (or unparseable) `health_check:` block means the workspace is *absent*, not healthy. It reads the **compiled** model only, so nothing-compiled reports Degraded. **Anomalies don't vote**; `reconcile.yml` is the only correctness dimension.
 - **"Is this custom app OK?"** — deployment integrity green is compatible with every request failing, and a traffic verdict of **"no reading" is never healthy**. Never poll an invented `/health`: a custom-app host answers `200` with the shell for *every* path.

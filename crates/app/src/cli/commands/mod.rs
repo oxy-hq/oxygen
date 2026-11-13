@@ -17,6 +17,7 @@ pub mod seed;
 mod seed_airhouse;
 mod seed_compile;
 mod seed_llm_keys;
+mod seed_org_workspace;
 pub(crate) mod seed_partners;
 pub(crate) mod seed_platform_grants;
 mod seed_threads;
@@ -237,6 +238,12 @@ pub struct SeedArgs {
     /// and a few real runs. Local DB only; `just up` passes it.
     #[clap(long, conflicts_with = "clear")]
     pub fixtures: bool,
+    /// Only give the existing org with this slug a local workspace (a Ready
+    /// `Default` with a minimal `config.yml`, no repository) and print its id
+    /// last. For a single-process dev or CI box: the product makes a workspace
+    /// only from a GitHub import. Reuses the org's workspace when it has one.
+    #[clap(long, conflicts_with_all = ["clear", "no_compile", "llm_keys", "fixtures"])]
+    pub org_workspace: Option<String>,
 }
 
 /// Validates a single file based on its extension.
@@ -704,6 +711,11 @@ async fn handle_seed_command(
     example_apps: Option<crate::server::router::ExampleAppsSeam>,
 ) -> Result<(), OxyError> {
     use seed::*;
+    if let Some(slug) = seed_args.org_workspace.as_deref() {
+        return seed_org_workspace::seed_org_workspace(slug)
+            .await
+            .map(|_| ());
+    }
     if seed_args.clear {
         // Guard BOTH teardowns UP FRONT. clear_demo has no is_local() gate of its
         // own, so without this it would run (unguarded) before clear_partner_tenants

@@ -1,7 +1,8 @@
 //! Connecting a repository to the org's one workspace.
 //!
-//! Every org is created with a blank `Default` workspace that has no remote.
-//! The GitHub import used to create a second workspace beside it ("Default 2"),
+//! Orgs created before 2026-11-13 carry a blank `Default` workspace with no
+//! remote (a new org has none; the import creates it). The GitHub import used to
+//! create a second workspace beside such a blank one ("Default 2"),
 //! which is how orgs came to hold several. Now the import *adopts* the org's
 //! workspace instead: the repository columns are recorded on the existing row,
 //! its working copy is set aside, and the clone lands where the blank one was.

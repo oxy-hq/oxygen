@@ -1,9 +1,8 @@
-//! The staff console's org section declares one route IdeOnly — creating an
-//! org scaffolds its Default workspace onto node-local disk — and the rest
-//! FleetOk. Moved from `oxy-app`'s `role_manifest_tests` with the section: its
-//! declaration now arrives through `SurfaceSeams::admin`, which `oxy-app`'s
-//! harness does not build, so there `classify` would answer the FleetOk default
-//! and the assertion would fail for the wrong reason.
+//! The staff console's org and workspace sections are served by the fleet,
+//! creating an org included: a new org gets no workspace until its repository
+//! is connected, so `POST /admin/orgs` writes only Postgres. Its declarations
+//! arrive through `SurfaceSeams::admin`, which `oxy-app`'s harness does not
+//! build, so the guard lives here.
 
 use oxy_api_tenancy::admin_sections;
 use oxy_app::surface::roles::{RouteRole, classify, install_route_declarations_for_tests_with};
@@ -20,17 +19,11 @@ fn install() {
 }
 
 #[test]
-fn admin_create_org_reaches_the_ide_and_the_rest_of_the_console_does_not() {
+fn the_whole_org_console_is_served_by_the_fleet() {
     install();
-    assert_eq!(
-        classify("POST", "/api/admin/orgs"),
-        RouteRole::IdeOnly,
-        "POST admin create-org writes the new org's Default workspace working copy"
-    );
-    // The carve-out names its verb and its path: the list on the same path,
-    // and the rest of the orgs console, stay on the fleet.
     let id = "d9830be4-c6a4";
     for (method, path) in [
+        ("POST", "/api/admin/orgs".to_string()),
         ("GET", "/api/admin/orgs".to_string()),
         ("GET", "/api/admin/orgs-meta".to_string()),
         ("GET", format!("/api/admin/orgs/{id}/detail")),

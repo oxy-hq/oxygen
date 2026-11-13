@@ -403,7 +403,7 @@ function stageCanary(work, tarballs) {
 
 // ── 3. identities, org, engines, workspace ───────────────────────────────────
 
-async function ensureOrg(opts, staff, canary) {
+async function ensureOrg(opts, staff, _canary) {
   step(`org ${opts.orgSlug}`);
   // Owner, not member: minting the workspace API key needs WorkspaceAdmin, which
   // an org Owner derives. Prod's canary is a Member holding only the operator
@@ -415,10 +415,8 @@ async function ensureOrg(opts, staff, canary) {
     owner_email: CANARY_EMAIL
   });
   let orgId;
-  let workspaceId;
   if (created.status === 200) {
     orgId = created.json.org.id;
-    workspaceId = created.json.default_workspace_id;
     note(`created org ${orgId} with owner ${CANARY_EMAIL}`);
   } else if (created.status === 409) {
     const again = await devLogin(
@@ -433,18 +431,7 @@ async function ensureOrg(opts, staff, canary) {
       );
     }
     orgId = org.id;
-    const list = await must(
-      opts.target,
-      canary.token,
-      "GET",
-      `/api/orgs/${orgId}/workspaces`,
-      undefined,
-      "list workspaces"
-    );
-    const ws = list.json.find((w) => w.name === "Default") ?? list.json[0];
-    if (!ws) fail(`org ${opts.orgSlug} has no workspace`);
-    workspaceId = ws.id;
-    note(`reusing org ${orgId} (${org.role}), workspace ${workspaceId}`);
+    note(`reusing org ${orgId} (${org.role})`);
   } else {
     fail(
       `create org: POST /api/admin/orgs answered ${created.status} ${created.text.slice(0, 300)}`
@@ -463,7 +450,27 @@ async function ensureOrg(opts, staff, canary) {
     fail(`grant app_operator: ${grant.status} ${grant.text.slice(0, 300)}`);
   } else note(`granted app_operator scoped to ${opts.orgSlug}`);
 
-  return { orgId, workspaceId };
+  return { orgId, workspaceId: orgWorkspace(opts.orgSlug) };
+}
+
+/**
+ * The org's workspace. A new org has none: the product makes a workspace only
+ * from a GitHub import, and the canary needs one it can edit on disk, so the
+ * seed makes it (`oxy seed --org-workspace`, a local database only) and prints
+ * its id last. It reuses the org's workspace on a re-run. `OXY_BIN` overrides
+ * the binary, for a checkout whose `oxy` is not on PATH.
+ */
+function orgWorkspace(orgSlug) {
+  const bin = process.env.OXY_BIN ?? "oxy";
+  const r = capture(bin, ["seed", "--org-workspace", orgSlug]);
+  const id = r.stdout.trim().split("\n").pop()?.trim();
+  if (r.status !== 0 || !/^[0-9a-f-]{36}$/.test(id ?? "")) {
+    fail(
+      `\`${bin} seed --org-workspace ${orgSlug}\` gave no workspace id: ${r.stdout.slice(-300)}`
+    );
+  }
+  note(`workspace ${id}`);
+  return id;
 }
 
 async function ensureOltp(opts, staff, orgId) {

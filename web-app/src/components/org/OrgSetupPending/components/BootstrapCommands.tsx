@@ -1,11 +1,11 @@
 import { CopyBlock } from "@/components/CopyBlock";
 import type { Organization } from "@/types/organization";
-import { blankStartCommand, bootstrapScript } from "./bootstrapScript";
+import { bootstrapScript } from "./bootstrapScript";
 
 /**
  * What an Oxy engineer runs to set this org up. Setting an org up left the web app:
  * it is `oxyc` (the customer's repo) plus the API that connects it
- * (`POST /orgs/{org_id}/onboarding/{github,new,demo}`). This only prints the commands,
+ * (`POST /orgs/{org_id}/onboarding/github`). This only prints the commands,
  * filled in with this org's id and a repo name, so nobody has to look the id up.
  *
  * Shown only to someone the server says may create here (`may_provision_workspace`):
@@ -28,13 +28,6 @@ export function BootstrapCommands({ org }: { org: Organization }) {
         text={bootstrapScript(org)}
         label={`Copy the commands that set up ${org.name}`}
         testId='org-setup-pending-bootstrap-script'
-        nowrap
-      />
-      <p className='text-muted-foreground text-xs'>To start from a blank one instead:</p>
-      <CopyBlock
-        text={blankStartCommand(org)}
-        label='Copy the blank start command'
-        testId='org-setup-pending-bootstrap-blank'
         nowrap
       />
     </div>

@@ -761,6 +761,7 @@ fleet-assert *FLAGS:
 #   just custom-app-canary --sandbox-loop         # plus the sandbox loop (internal-docs/custom-app-sandboxes.md)
 #   just custom-app-canary --sandbox-loop --sandbox-loop-omit storage_roundtrip   # as CI runs it
 custom-app-canary *FLAGS:
+    OXY_BIN="${OXY_BIN:-{{ justfile_directory() }}/target/debug/oxy}" \
     node scripts/ci/platform-canary-checkpoint.mjs \
       --target "${CANARY_TARGET:-http://127.0.0.1:3000}" \
       --clickhouse-url "${CANARY_CLICKHOUSE_URL:-http://localhost:8123}" \

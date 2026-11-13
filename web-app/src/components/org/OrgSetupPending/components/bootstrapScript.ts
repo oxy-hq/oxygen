@@ -44,8 +44,3 @@ export function bootstrapScript(org: Pick<Organization, "id" | "slug" | "name">)
     `oxyc api -X POST ${orgPath}/onboarding/github -f namespace_id=<namespace-id> -F repo_id=<repo-id> -f branch=main`
   ].join("\n");
 }
-
-/** A blank start (`POST /orgs/{org_id}/onboarding/new`): a minimal config, no repo. */
-export function blankStartCommand(org: Pick<Organization, "id" | "name">): string {
-  return `oxyc api -X POST orgs/${org.id}/onboarding/new -f name=${shellQuote(org.name)}`;
-}

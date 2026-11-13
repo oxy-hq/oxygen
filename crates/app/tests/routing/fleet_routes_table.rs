@@ -49,12 +49,14 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// graph routes (`oxy-api-world-model`, the graph since 2026-11-12), since
 /// 2026-11-13 the four legacy `/api-keys` rows (`oxy-api-identity`), and a handful of
 /// workspace routes that have since been removed or re-nested. Minus four when the
-/// three handler-less `/events*` rows and the deleted `onboarding/reset` went.
+/// three handler-less `/events*` rows and the deleted `onboarding/reset` went, and
+/// two more with `onboarding/demo` and `onboarding/new` (no workspace without a
+/// repository).
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 51;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 49;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];

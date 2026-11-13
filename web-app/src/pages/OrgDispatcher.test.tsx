@@ -223,9 +223,8 @@ describe("OrgDispatcher — an org with nothing ready, apps-first", () => {
     const script = screen.getByTestId("org-setup-pending-bootstrap-script");
     expect(script).toHaveTextContent("oxyc new acme-oxy --display 'Acme'");
     expect(script).toHaveTextContent("orgs/org-1/onboarding/github");
-    expect(screen.getByTestId("org-setup-pending-bootstrap-blank")).toHaveTextContent(
-      "oxyc api -X POST orgs/org-1/onboarding/new -f name='Acme'"
-    );
+    // A workspace exists only once a repository backs it: no blank start.
+    expect(screen.queryByTestId("org-setup-pending-bootstrap-blank")).toBeNull();
   });
 
   it("shows the commands to nobody the server would refuse", () => {

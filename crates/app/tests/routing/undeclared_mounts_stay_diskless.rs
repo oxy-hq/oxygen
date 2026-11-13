@@ -28,31 +28,13 @@ const WORKSPACE_FS: &[&str] = &[
     "ConfigManager",
     // Creating a workspace scaffolds its working copy.
     "workspace_provisioning",
-    "create_blank_workspace",
-    "create_default_workspace",
+    "register_workspace",
 ];
 
 /// Accesses a scanned crate makes behind a route it DOES declare, so the
 /// FleetOk default never applies to them. `(file suffix, needle)` — per needle,
 /// so the exemption cannot quietly cover a second kind of access in that file.
 const DECLARED_ACCESSES: &[(&str, &str)] = &[
-    // `POST /partners/{id}/orgs` creates the client org's Default workspace;
-    // `oxy_api_tenancy::partner_console::route_roles()` declares it IdeOnly, and that
-    // crate's own test asserts the declaration classifies.
-    (
-        "api-tenancy/src/partner_console/orgs.rs",
-        "workspace_provisioning",
-    ),
-    (
-        "api-tenancy/src/partner_console/orgs.rs",
-        "create_default_workspace",
-    ),
-    // `POST /admin/orgs` creates the new org's Default workspace; the tenancy
-    // crate's admin section declares it IdeOnly (`CREATE_ORG_ROLE`), and
-    // `oxy-api-tenancy`'s `tests/integration/admin_route_roles.rs` asserts
-    // the declaration classifies.
-    ("api-tenancy/src/admin/orgs.rs", "workspace_provisioning"),
-    ("api-tenancy/src/admin/orgs.rs", "create_default_workspace"),
     // `POST /{workspace_id}/source-uploads/reports` reads the pipeline
     // definition through `ConfigManager`, which owns the compiled-vs-disk
     // choice and pins the request's revision; `oxy_api_airway::
