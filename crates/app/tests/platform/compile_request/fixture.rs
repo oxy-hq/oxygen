@@ -41,6 +41,24 @@ pub struct Queued {
     pub spec: Value,
     pub queue_status: String,
     pub source_type: String,
+    /// The run's own status, which the coordinator writes after the queue row.
+    pub run_status: Option<String>,
+}
+
+impl Queued {
+    /// Ended, with its outcome recorded. A failed queue row is not enough: the
+    /// worker fails it a moment before the run records why, and a read in that
+    /// gap sees a compile still finishing.
+    fn settled(&self) -> bool {
+        match self.queue_status.as_str() {
+            "queued" | "claimed" => false,
+            "failed" => matches!(
+                self.run_status.as_deref(),
+                Some("failed" | "cancelled" | "timed_out" | "done")
+            ),
+            _ => true,
+        }
+    }
 }
 
 impl Fx {
@@ -137,7 +155,8 @@ impl Fx {
             .db
             .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT q.spec, q.queue_status, r.source_type FROM agentic_task_queue q \
+                "SELECT q.spec, q.queue_status, r.source_type, r.task_status \
+                 FROM agentic_task_queue q \
                  JOIN agentic_runs r ON r.id = q.run_id \
                  WHERE q.spec->>'type' = 'compile' AND q.spec->>'workspace_id' = $1 \
                  ORDER BY q.created_at",
@@ -150,6 +169,7 @@ impl Fx {
                 spec: r.try_get("", "spec").unwrap(),
                 queue_status: r.try_get("", "queue_status").unwrap(),
                 source_type: r.try_get("", "source_type").unwrap(),
+                run_status: r.try_get("", "task_status").unwrap(),
             })
             .collect()
     }
@@ -194,14 +214,12 @@ impl Fx {
             .expect("read revisions")
     }
 
-    /// Let a worker drain the queue until every compile task has ended.
+    /// Let a worker drain the queue until every compile task has ended and
+    /// recorded how.
     pub async fn drive_until_settled(&self) {
         let settled = drive_worker_queue(&self.db, self.ws, || async {
             let queued = self.queued().await;
-            !queued.is_empty()
-                && queued
-                    .iter()
-                    .all(|q| !matches!(q.queue_status.as_str(), "queued" | "claimed"))
+            !queued.is_empty() && queued.iter().all(Queued::settled)
         })
         .await;
         assert!(

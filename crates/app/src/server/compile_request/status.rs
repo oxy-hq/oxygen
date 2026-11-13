@@ -68,7 +68,8 @@ impl CompileState {
 /// revision row of the commit says what happened to it. With no row at all the
 /// queue is asked: a compile that failed before it wrote a revision — the
 /// commit could not be fetched, the tree was refused — is `failed` with the
-/// task's reason, and anything else is `pending`.
+/// task's reason (`compiling` for the moment its run is still writing that
+/// reason), and anything else is `pending`.
 pub async fn status(
     db: &DatabaseConnection,
     workspace_id: Uuid,
@@ -86,10 +87,24 @@ pub async fn status(
     }
     Ok(
         match failed_before_a_revision(db, workspace_id, &git_sha, kind).await? {
-            Some(error) => CompileState::failed(workspace_id, git_sha, error),
-            None => CompileState::pending(workspace_id, git_sha, None),
+            Outcome::Failed(error) => CompileState::failed(workspace_id, git_sha, error),
+            // Not `pending`: a preview reads `pending` with nothing in flight as
+            // `stale` and offers a refresh that recompiles a failed commit.
+            Outcome::Settling => CompileState::bare(workspace_id, git_sha, "compiling"),
+            Outcome::None => CompileState::pending(workspace_id, git_sha, None),
         },
     )
+}
+
+/// What the queue says about a commit that has no revision row.
+#[derive(Debug, PartialEq, Eq)]
+enum Outcome {
+    /// The newest compile task failed, with its reason.
+    Failed(String),
+    /// It failed, but its run is still recording why: still in progress.
+    Settling,
+    /// Nothing failed: queued, running or never asked for.
+    None,
 }
 
 /// Whether a compile of `git_sha` for this workspace is queued or running on the
@@ -133,19 +148,21 @@ async fn failed_before_a_revision(
     workspace_id: Uuid,
     git_sha: &str,
     kind: RevisionKind,
-) -> Result<Option<String>, DbErr> {
+) -> Result<Outcome, DbErr> {
     let kinds: Vec<String> = kind
         .reusable_kinds()
         .iter()
         .map(|k| k.to_string())
         .collect();
     if kinds.is_empty() {
-        return Ok(None);
+        return Ok(Outcome::None);
     }
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT q.queue_status, r.error_message FROM agentic_task_queue q \
+            "SELECT q.queue_status, r.error_message, r.task_status, \
+                    q.updated_at > now() - make_interval(secs => $4) AS settling \
+             FROM agentic_task_queue q \
              JOIN agentic_runs r ON r.id = q.run_id \
              WHERE q.spec->>'type' = 'compile' \
                AND q.spec->>'workspace_id' = $1 \
@@ -157,22 +174,48 @@ async fn failed_before_a_revision(
                 workspace_id.to_string().into(),
                 git_sha.into(),
                 kinds.into(),
+                OUTCOME_SETTLE_SECS.into(),
             ],
         ))
         .await?;
     let Some(row) = row else {
-        return Ok(None);
+        return Ok(Outcome::None);
     };
     let queue_status: String = row.try_get("", "queue_status")?;
     if !matches!(queue_status.as_str(), "failed" | "dead") {
-        return Ok(None);
+        return Ok(Outcome::None);
+    }
+    let run_status: Option<String> = row.try_get("", "task_status")?;
+    let settling: bool = row.try_get("", "settling")?;
+    if outcome_still_recording(&queue_status, run_status.as_deref(), settling) {
+        return Ok(Outcome::Settling);
     }
     let reason: Option<String> = row.try_get("", "error_message")?;
-    Ok(Some(
+    Ok(Outcome::Failed(
         reason
             .filter(|r| !r.trim().is_empty())
             .unwrap_or_else(|| unexplained(&queue_status).to_string()),
     ))
+}
+
+/// How long after its queue row fails a compile's run may still be recording
+/// why. The worker's transport marks the queue row `failed` first and the
+/// coordinator writes the run's `task_status` and `error_message` (one update)
+/// a moment later; inside that window the outcome is not readable yet.
+const OUTCOME_SETTLE_SECS: f64 = 60.0;
+
+/// Whether a failed task's reason is still being written: its queue row failed,
+/// but its run is not terminal yet and the row failed recently. Reading it then
+/// would report the generic reason for a compile that has a real one, so the
+/// status reads `compiling` until the next read. A `dead` row has no worker
+/// outcome on the way, and a run that stays unfinished past the window is not
+/// coming, so both read as failed at once.
+fn outcome_still_recording(queue_status: &str, run_status: Option<&str>, settling: bool) -> bool {
+    let run_terminal = matches!(
+        run_status,
+        Some("failed" | "cancelled" | "timed_out" | "done")
+    );
+    queue_status == "failed" && settling && !run_terminal
 }
 
 /// What to say for a task that ended without a reason of its own.
@@ -228,6 +271,24 @@ pub(super) fn from_row(
         ),
         "ready" => CompileState::bare(workspace_id, git_sha, "stale"),
         _ => CompileState::bare(workspace_id, git_sha, "pending"),
+    }
+}
+
+#[cfg(test)]
+mod outcome_tests {
+    use super::outcome_still_recording;
+
+    #[test]
+    fn a_failed_task_whose_run_is_still_recording_is_not_failed_yet() {
+        assert!(outcome_still_recording("failed", Some("running"), true));
+        assert!(outcome_still_recording("failed", None, true));
+    }
+
+    #[test]
+    fn a_recorded_run_dead_letter_or_old_row_reads_failed_at_once() {
+        assert!(!outcome_still_recording("failed", Some("failed"), true));
+        assert!(!outcome_still_recording("dead", Some("running"), true));
+        assert!(!outcome_still_recording("failed", Some("running"), false));
     }
 }
 

@@ -333,6 +333,45 @@ async fn a_compile_that_fails_before_it_writes_a_revision_is_reported_failed_wit
     assert_eq!(fx.status(HEAD).await.status, "pending");
 }
 
+/// The worker marks the queue row `failed` a moment before the run records
+/// why. Read in that moment, the compile is still in progress: `compiling`, not
+/// `pending`, which a preview with nothing queued would show as `stale` and
+/// offer to recompile a commit that just failed.
+#[tokio::test]
+async fn a_failure_still_recording_its_reason_reads_as_compiling() {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let fx = Fx::new(Some("worker")).await;
+    fx.branch_is_at(BRANCH, HEAD).await;
+    fx.serve_commit(HEAD, tarball(&[("README.md", "not a workspace")]))
+        .await;
+    fx.compile(Target::Branch(BRANCH)).await.expect("queued");
+    fx.drive_until_settled().await;
+
+    let rewind = |status: &'static str, reason: Option<&'static str>| {
+        let db = fx.db.clone();
+        async move {
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "UPDATE agentic_runs SET task_status = $1, error_message = $2 \
+                 WHERE id IN (SELECT run_id FROM agentic_task_queue \
+                              WHERE spec->>'type' = 'compile')",
+                [status.into(), reason.map(str::to_string).into()],
+            ))
+            .await
+            .expect("rewind the run");
+        }
+    };
+    rewind("running", None).await;
+    let settling = fx.status(HEAD).await;
+    assert_eq!(settling.status, "compiling", "{settling:?}");
+    assert_eq!(settling.error, None);
+
+    rewind("failed", Some("compile from git failed [no_config]")).await;
+    let failed = fx.status(HEAD).await;
+    assert_eq!(failed.status, "failed", "{failed:?}");
+    assert!(failed.error.expect("a reason").contains("[no_config]"));
+}
+
 /// A staging request joins a compile of the commit that is already queued,
 /// whatever its kind. When the one it joined is a main compile that then fails
 /// before writing a revision, the staging caller is waiting on that task and

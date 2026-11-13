@@ -428,6 +428,22 @@ async fn the_listing_reads_each_previews_status_off_its_revisions() {
         ))
     };
     set_task("failed").await.unwrap();
+    // The worker fails the queue row a moment before the run records why.
+    // In that moment the compile is still finishing, not `stale`: a refresh
+    // would recompile a commit that has just failed.
+    assert_eq!(
+        list().await["status"],
+        "compiling",
+        "outcome still recording"
+    );
+    fx.db
+        .execute_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "UPDATE agentic_runs SET task_status = 'failed', \
+             error_message = 'compile from git failed [no_config]'",
+        ))
+        .await
+        .unwrap();
     let item = list().await;
     assert_eq!(item["status"], "failed", "{item}");
     assert!(item["error"].is_string(), "{item}");
