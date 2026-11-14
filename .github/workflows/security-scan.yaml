@@ -48,25 +48,15 @@ jobs:
           scanners: vuln
           severity: CRITICAL,HIGH
           exit-code: "0"
-          format: table
-          output: trivy-vuln-results.txt
+          # JSON, rendered below into counts and a fixable-first table.
+          format: json
+          output: trivy-vuln-results.json
 
       - name: Publish vulnerability results to workflow summary
+        if: always()
         run: |
-          if [[ -s trivy-vuln-results.txt ]]; then
-            {
-              echo "### Dependency Vulnerability Scan"
-              echo "<details><summary>Click to expand</summary>"
-              echo ""
-              echo '```'
-              cat trivy-vuln-results.txt
-              echo '```'
-              echo "</details>"
-            } >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### Dependency Vulnerability Scan" >> $GITHUB_STEP_SUMMARY
-            echo "No CRITICAL or HIGH vulnerabilities found." >> $GITHUB_STEP_SUMMARY
-          fi
+          python3 scripts/ci/trivy-summary.py trivy-vuln-results.json --kind vuln \
+            --title "Dependency vulnerabilities (CRITICAL, HIGH)" >> "$GITHUB_STEP_SUMMARY"
 
   secret-scan:
     name: Trivy Secret Scan
@@ -94,23 +84,12 @@ jobs:
           # .env.example files contain placeholder values, not real credentials.
           skip-files: "localhost+2-key.pem,localhost+2.pem,**/.env.example"
           trivyignores: .trivyignore.yaml
-          format: table
-          output: trivy-secret-results.txt
+          # JSON, rendered below as file / line / rule — never the match.
+          format: json
+          output: trivy-secret-results.json
 
       - name: Publish secret scan results to workflow summary
         if: always()
         run: |
-          if [[ -s trivy-secret-results.txt ]]; then
-            {
-              echo "### Secret Scan"
-              echo "<details><summary>Click to expand</summary>"
-              echo ""
-              echo '```'
-              cat trivy-secret-results.txt
-              echo '```'
-              echo "</details>"
-            } >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### Secret Scan" >> $GITHUB_STEP_SUMMARY
-            echo "No secrets detected." >> $GITHUB_STEP_SUMMARY
-          fi
+          python3 scripts/ci/trivy-summary.py trivy-secret-results.json --kind secret \
+            --title "Secret scan" >> "$GITHUB_STEP_SUMMARY"

@@ -138,8 +138,27 @@ runs:
     - name: Create binary checksum
       shell: bash
       working-directory: artifacts
-      run: shasum --algorithm 256 --binary oxy-${{ inputs.target }} | tee
-        SHA256SUM-oxy-${{ inputs.target }}.txt
+      env:
+        TARGET: ${{ inputs.target }}
+      run: |
+        shasum --algorithm 256 --binary "oxy-${TARGET}" | tee "SHA256SUM-oxy-${TARGET}.txt"
+        # What was built, for this job's summary: the binary's size (the
+        # web-app is embedded in it, so its share is shown), checksum and the
+        # version it reports. Every target builds on a native runner, so the
+        # binary runs here.
+        bytes=$(wc -c < "oxy-${TARGET}")
+        web=$(find ../web-app/dist -type f -exec cat {} + | wc -c)
+        version=$("./oxy-${TARGET}" --version 2>/dev/null | head -1 || true)
+        {
+          echo "### oxy CLI \`${TARGET}\`"
+          echo
+          echo "| | |"
+          echo "| --- | --- |"
+          echo "| Size | **$(awk -v b="$bytes" 'BEGIN { printf "%.1f MB", b / 1e6 }')**, of which the embedded web-app is $(awk -v b="$web" 'BEGIN { printf "%.1f MB", b / 1e6 }') |"
+          echo "| Version | \`${version:-did not run}\` |"
+          echo "| SHA-256 | \`$(cut -d' ' -f1 "SHA256SUM-oxy-${TARGET}.txt")\` |"
+          echo
+        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload release artifacts
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

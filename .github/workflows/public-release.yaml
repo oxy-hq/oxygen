@@ -132,16 +132,31 @@ jobs:
           echo "needs_changesets=${NEEDS_CHANGESETS}" >> $GITHUB_OUTPUT
           echo "is_stable=${IS_STABLE}" >> $GITHUB_OUTPUT
 
+          # What this run will publish, by name — the job summaries further down
+          # say what it did publish. Each artifact links to where it will land.
+          IMAGE="ghcr.io/${{ github.repository_owner }}/oxygen"
+          if [[ "$BUILD_DOCKER" != "true" ]]; then
+            IMAGE_PLAN="none — dispatched with \`build_docker: false\`"
+          elif [[ "$IS_STABLE" == "true" ]]; then
+            IMAGE_PLAN="\`${IMAGE}:${VERSION}\` + \`latest\` (a retag of \`main-${SHORT_SHA}\` if that exists, else a build)"
+          else
+            IMAGE_PLAN="\`${IMAGE}:main-${SHORT_SHA}\` + \`main-latest\`"
+          fi
+          if [[ "$NEEDS_CHANGESETS" == "true" ]]; then
+            GATE="only if changesets find a change to oxy, web-app or the Dockerfile"
+          else
+            GATE="always (stable)"
+          fi
           {
-            echo "### Build Configuration"
-            echo "| Setting | Value |"
-            echo "|---------|-------|"
-            echo "| Channel | ${CHANNEL} |"
-            echo "| Version | ${VERSION} |"
-            echo "| Release Repo | ${RELEASE_REPO} |"
-            echo "| Build Docker | ${BUILD_DOCKER} |"
-            echo "| Needs Changesets | ${NEEDS_CHANGESETS} |"
-          } >> $GITHUB_STEP_SUMMARY
+            echo "### ${DISPLAY_NAME}"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Commit | [\`${SHORT_SHA}\`](https://github.com/${{ github.repository }}/commit/${GITHUB_SHA}) |"
+            echo "| CLI release | [\`${RELEASE_REPO}@${VERSION}\`](https://github.com/${RELEASE_REPO}/releases/tag/${VERSION}) |"
+            echo "| Docker image | ${IMAGE_PLAN} |"
+            echo "| Builds | ${GATE} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ============================================================================
   # Job 2: Changesets (for edge builds only)
@@ -265,6 +280,12 @@ jobs:
           echo "web-app Sentry: release ${VITE_SENTRY_RELEASE}, DSN $([[ -n "$VITE_SENTRY_DSN" ]] && echo set || echo empty)"
           pnpm install --frozen-lockfile --prefer-offline
           pnpm build
+
+      - name: Bundle summary
+        continue-on-error: true
+        run: |
+          python3 scripts/ci/bundle-summary.py web-app/dist \
+            --title "web-app bundle (embedded in every oxy binary)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload web-app dist
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -444,8 +465,16 @@ jobs:
       - name: Checksums
         working-directory: sdk/cli/binaries
         run: |
+          {
+            echo "### oxyc \`$(./oxyc-x86_64-unknown-linux-gnu --version | head -1)\`"
+            echo
+            echo "| Binary | Size | SHA-256 |"
+            echo "| --- | ---: | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
           for f in oxyc-*; do
             sha256sum "$f" | tee "SHA256SUM-$f.txt"
+            size=$(awk -v b="$(wc -c < "$f")" 'BEGIN { printf "%.1f MB", b / 1e6 }')
+            echo "| \`$f\` | $size | \`$(cut -d' ' -f1 "SHA256SUM-$f.txt")\` |" >> "$GITHUB_STEP_SUMMARY"
           done
 
       - name: Upload oxyc binaries
@@ -534,6 +563,7 @@ jobs:
         run: git cliff --current -o /tmp/release-notes.md
 
       - name: Create stable release
+        id: stable-release
         if: needs.determine-build-type.outputs.is_stable == 'true'
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
@@ -551,6 +581,7 @@ jobs:
           fail_on_unmatched_files: false
 
       - name: Create edge release
+        id: edge-release
         if: needs.determine-build-type.outputs.is_stable == 'false'
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
@@ -577,6 +608,36 @@ jobs:
             `bash <(curl --proto '=https' --tlsv1.2 -LsSf https://nightly.oxy.tech)`
             To install this exact build:
             `OXY_VERSION=${{ needs.determine-build-type.outputs.version }} bash <(curl --proto '=https' --tlsv1.2 -LsSf https://nightly.oxy.tech)`
+
+      # The release this run made, and what is in it.
+      - name: Summary
+        if: always()
+        env:
+          URL: ${{ steps.stable-release.outputs.url || steps.edge-release.outputs.url }}
+          VERSION: ${{ needs.determine-build-type.outputs.version }}
+          REPO: ${{ needs.determine-build-type.outputs.release_repo }}
+          IS_STABLE: ${{ needs.determine-build-type.outputs.is_stable }}
+        run: |
+          {
+            if [[ -n "$URL" ]]; then
+              echo "### CLI release [\`${REPO}@${VERSION}\`](${URL})"
+            else
+              echo "### CLI release \`${REPO}@${VERSION}\`: **not created**"
+            fi
+            echo
+            echo "| Asset | Size |"
+            echo "| --- | ---: |"
+            for f in artifacts/oxy-* artifacts/oxyc-*; do
+              [[ -f "$f" ]] || continue
+              echo "| \`${f#artifacts/}\` | $(awk -v b="$(wc -c < "$f")" 'BEGIN { printf "%.1f MB", b / 1e6 }') |"
+            done
+            echo
+            if [[ "$IS_STABLE" != "true" && -n "$URL" ]]; then
+              echo '```bash'
+              echo "OXY_VERSION=${VERSION} bash <(curl --proto '=https' --tlsv1.2 -LsSf https://nightly.oxy.tech)"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ============================================================================
   # Job 6: Build and Publish Docker Images (linux/amd64 + linux/arm64)
@@ -665,6 +726,7 @@ jobs:
           sparse-checkout: |
             Dockerfile.prebuilt
             .dockerignore
+            scripts/ci/image-report.py
           sparse-checkout-cone-mode: false
 
       # The image's creation time is the commit's time, not the build's.
@@ -731,11 +793,25 @@ jobs:
           # The multi-arch name the image is pinned by, baked in as OXY_IMAGE_TAG
           # so `/api/version` reports it (crates/app/src/server/build_identity.rs).
           echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          # The rolling per-arch name this build is about to move. Its digest
+          # NOW is the image this one replaces, which the summary compares
+          # against; after the push it names this build.
+          if [ "$CHANNEL" = "stable" ]; then ROLLING="latest-${ARCH}"; else ROLLING="main-latest-${ARCH}"; fi
+          PREVIOUS=$(timeout 60 docker buildx imagetools inspect "${IMAGE}:${ROLLING}" --format '{{json .Manifest}}' 2>/dev/null \
+            | jq -r '.digest // empty' || true)
+          echo "rolling=${ROLLING}" >> "$GITHUB_OUTPUT"
+          echo "previous=${PREVIOUS}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push image
+        id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         env:
           SOURCE_DATE_EPOCH: ${{ steps.commit_time.outputs.epoch }}
+          # The action's own summary describes the BUILD (a build-record link
+          # for Docker Desktop, cached-step counts) and uploads that record as
+          # an artifact nobody opens. "Image summary" below describes the IMAGE.
+          DOCKER_BUILD_SUMMARY: "false"
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
         with:
           context: .
           file: Dockerfile.prebuilt
@@ -746,6 +822,26 @@ jobs:
             BINARY_PATH=oxy
             OXY_IMAGE_TAG=${{ steps.meta.outputs.image_tag }}
           provenance: false
+
+      # This arch's image: size, layers, and what changed against the one it
+      # replaces. The multi-arch image gets the full report in "Create
+      # Deployment Summary".
+      - name: Image summary
+        if: steps.build.outputs.digest != ''
+        continue-on-error: true
+        timeout-minutes: 7
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/oxygen
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          ROLLING: ${{ steps.meta.outputs.rolling }}
+          PREVIOUS: ${{ steps.meta.outputs.previous }}
+        run: |
+          args=(--title "Built ${{ matrix.arch }}" --layers 0 --tags "${TAGS//${IMAGE}:/}")
+          if [[ -n "$PREVIOUS" ]]; then
+            args+=(--baseline "${IMAGE}@${PREVIOUS}" --baseline-label "previous \`${ROLLING}\`")
+          fi
+          python3 scripts/ci/image-report.py "${IMAGE}@${DIGEST}" "${args[@]}" >> "$GITHUB_STEP_SUMMARY"
 
   # ============================================================================
   # Job 7: Trivy Docker Image Security Scan
@@ -760,6 +856,13 @@ jobs:
     timeout-minutes: 20
     continue-on-error: true
     steps:
+      - name: Checkout the summary script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+          sparse-checkout: scripts/ci/trivy-summary.py
+          sparse-checkout-cone-mode: false
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
@@ -786,28 +889,18 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ steps.image.outputs.ref }}
-          format: table
-          output: trivy-image-results.txt
+          # JSON, rendered below into counts and a fixable-first table; the
+          # image's OS CVEs with no Debian fix are collapsed under it.
+          format: json
+          output: trivy-image-results.json
           severity: CRITICAL,HIGH
           exit-code: "0"
 
       - name: Publish image scan results to workflow summary
         if: always()
         run: |
-          if [[ -s trivy-image-results.txt ]]; then
-            {
-              echo "### Docker Image Vulnerability Scan"
-              echo "<details><summary>Click to expand</summary>"
-              echo ""
-              echo '```'
-              cat trivy-image-results.txt
-              echo '```'
-              echo "</details>"
-            } >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### Docker Image Vulnerability Scan" >> $GITHUB_STEP_SUMMARY
-            echo "No CRITICAL or HIGH vulnerabilities found." >> $GITHUB_STEP_SUMMARY
-          fi
+          python3 scripts/ci/trivy-summary.py trivy-image-results.json --kind vuln \
+            --title "Image vulnerabilities (CRITICAL, HIGH)" >> "$GITHUB_STEP_SUMMARY"
 
   # ============================================================================
   # Job 8: Create and Push Multi-Arch Manifests
@@ -826,6 +919,15 @@ jobs:
        needs.resolve-stable-digest.outputs.retag_from != '')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
+    # What "Create Deployment Summary" reports. Written only once every name
+    # has moved, so a value here means it was published.
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
+      tags: ${{ steps.manifest.outputs.tags }}
+      previous: ${{ steps.manifest.outputs.previous }}
+      previous_tag: ${{ steps.manifest.outputs.previous_tag }}
+      signature: ${{ steps.manifest.outputs.signature }}
+      source: ${{ steps.manifest.outputs.source }}
     steps:
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
@@ -841,6 +943,7 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Create and push multi-arch manifests
+        id: manifest
         run: |
           set -euo pipefail
           VERSION="${{ needs.determine-build-type.outputs.version }}"
@@ -928,6 +1031,17 @@ jobs:
             echo "✅ Published ${IMAGE}:${tag} → ${digest}"
           }
 
+          # The digest the rolling name serves before this run moves it: the
+          # image this one replaces, which the summary measures against. Read
+          # before the first publish_digest, and allowed to be absent (a first
+          # release, or a registry hiccup costs the comparison, not the release).
+          if [ "$CHANNEL" = "stable" ]; then ROLLING="latest"; else ROLLING="main-latest"; fi
+          # Bounded, unlike the publish calls below: this lookup only feeds the
+          # summary, so a stalled registry here must not hold up the release.
+          PREVIOUS=$(timeout 60 docker buildx imagetools inspect "${IMAGE}:${ROLLING}" \
+            --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest // empty') || PREVIOUS=""
+          [[ "$PREVIOUS" =~ ^sha256:[0-9a-f]{64}$ ]] || PREVIOUS=""
+
           if [ -n "$RETAG_FROM" ]; then
             # One digest, two more names. `imagetools create` copies the manifest
             # list by reference — nothing is pulled, nothing is rebuilt, and the
@@ -947,6 +1061,7 @@ jobs:
                 --certificate-oidc-issuer "$OIDC_ISSUER" \
                 "${IMAGE}@${SRC_DIGEST}" > /dev/null; then
               echo "🔏 ${IMAGE}:${RETAG_FROM} (${SRC_DIGEST}) is signed by this workflow on main"
+              SIGNATURE="verified: signed by public-release.yaml on main"
             elif cosign verify \
                 --certificate-identity-regexp '.*' \
                 --certificate-oidc-issuer-regexp '.*' \
@@ -955,10 +1070,13 @@ jobs:
               exit 1
             else
               echo "::warning::${IMAGE}:${RETAG_FROM} (${SRC_DIGEST}) carries no signature (built before signing started); releasing it unsigned"
+              SIGNATURE="**unsigned** (built before signing started)"
             fi
             publish_digest "build-${VERSION}" "$SRC_DIGEST"
             publish_digest "latest" "$SRC_DIGEST"
             publish_digest "${VERSION}" "$SRC_DIGEST"
+            DIGEST="$SRC_DIGEST" TAGS="${VERSION},latest"
+            SOURCE="retagged from \`${RETAG_FROM}\`, which prod ran — not rebuilt"
           elif [ "$CHANNEL" = "stable" ]; then
             # The build fallback — a hotfix tagged on an X.Y.x branch, which has
             # no `main-` image to retag. Assembled from the per-VERSION arch tags
@@ -970,6 +1088,8 @@ jobs:
             publish_digest "build-${VERSION}" "$DIGEST"
             publish_digest "latest" "$DIGEST"
             publish_digest "${VERSION}" "$DIGEST"
+            SIGNATURE="verified: signed by public-release.yaml on a tag" TAGS="${VERSION},latest"
+            SOURCE="built from the tag (no \`main-${SHORT_SHA}\` image to retag)"
           else
             # Assembled from the per-SHA arch tags, which only this commit's
             # build writes. Not from `main-latest-<arch>`: the arch builds run in
@@ -985,7 +1105,18 @@ jobs:
             # ghcr as "this build finished AND is signed", so nothing may come
             # after it, and it may only ever name a digest that was just signed.
             publish_digest "main-${SHORT_SHA}" "$DIGEST"
+            SIGNATURE="verified: signed by public-release.yaml on main" TAGS="main-${SHORT_SHA},main-latest"
+            SOURCE="built from \`${SHORT_SHA}\`"
           fi
+
+          {
+            echo "digest=${DIGEST}"
+            echo "tags=${TAGS}"
+            echo "previous=${PREVIOUS}"
+            echo "previous_tag=${ROLLING}"
+            echo "signature=${SIGNATURE}"
+            echo "source=${SOURCE}"
+          } >> "$GITHUB_OUTPUT"
 
   # ============================================================================
   # Job 8b: Wake the promote reconciler in oxygen-internal
@@ -1025,6 +1156,18 @@ jobs:
   # ============================================================================
   # Job 9: Create Deployment Summary
   # ============================================================================
+  # The report on the published multi-arch image: every name now pointing at
+  # it, its digest, per-platform pull size and the change against the image it
+  # replaced, the largest layers, and whether it is signed.
+  #
+  # The JOB NAME IS A CONTRACT. public-image-bump.yaml reads "did this job
+  # succeed" as "this run pushed a multi-arch image", because it runs exactly
+  # when create-manifests did. So every step below is continue-on-error: a
+  # registry hiccup while measuring the image must never read as "nothing was
+  # published" and stop the release from being proposed. continue-on-error
+  # does not cover the JOB's timeout, so each step has its own and they sum
+  # (2 + 2 + 7 = 11) to well under the job's 15: a stall fails one step, which
+  # is absorbed, rather than the job.
   deployment-summary:
     name: Create Deployment Summary
     needs: [determine-build-type, create-manifests]
@@ -1032,33 +1175,61 @@ jobs:
       always() &&
       needs.create-manifests.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
+      - name: Checkout the report script
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+          sparse-checkout: scripts/ci/image-report.py
+          sparse-checkout-cone-mode: false
+
+      - name: Log in to GitHub Container Registry
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create deployment summary
+        continue-on-error: true
+        # 12 registry calls at most, each capped at 30s in image-report.py.
+        timeout-minutes: 7
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/oxygen
+          DIGEST: ${{ needs.create-manifests.outputs.digest }}
+          TAGS: ${{ needs.create-manifests.outputs.tags }}
+          PREVIOUS: ${{ needs.create-manifests.outputs.previous }}
+          PREVIOUS_TAG: ${{ needs.create-manifests.outputs.previous_tag }}
+          SIGNATURE: ${{ needs.create-manifests.outputs.signature }}
+          SOURCE: ${{ needs.create-manifests.outputs.source }}
+          VERSION: ${{ needs.determine-build-type.outputs.version }}
+          CHANNEL: ${{ needs.determine-build-type.outputs.channel }}
+          SHORT_SHA: ${{ needs.determine-build-type.outputs.short_sha }}
         run: |
-          VERSION="${{ needs.determine-build-type.outputs.version }}"
-          CHANNEL="${{ needs.determine-build-type.outputs.channel }}"
-
-          if [ "$CHANNEL" = "stable" ]; then
-            TAG="${VERSION}"
-          else
-            TAG="main-latest"
+          if [[ -z "$DIGEST" ]]; then
+            echo "> [!WARNING]" >> "$GITHUB_STEP_SUMMARY"
+            echo "> create-manifests succeeded but reported no digest." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
-
-          cat >> $GITHUB_STEP_SUMMARY << EOF
-          # Docker Images Published
-
-          ### Oxygen Runtime
-          - **Image:** \`ghcr.io/${{ github.repository_owner }}/oxygen:${TAG}\`
-          - **Architectures:** linux/amd64, linux/arm64
-          - **Pull:**
-            \`\`\`bash
-            docker pull ghcr.io/${{ github.repository_owner }}/oxygen:${TAG}
-            \`\`\`
-
-          ---
-          **Channel:** \`${CHANNEL}\`
-          **Version:** \`${VERSION}\`
-          **Built from:** \`${{ github.sha }}\`
-          **Workflow:** [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          EOF
+          if [[ "$CHANNEL" == "stable" ]]; then
+            TITLE="Published \`oxygen:${VERSION}\`"
+          else
+            TITLE="Published \`oxygen:main-${SHORT_SHA}\`"
+          fi
+          args=(
+            --title "$TITLE"
+            --tags "$TAGS"
+            --note "Source=${SOURCE}"
+            --note "Signature=${SIGNATURE:-unknown}"
+            --note "Package=[ghcr.io](https://github.com/${{ github.repository }}/pkgs/container/oxygen)"
+          )
+          if [[ -n "$PREVIOUS" ]]; then
+            args+=(--baseline "${IMAGE}@${PREVIOUS}" --baseline-label "previous \`${PREVIOUS_TAG}\`")
+          fi
+          python3 scripts/ci/image-report.py "${IMAGE}@${DIGEST}" "${args[@]}" >> "$GITHUB_STEP_SUMMARY" \
+            || echo "::warning::could not measure ${IMAGE}@${DIGEST}; the image itself is published"

@@ -5,6 +5,9 @@
 # the step's own output is the only place the readings land.
 #
 #   scripts/ci/mem-watermark.sh [STEP_MIB=512] [INTERVAL_S=10] &
+#
+# With MEM_WATERMARK_FILE set, the latest high-water mark is also kept in that
+# file, one line, for the job summary to quote after the step.
 set -u
 
 step=${1:-512}
@@ -24,5 +27,10 @@ while sleep "$interval"; do
   if ((used >= peak + step)); then
     peak=$used
     echo "mem-watermark: ${used} MiB in use (RAM ${ram}/$((total / 1024)) MiB, swap ${swap}/$((swap_total / 1024)) MiB)"
+    if [[ -n "${MEM_WATERMARK_FILE:-}" ]]; then
+      awk -v u="$used" -v r="$ram" -v rt="$((total / 1024))" -v s="$swap" -v st="$((swap_total / 1024))" \
+        'BEGIN { printf "%.1f GiB (RAM %.1f of %.1f GiB, swap %.1f of %.1f GiB)\n", u/1024, r/1024, rt/1024, s/1024, st/1024 }' \
+        >"$MEM_WATERMARK_FILE"
+    fi
   fi
 done

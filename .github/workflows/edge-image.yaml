@@ -115,9 +115,31 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The image this build replaces on its rolling tag (`latest` for a
+      # release, `main` for a dev build), read before the push moves it, so the
+      # summary can say what changed. Absent on a first build or a dispatch from
+      # a branch; the summary then has no comparison.
+      - name: Previous image
+        id: previous
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+        run: |
+          if [[ "$CHANNEL" == "release" ]]; then ROLLING=latest; else ROLLING=main; fi
+          DIGEST=$(timeout 60 docker buildx imagetools inspect "${IMAGE}:${ROLLING}" --format '{{json .Manifest}}' 2>/dev/null \
+            | jq -r '.digest // empty' || true)
+          echo "tag=${ROLLING}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push image
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        env:
+          # The action's own summary describes the BUILD (a build-record link
+          # for Docker Desktop, cached-step counts) and uploads that record as
+          # an artifact nobody opens. "Summary" below describes the IMAGE.
+          DOCKER_BUILD_SUMMARY: "false"
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
         with:
           context: video-poc/edge
           file: video-poc/edge/Dockerfile
@@ -165,6 +187,7 @@ jobs:
       # regression in the workflow identity (path rename, OIDC issuer change)
       # fails CI BEFORE the artifact is consumed by edge devices.
       - name: Verify signature (self-check)
+        id: verify
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
@@ -175,21 +198,47 @@ jobs:
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "${ref}"
 
+      # The published image: its names, digest, per-platform pull size and the
+      # change against the image it replaced, the largest layers, and whether
+      # the signature the edge devices check verified.
       - name: Summary
         if: always()
+        # The image is pushed and signed by now; measuring it must not fail
+        # the run. 12 registry calls at most, each capped at 30s.
+        continue-on-error: true
+        timeout-minutes: 7
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          BUILD: ${{ steps.build.outcome }}
+          VERIFY: ${{ steps.verify.outcome }}
+          TAGS: ${{ steps.docker_meta.outputs.tags }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+          PREVIOUS: ${{ steps.previous.outputs.digest }}
+          PREVIOUS_TAG: ${{ steps.previous.outputs.tag }}
         run: |
-          {
-            echo "### oxy-edge image"
-            echo ""
-            echo "- **Version:** \`${{ steps.meta.outputs.version }}\`"
-            echo "- **Channel:** ${{ steps.meta.outputs.channel }}"
-            echo "- **Digest:** \`${{ steps.build.outputs.digest }}\`"
-            echo ""
-            echo "**Pull:**"
-            echo ""
-            echo '```bash'
-            for tag in $(echo "${{ steps.docker_meta.outputs.tags }}" | tr ',' '\n'); do
-              echo "docker pull ${tag}"
-            done
-            echo '```'
-          } >> $GITHUB_STEP_SUMMARY
+          if [[ -z "$DIGEST" ]]; then
+            {
+              echo "### oxy-edge \`${VERSION:-?}\`: nothing pushed"
+              echo
+              echo "The build step ended **${BUILD}**; no image or tag moved."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "$VERIFY" in
+            success) SIGNATURE="verified (cosign keyless, this workflow's identity)" ;;
+            skipped) SIGNATURE="**not signed** — a step before signing failed" ;;
+            *) SIGNATURE="**verify ${VERIFY}** — edge devices will refuse this image" ;;
+          esac
+          names=$(echo "$TAGS" | tr ',\n' '  ' | sed "s#${IMAGE}:##g")
+          args=(
+            --title "oxy-edge \`${VERSION}\` (${CHANNEL})"
+            --tags "$names"
+            --note "Signature=${SIGNATURE}"
+          )
+          if [[ -n "$PREVIOUS" ]]; then
+            args+=(--baseline "${IMAGE}@${PREVIOUS}" --baseline-label "previous \`${PREVIOUS_TAG}\`")
+          fi
+          python3 scripts/ci/image-report.py "${IMAGE}@${DIGEST}" "${args[@]}" >> "$GITHUB_STEP_SUMMARY" \
+            || echo "::warning::could not measure ${IMAGE}@${DIGEST}; the image itself is published"

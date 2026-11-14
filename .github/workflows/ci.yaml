@@ -185,6 +185,10 @@ jobs:
           # Build using Turbo for better caching
           pnpm build
 
+      - name: Bundle summary
+        continue-on-error: true
+        run: python3 scripts/ci/bundle-summary.py web-app/dist >> "$GITHUB_STEP_SUMMARY"
+
   vitest:
     name: Web unit tests (Vitest)
     needs: [changesets]
@@ -947,10 +951,6 @@ jobs:
       CARGO_PROFILE_DEV_STRIP: "symbols"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Collect Workflow Telemetry
-        uses: cilium/workflow-telemetry-action@b1a318f80a08acede58027afe1455d037379966f # v2.2.0
-        with:
-          comment_on_pr: false
       - uses: ./.github/actions/setup-rust-ci
         with:
           app-client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
@@ -1062,10 +1062,6 @@ jobs:
           docker-images: true
           swap-storage: true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Collect Workflow Telemetry
-        uses: cilium/workflow-telemetry-action@b1a318f80a08acede58027afe1455d037379966f # v2.2.0
-        with:
-          comment_on_pr: false
       - uses: ./.github/actions/setup-rust-ci
         with:
           app-client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
@@ -1140,6 +1136,7 @@ jobs:
       - name: Build
         env:
           BIGQUERY_SAMPLE_KEY: ${{ secrets.BIGQUERY_SAMPLE_KEY }}
+          MEM_WATERMARK_FILE: ${{ runner.temp }}/mem-peak
         run: |
           # Into this step's log, so a run the runner kills still shows how
           # close it came. Stopped on every exit: a child still holding stdout
@@ -1155,6 +1152,17 @@ jobs:
           if [[ "$AGENTIC_ONLY" != "true" ]]; then
             ./target/debug/oxy gen-config-schema --check
           fi
+          {
+            echo "### oxy binary (debug, stripped)"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Size | $(du -h target/debug/oxy | cut -f1), of which the embedded web-app is $(du -sh web-app/dist | cut -f1) |"
+            echo "| Version | \`$(./target/debug/oxy --version 2>/dev/null || echo unknown)\` |"
+            echo "| Peak memory | $(cat "$MEM_WATERMARK_FILE" 2>/dev/null || echo "not sampled") |"
+            echo "| Artifact | \`oxy-binary-ci\`, for the test partitions, agentic tests and the canary |"
+            echo
+          } >>"$GITHUB_STEP_SUMMARY"
 
       # The tests run against this binary (OXY_BIN in cargo-test-partition), and
       # so do agentic-tests and custom-app-canary. It is built from the same
@@ -1214,10 +1222,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - name: Collect Workflow Telemetry
-        uses: cilium/workflow-telemetry-action@b1a318f80a08acede58027afe1455d037379966f # v2.2.0
-        with:
-          comment_on_pr: false
       - uses: ./.github/actions/setup-rust-ci
         with:
           app-client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
@@ -1246,11 +1250,21 @@ jobs:
           else
             scripts/ci/test-selection/select.sh HEAD^1 "$RUNNER_TEMP/selection.json"
           fi
+          members=$(cargo metadata --no-deps --format-version 1 2>/dev/null | jq '.workspace_members | length' || echo "?")
           {
             echo "### Rust test selection"
-            jq -r 'if .mode == "packages"
-                   then "\(.packages | length) packages: " + (.packages | map("`\(.)`") | join(", "))
-                   else "mode: **\(.mode)**" end' "$RUNNER_TEMP/selection.json"
+            echo
+            jq -r --arg event "$EVENT" --arg members "$members" '
+              if .mode == "packages" then
+                "Testing **\(.packages | length) of \($members)** workspace packages: what this diff can reach, reverse dependencies included, plus `always-test` (.config/test-selection.toml).\n\n<details><summary>Packages</summary>\n\n" + (.packages | map("`\(.)`") | join(", ")) + "\n\n</details>"
+              elif .mode == "none" then
+                "Testing **none** of \($members) packages: no test can observe what this diff changes."
+              elif $event == "pull_request" then
+                "Testing **all \($members)** workspace packages: this diff reaches every one (or the checkout was not a merge commit)."
+              else
+                "Testing **all \($members)** workspace packages: a \($event) run always does."
+              end' "$RUNNER_TEMP/selection.json"
+            echo
           } >>"$GITHUB_STEP_SUMMARY"
 
       # `cargo build` embeds the web-app dist into the oxy binary via
@@ -1329,6 +1343,8 @@ jobs:
 
       - name: Archive tests
         id: archive
+        env:
+          MEM_WATERMARK_FILE: ${{ runner.temp }}/mem-peak
         run: |
           scripts/ci/mem-watermark.sh &
           watermark=$!
@@ -1368,7 +1384,17 @@ jobs:
           count=$(( (tests + 1599) / 1600 ))
           (( count < 1 )) && count=1
           (( count > 4 )) && count=4
-          echo "$tests tests in $count partition(s)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "$tests tests in $count partition(s)"
+          {
+            echo "### Rust test archive"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Tests | **${tests}**, dealt into ${count} partition(s) |"
+            echo "| Archive | $(du -h nextest-archive.tar.zst | cut -f1) (zstd) |"
+            echo "| Peak memory | $(cat "$MEM_WATERMARK_FILE" 2>/dev/null || echo "not sampled") |"
+            echo
+          } >>"$GITHUB_STEP_SUMMARY"
           {
             echo "run-tests=true"
             echo "partition-count=$count"
@@ -1597,12 +1623,15 @@ jobs:
             --workspace-remap "$GITHUB_WORKSPACE" \
             --partition "slice:${{ matrix.partition }}/${{ needs.cargo-test-archive.outputs.partition-count }}" \
             --no-fail-fast
-      - name: Slowest tests
+      # Failures first (test, panic, rerun command), then the slow tail.
+      - name: Test summary
         if: ${{ !cancelled() }}
         run: |
           junit=target/nextest/default/junit.xml
           if [[ -f "$junit" ]]; then
-            python3 scripts/ci/nextest-slowest.py "$junit" 15 >>"$GITHUB_STEP_SUMMARY"
+            python3 scripts/ci/nextest-summary.py "$junit" --slowest 15 \
+              --title "Rust tests, partition ${{ matrix.partition }}/${{ needs.cargo-test-archive.outputs.partition-count }}" \
+              >>"$GITHUB_STEP_SUMMARY"
           fi
 
   # The status branch protection requires. It used to be the test leg of

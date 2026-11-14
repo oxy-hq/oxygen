@@ -122,7 +122,8 @@ jobs:
               echo "::error::$bundle is not signed with the upload key (got '${actual:-unsigned}')"
               exit 1
             fi
-            echo "- \`${bundle##*/}\`: signed" >> "$GITHUB_STEP_SUMMARY"
+            size=$(awk -v b="$(wc -c < "$bundle")" 'BEGIN { printf "%.1f MB", b / 1e6 }')
+            echo "- \`${bundle##*/}\`: signed with the upload key, ${size}" >> "$GITHUB_STEP_SUMMARY"
           done
 
       - name: Keep the bundles

@@ -67,10 +67,10 @@ jobs:
               - "scripts/ci/verify-workspace-lints.py"
               # Same for the memory watermark the `test` task runs.
               - "scripts/ci/mem-watermark.sh"
-              # The test selector, the partitions' slowest-tests summary and the
+              # The test selector, the partitions' test summary and the
               # Rust jobs' shared setup.
               - "scripts/ci/test-selection/**"
-              - "scripts/ci/nextest-slowest.py"
+              - "scripts/ci/nextest-summary.py"
               - ".github/actions/setup-rust-ci/**"
               # nextest's test groups and retries, and the hakari config.
               - ".config/**"
