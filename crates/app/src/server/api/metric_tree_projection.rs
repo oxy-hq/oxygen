@@ -51,7 +51,7 @@ use oxy_metric_monitoring::metric_tree_projection::{
 /// its own. Everything downstream of here — validation, seasonality
 /// resolution, the query, the fit — is one code path, which is what stops the
 /// SDK's curves from drifting from the canvas's.
-pub(crate) struct ProjectionExec {
+pub struct ProjectionExec {
     pub workspace_manager: WorkspaceManager<oxy::config::ReadOnly>,
     pub user_id: Uuid,
     pub role: WorkspaceRole,
@@ -66,7 +66,7 @@ pub(crate) struct ProjectionExec {
 /// workspace: a caller that caches must not remember a warehouse that happened
 /// to be down. The refusals still *ship* — each one is on its own measure, and
 /// a panel drawing three working curves must say why the fourth is missing.
-pub(crate) struct ProjectionOutcome {
+pub struct ProjectionOutcome {
     pub response: ProjectionResponse,
     pub query_failed: bool,
 }
@@ -97,7 +97,7 @@ pub async fn post_projection(
 
 /// Validate, query, fit — the whole projection, independent of which surface
 /// asked for it. See [`ProjectionExec`] for what the surfaces supply.
-pub(crate) async fn run_projection(
+pub async fn run_projection(
     exec: ProjectionExec,
     layer: oxy_airlayer_compat::SemanticLayer,
     req: ProjectionRequest,

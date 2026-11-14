@@ -11,9 +11,12 @@
 //! `X-Oxy-Needs-Recompile` 503 contract when the boundary isn't populated.
 //!
 //! Extracted so the metric-tree and world-model handler modules don't each
-//! reimplement (and drift on) the gate + boundary logic. The world-model and
-//! cohort twins are `oxy-api-world-model`'s and take it through the prelude
-//! (`oxy_app::surface::custom_app_semantic`); the metric-tree twins are here.
+//! reimplement (and drift on) the gate + boundary logic. Both sets of twins
+//! live in surface crates now — the world-model and cohort twins in
+//! `oxy-api-world-model`, the metric-tree twins in `oxy-api-custom-apps`
+//! (2026-11-14) — and take it through the prelude
+//! (`oxy_app::surface::custom_app_semantic`). It stays here because it builds
+//! an `OxyProjectContext`, and a surface may not import another surface.
 
 use axum::Json;
 use axum::http::{HeaderMap, StatusCode};

@@ -26,7 +26,6 @@
 use axum::routing::{get, post};
 
 use crate::api::{auth, billing, healthcheck, user, webhooks};
-use crate::server::api::projects;
 
 use super::AppState;
 use super::mobile::build_public_mobile_routes;
@@ -94,57 +93,13 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
             "/oauth/{provider}/callback",
             get(crate::integrations::quickbooks::oauth::callback::callback_by_slug),
         )
-        // Project-scoped routes for custom-app bundles. Auth is performed
-        // inline (session cookie or API key) at the customer-app gate, so these
-        // sit in the public router rather than under workspace middleware. The
-        // query routes (`/query`, `/semantic-query`) are `oxy-api-custom-apps`'
-        // (`data_plane`), merged beside this tree through `SurfaceSeams::public`.
-        // Metric-tree analysis ops for bundles — drivers / what-if / RCA /
-        // opportunity sizing. Same airlayer analyses as the IDE's workspace
-        // `/semantic/metric-tree*` routes, but gated for customer apps and
-        // loading the layer from the compile boundary (stateless-fleet safe).
-        // SDK exposes via `useMetricTree` / `useSensitivity` / `usePredict` /
-        // `useExplain` / `useOpportunity` / `useDistribution` /
-        // `useTimeDimensions` / `useBaseline` / `useProjection`.
-        .route_fleet(
-            "/projects/{project_id}/semantic/metric-tree",
-            get(projects::metric_tree::get_metric_tree),
-        )
-        .route_fleet(
-            "/projects/{project_id}/semantic/metric-tree/{measure_id}/sensitivity",
-            get(projects::metric_tree::get_sensitivity),
-        )
-        .route_fleet(
-            "/projects/{project_id}/semantic/metric-tree/predict",
-            post(projects::metric_tree::post_predict),
-        )
-        .route_fleet(
-            "/projects/{project_id}/semantic/metric-tree/explain",
-            post(projects::metric_tree::post_explain),
-        )
-        .route_fleet(
-            "/projects/{project_id}/semantic/metric-tree/opportunity",
-            post(projects::metric_tree::post_opportunity),
-        )
-        .route_fleet(
-            "/projects/{project_id}/semantic/metric-tree/time-dimensions",
-            get(projects::metric_tree::get_time_dimensions),
-        )
-        .route_fleet(
-            "/projects/{project_id}/semantic/metric-tree/baseline",
-            post(projects::metric_tree::post_baseline),
-        )
-        .route_fleet(
-            "/projects/{project_id}/semantic/metric-tree/distribution",
-            post(projects::metric_tree::post_distribution),
-        )
-        // Scenario forecasting's time axis: bucketed history + forward curve
-        // for the levers and everything downstream. SDK exposes via
-        // `useProjection` / `client.metricTree.getProjection`.
-        .route_fleet(
-            "/projects/{project_id}/semantic/metric-tree/projection",
-            post(projects::metric_tree_projection::post_projection),
-        )
+    // Project-scoped routes for custom-app bundles. Auth is performed
+    // inline (session cookie or API key) at the customer-app gate, so these
+    // sit in the public router rather than under workspace middleware. The
+    // query routes (`/query`, `/semantic-query`) and the metric tree's
+    // analysis ops (`/semantic/metric-tree*`, left 2026-11-14) are
+    // `oxy-api-custom-apps`' (`data_plane`), merged beside this tree through
+    // `SurfaceSeams::public`.
     // The World Model graph, its instances and measure breakdown, and peer
     // cohorts (`/projects/{project_id}/semantic/{world-model*,cohort}`) are
     // `oxy-api-world-model`'s, beside their IDE twins, merged beside this

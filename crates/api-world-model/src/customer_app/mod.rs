@@ -12,7 +12,7 @@
 //! gate, the project context, the compile-boundary scan, the project-scoped
 //! result cache and the error envelope are the data plane's
 //! (`oxy_app::surface::custom_app_semantic`), shared with the metric-tree
-//! twins still in `oxy-app`.
+//! twins in `oxy-api-custom-apps`.
 
 pub mod cohort;
 pub mod world_model;

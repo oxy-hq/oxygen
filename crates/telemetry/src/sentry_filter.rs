@@ -113,9 +113,9 @@ fn is_custom_app_namespace(name: &str) -> bool {
 /// Postgres, not a tenant warehouse. Prefixes, matched a path segment at a time
 /// by [`is_data_plane_module`].
 const DATA_PLANE_MODULE_PREFIXES: [&str; 6] = [
-    // The metric tree — the handlers behind `check_custom_app_gates` still in
-    // `oxy-app` — and the automation run's row state machine (`settle`), which
-    // stayed when its handlers left. (`/query` and `/semantic-query` moved to
+    // The automation run's row state machine (`settle`), which stayed when its
+    // handlers left, and the semantic boundary the twins enter by. (`/query`,
+    // `/semantic-query` and the metric tree's twins moved to
     // `oxy_api_custom_apps::data_plane`, and the agent ask, its run stream and
     // the automation run's handlers and executor to `oxy_api_custom_apps::
     // {agent_ask, agent_run_stream, automation_run}`, whose `custom_apps` path
@@ -417,7 +417,7 @@ pub const LOG_BODY_WITHHELD: &str = "[body withheld: data-plane log; see code.fi
 ///
 /// Shape rather than drop, because the line is still a signal that something
 /// failed at that location, and "how many warehouse errors did
-/// the metric-tree twins raise this hour" is exactly what Sentry Logs is good for.
+/// the world-model twins raise this hour" is exactly what Sentry Logs is good for.
 /// The body is replaced rather than reduced to its message *template*: a
 /// `tracing` line arrives here already rendered — sentry-tracing's
 /// `log_from_event` puts the formatted message in `body` and records no
@@ -497,6 +497,11 @@ mod tests {
             // `error!` on a warehouse failure sends nothing to Sentry from here.
             "oxy_api_custom_apps::data_plane::query",
             "oxy_api_custom_apps::data_plane::semantic_query",
+            // The metric tree's customer-app twins, out of `oxy-app` on
+            // 2026-11-14: a failed warehouse read in explain, opportunity,
+            // distribution, baseline or the projection.
+            "oxy_api_custom_apps::data_plane::metric_tree",
+            "oxy_api_custom_apps::data_plane::metric_tree_projection",
             // The agent ask, out of `oxy-app` on 2026-11-14: its start, cancel
             // and the queue executor that drives it.
             "oxy_api_custom_apps::agent_ask",
@@ -719,7 +724,10 @@ mod tests {
             // there; leaving Sentry Logs entirely here was chosen with the move.
             "oxy_api_custom_apps::data_plane::query",
             "oxy_api_custom_apps::data_plane::semantic_query",
-            // The agent ask, the same way, since 2026-11-14.
+            // The metric tree's twins and the agent ask, the same way, since
+            // 2026-11-14.
+            "oxy_api_custom_apps::data_plane::metric_tree",
+            "oxy_api_custom_apps::data_plane::metric_tree_projection",
             "oxy_api_custom_apps::agent_ask",
             "oxy_api_custom_apps::agent_ask::executor",
             "oxy_api_custom_apps::agent_run_stream",
@@ -875,11 +883,11 @@ mod tests {
         for (key, value) in [
             (
                 LOG_MODULE_ATTRIBUTE,
-                serde_json::json!("oxy_app::server::api::projects::metric_tree"),
+                serde_json::json!("oxy_api_world_model::customer_app::cohort"),
             ),
             (
                 "code.file.path",
-                serde_json::json!("crates/app/src/server/api/projects/metric_tree.rs"),
+                serde_json::json!("crates/api-world-model/src/customer_app/cohort.rs"),
             ),
             ("code.line.number", serde_json::json!(295)),
             ("sentry.origin", serde_json::json!("auto.tracing")),
@@ -972,7 +980,6 @@ mod tests {
     fn data_plane_modules_are_matched_a_segment_at_a_time() {
         for module in [
             "oxy_app::server::api::projects",
-            "oxy_app::server::api::projects::metric_tree",
             // The automation run's row state machine, which stayed in `oxy-app`.
             "oxy_app::server::api::projects::automation_run",
             "oxy_app::server::api::projects::automation_run::settle",

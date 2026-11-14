@@ -1,7 +1,8 @@
 //! `/api/projects/{project_id}/semantic/cohort` — peer-cohort comparison for
 //! customer-app bundles.
 //!
-//! Sibling of the metric-tree twins (`oxy-app`'s `projects::metric_tree`): same
+//! Sibling of the metric-tree twins (`oxy-api-custom-apps`'
+//! `data_plane::metric_tree`): same
 //! customer-app gate, same compile-boundary layer load, same FleetOk mount. Where the metric
 //! tree decomposes ONE subject over time, this compares MANY subjects against
 //! each other at a point in time — airlayer's `engine::cohort`, added in

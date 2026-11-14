@@ -8,12 +8,12 @@
 //!
 //! The analysis itself is NOT reimplemented here — validation, seasonality
 //! resolution, the bucketed query and the fit are
-//! [`crate::server::api::metric_tree_projection::run_projection`], shared
+//! `run_projection` (`oxy_app::surface::metric_tree_exec`), shared
 //! verbatim with the IDE handler, so a curve an SDK bundle draws is the curve
 //! the Metric Tree canvas draws.
 //!
 //! **FleetOk**, like `baseline` and the rest of this data plane — pinned by
-//! `the_customer_app_data_plane_is_fleet_ok` in `role_manifest_tests.rs`. The
+//! `public_route_roles` in this crate. The
 //! scan resolves through the compile boundary first and the working copy
 //! second, and warehouse execution needs only config + secrets, so any
 //! replica answers it (the same argument `router/workspace.rs` makes for the
@@ -27,14 +27,14 @@ use axum::response::{IntoResponse, Response};
 use entity::workspace_members::WorkspaceRole;
 use uuid::Uuid;
 
-use crate::server::api::custom_apps_gates::parse_versioned_body;
-use crate::server::api::metric_tree::MetricTreeError;
-use crate::server::api::metric_tree_projection::{
-    ProjectionExec, ProjectionOutcome, ProjectionRequest, run_projection,
+use oxy_app::surface::custom_app_semantic::{
+    cache_lookup, cache_store, enter_semantic_boundary, err_with_code, load_layer,
+    parse_versioned_body, wants_refresh,
 };
-use crate::server::api::projects::semantic_boundary::{
-    cache_lookup, cache_store, enter_semantic_boundary, err_with_code, load_layer, wants_refresh,
+use oxy_app::surface::metric_tree_exec::{
+    MetricTreeError, ProjectionExec, ProjectionOutcome, run_projection,
 };
+use oxy_metric_monitoring::metric_tree_projection::ProjectionRequest;
 
 /// Map the shared projection core's error onto this surface's coded envelope.
 ///

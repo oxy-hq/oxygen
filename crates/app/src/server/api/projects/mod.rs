@@ -1,16 +1,12 @@
-//! Project-scoped HTTP endpoints that custom-app bundles call.
+//! What is left of the project-scoped endpoints custom-app bundles call.
 //!
-//! Currently a single route — `POST /api/projects/{project_id}/query` —
-//! which proxies a SQL or semantic-query request to one of the project's
-//! databases. Cookie auth → user → org_member of project's org is the
-//! gate; no per-bundle config.
-//!
-//! Lives in its own module so future additions (project metadata,
-//! generic write endpoint) don't need to be threaded into the router
-//! piecemeal.
+//! The routes themselves all live in `oxy-api-custom-apps` now (the query data
+//! plane, the metric-tree twins, the agent ask, the agent-run stream, the
+//! automation run) and `oxy-api-world-model` (the world-model twins). What
+//! stays here is the shared platform half they reach through
+//! `oxy_app::surface`: the semantic boundary, the automation run's row state
+//! machine, and the workspace-actions mode read.
 
 pub mod automation_run;
-pub mod metric_tree;
-pub mod metric_tree_projection;
 pub mod semantic_boundary;
 pub mod workspace_actions;

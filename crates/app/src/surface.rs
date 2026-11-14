@@ -139,8 +139,19 @@ pub mod workspace_runtime {
 /// cannot drift on airhouse/motherduck. Platform runtime, not metric-tree
 /// logic: the metric-tree computation itself lives in `oxy-metric-monitoring`.
 pub mod metric_tree_exec {
-    pub use crate::agentic_wiring::metric_tree_runner::{RunnerPreagg, build_query_executor};
+    pub use crate::agentic_wiring::metric_tree_runner::{
+        OxyMetricTreeRunner, RunnerPreagg, build_query_executor,
+    };
     pub use crate::server::api::metric_tree::workspace_databases;
+    // What the customer-app twins (`oxy-api-custom-apps`' `data_plane::
+    // metric_tree*`) share with the IDE handlers that stay here: the error the
+    // projection core answers in, the tree query's shape, the one instance-scope
+    // rule (it reads the world model's entities, which `oxy-metric-monitoring`
+    // does not depend on), and the projection's executor-facing core.
+    pub use crate::server::api::metric_tree::{MetricTreeError, TreeQuery, baseline_scope_core};
+    pub use crate::server::api::metric_tree_projection::{
+        ProjectionExec, ProjectionOutcome, run_projection,
+    };
     /// Whether this request is a held preview — `build_query_executor`'s
     /// `holds_writes`, read on the request's own task.
     pub use oxy_app_core::write_hold::active as request_holds_writes;
@@ -168,8 +179,8 @@ pub mod world_model_exec {
 /// `?refresh` honoured), the `{ message, code }` envelope, and the versioned
 /// body parser the bundle SDK's POSTs go through. Platform runtime on the
 /// workspace runtime, not any one context's logic: `oxy-api-world-model`'s
-/// world-model and cohort twins use it, and so do the metric-tree twins still
-/// in `oxy-app`.
+/// world-model and cohort twins use it, and so do `oxy-api-custom-apps`'
+/// metric-tree twins.
 pub mod custom_app_semantic {
     pub use crate::server::api::custom_apps_gates::{
         CustomAppContextExt, build_caller_context, build_project_context_with_fresh_workspace,

@@ -9635,6 +9635,7 @@ dependencies = [
 name = "oxy-api-custom-apps"
 version = "0.5.160"
 dependencies = [
+ "agentic-analytics",
  "agentic-automation",
  "agentic-connector",
  "agentic-core",
@@ -9678,8 +9679,10 @@ dependencies = [
  "oxy-compile",
  "oxy-custom-apps",
  "oxy-identity",
+ "oxy-metric-monitoring",
  "oxy-observability",
  "oxy-oltp",
+ "oxy-semantic",
  "oxy-server-authz",
  "oxy-shared",
  "oxy-slack-client",

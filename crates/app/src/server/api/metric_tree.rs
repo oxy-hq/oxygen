@@ -451,7 +451,7 @@ fn baseline_scope(
 ///
 /// Returns the message on failure rather than an error type, so neither
 /// currency leaks into the other's module.
-pub(crate) fn baseline_scope_core(
+pub fn baseline_scope_core(
     layer: &oxy_airlayer_compat::SemanticLayer,
     instance: Option<&BaselineInstance>,
 ) -> Result<Vec<oxy_airlayer_compat::engine::query::QueryFilter>, String> {

@@ -6,13 +6,17 @@
 //! - `POST /api/projects/{project_id}/semantic-query`
 //!   ([`semantic_query::run_semantic_query`]) — a semantic query compiled from
 //!   the promoted revision's model.
+//! - `/api/projects/{project_id}/semantic/metric-tree*` ([`metric_tree`],
+//!   [`metric_tree_projection`]) — the metric tree's analysis ops, the twins of
+//!   the IDE's workspace routes, entered through the semantic boundary
+//!   (`oxy_app::surface::custom_app_semantic`). Moved in on 2026-11-14.
 //!
 //! Both sit behind the customer-app gate (`check_custom_app_gates`, inline: a
 //! session cookie or an API key), so they ride `SurfaceSeams::public` outside
 //! the auth stack, declared FleetOk. Their result cache is
 //! `oxy_custom_apps::result_cache`, keyed `project_id` first and read after the
-//! gate, shared with the semantic boundary the metric-tree twins in `oxy-app`
-//! go through. [`query::DataPlaneQueryExecutor`] is the same SQL path behind
+//! gate, shared with the semantic boundary the metric-tree twins
+//! and `oxy-api-world-model`'s customer-app twins go through. [`query::DataPlaneQueryExecutor`] is the same SQL path behind
 //! `ctx.warehouse` / `ctx.semantic` in a Function; `oxy-server` installs it on
 //! the function runtime.
 //!
@@ -24,6 +28,8 @@
 //! lines reach the platform logs; the warehouse connector's own lines
 //! (`agentic_connector`) are still shaped in Sentry Logs.
 
+pub mod metric_tree;
+pub mod metric_tree_projection;
 pub mod query;
 mod query_params;
 pub mod semantic_query;

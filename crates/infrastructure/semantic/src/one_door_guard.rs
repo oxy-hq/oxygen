@@ -94,10 +94,10 @@ const ALLOWED: &[(&str, &str)] = &[
          engine.",
     ),
     (
-        "crates/app/src/server/api/projects/metric_tree.rs",
+        "crates/api-custom-apps/src/data_plane/metric_tree.rs",
         "`run_baseline_query`, on the same customer-app boundary as \
-         the world-model breakdown above: these routes are mounted in \
-         `router/public.rs`, which does not carry `workspace_middleware`, so \
+         the world-model breakdown above: these routes are merged beside the \
+         public tree, which does not carry `workspace_middleware`, so \
          the `SemanticEngineCacheCtx` extension that supplies the cache is \
          never inserted. `SemanticBoundary` holds a `CustomAppContext` and a \
          scan dir and nothing else. The workspace twin \

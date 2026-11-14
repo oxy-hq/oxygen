@@ -75,3 +75,32 @@ fn the_serve_route_and_its_function_entry_both_run_on_any_replica() {
         "the serve route takes every method: POST form submits, Server Actions, the beacon"
     );
 }
+
+/// The metric tree's nine customer-app twins, moved here from `oxy-app` on
+/// 2026-11-14 with `the_customer_app_data_plane_is_fleet_ok`. Asked of the
+/// declarations directly, not through `classify`: an undeclared route
+/// classifies FleetOk by default, so a dropped declaration would still pass
+/// there. A custom app must not go down with the ide.
+#[test]
+fn the_metric_tree_twins_are_declared_fleet_ok() {
+    let sem = "/projects/{project_id}/semantic/metric-tree";
+    let paths = [
+        sem.to_string(),
+        format!("{sem}/{{measure_id}}/sensitivity"),
+        format!("{sem}/predict"),
+        format!("{sem}/explain"),
+        format!("{sem}/opportunity"),
+        format!("{sem}/time-dimensions"),
+        format!("{sem}/baseline"),
+        format!("{sem}/distribution"),
+        format!("{sem}/projection"),
+    ];
+    let roles = public_route_roles();
+    for path in &paths {
+        let decl = roles
+            .iter()
+            .find(|d| d.path == path)
+            .unwrap_or_else(|| panic!("`public_route_roles` declares no `{path}`"));
+        assert_eq!(decl.role, RouteRole::FleetOk, "{path}");
+    }
+}

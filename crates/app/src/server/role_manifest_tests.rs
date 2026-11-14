@@ -789,7 +789,8 @@ fn the_public_router_declares_every_route_it_mounts() {
     );
 
     let declared = body.matches(".route_fleet(").count() + body.matches(".route_ide(").count();
-    // The file declares 29 (32 until the automation run's start, poll and
+    // The file declares 20 (29 until the metric tree's nine customer-app
+    // twins left for `oxy-api-custom-apps`, 2026-11-14; 32 until the automation run's start, poll and
     // cancel left for `oxy-api-custom-apps`, 2026-11-14; 33 until the agent-run
     // stream left, 2026-11-14; 35 until the agent ask's start and
     // cancel left, 2026-11-14; 37 until the custom-app data plane's
@@ -799,7 +800,7 @@ fn the_public_router_declares_every_route_it_mounts() {
     // going quiet, loose enough that adding or removing a handful does not make
     // this the test everyone edits without reading.
     assert!(
-        declared >= 25,
+        declared >= 15,
         "only {declared} declared mounts found — the parser broke, or this file \
          moved. A guard that silently stops covering anything is the shape this \
          whole area exists to remove.",
@@ -836,44 +837,15 @@ fn custom_app_run_state_routes_are_fleet_ok() {
     }
 }
 
-/// The whole customer-app data plane is FleetOk.
-///
-/// The SQL-executing half used to be IdeOnly, and the reason was recorded
-/// here: they "build a connector from the FS-fallback config, empty on a
-/// serve replica". That was true — `build_project_context` resolved a path
-/// and built a fallback-config manager, never asking Postgres — and it meant
-/// every request from every deployed custom app went through the one pod
-/// holding a checkout, so an ide restart took the apps down with it.
-///
-/// It reads the compile boundary now, so `databases` comes from the promoted
-/// revision. The remaining filesystem arms are gated on
-/// `can_read_disk()` and return a retryable 503 with a lazy compile
-/// enqueued, rather than compiling against an empty directory.
-#[test]
-fn the_customer_app_data_plane_is_fleet_ok() {
-    let pid = "d9830be4-c6a4";
-    let sem = format!("/api/projects/{pid}/semantic");
-    let fleet_ok = [
-        ("POST", format!("{sem}/metric-tree/explain")),
-        ("POST", format!("{sem}/metric-tree/opportunity")),
-        ("POST", format!("{sem}/metric-tree/distribution")),
-        ("POST", format!("{sem}/metric-tree/baseline")),
-        ("POST", format!("{sem}/metric-tree/projection")),
-        // Pure ops, FleetOk all along.
-        ("GET", format!("{sem}/metric-tree")),
-        ("GET", format!("{sem}/metric-tree/revenue/sensitivity")),
-        ("POST", format!("{sem}/metric-tree/predict")),
-        ("GET", format!("{sem}/metric-tree/time-dimensions")),
-    ];
-    for (method, path) in &fleet_ok {
-        assert_eq!(
-            classify(method, path),
-            RouteRole::FleetOk,
-            "customer-app data-plane route {method} {path} must be FleetOk — \
-             a custom app must not go down with the ide"
-        );
-    }
-}
+// The whole customer-app data plane is FleetOk. Its last routes here, the
+// metric tree's twins (`/api/projects/{id}/semantic/metric-tree*`), moved to
+// `oxy-api-custom-apps` on 2026-11-14, and this test went with them
+// (`crates/api-custom-apps/tests/integration/route_roles.rs`,
+// `the_metric_tree_twins_are_declared_fleet_ok`): asserted here, `classify`
+// would answer with the FleetOk default and pass for the wrong reason. The
+// SQL-executing half used to be IdeOnly because it built a connector from the
+// FS-fallback config; it reads the compile boundary now, so `databases` comes
+// from the promoted revision and an ide restart does not take the apps down.
 
 // The custom-app serve route and its function entry (`/customer-apps/{*path}`,
 // `…/fn/{name}`) are FleetOk, and so is the external health read. Both moved to
@@ -1296,8 +1268,8 @@ fn airhouse_admin_routes_are_fleet_ok() {
 // the compile boundary, so `databases` comes from the promoted revision, and
 // the surviving filesystem arms are gated on `can_read_disk()`. Pinning them
 // IdeOnly again would put every deployed custom app back behind the single pod
-// holding a checkout, which is what `the_customer_app_data_plane_is_fleet_ok`
-// (above) exists to prevent.
+// holding a checkout, which is what the data plane's FleetOk declarations in
+// `oxy-api-custom-apps` exist to prevent.
 //
 // The move is not finished, and the gap is measured, not assumed: against the
 // docker fleet, `POST /api/projects/<ws>/query {"database":"local"}` answers

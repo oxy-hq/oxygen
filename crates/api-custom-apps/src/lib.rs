@@ -622,6 +622,50 @@ pub fn public_routes() -> Router<AppState> {
             "/projects/{project_id}/semantic-query",
             post(data_plane::semantic_query::run_semantic_query),
         )
+        // The metric tree's analysis ops for bundles (`data_plane::metric_tree*`)
+        // — drivers / what-if / RCA / opportunity sizing / the scenario
+        // projection. Same airlayer analyses as the IDE's workspace
+        // `/semantic/metric-tree*` routes, entered through the semantic
+        // boundary and loading the layer from the compile boundary. SDK:
+        // `useMetricTree` / `useSensitivity` / `usePredict` / `useExplain` /
+        // `useOpportunity` / `useDistribution` / `useTimeDimensions` /
+        // `useBaseline` / `useProjection`.
+        .route(
+            "/projects/{project_id}/semantic/metric-tree",
+            get(data_plane::metric_tree::get_metric_tree),
+        )
+        .route(
+            "/projects/{project_id}/semantic/metric-tree/{measure_id}/sensitivity",
+            get(data_plane::metric_tree::get_sensitivity),
+        )
+        .route(
+            "/projects/{project_id}/semantic/metric-tree/predict",
+            post(data_plane::metric_tree::post_predict),
+        )
+        .route(
+            "/projects/{project_id}/semantic/metric-tree/explain",
+            post(data_plane::metric_tree::post_explain),
+        )
+        .route(
+            "/projects/{project_id}/semantic/metric-tree/opportunity",
+            post(data_plane::metric_tree::post_opportunity),
+        )
+        .route(
+            "/projects/{project_id}/semantic/metric-tree/time-dimensions",
+            get(data_plane::metric_tree::get_time_dimensions),
+        )
+        .route(
+            "/projects/{project_id}/semantic/metric-tree/baseline",
+            post(data_plane::metric_tree::post_baseline),
+        )
+        .route(
+            "/projects/{project_id}/semantic/metric-tree/distribution",
+            post(data_plane::metric_tree::post_distribution),
+        )
+        .route(
+            "/projects/{project_id}/semantic/metric-tree/projection",
+            post(data_plane::metric_tree_projection::post_projection),
+        )
         // The one-shot ask (`agent_ask`): the start queues an analytics run
         // and answers 202 (or 200, settled within `wait_seconds`); the bundle
         // reads its events from `…/agents/runs/{run_id}/events`. No poll
@@ -720,6 +764,15 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
         fleet("/customer-apps/{org_slug}/{app_slug}/availability"),
         fleet("/projects/{project_id}/query"),
         fleet("/projects/{project_id}/semantic-query"),
+        fleet("/projects/{project_id}/semantic/metric-tree"),
+        fleet("/projects/{project_id}/semantic/metric-tree/{measure_id}/sensitivity"),
+        fleet("/projects/{project_id}/semantic/metric-tree/predict"),
+        fleet("/projects/{project_id}/semantic/metric-tree/explain"),
+        fleet("/projects/{project_id}/semantic/metric-tree/opportunity"),
+        fleet("/projects/{project_id}/semantic/metric-tree/time-dimensions"),
+        fleet("/projects/{project_id}/semantic/metric-tree/baseline"),
+        fleet("/projects/{project_id}/semantic/metric-tree/distribution"),
+        fleet("/projects/{project_id}/semantic/metric-tree/projection"),
         fleet("/projects/{project_id}/agents/{agent_id}/asks"),
         fleet("/projects/{project_id}/agents/asks/{run_id}/cancel"),
         fleet("/projects/{project_id}/agents/runs/{run_id}/events"),

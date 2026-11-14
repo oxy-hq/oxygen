@@ -3,26 +3,27 @@
 //! opportunity sizing).
 //!
 //! These mirror the IDE's workspace-scoped `/semantic/metric-tree*`
-//! handlers ([`crate::server::api::metric_tree`]) but enter through the
+//! handlers (`oxy-app`'s `server::api::metric_tree`) but enter through the
 //! customer-app gate and load the semantic model from the compile boundary
-//! (via [`super::semantic_boundary`]) rather than the workspace FS. Request /
-//! response shapes are the exact same types the IDE endpoints use — the SDK
-//! and the IDE never drift.
+//! (`oxy_app::surface::custom_app_semantic`) rather than the workspace FS.
+//! Request / response shapes are the exact same types the IDE endpoints use —
+//! `oxy_metric_monitoring::metric_tree_scenario` — so the SDK and the IDE
+//! never drift.
 //!
 //! The scenario projection is the same surface, in the sibling module
 //! [`super::metric_tree_projection`] — split out only for file size.
 //!
-//! **Fleet split (see `role_manifest.rs`).** Pure ops (tree, sensitivity,
-//! predict, time-dimensions) need only the parsed layer, so they run on the
-//! stateless serve fleet where published apps live (`FleetOk`). Query-executing
-//! ops (explain, opportunity, distribution) run through [`OxyMetricTreeRunner`]:
-//! the scan-path override pins the *layer* to the materialised boundary tempdir,
-//! but the warehouse *connector* is still built from the customer-app
-//! WorkspaceManager's config (`OxyProjectContext::build_connector_for`), which
-//! resolves via the FS fallback — empty `databases: []` on a serve replica with
-//! no working copy. So the query-executing ops are pinned `IdeOnly`, same as
-//! `/query` and `/semantic-query`. The boundary guard is held for the whole
-//! request so the tempdir outlives the run.
+//! **Every route here is FleetOk** (`public_route_roles`), as it was under
+//! `route_fleet` in `oxy-app`. The scan resolves through the compile boundary,
+//! and the query-executing ops (explain, opportunity, distribution, baseline)
+//! need only the workspace's config and secrets to build a connector, so any
+//! replica answers them. The boundary guard is held for the whole request so
+//! the materialised tempdir outlives the run.
+//!
+//! **Sentry.** Moved out of `oxy-app` on 2026-11-14. This module's path
+//! contains `custom_apps`, so `drop_log` keeps its lines out of every Sentry
+//! surface; in `oxy-app` they were shaped (level and location, no text). See
+//! [`super`].
 
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, Uri};
@@ -30,26 +31,24 @@ use axum::response::{IntoResponse, Response};
 use entity::workspace_members::WorkspaceRole;
 use uuid::Uuid;
 
-use crate::agentic_wiring::metric_tree_runner::{OxyMetricTreeRunner, build_query_executor};
-use crate::server::api::custom_apps_gates::parse_versioned_body;
-use crate::server::api::metric_tree::{
-    // `BASELINE_TIMEOUT` is THE workspace handler's constant, not a copy of it:
-    // both surfaces query the same warehouse, so the deadline is one number in
-    // one place rather than two that can be tuned apart.
-    self as mt,
-    BASELINE_TIMEOUT,
-    DistributionRequest,
-    ExplainRequest,
-    OpportunityRequest,
-    PredictRequest,
-    TreeQuery,
+use oxy_app::surface::custom_app_semantic::{
+    SemanticBoundary, cache_lookup, cache_store, enter_semantic_boundary, err_with_code,
+    load_layer, parse_versioned_body, wants_refresh,
+};
+use oxy_app::surface::metric_tree_exec::{
+    OxyMetricTreeRunner, RunnerPreagg, TreeQuery, baseline_scope_core, build_query_executor,
+};
+use oxy_app_core::AppState;
+use oxy_app_core::preagg_cache_ctx::PreaggCacheCtx;
+use oxy_app_core::preagg_context::RollupFreshness;
+// `BASELINE_TIMEOUT` is THE workspace handler's constant, not a copy of it:
+// both surfaces query the same warehouse, so the deadline is one number in
+// one place rather than two that can be tuned apart.
+use oxy_metric_monitoring::metric_tree_baseline::BASELINE_TIMEOUT;
+use oxy_metric_monitoring::metric_tree_scenario::{
+    self as mt, DistributionRequest, ExplainRequest, OpportunityRequest, PredictRequest,
     time_dimensions_of,
 };
-use crate::server::api::projects::semantic_boundary::{
-    SemanticBoundary, cache_lookup, cache_store, enter_semantic_boundary, err_with_code,
-    load_layer, wants_refresh,
-};
-use crate::server::router::AppState;
 
 /// Soft cap on explain/distribution — matches the workspace handler. A rich
 /// schema can fire 50+ warehouse queries; failing loud beats hanging.
@@ -70,12 +69,13 @@ async fn boundary_with_layer(
 ///
 /// The rollup short-circuit is attached here rather than at each call site so
 /// every query-executing op on this surface answers from the same tier as its
-/// IDE twin in [`crate::server::api::metric_tree`] — the two render the same
+/// IDE twin in `oxy-app`'s `server::api::metric_tree` — the two render the same
 /// analysis, and a bundle reading a measure the IDE serves from a rollup should
-/// not silently pay for a warehouse scan. These ops are `IdeOnly`
-/// (`role_manifest`), so the node running them is the one holding the Layer-1
-/// cache; `preagg_context` and `try_resolve_preagg` both fall through to the
-/// warehouse when there is no cache or no covering rollup.
+/// not silently pay for a warehouse scan. These ops are FleetOk
+/// (`public_route_roles`), so any replica may run them, and the Layer-1 cache
+/// may be cold on the one that does; `preagg_context` and `try_resolve_preagg`
+/// both fall through to the warehouse when this node has no cache or no
+/// covering rollup.
 ///
 /// The threshold resolves from THIS workspace's own
 /// `pre_aggregations.refresh_worker.renewal_threshold` when the process carries
@@ -83,7 +83,7 @@ async fn boundary_with_layer(
 /// the read side and the rebuild side never disagree about one setting.
 fn runner_for(boundary: &SemanticBoundary, app_state: &AppState) -> OxyMetricTreeRunner {
     let workspace_manager = boundary.proj_ctx.workspace_manager().clone();
-    let preagg_ctx = crate::server::api::middlewares::workspace_context::PreaggCacheCtx {
+    let preagg_ctx = PreaggCacheCtx {
         cache: app_state.preagg_cache.clone(),
         renewal_threshold_secs: app_state.preagg_renewal_threshold_secs,
     };
@@ -409,7 +409,7 @@ fn baseline_scope(
     layer: &oxy_airlayer_compat::SemanticLayer,
     req: &mt::BaselineRequest,
 ) -> Result<Vec<oxy_airlayer_compat::engine::query::QueryFilter>, Response> {
-    mt::baseline_scope_core(layer, req.instance.as_ref()).map_err(|message| {
+    baseline_scope_core(layer, req.instance.as_ref()).map_err(|message| {
         err_with_code(
             StatusCode::NOT_FOUND,
             message,
@@ -463,10 +463,10 @@ async fn run_baseline_query(
     // no pre-aggregation cache of its own, so the short-circuit is off and the
     // other two fields are inert; `freshness` is stated anyway so a later
     // caller that DOES attach a cache inherits the read-surface posture.
-    let preagg = crate::agentic_wiring::metric_tree_runner::RunnerPreagg {
+    let preagg = RunnerPreagg {
         cache: None,
         renewal_threshold_secs: 120,
-        freshness: crate::server::preagg_context::RollupFreshness::ServeStale,
+        freshness: RollupFreshness::ServeStale,
     };
     let roots = req.roots.clone();
     let period = req.period.clone();

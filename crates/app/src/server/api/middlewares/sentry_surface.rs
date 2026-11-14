@@ -311,13 +311,14 @@ mod tests {
         );
     }
 
-    /// Serve one request through a **real** custom-app data-plane route —
-    /// `POST /api/projects/{id}/semantic/metric-tree/baseline`, mounted on the
-    /// shipped `post_baseline` handler, which enters through
-    /// `enter_semantic_boundary` and so through the gate — behind the two layers
+    /// Serve one request through the **real** custom-app gate —
+    /// `enter_semantic_boundary`, the door every semantic-analysis twin enters
+    /// by, and through it `check_custom_app_gates` — behind the two layers
     /// serve.rs installs, and return the tag on an event captured later in the
-    /// same request. (It was `/query` until that route moved to
-    /// `oxy-api-custom-apps`; the gate that tags is the same one.)
+    /// same request. (It mounted `/query`, then the metric tree's
+    /// `post_baseline`, until each moved to `oxy-api-custom-apps`; the handler
+    /// here is one line around the same entry point, so the gate that tags is
+    /// the shipped one.)
     ///
     /// The `Origin` is deliberately foreign, so `check_custom_app_gates` stops
     /// at its allowlist step and the test needs no database. The gate tags
@@ -327,7 +328,20 @@ mod tests {
         route_surface_tag(
             Router::new().route(
                 "/api/projects/{project_id}/semantic/metric-tree/baseline",
-                axum::routing::post(crate::server::api::projects::metric_tree::post_baseline),
+                axum::routing::post(
+                    |axum::extract::Path(project_id): axum::extract::Path<uuid::Uuid>,
+                     headers: axum::http::HeaderMap| async move {
+                        use axum::response::IntoResponse as _;
+                        match crate::server::api::projects::semantic_boundary::enter_semantic_boundary(
+                            &headers, project_id,
+                        )
+                        .await
+                        {
+                            Ok(_) => axum::http::StatusCode::OK.into_response(),
+                            Err(response) => response,
+                        }
+                    },
+                ),
             ),
             host,
             "/api/projects/0195f0d2-0000-7000-8000-000000000000/semantic/metric-tree/baseline",
@@ -885,7 +899,7 @@ mod tests {
                 .collect()
         };
         const THROUGH_THE_HELPER: [&str; 2] = [
-            "src/server/api/projects/metric_tree.rs",
+            "../api-custom-apps/src/data_plane/metric_tree.rs",
             "../api-world-model/src/customer_app/cohort.rs",
         ];
         const THROUGH_THE_GATE: [&str; 2] = [
@@ -951,7 +965,8 @@ mod tests {
     /// is a stale entry, kept only to match prose.
     ///
     /// The SDK's handlers share their names with the IDE's — `post_baseline`
-    /// is defined in both `api/metric_tree.rs` and `api/projects/metric_tree.rs`
+    /// is defined in both `api/metric_tree.rs` and `api-custom-apps`'
+    /// `data_plane/metric_tree.rs`
     /// — so a file that *defines* a function of the name is not counted as
     /// calling it: its `name(` is its own. A genuine cross-file call of a
     /// handler still trips the check, and the message says what to do then.

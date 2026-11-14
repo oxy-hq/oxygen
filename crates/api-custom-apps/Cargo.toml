@@ -30,6 +30,9 @@ indexmap = { workspace = true }  # `data_plane::query`: column order in a result
 # not even as a dev-dependency, so none of its test binaries links V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }       # AppState, the agent-token body, the function seam traits
+oxy-metric-monitoring = { workspace = true } # the metric-tree twins' request shapes, baseline reads and budget
+agentic-analytics = { workspace = true }     # `MetricTreeRunner`, the trait the metric-tree twins drive the runner through
+oxy-semantic = { workspace = true }          # the metric tree's pure ops: build, subtree, sensitivity, predict
 oxy-custom-apps = { workspace = true }    # the serve resolver, build store, caches, usage queue
 oxy = { workspace = true }                # database client
 oxy-auth = { workspace = true }           # credentials and the token kinds
