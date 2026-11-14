@@ -62,12 +62,23 @@ vi.mock("@/hooks/useAppsFirstExperience", () => ({ default: () => appsFirst }));
 vi.mock("@/components/admin/OpenFactoryDialog", () => ({
   OpenFactoryDialog: ({
     open,
+    initialTarget,
     initialScope
   }: {
     open: boolean;
+    initialTarget?: { workspaceName: string } | null;
     initialScope?: { orgName: string } | null;
   }) =>
-    open ? <div data-testid='open-factory-dialog'>{initialScope?.orgName ?? "all"}</div> : null
+    open ? (
+      <div data-testid='open-factory-dialog'>
+        {initialScope?.orgName ?? "all"} / {initialTarget?.workspaceName ?? "none"}
+      </div>
+    ) : null
+}));
+// The orgs the person is a real member of.
+let memberOf: string[] = [];
+vi.mock("@/hooks/api/organizations", () => ({
+  useOrgs: () => ({ data: memberOf.map((id) => ({ id })) })
 }));
 vi.mock("@/stores/useCurrentOrg", () => ({
   default: <T,>(selector: (s: { org: { id: string; slug: string; name: string } }) => T) =>
@@ -82,7 +93,7 @@ vi.mock("@/hooks/api/adminAssume/useActingSession", () => ({
   })
 }));
 vi.mock("@/stores/useCurrentWorkspace", () => ({
-  default: () => ({ workspace: { id: "ws-1" } })
+  default: () => ({ workspace: { id: "ws-1", name: "Acme Analytics" } })
 }));
 
 // Chrome with queries and stores of its own, not under test.
@@ -121,6 +132,7 @@ afterEach(() => {
   operator = false;
   capabilities = ["operate_platform"];
   actingAs = null;
+  memberOf = [];
   unreadByApp = {};
 });
 
@@ -211,13 +223,26 @@ describe("WorkspaceShell rail, apps-first", () => {
 });
 
 describe("the staff Factory button in the rail", () => {
-  it("opens the Open Factory flow on this org for Oxy staff, in place of the plain entry", () => {
+  it("opens the Open Factory flow at this workspace's reason when a session is needed", () => {
     appsFirst = true;
     operator = true;
     renderAt("/acme/home");
     expect(screen.queryByTestId("rail-core")).toBeNull();
     fireEvent.click(screen.getByTestId("rail-open-factory"));
-    expect(screen.getByTestId("open-factory-dialog")).toHaveTextContent("Acme");
+    expect(screen.getByTestId("open-factory-dialog")).toHaveTextContent("Acme / Acme Analytics");
+  });
+
+  // The dialog used to open, pick the org's only workspace, and close again on the
+  // way into the Factory: a flash that read as a glitch.
+  it("goes straight into the Factory, with no dialog, in an org the staff member belongs to", () => {
+    appsFirst = true;
+    operator = true;
+    memberOf = ["org-acme"];
+    renderAt("/acme/workspaces/ws-1/threads");
+    expect(screen.getByTestId("rail-open-factory")).toHaveAccessibleName(/Oxygen Factory/);
+    fireEvent.click(screen.getByTestId("rail-open-factory"));
+    expect(screen.queryByTestId("open-factory-dialog")).toBeNull();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1\/ide$/);
   });
 
   it("shows the Oxygen Factory mark, not a terminal icon", () => {

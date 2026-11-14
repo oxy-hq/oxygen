@@ -8,7 +8,7 @@ import {
   DialogTitle
 } from "@/components/ui/shadcn/dialog";
 import { useActingSession } from "@/hooks/api/adminAssume/useActingSession";
-import { useOrgs } from "@/hooks/api/organizations";
+import { useOpensFactoryDirectly } from "@/hooks/useStaffFactory";
 import { rememberAssumeDestination } from "@/libs/utils/assumeDestination";
 import ROUTES from "@/libs/utils/routes";
 import { StartSessionStep } from "./components/StartSessionStep";
@@ -39,9 +39,11 @@ function factoryPath(target: FactoryTarget): string {
  * this from.
  *
  * When no session is needed it is skipped: in an org you are a real member of, or
- * the org you are already acting as, picking a workspace just opens it. While acting
- * as one org, the staff console (and so the list of every org) is closed by the
- * server, so the picker offers that org's workspaces and says how to reach others.
+ * the org you are already acting as, picking a workspace just opens it, and a
+ * `initialTarget` that needs none never draws the dialog at all (it would only flash
+ * open and shut). While acting as one org, the staff console (and so the list of
+ * every org) is closed by the server, so the picker offers that org's workspaces and
+ * says how to reach others.
  *
  * Staff only: workspace names are fine here; customers never see this.
  */
@@ -53,36 +55,30 @@ export function OpenFactoryDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Skip the picker: the staff console's row action already knows the workspace. */
+  /** Start at this workspace's reason: the row's workspace, or the one the rail is in. */
   initialTarget?: FactoryTarget | null;
-  /** Open on one org's workspaces (the rail inside that org), with a way to search all. */
+  /** The org `initialTarget` is in (the rail inside that org): Back lists its
+   *  workspaces, with a way to search all. Without a target, the picker opens on it. */
   initialScope?: PickerScope | null;
 }) {
   const navigate = useNavigate();
   const { session, isActing } = useActingSession();
-  const { data: myOrgs } = useOrgs();
+  const opensDirectly = useOpensFactoryDirectly();
   const [target, setTarget] = useState<FactoryTarget | null>(initialTarget);
   const [scope, setScope] = useState<PickerScope | null>(initialScope);
-  // A scoped org with one workspace is picked once; Back then shows the list.
-  const [autoPick, setAutoPick] = useState(true);
 
-  // Reopening starts over (or at the row's workspace, or the rail's org).
-  // Only on an open that follows a close: the first state already came from the
-  // props, and resetting on mount would undo a pick the picker made on mount.
+  // Reopening starts over (at the row's workspace, or the rail's).
   const wasOpen = useRef(open);
   useEffect(() => {
     if (open && !wasOpen.current) {
       setTarget(initialTarget);
       setScope(initialScope);
-      setAutoPick(true);
     }
     wasOpen.current = open;
   }, [open, initialTarget, initialScope]);
 
   const choose = (picked: FactoryTarget) => {
-    const member = myOrgs?.some((o) => o.id === picked.orgId && !isActing) ?? false;
-    const actingHere = isActing && session?.org_id === picked.orgId;
-    if (member || actingHere) {
+    if (opensDirectly(picked.orgId)) {
       onOpenChange(false);
       navigate(factoryPath(picked));
       return;
@@ -90,15 +86,14 @@ export function OpenFactoryDialog({
     setTarget(picked);
   };
 
-  // A real member never needs a session, nor does the org already being acted as.
+  // A real member never needs a session, nor does the org already being acted as:
+  // go straight in, without drawing the dialog first.
+  const entersDirectly = !!initialTarget && opensDirectly(initialTarget.orgId);
   useEffect(() => {
-    if (!open || !initialTarget) return;
-    const member = myOrgs?.some((o) => o.id === initialTarget.orgId) ?? false;
-    if (member) {
-      onOpenChange(false);
-      navigate(factoryPath(initialTarget));
-    }
-  }, [open, initialTarget, myOrgs, navigate, onOpenChange]);
+    if (!open || !initialTarget || !entersDirectly) return;
+    onOpenChange(false);
+    navigate(factoryPath(initialTarget));
+  }, [open, initialTarget, entersDirectly, navigate, onOpenChange]);
 
   const startSession = (picked: FactoryTarget) => {
     rememberAssumeDestination({
@@ -109,7 +104,7 @@ export function OpenFactoryDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open && !entersDirectly} onOpenChange={onOpenChange}>
       <DialogContent className='overflow-hidden p-0 sm:max-w-lg' data-testid='open-factory-dialog'>
         <DialogHeader className={target ? "px-6 pt-6" : "sr-only"}>
           <DialogTitle>
@@ -125,14 +120,8 @@ export function OpenFactoryDialog({
           <StartSessionStep
             target={target}
             actingAs={isActing && session?.org_id !== target.orgId ? session : undefined}
-            onBack={
-              initialTarget
-                ? undefined
-                : () => {
-                    setAutoPick(false);
-                    setTarget(null);
-                  }
-            }
+            // The staff console's row knows its workspace: nothing to go back to.
+            onBack={initialTarget && !initialScope ? undefined : () => setTarget(null)}
             onBeforeStart={startSession}
           />
         ) : (
@@ -140,7 +129,6 @@ export function OpenFactoryDialog({
             actingSession={isActing ? session : undefined}
             onPick={choose}
             scope={scope}
-            autoPickSingle={autoPick}
             onClearScope={() => setScope(null)}
           />
         )}

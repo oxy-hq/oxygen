@@ -1,5 +1,5 @@
 import { FolderOpen } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Command,
@@ -41,21 +41,19 @@ export interface PickerScope {
  * org's workspaces, read through the org's own route.
  *
  * With a `scope` (opened from inside an org), only that org's workspaces, with a way
- * to search every organization instead. An org with one workspace is picked at once.
+ * to search every organization instead. Nothing is picked for the person: an org
+ * with one workspace still lists it (the rail starts at its reason instead).
  */
 export function WorkspacePicker({
   actingSession,
   onPick,
   scope = null,
-  onClearScope,
-  autoPickSingle = true
+  onClearScope
 }: {
   actingSession?: AssumeSession;
   onPick: (target: FactoryTarget) => void;
   scope?: PickerScope | null;
   onClearScope?: () => void;
-  /** Pick a scoped org's only workspace at once (off after the person went Back). */
-  autoPickSingle?: boolean;
 }) {
   const acting = !!actingSession;
   const scoped = !acting && !!scope;
@@ -148,18 +146,6 @@ export function WorkspacePicker({
     scoped,
     scope
   ]);
-
-  // An org with one workspace has nothing to choose: go straight to it, once.
-  const autoPicked = useRef(false);
-  useEffect(() => {
-    if (!scoped || !autoPickSingle || autoPicked.current || everyWorkspace.isLoading) return;
-    const only =
-      groups.length === 1 && groups[0].targets.length === 1 ? groups[0].targets[0] : null;
-    if (only) {
-      autoPicked.current = true;
-      onPick(only);
-    }
-  }, [scoped, autoPickSingle, groups, everyWorkspace.isLoading, onPick]);
 
   const loading = acting ? assumedOrgWorkspaces.isLoading : everyWorkspace.isLoading;
   const failed = acting ? assumedOrgWorkspaces.isError : everyWorkspace.isError;

@@ -15,6 +15,7 @@ vi.mock("@/hooks/api/featureFlags", () => ({ useOrgFeatureFlags: () => ({ data: 
 vi.mock("@/hooks/api/adminAssume/useActingSession", () => ({
   useActingSession: () => ({ session: undefined, isActing: false })
 }));
+vi.mock("@/hooks/api/organizations", () => ({ useOrgs: () => ({ data: [] }) }));
 vi.mock("@/components/Ask/AskDock", () => ({ AskDock: () => null }));
 vi.mock("@/components/PreviewBar", () => ({ PreviewBar: () => null }));
 vi.mock("./RailUserMenu", () => ({ RailUserMenu: () => null }));

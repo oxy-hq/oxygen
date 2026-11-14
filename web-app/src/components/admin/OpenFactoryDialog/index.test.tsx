@@ -91,35 +91,64 @@ afterEach(cleanup);
 
 describe("Open Factory from inside an org (the rail)", () => {
   const scope = { orgId: "org-nw", orgSlug: "northwind", orgName: "Northwind" };
-  const renderScoped = () =>
+  const here = { ...scope, workspaceId: "ws-nw", workspaceName: "Northwind Analytics" };
+  const onOpenChange = vi.fn();
+  const renderFromRail = () =>
     render(
       <MemoryRouter initialEntries={["/northwind/home"]}>
-        <OpenFactoryDialog open onOpenChange={vi.fn()} initialScope={scope} />
+        <OpenFactoryDialog
+          open
+          onOpenChange={onOpenChange}
+          initialTarget={here}
+          initialScope={scope}
+        />
         <Routes>
           <Route path='*' element={<Location />} />
         </Routes>
       </MemoryRouter>
     );
 
-  it("goes straight to the reason for an org with one workspace", () => {
-    orgWorkspaces = [
-      { id: "ws-nw", name: "Northwind Analytics", org_id: "org-nw", org_slug: "northwind" }
-    ];
-    renderScoped();
-    expect(screen.getByTestId("open-factory-start")).toBeInTheDocument();
-    expect(screen.getByText("Open Northwind Analytics in the Factory")).toBeInTheDocument();
-  });
+  beforeEach(() => onOpenChange.mockClear());
 
-  it("lists only this org's workspaces when it has several, with a way to search all", () => {
+  it("starts at this workspace's reason, with Back to the org's workspaces and every org", () => {
     orgWorkspaces = [
       { id: "ws-nw", name: "Northwind Analytics", org_id: "org-nw", org_slug: "northwind" },
       { id: "ws-nw2", name: "Northwind Sandbox", org_id: "org-nw", org_slug: "northwind" }
     ];
-    renderScoped();
+    renderFromRail();
+    expect(screen.getByText("Open Northwind Analytics in the Factory")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByTestId("open-factory-item-ws-nw2")).toBeInTheDocument();
     expect(screen.queryByText("Poke House")).toBeNull();
     fireEvent.click(screen.getByTestId("open-factory-search-all"));
     expect(screen.getByText("Poke House")).toBeInTheDocument();
+  });
+
+  // Back used to land on a list that picked the only workspace again at once.
+  it("lists an org's only workspace after Back instead of picking it again", () => {
+    orgWorkspaces = [
+      { id: "ws-nw", name: "Northwind Analytics", org_id: "org-nw", org_slug: "northwind" }
+    ];
+    renderFromRail();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByTestId("open-factory-item-ws-nw")).toBeInTheDocument();
+    expect(screen.queryByTestId("open-factory-start")).toBeNull();
+  });
+
+  // The flash: a dialog drawn for one frame, then closed on the way into the Factory.
+  it("never draws the dialog in an org the person is a member of, and goes straight in", () => {
+    myOrgs = [{ id: "org-nw" }];
+    renderFromRail();
+    expect(screen.queryByTestId("open-factory-dialog")).toBeNull();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.getByTestId("location")).toHaveTextContent("/northwind/workspaces/ws-nw/ide");
+  });
+
+  it("goes straight in, undrawn, while already acting as that org", () => {
+    acting = { org_id: "org-nw", org_name: "Northwind", org_slug: "northwind" };
+    renderFromRail();
+    expect(screen.queryByTestId("open-factory-dialog")).toBeNull();
+    expect(screen.getByTestId("location")).toHaveTextContent("/northwind/workspaces/ws-nw/ide");
   });
 });
 

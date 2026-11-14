@@ -6,13 +6,15 @@ import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import { GithubIcon } from "./components/GithubIcon";
 import RevisionInfo from "./components/RevisionInfo";
+import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { githubRepoUrl } from "./githubRepoUrl";
 
 /**
- * The Factory's top bar: home, the workspace's name, and what it is serving
- * (the branch and commit of the compiled revision, and when it compiled),
- * with the repository on GitHub at the right. An org has one workspace, so
- * there is no switcher, and there is no branch to switch: a push compiles.
+ * The Factory's top bar: home, the workspace (and, for Oxy staff, the way to
+ * another workspace or organization: `WorkspaceSwitcher`), and what it is
+ * serving (the branch and commit of the compiled revision, and when it
+ * compiled), with the repository on GitHub at the right. There is no branch to
+ * switch: a push compiles.
  */
 const Header = () => {
   const { workspace } = useCurrentWorkspace();
@@ -43,9 +45,7 @@ const Header = () => {
       >
         <Home className='h-4 w-4' />
       </Button>
-      <span className='max-w-48 truncate font-medium text-sm' data-testid='ide-workspace-name'>
-        {workspace?.name ?? "…"}
-      </span>
+      <WorkspaceSwitcher />
       <span className='h-4 w-px shrink-0 bg-border' aria-hidden />
       <RevisionInfo remoteUrl={workspace?.git_remote_url} />
       {repoUrl && (
