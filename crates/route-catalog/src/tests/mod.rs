@@ -353,6 +353,8 @@ fn the_custom_app_routes_are_catalogued_on_every_seam() {
         ("POST", "/api/customer-apps/publish"),
         ("GET", "/api/{workspace_id}/custom-apps"),
         ("POST", "/api/{workspace_id}/custom-apps/{app_id}/secrets"),
+        ("GET", "/api/{workspace_id}/shared-secrets"),
+        ("PUT", "/api/{workspace_id}/shared-secrets/{secret_id}"),
         ("POST", "/api/customer-apps/publish/oidc-exchange"),
         (
             "POST",

@@ -21,6 +21,11 @@ const FALLBACK_WRITE_FIX: &str = "this invocation read the key from another envi
      would fork that environment's grant (a rotated token voids the one it holds). Set this \
      environment's own value of the key instead";
 
+/// Why `ctx.secrets.set` refuses a key read from a shared workspace secret.
+const SHARED_SECRET_WRITE: &str = "ctx.secrets.set refused: this key is a workspace \
+     secret shared with the app, and an app value would shadow it and fork its rotation. Rotate \
+     it in the workspace's Settings → Secrets, or stop sharing it with this app first";
+
 /// `Refuse` fix for an isolated email with nobody to deliver it to.
 const NO_INVOKER_FIX: &str = "mail outside production goes only to the invoking user, and \
      this invocation has no verified human caller with an email address";
@@ -139,13 +144,17 @@ impl ProjectFunctionHost {
 
     /// Write `key` for `ctx.secrets.set`: production's `apps/<id>/<KEY>`, or —
     /// isolated — the environment's `apps/<id>/<env>/<KEY>`. Refused for a key
-    /// this run read from another environment through a fallback.
+    /// this run read from another environment through a fallback, and for one
+    /// it read from a workspace secret shared with the app.
     pub(super) async fn set_secret(
         &self,
         key: &str,
         value: &str,
         target: HeldTarget<'_>,
     ) -> Result<(), String> {
+        if self.policy.read_shared_secret(key) {
+            return Err(SHARED_SECRET_WRITE.to_string());
+        }
         let environment = match self.isolated_home(HostOp::SecretsSet) {
             None => None,
             Some(Target::EnvSecrets) => {

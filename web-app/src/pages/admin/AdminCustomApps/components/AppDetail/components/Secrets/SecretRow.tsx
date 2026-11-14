@@ -15,10 +15,10 @@ import { CopyFrom } from "./CopyFrom";
  * - **Missing** — the build asks for it and nothing a run would read is stored.
  *   Carries the row's only colour and its only filled button, because it is the
  *   only row that is a task rather than a fact.
- * - **Inherited** — outside production, nothing is stored here but a run reads
- *   another environment's value: staging's in a sandbox, or production's for a
- *   `shared` key. Says whose, quietly: it works, and setting a value here would
- *   override it.
+ * - **Inherited** — nothing is stored here but a run reads another value:
+ *   outside production, staging's in a sandbox or production's for a `shared`
+ *   key; in production, a workspace secret shared with the app. Says whose,
+ *   quietly: it works, and setting a value here would override it.
  * - **Set** — no badge. A tick beside every healthy key would compete with the
  *   one row that needs reading.
  * - **Undeclared** — stored, but nothing in the active build asks for it. A
@@ -79,7 +79,9 @@ export const SecretRow = ({
         {missing && !urgent && <StateBadge tone='muted'>Not set</StateBadge>}
         {inheritedFrom && (
           <StateBadge tone='muted' testId={`admin-app-secret-inherits-${entry.key}`}>
-            Uses {inheritedFrom}&rsquo;s value
+            {inheritedFrom === "workspace"
+              ? "Shared from the workspace"
+              : `Uses ${inheritedFrom}’s value`}
           </StateBadge>
         )}
         {entry.shared && (
@@ -138,8 +140,9 @@ export const SecretRow = ({
 function inheritsFrom(
   entry: AppSecretEntry,
   productionHolds: boolean | undefined
-): "staging" | "production" | null {
+): "staging" | "production" | "workspace" | null {
   if (entry.is_set) return null;
+  if (entry.shared_from_workspace) return "workspace";
   if (entry.inherits_staging) return "staging";
   if (entry.inherits_production && productionHolds !== false) return "production";
   return null;

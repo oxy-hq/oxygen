@@ -192,6 +192,10 @@ const TABLES: &[(&str, Placement)] = &[
     ("app_publish_tokens", Control("CI publish token hashes")),
     ("app_publishers", Control("OIDC trusted publishers")),
     (
+        "app_secret_grants",
+        Control("which apps may read a workspace secret"),
+    ),
+    (
         "app_storage_usage",
         Control("app storage size rollup, for billing"),
     ),

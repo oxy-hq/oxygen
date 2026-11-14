@@ -27,7 +27,7 @@ export function useAppSecrets(id: string | undefined, environment: string = PROD
 
 /**
  * The required keys `build` declares that `environment` has nothing for —
- * stored there or inherited. Asked before a promote, publish or rollback, to warn (never
+ * stored there, inherited, or shared from the workspace. Asked before a promote, publish or rollback, to warn (never
  * block) that the build would go live missing them. `[]` while loading, on a
  * failure, or with no build: a warning that cannot be computed is not shown.
  */
@@ -46,7 +46,14 @@ export function useMissingSecretsForBuild(
     retry: false
   });
   const missing = (query.data?.entries ?? [])
-    .filter((e) => e.required && !e.is_set && !e.inherits_production && !e.inherits_staging)
+    .filter(
+      (e) =>
+        e.required &&
+        !e.is_set &&
+        !e.inherits_production &&
+        !e.inherits_staging &&
+        !e.shared_from_workspace
+    )
     .map((e) => e.key);
   return { missing, isLoading: query.isLoading };
 }
@@ -98,6 +105,8 @@ export function useSetWorkspaceAppSecret(workspaceId: string) {
       toast.success(
         write === "created" ? "Secret created successfully" : "Secret updated successfully"
       );
+      // The sharing view too: an app's own value may be the key it was missing.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.secret.shared(workspaceId) });
       return queryClient.invalidateQueries({ queryKey: queryKeys.secret.list(workspaceId) });
     },
     // The dialog calling this catches and only `console.error`s, on the

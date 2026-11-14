@@ -213,6 +213,15 @@ indexes or foreign keys — publish refuses a migration carrying one. So:
 statements that must land together go in one `ctx.oltp.tx`. The store is
 provisioned per org by an operator; until then calls fail naming that step.
 
+**Where `ctx.env` comes from.** The app's own secrets (its Secrets panel,
+`oxyc env secret set`), plus any workspace secret a workspace admin has shared
+with the app in Settings → Secrets — read under the secret's own name, so one
+`SLACK_BOT_TOKEN` can serve every app that needs it and rotates once. The app's
+own value of a key wins over a shared one. Nothing else of the workspace is
+visible, and the manifest cannot ask for more: declaring a key in `env` only
+makes it show as missing until someone sets or shares it. `ctx.secrets.set`
+refuses a key the run read from a shared workspace secret; rotate it in Settings.
+
 **Not a store:** `ctx.secrets` holds credentials you rotate. A cursor, a
 counter or a JSON blob is a record. `oxyc validate` warns about it, about
 keys in Airhouse migrations, and lists every customer-warehouse write exception.

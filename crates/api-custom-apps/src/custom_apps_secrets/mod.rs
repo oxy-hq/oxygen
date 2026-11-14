@@ -52,6 +52,14 @@
 //! staging's value when staging holds one (`inherits_staging`); otherwise
 //! production's for a `shared` key (`inherits_production`). Neither is missing.
 //! A sandbox's teardown removes its whole path ([`delete_environment_secrets`]).
+//!
+//! # Workspace secrets shared with an app
+//!
+//! A workspace admin can share one workspace secret with any number of the
+//! workspace's apps ([`workspace_shared`], `oxy_custom_apps::secret_grants`):
+//! one stored value, read by each as `ctx.env.<name>`, rotated once. A
+//! production view marks a key the app stores nothing for but reads that way
+//! (`shared_from_workspace`), so it is not counted missing.
 
 mod agent;
 mod copy;
@@ -63,13 +71,14 @@ pub(crate) use oxy_custom_apps::secret_audit as project_routes;
 pub(crate) mod required;
 pub(crate) use oxy_custom_apps::secret_scope as scope;
 pub(crate) mod shared_env;
+pub mod workspace_shared;
 
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
 use entity::apps;
 use oxy::database::client::establish_connection;
-use oxy::service::secret_manager::SecretManagerService;
+use oxy::service::secret_manager::{SecretInfo, SecretManagerService};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AppPublishTokenAuth;
@@ -212,6 +221,24 @@ fn scoped_to_workspace(app: apps::Model, workspace_id: Uuid) -> Result<apps::Mod
 
 // ── Core operations ──────────────────────────────────────────────────────────
 
+/// Every active secret row of a workspace, listed once per request and handed to
+/// everything that filters it (an app's own keys, the secrets shared with it).
+async fn workspace_rows(
+    db: &DatabaseConnection,
+    project_id: Uuid,
+) -> Result<Vec<SecretInfo>, Failure> {
+    SecretManagerService::new(project_id)
+        .list_secrets(db)
+        .await
+        .map_err(|e| {
+            tracing::error!(%project_id, "listing secrets failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "could not list secrets".to_string(),
+            )
+        })
+}
+
 /// Everything stored directly under this app's prefix in `environment`, keys
 /// bared and attributed. Directly: production's view never lists staging's
 /// `staging/KEY`, the rule `ctx.env` follows too.
@@ -220,22 +247,23 @@ async fn stored_secrets(
     app: &apps::Model,
     environment: &AppEnvironment,
 ) -> Result<Vec<StoredSecret>, Failure> {
-    let manager = SecretManagerService::new(app.project_id);
+    let rows = workspace_rows(db, app.project_id).await?;
+    Ok(stored_secrets_in(db, app, environment, &rows).await)
+}
+
+/// [`stored_secrets`] over the workspace's rows, already listed.
+async fn stored_secrets_in(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    environment: &AppEnvironment,
+    rows: &[SecretInfo],
+) -> Vec<StoredSecret> {
     let prefix = prefix_for(app.id, environment);
-
-    let rows = manager.list_secrets(db).await.map_err(|e| {
-        tracing::error!(app_id = %app.id, "listing secrets failed: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "could not list secrets".to_string(),
-        )
-    })?;
-
-    let scoped: Vec<_> = rows
-        .into_iter()
+    let scoped: Vec<(String, &SecretInfo)> = rows
+        .iter()
         .filter_map(|s| {
-            let key = s.name.strip_prefix(&prefix)?.to_string();
-            (!key.is_empty() && !key.contains('/')).then_some((key, s))
+            let key = s.name.strip_prefix(&prefix)?;
+            (!key.is_empty() && !key.contains('/')).then(|| (key.to_string(), s))
         })
         .collect();
 
@@ -248,7 +276,7 @@ async fn stored_secrets(
         .collect();
     let emails = oxy_app::surface::secrets::resolve_user_emails(db, &actor_ids).await;
 
-    Ok(scoped
+    scoped
         .into_iter()
         .map(|(key, s)| StoredSecret {
             key,
@@ -259,7 +287,7 @@ async fn stored_secrets(
                 .or(Some(s.created_by))
                 .and_then(|id| emails.get(&id).cloned()),
         })
-        .collect())
+        .collect()
 }
 
 async fn view(
@@ -268,7 +296,8 @@ async fn view(
     environment: &AppEnvironment,
     build: Option<Uuid>,
 ) -> Result<AppSecretsResponse, Failure> {
-    let stored = stored_secrets(db, &app, environment).await?;
+    let rows = workspace_rows(db, app.project_id).await?;
+    let stored = stored_secrets_in(db, &app, environment, &rows).await;
     let declarations = match build {
         Some(build) => declarations::for_requested_build(db, &app, build).await?,
         None => declarations::for_environment(db, &app, environment).await,
@@ -282,6 +311,7 @@ async fn view(
         &mut entries,
     )
     .await;
+    workspace_shared::mark_shared(db, &app, environment, &rows, &mut entries).await;
     Ok(AppSecretsResponse {
         missing_required: entries.iter().filter(|e| e.is_missing_required()).count(),
         app_id: app.id,

@@ -4,8 +4,9 @@
 //!
 //! The same declarations the secrets view reconciles (the build's `env` block
 //! and its functions' `webhook.secretVar`s, [`declared::merge_declared`])
-//! against the keys stored directly under `apps/<id>/`. Production never
-//! inherits a value, so a key is unset exactly when nothing is stored there.
+//! against the keys stored directly under `apps/<id>/` and the workspace
+//! secrets shared with the app (`workspace_shared`). Production inherits from
+//! no other environment, so a key is unset exactly when neither provides it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,10 +34,14 @@ pub(crate) async fn unset_in_production(
         .filter_map(|f| f.manifest_json)
         .collect();
     let declared = declared::merge_declared(env, declared::webhook_secret_vars(manifests.iter()));
-    let stored = super::stored_secrets(db, app, &AppEnvironment::Production)
+    let rows = super::workspace_rows(db, app.project_id)
         .await
         .map_err(|(_, message)| message)?;
-    let stored: BTreeSet<String> = stored.into_iter().map(|s| s.key).collect();
+    let stored = super::stored_secrets_in(db, app, &AppEnvironment::Production, &rows).await;
+    let mut stored: BTreeSet<String> = stored.into_iter().map(|s| s.key).collect();
+    // A workspace secret shared with the app is read in production as surely
+    // as one of its own.
+    stored.extend(super::workspace_shared::shared_keys(db, app, &rows).await);
     Ok(unset(&declared, &stored))
 }
 

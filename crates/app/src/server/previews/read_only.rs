@@ -180,6 +180,7 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
     ("*", "/secrets", SECRETS),
     ("*", "/secrets/{*rest}", SECRETS),
     ("*", "/custom-apps/{app_id}/secrets", SECRETS),
+    ("*", "/shared-secrets/{secret_id}", SECRETS),
     ("*", "/api-keys", "Managing API keys"),
     ("*", "/api-keys/{id}", "Managing API keys"),
     ("*", "/api-keys/{id}/extend", "Managing API keys"),

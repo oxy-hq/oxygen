@@ -208,6 +208,10 @@ pub const FACTORY: &[(&str, &str)] = &[
     ("*", "/integrations/{*rest}"),
     ("*", "/secrets"),
     ("*", "/secrets/{*rest}"),
+    // Sharing a workspace secret with custom apps: Settings → Secrets, beside
+    // the routes above.
+    ("*", "/shared-secrets"),
+    ("*", "/shared-secrets/{*rest}"),
     // ── Onboarding and setup ──────────────────────────────────────────────────
     ("*", "/onboarding/{*rest}"),
     // The setup checks: the Factory's setup wizard and the launcher's "Finish

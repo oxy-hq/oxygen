@@ -510,6 +510,12 @@ pub async fn delete_secret(
     match secret_manager.delete_secret(&db, &secret.name).await {
         Ok(()) => {
             audit_if_app_secret(&db, &secret.name, ProjectSecretWrite::Deleted, &actor).await;
+            // A deleted secret is shared with nobody: its grants go with it, so
+            // a secret recreated under the name later is not shared silently.
+            // `ctx.env` already stops reading it (the row is inactive).
+            if let Err(e) = oxy_custom_apps::secret_grants::revoke_all(&db, secret.id).await {
+                tracing::warn!(%secret_id, "revoking a deleted secret's grants failed: {e}");
+            }
             Ok((StatusCode::NO_CONTENT, axum::Json(json!({}))).into_response())
         }
         Err(OxyError::SecretManager(msg)) => {

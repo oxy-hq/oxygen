@@ -7,6 +7,7 @@ import type {
   SecretListResponse,
   UpdateSecretRequest
 } from "@/types/secret";
+import type { SharedSecret, SharedSecretsResponse } from "@/types/sharedSecrets";
 import { apiClient } from "./api/axios";
 
 // Note: `projectId` arguments are the workspace row id (backend path param `workspace_id`).
@@ -70,6 +71,25 @@ export class SecretService {
    */
   static async deleteSecret(projectId: string, id: string): Promise<void> {
     await apiClient.delete(`/${projectId}/secrets/${id}`);
+  }
+
+  /** Which apps each workspace secret is shared with, and what each app lacks. */
+  static async listShared(projectId: string): Promise<SharedSecretsResponse> {
+    const response = await apiClient.get<SharedSecretsResponse>(`/${projectId}/shared-secrets`);
+    return response.data;
+  }
+
+  /** Share one workspace secret with exactly `appIds` — an app left out stops
+   *  reading it. */
+  static async shareWithApps(
+    projectId: string,
+    secretId: string,
+    appIds: string[]
+  ): Promise<SharedSecret> {
+    const response = await apiClient.put<SharedSecret>(`/${projectId}/shared-secrets/${secretId}`, {
+      app_ids: appIds
+    });
+    return response.data;
   }
 
   /**

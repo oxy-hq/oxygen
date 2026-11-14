@@ -167,6 +167,19 @@ impl EnvPolicy {
         self.read_through_fallback.contains(key)
     }
 
+    /// The same policy recording the keys this run's `ctx.env` read from a
+    /// workspace secret shared with the app. Kept in every environment,
+    /// production included: a shared secret is rotated where it is stored.
+    pub fn with_shared_secrets(mut self, keys: impl IntoIterator<Item = String>) -> Self {
+        self.shared_secrets = keys.into_iter().collect();
+        self
+    }
+
+    /// Did this run's `ctx.env.<key>` come from a shared workspace secret?
+    pub fn read_shared_secret(&self, key: &str) -> bool {
+        self.shared_secrets.contains(key)
+    }
+
     /// The silo an op isolated to [`Target::StorageSilo`] works in:
     /// `customer-app-storage/<app_id>~<env>/`, reading through to
     /// production's same key unless the storage home is the silo alone.

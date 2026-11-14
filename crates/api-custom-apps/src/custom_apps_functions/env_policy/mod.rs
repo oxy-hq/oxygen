@@ -269,6 +269,11 @@ pub struct EnvPolicy {
     /// refuses them: rotating a credential read from production would fork
     /// production's grant.
     read_through_fallback: BTreeSet<String>,
+    /// The keys this run's `ctx.env` read from a workspace secret shared with
+    /// the app (`oxy_custom_apps::secret_grants`), in **every** environment,
+    /// production included. `ctx.secrets.set` refuses them: the app's own
+    /// value would shadow the shared one and fork its rotation.
+    shared_secrets: BTreeSet<String>,
     /// Where `ctx.oltp` lands, decided once at admission
     /// (`environment_gate::with_oltp_home`): production's own database until
     /// a staging admission finds the org's branch.
@@ -315,6 +320,7 @@ impl EnvPolicy {
             destinations: BTreeMap::new(),
             shared_env: BTreeSet::new(),
             read_through_fallback: BTreeSet::new(),
+            shared_secrets: BTreeSet::new(),
             oltp: OltpHome::Production,
             planes,
             homes,

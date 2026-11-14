@@ -1,9 +1,8 @@
 import { formatDistanceToNow } from "date-fns";
-import { Check, Code2, Copy, Edit, Eye, EyeOff, Trash2, UserRound } from "lucide-react";
+import { Check, Code2, Copy, Edit, Eye, EyeOff, Share2, Trash2, UserRound } from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -16,12 +15,15 @@ import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { cn } from "@/libs/shadcn/utils";
 import { SecretService } from "@/services/secretService";
 import type { Secret } from "@/types/secret";
-import { DOTS, SOURCE_CONFIG, type UnifiedRow } from "../types";
+import { DOTS, type UnifiedRow } from "../types";
+import { AvailableTo } from "./AvailableTo";
 
 interface SecretDetailDialogProps {
   row: UnifiedRow | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Change which apps read a workspace secret. */
+  onShare: (row: UnifiedRow) => void;
   onEdit: (secret: Secret) => void;
   onDelete: (secret: Secret) => void;
 }
@@ -36,15 +38,15 @@ const DetailField: React.FC<React.PropsWithChildren<{ label: string }>> = ({ lab
 );
 
 /**
- * Detail view for a single secret. Surfaces everything that used to
- * live in the (now removed) Value / Updated / Actions table columns: the
- * masked value with reveal + copy, source, last-updated metadata, and the
- * edit / delete actions.
+ * Detail view for a single secret: the masked value with reveal + copy, who
+ * reads it (and, for a workspace secret, the way to change that), last-updated
+ * metadata, and the edit / delete actions.
  */
 export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
   row,
   open,
   onOpenChange,
+  onShare,
   onEdit,
   onDelete
 }) => {
@@ -67,7 +69,6 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
     return null;
   }
 
-  const sourceConfig = SOURCE_CONFIG[row.source];
   const isRevealed = revealed !== undefined;
   const date = row.secretInfo?.updated_at;
   const updatedBy = row.secretInfo?.updated_by_email ?? row.secretInfo?.created_by_email;
@@ -158,13 +159,35 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
             </div>
           </DetailField>
 
-          <DetailField label='Source'>
-            <Badge
-              variant='outline'
-              className={cn("font-medium text-[10px]", sourceConfig.className)}
-            >
-              {sourceConfig.label}
-            </Badge>
+          <DetailField label='Read by'>
+            <div className='flex flex-col gap-2'>
+              <AvailableTo row={row} compact={false} />
+              <span className='text-muted-foreground text-xs'>
+                {row.app ? (
+                  <>
+                    Only this app reads it, as <code>ctx.env.{row.name}</code>.
+                  </>
+                ) : row.sharedWith.length > 0 ? (
+                  <>
+                    Each app reads it as <code>ctx.env.{row.name}</code> — one value, rotated here.
+                  </>
+                ) : (
+                  "No app reads it. Share it to let an app read it."
+                )}
+              </span>
+              {!row.app && (
+                <Button
+                  variant='outline'
+                  size='sm'
+                  className='w-fit'
+                  onClick={() => onShare(row)}
+                  data-testid='secret-detail-share'
+                >
+                  <Share2 className='size-3.5' />
+                  {row.sharedWith.length > 0 ? "Change apps" : "Share with apps"}
+                </Button>
+              )}
+            </div>
           </DetailField>
 
           {row.secretInfo?.description && (

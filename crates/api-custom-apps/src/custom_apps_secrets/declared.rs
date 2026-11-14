@@ -125,12 +125,26 @@ pub struct AppSecretEntry {
     /// precedence over `inherits_production`, as the read does.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub inherits_staging: bool,
+    /// In a production view: nothing is stored for the app, and a workspace
+    /// secret of this name is shared with it (`secret_grants`), so a run reads
+    /// that. Its id, for the workspace Secrets page. Not missing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shared_from_workspace: Option<Uuid>,
 }
 
 impl AppSecretEntry {
     /// Needs attention: declared, required, and nothing a run would read.
     pub fn is_missing_required(&self) -> bool {
-        self.required && !self.is_set && !self.inherits_production && !self.inherits_staging
+        self.required && !self.is_readable()
+    }
+
+    /// A run reads a value of this key: stored for the app, or inherited, or
+    /// shared from the workspace.
+    pub fn is_readable(&self) -> bool {
+        self.is_set
+            || self.inherits_production
+            || self.inherits_staging
+            || self.shared_from_workspace.is_some()
     }
 }
 
@@ -267,6 +281,7 @@ pub(crate) fn reconcile(
                 shared: d.shared,
                 inherits_production: false,
                 inherits_staging: false,
+                shared_from_workspace: None,
             }
         })
         .collect();
@@ -285,19 +300,26 @@ pub(crate) fn reconcile(
         shared: false,
         inherits_production: false,
         inherits_staging: false,
+        shared_from_workspace: None,
     }));
 
+    sort_entries(&mut entries);
+    entries
+}
+
+/// Action first: missing-required, then missing-optional, then the rest.
+pub(crate) fn sort_entries(entries: &mut [AppSecretEntry]) {
     entries.sort_by(|a, b| {
         sort_rank(a)
             .cmp(&sort_rank(b))
             .then_with(|| a.key.cmp(&b.key))
     });
-    entries
 }
 
-/// 0 = missing and required, 1 = missing, 2 = set. Ties break alphabetically.
+/// 0 = missing and required, 1 = missing, 2 = set or shared from the
+/// workspace. Ties break alphabetically.
 fn sort_rank(e: &AppSecretEntry) -> u8 {
-    match (e.is_set, e.required) {
+    match (e.is_set || e.shared_from_workspace.is_some(), e.required) {
         (false, true) => 0,
         (false, false) => 1,
         (true, _) => 2,

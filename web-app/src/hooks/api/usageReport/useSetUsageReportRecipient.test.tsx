@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UsageReportService } from "@/services/api/usageReport";
 import type {
@@ -65,6 +65,11 @@ const settle = async (
 };
 
 afterEach(() => {
+  // Unmount each test's hook. Without it (no vitest `globals`, so no automatic
+  // cleanup) the last test's settled mutation can schedule a render after the jsdom
+  // environment is torn down, and the run fails on "window is not defined" with
+  // every test green.
+  cleanup();
   vi.clearAllMocks();
 });
 

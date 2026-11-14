@@ -260,6 +260,9 @@ export interface AppSecretEntry {
   /** In a sandbox: nothing is stored here and staging holds a value, so a run
    *  reads staging's. Takes precedence over `inherits_production`. Not missing. */
   inherits_staging?: boolean;
+  /** In production: nothing is stored for the app, and a workspace secret of
+   *  this name is shared with it — its id. A run reads that. Not missing. */
+  shared_from_workspace?: string;
 }
 
 /** An app's secrets, reconciled against what its active build declares.

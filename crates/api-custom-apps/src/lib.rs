@@ -456,8 +456,9 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
     ROLES
 }
 
-/// The workspace-scoped routes: the workspace's own app list, and creating an app
-/// secret from the tenant side (`apps/<app_id>/<KEY>`).
+/// The workspace-scoped routes: the workspace's own app list, creating an app
+/// secret from the tenant side (`apps/<app_id>/<KEY>`), and sharing a workspace
+/// secret with apps (`custom_apps_secrets::workspace_shared`).
 ///
 /// POST only for the secret: list / reveal / rotate / delete already work on the
 /// project-secrets routes, which address a row by id and so never hit the name
@@ -471,6 +472,14 @@ pub fn workspace_routes() -> Router<AppState> {
             "/custom-apps/{app_id}/secrets",
             post(custom_apps_secrets::workspace_set),
         )
+        .route(
+            "/shared-secrets",
+            get(custom_apps_secrets::workspace_shared::list),
+        )
+        .route(
+            "/shared-secrets/{secret_id}",
+            put(custom_apps_secrets::workspace_shared::share),
+        )
 }
 
 /// What [`workspace_routes`] declares, relative to the `/{workspace_id}` nest.
@@ -478,6 +487,8 @@ pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
     const ROLES: &[RouteRoleDecl] = &[
         fleet("/custom-apps"),
         fleet("/custom-apps/{app_id}/secrets"),
+        fleet("/shared-secrets"),
+        fleet("/shared-secrets/{secret_id}"),
     ];
     ROLES
 }

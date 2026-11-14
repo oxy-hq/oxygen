@@ -220,6 +220,8 @@ const userTokenKeys = {
 const secretKeys = {
   all: ["secret"] as const,
   list: (projectId: string) => [...secretKeys.all, "list", projectId] as const,
+  /** Which apps each workspace secret is shared with, and what each app lacks. */
+  shared: (projectId: string) => [...secretKeys.all, "shared", projectId] as const,
   item: (projectId: string, id: string) => [...secretKeys.all, projectId, { id }] as const
 };
 
@@ -596,6 +598,9 @@ const customAppKeys = {
     environment
       ? (["customApps", "secrets", id, environment] as const)
       : (["customApps", "secrets", id] as const),
+  /** The prefix of every app's secrets view: sharing a workspace secret changes
+   *  what each app it reaches reads. */
+  everyAppsSecrets: () => ["customApps", "secrets"] as const,
   /** `environment`'s secrets reconciled against `build`'s declarations — the
    *  pre-promote check. Under the `secrets` prefix, so every write refetches it. */
   secretsForBuild: (id: string, environment: string, build: string) =>

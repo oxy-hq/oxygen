@@ -273,6 +273,7 @@ mod tests {
             shared: false,
             inherits_production: false,
             inherits_staging: false,
+            shared_from_workspace: None,
         }
     }
 

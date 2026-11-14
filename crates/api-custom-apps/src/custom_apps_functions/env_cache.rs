@@ -21,12 +21,16 @@
 //! promises:
 //!
 //! 1. **A stamp, checked on every hit.** One aggregate query — the newest
-//!    `updated_at` under `apps/<app_id>/` and the row count — is compared to
-//!    the stamp the entry was resolved under. Every set, rotation and delete
-//!    moves `updated_at` (a delete deactivates the row in place), so a write
+//!    `updated_at` under `apps/<app_id>/` and the row count, and the same pair
+//!    over the workspace secrets shared with the app (a grant's `created_at`
+//!    or its secret's `updated_at`, whichever is newer, and the grant count) —
+//!    is compared to the stamp the entry was resolved under. Every set,
+//!    rotation and delete moves `updated_at` (a delete deactivates the row in
+//!    place), and every share and unshare moves the grant half, so a write
 //!    from *any* writer on *any* replica — the staff secrets surface, a
-//!    function's own `ctx.secrets.set`, a sandbox teardown — is read by the
-//!    next call everywhere. One round trip in place of N+1.
+//!    function's own `ctx.secrets.set`, a sandbox teardown, a workspace admin
+//!    rotating or sharing a workspace secret — is read by the next call
+//!    everywhere. One round trip in place of N+1.
 //! 2. **Explicit invalidation** from the secrets write path
 //!    (`custom_apps_secrets`), so the replica that took the write drops its
 //!    entry without even the stamp read. A production write drops every
@@ -45,11 +49,12 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
-use entity::secrets;
 use lru::LruCache;
+use oxy::service::secret_manager::SecretInfo;
 use oxy_app_core::custom_app_environment::AppEnvironment;
+use oxy_custom_apps::secret_grants;
 use sea_orm::prelude::DateTimeWithTimeZone;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use tracing::error;
 use uuid::Uuid;
 
@@ -66,6 +71,9 @@ const MAX_ENTRIES: usize = 4096;
 pub(super) struct ResolvedEnv {
     pub(super) values: BTreeMap<String, String>,
     pub(super) read_through_fallback: BTreeSet<String>,
+    /// The keys read from a workspace secret shared with the app
+    /// (`secret_grants`), in any environment.
+    pub(super) shared_secrets: BTreeSet<String>,
 }
 
 impl ResolvedEnv {
@@ -93,12 +101,19 @@ pub(super) struct EnvKey {
     pub(super) home: SecretsHome,
 }
 
-/// The app's secret rows as they stood when an entry was resolved.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The app's secret rows, and the workspace secrets shared with it, as they
+/// stood when an entry was resolved.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Stamp {
     /// Newest `updated_at` under `apps/<app_id>/`, active or not.
     pub(super) newest: Option<DateTimeWithTimeZone>,
     pub(super) rows: i64,
+    /// Newest of a grant's `created_at` and its secret's `updated_at`: moves
+    /// when a secret is shared with the app, and when a shared one is rotated
+    /// or deleted (a delete deactivates the row in place).
+    pub(super) shared_newest: Option<DateTimeWithTimeZone>,
+    /// How many grants the app holds: moves when one is revoked.
+    pub(super) shared_rows: i64,
 }
 
 struct Entry {
@@ -177,29 +192,51 @@ pub(crate) fn invalidate(app_id: Uuid, environment: &AppEnvironment) {
     global().invalidate(app_id, environment);
 }
 
-/// The app's current [`Stamp`]: one aggregate over its rows, active or not.
+/// One round trip for a [`Stamp`]: the app's own rows, active or not, and the
+/// grants that share a workspace secret with it, joined to that secret.
+const STAMP_SQL: &str = r#"
+SELECT
+    (SELECT max(updated_at) FROM secrets WHERE project_id = $1 AND starts_with(name, $2)) AS newest,
+    (SELECT count(*) FROM secrets WHERE project_id = $1 AND starts_with(name, $2)) AS rows,
+    (SELECT max(GREATEST(g.created_at, s.updated_at))
+       FROM app_secret_grants g JOIN secrets s ON s.id = g.secret_id
+      WHERE g.app_id = $3) AS shared_newest,
+    (SELECT count(*) FROM app_secret_grants WHERE app_id = $3) AS shared_rows
+"#;
+
+/// The app's current [`Stamp`]; `None`, logged, when it cannot be read.
 async fn stamp_of(db: &DatabaseConnection, project_id: Uuid, app_id: Uuid) -> Option<Stamp> {
-    let prefix = scope::secret_prefix(app_id, &AppEnvironment::Production);
-    let row = secrets::Entity::find()
-        .select_only()
-        .column_as(secrets::Column::UpdatedAt.max(), "newest")
-        .column_as(secrets::Column::Id.count(), "rows")
-        .filter(secrets::Column::ProjectId.eq(project_id))
-        .filter(secrets::Column::Name.starts_with(&prefix))
-        .into_tuple::<(Option<DateTimeWithTimeZone>, i64)>()
-        .one(db)
-        .await;
-    match row {
-        Ok(Some((newest, rows))) => Some(Stamp { newest, rows }),
-        Ok(None) => Some(Stamp {
-            newest: None,
-            rows: 0,
-        }),
+    match read_stamp(db, project_id, app_id).await {
+        Ok(stamp) => Some(stamp),
         Err(e) => {
             error!("ctx.env: secrets stamp read failed for app {app_id}: {e}");
             None
         }
     }
+}
+
+async fn read_stamp(
+    db: &DatabaseConnection,
+    project_id: Uuid,
+    app_id: Uuid,
+) -> Result<Stamp, sea_orm::DbErr> {
+    let prefix = scope::secret_prefix(app_id, &AppEnvironment::Production);
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            STAMP_SQL,
+            [project_id.into(), prefix.into(), app_id.into()],
+        ))
+        .await?;
+    let Some(row) = row else {
+        return Ok(Stamp::default());
+    };
+    Ok(Stamp {
+        newest: row.try_get("", "newest")?,
+        rows: row.try_get("", "rows")?,
+        shared_newest: row.try_get("", "shared_newest")?,
+        shared_rows: row.try_get("", "shared_rows")?,
+    })
 }
 
 /// Where the policy reads `ctx.env` from: the chain, unless its planes say
@@ -218,6 +255,11 @@ fn secrets_home(policy: &EnvPolicy) -> SecretsHome {
 /// is read instead, falling back to production's value only for the
 /// manifest's `shared` keys (`custom_apps_secrets::scope`); production reads
 /// its top-level keys only, never an environment's.
+///
+/// Then the workspace secrets a workspace admin shared with the app, each
+/// under its own name, for a key the app holds no value of
+/// (`secret_grants::plan_granted`): every one in production, a `shared` key's
+/// elsewhere.
 ///
 /// Served from the cache when the app's secrets have not moved since the
 /// entry was resolved (module docs); resolved and remembered otherwise.
@@ -261,28 +303,41 @@ async fn resolve_uncached(
     use oxy::service::secret_manager::SecretManagerService;
 
     let secret_manager = SecretManagerService::new(project_id);
-    let names: Vec<String> = match secret_manager.list_secrets(db).await {
-        Ok(secrets) => secrets.into_iter().map(|s| s.name).collect(),
+    let secrets = match secret_manager.list_secrets(db).await {
+        Ok(secrets) => secrets,
         Err(e) => {
             error!("ctx.env: failed to list secrets for app {app_id}: {e}");
             return (ResolvedEnv::default(), false);
         }
     };
+    let (shared, mut complete) = shared_secret_names(db, app_id, &secrets).await;
+    let names: Vec<String> = secrets.into_iter().map(|s| s.name).collect();
+    let lookup = secrets_home(policy).lookup();
     let plan = scope::plan_env(
         app_id,
         policy.environment(),
-        secrets_home(policy).lookup(),
+        lookup,
         policy.shared_env(),
         &names,
     );
+    let granted = secret_grants::plan_granted(
+        &plan,
+        policy.environment(),
+        lookup,
+        policy.shared_env(),
+        &shared,
+    );
 
     let mut resolved = ResolvedEnv::default();
-    let mut complete = true;
-    for entry in plan {
+    let own = plan.into_iter().map(|entry| (entry, false));
+    for (entry, from_grant) in own.chain(granted.into_iter().map(|entry| (entry, true))) {
         match secret_manager.get_secret(&entry.stored_name).await {
             Some(value) => {
                 if entry.through_fallback {
                     resolved.read_through_fallback.insert(entry.key.clone());
+                }
+                if from_grant {
+                    resolved.shared_secrets.insert(entry.key.clone());
                 }
                 resolved.values.insert(entry.key, value);
             }
@@ -293,6 +348,31 @@ async fn resolve_uncached(
         }
     }
     (resolved, complete)
+}
+
+/// The names of the active workspace secrets shared with `app_id`, out of the
+/// project's `secrets` already listed — so a grant can only ever name a secret
+/// of the app's own workspace. `false` when the grants could not be read: the
+/// run goes ahead on the app's own keys and the result is not remembered.
+async fn shared_secret_names(
+    db: &DatabaseConnection,
+    app_id: Uuid,
+    secrets: &[SecretInfo],
+) -> (BTreeSet<String>, bool) {
+    match secret_grants::shared_with_app(db, app_id).await {
+        Ok(ids) => (
+            secrets
+                .iter()
+                .filter(|s| ids.contains(&s.id) && secret_grants::is_shareable(&s.name))
+                .map(|s| s.name.clone())
+                .collect(),
+            true,
+        ),
+        Err(e) => {
+            error!("ctx.env: failed to read the secrets shared with app {app_id}: {e}");
+            (BTreeSet::new(), false)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -312,13 +392,18 @@ mod tests {
     fn stamp(seq: i64) -> Stamp {
         let newest =
             chrono::DateTime::from_timestamp(1_700_000_000 + seq, 0).map(|t| t.fixed_offset());
-        Stamp { newest, rows: 1 }
+        Stamp {
+            newest,
+            rows: 1,
+            ..Stamp::default()
+        }
     }
 
     fn env(value: &str) -> Arc<ResolvedEnv> {
         Arc::new(ResolvedEnv {
             values: BTreeMap::from([("API_KEY".to_string(), value.to_string())]),
             read_through_fallback: BTreeSet::new(),
+            shared_secrets: BTreeSet::new(),
         })
     }
 
@@ -357,6 +442,7 @@ mod tests {
                 ("SHARED".to_string(), "prod-value".to_string()),
             ]),
             read_through_fallback: BTreeSet::from(["SHARED".to_string(), "GONE".to_string()]),
+            shared_secrets: BTreeSet::new(),
         };
         assert_eq!(resolved.fallback_values(), vec!["prod-value".to_string()]);
         assert!(ResolvedEnv::default().fallback_values().is_empty());
@@ -385,6 +471,34 @@ mod tests {
             ..stamp(1)
         };
         assert!(cache.get(&key(1, staging()), fewer).is_none());
+    }
+
+    /// Sharing, unsharing or rotating a workspace secret shared with the app
+    /// moves only the grant half of the stamp; that is a miss too, so the
+    /// next call reads the new value on every replica.
+    #[test]
+    fn a_moved_shared_half_of_the_stamp_misses() {
+        let cache = EnvCache::new(Duration::from_secs(60), 16);
+        cache.put(key(1, AppEnvironment::Production), stamp(1), env("v1"));
+        let shared = Stamp {
+            shared_rows: 1,
+            ..stamp(1)
+        };
+        assert!(
+            cache
+                .get(&key(1, AppEnvironment::Production), shared)
+                .is_none()
+        );
+        cache.put(key(1, AppEnvironment::Production), shared, env("v1"));
+        let rotated = Stamp {
+            shared_newest: stamp(2).newest,
+            ..shared
+        };
+        assert!(
+            cache
+                .get(&key(1, AppEnvironment::Production), rotated)
+                .is_none()
+        );
     }
 
     /// The write path on this replica: visible to the next call at once,

@@ -2531,9 +2531,12 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
             },
             // The keys `ctx.env` took from production through the shared
             // fallback travel with the policy: `ctx.secrets.set` refuses them.
+            // So are the keys it read from a workspace secret shared with
+            // the app, in every environment.
             args.policy
                 .clone()
-                .with_read_through_fallback(env.read_through_fallback),
+                .with_read_through_fallback(env.read_through_fallback)
+                .with_shared_secrets(env.shared_secrets),
         )
         .with_fallback_secrets(fallback_values),
     );
