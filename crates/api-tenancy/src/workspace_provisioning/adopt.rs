@@ -5,7 +5,7 @@
 //! create a second workspace beside such a blank one ("Default 2"),
 //! which is how orgs came to hold several. Now the import *adopts* the org's
 //! workspace instead: the repository columns are recorded on the existing row,
-//! its working copy is set aside, and the clone lands where the blank one was.
+//! and its first compile is queued from git (nothing is cloned).
 //! The workspace id does not change, so everything already keyed by it (the
 //! Airhouse tenant, secrets, published apps, the health schedule) carries over.
 
@@ -52,22 +52,11 @@ const FAILED_IMPORT: [WorkspaceStatus; 2] =
     [WorkspaceStatus::Failed, WorkspaceStatus::NotOxyProject];
 
 /// How long a `Cloning` row may sit untouched before its import counts as
-/// failed. The clone runs on the request's pod; one that dies mid-clone never
-/// writes a final status, and the row would otherwise refuse every import.
-/// A live clone touches the row every [`HEARTBEAT`] ([`heartbeat`]), so only
-/// a dead one goes stale, and a slow clone is never taken over.
+/// failed. An import holds `Cloning` only between its claim and its settle,
+/// inside one request; one whose request died in between never writes a final
+/// status, and the row would otherwise refuse every import. ([`heartbeat`]
+/// remains for a writer that holds the claim longer.)
 pub const STALE_CLONE: chrono::Duration = chrono::Duration::hours(1);
-
-/// How often a running clone touches its row: a twelfth of [`STALE_CLONE`],
-/// so several missed beats in a row still don't make a live clone stale.
-pub const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
-
-/// The longest a clone may run. The heartbeat keeps a live clone from going
-/// stale, so without a bound a hung `git clone` (a half-open connection, a
-/// server that stops sending) would hold the org's only workspace in
-/// `Cloning` for as long as the pod lives. Past this the clone is abandoned
-/// and the row settles `Failed`, which the next import may take over.
-pub const MAX_CLONE: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
 
 type Timestamp = chrono::DateTime<chrono::FixedOffset>;
 
@@ -257,10 +246,16 @@ pub async fn release<C: ConnectionTrait>(conn: &C, claim: Claim) -> Result<(), P
     Ok(())
 }
 
-/// Move the workspace's current working copy out of the way, so the clone can
-/// land at its root. Kept beside it (`<id>.before-import-<unix secs>`), never
-/// deleted: a blank workspace may still hold edits nobody pushed anywhere.
-/// `None` when there was nothing on disk.
+/// Move the workspace's old working copy out of the way when an import
+/// connects a repository to it. Kept beside it (`<id>.before-import-<unix
+/// secs>`), never deleted: a blank workspace may still hold edits nobody
+/// pushed anywhere. The import clones nothing, so this is not to make room:
+/// the row's `path` still names the workspace root, and a reader that prefers
+/// a working copy when one exists (single-process mode, the CLI, the empty
+/// revision's semantic scan) must not find the blank workspace's files there
+/// and serve them as the repository's. Only the process that holds the files
+/// can move them; elsewhere this finds nothing and does nothing. `None` when
+/// there was nothing on disk.
 pub fn set_aside_working_copy(workspace_id: Uuid) -> Result<Option<PathBuf>, ProvisionError> {
     let root = workspace_root_path(workspace_id);
     if !root.exists() {
@@ -277,20 +272,18 @@ pub fn set_aside_working_copy(workspace_id: Uuid) -> Result<Option<PathBuf>, Pro
     Ok(Some(aside))
 }
 
-/// Undo [`set_aside_working_copy`] for an import abandoned before its clone:
-/// whatever was made at the root since is removed, and the set-aside copy
-/// goes back. Best-effort, and logged: the copy is never deleted either way.
+/// Undo [`set_aside_working_copy`] for an import that gave its workspace
+/// back: the set-aside copy returns to the root. Nothing is ever deleted: a
+/// root that exists again (nothing in the import makes one) is left alone and
+/// logged, and the copy stays where it was set aside. Best-effort.
 pub fn restore_working_copy(workspace_id: Uuid, aside: Option<PathBuf>) {
+    let Some(aside) = aside else { return };
     let root = workspace_root_path(workspace_id);
-    if root.exists()
-        && let Err(e) = std::fs::remove_dir_all(&root)
-    {
-        tracing::warn!(%workspace_id, error = %e, "could not clear the root of an abandoned import");
+    if root.exists() {
+        tracing::warn!(%workspace_id, aside = ?aside, "the workspace root exists again; the set-aside working copy stays where it is");
         return;
     }
-    if let Some(aside) = aside
-        && let Err(e) = std::fs::rename(&aside, &root)
-    {
+    if let Err(e) = std::fs::rename(&aside, &root) {
         tracing::warn!(%workspace_id, aside = ?aside, error = %e, "could not put the set-aside working copy back");
     }
 }

@@ -6,16 +6,20 @@ use axum::middleware;
 use axum::routing::{get, post};
 use tower::ServiceExt;
 
+/// The live declarations plus one IdeOnly probe. No live route is IdeOnly any
+/// more (the airway backfill drive was the last, 2026-11-14), and these tests
+/// are about what the middleware does with one, so they bring their own.
 fn install_roles() {
-    crate::server::role_manifest::install_route_declarations_for_tests();
+    crate::server::role_manifest::install_route_declarations_for_tests_with(vec![(
+        "POST",
+        "/{workspace_id}/ide-probe".to_string(),
+        RouteRole::IdeOnly,
+    )]);
 }
 
 fn nested_router() -> Router {
     let workspace_routes = Router::new()
-        .route(
-            "/agentic-airway/chunked-backfill",
-            post(|| async { "should not reach" }),
-        )
+        .route("/ide-probe", post(|| async { "should not reach" }))
         .route("/threads", get(|| async { "threads ok" }));
     let api_routes = Router::new().nest("/{workspace_id}", workspace_routes);
     Router::new()
@@ -32,7 +36,7 @@ async fn ide_only_route_on_serve_replica_returns_421_through_nest() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/agentic-airway/chunked-backfill")
+            HttpRequest::post("/api/some-uuid/ide-probe")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -64,7 +68,7 @@ async fn worker_with_upstream_does_not_forward_ide_route() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/agentic-airway/chunked-backfill")
+            HttpRequest::post("/api/some-uuid/ide-probe")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -89,7 +93,7 @@ async fn already_forwarded_ide_route_on_serve_breaks_loop() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/agentic-airway/chunked-backfill")
+            HttpRequest::post("/api/some-uuid/ide-probe")
                 .header("x-oxy-forwarded-by", "serve")
                 .body(Body::empty())
                 .unwrap(),
@@ -202,7 +206,7 @@ async fn all_role_accepts_everything() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/agentic-airway/chunked-backfill")
+            HttpRequest::post("/api/some-uuid/ide-probe")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -311,10 +315,7 @@ mod external_surface {
 
     fn external_router() -> Router {
         let workspace_routes = Router::new()
-            .route(
-                "/agentic-airway/chunked-backfill",
-                post(|| async { "should not reach" }),
-            )
+            .route("/ide-probe", post(|| async { "should not reach" }))
             .route("/sql/query", post(|| async { "served here" }));
         Router::new().nest(
             "/external/api",
@@ -345,7 +346,7 @@ mod external_surface {
 
     /// An IdeOnly route behind the external prefix is classified by its
     /// `/api/...` declaration, not let through because the stripped
-    /// `/{ws}/agentic-airway/chunked-backfill` matches nothing and would default
+    /// `/{ws}/ide-probe` matches nothing and would default
     /// to FleetOk. With no upstream the refusal names the path the client sent.
     #[tokio::test]
     async fn an_ide_only_route_is_classified_by_its_full_path() {
@@ -356,7 +357,7 @@ mod external_surface {
         }
         crate::server::role_manifest::init_process_role_from_env();
 
-        let path = format!("/external/api/{WS}/agentic-airway/chunked-backfill");
+        let path = format!("/external/api/{WS}/ide-probe");
         let (status, body) = call("POST", &path).await;
 
         assert_eq!(status, StatusCode::MISDIRECTED_REQUEST, "{body}");
@@ -383,7 +384,7 @@ mod external_surface {
         }
         crate::server::role_manifest::init_process_role_from_env();
 
-        let path = format!("/external/api/{WS}/agentic-airway/chunked-backfill?scope=stale");
+        let path = format!("/external/api/{WS}/ide-probe?scope=stale");
         let (status, body) = call("POST", &path).await;
 
         assert_eq!(status, StatusCode::OK, "{body}");

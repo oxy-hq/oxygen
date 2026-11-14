@@ -40,18 +40,13 @@ fn install() {
     install_route_declarations_for_tests_with(extra);
 }
 
+/// The GitHub import records the repository and queues a compile from git;
+/// it clones nothing, so any replica answers it.
 #[test]
-fn every_org_scoped_route_reaches_the_ide() {
+fn the_github_import_is_served_by_the_fleet() {
     install();
-    for (method, path) in [("POST", format!("/api/orgs/{ORG}/onboarding/github"))] {
-        assert_eq!(
-            classify(method, &path),
-            RouteRole::IdeOnly,
-            "{method} {path} clones a repository and scaffolds config.yml onto \
-             node-local disk; on a replica it would clone into a checkout the \
-             process does not own",
-        );
-    }
+    let path = format!("/api/orgs/{ORG}/onboarding/github");
+    assert_eq!(classify("POST", &path), RouteRole::FleetOk, "POST {path}");
 }
 
 /// These read the compiled workspace (or touch none), so a serve pod answers
@@ -102,9 +97,5 @@ fn the_declaration_list_covers_every_mounted_route() {
         .filter(|d| d.role == RouteRole::IdeOnly)
         .map(|d| d.path)
         .collect();
-    assert_eq!(
-        ide,
-        ["/orgs/{org_id}/onboarding/github"],
-        "only the GitHub import still needs a Factory",
-    );
+    assert!(ide.is_empty(), "nothing here needs a Factory: {ide:?}");
 }

@@ -25,25 +25,11 @@ fn install() {
 }
 
 #[test]
-fn the_upload_is_fleet_ok_and_the_airway_surface_is_not() {
+fn the_upload_is_fleet_ok() {
     install();
     assert_eq!(
         classify("POST", &format!("/api/{WORKSPACE}/source-uploads/reports")),
         RouteRole::FleetOk,
         "an S3 write with no working-copy access must not need the ide"
-    );
-
-    // The neighbouring surface it deliberately does NOT live under. A start
-    // (`/runs`) is a queued task any replica may accept, so the neighbour that
-    // proves the point is one still pinned: the chunked backfill drives its
-    // chunks in a detached in-process task, which would die with a serve pod.
-    assert_eq!(
-        classify(
-            "POST",
-            &format!("/api/{WORKSPACE}/agentic-airway/chunked-backfill")
-        ),
-        RouteRole::IdeOnly,
-        "a chunked backfill is driven in-process and still belongs on the \
-         ide — the carve-out is the upload, not the surface"
     );
 }

@@ -43,12 +43,6 @@ pub use ops::MAX_UPLOAD_BODY_BYTES;
 /// as `build_org_routes`. Merged at the protected-tree root by `oxy-server` via
 /// the `SurfaceSeams::api` seam.
 ///
-/// The import clones the repository onto node-local disk, so
-/// `role_manifest.rs` pins `POST /api/orgs/{org_id}/onboarding/github`
-/// as **IdeOnly** — the path shape here must stay exactly that for the
-/// path-keyed classifier to match (a bare `/onboarding/*` silently falls through
-/// to FleetOk and lets a stateless serve replica clone into a checkout it doesn't
-/// own).
 /// Every route this crate mounts, and which pod may serve it.
 ///
 /// Stated here rather than at the mount because `oxy-app` owns `RoleRouter` and
@@ -56,10 +50,9 @@ pub use ops::MAX_UPLOAD_BODY_BYTES;
 /// `router_roles()`. Paths are absolute: both seams MERGE this crate rather than
 /// nesting it, so there is no prefix to join against.
 ///
-/// Only the org-scoped `github` import is IdeOnly: it clones the
-/// repository onto disk through git, which a
-/// replica with no working copy cannot do, and the failure would be silent — a
-/// clone into a directory the process does not own.
+/// The org-scoped `github` import is FleetOk: it records the repository on the
+/// row, checks for `config.yml` through the GitHub API and queues a compile
+/// from git, so nothing touches a disk (it used to clone onto the Factory's).
 ///
 /// The workspace-scoped half ([`workspace_route_roles`]) is all FleetOk: the
 /// readiness and GitHub-setup checks read the compiled revision, the key check
@@ -67,11 +60,10 @@ pub use ops::MAX_UPLOAD_BODY_BYTES;
 /// workspace's Airhouse and writes nothing to a checkout (it writes into the
 /// working copy only on `OXY_ROLE=all`, which serves every route itself).
 pub fn route_roles() -> &'static [RouteRoleDecl] {
-    const IDE: RouteRole = RouteRole::IdeOnly;
     &[RouteRoleDecl {
         method: "POST",
         path: "/orgs/{org_id}/onboarding/github",
-        role: IDE,
+        role: RouteRole::FleetOk,
     }]
 }
 

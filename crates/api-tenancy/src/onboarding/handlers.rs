@@ -14,15 +14,16 @@ use oxy_app::surface::{WorkspaceManagerReadOnly, WorkspacePath};
 use oxy_app_core::AppState;
 
 use super::dto::*;
-use super::github_import::{ImportRequest, place_import, spawn_clone};
+use super::github_import::{ImportRequest, connect, place_import, resolve_import_head};
 use super::ops::*;
 
 /// POST /orgs/{org_id}/onboarding/github — connect a GitHub repository to the org's
-/// workspace and clone it in the background. The org's blank workspace is adopted
-/// (same id); an org with none gets one; an org whose workspace already has a
-/// repository is refused `409 org_has_workspace`. The row reads Cloning at once;
-/// the clone runs asynchronously so large repositories don't hit the global
-/// request timeout. See `github_import`.
+/// workspace. The org's blank workspace is adopted (same id); an org with none gets
+/// one; an org whose workspace already has a repository is refused
+/// `409 org_has_workspace`. A repository with no `config.yml` at the workspace root
+/// is refused `422` before anything is recorded. Nothing is cloned: the row settles
+/// Ready and the default branch's head is queued to compile from git, as a push
+/// would. See `github_import`.
 pub async fn setup_github(
     OrgWorkspaceCreator(ctx): OrgWorkspaceCreator,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
@@ -59,7 +60,7 @@ pub async fn setup_github(
         (StatusCode::INTERNAL_SERVER_ERROR, msg)
     })?;
 
-    let client = GitHubClient::from_token(token.clone()).map_err(|e| {
+    let client = GitHubClient::from_token(token).map_err(|e| {
         let msg = format!("Failed to create GitHub client: {}", e);
         error!("{}", msg);
         (StatusCode::INTERNAL_SERVER_ERROR, msg)
@@ -83,6 +84,16 @@ pub async fn setup_github(
         })?
         .flatten();
 
+    // The workspace serves the default branch, the one pushes compile; a
+    // branch picked in an older client is not what will be served.
+    if req.branch != repo.default_branch {
+        tracing::info!(
+            requested = %req.branch, default = %repo.default_branch,
+            "github import: serving the default branch, not the requested one"
+        );
+    }
+    let head = resolve_import_head(&client, req.repo_id, &repo, subdir.as_deref()).await?;
+
     let placed = place_import(ImportRequest {
         org_id: ctx.org.id,
         user_id: user.id,
@@ -93,7 +104,7 @@ pub async fn setup_github(
     })
     .await?;
     let workspace_id = placed.workspace_id;
-    spawn_clone(placed, repo.clone_url.clone(), req.branch.clone(), token);
+    connect(placed, head, repo.default_branch.clone()).await?;
 
     Ok(Json(OnboardingResult {
         workspace_type: "github".to_string(),

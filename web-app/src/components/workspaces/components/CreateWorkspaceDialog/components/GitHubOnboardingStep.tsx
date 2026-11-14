@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/shadcn/button";
 import { Combobox } from "@/components/ui/shadcn/combobox";
 import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
-import { useGitHubBranchesWithApp, useGitHubRepositoriesWithApp } from "@/hooks/api/github";
+import { useGitHubRepositoriesWithApp } from "@/hooks/api/github";
 import { OnboardingService } from "@/services/api";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 
@@ -20,7 +20,8 @@ export const GitHubOnboardingStep = ({ onBack, onDone, projectName }: Props) => 
   const orgId = org?.id ?? "";
   const [namespaceId, setNamespaceId] = useState("");
   const [repoId, setRepoId] = useState<number | null>(null);
-  const [repoName, setRepoName] = useState("");
+  // The repository's default branch: what the workspace serves and a push
+  // compiles. Sent for servers that still read it; there is no picker.
   const [branch, setBranch] = useState("");
   const [subdir, setSubdir] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,17 +43,10 @@ export const GitHubOnboardingStep = ({ onBack, onDone, projectName }: Props) => 
   const isRepoAuthError = repoErrorStatus === 403 || repoErrorStatus === 404;
   const isEmptyRepos = !isLoadingRepos && !isRepoAuthError && repositories.length === 0;
 
-  const { data: branches = [], isPending: isLoadingBranches } = useGitHubBranchesWithApp(
-    orgId,
-    namespaceId,
-    repoName
-  );
-
   const handleRepoChange = (value: string) => {
     const repo = repositories.find((r) => String(r.id) === value);
     if (repo) {
       setRepoId(repo.id);
-      setRepoName(repo.full_name);
       setBranch(repo.default_branch);
       // Auto-fill the project name from the repo short name if the user hasn't typed one
       if (nameAutoFilled) {
@@ -171,24 +165,11 @@ export const GitHubOnboardingStep = ({ onBack, onDone, projectName }: Props) => 
         </div>
       )}
 
-      {namespaceId && repoId !== null && (
-        <div className='space-y-2'>
-          <Label>Branch</Label>
-          {isLoadingBranches ? (
-            <div className='flex h-9 items-center gap-2 rounded-md border border-input bg-input/30 px-3 text-muted-foreground text-sm'>
-              <Loader2 className='h-3.5 w-3.5 animate-spin' />
-              Loading branches…
-            </div>
-          ) : (
-            <Combobox
-              items={branches.map((b) => ({ value: b.name, label: b.name, searchText: b.name }))}
-              value={branch}
-              onValueChange={setBranch}
-              placeholder='Select branch'
-              searchPlaceholder='Search branches…'
-            />
-          )}
-        </div>
+      {namespaceId && repoId !== null && branch && (
+        <p className='text-muted-foreground text-sm' data-testid='github-import-branch'>
+          Serves the default branch, <span className='font-mono text-foreground'>{branch}</span>. A
+          push to it compiles.
+        </p>
       )}
 
       {namespaceId && repoId !== null && (
@@ -227,7 +208,7 @@ export const GitHubOnboardingStep = ({ onBack, onDone, projectName }: Props) => 
             className='font-mono text-sm'
           />
           <p className='text-muted-foreground text-xs'>
-            Used as the local directory name. Leave blank to use the repository name.
+            The workspace's display name. Leave blank to use the repository name.
           </p>
         </div>
       )}

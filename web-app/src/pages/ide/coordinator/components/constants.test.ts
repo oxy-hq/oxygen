@@ -14,6 +14,11 @@ describe("sourceTypeToJobType", () => {
     expect(isSystemSource("preagg_cycle")).toBe(true);
   });
 
+  it("files a chunked backfill's drive under ELT with the runs it seeds", () => {
+    expect(sourceTypeToJobType("airway_backfill_range")).toBe("elt");
+    expect(isSystemSource("airway_backfill_range")).toBe(false);
+  });
+
   it("falls back to an agent run for a source it does not know", () => {
     expect(sourceTypeToJobType("something_new")).toBe("agent");
     expect(sourceTypeToJobType(null)).toBe("agent");

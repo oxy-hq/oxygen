@@ -1213,7 +1213,11 @@ pub async fn drive_backfill_range(
     variables: Option<Value>,
     on_progress: impl FnMut(ChunkProgress),
 ) -> Result<BackfillSummary, AirwayRunError> {
+    // Gate on the platform's workspace, as `resume_backfill_range` does: the
+    // drive now runs on a worker from a queued task, and a range id must never
+    // drive another tenant's range.
     let range = BackfillRange::find_by_id(range_id)
+        .filter(RangeCol::WorkspaceId.eq(platform.workspace_id()))
         .one(db)
         .await?
         .ok_or_else(|| {

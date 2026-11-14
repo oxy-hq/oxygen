@@ -430,11 +430,13 @@ mod tests {
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 
-        let ide_route = "/api/d9830be4-c6a4-4f89-11d3-9a0c0305e82c/agentic-airway/chunked-backfill";
+        // A declared route answers `Some`; an uninstalled registry answers
+        // `None` for everything.
+        let route = "/api/d9830be4-c6a4-4f89-11d3-9a0c0305e82c/agentic-airway/chunked-backfill";
         assert_eq!(
-            declared_role("POST", ide_route),
-            Some(RouteRole::IdeOnly),
-            "the registry must answer for an IdeOnly route — apply_middleware did not install"
+            declared_role("POST", route),
+            Some(RouteRole::FleetOk),
+            "the registry must answer for a declared route — apply_middleware did not install"
         );
     }
 }

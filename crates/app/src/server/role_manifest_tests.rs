@@ -110,10 +110,11 @@ fn pattern_matches_concrete_uri() {
 fn ide_routes_classify_against_live_uri() {
     // The real shape the middleware sees: `/api` prefix + nested workspace.
     // The IDE's file, git and compile routes are gone (factory-retirement.md,
-    // phase 5); what stays IdeOnly is the airway backfill drive.
+    // phase 5), and since 2026-11-14 the airway backfill drive is a queued
+    // task: nothing under a workspace is IdeOnly.
     assert_eq!(
         classify("POST", "/api/d9830be4-c6a4/agentic-airway/chunked-backfill"),
-        RouteRole::IdeOnly
+        RouteRole::FleetOk
     );
     // The scan reads `.monitor.yml` from the compiled revision.
     assert_eq!(
@@ -349,19 +350,16 @@ fn airway_control_routes_are_fleet_ok() {
     }
 }
 
-/// The chunked backfill pair drives every chunk inside the accepting process,
-/// in a detached task that is not a durable `TaskSpec`: on a `serve` replica —
-/// which runs no workers and is replaced on every deploy — that drive would die
-/// with the pod. They stay on the ide until the range is a queued task, and
-/// they are the only airway routes that do: the catch-all is gone.
+/// The chunked backfill pair queues its drive for the worker fleet
+/// (`agentic_pipeline::backfill_task`), so no airway route stays on the ide.
 #[test]
-fn only_the_airway_backfill_drive_stays_ide_only() {
+fn no_airway_route_stays_ide_only() {
     let ws = "d9830be4-c6a4";
     for path in ["chunked-backfill", "resume-backfill"] {
         assert_eq!(
             classify("POST", &format!("/api/{ws}/agentic-airway/{path}")),
-            RouteRole::IdeOnly,
-            "POST {path} must stay IdeOnly"
+            RouteRole::FleetOk,
+            "POST {path} queues its drive"
         );
     }
     for (method, path) in [
@@ -651,15 +649,20 @@ fn fs_write_guard_allows_fs_owning_roles() {
 
 #[test]
 fn a_declaration_names_its_verb() {
-    // `chunked-backfill` is declared for POST; another verb on the same path
-    // is not swept along.
+    // A declaration for POST does not sweep another verb on the same path
+    // along. No live route is IdeOnly any more, so the list is the test's own.
+    let declared = vec![(
+        "POST",
+        "/api/{workspace_id}/ide-probe".to_string(),
+        RouteRole::IdeOnly,
+    )];
     assert_eq!(
-        classify("POST", "/api/abc/agentic-airway/chunked-backfill"),
-        RouteRole::IdeOnly
+        declared_role_in(&declared, "POST", "/api/abc/ide-probe"),
+        Some(RouteRole::IdeOnly)
     );
     assert_eq!(
-        classify("GET", "/api/abc/agentic-airway/chunked-backfill"),
-        RouteRole::FleetOk
+        declared_role_in(&declared, "GET", "/api/abc/ide-probe"),
+        None
     );
 }
 
@@ -947,27 +950,14 @@ fn concretize(pattern: &str) -> String {
 #[test]
 fn manifest_covers_state_touching_routes() {
     let ws = "/api/d9830be4-c6a4";
-    let ide_only = [
-        // Airway's chunked backfill still drives in the accepting process.
-        // (Its `/runs/{id}/events` is NOT here: that stream tails Postgres on
-        // a timer because its driver is a worker in another process, so it has
-        // no process-local broadcaster to be pinned to.)
-        ("POST", format!("{ws}/agentic-airway/chunked-backfill")),
-    ];
-    for (method, path) in &ide_only {
-        assert_eq!(
-            classify(method, path),
-            RouteRole::IdeOnly,
-            "state-touching route {method} {path} must be IdeOnly \
-             (no working copy / process-local broadcaster on the serve fleet)"
-        );
-    }
     // Counter-guard: routes that LOOK similar but are cross-process safe
     // must stay FleetOk, or we needlessly pin the chat data plane to the
     // ide singleton. (A chat's and an automation's start, cancel and stream
     // read the compiled revision and the run rows, and /agentic-airway's are
     // queue-driven: all belong on this side.)
     let fleet_ok = [
+        // The airway chunked backfill queues its drive (2026-11-14).
+        ("POST", format!("{ws}/agentic-airway/chunked-backfill")),
         ("POST", format!("{ws}/analytics/runs")),
         ("GET", format!("{ws}/analytics/runs/r1/events")),
         ("GET", format!("{ws}/agentic-workflows/files")),

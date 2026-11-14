@@ -7,6 +7,7 @@
 //! two cannot filter on different rules. The predicate itself is
 //! `agentic_pipeline::recovery::may_drive`.
 
+use agentic_pipeline::backfill_task::AIRWAY_BACKFILL_RANGE_KIND;
 use agentic_pipeline::recovery::{DrivePolicy, STRANDED_GRACE_SECS};
 use agentic_runtime::coordinator::{AIRWAY_SOURCE_TYPE, COMPILE_SOURCE_TYPE};
 
@@ -178,7 +179,9 @@ pub(super) fn drive_policy() -> DrivePolicy {
 /// deployment whose worker fleet is missing or wedged degrades to slower
 /// placement, not a stall.
 pub(super) fn drive_policy_for(role: Role, defer: IdeDeferral) -> DrivePolicy {
-    const AIRWAY_ONLY: &[&str] = &[AIRWAY_SOURCE_TYPE];
+    // The chunked backfill's outer task drives every chunk in the process
+    // that claims it, so the airway gate defers it with the runs it seeds.
+    const AIRWAY_ONLY: &[&str] = &[AIRWAY_SOURCE_TYPE, AIRWAY_BACKFILL_RANGE_KIND];
     const COMPILE_ONLY: &[&str] = &[COMPILE_SOURCE_TYPE];
 
     match role {

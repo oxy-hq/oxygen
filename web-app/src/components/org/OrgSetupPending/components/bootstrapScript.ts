@@ -41,6 +41,6 @@ export function bootstrapScript(org: Pick<Organization, "id" | "slug" | "name">)
     `oxyc api ${orgPath}/github/repositories -f git_namespace_id=<namespace-id> --jq '.[] | select(.name == "${repo}") | .id'`,
     "",
     `# 3. Connect it to ${org.name}`,
-    `oxyc api -X POST ${orgPath}/onboarding/github -f namespace_id=<namespace-id> -F repo_id=<repo-id> -f branch=main`
+    `oxyc api -X POST ${orgPath}/onboarding/github -f namespace_id=<namespace-id> -F repo_id=<repo-id> -f branch=<default-branch>`
   ].join("\n");
 }

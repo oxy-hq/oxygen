@@ -372,6 +372,43 @@ impl GitHubClient {
         }
     }
 
+    /// Whether `path` (a `/`-separated path in the repository) exists at
+    /// `git_ref` — a branch, tag or commit. `false` on GitHub's 404, an error
+    /// on anything else, so a refused token never reads as a missing file.
+    pub async fn file_exists(
+        &self,
+        repo_id: i64,
+        path: &str,
+        git_ref: &str,
+    ) -> Result<bool, OxyError> {
+        let url = format!(
+            "{}/repositories/{}/contents/{}",
+            self.base_url,
+            repo_id,
+            path.trim_start_matches('/')
+        );
+        let response = self
+            .client
+            .get(&url)
+            .query(&[("ref", git_ref)])
+            .send()
+            .await
+            .map_err(|e| OxyError::RuntimeError(format!("Failed to fetch {path}: {e}")))?;
+        match response.status() {
+            s if s.is_success() => Ok(true),
+            reqwest::StatusCode::NOT_FOUND => Ok(false),
+            status => {
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unknown error".to_string());
+                Err(OxyError::RuntimeError(format!(
+                    "Failed to look up {path}: HTTP {status} - {error_text}"
+                )))
+            }
+        }
+    }
+
     pub async fn get_commit_details(
         &self,
         repo_id: i64,

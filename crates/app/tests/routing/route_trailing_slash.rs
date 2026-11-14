@@ -9,20 +9,29 @@
 //!
 //! `classify` trims it now, so this holds for every prefix, not just that one.
 
-use oxy_app::server::role_manifest::{RouteRole, classify, install_route_declarations_for_tests};
+use oxy_app::server::role_manifest::{
+    RouteRole, classify, install_route_declarations_for_tests,
+    install_route_declarations_for_tests_with,
+};
 
 #[test]
 fn a_trailing_slash_keeps_the_route_on_its_own_pod() {
-    install_route_declarations_for_tests();
+    // No live route is IdeOnly any more (2026-11-14), so the test brings the
+    // one whose pod a slash must not change.
+    install_route_declarations_for_tests_with(vec![(
+        "POST",
+        "/{workspace_id}/ide-probe".to_string(),
+        RouteRole::IdeOnly,
+    )]);
     let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
     for path in [
-        format!("/api/{ws}/agentic-airway/chunked-backfill"),
-        format!("/api/{ws}/agentic-airway/chunked-backfill/"),
+        format!("/api/{ws}/ide-probe"),
+        format!("/api/{ws}/ide-probe/"),
     ] {
         assert_eq!(
             classify("POST", &path),
             RouteRole::IdeOnly,
-            "{path} drives a backfill on the ide and must reach it"
+            "{path} is declared IdeOnly and must reach the ide"
         );
     }
 }

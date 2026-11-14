@@ -43,29 +43,26 @@ fn starting_stopping_and_resetting_a_pipeline_need_no_factory() {
     }
 }
 
-/// The chunked backfill pair drives its chunks in a detached, non-durable task
-/// in the accepting process. Declared — not left to the wildcard — so that
-/// widening the wildcard, or reading this table for what is safe to move,
-/// cannot put that spawn on a replica that runs no workers.
+/// The chunked backfill pair queues its drive for the worker fleet
+/// (`agentic_pipeline::backfill_task`), so any replica may accept it.
 #[test]
-fn the_in_process_backfill_drive_is_pinned_by_name() {
+fn the_backfill_drives_are_served_by_any_replica() {
     for path in ["/chunked-backfill", "/resume-backfill"] {
         assert_eq!(
             declared("POST", path),
-            Some(RouteRole::IdeOnly),
-            "POST {path} spawns a non-durable drive and must stay on the ide"
+            Some(RouteRole::FleetOk),
+            "POST {path} only records the range and queues its drive"
         );
     }
 }
 
-/// No catch-all: an undeclared airway route takes the FleetOk default. Only
-/// the two backfill drives stay pinned, and they are named.
+/// No catch-all and no pin: nothing on the airway surface needs the ide.
 #[test]
-fn only_the_backfill_drives_are_pinned() {
+fn nothing_on_the_airway_surface_is_pinned() {
     let pinned: Vec<&str> = airway_router_roles()
         .iter()
         .filter(|d| d.role == RouteRole::IdeOnly)
         .map(|d| d.path)
         .collect();
-    assert_eq!(pinned, ["/chunked-backfill", "/resume-backfill"]);
+    assert!(pinned.is_empty(), "pinned to the ide: {pinned:?}");
 }

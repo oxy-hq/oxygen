@@ -3,6 +3,7 @@ use super::{
     drive_policy_for,
 };
 use crate::server::role_manifest::Role;
+use agentic_pipeline::backfill_task::AIRWAY_BACKFILL_RANGE_KIND;
 use agentic_pipeline::recovery::{DrivePolicy, STRANDED_GRACE_SECS, may_drive};
 use agentic_runtime::coordinator::{
     AIRWAY_SOURCE_TYPE, COMPILE_GIT_SOURCE_TYPE, COMPILE_SOURCE_TYPE,
@@ -30,10 +31,11 @@ const EVERY_ROLE: [Role; 4] = [Role::Ide, Role::Serve, Role::Worker, Role::All];
 /// A spread of what `source_type` can hold: the named kinds, the queued
 /// domains, the system kind, host-registered Custom kinds, a kind nobody has
 /// written yet, and a row with none.
-const KINDS: [Option<&str>; 10] = [
+const KINDS: [Option<&str>; 11] = [
     Some(COMPILE_SOURCE_TYPE),
     Some(COMPILE_GIT_SOURCE_TYPE),
     Some(AIRWAY_SOURCE_TYPE),
+    Some(AIRWAY_BACKFILL_RANGE_KIND),
     Some("workflow"),
     Some("analytics"),
     Some("preagg_cycle"),
@@ -52,7 +54,7 @@ const FRESH: u64 = 0;
 fn every_role_and_gate_combination_resolves_to_its_policy() {
     let all = DrivePolicy::ALL;
     let no_compile = DrivePolicy::Except(&[COMPILE_SOURCE_TYPE]);
-    let no_airway = DrivePolicy::Defer(&[AIRWAY_SOURCE_TYPE]);
+    let no_airway = DrivePolicy::Defer(&[AIRWAY_SOURCE_TYPE, AIRWAY_BACKFILL_RANGE_KIND]);
     let only_compile = DrivePolicy::Only(&[COMPILE_SOURCE_TYPE]);
 
     let expected = [
@@ -174,7 +176,8 @@ fn an_ide_deferring_queue_work_takes_every_kind_after_the_grace() {
 }
 
 /// `OXY_IDE_DEFER_AIRWAY` keeps its meaning: airway and only airway is left
-/// for the fleet, and an airway run nobody took for the grace is driven by the
+/// for the fleet (the runs, and the chunked backfill's outer task that drives
+/// them), and an airway run nobody took for the grace is driven by the
 /// ide after all — the fallback the periodic tick used to supply on its own,
 /// now in the predicate so every loop honours it. The dev environment sets
 /// this one, so it must not quietly widen to other kinds.
@@ -182,7 +185,8 @@ fn an_ide_deferring_queue_work_takes_every_kind_after_the_grace() {
 fn the_airway_gate_alone_still_defers_airway_and_nothing_else() {
     let policy = drive_policy_for(Role::Ide, AIRWAY);
     for kind in KINDS {
-        let is_airway = kind == Some(AIRWAY_SOURCE_TYPE);
+        let is_airway =
+            matches!(kind, Some(k) if k == AIRWAY_SOURCE_TYPE || k == AIRWAY_BACKFILL_RANGE_KIND);
         assert_eq!(may_drive(kind, FRESH, policy), !is_airway, "{kind:?}");
         assert!(
             may_drive(kind, STRANDED_GRACE_SECS, policy),

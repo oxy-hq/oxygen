@@ -41,8 +41,15 @@ pub use crate::server::api::middlewares::subscription_guard::subscription_guard_
 /// Workspace-scoped request context, as the workspace seam provides it.
 pub use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
-    WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath, enqueue_lazy_compile,
+    WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath, enqueue_import_compile,
+    enqueue_lazy_compile,
 };
+
+/// Whether this deployment compiles workspaces from git: the push webhook, the
+/// branch check and the first commit compile of a never-compiled workspace all
+/// run only with the `compile_reconcile` flag on. A repository-backed
+/// workspace with no working copy compiles nothing without it.
+pub use crate::server::compile_reconcile::enabled as compiles_from_git;
 
 /// The workspace row the workspace middleware resolved (401 where it did not run).
 pub use crate::server::api::middlewares::workspace_extractor::WorkspaceExtractor;

@@ -1197,6 +1197,31 @@ pub async fn enqueue_lazy_compile(db: &sea_orm::DatabaseConnection, workspace_id
     .await
 }
 
+/// Queue the first compile of a repository the GitHub import just connected:
+/// commit `git_sha`, the head of the default branch, fetched from git by
+/// whichever pod claims it. The same enqueue a push to that branch makes
+/// (`compile_reconcile::push`), so the import needs no working copy.
+pub async fn enqueue_import_compile(
+    db: &sea_orm::DatabaseConnection,
+    workspace_id: Uuid,
+    git_sha: String,
+    branch: String,
+) {
+    let how = CompileEnqueue {
+        from_git: true,
+        new_content: true,
+    };
+    enqueue_compile_deduped_as(
+        db,
+        workspace_id,
+        Some(git_sha),
+        Some(branch),
+        "github import",
+        how,
+    )
+    .await
+}
+
 /// The lazy self-heal's enqueue: the working tree is the identity, so there is
 /// no commit to dedupe on. `oxy-compile` mints a unique `local-<uuid>` and
 /// opts out of the idempotency index, so every call produces a fresh revision;

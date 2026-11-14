@@ -1,43 +1,43 @@
-//! The clone's bound and heartbeat, on a paused clock.
+//! What the import checks in the repository before it connects it.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::path::Path;
 
-use super::bounded;
+use axum::http::StatusCode;
 
-const EVERY: Duration = Duration::from_secs(5 * 60);
-const MAX: Duration = Duration::from_secs(2 * 60 * 60);
+use super::{config_path_in_repo, not_an_oxy_project, require_compiles_from_git};
 
-fn counter() -> (Arc<AtomicUsize>, impl FnMut() -> std::future::Ready<()>) {
-    let beats = Arc::new(AtomicUsize::new(0));
-    let seen = beats.clone();
-    (beats, move || {
-        seen.fetch_add(1, Ordering::SeqCst);
-        std::future::ready(())
-    })
+#[test]
+fn config_is_looked_up_at_the_root_or_inside_the_subdirectory() {
+    assert_eq!(config_path_in_repo(None), "config.yml");
+    assert_eq!(
+        config_path_in_repo(Some(Path::new("data/oxy"))),
+        "data/oxy/config.yml"
+    );
+    assert_eq!(
+        config_path_in_repo(Some(Path::new("analytics/"))),
+        "analytics/config.yml"
+    );
 }
 
-/// A clone that never finishes (a half-open connection) is abandoned at the
-/// bound, so its row can settle Failed instead of beating forever.
-#[tokio::test(start_paused = true)]
-async fn a_hung_clone_is_abandoned_at_the_bound() {
-    let (beats, beat) = counter();
-    let outcome = bounded(std::future::pending::<()>(), MAX, EVERY, beat).await;
-    assert!(outcome.is_none());
-    // It beat the whole time it ran, then stopped.
-    let n = beats.load(Ordering::SeqCst);
-    assert!((23..=24).contains(&n), "beats: {n}");
+#[test]
+fn a_repository_without_config_is_refused_with_the_words_the_clone_used() {
+    let (status, msg) = not_an_oxy_project("https://github.com/acme/repo.git", None);
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        msg,
+        "Repository 'https://github.com/acme/repo.git' does not appear to be an Oxygen project — no config.yml found."
+    );
+    let (_, msg) = not_an_oxy_project("u", Some(Path::new("data/oxy")));
+    assert!(
+        msg.ends_with("no config.yml found in subdirectory 'data/oxy'."),
+        "{msg}"
+    );
 }
 
-/// A clone that finishes returns its result, having beaten while it ran.
-#[tokio::test(start_paused = true)]
-async fn a_slow_clone_returns_its_result_and_beat_meanwhile() {
-    let (beats, beat) = counter();
-    let clone = async {
-        tokio::time::sleep(Duration::from_secs(16 * 60)).await;
-        "cloned"
-    };
-    assert_eq!(bounded(clone, MAX, EVERY, beat).await, Some("cloned"));
-    assert_eq!(beats.load(Ordering::SeqCst), 3);
+#[test]
+fn an_import_is_refused_where_nothing_compiles_from_git() {
+    assert!(require_compiles_from_git(true).is_ok());
+    let (status, msg) = require_compiles_from_git(false).unwrap_err();
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(msg.contains("compile_reconcile"), "{msg}");
 }

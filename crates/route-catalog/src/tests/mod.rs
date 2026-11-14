@@ -515,17 +515,14 @@ fn describe_reports_the_fleet_role() {
     // the FleetOk default — the assertion below would fail for the one
     // reason that says nothing about the catalog.
     //
-    // With the org-scoped surface declarations too, as `oxy-server` composes
-    // them: the GitHub import is the last route that needs the ide, and it is
-    // `oxy-api-tenancy`'s.
-    let org_seam = oxy_api_tenancy::onboarding::route_roles()
-        .iter()
-        .map(|d| (d.method, d.path.to_string(), d.role))
-        .collect();
-    oxy_app::server::role_manifest::install_route_declarations_for_tests_with(org_seam);
-
-    // The GitHub import clones onto the ide's disk; the thread list is served
-    // from Postgres and runs anywhere.
+    // No route needs the ide any more (the GitHub import was the last), so to
+    // see `describe` report one this test declares a real catalog route
+    // IdeOnly itself; the label is what is under test, not the route.
+    oxy_app::server::role_manifest::install_route_declarations_for_tests_with(vec![(
+        "POST",
+        "/orgs/{org_id}/onboarding/github".to_string(),
+        oxy_app::server::role_manifest::RouteRole::IdeOnly,
+    )]);
     let import = routes()
         .iter()
         .find(|r| r.method == "POST" && r.path == "/api/orgs/{org_id}/onboarding/github")

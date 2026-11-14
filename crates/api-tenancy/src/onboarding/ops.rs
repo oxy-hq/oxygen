@@ -36,17 +36,10 @@ pub(super) fn parse_subdir(raw: &str) -> Result<Option<std::path::PathBuf>, (Sta
     Ok(Some(path.to_path_buf()))
 }
 
-// The three helpers below are thin adapters over `oxy_app`'s
+// The two helpers below are thin adapters over `oxy_app`'s
 // `workspace_provisioning` — the one implementation of creating a workspace,
-// shared with the org-creation doors — kept so `setup_demo` / `setup_github`
+// shared with the org-creation doors — kept so `setup_github`
 // read the same as before. See that module for the behavior.
-
-/// `<state_dir>/workspaces/<workspace_id>`, created if needed.
-pub(super) fn resolve_project_dir(
-    workspace_id: Uuid,
-) -> Result<std::path::PathBuf, (StatusCode, String)> {
-    provisioning::resolve_project_dir(workspace_id).map_err(Into::into)
-}
 
 /// A workspace display name unique within `org_id` (`base`, `base 2`, …).
 pub(super) async fn unique_display_name(

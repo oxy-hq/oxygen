@@ -347,6 +347,18 @@ impl TaskExecutor for PipelineTaskExecutor {
                 .await
             }
 
+            // The chunked airway backfill is this crate's own kind: it needs
+            // the run's workspace platform, which only this executor holds.
+            TaskSpec::Custom { kind, payload }
+                if kind == crate::backfill_task::AIRWAY_BACKFILL_RANGE_KIND =>
+            {
+                crate::backfill_task::execute_backfill_range(
+                    self.db.clone(),
+                    self.platform.clone(),
+                    payload,
+                )
+            }
+
             TaskSpec::Custom { kind, .. } => {
                 if let Some(handler) = self.custom_executors.as_ref().and_then(|r| r.get(kind)) {
                     return handler.execute(assignment).await;

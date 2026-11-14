@@ -20,35 +20,27 @@
 //! | GET    | `/agentic-airway/runs/:id/events` | SSE stream (shared handler) |
 //! | POST   | `/agentic-airway/runs/:id/cancel` | Cancel a running pipeline |
 //!
-//! ## Two driving models live in this file — check which one you are in
+//! ## Every drive is queued
 //!
 //! Everything routed through [`start_and_drive`] (`/runs` and the
-//! single-window `/backfill`) enqueues `TaskScope::Global` and drives
-//! nothing locally. The **chunked** backfill (`/chunked-backfill`, and
-//! `/backfill-ranges/:id/resume`) still direct-drives its chunks in-process
-//! via `drive_backfill_range` / `resume_backfill_range`, so those requests
-//! still execute on the node that accepted them and still charge its memory.
-//!
-//! That asymmetry is deliberate, not an oversight: moving the chunk driver is
-//! the other half of the reverted option (b) (`7dc7148ed`) and is a
-//! materially larger change than the scope flip here. Do not "make it
-//! consistent" by adding a direct-drive back to `start_and_drive`.
+//! single-window `/backfill`) enqueues `TaskScope::Global` and drives nothing
+//! locally. The chunked backfill (`/chunked-backfill`) and its resume
+//! (`/resume-backfill`) record or read the range and enqueue an
+//! `airway_backfill_range` task (`agentic_pipeline::backfill_task`) the same
+//! way; a worker drives the chunks. They used to drive in a detached task in
+//! the accepting process, which pinned them to the Factory.
 //!
 //! ## Which pod serves which route follows from that
 //!
-//! `crate::airway_router_roles` declares it per route. Whatever only reads and
-//! writes Postgres and resolves its pipeline through the compile boundary —
-//! start, single-window backfill, cancel, both resets, the event stream — is
-//! `FleetOk`: any replica answers it, so a pipeline can be started, stopped and
-//! reset while the Factory (`OXY_ROLE=ide`) is down. The chunked backfill pair
-//! stays `IdeOnly` because its drive is a detached task in the accepting
-//! process, and a `serve` replica runs no workers and keeps nothing alive past
-//! the request. On a replica a ref the boundary cannot supply answers a
-//! retryable `503` (`airway_not_servable`), never a `400`.
+//! `crate::airway_router_roles` declares it per route. Every route here only
+//! reads and writes Postgres and resolves its pipeline through the compile
+//! boundary, so every route is `FleetOk`: any replica answers it, and a
+//! pipeline can be started, backfilled, stopped and reset while the Factory
+//! (`OXY_ROLE=ide`) is down. On a replica a ref the boundary cannot supply
+//! answers a retryable `503` (`airway_not_servable`), never a `400`.
 
 use std::sync::Arc;
 
-use agentic_runtime::hub_task::spawn_with_hub;
 use axum::{
     Json,
     extract::{Extension, Path},
@@ -63,9 +55,10 @@ use agentic_pipeline::WorkflowWorkspaceContext;
 use agentic_pipeline::airway_request::submit_airway_run;
 use agentic_pipeline::airway_run::{AirwayRunError, StartAirwayRequest, list_airway_runs};
 use agentic_pipeline::backfill::{
-    ChunkGranularity, create_backfill_range, drive_backfill_range, enumerate_chunks,
-    list_backfill_ranges, load_range_coverage, resume_backfill_range,
+    ChunkGranularity, create_backfill_range, enumerate_chunks, list_backfill_ranges,
+    load_range_coverage,
 };
+use agentic_pipeline::backfill_task::{BackfillRangeTask, enqueue_backfill_range};
 use agentic_pipeline::platform::PlatformContext;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use uuid::Uuid;
@@ -377,14 +370,8 @@ pub struct ChunkedBackfillResponse {
 /// `/resume-backfill { range_id }`, which re-drives only the range's not-`done`
 /// chunks. Progress is read via `GET /coverage?range_id`.
 ///
-/// **`IdeOnly`, and it has to be while the drive is what it is.** The
-/// `spawn_with_hub` below runs every chunk in this process (`TaskScope::Scoped`
-/// plus a co-located coordinator and worker, see `backfill::run_airway_window`)
-/// and is not a durable `TaskSpec`. A `serve` replica runs no workers, is sized
-/// for requests rather than a pipeline's memory, and is replaced on every
-/// deploy — the drive would die with the pod and leave a range that only a
-/// manual Resume continues. Making the range a queued task is what unpins this
-/// route; classifying it `FleetOk` first would just move the spawn.
+/// `FleetOk`: the range is recorded here and driven by the worker fleet from a
+/// queued task, so nothing outlives this request in this process.
 pub async fn chunked_backfill(
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
@@ -420,12 +407,11 @@ pub async fn chunked_backfill(
     // No merge: this range owns exactly the chunks its window enumerates.
     let chunk_count = enumerate_chunks(body.from, body.to, granularity).len();
 
-    // Record the range up front (captures the initiating user), then drive it
-    // detached — the drive runs the chunks (up to `concurrency` at once) well
-    // beyond a request's lifetime. Checkpoints make it resumable; losing this
-    // task (restart) just means a Resume of the range continues from its
-    // not-`done` chunks. Variables are None — the HTTP path renders the spec
-    // from persisted config, like the single-window backfill.
+    // Record the range up front (captures the initiating user), then queue its
+    // drive — the chunks run well beyond a request's lifetime. Checkpoints make
+    // a re-drive (a reclaimed task, or a Resume) continue from the not-`done`
+    // chunks. Variables are None — the HTTP path renders the spec from
+    // persisted config, like the single-window backfill.
     let range_id = match create_backfill_range(
         &state.db,
         workspace_id,
@@ -446,13 +432,16 @@ pub async fn chunked_backfill(
         }
     };
 
-    let db = state.db.clone();
-    let pref = body.pipeline_ref.clone();
-    spawn_with_hub(async move {
-        if let Err(e) = drive_backfill_range(&db, platform, range_id, None, |_| {}).await {
-            tracing::error!(%e, pipeline_ref = %pref, %range_id, "chunked backfill driver failed");
-        }
-    });
+    // The worker fleet drives it: a queued task, so the drive survives this
+    // pod and runs where workers do (`agentic_pipeline::backfill_task`).
+    let task = BackfillRangeTask {
+        range_id,
+        resume: false,
+    };
+    if let Err(e) = enqueue_backfill_range(&state.db, workspace_id, task).await {
+        tracing::error!(%e, pipeline_ref = %body.pipeline_ref, %range_id, "chunked backfill: enqueue failed");
+        return (StatusCode::INTERNAL_SERVER_ERROR, format!("backfill: {e}")).into_response();
+    }
 
     Json(ChunkedBackfillResponse {
         range_id,
@@ -471,11 +460,9 @@ pub struct ResumeBackfillRequest {
 
 /// Resume a backfill range: re-run exactly its not-`done` chunks (read straight
 /// from the range's checkpoints, at the range's stored concurrency). Returns the
-/// count it will re-run; the drive is detached like `chunked_backfill`, and
-/// progress is read via `GET /coverage?range_id=…`.
-///
-/// `IdeOnly` for the reason `chunked_backfill` gives: the same in-process,
-/// non-durable drive.
+/// count it will re-run; the drive is queued like `chunked_backfill`, and
+/// progress is read via `GET /coverage?range_id=…`. `FleetOk` for the same
+/// reason.
 pub async fn airway_resume(
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
@@ -492,17 +479,16 @@ pub async fn airway_resume(
             return (StatusCode::INTERNAL_SERVER_ERROR, format!("resume: {e}")).into_response();
         }
     };
-    let db = state.db.clone();
-    // Detach, same deferral as `chunked_backfill` (KNOWN / DEFERRED, per
-    // oxy-task-spec-default): this drive is a bare `tokio::spawn`, not a durable
-    // `TaskSpec`, so a mid-drive restart drops the in-flight resume. Checkpoints
-    // make that safe — another Resume just continues from the still-not-`done`
-    // chunks. `resume_backfill_range` re-checks the range's workspace.
-    spawn_with_hub(async move {
-        if let Err(e) = resume_backfill_range(&db, platform, range_id, None, |_| {}).await {
-            tracing::error!(%e, %range_id, "airway resume driver failed");
-        }
-    });
+    // Queued for the worker fleet, like `chunked_backfill`; the drive re-checks
+    // the range's workspace (`resume_backfill_range`).
+    let task = BackfillRangeTask {
+        range_id,
+        resume: true,
+    };
+    if let Err(e) = enqueue_backfill_range(&state.db, platform.workspace_id(), task).await {
+        tracing::error!(%e, %range_id, "airway resume: enqueue failed");
+        return (StatusCode::INTERNAL_SERVER_ERROR, format!("resume: {e}")).into_response();
+    }
 
     Json(ChunkedBackfillResponse {
         range_id,

@@ -518,12 +518,10 @@ export class AirwayService {
    * Which replica answers an `/agentic-airway` call is declared per route in
    * `agentic_http::airway_router_roles` (Rust), not by this prefix:
    *
-   *  - Any replica, Factory up or down: `startRun`, `backfillRun`, `cancelRun`,
-   *    `streamEvents`, `resetSchema`, `resetCursors`, `resourceCursors`,
-   *    `listRuns`, `coverage`, `listBackfillRanges`. They read and write
-   *    Postgres only; the pipeline spec comes from the compile boundary.
-   *  - Factory (IDE) only: `chunkedBackfill` and `resumeBackfill` (their drive
-   *    is an in-process task, and a serve replica runs no workers).
+   *  - Every call, on any replica, Factory up or down. They read and write
+   *    Postgres only, the pipeline spec comes from the compile boundary, and
+   *    every drive (`startRun`, `backfillRun`, `chunkedBackfill`,
+   *    `resumeBackfill`) is queued for the worker fleet.
    *
    * On a replica with no working copy, a pipeline the promoted revision does
    * not serve answers `503` + `Retry-After` with a plain-text body and
@@ -557,7 +555,7 @@ export class AirwayService {
 
   /**
    * Start a resumable chunked backfill. Returns immediately with the chunk
-   * count; the server drives the chunks detached. Poll {@link coverage} for
+   * count; the worker fleet drives the chunks from a queued task. Poll {@link coverage} for
    * progress. Re-invoking the same window resumes (skips `done` chunks).
    */
   static async chunkedBackfill(

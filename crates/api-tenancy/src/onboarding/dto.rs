@@ -14,13 +14,15 @@ pub struct OnboardingResult {
 pub struct GitHubSetupRequest {
     pub namespace_id: Uuid,
     pub repo_id: i64,
+    /// Accepted for older clients and otherwise unused: the workspace serves
+    /// the repository's default branch, the one a push compiles.
     pub branch: String,
     /// Project name (slug) — used as directory name inside the projects root.
     /// Ignored in single-project mode.
     pub name: Option<String>,
     /// Optional subdirectory inside the repository to use as the Oxy project root.
     /// For example, `"analytics"` or `"data/oxy"` for a monorepo layout.
-    /// The full repository is still cloned; only the registered project path changes.
+    /// Its `config.yml` is what the import checks for before it connects.
     pub subdir: Option<String>,
 }
 

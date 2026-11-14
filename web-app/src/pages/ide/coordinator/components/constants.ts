@@ -183,6 +183,8 @@ export const sourceTypeToJobType = (source: string | null | undefined): JobType 
     case "workflow":
       return "dag";
     case "airway":
+    // The queued drive of a chunked backfill; its chunks are `airway` runs.
+    case "airway_backfill_range":
       return "elt";
     case "monitor_scan":
     // Insights delivery: the Slack post a scan queues when `.monitor.yml` has

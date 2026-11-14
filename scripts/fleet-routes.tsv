@@ -42,12 +42,12 @@
 #   {*rest} catch-all whose routes each have a row of their own, so nothing reaches it).
 POST	/api/{workspace_id}/agentic-airway/backfill	fleet-ok	Fixture	single-window backfill — needs a real `pipeline_ref` on a windowed source (toast / quickbooks / sp_api) and that source's credential to complete
 GET	/api/{workspace_id}/agentic-airway/backfill-ranges	fleet-ok	Fixture	needs a real `pipeline_ref`
-POST	/api/{workspace_id}/agentic-airway/chunked-backfill	ide-only	Fixture	needs a real `pipeline_ref` on a windowed source; drives every chunk in the accepting process, which is why it stays on the ide
+POST	/api/{workspace_id}/agentic-airway/chunked-backfill	fleet-ok	Fixture	needs a real `pipeline_ref` on a windowed source; records the range and queues its drive for the worker fleet
 GET	/api/{workspace_id}/agentic-airway/coverage	fleet-ok	Fixture	needs a real `pipeline_ref`
 POST	/api/{workspace_id}/agentic-airway/reset-cursors	fleet-ok	Destr	clears saved cursors for a real pipeline — its next run re-pulls that history
 POST	/api/{workspace_id}/agentic-airway/reset-schema	fleet-ok	Destr	drops a real pipeline's destination tables and its state rows
 GET	/api/{workspace_id}/agentic-airway/resource-cursors	fleet-ok	Fixture	needs a real `pipeline_ref`
-POST	/api/{workspace_id}/agentic-airway/resume-backfill	ide-only	Fixture	needs an interrupted chunked backfill to resume
+POST	/api/{workspace_id}/agentic-airway/resume-backfill	fleet-ok	Fixture	needs an interrupted chunked backfill to resume; queues the drive
 GET	/api/{workspace_id}/agentic-airway/runs	fleet-ok	Now	verified live: the `400` seen was only a missing-`pipeline_ref` error — buildable with any of the 5 real refs
 POST	/api/{workspace_id}/agentic-airway/runs	fleet-ok	Fixture	`POST /runs` needs a real `pipeline_ref` — 5 exist (verified live via `airway-pipelines`); `sql_ingest`/`clickhouse_ingest`/`weather`/`toast_pos`/`ubereats` each need a real upstream credential to *complete*, so starting is Fixture-bucket, finishing may land in Ext depending which pipeline you pick
 POST	/api/{workspace_id}/agentic-airway/runs/{id}/cancel	fleet-ok	Fixture	needs a real run id — start one first
@@ -209,7 +209,7 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/orgs/{org_id}/logo	fleet-ok	Fixture	`PUT` needs an image upload and mutates the shared org's branding; `DELETE` restores default
 *	/api/orgs/{org_id}/members	fleet-ok	Now	2 real members in the fixture org
 *	/api/orgs/{org_id}/members/{user_id}	fleet-ok	Destr	`PATCH`/`DELETE` mutate a real member of a 2-person shared org — risks removing an identity other agents rely on; invite a disposable member first
-*	/api/orgs/{org_id}/onboarding/github	ide-only	Ext	needs a connected GitHub OAuth account; no `GITHUB_*` creds in this fleet
+*	/api/orgs/{org_id}/onboarding/github	fleet-ok	Ext	needs a connected GitHub OAuth account; no `GITHUB_*` creds in this fleet. Records the repository and queues a compile from git; clones nothing
 *	/api/orgs/{org_id}/partner-publish-consent	fleet-ok	Now	`GET` returns "no consent" safely; `PUT` needs the org to actually be partner-managed
 *	/api/orgs/{org_id}/slack/install	fleet-ok	Ext	redirects to slack.com OAuth; no `SLACK_*` creds
 *	/api/orgs/{org_id}/slack/installation	fleet-ok	Now	`GET` "not installed" is a real, valid response; `DELETE` disconnect is a safe no-op

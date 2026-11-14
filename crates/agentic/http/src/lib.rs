@@ -322,11 +322,9 @@ where
 /// up. The test for `FleetOk` is the same for all of them: the handler reads
 /// and writes Postgres only, resolves its `.airway.yml` through the compile
 /// boundary (`agentic_pipeline::pipeline_ref`), and leaves nothing running in
-/// this process when it returns. A request carrying `?branch=` never reaches a
-/// replica whatever is declared here — `oxy-app`'s `enforce_role` escalates it
-/// to the ide, the one node that can read a draft.
+/// this process when it returns (the chunked backfill queues its drive).
 pub fn airway_router_roles() -> &'static [RouteRoleDecl] {
-    use RouteRole::{FleetOk, IdeOnly};
+    use RouteRole::FleetOk;
     &[
         // Postgres reads: run list, coverage, and the backfill ranges the UI
         // draws. None of them touches the pipeline definition on disk.
@@ -392,18 +390,17 @@ pub fn airway_router_roles() -> &'static [RouteRoleDecl] {
             path: "/resource-cursors",
             role: FleetOk,
         },
-        // Chunked backfill and its resume drive every chunk in THIS process, in
-        // a detached task that is not a durable `TaskSpec`. A `serve` replica
-        // runs no workers and the drive would die with the pod.
+        // Chunked backfill and its resume record or read the range and queue
+        // its drive for the worker fleet (`agentic_pipeline::backfill_task`).
         RouteRoleDecl {
             method: "POST",
             path: "/chunked-backfill",
-            role: IdeOnly,
+            role: FleetOk,
         },
         RouteRoleDecl {
             method: "POST",
             path: "/resume-backfill",
-            role: IdeOnly,
+            role: FleetOk,
         },
     ]
 }

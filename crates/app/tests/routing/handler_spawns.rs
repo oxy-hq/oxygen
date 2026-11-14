@@ -255,14 +255,6 @@ const ALLOWED: &[(&str, &str)] = &[
          durable delivery task",
     ),
     (
-        "api-tenancy/src/onboarding/github_import.rs",
-        "backlog: clones the repository after the GitHub import answers, because a \
-         large clone outlives the request timeout. A pod that dies mid-clone leaves a \
-         `Cloning` row — the failure worker-fleet.md § Racy singletons names; the next \
-         import may take it over once it is an hour stale (`adopt::STALE_CLONE`). \
-         Should be a TaskSpec with the workspace id as its key",
-    ),
-    (
         "api-tenancy/src/organizations/invitation_handlers.rs",
         "backlog: two invitation-email sends and a Stripe `sync_seats` after accepting \
          an invitation. `sync_seats` is on worker-fleet.md's racy-singletons list; the \

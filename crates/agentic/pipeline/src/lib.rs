@@ -15,6 +15,7 @@ pub mod app_function_task;
 pub mod automation_run;
 pub mod automation_seed;
 pub mod backfill;
+pub mod backfill_task;
 mod context_documents;
 mod db_transient;
 pub mod drive_policy;
