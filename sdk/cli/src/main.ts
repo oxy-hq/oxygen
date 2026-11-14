@@ -756,7 +756,7 @@ function buildProgram(): Command {
           "Where no browser can reach this machine (a cloud container, CI, a remote box), add\n" +
           "--no-browser: oxyc prints a URL and a code, the operator approves from any device,\n" +
           "and the token is printed the same way. Add --approver <email> and the operator is\n" +
-          "told by push, email and Slack; they type the code from your output on the page.\n"
+          "told by push, email and Slack; the notice has no code, so send them the link oxyc prints.\n"
       )
   ).action(async (opts: Record<string, unknown>, cmd: Command) => {
     const ctx = createContext(globals(opts));

@@ -341,8 +341,9 @@ is collected, refused or lapses (ten minutes). `--browser` skips it.
 anything else is a usage error, exit `2`) names who must approve, so nobody
 has to hand them a URL: the platform tells that person itself, by push,
 email and Slack DM where their organization connected it, and in their
-Oxygen inbox. They type the code from your output on the approval page. The
-notice never holds the code and links to `/cli-auth/device` without it, and
+Oxygen inbox. The notice never holds the code, so hand them the link from
+your output, which carries it (one click), or they type the code on the
+approval page. The notice links to `/cli-auth/device` without it, and
 the request is then theirs alone: anyone else who finds the page is told
 there is no such request. `oxyc` prints `Approval request sent to <email>`
 beside the code and the URL; it prints that whether or not the deployment

@@ -11,7 +11,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CliError, ExitCode } from "../util/errors.js";
-import { askFromQuery, deviceRound, deviceUrl } from "./device.js";
+import { askFromQuery, defaultSleep, deviceRound, deviceUrl } from "./device.js";
 import { challengeFor, createPkce } from "./pkce.js";
 
 let server: Server;
@@ -182,7 +182,7 @@ describe("deviceRound", () => {
     }
     expect(process.env.OXYC_QUIET).toBe("1");
     expect(said).toContain(`${target}/cli-auth/device?code=BCDF-GHJK`);
-    expect(said).toContain("type this code on that page: BCDF-GHJK");
+    expect(said).toContain(`(or open ${target}/cli-auth/device and type the code BCDF-GHJK)`);
     expect(said).not.toContain("Waiting for approval");
   });
 
@@ -274,10 +274,10 @@ describe("deviceRound", () => {
       );
       const lines = said.split("\n").filter(Boolean);
       expect(lines).toContain(`  ${target}/cli-auth/device?code=BCDF-GHJK`);
-      expect(said).toContain("and type this code on that page: BCDF-GHJK");
+      expect(said).toContain(`(or open ${target}/cli-auth/device and type the code BCDF-GHJK)`);
       expect(said).toContain("Waiting for approval (the request lapses in 10 min)");
       expect(said).toContain(
-        `Approval request sent to ada@example.com — they type the code BCDF-GHJK on ${target}/cli-auth/device?code=BCDF-GHJK.`
+        "Approval request sent to ada@example.com. The notice has no code: send them the link above, or the code BCDF-GHJK."
       );
       expect(said).not.toContain("dev-code");
     });
@@ -285,7 +285,7 @@ describe("deviceRound", () => {
     it("says nothing about an approver when none was named", async () => {
       pollReplies = [approved];
       const said = await stderrOf(() => deviceRound(target, opts(), createPkce()));
-      expect(said).toContain("and type this code on that page: BCDF-GHJK");
+      expect(said).toContain(`(or open ${target}/cli-auth/device and type the code BCDF-GHJK)`);
       expect(said).not.toContain("Approval request sent");
     });
 
@@ -296,5 +296,29 @@ describe("deviceRound", () => {
       );
       expect(said).not.toContain("\u001b[2J");
     });
+  });
+});
+
+describe("defaultSleep", () => {
+  it("keeps the process alive while it waits", async () => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const real = globalThis.setTimeout;
+    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number
+    ) => {
+      const timer = real(fn, ms);
+      // The file's loopback server sets timers of its own; keep only ours.
+      if (ms === 7) timers.push(timer);
+      return timer;
+    }) as typeof setTimeout);
+    try {
+      await defaultSleep(7);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(timers).toHaveLength(1);
+    // An unref'd timer let Node exit mid-wait with the approval still pending.
+    expect(timers[0]?.hasRef()).toBe(true);
   });
 });

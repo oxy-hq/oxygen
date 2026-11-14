@@ -63,8 +63,8 @@ export interface LoginOptions {
   forceBrowser?: boolean;
   /**
    * With `noBrowser`: the email of the person who must approve. The platform
-   * tells them (push, email, Slack, the inbox); they type the code this
-   * command prints on the approval page. Nothing about the code is sent.
+   * tells them (push, email, Slack, the inbox) without the code, so the link
+   * this command prints, which carries it, is what to pass them.
    */
   approver?: string;
   /** Wait between device-code polls. Tests inject one; the default sleeps. */

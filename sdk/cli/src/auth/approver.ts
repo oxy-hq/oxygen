@@ -21,7 +21,7 @@ export const APPROVER_ENV = "OXY_APPROVER";
 export function approverOption(scope: string): Option {
   return new Option(
     "--approver <email>",
-    `${scope}: the person who must approve. They are told by push, email and Slack, and type the code from this output on the approval page`
+    `${scope}: the person who must approve. They are told by push, email and Slack; the notice has no code, so send them the link this prints`
   ).env(APPROVER_ENV);
 }
 

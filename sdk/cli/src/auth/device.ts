@@ -71,9 +71,14 @@ const MAX_POLL_FAILURES = 3;
  */
 const DEADLINE_GRACE_S = 30;
 
+/**
+ * A real wait between polls. Not `unref`ed: while a login waits for approval
+ * the timer is the only thing keeping the process alive, and an unref'd one
+ * let Node exit mid-wait with the request still pending.
+ */
 export const defaultSleep = (ms: number) =>
   new Promise<void>((resolve) => {
-    setTimeout(resolve, ms).unref?.();
+    setTimeout(resolve, ms);
   });
 
 /** `k=v&k=v`, as a `/cli-auth` URL carries it, as the object the start sends. */
@@ -150,14 +155,18 @@ export function announce(
   const code = printable(started.user_code);
   const url = deviceUrl(target, started.user_code);
   // `say`, not `info`: `--quiet` must not hide what the person has to act on.
-  log.say(`To ${purpose.opening}, open this on any device where you are signed in to Oxygen:`);
+  // The link carries the code, so opening it is the whole step; the bare page
+  // and the code are the fallback for a device the link cannot reach.
+  log.say(`To ${purpose.opening}, open this link on any device where you are signed in to Oxygen:`);
   log.say(`  ${url}`);
-  log.say(`and type this code on that page: ${code}`);
+  log.say(`(or open ${base(target)}${DEVICE_PAGE} and type the code ${code})`);
   // The same words whether or not the email names an account: the deployment
-  // does not say, and neither do we.
+  // does not say, and neither do we. The notice never carries the code
+  // (RFC 8628 §5.4), so the one-step path for the approver is this link,
+  // passed on by whoever ran the command.
   if (approver) {
     log.say(
-      `Approval request sent to ${printable(approver)} — they type the code ${code} on ${url}.`
+      `Approval request sent to ${printable(approver)}. The notice has no code: send them the link above, or the code ${code}.`
     );
   }
 }

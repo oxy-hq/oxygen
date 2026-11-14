@@ -43,18 +43,18 @@ oxyc tokens create --sandbox-agent --app <org>/<app> --env <deployment>
 - **Where no browser can reach your machine** (a cloud container, a CI job, a
   remote box), add `--no-browser`. `oxyc` prints a URL and an eight-letter
   code on stderr instead of opening a page, and waits up to ten minutes. Give
-  your engineer both: they open the URL on any device where they are signed
-  in, type the code the terminal shows, and approve. The token is printed
+  your engineer the URL: it carries the code, so opening it on any device
+  where they are signed in and approving is the whole step (the bare page plus
+  the code is the fallback for a device the link cannot reach). The token is printed
   exactly as above. The rule does not change: never open or approve that page
   yourself, with a browser tool or any other way.
 - **Name who approves with `--approver <email>`** (or `OXY_APPROVER`, which
   counts with `--no-browser`, `oxyc login --no-wait` or in a cloud session, never
-  where oxyc only detected SSH or a Codespace), with the device code: the engineer is told by push, email and Slack; they type
-  the code from your output on the page. Use the email your engineer gave you,
-  and still show them the code `oxyc` printed, since the notice does not carry
-  it. Only that person can open the request: if you were given no address, omit
-  the flag and hand them the URL and the code as before. Never open or click
-  the page yourself.
+  where oxyc only detected SSH or a Codespace), with the device code: the engineer is told by push, email and Slack. The notice has no
+  code, so still send them the URL from your output, which carries it. Use the
+  email your engineer gave you. Only that person can open the request: if you
+  were given no address, omit the flag and hand them the URL as before. Never
+  open or click the page yourself.
 - **Evaluate that line and work with the token.** In a shell that persists:
   `eval "$(oxyc tokens create --sandbox-agent --app <org>/<app> --env <deployment>)"`.
   In one that does not, such as an agent's shell tool, redirect it to
