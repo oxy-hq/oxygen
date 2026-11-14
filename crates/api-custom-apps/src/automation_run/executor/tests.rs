@@ -203,7 +203,7 @@ async fn begun_run(db: &DatabaseConnection, begun: i64, beat: Option<i64>) -> Uu
 /// run with no beat at all whose stamp is younger than the threshold.
 #[tokio::test]
 async fn a_fresh_heartbeat_makes_a_later_claimant_step_aside_and_write_nothing() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     for (begun, beat) in [(LONG_AGO, Some(1)), (5, None)] {
@@ -230,7 +230,7 @@ async fn a_fresh_heartbeat_makes_a_later_claimant_step_aside_and_write_nothing()
 /// The same for a run with no beat at all whose stamp is that old.
 #[tokio::test]
 async fn a_stale_heartbeat_closes_the_run_as_interrupted() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     // Well past the threshold: the row is stamped on the database's clock and
@@ -260,7 +260,7 @@ async fn a_stale_heartbeat_closes_the_run_as_interrupted() {
 /// the task back unrun.
 #[tokio::test]
 async fn an_attempt_refused_because_another_began_steps_aside() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let id = super::super::task::submitted_for_test(&db).await;
@@ -291,7 +291,7 @@ async fn an_attempt_refused_because_another_began_steps_aside() {
 /// reports how it closed and is left as it is.
 #[tokio::test]
 async fn an_attempt_refused_by_a_cancel_or_a_close_settles_what_it_reads() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let cancelled = super::super::task::submitted_for_test(&db).await;
@@ -324,7 +324,7 @@ async fn an_attempt_refused_by_a_cancel_or_a_close_settles_what_it_reads() {
 /// and hands the task back, rather than failing a run someone may own.
 #[tokio::test]
 async fn a_runnable_read_after_a_refused_stamp_writes_nothing() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let id = super::super::task::submitted_for_test(&db).await;

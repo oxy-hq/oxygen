@@ -64,6 +64,18 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
         "ConfigManager",
     ),
     ("api-experiment/src/api/simulation/runs.rs", "ConfigManager"),
+    // The custom-app automation run's start (`POST …/procedures/{procedure_id}/runs`)
+    // finds the automation through `ConfigManager::list_automations`, which
+    // owns the compiled-vs-disk choice and reads the request's revision; the
+    // route is declared FleetOk in `public_route_roles`, as it was under
+    // `route_fleet` in `oxy-app`. The working-copy needles still apply.
+    ("api-custom-apps/src/automation_run/mod.rs", "ConfigManager"),
+    // Its unit tests build a manager over a temp directory to drive that
+    // lookup without a database. Test code, mounted on no route.
+    (
+        "api-custom-apps/src/automation_run/tests.rs",
+        "workspace_path",
+    ),
 ];
 
 /// Every `.rs` file under `dir` — or `dir` itself, when it names one file.

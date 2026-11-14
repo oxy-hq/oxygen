@@ -786,8 +786,9 @@ fn the_public_router_declares_every_route_it_mounts() {
     );
 
     let declared = body.matches(".route_fleet(").count() + body.matches(".route_ide(").count();
-    // The file declares 32 (33 until the agent-run stream left for
-    // `oxy-api-custom-apps`, 2026-11-14; 35 until the agent ask's start and
+    // The file declares 29 (32 until the automation run's start, poll and
+    // cancel left for `oxy-api-custom-apps`, 2026-11-14; 33 until the agent-run
+    // stream left, 2026-11-14; 35 until the agent ask's start and
     // cancel left, 2026-11-14; 37 until the custom-app data plane's
     // `query` and `semantic-query` left, 2026-11-14; Slack's five
     // public routes left for `oxy-api-slack` on 2026-11-12). A floor of 40 once let eleven disappear unnoticed, which
@@ -795,7 +796,7 @@ fn the_public_router_declares_every_route_it_mounts() {
     // going quiet, loose enough that adding or removing a handful does not make
     // this the test everyone edits without reading.
     assert!(
-        declared >= 30,
+        declared >= 25,
         "only {declared} declared mounts found — the parser broke, or this file \
          moved. A guard that silently stops covering anything is the shape this \
          whole area exists to remove.",
@@ -818,11 +819,6 @@ fn custom_app_run_state_routes_are_fleet_ok() {
     // The shell-context bootstrap (SDK shell chrome) is likewise a pure
     // persisted-data read and must never get pinned to the singleton.
     let fleet_ok = [
-        ("GET", format!("/api/projects/{pid}/procedures/runs/run-1")),
-        (
-            "POST",
-            format!("/api/projects/{pid}/procedures/runs/run-1/cancel"),
-        ),
         ("GET", format!("/api/projects/{pid}/shell-context")),
         ("GET", format!("/api/projects/{pid}/threads")),
         ("GET", format!("/api/projects/{pid}/threads/t-1")),
@@ -855,7 +851,6 @@ fn the_customer_app_data_plane_is_fleet_ok() {
     let pid = "d9830be4-c6a4";
     let sem = format!("/api/projects/{pid}/semantic");
     let fleet_ok = [
-        ("POST", format!("/api/projects/{pid}/procedures/p-1/runs")),
         ("POST", format!("{sem}/metric-tree/explain")),
         ("POST", format!("{sem}/metric-tree/opportunity")),
         ("POST", format!("{sem}/metric-tree/distribution")),

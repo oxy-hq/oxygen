@@ -9,7 +9,7 @@
 //! production run by its id.
 
 use axum::http::HeaderMap;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use oxy_app_core::custom_app_env_request::request_environment;
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::types::AuthenticatedUser;
@@ -17,14 +17,13 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::server::api::projects::agent_ask_staging::refused;
-use crate::server::api::projects::workspace_actions::non_production_app;
+use crate::agent_ask_staging::{non_production_app, refused};
 
 /// `Ok(())` in production, where a cancel behaves as it always did. Outside
 /// it, `Ok(())` only for a caller who may open the request's environment,
 /// cancelling a preview run of that app and environment; else the `404
 /// EnvironmentRefused` a refused write gets. A failed lookup refuses.
-pub(in crate::server::api::projects::automation_run) async fn may_cancel(
+pub(in crate::automation_run) async fn may_cancel(
     db: &DatabaseConnection,
     headers: &HeaderMap,
     user: &AuthenticatedUser,

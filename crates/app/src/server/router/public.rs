@@ -145,31 +145,19 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
             "/projects/{project_id}/semantic/metric-tree/projection",
             post(projects::metric_tree_projection::post_projection),
         )
-        // The World Model graph, its instances and measure breakdown, and peer
-        // cohorts (`/projects/{project_id}/semantic/{world-model*,cohort}`) are
-        // `oxy-api-world-model`'s, beside their IDE twins, merged beside this
-        // tree through `SurfaceSeams::public` with the same customer-app gate.
-        // The one-shot ask's start and cancel
-        // (`/projects/{project_id}/agents/{agent_id}/asks`,
-        // `/projects/{project_id}/agents/asks/{run_id}/cancel`) are
-        // `oxy-api-custom-apps`'s (`agent_ask`), merged beside this tree
-        // through `SurfaceSeams::public`; its queued executor arrives through
-        // `SurfaceSeams::tasks`. So does the agent-run SSE stream
-        // (`/projects/{project_id}/agents/runs/{run_id}/events`,
-        // `agent_run_stream`).
-        // Phase 3 — long-running automations. POST starts, GET polls,
-        // POST .../cancel stops in-flight. Persistent state in
-        // `customer_app_procedure_runs` survives server restarts.
-        .route_fleet(
-            "/projects/{project_id}/procedures/{procedure_id}/runs",
-            post(projects::automation_run::start_automation_run),
-        )
-        .route_fleet(
-            "/projects/{project_id}/procedures/runs/{run_id}",
-            get(projects::automation_run::poll_automation_run),
-        )
-        .route_fleet(
-            "/projects/{project_id}/procedures/runs/{run_id}/cancel",
-            post(projects::automation_run::cancel_automation_run),
-        )
+    // The World Model graph, its instances and measure breakdown, and peer
+    // cohorts (`/projects/{project_id}/semantic/{world-model*,cohort}`) are
+    // `oxy-api-world-model`'s, beside their IDE twins, merged beside this
+    // tree through `SurfaceSeams::public` with the same customer-app gate.
+    // The one-shot ask's start and cancel
+    // (`/projects/{project_id}/agents/{agent_id}/asks`,
+    // `/projects/{project_id}/agents/asks/{run_id}/cancel`) are
+    // `oxy-api-custom-apps`'s (`agent_ask`), merged beside this tree
+    // through `SurfaceSeams::public`; its queued executor arrives through
+    // `SurfaceSeams::tasks`. So does the agent-run SSE stream
+    // (`/projects/{project_id}/agents/runs/{run_id}/events`,
+    // `agent_run_stream`), and the automation run's start, poll and cancel
+    // (`/projects/{project_id}/procedures/…`, `automation_run`), whose
+    // executor and TTL sweep arrive through `SurfaceSeams::{tasks,
+    // background}`.
 }

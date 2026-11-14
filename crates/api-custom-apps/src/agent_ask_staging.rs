@@ -52,10 +52,24 @@ use oxy_custom_apps::thread_source::{
 };
 use oxy_custom_apps::write_record::{WriteRecord, plane_for_dialect};
 
-use super::workspace_actions::{non_production_app, workspace_actions_mode};
-use crate::server::previews::sql_kind::StatementKind;
-use oxy_app_core::custom_app_env_request::environment_refused;
+use oxy_app::surface::previews::StatementKind;
+use oxy_app_core::custom_app_env_request::{environment_refused, planes_unreadable};
 use oxy_app_core::write_hold::{HeldSink, HeldStatement, HoldScope};
+pub(crate) use oxy_custom_apps::workspace_actions::non_production_app;
+
+/// The mode of `environment`'s `workspace-actions` plane for app `app_id`.
+/// `Err` is the response to answer with: `409` when the plane cannot be read.
+/// The read itself is shared with the bundle's chat history
+/// (`oxy_custom_apps::workspace_actions`).
+pub(crate) async fn workspace_actions_mode(
+    db: &DatabaseConnection,
+    app_id: Uuid,
+    environment: &AppEnvironment,
+) -> Result<WorkspaceActionsMode, Response> {
+    oxy_custom_apps::workspace_actions::workspace_actions_mode(db, app_id, environment)
+        .await
+        .map_err(|detail| planes_unreadable(environment, &detail))
+}
 
 /// The surface an ask's held rows are listed under, and their `mode`.
 pub const ASK_SURFACE: &str = "agent";

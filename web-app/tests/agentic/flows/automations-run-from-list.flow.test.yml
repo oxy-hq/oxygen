@@ -8,7 +8,7 @@
 #
 # WHY THIS FLOW EXISTS — the shipped bug it re-creates
 # ----------------------------------------------------
-# `crates/app/src/server/api/projects/automation_run.rs` (see the doc comment on
+# `crates/api-custom-apps/src/automation_run/mod.rs` (see the doc comment on
 # `matches_automation_id`, and the regression test
 # `an_automation_is_found_by_its_filename_not_its_declared_name`): the compiled
 # lookup matched `AutomationEntry::name` — the YAML `name:` — while the caller

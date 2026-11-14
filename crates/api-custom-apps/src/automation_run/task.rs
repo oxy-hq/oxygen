@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
-use crate::server::api::custom_apps_gates::CustomAppContext;
+use oxy_custom_apps::gate::CustomAppContext;
 
 /// `TaskSpec::Custom` discriminator. Becomes the run's `source_type`.
 pub const PROCEDURE_RUN_KIND: &str = "custom_app_procedure_run";

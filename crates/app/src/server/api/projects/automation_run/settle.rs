@@ -25,13 +25,13 @@ use uuid::Uuid;
 /// The code a run closed by [`reconcile_abandoned`] carries. Not new on the
 /// wire: it is what the two-hour sweep already writes for a run whose driver
 /// is gone.
-pub(super) const ORPHANED_CODE: &str = "automation_run_orphaned";
+pub const ORPHANED_CODE: &str = "automation_run_orphaned";
 
 /// How long after it was accepted a row still `running` is failed by the
 /// periodic sweep (`sweep_terminal_runs`), whoever is or is not driving it.
 /// The longest any attempt can be left executing, so also how long a later
 /// attempt keeps stepping aside for one (`executor::admission`).
-pub(super) const ORPHAN_SWEEP_AFTER_SECS: i64 = 2 * 60 * 60;
+pub const ORPHAN_SWEEP_AFTER_SECS: i64 = 2 * 60 * 60;
 
 /// The code a run carries when a later attempt found an earlier one had
 /// already begun executing it, and declined to run it again.
@@ -45,7 +45,7 @@ pub const INTERRUPTED_MESSAGE: &str = "the automation was interrupted while runn
 
 /// A terminal state, as the columns it writes. No `id`: the row is named by
 /// the `WHERE`, never by the `SET`.
-pub(super) fn done(outputs: &HashMap<String, JsonValue>) -> ProcRunActiveModel {
+pub fn done(outputs: &HashMap<String, JsonValue>) -> ProcRunActiveModel {
     ProcRunActiveModel {
         status: ActiveValue::Set("done".into()),
         result_summary: ActiveValue::Set(Some(done_summary(outputs))),
@@ -57,7 +57,7 @@ pub(super) fn done(outputs: &HashMap<String, JsonValue>) -> ProcRunActiveModel {
     }
 }
 
-pub(super) fn done_summary(outputs: &HashMap<String, JsonValue>) -> String {
+pub fn done_summary(outputs: &HashMap<String, JsonValue>) -> String {
     if outputs.is_empty() {
         "Automation completed.".to_string()
     } else {
@@ -65,12 +65,12 @@ pub(super) fn done_summary(outputs: &HashMap<String, JsonValue>) -> String {
     }
 }
 
-pub(super) fn failed(e: &AutomationRunError) -> ProcRunActiveModel {
+pub fn failed(e: &AutomationRunError) -> ProcRunActiveModel {
     let (code, message) = super::automation_error_to_code(e);
     failed_with(code, message)
 }
 
-pub(super) fn failed_with(code: &str, message: String) -> ProcRunActiveModel {
+pub fn failed_with(code: &str, message: String) -> ProcRunActiveModel {
     ProcRunActiveModel {
         status: ActiveValue::Set("failed".into()),
         error_message: ActiveValue::Set(Some(message)),
@@ -80,7 +80,7 @@ pub(super) fn failed_with(code: &str, message: String) -> ProcRunActiveModel {
     }
 }
 
-pub(super) fn cancelled() -> ProcRunActiveModel {
+pub fn cancelled() -> ProcRunActiveModel {
     ProcRunActiveModel {
         status: ActiveValue::Set("cancelled".into()),
         error_message: ActiveValue::Set(Some("cancelled by user".into())),
@@ -92,7 +92,7 @@ pub(super) fn cancelled() -> ProcRunActiveModel {
 
 /// A run an earlier attempt began and did not finish, which this attempt
 /// declines to run again.
-pub(super) fn interrupted() -> ProcRunActiveModel {
+pub fn interrupted() -> ProcRunActiveModel {
     failed_with(INTERRUPTED_CODE, INTERRUPTED_MESSAGE.to_string())
 }
 
@@ -115,10 +115,7 @@ pub(super) fn interrupted() -> ProcRunActiveModel {
 /// The same write is the attempt's first heartbeat, so a begun run is never
 /// without one: a later attempt reads this attempt as alive from the instant
 /// it took the run (`executor::heartbeat` keeps it fresh from there).
-pub(super) async fn begin_execution<C: ConnectionTrait>(
-    db: &C,
-    run_id: Uuid,
-) -> Result<bool, DbErr> {
+pub async fn begin_execution<C: ConnectionTrait>(db: &C, run_id: Uuid) -> Result<bool, DbErr> {
     let now: chrono::DateTime<chrono::FixedOffset> = Utc::now().into();
     let stamp = ProcRunActiveModel {
         execution_started_at: ActiveValue::Set(Some(now)),
@@ -138,7 +135,7 @@ pub(super) async fn begin_execution<C: ConnectionTrait>(
 
 /// Which rows a terminal write may move.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Guard {
+pub enum Guard {
     /// Any row still `running`.
     Running,
     /// Still `running` **and** nobody has asked to cancel it. A result must
@@ -149,7 +146,7 @@ pub(super) enum Guard {
 
 /// Write `terminal` onto the run if `guard` still holds. `Ok(true)` when this
 /// call closed the run, `Ok(false)` when it was not ours to close.
-pub(super) async fn close_running<C: ConnectionTrait>(
+pub async fn close_running<C: ConnectionTrait>(
     db: &C,
     run_id: Uuid,
     terminal: ProcRunActiveModel,
@@ -184,10 +181,7 @@ pub(super) async fn close_running<C: ConnectionTrait>(
 /// Returns the row to answer the poll with: re-read when this call (or anyone
 /// else) closed it, the caller's own otherwise. A row with no `agentic_runs`
 /// twin is a run started before the queue existed and is left alone.
-pub(super) async fn reconcile_abandoned(
-    db: &DatabaseConnection,
-    row: proc_run::Model,
-) -> proc_run::Model {
+pub async fn reconcile_abandoned(db: &DatabaseConnection, row: proc_run::Model) -> proc_run::Model {
     if row.status != "running" {
         return row;
     }
@@ -230,10 +224,10 @@ async fn abandoned_close(db: &DatabaseConnection, run_id: Uuid) -> Option<ProcRu
         Some("cancelled") => cancelled(),
         _ => return None,
     };
-    // A preview run's terminal state is `preview_mode::settle_custom_app_runs`'s
+    // A preview run's terminal state is [`super::settle_custom_app_runs`]'s
     // to write, from the run's own error: closing it here would label a run
     // that legitimately failed as orphaned.
-    if super::preview_mode::owns_run(db, run_id).await {
+    if super::owns_run(db, run_id).await {
         return None;
     }
     match task_is_held(db, run_id).await {

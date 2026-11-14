@@ -161,14 +161,8 @@ pub async fn api_router(
         );
     }
     spawn_shutdown_hook(agentic_state.clone());
-    // Periodic maintenance for custom-app procedure runs: TTL
-    // sweep + cross-instance cancel reconciliation + stuck-row
-    // recovery. Cheap (delete-many + two update-many every 10 min)
-    // and keeps the table bounded under load.
-    crate::server::api::projects::automation_run::spawn_periodic_sweep(
-        agentic_state.db.clone(),
-        agentic_state.shutdown_token.clone(),
-    );
+    // The custom-app automation runs' TTL sweep is `oxy-api-custom-apps`' and
+    // starts with the surface jobs below (`custom_app_automation_run_sweep`).
 
     // Compile-boundary maintenance: reap stuck `compiling` revisions (crashed
     // compiles) + prune old non-current revisions so the `*_definitions`

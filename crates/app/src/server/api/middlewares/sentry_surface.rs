@@ -461,8 +461,8 @@ mod tests {
     }
 
     /// The mechanism behind the two custom-app data-plane spawns (the agent
-    /// ask, now `oxy-api-custom-apps`'s `agent_ask`, and
-    /// `projects::automation_run`): both return 202
+    /// ask and the automation run, both now `oxy-api-custom-apps`'s
+    /// `agent_ask` and `automation_run`): both return 202
     /// while the run continues, so by the time the pipeline captures anything
     /// the request's hub has unwound.
     ///
@@ -663,8 +663,8 @@ mod tests {
     /// The driver side of a custom app's procedure run. It passes no gate — the
     /// request that did is long gone — so it is kept in the walk by name, like
     /// the function job executor: it mints [`custom_app_hub`] for a run whose
-    /// automation is tenant-authored.
-    const PROCEDURE_RUN_EXECUTOR: &str = "src/server/api/projects/automation_run/executor.rs";
+    /// automation is tenant-authored. `oxy-api-custom-apps`' since 2026-11-14.
+    const PROCEDURE_RUN_EXECUTOR: &str = "../api-custom-apps/src/automation_run/executor.rs";
 
     /// Publish, in `oxy-api-custom-apps`.
     const CUSTOM_APPS_PUBLISH: &str = "../api-custom-apps/src/custom_apps_publish.rs";
@@ -741,13 +741,14 @@ mod tests {
     fn every_custom_app_data_plane_spawn_carries_a_hub() {
         const UNHUBBED: &[Unhubbed] = &[
             Unhubbed {
-                file: "src/server/api/projects/automation_run.rs",
+                file: "../api-custom-apps/src/automation_run/mod.rs",
                 site: "spawn_periodic_sweep",
-                why: "a boot-time loop started by `router::entry`, not request work: there is \
-                      no request hub to inherit, and what it can capture is Oxy's own \
-                      `customer_app_procedure_runs` UPDATE failing — a platform bug carrying \
-                      no tenant payload, which is what Sentry is still for. A \
-                      `custom_app_hub()` here would hide it.",
+                why: "a boot-time loop started as a `SurfaceSeams::background` job, not request \
+                      work: there is no request hub to inherit. What it can report is Oxy's \
+                      own `customer_app_procedure_runs` UPDATE failing, and since 2026-11-14 \
+                      that line comes from `oxy_api_custom_apps::automation_run`, which \
+                      `drop_log` drops on every Sentry surface — so a failure shows up only \
+                      in the platform logs. A `custom_app_hub()` would change nothing.",
             },
             Unhubbed {
                 file: "../api-custom-apps/src/custom_apps_functions/runtime/warm_pool.rs",

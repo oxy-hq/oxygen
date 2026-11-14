@@ -26,7 +26,7 @@
 //! **`OXY_PREVIEW_RUNS` off** answers `409 preview_runs_disabled`; a preview
 //! run never falls back to a live one.
 //!
-//! **The orphan reconcile skips these rows** ([`owns_run`]): a preview run
+//! **The orphan reconcile skips these rows** (`oxy-app`'s `automation_run::owns_run`): a preview run
 //! that ends `failed` is closed here with its real error, not as
 //! `automation_run_orphaned` by a poll that got there first.
 
@@ -53,11 +53,9 @@ use uuid::Uuid;
 use super::{AUTOMATION_SURFACE, err, err_with_code, err_with_hint};
 
 mod cancel;
-mod settle;
 
-use crate::server::previews::runs as preview_runs;
 pub(super) use cancel::may_cancel;
-pub use settle::settle_custom_app_runs;
+use oxy_app::surface::previews as preview_runs;
 
 /// The `mode` an automation run's held row carries when it ran as a preview.
 const PREVIEW_MODE: &str = "preview";
@@ -150,7 +148,7 @@ async fn revision_to_read(
     gate: &CustomAppContext,
     target: &PreviewTarget,
 ) -> Result<Option<Uuid>, Response> {
-    let caller = crate::server::authz::Caller::from_user(&gate.user);
+    let caller = oxy_server_authz::Caller::from_user(&gate.user);
     let app = AppRef::Id(target.app.id);
     let pin = pin_for_environment(db, &caller, gate.project_id, &app, &target.environment)
         .await
@@ -312,7 +310,7 @@ async fn insert_rows(
             run.run_id.to_string().into(),
             gate.project_id.into(),
             run.branch.clone().into(),
-            crate::server::previews::namespace::preview_key(gate.project_id, &run.branch).into(),
+            oxy_app::surface::previews::preview_key(gate.project_id, &run.branch).into(),
             run.revision_id.into(),
             run.automation_path.into(),
             run.options(target).into(),
@@ -349,22 +347,6 @@ fn lookup_failed(e: &DbErr) -> Response {
         StatusCode::INTERNAL_SERVER_ERROR,
         "could not register automation run",
     )
-}
-
-/// Whether a preview run owns `run_id`. The orphan reconcile
-/// (`settle::reconcile_abandoned`) leaves such a row to [`settle_custom_app_runs`].
-/// A failed lookup says `true`: leave the row, the next poll asks again.
-pub(super) async fn owns_run(db: &DatabaseConnection, run_id: Uuid) -> bool {
-    match entity::workspace_preview_runs::Entity::find_by_id(run_id.to_string())
-        .one(db)
-        .await
-    {
-        Ok(row) => row.is_some(),
-        Err(e) => {
-            warn!(%run_id, error = %e, "preview ownership lookup failed");
-            true
-        }
-    }
 }
 
 /// End the queued preview run of every poll row that is closed `failed` or

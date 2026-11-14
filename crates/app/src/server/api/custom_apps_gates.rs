@@ -213,7 +213,7 @@ fn strip_version_field(body: &[u8]) -> Cow<'_, [u8]> {
 ///
 /// One function for both places that build it — the request
 /// ([`CustomAppContext::build_project_context`]) and a driver executing work
-/// that request queued (`projects::automation_run::executor`). The driver has
+/// that request queued (`oxy-api-custom-apps`' `automation_run::executor`). The driver has
 /// no request, so identity reaches it as these arguments; going through the
 /// same body is what keeps a queued run on the credentials the request would
 /// have used. A context with **no** subject is not a lesser version of this

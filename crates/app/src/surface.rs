@@ -165,7 +165,8 @@ pub mod world_model_exec {
 /// in `oxy-app`.
 pub mod custom_app_semantic {
     pub use crate::server::api::custom_apps_gates::{
-        CustomAppContextExt, build_project_context_with_fresh_workspace, parse_versioned_body,
+        CustomAppContextExt, build_caller_context, build_project_context_with_fresh_workspace,
+        parse_versioned_body,
     };
     pub use crate::server::api::projects::semantic_boundary::{
         SemanticBoundary, cache_lookup, cache_store, enter_semantic_boundary, err, err_with_code,
@@ -193,13 +194,14 @@ pub mod queued_runs {
     };
 }
 
-/// What an ask on an app's staging host or a sandbox runs under: its write
-/// hold, the thread history it may continue, and which runs its cancel
-/// reaches. Stays beside the held automation run (`projects::automation_run`),
-/// which shares its refusal.
-pub mod custom_app_staging {
-    pub use crate::server::api::projects::agent_ask_staging::{
-        ASK_SURFACE, ask_scope, staging_run_matches, thread_source,
+/// The custom-app automation run's row: closed and begun by its state machine
+/// (`settle`), a preview-mode run's row settled from its finished preview run,
+/// the failure classifier. Stays because the workspace-preview sweep settles in
+/// the same tick it finishes the preview run; the handlers, the executor and
+/// the sweep are `oxy-api-custom-apps`' `automation_run`.
+pub mod automation_runs {
+    pub use crate::server::api::projects::automation_run::{
+        automation_error_to_code, owns_run, settle, settle_custom_app_runs,
     };
 }
 
@@ -220,7 +222,10 @@ pub mod workspace_git {
 /// (`workspace_preview_sources`). The fetch plane admits a QuickBooks call
 /// only to one of them.
 pub mod previews {
+    pub use crate::server::previews::namespace::preview_key;
+    pub use crate::server::previews::runs::{advance, runs_enabled};
     pub use crate::server::previews::sources::list as list_sources;
+    pub use crate::server::previews::sql_kind::StatementKind;
 }
 
 /// Project secrets: the email lookup the app-secret listing shares.

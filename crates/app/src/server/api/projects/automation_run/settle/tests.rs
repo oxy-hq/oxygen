@@ -43,6 +43,46 @@ async fn running_row(db: &DatabaseConnection, cancel_requested: bool) -> Uuid {
     id
 }
 
+/// A `running` row queued as the start handler queues it: its `agentic_runs`
+/// twin and a `queued` entry of the procedure-run kind. (The handler and its
+/// `submit` are `oxy-api-custom-apps`'; the row's state machine is here, so its
+/// tests write the three rows themselves.)
+async fn queued_row(db: &DatabaseConnection) -> Uuid {
+    let id = running_row(db, false).await;
+    let task_id = id.to_string();
+    let workspace_id = row(db, id).await.workspace_id;
+    agentic_runtime::crud::insert_run(
+        db,
+        &task_id,
+        "procedure: weekly",
+        None,
+        PROCEDURE_RUN_KIND,
+        None,
+        workspace_id,
+    )
+    .await
+    .expect("the run's agentic_runs row");
+    let spec = agentic_core::delegation::TaskSpec::Custom {
+        kind: PROCEDURE_RUN_KIND.to_string(),
+        payload: serde_json::json!({}),
+    };
+    agentic_runtime::crud::enqueue_task(
+        db,
+        &task_id,
+        &task_id,
+        None,
+        &spec,
+        None,
+        agentic_runtime::orchestrator::crud::queue::TaskScope::Global,
+    )
+    .await
+    .expect("the run's queued entry");
+    id
+}
+
+/// The kind `oxy-api-custom-apps` queues a procedure run under.
+const PROCEDURE_RUN_KIND: &str = "custom_app_procedure_run";
+
 async fn row(db: &DatabaseConnection, id: Uuid) -> proc_run::Model {
     proc_run::Entity::find_by_id(id)
         .one(db)
@@ -227,7 +267,7 @@ async fn a_run_failed_under_a_driver_that_holds_it_is_left_running() {
     let Some(db) = crate::server::test_support::test_db().await else {
         return;
     };
-    let id = crate::server::api::projects::automation_run::task::submitted_for_test(&db).await;
+    let id = queued_row(&db).await;
     let task_id = id.to_string();
 
     let claimed = agentic_runtime::crud::claim_task_under_root(&db, WORKER, &task_id)
@@ -269,7 +309,7 @@ async fn a_failed_run_nothing_holds_is_closed_as_orphaned() {
     let Some(db) = crate::server::test_support::test_db().await else {
         return;
     };
-    let id = crate::server::api::projects::automation_run::task::submitted_for_test(&db).await;
+    let id = queued_row(&db).await;
     let task_id = id.to_string();
     agentic_runtime::crud::claim_task_under_root(&db, WORKER, &task_id)
         .await

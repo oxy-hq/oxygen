@@ -1409,17 +1409,9 @@ pub(super) fn build_custom_task_registry(
             Arc::new(AnomalyNotifyExecutor { db: db.clone() }),
         );
     }
-    // A custom app's procedure run, queued by `POST …/procedures/{id}/runs`.
-    // It builds its own context from the caller the request authenticated —
-    // never from this driver's platform, which has no subject. A pod without
-    // it fails the task (unknown kind); the poll endpoint then closes the run.
-    {
-        use crate::server::api::projects::automation_run::{executor, task};
-        reg.register(
-            task::PROCEDURE_RUN_KIND,
-            Arc::new(executor::ProcedureRunExecutor { db: db.clone() }),
-        );
-    }
+    // A custom app's procedure run (`custom_app_procedure_run`) is
+    // `oxy-api-custom-apps`' and arrives through `tasks` below; a process whose
+    // seams lack it refuses to start (`require_task_kinds`).
     // A chat run (`/analytics`): every plain chat is queued by its start. It
     // runs as the requester the run records, never as this driver. (A custom
     // app's ask, its sibling, is `oxy-api-custom-apps`'s and arrives through

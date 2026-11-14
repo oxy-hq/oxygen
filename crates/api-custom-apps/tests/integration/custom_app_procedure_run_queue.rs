@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode};
+use oxy_api_custom_apps::automation_run::task::PROCEDURE_RUN_KIND;
 use oxy_app::surface::testing::custom_apps_gates::{CustomAppContextExt, check_custom_app_gates};
-use oxy_app::surface::testing::projects::automation_run::task::PROCEDURE_RUN_KIND;
 use sea_orm::ConnectionTrait;
 use serde_json::json;
 
@@ -375,21 +375,25 @@ async fn a_run_its_driver_abandoned_is_closed_by_the_poll() {
 }
 
 /// The replicas here mount the handlers by hand; production must mount the
-/// same three at the same paths.
+/// same three at the same paths (`public_routes`), each declared FleetOk
+/// (`public_route_roles`).
 #[test]
 fn production_mounts_the_three_routes_here() {
-    let public = read_repo_file("crates/app/src/server/router/public.rs");
-    let compact: String = public.split_whitespace().collect();
+    let lib = read_repo_file("crates/api-custom-apps/src/lib.rs");
+    let compact: String = lib.split_whitespace().collect();
     for (path, method, handler) in [
         (START_ROUTE, "post", "start_automation_run"),
         (POLL_ROUTE, "get", "poll_automation_run"),
         (CANCEL_ROUTE, "post", "cancel_automation_run"),
     ] {
-        let mount =
-            format!(".route_fleet(\"{path}\",{method}(projects::automation_run::{handler}),)");
+        let mount = format!(".route(\"{path}\",{method}(automation_run::{handler}),)");
         assert!(
             compact.contains(&mount),
-            "public.rs no longer mounts {handler} at {path}"
+            "public_routes() no longer mounts {handler} at {path}"
+        );
+        assert!(
+            compact.contains(&format!("fleet(\"{path}\"),")),
+            "public_route_roles() no longer declares {path} FleetOk"
         );
     }
 }

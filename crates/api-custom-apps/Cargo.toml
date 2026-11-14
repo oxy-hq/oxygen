@@ -73,6 +73,7 @@ oxy-oltp = { workspace = true }
 agentic-core = { workspace = true }
 agentic-http = { workspace = true }
 agentic-pipeline = { workspace = true }
+agentic-automation = { workspace = true }
 agentic-runtime = { workspace = true }
 agentic-semantic = { workspace = true }
 oxy-airlayer-compat = { workspace = true }
@@ -126,10 +127,12 @@ tower = { workspace = true, features = ["util"] }
 oxy-app-core = { workspace = true, features = ["test-fixtures"] }
 tokio = { workspace = true, features = ["test-util"] }
 serial_test = { workspace = true }
+# oxy-app's in-source DB harness (`server/test_support.rs`), included by path:
+# its lock-retry jitter.
+rand = { workspace = true }
 oxy-test-utils = { workspace = true }
 oxy-cameras = { workspace = true }
 oxy-compile = { workspace = true }
-agentic-automation = { workspace = true }
 # `sentry::test::with_captured_events` for the custom-app surface tag tests.
 sentry = { workspace = true, features = ["test"] }
 wiremock = { workspace = true }

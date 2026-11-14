@@ -276,9 +276,7 @@ pub async fn sweep(db: &DatabaseConnection) {
     }
     // A custom app's automation run that ran as a preview: its poll row reads
     // the outcome now that the run is finished.
-    if let Err(e) =
-        crate::server::api::projects::automation_run::preview_mode::settle_custom_app_runs(db).await
-    {
+    if let Err(e) = crate::server::api::projects::automation_run::settle_custom_app_runs(db).await {
         tracing::warn!(target: "preview", error = %e, "could not settle custom-app preview runs");
     }
     // A transform build that just finished gets its compare this tick.

@@ -1,6 +1,6 @@
 //! The real `start_automation_run` / `poll_automation_run` handlers on a
 //! custom app's staging host under `workspace-actions: preview`
-//! (`projects::automation_run::preview_mode`).
+//! (`automation_run::preview_mode`).
 //!
 //! - the start answers `202 { run_id, mode: "preview" }` and writes the poll
 //!   row and the `workspace_preview_runs` row under one id, on the workspace's
@@ -19,12 +19,12 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
 use entity::customer_app_procedure_runs as proc_run;
+use oxy_api_custom_apps::automation_run::{
+    cancel_automation_run, poll_automation_run, start_automation_run, sweep_terminal_runs,
+};
 use oxy_app::surface::testing::agentic_wiring::OxyThreadOwnerLookup;
 use oxy_app::surface::testing::compile_config_gate::runtime_config_gate;
 use oxy_app::surface::testing::previews::runs::sweep;
-use oxy_app::surface::testing::projects::automation_run::{
-    cancel_automation_run, poll_automation_run, start_automation_run, sweep_terminal_runs,
-};
 use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::ServeMode;
 use oxy_compile::{CompileRequest, RevisionKind, compile_workspace, compiler_version};

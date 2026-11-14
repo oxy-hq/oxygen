@@ -9,7 +9,6 @@
 //! generic write endpoint) don't need to be threaded into the router
 //! piecemeal.
 
-pub mod agent_ask_staging;
 pub mod automation_run;
 pub mod metric_tree;
 pub mod metric_tree_projection;

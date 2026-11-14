@@ -51,10 +51,12 @@
 
 pub mod admin;
 pub mod agent_ask;
+pub mod agent_ask_staging;
 pub mod agent_run_stream;
 mod app_function_agent;
 pub mod app_function_executor;
 pub mod app_lifecycle;
+pub mod automation_run;
 pub mod beacon;
 pub mod client;
 pub mod custom_app_provenance;
@@ -640,6 +642,22 @@ pub fn public_routes() -> Router<AppState> {
             "/projects/{project_id}/agents/runs/{run_id}/events",
             get(agent_run_stream::stream_agent_run),
         )
+        // The automation run (`automation_run`): the start queues one
+        // `TaskScope::Global` task and answers 202, the poll reads the run's
+        // row, the cancel closes it. The executor that drives a queued run and
+        // the rows' TTL sweep arrive through `SurfaceSeams::{tasks,background}`.
+        .route(
+            "/projects/{project_id}/procedures/{procedure_id}/runs",
+            post(automation_run::start_automation_run),
+        )
+        .route(
+            "/projects/{project_id}/procedures/runs/{run_id}",
+            get(automation_run::poll_automation_run),
+        )
+        .route(
+            "/projects/{project_id}/procedures/runs/{run_id}/cancel",
+            post(automation_run::cancel_automation_run),
+        )
         // Shell bootstrap for `@oxy-hq/sdk/shell` chrome inside bundles:
         // workspace/org identity + published-apps list + host-aware product links.
         // Pure Postgres reads behind the data-plane gate chain.
@@ -705,6 +723,9 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
         fleet("/projects/{project_id}/agents/{agent_id}/asks"),
         fleet("/projects/{project_id}/agents/asks/{run_id}/cancel"),
         fleet("/projects/{project_id}/agents/runs/{run_id}/events"),
+        fleet("/projects/{project_id}/procedures/{procedure_id}/runs"),
+        fleet("/projects/{project_id}/procedures/runs/{run_id}"),
+        fleet("/projects/{project_id}/procedures/runs/{run_id}/cancel"),
         fleet("/projects/{project_id}/shell-context"),
         fleet("/projects/{project_id}/threads"),
         fleet("/projects/{project_id}/threads/{thread_id}"),
@@ -717,3 +738,11 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
 // its first `#[cfg(test)]`, and the route builders above must be in what it reads.
 #[cfg(test)]
 pub(crate) use oxy_app_core::agent_fixture as custom_apps_agent_fixture;
+
+/// `oxy-app`'s in-source DB harness, included by path for the automation run's
+/// executor and heartbeat tests (`test_db`: the central and runtime migrators
+/// against `OXY_DATABASE_URL`, one lock key per shared row).
+#[cfg(test)]
+#[path = "../../app/src/server/test_support.rs"]
+#[allow(dead_code)]
+mod test_support;

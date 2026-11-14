@@ -383,7 +383,7 @@ pub struct SurfaceSeams {
 /// process whose seams lack the executor refuses to start, rather than fail
 /// every ask as an unknown kind; `agentic-pipeline`'s recovery and the chat
 /// executor name the same string.
-pub const CUSTOM_APP_TASK_KINDS: [&str; 7] = [
+pub const CUSTOM_APP_TASK_KINDS: [&str; 8] = [
     "app_function",
     "custom_app_staging_migrations",
     "custom_app_sandbox_teardown",
@@ -391,6 +391,9 @@ pub const CUSTOM_APP_TASK_KINDS: [&str; 7] = [
     "custom_app_sandbox_oltp",
     "custom_app_env_oltp_branch",
     "custom_app_agent_ask",
+    // The automation run's queued executor, `oxy-api-custom-apps`' since
+    // 2026-11-14 (in-tree before).
+    "custom_app_procedure_run",
 ];
 
 /// The `TaskSpec::Custom` kinds `oxy-app`'s own sources queue for the
@@ -413,7 +416,7 @@ pub const HEALTH_TASK_KINDS: [&str; 1] = ["health_eval_workspace"];
 /// The background jobs a serve process needs for custom apps (usage rows,
 /// storage measurement, sandbox expiry, retention). Without the usage drain,
 /// page views and events queue until the bounded queue sheds them.
-pub const CUSTOM_APP_BACKGROUND_JOBS: [&str; 7] = [
+pub const CUSTOM_APP_BACKGROUND_JOBS: [&str; 8] = [
     "custom_app_asset_lifecycle_verify",
     "custom_app_storage_sweeper",
     "custom_app_sandbox_maintenance",
@@ -421,6 +424,7 @@ pub const CUSTOM_APP_BACKGROUND_JOBS: [&str; 7] = [
     "custom_app_usage_drain",
     "custom_app_tail_listener",
     "custom_app_function_limits",
+    "custom_app_automation_run_sweep",
 ];
 
 /// Refuse a task list that lacks a kind `oxy-app` queues, or names one twice.
@@ -533,7 +537,7 @@ mod tests {
     /// The persisted task-queue contract: these strings are in
     /// `agentic_task_queue` rows, so a change here strands queued work.
     #[test]
-    fn the_required_task_kinds_are_the_seven_the_fleet_knew() {
+    fn the_required_task_kinds_are_the_eight_the_fleet_knew() {
         assert_eq!(
             CUSTOM_APP_TASK_KINDS,
             [
@@ -544,6 +548,7 @@ mod tests {
                 "custom_app_sandbox_oltp",
                 "custom_app_env_oltp_branch",
                 "custom_app_agent_ask",
+                "custom_app_procedure_run",
             ]
         );
     }

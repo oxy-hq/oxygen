@@ -170,18 +170,18 @@ const ALLOWED: &[(&str, &str)] = &[
          worker-fleet.md § Agent asks; the staging case is the remaining backlog",
     ),
     (
-        "app/src/server/api/projects/automation_run.rs",
+        "api-custom-apps/src/automation_run/mod.rs",
         "backlog: `spawn_periodic_sweep`, a ten-minute cleanup loop started at boot on \
          every pod. Idempotent, so duplicates only race, but it is a racy singleton \
          (worker-fleet.md) that belongs on the scheduled queue",
     ),
     (
-        "app/src/server/api/projects/automation_run/executor.rs",
+        "api-custom-apps/src/automation_run/executor.rs",
         "a queue executor's own task: `custom_app_procedure_run` runs its job under a \
          spawn bound to the custom-app Sentry hub",
     ),
     (
-        "app/src/server/api/projects/automation_run/executor/heartbeat.rs",
+        "api-custom-apps/src/automation_run/executor/heartbeat.rs",
         "a claimed task's heartbeat ticker, beside the executor that owns the claim. \
          Lives exactly as long as the claim does; stopping it is the executor's job",
     ),

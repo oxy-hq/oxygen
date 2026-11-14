@@ -24,7 +24,7 @@
 //!   and turns off the anomaly, monitor-scan and compile ports.
 //!
 //! A custom app's **staging** agent ask runs under the same hold
-//! ([`HoldScope::staging`], `projects::agent_ask_staging`): one connector, one
+//! ([`HoldScope::staging`], `oxy-api-custom-apps`' `agent_ask_staging`): one connector, one
 //! decision. Its scope also carries the app and a [`HeldSink`], so a statement
 //! the connector holds is recorded where the console lists it, and the run is
 //! stamped with the app.

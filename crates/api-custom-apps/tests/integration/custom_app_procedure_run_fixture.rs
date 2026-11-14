@@ -6,15 +6,16 @@
 //! procedure-run handlers with an `AppState` and `AgenticState` of its own, so
 //! two of them share nothing but the database — which is what two serve pods
 //! share. `production_mounts_the_three_routes_here` pins the paths to
-//! `public.rs`.
+//! `public_routes()`.
 //!
 //! **Driver.** Nothing in a replica drives a run. [`spawn_driver`] drains the
 //! queue through `recover_pending_global_runs` (what
 //! `router::recovery::drive_pending` calls) with the production
 //! `ProcedureRunExecutor`, in a `CustomTaskRegistry` and loop of its own:
 //! production's registry is private, and `router::recovery`'s own tests cover
-//! its registration, the per-role drive policy and a drive through
-//! `drive_pending`. The driver's base platform ([`driver_platform`]) is a
+//! the per-role drive policy and a drive through `drive_pending` of the kind
+//! handed in as a seam (`oxy-server` hands in this executor; the kind is a
+//! required one). The driver's base platform ([`driver_platform`]) is a
 //! different, subject-less workspace on purpose — it is the context a worker
 //! tick builds, and the one a procedure run must *not* execute with.
 //!
@@ -38,16 +39,14 @@ use entity::customer_app_procedure_runs as proc_run;
 use entity::workspaces;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::config::OnMissing;
+use oxy_api_custom_apps::automation_run::executor::{ProcedureRunExecutor, STARTED_EVENT};
+use oxy_api_custom_apps::automation_run::task::PROCEDURE_RUN_KIND;
+use oxy_api_custom_apps::automation_run::{
+    cancel_automation_run, poll_automation_run, start_automation_run,
+};
 use oxy_app::surface::testing::agentic_wiring::OxyProjectContext;
 use oxy_app::surface::testing::agentic_wiring::thread_owner::OxyThreadOwnerLookup;
 use oxy_app::surface::testing::compile_config_gate::runtime_config_gate;
-use oxy_app::surface::testing::projects::automation_run::executor::{
-    ProcedureRunExecutor, STARTED_EVENT,
-};
-use oxy_app::surface::testing::projects::automation_run::task::PROCEDURE_RUN_KIND;
-use oxy_app::surface::testing::projects::automation_run::{
-    cancel_automation_run, poll_automation_run, start_automation_run,
-};
 use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::ServeMode;
 use oxy_compile::{CompileRequest, Promotion, RevisionKind, compile_workspace, compiler_version};

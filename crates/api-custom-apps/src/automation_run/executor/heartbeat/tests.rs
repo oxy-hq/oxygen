@@ -11,7 +11,7 @@ use sea_orm::EntityTrait;
 
 use super::super::settle::{self, Guard};
 use super::*;
-use crate::server::api::projects::automation_run::task::submitted_for_test;
+use crate::automation_run::task::submitted_for_test;
 
 /// A cadence a test can watch. Production's is [`INTERVAL`].
 const FAST: Duration = Duration::from_millis(25);
@@ -62,7 +62,7 @@ async fn next_beat(
 /// steps run, and stops moving once the run has settled.
 #[tokio::test]
 async fn a_run_beats_while_it_executes_and_goes_quiet_once_it_settles() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let (id, taken) = begun(&db).await;
@@ -107,7 +107,7 @@ async fn a_run_beats_while_it_executes_and_goes_quiet_once_it_settles() {
 /// cancelled — writes nothing more.
 #[tokio::test]
 async fn a_stopped_or_cancelled_heartbeat_goes_quiet_on_a_run_still_running() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
 
@@ -142,7 +142,7 @@ async fn a_stopped_or_cancelled_heartbeat_goes_quiet_on_a_run_still_running() {
 /// nothing to stamp and the ticker ends by itself.
 #[tokio::test]
 async fn the_ticker_ends_on_its_own_once_the_run_is_closed() {
-    let Some(db) = crate::server::test_support::test_db().await else {
+    let Some(db) = crate::test_support::test_db().await else {
         return;
     };
     let (id, taken) = begun(&db).await;

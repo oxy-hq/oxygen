@@ -1,5 +1,5 @@
 //! The custom-app work this composition root hands `oxy-app` through
-//! [`SurfaceSeams`](oxy_app::server::router::SurfaceSeams): the seven task kinds
+//! [`SurfaceSeams`](oxy_app::server::router::SurfaceSeams): the task kinds
 //! the worker fleet runs, the process-lifetime background jobs, the outer
 //! `/customer-apps/{*path}` mount, the function runtime for the `oxy-app`
 //! handlers that run a function, and the `oxy migrate` and `oxy seed` halves.
@@ -53,6 +53,21 @@ pub(crate) fn tasks() -> Vec<TaskSeam> {
                     db: deps.db.clone(),
                     schema_cache: deps.schema_cache.cloned(),
                 })
+            },
+        },
+        // A custom app's automation run, queued by its start
+        // (`automation_run::start_automation_run`). Like the ask it builds its
+        // own context from the caller the request authenticated, never from
+        // this driver's platform. A pod without it would fail the task as an
+        // unknown kind; the kind is required, so such a pod does not boot.
+        TaskSeam {
+            kind: oxy_api_custom_apps::automation_run::task::PROCEDURE_RUN_KIND,
+            build: |deps| {
+                Arc::new(
+                    oxy_api_custom_apps::automation_run::executor::ProcedureRunExecutor {
+                        db: deps.db.clone(),
+                    },
+                )
             },
         },
         // A scheduled or manual Oxy Function run. Its `ctx.semantic` resolves
@@ -263,6 +278,20 @@ pub(crate) fn background() -> Vec<BackgroundSeam> {
                 None
             },
         },
+        // The automation runs' TTL sweep: terminal rows out after a day, a
+        // cross-replica cancel reconciled, a row its driver abandoned closed.
+        // Every replica runs it, as it ran in `api_router` before (idempotent
+        // update-many and delete-many every 10 minutes).
+        BackgroundSeam {
+            name: "custom_app_automation_run_sweep",
+            start: |deps| {
+                oxy_api_custom_apps::automation_run::spawn_periodic_sweep(
+                    deps.db.clone(),
+                    deps.shutdown.clone(),
+                );
+                None
+            },
+        },
         // Resolve the function concurrency ceilings and the isolate heap limit at
         // boot, so their gauges read the limit and not 0 until a first call.
         BackgroundSeam {
@@ -393,12 +422,13 @@ mod tests {
     }
 
     /// The task kinds the fleet knew before this list was handed in, plus the
-    /// usage backfill and the queued ask (registered in `oxy-app` until its
-    /// executor moved to `oxy-api-custom-apps`, 2026-11-14). A kind added here, or dropped, is a change to what a
+    /// usage backfill, the queued ask and the automation run (both registered
+    /// in `oxy-app` until their executors moved to `oxy-api-custom-apps`,
+    /// 2026-11-14). A kind added here, or dropped, is a change to what a
     /// worker can run, so it is spelled out rather than derived from the
     /// constants it is built from.
     #[test]
-    fn the_task_kinds_are_exactly_these_eight() {
+    fn the_task_kinds_are_exactly_these_nine() {
         let mut kinds: Vec<&str> = tasks().iter().map(|t| t.kind).collect();
         kinds.sort_unstable();
         assert_eq!(
@@ -407,6 +437,7 @@ mod tests {
                 "app_function",
                 "custom_app_agent_ask",
                 "custom_app_env_oltp_branch",
+                "custom_app_procedure_run",
                 "custom_app_sandbox_migrations",
                 "custom_app_sandbox_oltp",
                 "custom_app_sandbox_teardown",
@@ -418,17 +449,20 @@ mod tests {
 
     /// Same for the background jobs: the five `api_router` and `serve` started
     /// by name before, plus the log tail's listener, the function limits'
-    /// boot-time resolution and the usage backfill sweep.
-    /// `SurfaceSeams::require_custom_apps` refuses to start without the seven
-    /// it names; the sweep is not one of them, because serving does not need it.
+    /// boot-time resolution, the usage backfill sweep and the automation runs'
+    /// sweep (started by `api_router` until it moved, 2026-11-14).
+    /// `SurfaceSeams::require_custom_apps` refuses to start without the eight
+    /// it names; the backfill sweep is not one of them, because serving does
+    /// not need it.
     #[test]
-    fn the_background_jobs_are_exactly_the_eight_the_composition_root_starts() {
+    fn the_background_jobs_are_exactly_the_nine_the_composition_root_starts() {
         let mut names: Vec<&str> = background().iter().map(|b| b.name).collect();
         names.sort_unstable();
         assert_eq!(
             names,
             [
                 "custom_app_asset_lifecycle_verify",
+                "custom_app_automation_run_sweep",
                 "custom_app_function_limits",
                 "custom_app_sandbox_maintenance",
                 "custom_app_storage_sweeper",

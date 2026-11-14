@@ -51,8 +51,8 @@ use uuid::Uuid;
 
 use super::settle::{self, Guard};
 use super::task::ProcedureRunTask;
-use crate::agentic_wiring::OxyProjectContext;
 use admission::{admit, begin};
+use oxy_app::surface::workspace_runtime::OxyProjectContext;
 
 mod admission;
 mod heartbeat;
@@ -97,7 +97,7 @@ impl TaskExecutor for ProcedureRunExecutor {
                 let _ = outcome_tx.send(outcome).await;
             }
             .instrument(span)
-            .bind_hub(crate::server::api::middlewares::sentry_surface::custom_app_hub()),
+            .bind_hub(oxy_telemetry::sentry_filter::custom_app_hub()),
         );
 
         Ok(ExecutingTask {
@@ -138,7 +138,7 @@ pub async fn prepare(
         .await
         .map_err(|e| format!("workspace lookup failed: {e}"))?
         .ok_or_else(|| "the run's workspace no longer exists".to_string())?;
-    let context = crate::server::api::custom_apps_gates::build_caller_context(
+    let context = oxy_app::surface::custom_app_semantic::build_caller_context(
         &workspace,
         task.user_id,
         task.workspace_id,

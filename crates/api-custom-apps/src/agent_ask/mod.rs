@@ -37,9 +37,9 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
+use crate::agent_ask_staging::{ask_scope, thread_source};
 use crate::custom_apps_gates::check_custom_app_gates;
 use oxy_app::surface::custom_app_semantic::{CustomAppContextExt, parse_versioned_body};
-use oxy_app::surface::custom_app_staging::{ask_scope, thread_source};
 use oxy_app_core::AppState;
 use oxy_app_core::write_hold::scope_if;
 

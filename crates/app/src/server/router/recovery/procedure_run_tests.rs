@@ -7,19 +7,31 @@
 //! before a driver could take the kind is what hung every airway run and had
 //! to be reverted (`54355b198`); these are the three ways that could happen
 //! again.
+//!
+//! The procedure run's executor is `oxy-api-custom-apps`' and reaches the
+//! registry through `SurfaceSeams::tasks`; the kind is a required one
+//! (`CUSTOM_APP_TASK_KINDS`), so a process without it does not boot. What is
+//! left to decide here is the driver's: these tests hand the kind in as a stub
+//! seam. The real executor's drive, through `recover_pending_global_runs`, is
+//! `oxy-api-custom-apps`' `custom_app_procedure_run_queue`.
 
 use std::time::{Duration, Instant};
 
 use agentic_pipeline::recovery::{DrivePolicy, STRANDED_GRACE_SECS, may_drive};
-use entity::customer_app_procedure_runs as proc_run;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use agentic_core::delegation::{TaskAssignment, TaskSpec};
+use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
 use sea_orm::{ActiveModelTrait, ActiveValue};
 
 use super::super::drive_policy::{IdeDeferral, drive_policy, drive_policy_for};
 use super::*;
-use crate::server::api::projects::automation_run::task::{
-    PROCEDURE_RUN_KIND, ProcedureRunTask, submit,
-};
 use crate::server::role_manifest::{Role, current_process_role};
+use crate::server::router::seams::CUSTOM_APP_TASK_KINDS;
+
+/// The kind `oxy-api-custom-apps` queues a procedure run under — a persisted
+/// queue contract, so spelled out.
+const PROCEDURE_RUN_KIND: &str = "custom_app_procedure_run";
 
 const EVERY_ROLE: [Role; 4] = [Role::All, Role::Ide, Role::Worker, Role::Serve];
 const NEITHER: IdeDeferral = IdeDeferral {
@@ -111,24 +123,38 @@ fn no_role_declines_a_procedure_run_for_ever() {
 }
 
 /// The registry `drive_pending` injects must know the kind, or the pod that
-/// claims a procedure run fails it as an unknown `Custom` task.
+/// claims a procedure run fails it as an unknown `Custom` task. The executor
+/// arrives through the seams, and the kind being required is what makes a
+/// process without it refuse to start rather than drain runs into failures.
 #[test]
-fn the_driver_registry_executes_procedure_runs() {
-    let registry = build_custom_task_registry(
-        &sea_orm::DatabaseConnection::default(),
-        &PreaggCacheCtx::default(),
-        &[],
-        None,
-    );
+fn a_process_without_the_procedure_run_executor_does_not_start() {
     assert!(
-        registry.get(PROCEDURE_RUN_KIND).is_some(),
-        "`build_custom_task_registry` does not register {PROCEDURE_RUN_KIND}"
+        CUSTOM_APP_TASK_KINDS.contains(&PROCEDURE_RUN_KIND),
+        "{PROCEDURE_RUN_KIND} must stay a required custom-app task kind"
     );
+}
+
+/// Set by [`Stub`] when the driver hands it a task. One test uses it.
+static STUB_RAN: AtomicBool = AtomicBool::new(false);
+
+/// The procedure run's executor, as far as the driver can tell: the seam hands
+/// in something that runs the kind.
+struct Stub;
+
+#[async_trait::async_trait]
+impl TaskExecutor for Stub {
+    async fn execute(&self, assignment: TaskAssignment) -> Result<ExecutingTask, String> {
+        if matches!(&assignment.spec, TaskSpec::Custom { kind, .. } if kind == PROCEDURE_RUN_KIND) {
+            STUB_RAN.store(true, Ordering::SeqCst);
+        }
+        Err("stub".to_string())
+    }
 }
 
 /// `OXY_ROLE=all`: one process, no worker fleet. The node that accepted the
 /// run must be the node that executes it, through nothing but its own
-/// latency-worker pass — production's registry, production's drive policy.
+/// latency-worker pass — production's registry built from the seams,
+/// production's drive policy.
 ///
 /// Scoped to this test's workspace because lib tests share one database:
 /// `drive_pending` is what `tick_cloud` calls per workspace, and calling it
@@ -167,22 +193,39 @@ async fn a_single_process_executes_the_run_it_queued() {
     .await
     .expect("seed workspace");
 
-    let automation: agentic_automation::AutomationConfig = serde_yaml::from_str(
-        "name: greet\ntasks:\n  - name: greeting\n    type: formatter\n    \
-         template: \"hello {{ params.store }}\"\n",
-    )
-    .expect("automation parses");
-    let caller = uuid::Uuid::new_v4();
-    let task = ProcedureRunTask {
-        run_id: uuid::Uuid::new_v4(),
+    // Queued as the start handler queues it: an `agentic_runs` row and a
+    // `Global` entry of the procedure-run kind.
+    let task_id = uuid::Uuid::new_v4().to_string();
+    agentic_runtime::crud::insert_run(
+        &db,
+        &task_id,
+        "procedure: greet",
+        None,
+        PROCEDURE_RUN_KIND,
+        None,
         workspace_id,
-        procedure_id: "greet".into(),
-        user_id: caller,
-        staging_pin: None,
-        automation: serde_json::to_value(&automation).expect("serialize"),
-        params: Some(serde_json::json!({ "store": "s-7" })),
+    )
+    .await
+    .expect("the run's agentic_runs row");
+    let spec = TaskSpec::Custom {
+        kind: PROCEDURE_RUN_KIND.to_string(),
+        payload: serde_json::json!({}),
     };
-    submit(&db, &task).await.expect("queue the run");
+    agentic_runtime::crud::enqueue_task(
+        &db,
+        &task_id,
+        &task_id,
+        None,
+        &spec,
+        None,
+        agentic_runtime::orchestrator::crud::queue::TaskScope::Global,
+    )
+    .await
+    .expect("queue the run");
+    let tasks = [TaskSeam {
+        kind: PROCEDURE_RUN_KIND,
+        build: |_| Arc::new(Stub),
+    }];
 
     let preagg = PreaggCacheCtx::default();
     let ctx = build_cloud_project_ctx_inner(workspace_id, &path, &db, &preagg)
@@ -193,7 +236,7 @@ async fn a_single_process_executes_the_run_it_queued() {
     let router = agentic_runtime::router::noop_router();
 
     let deadline = Instant::now() + Duration::from_secs(60);
-    let row = loop {
+    loop {
         drive_pending(
             &db,
             &runtime,
@@ -203,29 +246,17 @@ async fn a_single_process_executes_the_run_it_queued() {
             &router,
             Some(workspace_id),
             &preagg,
-            &[],
+            &tasks,
             policy,
         )
         .await;
-        let row = proc_run::Entity::find_by_id(task.run_id)
-            .one(&db)
-            .await
-            .expect("row lookup")
-            .expect("the run's row");
-        if row.status != "running" {
-            break row;
+        if STUB_RAN.load(Ordering::SeqCst) {
+            break;
         }
         assert!(
             Instant::now() < deadline,
             "the run was never executed: with no worker fleet nothing else will"
         );
         tokio::time::sleep(Duration::from_millis(200)).await;
-    };
-
-    assert_eq!(row.status, "done", "error: {:?}", row.error_message);
-    let outputs = row.result_outputs.expect("a done run records its outputs");
-    assert!(
-        outputs["greeting"].to_string().contains("hello s-7"),
-        "outputs: {outputs}"
-    );
+    }
 }

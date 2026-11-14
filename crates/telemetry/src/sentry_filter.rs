@@ -113,12 +113,13 @@ fn is_custom_app_namespace(name: &str) -> bool {
 /// Postgres, not a tenant warehouse. Prefixes, matched a path segment at a time
 /// by [`is_data_plane_module`].
 const DATA_PLANE_MODULE_PREFIXES: [&str; 6] = [
-    // Automation run, metric tree — the handlers behind
-    // `check_custom_app_gates` still in `oxy-app`. (`/query` and
-    // `/semantic-query` moved to `oxy_api_custom_apps::data_plane`, and the
-    // agent ask and its run stream to `oxy_api_custom_apps::{agent_ask,
-    // agent_run_stream}`, whose `custom_apps` path drops their lines
-    // outright: [`drop_log`].)
+    // The metric tree — the handlers behind `check_custom_app_gates` still in
+    // `oxy-app` — and the automation run's row state machine (`settle`), which
+    // stayed when its handlers left. (`/query` and `/semantic-query` moved to
+    // `oxy_api_custom_apps::data_plane`, and the agent ask, its run stream and
+    // the automation run's handlers and executor to `oxy_api_custom_apps::
+    // {agent_ask, agent_run_stream, automation_run}`, whose `custom_apps` path
+    // drops their lines outright: [`drop_log`].)
     "oxy_app::server::api::projects",
     // The world model's customer-app twins (graph, instances, measure
     // breakdown, cohort), behind the same gate since they left `projects`.
@@ -503,6 +504,11 @@ mod tests {
             "oxy_api_custom_apps::agent_ask::executor",
             // The agent-run SSE stream, the same day: its run-lookup `error!`.
             "oxy_api_custom_apps::agent_run_stream",
+            // The automation run, the same day: its start, poll and cancel,
+            // the queue executor and the TTL sweep.
+            "oxy_api_custom_apps::automation_run",
+            "oxy_api_custom_apps::automation_run::executor",
+            "oxy_api_custom_apps::automation_run::preview_mode",
             "oxy_custom_apps::storage::sweeper",
             "oxy_custom_apps::usage_queue",
         ];
@@ -717,6 +723,8 @@ mod tests {
             "oxy_api_custom_apps::agent_ask",
             "oxy_api_custom_apps::agent_ask::executor",
             "oxy_api_custom_apps::agent_run_stream",
+            "oxy_api_custom_apps::automation_run",
+            "oxy_api_custom_apps::automation_run::executor",
             "oxy_custom_apps::storage::sweeper",
             "oxy::app_function",
             "custom_app_function",
@@ -965,7 +973,9 @@ mod tests {
         for module in [
             "oxy_app::server::api::projects",
             "oxy_app::server::api::projects::metric_tree",
+            // The automation run's row state machine, which stayed in `oxy-app`.
             "oxy_app::server::api::projects::automation_run",
+            "oxy_app::server::api::projects::automation_run::settle",
             "oxy_api_world_model::customer_app::cohort",
             "oxy_api_world_model::customer_app::world_model",
             "agentic_connector",

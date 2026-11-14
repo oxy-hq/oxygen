@@ -1,5 +1,5 @@
 //! Closing a custom app's preview-run poll rows from the finished run: the
-//! half of [`super`] that the preview sweep drives.
+//! half of [`super`] that the preview sweep (`previews::runs::sweep`) drives.
 
 use entity::customer_app_procedure_runs::ActiveModel as ProcRunActiveModel;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};

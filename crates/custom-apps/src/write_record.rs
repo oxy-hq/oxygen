@@ -3,7 +3,7 @@
 //!
 //! `data_audit` is compiled only with `custom-app-functions` (V8), but the
 //! staging held-call log (`custom_apps_staging_held`), a held agent ask
-//! (`projects::agent_ask_staging`) and a held automation start
+//! (`oxy-api-custom-apps`' `agent_ask_staging`) and a held automation start
 //! (`projects::automation_run`) build the same rows without running a
 //! function. These items are therefore ungated; `data_audit` re-exports them
 //! so its own callers are unchanged.
