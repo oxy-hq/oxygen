@@ -23,7 +23,7 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 
 use crate::agentic_wiring::{OxyProjectContext, build_builder_bridges};
 use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use crate::server::api::projects::agent_ask::caller::CallerRunResolver;
+use crate::server::queued_analytics::caller::CallerRunResolver;
 use crate::server::service::secret_manager::SecretManagerService;
 
 use super::seams::TaskSeam;
@@ -1393,7 +1393,7 @@ pub(super) fn build_custom_task_registry(
     db: &sea_orm::DatabaseConnection,
     preagg: &PreaggCacheCtx,
     tasks: &[TaskSeam],
-    schema_cache: Option<crate::server::api::projects::agent_ask::executor::SchemaCache>,
+    schema_cache: Option<crate::server::queued_analytics::SchemaCache>,
 ) -> Arc<agentic_runtime::worker::CustomTaskRegistry> {
     use crate::server::preagg_executor::PreaggTaskExecutor;
     let mut reg = agentic_runtime::worker::CustomTaskRegistry::new();
@@ -1420,27 +1420,15 @@ pub(super) fn build_custom_task_registry(
             Arc::new(executor::ProcedureRunExecutor { db: db.clone() }),
         );
     }
-    // A custom app's ask: every live one is queued by its start. Like the
-    // procedure run it builds its own context from the caller the request
-    // authenticated — read off the run row — and never from this driver's
-    // subject-less platform.
-    {
-        use crate::server::api::projects::agent_ask::{executor, task};
-        reg.register(
-            task::AGENT_ASK_KIND,
-            Arc::new(executor::AgentAskExecutor {
-                db: db.clone(),
-                schema_cache: schema_cache.clone(),
-            }),
-        );
-    }
     // A chat run (`/analytics`): every plain chat is queued by its start. It
-    // runs as the requester the run records, never as this driver.
+    // runs as the requester the run records, never as this driver. (A custom
+    // app's ask, its sibling, is `oxy-api-custom-apps`'s and arrives through
+    // `tasks` below, with the same schema cache.)
     reg.register(
         agentic_pipeline::queued_run::CHAT_RUN_KIND,
         Arc::new(crate::server::queued_analytics::chat::ChatRunExecutor {
             db: db.clone(),
-            schema_cache,
+            schema_cache: schema_cache.clone(),
         }),
     );
     // Same shape as health eval: one executor instance, workspace context
@@ -1484,7 +1472,7 @@ pub(super) fn build_custom_task_registry(
         ),
     );
     // The surfaces' kinds, handed in by the composition root
-    // (`SurfaceSeams::tasks`): the custom-app kinds, the experiment and
+    // (`SurfaceSeams::tasks`): the custom-app kinds (a queued ask among them), the experiment and
     // simulation kinds (`oxy-api-experiment`: a simulation run, the price job,
     // read-back, the estimate, the interim reading), and the notification kinds
     // (`oxy-api-notifications`: a send's push, email and Slack delivery —
@@ -1494,7 +1482,11 @@ pub(super) fn build_custom_task_registry(
     // fails its tasks as unknown, so `require_task_kinds` refuses to start a
     // process without the custom-app, notification and health ones, and
     // `oxy-server`'s own test holds the experiment ones to the composition.
-    let deps = crate::server::router::TaskDeps { db, preagg };
+    let deps = crate::server::router::TaskDeps {
+        db,
+        preagg,
+        schema_cache: schema_cache.as_ref(),
+    };
     for seam in tasks {
         reg.register(seam.kind, (seam.build)(&deps));
     }

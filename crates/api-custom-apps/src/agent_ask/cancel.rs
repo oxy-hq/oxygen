@@ -35,10 +35,10 @@ use axum::response::{IntoResponse, Response};
 use tracing::{error, instrument};
 use uuid::Uuid;
 
-use super::super::agent_ask_staging::{ask_scope, staging_run_matches};
 use super::{boxed, err, err_with_code};
-use crate::server::api::custom_apps_gates::check_custom_app_gates;
-use crate::server::router::AppState;
+use crate::custom_apps_gates::check_custom_app_gates;
+use oxy_app::surface::custom_app_staging::{ask_scope, staging_run_matches};
+use oxy_app_core::AppState;
 
 /// The `error_message` of a run this endpoint closed.
 const CANCELLED_BY_USER: &str = "cancelled by user";

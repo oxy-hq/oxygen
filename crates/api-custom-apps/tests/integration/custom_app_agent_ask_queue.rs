@@ -31,13 +31,9 @@ use agentic_runtime::crud;
 use agentic_runtime::router::noop_router;
 use agentic_runtime::state::RuntimeState;
 use agentic_runtime::worker::{CustomTaskRegistry, ExecutingTask, TaskExecutor};
-use oxy_app::surface::testing::projects::agent_ask::caller::{
-    CallerRunResolver, RUN_CALLER_KEY, RunCaller,
-};
-use oxy_app::surface::testing::projects::agent_ask::executor::{
-    AgentAskExecutor, INTERRUPTED_MESSAGE, prepare,
-};
-use oxy_app::surface::testing::projects::agent_ask::task::{self, AGENT_ASK_KIND};
+use oxy_api_custom_apps::agent_ask::caller::{CallerRunResolver, RUN_CALLER_KEY, RunCaller};
+use oxy_api_custom_apps::agent_ask::executor::{AgentAskExecutor, INTERRUPTED_MESSAGE, prepare};
+use oxy_api_custom_apps::agent_ask::task::{self, AGENT_ASK_KIND};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 use uuid::Uuid;

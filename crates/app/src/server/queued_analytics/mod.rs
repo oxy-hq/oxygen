@@ -2,7 +2,7 @@
 //!
 //! Two kinds of run are seeded by a request and started by whichever driver
 //! claims them (`agentic_pipeline::queued_run`): a custom-app ask
-//! (`projects::agent_ask::executor`) and a chat run ([`chat`]). They differ in
+//! (`oxy-api-custom-apps`'s `agent_ask::executor`) and a chat run ([`chat`]). They differ in
 //! who the run is for and what its pipeline is built with. They share the rule
 //! that makes a claim safe to hand on, and that rule lives here:
 //!
@@ -31,11 +31,19 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 pub mod admission;
+pub mod caller;
 pub mod chat;
-pub(crate) mod heartbeat;
+pub mod heartbeat;
 pub mod requester;
 
 pub use admission::INTERRUPTED_MESSAGE;
+
+/// The schema cache a driver shares across the analytics runs it drives: a
+/// custom-app ask (`oxy-api-custom-apps`'s `AgentAskExecutor`) and a chat run
+/// ([`chat`]).
+pub type SchemaCache = std::sync::Arc<
+    std::sync::Mutex<std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>>,
+>;
 
 /// The feature flag that puts a plain chat start and a requester's
 /// agentic-workflow start on the queue (`AgenticState::queued_starts`).
@@ -68,7 +76,7 @@ pub fn queued_starts_enabled() -> bool {
 /// driver that dies while building it leaves a run nothing has started, which
 /// the next attempt may run; immediately before the start, so nothing between
 /// the stamp and the pipeline can fail without being the pipeline's failure.
-pub(crate) async fn attempt<P, Prep, PrepFut, Start, StartFut>(
+pub async fn attempt<P, Prep, PrepFut, Start, StartFut>(
     db: &DatabaseConnection,
     run_id: &str,
     prepare: Prep,
@@ -97,7 +105,7 @@ where
 
 /// Hand a started pipeline's task to the worker, and stop `beating` when the
 /// pipeline stops — at a terminal outcome or at a suspension.
-pub(crate) fn beside_the_pipeline(
+pub fn beside_the_pipeline(
     started: agentic_pipeline::StartedPipeline,
     beating: heartbeat::Beating,
 ) -> ExecutingTask {
@@ -113,13 +121,13 @@ pub(crate) fn beside_the_pipeline(
 /// event for the run's log, then one outcome.
 #[derive(Debug)]
 pub struct Settled {
-    pub(crate) event: Option<(String, JsonValue)>,
-    pub(crate) outcome: TaskOutcome,
+    pub event: Option<(String, JsonValue)>,
+    pub outcome: TaskOutcome,
 }
 
 impl Settled {
     /// An outcome and nothing for the log.
-    pub(crate) fn only(outcome: TaskOutcome) -> Self {
+    pub fn only(outcome: TaskOutcome) -> Self {
         Self {
             event: None,
             outcome,
@@ -129,7 +137,7 @@ impl Settled {
     /// The run ends here, failed, without its pipeline having run. A client
     /// reads the run's event log, so the failure has to be on the log too: an
     /// `error` event is what ends its stream.
-    pub(crate) fn failed(message: String) -> Self {
+    pub fn failed(message: String) -> Self {
         Self {
             event: Some((
                 "error".to_string(),
@@ -141,7 +149,7 @@ impl Settled {
 
     /// As the task a worker forwards: the event, then the outcome, then both
     /// channels closed.
-    pub(crate) fn into_task(self) -> ExecutingTask {
+    pub fn into_task(self) -> ExecutingTask {
         let (event_tx, events) = mpsc::channel(1);
         let (outcome_tx, outcomes) = mpsc::channel(1);
         if let Some(event) = self.event {

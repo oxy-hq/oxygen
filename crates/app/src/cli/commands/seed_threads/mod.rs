@@ -541,7 +541,7 @@ mod tests {
     ///
     /// There are two title-writing paths, and the seed follows the human one:
     /// an API/SDK run takes `question.chars().take(120)` with no ellipsis
-    /// (`agentic/http/src/routes/run.rs`, `projects/agent_ask.rs`), but a
+    /// (`agentic/http/src/routes/run.rs`, `api-custom-apps/src/agent_ask/mod.rs`), but a
     /// person starting a chat goes through the Chat panel, which sends
     /// `getShortTitle(message)` to `create_thread` — 8 words or 50 chars, plus
     /// an ellipsis. Asserting the `take(120)` shape here would be wrong: it

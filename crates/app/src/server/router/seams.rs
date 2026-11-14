@@ -89,6 +89,18 @@ pub struct TaskDeps<'a> {
     /// The node's Layer-1 preagg cache. Default (no cache) compiles to
     /// warehouse SQL.
     pub preagg: &'a PreaggCacheCtx,
+    /// The driver's analytics schema cache, shared with the chat runs it
+    /// drives. A custom-app ask's executor takes it; `None` builds the schema
+    /// per run. Spelled out rather than named through
+    /// `queued_analytics::SchemaCache` (the same type): the seams are base,
+    /// and the queued-run machinery is not (`base_boundary`).
+    pub schema_cache: Option<
+        &'a std::sync::Arc<
+            std::sync::Mutex<
+                std::collections::HashMap<String, agentic_pipeline::AnalyticsSchemaCatalog>,
+            >,
+        >,
+    >,
 }
 
 /// One `TaskSpec::Custom` kind an extracted surface runs, with the executor
@@ -363,14 +375,22 @@ pub struct SurfaceSeams {
 ///
 /// The strings, not the constants that name them in `oxy-api-custom-apps`: the
 /// executors are in that crate and `oxy-app` cannot name it. A test there
-/// (`task_kinds_are_the_six_the_fleet_knew`) holds each constant to its string.
-pub const CUSTOM_APP_TASK_KINDS: [&str; 6] = [
+/// (`task_kinds_are_the_six_the_fleet_knew`) holds each constant to its string,
+/// and `oxy-server`'s `the_task_kinds_are_exactly_these_eight` the list handed in.
+///
+/// `custom_app_agent_ask` is queued by every live ask's start, which moved to
+/// `oxy-api-custom-apps` with its executor (2026-11-14). It is listed so a
+/// process whose seams lack the executor refuses to start, rather than fail
+/// every ask as an unknown kind; `agentic-pipeline`'s recovery and the chat
+/// executor name the same string.
+pub const CUSTOM_APP_TASK_KINDS: [&str; 7] = [
     "app_function",
     "custom_app_staging_migrations",
     "custom_app_sandbox_teardown",
     "custom_app_sandbox_migrations",
     "custom_app_sandbox_oltp",
     "custom_app_env_oltp_branch",
+    "custom_app_agent_ask",
 ];
 
 /// The `TaskSpec::Custom` kinds `oxy-app`'s own sources queue for the
@@ -510,10 +530,10 @@ mod tests {
         }
     }
 
-    /// The persisted task-queue contract: these six strings are in
+    /// The persisted task-queue contract: these strings are in
     /// `agentic_task_queue` rows, so a change here strands queued work.
     #[test]
-    fn the_required_task_kinds_are_the_six_the_fleet_knew() {
+    fn the_required_task_kinds_are_the_seven_the_fleet_knew() {
         assert_eq!(
             CUSTOM_APP_TASK_KINDS,
             [
@@ -523,6 +543,7 @@ mod tests {
                 "custom_app_sandbox_migrations",
                 "custom_app_sandbox_oltp",
                 "custom_app_env_oltp_branch",
+                "custom_app_agent_ask",
             ]
         );
     }

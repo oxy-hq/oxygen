@@ -34,6 +34,7 @@
 //! | `nonprod_function_uploads` | a staging or sandbox function's `ctx.fetch` PUT to the upload URL its own invocation minted is sent, and is not in its held row; every other mutating fetch is still held — production's silo, another environment's, another app's, another host, a traversal, another bucket or query, another method, a URL an earlier invocation minted; production sends what it always sent. No V8: the real host, driven from Rust |
 //! | `staging_storage_limits` | a staging silo has its own cap, and its bytes never count toward the org quota that gates production's writes |
 //! | `custom_app_staging_held` | the console's held list returns a staging invoker its own `app.staging.held` rows (app and actor stamped), `[]` to another developer who may open staging, 404 to a caller who may not; production adds none; a row from before `app_id` was stamped is found by slug within the org |
+//! | `ask_wait` | an ask's `wait_seconds` (`agent_ask::wait`) against a real run table: what counts as settled, a NOTIFY ring ends the wait as soon as the run does, and a wait that runs out says so (moved from `oxy-app`'s platform group with the handler, 2026-11-14) |
 //! | `staging_agent_ask` | a staging-host agent ask (staff only, else 404 `EnvironmentRefused`) builds its platform inside the hold: held from the drive's spawned task, DDL through its connector is refused and listed in `…/staging/held` as `agent`, the run is stamped with the app and startup recovery retires it; production asks are unchanged (no hold, no stamp) |
 //! | `staging_agent_ask_handlers` | the real `start_ask` on the staging host refuses a non-staff caller (404 `EnvironmentRefused`) before writing a thread, and reaches the pipeline for staff (`agent_not_found`); the staging `cancel_ask` reaches only this app's stamped staging runs, production's is unchanged |
 //! | `preview_automation_run_handlers` | an automation run from a staging host whose `workspace-actions` plane is `preview` queues a workspace-preview dry run (poll row and `workspace_preview_runs` row under one id, on the pin or the promoted revision), answers `409 preview_runs_disabled` without `OXY_PREVIEW_RUNS`, and settles its poll row from `agentic_runs` on the preview sweep |
@@ -127,6 +128,7 @@ mod app_environments_phase_1b;
 mod app_preflight;
 mod app_role_memo;
 mod app_scoped_secrets;
+mod ask_wait;
 mod canary_coverage;
 mod custom_app_access_control;
 mod custom_app_activity_roles;

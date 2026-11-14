@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use agentic_runtime::lifecycle::remote_wake::{RemoteWakes, RunEventWaker};
-use oxy_app::server::api::projects::agent_ask::wait::{Settled, wait_for_settle};
+use oxy_api_custom_apps::agent_ask::wait::{Settled, wait_for_settle};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use uuid::Uuid;
 

@@ -63,14 +63,14 @@ pub(super) fn is_stale(last_alive: DateTime<Utc>, now: DateTime<Utc>) -> bool {
 
 /// A running heartbeat. Dropping it stops the ticker; [`Beating::stop`] also
 /// waits for it.
-pub(crate) struct Beating {
+pub struct Beating {
     stop: DropGuard,
     ticker: JoinHandle<()>,
 }
 
 impl Beating {
     /// Stop the ticker and wait for it to be gone.
-    pub(crate) async fn stop(self) {
+    pub async fn stop(self) {
         drop(self.stop);
         let _ = self.ticker.await;
     }

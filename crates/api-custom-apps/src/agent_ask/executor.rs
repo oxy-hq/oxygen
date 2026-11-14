@@ -1,7 +1,9 @@
 //! `AgentAskExecutor`: drives a queued custom-app ask
 //! (`TaskSpec::Custom { kind: "custom_app_agent_ask" }`) on whichever process
-//! claimed it. Registered into the `CustomTaskRegistry` by
-//! `server::router::recovery`; `PipelineTaskExecutor` delegates the kind here.
+//! claimed it. Handed to every driver's `CustomTaskRegistry` through
+//! `SurfaceSeams::tasks` (`oxy-server`'s `custom_apps_seams`), and required
+//! there at boot (`CUSTOM_APP_TASK_KINDS`); `PipelineTaskExecutor` delegates
+//! the kind here.
 //!
 //! Every live ask reaches it: the start queues the kind (`super::start`). See
 //! [`super::task`].
@@ -34,7 +36,6 @@
 use std::sync::Arc;
 
 use agentic_core::delegation::TaskAssignment;
-use agentic_pipeline::AnalyticsSchemaCatalog;
 use agentic_runtime::entity::run;
 use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
 use async_trait::async_trait;
@@ -45,15 +46,10 @@ use tracing::Instrument;
 use super::caller::CallerContextError;
 use super::pipeline::ask_pipeline;
 use super::task::{self, QueuedAsk};
-use crate::agentic_wiring::OxyProjectContext;
+use oxy_app::surface::queued_runs::{self as queued_analytics, Settled, admission, heartbeat};
+use oxy_app::surface::workspace_runtime::OxyProjectContext;
 
-use crate::server::queued_analytics::{self, Settled, admission, heartbeat};
-
-pub use crate::server::queued_analytics::INTERRUPTED_MESSAGE;
-
-/// The schema cache a driver shares across the runs it drives.
-pub type SchemaCache =
-    Arc<std::sync::Mutex<std::collections::HashMap<String, AnalyticsSchemaCatalog>>>;
+pub use oxy_app::surface::queued_runs::{INTERRUPTED_MESSAGE, SchemaCache};
 
 pub struct AgentAskExecutor {
     pub db: DatabaseConnection,
@@ -71,7 +67,7 @@ impl TaskExecutor for AgentAskExecutor {
         // inherit the hub that is current when they are spawned — so the
         // custom-app tag has to be in place before the pipeline starts
         // (`middlewares::sentry_surface`).
-        let hub = crate::server::api::middlewares::sentry_surface::custom_app_hub();
+        let hub = oxy_telemetry::sentry_filter::custom_app_hub();
         Ok(self
             .claim(&assignment.run_id)
             .instrument(span)

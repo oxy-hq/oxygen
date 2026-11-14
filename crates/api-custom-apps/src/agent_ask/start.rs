@@ -38,8 +38,8 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use super::{AskRequest, boxed, caller, err, err_with_hint, pipeline, task};
-use crate::server::api::custom_apps_gates::CustomAppContext;
 use oxy_app_core::write_hold::{HoldScope, scope_if};
+use oxy_custom_apps::gate::CustomAppContext;
 
 /// Queue a live ask: check its agent can start, then seed the run and its
 /// entry. Returns the run id. Registers nothing in this process — see

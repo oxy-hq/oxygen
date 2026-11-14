@@ -41,6 +41,20 @@ use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Pr
 /// runs it.
 pub(crate) fn tasks() -> Vec<TaskSeam> {
     vec![
+        // A custom app's ask: every live one is queued by its start
+        // (`agent_ask::start`). It builds its own context from the caller the
+        // request authenticated — read off the run row — never from this
+        // driver's subject-less platform, and shares the driver's schema cache
+        // with the chat runs beside it.
+        TaskSeam {
+            kind: oxy_api_custom_apps::agent_ask::task::AGENT_ASK_KIND,
+            build: |deps| {
+                Arc::new(oxy_api_custom_apps::agent_ask::executor::AgentAskExecutor {
+                    db: deps.db.clone(),
+                    schema_cache: deps.schema_cache.cloned(),
+                })
+            },
+        },
         // A scheduled or manual Oxy Function run. Its `ctx.semantic` resolves
         // rollups on the node draining the queue, the same way its
         // HTTP-invoked twin does.
@@ -379,17 +393,19 @@ mod tests {
     }
 
     /// The task kinds the fleet knew before this list was handed in, plus the
-    /// usage backfill. A kind added here, or dropped, is a change to what a
+    /// usage backfill and the queued ask (registered in `oxy-app` until its
+    /// executor moved to `oxy-api-custom-apps`, 2026-11-14). A kind added here, or dropped, is a change to what a
     /// worker can run, so it is spelled out rather than derived from the
     /// constants it is built from.
     #[test]
-    fn the_task_kinds_are_exactly_these_seven() {
+    fn the_task_kinds_are_exactly_these_eight() {
         let mut kinds: Vec<&str> = tasks().iter().map(|t| t.kind).collect();
         kinds.sort_unstable();
         assert_eq!(
             kinds,
             [
                 "app_function",
+                "custom_app_agent_ask",
                 "custom_app_env_oltp_branch",
                 "custom_app_sandbox_migrations",
                 "custom_app_sandbox_oltp",

@@ -61,8 +61,8 @@ use sea_orm::DatabaseConnection;
 
 use crate::agentic_wiring::build_builder_bridges;
 use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use crate::server::api::projects::agent_ask::caller::CallerRunResolver;
-use crate::server::api::projects::agent_ask::executor::SchemaCache;
+use crate::server::queued_analytics::SchemaCache;
+use crate::server::queued_analytics::caller::CallerRunResolver;
 
 use super::recovery::{self, CustomTasks};
 use super::workspace_cache::WorkspaceContextCache;

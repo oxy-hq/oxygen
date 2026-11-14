@@ -137,7 +137,7 @@ const _: () = assert!(
 /// to settle, or not yet. `Deferred` is the one outcome that writes nothing
 /// onto the run, so the stream never reads a refused attempt as the end of an
 /// run another attempt may be driving — or one this attempt may still run.
-pub(crate) fn step_aside(run_id: &str, reason: String) -> Settled {
+pub fn step_aside(run_id: &str, reason: String) -> Settled {
     tracing::info!(%run_id, %reason, "queued run: stepping aside for a later claim");
     Settled::only(TaskOutcome::Deferred {
         delay_secs: STEP_ASIDE_DELAY_SECS,

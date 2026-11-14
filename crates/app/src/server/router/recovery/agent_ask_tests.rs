@@ -1,19 +1,21 @@
 //! `router::recovery` as the driver of a queued custom-app ask.
 //!
-//! Every live ask is queued (`projects::agent_ask::start`), so every driver
-//! must take the kind and none may decline it for ever. These pin the two
-//! things that would make that false.
+//! Every live ask is queued (`oxy-api-custom-apps`'s `agent_ask::start`), so
+//! every driver must take the kind and none may decline it for ever. The
+//! executor is that crate's, registered through `SurfaceSeams::tasks`; that the
+//! seams carry it is `require_task_kinds`'s check (`CUSTOM_APP_TASK_KINDS`), so
+//! a process without it refuses to start. These pin placement: no role
+//! declines a queued ask for ever.
 
 use agentic_pipeline::recovery::{STRANDED_GRACE_SECS, may_drive};
 
 use super::super::drive_policy::{IdeDeferral, drive_policy_for};
 use super::*;
-use crate::server::api::projects::agent_ask::task::AGENT_ASK_KIND;
 use crate::server::role_manifest::Role;
 
 /// The `source_type` a queued ask's run carries, and so what the placement
 /// gate matches on: the start inserts it as an analytics run. Not
-/// `AGENT_ASK_KIND`, which is only the queue spec's discriminator.
+/// `custom_app_agent_ask`, which is only the queue spec's discriminator.
 const ASK_SOURCE_TYPE: &str = "analytics";
 
 const EVERY_ROLE: [Role; 4] = [Role::All, Role::Ide, Role::Worker, Role::Serve];
@@ -42,22 +44,6 @@ fn drives(role: Role, defer: IdeDeferral, unclaimed_secs: u64) -> bool {
         unclaimed_secs,
         drive_policy_for(role, defer),
     )
-}
-
-/// The registry every driver loop injects must know the kind, or the pod that
-/// claims a queued ask fails it as an unknown `Custom` task.
-#[test]
-fn the_driver_registry_executes_queued_asks() {
-    let registry = build_custom_task_registry(
-        &sea_orm::DatabaseConnection::default(),
-        &PreaggCacheCtx::default(),
-        &[],
-        None,
-    );
-    assert!(
-        registry.get(AGENT_ASK_KIND).is_some(),
-        "`build_custom_task_registry` does not register {AGENT_ASK_KIND}"
-    );
 }
 
 /// The same for a queued chat run: registered on every driver a release before

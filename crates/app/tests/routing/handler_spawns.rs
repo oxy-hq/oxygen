@@ -164,7 +164,7 @@ const ALLOWED: &[(&str, &str)] = &[
          `every_allowlist_entry_still_covers_a_spawn`",
     ),
     (
-        "app/src/server/api/projects/agent_ask/start.rs",
+        "api-custom-apps/src/agent_ask/start.rs",
         "drives a custom-app ask in the request's process when `AskAdmission` refuses \
          the queue (an app's staging host); every other ask is queued. Documented in \
          worker-fleet.md § Agent asks; the staging case is the remaining backlog",

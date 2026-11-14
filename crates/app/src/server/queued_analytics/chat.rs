@@ -39,10 +39,10 @@ use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 use tracing::Instrument;
 
+use super::SchemaCache;
 use super::requester::{RequesterContextError, requester_context};
 use super::{Settled, admission, attempt, beside_the_pipeline, heartbeat};
 use crate::agentic_wiring::OxyProjectContext;
-use crate::server::api::projects::agent_ask::executor::SchemaCache;
 
 pub struct ChatRunExecutor {
     pub db: DatabaseConnection,

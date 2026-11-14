@@ -149,23 +149,12 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
         // cohorts (`/projects/{project_id}/semantic/{world-model*,cohort}`) are
         // `oxy-api-world-model`'s, beside their IDE twins, merged beside this
         // tree through `SurfaceSeams::public` with the same customer-app gate.
-        // Phase 2 — one-shot ask. POST starts a run, GET polls for state.
-        // Bundle SDK exposes both behind `useAsk({agentId})`.
-        .route_fleet(
-            "/projects/{project_id}/agents/{agent_id}/asks",
-            post(projects::agent_ask::start_ask),
-        )
-        // No GET poll endpoint — the SDK consolidated on
-        // `useAgentRun` (SSE) for chat. Bundles that want one-shot
-        // ask UX use the same SSE stream and bail out on the first
-        // terminal event; bundles that don't want streaming use
-        // `useProcedureRun` for their batch case. Removing the
-        // poll endpoint keeps the surface small and removes a
-        // second source of truth for run state.
-        .route_fleet(
-            "/projects/{project_id}/agents/asks/{run_id}/cancel",
-            post(projects::agent_ask::cancel_ask),
-        )
+        // The one-shot ask's start and cancel
+        // (`/projects/{project_id}/agents/{agent_id}/asks`,
+        // `/projects/{project_id}/agents/asks/{run_id}/cancel`) are
+        // `oxy-api-custom-apps`'s (`agent_ask`), merged beside this tree
+        // through `SurfaceSeams::public`; its queued executor arrives through
+        // `SurfaceSeams::tasks`.
         // Phase 3 — long-running automations. POST starts, GET polls,
         // POST .../cancel stops in-flight. Persistent state in
         // `customer_app_procedure_runs` survives server restarts.

@@ -460,8 +460,9 @@ mod tests {
             .collect()
     }
 
-    /// The mechanism behind the two custom-app data-plane spawns
-    /// (`projects::agent_ask`, `projects::automation_run`): both return 202
+    /// The mechanism behind the two custom-app data-plane spawns (the agent
+    /// ask, now `oxy-api-custom-apps`'s `agent_ask`, and
+    /// `projects::automation_run`): both return 202
     /// while the run continues, so by the time the pipeline captures anything
     /// the request's hub has unwound.
     ///

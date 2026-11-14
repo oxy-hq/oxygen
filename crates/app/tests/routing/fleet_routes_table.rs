@@ -160,8 +160,12 @@ fn every_row_is_one_the_script_can_read() {
 #[test]
 fn no_row_contradicts_the_role_the_code_declares() {
     let declared = declared();
+    // 150, not 200: oxy-app declares 200 since the custom-app agent ask's
+    // two routes left for oxy-api-custom-apps (2026-11-14), and every
+    // decomposition step moves more out. The floor guards against an empty
+    // table, not a count.
     assert!(
-        declared.len() > 200,
+        declared.len() > 150,
         "route_declarations() returned {} routes — the comparison below would \
          be checking next to nothing",
         declared.len()

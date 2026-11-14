@@ -37,14 +37,15 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
-use super::agent_ask_staging::{ask_scope, thread_source};
-use crate::server::api::custom_apps_gates::{
-    CustomAppContextExt, check_custom_app_gates, parse_versioned_body,
-};
-use crate::server::router::AppState;
+use crate::custom_apps_gates::check_custom_app_gates;
+use oxy_app::surface::custom_app_semantic::{CustomAppContextExt, parse_versioned_body};
+use oxy_app::surface::custom_app_staging::{ask_scope, thread_source};
+use oxy_app_core::AppState;
 use oxy_app_core::write_hold::scope_if;
 
-pub mod caller;
+/// Who an ask runs as when its request is not the one driving it. `oxy-app`'s,
+/// since recovery and the chat executor resolve every root through it.
+pub use oxy_app::surface::queued_runs::caller;
 mod cancel;
 pub mod executor;
 mod pipeline;

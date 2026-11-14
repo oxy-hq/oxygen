@@ -186,7 +186,7 @@ tokio::task_local! {
 // An `async fn` wrapper keeps `fut` as its argument AND inside the future it
 // awaits, and a debug build gives each copy its own slot in every poll frame
 // it passes through, so wrapping a large future (a pipeline start) multiplied
-// it on the worker's stack (`projects::agent_ask` overflowed 2 MiB that way).
+// it on the worker's stack (the custom-app agent ask overflowed 2 MiB that way).
 
 /// Run `fut` as a workspace-preview request: every write it would make is
 /// held. The workspace middleware wraps a preview-pinned request in this.

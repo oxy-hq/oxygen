@@ -174,6 +174,29 @@ pub mod custom_app_semantic {
     };
 }
 
+/// An analytics run started from the queue: the claim-safe attempt every
+/// executor of one shares (`queued_analytics`), and who a custom-app ask runs
+/// as when something other than its request drives it (`caller`). The chat
+/// executor and recovery stay here and use both; a custom-app ask's start,
+/// cancel and executor are `oxy-api-custom-apps`'s.
+pub mod queued_runs {
+    pub use crate::server::queued_analytics::caller;
+    pub use crate::server::queued_analytics::{
+        INTERRUPTED_MESSAGE, SchemaCache, Settled, admission, attempt, beside_the_pipeline,
+        heartbeat,
+    };
+}
+
+/// What an ask on an app's staging host or a sandbox runs under: its write
+/// hold, the thread history it may continue, and which runs its cancel
+/// reaches. Stays beside the held automation run (`projects::automation_run`),
+/// which shares its refusal.
+pub mod custom_app_staging {
+    pub use crate::server::api::projects::agent_ask_staging::{
+        ASK_SURFACE, ask_scope, staging_run_matches, thread_source,
+    };
+}
+
 /// The S3 mirror of a runtime artifact (a chart image, a query result) written
 /// to one pod's disk, so a read on another pod finds it. The Slack bot mirrors
 /// the chart PNGs it renders.

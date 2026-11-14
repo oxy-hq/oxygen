@@ -213,8 +213,8 @@ const NOT_SHIMS: &[(&str, &str)] = &[(
     "server/api/custom_apps_gates.rs",
     "the data plane's gate (`check_custom_app_gates` answered as a response, \
      `parse_versioned_body`) and the project-context composition root \
-     (`build_project_context*`), which `projects::{query, semantic_query, agent_ask, \
-     automation_run, ...}` call and which build an `OxyProjectContext`. The decisions \
+     (`build_project_context*`), which `projects::{automation_run, metric_tree, ...}` \
+     and `oxy-api-custom-apps`' data plane and agent ask call and which build an `OxyProjectContext`. The decisions \
      are `oxy_custom_apps::gate`; the function host reaches the context builder \
      through `FunctionQueryExecutor::build_project_context`.",
 )];

@@ -15,7 +15,7 @@
 //! request resolved, not one re-read now: that is what a handler-driven run
 //! keeps for its whole life, and what a queued one must not exceed.
 //!
-//! Recovery reads the same record (`agent_ask::caller::CallerRunResolver`), so
+//! Recovery reads the same record ([`super::caller::CallerRunResolver`]), so
 //! a chat run its driver died in is resumed as its requester too — where it
 //! used to be resumed on the tick's subject-less platform.
 

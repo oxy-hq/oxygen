@@ -113,10 +113,11 @@ fn is_custom_app_namespace(name: &str) -> bool {
 /// Postgres, not a tenant warehouse. Prefixes, matched a path segment at a time
 /// by [`is_data_plane_module`].
 const DATA_PLANE_MODULE_PREFIXES: [&str; 6] = [
-    // Agent ask, automation run, metric tree — the handlers behind
+    // Automation run, metric tree — the handlers behind
     // `check_custom_app_gates` still in `oxy-app`. (`/query` and
-    // `/semantic-query` moved to `oxy_api_custom_apps::data_plane`, whose
-    // `custom_apps` path drops their lines outright: [`drop_log`].)
+    // `/semantic-query` moved to `oxy_api_custom_apps::data_plane`, and the
+    // agent ask to `oxy_api_custom_apps::agent_ask`, whose `custom_apps` path
+    // drops their lines outright: [`drop_log`].)
     "oxy_app::server::api::projects",
     // The world model's customer-app twins (graph, instances, measure
     // breakdown, cohort), behind the same gate since they left `projects`.
@@ -494,6 +495,11 @@ mod tests {
             // `error!` on a warehouse failure sends nothing to Sentry from here.
             "oxy_api_custom_apps::data_plane::query",
             "oxy_api_custom_apps::data_plane::semantic_query",
+            // The agent ask, out of `oxy-app` on 2026-11-14: its start, cancel
+            // and the queue executor that drives it.
+            "oxy_api_custom_apps::agent_ask",
+            "oxy_api_custom_apps::agent_ask::start",
+            "oxy_api_custom_apps::agent_ask::executor",
             "oxy_custom_apps::storage::sweeper",
             "oxy_custom_apps::usage_queue",
         ];
@@ -704,6 +710,9 @@ mod tests {
             // there; leaving Sentry Logs entirely here was chosen with the move.
             "oxy_api_custom_apps::data_plane::query",
             "oxy_api_custom_apps::data_plane::semantic_query",
+            // The agent ask, the same way, since 2026-11-14.
+            "oxy_api_custom_apps::agent_ask",
+            "oxy_api_custom_apps::agent_ask::executor",
             "oxy_custom_apps::storage::sweeper",
             "oxy::app_function",
             "custom_app_function",
@@ -952,7 +961,7 @@ mod tests {
         for module in [
             "oxy_app::server::api::projects",
             "oxy_app::server::api::projects::metric_tree",
-            "oxy_app::server::api::projects::agent_ask",
+            "oxy_app::server::api::projects::automation_run",
             "oxy_api_world_model::customer_app::cohort",
             "oxy_api_world_model::customer_app::world_model",
             "agentic_connector",

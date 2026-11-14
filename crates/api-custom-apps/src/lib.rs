@@ -50,6 +50,7 @@
 #![recursion_limit = "256"]
 
 pub mod admin;
+pub mod agent_ask;
 mod app_function_agent;
 pub mod app_function_executor;
 pub mod app_lifecycle;
@@ -607,6 +608,19 @@ pub fn public_routes() -> Router<AppState> {
             "/projects/{project_id}/semantic-query",
             post(data_plane::semantic_query::run_semantic_query),
         )
+        // The one-shot ask (`agent_ask`): the start queues an analytics run
+        // and answers 202 (or 200, settled within `wait_seconds`); the bundle
+        // reads its events from `…/agents/runs/{run_id}/events`. No poll
+        // endpoint: the SDK consolidated on that SSE stream. The executor
+        // that drives a queued ask is handed in through `SurfaceSeams::tasks`.
+        .route(
+            "/projects/{project_id}/agents/{agent_id}/asks",
+            post(agent_ask::start_ask),
+        )
+        .route(
+            "/projects/{project_id}/agents/asks/{run_id}/cancel",
+            post(agent_ask::cancel_ask),
+        )
         // Shell bootstrap for `@oxy-hq/sdk/shell` chrome inside bundles:
         // workspace/org identity + published-apps list + host-aware product links.
         // Pure Postgres reads behind the data-plane gate chain.
@@ -669,6 +683,8 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
         fleet("/customer-apps/{org_slug}/{app_slug}/availability"),
         fleet("/projects/{project_id}/query"),
         fleet("/projects/{project_id}/semantic-query"),
+        fleet("/projects/{project_id}/agents/{agent_id}/asks"),
+        fleet("/projects/{project_id}/agents/asks/{run_id}/cancel"),
         fleet("/projects/{project_id}/shell-context"),
         fleet("/projects/{project_id}/threads"),
         fleet("/projects/{project_id}/threads/{thread_id}"),

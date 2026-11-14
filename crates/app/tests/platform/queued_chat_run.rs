@@ -33,8 +33,8 @@ use agentic_runtime::state::RuntimeState;
 use agentic_runtime::worker::{CustomTaskRegistry, ExecutingTask, TaskExecutor};
 use entity::workspace_members::WorkspaceRole;
 use entity::{organizations, users, workspaces};
-use oxy_app::server::api::projects::agent_ask::caller::CallerRunResolver;
 use oxy_app::server::queued_analytics::INTERRUPTED_MESSAGE;
+use oxy_app::server::queued_analytics::caller::CallerRunResolver;
 use oxy_app::server::queued_analytics::chat::{ChatRunExecutor, prepare};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement,
