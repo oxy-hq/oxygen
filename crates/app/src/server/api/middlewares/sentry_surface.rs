@@ -125,7 +125,7 @@ pub use oxy_telemetry::sentry_filter::custom_app_hub;
 /// A custom-app SSE body needs this and `bind_hub` cannot give it. Axum polls
 /// the body *after* the handler future has resolved, so the tower layer's
 /// `Hub::run` has already unwound and `Hub::current()` on the polling task is
-/// the untagged default. Everything the body then captures — `agent_run_stream`'s
+/// the untagged default. Everything the body then captures — a callee's
 /// `error!` on a target barrier 1 does not drop, or a panic under the same poll —
 /// would reach Sentry untagged, carrying a tenant agent run's id and error text.
 ///
@@ -538,7 +538,7 @@ mod tests {
         );
     }
 
-    /// The mechanism behind `projects::agent_run_stream`. An SSE body is a
+    /// The mechanism behind `oxy-api-custom-apps`' `agent_run_stream`. An SSE body is a
     /// `Stream`, so `bind_hub` — a `Future` extension — cannot reach it, and
     /// axum polls it after the handler future has resolved and the tower
     /// layer's `Hub::run` has unwound.

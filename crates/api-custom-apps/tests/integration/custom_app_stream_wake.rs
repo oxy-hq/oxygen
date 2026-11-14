@@ -12,7 +12,7 @@ use std::time::Duration;
 use agentic_runtime::event_registry::EventRegistry;
 use agentic_runtime::lifecycle::remote_wake::{RemoteWakes, RunEventWaker};
 use futures::{Stream, StreamExt};
-use oxy_app::server::api::projects::agent_run_stream::{StreamItem, run_events};
+use oxy_api_custom_apps::agent_run_stream::{StreamItem, run_events};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;

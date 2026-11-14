@@ -814,8 +814,9 @@ fn the_public_router_declares_every_route_it_mounts() {
     );
 
     let declared = body.matches(".route_fleet(").count() + body.matches(".route_ide(").count();
-    // The file declares 33 (35 until the agent ask's start and cancel left for
-    // `oxy-api-custom-apps`, 2026-11-14; 37 until the custom-app data plane's
+    // The file declares 32 (33 until the agent-run stream left for
+    // `oxy-api-custom-apps`, 2026-11-14; 35 until the agent ask's start and
+    // cancel left, 2026-11-14; 37 until the custom-app data plane's
     // `query` and `semantic-query` left, 2026-11-14; Slack's five
     // public routes left for `oxy-api-slack` on 2026-11-12). A floor of 40 once let eleven disappear unnoticed, which
     // is most of a surface — near enough to the real count to notice a subtree
@@ -849,10 +850,6 @@ fn custom_app_run_state_routes_are_fleet_ok() {
         (
             "POST",
             format!("/api/projects/{pid}/procedures/runs/run-1/cancel"),
-        ),
-        (
-            "GET",
-            format!("/api/projects/{pid}/agents/runs/run-1/events"),
         ),
         ("GET", format!("/api/projects/{pid}/shell-context")),
         ("GET", format!("/api/projects/{pid}/threads")),

@@ -83,6 +83,7 @@ oxy-slack-client = { workspace = true }
 migration = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
+async-stream = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }

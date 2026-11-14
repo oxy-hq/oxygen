@@ -116,8 +116,9 @@ const DATA_PLANE_MODULE_PREFIXES: [&str; 6] = [
     // Automation run, metric tree — the handlers behind
     // `check_custom_app_gates` still in `oxy-app`. (`/query` and
     // `/semantic-query` moved to `oxy_api_custom_apps::data_plane`, and the
-    // agent ask to `oxy_api_custom_apps::agent_ask`, whose `custom_apps` path
-    // drops their lines outright: [`drop_log`].)
+    // agent ask and its run stream to `oxy_api_custom_apps::{agent_ask,
+    // agent_run_stream}`, whose `custom_apps` path drops their lines
+    // outright: [`drop_log`].)
     "oxy_app::server::api::projects",
     // The world model's customer-app twins (graph, instances, measure
     // breakdown, cohort), behind the same gate since they left `projects`.
@@ -500,6 +501,8 @@ mod tests {
             "oxy_api_custom_apps::agent_ask",
             "oxy_api_custom_apps::agent_ask::start",
             "oxy_api_custom_apps::agent_ask::executor",
+            // The agent-run SSE stream, the same day: its run-lookup `error!`.
+            "oxy_api_custom_apps::agent_run_stream",
             "oxy_custom_apps::storage::sweeper",
             "oxy_custom_apps::usage_queue",
         ];
@@ -713,6 +716,7 @@ mod tests {
             // The agent ask, the same way, since 2026-11-14.
             "oxy_api_custom_apps::agent_ask",
             "oxy_api_custom_apps::agent_ask::executor",
+            "oxy_api_custom_apps::agent_run_stream",
             "oxy_custom_apps::storage::sweeper",
             "oxy::app_function",
             "custom_app_function",

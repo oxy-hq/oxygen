@@ -35,7 +35,7 @@ async fn an_attempt_with_nothing_for_the_log_reports_only_its_outcome() {
 }
 
 /// The bundle reads the run's event log through the analytics stream
-/// processor and closes its stream on `error` (`agent_run_stream.rs`). The
+/// processor and closes its stream on `error` (`oxy-api-custom-apps`' `agent_run_stream`). The
 /// event a failed attempt writes has to be one that processor recognises, or a
 /// queued run that fails before its pipeline runs leaves the stream open.
 #[test]

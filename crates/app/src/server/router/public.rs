@@ -154,7 +154,9 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
         // `/projects/{project_id}/agents/asks/{run_id}/cancel`) are
         // `oxy-api-custom-apps`'s (`agent_ask`), merged beside this tree
         // through `SurfaceSeams::public`; its queued executor arrives through
-        // `SurfaceSeams::tasks`.
+        // `SurfaceSeams::tasks`. So does the agent-run SSE stream
+        // (`/projects/{project_id}/agents/runs/{run_id}/events`,
+        // `agent_run_stream`).
         // Phase 3 — long-running automations. POST starts, GET polls,
         // POST .../cancel stops in-flight. Persistent state in
         // `customer_app_procedure_runs` survives server restarts.
@@ -169,12 +171,5 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
         .route_fleet(
             "/projects/{project_id}/procedures/runs/{run_id}/cancel",
             post(projects::automation_run::cancel_automation_run),
-        )
-        // Phase 4 — agent-run SSE stream. Same pipeline as `useAsk`
-        // but emitting events in real time. Bundle SDK exposes via
-        // `useAgentRun({agentId})`.
-        .route_fleet(
-            "/projects/{project_id}/agents/runs/{run_id}/events",
-            get(projects::agent_run_stream::stream_agent_run),
         )
 }

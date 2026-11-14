@@ -1294,8 +1294,9 @@ export function useAgentRun(input: UseAgentRunInput): UseAgentRunResult {
                     ev.event === "error" ||
                     ev.event === "cancelled"
                   ) {
-                    // Mirrors `is_terminal_event` in
-                    // crates/app/.../agent_run_stream.rs — keep in sync.
+                    // The server closes the run's event stream on exactly
+                    // these (`done`, `failed`, `error`, `cancelled`) — keep the
+                    // two sets equal.
                     terminated = true;
                     inflight.current.runId = undefined;
                     const message =

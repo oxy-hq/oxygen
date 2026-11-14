@@ -10,7 +10,6 @@
 //! piecemeal.
 
 pub mod agent_ask_staging;
-pub mod agent_run_stream;
 pub mod automation_run;
 pub mod metric_tree;
 pub mod metric_tree_projection;

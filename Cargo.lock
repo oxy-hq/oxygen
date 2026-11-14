@@ -9644,6 +9644,7 @@ dependencies = [
  "agentic-semantic",
  "airhouse",
  "arrow 58.3.0",
+ "async-stream",
  "async-trait",
  "axum",
  "backoff",

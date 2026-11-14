@@ -55,8 +55,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, instrument};
 use uuid::Uuid;
 
-use crate::server::api::custom_apps_gates::check_custom_app_gates;
-use crate::server::router::AppState;
+use oxy_app::surface::sentry_hub::bind_hub_stream;
+use oxy_app_core::AppState;
+
+use crate::custom_apps_gates::check_custom_app_gates;
 
 #[derive(Serialize)]
 struct ApiErr {
@@ -151,14 +153,12 @@ pub async fn stream_agent_run(
     // Axum polls this body *after* the handler future resolves, so the outer
     // tower layer's `Hub::run` has already unwound and `Hub::current()` on the
     // polling task is the untagged default. Read the request's hub here, while
-    // it is still current, and bind it across every poll: the `error!` above is
-    // on this module's target, which barrier 1 does not drop, and it — like a
-    // panic under the same poll — carries a tenant agent run's id and error
-    // text (`middlewares::sentry_surface`).
-    let stream = crate::server::api::middlewares::sentry_surface::bind_hub_stream(
-        stream,
-        sentry::Hub::current(),
-    );
+    // it is still current, and bind it across every poll. This module's own
+    // `error!` lines carry a `custom_apps` target, which barrier 1 drops, but a
+    // panic under the same poll and a callee's `error!` (`agentic_runtime`'s)
+    // do not, and they carry a tenant agent run's id and error text
+    // (`oxy-app`'s `middlewares::sentry_surface`).
+    let stream = bind_hub_stream(stream, sentry::Hub::current());
 
     Sse::new(stream)
         .keep_alive(KeepAlive::default())
@@ -335,6 +335,11 @@ fn run_is_over(status: Option<&str>) -> bool {
 /// UI-event taxonomy. Terminal events are the ones that should close
 /// the stream. Keep the set explicit so a new UI event added
 /// upstream doesn't accidentally truncate streams here.
+///
+/// The SDK's `useAgentRun` (`sdk/typescript/src/custom-app/react.tsx`) stops
+/// on the same set; keep the two equal. Its comment cannot point back here:
+/// the SDK is published, and its source may name no private path
+/// (`published-source.test.ts`).
 fn is_terminal_event(ui_event_type: &str) -> bool {
     matches!(ui_event_type, "done" | "error" | "cancelled" | "failed")
 }

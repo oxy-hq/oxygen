@@ -174,6 +174,13 @@ pub mod custom_app_semantic {
     };
 }
 
+/// Carry a request's Sentry hub across an SSE body, which axum polls after the
+/// handler (and the layer's `Hub::run`) has returned. The sentry-surface guard
+/// pairs every `async_stream::stream!` on the custom-app data plane with one.
+pub mod sentry_hub {
+    pub use crate::server::api::middlewares::sentry_surface::bind_hub_stream;
+}
+
 /// An analytics run started from the queue: the claim-safe attempt every
 /// executor of one shares (`queued_analytics`), and who a custom-app ask runs
 /// as when something other than its request drives it (`caller`). The chat

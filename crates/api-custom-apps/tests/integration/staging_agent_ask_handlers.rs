@@ -1,5 +1,5 @@
 //! The real `start_ask` and `cancel_ask` handlers on a custom app's staging
-//! host (`projects::agent_ask`, `agent_ask_staging`), called with the state
+//! host (`agent_ask`, and oxy-app's `agent_ask_staging`), called with the state
 //! the router hands them. No LLM: the cases stop at a refusal, or at an agent
 //! that does not exist.
 //!

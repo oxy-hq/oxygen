@@ -51,6 +51,7 @@
 
 pub mod admin;
 pub mod agent_ask;
+pub mod agent_run_stream;
 mod app_function_agent;
 pub mod app_function_executor;
 pub mod app_lifecycle;
@@ -621,6 +622,13 @@ pub fn public_routes() -> Router<AppState> {
             "/projects/{project_id}/agents/asks/{run_id}/cancel",
             post(agent_ask::cancel_ask),
         )
+        // The agent-run SSE stream (`agent_run_stream`): an ask's events in
+        // real time, for the SDK's `useAgentRun`. Gated once at connect, woken
+        // by the run-events NOTIFY.
+        .route(
+            "/projects/{project_id}/agents/runs/{run_id}/events",
+            get(agent_run_stream::stream_agent_run),
+        )
         // Shell bootstrap for `@oxy-hq/sdk/shell` chrome inside bundles:
         // workspace/org identity + published-apps list + host-aware product links.
         // Pure Postgres reads behind the data-plane gate chain.
@@ -685,6 +693,7 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
         fleet("/projects/{project_id}/semantic-query"),
         fleet("/projects/{project_id}/agents/{agent_id}/asks"),
         fleet("/projects/{project_id}/agents/asks/{run_id}/cancel"),
+        fleet("/projects/{project_id}/agents/runs/{run_id}/events"),
         fleet("/projects/{project_id}/shell-context"),
         fleet("/projects/{project_id}/threads"),
         fleet("/projects/{project_id}/threads/{thread_id}"),

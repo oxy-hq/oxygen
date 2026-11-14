@@ -605,7 +605,7 @@ pub const ROW_CHECK_EVERY_N_TIMED_WAKES: u32 = 5;
 /// may be elsewhere takes [`REMOTE_DRIVER_POLL_INTERVAL`] as its safety net
 /// until it has been quiet for [`IDLE_TICKS_BEFORE_BACKOFF`] polls; every
 /// other stream, and every stream once quiet, sits at [`IDLE_POLL_INTERVAL`].
-/// Public so the custom-app stream (oxy-app's `agent_run_stream`) spends the
+/// Public so the custom-app stream (`oxy-api-custom-apps`' `agent_run_stream`) spends the
 /// same budget.
 pub fn poll_after(driver_may_be_elsewhere: bool, idle_polls: u32) -> std::time::Duration {
     if driver_may_be_elsewhere && idle_polls < IDLE_TICKS_BEFORE_BACKOFF {
