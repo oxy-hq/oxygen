@@ -820,7 +820,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_PREVIEW_RUNS",
-        "crates/app/src/server/previews/runs.rs",
+        "crates/app/src/server/previews/queue/run.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

@@ -1,5 +1,5 @@
 //! Seeding a sample's run when the workspace's preview queue starts it
-//! (`runs::advance`, in its transaction): the `agentic_runs` row and the
+//! ([`super::run::advance`], in its transaction): the `agentic_runs` row and the
 //! worker-fleet task. Rows only; the sample runs on the fleet.
 
 use agentic_core::delegation::TaskSpec;
@@ -8,7 +8,10 @@ use sea_orm::{ConnectionTrait, DbErr};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::PREVIEW_AIRWAY_SAMPLE_KIND;
+use agentic_pipeline::PREVIEW_AIRWAY_SAMPLE as PREVIEW_AIRWAY_SAMPLE_KIND;
+
+/// The `workspace_preview_runs.kind` of a sample.
+pub const RUN_KIND: &str = crate::agentic_wiring::preview_ctx::SAMPLE_KIND;
 
 /// The run `runs::advance` just started.
 pub struct SampleSeed<'a> {

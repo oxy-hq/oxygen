@@ -725,7 +725,7 @@ async fn queue_preview_check(db: &DatabaseConnection, spec: &CompileSpec, revisi
     if !matches!(spec.kind, RevisionKind::Staging) {
         return;
     }
-    crate::server::previews::analyze::enqueue_after_staging_compile(
+    crate::server::previews::queue::analyze::enqueue_after_staging_compile(
         db,
         spec.workspace_id,
         spec.branch.as_deref(),

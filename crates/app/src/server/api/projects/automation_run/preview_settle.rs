@@ -8,7 +8,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::server::api::projects::automation_run::settle;
-use crate::server::previews::runs::TERMINAL_RUN_STATUSES;
+use crate::server::previews::queue::lifecycle::TERMINAL_RUN_STATUSES;
 
 /// Close every open poll row whose preview run has finished, from its
 /// `agentic_runs` row: `done` with the steps' results as outputs, `failed`

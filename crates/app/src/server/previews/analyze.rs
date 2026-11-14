@@ -27,7 +27,7 @@
 //! `previews::compare` compares with live once it is done; everything else is
 //! `manual`, with the reason.
 //!
-//! Durable queue work: [`enqueue::ensure_enqueued`] seeds one
+//! Durable queue work: [`ensure_enqueued`] (in `previews::queue`) seeds one
 //! `workspace_preview_runs` row per revision (kind `analyze`) with its
 //! `agentic_runs` row and a `TaskSpec::Custom { kind: "preview_analyze" }`, and
 //! [`PreviewAnalyzeExecutor`] runs it on the worker fleet. The report is the
@@ -36,7 +36,6 @@
 
 mod builds;
 mod changes;
-mod enqueue;
 mod evaluate;
 mod live;
 mod report;
@@ -62,9 +61,10 @@ use sea_orm::{DatabaseConnection, DbErr, EntityTrait};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use super::queue::analyze as enqueue;
+pub use super::queue::analyze::{enqueue_after_staging_compile, ensure_enqueued};
 pub use builds::queue_builds;
 pub use changes::{Change, ChangedPipeline, changed_pipelines};
-pub use enqueue::{enqueue_after_staging_compile, ensure_enqueued};
 /// The connector a run would build, with placeholder credentials; an Airway
 /// sample counts a source's resources with it (`previews::sample`).
 pub(crate) use evaluate::offline_connector;
@@ -77,8 +77,7 @@ use evaluate::{LiveRead, Prepared};
 
 use crate::agentic_wiring::preview_airhouse::{PreviewAirhousePorts, WorkspaceAirhouse};
 
-/// The `TaskSpec::Custom` kind, and the analyze run's `source_type`.
-pub const PREVIEW_ANALYZE_KIND: &str = "preview_analyze";
+pub use super::queue::analyze::PREVIEW_ANALYZE_KIND;
 
 /// Check the staging revision `run` names against the workspace's promoted
 /// revision. `live` answers the live-column reads.

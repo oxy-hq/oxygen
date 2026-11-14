@@ -9,6 +9,11 @@
 //! A check that ended failed or cancelled is not final: the next caller for
 //! that revision (a refresh, say) re-queues the same run in place.
 
+//!
+//! Below the previews lift's line: the compile worker calls
+//! [`enqueue_after_staging_compile`]. The executor that runs the check is
+//! `previews::analyze`'s.
+
 use agentic_core::delegation::{BackoffStrategy, RetryPolicy, TaskPolicy, TaskSpec};
 use agentic_runtime::orchestrator::crud::queue::TaskScope;
 use sea_orm::{
@@ -16,8 +21,10 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use super::PREVIEW_ANALYZE_KIND;
 use crate::server::previews::namespace::preview_key;
+
+/// The `TaskSpec::Custom` kind of a change check.
+pub const PREVIEW_ANALYZE_KIND: &str = "preview_analyze";
 
 const INSERT_SQL: &str = "\
     INSERT INTO workspace_preview_runs \
@@ -210,7 +217,7 @@ pub async fn enqueue_after_staging_compile(
 }
 
 /// The worker picked the check up.
-pub(super) async fn mark_running<C: ConnectionTrait>(db: &C, run_id: &str) -> Result<(), DbErr> {
+pub async fn mark_running<C: ConnectionTrait>(db: &C, run_id: &str) -> Result<(), DbErr> {
     set_state(
         db,
         "UPDATE workspace_preview_runs \
@@ -224,7 +231,7 @@ pub(super) async fn mark_running<C: ConnectionTrait>(db: &C, run_id: &str) -> Re
 /// The attempt ended, with a report or with an error. A retry of a failed
 /// attempt marks it `running` again; `agentic_runs` is where a failure is read
 /// from.
-pub(super) async fn mark_finished<C: ConnectionTrait>(db: &C, run_id: &str) -> Result<(), DbErr> {
+pub async fn mark_finished<C: ConnectionTrait>(db: &C, run_id: &str) -> Result<(), DbErr> {
     set_state(
         db,
         "UPDATE workspace_preview_runs \

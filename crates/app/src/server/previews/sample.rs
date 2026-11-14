@@ -35,7 +35,6 @@
 mod executor;
 mod outcome;
 mod record;
-mod seed;
 #[cfg(test)]
 mod tests;
 mod validate;
@@ -43,15 +42,12 @@ mod view;
 
 use std::time::Duration;
 
+pub use super::queue::sample_seed::{RUN_KIND, SampleSeed, seed};
 pub use agentic_pipeline::PREVIEW_AIRWAY_SAMPLE as PREVIEW_AIRWAY_SAMPLE_KIND;
 pub use executor::PreviewAirwaySampleExecutor;
 pub use record::{Recorded, SampleReport, record_sample};
-pub use seed::{SampleSeed, seed};
 pub use validate::{Asked, SampleOptions, check, validate};
 pub use view::view;
-
-/// The `workspace_preview_runs.kind` of a sample.
-pub const RUN_KIND: &str = crate::agentic_wiring::preview_ctx::SAMPLE_KIND;
 
 /// Wall-clock cap, in seconds, on a sample of a source with no date window.
 pub const MAX_SECS_ENV: &str = "OXY_PREVIEW_SAMPLE_MAX_SECS";

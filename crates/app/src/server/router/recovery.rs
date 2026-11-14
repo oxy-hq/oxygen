@@ -1453,7 +1453,7 @@ pub(super) fn build_custom_task_registry(
         crate::server::previews::compare::PREVIEW_COMPARE_KIND,
         Arc::new(crate::server::previews::compare::PreviewCompareExecutor::airhouse(db.clone())),
     );
-    // Workspace previews' Airway sample, queued by `previews::runs::advance`.
+    // Workspace previews' Airway sample, queued by `previews::queue::run::advance`.
     // Builds its own preview platform from the run row: preview-owned pipeline
     // name, lease and cursor; destination only in the preview's schemas on a
     // confined Writer. A pod without it fails the task (unknown kind).

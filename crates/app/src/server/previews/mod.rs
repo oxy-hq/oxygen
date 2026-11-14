@@ -79,6 +79,7 @@ pub mod drop;
 pub mod maintenance;
 pub mod namespace;
 pub mod pin;
+pub mod queue;
 pub mod read_only;
 pub mod registry;
 pub mod revisions;

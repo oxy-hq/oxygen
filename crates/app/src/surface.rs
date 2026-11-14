@@ -241,7 +241,7 @@ pub mod workspace_git {
 /// only to one of them.
 pub mod previews {
     pub use crate::server::previews::namespace::preview_key;
-    pub use crate::server::previews::runs::{advance, runs_enabled};
+    pub use crate::server::previews::queue::run::{advance, runs_enabled};
     pub use crate::server::previews::sources::list as list_sources;
     pub use crate::server::previews::sql_kind::StatementKind;
 }
