@@ -49,7 +49,7 @@ after the skill's checklist says the work really is request-scoped.
 | `server/` | The Axum server (~80k LOC) — see breakdown below. |
 | `agentic_wiring/` | Adapts `oxy` state into the shape `agentic-pipeline` needs (`project_ctx.rs` is a 1.8k-line god file — a decomposition target). Has its own `CLAUDE.md`. |
 | `integrations/` | External integrations (eval, QuickBooks OAuth, the OAuth provider). The Slack bot is `oxy-api-slack`. |
-| — | Transactional email (SES) is `oxy_app_core::emails`, re-exported here as `crate::emails`; the magic-link template is `server/api/auth/magic_link.hbs`. Custom-app scaffold templates are in `oxy-api-custom-apps`. |
+| — | Transactional email (SES) is `oxy_app_core::emails`, re-exported here as `crate::emails`; the magic-link template is `oxy-api-identity`'s `sign_in/magic_link.hbs`. Custom-app scaffold templates are in `oxy-api-custom-apps`. |
 | `observability_boot.rs` / `observability_setup.rs` | Tracing/observability bootstrap for the binary. |
 
 ### `server/` internals

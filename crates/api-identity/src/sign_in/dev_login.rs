@@ -77,8 +77,10 @@ pub use peer::PeerAddr;
 
 use oxy::database::client::establish_connection;
 
-use super::dto::{AuthResponse, DevLoginRequest};
-use super::ops::{finalize_login, is_valid_email_format, login_response};
+use oxy_app::surface::session::{AuthResponse, finalize_login, login_response};
+
+use super::dto::DevLoginRequest;
+use super::ops::is_valid_email_format;
 use personas::{DevLoginRefusal, Target};
 
 /// Comma-separated allow-list of sign-in identities. Setting it is what turns

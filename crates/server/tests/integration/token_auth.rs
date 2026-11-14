@@ -116,7 +116,7 @@ pub(crate) async fn fixture_with(schema: Schema) -> Fixture {
     oxy_auth::token::cache::clear();
     let user = seed_user(&db, "owner").await;
     let (org_id, workspace_id) = seed_workspace(&db).await;
-    let jwt = oxy_app::server::api::auth::create_auth_token(user.clone())
+    let jwt = oxy_app::surface::session::create_auth_token(user.clone())
         .await
         .expect("mint a session");
     Fixture {

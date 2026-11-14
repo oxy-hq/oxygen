@@ -357,7 +357,7 @@ mod tests {
     fn seeded_personas_match_the_seed() {
         // The table is compiled in; the seed is generated from name pools and
         // partner operator counts. Derive the same answers from the seed itself.
-        for (name, email) in crate::cli::commands::seed::seeded_persona_emails() {
+        for (name, email) in oxy_app::surface::seed::seeded_persona_emails() {
             let persona = find(name).unwrap_or_else(|| panic!("seed names unknown persona {name}"));
             assert_eq!(persona.email, Some(email.as_str()), "{name}");
         }

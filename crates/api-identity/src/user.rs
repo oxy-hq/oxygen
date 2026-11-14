@@ -7,7 +7,7 @@ use oxy_auth::types::AuthenticatedUser;
 use oxy_auth::user::UserService;
 use serde::Serialize;
 
-use crate::server::api::auth::clear_session_cookie;
+use oxy_app::surface::session::clear_session_cookie;
 use oxy_app_core::custom_domain_host::CustomDomainCtx;
 use utoipa::ToSchema;
 
@@ -82,20 +82,17 @@ pub async fn user_info_from(user: AuthenticatedUser) -> UserInfo {
     // false` at a Global Owner would hide their own UI over a DB blip.
     let standing = match oxy::database::client::establish_connection().await {
         Ok(db) => {
-            crate::server::authz::globals::platform_standing(
-                &db,
-                &crate::server::authz::Caller::from_user(&user),
-            )
-            .await
+            crate::authz::globals::platform_standing(&db, &crate::authz::Caller::from_user(&user))
+                .await
         }
-        Err(_) => crate::server::authz::globals::platform_standing_offline(
-            &crate::server::authz::Caller::from_user(&user),
+        Err(_) => crate::authz::globals::platform_standing_offline(
+            &crate::authz::Caller::from_user(&user),
         ),
     };
     let is_owner = standing.is_global_owner;
     let is_app_admin = standing.is_global_admin;
     let platform_capabilities =
-        platform_capabilities_for(&crate::server::authz::Caller::from_user(&user), is_owner).await;
+        platform_capabilities_for(&crate::authz::Caller::from_user(&user), is_owner).await;
     let partner_memberships = partner_memberships_for(&user).await;
     UserInfo {
         id: user.id.to_string(),
@@ -113,10 +110,7 @@ pub async fn user_info_from(user: AuthenticatedUser) -> UserInfo {
 /// The capability list to report. The owner short-circuit mirrors the model, where
 /// `is_global_owner` is still a boolean that satisfies every capability — reading the
 /// grant table for an owner would report an empty list and blank their own console.
-async fn platform_capabilities_for(
-    caller: &crate::server::authz::Caller,
-    is_owner: bool,
-) -> Vec<String> {
+async fn platform_capabilities_for(caller: &crate::authz::Caller, is_owner: bool) -> Vec<String> {
     if is_owner {
         return oxy_authz::Cap::ALL
             .iter()
@@ -126,7 +120,7 @@ async fn platform_capabilities_for(
     let Ok(db) = oxy::database::client::establish_connection().await else {
         return Vec::new();
     };
-    match crate::server::authz::globals::platform_grant_checked(&db, caller).await {
+    match crate::authz::globals::platform_grant_checked(&db, caller).await {
         Ok(Some(grant)) => grant.caps.iter().map(|c| c.as_str().to_string()).collect(),
         // No grant, or an unreadable one. Reporting nothing hides nav items rather than
         // showing ones that would 403 — the safe direction for a display-only field.
@@ -138,11 +132,11 @@ async fn platform_capabilities_for(
 /// empty list on any DB error — a partner just won't see the console until the
 /// DB recovers, rather than the whole `/user` call erroring.
 async fn partner_memberships_for(user: &AuthenticatedUser) -> Vec<PartnerMembershipInfo> {
-    use crate::server::api::middlewares::partner_authz::scopes_for_user;
+    use crate::authz::partner_authz::scopes_for_user;
     let Ok(db) = oxy::database::client::establish_connection().await else {
         return Vec::new();
     };
-    scopes_for_user(&db, &crate::server::authz::Caller::from_user(&user))
+    scopes_for_user(&db, &crate::authz::Caller::from_user(&user))
         .await
         .into_iter()
         .map(|s| PartnerMembershipInfo {
@@ -202,7 +196,7 @@ async fn end_domain_session(request_headers: &HeaderMap, ctx: &CustomDomainCtx) 
 
 /// The host-only clear of a custom domain's `oxy_session` (no `Domain`).
 fn host_only_session_clear(request_headers: &HeaderMap) -> String {
-    let secure = if crate::server::api::auth::is_request_secure(request_headers) {
+    let secure = if oxy_app::surface::session::is_request_secure(request_headers) {
         "; Secure"
     } else {
         ""
@@ -238,7 +232,7 @@ pub async fn get_current_user(
     )
 )]
 pub async fn get_current_user_public(
-    axum::extract::State(_app_state): axum::extract::State<crate::server::router::AppState>,
+    axum::extract::State(_app_state): axum::extract::State<oxy_app_core::AppState>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Option<UserInfo>>, StatusCode> {
     // Try to authenticate using the same logic as the middleware

@@ -525,7 +525,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_DEV_LOGIN_EMAILS",
-        "crates/app/src/server/api/auth/dev_login.rs",
+        "crates/api-identity/src/sign_in/dev_login.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -595,7 +595,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_GLOBAL_ADMINS",
-        "crates/app/src/server/api/auth/dev_login.rs",
+        "crates/api-identity/src/sign_in/dev_login.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -705,7 +705,7 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_OAUTH_REDIRECT_ORIGIN",
-        "crates/app/src/server/api/auth/ops.rs",
+        "crates/api-identity/src/sign_in/ops.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

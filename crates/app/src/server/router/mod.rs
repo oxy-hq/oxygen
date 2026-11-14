@@ -12,7 +12,6 @@
 mod drive_policy;
 mod entry;
 mod global;
-mod mobile;
 mod openapi;
 pub mod periodic;
 mod protected;

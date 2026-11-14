@@ -33,7 +33,7 @@ use super::{Fixture, audit_rows, call, fixture, seed_org, seed_user, seed_worksp
 
 /// A browser session for `user`.
 pub(crate) async fn session_of(user: &users::Model) -> String {
-    let jwt = oxy_app::server::api::auth::create_auth_token(user.clone())
+    let jwt = oxy_app::surface::session::create_auth_token(user.clone())
         .await
         .expect("mint a session");
     format!("oxy_session={jwt}")

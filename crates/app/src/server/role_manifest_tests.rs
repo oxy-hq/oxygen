@@ -789,7 +789,8 @@ fn the_public_router_declares_every_route_it_mounts() {
     );
 
     let declared = body.matches(".route_fleet(").count() + body.matches(".route_ide(").count();
-    // The file declares 20 (29 until the metric tree's nine customer-app
+    // The file declares 9 (20 until sign-in's ten `/auth/*` routes and
+    // `GET /user` left for `oxy-api-identity`, 2026-11-15; 29 until the metric tree's nine customer-app
     // twins left for `oxy-api-custom-apps`, 2026-11-14; 32 until the automation run's start, poll and
     // cancel left for `oxy-api-custom-apps`, 2026-11-14; 33 until the agent-run
     // stream left, 2026-11-14; 35 until the agent ask's start and
@@ -800,7 +801,7 @@ fn the_public_router_declares_every_route_it_mounts() {
     // going quiet, loose enough that adding or removing a handful does not make
     // this the test everyone edits without reading.
     assert!(
-        declared >= 15,
+        declared >= 7,
         "only {declared} declared mounts found — the parser broke, or this file \
          moved. A guard that silently stops covering anything is the shape this \
          whole area exists to remove.",

@@ -11,8 +11,13 @@ use oxy_auth::session_key::{self, Purpose};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use uuid::Uuid;
 
-use crate::server::router::AppState;
 use oxy::database::{client::establish_connection, filters::UserQueryFilterExt};
+use oxy_app_core::AppState;
+
+use oxy_app::surface::session::{
+    AuthResponse, Claims, extract_base_url_from_headers, finalize_login, hydrate_token_session,
+    login_response, validate_return_to_url,
+};
 
 use super::dto::*;
 use super::ops::*;
@@ -50,7 +55,7 @@ pub async fn get_session(
     // A session a token opened hydrates as itself — never into the fresh
     // thirty-day login minted below.
     if oxy_auth::token::browser_session::token_id_of(&jwt).is_some() {
-        return super::token_session::hydrate(&headers, jwt).await;
+        return hydrate_token_session(&headers, jwt).await;
     }
     let key = session_key::decoding_key(Purpose::Session)
         .await
@@ -129,14 +134,14 @@ pub async fn get_config(
     let github_client_id = std::env::var("GITHUB_CLIENT_ID").ok();
 
     let observability_enabled = app_state.observability().is_some();
-    let billing_enabled = crate::server::feature_flags::is_enabled("billing");
+    let billing_enabled = oxy_app::surface::feature_flags::is_enabled("billing");
     // This route has no org, so it says what an org with no override gets; the web
     // app reads the org's own value from `GET /orgs/{org_id}/feature-flags` once it
     // knows the org, and uses this only before that (a person with no org yet).
-    let apps_first_experience = crate::server::feature_flags::is_enabled(
-        crate::server::feature_flags::APPS_FIRST_EXPERIENCE,
+    let apps_first_experience = oxy_app::surface::feature_flags::is_enabled(
+        oxy_app::surface::feature_flags::APPS_FIRST_EXPERIENCE,
     );
-    let home_v3 = crate::server::feature_flags::home_v3();
+    let home_v3 = oxy_app::surface::feature_flags::home_v3();
     // Per-caller, not process-wide: an off-box peer that the dev-login route
     // 404s must not be told from here that a bypass exists. See
     // `dev_login::dev_login_reachable_by`.
@@ -187,65 +192,6 @@ pub async fn get_config(
     };
 
     Ok(Json(config))
-}
-
-/// Mint a session token with the default thirty-day window.
-///
-/// The window is [`super::ops::SESSION_TTL_SECS`], shared with the cookie that
-/// wraps this JWT so the two cannot drift.
-pub async fn create_auth_token(user: users::Model) -> Result<String, StatusCode> {
-    create_auth_token_with_ttl(user, Duration::seconds(super::ops::SESSION_TTL_SECS)).await
-}
-
-/// Mint a session token with an explicit lifetime.
-///
-/// Split out for frontline sign-in, which gets twelve hours rather than the
-/// thirty-day default:
-/// that credential was proved by four digits typed on a shared tablet, and it
-/// should not outlive the shift. Sharing the minting path rather than writing a
-/// second one keeps there being exactly one place a session is created.
-pub async fn create_auth_token_with_ttl(
-    user: users::Model,
-    ttl: Duration,
-) -> Result<String, StatusCode> {
-    let connection = establish_connection().await.map_err(|e| {
-        tracing::error!("Failed to establish database connection: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let user_clone = user.clone();
-    let mut user_update: users::ActiveModel = user.into();
-    user_update.last_login_at = Set(chrono::Utc::now().into());
-    user_update.update(&connection).await.map_err(|e| {
-        tracing::error!("Failed to update user last login: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let now = Utc::now();
-    let exp = now + ttl;
-
-    let claims = Claims {
-        sub: user_clone.id.to_string(),
-        // The ADDRESS, not a display label. `sub` is what resolves the session
-        // now (see `BuiltInAuthenticator::validate`), so this claim is only
-        // read by older code paths and by a human reading a decoded token —
-        // and a label there would put a non-unique `name` in a field every
-        // reader takes for an email. Empty for a frontline worker, which is
-        // true rather than convenient.
-        email: user_clone.email.clone().unwrap_or_default(),
-        exp: exp.timestamp() as usize,
-        iat: now.timestamp() as usize,
-    };
-
-    let key = session_key::encoding_key(Purpose::Session)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let token = encode(&Header::default(), &claims, &key).map_err(|e| {
-        tracing::error!("Failed to generate JWT token: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    Ok(token)
 }
 
 pub async fn google_auth(

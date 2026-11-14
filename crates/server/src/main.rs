@@ -218,11 +218,12 @@ fn external_seam_routes() -> SeamRouter {
 ///
 /// `oxy-api-identity` fills six seams, each where its routes sat in
 /// `oxy-app`'s router: the caller's tokens, the session's halves of `oxyc
-/// login` and an org's API access ride `api` (the org half re-applies
-/// `org_middleware` + the subscription guard); the CLI's halves, the ticket
-/// redeem, the OIDC exchange and leak reports ride `public`; the legacy
-/// `/api-keys` and the workspace's `/api-tokens` ride `workspace`; the two
-/// token sections ride `admin`; the legacy key operations ride `openapi`; the
+/// login`, `/logout`, the mobile sign-in approval and an org's API access ride
+/// `api` (the org half re-applies `org_middleware` + the subscription guard);
+/// signing in, `GET /user`, the CLI's halves, the ticket redeem, the OIDC
+/// exchange and leak reports ride `public`; the legacy `/api-keys` and the
+/// workspace's `/api-tokens` ride `workspace`; the two token sections ride
+/// `admin`; the legacy key operations and `GET /user` ride `openapi`; the
 /// token sweep rides `global_ticks`. Every route is FleetOk (Postgres only).
 ///
 /// `oxy-api-experiment` rides the workspace seam too (experiments and declared
@@ -566,9 +567,18 @@ mod tests {
     async fn the_served_openapi_document_includes_the_surfaces() {
         let doc = oxy_app::server::router::build_openapi_doc(vec![
             oxy_api_tenancy::openapi(),
+            oxy_api_identity::openapi(),
             oxy_api_custom_apps::openapi(),
         ])
         .await;
+        // `GET /user`, the lookup that turns a credential into a user, is
+        // `oxy-api-identity`'s since 2026-11-15.
+        let user = doc
+            .paths
+            .paths
+            .get("/user")
+            .expect("GET /user is missing from the OpenAPI document");
+        assert!(user.get.is_some(), "/user is documented but carries no get");
         let orgs = doc
             .paths
             .paths

@@ -1,6 +1,7 @@
-//! Cloud-only global routes: logout, organization CRUD (with org-scoped
-//! sub-routes for members, invitations, onboarding, workspaces, GitHub
-//! integration) and the per-user GitHub account/installation routes.
+//! Cloud-only global routes: organization CRUD (with org-scoped sub-routes
+//! for members, invitations, onboarding, workspaces, GitHub integration) and
+//! the per-user GitHub account/installation routes. Logout is
+//! `oxy-api-identity`'s, through `SurfaceSeams::api`.
 //!
 //! Not mounted in local mode — see [`super::protected`].
 
@@ -13,13 +14,12 @@ use crate::api::middlewares::{
     app_scope_guard, org_context, oxy_owner_or_app_admin_guard, platform_cap_guard,
     subscription_guard,
 };
-use crate::api::{admin, user, workspaces};
+use crate::api::{admin, workspaces};
 use crate::server::api::chat;
 use crate::server::api::work;
 
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
-use super::mobile::build_mobile_routes;
 use super::role_router::RoleRouter;
 use super::{AdminSection, AppState};
 
@@ -36,13 +36,10 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
         )
         .collect();
     RoleRouter::new(app_state.clone())
-        .route_fleet("/logout", get(user::logout))
-        // The mobile app's sign-in approval. Merged HERE, not in
-        // `build_protected_routes`: this builder is the route catalog's seed for
-        // the global tree, so a merge beside it would serve the route and leave
-        // it out of `oxyc routes`. The personal-token routes it sat beside are
-        // `oxy-api-identity`'s, through `SurfaceSeams::api`.
-        .merge(build_mobile_routes(app_state))
+        // `/logout` and the mobile app's sign-in approval
+        // (`/auth/mobile/authorize`) are `oxy-api-identity`'s, merged beside
+        // this tree through `SurfaceSeams::api` (2026-11-15), as are the
+        // personal-token routes.
         // ── Chat ────────────────────────────────────────────────────────────
         //
         // Every route here is `route_fleet`, INCLUDING the SSE stream, and that

@@ -12,7 +12,9 @@ use axum::http::HeaderMap;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use super::super::ops::{SessionCookieAttributes, is_request_secure, session_cookie_attributes};
+use oxy_app::surface::session::{
+    SessionCookieAttributes, is_request_secure, session_cookie_attributes,
+};
 
 /// Every attribute of the session cookie; its value is the session token.
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -54,9 +56,9 @@ impl SessionCookie {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::ops::render_session_cookie;
     use super::*;
     use chrono::TimeZone;
+    use oxy_app::surface::session::render_session_cookie;
 
     fn attrs(secure: bool, domain: Option<&str>) -> SessionCookieAttributes {
         SessionCookieAttributes {
@@ -115,7 +117,7 @@ mod tests {
     fn the_server_cookie_is_rendered_from_the_same_attributes() {
         for secure in [true, false] {
             assert_eq!(
-                super::super::super::ops::build_session_cookie_with_max_age("a.b.c", secure, 60),
+                oxy_app::surface::session::build_session_cookie_with_max_age("a.b.c", secure, 60),
                 render_session_cookie(&session_cookie_attributes(secure), "a.b.c", 60)
             );
         }

@@ -131,7 +131,6 @@ const SERVER_API: &[&str] = &[
     "thread",
     "traces",
     "typed_stream",
-    "user",
     "video",
     "webhooks",
     "work",

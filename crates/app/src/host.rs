@@ -84,13 +84,6 @@ pub mod metrics_server {
     pub use crate::server::metrics_server::{resolve_metrics_port, start};
 }
 
-/// Dev sign-in, which `serve` announces at boot when it is on.
-pub mod dev_login {
-    pub use crate::server::api::auth::{
-        dev_login_is_loopback_only, dev_login_source, is_dev_login_enabled,
-    };
-}
-
 /// The standalone worker's runtime, health listener and metrics.
 pub mod worker {
     pub use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;

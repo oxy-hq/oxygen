@@ -249,9 +249,10 @@ const SEEDS: &[Seed] = &[
         function: "public_routes",
     },
     // `oxy-api-identity` fills four route seams: the caller's tokens, the
-    // session's halves of `oxyc login` and an org's API access ride
-    // `SurfaceSeams::api`; the CLI's halves, the ticket redeem, the OIDC
-    // exchange and leak reports ride `SurfaceSeams::public`; the legacy
+    // session's halves of `oxyc login`, an org's API access, `/logout` and the
+    // mobile sign-in approval ride `SurfaceSeams::api`; signing in, `/user`,
+    // the CLI's halves, the ticket redeem, the OIDC exchange and leak reports
+    // ride `SurfaceSeams::public`; the legacy
     // `/api-keys` and `/api-tokens` ride `SurfaceSeams::workspace`; the two
     // token sections ride `SurfaceSeams::admin`.
     Seed {

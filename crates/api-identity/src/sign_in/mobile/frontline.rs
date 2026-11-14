@@ -18,7 +18,7 @@ use oxy_authz::PrincipalFacts;
 use sea_orm::DatabaseConnection;
 
 use super::error::MobileAuthError;
-use crate::server::authz;
+use crate::authz;
 
 /// Holds frontline standing and nothing an org member holds.
 pub(super) fn is_frontline_only(facts: &PrincipalFacts) -> bool {

@@ -541,6 +541,72 @@ async fn both_modes_mount_the_identity_handshakes() {
     }
 }
 
+/// Signing in, `oxy-api-identity`'s since 2026-11-15 (was `oxy-app`'s
+/// `build_public_routes`): served in BOTH modes, outside the auth stack. Probed
+/// with TRACE, which none of them takes, so a mounted path answers 405 and an
+/// unmounted one 404 — `/auth/dev-login` 404s from its handler when no
+/// allow-list resolves, so a handler's answer would prove nothing there.
+#[tokio::test]
+async fn both_modes_mount_the_sign_in_routes() {
+    if db_unavailable() {
+        return;
+    }
+    for mode in [ServeMode::Cloud, ServeMode::Local] {
+        let router = served(mode).await;
+        assert_eq!(
+            status(&router, &Method::TRACE, "/auth/nothing-mounts-this").await,
+            StatusCode::NOT_FOUND,
+            "control ({mode:?}): an unmounted path must be 404"
+        );
+        for path in [
+            "/auth/config",
+            "/auth/session",
+            "/auth/oauth/state",
+            "/auth/google",
+            "/auth/github",
+            "/auth/okta",
+            "/auth/magic-link/request",
+            "/auth/magic-link/verify",
+            "/auth/return-to/validate",
+            "/auth/dev-login",
+            "/auth/mobile/exchange",
+            "/auth/mobile/refresh",
+            "/user",
+        ] {
+            assert_eq!(
+                status(&router, &Method::TRACE, path).await,
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{mode:?}: {path} must stay mounted"
+            );
+        }
+    }
+}
+
+/// `/logout` and the mobile app's sign-in approval ride the api seam, cloud
+/// only, as `build_global_routes` had them.
+fn identity_session_routes() -> Vec<(Method, String)> {
+    vec![
+        (Method::GET, "/logout".to_string()),
+        (Method::POST, "/auth/mobile/authorize".to_string()),
+    ]
+}
+
+#[tokio::test]
+async fn cloud_mode_mounts_logout_and_the_mobile_approval() {
+    if db_unavailable() {
+        return;
+    }
+    assert_cloud_mounts(identity_session_routes()).await;
+}
+
+#[tokio::test]
+async fn local_mode_drops_logout_and_the_mobile_approval() {
+    if db_unavailable() {
+        return;
+    }
+    assert_local_drops(identity_session_routes()).await;
+}
+
 /// The data plane's `/query` (`oxy-api-custom-apps`' `data_plane`, on the
 /// public seam) refuses an anonymous caller with 401 before it reads the body,
 /// with a well-formed body or a malformed one: the handler takes raw bytes so

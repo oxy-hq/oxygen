@@ -11,7 +11,9 @@
 use axum::http::HeaderMap;
 use url::Url;
 
-use super::ops::{LOCAL_DEFAULT_BASE, origin_named_by_request, pin_org_subdomain_to_app_host};
+use oxy_app::surface::session::{
+    LOCAL_DEFAULT_BASE, origin_named_by_request, pin_org_subdomain_to_app_host,
+};
 
 /// The sign-in link a magic-link mail carries. Only [`magic_link_for`] makes
 /// one, and the mailer takes nothing else, so the handler cannot mail a link
@@ -89,7 +91,7 @@ fn loopback_base(base: &str) -> Option<String> {
     let url = Url::parse(base).ok()?;
     let host = url.host_str()?;
     let web = matches!(url.scheme(), "http" | "https");
-    if !web || !crate::server::router::is_loopback_host(host) {
+    if !web || !oxy_app_core::origin::is_loopback_host(host) {
         return None;
     }
     let port = url.port().map(|p| format!(":{p}")).unwrap_or_default();

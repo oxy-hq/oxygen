@@ -84,7 +84,6 @@ pub mod semantic_scan;
 pub mod thread;
 pub mod traces;
 pub mod typed_stream;
-pub mod user;
 pub mod video;
 pub mod webhooks;
 pub mod work;

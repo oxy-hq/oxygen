@@ -124,12 +124,6 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     // ---- oxy-app: the handler layer ----
     (
-        "app/src/server/api/auth/ops.rs",
-        "backlog: sends the magic-link email after the response; a pod that dies here \
-         loses one email and the person requests another. A TaskSpec would make the \
-         send durable and retryable",
-    ),
-    (
         "app/src/server/api/billing/notify.rs",
         "backlog: sends the past-due email off the billing tick. Same shape as the \
          magic link: one email, best effort, should be a durable delivery task",
@@ -191,6 +185,12 @@ const ALLOWED: &[(&str, &str)] = &[
          process, registered in the handler's RuntimeState for cancel and SSE. The \
          scheduled firing of the same work is already a queued task; the manual fire \
          should enqueue the same TaskSpec, as the health check's now does",
+    ),
+    (
+        "api-identity/src/sign_in/ops.rs",
+        "backlog: sends the magic-link email after the response; a pod that dies here \
+         loses one email and the person requests another. A TaskSpec would make the \
+         send durable and retryable",
     ),
     (
         "api-identity/src/user_tokens/device_login.rs",

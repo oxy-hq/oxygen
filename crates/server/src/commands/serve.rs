@@ -914,15 +914,16 @@ async fn serve_application(
     // its own port under `pnpm run dev`, and isn't mounted at all in local
     // mode, so this URL is the one that's always right. DEVELOPMENT.md owns
     // the browser flow.
-    if oxy_app::host::dev_login::is_dev_login_enabled() {
+    if oxy_api_identity::sign_in::is_dev_login_enabled() {
         // Name the variable that actually enabled it: on a debug build with no
         // explicit opt-in that is OXY_GLOBAL_ADMINS, and someone reading
         // "OXY_DEV_LOGIN_EMAILS" would go looking for a var they never set.
-        let source = oxy_app::host::dev_login::dev_login_source().unwrap_or("OXY_DEV_LOGIN_EMAILS");
+        let source =
+            oxy_api_identity::sign_in::dev_login_source().unwrap_or("OXY_DEV_LOGIN_EMAILS");
         // "anyone who can reach this server" is only true for an explicit
         // allow-list; an inferred one is refused off-box, and saying otherwise
         // would train readers to ignore the louder message.
-        let reach = if oxy_app::host::dev_login::dev_login_is_loopback_only() {
+        let reach = if oxy_api_identity::sign_in::dev_login_is_loopback_only() {
             "this machine only (loopback) — set OXY_DEV_LOGIN_EMAILS to serve other hosts"
         } else {
             "anyone who can reach this server"

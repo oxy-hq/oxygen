@@ -67,7 +67,7 @@ pub async fn token_session_response(
 /// back, with the token's payload, once the session has authenticated as any
 /// request of its would. `401` when it no longer does — the token was revoked
 /// or expired, or the session lapsed.
-pub(super) async fn hydrate(
+pub async fn hydrate(
     request_headers: &HeaderMap,
     jwt: String,
 ) -> Result<(HeaderMap, Json<AuthResponse>), StatusCode> {

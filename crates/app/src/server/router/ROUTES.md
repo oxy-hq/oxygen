@@ -9,8 +9,8 @@ mounted under `/api` by [`crate::cli::commands::serve`].
 |---|---|
 | [`mod.rs`](./mod.rs) | `AppState`, `WorkspaceExtractor`, shared `build_cors_layer`, router tests |
 | [`entry.rs`](./entry.rs) | `api_router` / `internal_api_router` — assembles the full router, applies CORS, timeout, Sentry |
-| [`public.rs`](./public.rs) | Routes with no *user session* gate (health, auth handshake, current user, and webhook receivers — Slack, Toast, GitHub (`POST /webhooks/github`), and `POST /webhooks/apps/{org}/{app}/{fn}` with its non-production twin `POST /webhooks/apps-env/{environment}/{org}/{app}/{fn}`, which authenticate the sender by HMAC instead) |
-| [`global.rs`](./global.rs) | Cloud-only flat routes (logout, org CRUD, per-user GitHub) |
+| [`public.rs`](./public.rs) | Routes with no *user session* gate (health and webhook receivers — Slack, Toast, GitHub (`POST /webhooks/github`), and `POST /webhooks/apps/{org}/{app}/{fn}` with its non-production twin `POST /webhooks/apps-env/{environment}/{org}/{app}/{fn}`, which authenticate the sender by HMAC instead) |
+| [`global.rs`](./global.rs) | Cloud-only flat routes (chat, work, the admin console; logout is `oxy-api-identity`'s) |
 | [`workspace.rs`](./workspace.rs) | The `/{workspace_id}/…` tree and every per-resource sub-builder |
 | [`secrets.rs`](./secrets.rs) | Secret CRUD + the admin-only gating middleware |
 | [`protected.rs`](./protected.rs) | Cloud/local composition: which route sets are mounted and which middleware wraps them |
@@ -62,8 +62,12 @@ The token routes below — `/user/tokens*`, `/user/token-options`, `/auth/token`
 `/admin/{sandbox-agent,standing}-tokens*` and the workspace's `/api-keys` and
 `/api-tokens` — are `oxy-api-identity`'s (2026-11-13), served at the same paths
 through the `api`, `public`, `workspace` and `admin` seams (roles in its
-`route_roles()`, `public_route_roles()` and `workspace_route_roles()`). Only the
-mobile app's `/auth/mobile/*` stays in this crate (`mobile.rs`).
+`route_roles()`, `public_route_roles()` and `workspace_route_roles()`). So, since
+2026-11-15, is signing in: `/auth/{config,session,oauth/state,google,github,okta}`,
+`/auth/magic-link/*`, `/auth/return-to/validate`, `/auth/dev-login`, the mobile
+app's `/auth/mobile/*`, `GET /user` (public seam) and `/logout` with
+`/auth/mobile/authorize` (api seam). The session they mint stays below, in
+`server::api::auth`, reached through `surface::session`.
 
 ## Route tree
 

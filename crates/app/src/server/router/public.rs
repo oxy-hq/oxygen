@@ -25,10 +25,9 @@
 
 use axum::routing::{get, post};
 
-use crate::api::{auth, billing, healthcheck, user, webhooks};
+use crate::api::{billing, healthcheck, webhooks};
 
 use super::AppState;
-use super::mobile::build_public_mobile_routes;
 use super::role_router::RoleRouter;
 
 pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
@@ -37,35 +36,14 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
         .route_fleet("/ready", get(healthcheck::readiness_check))
         .route_fleet("/live", get(healthcheck::liveness_check))
         .route_fleet("/version", get(healthcheck::version_info))
-        // The mobile app's sign-in redeem and refresh. The personal-token
-        // handshakes beside them (`oxyc login`'s exchange, the device flow, the
-        // ticket redeem, the OIDC exchange, leak reports) are
-        // `oxy-api-identity`'s, through `SurfaceSeams::public`.
-        .merge(build_public_mobile_routes(app_state))
-        .route_fleet("/auth/config", get(auth::get_config))
-        .route_fleet("/auth/session", get(auth::get_session))
-        .route_fleet("/auth/oauth/state", post(auth::issue_oauth_state))
-        .route_fleet("/auth/google", post(auth::google_auth))
-        .route_fleet("/auth/github", post(auth::github_auth))
-        .route_fleet("/auth/okta", post(auth::okta_auth))
-        .route_fleet("/auth/magic-link/request", post(auth::request_magic_link))
-        // Frontline sign-in and the kiosk binding (`/frontline/{roster,login,
-        // device,devices/bind}`) moved to the `oxy-api-frontline` sibling crate.
-        // `oxy-server` merges them beside this tree through the public seam
-        // (`SurfaceSeams::public`), outside the auth stack exactly as they were
-        // here, and declares them FleetOk in `oxy_api_frontline::public_route_roles`.
-        .route_fleet("/auth/magic-link/verify", post(auth::verify_magic_link))
-        .route_fleet("/auth/return-to/validate", get(auth::validate_return_to))
-        // Dev-only sign-in bypass. Public by necessity (it IS the login), but
-        // 404s unless an allow-list resolves — `OXY_DEV_LOGIN_EMAILS` in any
-        // build, or the staff roster on a debug build for a loopback caller —
-        // and only ever issues a session for an address on it. The three rungs
-        // and why they differ: `api::auth::dev_login`.
-        .route_fleet(
-            "/auth/dev-login",
-            get(auth::dev_login_get).post(auth::dev_login),
-        )
-        .route_fleet("/user", get(user::get_current_user_public))
+        // Signing in (`/auth/{config,session,oauth/state,google,github,okta,
+        // magic-link/*,return-to/validate,dev-login}`), the mobile app's redeem
+        // and refresh (`/auth/mobile/{exchange,refresh}`) and `GET /user` are
+        // `oxy-api-identity`'s (`sign_in`, `user`), merged beside this tree
+        // through `SurfaceSeams::public` (2026-11-15), as are the personal-token
+        // handshakes (`oxyc login`'s exchange, the device flow, the ticket
+        // redeem, the OIDC exchange, leak reports). The frontline PIN sign-in
+        // and kiosk binding are `oxy-api-frontline`'s, through the same seam.
         .route_fleet("/webhooks/stripe", post(billing::webhook::stripe_webhook))
         // The GitHub App's webhook: a push to a default branch queues a commit
         // compile. Signature-verified; FleetOk because it only reads Postgres

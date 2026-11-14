@@ -1,49 +1,36 @@
-//! Authentication HTTP surface: magic-link request/verify, OAuth login
-//! (Google / Okta / GitHub), OAuth-state CSRF tokens, session-cookie
-//! hydration, the public auth-config endpoint, and `return_to` redirect
-//! validation.
+//! The session plumbing every sign-in path shares: the session JWT and the
+//! `oxy_session` cookie that carries it, the login payload, a token session's
+//! response and hydration, `return_to` validation and the link bases.
 //!
-//! - [`dto`]: request/response serde types shared across handlers.
-//! - [`ops`]: internal helpers — session-cookie construction, OAuth code
-//!   exchange, magic-link email + rate limiting, and login finalization.
-//! - [`handlers`]: the HTTP handler functions themselves.
+//! Base, not a context (`tests/routing/base_boundary.rs`): the sign-in routes
+//! themselves (magic link, OAuth, dev sign-in, the mobile app's sign-in, `/user`
+//! and `/logout`) are `oxy-api-identity`'s, and reach this through
+//! `surface::session`, beside frontline's PIN sign-in and a token's browser
+//! sign-in, which mint the same session.
+//!
+//! - [`dto`]: the session's own shapes (`AuthResponse`, `UserInfo`, `OrgInfo`,
+//!   the JWT `Claims`).
+//! - [`ops`]: minting the token, the cookie and its attributes, the login
+//!   response, `return_to` validation and the link bases.
 //! - [`token_session`]: the login response of a session a personal access
 //!   token opened, and its cookie hydration.
 
-mod anonymous_link;
 mod cookie_session;
-mod dev_login;
 mod dto;
-mod handlers;
-// The Oxygen mobile app's sign-in and session refresh, mounted from
-// `router/tokens.rs` beside `oxyc login`'s pair.
-pub mod mobile;
 mod ops;
 mod token_session;
 
-// Frontline sign-in mints the same session cookie as the magic-link path, so
-// the installed PWA carries it on navigation without the page holding a token.
-// Re-exported rather than making `ops` public: one function crosses the
-// boundary, not the module.
-pub use ops::{build_session_cookie, build_session_cookie_with_max_age, is_request_secure};
-
-// The two handlers stay `pub` (mounted from `router/public.rs`, whose `pub`
-// signatures name `PeerAddr`); every query about the allow-list is crate-only.
-pub(crate) use dev_login::dev_login_reachable_by;
-pub use dev_login::{PeerAddr, dev_login, dev_login_get};
-pub use dev_login::{dev_login_is_loopback_only, dev_login_source, is_dev_login_enabled};
-pub use handlers::*;
-pub(crate) use ops::clear_session_cookie;
-// The ticket redemption (`oxy-api-identity`'s `user_tokens::browser_session`)
-// answers as a login does: one function and the type it returns cross the
-// boundary, through `surface::session`.
-pub use dto::AuthResponse;
-pub use ops::validate_return_to_url;
-pub use token_session::token_session_response;
-// `pub`: reused by the extracted `oxy-api-partner-console` surface (invite links).
-pub use ops::{extract_base_url_from_headers, extract_link_base_for_authenticated_request};
+pub use dto::{AuthResponse, Claims, OrgInfo, UserInfo};
+pub use ops::{
+    LOCAL_DEFAULT_BASE, SESSION_TTL_SECS, SessionCookieAttributes, build_session_cookie,
+    build_session_cookie_with_max_age, clear_session_cookie, create_auth_token,
+    create_auth_token_with_ttl, extract_base_url_from_headers,
+    extract_link_base_for_authenticated_request, finalize_login, is_request_secure, login_response,
+    origin_named_by_request, pin_org_subdomain_to_app_host, render_session_cookie,
+    session_cookie_attributes, validate_return_to_url,
+};
+pub use token_session::{hydrate as hydrate_token_session, token_session_response};
 
 // The kiosk probe (`frontline_devices::device_status`) reports whose session
-// a request's cookie carries, decoded without re-minting it. `pub`: that probe
-// lives in the extracted `oxy-api-frontline` surface.
+// a request's cookie carries, decoded without re-minting it.
 pub use cookie_session::session_cookie_user_id;

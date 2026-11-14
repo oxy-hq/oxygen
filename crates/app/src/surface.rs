@@ -68,14 +68,30 @@ pub use crate::server::api::middlewares::app_grant_scope::serve_tree_refuses;
 /// that composes `OxyProjectContext`, which only `oxy-app` can name.
 pub use crate::server::api::custom_apps_gates::build_project_context;
 
-/// Session, token and request helpers shared by every sign-in path.
+/// Session, token and request helpers shared by every sign-in path: the
+/// session JWT, the `oxy_session` cookie and its attributes, the login
+/// response and payload, a token session's response and hydration,
+/// `return_to` validation and the link bases. The sign-in routes themselves are
+/// `oxy-api-identity`'s; frontline's PIN sign-in mints the same session.
 pub mod session {
     pub use crate::server::api::auth::{
-        AuthResponse, build_session_cookie_with_max_age, create_auth_token,
-        create_auth_token_with_ttl, extract_base_url_from_headers,
-        extract_link_base_for_authenticated_request, is_request_secure, session_cookie_user_id,
-        token_session_response, validate_return_to_url,
+        AuthResponse, Claims, LOCAL_DEFAULT_BASE, OrgInfo, SESSION_TTL_SECS,
+        SessionCookieAttributes, UserInfo, build_session_cookie, build_session_cookie_with_max_age,
+        clear_session_cookie, create_auth_token, create_auth_token_with_ttl,
+        extract_base_url_from_headers, extract_link_base_for_authenticated_request, finalize_login,
+        hydrate_token_session, is_request_secure, login_response, origin_named_by_request,
+        pin_org_subdomain_to_app_host, render_session_cookie, session_cookie_attributes,
+        session_cookie_user_id, token_session_response, validate_return_to_url,
     };
+}
+
+/// The feature-flag reads `GET /auth/config` reports to a web app that has no
+/// org yet: the `billing` switch, the apps-first experience as an org with no
+/// override gets it, and `home_v3`. Read-only; the flag runtime stays in
+/// `oxy-app` until it leaves (sideways, the compile / preagg / feature-flag
+/// runtime).
+pub mod feature_flags {
+    pub use crate::server::feature_flags::{APPS_FIRST_EXPERIENCE, home_v3, is_enabled};
 }
 
 /// The CORS origin allowlist, for routes that gate on where a call came from.
@@ -263,6 +279,9 @@ pub mod listener {
 /// workspace the partner seed made for an org, and whether the database is one a
 /// seed may touch.
 pub mod seed {
+    /// The personas the demo seed creates, which `oxy-api-identity`'s dev
+    /// sign-in persona table is pinned against (in its tests).
+    pub use crate::cli::commands::seed::seeded_persona_emails;
     pub use crate::cli::commands::seed::{SeedOptions, clear_demo, seed_demo_with};
     pub use crate::cli::commands::seed_partners::{is_local_db, seeded_workspace_id};
     pub use crate::cli::commands::seed_platform_grants::unscoped_app_operator_email;

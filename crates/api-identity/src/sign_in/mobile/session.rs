@@ -31,12 +31,10 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::super::create_auth_token_with_ttl;
-use super::super::dto::Claims;
-use super::super::ops::SESSION_TTL_SECS;
 use super::cookie::SessionCookie;
 use super::error::MobileAuthError;
 use super::frontline;
+use oxy_app::surface::session::{Claims, SESSION_TTL_SECS, create_auth_token_with_ttl};
 
 /// The window a mobile sign-in gets: a browser login's thirty days.
 pub(super) const LOGIN_WINDOW_SECS: i64 = SESSION_TTL_SECS;

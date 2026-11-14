@@ -146,8 +146,7 @@ fn print_next_steps(compiled: bool, workspace_id: Uuid, path: &str) {
 
 /// The personas `/api/auth/dev-login?as=` names, derived from what this seed
 /// creates. `staff` is absent: it is the operator's own roster, not seed data.
-#[cfg(test)]
-pub(crate) fn seeded_persona_emails() -> Vec<(&'static str, String)> {
+pub fn seeded_persona_emails() -> Vec<(&'static str, String)> {
     let mut personas = super::seed_partners::acme_persona_emails();
     let operator = super::seed_platform_grants::unscoped_app_operator_email()
         .expect("the seed grants an unscoped App Operator");

@@ -1,7 +1,14 @@
-//! Identity tokens over HTTP: personal access tokens, legacy API keys, an
-//! org's API access, `oxyc login`, the GitHub Actions OIDC exchange and leak
-//! response (API-tokens design; sandbox agent credential design).
+//! Identity over HTTP: signing in, who the caller is, personal access tokens,
+//! legacy API keys, an org's API access, `oxyc login`, the GitHub Actions OIDC
+//! exchange and leak response (API-tokens design; sandbox agent credential
+//! design).
 //!
+//! - [`sign_in`]: magic link, OAuth (Google / Okta / GitHub), the OAuth state,
+//!   session hydration, the public auth config, `return_to` validation, the dev
+//!   sign-in bypass and the mobile app's sign-in. The session they mint (the
+//!   JWT, the `oxy_session` cookie, the login payload) is `oxy-app`'s, through
+//!   `oxy_app::surface::session`, shared with frontline's PIN sign-in;
+//! - [`user`]: `GET /user` and `/logout`;
 //! - [`user_tokens`]: the caller's tokens, `oxyc login` (code and device), the
 //!   calling token about itself, the token's browser sign-in, leak response,
 //!   sandbox agent and agent tokens, the workspace inventory, the hygiene the
@@ -21,16 +28,18 @@
 //! Mounted by the `oxy-server` composition root through six seams, each the
 //! place its routes had in `oxy-app`'s router, with the same middleware:
 //!
-//! - [`routes`] rides `SurfaceSeams::api`, merged into the protected tree
+//! - [`routes`] (the tokens, `/logout`, the mobile sign-in approval and the
+//!   org's API access) rides `SurfaceSeams::api`, merged into the protected tree
 //!   before `apply_middleware`, so it takes the standard `/api` auth stack;
 //!   cloud only, as `build_global_routes` was. Its org half re-applies the org
 //!   tree's `org_middleware` + subscription guard, the only two layers
 //!   `build_org_routes`' `gated` tree put between those routes and the auth
 //!   stack.
 //! - [`public_routes`] rides `SurfaceSeams::public`, beside oxy-app's
-//!   `build_public_routes`, outside the auth stack: the CLI's half of
-//!   `oxyc login`, the browser's ticket redeem, the OIDC exchange and leak
-//!   reports hold no credential yet. That tree added no layer of its own.
+//!   `build_public_routes`, outside the auth stack: signing in, `GET /user`,
+//!   the CLI's half of `oxyc login`, the browser's ticket redeem, the OIDC
+//!   exchange and leak reports hold no credential yet (or check their own).
+//!   That tree added no layer of its own.
 //! - [`workspace_routes`] rides `SurfaceSeams::workspace`, merged inside the
 //!   `/{workspace_id}` nest before the workspace middleware and subscription
 //!   guard, which it inherits.
@@ -58,7 +67,9 @@ mod authz;
 pub mod oidc_exchange;
 pub mod org_api_access;
 pub mod public_rate_limit;
+pub mod sign_in;
 pub mod token_sweep;
+pub mod user;
 pub mod user_tokens;
 
 use axum::Router;
@@ -78,7 +89,16 @@ use user_tokens::{
 /// session's halves of `oxyc login`, the calling token, and an org's API
 /// access under `/orgs/{org_id}`.
 pub fn routes() -> Router<AppState> {
-    token_routes().merge(org_routes())
+    token_routes().merge(session_routes()).merge(org_routes())
+}
+
+/// The session's own two routes, from `build_global_routes`: logging out, and
+/// the mobile app's sign-in approval (the same session-only approval `oxyc
+/// login` takes, for a code bound to an `oxygen://` redirect URI).
+pub fn session_routes() -> Router<AppState> {
+    Router::new()
+        .route("/logout", get(user::logout))
+        .route("/auth/mobile/authorize", post(sign_in::mobile::authorize))
 }
 
 /// Personal access tokens and the calling-token pair. Session-only, every
@@ -210,6 +230,44 @@ fn org_api_access_routes() -> Router<AppState> {
 /// no credential yet, or carries its own (a one-time code, a ticket, a JWT, a
 /// leak report).
 pub fn public_routes() -> Router<AppState> {
+    sign_in_public_routes().merge(token_public_routes())
+}
+
+/// Signing in, from `build_public_routes`: the providers, the magic link, the
+/// session hydration and config the login page reads, the dev sign-in bypass,
+/// the mobile app's redeem and refresh, and who the caller is.
+///
+/// The mobile app's half holds no credential yet, or one only it checks. The
+/// dev sign-in bypass is public by necessity (it IS the login), but 404s
+/// unless an allow-list resolves — `OXY_DEV_LOGIN_EMAILS` in any build, or the
+/// staff roster on a debug build for a loopback caller — and only ever issues
+/// a session for an address on it. The three rungs and why they differ:
+/// `sign_in::dev_login`.
+fn sign_in_public_routes() -> Router<AppState> {
+    Router::new()
+        .route("/auth/mobile/exchange", post(sign_in::mobile::exchange))
+        .route("/auth/mobile/refresh", post(sign_in::mobile::refresh))
+        .route("/auth/config", get(sign_in::get_config))
+        .route("/auth/session", get(sign_in::get_session))
+        .route("/auth/oauth/state", post(sign_in::issue_oauth_state))
+        .route("/auth/google", post(sign_in::google_auth))
+        .route("/auth/github", post(sign_in::github_auth))
+        .route("/auth/okta", post(sign_in::okta_auth))
+        .route(
+            "/auth/magic-link/request",
+            post(sign_in::request_magic_link),
+        )
+        .route("/auth/magic-link/verify", post(sign_in::verify_magic_link))
+        .route("/auth/return-to/validate", get(sign_in::validate_return_to))
+        .route(
+            "/auth/dev-login",
+            get(sign_in::dev_login_get).post(sign_in::dev_login),
+        )
+        .route("/user", get(user::get_current_user_public))
+}
+
+/// The personal-token handshakes.
+fn token_public_routes() -> Router<AppState> {
     Router::new()
         // `oxyc login`'s CLI half: redeem the one-time code.
         .route("/auth/cli/exchange", post(cli_login::exchange))
@@ -293,6 +351,7 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
         .routes(utoipa_axum::routes!(api_keys::get_api_key))
         .routes(utoipa_axum::routes!(api_keys::delete_api_key))
         .routes(utoipa_axum::routes!(api_keys::extend::extend_api_key))
+        .routes(utoipa_axum::routes!(user::get_current_user_public))
         .into_openapi()
 }
 
@@ -340,6 +399,8 @@ const API_ROLES: &[RouteRoleDecl] = &[
     fleet("/auth/cli/device/requests/{user_code}/deny"),
     fleet("/auth/token"),
     fleet("/auth/browser-ticket"),
+    fleet("/logout"),
+    fleet("/auth/mobile/authorize"),
     fleet("/orgs/{org_id}/service-accounts"),
     fleet("/orgs/{org_id}/service-accounts/{sa_id}"),
     fleet("/orgs/{org_id}/service-accounts/{sa_id}/tokens"),
@@ -367,6 +428,19 @@ const PUBLIC_ROLES: &[RouteRoleDecl] = &[
     fleet("/auth/browser-ticket/redeem"),
     fleet("/auth/oidc/exchange"),
     fleet("/auth/tokens/revoke-leaked"),
+    fleet("/auth/mobile/exchange"),
+    fleet("/auth/mobile/refresh"),
+    fleet("/auth/config"),
+    fleet("/auth/session"),
+    fleet("/auth/oauth/state"),
+    fleet("/auth/google"),
+    fleet("/auth/github"),
+    fleet("/auth/okta"),
+    fleet("/auth/magic-link/request"),
+    fleet("/auth/magic-link/verify"),
+    fleet("/auth/return-to/validate"),
+    fleet("/auth/dev-login"),
+    fleet("/user"),
 ];
 
 /// Every route [`workspace_routes`] mounts. Relative to `/{workspace_id}`.

@@ -498,7 +498,6 @@ pub(crate) async fn seeded_workspace_ids(conn: &Conn) -> Result<Vec<(String, Uui
 /// above rather than restated: `owner` is person 0; `partner` is the first
 /// non-owner holding a partner binding; `member` is the first member holding
 /// none. The dev-login persona table is compiled in and pinned against this.
-#[cfg(test)]
 pub(crate) fn acme_persona_emails() -> Vec<(&'static str, String)> {
     let acme = ORGS.iter().find(|o| o.slug == "acme").expect("acme seeded");
     let partner = PARTNERS

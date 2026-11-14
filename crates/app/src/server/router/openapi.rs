@@ -14,7 +14,7 @@ use utoipa::openapi::server::Server;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::api::{agent, data, healthcheck, thread, user, workspaces};
+use crate::api::{agent, data, healthcheck, thread, workspaces};
 
 use super::{IdeState, build_cors_layer};
 
@@ -49,7 +49,8 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         // `oxy-api-custom-apps`' (`data_plane`), merged in through
         // `SurfaceSeams::openapi`; `oxy-server`'s tests assert them there.
         // Turning "the customer" into the ids every other endpoint wants.
-        .routes(routes!(user::get_current_user_public))
+        // `GET /user` is `oxy-api-identity`'s, merged in through
+        // `SurfaceSeams::openapi`.
         .routes(routes!(workspaces::list_workspaces))
         // Database routes
         .layer(build_cors_layer())
@@ -135,8 +136,7 @@ mod openapi_coverage_tests {
     /// should not be added to it.
     const AGENT_PATHS: &[(&str, &str)] = &[
         ("/{workspace_id}/sql/query", "post"),
-        ("/user", "get"),
-        // `GET /orgs` (`oxy-api-tenancy`) and the custom-app data plane's
+        // `GET /user` (`oxy-api-identity`), `GET /orgs` (`oxy-api-tenancy`) and the custom-app data plane's
         // `/projects/{project_id}/query` and `/semantic-query`
         // (`oxy-api-custom-apps`) are merged in by the composition root;
         // `oxy-server`'s tests assert them there.

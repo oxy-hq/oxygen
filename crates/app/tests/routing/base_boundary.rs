@@ -81,14 +81,6 @@ const BACKLOG: &[(&str, &str)] = &[
     ("agentic_wiring", "server::anomaly_notify"),
     ("agentic_wiring", "server::api::semantic"),
     ("agentic_wiring", "server::api::typed_stream"),
-    // Session helpers mint through the sign-in handlers: `create_auth_token`
-    // lives in `handlers`, the anonymous link in `anonymous_link`. Base items
-    // in identity files; they clear when the helpers move beside `ops`.
-    (
-        "server::api::auth::ops",
-        "server::api::auth::anonymous_link",
-    ),
-    ("server::api::auth::ops", "server::api::auth::handlers"),
     // The workspace middleware: branch self-heal, the reconcile check, the
     // Factory-access gate, preview pins and read-only holds, the worktree
     // registry and the detached-branch status. The largest knot: it is where
