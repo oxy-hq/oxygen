@@ -144,7 +144,6 @@ if (args.roadmap) {
       title: meta.title,
       patches,
       trailer,
-      pr,
       draft: meta.draft,
       doc: needDoc ? await at(config.ROADMAP.doc, meta.head.sha) : null,
       summary: needDoc ? await at(config.ROADMAP.summary, meta.head.sha) : null,

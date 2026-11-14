@@ -1,5 +1,7 @@
 // The `roadmap` merge status: a PR that changes code names the roadmap line it starts,
-// moves or lands, and that line cites the PR; or it says `Roadmap: none -- <why>`.
+// moves, lands or contributes to, or it says `Roadmap: none -- <why>`. The trailer is
+// the citation: the doc is edited only to change what a line says, never to cite a PR,
+// so PRs working on the same line do not conflict on it.
 // internal-docs/platform-roadmap.md (Governance) is the rule; this is the check.
 
 import type { Audience, Horizon } from "../../roadmap/doc.ts";
@@ -8,6 +10,7 @@ import {
   findItem,
   headline,
   isValidId,
+  newCitations,
   parseRoadmap,
   pinnedId,
   renderSummary,
@@ -77,8 +80,6 @@ export interface RoadmapInput {
   /** Each file's unified diff, when known: a file whose every changed line is a version bump is not behaviour. */
   patches?: Readonly<Record<string, string>>;
   trailer: Trailer;
-  /** The PR number, when known: a named line must cite it. */
-  pr: number | null;
   draft: boolean;
   /** The roadmap doc and the summary at the PR head; `null` when the file is absent. */
   doc: string | null;
@@ -170,7 +171,6 @@ export function evaluateRoadmap({
   title,
   patches = {},
   trailer,
-  pr,
   draft,
   doc,
   summary,
@@ -208,6 +208,16 @@ export function evaluateRoadmap({
         `${unpinned.length} roadmap line(s) have no <!-- rm:id --> pin: node scripts/roadmap/roadmap.ts pin --write`
       )
     };
+  // No new `[#n]`: the trailer links the PR to its line, and a citation is an edit to a
+  // line and to the link block at the foot that every concurrent PR would collide on.
+  const cited = docChanged && doc && docBefore ? newCitations(docBefore, doc) : [];
+  if (cited.length)
+    return {
+      state: "failure",
+      description: cap(
+        `Roadmap cites ${cited.map((n) => `#${n}`).join(", ")}: drop it. The Roadmap: trailer links a PR to its line; the doc carries no new PR refs`
+      )
+    };
   // Pins, rewrapping, governance prose or a scoreboard reading move no line; a PR that
   // only does that needs no line id.
   const moved = docChanged && !(parsed && docBefore && sameLines(parseRoadmap(docBefore), parsed));
@@ -241,7 +251,8 @@ export function evaluateRoadmap({
     return { state: "success", description: cap(`Roadmap: none (${trailer.reason})`) };
   }
 
-  // Named lines: each must exist at the head and cite this PR.
+  // Named lines: each must exist at the head. The trailer itself is the link (the roadmap
+  // app reads it), so the line need not, and may not, cite the PR.
   if (!parsed)
     return { state: "failure", description: cap(`${config.doc} is missing at the PR head`) };
   const unknown = trailer.ids.filter((id) => !findItem(parsed, id));
@@ -252,15 +263,5 @@ export function evaluateRoadmap({
         `No roadmap line ${unknown.join(", ")} at the PR head. Ids: node scripts/roadmap/roadmap.ts ids`
       )
     };
-  if (pr !== null) {
-    const silent = trailer.ids.filter((id) => !findItem(parsed, id)?.prs.includes(pr));
-    if (silent.length)
-      return {
-        state: "failure",
-        description: cap(
-          `Line ${silent.join(", ")} does not cite #${pr}: node scripts/roadmap/roadmap.ts link --id <id> --pr ${pr} --write`
-        )
-      };
-  }
   return { state: "success", description: cap(`Roadmap: ${trailer.ids.join(", ")}`) };
 }

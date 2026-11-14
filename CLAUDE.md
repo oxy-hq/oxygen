@@ -186,10 +186,12 @@ The bounds it comes with, which are not optional:
 - **Every PR gets an automated review** (`internal-docs/code-review.md`): act on its
   findings, or dispute one with a reason in its thread; the next push rechecks it.
   **Never apply the `review-override` label** — overriding a Blocking verdict is a person's call.
-- **Every PR names its roadmap line.** A PR that adds or changes product behaviour edits
-  its line in `internal-docs/platform-roadmap.md` in the same PR (start, move or mark
-  Landed; cite the PR on the line; regenerate the summary) and ends its body with
-  `Roadmap: <line-id>`; one that changes no behaviour ends with `Roadmap: none -- <why>`.
+- **Every PR names its roadmap line.** A PR that adds or changes product behaviour ends
+  its body with `Roadmap: <line-id>`, and that trailer is the whole link: **never cite the
+  PR in `internal-docs/platform-roadmap.md`** (no `[#n]`; the status refuses one, because
+  every PR editing one doc made every pair of PRs conflict). Edit the doc only to start,
+  land, add or reword a line, and regenerate the summary when you do. A PR that changes no
+  behaviour ends with `Roadmap: none -- <why>`.
   The `roadmap` status fails a `feat`/`fix`/`refactor`/`perf` PR on product code without
   one unless the automated review finds no behaviour change; a
   `chore`/`docs`/`test`/`ci`/`build`/`style` title stands for `none` unless the PR moves a
@@ -288,7 +290,7 @@ skill** rather than reasoning it out again — its `SKILL.md` carries the full c
 | `oxy-customer-apps-perf` ¹ | add/move a `/customer-apps/**` route or custom-app data endpoint; any per-request read on that hot path | serving routes need Cache-Control + SSE-safe compression; result caches keyed `project_id`-first, read after auth gates, honor `?refresh` |
 | `oxy-run-and-verify` | verify a change in the running app, seed data, sign in as a persona, screenshot a feature or reproduce a UI bug | never `--local`; `just up`, not hand-started servers; sign in by persona (`/dev-login?as=`), never by editing env |
 | `oxy-data-placement` | a new table or migration, a webhook/ingest that stores org data, a custom-app data surface, a failing `data_placement` test | org data never in Oxy's Postgres; the shape picks the store (facts → Airhouse, records → org OLTP, files → storage); customer warehouses read-only; OLTP store provisioning stays manual (an app environment's branch of it is lifecycle-managed) |
-| `oxy-roadmap` | a PR that adds or changes product behaviour, a failing `roadmap` status, editing `internal-docs/platform-roadmap.md`, picking a line id, `Roadmap:` trailer | one owner per line: the PR that starts, moves or lands a line edits it and cites itself; the summary is regenerated, never hand-edited; ids are pinned, never renamed |
+| `oxy-roadmap` | a PR that adds or changes product behaviour, a failing `roadmap` status, editing `internal-docs/platform-roadmap.md`, picking a line id, `Roadmap:` trailer | the trailer is the link, so the doc never cites a PR; a PR edits a line only to start, land, add or reword it; the summary is regenerated, never hand-edited; ids are pinned, never renamed |
 
 PRs that violate the right-hand column should be challenged through the matching skill.
 

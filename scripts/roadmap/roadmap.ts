@@ -5,15 +5,15 @@
 //   node scripts/roadmap/roadmap.ts ids                     every line id, by audience and horizon
 //   node scripts/roadmap/roadmap.ts summary [--write]       regenerate platform-roadmap-summary.md
 //   node scripts/roadmap/roadmap.ts pin [--write]           pin every unpinned line to its id
-//   node scripts/roadmap/roadmap.ts link --id <id> --pr <n> [--write]   cite PR n on a line
-//   node scripts/roadmap/roadmap.ts check [--body-file <f>] [--pr <n>] [--title <t>]
+//   node scripts/roadmap/roadmap.ts check [--body-file <f>] [--title <t>]
 //                                        what the status will say (title: the PR's, else HEAD's subject)
 //   node scripts/roadmap/roadmap.ts draft [--body-file <f>] [--title <t>]
 //                                        the brief for writing the trailer: the verdict as it stands,
 //                                        the product files, and the lines closest to this branch
 //   --dir <checkout>                     read that checkout instead of the current directory
 //
-// Without --write, an edit is printed as a diff and nothing is changed.
+// Without --write, an edit is printed as a diff and nothing is changed. There is no
+// command that cites a PR on a line: the PR body's `Roadmap: <id>` trailer is the link.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -21,20 +21,25 @@ import { parseArgs } from "node:util";
 import { ROADMAP, ROADMAP_CONTEXT } from "../review/config.ts";
 import { evaluateRoadmap, productFiles } from "../review/src/roadmap.ts";
 import type { CommitStatus } from "../review/src/types.ts";
-import { linkPr, parseRoadmap, pinAll, renderSummary } from "./doc.ts";
+import { parseRoadmap, pinAll, renderSummary } from "./doc.ts";
 import { rankLines, renderDraft } from "./draft.ts";
 import { parseTrailer } from "./trailer.ts";
+
+// `link` is gone on purpose: every PR citing itself on the doc made every pair of open
+// PRs conflict on it. Say so before parsing (its old `--id`/`--pr` would fail as unknown
+// options first) to whoever still reaches for it.
+if (process.argv[2] === "link")
+  throw new Error(
+    "link is gone: PRs are no longer cited in the roadmap. End the PR body with Roadmap: <id>; that trailer is the link"
+  );
 
 const { positionals, values: args } = parseArgs({
   allowPositionals: true,
   options: {
     write: { type: "boolean", default: false },
-    id: { type: "string" },
-    pr: { type: "string" },
     "body-file": { type: "string" },
     title: { type: "string" },
     base: { type: "string", default: "origin/main" },
-    repo: { type: "string", default: process.env.GITHUB_REPOSITORY ?? "oxy-hq/oxygen-internal" },
     // The checkout to read (doc, summary, git): lets a trusted copy of this script judge
     // another checkout, as the PR guard hook does, without running that checkout's code.
     dir: { type: "string" }
@@ -115,7 +120,6 @@ function verdict(b: Branch): CommitStatus {
     title: b.title,
     patches: b.patches,
     trailer: parseTrailer(body),
-    pr: args.pr ? Number(args.pr) : null,
     draft: false,
     doc: read(ROADMAP.doc),
     summary: read(ROADMAP.summary),
@@ -141,13 +145,6 @@ switch (command) {
   case "pin":
     apply(ROADMAP.doc, pinAll(read(ROADMAP.doc)), "pinned");
     break;
-  case "link": {
-    const pr = Number(args.pr);
-    if (!args.id || !Number.isInteger(pr) || pr <= 0)
-      throw new Error("link needs --id <line-id> and --pr <number>");
-    apply(ROADMAP.doc, linkPr(read(ROADMAP.doc), args.id, pr, args.repo), `linked to #${pr}`);
-    break;
-  }
   case "check": {
     const result = verdict(branch());
     console.log(`${ROADMAP_CONTEXT}: ${result.state} · ${result.description}`);

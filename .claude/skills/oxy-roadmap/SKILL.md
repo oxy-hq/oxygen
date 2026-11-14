@@ -26,8 +26,21 @@ refuses the creation until they pass; its message is the same verdict the status
 post. A `wt-claim` slot is judged once the shell is already in it (a `cd` in an earlier
 call); a `cd` the command text cannot settle, `cd "$(just wt-claim …)" && gh pr create …`
 in one call, is let through unchecked, so run `check` yourself before such a command.
-The hook cannot know the PR number, so `link --id <id> --pr <n> --write` still runs
-after the PR opens.
+No step waits for the PR number: the trailer is the whole link.
+
+## The trailer is the citation: never cite the PR in the doc
+
+The `Roadmap: <id>` trailer links the PR to its line. The roadmap app reads it to put
+the PR on the board, and it works out the line's status from those PRs. So the doc never
+names a PR: no `([#n])` on a line, no link definition at the foot. When every PR cited
+itself, every PR edited the same doc, often the same busy line and always the same link
+block, and every pair of open PRs conflicted. The status now refuses a new `[#n]`
+anywhere in the doc. The citations already there are history; the quarterly review
+prunes them with their lines.
+
+A PR edits the doc only to change what a line **says**: it starts a line, lands one, adds
+one, or rewords one because the plan changed. Contributing to a line is not a change to
+it. Don't add a sentence about what this PR did: that changelog is the board's.
 
 ## Decide: does this PR move a line?
 
@@ -35,10 +48,10 @@ Ask it before the PR body is written, not after the status fails.
 
 | The PR | Trailer | Doc edit |
 | --- | --- | --- |
-| lands a Now line (the feature is in) | `Roadmap: <id>` | prefix the line with `Landed:`, cite the PR |
-| starts a Next line (the first PR of it) | `Roadmap: <id>` | move the line under **Now**, cite the PR |
-| adds behaviour no line names | `Roadmap: <new-id>` | add a line under **Now** (a PR exists) with a bold headline anyone can read, pin it, cite the PR |
-| contributes to a Now line already under way | `Roadmap: <id>` | cite the PR on the line |
+| lands a Now line (the feature is in) | `Roadmap: <id>` | prefix the line with `Landed:` |
+| starts a Next line (the first PR of it) | `Roadmap: <id>` | move the line under **Now** |
+| adds behaviour no line names | `Roadmap: <new-id>` | add a line under **Now** (a PR exists) with a bold headline anyone can read, pin it |
+| contributes to a Now line already under way | `Roadmap: <id>` | none: the trailer puts the PR on the line |
 | fixes a bug, refactors, tests, bumps a dependency, changes an internal tool | `Roadmap: none -- <why>` (or no trailer: the review's general pass then says whether behaviour changed, and the status follows it) | none |
 | is typed `chore:`, `docs:`, `test:`, `ci:`, `build:` or `style:` (a release bump, a template, CI) | none needed: the type says no behaviour changes | none |
 | edits the roadmap's prose, pins or scoreboard reading only | `Roadmap: none -- <why>` (or no trailer) | regenerate the summary |
@@ -51,32 +64,32 @@ cheap.
 
 ```bash
 node scripts/roadmap/roadmap.ts ids                               # every line id, by audience and horizon
-node scripts/roadmap/roadmap.ts link --id <id> --pr <n> --write    # cite PR n on the line (+ its link definition)
 node scripts/roadmap/roadmap.ts pin --write                        # pin every unpinned (new) line to its id
 node scripts/roadmap/roadmap.ts summary --write                    # regenerate platform-roadmap-summary.md
-node scripts/roadmap/roadmap.ts check --body-file body.md --pr <n> --title "<PR title>"  # what the status will say
+node scripts/roadmap/roadmap.ts check --body-file body.md --title "<PR title>"  # what the status will say
 node scripts/roadmap/roadmap.ts draft --title "<PR title>"                               # the brief for writing the trailer
 ```
 
 `check` reads the PR title's type (`feat:`, `chore:`, …) from `--title`; without it, the
 last commit's subject stands in, which can differ from the PR's.
 
-Without `--write` an edit prints as a diff. The PR number exists only once the PR is
-open: open it, then `link` and push, or let the first push fail the status and fix it in
-the second. Run `summary --write` after any edit to the roadmap; the status fails when the
-summary is not derived from the roadmap at the PR head.
+Without `--write` an edit prints as a diff. Run `summary --write` after any edit to the
+roadmap; the status fails when the summary is not derived from the roadmap at the PR head.
+On a rebase conflict in the summary, take either side and run `summary --write` again:
+it is a pure function of the doc.
 
 ## Writing a line
 
-- `  - **Headline anyone can read.** The detail, with the PR cited as ([#n]).` under the
-  right `- **Now**` / `- **Next**` / `- **Later**` list of the right `### 2.x` audience.
+- `  - **Headline anyone can read.** The detail.` under the right `- **Now**` /
+  `- **Next**` / `- **Later**` list of the right `### 2.x` audience. No `[#n]`.
   Continuation lines are indented four spaces; keep lines under ~92 columns.
 - Landed lines start with `Landed:` before the bold headline. They stay until the quarterly
   review prunes them.
 - The pin comment `    <!-- rm:<id> -->` is the last line of the item, and every line has
   one: the status fails a roadmap change that leaves a line unpinned. `pin --write` writes
   it from the headline's first words; never rename a pin, the PRs linked to it would be lost.
-- PR link definitions live at the foot of the doc under `<!-- PR links -->`; `link` adds them.
+- The PR link definitions at the foot, under `<!-- PR links -->`, are frozen: they serve
+  the old citations only, and nothing adds to them.
 - The summary is never edited by hand.
 
 ## The trailer

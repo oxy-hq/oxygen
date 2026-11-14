@@ -6,7 +6,7 @@ import {
   derivedId,
   findItem,
   headline,
-  linkPr,
+  newCitations,
   parseRoadmap,
   pinAll,
   pinnedId,
@@ -152,19 +152,18 @@ test("pinAll pins every unpinned line without rewrapping, is idempotent; ids sur
   assert.ok(findItem(parseRoadmap(reworded), "app-updates-go-live-safely"));
 });
 
-test("linkPr cites the PR on the line and adds its link definition, once", () => {
-  const once = linkPr(small, "phone-apps-in-the-app-stores", 4001, "oxy-hq/oxygen-internal");
-  const item = findItem(parseRoadmap(once), "phone-apps-in-the-app-stores")!;
-  assert.deepEqual(item.prs, [4001]);
-  assert.match(once, /^\[#4001\]: https:\/\/github\.com\/oxy-hq\/oxygen-internal\/pull\/4001$/m);
-  assert.equal(linkPr(once, "phone-apps-in-the-app-stores", 4001, "x"), once);
-  // A line that already ends in a PR list gets the new one inside it, keeping its pin.
-  const listed = linkPr(small, "open-apps", 4002, "x");
-  const open = findItem(parseRoadmap(listed), "open-apps")!;
-  assert.deepEqual(open.prs, [3620, 4002]);
-  assert.match(open.text, /\(\[#3620\], \[#4002\]\)/);
-  assert.equal(pinnedId(open.text), "open-apps");
-  assert.throws(() => linkPr(small, "nope", 1, "x"), /no roadmap line/);
+test("newCitations names the PR refs a change adds, link definitions included", () => {
+  assert.deepEqual(newCitations(small, small), []);
+  const cited = small
+    .replace("Mobile moves toward the stores.", "Mobile moves toward the stores ([#4001]).")
+    .replace(
+      /(\[#3620\]: .*)$/m,
+      "$1\n[#4001]: https://github.com/oxy-hq/oxygen-internal/pull/4001"
+    );
+  assert.deepEqual(newCitations(small, cited), [4001]);
+  assert.deepEqual(newCitations(small, `${small}\n[#4002]: https://example.com/4002\n`), [4002]);
+  // Removing one (a quarterly prune) adds nothing.
+  assert.deepEqual(newCitations(small, small.replaceAll("[#3620]", "")), []);
 });
 
 test("the one-page summary carries headlines, Done, dates and no PR refs", () => {

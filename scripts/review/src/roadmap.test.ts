@@ -36,7 +36,6 @@ const run = (o: Partial<RoadmapInput> & { body?: string | null }) =>
   evaluateRoadmap({
     files: ["crates/app/src/server/api/x.rs"],
     trailer: parseTrailer(o.body ?? null),
-    pr: 3620,
     draft: false,
     doc,
     summary,
@@ -164,14 +163,61 @@ test("roadmap status: none", () => {
   assert.equal(run({ body: "Roadmap: none" }).state, "failure");
 });
 
-test("roadmap status: named lines must exist and cite the PR", () => {
+test("roadmap status: named lines must exist; the trailer is the link, no citation owed", () => {
   assert.equal(run({ body: "Roadmap: open-apps" }).state, "success");
   assert.match(run({ body: "Roadmap: nope" }).description, /No roadmap line nope/);
-  const silent = run({ body: "Roadmap: phone-apps" });
-  assert.equal(silent.state, "failure");
-  assert.match(silent.description, /does not cite #3620/);
-  assert.equal(run({ body: "Roadmap: phone-apps", pr: null }).state, "success", "no PR number yet");
+  // A line that cites nothing is named by the trailer alone: contributing PRs leave the
+  // doc untouched, so two of them on one line never conflict.
+  assert.equal(run({ body: "Roadmap: phone-apps" }).state, "success");
   assert.equal(run({ body: "Roadmap: open-apps", doc: null }).state, "failure");
+});
+
+test("roadmap status: a PR adds no citation to the roadmap", () => {
+  const files = [ROADMAP.doc, ROADMAP.summary, "crates/x/src/a.rs"];
+  const cited = doc
+    .replace("Mobile moves toward the stores.", "Mobile moves toward the stores ([#4200]).")
+    .replace(
+      /(\[#3620\]: .*)$/m,
+      "$1\n[#4200]: https://github.com/oxy-hq/oxygen-internal/pull/4200"
+    );
+  const result = run({
+    files,
+    doc: cited,
+    summary: renderSummary(cited),
+    docBefore: doc,
+    body: "Roadmap: phone-apps"
+  });
+  assert.equal(result.state, "failure");
+  assert.match(result.description, /cites #4200: drop it/);
+  // Starting the same line without the citation is fine: a move named by its trailer.
+  const started = doc
+    .replace("- **Next**\n  - **Phone", "  - **Phone")
+    .replace(
+      "    <!-- rm:phone-apps -->\n- **Later**",
+      "    <!-- rm:phone-apps -->\n- **Next**\n- **Later**"
+    );
+  assert.equal(
+    run({
+      files,
+      doc: started,
+      summary: renderSummary(started),
+      docBefore: doc,
+      body: "Roadmap: phone-apps"
+    }).state,
+    "success"
+  );
+  // A prune that drops citations is not a new one.
+  const pruned = doc.replace(" ([#3620])", "").replace(/^\[#3620\]: .*\n/m, "");
+  assert.equal(
+    run({
+      files,
+      doc: pruned,
+      summary: renderSummary(pruned),
+      docBefore: doc,
+      body: "Roadmap: open-apps"
+    }).state,
+    "success"
+  );
 });
 
 test("roadmap status: a mechanical roadmap edit (pins, wrapping, prose) moves no line", () => {

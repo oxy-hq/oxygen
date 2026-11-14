@@ -85,15 +85,16 @@ export function renderDraft({
   out.push("All ids: node scripts/roadmap/roadmap.ts ids");
   out.push("");
   out.push("Pick one row of the oxy-roadmap skill's table, then end the PR body with the trailer:");
+  out.push("  contributes to a line already in Now    Roadmap: <id>   and no doc edit");
   out.push(
-    "  lands, starts or contributes to a line  Roadmap: <id>   and edit the line; after the PR opens:"
-  );
-  out.push(
-    "                                          node scripts/roadmap/roadmap.ts link --id <id> --pr <n> --write"
+    "  starts or lands a line                  Roadmap: <id>   move it under Now, or prefix Landed:; summary --write"
   );
   out.push(
     "  behaviour no line names                 add a line under Now, then pin --write, summary --write, Roadmap: <new-id>"
   );
   out.push("  no product behaviour changes            Roadmap: none -- <why>");
+  out.push(
+    "  (never cite the PR in the doc: the trailer is the link, and the status refuses a new [#n])"
+  );
   return out.join("\n");
 }

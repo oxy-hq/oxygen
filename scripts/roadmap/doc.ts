@@ -1,7 +1,10 @@
 // `internal-docs/platform-roadmap.md`, read and edited by line. The doc is hand-written
 // markdown with a fixed shape (§1 scoreboard table, §2.x audiences with Now/Next/Later
 // bullets, §3 anti-goals table, PR link definitions at the foot); an edit touches only the
-// lines of the item it changes so the diff reads like a person made it.
+// lines of the item it changes so the diff reads like a person made it. The `[#n]`
+// citations and the link block are history: no PR adds one (`newCitations`), because the
+// `Roadmap:` trailer is what links a PR to its line, and a doc every PR edits is a doc
+// every pair of open PRs conflicts on.
 //
 // The same parser, with the same ids, is in the roadmap app (oxy-hq/oxygen-roadmap,
 // shared/roadmap-doc.ts). Keep the two in step: the gate here and the board there must
@@ -309,27 +312,6 @@ export function wrapItem(text: string): string[] {
   return out;
 }
 
-function withPrLinkDefs(lines: string[], repo: string, numbers: number[]): string[] {
-  const have = prLinks(lines);
-  const missing = numbers.filter((n) => !(n in have));
-  if (!missing.length) return lines;
-  const defs = lines.map((l, i) => ({ l, i })).filter(({ l }) => PR_LINK_DEF.test(l));
-  const all = [...Object.keys(have).map(Number), ...missing].sort((x, y) => x - y);
-  const block = all.map((n) => `[#${n}]: ${have[n] ?? `https://github.com/${repo}/pull/${n}`}`);
-  const first = defs[0];
-  const last = defs.at(-1);
-  if (first && last) return [...lines.slice(0, first.i), ...block, ...lines.slice(last.i + 1)];
-  const out = [...lines];
-  while (out.length && (out.at(-1) ?? "").trim() === "") out.pop();
-  return [...out, "", "<!-- PR links -->", ...block, ""];
-}
-
-function replaceItem(markdown: string, item: Item, text: string, repo: string): string {
-  const lines = markdown.split("\n");
-  lines.splice(item.lineStart, item.lineEnd - item.lineStart + 1, ...wrapItem(text));
-  return withPrLinkDefs(lines, repo, prRefs(text)).join("\n");
-}
-
 /** Every line pinned to its current id on a line of its own, so a rewording later keeps it. */
 export function pinAll(markdown: string): string {
   const lines = markdown.split("\n");
@@ -342,20 +324,14 @@ export function pinAll(markdown: string): string {
 }
 
 /**
- * The line `id` cites PR `pr`: `([#pr])` goes on the end, or into the line's last
- * parenthesised PR list when it has one, and the link definition is added.
+ * The PR numbers `after` references (`[#n]`, a link definition included) that `before`
+ * does not: a PR citing itself, or any other, on the doc. Citations are frozen because the
+ * `Roadmap:` trailer already links a PR to its line, and a citation is an edit to a line
+ * and to the shared link block at the foot that every concurrent PR would collide on.
  */
-export function linkPr(markdown: string, id: string, pr: number, repo: string): string {
-  const item = findItem(parseRoadmap(markdown), id);
-  if (!item) throw new Error(`no roadmap line with id ${JSON.stringify(id)}`);
-  if (item.prs.includes(pr)) return markdown;
-  const body = stripPin(item.text);
-  const pin = pinnedId(item.text);
-  const list = /\(((?:\[#\d+\](?:,\s*)?)+)\)(?!.*\(\[#)/;
-  const text = list.test(body)
-    ? body.replace(list, (_m, refs: string) => `(${refs}, [#${pr}])`)
-    : `${body.replace(/\.?\s*$/, "")} ([#${pr}]).`;
-  return replaceItem(markdown, item, pin ? `${text} <!-- rm:${pin} -->` : text, repo);
+export function newCitations(before: string, after: string): number[] {
+  const had = new Set(prRefs(before));
+  return prRefs(after).filter((n) => !had.has(n));
 }
 
 // ── The one-page summary ─────────────────────────────────────────────────────
