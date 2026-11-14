@@ -272,7 +272,6 @@ mod tests {
         for (method, path) in [
             ("POST", "/compile/staging"),
             ("PUT", "/secrets/abc"),
-            ("POST", "/databases/test-connection"),
             ("GET", "/semantic/objects"),
             ("DELETE", "/agentic-schedules/abc"),
             ("POST", "/world-model/competitors"),

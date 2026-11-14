@@ -87,10 +87,11 @@ fn a_chat_runs_on_any_pod() {
     }
 }
 
-/// A route added without a declaration falls to the one catch-all, the
-/// Factory's. The Builder routes are gone: the Builder was removed with the IDE.
+/// No catch-all: a route added without a declaration takes the FleetOk
+/// default, because nothing in this crate reaches a working copy any more. The
+/// Builder routes are gone: the Builder was removed with the IDE.
 #[test]
-fn undeclared_routes_stay_on_the_factory_and_the_builder_routes_are_gone() {
+fn no_route_is_pinned_and_the_builder_routes_are_gone() {
     for (method, path) in [
         ("POST", "/builder/runs"),
         ("POST", "/builder/runs/{id}/answer"),
@@ -103,12 +104,10 @@ fn undeclared_routes_stay_on_the_factory_and_the_builder_routes_are_gone() {
             "{method} {path} is removed"
         );
     }
-    assert_eq!(declared("*", "/{*rest}"), Some(RouteRole::IdeOnly));
-    let wildcards = router_roles()
-        .iter()
-        .filter(|d| d.path.contains("{*"))
-        .count();
-    assert_eq!(wildcards, 1, "one catch-all, and it is the IdeOnly one");
+    assert!(
+        router_roles().iter().all(|d| d.role == RouteRole::FleetOk),
+        "an analytics route is pinned to the ide again"
+    );
 }
 
 /// The automation routes a customer reaches — starting, cancelling and
@@ -139,7 +138,12 @@ fn an_automation_runs_on_any_pod() {
             "{method} {path}"
         );
     }
-    assert_eq!(declared("*", "/{*rest}"), Some(RouteRole::IdeOnly));
+    assert!(
+        automation_router_roles()
+            .iter()
+            .all(|d| d.role == RouteRole::FleetOk),
+        "an automation route is pinned to the ide again"
+    );
 }
 
 /// A `FleetOk` declaration names its verb. With `*`, carving out a read would

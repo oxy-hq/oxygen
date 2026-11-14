@@ -32,26 +32,6 @@ use std::collections::BTreeMap;
 /// able to help, so each needs a reason a reviewer can disagree with.
 const ALLOWED: &[(&str, &str)] = &[
     (
-        "src/server/api/middlewares/workspace_context.rs",
-        "`WorkspaceRootWorkingCopy::root_path`. This is the extractor whose whole \
-         purpose is to hand a handler the workspace ROOT with the requirement \
-         stated in its signature — the one place the escape hatch is the point \
-         rather than a leak. Every caller it serves came OFF the backdoor list.",
-    ),
-    (
-        "src/server/api/workspaces/handlers.rs",
-        "git surface: status, branches, commits, pull, reset. These ARE the \
-         working copy — there is nothing to compile and no artifact to read \
-         instead. Route-classified IdeOnly.",
-    ),
-    (
-        "src/server/api/metric_anomalies/scan.rs",
-        "BACKLOG. `.monitor.yml` IS compiled and read at the pinned revision; \
-         this is the FS fallback, now gated by `WorkspaceAbsent`. The handler \
-         takes `WorkspaceManagerWorkingCopy`, so the route is IdeOnly and the \
-         compiler holds it there.",
-    ),
-    (
         "src/agentic_wiring/project_ctx/context_root.rs",
         "an agent run's context root on `Origin::Disk` (a draft branch in the \
          IDE, the CLI), or when a compiled revision holds no context. A \
@@ -73,12 +53,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "src/agentic_wiring/builder_bridges/project_validator.rs",
         "the Builder validates the files it just wrote into the working copy. \
          The working copy is the subject; there is no revision to read yet.",
-    ),
-    (
-        "src/server/api/database.rs",
-        "the `.databases/` sync cache, written by the IdeOnly sync route. No \
-         compiled substitute exists — `oxy-compile` carries `config.databases`, \
-         not the synced schema. Degrades to `datasets: null`.",
     ),
 ];
 
@@ -212,7 +186,11 @@ fn the_escape_hatch_does_not_widen() {
     // 36 -> 30: the scan now covers `src/integrations` and `src/agentic_wiring`
     // (+5, all listed above) after Slack's run stopped joining its agent onto
     // the working copy (-1 there). `src/server` alone is 25.
-    const CEILING: usize = 30;
+    // 30 -> 5: step B of the Factory retirement (2026-11-14) removed the last
+    // uses under `src/server` (the root extractor, the workspace delete, the
+    // anomaly scan's fallback, the connection test); what is left is the agent
+    // run's disk origin and the Builder bridges.
+    const CEILING: usize = 5;
     let total: usize = server_files()
         .iter()
         .map(|(_, body)| body.matches(".workspace_path()").count())

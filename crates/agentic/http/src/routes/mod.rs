@@ -80,7 +80,7 @@ pub mod thread;
 pub use airway::{
     airway_backfill_ranges, airway_coverage, airway_resource_cursors, airway_resume,
     backfill_airway, cancel_airway_run, chunked_backfill, create_airway_run,
-    discover_source_tables, list_runs_for_pipeline, reset_airway_cursors, reset_airway_schema,
+    list_runs_for_pipeline, reset_airway_cursors, reset_airway_schema,
 };
 pub use automation::{
     cancel_automation_run, create_automation_run, get_automation_file, get_automation_run,

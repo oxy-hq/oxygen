@@ -1,5 +1,4 @@
 import type {
-  ConnectionTestEvent,
   CreateDatabaseConfigResponse,
   DatabaseInfo,
   DatabaseSchema,
@@ -7,7 +6,6 @@ import type {
   InspectEvent,
   SchemaListResult,
   SchemaTablesResult,
-  TestDatabaseConnectionRequest,
   WarehousesFormData
 } from "@/types/database";
 import { apiClient } from "./axios";
@@ -141,30 +139,6 @@ export class DatabaseService {
       params: { branch: branchName }
     });
     return response.data;
-  }
-
-  /**
-   * Test database connection with SSE streaming for real-time updates
-   * @param projectId - The project ID
-   * @param branchName - The branch name
-   * @param request - Test connection request with warehouse config
-   * @param onEvent - Callback to handle streaming events (progress, browser auth, completion)
-   * @returns Promise that resolves when the connection test completes
-   */
-  static async testDatabaseConnection(
-    projectId: string,
-    branchName: string,
-    request: TestDatabaseConnectionRequest,
-    onEvent: (event: ConnectionTestEvent) => void
-  ): Promise<void> {
-    const baseUrl = apiClient.defaults.baseURL || "";
-    const url = `${baseUrl}/${projectId}/databases/test-connection?branch=${encodeURIComponent(branchName)}`;
-
-    await fetchSSE<ConnectionTestEvent>(url, {
-      method: "POST",
-      body: request,
-      onMessage: onEvent
-    });
   }
 
   /**

@@ -9,9 +9,7 @@ use crate::server::api::middlewares::org_context::OrgContextExtractor;
 use crate::server::api::middlewares::role_guards::{
     OrgAdmin, ensure_org_admin_or_workspace_creator,
 };
-use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, WorkspaceRootWorkingCopy,
-};
+use crate::server::api::middlewares::workspace_context::EffectiveWorkspaceRole;
 use crate::server::authz;
 use crate::server::router::AppState;
 use oxy::api_types::{BranchOrigin, BranchType, ProjectBranch};
@@ -711,16 +709,22 @@ pub async fn rename_workspace(
     Ok(StatusCode::OK)
 }
 
+/// Delete a workspace: its row (cascading what hangs off it), its schedules,
+/// and its Airhouse tenant (recorded for removal in the same transaction).
+///
+/// Postgres only, so any replica answers it. `?delete_files=true` also removes
+/// the working copy, but only where this process holds the workspace files
+/// (single-process mode): on the split fleet no replica has one, and the
+/// directory the retired ide pod kept goes with that pod's volume.
 pub async fn delete_workspace(
     // `OrgAdmin` FIRST: axum runs extractors in argument order, and resolving a
-    // workspace path before checking authority would leak existence.
+    // workspace before checking authority would leak existence.
     _: OrgAdmin,
     State(_app_state): State<AppState>,
     Path((org_id, workspace_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<DeleteProjectQuery>,
-    root: WorkspaceRootWorkingCopy,
 ) -> Result<StatusCode, StatusCode> {
-    use sea_orm::{ModelTrait, TransactionTrait};
+    use sea_orm::{EntityTrait, ModelTrait, TransactionTrait};
 
     let db = oxy::database::client::establish_connection()
         .await
@@ -728,22 +732,16 @@ pub async fn delete_workspace(
             error!("Failed to connect to database: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-
-    // The extractor already loaded it, and building the manager needed it — so
-    // querying again here would be a second round trip for the same row.
-    let workspace = root.workspace.clone().ok_or(StatusCode::NOT_FOUND)?;
-
-    if workspace.org_id != Some(org_id) {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    // From the extractor, so the signature states that this handler reaches a
-    // working copy. It used to resolve the path here by hand, which is how a
-    // filesystem delete came to be described by a signature naming no manager.
-    let workspace_path = root
-        .manager
-        .as_ref()
-        .map(|m| m.config_manager.workspace_path().to_path_buf());
+    let workspace = entity::workspaces::Entity::find_by_id(workspace_id)
+        .one(&db)
+        .await
+        .map_err(|e| {
+            error!("Failed to load workspace {}: {}", workspace_id, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .filter(|w| w.org_id == Some(org_id))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let workspace_path = workspace.path.clone().map(std::path::PathBuf::from);
 
     // The delete cascades the tenant row away, not the tenant in Airhouse: record
     // it for removal in the same transaction, so both commit or neither does.
@@ -767,34 +765,39 @@ pub async fn delete_workspace(
     // reconcile never recreates).
     cleanup_workspace_schedules(&db, workspace_id).await;
 
-    // Only remove files from disk when the caller explicitly opts in.
-    // Without `?delete_files=true` we only remove the DB record, leaving
-    // the directory intact so an accidental delete can be recovered.
-    if query.delete_files
-        && let Some(path) = workspace_path
-    {
-        if path.exists() {
-            if let Err(e) = std::fs::remove_dir_all(&path) {
-                tracing::warn!("Failed to delete workspace directory {:?}: {}", path, e);
-            } else {
-                info!("Deleted workspace directory {:?}", path);
-            }
-        } else if !oxy::workspace_fs_probe::process_owns_workspace_files() {
-            // The route is IdeOnly so this should be unreachable, but a missing
-            // directory means two different things and only one of them is
-            // "nothing to delete". On a pod with no working copy it means the
-            // files are elsewhere, still there, and the 200 below is a lie.
-            tracing::error!(
-                %workspace_id,
-                path = %path.display(),
-                "delete_files requested on a process that owns no working copy; the \
-                 directory was NOT deleted and still exists on the ide. This route is \
-                 classified IdeOnly — reaching here means routing did not hold."
-            );
-        }
+    // Files only on request, and only where they are: without the flag the
+    // directory stays so an accidental delete can be recovered.
+    if query.delete_files {
+        remove_workspace_dir(workspace_id, workspace_path);
     }
 
     Ok(StatusCode::OK)
+}
+
+/// Remove a deleted workspace's directory where this process holds it. On a
+/// split fleet the delete is answered by a replica that holds no workspace
+/// files, so a directory still on the Factory's volume (a GitHub import's
+/// clone, until the import stops cloning) is left there: say so with its path,
+/// rather than let the `200` read as a delete that happened. That volume goes
+/// whole when the Factory is retired (`factory-retirement.md` phase 7).
+fn remove_workspace_dir(workspace_id: Uuid, workspace_path: Option<std::path::PathBuf>) {
+    let Some(path) = workspace_path else { return };
+    if !oxy::workspace_fs_probe::process_owns_workspace_files() {
+        tracing::warn!(
+            %workspace_id,
+            path = %path.display(),
+            "workspace deleted with delete_files, but this process holds no workspace \
+             files: any directory on the Factory's volume is left in place"
+        );
+        return;
+    }
+    if !path.exists() {
+        return;
+    }
+    match std::fs::remove_dir_all(&path) {
+        Ok(()) => info!("Deleted workspace directory {:?}", path),
+        Err(e) => tracing::warn!("Failed to delete workspace directory {:?}: {}", path, e),
+    }
 }
 
 #[cfg(test)]

@@ -512,15 +512,23 @@ fn describe_reports_the_fleet_role() {
     // server, so without this the registry is empty and every route reports
     // the FleetOk default — the assertion below would fail for the one
     // reason that says nothing about the catalog.
-    oxy_app::server::role_manifest::install_route_declarations_for_tests();
-
-    // Testing a warehouse connection still runs on the ide; the thread list
-    // is served from Postgres and runs anywhere.
-    let test_connection = routes()
+    //
+    // With the org-scoped surface declarations too, as `oxy-server` composes
+    // them: the GitHub import is the last route that needs the ide, and it is
+    // `oxy-api-tenancy`'s.
+    let org_seam = oxy_api_tenancy::onboarding::route_roles()
         .iter()
-        .find(|r| r.method == "POST" && r.path == "/api/{workspace_id}/databases/test-connection")
-        .expect("test-connection route");
-    assert_eq!(describe(test_connection).role, "ide-only");
+        .map(|d| (d.method, d.path.to_string(), d.role))
+        .collect();
+    oxy_app::server::role_manifest::install_route_declarations_for_tests_with(org_seam);
+
+    // The GitHub import clones onto the ide's disk; the thread list is served
+    // from Postgres and runs anywhere.
+    let import = routes()
+        .iter()
+        .find(|r| r.method == "POST" && r.path == "/api/orgs/{org_id}/onboarding/github")
+        .expect("GitHub import route");
+    assert_eq!(describe(import).role, "ide-only");
 
     let threads = routes()
         .iter()

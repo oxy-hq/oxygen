@@ -16,13 +16,13 @@ fn a_trailing_slash_keeps_the_route_on_its_own_pod() {
     install_route_declarations_for_tests();
     let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
     for path in [
-        format!("/api/{ws}/databases/test-connection"),
-        format!("/api/{ws}/databases/test-connection/"),
+        format!("/api/{ws}/agentic-airway/chunked-backfill"),
+        format!("/api/{ws}/agentic-airway/chunked-backfill/"),
     ] {
         assert_eq!(
             classify("POST", &path),
             RouteRole::IdeOnly,
-            "{path} writes the working copy and must reach the ide"
+            "{path} drives a backfill on the ide and must reach it"
         );
     }
 }

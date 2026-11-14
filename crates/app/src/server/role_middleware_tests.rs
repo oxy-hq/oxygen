@@ -13,7 +13,7 @@ fn install_roles() {
 fn nested_router() -> Router {
     let workspace_routes = Router::new()
         .route(
-            "/databases/test-connection",
+            "/agentic-airway/chunked-backfill",
             post(|| async { "should not reach" }),
         )
         .route("/threads", get(|| async { "threads ok" }));
@@ -32,7 +32,7 @@ async fn ide_only_route_on_serve_replica_returns_421_through_nest() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/databases/test-connection")
+            HttpRequest::post("/api/some-uuid/agentic-airway/chunked-backfill")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -64,7 +64,7 @@ async fn worker_with_upstream_does_not_forward_ide_route() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/databases/test-connection")
+            HttpRequest::post("/api/some-uuid/agentic-airway/chunked-backfill")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -89,7 +89,7 @@ async fn already_forwarded_ide_route_on_serve_breaks_loop() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/databases/test-connection")
+            HttpRequest::post("/api/some-uuid/agentic-airway/chunked-backfill")
                 .header("x-oxy-forwarded-by", "serve")
                 .body(Body::empty())
                 .unwrap(),
@@ -202,7 +202,7 @@ async fn all_role_accepts_everything() {
 
     let resp = nested_router()
         .oneshot(
-            HttpRequest::post("/api/some-uuid/databases/test-connection")
+            HttpRequest::post("/api/some-uuid/agentic-airway/chunked-backfill")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -306,15 +306,14 @@ mod branch_is_served_locally {
 /// `?branch=` on its own moves nothing, as everywhere since the IDE went.
 mod external_surface {
     use super::*;
-    use axum::routing::delete;
 
     const WS: &str = "7a4e3c1e-0b5f-4c36-9d55-3f1c2b8a9e01";
 
     fn external_router() -> Router {
         let workspace_routes = Router::new()
             .route(
-                "/analytics/coordinator/queue",
-                delete(|| async { "should not reach" }),
+                "/agentic-airway/chunked-backfill",
+                post(|| async { "should not reach" }),
             )
             .route("/sql/query", post(|| async { "served here" }));
         Router::new().nest(
@@ -346,7 +345,7 @@ mod external_surface {
 
     /// An IdeOnly route behind the external prefix is classified by its
     /// `/api/...` declaration, not let through because the stripped
-    /// `/{ws}/analytics/coordinator/queue` matches nothing and would default
+    /// `/{ws}/agentic-airway/chunked-backfill` matches nothing and would default
     /// to FleetOk. With no upstream the refusal names the path the client sent.
     #[tokio::test]
     async fn an_ide_only_route_is_classified_by_its_full_path() {
@@ -357,8 +356,8 @@ mod external_surface {
         }
         crate::server::role_manifest::init_process_role_from_env();
 
-        let path = format!("/external/api/{WS}/analytics/coordinator/queue");
-        let (status, body) = call("DELETE", &path).await;
+        let path = format!("/external/api/{WS}/agentic-airway/chunked-backfill");
+        let (status, body) = call("POST", &path).await;
 
         assert_eq!(status, StatusCode::MISDIRECTED_REQUEST, "{body}");
         assert!(
@@ -384,8 +383,8 @@ mod external_surface {
         }
         crate::server::role_manifest::init_process_role_from_env();
 
-        let path = format!("/external/api/{WS}/analytics/coordinator/queue?scope=stale");
-        let (status, body) = call("DELETE", &path).await;
+        let path = format!("/external/api/{WS}/agentic-airway/chunked-backfill?scope=stale");
+        let (status, body) = call("POST", &path).await;
 
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body, path, "the ide must route what the client sent");

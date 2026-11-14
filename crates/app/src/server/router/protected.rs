@@ -430,7 +430,7 @@ mod tests {
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 
-        let ide_route = "/api/d9830be4-c6a4-4f89-11d3-9a0c0305e82c/databases/test-connection";
+        let ide_route = "/api/d9830be4-c6a4-4f89-11d3-9a0c0305e82c/agentic-airway/chunked-backfill";
         assert_eq!(
             declared_role("POST", ide_route),
             Some(RouteRole::IdeOnly),

@@ -69,7 +69,7 @@ use std::sync::Arc;
 ///
 /// Paths are relative to the mount point; the mounting crate prepends its prefix.
 pub fn router_roles() -> &'static [RouteRoleDecl] {
-    use RouteRole::{FleetOk, IdeOnly};
+    use RouteRole::FleetOk;
     &[
         // Run history is a `state.db` read. Viewing a past conversation must
         // never need the ide — that is the difference between a slow ide and an
@@ -181,12 +181,6 @@ pub fn router_roles() -> &'static [RouteRoleDecl] {
             path: "/runs/{id}/events",
             role: FleetOk,
         },
-        // A route added without a declaration of its own.
-        RouteRoleDecl {
-            method: "*",
-            path: "/{*rest}",
-            role: IdeOnly,
-        },
     ]
 }
 
@@ -236,7 +230,7 @@ where
 /// `/agentic-automations` — and declared once here, which is the point: a
 /// second mount cannot acquire a different, drifting classification.
 pub fn automation_router_roles() -> &'static [RouteRoleDecl] {
-    use RouteRole::{FleetOk, IdeOnly};
+    use RouteRole::FleetOk;
     &[
         // Postgres run history. Listing and opening a past run must survive the
         // ide being down.
@@ -288,12 +282,6 @@ pub fn automation_router_roles() -> &'static [RouteRoleDecl] {
             method: "GET",
             path: "/files/{path_b64}",
             role: FleetOk,
-        },
-        // A route added without a declaration of its own.
-        RouteRoleDecl {
-            method: "*",
-            path: "/{*rest}",
-            role: IdeOnly,
         },
     ]
 }
@@ -417,20 +405,6 @@ pub fn airway_router_roles() -> &'static [RouteRoleDecl] {
             path: "/resume-backfill",
             role: IdeOnly,
         },
-        // Authoring-only wizard call that dials a caller-supplied host; no
-        // reason to let every public replica make that connection.
-        RouteRoleDecl {
-            method: "POST",
-            path: "/sources/discover",
-            role: IdeOnly,
-        },
-        // Anything not named above — a route added without a declaration —
-        // stays on the ide until someone states what it needs.
-        RouteRoleDecl {
-            method: "*",
-            path: "/{*rest}",
-            role: IdeOnly,
-        },
     ]
 }
 
@@ -467,8 +441,6 @@ where
         // Reuse the domain-agnostic SSE handler.
         .route("/runs/{id}/events", get(routes::stream_events))
         .route("/runs/{id}/cancel", post(routes::cancel_airway_run))
-        // Live source introspection for the New Pipeline table picker.
-        .route("/sources/discover", post(routes::discover_source_tables))
         // Drop a pipeline's destination tables + clear its stored schema/cursor
         // so a later run re-infers a fresh schema.
         .route("/reset-schema", post(routes::reset_airway_schema))

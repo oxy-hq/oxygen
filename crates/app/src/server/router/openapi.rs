@@ -14,7 +14,7 @@ use utoipa::openapi::server::Server;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::api::{agent, data, database, healthcheck, thread, user, workspaces};
+use crate::api::{agent, data, healthcheck, thread, user, workspaces};
 
 use super::{IdeState, build_cors_layer};
 
@@ -52,7 +52,6 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         .routes(routes!(user::get_current_user_public))
         .routes(routes!(workspaces::list_workspaces))
         // Database routes
-        .routes(routes!(database::test_database_connection))
         .layer(build_cors_layer())
         .layer(ServiceBuilder::new().layer(NewSentryLayer::<Request<Body>>::new_from_top()))
 }

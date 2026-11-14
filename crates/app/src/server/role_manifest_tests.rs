@@ -30,15 +30,10 @@ fn only_serve_offloads_workers_single_all_in_one_drains_its_own_queue() {
 }
 
 #[test]
-fn every_database_route_that_touches_the_working_copy_is_ide_only() {
+fn every_database_route_is_fleet_ok() {
     let ws = "d9830be4-c6a4";
-    // `POST /databases` and `/databases/{sync,clean,build}` were removed with the
-    // IDE; testing a connection still writes a key file to the working copy.
-    assert_eq!(
-        classify("POST", &format!("/api/{ws}/databases/test-connection")),
-        RouteRole::IdeOnly,
-        "POST /databases/test-connection writes the working copy"
-    );
+    // `POST /databases`, `/databases/{sync,clean,build}` and `test-connection`
+    // went with the IDE's Add-database flow; what is left reads the warehouse.
 
     // The list degrades rather than failing without a working copy, and the
     // launcher readiness check calls it on every page load.
@@ -115,14 +110,15 @@ fn pattern_matches_concrete_uri() {
 fn ide_routes_classify_against_live_uri() {
     // The real shape the middleware sees: `/api` prefix + nested workspace.
     // The IDE's file, git and compile routes are gone (factory-retirement.md,
-    // phase 5); what stays IdeOnly is data flow and provisioning.
+    // phase 5); what stays IdeOnly is the airway backfill drive.
     assert_eq!(
-        classify("POST", "/api/d9830be4-c6a4/databases/test-connection"),
+        classify("POST", "/api/d9830be4-c6a4/agentic-airway/chunked-backfill"),
         RouteRole::IdeOnly
     );
+    // The scan reads `.monitor.yml` from the compiled revision.
     assert_eq!(
         classify("POST", "/api/d9830be4-c6a4/semantic/anomalies/scan"),
-        RouteRole::IdeOnly
+        RouteRole::FleetOk
     );
     // The `/onboarding/*` routes moved to the `oxy-api-onboarding` sibling
     // crate, which declares them and asserts them in its own
@@ -137,13 +133,11 @@ fn ide_routes_classify_against_live_uri() {
         classify("GET", "/api/d9830be4-c6a4/meta"),
         RouteRole::FleetOk
     );
-    // Deletion is the counterpart of those three creators. `?delete_files=true`
-    // removes the working copy, and on a replica the `path.exists()` guard
-    // silently skipped it and still returned 200 — the caller was told their
-    // files were gone while they sat on the ide's volume.
+    // Deletion removes the row, schedules and Airhouse tenant: Postgres only.
+    // `?delete_files=true` touches disk only where the process holds the files.
     assert_eq!(
         classify("DELETE", "/api/orgs/some-org/workspaces/d9830be4-c6a4"),
-        RouteRole::IdeOnly
+        RouteRole::FleetOk
     );
     // The sibling LIST must stay on the fleet — viewing workspaces cannot
     // require the singleton.
@@ -161,25 +155,22 @@ fn ide_routes_classify_against_live_uri() {
     );
 }
 
-/// What still runs only where the working copy is: an airway run started on
-/// a route nothing declares. The Builder (its start, its answers and undoing
-/// its edits) was removed with the IDE, and a Data App's run with Data Apps
-/// (#3835). A chat and
-/// an automation are not among them any more: they read the promoted revision
-/// on every role (factory-retirement.md phase 3d), see
-/// `chat_and_automation_runs_are_fleet_ok`.
+/// Paths nothing mounts under the run mounts take the FleetOk default now:
+/// the IdeOnly catch-alls that used to catch them are gone, because nothing in
+/// those routers reaches a working copy. The Builder (its start, its answers
+/// and undoing its edits) was removed with the IDE, and a Data App's run with
+/// Data Apps (#3835).
 #[test]
-fn run_exec_surface_that_needs_the_working_copy_stays_ide_only() {
+fn unmounted_run_paths_take_the_fleet_default() {
     let ws = "d9830be4-c6a4";
-    let cases: [(&str, String); 2] = [
+    for (method, path) in [
         ("POST", format!("/api/{ws}/agentic-workflows/run")),
         ("POST", format!("/api/{ws}/agentic-airway/run")),
-    ];
-    for (method, path) in cases {
+    ] {
         assert_eq!(
             classify(method, &path),
-            RouteRole::IdeOnly,
-            "{method} {path} must stay IdeOnly"
+            RouteRole::FleetOk,
+            "{method} {path}"
         );
     }
 }
@@ -304,26 +295,25 @@ fn coordinator_postgres_reads_are_fleet_ok() {
     }
 }
 
-/// What those carve-outs must NOT sweep along. The reasons are beside each
-/// declaration in `agentic_http::router_roles`.
+/// No catch-all under `/analytics` any more: every mounted route has its own
+/// FleetOk declaration, so an unmounted verb or path takes the default.
 #[test]
-fn coordinator_routes_that_need_the_driving_process_stay_ide_only() {
+fn undeclared_coordinator_paths_take_the_fleet_default() {
     let ws = "d9830be4-c6a4";
     for (method, path) in [
-        // A carved-out path under a method it was not declared for.
+        // A declared path under a method it was not declared for.
         ("POST", format!("/api/{ws}/analytics/coordinator/runs")),
         ("DELETE", format!("/api/{ws}/analytics/coordinator/queue")),
         ("GET", format!("/api/{ws}/analytics/runs/r-1/thinking_mode")),
         ("GET", format!("/api/{ws}/analytics/runs/r-1/notify")),
-        // Not routes today. One added under this mount without a declaration
-        // of its own must land here, not on the fleet.
+        // Not routes today.
         ("GET", format!("/api/{ws}/analytics/coordinator/runs/r-1")),
         ("GET", format!("/api/{ws}/analytics/coordinator/workers")),
     ] {
         assert_eq!(
             classify(method, &path),
-            RouteRole::IdeOnly,
-            "{method} {path} must stay IdeOnly"
+            RouteRole::FleetOk,
+            "{method} {path}"
         );
     }
 }
@@ -359,31 +349,30 @@ fn airway_control_routes_are_fleet_ok() {
     }
 }
 
-/// What the un-pin above must NOT sweep along.
-///
 /// The chunked backfill pair drives every chunk inside the accepting process,
 /// in a detached task that is not a durable `TaskSpec`: on a `serve` replica —
 /// which runs no workers and is replaced on every deploy — that drive would die
-/// with the pod. They stay on the ide until the range is a queued task. The
-/// other two are authoring-only, and anything undeclared defaults to the ide.
+/// with the pod. They stay on the ide until the range is a queued task, and
+/// they are the only airway routes that do: the catch-all is gone.
 #[test]
-fn airway_in_process_and_authoring_routes_stay_ide_only() {
+fn only_the_airway_backfill_drive_stays_ide_only() {
     let ws = "d9830be4-c6a4";
+    for path in ["chunked-backfill", "resume-backfill"] {
+        assert_eq!(
+            classify("POST", &format!("/api/{ws}/agentic-airway/{path}")),
+            RouteRole::IdeOnly,
+            "POST {path} must stay IdeOnly"
+        );
+    }
     for (method, path) in [
-        ("POST", format!("/api/{ws}/agentic-airway/chunked-backfill")),
-        ("POST", format!("/api/{ws}/agentic-airway/resume-backfill")),
-        ("POST", format!("/api/{ws}/agentic-airway/sources/discover")),
-        // Not routes today. A route added under this mount without a
-        // declaration of its own must land here, not on the fleet.
         ("POST", format!("/api/{ws}/agentic-airway/run")),
         ("POST", format!("/api/{ws}/agentic-airway/runs/r-1/retry")),
-        // A declared path under a method it was not declared for.
         ("DELETE", format!("/api/{ws}/agentic-airway/runs")),
     ] {
         assert_eq!(
             classify(method, &path),
-            RouteRole::IdeOnly,
-            "{method} {path} must stay IdeOnly"
+            RouteRole::FleetOk,
+            "{method} {path}"
         );
     }
 }
@@ -494,24 +483,8 @@ fn workspace_metric_tree_routes_are_fleet_ok() {
 }
 
 #[test]
-fn runtime_routes_are_ide_only() {
-    // The DuckDB / local-execution subset. Each one EXECUTES in-process on the
-    // ide (a query, a run, a process-local event stream), so it cannot be
-    // answered by a replica that has neither the execution env nor the
-    // broadcaster — regardless of what its handler's signature suggests.
+fn persisted_data_reads_are_fleet_ok() {
     let ws = "d9830be4-c6a4";
-    // (A chat start is not among them since phase 3d: it reads the compiled
-    // revision on every role — `chat_and_automation_runs_are_fleet_ok`. The
-    // Builder's start was, until the Builder was removed with the IDE.)
-    let runtime: [(&str, String); 1] = [("POST", format!("/api/{ws}/agentic-airway/run"))];
-    for (method, path) in &runtime {
-        assert_eq!(
-            classify(method, path),
-            RouteRole::IdeOnly,
-            "{method} {path} must stay IdeOnly"
-        );
-    }
-
     // The neighbours that must NOT be swept along: same prefixes, but pure
     // reads of persisted data, so pinning them to the singleton would make
     // *viewing* need the ide — the HA bug the split exists to prevent.
@@ -540,8 +513,7 @@ fn unknown_routes_default_to_fleet_ok() {
     assert_eq!(classify("GET", "/healthz"), RouteRole::FleetOk);
     // The run streams under /analytics and /agentic-workflows are declared
     // FleetOk (phase 3d): a stream polls the event log when another process
-    // drives. What an unknown route under those mounts gets is the catch-all,
-    // which is the Factory's.
+    // drives. An unknown route under those mounts takes the default too.
     assert_eq!(
         classify("GET", "/api/d9830be4-c6a4/analytics/runs/abc/events"),
         RouteRole::FleetOk
@@ -555,7 +527,7 @@ fn unknown_routes_default_to_fleet_ok() {
     );
     assert_eq!(
         classify("GET", "/api/d9830be4-c6a4/analytics/not-a-route"),
-        RouteRole::IdeOnly
+        RouteRole::FleetOk
     );
     // Every `/world-model/*` read is FleetOk — the Postgres+S3 ones here, and
     // `/world-model/events` since its feed moved into Postgres.
@@ -678,16 +650,16 @@ fn fs_write_guard_allows_fs_owning_roles() {
 }
 
 #[test]
-fn method_wildcard_matches_any_verb() {
-    // The analytics catch-all is a `method: "*"` IdeOnly entry — every verb
-    // matches.
+fn a_declaration_names_its_verb() {
+    // `chunked-backfill` is declared for POST; another verb on the same path
+    // is not swept along.
     assert_eq!(
-        classify("GET", "/api/abc/analytics/not-a-route"),
+        classify("POST", "/api/abc/agentic-airway/chunked-backfill"),
         RouteRole::IdeOnly
     );
     assert_eq!(
-        classify("DELETE", "/api/abc/analytics/not-a-route/x"),
-        RouteRole::IdeOnly
+        classify("GET", "/api/abc/agentic-airway/chunked-backfill"),
+        RouteRole::FleetOk
     );
 }
 

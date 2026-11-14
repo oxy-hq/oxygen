@@ -15,7 +15,7 @@ use oxy::adapters::secrets::SecretsManager;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::adapters::workspace::effective_workspace_path;
 use oxy::adapters::workspace::manager::WorkspaceManager;
-use oxy::config::{ConfigManager, ReadOnly, WorkingCopy};
+use oxy::config::{ReadOnly, WorkingCopy};
 use oxy::database::client::establish_connection;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::EntityTrait;
@@ -62,133 +62,6 @@ where
             });
 
         async move { result }
-    }
-}
-
-/// The workspace row plus a manager for its working copy, resolved by the
-/// extractor rather than the middleware.
-///
-/// For handlers on the ORG router (`/api/orgs/{org_id}/workspaces/{id}`), which
-/// runs `org_middleware` and never `workspace_middleware` — so no manager is in
-/// the extensions to take. `delete_workspace` is the case: it deletes the
-/// workspace directory while its signature named no manager at all, so a rule
-/// reading signatures would call it FleetOk, and it returned 200 for a deletion
-/// it skipped on a replica.
-///
-/// **`manager` is `Option`, deliberately.** A workspace row with a NULL `path`
-/// must still be deletable; a rejecting extractor would make a pathless
-/// workspace permanently undeletable. Absence here means "no working copy to
-/// act on", not "refuse the request".
-///
-/// **Declare it after the authz guard.** axum runs `FromRequestParts` in
-/// argument order, so `_: OrgAdmin` must come first — resolving a path before
-/// checking authority would leak existence.
-///
-/// **The path is always the workspace ROOT, never a branch worktree.** This is
-/// the reason to take this extractor rather than the middleware's manager, whose
-/// path IS branch-resolved: `effective_workspace_path` returns a worktree for a
-/// non-default branch. Deleting a workspace would delete the worktree and report
-/// success for the whole thing; switching or deleting a branch would run inside
-/// a worktree, where git refuses to touch a branch that is checked out.
-pub struct WorkspaceRootWorkingCopy {
-    /// The workspace row, loaded here so the handler need not query for it
-    /// again. `None` when the id does not resolve — the handler still decides
-    /// what that means (404 for a delete).
-    pub workspace: Option<entity::workspaces::Model>,
-    pub manager: Option<WorkspaceManager<WorkingCopy>>,
-}
-
-impl WorkspaceRootWorkingCopy {
-    /// The workspace root, when this node holds it. `None` means there is no
-    /// working copy here — a git operation cannot be faked, so callers turn this
-    /// into a 503 rather than acting on a path that is not there.
-    pub fn root_path(&self) -> Option<std::path::PathBuf> {
-        self.manager
-            .as_ref()
-            .map(|m| m.config_manager.workspace_path().to_path_buf())
-    }
-}
-
-/// Resolves only from `IdeState`, like [`WorkspaceManagerWorkingCopy`]. It hands
-/// back a path into the working copy, so a handler holding one is a handler that
-/// needs the pod to have one — the gate has to cover it or `delete_workspace`
-/// could be mounted on a fleet route with nothing to say so.
-impl FromRequestParts<crate::server::router::IdeState> for WorkspaceRootWorkingCopy {
-    type Rejection = std::convert::Infallible;
-
-    fn from_request_parts(
-        parts: &mut Parts,
-        state: &crate::server::router::IdeState,
-    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
-        // Two sources, because this serves routers with different middleware.
-        // On the workspace router the row is already in extensions; on the org
-        // router only `OrgContext` is, so the row has to be loaded. Reading only
-        // the extension would yield `None` for every org-router request and
-        // silently stop the work happening.
-        let from_extension = parts.extensions.get::<entity::workspaces::Model>().cloned();
-        let path = Path::<(Uuid, Uuid)>::from_request_parts(parts, state);
-        async move {
-            let workspace = match from_extension {
-                Some(row) => Some(row),
-                None => {
-                    let Ok(Path((_org_id, workspace_id))) = path.await else {
-                        return Ok(Self {
-                            workspace: None,
-                            manager: None,
-                        });
-                    };
-                    // `workspace: None` is what `delete_workspace` turns into
-                    // a 404 — "already gone". Reached here it means we could
-                    // not look, which is not the same claim. The handler makes
-                    // its own connection before reading the field, so a full
-                    // outage 500s there first and only a blip between the two
-                    // lands on the 404; say so in the log rather than leaving
-                    // an operator to infer it.
-                    let db = match establish_connection().await {
-                        Ok(db) => db,
-                        Err(e) => {
-                            tracing::warn!(
-                                %workspace_id,
-                                error = %e,
-                                "workspace root extractor: database unreachable; \
-                                 reporting no workspace"
-                            );
-                            return Ok(Self {
-                                workspace: None,
-                                manager: None,
-                            });
-                        }
-                    };
-                    entity::workspaces::Entity::find_by_id(workspace_id)
-                        .one(&db)
-                        .await
-                        .ok()
-                        .flatten()
-                }
-            };
-            let Some(workspace) = workspace else {
-                return Ok(Self {
-                    workspace: None,
-                    manager: None,
-                });
-            };
-            let manager = match effective_workspace_path(&workspace, None).await {
-                // The tolerant terminal: a half-cloned workspace with a missing
-                // or unparseable `config.yml` is exactly what gets deleted.
-                Ok(root) => match WorkspaceBuilder::new(workspace.id)
-                    .with_working_copy(&root, None, oxy::config::OnMissing::Empty)
-                    .await
-                {
-                    Ok(builder) => builder.build().await.ok(),
-                    Err(_) => None,
-                },
-                Err(_) => None,
-            };
-            Ok(Self {
-                workspace: Some(workspace),
-                manager,
-            })
-        }
     }
 }
 

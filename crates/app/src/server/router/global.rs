@@ -258,9 +258,8 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
         // `route_ide` cannot reach them either. They are declared by hand at
         // the `nest_declared` seam that mounts the crate.
         .route_fleet("/workspaces", get(workspaces::list_workspaces))
-        // Deletes the working copy. The compiler found this one: the handler
-        // takes `WorkspaceRootWorkingCopy`, which resolves only from `IdeState`.
-        .route_ide("/workspaces/{id}", delete(workspaces::delete_workspace))
+        // Deletes the row, schedules and Airhouse tenant: Postgres only.
+        .route_fleet("/workspaces/{id}", delete(workspaces::delete_workspace))
         .route_fleet(
             "/workspaces/{id}/rename",
             patch(workspaces::rename_workspace),

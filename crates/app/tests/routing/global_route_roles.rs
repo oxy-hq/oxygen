@@ -1,4 +1,7 @@
-//! The routes outside the workspace tree that need the ide, asserted by hand.
+//! The roles of routes outside the workspace tree, asserted by hand.
+//!
+//! None of them needs the ide any more (2026-11-14); the guard stays because the
+//! reasons below still hold for any route that comes to need it.
 //!
 //! These five were the last entries in `role_manifest`'s path table. Deleting
 //! the table moved them onto their mounts, which is where they belong — but it
@@ -21,27 +24,20 @@ use oxy_app::server::role_manifest::{RouteRole, classify, install_route_declarat
 const ORG: &str = "11111111-1111-1111-1111-111111111111";
 const WORKSPACE: &str = "22222222-2222-2222-2222-222222222222";
 
+/// Deleting a workspace is a Postgres delete (the row, its schedules, its
+/// Airhouse tenant record) and stays on the fleet. It used to be pinned to the
+/// ide because it also removed the working copy; since step B of the Factory
+/// retirement (2026-11-14) it removes files only where the serving process owns
+/// them (`process_owns_workspace_files`), so a fleet replica answers it whole.
 #[test]
-fn org_routes_that_write_a_workspace_reach_the_ide() {
+fn deleting_a_workspace_stays_on_the_fleet() {
     install_route_declarations_for_tests();
-
-    // Each of these creates or deletes a workspace on disk: the onboarding
-    // builder clones and writes a working copy, and the delete removes one.
-    // The three `/onboarding/*` creators moved to the `oxy-api-onboarding`
-    // sibling crate, and their guard moved with them
-    // (`crates/api-tenancy/tests/integration/onboarding_route_roles.rs`). They cannot be asserted
-    // here: `oxy-app` does not depend on that crate, so the declaration set this
-    // helper installs does not contain them and `classify` would answer with the
-    // FleetOk default — a failure that says nothing about the product.
-    let cases: &[(&str, String)] = &[("DELETE", format!("/api/orgs/{ORG}/workspaces/{WORKSPACE}"))];
-
-    for (method, path) in cases {
-        assert_eq!(
-            classify(method, path),
-            RouteRole::IdeOnly,
-            "{method} {path} writes a workspace working copy",
-        );
-    }
+    let path = format!("/api/orgs/{ORG}/workspaces/{WORKSPACE}");
+    assert_eq!(
+        classify("DELETE", &path),
+        RouteRole::FleetOk,
+        "DELETE {path} is Postgres only"
+    );
 }
 
 /// The org surface's reads must NOT follow them to the singleton — listing

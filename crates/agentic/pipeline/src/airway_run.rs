@@ -144,20 +144,6 @@ pub enum AirwayRunError {
     },
 }
 
-/// Discover the tables a source exposes, for the pipeline-create UI.
-///
-/// Connects with the live credentials carried in `config` and returns
-/// the tables (with columns) so the wizard can offer a picker instead
-/// of making the user hand-type table names. Stateless: nothing is
-/// persisted, and no DB/platform context is required.
-pub async fn discover_airway_source_tables(
-    kind: String,
-    config: serde_json::Value,
-) -> Result<Vec<agentic_airway::DiscoveredTable>, AirwayRunError> {
-    let source = agentic_airway::config::SourceConfig { kind, config };
-    Ok(agentic_airway::discover_source_tables(&source).await?)
-}
-
 /// Insert an `agentic_runs` row + `airway_run_extensions` row and
 /// enqueue a [`TaskSpec::Airway`] for the coordinator to drive.
 ///

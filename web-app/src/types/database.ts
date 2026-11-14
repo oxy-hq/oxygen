@@ -168,33 +168,6 @@ export interface CreateDatabaseConfigResponse {
   databases_added: string[];
 }
 
-export interface TestDatabaseConnectionRequest {
-  warehouse: WarehouseConfig;
-}
-
-export interface TestDatabaseConnectionResponse {
-  success: boolean;
-  message: string;
-  connection_time_ms?: number;
-  error_details?: string;
-}
-
-export type ConnectionTestEvent =
-  | {
-      type: "progress";
-      message: string;
-    }
-  | {
-      type: "browser_auth_required";
-      sso_url: string;
-      message: string;
-      timeout_secs?: number;
-    }
-  | {
-      type: "complete";
-      result: TestDatabaseConnectionResponse;
-    };
-
 // Schema Inspection Types (lightweight discovery used during onboarding —
 // returns just schema/table names + column counts so the user can pick tables
 // before the heavyweight column sync runs).

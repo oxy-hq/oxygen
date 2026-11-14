@@ -41,8 +41,7 @@ pub use crate::server::api::middlewares::subscription_guard::subscription_guard_
 /// Workspace-scoped request context, as the workspace seam provides it.
 pub use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
-    WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath, WorkspaceRootWorkingCopy,
-    enqueue_lazy_compile,
+    WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath, enqueue_lazy_compile,
 };
 
 /// The workspace row the workspace middleware resolved (401 where it did not run).

@@ -114,7 +114,6 @@ fn the_landmarks_sit_where_the_plan_puts_them() {
         ("POST", "/compile/staging"),
         ("GET", "/semantic/objects"),
         ("GET", "/semantic/topic/{file_path_b64}"),
-        ("POST", "/databases/test-connection"),
         ("PUT", "/secrets/{id}"),
         ("POST", "/world-model/competitors"),
         ("POST", "/agentic-airway/backfill"),

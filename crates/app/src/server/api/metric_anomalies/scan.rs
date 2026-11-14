@@ -16,7 +16,7 @@ use uuid::Uuid;
 use super::error::AnomalyError;
 use crate::agentic_wiring::OxyMetricTreeRunner;
 use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerWorkingCopy,
+    EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly,
 };
 
 #[derive(Debug, Serialize)]
@@ -91,7 +91,7 @@ pub struct ScanQuery {
 /// task continues to completion in the background — the anomalies list will
 /// reflect the new results on the next fetch.
 pub async fn run_scan(
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
+    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     Extension(state): Extension<Arc<AgenticState>>,
@@ -99,6 +99,40 @@ pub async fn run_scan(
     Query(q): Query<ScanQuery>,
 ) -> Result<Json<ScanResponse>, AnomalyError> {
     let workspace_id = workspace_manager.workspace_id;
+
+    // Everything that can refuse comes before the debounce claims the slot: a
+    // refused scan that had claimed it would answer its own retry with a false
+    // `pending: true`, and hold back the periodic tick on this process too.
+    // `.monitor.yml` from the compiled revision, materialised into a tempdir
+    // the spawned task below owns for the whole scan — the same read the
+    // scheduled scan on a worker makes, so any replica answers this. Only a
+    // process that holds the workspace files (single-process mode, the CLI)
+    // falls back to the working copy's own file.
+    let materialised_monitor = crate::server::api::semantic_scan::materialise_monitor_config(
+        &workspace_manager.config_manager,
+    )
+    .await
+    .map_err(|e| {
+        AnomalyError::Unavailable(format!("could not read the compiled `.monitor.yml`: {e:?}"))
+    })?;
+    let config_path = match &materialised_monitor {
+        Some(m) => m.config_path.clone(),
+        None if workspace_manager.config_manager.can_read_disk() => {
+            let root = workspace_manager
+                .config_manager
+                .working_copy()
+                .map(|wc| wc.root().to_path_buf())
+                .unwrap_or_default();
+            monitoring::default_config_path(&root)
+        }
+        None => {
+            return Err(AnomalyError::Unavailable(
+                "the workspace has no compiled `.monitor.yml` yet".to_string(),
+            ));
+        }
+    };
+    let now = parse_as_of(q.as_of.as_deref())?;
+    let backdated = q.as_of.is_some();
 
     // Debounce: if a scan completed or started within the last 60 s, return
     // immediately with `pending: true` rather than spawning a second parallel
@@ -127,36 +161,13 @@ pub async fn run_scan(
     // transition pages Slack. `.monitor.yml`'s `freshness` guards *warehouse*
     // lag and knows nothing about a rollup whose `preagg_cycle` is behind.
     let runner = Arc::new(
-        OxyMetricTreeRunner::new(workspace_manager.clone().into_read_only(), user.id, role)
+        OxyMetricTreeRunner::new(workspace_manager.clone(), user.id, role)
             .with_preagg(
                 preagg_ctx.cache.clone(),
                 preagg_ctx.renewal_threshold_secs_or(&workspace_manager.config_manager),
             )
             .requiring_fresh_rollups(),
     );
-    // Compile-boundary fast path. When the workspace is promoted +
-    // flag is on, we materialise `.monitor.yml` into a tempdir from
-    // Postgres and pass THAT path to scan_workspace. The tempdir is
-    // owned by the spawned task below so it lives for the whole scan.
-    let materialised_monitor = match crate::server::api::semantic_scan::materialise_monitor_config(
-        &workspace_manager.config_manager,
-    )
-    .await
-    {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::warn!(error = ?e, "run_scan: monitor materialise failed; falling through to FS");
-            None
-        }
-    };
-    let workspace_root = workspace_manager.config_manager.workspace_path();
-    let fs_config_path = monitoring::default_config_path(workspace_root);
-    let config_path = materialised_monitor
-        .as_ref()
-        .map(|m| m.config_path.clone())
-        .unwrap_or(fs_config_path);
-    let now = parse_as_of(q.as_of.as_deref())?;
-    let backdated = q.as_of.is_some();
     let db = state.db.clone();
 
     // Create a run row so the scan appears in the coordinator.

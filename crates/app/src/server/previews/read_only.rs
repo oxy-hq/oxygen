@@ -100,7 +100,6 @@ pub const ALLOWED: &[(&str, &str)] = &[
     ("POST", "/databases/inspect"),
     ("POST", "/databases/inspect-schemas"),
     ("POST", "/databases/inspect-schema-tables"),
-    ("POST", "/databases/test-connection"),
 ];
 
 const SECRETS: &str = "Changing secrets";

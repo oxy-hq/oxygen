@@ -40,7 +40,6 @@
 #   | Struct (404 by construction -- a nest_all/nest_typed bare-prefix companion, not
 #   independently addressable; the real surface is the neighboring {*rest} row. Also a
 #   {*rest} catch-all whose routes each have a row of their own, so nothing reaches it).
-*	/api/{workspace_id}/agentic-airway/{*rest}	ide-only	Struct	catch-all for an airway route added without a declaration — every route the router mounts today has a row of its own below, so no request reaches it
 POST	/api/{workspace_id}/agentic-airway/backfill	fleet-ok	Fixture	single-window backfill — needs a real `pipeline_ref` on a windowed source (toast / quickbooks / sp_api) and that source's credential to complete
 GET	/api/{workspace_id}/agentic-airway/backfill-ranges	fleet-ok	Fixture	needs a real `pipeline_ref`
 POST	/api/{workspace_id}/agentic-airway/chunked-backfill	ide-only	Fixture	needs a real `pipeline_ref` on a windowed source; drives every chunk in the accepting process, which is why it stays on the ide
@@ -53,8 +52,6 @@ GET	/api/{workspace_id}/agentic-airway/runs	fleet-ok	Now	verified live: the `400
 POST	/api/{workspace_id}/agentic-airway/runs	fleet-ok	Fixture	`POST /runs` needs a real `pipeline_ref` — 5 exist (verified live via `airway-pipelines`); `sql_ingest`/`clickhouse_ingest`/`weather`/`toast_pos`/`ubereats` each need a real upstream credential to *complete*, so starting is Fixture-bucket, finishing may land in Ext depending which pipeline you pick
 POST	/api/{workspace_id}/agentic-airway/runs/{id}/cancel	fleet-ok	Fixture	needs a real run id — start one first
 GET	/api/{workspace_id}/agentic-airway/runs/{id}/events	fleet-ok	Fixture	SSE; needs a real run id — start one first
-POST	/api/{workspace_id}/agentic-airway/sources/discover	ide-only	Ext	authoring wizard call that dials a caller-supplied source host — needs a reachable external database
-*	/api/{workspace_id}/agentic-automations/{*rest}	ide-only	Struct	catch-all for an automation route added without a declaration — every route the router mounts has a row of its own below, so no request reaches it
 GET	/api/{workspace_id}/agentic-automations/files	fleet-ok	Now	the automation list from the revision's `automation_definitions` rows on a pod with no working copy; 23 automations exist
 GET	/api/{workspace_id}/agentic-automations/files/{path_b64}	fleet-ok	Now	one automation's YAML through `resolve_automation_yaml`, which answers from the pinned revision on every role; use a `path_b64` from the list
 GET	/api/{workspace_id}/agentic-automations/runs	fleet-ok	Now	verified live: `400` = missing-param, not failure; buildable with a real `workflow_ref`
@@ -67,7 +64,6 @@ GET	/api/{workspace_id}/agentic-automations/threads/{thread_id}/run	fleet-ok	Now
 *	/api/{workspace_id}/agentic-schedules/{id}	fleet-ok	Now	`GET` the real seeded id (`65c121b2-…`); `PATCH`/`DELETE` against it are destructive to a schedule other tooling may read — use a disposable one you create yourself
 *	/api/{workspace_id}/agentic-schedules/{id}/backfill	fleet-ok	Fixture	use a disposable schedule + a valid date range
 *	/api/{workspace_id}/agentic-schedules/{id}/run-now	fleet-ok	Fixture	same — prefer not to perturb the real health-check cadence
-*	/api/{workspace_id}/agentic-workflows/{*rest}	ide-only	Struct	legacy alias of `agentic-automations`, identical handlers and declarations; the catch-all no request reaches
 GET	/api/{workspace_id}/agentic-workflows/files	fleet-ok	Now	same as the automations alias
 GET	/api/{workspace_id}/agentic-workflows/files/{path_b64}	fleet-ok	Now	same
 GET	/api/{workspace_id}/agentic-workflows/runs	fleet-ok	Now	same as the automations alias
@@ -78,7 +74,6 @@ GET	/api/{workspace_id}/agentic-workflows/runs/{id}/events	fleet-ok	Fixture	same
 GET	/api/{workspace_id}/agentic-workflows/threads/{thread_id}/run	fleet-ok	Now	same
 *	/api/{workspace_id}/agents	fleet-ok	Now	verified live 200 — 4 real agents
 *	/api/{workspace_id}/airway-pipelines	fleet-ok	Now	verified live 200 — 5 real pipelines (`sql_ingest`, `toast_pos`, `weather`, `clickhouse_ingest`, `ubereats`)
-*	/api/{workspace_id}/analytics/{*rest}	ide-only	Struct	catch-all for an analytics route added without a declaration — every route the router mounts has a row of its own below, so no request reaches it
 GET	/api/{workspace_id}/analytics/coordinator/active-runs	fleet-ok	Fixture	Postgres only; each row's status is the row's own (`user_facing_status`), no longer overlaid from the answering process's run map
 GET	/api/{workspace_id}/analytics/coordinator/live	fleet-ok	Now	SSE tailing the workspace's active runs in `agentic_runs` every 2 s — a plain GET that never ends, not yet in this script's case table
 GET	/api/{workspace_id}/analytics/coordinator/queue	fleet-ok	Fixture	Postgres only (`agentic_task_queue` joined to `agentic_runs`)
@@ -113,7 +108,6 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/{workspace_id}/databases/inspect	fleet-ok	Fixture	needs a reachable DB — DuckDB-backed ones most plausible, but see the `{database_name}/schema` Undetermined entry above: even `local` 500'd live, so success here isn't confirmed
 *	/api/{workspace_id}/databases/inspect-schema-tables	fleet-ok	Fixture	same caveat
 *	/api/{workspace_id}/databases/inspect-schemas	fleet-ok	Fixture	same caveat
-*	/api/{workspace_id}/databases/test-connection	ide-only	Fixture	same caveat
 *	/api/{workspace_id}/execution-analytics	fleet-ok	Struct	404 verified live
 *	/api/{workspace_id}/execution-analytics/{*rest}	fleet-ok	Ext	RESOLVED: not a fleet bug. get_summary() gates on state.observability, which is the ClickHouse-only store (crates/app/src/observability_setup.rs: "ClickHouse is the sole backend"); this fleet has no OXY_CLICKHOUSE_* creds (same absence as /traces). Router comment "aggregate the runtime tables" is misleading (implies Postgres) but FleetOk classification is still correct -- ClickHouse, when configured, is reachable identically from every replica. Live-confirmed 500 "Observability not configured" on every node uniformly.
 *	/api/{workspace_id}/integrations/looker	fleet-ok	Now	lists the Looker integrations named in the served revision's config; an empty list when none is configured
@@ -145,7 +139,7 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/{workspace_id}/semantic/anomalies	fleet-ok	Now	Postgres read, empty is valid
 *	/api/{workspace_id}/semantic/anomalies/{anomaly_id}/explain	fleet-ok	Fixture	needs a real anomaly id; the semantic model through `resolve_scan`, as `/preview` reads it
 *	/api/{workspace_id}/semantic/anomalies/{anomaly_id}/status	fleet-ok	Fixture	same
-*	/api/{workspace_id}/semantic/anomalies/scan	ide-only	Fixture	triggers a real scan against the semantic model + warehouse; up to ~55s per `local-split-fleet-testing.md`
+*	/api/{workspace_id}/semantic/anomalies/scan	fleet-ok	Fixture	triggers a real scan against the semantic model + warehouse, reading `.monitor.yml` from the compiled revision (503 until one is compiled); up to ~55s per `local-split-fleet-testing.md`
 *	/api/{workspace_id}/semantic/anomalies/status	fleet-ok	Fixture	bulk status update — needs real anomaly ids from a scan first
 *	/api/{workspace_id}/semantic/compile	fleet-ok	Now	compiles a query plan against real fixture views/topics, read-only in effect
 *	/api/{workspace_id}/semantic/metric-tree	fleet-ok	Now	verified pattern via 13 real monitored measures
@@ -224,7 +218,7 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/orgs/{org_id}/teams/{team_id}/members	fleet-ok	Fixture	needs a team + a second user
 *	/api/orgs/{org_id}/teams/{team_id}/members/{user_id}	fleet-ok	Fixture	same
 *	/api/orgs/{org_id}/workspaces	fleet-ok	Now	verified live 200 — 2 real workspaces
-*	/api/orgs/{org_id}/workspaces/{id}	ide-only	Destr	`DELETE` destroys a working copy outright — **never** point this at the shared Demo workspace; use a disposable one
+*	/api/orgs/{org_id}/workspaces/{id}	fleet-ok	Destr	`DELETE` removes the row, its schedules and its Airhouse tenant (Postgres only); still destructive — **never** point it at the shared Demo workspace, use a disposable one
 *	/api/orgs/{org_id}/workspaces/{id}/rename	fleet-ok	Destr	reversible, but renaming the SHARED workspace mid-session could confuse the four other agents currently using it
 *	/customer-apps/{*path}	fleet-ok	Now	RESOLVED (real bug, not an auth-shape mismatch): bearer-token auth succeeds fine here (proved live -- no auth-redirect, org+app DB rows resolve). The 404 is custom_apps_build_store::get_object's filesystem fallback (crates/app/src/server/api/custom_apps_build_store.rs:296-335): with no OXY_CUSTOMER_APPS_S3_BUCKET configured (true of this fleet), it reads OXY_STATE_DIR -- a NODE-LOCAL path -- with no role guard. Live-confirmed: ide=200 (real bundle bytes, sets oxy_custom_app_session cookie), both serve replicas=404 (silent, no error logged: NotFound -> Ok(None) -> cached absence). Asserted here on purpose -- expect this assertion to FAIL until either the fleet fixture configures a bucket or the FS fallback gets a current_process_role() guard like the DuckDB s3_mirror path already has.
 *	/customer-apps/{org}/{app}/fn/{name}	fleet-ok	Fixture	needs a published app that declares an Oxy Function; `oxy-starter`'s own description ("one file, no build step, two queries") suggests it defines none — verify before assuming a target exists

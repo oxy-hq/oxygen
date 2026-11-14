@@ -446,9 +446,9 @@ fn build_metric_anomaly_routes(
     RoleRouter::new(app_state.clone())
         .route_fleet("/", get(metric_anomalies::list_anomalies))
         // Mounted on the external surface too (`build_external_workspace_routes`).
-        // The scan runner reads the semantic model off the workspace root, so
-        // FleetOk was a promise a replica could not keep.
-        .route_ide("/scan", post(metric_anomalies::run_scan))
+        // Reads `.monitor.yml` and the semantic model from the compiled
+        // revision, as the scheduled scan on a worker does.
+        .route_fleet("/scan", post(metric_anomalies::run_scan))
         // The dry run of one monitor. Unlike `/scan` it asks for no working
         // copy: the file comes from the compile boundary and the semantic
         // model through `resolve_scan`, so any replica can answer.
@@ -490,7 +490,6 @@ fn build_database_routes(app_state: &AppState) -> RoleRouter {
         // The list degrades to `datasets: null` without a working copy and the
         // launcher readiness check calls it on every page load.
         .route_fleet("/", get(database::list_databases))
-        .route_ide("/test-connection", post(database::test_database_connection))
         .route_fleet("/inspect", post(database::inspect_database_handler))
         .route_fleet("/inspect-schemas", post(database::inspect_schemas_handler))
         .route_fleet(

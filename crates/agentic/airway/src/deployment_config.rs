@@ -64,7 +64,6 @@
 //! | site | reached | consumes the cursor floor |
 //! |---|---|---|
 //! | `worker::run_pipeline` — every airway load: HTTP, schedule, `oxy airway run`, automation step, backfill | yes. It also still **calls** [`install_once`] itself — see below | yes — this is the only site that extracts |
-//! | `agentic_pipeline::airway_run::discover_airway_source_tables` (`POST /sources/discover`, the create-pipeline wizard's table picker) | yes, via the boot install. This one does connect to the vendor, and before the hoist it ran on airway's built-in timeout, retry and TLS — an operator's custom CA bundle worked for runs and not for the wizard, which reads as a broken source rather than a config gap | no — it lists tables, it never pulls rows against a cursor |
 //! | `oxy-app`'s admin policy preview (`airway_config::preview`) | yes, via the boot install — though it needs nothing: it builds a connector only to read `contracts()` and makes no request at all | no, for the same reason it needs nothing else |
 //! | any connector site added later inside an oxy-app process | yes, by construction | only if it extracts |
 //! | a process with no database (`oxy run`, which falls back to no-op storage) | no, and correctly: there is no row to read, so airway's own compiled-in settings stay in force | n/a |

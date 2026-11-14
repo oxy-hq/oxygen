@@ -282,27 +282,6 @@ export type UploadedReport = {
   rows: number;
 };
 
-/** A column surfaced by source table discovery. */
-type DiscoveredColumn = {
-  name: string;
-  /** Native source type (e.g. ClickHouse `Int64`, `Nullable(String)`). */
-  data_type: string;
-};
-
-/** A table surfaced by source table discovery, columns in declaration order. */
-export type DiscoveredTable = {
-  name: string;
-  columns: DiscoveredColumn[];
-};
-
-/** Live credentials for source introspection (not persisted). */
-export type DiscoverSourceRequest = {
-  /** Source kind — only introspectable kinds (`clickhouse`) are wired. */
-  kind: string;
-  /** Connector-specific connection fields. */
-  config: Record<string, unknown>;
-};
-
 /**
  * How a source resource's rows behave, as declared by its connector.
  *
@@ -544,9 +523,7 @@ export class AirwayService {
    *    `listRuns`, `coverage`, `listBackfillRanges`. They read and write
    *    Postgres only; the pipeline spec comes from the compile boundary.
    *  - Factory (IDE) only: `chunkedBackfill` and `resumeBackfill` (their drive
-   *    is an in-process task, and a serve replica runs no workers),
-   *    `discoverSourceTables` (authoring, dials a caller-supplied host), and
-   *    anything carrying `?branch=` — a draft only the Factory can read.
+   *    is an in-process task, and a serve replica runs no workers).
    *
    * On a replica with no working copy, a pipeline the promoted revision does
    * not serve answers `503` + `Retry-After` with a plain-text body and
@@ -803,22 +780,6 @@ export class AirwayService {
     // the list renders with the Factory down.
     const { data } = await apiClient.get(`/${projectId}/airway-pipelines`);
     return data;
-  }
-
-  /**
-   * Connect to a source with the supplied live credentials and list its
-   * tables (with columns), for the New Pipeline table picker. Nothing is
-   * persisted server-side.
-   */
-  static async discoverSourceTables(
-    projectId: string,
-    request: DiscoverSourceRequest
-  ): Promise<DiscoveredTable[]> {
-    const { data } = await apiClient.post(
-      `${AirwayService.base(projectId)}/sources/discover`,
-      request
-    );
-    return data.tables;
   }
 
   /**

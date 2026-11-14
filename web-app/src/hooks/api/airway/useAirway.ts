@@ -35,8 +35,6 @@ import {
   type ChunkedBackfillRequest,
   type ChunkedBackfillResponse,
   type CoverageReport,
-  type DiscoveredTable,
-  type DiscoverSourceRequest,
   type ResetCursorsOutcome,
   type ResetCursorsRequest,
   type StartAirwayRequest
@@ -229,24 +227,6 @@ const useCancelAirwayRun = (): UseMutationResult<void, Error, string> => {
   const { project } = useCurrentProjectBranch();
   return useMutation({
     mutationFn: (runId: string) => AirwayService.cancelRun(project.id, runId)
-  });
-};
-
-/**
- * Connect to a source with live credentials and list its tables, for
- * the New Pipeline table picker. A mutation (not a query): it has an
- * outbound side effect and is keyed on user-entered credentials we
- * don't want to cache.
- */
-export const useDiscoverSourceTables = (): UseMutationResult<
-  DiscoveredTable[],
-  Error,
-  DiscoverSourceRequest
-> => {
-  const { project } = useCurrentProjectBranch();
-  return useMutation({
-    mutationFn: (request: DiscoverSourceRequest) =>
-      AirwayService.discoverSourceTables(project.id, request)
   });
 };
 

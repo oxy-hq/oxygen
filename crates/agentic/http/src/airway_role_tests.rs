@@ -58,22 +58,14 @@ fn the_in_process_backfill_drive_is_pinned_by_name() {
     }
 }
 
+/// No catch-all: an undeclared airway route takes the FleetOk default. Only
+/// the two backfill drives stay pinned, and they are named.
 #[test]
-fn the_authoring_only_routes_stay_on_the_factory() {
-    assert_eq!(
-        declared("POST", "/sources/discover"),
-        Some(RouteRole::IdeOnly)
-    );
-}
-
-/// A route added to `airway_router` without a declaration must land on the
-/// ide, not default to the fleet.
-#[test]
-fn an_undeclared_airway_route_falls_to_the_ide() {
-    assert_eq!(declared("*", "/{*rest}"), Some(RouteRole::IdeOnly));
-    let wildcards = airway_router_roles()
+fn only_the_backfill_drives_are_pinned() {
+    let pinned: Vec<&str> = airway_router_roles()
         .iter()
-        .filter(|d| d.path.contains("{*"))
-        .count();
-    assert_eq!(wildcards, 1, "one catch-all, and it is the IdeOnly one");
+        .filter(|d| d.role == RouteRole::IdeOnly)
+        .map(|d| d.path)
+        .collect();
+    assert_eq!(pinned, ["/chunked-backfill", "/resume-backfill"]);
 }

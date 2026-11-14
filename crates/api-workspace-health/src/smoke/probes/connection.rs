@@ -1,9 +1,8 @@
 //! Warehouse connectivity probe: `SELECT 1` against one configured database.
 //!
-//! This is the same call chain the "Test connection" button in the database
-//! settings UI uses (`server::api::database::test_database_connection`), minus
-//! the SSE surface and the temp-secret dance — `build_connector_for` picks the
-//! right connector for the warehouse type and surfaces the real error.
+//! `build_connector_for` picks the right connector for the warehouse type and
+//! surfaces the real error. (The database settings' "Test connection" route
+//! that shared this chain was deleted with the Factory's last routes.)
 
 use std::sync::Arc;
 

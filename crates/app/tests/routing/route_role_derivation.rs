@@ -36,24 +36,9 @@ use std::path::{Path, PathBuf};
 /// IdeOnly. Each needs a reason, because each is a place the derivation is
 /// being overridden by hand.
 const FLEET_OK_DESPITE_EXTRACTOR: &[(&str, &str)] = &[
-    (
-        "/databases",
-        "the launcher readiness check calls it on every page load; the working \
-         copy read only enriches rows with `datasets`, which now degrades to \
-         `null` rather than a false empty. role_manifest states the trade.",
-    ),
-    // ── Boundary-first with a filesystem fallback ───────────────────────────
-    // The common, correct pattern: read the compiled row, fall through to the
-    // working copy on a miss. FleetOk is right — they serve from Postgres on a
-    // replica — and the `<WorkingCopy>` in the signature is only what the
-    // fallback ARM needs to compile. The census counted 32 handlers in this
-    // shape; these are the mounted ones.
-    //
-    // What separates a safe one from a BACKLOG one is whether the fallback is
-    // gated on `can_read_disk()`. Ungated, it reaches for a root that is not
-    // there and 500s where it should 503 — loud, so not a wrong answer, but the
-    // wrong status and no lazy compile enqueued.
-    // ── Runtime artifacts, mirrored to S3 ───────────────────────────────────
+    // Empty since the Factory retirement's step B (2026-11-14): the last
+    // entry, `/databases`, stopped asking for a working copy when the
+    // connection test it covered was deleted. A new entry needs a reason.
 ];
 
 fn api_root() -> PathBuf {
@@ -200,6 +185,11 @@ fn mounted_routes() -> Vec<(String, String)> {
 
 /// Does this handler ask for a `WorkspaceManager<WorkingCopy>`?
 fn asks_for_a_working_copy(sources: &BTreeMap<String, String>, handler: &str) -> bool {
+    asks_for_extractor(sources, handler, "WorkspaceManagerWorkingCopy")
+}
+
+/// Does this handler's signature name `extractor`?
+fn asks_for_extractor(sources: &BTreeMap<String, String>, handler: &str, extractor: &str) -> bool {
     sources.values().any(|body| {
         let Some(at) = body.find(&format!("fn {handler}(")) else {
             return false;
@@ -210,7 +200,7 @@ fn asks_for_a_working_copy(sources: &BTreeMap<String, String>, handler: &str) ->
             .find(") ->")
             .or_else(|| tail.find(") {"))
             .unwrap_or(tail.len().min(600));
-        tail[..end].contains("WorkspaceManagerWorkingCopy")
+        tail[..end].contains(extractor)
     })
 }
 
@@ -221,8 +211,12 @@ fn a_handler_that_asks_for_a_working_copy_is_on_an_ide_only_route() {
     let sources = api_sources();
     let mut offenders: Vec<String> = Vec::new();
     let mut checked = 0;
+    let mut read_only = 0;
 
     for (route, handler) in mounted_routes() {
+        if asks_for_extractor(&sources, &handler, "WorkspaceManagerReadOnly") {
+            read_only += 1;
+        }
         if !asks_for_a_working_copy(&sources, &handler) {
             continue;
         }
@@ -260,13 +254,14 @@ fn a_handler_that_asks_for_a_working_copy_is_on_an_ide_only_route() {
     }
 
     assert!(
-        // 2, not 20: the IDE removal (2026-11-09) deleted the file, git and
-        // database-write handlers, and the Looker list reads the served
-        // revision now. What is left asking for a working copy is the
-        // connection test and the anomaly scan.
-        checked >= 2,
-        "only {checked} handlers matched — the parser broke; fix it rather than \
-         letting the guard pass vacuously",
+        // No mounted handler asks for a working copy any more (step B of the
+        // Factory retirement, 2026-11-14), so `checked` is legitimately 0.
+        // What proves the parser still works is that it finds the handlers
+        // that take the read-only manager: 22 files use it today.
+        read_only >= 10,
+        "only {read_only} mounted handlers take `WorkspaceManagerReadOnly` \
+         ({checked} take a working copy) — the parser broke; fix it rather \
+         than letting the guard pass vacuously",
     );
     offenders.sort();
     offenders.dedup();

@@ -11,15 +11,15 @@
 //! airway keeps `GlobalConfig` in a process-wide `OnceLock` that
 //! `HttpConfig::default` and `RetryConfig::default` read, so **one install
 //! covers every connector the process ever builds**. Installing at the top of
-//! `run_pipeline` instead covers every airway *load* and nothing else — and at
-//! least one site builds a source connector and talks to the vendor outside
-//! any load: `agentic_pipeline::airway_run::discover_airway_source_tables`,
-//! behind `POST /sources/discover`, the create-pipeline wizard's table picker.
+//! `run_pipeline` instead covers every airway *load* and nothing else — and a
+//! site that builds a source connector outside a load (the admin policy
+//! preview today; source discovery, `POST /sources/discover`, until it was
+//! deleted) would run on airway's compiled-in settings instead.
 //!
 //! TLS is the sharp edge. An operator who configures a custom CA bundle would
-//! find real runs honour it while the wizard's table picker fails to connect —
-//! which reads as a broken source rather than a config gap, and sends them
-//! looking at the vendor instead of at their own setting.
+//! find real runs honour it while such a site fails to connect — which reads
+//! as a broken source rather than a config gap, and sends them looking at the
+//! vendor instead of at their own setting.
 //!
 //! Hoisting the install here closes that **without a signature change
 //! anywhere**: no `DatabaseConnection` threaded into a discovery function

@@ -1453,11 +1453,6 @@ add Fixture "databases-inspect" POST "/api/${WS}/databases/inspect?database=loca
 # `addb` — only the method changes.
 add Fixture "databases-inspect-schemas" POST "/api/${WS}/databases/inspect-schemas?database=local" workspace_local "/api/{workspace_id}/databases/inspect-schemas"
 add Fixture "databases-inspect-schema-tables" POST "/api/${WS}/databases/inspect-schema-tables?database=local&schema=main" workspace_local "/api/{workspace_id}/databases/inspect-schema-tables"
-# test-connection is IdeOnly — all three nodes self-proxy to the SAME ide
-# process, so no serve/ide asymmetry is possible here at all; status agreement
-# is the correct, non-shallow check.
-addb Fixture "databases-test-connection" POST "/api/${WS}/databases/test-connection" status \
-  '{"warehouse":{"type":"duckdb","name":"local","config":{"file_search_path":".db/"}}}' "/api/{workspace_id}/databases/test-connection"
 
 # ── Fixture bucket: world-model proxy routes (weather/foot-traffic/competitors)
 # Competitors needs NO integration at all — it calls the public OSM Overpass
