@@ -102,7 +102,7 @@ fn is_custom_app_namespace(name: &str) -> bool {
 
 /// Modules that run warehouse queries on a tenant's behalf: the data plane and
 /// the connectors under it. A `warn!`/`error!` from one of these routinely
-/// carries the warehouse's own error text (`msg = %e` in `projects::query`, the
+/// carries the warehouse's own error text (`msg = %e` in a data-plane handler, the
 /// DuckDB or Postgres message in `agentic_connector`) and the fields around it,
 /// and a `Log` cannot say which request it served (see [`drop_log`]). So
 /// [`keep_log_shape_only`] applies to every line from them, for every caller.
@@ -113,8 +113,10 @@ fn is_custom_app_namespace(name: &str) -> bool {
 /// Postgres, not a tenant warehouse. Prefixes, matched a path segment at a time
 /// by [`is_data_plane_module`].
 const DATA_PLANE_MODULE_PREFIXES: [&str; 6] = [
-    // `/query`, `/semantic-query`, agent ask, automation run, metric tree —
-    // the handlers behind `check_custom_app_gates` still in `oxy-app`.
+    // Agent ask, automation run, metric tree — the handlers behind
+    // `check_custom_app_gates` still in `oxy-app`. (`/query` and
+    // `/semantic-query` moved to `oxy_api_custom_apps::data_plane`, whose
+    // `custom_apps` path drops their lines outright: [`drop_log`].)
     "oxy_app::server::api::projects",
     // The world model's customer-app twins (graph, instances, measure
     // breakdown, cohort), behind the same gate since they left `projects`.
@@ -412,7 +414,7 @@ pub const LOG_BODY_WITHHELD: &str = "[body withheld: data-plane log; see code.fi
 ///
 /// Shape rather than drop, because the line is still a signal that something
 /// failed at that location, and "how many warehouse errors did
-/// `projects::query` raise this hour" is exactly what Sentry Logs is good for.
+/// the metric-tree twins raise this hour" is exactly what Sentry Logs is good for.
 /// The body is replaced rather than reduced to its message *template*: a
 /// `tracing` line arrives here already rendered — sentry-tracing's
 /// `log_from_event` puts the formatted message in `body` and records no
@@ -488,6 +490,10 @@ mod tests {
             // that left `oxy-app` stay behind the barrier.
             "oxy_api_custom_apps::serve",
             "oxy_api_custom_apps::logs",
+            // The data plane's query routes, out of `oxy-app` on 2026-11-13: an
+            // `error!` on a warehouse failure sends nothing to Sentry from here.
+            "oxy_api_custom_apps::data_plane::query",
+            "oxy_api_custom_apps::data_plane::semantic_query",
             "oxy_custom_apps::storage::sweeper",
             "oxy_custom_apps::usage_queue",
         ];
@@ -693,6 +699,11 @@ mod tests {
             "oxy_app::server::api::custom_apps_serve",
             "oxy_app_core::custom_apps_host_dispatch",
             "oxy_api_custom_apps::serve",
+            // The data plane's query routes, since they moved out of `oxy-app`'s
+            // `projects` (2026-11-13). Their lines were shaped while they were
+            // there; leaving Sentry Logs entirely here was chosen with the move.
+            "oxy_api_custom_apps::data_plane::query",
+            "oxy_api_custom_apps::data_plane::semantic_query",
             "oxy_custom_apps::storage::sweeper",
             "oxy::app_function",
             "custom_app_function",
@@ -843,11 +854,11 @@ mod tests {
         for (key, value) in [
             (
                 LOG_MODULE_ATTRIBUTE,
-                serde_json::json!("oxy_app::server::api::projects::query"),
+                serde_json::json!("oxy_app::server::api::projects::metric_tree"),
             ),
             (
                 "code.file.path",
-                serde_json::json!("crates/app/src/server/api/projects/query.rs"),
+                serde_json::json!("crates/app/src/server/api/projects/metric_tree.rs"),
             ),
             ("code.line.number", serde_json::json!(295)),
             ("sentry.origin", serde_json::json!("auto.tracing")),
@@ -940,8 +951,8 @@ mod tests {
     fn data_plane_modules_are_matched_a_segment_at_a_time() {
         for module in [
             "oxy_app::server::api::projects",
-            "oxy_app::server::api::projects::query",
-            "oxy_app::server::api::projects::semantic_query",
+            "oxy_app::server::api::projects::metric_tree",
+            "oxy_app::server::api::projects::agent_ask",
             "oxy_api_world_model::customer_app::cohort",
             "oxy_api_world_model::customer_app::world_model",
             "agentic_connector",

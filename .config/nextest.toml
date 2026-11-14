@@ -107,16 +107,16 @@ retries = 2
 # `tests/authz/shared_db_registry.rs` scans it along with the rest and fails the
 # build the day that stops being true.
 #
-# The two exclusions are NOT in that category: `projects_query` and
-# `local_mode_router` call `api_router(..)`, which builds `new_agentic_state`,
+# The exclusion is NOT in that category: `local_mode_router` calls
+# `api_router(..)`, which builds `new_agentic_state`,
 # which calls `establish_connection()` on the ambient `OXY_DATABASE_URL` and then
 # `cleanup_stale_runs(&db)` — an UNSCOPED write that flips every
-# `waiting_on_child*` row in `agentic_runs` to `failed`. They belong with the
+# `waiting_on_child*` row in `agentic_runs` to `failed`. It belongs with the
 # shared-schema tests below, not here. Test groups are independent semaphores, so
-# leaving them in `db-per-test` bounds them against each other and not at all
+# leaving it in `db-per-test` bounds it against the others and not at all
 # against the `agentic-runtime`/`agentic-pipeline` tests that own those rows.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=airhouse) | binary(=platform)) & !test(/^(projects_query|local_mode_router)::/)"
+filter = "kind(test) & package(=oxy-app) & (binary(=airhouse) | binary(=platform)) & !test(/^(local_mode_router)::/)"
 test-group = "db-per-test"
 retries = 2
 
@@ -144,7 +144,7 @@ retries = 2
 # binary with the experiments context — same harness, same group. `route_roles`
 # opens no database and is carved out like frontline's; `simulation_router`
 # builds `api_router(..)` (the unscoped `cleanup_stale_runs` writer, see the
-# `projects_query` note below) and keeps the `serial-db` seat it had under
+# `local_mode_router` note below) and keeps the `serial-db` seat it had under
 # `platform`, in its own override further down.
 [[profile.default.overrides]]
 filter = "kind(test) & package(=oxy-api-experiment) & binary(=integration) & !test(/^(route_roles|simulation_router)::/)"
@@ -228,7 +228,7 @@ retries = 2
 # Two routes in:
 #   * four call `oxy::database::client::establish_connection()` directly (and
 #     the six that were the `slack` binary's, now `oxy-api-slack`'s, below);
-#   * `projects_query`, `local_mode_router`, `simulation_router` (now
+#   * `local_mode_router`, `simulation_router` (now
 #     `oxy-api-experiment`) and `staging_preview_cookie_retired` (now
 #     `oxy-api-custom-apps`) call `api_router(..)`, which
 #     reaches it through `new_agentic_state` and then runs `cleanup_stale_runs` —
@@ -247,7 +247,7 @@ retries = 2
 # The real fix is porting these onto `common::fresh_db()`; see
 # `internal-docs/testing.md`. Until then they belong here.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|admin_membership_audit|audit_append_only|projects_query|local_mode_router)::/)"
+filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|admin_membership_audit|audit_append_only|local_mode_router)::/)"
 test-group = "serial-db"
 retries = 2
 
@@ -262,7 +262,7 @@ retries = 2
 
 # `oxy-api-experiment`'s `simulation_router`, which was `platform`'s: it builds
 # `api_router(..)` and so is the same unscoped `cleanup_stale_runs` writer as
-# `projects_query` above.
+# `local_mode_router` above.
 [[profile.default.overrides]]
 filter = "kind(test) & package(=oxy-api-experiment) & binary(=integration) & test(/^(simulation_router)::/)"
 test-group = "serial-db"
@@ -277,7 +277,7 @@ retries = 2
 
 # The modules of `oxy-api-custom-apps`' integration binary that
 # `shared_db_registry` reads as reaching the shared database: the one that builds
-# `api_router(..)` (see the `projects_query` note above), and `public_routes` and
+# `api_router(..)` (see the `local_mode_router` note above), and `public_routes` and
 # `custom_app_functions_fixture`, which only name `flat_api_router()` (the scan
 # matches `api_router(` as a substring). Pinned rather than weakening the scan.
 [[profile.default.overrides]]
@@ -287,8 +287,8 @@ retries = 2
 
 # `oxy-server`'s `served_router_tests` build `api_router(..)` from the real
 # surface seams (whether cloud mode serves `/orgs` is only visible there), so
-# they are the same unscoped `cleanup_stale_runs` writer as `projects_query` and
-# `local_mode_router` above. Unit tests in a binary, which
+# they are the same unscoped `cleanup_stale_runs` writer as `local_mode_router`
+# above. Unit tests in a binary, which
 # `shared_db_registry.rs` (integration groups only) does not scan: this entry is
 # the only thing that serializes them.
 [[profile.default.overrides]]

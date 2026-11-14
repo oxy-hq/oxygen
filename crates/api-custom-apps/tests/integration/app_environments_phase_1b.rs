@@ -534,7 +534,7 @@ async fn a_queued_task_for_staging_is_refused_not_run() {
         db: t.db.clone(),
         preagg: Default::default(),
         executor: std::sync::Arc::new(
-            oxy_app::surface::testing::projects::query::DataPlaneQueryExecutor,
+            oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor,
         ),
     };
     let assignment = TaskAssignment {

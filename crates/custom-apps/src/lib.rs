@@ -81,6 +81,7 @@ pub mod precompress;
 pub mod publish_authz;
 pub mod reach;
 pub mod resolve;
+pub mod result_cache;
 pub mod sandbox_instance;
 pub mod secret_audit;
 pub mod secret_scope;

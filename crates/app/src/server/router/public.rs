@@ -94,18 +94,11 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
             "/oauth/{provider}/callback",
             get(crate::integrations::quickbooks::oauth::callback::callback_by_slug),
         )
-        // Project-scoped proxies for custom-app bundles. Auth is
-        // performed inline (session cookie or API key) so these sit
-        // in the public router rather than under workspace middleware.
-        // Shared gate chain lives in `custom_apps_gates.rs`.
-        .route_fleet(
-            "/projects/{project_id}/query",
-            post(projects::query::run_query),
-        )
-        .route_fleet(
-            "/projects/{project_id}/semantic-query",
-            post(projects::semantic_query::run_semantic_query),
-        )
+        // Project-scoped routes for custom-app bundles. Auth is performed
+        // inline (session cookie or API key) at the customer-app gate, so these
+        // sit in the public router rather than under workspace middleware. The
+        // query routes (`/query`, `/semantic-query`) are `oxy-api-custom-apps`'
+        // (`data_plane`), merged beside this tree through `SurfaceSeams::public`.
         // Metric-tree analysis ops for bundles — drivers / what-if / RCA /
         // opportunity sizing. Same airlayer analyses as the IDE's workspace
         // `/semantic/metric-tree*` routes, but gated for customer apps and

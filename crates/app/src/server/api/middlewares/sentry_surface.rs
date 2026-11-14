@@ -311,10 +311,13 @@ mod tests {
         );
     }
 
-    /// Serve one request through the **real** custom-app data-plane route —
-    /// `POST /api/projects/{id}/query`, mounted on the shipped `run_query`
-    /// handler — behind the two layers serve.rs installs, and return the tag on
-    /// an event captured later in the same request.
+    /// Serve one request through a **real** custom-app data-plane route —
+    /// `POST /api/projects/{id}/semantic/metric-tree/baseline`, mounted on the
+    /// shipped `post_baseline` handler, which enters through
+    /// `enter_semantic_boundary` and so through the gate — behind the two layers
+    /// serve.rs installs, and return the tag on an event captured later in the
+    /// same request. (It was `/query` until that route moved to
+    /// `oxy-api-custom-apps`; the gate that tags is the same one.)
     ///
     /// The `Origin` is deliberately foreign, so `check_custom_app_gates` stops
     /// at its allowlist step and the test needs no database. The gate tags
@@ -323,11 +326,11 @@ mod tests {
     fn data_plane_surface_tag(host: &str) -> Option<String> {
         route_surface_tag(
             Router::new().route(
-                "/api/projects/{project_id}/query",
-                axum::routing::post(crate::server::api::projects::query::run_query),
+                "/api/projects/{project_id}/semantic/metric-tree/baseline",
+                axum::routing::post(crate::server::api::projects::metric_tree::post_baseline),
             ),
             host,
-            "/api/projects/0195f0d2-0000-7000-8000-000000000000/query",
+            "/api/projects/0195f0d2-0000-7000-8000-000000000000/semantic/metric-tree/baseline",
         )
     }
 
@@ -884,8 +887,8 @@ mod tests {
             "../api-world-model/src/customer_app/cohort.rs",
         ];
         const THROUGH_THE_GATE: [&str; 2] = [
-            "src/server/api/projects/query.rs",
-            "src/server/api/projects/semantic_query.rs",
+            "../api-custom-apps/src/data_plane/query.rs",
+            "../api-custom-apps/src/data_plane/semantic_query.rs",
         ];
 
         let scope = paths(&GATE_ENTRY_POINTS);

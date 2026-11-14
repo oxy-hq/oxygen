@@ -208,7 +208,7 @@ async fn a_queued_task_naming_staging_for_a_function_that_is_not_a_check_is_refu
         db: t.db.clone(),
         preagg: Default::default(),
         executor: std::sync::Arc::new(
-            oxy_app::surface::testing::projects::query::DataPlaneQueryExecutor,
+            oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor,
         ),
     };
     for function in ["plain", "was-a-check"] {

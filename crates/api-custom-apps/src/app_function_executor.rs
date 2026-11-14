@@ -101,7 +101,7 @@ pub struct AppFunctionTaskExecutor {
     pub preagg: oxy_app_core::preagg_cache_ctx::PreaggCacheCtx,
     /// The worker's own composition root hands the runtime the shared data-plane
     /// query executor as a trait object (`DataPlaneQueryExecutor`, built by
-    /// `oxy-server`), so the function module never imports `projects::query`.
+    /// `oxy-server`), so the function module never imports `data_plane::query`.
     pub executor: std::sync::Arc<dyn oxy_app_core::function_seam::FunctionQueryExecutor>,
 }
 

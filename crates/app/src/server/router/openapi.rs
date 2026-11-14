@@ -14,7 +14,7 @@ use utoipa::openapi::server::Server;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::api::{agent, data, database, healthcheck, projects, thread, user, workspaces};
+use crate::api::{agent, data, database, healthcheck, thread, user, workspaces};
 
 use super::{IdeState, build_cors_layer};
 
@@ -45,8 +45,9 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         // ones the web app happens to call. Deliberately NOT web-UI surfaces —
         // an agent never uploads a logo or reorders a list.
         .routes(routes!(data::execute_sql_query))
-        .routes(routes!(projects::query::run_query))
-        .routes(routes!(projects::semantic_query::run_semantic_query))
+        // `/projects/{project_id}/query` and `/semantic-query` are
+        // `oxy-api-custom-apps`' (`data_plane`), merged in through
+        // `SurfaceSeams::openapi`; `oxy-server`'s tests assert them there.
         // Turning "the customer" into the ids every other endpoint wants.
         .routes(routes!(user::get_current_user_public))
         .routes(routes!(workspaces::list_workspaces))
@@ -135,11 +136,11 @@ mod openapi_coverage_tests {
     /// should not be added to it.
     const AGENT_PATHS: &[(&str, &str)] = &[
         ("/{workspace_id}/sql/query", "post"),
-        ("/projects/{project_id}/query", "post"),
-        ("/projects/{project_id}/semantic-query", "post"),
         ("/user", "get"),
-        // `GET /orgs` is documented by `oxy-api-tenancy` and merged in by the
-        // composition root; `oxy-server`'s tests assert it there.
+        // `GET /orgs` (`oxy-api-tenancy`) and the custom-app data plane's
+        // `/projects/{project_id}/query` and `/semantic-query`
+        // (`oxy-api-custom-apps`) are merged in by the composition root;
+        // `oxy-server`'s tests assert them there.
         ("/orgs/{org_id}/workspaces", "get"),
     ];
 
@@ -305,45 +306,6 @@ mod openapi_coverage_tests {
         assert!(
             checked > 5,
             "only {checked} security requirements inspected — the walk found almost nothing"
-        );
-    }
-
-    /// Two Rust types in this crate are both called `SemanticQueryResponse`,
-    /// and utoipa names a component after the ident alone — so without an
-    /// explicit `#[schema(as = ...)]` on each they collapse into one schema and
-    /// whichever registers last wins, handing `oxyc schema` the wrong body
-    /// shape for the other endpoint.
-    ///
-    /// Checked by SHAPE rather than by name, so renaming either component
-    /// keeps the test meaningful: the SQL response is an untagged enum (no
-    /// `properties`), the semantic one is an object with `columns` and `rows`.
-    #[tokio::test]
-    async fn the_two_query_response_schemas_stayed_distinct() {
-        use utoipa::openapi::{RefOr, Schema};
-
-        let doc = build_openapi_doc(Vec::new()).await;
-        let components = doc.components.as_ref().expect("components");
-
-        let object_with = |name: &str| -> bool {
-            matches!(
-                components.schemas.get(name),
-                Some(RefOr::T(Schema::Object(o))) if o.properties.contains_key("columns")
-            )
-        };
-
-        assert!(
-            object_with("SemanticQueryResult"),
-            "SemanticQueryResult is missing or is not the {{columns, rows}} object — the two \
-             SemanticQueryResponse types have probably collided again"
-        );
-        assert!(
-            components.schemas.contains_key("SqlQueryResponse"),
-            "SqlQueryResponse is missing — the SQL endpoint's response schema was lost"
-        );
-        assert!(
-            !object_with("SqlQueryResponse"),
-            "SqlQueryResponse now looks like the semantic {{columns, rows}} object, so the two \
-             collided"
         );
     }
 }

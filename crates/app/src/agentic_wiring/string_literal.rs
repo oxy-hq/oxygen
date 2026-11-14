@@ -21,7 +21,7 @@ use oxy::config::model::DatabaseType;
 /// that reports Redshift as `postgres`, and Redshift reads a backslash as an
 /// escape where Postgres does not. The match is exhaustive so a new engine
 /// cannot be added without saying how it reads a literal.
-pub(crate) fn string_literal_of(database: &DatabaseType) -> StringLiteral {
+pub fn string_literal_of(database: &DatabaseType) -> StringLiteral {
     match database {
         // `''` is the only escape; a backslash is an ordinary character.
         // Airhouse is DuckLake behind pgwire, MotherDuck is DuckDB, and both

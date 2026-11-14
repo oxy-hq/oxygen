@@ -12,7 +12,7 @@
 //!
 //! Two routes in, which is the reason this gate looks for more than one string:
 //! four call `oxy::database::client::establish_connection()` directly, and
-//! `projects_query`/`local_mode_router` reach it through `api_router(..)`.
+//! `local_mode_router` reaches it through `api_router(..)`.
 //!
 //! An explicit list is only as good as its freshness, and this one fails in the
 //! quietest possible way: the tests skip when `OXY_DATABASE_URL` is unset, so a

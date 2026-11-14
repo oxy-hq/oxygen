@@ -16,7 +16,7 @@ pub enum ResultFormat {
     Json,
 }
 
-/// NAMED EXPLICITLY, because `projects::semantic_query` defines a DIFFERENT
+/// NAMED EXPLICITLY, because `oxy-api-custom-apps`' `data_plane::semantic_query` defines a DIFFERENT
 /// type with the same Rust ident. utoipa derives a component name from the
 /// ident alone, so without `as = ...` the two collapse into one
 /// `SemanticQueryResponse` schema and whichever registers last wins — handing
@@ -74,7 +74,7 @@ pub struct SQLParams {
     /// world-model dashboard sets this — its tiles already `::VARCHAR`-cast
     /// every column, so the DESCRIBE is pure overhead. Defaults to false (typed
     /// path). Mirrors the `untyped` flag on the public `/query` route
-    /// (`projects::query::run_sql_query`).
+    /// (`oxy-api-custom-apps`' `data_plane::query::run_sql_query`).
     #[serde(default)]
     pub untyped: bool,
 }
@@ -318,7 +318,7 @@ where
     let query_start = std::time::Instant::now();
     // The world-model dashboard opts into the untyped fast path: skip airhouse's
     // per-query `DESCRIBE` round-trip (its tiles already `::VARCHAR`-cast every
-    // column) and stream text cells. Mirrors `run_sql_query` in projects::query.
+    // column) and stream text cells. Mirrors `run_sql_query` in `oxy-api-custom-apps`' `data_plane::query`.
     // Every other caller leaves `untyped` false and keeps the typed path.
     let stream = if payload.untyped {
         connector.execute_query_full_untyped(&sql_to_run).await

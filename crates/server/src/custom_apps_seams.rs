@@ -24,9 +24,9 @@ use oxy_api_custom_apps::custom_apps_sandboxes::{
     maintenance, migrations_task, oltp_task, teardown,
 };
 use oxy_api_custom_apps::custom_apps_usage_backfill::{self, USAGE_BACKFILL_KIND};
+use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
 use oxy_api_custom_apps::serve as custom_apps_serve;
 use oxy_app::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use oxy_app::server::api::projects::query::DataPlaneQueryExecutor;
 use oxy_app::server::compile_reconcile::env_pinner::EnvPinner;
 use oxy_app::server::router::{BackgroundSeam, TaskSeam};
 use oxy_app_core::function_seam::{FunctionQueryExecutor, FunctionRuntime};
@@ -52,7 +52,7 @@ pub(crate) fn tasks() -> Vec<TaskSeam> {
                     preagg: deps.preagg.clone(),
                     // The worker's own composition root: the shared data-plane
                     // query executor, as a trait object, so the function module
-                    // never imports `projects::query`.
+                    // never imports `data_plane::query`.
                     executor: Arc::new(DataPlaneQueryExecutor) as Arc<dyn FunctionQueryExecutor>,
                 })
             },
@@ -310,7 +310,7 @@ pub(crate) fn outer(preagg_ctx: PreaggCacheCtx) -> Router {
                     ))
                     // Inject the function query executor (the shared data plane)
                     // so `custom_apps_functions` runs `ctx.query` through the
-                    // trait without importing `projects::query`.
+                    // trait without importing `data_plane::query`.
                     .layer(axum::Extension(std::sync::Arc::new(DataPlaneQueryExecutor)
                         as std::sync::Arc<dyn FunctionQueryExecutor>))
                     // Inject the Layer-1 preagg cache the API router owns, so a

@@ -194,7 +194,7 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
             }
         };
         // The function query executor is injected at the serve router (an
-        // Extension layer) so this runtime never imports `projects::query`.
+        // Extension layer) so this runtime never imports `data_plane::query`.
         // Absent only if the router wiring regressed — fail closed.
         let query_exec = match parts
             .extensions

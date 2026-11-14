@@ -598,7 +598,7 @@ mod tests {
         for (key, value) in [
             (
                 "code.file.path",
-                serde_json::json!("crates/app/src/server/api/projects/query.rs"),
+                serde_json::json!("crates/app/src/server/api/projects/metric_tree.rs"),
             ),
             ("code.line.number", serde_json::json!(295)),
             (
@@ -640,8 +640,9 @@ mod tests {
 
         let envelopes = sentry::test::with_captured_envelopes_options(
             || {
-                sentry::Hub::current()
-                    .capture_log(data_bearing_log("oxy_app::server::api::projects::query"));
+                sentry::Hub::current().capture_log(data_bearing_log(
+                    "oxy_app::server::api::projects::metric_tree",
+                ));
             },
             client_options("test".to_string(), "oxy@test".to_string()),
         );

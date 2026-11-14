@@ -39,12 +39,11 @@ use tracing::{error, instrument, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::server::api::custom_apps_gates::{
-    CustomAppContextExt, check_custom_app_gates, parse_versioned_body,
-};
-use crate::server::api::projects::query::{QueryResponse, json_objects_to_table};
-use crate::server::api::typed_stream::typed_stream_to_json_objects;
-use crate::server::router::AppState;
+use super::query::{QueryResponse, json_objects_to_table};
+use crate::custom_apps_gates::check_custom_app_gates;
+use oxy_app::surface::custom_app_semantic::{CustomAppContextExt, parse_versioned_body};
+use oxy_app::surface::workspace_runtime::typed_stream_to_json_objects;
+use oxy_app_core::AppState;
 
 const MAX_ROWS: usize = 10_000;
 
@@ -193,7 +192,7 @@ pub async fn run_semantic_query(
                         .and_then(|a| a.as_str().and_then(|a| a.parse().ok()))
                 });
             Some(
-                crate::server::api::operating_graph::reach::reach_for_viewer(
+                oxy_custom_apps::reach::reach_for_viewer(
                     &ctx.db, ctx.org_id, &ctx.user, project_id, app,
                 )
                 .await,
@@ -264,7 +263,7 @@ pub async fn run_semantic_query(
         .unwrap_or(false);
     if !refresh
         && let Some(cached) =
-            super::result_cache::get(project_id, cache_ns, &ctx.cache_scope(), &cache_sql)
+            oxy_custom_apps::result_cache::get(project_id, cache_ns, &ctx.cache_scope(), &cache_sql)
     {
         return (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
@@ -289,21 +288,18 @@ pub async fn run_semantic_query(
     // are materialised into a tempdir once per revision per process and cached
     // (`oxy::config::scan`); this handle keeps that tempdir alive until the
     // request is done.
-    let materialised = match crate::server::api::semantic_scan::scan_dir(
-        &proj_ctx.workspace_manager().config_manager,
-    )
-    .await
-    {
-        Ok(scan) => Some(scan),
-        Err(e) => {
-            tracing::warn!(
-                project_id = %project_id,
-                error = %e,
-                "semantic scan: no scan directory available"
-            );
-            None
-        }
-    };
+    let materialised =
+        match oxy::config::scan::scan_dir(&proj_ctx.workspace_manager().config_manager).await {
+            Ok(scan) => Some(scan),
+            Err(e) => {
+                tracing::warn!(
+                    project_id = %project_id,
+                    error = %e,
+                    "semantic scan: no scan directory available"
+                );
+                None
+            }
+        };
     // Stateless-fleet guard: on a serve replica there is no working copy, so
     // the FS fallback below (`semantics_scan_path()`) points at a directory
     // that doesn't exist — airlayer would compile against an empty dir and
@@ -320,10 +316,7 @@ pub async fn run_semantic_query(
     // diskless and fell straight through to a scan path that is not there.
     if materialised.is_none() && !proj_ctx.workspace_manager().config_manager.can_read_disk() {
         if let Ok(db) = oxy::database::client::establish_connection().await {
-            crate::server::api::middlewares::workspace_context::enqueue_lazy_compile(
-                &db, project_id,
-            )
-            .await;
+            oxy_app::surface::enqueue_lazy_compile(&db, project_id).await;
         }
         let mut response = err_with_code(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -340,7 +333,7 @@ pub async fn run_semantic_query(
     }
     let scan = match materialised {
         Some(m) => m,
-        None => crate::server::api::semantic_scan::ScanDir::Real(
+        None => oxy::config::scan::ScanDir::Real(
             proj_ctx
                 .workspace_manager()
                 .config_manager
@@ -388,7 +381,7 @@ pub async fn run_semantic_query(
     // carries no global value, matching what `workspace_context` does for the
     // IDE — the read side and the rebuild side must resolve one setting, or a
     // workspace configuring `10m` silently gets 120s on every query.
-    let preagg_ctx = crate::server::api::middlewares::workspace_context::PreaggCacheCtx {
+    let preagg_ctx = oxy_app::surface::PreaggCacheCtx {
         cache: app_state.preagg_cache.clone(),
         renewal_threshold_secs: app_state.preagg_renewal_threshold_secs,
     };
@@ -402,7 +395,7 @@ pub async fn run_semantic_query(
         .staging_pin
         .is_none()
         .then(|| {
-            crate::server::preagg_context::preagg_context(
+            oxy_app_core::preagg_context::preagg_context(
                 proj_ctx.workspace_manager().workspace_id,
                 preagg_ctx.cache.clone(),
                 Some(
@@ -411,7 +404,7 @@ pub async fn run_semantic_query(
                 ),
                 // A read surface: the route badges its answer **Pre-aggregated**, so a
                 // rollup a cycle behind is a labelled number, not a wrong one.
-                crate::server::preagg_context::RollupFreshness::ServeStale,
+                oxy_app_core::preagg_context::RollupFreshness::ServeStale,
             )
         })
         .flatten();
@@ -423,7 +416,7 @@ pub async fn run_semantic_query(
     //     once, and only on a cache miss.
     let mut scoped_layer: Option<std::sync::Arc<oxy_airlayer_compat::SemanticLayer>> = None;
     if let Some(reach) = &viewer_reach {
-        let layers = crate::server::api::middlewares::workspace_context::SemanticLayerCacheCtx {
+        let layers = oxy_app::surface::SemanticLayerCacheCtx {
             cache: app_state.semantic_layer_cache.clone(),
             workspace_id: proj_ctx.workspace_manager().workspace_id,
             engine_cache: app_state.semantic_engine_cache.clone(),
@@ -438,16 +431,16 @@ pub async fn run_semantic_query(
                 );
             }
         };
-        if let Err(e) = crate::server::api::operating_graph::binding::apply_reach_scope(
+        if let Err(e) = oxy_app_core::operating_graph::binding::apply_reach_scope(
             &ctx.db, ctx.org_id, &layer, reach, &mut req,
         )
         .await
         {
             let (status, code) = match e {
-                crate::server::api::operating_graph::binding::ScopeError::NoBoundView => {
+                oxy_app_core::operating_graph::binding::ScopeError::NoBoundView => {
                     (StatusCode::BAD_REQUEST, "semantic_scope_unbound")
                 }
-                crate::server::api::operating_graph::binding::ScopeError::Db(_) => {
+                oxy_app_core::operating_graph::binding::ScopeError::Db(_) => {
                     (StatusCode::INTERNAL_SERVER_ERROR, "semantic_scope_failed")
                 }
             };
@@ -661,7 +654,7 @@ pub async fn run_semantic_query(
         }
     };
     let arc = std::sync::Arc::new(bytes);
-    super::result_cache::put(
+    oxy_custom_apps::result_cache::put(
         project_id,
         cache_ns,
         &ctx.cache_scope(),

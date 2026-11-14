@@ -20,6 +20,10 @@ default = ["custom-app-functions"]
 custom-app-functions = ["deno_core", "deno_error"]
 
 [dependencies]
+# `data_plane`: the query routes' OpenAPI operations and request/response schemas.
+utoipa = { workspace = true, features = ["uuid", "chrono", "axum_extras"] }
+utoipa-axum = { workspace = true }
+indexmap = { workspace = true }  # `data_plane::query`: column order in a result row
 # What this surface reaches into oxy-app for: the platform prelude
 # (`oxy_app::surface`), and nothing else (rule S4,
 # `tests/routing/surface_contract.rs`). oxy-app never depends back on this crate,

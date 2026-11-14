@@ -203,7 +203,7 @@ async fn tap(user: &AuthenticatedUser, id: Uuid, credential: &str) -> (StatusCod
         // same data-plane executor production uses.
         Some(axum::Extension(std::sync::Arc::new(
             oxy_api_custom_apps::function_runtime::Runtime::new(std::sync::Arc::new(
-                oxy_app::surface::testing::projects::query::DataPlaneQueryExecutor,
+                oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor,
             )),
         )
             as std::sync::Arc<

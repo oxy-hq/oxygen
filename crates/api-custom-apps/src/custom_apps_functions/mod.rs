@@ -2094,7 +2094,7 @@ mod role_resolution_tests {
 struct RunArgs<'a> {
     db: &'a sea_orm::DatabaseConnection,
     /// Runs `ctx.query`/`ctx.queryStream`; injected at the composition root so
-    /// the runtime depends on the trait, not on `projects::query`.
+    /// the runtime depends on the trait, not on `data_plane::query`.
     query_exec: std::sync::Arc<dyn seam::FunctionQueryExecutor>,
     app: &'a entity::apps::Model,
     artifact_js: String,

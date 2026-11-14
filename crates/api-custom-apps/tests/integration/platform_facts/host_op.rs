@@ -18,7 +18,7 @@ use oxy_api_custom_apps::custom_apps_functions::runtime::FunctionHost;
 use oxy_api_custom_apps::custom_apps_functions::seam::{
     FunctionProjectContext, FunctionQueryExecutor,
 };
-use oxy_app::surface::testing::projects::query::DataPlaneQueryExecutor;
+use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
 use oxy_app_core::internal_orgs::INTERNAL_ORGS_ENV;
 use oxy_app_core::operating_graph::reach::Reach;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection};

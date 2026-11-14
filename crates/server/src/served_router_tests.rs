@@ -541,6 +541,37 @@ async fn both_modes_mount_the_identity_handshakes() {
     }
 }
 
+/// The data plane's `/query` (`oxy-api-custom-apps`' `data_plane`, on the
+/// public seam) refuses an anonymous caller with 401 before it reads the body,
+/// with a well-formed body or a malformed one: the handler takes raw bytes so
+/// the gate runs first, and no extractor error leaks the route's body shape to
+/// a caller who is not signed in. Auth is forced on, so a missing cookie cannot
+/// fall through to local mode's guest user. Was `oxy-app`'s
+/// `platform::projects_query`, which could not see the route once it left.
+#[tokio::test]
+async fn the_data_plane_query_refuses_an_anonymous_caller_before_its_body() {
+    if db_unavailable() {
+        return;
+    }
+    oxy_auth::built_in::set_auth_configured(true);
+    let router = served(ServeMode::Local).await;
+    for body in [r#"{"sql":"SELECT 1"}"#, "{}"] {
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/projects/00000000-0000-0000-0000-000000000000/query")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        let got = router
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("oneshot")
+            .status();
+        assert_eq!(got, StatusCode::UNAUTHORIZED, "body {body}");
+    }
+}
+
 /// The public seam carries the world model's customer-app twins beside the
 /// public tree, in both modes, outside the auth stack (a bundle passes the
 /// customer-app gate inline). PUT, which none of them takes, answers 405 from a

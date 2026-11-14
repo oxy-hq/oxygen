@@ -273,7 +273,7 @@ pub(crate) async fn build_project_context_with_role(
 /// A row remembered from an earlier request must not come through here, because
 /// it would pin that request's revision. The function runner reads the row fresh
 /// just before the call, which is why it can.
-pub(crate) async fn build_project_context_with_fresh_workspace(
+pub async fn build_project_context_with_fresh_workspace(
     workspace: &entity::workspaces::Model,
     user_id: Uuid,
     project_id: Uuid,

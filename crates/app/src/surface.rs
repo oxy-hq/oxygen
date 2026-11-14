@@ -113,10 +113,12 @@ pub mod fleet {
 /// routes answer a refusal with.
 pub mod workspace_runtime {
     pub use crate::agentic_wiring::OxyProjectContext;
+    pub use crate::agentic_wiring::string_literal::string_literal_of;
     pub use crate::server::api::semantic::{
         ErrorResponse, QueryScanSource, resolve_compiled_scan_source, resolve_query_scan_source,
         semantic_err,
     };
+    pub use crate::server::api::typed_stream::typed_stream_to_json_objects;
     pub use crate::server::preagg_workspace::build_workspace_manager;
     pub use crate::server::router::recovery::{
         DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS, build_workspace_ctx,
@@ -163,7 +165,9 @@ pub mod world_model_exec {
 /// world-model and cohort twins use it, and so do the metric-tree twins still
 /// in `oxy-app`.
 pub mod custom_app_semantic {
-    pub use crate::server::api::custom_apps_gates::parse_versioned_body;
+    pub use crate::server::api::custom_apps_gates::{
+        CustomAppContextExt, build_project_context_with_fresh_workspace, parse_versioned_body,
+    };
     pub use crate::server::api::projects::semantic_boundary::{
         SemanticBoundary, cache_lookup, cache_store, enter_semantic_boundary, err, err_with_code,
         load_layer, wants_refresh,

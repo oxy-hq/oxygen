@@ -284,7 +284,11 @@ fn surface_seams() -> SurfaceSeams {
             .collect(),
         // Operations the surfaces document, merged into the served OpenAPI
         // document (`oxyc schema` reads it).
-        openapi: vec![oxy_api_tenancy::openapi(), oxy_api_identity::openapi()],
+        openapi: vec![
+            oxy_api_tenancy::openapi(),
+            oxy_api_identity::openapi(),
+            oxy_api_custom_apps::openapi(),
+        ],
         // The custom-app task kinds a worker runs, the background jobs a serve
         // process starts, and the outer `/customer-apps/{*path}` mount. The task
         // executors and the sandbox maintenance job are still in `oxy-app` (the
@@ -560,13 +564,78 @@ mod tests {
     /// can show it — a dropped `openapi:` entry would lose it silently.
     #[tokio::test]
     async fn the_served_openapi_document_includes_the_surfaces() {
-        let doc =
-            oxy_app::server::router::build_openapi_doc(vec![oxy_api_tenancy::openapi()]).await;
+        let doc = oxy_app::server::router::build_openapi_doc(vec![
+            oxy_api_tenancy::openapi(),
+            oxy_api_custom_apps::openapi(),
+        ])
+        .await;
         let orgs = doc
             .paths
             .paths
             .get("/orgs")
             .expect("GET /orgs is missing from the OpenAPI document");
         assert!(orgs.get.is_some(), "/orgs is documented but carries no get");
+        // The custom-app data plane, which `oxyc schema` answers from: its
+        // handlers moved to `oxy-api-custom-apps` (`data_plane`).
+        for path in [
+            "/projects/{project_id}/query",
+            "/projects/{project_id}/semantic-query",
+        ] {
+            let item = doc
+                .paths
+                .paths
+                .get(path)
+                .unwrap_or_else(|| panic!("{path} is missing from the OpenAPI document"));
+            assert!(
+                item.post.is_some(),
+                "{path} is documented but carries no post"
+            );
+        }
+    }
+
+    /// Two Rust types are both called `SemanticQueryResponse` — the custom-app
+    /// data plane's (`oxy-api-custom-apps`) and the semantic explorer's
+    /// (`oxy-app`) — and utoipa names a component after the ident alone — so without an
+    /// explicit `#[schema(as = ...)]` on each they collapse into one schema and
+    /// whichever registers last wins, handing `oxyc schema` the wrong body
+    /// shape for the other endpoint.
+    ///
+    /// Checked by SHAPE rather than by name, so renaming either component
+    /// keeps the test meaningful: the SQL response is an untagged enum (no
+    /// `properties`), the semantic one is an object with `columns` and `rows`.
+    #[tokio::test]
+    async fn the_two_query_response_schemas_stayed_distinct() {
+        use utoipa::openapi::{RefOr, Schema};
+
+        // Only the served document holds both, so only it can show a collision.
+        let doc = oxy_app::server::router::build_openapi_doc(vec![
+            oxy_api_tenancy::openapi(),
+            oxy_api_identity::openapi(),
+            oxy_api_custom_apps::openapi(),
+        ])
+        .await;
+        let components = doc.components.as_ref().expect("components");
+
+        let object_with = |name: &str| -> bool {
+            matches!(
+                components.schemas.get(name),
+                Some(RefOr::T(Schema::Object(o))) if o.properties.contains_key("columns")
+            )
+        };
+
+        assert!(
+            object_with("SemanticQueryResult"),
+            "SemanticQueryResult is missing or is not the {{columns, rows}} object — the two \
+             SemanticQueryResponse types have probably collided again"
+        );
+        assert!(
+            components.schemas.contains_key("SqlQueryResponse"),
+            "SqlQueryResponse is missing — the SQL endpoint's response schema was lost"
+        );
+        assert!(
+            !object_with("SqlQueryResponse"),
+            "SqlQueryResponse now looks like the semantic {{columns, rows}} object, so the two \
+             collided"
+        );
     }
 }

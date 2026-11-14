@@ -78,7 +78,7 @@ pub struct ProjectFunctionHost {
     /// `agentic_wiring`. Injected at construction.
     proj_ctx: Arc<dyn FunctionProjectContext>,
     /// Runs `ctx.query` / `ctx.queryStream` SQL. Injected at the composition
-    /// root so the runtime depends on the trait, not on `projects::query`.
+    /// root so the runtime depends on the trait, not on `data_plane::query`.
     query_exec: Arc<dyn FunctionQueryExecutor>,
     db: DatabaseConnection,
     http: reqwest::Client,
@@ -493,7 +493,7 @@ impl ProjectFunctionHost {
 
     /// Resolve the database `ctx.query` runs against: the project's
     /// configured default, else the first listed database. Mirrors the
-    /// fallback in `projects::query::run_query`.
+    /// fallback in `data_plane::query::run_query`.
     fn default_database(&self) -> Result<String, String> {
         let cm = &self.proj_ctx.workspace_manager().config_manager;
         if let Some(default) = cm.default_database_ref() {

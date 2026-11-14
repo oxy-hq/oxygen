@@ -114,6 +114,9 @@ futures = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
 oxy-server-authz = { workspace = true }
+# `the_two_query_response_schemas_stayed_distinct` reads the served document's
+# components, which only the composition root assembles.
+utoipa = { workspace = true }
 
 [lints]
 workspace = true

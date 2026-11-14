@@ -24,7 +24,7 @@ use oxy_api_custom_apps::custom_apps_functions::seam::FunctionQueryExecutor;
 use oxy_api_custom_apps::custom_apps_publish::{
     PublishError, PublishTarget, publish, publish_handler, publish_to,
 };
-use oxy_app::surface::testing::projects::query::DataPlaneQueryExecutor;
+use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
 use oxy_auth::middleware::{AuthState, auth_middleware};
 use oxy_auth::token::SandboxAgent;
 use serde_json::Value;

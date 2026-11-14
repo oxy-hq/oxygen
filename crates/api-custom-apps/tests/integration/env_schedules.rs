@@ -160,7 +160,7 @@ pub(crate) async fn run_spec(db: &DatabaseConnection, spec: TaskSpec) -> TaskOut
         db: db.clone(),
         preagg: Default::default(),
         executor: std::sync::Arc::new(
-            oxy_app::surface::testing::projects::query::DataPlaneQueryExecutor,
+            oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor,
         ),
     };
     let id = Uuid::new_v4().to_string();

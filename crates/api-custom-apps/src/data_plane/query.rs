@@ -6,7 +6,7 @@
 //!
 //! `params` fill the `{{ params.X | sqlquote }}` / `{{ params.X }}`
 //! placeholders in `sql`, quoted by the rule of `database`'s engine — see
-//! [`super::query_params`]. Everything below applies to the SQL that results.
+//! `super::query_params`. Everything below applies to the SQL that results.
 //!
 //! Security gates applied before execution:
 //!   1. Origin check — `Origin` / `Referer` must match the request's own host
@@ -36,11 +36,10 @@ use serde_json::Value as JsonValue;
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
-use crate::agentic_wiring::string_literal::string_literal_of;
-use crate::server::api::custom_apps_gates::{
-    CustomAppContextExt, check_custom_app_gates, parse_versioned_body,
-};
-use crate::server::api::typed_stream::typed_stream_to_json_objects;
+use crate::custom_apps_gates::check_custom_app_gates;
+use oxy_app::surface::custom_app_semantic::{CustomAppContextExt, parse_versioned_body};
+use oxy_app::surface::workspace_runtime::string_literal_of;
+use oxy_app::surface::workspace_runtime::typed_stream_to_json_objects;
 use utoipa::ToSchema;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -242,7 +241,9 @@ pub async fn run_query(
     // A pinned staging request may resolve a different `config.yml` (its
     // branch's databases), so it gets its own partition.
     let cache_db = format!("{db_name}{}", ctx.cache_scope());
-    if !refresh && let Some(body) = super::result_cache::get(project_id, cache_ns, &cache_db, &sql)
+    if !refresh
+        && let Some(body) =
+            oxy_custom_apps::result_cache::get(project_id, cache_ns, &cache_db, &sql)
     {
         return (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
@@ -283,7 +284,7 @@ pub async fn run_query(
                 }
             };
             let arc = std::sync::Arc::new(bytes);
-            super::result_cache::put(project_id, cache_ns, &cache_db, &sql, arc.clone());
+            oxy_custom_apps::result_cache::put(project_id, cache_ns, &cache_db, &sql, arc.clone());
             (
                 [(axum::http::header::CONTENT_TYPE, "application/json")],
                 (*arc).clone(),
@@ -414,7 +415,7 @@ pub(crate) async fn execute_function_query(
 
 /// Production
 /// [`FunctionQueryExecutor`]
-/// — delegates to [`execute_function_query`] so the read-only gate and
+/// — delegates to `execute_function_query` so the read-only gate and
 /// outer-LIMIT wrap stay shared with the custom-app `/query` endpoint.
 ///
 /// Stateless: constructed at the composition root (the serve router / the
@@ -442,7 +443,7 @@ impl FunctionQueryExecutor for DataPlaneQueryExecutor {
         role: Option<entity::workspace_members::WorkspaceRole>,
     ) -> Result<Arc<dyn FunctionProjectContext>, ()> {
         // The row the caller already read stands in for the revision lookup.
-        crate::server::api::custom_apps_gates::build_project_context_with_fresh_workspace(
+        oxy_app::surface::custom_app_semantic::build_project_context_with_fresh_workspace(
             workspace, user_id, project_id, role,
         )
         .await

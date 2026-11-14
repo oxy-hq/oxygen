@@ -239,8 +239,10 @@ pub async fn check_custom_app_gates(
     //
     // FIRST, before authentication, so the tag covers everything captured
     // for the rest of this request: the handler's own `error!` on a
-    // warehouse failure (whose target is `…::projects::query`, which
-    // barrier 1 does not drop), `OxyError::capture_to_sentry`, and a panic.
+    // warehouse failure (`/query`'s is dropped at barrier 1 by its
+    // `custom_apps` module path, but the metric-tree, ask and automation
+    // handlers still in `oxy-app`'s `projects` are not),
+    // `OxyError::capture_to_sentry`, and a panic.
     oxy_telemetry::sentry_filter::mark_custom_app_surface();
 
     // ── 1. Authenticate ───────────────────────────────────────────────

@@ -20,7 +20,7 @@ use oxy_api_custom_apps::custom_apps_functions::host::{
 use oxy_api_custom_apps::custom_apps_functions::runtime::FunctionHost;
 use oxy_api_custom_apps::custom_apps_functions::seam::FunctionQueryExecutor;
 use oxy_api_custom_apps::custom_apps_storage::{RetentionPolicy, Silo, get_upload_url};
-use oxy_app::surface::testing::projects::query::DataPlaneQueryExecutor;
+use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};

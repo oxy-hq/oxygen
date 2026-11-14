@@ -150,7 +150,7 @@ mod tests {
 
         // The typed vs `untyped` split relies on this too: `/query` writes under
         // "query", `?untyped` under "query-untyped", so the same SQL on the same
-        // project can't cross-read the other's cell types (see projects/query.rs).
+        // project can't cross-read the other's cell types (see `oxy-api-custom-apps`' `data_plane/query.rs`).
         put(
             p,
             "query-untyped",

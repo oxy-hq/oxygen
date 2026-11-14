@@ -92,6 +92,7 @@ pub mod custom_apps_threads;
 pub mod custom_apps_usage_backfill;
 pub mod custom_apps_validate;
 pub mod custom_domains;
+pub mod data_plane;
 pub mod function_runtime;
 pub mod health;
 pub mod home_widgets;
@@ -594,6 +595,18 @@ pub fn public_routes() -> Router<AppState> {
             "/customer-apps/{org_slug}/{app_slug}/availability",
             get(custom_apps_availability::get_availability),
         )
+        // The data plane's query routes (`data_plane`): SQL and semantic
+        // queries against the project's databases. Auth is inline (session
+        // cookie or API key) at the customer-app gate, so they sit beside the
+        // public tree rather than under the workspace middleware.
+        .route(
+            "/projects/{project_id}/query",
+            post(data_plane::query::run_query),
+        )
+        .route(
+            "/projects/{project_id}/semantic-query",
+            post(data_plane::semantic_query::run_semantic_query),
+        )
         // Shell bootstrap for `@oxy-hq/sdk/shell` chrome inside bundles:
         // workspace/org identity + published-apps list + host-aware product links.
         // Pure Postgres reads behind the data-plane gate chain.
@@ -619,6 +632,18 @@ pub fn public_routes() -> Router<AppState> {
         )
 }
 
+/// The data plane's two documented operations, merged into the served OpenAPI
+/// document by `build_openapi_doc` through `SurfaceSeams::openapi`. They are
+/// what an agent builds a request for (`oxyc schema /projects/{id}/query`).
+pub fn openapi() -> utoipa::openapi::OpenApi {
+    utoipa_axum::router::OpenApiRouter::<AppState>::new()
+        .routes(utoipa_axum::routes!(data_plane::query::run_query))
+        .routes(utoipa_axum::routes!(
+            data_plane::semantic_query::run_semantic_query
+        ))
+        .into_openapi()
+}
+
 /// Every route [`public_routes`] mounts, and which pod may serve it. All FleetOk:
 /// health reads the build store and Postgres, logs are ClickHouse reads plus
 /// build-store maps, and the rest are Postgres and the secret store, which every
@@ -642,6 +667,8 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
         fleet("/org-for-project/{project_id}"),
         fleet("/customer-apps/{org_slug}/{app_slug}/debug"),
         fleet("/customer-apps/{org_slug}/{app_slug}/availability"),
+        fleet("/projects/{project_id}/query"),
+        fleet("/projects/{project_id}/semantic-query"),
         fleet("/projects/{project_id}/shell-context"),
         fleet("/projects/{project_id}/threads"),
         fleet("/projects/{project_id}/threads/{thread_id}"),

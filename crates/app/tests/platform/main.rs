@@ -27,9 +27,9 @@
 //!   `workspace_previews_*` modules, `preview_routes`, `preview_ttl`, `encryption_key_check` and `master_key_kms` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
-//! * `projects_query` and `local_mode_router` call `api_router(..)`, which
+//! * `local_mode_router` calls `api_router(..)`, which
 //!   reaches the *shared* `OXY_DATABASE_URL` and runs `cleanup_stale_runs` — an
-//!   unscoped UPDATE over `agentic_runs`. They are excluded from `db-per-test`
+//!   unscoped UPDATE over `agentic_runs`. It is excluded from `db-per-test`
 //!   and pinned into `serial-db` with the other shared-schema tests.
 //! * everything else is in-process, but NOT ungrouped: that override matches
 //!   `binary(=platform)`, so every module here except those exclusions runs
@@ -116,7 +116,6 @@ mod preview_sources;
 mod preview_ttl;
 mod previews_e2e;
 mod previews_from_git;
-mod projects_query;
 mod queued_chat_run;
 mod revision_miss_not_from_disk;
 mod rollout_gates;

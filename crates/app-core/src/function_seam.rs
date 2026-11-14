@@ -50,11 +50,11 @@ pub type FunctionResponse<'a> = Pin<Box<dyn Future<Output = Response> + Send + '
 /// `max_rows` rows, returning the rows as JSON objects.
 ///
 /// This seam owns the contract (the runtime consumes it); the production
-/// implementation (`projects::query::DataPlaneQueryExecutor`) lives in the shared
+/// implementation (`oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor`) lives in the shared
 /// data plane so the read-only gate and outer-LIMIT wrap stay shared with the
 /// `/query` endpoint, and is injected at the composition root (the serve router
 /// and the scheduled-function worker). Depending on this trait rather than
-/// importing `projects::query` is what lets the custom-apps boundary test
+/// importing `data_plane::query` is what lets the custom-apps boundary test
 /// (`tests/custom_apps/custom_apps_boundary.rs`) drop that seam — and lets a test drive the
 /// runtime with a fake executor.
 #[async_trait::async_trait]
@@ -69,7 +69,7 @@ pub trait FunctionQueryExecutor: Send + Sync {
     /// The project context a function invocation runs against, built from its
     /// workspace row: warehouse connectors, workspace config and the Airway
     /// seed ([`FunctionProjectContext`]). The production executor
-    /// (`projects::query::DataPlaneQueryExecutor`) builds it from the data
+    /// (`oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor`) builds it from the data
     /// plane's own composition root (`custom_apps_gates`), so the runtime
     /// depends on this trait and not on `agentic_wiring`. The default refuses:
     /// an executor with no data plane behind it (a test fake) cannot build one.

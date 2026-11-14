@@ -480,7 +480,7 @@ impl ScanUnavailable {
 /// `Topic 'x' not found. Available: []`, i.e. a modelling mistake for what is
 /// really a missing directory. Both routes are (correctly) classified `FleetOk`
 /// in `role_manifest`, so they must serve from Postgres like their siblings:
-/// `projects::semantic_query` (custom-app data plane) and
+/// `oxy-api-custom-apps`' `data_plane::semantic_query` (custom-app data plane) and
 /// `resolve_semantic_source` (single-file IDE reads) already do exactly this.
 ///
 /// The workspace-surface metric-tree handlers (`api::metric_tree`) are the
@@ -508,7 +508,7 @@ pub async fn resolve_query_scan_source<S: oxy::config::DiskSlot>(
         ),
     }
 
-    // Stateless-fleet guard, mirroring `projects::semantic_query`: refuse the FS
+    // Stateless-fleet guard, mirroring `data_plane::semantic_query`: refuse the FS
     // fallback on a node that has no working copy and enqueue a deduped compile
     // so the next request succeeds without operator action. Note
     // `materialise_semantic_scan` downgrades real DB errors to `None`, so this

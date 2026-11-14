@@ -1,6 +1,6 @@
 ---
 name: oxy-customer-apps-perf
-description: Use when adding or modifying a custom-app serving route (crates/app/src/server/api/custom_apps_serve/ — mod.rs, sources.rs, headers.rs — and the /customer-apps/{*path} mount, built in crates/server/src/custom_apps_seams.rs) or a custom-app data endpoint (projects/query.rs, projects/semantic_query.rs). Encodes the serve-plane + data-plane performance guardrails so every custom app stays fast. Triggers on "custom-app cache", "Cache-Control", "ETag", "compression on customer-apps", "result cache", "project-scoped cache", or a new per-request read on the custom-app hot path.
+description: Use when adding or modifying a custom-app serving route (crates/app/src/server/api/custom_apps_serve/ — mod.rs, sources.rs, headers.rs — and the /customer-apps/{*path} mount, built in crates/server/src/custom_apps_seams.rs) or a custom-app data endpoint (api-custom-apps/src/data_plane/query.rs, data_plane/semantic_query.rs). Encodes the serve-plane + data-plane performance guardrails so every custom app stays fast. Triggers on "custom-app cache", "Cache-Control", "ETag", "compression on customer-apps", "result cache", "project-scoped cache", or a new per-request read on the custom-app hot path.
 ---
 
 # Customer-apps performance (serve + data plane)
@@ -46,7 +46,7 @@ expensive to retrofit under load.
   `try_send` onto the bounded queue in `custom_apps_usage_queue`; a full queue drops and
   counts, never blocks. Do not add a `tokio::spawn` or a DB read to the page-load tail.
 
-## Data plane — `projects/query.rs`, `projects/semantic_query.rs`, `projects/result_cache.rs`
+## Data plane — `api-custom-apps/src/data_plane/{query,semantic_query}.rs`, `custom-apps/src/result_cache.rs`
 
 - **Short-TTL result cache, keyed by `project_id` FIRST.** The cache key is
   `(project_id, namespace, database, sql)`. `project_id` is the multi-tenant
