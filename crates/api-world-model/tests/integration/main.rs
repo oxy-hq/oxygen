@@ -18,3 +18,7 @@ mod diskless_fixture;
 mod world_model_cross_pod;
 // Moved from `oxy-api-custom-apps`' group with the graph handlers it drives.
 mod world_model_diskless;
+// Moved from `oxy-app`'s `platform` group with the Toast webhook (2026-11-15):
+// it drives `toast_webhook::load_toast_config`, which `oxy-app` can no longer
+// name. A top-level file, so `oxy-app`'s `shared_db_registry` scan sees it.
+mod toast_webhook_compile_boundary;

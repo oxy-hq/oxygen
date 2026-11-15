@@ -85,7 +85,6 @@ pub mod typed_stream;
 // `video` (the UniFi camera list and the weather tiles and readings) moved to
 // the `oxy-api-world-model` sibling crate, mounted by `oxy-server` on the
 // workspace and external seams. oxy-app no longer depends on it.
-pub mod webhooks;
 pub mod workspace_logo;
 pub mod workspace_members;
 pub mod workspace_org;

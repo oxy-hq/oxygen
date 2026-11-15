@@ -1315,3 +1315,121 @@ async fn local_mode_drops_the_operating_graph() {
     }
     assert_local_drops(operating_graph_routes()).await;
 }
+
+/// A POST with `body` and `headers`, answered by the composed router: status
+/// and body text.
+async fn post_with(
+    router: &Router,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> (StatusCode, String) {
+    let mut request = Request::builder()
+        .method(Method::POST)
+        .uri(path)
+        .header("content-type", "application/json");
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let response = router
+        .clone()
+        .oneshot(request.body(Body::from(body.to_string())).unwrap())
+        .await
+        .expect("oneshot");
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The GitHub App's webhook receiver, `oxy-api-github`'s since 2026-11-15 (was
+/// `oxy-app`'s `build_public_routes`), rides the public seam in BOTH modes,
+/// outside the auth stack. An unsigned or wrongly signed delivery gets the
+/// handler's own refusal — 401 `invalid signature` — never the router's 404.
+///
+/// The handler answers 404 itself when `GITHUB_WEBHOOK_SECRET` is unset (an
+/// unconfigured deployment has no such route), which would read exactly like
+/// an unmounted path, so the secret is set first.
+#[tokio::test]
+async fn both_modes_mount_the_github_webhook() {
+    if db_unavailable() {
+        return;
+    }
+    // SAFETY: nextest runs each test in its own process (this module is in
+    // `serial-db`), and nothing in it has read the variable yet.
+    unsafe { std::env::set_var("GITHUB_WEBHOOK_SECRET", "whsec_served_router_test") };
+    for mode in [ServeMode::Cloud, ServeMode::Local] {
+        let router = served(mode).await;
+        assert_eq!(
+            post_with(&router, "/webhooks/nothing-mounts-this", &[], "{}")
+                .await
+                .0,
+            StatusCode::NOT_FOUND,
+            "control ({mode:?}): an unmounted path must be 404"
+        );
+        for signature in [None, Some("sha256=00"), Some("not-a-signature")] {
+            let mut headers = vec![("x-github-event", "push")];
+            if let Some(signature) = signature {
+                headers.push(("x-hub-signature-256", signature));
+            }
+            let (status, body) = post_with(&router, "/webhooks/github", &headers, "{}").await;
+            assert_eq!(
+                (status, body.as_str()),
+                (StatusCode::UNAUTHORIZED, "invalid signature"),
+                "{mode:?}: POST /webhooks/github signed {signature:?} must reach the handler"
+            );
+        }
+    }
+}
+
+/// Toast's order webhook, `oxy-api-world-model`'s since 2026-11-15 (was
+/// `oxy-app`'s `build_public_routes`), rides the public seam in BOTH modes,
+/// outside the auth stack, and answers from its own handler.
+///
+/// The handler's own "no such workspace" is a 404 too, so a bare status would
+/// prove nothing. A `project_id` that is not a UUID is refused by the handler's
+/// `Query` extractor (400, naming the field) before anything is read, and an
+/// unknown workspace gets the handler's 404 WITH its body, where the router's
+/// 404 has none.
+#[tokio::test]
+async fn both_modes_mount_the_toast_webhook() {
+    if db_unavailable() {
+        return;
+    }
+    for mode in [ServeMode::Cloud, ServeMode::Local] {
+        let router = served(mode).await;
+        assert_eq!(
+            post_with(&router, "/webhooks/toast/nothing-mounts-this", &[], "{}").await,
+            (StatusCode::NOT_FOUND, String::new()),
+            "control ({mode:?}): an unmounted path must be the router's bodiless 404"
+        );
+        for query in ["", "?project_id=not-a-uuid"] {
+            let (status, body) = post_with(
+                &router,
+                &format!("/webhooks/toast/orders{query}"),
+                &[],
+                "{}",
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::BAD_REQUEST,
+                "{mode:?} {query:?}: {body}"
+            );
+            assert!(body.contains("project_id"), "{mode:?} {query:?}: {body}");
+        }
+        let (status, body) = post_with(
+            &router,
+            "/webhooks/toast/orders?project_id=00000000-0000-0000-0000-00000000f00d",
+            &[("Toast-Webhook-Signature", "bm90LWEtc2lnbmF0dXJl")],
+            "{}",
+        )
+        .await;
+        assert_eq!(
+            (status, body.as_str()),
+            (StatusCode::NOT_FOUND, "workspace not found"),
+            "{mode:?}: an unknown workspace must get the handler's own answer"
+        );
+    }
+}

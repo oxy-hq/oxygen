@@ -65,7 +65,10 @@ fn the_real_router_has_no_colliding_mounts() {
     // the workspace's databases and secrets left for
     // `oxy-api-workspace-config`, the automation listing and the schedules for
     // `oxy-api-automations` and the camera list and the weather for
-    // `oxy-api-world-model`. Surfaces declare their own routes, so this drops
+    // `oxy-api-world-model`; 185 the same day (read off it again; 186 between
+    // the two) after the GitHub and Toast webhook receivers left the public
+    // tree for `oxy-api-github` and `oxy-api-world-model`, one declaration
+    // each. Surfaces declare their own routes, so this drops
     // with each one that leaves; the floor guards against a tree that stopped
     // building, not a count.
     assert!(

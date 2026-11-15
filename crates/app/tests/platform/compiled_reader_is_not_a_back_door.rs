@@ -64,8 +64,9 @@ const ALLOWED: &[(&str, &str)] = &[
          read. It reads no artifact.",
     ),
     (
-        "src/server/api/webhooks/toast.rs",
-        "Same, on the public webhook router.",
+        "../api-world-model/src/toast_webhook.rs",
+        "Same, on the public webhook router (`oxy-api-world-model`'s since \
+         2026-11-15, was `src/server/api/webhooks/toast.rs`).",
     ),
     (
         "../api-slack/src/workspace.rs",

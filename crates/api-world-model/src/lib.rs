@@ -27,10 +27,16 @@
 //! workspace's warehouses.
 //!
 //! The live feed's write half is `oxy_world_model::live_feed`, below `oxy-app`,
-//! because the Toast webhook and the UniFi watcher still publish from there. The
-//! read half is here: the per-pod buses, the tailer that fills them from
+//! because the camera-domain bridge publishes from `oxy-cameras`' sink. The read
+//! half is here: the per-pod buses, the tailer that fills them from
 //! `world_model_events`, the reaper, and the SSE route. [`background`] starts the
 //! tailer and the reaper, and registers the camera-domain bridge.
+//!
+//! The Toast POS webhook ([`toast_webhook`], `POST /webhooks/toast/orders`), the
+//! feed's order publisher, is here too since 2026-11-15 (out of `oxy-app`'s
+//! `server/api/webhooks/toast.rs`). It rides the public seam beside the
+//! customer-app twins: Toast carries no user credential, so the handler
+//! verifies the delivery's HMAC against the workspace's configured secret.
 //!
 //! The World Model *Graph* (`/semantic/world-model*`, [`graph`]) and peer
 //! cohorts (`/semantic/cohort`, [`cohort`]) ride the workspace tree only. Their
@@ -52,6 +58,9 @@ mod foot_traffic;
 mod foot_traffic_seed;
 pub mod graph;
 mod llm_proxy;
+// `pub` for its compile-boundary integration test, which drives
+// `load_toast_config` directly.
+pub mod toast_webhook;
 // `pub` as it was in `oxy-app`: `spawn_camera_watcher` has no caller today, and
 // a private module would turn the move into a dead-code warning.
 pub mod video;
@@ -148,11 +157,18 @@ pub fn external_routes() -> Router<AppState> {
         )
 }
 
-/// The public seam's share: the customer-app twins, merged beside `oxy-app`'s
-/// public tree under `/api`, outside the auth stack. A bundle authenticates
-/// inline at the customer-app gate (`crate::customer_app`).
+/// The public seam's share, merged beside `oxy-app`'s public tree under `/api`,
+/// outside the auth stack: the customer-app twins, where a bundle authenticates
+/// inline at the customer-app gate (`crate::customer_app`), and the Toast
+/// webhook, which authenticates the sender by HMAC (`crate::toast_webhook`).
 pub fn public_routes() -> Router<AppState> {
     Router::new()
+        // Toast's `order_updated` deliveries, published onto the live feed. Out
+        // of `oxy-app`'s `build_public_routes` on 2026-11-15.
+        .route(
+            "/webhooks/toast/orders",
+            post(toast_webhook::toast_order_webhook),
+        )
         .route(
             "/projects/{project_id}/semantic/world-model",
             get(customer_app::world_model::get_world_model),
@@ -174,11 +190,18 @@ pub fn public_routes() -> Router<AppState> {
         )
 }
 
-/// Pod placement for [`public_routes`], relative to `/api`. All four read the
-/// compile boundary and Postgres only: a custom app must not go down with the
-/// Factory.
+/// Pod placement for [`public_routes`], relative to `/api`. The four twins
+/// read the compile boundary and Postgres only: a custom app must not go down
+/// with the Factory. The Toast webhook resolves the workspace's config through
+/// the compile boundary first (#2816) and appends to `world_model_events`.
 pub fn public_route_roles() -> &'static [RouteRoleDecl] {
     &[
+        // As `oxy-app`'s `route_fleet` declared it: method `*`, FleetOk.
+        RouteRoleDecl {
+            method: "*",
+            path: "/webhooks/toast/orders",
+            role: RouteRole::FleetOk,
+        },
         RouteRoleDecl {
             method: "GET",
             path: "/projects/{project_id}/semantic/world-model",
@@ -364,6 +387,30 @@ mod tests {
         }
     }
 
+    /// The Toast webhook came from `oxy-app`'s public tree, where `route_fleet`
+    /// declared it `*` FleetOk. Hold the method as well as the role, and that
+    /// the classifier matches the live URI against it rather than the default.
+    #[test]
+    fn the_toast_webhook_is_declared_fleet_ok() {
+        use oxy_app::surface::roles::declared_role_in;
+        let declared = public_route_roles();
+        let found: Vec<_> = declared
+            .iter()
+            .filter(|d| d.path == "/webhooks/toast/orders")
+            .collect();
+        assert_eq!(found.len(), 1, "declared {} times", found.len());
+        assert_eq!(found[0].method, "*");
+        assert_eq!(found[0].role, RouteRole::FleetOk);
+        let decls: Vec<_> = declared
+            .iter()
+            .map(|d| (d.method, format!("/api{}", d.path), d.role))
+            .collect();
+        assert_eq!(
+            declared_role_in(&decls, "POST", "/api/webhooks/toast/orders"),
+            Some(RouteRole::FleetOk)
+        );
+    }
+
     /// Both trees mount the camera list and the weather. TRACE, which none of
     /// them takes, answers 405 from a mounted path and 404 from an unmounted
     /// one, without calling a vendor.
@@ -406,14 +453,15 @@ mod tests {
         }
     }
 
-    /// The customer-app twins came from `oxy-app`'s public tree, where
-    /// `route_fleet` declared them; here the declaration is a list, so hold it.
-    /// Each is declared FleetOk exactly once — not merely unclassified, which
-    /// also reads FleetOk and is what a dropped row would look like.
+    /// The customer-app twins and the Toast webhook came from `oxy-app`'s
+    /// public tree, where `route_fleet` declared them; here the declaration is
+    /// a list, so hold it. Each is declared FleetOk exactly once — not merely
+    /// unclassified, which also reads FleetOk and is what a dropped row would
+    /// look like.
     #[test]
-    fn the_customer_app_twins_are_declared_fleet_ok_exactly_once() {
+    fn the_public_routes_are_declared_fleet_ok_exactly_once() {
         let declared = public_route_roles();
-        assert_eq!(declared.len(), 4);
+        assert_eq!(declared.len(), 5);
         for decl in declared {
             let same = declared
                 .iter()

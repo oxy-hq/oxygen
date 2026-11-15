@@ -145,6 +145,7 @@ fn public_seam_routes() -> SeamRouter {
         .merge(oxy_api_custom_apps::public_routes())
         .merge(oxy_api_slack::public_routes())
         .merge(oxy_api_world_model::public_routes())
+        .merge(oxy_api_github::public_routes())
 }
 
 /// The sibling crates merged inside the `/{workspace_id}` nest.
@@ -174,7 +175,11 @@ fn external_seam_routes() -> SeamRouter {
 /// against the real composition and not a copy of it.
 ///
 /// Roles travel WITH the routes. `oxy-api-github` mounts a Postgres-only
-/// surface, so the FleetOk default is the truth and it declares nothing.
+/// surface on the api seam, so the FleetOk default is the truth and it declares
+/// nothing there. Its GitHub App webhook (`POST /webhooks/github`, out of
+/// `oxy-app`'s public tree on 2026-11-15) rides `public` — GitHub carries no
+/// user credential, so the handler verifies its HMAC instead — and is declared
+/// `*` FleetOk, as `route_fleet` declared it (Postgres and the compile queue).
 /// Tenancy's onboarding clones a repository and scaffolds `config.yml` onto
 /// node-local disk, and its partner console's create-org scaffolds the new
 /// org's Default workspace — neither can take that default, and no type gate
@@ -221,6 +226,9 @@ fn external_seam_routes() -> SeamRouter {
 /// FleetOk: Postgres and the vendors' APIs), and the same seven plus the LLM
 /// proxy ride `external`, the curated `/external/api` tree standalone apps call
 /// with an API key. Its tailer, reaper and camera bridge join `background`.
+/// Its customer-app twins and (since 2026-11-15, out of `oxy-app`'s public
+/// tree) the Toast order webhook ride `public`, the webhook declared `*`
+/// FleetOk as `route_fleet` declared it (the compile boundary and Postgres).
 ///
 /// `oxy-api-metric-monitoring` (2026-11-15) fills two seams too: the metric
 /// tree, `/semantic/monitors` and the anomaly inbox ride `workspace` (all
@@ -321,6 +329,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_custom_apps::public_route_roles())
                 .chain(oxy_api_slack::public_route_roles())
                 .chain(oxy_api_world_model::public_route_roles())
+                .chain(oxy_api_github::public_route_roles())
                 .copied()
                 .collect(),
         },
@@ -566,6 +575,7 @@ mod tests {
     fn the_seams_compose_without_conflict() {
         let _ = api_seam_routes();
         let _ = workspace_seam_routes();
+        let _ = public_seam_routes();
     }
 
     /// `oxy-app` serves whatever table it is handed and an empty one is valid

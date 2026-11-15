@@ -1,8 +1,9 @@
 //! `POST /api/webhooks/github` — the GitHub App's webhook receiver.
 //!
 //! Today it acts on one event, `push`: a pushed default branch queues a commit
-//! compile for every workspace on that repository
-//! ([`crate::server::compile_reconcile::push`]), so a merged pull request
+//! compile for every workspace on that repository (`oxy-app`'s
+//! `compile_reconcile::push`, reached through
+//! [`oxy_app::surface::compile_push`]), so a merged pull request
 //! reaches production without anyone clicking Compile. `ping` is answered so
 //! GitHub's "Redeliver"/setup check shows green, and every other event the App
 //! may be subscribed to is acknowledged and ignored.
@@ -14,6 +15,9 @@
 //! wrong signature is `401`, and nothing is read from a body before it passes.
 //!
 //! `FleetOk`: it reads Postgres and queues a task, so any replica serves it.
+//! Mounted on `SurfaceSeams::public` ([`crate::public_routes`]), beside the
+//! public tree outside the auth stack, where `oxy-app`'s `build_public_routes`
+//! mounted it with `route_fleet` until 2026-11-15.
 //! Whether a verified push does anything is decided by the same gate as the
 //! periodic check (the `compile_reconcile` flag); with it off the delivery is
 //! acknowledged `202` and nothing is queued.
@@ -24,7 +28,7 @@ use hmac::{Hmac, KeyInit, Mac};
 use oxy::database::client::establish_connection;
 use sha2::Sha256;
 
-use crate::server::compile_reconcile::push::{self, PushEvent};
+use oxy_app::surface::compile_push::{self as push, PushEvent};
 
 /// The App's webhook secret, as set in the GitHub App's settings.
 const SECRET_ENV: &str = "GITHUB_WEBHOOK_SECRET";
@@ -113,5 +117,5 @@ pub fn signature_is_valid(secret: &[u8], body: &[u8], header: Option<&str>) -> b
 }
 
 #[cfg(test)]
-#[path = "github_tests.rs"]
+#[path = "webhook_tests.rs"]
 mod tests;

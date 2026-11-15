@@ -34,6 +34,10 @@ agentic-llm = { workspace = true }
 agentic-pipeline = { workspace = true }
 async-stream = { workspace = true }
 axum = { workspace = true }
+# The Toast webhook's signature check (`toast_webhook`, out of oxy-app 2026-11-15).
+base64 = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 dashmap = { workspace = true }
 futures = { workspace = true }

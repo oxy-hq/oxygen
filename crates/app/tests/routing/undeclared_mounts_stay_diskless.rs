@@ -35,6 +35,20 @@ const WORKSPACE_FS: &[&str] = &[
 /// FleetOk default never applies to them. `(file suffix, needle)` — per needle,
 /// so the exemption cannot quietly cover a second kind of access in that file.
 const DECLARED_ACCESSES: &[(&str, &str)] = &[
+    // `POST /webhooks/toast/orders` (`oxy_api_world_model::public_route_roles`,
+    // FleetOk) is a public route with no workspace middleware, so it resolves
+    // the workspace's path itself (`effective_workspace_path`, and
+    // `resolve_local_workspace_path` for the nil workspace, which the
+    // `workspace_path` needle matches) — but only as the label and fallback of
+    // a slot-less manager: config comes from the compile boundary first
+    // (#2816), and the FS read is reached only where no revision is promoted.
+    // `workspace_path_backdoor` and `compiled_reader_is_not_a_back_door` list
+    // the same file for the same reason. The other needles still apply to it.
+    ("api-world-model/src/toast_webhook.rs", "workspace_path"),
+    (
+        "api-world-model/src/toast_webhook.rs",
+        "effective_workspace_path",
+    ),
     // `POST /{workspace_id}/source-uploads/reports` reads the pipeline
     // definition through `ConfigManager`, which owns the compiled-vs-disk
     // choice and pins the request's revision; `oxy_api_airway::
@@ -220,6 +234,20 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // `workspace_file_resolver` finds files), the schema and inspection
         // talk to the warehouse, the secrets to Postgres.
         "../api-workspace-config/src",
+        // The GitHub App's webhook receiver (`POST /webhooks/github`), moved
+        // out of `build_public_routes` on 2026-11-15, where it was
+        // `route_fleet` (a `FleetState` handler type refused a working-copy
+        // extractor). Declared FleetOk by hand now in
+        // `oxy_api_github::public_route_roles`; the handler verifies an HMAC,
+        // reads Postgres and queues a compile.
+        "../api-github/src/webhook.rs",
+        // The Toast order webhook (`POST /webhooks/toast/orders`), moved out of
+        // `build_public_routes` on 2026-11-15, where it was `route_fleet`.
+        // Declared FleetOk by hand now in
+        // `oxy_api_world_model::public_route_roles`; its two path resolutions
+        // are exempted above, so a working-copy extractor or a `GitClient`
+        // added there is still caught.
+        "../api-world-model/src/toast_webhook.rs",
         // Workspace health's console routes, moved out of `admin/` onto the
         // admin seam. The handlers read and enqueue in Postgres; the live
         // runners that build a workspace context run in the task executor, on

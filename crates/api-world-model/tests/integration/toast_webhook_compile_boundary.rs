@@ -19,11 +19,12 @@
 //! stateless-replica shape) must still resolve its Toast integration.
 //!
 //! Spins up a Postgres testcontainer (or reuses `OXY_DATABASE_URL` in CI) and
-//! drives the real `load_toast_config` end-to-end.
+//! drives the real `load_toast_config` end-to-end. Moved from `oxy-app`'s
+//! `platform` group with the handler on 2026-11-15.
 
 use entity::workspaces::WorkspaceStatus;
 use entity::{organizations, revisions, workspace_compiled_configs, workspaces};
-use oxy_app::server::api::webhooks::toast::load_toast_config;
+use oxy_api_world_model::toast_webhook::load_toast_config;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
 use serde_json::json;
 use uuid::Uuid;

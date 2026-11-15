@@ -1,8 +1,9 @@
 //! A GitHub `push` delivery: which workspaces it concerns, and a commit
 //! compile for each.
 //!
-//! The receiver (`api::webhooks::github`) verifies the signature and hands the
-//! parsed payload here. Everything after that is the same path the periodic
+//! The receiver (`oxy-api-github`'s `webhook`, `POST /webhooks/github`, which
+//! reaches this module as `oxy_app::surface::compile_push`) verifies the
+//! signature and hands the parsed payload here. Everything after that is the same path the periodic
 //! check takes: the head is compared with what the workspace serves
 //! ([`super::check::decide`]) and a compile is handed to the deduped enqueue,
 //! so a delivery is never queued behind another compile, a duplicate delivery

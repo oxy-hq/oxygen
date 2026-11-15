@@ -1,10 +1,17 @@
 //! A GitHub `push` delivery queues a commit compile
-//! (`POST /api/webhooks/github`, `oxy_app::server::compile_reconcile::push`).
+//! (`oxy_app::server::compile_reconcile::push`, behind `POST /api/webhooks/github`).
 //!
-//! The route is driven through a real axum router with a signed body, against a
-//! real database: what matters is which workspaces get a `compile_git` task and,
-//! as much, which do not — another repository, another branch, another
-//! subdirectory, a duplicate delivery, a gate that is off, a bad signature.
+//! A parsed delivery is handed to `push::handle` against a real database, as the
+//! receiver hands it once the signature checks out: what matters is which
+//! workspaces get a `compile_git` task and, as much, which do not — another
+//! repository, another branch, another subdirectory, a duplicate delivery, a
+//! gate that is off.
+//!
+//! The receiver itself — the signature, `ping`, other events, a malformed
+//! payload, an unconfigured secret — is `oxy-api-github`'s `webhook` since
+//! 2026-11-15, and its tests are there (in-source, plus `webhook_push` in its
+//! integration group for the hand-off to this module). `oxy-app` cannot depend
+//! on that crate, so this file drives the half that stayed.
 //!
 //! The last test drives the worker queue with a fake GitHub that is down for the
 //! first attempt, to show that a task the webhook queued retries on the queue's
@@ -15,21 +22,14 @@
 
 use std::time::Duration;
 
-use axum::Router;
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use axum::routing::post;
 use chrono::Utc;
 use entity::{revisions, workspaces};
-use hmac::{Hmac, KeyInit, Mac};
-use oxy_app::server::api::webhooks::github::github_webhook;
+use oxy_app::server::compile_reconcile::push::{self, PushEvent};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection,
     EntityTrait, Statement,
 };
 use serde_json::{Value, json};
-use sha2::Sha256;
-use tower::ServiceExt;
 use uuid::Uuid;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -37,9 +37,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use super::compile_from_git::{drive_worker_queue, seed_workspace, workspace_tree};
 use crate::common::{Schema, test_db_with};
 
-const SECRET: &str = "whsec_compile_push_test";
 const HEAD: &str = "0123456789abcdef0123456789abcdef01234567";
-const PATH_TO_ROUTE: &str = "/api/webhooks/github";
 
 struct Fx {
     db: DatabaseConnection,
@@ -56,7 +54,6 @@ impl Fx {
         // asserts it), and nothing has read these yet.
         unsafe {
             std::env::set_var("GITHUB_API_URL", github.uri());
-            std::env::set_var("GITHUB_WEBHOOK_SECRET", SECRET);
             std::env::remove_var("OXY_COMPILE_BLOB_S3_BUCKET");
             if gate_on {
                 std::env::set_var("OXY_COMPILE_RECONCILE", "1");
@@ -84,40 +81,14 @@ impl Fx {
         id
     }
 
-    /// Deliver `body` to the route as GitHub would, signed with `secret`.
-    async fn deliver(
-        &self,
-        event: &str,
-        body: &Value,
-        secret: Option<&str>,
-    ) -> (StatusCode, String) {
-        let raw = serde_json::to_vec(body).unwrap();
-        let mut request = Request::post(PATH_TO_ROUTE)
-            .header("content-type", "application/json")
-            .header("x-github-event", event)
-            .header("x-github-delivery", Uuid::new_v4().to_string());
-        if let Some(secret) = secret {
-            let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
-            mac.update(&raw);
-            request = request.header(
-                "x-hub-signature-256",
-                format!("sha256={}", hex::encode(mac.finalize().into_bytes())),
-            );
-        }
-        let router = Router::new().route(PATH_TO_ROUTE, post(github_webhook));
-        let response = router
-            .oneshot(request.body(Body::from(raw)).unwrap())
+    /// Hand `body` to `push::handle` as the receiver does once its signature
+    /// checks out, and answer with the line the receiver puts in its `202`.
+    async fn push(&self, body: &Value) -> String {
+        let push: PushEvent = serde_json::from_value(body.clone()).expect("a push payload");
+        push::handle(&self.db, &push)
             .await
-            .expect("oneshot");
-        let status = response.status();
-        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        (status, String::from_utf8_lossy(&bytes).into_owned())
-    }
-
-    async fn push(&self, body: &Value) -> (StatusCode, String) {
-        self.deliver("push", body, Some(SECRET)).await
+            .expect("push handled")
+            .describe()
     }
 
     /// `(workspace, git_sha, source_type, from_git, has a retry policy)` of
@@ -225,8 +196,7 @@ async fn a_push_queues_one_commit_compile_for_the_matching_workspace_and_no_othe
         .await;
     let _ = (other_repo, other_branch, untouched_subdir);
 
-    let (status, body) = fx.push(&main_push(&["analytics/config.yml"])).await;
-    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let body = fx.push(&main_push(&["analytics/config.yml"])).await;
     assert_eq!(body, "2 workspace(s) match; 2 handed to the compile queue");
 
     let mut tasks = fx.tasks().await;
@@ -263,8 +233,7 @@ async fn a_duplicate_delivery_queues_nothing_new() {
     assert_eq!(fx.tasks().await.len(), 1);
 
     // The same delivery again while the first is still queued.
-    let (status, _) = fx.push(&body).await;
-    assert_eq!(status, StatusCode::ACCEPTED);
+    fx.push(&body).await;
     // And a different push to the same branch: the one compile in flight is not
     // queued behind, and the periodic check picks the newer head up.
     let newer = push_body(
@@ -281,8 +250,7 @@ async fn a_duplicate_delivery_queues_nothing_new() {
 async fn a_head_that_is_already_compiled_or_served_queues_nothing() {
     let fx = Fx::new(true).await;
     fx.serve_ready_revision(fx.ws, HEAD).await;
-    let (status, body) = fx.push(&main_push(&["config.yml"])).await;
-    assert_eq!(status, StatusCode::ACCEPTED);
+    let body = fx.push(&main_push(&["config.yml"])).await;
     assert_eq!(body, "1 workspace(s) match; 0 handed to the compile queue");
     assert!(fx.tasks().await.is_empty());
 }
@@ -296,8 +264,11 @@ async fn pushes_that_are_not_to_a_branch_head_do_nothing() {
         push_body("refs/heads/main", "acme/analytics", &"0".repeat(40), &[]),
         push_body("refs/heads/main", "someone/analytics", HEAD, &[]),
     ] {
-        let (status, _) = fx.push(&body).await;
-        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let outcome = fx.push(&body).await;
+        assert!(
+            outcome.starts_with("ignored: ") || outcome.starts_with("0 "),
+            "{body}: {outcome}"
+        );
     }
     assert!(fx.tasks().await.is_empty(), "{:?}", fx.tasks().await);
 }
@@ -305,48 +276,8 @@ async fn pushes_that_are_not_to_a_branch_head_do_nothing() {
 #[tokio::test]
 async fn with_the_gate_off_a_delivery_is_acknowledged_and_does_nothing() {
     let fx = Fx::new(false).await;
-    let (status, body) = fx.push(&main_push(&["config.yml"])).await;
-    assert_eq!(status, StatusCode::ACCEPTED);
+    let body = fx.push(&main_push(&["config.yml"])).await;
     assert!(body.starts_with("ignored: "), "{body}");
-    assert!(fx.tasks().await.is_empty());
-}
-
-#[tokio::test]
-async fn an_unsigned_or_wrongly_signed_delivery_is_refused_and_does_nothing() {
-    let fx = Fx::new(true).await;
-    let body = main_push(&["config.yml"]);
-    assert_eq!(
-        fx.deliver("push", &body, None).await.0,
-        StatusCode::UNAUTHORIZED
-    );
-    assert_eq!(
-        fx.deliver("push", &body, Some("not-the-secret")).await.0,
-        StatusCode::UNAUTHORIZED
-    );
-    assert!(fx.tasks().await.is_empty());
-}
-
-#[tokio::test]
-async fn other_events_are_acknowledged_ping_is_answered_and_bad_payloads_are_refused() {
-    let fx = Fx::new(true).await;
-    let (status, body) = fx.deliver("ping", &json!({"zen": "x"}), Some(SECRET)).await;
-    assert_eq!((status, body.as_str()), (StatusCode::OK, "pong"));
-    let (status, _) = fx
-        .deliver("installation", &json!({"action": "created"}), Some(SECRET))
-        .await;
-    assert_eq!(status, StatusCode::ACCEPTED);
-    let (status, _) = fx.deliver("push", &json!({"nope": 1}), Some(SECRET)).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(fx.tasks().await.is_empty());
-}
-
-#[tokio::test]
-async fn without_a_configured_secret_the_route_does_not_exist() {
-    let fx = Fx::new(true).await;
-    // SAFETY: single test per process.
-    unsafe { std::env::remove_var("GITHUB_WEBHOOK_SECRET") };
-    let (status, _) = fx.push(&main_push(&["config.yml"])).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(fx.tasks().await.is_empty());
 }
 

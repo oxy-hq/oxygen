@@ -7,7 +7,7 @@
 //! request bytes (`String::from_utf8_lossy`, no parse/re-serialize), so an HMAC
 //! computed in JS would match. But then an unverified request has already
 //! reached app code, and a forgotten check is silent. Verifying here means it
-//! cannot be forgotten — the same call `webhooks::toast` makes.
+//! cannot be forgotten — the same call `oxy_api_world_model::toast_webhook` makes.
 //!
 //! ## Fail closed, twice
 //!

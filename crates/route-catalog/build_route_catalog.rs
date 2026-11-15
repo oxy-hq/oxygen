@@ -181,6 +181,15 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_github",
         function: "routes",
     },
+    // ...and its GitHub App webhook receiver (`/webhooks/github`, out of
+    // `build_public_routes` on 2026-11-15) rides `SurfaceSeams::public`,
+    // beside the public tree outside the auth stack.
+    Seed {
+        surface: "public",
+        prefix: "/api",
+        module: "oxy_api_github",
+        function: "public_routes",
+    },
     Seed {
         surface: "org",
         prefix: "/api",
@@ -372,7 +381,8 @@ const SEEDS: &[Seed] = &[
         function: "workspace_routes",
     },
     // ...and its customer-app twins (the World Model graph and peer cohorts a
-    // bundle reads at `/projects/{project_id}/semantic/*`) ride
+    // bundle reads at `/projects/{project_id}/semantic/*`) and the Toast order
+    // webhook (`/webhooks/toast/orders`, since 2026-11-15) ride
     // `SurfaceSeams::public`, beside the public tree.
     Seed {
         surface: "public",

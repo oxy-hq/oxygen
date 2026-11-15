@@ -72,7 +72,8 @@ impl ConfigBuilder {
     /// slot-less manager whose `config.yml` was read right here, deliberately,
     /// so integrations resolve while artifact reads still cannot reach a disk.
     /// Refusing the pair turned "this workspace is unconfigured" into a 500 —
-    /// `toast_webhook_compile_boundary` says the unpromoted case must resolve
+    /// `toast_webhook_compile_boundary` (`oxy-api-world-model`'s integration
+    /// group) says the unpromoted case must resolve
     /// to `None`, not error.
     pub async fn build_without_working_copy(
         self,

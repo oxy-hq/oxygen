@@ -16,6 +16,10 @@ edition.workspace = true
 # apply_middleware, not re-applied here. This is the only oxy-app dependency, and
 # oxy-app never depends back on this crate (the whole point of the extraction).
 #
+# The webhook (`webhook.rs`, out of oxy-app on 2026-11-15) takes one more thing
+# through the prelude: `surface::compile_push`, the compile runtime a verified
+# push is handed to.
+#
 # default-features off (github doesn't use custom-app-functions/V8): so a
 # `--no-default-features` build of oxy-server actually drops V8, github no longer
 # forces it on via resolver-v2 unification. oxy-server's own
@@ -27,11 +31,13 @@ oxy-app-core = { workspace = true }     # AppState (the router state type)
 oxy-server-authz = { workspace = true } # enforce_for, Action, Resource, OrgContextExtractor
 oxy = { workspace = true }              # database client, github core (git client / app auth)
 oxy-auth = { workspace = true }         # AuthenticatedUserExtractor
+oxy-shared = { workspace = true }       # fleet_role::RouteRoleDecl (the webhook's public declaration)
 entity = { workspace = true }
 
 axum = { workspace = true }
 sea-orm = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }       # the webhook's push payload
 uuid = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
@@ -47,7 +53,6 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies]
 tokio = { workspace = true }
 tower = { workspace = true, features = ["util"] }
-serde_json = { workspace = true }
 url = { workspace = true }
 # GitHub is mocked at the HTTP boundary (`GITHUB_API_URL`), never called.
 wiremock = { workspace = true }

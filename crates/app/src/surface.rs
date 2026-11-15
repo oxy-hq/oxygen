@@ -51,6 +51,13 @@ pub use crate::server::api::middlewares::workspace_context::{
 /// workspace with no working copy compiles nothing without it.
 pub use crate::server::compile_reconcile::enabled as compiles_from_git;
 
+/// What a verified GitHub `push` delivery does: which workspaces it concerns
+/// and a deduped commit compile for each (`handle`, `PushEvent`, `Handled`),
+/// behind the same gate as [`compiles_from_git`]. `oxy-api-github`'s webhook
+/// receiver (`POST /webhooks/github`) verifies the signature and hands the
+/// payload here; the compile runtime it queues into stays in `oxy-app`.
+pub use crate::server::compile_reconcile::push as compile_push;
+
 /// The workspace row the workspace middleware resolved (401 where it did not run).
 pub use crate::server::api::middlewares::workspace_extractor::WorkspaceExtractor;
 

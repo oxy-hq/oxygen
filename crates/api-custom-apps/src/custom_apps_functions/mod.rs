@@ -378,7 +378,7 @@ struct StorageSpec {
 /// reachable on the webhook route at all. And declaring it without a resolvable
 /// secret is a 401, never an open endpoint: an unauthenticated route with no
 /// signing secret lets anyone forge events against a workspace, which is the
-/// same reasoning `webhooks::toast` documents for failing closed.
+/// same reasoning `oxy_api_world_model::toast_webhook` documents for failing closed.
 ///
 /// Verification is the PLATFORM's job rather than the function's, deliberately.
 /// A function could verify — `x-*` headers reach app code and `req.body` is the

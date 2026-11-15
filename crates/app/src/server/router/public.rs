@@ -1,11 +1,14 @@
-//! Routes that do not require authentication: health probes, auth endpoints,
-//! current-user lookup, and provider-originated webhooks/callbacks (Slack,
-//! Toast, GitHub, and per-app function webhooks).
+//! Routes that do not require authentication: health probes, the Stripe
+//! webhook and the OAuth callbacks. The other provider-originated receivers —
+//! Slack, Toast (`oxy-api-world-model`), GitHub (`oxy-api-github`) and the
+//! per-app function webhooks (`oxy-api-custom-apps`) — are merged beside this
+//! tree through `SurfaceSeams::public`.
 //!
 //! "No auth gate" here means no *user session*, not "no caller check". The
 //! webhook receivers authenticate the SENDER instead, by HMAC over the raw
-//! body — see `webhooks::app_function`, which fails closed twice (undeclared
-//! webhook → 404, unresolvable secret → 401) precisely because it is anonymous.
+//! body — see `oxy_api_custom_apps::webhooks::app_function`, which fails closed
+//! twice (undeclared webhook → 404, unresolvable secret → 401) precisely
+//! because it is anonymous.
 //!
 //! Every route here is `route_fleet`, and that is a declaration of what was
 //! already true rather than a change: this file used to mount 51 routes with a
@@ -25,7 +28,7 @@
 
 use axum::routing::{get, post};
 
-use crate::api::{billing, healthcheck, webhooks};
+use crate::api::{billing, healthcheck};
 
 use super::AppState;
 use super::role_router::RoleRouter;
@@ -45,14 +48,14 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
         // redeem, the OIDC exchange, leak reports). The frontline PIN sign-in
         // and kiosk binding are `oxy-api-frontline`'s, through the same seam.
         .route_fleet("/webhooks/stripe", post(billing::webhook::stripe_webhook))
-        // The GitHub App's webhook: a push to a default branch queues a commit
-        // compile. Signature-verified; FleetOk because it only reads Postgres
-        // and queues a task.
-        .route_fleet("/webhooks/github", post(webhooks::github::github_webhook))
-        .route_fleet(
-            "/webhooks/toast/orders",
-            post(webhooks::toast::toast_order_webhook),
-        )
+        // The GitHub App's webhook (`POST /webhooks/github`: a push to a
+        // default branch queues a commit compile) is `oxy-api-github`'s
+        // (`webhook`, 2026-11-15), merged beside this tree through
+        // `SurfaceSeams::public`, declared `*` FleetOk there.
+        // Toast's order webhook (`POST /webhooks/toast/orders`) is
+        // `oxy-api-world-model`'s (`toast_webhook`, 2026-11-15), beside the live
+        // feed it publishes to, merged beside this tree through
+        // `SurfaceSeams::public`, declared `*` FleetOk there.
         // Slack-originated traffic (the webhooks, the OAuth callback, the
         // account-link landing page) is `oxy-api-slack`'s, merged beside this
         // tree through `SurfaceSeams::public`.

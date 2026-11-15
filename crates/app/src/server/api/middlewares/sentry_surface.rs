@@ -682,6 +682,17 @@ mod tests {
         // the data plane (IDE and settings reads behind the workspace
         // middleware); walked so a gate call added there is seen.
         rust_files(&crate_root.join("../api-workspace-config/src"), &mut files);
+        // The GitHub App's webhook receiver, `oxy-api-github`'s since
+        // 2026-11-15 (was `src/server/api/webhooks/github.rs`, inside the walk
+        // above). Not on the data plane (an HMAC check and the compile queue);
+        // walked so a gate call added there is seen. The one file, not the
+        // crate: the rest of it never was.
+        files.push(crate_root.join("../api-github/src/webhook.rs"));
+        // The Toast order webhook, `oxy-api-world-model`'s since 2026-11-15
+        // (was `src/server/api/webhooks/toast.rs`, inside the walk above). Not
+        // on the data plane (an HMAC check and a feed append); walked so a gate
+        // call added there is seen.
+        files.push(crate_root.join("../api-world-model/src/toast_webhook.rs"));
         files.sort();
         files
             .into_iter()

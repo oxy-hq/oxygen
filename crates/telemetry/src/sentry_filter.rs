@@ -751,6 +751,10 @@ mod tests {
         assert!(!drop_log(Some(
             "oxy_app::server::api::webhooks::app_function"
         )));
+        // The public webhook receivers that left `oxy-app` on 2026-11-15 are
+        // platform code too: no rule names them, so they keep their lines.
+        assert!(!drop_log(Some("oxy_api_github::webhook")));
+        assert!(!drop_log(Some("oxy_api_world_model::toast_webhook")));
         assert!(!drop_log(None));
     }
 
@@ -1020,6 +1024,12 @@ mod tests {
             // workspace middleware, so not the custom-app data plane.
             "oxy_api_workspace_config::database",
             "oxy_api_workspace_config::secrets",
+            // The GitHub App's webhook receiver, out of `oxy-app` on
+            // 2026-11-15: an HMAC check and the compile queue, no warehouse.
+            "oxy_api_github::webhook",
+            // The Toast order webhook, out of `oxy-app` on 2026-11-15: an
+            // HMAC check and a feed append, no warehouse.
+            "oxy_api_world_model::toast_webhook",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

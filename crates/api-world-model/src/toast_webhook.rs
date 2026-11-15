@@ -22,6 +22,12 @@
 //! — otherwise every production delivery reads as "integration not configured"
 //! and is rejected. Production workspaces must both configure the integration
 //! via Settings → Apps *and* have a promoted revision.
+//!
+//! Mounted on `SurfaceSeams::public` ([`crate::public_routes`], `POST
+//! /webhooks/toast/orders`), beside the public tree outside the auth stack,
+//! where `oxy-app`'s `build_public_routes` mounted it with `route_fleet` until
+//! 2026-11-15. It publishes onto the feed whose read half is this crate's
+//! ([`crate::events`]).
 
 use axum::body::Bytes;
 use axum::extract::{Query, State};
@@ -42,9 +48,9 @@ use serde::Deserialize;
 use sha2::Sha256;
 use uuid::Uuid;
 
-use crate::server::router::AppState;
-use crate::server::service::secret_manager::SecretManagerService;
 use oxy::config::ReadOnly;
+use oxy::service::secret_manager::SecretManagerService;
+use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
 use oxy_world_model::live_feed::{OrderEvent, publish_order};
 
@@ -199,7 +205,8 @@ pub async fn toast_order_webhook(
 /// `toast` integration exists. Errors only on DB / config / secrets
 /// failures.
 ///
-/// `pub` for the `toast_webhook_compile_boundary` integration test, which
+/// `pub` for the `toast_webhook_compile_boundary` integration test (this
+/// crate's `tests/integration/`), which
 /// drives it against a seeded compiled revision — the handler itself needs an
 /// `AppState` and a live axum stack to reach.
 pub async fn load_toast_config(
@@ -315,7 +322,7 @@ async fn config_builder(
         )
     };
     if let Some(revision_id) =
-        crate::server::api::compiled_reader::resolve_request_revision(project_id, None).await
+        oxy_app_core::compiled_reader::resolve_request_revision(project_id, None).await
     {
         return WorkspaceBuilder::new(project_id)
             .without_working_copy(path, Some(revision_id), oxy::config::OnMissing::Empty)

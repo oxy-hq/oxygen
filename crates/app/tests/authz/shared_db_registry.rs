@@ -248,7 +248,8 @@ fn scan_group(dir: &Path, found: &mut BTreeSet<String>) {
 ///
 /// There is deliberately **no** "but it uses `common::fresh_db`, so it's fine"
 /// escape here. A previous version had one, justified by `compiled_reader_semantic`
-/// and `toast_webhook_compile_boundary` supposedly looking like shared-DB users.
+/// and `toast_webhook_compile_boundary` (since moved to `oxy-api-world-model`'s
+/// integration group) supposedly looking like shared-DB users.
 /// They don't — their only mentions of `establish_connection` are `///` doc
 /// comments, which the filter below already drops — so it bought nothing, while
 /// adding a suppression that worked at *file* granularity: one `fresh_db` call

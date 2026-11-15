@@ -89,6 +89,12 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/airhouse/",
     "/api/partners/",
     "/api/user/github/",
+    // `oxy-api-github`'s webhook receiver, on the public seam since
+    // 2026-11-15; `/api/user/github/` above is its api seam.
+    "/api/webhooks/github",
+    // `oxy-api-world-model`'s Toast order webhook, on the public seam since
+    // 2026-11-15.
+    "/api/webhooks/toast/orders",
     "/api/admin/compiles",
     "/api/admin/internal-jobs",
     "/api/admin/feature-flags",

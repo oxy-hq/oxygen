@@ -118,7 +118,6 @@ const SERVER_API: &[&str] = &[
     "semantic_scan",
     "thread",
     "typed_stream",
-    "webhooks",
     "workspace_logo",
     "workspace_members",
     "workspace_members_tests",

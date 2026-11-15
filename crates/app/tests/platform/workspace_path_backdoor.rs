@@ -31,9 +31,10 @@ const ALLOWED: &[(&str, &str)] = &[
          somewhere before a manager exists",
     ),
     (
-        "src/server/api/webhooks/toast.rs",
+        "../api-world-model/src/toast_webhook.rs",
         "public router: bypasses workspace_context, so it resolves its own path. \
-         Reads config from the compile boundary (#2816) and builds a slot-less manager",
+         Reads config from the compile boundary (#2816) and builds a slot-less manager \
+         (`oxy-api-world-model`'s since 2026-11-15, was `src/server/api/webhooks/toast.rs`)",
     ),
     (
         "src/server/api/workspaces/ops.rs",

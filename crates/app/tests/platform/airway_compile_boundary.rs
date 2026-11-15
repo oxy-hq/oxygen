@@ -37,7 +37,7 @@ use uuid::Uuid;
 /// (used inside `compiled_reader`) points at it.
 ///
 /// [`common::fresh_db`] rather than a hand-rolled harness, exactly as
-/// `toast_webhook_compile_boundary` does: it names the database with the
+/// `toast_webhook_compile_boundary` (now `oxy-api-world-model`'s) does: it names the database with the
 /// `oxytest_` prefix and the `NEXTEST_RUN_ID` tag that `drop_stale_databases`
 /// needs in order to tell a live sibling from a stray, and it asserts
 /// process-per-test before the `set_var` below — which is only sound under that

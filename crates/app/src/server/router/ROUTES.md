@@ -9,7 +9,7 @@ mounted under `/api` by [`crate::cli::commands::serve`].
 |---|---|
 | [`mod.rs`](./mod.rs) | `AppState`, `WorkspaceExtractor`, shared `build_cors_layer`, router tests |
 | [`entry.rs`](./entry.rs) | `api_router` / `internal_api_router` — assembles the full router, applies CORS, timeout, Sentry |
-| [`public.rs`](./public.rs) | Routes with no *user session* gate (health and webhook receivers — Slack, Toast, GitHub (`POST /webhooks/github`), and `POST /webhooks/apps/{org}/{app}/{fn}` with its non-production twin `POST /webhooks/apps-env/{environment}/{org}/{app}/{fn}`, which authenticate the sender by HMAC instead) |
+| [`public.rs`](./public.rs) | Routes with no *user session* gate (health, the Stripe webhook receiver and the OAuth callbacks; the other receivers — Slack, Toast's `POST /webhooks/toast/orders` (`oxy-api-world-model`), the GitHub App's `POST /webhooks/github` (`oxy-api-github`) and `POST /webhooks/apps/{org}/{app}/{fn}` with its non-production twin `POST /webhooks/apps-env/{environment}/{org}/{app}/{fn}` — are merged beside it through `SurfaceSeams::public`, and authenticate the sender by HMAC instead) |
 | [`global.rs`](./global.rs) | Cloud-only flat routes (chat, work, the admin console; logout is `oxy-api-identity`'s) |
 | [`workspace.rs`](./workspace.rs) | The `/{workspace_id}/…` tree and every per-resource sub-builder |
 | [`protected.rs`](./protected.rs) | Cloud/local composition: which route sets are mounted and which middleware wraps them |
@@ -46,7 +46,9 @@ defined here: they live in the sibling `oxy-api-github` crate and are injected b
 the composition root (`oxy-server`) through `api_router`'s `SurfaceSeams::api` seam,
 merged into the protected tree before `apply_middleware` (cloud mode only). They
 re-apply their own `org_middleware` + `subscription_guard`; oxy-app no longer
-depends on them.
+depends on them. Its GitHub App webhook receiver (`POST /webhooks/github`) left
+`public.rs` on 2026-11-15 for the same crate, merged beside the public tree
+through `SurfaceSeams::public` (role in its `public_route_roles()`).
 
 Likewise the IDE's World Model Graph (`/semantic/world-model*`) and peer cohorts
 (`/semantic/cohort`) are absent from the workspace tree below: they live in

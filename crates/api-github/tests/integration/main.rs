@@ -11,6 +11,9 @@
 //!
 //! The `installation_*` modules are the GitHub App installation-ownership
 //! cases (#3753); `installation_fixture` says what they hold to.
+//!
+//! `webhook_push` is the GitHub App webhook receiver's half of `oxy-app`'s
+//! former `platform::compile_push` (the handler moved here on 2026-11-15).
 
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
@@ -19,3 +22,4 @@ mod installation_attach_route;
 mod installation_callback;
 mod installation_fixture;
 mod installation_new_url;
+mod webhook_push;

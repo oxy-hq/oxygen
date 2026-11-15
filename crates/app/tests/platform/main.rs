@@ -18,7 +18,7 @@
 //!
 //! Mixed three ways, and the split is in `.config/nextest.toml`:
 //!
-//! * `admin_staff_scope`, `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
+//! * `admin_staff_scope`, `compiled_reader_semantic`,
 //!   `airway_compile_boundary`, `file_credentials_at_compile`, `revision_miss_not_from_disk`,
 //!   `worker_ctx_follows_promote`,
 //!   `semantic_scan_from_memory`, `context_documents_boundary`,
@@ -112,7 +112,6 @@ mod run_retention;
 mod run_routes_workspace_scope;
 mod semantic_scan_from_memory;
 mod shared_state_boot;
-mod toast_webhook_compile_boundary;
 mod usage_report;
 mod walker_storage_divergence;
 mod worker_ctx_follows_promote;

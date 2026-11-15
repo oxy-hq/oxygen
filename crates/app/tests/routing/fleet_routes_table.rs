@@ -187,7 +187,10 @@ fn no_row_contradicts_the_role_the_code_declares() {
     // weather (3, oxy-api-world-model) and the automation listing and the
     // schedules (8, oxy-api-automations) left the same day (read off this
     // assertion too), and 108 after the workspace's databases and secrets (9,
-    // oxy-api-workspace-config) followed (read off it again); every
+    // oxy-api-workspace-config) followed (read off it again), and 106 after
+    // the two public webhook receivers (GitHub to oxy-api-github, Toast to
+    // oxy-api-world-model; 107 between them) left the same day, both read off
+    // it, both rows the table never had; every
     // decomposition step moves more out. The floor guards against an empty
     // table, not a count.
     assert!(
