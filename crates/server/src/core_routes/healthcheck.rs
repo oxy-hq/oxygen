@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 use utoipa::ToSchema;
 
-use crate::server::build_identity::{self, BuildInfo};
+use oxy_app::host::build_identity::{self, BuildInfo};
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct HealthCheckResponse {
@@ -50,8 +50,10 @@ pub struct VersionResponse {
 // the misconfiguration came from.
 //
 // The deployed paths are /api/health, /api/live and /api/ready — these routes
-// are only mounted inside the router nested at /api (see build_public_routes
-// and its nest in serve.rs). The bare forms below match the #[utoipa::path]
+// are only mounted inside the router nested at /api (see `public_routes` in
+// this module's parent, merged beside oxy-app's build_public_routes through
+// SurfaceSeams::public, and the nest in serve.rs). The bare forms below match
+// the #[utoipa::path]
 // annotations, which are relative to the spec's `servers = ["/api"]`. A probe
 // pointed at bare /live gets a 404, which kubelet counts as a failure — the
 // same restart-during-incident outcome by a different route.
@@ -212,22 +214,4 @@ pub async fn version_info() -> Json<VersionResponse> {
         service: "oxy".to_string(),
         build_info: build_identity::build_info(),
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn the_version_route_names_the_image_and_reports_no_semver() {
-        let Json(body) = version_info().await;
-        let v = serde_json::to_value(body).unwrap();
-        assert!(v.get("version").is_none(), "no semver: {v}");
-        assert!(
-            v.as_object().unwrap().contains_key("image_tag"),
-            "image_tag is always present, null outside an image: {v}"
-        );
-        assert!(v["build_info"]["git_commit_short"].is_string());
-        assert!(v["build_info"]["sentry_release"].is_string());
-    }
 }

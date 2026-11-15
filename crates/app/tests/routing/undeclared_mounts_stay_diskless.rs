@@ -150,6 +150,15 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // One file, not a directory: `PUT/DELETE /orgs/{org_id}/logo`. Logo
         // bytes live in Postgres; this is the only guard left on that.
         "../api-tenancy/src/org_logo.rs",
+        // Three files that left `oxy-app` on 2026-11-16, where their routes
+        // were `route_fleet` (a `FleetState` handler type refused a
+        // working-copy extractor): the consent switch, the org subdomain's
+        // status and the logo. Declared FleetOk by hand now in
+        // `oxy_api_tenancy::{route_roles, workspace_route_roles}`; each reads
+        // or writes Postgres rows only.
+        "../api-tenancy/src/partner_publish_consent.rs",
+        "../api-tenancy/src/org_subdomain.rs",
+        "../api-tenancy/src/workspace_logo.rs",
         // Extracted from `src/server/api/documents`, merged at the root the same
         // way. Postgres + presigned S3 everywhere; `POST /documents/ask` resolves
         // an agent config out of the working copy (through the project context,
@@ -253,6 +262,12 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // runners that build a workspace context run in the task executor, on
         // a worker, not on a request path.
         "../api-workspace-health/src/handlers.rs",
+        // The health probes and route discovery, moved UP into `oxy-server`
+        // on 2026-11-16, where all five were `route_fleet` (a `FleetState`
+        // handler type refused a working-copy extractor). Declared FleetOk by
+        // hand now in `core_routes::{public_route_roles, catalog_route_roles}`;
+        // they read a ping, the build stamp and a compiled-in table.
+        "../server/src/core_routes",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

@@ -69,12 +69,18 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// `/{path_b64}`) and the four `/agentic-schedules*` rows left for
 /// `oxy-api-automations`, and nine when the workspace's databases (the five
 /// `/databases*` rows) and secrets (the four `/secrets*` rows) left for
-/// `oxy-api-workspace-config`.
+/// `oxy-api-workspace-config`. Plus three on 2026-11-16 when the org
+/// subdomain's status (`/org-subdomain`), the logo (`/logo`) and the
+/// partner-publish consent switch (`/orgs/{org_id}/partner-publish-consent`)
+/// left for `oxy-api-tenancy` (read off the assertion), and one more when the
+/// Looker listing (`/integrations/looker`) left for `oxy-api-workspace-config`,
+/// and two when the staging branch compile (`/compile/staging` and its
+/// `/status`) left for `oxy-api-previews`.
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 92;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 98;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];
@@ -178,7 +184,7 @@ fn every_row_is_one_the_script_can_read() {
 #[test]
 fn no_row_contradicts_the_role_the_code_declares() {
     let declared = declared();
-    // 100, not 200: oxy-app declared 200 until the custom-app agent ask's
+    // 80, not 200: oxy-app declared 200 until the custom-app agent ask's
     // two routes left for oxy-api-custom-apps (2026-11-14), and 134 since the
     // seventeen metric-tree, monitor and anomaly routes left for
     // oxy-api-metric-monitoring (2026-11-15), and 128 since the observability
@@ -190,11 +196,16 @@ fn no_row_contradicts_the_role_the_code_declares() {
     // oxy-api-workspace-config) followed (read off it again), and 106 after
     // the two public webhook receivers (GitHub to oxy-api-github, Toast to
     // oxy-api-world-model; 107 between them) left the same day, both read off
-    // it, both rows the table never had; every
+    // it, both rows the table never had; and 100 on 2026-11-16 (read off
+    // it) after the core routes' Wave A moved the tenancy leaves (3), the
+    // Looker listing (1) and the staging branch compile (2) out (103 and 102
+    // between them, by arithmetic: the floor did not trip there), floor
+    // `> 100` -> `> 80`; 95 after `/_catalog` and the four health probes left
+    // for `oxy-server` the same day (read off it with the floor raised); every
     // decomposition step moves more out. The floor guards against an empty
     // table, not a count.
     assert!(
-        declared.len() > 100,
+        declared.len() > 80,
         "route_declarations() returned {} routes — the comparison below would \
          be checking next to nothing",
         declared.len()

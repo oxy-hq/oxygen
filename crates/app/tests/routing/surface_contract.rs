@@ -36,16 +36,10 @@ use std::path::{Path, PathBuf};
 const BACKLOG: &[(&str, &str)] = &[
     // custom-apps vertical
     // tenancy (api-tenancy)
-    // write_access flushes oxy-app's custom-app caches; the rest is oxy-tenancy
-    (
-        "api-tenancy",
-        "server::api::org_teams::service::write_access",
-    ),
     // billing: seat sync when a member is added or removed
     ("api-tenancy", "server::api::billing::billing_service"),
-    // workspace context: schedule cleanup on delete, the directory read, logo bytes
+    // workspace context: schedule cleanup on delete, the directory read
     ("api-tenancy", "server::api::workspaces"),
-    ("api-tenancy", "server::api::workspace_logo"),
 ];
 
 /// `path` is `prefix` or lies under it — on a segment boundary, so

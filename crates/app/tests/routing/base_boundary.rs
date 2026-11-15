@@ -104,8 +104,8 @@ const BACKLOG: &[(&str, &str)] = &[
         "server::role_manifest",
         "server::router::route_declarations",
     ),
-    // `SurfaceSeams::catalog` carries the route catalog type.
-    ("server::router::seams", "server::route_catalog"),
+    // (`SurfaceSeams::catalog` carried the route catalog type until
+    // 2026-11-16; it carries the `/_catalog` mount `oxy-server` builds now.)
 ];
 
 // ---------------------------------------------------------------------------

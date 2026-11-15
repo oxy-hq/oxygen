@@ -1,5 +1,7 @@
-//! Routes that do not require authentication: health probes, the Stripe
-//! webhook and the OAuth callbacks. The other provider-originated receivers —
+//! Routes that do not require authentication: the Stripe webhook and the
+//! OAuth callbacks. The health probes (`/health`, `/ready`, `/live`,
+//! `/version`) are `oxy-server`'s (`core_routes`, 2026-11-16), merged beside
+//! this tree through `SurfaceSeams::public`. The other provider-originated receivers —
 //! Slack, Toast (`oxy-api-world-model`), GitHub (`oxy-api-github`) and the
 //! per-app function webhooks (`oxy-api-custom-apps`) — are merged beside this
 //! tree through `SurfaceSeams::public`.
@@ -28,17 +30,16 @@
 
 use axum::routing::{get, post};
 
-use crate::api::{billing, healthcheck};
+use crate::api::billing;
 
 use super::AppState;
 use super::role_router::RoleRouter;
 
 pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone())
-        .route_fleet("/health", get(healthcheck::health_check))
-        .route_fleet("/ready", get(healthcheck::readiness_check))
-        .route_fleet("/live", get(healthcheck::liveness_check))
-        .route_fleet("/version", get(healthcheck::version_info))
+        // The health probes (`/health`, `/ready`, `/live`, `/version`) are
+        // `oxy-server`'s (`core_routes`, 2026-11-16), merged beside this tree
+        // through `SurfaceSeams::public`, declared `*` FleetOk there.
         // Signing in (`/auth/{config,session,oauth/state,google,github,okta,
         // magic-link/*,return-to/validate,dev-login}`), the mobile app's redeem
         // and refresh (`/auth/mobile/{exchange,refresh}`) and `GET /user` are

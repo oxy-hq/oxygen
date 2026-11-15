@@ -107,6 +107,21 @@ fn server_files() -> Vec<(String, String)> {
     // `src/server/health_eval_executor.rs`.
     walk(&manifest.join("../workspace-health/src"), &mut out);
     walk(&manifest.join("../api-workspace-health/src"), &mut out);
+    // The health probes and route discovery (2026-11-16), served by the
+    // binary from `oxy-server`'s `core_routes`.
+    walk(&manifest.join("../server/src/core_routes"), &mut out);
+    // Three files `oxy-api-tenancy` took from `src/server/api` on 2026-11-16
+    // (the org subdomain's status, the logo, the consent switch), by name: the
+    // rest of that crate provisions and clones working copies on purpose.
+    for rel in [
+        "../api-tenancy/src/org_subdomain.rs",
+        "../api-tenancy/src/workspace_logo.rs",
+        "../api-tenancy/src/partner_publish_consent.rs",
+    ] {
+        let body = std::fs::read_to_string(manifest.join(rel))
+            .unwrap_or_else(|e| panic!("{rel} moved, and this guard lost it: {e}"));
+        out.push((rel.to_string(), body));
+    }
     out.retain(|(rel, _)| !is_test_file(rel));
     out
 }

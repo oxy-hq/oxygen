@@ -133,6 +133,9 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // The workspace's databases and secrets, `oxy-api-workspace-config`
         // since 2026-11-15.
         manifest.join("../api-workspace-config/src"),
+        // The health probes and route discovery, `oxy-server`'s `core_routes`
+        // since 2026-11-16.
+        manifest.join("../server/src/core_routes"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -161,6 +164,20 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
             if !allowed.contains(&rel.as_str()) {
                 offenders.push(rel);
             }
+        }
+    }
+    // Three files `oxy-api-tenancy` took from `src/server/api` on 2026-11-16
+    // (the org subdomain's status, the logo, the consent switch), by name: the
+    // rest of that crate provisions and clones working copies on purpose.
+    for rel in [
+        "../api-tenancy/src/org_subdomain.rs",
+        "../api-tenancy/src/workspace_logo.rs",
+        "../api-tenancy/src/partner_publish_consent.rs",
+    ] {
+        let src = std::fs::read_to_string(manifest.join(rel))
+            .unwrap_or_else(|e| panic!("{rel} moved, and this guard lost it: {e}"));
+        if resolves_a_workspace_path(&src) && !allowed.contains(&rel) {
+            offenders.push(rel.to_string());
         }
     }
 

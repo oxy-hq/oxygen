@@ -1,6 +1,10 @@
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
+//! The integrations a workspace's `config.yml` declares, as the Workspace
+//! Settings → Connections page lists them. Only Looker has a listing:
+//! `GET /{workspace_id}/integrations/looker`.
+
 use axum::{http::StatusCode, response::Json};
 use oxy::config::model::IntegrationType;
+use oxy_app::surface::WorkspaceManagerReadOnly;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use serde::Serialize;
 

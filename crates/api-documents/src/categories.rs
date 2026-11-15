@@ -47,7 +47,7 @@ use oxy_app::surface::role_guards::OrgAdmin;
 /// index — `(org_id, name)` — so "any unique violation" is exactly the
 /// predicate, with nothing to disambiguate and nothing about locale to assume.
 /// Same call this repo already makes at `crates/auth/src/user.rs` and, by
-/// SQLSTATE, at `crates/app/src/server/api/org_teams/handlers.rs`.
+/// SQLSTATE, at `crates/api-tenancy/src/org_teams/handlers.rs`.
 pub fn is_duplicate_name(e: &DbErr) -> bool {
     matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_)))
 }

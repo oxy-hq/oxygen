@@ -10,9 +10,12 @@
 //!     Where that compile stands: `ready` + the revision id once it has
 //!     compiled.
 //!
-//! Both are the HTTP face of `server::compile_request`, which says where the
-//! commit comes from (GitHub, or the working copy for a branch GitHub does not
-//! have) and is shared with the staff previews API (`server::previews`).
+//! Both are the HTTP face of `oxy-app`'s `server::compile_request` (through
+//! `oxy_app::surface::previews`), which says where the commit comes from
+//! (GitHub, or the working copy for a branch GitHub does not have) and is
+//! shared with the staff previews API ([`crate::service`]). They left
+//! `oxy-app` for this crate on 2026-11-16, and ride the workspace seam
+//! ([`crate::workspace_routes`]), where `build_workspace_routes` had them.
 //!
 //! A staging revision is never promoted and nothing that picks a revision by
 //! itself ever lands on one; the only thing that reads it is a custom-app
@@ -28,8 +31,8 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::server::api::middlewares::role_guards::WorkspaceEditor;
-use crate::server::compile_request::{self, CompileState, Refusal, Target};
+use oxy_app::surface::previews::compile_request::{self, CompileState, Refusal, Target};
+use oxy_app::surface::role_guards::WorkspaceEditor;
 
 #[derive(Deserialize)]
 pub struct StagingCompileQuery {

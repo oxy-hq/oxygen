@@ -194,10 +194,13 @@ async fn staff_member(fx: &Fx, org: Uuid) -> AuthenticatedUser {
 }
 
 /// The handlers as the product mounts them, minus what they do not read: the
-/// previews nest behind the access check alone, as in `router::protected`.
+/// previews nest behind the access check alone, as in `router::protected`, and
+/// this crate's staging compile (`workspace_routes`, inside the workspace
+/// tree) behind the same check, which is all of that tree's middleware they
+/// read.
 fn api(user: AuthenticatedUser) -> Router {
+    use oxy_api_previews::compile_staging as staging;
     use oxy_api_previews::handlers as previews;
-    use oxy_app::surface::testing::compile_staging as staging;
     use oxy_app::surface::testing::workspace_context::workspace_access_middleware;
     let previews = Router::new()
         .route(

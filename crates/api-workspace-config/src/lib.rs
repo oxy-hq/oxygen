@@ -9,6 +9,10 @@
 //!   Workspace aggregate), CRUD, bulk create and reveal. A custom app's
 //!   non-production secret is staff's and never listed or reached here; a
 //!   production app secret's write is audited (`oxy_custom_apps::secret_audit`).
+//! - [`integration`] (2026-11-16): the Looker integrations `config.yml`
+//!   declares, with the explores each names, read from the served revision's
+//!   compiled config (`/integrations/looker`). The other `/integrations/*`
+//!   routes (the OAuth connects) are still `oxy-app`'s.
 //!
 //! [`workspace_routes`] rides the workspace seam, merged INSIDE the
 //! `/api/{workspace_id}` nest, so it inherits the session auth stack and
@@ -28,6 +32,7 @@
 #![recursion_limit = "256"]
 
 pub mod database;
+pub mod integration;
 pub mod secrets;
 
 use axum::Router;
@@ -35,13 +40,20 @@ use axum::routing::{get, post};
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
-/// The workspace seam's share: merged inside `/api/{workspace_id}`. Both are
-/// nests, as `oxy-app` nested them, so each prefix answers exactly what it did
-/// (the list is its `/`).
+/// The workspace seam's share: merged inside `/api/{workspace_id}`. The two
+/// nests are as `oxy-app` nested them, so each prefix answers exactly what it
+/// did (the list is its `/`). `/integrations/looker` is a single route, not a
+/// nest: `oxy-app` still nests the rest of `/integrations` (the OAuth
+/// connects), and the two merge as siblings under that prefix. It lists the
+/// Looker integrations named in the served revision's config.
 pub fn workspace_routes() -> Router<AppState> {
     Router::new()
         .nest("/databases", database_routes())
         .nest("/secrets", secret_routes())
+        .route(
+            "/integrations/looker",
+            get(integration::list_looker_integrations),
+        )
 }
 
 fn database_routes() -> Router<AppState> {
@@ -84,7 +96,7 @@ const fn fleet(path: &'static str) -> RouteRoleDecl {
 }
 
 /// Pod placement for [`workspace_routes`], relative to the workspace tree:
-/// the nine rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk.
+/// the ten rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk.
 pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
     WORKSPACE_ROUTE_ROLES
 }
@@ -101,6 +113,9 @@ const WORKSPACE_ROUTE_ROLES: &[RouteRoleDecl] = &[
     fleet("/secrets/bulk"),
     fleet("/secrets/{id}"),
     fleet("/secrets/{id}/value"),
+    // Reads the served revision's compiled config, never a working copy or
+    // Looker itself (2026-11-16, out of `build_integration_routes`).
+    fleet("/integrations/looker"),
 ];
 
 #[cfg(test)]
@@ -121,6 +136,7 @@ mod tests {
         "/secrets/bulk",
         "/secrets/7c9e6679-7425-40de-944b-e07fc1f90ae7",
         "/secrets/7c9e6679-7425-40de-944b-e07fc1f90ae7/value",
+        "/integrations/looker",
     ];
 
     async fn trace(router: &Router, uri: &str) -> StatusCode {
@@ -145,7 +161,11 @@ mod tests {
     #[test]
     fn every_route_is_declared_fleet_ok_exactly_once() {
         let declared = workspace_route_roles();
-        assert_eq!(declared.len(), 9, "five database paths, four secret paths");
+        assert_eq!(
+            declared.len(),
+            10,
+            "five database paths, four secret paths, one integration path"
+        );
         for decl in declared {
             let same = declared
                 .iter()
@@ -161,13 +181,14 @@ mod tests {
         }
     }
 
-    /// Moved from `oxy-app`'s `role_manifest_tests::every_database_route_is_fleet_ok`,
+    /// Moved from `oxy-app`'s `role_manifest_tests::every_database_route_is_fleet_ok`
+    /// (and the Looker row from `every_integration_sub_route_is_classified`),
     /// which would pass on the FleetOk default once the declarations left: the
     /// list degrades without a working copy, and the rest introspect the
     /// warehouse, not the disk. Classified against this crate's declarations,
     /// as the served router installs them, so a dropped row fails.
     #[test]
-    fn every_database_and_secret_route_classifies_fleet_ok() {
+    fn every_database_secret_and_integration_route_classifies_fleet_ok() {
         use oxy_app::surface::roles::declared_role_in;
         let decls: Vec<_> = workspace_route_roles()
             .iter()
@@ -186,6 +207,10 @@ mod tests {
             ("PUT", "/secrets/7c9e6679"),
             ("DELETE", "/secrets/7c9e6679"),
             ("GET", "/secrets/7c9e6679/value"),
+            // Moved with its route from `oxy-app`'s `role_manifest_tests::
+            // every_integration_sub_route_is_classified`, whose ack list named
+            // it: the listing reads the served revision's config.
+            ("GET", "/integrations/looker"),
         ] {
             let uri = format!("/api/{ws}{path}");
             assert_eq!(

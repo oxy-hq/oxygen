@@ -10,7 +10,6 @@ use super::{GENERATED_SCANNED_DIRS, catalog};
 mod admin_apps_alias_removed;
 mod app_grant_scope;
 mod factory_routes;
-mod handler;
 mod previews_read_only;
 mod sandbox_agent_refusal;
 mod sandbox_agent_stack;
@@ -51,7 +50,10 @@ fn describe(route: &'static GeneratedRoute) -> RouteDescription {
 /// in every routing PR. If that trade ever looks right, this is the thing
 /// to replace.)
 const REQUIRED_GROUPS: &[&str] = &[
+    // `oxy-server`'s two seams (`core_routes`): the probes on the public seam,
+    // discovery on the catalog seam.
     "/api/health",
+    "/api/_catalog",
     "/api/auth/",
     "/api/orgs",
     // The org seam of `oxy-api-tenancy`'s onboarding module; `/api/orgs` above does not
@@ -121,8 +123,14 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/{workspace_id}/automations",
     "/api/{workspace_id}/world-model",
     "/api/{workspace_id}/sql/",
+    // `oxy-api-previews`' workspace-seam share (2026-11-16); its previews
+    // seam is pinned by the `previews_*` tests.
+    "/api/{workspace_id}/compile/staging",
     "/api/{workspace_id}/integrations",
     "/api/{workspace_id}/onboarding",
+    // `oxy-api-tenancy`'s own workspace-seam share (2026-11-16), which
+    // `/onboarding` above does not cover.
+    "/api/{workspace_id}/org-subdomain",
     // `oxy-api-airway`, on the workspace seam.
     "/api/{workspace_id}/source-uploads",
     "/api/{workspace_id}/cameras",

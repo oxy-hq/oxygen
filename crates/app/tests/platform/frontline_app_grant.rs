@@ -481,8 +481,8 @@ async fn the_model_and_both_gates_agree_about_a_worker() {
 #[tokio::test]
 async fn the_access_settings_accept_an_active_worker_and_nobody_else() {
     use axum::http::StatusCode;
-    use oxy_app::server::api::org_teams::dto::{GranteeRef, SetAppAccessRequest};
-    use oxy_app::server::api::org_teams::service::write_access;
+    use oxy_custom_apps::app_access::write_access;
+    use oxy_tenancy::org_teams::dto::{GranteeRef, SetAppAccessRequest};
 
     let (db, _url) = fresh_db(Schema::Central).await;
     let fx = seed(&db).await;

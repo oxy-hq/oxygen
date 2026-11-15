@@ -13,9 +13,8 @@ use axum::routing::{get, post, put};
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
 use crate::api::{
-    agent, apps, artifacts, chart, compile_staging, data, integration, local_setup, org_subdomain,
-    preagg, result_files, semantic, semantic_scan, thread, workspace_logo, workspace_members,
-    workspace_oxy_access, workspaces,
+    agent, apps, artifacts, chart, data, local_setup, preagg, result_files, semantic,
+    semantic_scan, thread, workspace_members, workspace_oxy_access, workspaces,
 };
 
 use oxy_shared::fleet_role::RouteRole;
@@ -58,19 +57,10 @@ pub(super) fn build_workspace_routes(
         // `/api-keys` (the legacy keys) and `/api-tokens` (the tokens that can
         // reach this workspace) moved to `oxy-api-identity`, merged inside this
         // nest through the workspace seam, FleetOk as before.
-        // Staging branch compile for a custom-app draft build to pin
-        // (`oxyc publish --semantic-branch`). The POST asks GitHub where the
-        // branch is and queues a compile of that commit; the status reads
-        // Postgres. Both FleetOk. A branch GitHub does not have is refused
-        // with the reason.
-        .route_fleet(
-            "/compile/staging",
-            post(compile_staging::enqueue_staging_compile),
-        )
-        .route_fleet(
-            "/compile/staging/status",
-            get(compile_staging::staging_compile_status),
-        )
+        // The staging branch compile (`/compile/staging` and its status, for a
+        // custom-app draft build to pin) is `oxy-api-previews`' since
+        // 2026-11-16, merged inside this nest by `oxy-server` through the
+        // workspace seam, still FleetOk.
         // `/databases` and `/secrets` (Workspace Settings' Databases and
         // Secrets, each handler `WorkspaceAdmin`-guarded where it writes) are
         // `oxy-api-workspace-config`'s since 2026-11-15, merged inside this
@@ -90,8 +80,10 @@ pub(super) fn build_workspace_routes(
                 .post(workspace_oxy_access::lock_oxy_access)
                 .delete(workspace_oxy_access::unlock_oxy_access),
         )
-        .route_fleet("/org-subdomain", get(org_subdomain::get_org_subdomain))
-        .route_fleet("/logo", get(workspace_logo::get_workspace_logo))
+        // `/org-subdomain` (the org subdomain's read-only status) and `/logo`
+        // (the org's uploaded logo) are `oxy-api-tenancy`'s since 2026-11-16,
+        // merged inside this nest by `oxy-server` through the workspace seam,
+        // still FleetOk.
         // `/source-uploads` moved to the `oxy-api-airway` sibling crate,
         // merged inside this nest by `oxy-server` through the workspace seam.
         .nest(
@@ -297,8 +289,11 @@ fn build_agent_routes(app_state: &AppState) -> RoleRouter {
 }
 
 fn build_integration_routes(app_state: &AppState) -> RoleRouter {
+    // `/looker` (the Looker integrations `config.yml` declares) is
+    // `oxy-api-workspace-config`'s since 2026-11-16, merged inside the
+    // `/{workspace_id}` nest as `/integrations/looker` through the workspace
+    // seam, still FleetOk.
     RoleRouter::new(app_state.clone())
-        .route_fleet("/looker", get(integration::list_looker_integrations))
         .route_fleet(
             "/quickbooks/authorize",
             post(crate::integrations::quickbooks::oauth::authorize::authorize),

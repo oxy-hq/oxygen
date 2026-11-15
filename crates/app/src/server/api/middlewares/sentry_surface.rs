@@ -693,6 +693,24 @@ mod tests {
         // on the data plane (an HMAC check and a feed append); walked so a gate
         // call added there is seen.
         files.push(crate_root.join("../api-world-model/src/toast_webhook.rs"));
+        // The org subdomain's status, the logo and the partner-publish consent
+        // switch, `oxy-api-tenancy`'s since 2026-11-16 (was
+        // `src/server/api/{org_subdomain,workspace_logo,partner_publish_consent}.rs`,
+        // inside the walk above). Not on the data plane; walked so a gate call
+        // added there is seen. The three files, not the crate: the rest of it
+        // never was.
+        files.push(crate_root.join("../api-tenancy/src/org_subdomain.rs"));
+        files.push(crate_root.join("../api-tenancy/src/workspace_logo.rs"));
+        files.push(crate_root.join("../api-tenancy/src/partner_publish_consent.rs"));
+        // The staging branch compile, `oxy-api-previews`' since 2026-11-16
+        // (was `src/server/api/compile_staging.rs`, inside the walk above). Not
+        // on the data plane; walked so a gate call added there is seen.
+        files.push(crate_root.join("../api-previews/src/compile_staging.rs"));
+        // The health probes and route discovery, `oxy-server`'s since
+        // 2026-11-16 (was `src/server/api/{healthcheck,catalog}.rs`, inside
+        // the walk above). Not on the data plane; walked so a gate call added
+        // there is seen.
+        rust_files(&crate_root.join("../server/src/core_routes"), &mut files);
         files.sort();
         files
             .into_iter()

@@ -1433,3 +1433,345 @@ async fn both_modes_mount_the_toast_webhook() {
         );
     }
 }
+
+/// The router `serve` builds in local mode over a throwaway workspace directory
+/// (`config.yml` with nothing in it), from the seams boot hands it: the shape
+/// `the_workspace_tree_mounts_the_workspace_config_surface` uses, so the
+/// workspace middleware lets a request on the nil workspace reach its handler.
+async fn served_over_an_empty_workspace() -> (Router, tempfile::TempDir) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("config.yml"), "models: []\ndatabases: []\n")
+        .expect("write config.yml");
+    std::env::set_current_dir(dir.path()).expect("enter the workspace");
+    let (router, _external, _preagg) = api_router(
+        ServeMode::Local,
+        false,
+        None,
+        dir.path().to_path_buf(),
+        tokio_util::sync::CancellationToken::new(),
+        false,
+        surface_seams(),
+    )
+    .await
+    .expect("router built");
+    (router, dir)
+}
+
+/// TRACE, which none of the workspace routes takes, answers 405 from a mounted
+/// path and 404 from an unmounted one. Asserts the control first.
+async fn assert_workspace_paths_mounted(router: &Router, paths: &[&str]) {
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    assert_eq!(
+        status_with(
+            router,
+            &Method::TRACE,
+            &format!("/{ws}/wave-a-nothing-mounts-this"),
+            None,
+            ""
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+        "control: an unmounted path must be 404, or a 405 below proves nothing"
+    );
+    for path in paths {
+        let got = status_with(router, &Method::TRACE, &format!("/{ws}{path}"), None, "").await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "/{{ws}}{path} must be mounted, got {got}"
+        );
+    }
+}
+
+/// `oxy-api-tenancy`'s three leaves from `oxy-app` (2026-11-16). The org
+/// subdomain's status and the logo ride the workspace seam in both modes, with
+/// the two FleetOk declarations `route_fleet` wrote; the partner-publish
+/// consent switch rides the api seam under `/orgs/{org_id}`, cloud only, as
+/// `build_org_routes` had it, declared FleetOk too.
+#[tokio::test]
+async fn the_tenancy_leaves_are_mounted_where_oxy_app_had_them() {
+    let seams = surface_seams();
+    for (decls, path) in [
+        (&seams.workspace.decls, "/org-subdomain"),
+        (&seams.workspace.decls, "/logo"),
+        (&seams.api.decls, "/orgs/{org_id}/partner-publish-consent"),
+    ] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    let consent = || {
+        vec![
+            (Method::GET, format!("/orgs/{ORG}/partner-publish-consent")),
+            (Method::PUT, format!("/orgs/{ORG}/partner-publish-consent")),
+        ]
+    };
+    assert_cloud_mounts(consent()).await;
+    assert_local_drops(consent()).await;
+    let (router, _dir) = served_over_an_empty_workspace().await;
+    assert_workspace_paths_mounted(&router, &["/org-subdomain", "/logo"]).await;
+}
+
+/// `oxy-api-workspace-config`'s Looker listing (2026-11-16, out of
+/// `build_integration_routes`) is merged into `/{workspace_id}/integrations`
+/// beside the OAuth connects `oxy-app` still nests there, so both halves of
+/// the prefix must answer. A real GET reaches the handler and answers from the
+/// empty workspace's config: no Looker integration, `[]`.
+#[tokio::test]
+async fn the_workspace_tree_mounts_the_looker_listing_beside_the_oauth_connects() {
+    let decls = surface_seams().workspace.decls;
+    assert!(
+        decls.iter().any(|d| d.method == "*"
+            && d.path == "/integrations/looker"
+            && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+        "the workspace seam must carry `* /integrations/looker` as FleetOk"
+    );
+    if db_unavailable() {
+        return;
+    }
+    let (router, _dir) = served_over_an_empty_workspace().await;
+    assert_workspace_paths_mounted(
+        &router,
+        &[
+            "/integrations/looker",
+            // `oxy-app`'s half of the same prefix, which must survive the merge.
+            "/integrations/quickbooks/authorize",
+            "/integrations/oauth/google/authorize",
+        ],
+    )
+    .await;
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    let (status, body) = get_with_body(&router, &format!("/{ws}/integrations/looker"), None).await;
+    assert_eq!(
+        (status, body.as_str()),
+        (StatusCode::OK, "[]"),
+        "GET /{{ws}}/integrations/looker must reach its handler"
+    );
+}
+
+/// `oxy-api-previews`' staging branch compile (2026-11-16) rides the WORKSPACE
+/// seam, inside the `/{workspace_id}` tree where `build_workspace_routes` had
+/// it (not the previews seam beside it), with the two FleetOk declarations
+/// `route_fleet` wrote. A real status read reaches its handler: nothing has
+/// compiled that commit, so it is `pending`.
+#[tokio::test]
+async fn the_workspace_tree_mounts_the_staging_compile() {
+    let decls = surface_seams().workspace.decls;
+    for path in ["/compile/staging", "/compile/staging/status"] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the workspace seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    let (router, _dir) = served_over_an_empty_workspace().await;
+    assert_workspace_paths_mounted(&router, &["/compile/staging", "/compile/staging/status"]).await;
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let (status, body) = get_with_body(
+        &router,
+        &format!("/{ws}/compile/staging/status?git_sha={sha}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "status read: {body}");
+    let json: serde_json::Value = serde_json::from_str(&body).expect("a JSON body");
+    assert_eq!(json["status"], "pending", "{body}");
+}
+
+/// GET `path` and parse the body as JSON.
+async fn get_json(router: &Router, path: &str) -> (StatusCode, serde_json::Value) {
+    let response = router
+        .clone()
+        .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+        .await
+        .expect("oneshot");
+    let status = response.status();
+    // The whole route table is ~300 KB of prose, over `get_with_body`'s 1 MB
+    // cap once JSON-escaped; read up to 16 MB.
+    let bytes = axum::body::to_bytes(response.into_body(), 16 << 20)
+        .await
+        .expect("body");
+    let body = String::from_utf8_lossy(&bytes).into_owned();
+    let json = serde_json::from_str(&body).unwrap_or_else(|e| {
+        panic!("GET {path} answered {status} with a non-JSON body ({e}): {body}")
+    });
+    (status, json)
+}
+
+/// The health probes, `oxy-server`'s since 2026-11-16 (`core_routes`; were
+/// `oxy-app`'s `build_public_routes`), ride the public seam in BOTH modes,
+/// declared `*` FleetOk as `route_fleet` declared them, and answer with the
+/// bodies they always had.
+#[tokio::test]
+async fn both_modes_mount_the_health_probes() {
+    let decls = surface_seams().public.decls;
+    for path in ["/health", "/ready", "/live", "/version"] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the public seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    for mode in [ServeMode::Cloud, ServeMode::Local] {
+        let router = served(mode).await;
+        assert_eq!(
+            status(&router, &Method::GET, "/health-nothing-mounts-this").await,
+            StatusCode::NOT_FOUND,
+            "control ({mode:?}): an unmounted path must be 404"
+        );
+        assert_eq!(
+            status(&router, &Method::GET, "/live").await,
+            StatusCode::OK,
+            "{mode:?} /live"
+        );
+        // The database is up here, so readiness and health are too.
+        assert_eq!(
+            status(&router, &Method::GET, "/ready").await,
+            StatusCode::OK,
+            "{mode:?} /ready"
+        );
+        let (code, health) = get_json(&router, "/health").await;
+        assert_eq!(code, StatusCode::OK, "{mode:?} /health: {health}");
+        assert_eq!(health["status"], "healthy", "{health}");
+        assert_eq!(health["service"], "oxy", "{health}");
+        assert_eq!(health["database"]["connected"], true, "{health}");
+        assert!(health["timestamp"].is_u64(), "{health}");
+        assert!(
+            health.as_object().unwrap().contains_key("image_tag"),
+            "{health}"
+        );
+        assert!(
+            health["build_info"]["git_commit_short"].is_string(),
+            "{health}"
+        );
+        let (code, version) = get_json(&router, "/version").await;
+        assert_eq!(code, StatusCode::OK, "{mode:?} /version: {version}");
+        assert_eq!(version["service"], "oxy", "{version}");
+        assert!(version.get("version").is_none(), "no semver: {version}");
+        assert!(
+            version.as_object().unwrap().contains_key("image_tag"),
+            "{version}"
+        );
+        assert_eq!(
+            version["build_info"]["git_commit_short"], health["build_info"]["git_commit_short"],
+            "both probes name the same build"
+        );
+        assert!(
+            version["build_info"]["sentry_release"].is_string(),
+            "{version}"
+        );
+    }
+}
+
+/// Route discovery, `oxy-server`'s since 2026-11-16 (`core_routes`; was
+/// `oxy-app`'s `build_catalog_routes`), rides `SurfaceSeams::catalog` at the
+/// protected root in BOTH modes, declared `*` FleetOk, and serves the generated
+/// table. (No auth is configured here, so the caller is the guest user; the
+/// next test forces auth on.)
+#[tokio::test]
+async fn both_modes_serve_the_route_catalog() {
+    let decls = surface_seams().catalog.decls;
+    assert_eq!(
+        decls
+            .iter()
+            .map(|d| (d.method, d.path, d.role))
+            .collect::<Vec<_>>(),
+        vec![("*", "/_catalog", oxy_shared::fleet_role::RouteRole::FleetOk)],
+        "the catalog seam must carry exactly `* /_catalog` as FleetOk"
+    );
+    if db_unavailable() {
+        return;
+    }
+    for mode in [ServeMode::Cloud, ServeMode::Local] {
+        let router = served(mode).await;
+        let (code, catalog) = get_json(&router, "/_catalog").await;
+        assert_eq!(code, StatusCode::OK, "{mode:?}");
+        let routes = catalog["routes"].as_array().expect("routes");
+        assert!(routes.len() > 400, "{mode:?}: {} routes", routes.len());
+        for path in ["/api/_catalog", "/api/health"] {
+            assert!(
+                routes.iter().any(|r| r["path"] == path),
+                "{mode:?}: the served catalog lists {path}"
+            );
+        }
+        let first = &routes[0];
+        for field in [
+            "method",
+            "path",
+            "surface",
+            "credential",
+            "path_parameters",
+            "description",
+            "note",
+            "handler",
+            "role",
+        ] {
+            assert!(
+                first.get(field).is_some(),
+                "{mode:?}: a route lacks `{field}`: {first}"
+            );
+        }
+        assert!(
+            !catalog["surfaces"].as_array().expect("surfaces").is_empty(),
+            "{mode:?}"
+        );
+        assert_eq!(
+            catalog["build"],
+            oxy_app::host::build_identity::build_label(),
+            "{mode:?}"
+        );
+        let (code, filtered) = get_json(&router, "/_catalog?filter=threads").await;
+        assert_eq!(code, StatusCode::OK, "{mode:?}");
+        let narrowed = filtered["routes"].as_array().expect("routes").len();
+        assert!(
+            narrowed > 0 && narrowed < routes.len(),
+            "{mode:?}: ?filter= narrowed to {narrowed}"
+        );
+    }
+}
+
+/// The catalog is a reconnaissance gift, so it sits BEHIND the auth stack, as
+/// it did in `oxy-app`; the probes sit in front of it. Auth is forced on, so a
+/// missing credential cannot fall through to the guest user: cloud mode
+/// refuses the catalog. Local mode's protected tree runs the guest-only stack
+/// (`apply_local_middleware`), which admits the guest whatever is configured,
+/// and the catalog is merged inside it exactly as `build_catalog_routes` was,
+/// so there it answers. The probes answer in both.
+#[tokio::test]
+async fn the_route_catalog_refuses_an_anonymous_caller_and_the_probes_do_not() {
+    if db_unavailable() {
+        return;
+    }
+    oxy_auth::built_in::set_auth_configured(true);
+    for (mode, catalog) in [
+        (ServeMode::Cloud, StatusCode::UNAUTHORIZED),
+        (ServeMode::Local, StatusCode::OK),
+    ] {
+        let router = served(mode).await;
+        assert_eq!(
+            status(&router, &Method::GET, "/_catalog").await,
+            catalog,
+            "{mode:?}: the route table is behind that mode's auth stack"
+        );
+        assert_eq!(
+            status(&router, &Method::GET, "/live").await,
+            StatusCode::OK,
+            "{mode:?}: the probes are outside the auth stack"
+        );
+    }
+}

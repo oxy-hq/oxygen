@@ -12,7 +12,12 @@
 //!   ([`drop`]) — four task kinds ([`tasks`]);
 //! - the held runs' submit and read-back ([`runs`]);
 //! - the TTL sweep that queues drops and compares ([`maintenance`],
-//!   [`background`]).
+//!   [`background`]);
+//! - since 2026-11-16, the staging branch compile's two routes
+//!   ([`compile_staging`], [`workspace_routes`]): `oxyc publish
+//!   --semantic-branch` and `oxyc compile` compile a branch into a revision
+//!   that is never promoted, through the same `compile_request` a preview's
+//!   create and refresh use. They sit inside the workspace tree, not beside it.
 //!
 //! The lower half stays in `oxy-app` (`oxy_app::surface::previews`), because the
 //! workspace runtime and the middleware below this crate read it: the registry
@@ -34,6 +39,7 @@
 pub mod analyze;
 pub mod checks;
 pub mod compare;
+pub mod compile_staging;
 pub mod drop;
 pub mod handlers;
 pub mod maintenance;
@@ -102,6 +108,50 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
         fleet("/runs"),
         fleet("/runs/{run_id}"),
         fleet("/sources"),
+    ];
+    ROLES
+}
+
+/// The workspace seam's share: merged INSIDE `/api/{workspace_id}` (both
+/// modes), where `build_workspace_routes` mounted them, so they keep the
+/// workspace middleware, the subscription guard and the preview read-only
+/// refusal keyed on `/compile/staging`. Unlike [`routes`], which sits beside
+/// that tree.
+///
+/// Staging branch compile for a custom-app draft build to pin
+/// (`oxyc publish --semantic-branch`). The POST asks GitHub where the
+/// branch is and queues a compile of that commit; the status reads
+/// Postgres. Both FleetOk. A branch GitHub does not have is refused
+/// with the reason.
+pub fn workspace_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/compile/staging",
+            post(compile_staging::enqueue_staging_compile),
+        )
+        .route(
+            "/compile/staging/status",
+            get(compile_staging::staging_compile_status),
+        )
+}
+
+/// Pod placement for [`workspace_routes`], relative to the workspace tree:
+/// the two rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk. No
+/// working copy is read: the POST compiles the commit GitHub has (a branch
+/// only a working copy has is replayed to the Factory), the status is a
+/// Postgres read.
+pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
+    const ROLES: &[RouteRoleDecl] = &[
+        RouteRoleDecl {
+            method: "*",
+            path: "/compile/staging",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "*",
+            path: "/compile/staging/status",
+            role: RouteRole::FleetOk,
+        },
     ];
     ROLES
 }
@@ -204,5 +254,72 @@ mod tests {
         .map(|p| ("*", p, RouteRole::FleetOk))
         .collect();
         assert_eq!(declared, want);
+    }
+
+    /// Moved from `oxy-app`'s `role_manifest_tests::
+    /// compiling_a_branch_for_a_staging_build_is_fleet_ok` with the routes.
+    /// Staging a branch for a custom-app build looks the branch up on GitHub
+    /// and queues a compile of that commit; no working copy is read, so it
+    /// must not need the ide. Declared, not defaulted: an undeclared path
+    /// answers FleetOk too, so each path must be DECLARED, FleetOk for every
+    /// method, and classify that way.
+    #[test]
+    fn compiling_a_branch_for_a_staging_build_is_fleet_ok() {
+        use oxy_app::surface::roles::declared_role_in;
+        let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
+        let decls: Vec<_> = workspace_route_roles()
+            .iter()
+            .map(|d| (d.method, format!("/api/{{workspace_id}}{}", d.path), d.role))
+            .collect();
+        for path in ["/compile/staging", "/compile/staging/status"] {
+            let declared: Vec<_> = workspace_route_roles()
+                .iter()
+                .filter(|d| d.path == path)
+                .map(|d| (d.method, d.role))
+                .collect();
+            assert!(!declared.is_empty(), "{path} is declared");
+            assert!(
+                declared.iter().all(|d| *d == ("*", RouteRole::FleetOk)),
+                "{path} is FleetOk for every method: {declared:?}"
+            );
+            for method in ["GET", "POST"] {
+                let uri = format!("/api/{ws}{path}");
+                assert_eq!(
+                    declared_role_in(&decls, method, &uri),
+                    Some(RouteRole::FleetOk),
+                    "{method} {uri}"
+                );
+            }
+        }
+    }
+
+    /// Both routes are mounted where the declarations say. TRACE, which neither
+    /// takes, answers 405 from a mounted path and 404 from an unmounted one,
+    /// without running a handler.
+    #[tokio::test]
+    async fn the_staging_compile_routes_are_mounted() {
+        use axum::body::Body;
+        use axum::http::{Method, Request, StatusCode};
+        use tower::ServiceExt;
+        let router = workspace_routes().with_state(oxy_app::surface::bare_app_state());
+        for (uri, want) in [
+            ("/compile/staging", StatusCode::METHOD_NOT_ALLOWED),
+            ("/compile/staging/status", StatusCode::METHOD_NOT_ALLOWED),
+            ("/compile/nothing-mounts-this", StatusCode::NOT_FOUND),
+        ] {
+            let got = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::TRACE)
+                        .uri(uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status();
+            assert_eq!(got, want, "{uri}");
+        }
     }
 }

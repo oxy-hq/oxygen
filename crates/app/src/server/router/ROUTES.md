@@ -9,7 +9,7 @@ mounted under `/api` by [`crate::cli::commands::serve`].
 |---|---|
 | [`mod.rs`](./mod.rs) | `AppState`, `WorkspaceExtractor`, shared `build_cors_layer`, router tests |
 | [`entry.rs`](./entry.rs) | `api_router` / `internal_api_router` — assembles the full router, applies CORS, timeout, Sentry |
-| [`public.rs`](./public.rs) | Routes with no *user session* gate (health, the Stripe webhook receiver and the OAuth callbacks; the other receivers — Slack, Toast's `POST /webhooks/toast/orders` (`oxy-api-world-model`), the GitHub App's `POST /webhooks/github` (`oxy-api-github`) and `POST /webhooks/apps/{org}/{app}/{fn}` with its non-production twin `POST /webhooks/apps-env/{environment}/{org}/{app}/{fn}` — are merged beside it through `SurfaceSeams::public`, and authenticate the sender by HMAC instead) |
+| [`public.rs`](./public.rs) | Routes with no *user session* gate (the Stripe webhook receiver and the OAuth callbacks; the health probes are `oxy-server`'s `core_routes` and, like the other receivers — Slack, Toast's `POST /webhooks/toast/orders` (`oxy-api-world-model`), the GitHub App's `POST /webhooks/github` (`oxy-api-github`) and `POST /webhooks/apps/{org}/{app}/{fn}` with its non-production twin `POST /webhooks/apps-env/{environment}/{org}/{app}/{fn}` — are merged beside it through `SurfaceSeams::public`, and authenticate the sender by HMAC instead) |
 | [`global.rs`](./global.rs) | Cloud-only flat routes (chat, work, the admin console; logout is `oxy-api-identity`'s) |
 | [`workspace.rs`](./workspace.rs) | The `/{workspace_id}/…` tree and every per-resource sub-builder |
 | [`protected.rs`](./protected.rs) | Cloud/local composition: which route sets are mounted and which middleware wraps them |

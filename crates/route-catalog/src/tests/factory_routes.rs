@@ -182,6 +182,7 @@ fn served_declarations() -> Vec<(&'static str, String, RouteRole)> {
     let mut decls = oxy_app::server::router::route_declarations();
     let workspace_seam = oxy_api_tenancy::onboarding::workspace_route_roles()
         .iter()
+        .chain(oxy_api_tenancy::workspace_route_roles())
         .chain(oxy_api_airway::route_roles())
         .chain(oxy_api_custom_apps::workspace_route_roles())
         .chain(oxy_api_experiment::workspace_route_roles())

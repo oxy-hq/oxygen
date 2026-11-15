@@ -117,9 +117,9 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
 ];
 
-/// Files below `oxy-app` that write a row but cannot name the invalidator,
+/// Files below the cache that write a row but cannot name the invalidator,
 /// because the cache lives above them — so they take the flush as a callback
-/// and `oxy-app` wraps them. `(writer, wrapper, why)`.
+/// and the cache's own crate wraps them. `(writer, wrapper, why)`.
 ///
 /// Not an exemption: the writer is excused only while its WRAPPER calls the
 /// invalidator, so the obligation moves to a file this test still checks
@@ -127,10 +127,10 @@ const ALLOWED: &[(&str, &str)] = &[
 /// mandatory, so a caller cannot skip it by omission either.
 const DELEGATED: &[(&str, &str, &str)] = &[(
     "tenancy/src/org_teams/service.rs",
-    "app/src/server/api/org_teams/service.rs",
+    "custom-apps/src/app_access.rs",
     "`write_access` updates `apps.visibility` and runs a caller-supplied \
-     `on_committed`; oxy-app's 4-arg wrapper, which every surface calls, \
-     passes `invalidate_app_resolution_cache`",
+     `on_committed`; `oxy_custom_apps::app_access`'s 4-arg wrapper, which \
+     every surface calls, passes `invalidate_app_resolution_cache`",
 )];
 
 /// The seed commands, which are the only row writers outside the server. They

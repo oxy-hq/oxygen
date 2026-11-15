@@ -338,7 +338,7 @@ pub mod testing {
     pub use crate::server::api::admin::app_publish_tokens;
     pub use crate::server::api::middlewares::{app_publish_token_scope, workspace_context};
     pub use crate::server::api::{
-        billing, compile_staging, compiled_reader, custom_apps_gates, data, projects, semantic,
+        billing, compiled_reader, custom_apps_gates, data, projects, semantic,
     };
     pub use crate::server::router::{
         SurfaceSeam, SurfaceSeams, api_router, external_auth_layers, flat_api_surface,

@@ -21,7 +21,7 @@ use oxy::database::client::establish_connection;
 use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 
-use crate::server::api::middlewares::role_guards::{OrgAdmin, OrgAdminStrict};
+use oxy_app::surface::role_guards::{OrgAdmin, OrgAdminStrict};
 use oxy_app_core::audit::{self, AuditEntry};
 
 #[derive(Serialize)]

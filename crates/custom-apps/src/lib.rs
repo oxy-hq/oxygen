@@ -57,6 +57,7 @@
 
 pub mod agent;
 pub mod agent_built;
+pub mod app_access;
 pub mod asset_manifest;
 pub use oxy_app_core::audience;
 pub mod auth;

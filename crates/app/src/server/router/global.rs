@@ -186,11 +186,10 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
         // behind them live in the `oxy-api-frontline` sibling crate, which
         // re-applies this tree's `org_middleware` + subscription guard and
         // declares them FleetOk.
-        .route_fleet(
-            "/partner-publish-consent",
-            get(crate::server::api::partner_publish_consent::get_consent)
-                .put(crate::server::api::partner_publish_consent::set_consent),
-        )
+        // The client's partner-publish consent switch
+        // (`/partner-publish-consent`) is `oxy-api-tenancy`'s since 2026-11-16,
+        // in its org tree with this tree's `org_middleware` + subscription
+        // guard re-applied, declared FleetOk there.
         // Organization → API access (service accounts, their tokens, the
         // inventory of every token reaching the org, its token policy) is
         // `oxy-api-identity`'s, merged through `SurfaceSeams::api` with this

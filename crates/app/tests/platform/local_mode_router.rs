@@ -26,11 +26,14 @@ fn db_unavailable() -> bool {
 // real paths in `oxy-server`'s `served_router_tests`, which builds this router
 // from the seams boot hands it.
 
+// Was `local_router_has_public_liveness_route` (`GET /live` = 200). The probes
+// are `oxy-server`'s since 2026-11-16 (`core_routes`), so a router built with
+// `SurfaceSeams::empty()` no longer has `/live`;
+// `served_router_tests::both_modes_mount_the_health_probes` holds it on the
+// served router. What this asks of the local router is the same: its public
+// tree is mounted.
 #[tokio::test]
-async fn local_router_has_public_liveness_route() {
-    // Use /live instead of /health: /health returns 503 when DB is unreachable
-    // (which is the case in unit tests); /live is the unconditional liveness
-    // endpoint and always returns 200.
+async fn local_router_has_its_public_tree() {
     if db_unavailable() {
         return;
     }
@@ -45,9 +48,20 @@ async fn local_router_has_public_liveness_route() {
     )
     .await
     .expect("build router");
-    let req = Request::builder().uri("/live").body(Body::empty()).unwrap();
-    let resp = router.oneshot(req).await.expect("oneshot");
-    assert_eq!(resp.status(), StatusCode::OK);
+    // The Stripe webhook is public-tree and POST only: TRACE gets 405 where it
+    // is mounted and 404 where it is not, without reaching the handler.
+    for (uri, want) in [
+        ("/webhooks/stripe", StatusCode::METHOD_NOT_ALLOWED),
+        ("/webhooks/nothing-mounts-this", StatusCode::NOT_FOUND),
+    ] {
+        let req = Request::builder()
+            .method(axum::http::Method::TRACE)
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.expect("oneshot");
+        assert_eq!(resp.status(), want, "{uri}");
+    }
 }
 
 // Cloud-mode 404 coverage for /setup/* lives in router/workspace.rs

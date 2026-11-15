@@ -1,16 +1,19 @@
 //! The HTTP route table, generated.
 //!
-//! `oxy-app` owns the [`GeneratedRoute`] / [`RouteCatalog`] types and the
-//! `GET /api/_catalog` handler; this crate owns the DATA, produced by
-//! `build.rs` from the router source of `oxy-app` and every surface crate.
-//! `oxy-server` hands [`catalog()`] to `oxy-app` through `SurfaceSeams`.
+//! `oxy-app` owns the [`GeneratedRoute`] / [`RouteCatalog`] types and
+//! `oxy-server` the `GET /api/_catalog` handler (since 2026-11-16); this crate
+//! owns the DATA, produced by `build.rs` from the router source of `oxy-app`,
+//! every surface crate and the binary's `core_routes`. `oxy-server` binds
+//! [`catalog()`] into its handler and hands the mount to `oxy-app` through
+//! `SurfaceSeams::catalog`.
 //!
 //! Why the split: the build script must read every surface crate, and as
 //! `oxy-app`'s build script that made each surface edit recompile `oxy-app`.
 //! Above both, an edit re-runs only this script
 //! (`internal-docs/domain-boundaries.md` S7).
 //!
-//! The completeness tests live here, beside the table they read.
+//! The completeness tests live here, beside the table they read; the
+//! handler's are `oxy-server`'s `catalog_tests`.
 
 use oxy_app::server::route_catalog::{GeneratedRoute, RouteCatalog};
 

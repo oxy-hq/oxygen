@@ -402,8 +402,12 @@ mod router_split_tests {
     // pair moved to `oxy-server`'s `served_router_tests`, which builds this
     // router from the seams boot hands it.
 
+    // Was `local_router_serves_health` (`GET /live` = 200). The probes are
+    // `oxy-server`'s since 2026-11-16 and absent from an empty-seam router;
+    // `served_router_tests::both_modes_mount_the_health_probes` holds `/live`
+    // on the served one.
     #[tokio::test]
-    async fn local_router_serves_health() {
+    async fn local_router_mounts_the_public_tree() {
         if db_unavailable() {
             return;
         }
@@ -418,11 +422,29 @@ mod router_split_tests {
         )
         .await
         .expect("router built");
-        // /live always returns 200 regardless of DB availability — confirms
-        // that public routes are mounted on the local router.
-        let req = Request::builder().uri("/live").body(Body::empty()).unwrap();
-        let resp = router.oneshot(req).await.expect("oneshot");
-        assert_eq!(resp.status(), StatusCode::OK);
+        // The Stripe webhook is public-tree, POST only: TRACE gets 405 where it
+        // is mounted and 404 where it is not, without reaching the handler.
+        // That confirms public routes are mounted on the local router.
+        let trace = |uri: &'static str| {
+            let router = router.clone();
+            async move {
+                let req = Request::builder()
+                    .method(axum::http::Method::TRACE)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap();
+                router.oneshot(req).await.expect("oneshot").status()
+            }
+        };
+        assert_eq!(
+            trace("/webhooks/stripe").await,
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+        assert_eq!(
+            trace("/webhooks/nothing-mounts-this").await,
+            StatusCode::NOT_FOUND,
+            "control"
+        );
     }
 
     #[tokio::test]

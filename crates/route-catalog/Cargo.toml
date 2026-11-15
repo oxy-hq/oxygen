@@ -8,8 +8,9 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# The `GeneratedRoute` / `RouteCatalog` types and the handler live in oxy-app;
-# this crate only owns the generated data and the tests that read it.
+# The `GeneratedRoute` / `RouteCatalog` types live in oxy-app and the handler in
+# oxy-server (`core_routes`); this crate only owns the generated data and the
+# tests that read it.
 oxy-app = { path = "../app", default-features = false }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
@@ -30,7 +31,6 @@ oxy-api-workspace-config = { path = "../api-workspace-config" }
 oxy-api-identity = { path = "../api-identity" }
 axum = { workspace = true }
 uuid = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true

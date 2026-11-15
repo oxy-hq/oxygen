@@ -1,12 +1,13 @@
-//! `GET /api/_catalog` handler tests — moved from `oxy-app`'s
-//! `server::api::catalog`, since they need the generated table.
+//! `GET /api/_catalog` handler tests. Moved from `oxy-app`'s
+//! `server::api::catalog` into `oxy-route-catalog`, since they need the
+//! generated table, and on into this binary with the handler (2026-11-16).
 
 use axum::Json;
 use axum::extract::Query;
-use oxy_app::server::api::catalog::{CatalogQuery, get_catalog};
-use oxy_app::server::route_catalog::searchable_fields;
+use oxy_app::host::route_catalog::searchable_fields;
+use oxy_route_catalog::catalog;
 
-use crate::catalog;
+use crate::core_routes::catalog::{CatalogQuery, get_catalog};
 
 /// The endpoint's whole job is to be non-empty and to carry both surfaces.
 /// An empty catalog is indistinguishable, on the client, from "this

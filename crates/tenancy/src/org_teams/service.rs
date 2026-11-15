@@ -287,7 +287,7 @@ pub fn to_team_dto(t: org_teams::Model, counts: &HashMap<Uuid, u64>) -> TeamDto 
 /// the old grants (the custom-app access and app-resolution caches). Those live
 /// in `oxy-app`, above this crate, so they are passed in rather than reached
 /// for — explicitly, never a registered global, so a caller cannot forget
-/// them by omission. `oxy-app`'s `org_teams::service::write_access` is the
+/// them by omission. `oxy_custom_apps::app_access::write_access` is the
 /// wrapper every surface uses; it passes both.
 pub async fn write_access(
     db: &DatabaseConnection,

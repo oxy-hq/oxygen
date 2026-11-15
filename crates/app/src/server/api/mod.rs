@@ -7,10 +7,13 @@ pub mod auth;
 // moved to the `oxy-api-automations` sibling crate, mounted by `oxy-server` on
 // the workspace seam. oxy-app no longer depends on them.
 pub mod billing;
-pub mod catalog;
+// `catalog` (`GET /_catalog`) and `healthcheck` (`/health`, `/ready`, `/live`,
+// `/version`) moved UP into `oxy-server` (`core_routes`, 2026-11-16), mounted
+// through `SurfaceSeams::catalog` and `::public`.
 pub mod chart;
 pub mod compile;
-pub mod compile_staging;
+// `compile_staging` (`/compile/staging` and its status) moved to
+// `oxy-api-previews` (2026-11-16), mounted on the workspace seam.
 /// Moved to `oxy-app-core`; the old path stays so no call site changes.
 pub use oxy_app_core::agent_body as custom_apps_agent_body;
 #[cfg(test)]
@@ -63,15 +66,15 @@ pub mod data;
 // The GitHub HTTP surface moved to the `oxy-api-github` sibling crate, mounted by
 // `oxy-server`. oxy-app no longer depends on it.
 pub mod chat;
-pub mod healthcheck;
-pub mod integration;
+// `integration` (the Looker listing, `/integrations/looker`) moved to
+// `oxy-api-workspace-config` (2026-11-16), mounted on the workspace seam.
 pub mod local_setup;
 // Lowered into the domain crate; re-exported so every `server::api::` path holds.
 pub use oxy_metric_monitoring::{metric_tree_baseline, metric_tree_groups, metric_tree_inputs};
 pub mod middlewares;
-pub mod org_subdomain;
-pub mod org_teams;
-pub mod partner_publish_consent;
+// `org_teams` (the cache-flushing `write_access` wrapper, the last of it) went
+// down into `oxy-custom-apps` as `app_access`; the handlers are
+// `oxy-api-tenancy`'s and the service `oxy-tenancy`'s.
 pub mod preagg;
 pub mod projects;
 pub mod result_files;
@@ -85,7 +88,9 @@ pub mod typed_stream;
 // `video` (the UniFi camera list and the weather tiles and readings) moved to
 // the `oxy-api-world-model` sibling crate, mounted by `oxy-server` on the
 // workspace and external seams. oxy-app no longer depends on it.
-pub mod workspace_logo;
+// `org_subdomain`, `workspace_logo` and `partner_publish_consent` moved to
+// `oxy-api-tenancy` (2026-11-16), mounted by `oxy-server` on the workspace
+// and api seams.
 pub mod workspace_members;
 pub mod workspace_org;
 pub mod workspace_oxy_access;

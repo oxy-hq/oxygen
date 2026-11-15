@@ -136,17 +136,26 @@ const SEEDS: &[Seed] = &[
         module: "public",
         function: "build_public_routes",
     },
-    // Route discovery itself. Its own seed because `build_protected_routes`
-    // (where it is merged) is deliberately NOT one — that function composes the
-    // global and workspace trees, which are seeded separately, so seeding it
-    // too would double-count every route beneath it. Without this entry the
+    // The health probes, `oxy-server`'s since 2026-11-16 (`core_routes`),
+    // ride `SurfaceSeams::public`, beside the public tree.
+    Seed {
+        surface: "public",
+        prefix: "/api",
+        module: "oxy_server::core_routes",
+        function: "public_routes",
+    },
+    // Route discovery itself, `oxy-server`'s since 2026-11-16, on
+    // `SurfaceSeams::catalog` at the protected root. Its own seed: the
+    // protected tree's builder (`build_protected_routes`, where the seam is
+    // merged) is deliberately NOT one, since it composes the global and
+    // workspace trees, which are seeded separately. Without this entry the
     // one endpoint missing from the endpoint list would be the endpoint that
     // serves the list.
     Seed {
         surface: "org",
         prefix: "/api",
-        module: "protected",
-        function: "build_catalog_routes",
+        module: "oxy_server::core_routes",
+        function: "catalog_routes",
     },
     Seed {
         surface: "org",
@@ -168,6 +177,15 @@ const SEEDS: &[Seed] = &[
         prefix: "/api/{workspace_id}/previews",
         module: "oxy_api_previews",
         function: "routes",
+    },
+    // ...and, since 2026-11-16, the staging branch compile
+    // (`oxy_api_previews::workspace_routes`), which rides
+    // `SurfaceSeams::workspace` INSIDE the tree, out of `build_workspace_routes`.
+    Seed {
+        surface: "workspace",
+        prefix: "/api/{workspace_id}",
+        module: "oxy_api_previews",
+        function: "workspace_routes",
     },
     Seed {
         surface: "cameras",
@@ -356,6 +374,14 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_tenancy::onboarding",
         function: "workspace_routes",
     },
+    // ...and, since 2026-11-16, the org subdomain's status and the logo
+    // (`oxy_api_tenancy::workspace_routes`), out of `build_workspace_routes`.
+    Seed {
+        surface: "workspace",
+        prefix: "/api/{workspace_id}",
+        module: "oxy_api_tenancy",
+        function: "workspace_routes",
+    },
     Seed {
         surface: "workspace",
         prefix: "/api/{workspace_id}",
@@ -499,6 +525,10 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-observability/src",
     "crates/api-automations/src",
     "crates/api-workspace-config/src",
+    // The health probes and route discovery, `oxy-server`'s since
+    // 2026-11-16. The one directory, not the binary's `src`: that would
+    // pull `serve`'s Swagger mount and the test routers into the walk.
+    "crates/server/src/core_routes",
     // `crates/oltp/src/api`, not the whole crate: every handler the OLTP routes
     // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
     // the wider path would only pull ~15 unrelated modules (`provisioner`,
@@ -539,6 +569,10 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-observability/src",
     "crates/api-automations/src",
     "crates/api-workspace-config/src",
+    // The health probes and route discovery, `oxy-server`'s since
+    // 2026-11-16. The one directory, not the binary's `src`: that would
+    // pull `serve`'s Swagger mount and the test routers into the walk.
+    "crates/server/src/core_routes",
     // Mounts `/oltp/me/connection` and `/oltp/me/erd`, merged into the served
     // app as `oxy_oltp::api::router` — `role_manifest.rs` asserts that merge.
     // Missing here since #2851, so both routes were live and absent from the

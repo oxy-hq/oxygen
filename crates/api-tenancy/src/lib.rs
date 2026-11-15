@@ -12,9 +12,16 @@
 //!
 //! `oxy-server` mounts it through the seams: [`routes`] and the onboarding /
 //! partner-console routers through `SurfaceSeams::api`, onboarding's
-//! workspace half through `::workspace`, the staff console's org and
-//! workspace sections through `::admin` ([`admin_sections`]), and the
-//! documented operations through `::openapi` ([`openapi`]).
+//! workspace half and [`workspace_routes`] through `::workspace`, the staff
+//! console's org and workspace sections through `::admin`
+//! ([`admin_sections`]), and the documented operations through `::openapi`
+//! ([`openapi`]).
+//!
+//! Since 2026-11-16 it also holds three leaves that were still in `oxy-app`'s
+//! `server/api/`: the org's partner-publish consent switch
+//! ([`partner_publish_consent`], under `/orgs/{org_id}`), and two
+//! workspace-scoped reads of the org a workspace belongs to, its subdomain's
+//! status ([`org_subdomain`]) and its uploaded logo ([`workspace_logo`]).
 
 // Laying out `create_org`'s future takes 103 of rustc's default query depth of
 // 128 at opt-level 3 (measured in #3476), and the `--release` build that produces
@@ -24,9 +31,12 @@
 pub mod admin;
 pub mod onboarding;
 pub mod org_logo;
+pub mod org_subdomain;
 pub mod org_teams;
 pub mod organizations;
 pub mod partner_console;
+pub mod partner_publish_consent;
+pub mod workspace_logo;
 pub mod workspace_provisioning;
 
 use axum::Router;
@@ -34,6 +44,7 @@ use axum::middleware::from_fn;
 use axum::routing::{delete, get, patch, post, put};
 use oxy_app::surface::{AdminSection, org_middleware, subscription_guard_middleware};
 use oxy_app_core::AppState;
+use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 /// The [`Caller`](oxy_server_authz::Caller) behind a request's actor: its user
 /// and the key or token it authenticated with — what every email-keyed
@@ -50,7 +61,10 @@ pub(crate) fn caller_of(actor: &oxy_app_core::audit::RequestActor) -> oxy_server
 /// their middleware unchanged: the org subtree runs `org_middleware` (which
 /// resolves `{org_id}` into the `OrgContext` the guards read) and then the
 /// subscription guard — `.layer` is outermost-last, so the order below is the
-/// request order reversed. All Postgres, so all FleetOk: no declarations.
+/// request order reversed. All Postgres, so all FleetOk. The routes moved
+/// in by #3460 take the FleetOk default; the consent switch, which left
+/// `oxy-app` later, keeps the declaration `route_fleet` gave it
+/// ([`route_roles`]).
 pub fn routes() -> Router<AppState> {
     Router::new()
         // Read-only. Customers do not create orgs: Oxy staff (`POST
@@ -121,6 +135,46 @@ fn org_routes() -> Router<AppState> {
             "/apps/{app_id}/access",
             get(org_teams::app_access::get_app_access).put(org_teams::app_access::set_app_access),
         )
+        .route(
+            "/partner-publish-consent",
+            get(partner_publish_consent::get_consent).put(partner_publish_consent::set_consent),
+        )
+}
+
+const fn fleet(path: &'static str) -> RouteRoleDecl {
+    RouteRoleDecl {
+        method: "*",
+        path,
+        role: RouteRole::FleetOk,
+    }
+}
+
+/// Pod placement for [`routes`], relative to `/api`: the client's opt-in for
+/// partner publishing (behind the subscription guard like the rest of the org
+/// tree, as `build_org_routes` had it; the read takes `OrgAdmin`, the write the
+/// strict officer guard), FleetOk
+/// for every method as `oxy-app`'s `route_fleet` declared it (one Postgres row
+/// and its audit). The rest of [`routes`] takes the FleetOk default.
+pub fn route_roles() -> &'static [RouteRoleDecl] {
+    const ROLES: &[RouteRoleDecl] = &[fleet("/orgs/{org_id}/partner-publish-consent")];
+    ROLES
+}
+
+/// The workspace seam's share, merged inside `/api/{workspace_id}` (both
+/// modes), where `build_workspace_routes` mounted them: the org subdomain's
+/// read-only status (owner-only, in the handler) and the org's uploaded logo.
+/// Both read Postgres only.
+pub fn workspace_routes() -> Router<AppState> {
+    Router::new()
+        .route("/org-subdomain", get(org_subdomain::get_org_subdomain))
+        .route("/logo", get(workspace_logo::get_workspace_logo))
+}
+
+/// Pod placement for [`workspace_routes`], relative to the workspace tree:
+/// the two rows `oxy-app`'s `route_fleet` declared, method `*`, FleetOk.
+pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
+    const ROLES: &[RouteRoleDecl] = &[fleet("/org-subdomain"), fleet("/logo")];
+    ROLES
 }
 
 /// The staff console's org and workspace administration, mounted under
@@ -152,7 +206,8 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
-    use axum::http::{Request, StatusCode};
+    use axum::http::{Method, Request, StatusCode};
+    use oxy_shared::fleet_role::RouteRole;
     use tower::ServiceExt;
 
     /// Customers do not create orgs — staff and partners onboard them — so
@@ -171,6 +226,117 @@ mod tests {
             resp.status(),
             StatusCode::METHOD_NOT_ALLOWED,
             "POST /orgs must not reach a handler"
+        );
+    }
+
+    async fn trace(router: &axum::Router, uri: &str) -> StatusCode {
+        router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::TRACE)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+    }
+
+    /// The three routes that left `oxy-app` on 2026-11-16 were `route_fleet`
+    /// there. Here the role is a declaration, so hold it: each is DECLARED
+    /// FleetOk for every method, exactly once — not merely unclassified, which
+    /// `classify` also answers FleetOk and is what a dropped row looks like.
+    #[test]
+    fn the_leaves_from_oxy_app_are_declared_fleet_ok_exactly_once() {
+        for (declared, want) in [
+            (
+                super::route_roles(),
+                vec!["/orgs/{org_id}/partner-publish-consent"],
+            ),
+            (
+                super::workspace_route_roles(),
+                vec!["/org-subdomain", "/logo"],
+            ),
+        ] {
+            let got: Vec<_> = declared.iter().map(|d| d.path).collect();
+            assert_eq!(got, want);
+            for decl in declared {
+                assert_eq!(
+                    (decl.method, decl.role),
+                    ("*", RouteRole::FleetOk),
+                    "{}",
+                    decl.path
+                );
+            }
+        }
+    }
+
+    /// Moved from `oxy-app`'s `role_manifest_tests::org_subdomain_routes_are_fleet_ok`
+    /// (its workspace half; the staff half, `/admin/orgs/{id}/subdomain`, is
+    /// still `oxy-app`'s), which asked `classify` and would now pass on the
+    /// FleetOk default. Classified against this crate's declarations, as the
+    /// served router installs them, so a dropped row fails. The logo and the
+    /// consent switch are held the same way.
+    #[test]
+    fn the_leaves_classify_fleet_ok_against_their_declarations() {
+        use oxy_app::surface::roles::declared_role_in;
+        let id = "d9830be4-c6a4";
+        let api: Vec<_> = super::route_roles()
+            .iter()
+            .map(|d| (d.method, format!("/api{}", d.path), d.role))
+            .collect();
+        let ws: Vec<_> = super::workspace_route_roles()
+            .iter()
+            .map(|d| (d.method, format!("/api/{{workspace_id}}{}", d.path), d.role))
+            .collect();
+        for (decls, method, uri) in [
+            // Customer read-only status (workspace-scoped). Postgres only (read
+            // workspace -> org, then the `org_subdomains` row), no workspace FS,
+            // so any replica serves it, like `oxy-access`. See
+            // `internal-docs/org-subdomain-infra.md`.
+            (&ws, "GET", format!("/api/{id}/org-subdomain")),
+            (&ws, "GET", format!("/api/{id}/logo")),
+            (
+                &api,
+                "GET",
+                format!("/api/orgs/{id}/partner-publish-consent"),
+            ),
+            (
+                &api,
+                "PUT",
+                format!("/api/orgs/{id}/partner-publish-consent"),
+            ),
+        ] {
+            assert_eq!(
+                declared_role_in(decls, method, &uri),
+                Some(RouteRole::FleetOk),
+                "{method} {uri} must match a FleetOk declaration"
+            );
+        }
+    }
+
+    /// A declaration with no route behind it (or a route moved without its
+    /// declaration) leaves the two lists disagreeing. TRACE, which no route
+    /// here takes, answers 405 from a mounted path and 404 from an unmounted
+    /// one, without running a handler. The consent switch sits behind the org
+    /// middleware, which answers first for an org it cannot parse, so it is
+    /// probed through the served router in `oxy-server` instead.
+    #[tokio::test]
+    async fn the_workspace_routes_are_mounted() {
+        let router = super::workspace_routes().with_state(oxy_app::surface::bare_app_state());
+        for uri in ["/org-subdomain", "/logo"] {
+            assert_eq!(
+                trace(&router, uri).await,
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{uri}: not mounted"
+            );
+        }
+        assert_eq!(
+            trace(&router, "/nothing-mounts-this").await,
+            StatusCode::NOT_FOUND,
+            "control"
         );
     }
 }

@@ -70,6 +70,11 @@ include_dir = { workspace = true }
 oxy-auth = { workspace = true }
 oxy-shared = { workspace = true }
 sea-orm = { workspace = true }
+# The health probes and route discovery (`core_routes`): their bodies, their
+# OpenAPI operations and the probes' share of the served document.
+serde = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
 tokio-util = { workspace = true }
 tower-serve-static = { workspace = true }
 url = { workspace = true }
@@ -120,9 +125,6 @@ futures = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
 oxy-server-authz = { workspace = true }
-# `the_two_query_response_schemas_stayed_distinct` reads the served document's
-# components, which only the composition root assembles.
-utoipa = { workspace = true }
 
 [lints]
 workspace = true

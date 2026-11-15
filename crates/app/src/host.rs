@@ -44,6 +44,22 @@ pub mod feature_flags {
     pub use crate::server::feature_flags::cache::init;
 }
 
+/// Which build this process is: the image tag and the build information
+/// `oxy-app`'s build script stamps (`GIT_HASH`, `BUILD_TIMESTAMP`, the
+/// `GITHUB_*` run). The health probes (`/api/version`, `/api/health`) and
+/// route discovery (`/api/_catalog`'s `build`) report it, from `oxy-server`
+/// since 2026-11-16; `oxy migrate`'s report reads it here too.
+pub mod build_identity {
+    pub use crate::server::build_identity::{BuildInfo, build_info, build_label, image_tag};
+}
+
+/// The route table's types, as `GET /api/_catalog` (`oxy-server`'s since
+/// 2026-11-16) answers with them: the table `oxy-route-catalog` generates, one
+/// route as the response describes it, and the fields `?filter=` matches.
+pub mod route_catalog {
+    pub use crate::server::route_catalog::{RouteCatalog, RouteDescription, searchable_fields};
+}
+
 /// The router `serve` mounts, and the seams `oxy-server` composes into it.
 pub mod router {
     pub use crate::server::router::{

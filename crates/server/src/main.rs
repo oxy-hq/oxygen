@@ -11,8 +11,13 @@
 #[cfg(feature = "dev-dynamic")]
 extern crate oxy_app_dylib as _;
 
+#[cfg(test)]
+mod catalog_tests;
 mod commands;
+mod core_routes;
 mod custom_apps_seams;
+#[cfg(test)]
+mod healthcheck_tests;
 mod logging;
 #[cfg(test)]
 mod recursion_limit_guard;
@@ -140,7 +145,8 @@ fn api_seam_routes() -> SeamRouter {
 
 /// The sibling crates merged beside the public tree, outside the auth stack.
 fn public_seam_routes() -> SeamRouter {
-    oxy_api_frontline::public_routes()
+    core_routes::public_routes()
+        .merge(oxy_api_frontline::public_routes())
         .merge(oxy_api_identity::public_routes())
         .merge(oxy_api_custom_apps::public_routes())
         .merge(oxy_api_slack::public_routes())
@@ -151,6 +157,7 @@ fn public_seam_routes() -> SeamRouter {
 /// The sibling crates merged inside the `/{workspace_id}` nest.
 fn workspace_seam_routes() -> SeamRouter {
     oxy_api_tenancy::onboarding::workspace_routes()
+        .merge(oxy_api_tenancy::workspace_routes())
         .merge(oxy_api_airway::routes())
         .merge(oxy_api_custom_apps::workspace_routes())
         .merge(oxy_api_experiment::workspace_routes())
@@ -159,6 +166,7 @@ fn workspace_seam_routes() -> SeamRouter {
         .merge(oxy_api_observability::workspace_routes())
         .merge(oxy_api_automations::workspace_routes())
         .merge(oxy_api_workspace_config::workspace_routes())
+        .merge(oxy_api_previews::workspace_routes())
         .merge(oxy_api_identity::workspace_routes())
 }
 
@@ -288,6 +296,7 @@ fn surface_seams() -> SurfaceSeams {
             routes: api_seam_routes(),
             decls: oxy_api_tenancy::onboarding::route_roles()
                 .iter()
+                .chain(oxy_api_tenancy::route_roles())
                 .chain(oxy_api_tenancy::partner_console::route_roles())
                 .chain(oxy_api_documents::route_roles())
                 .chain(oxy_api_frontline::route_roles())
@@ -303,6 +312,7 @@ fn surface_seams() -> SurfaceSeams {
             routes: workspace_seam_routes(),
             decls: oxy_api_tenancy::onboarding::workspace_route_roles()
                 .iter()
+                .chain(oxy_api_tenancy::workspace_route_roles())
                 .chain(oxy_api_airway::route_roles())
                 .chain(oxy_api_custom_apps::workspace_route_roles())
                 .chain(oxy_api_experiment::workspace_route_roles())
@@ -311,6 +321,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_observability::workspace_route_roles())
                 .chain(oxy_api_automations::workspace_route_roles())
                 .chain(oxy_api_workspace_config::workspace_route_roles())
+                .chain(oxy_api_previews::workspace_route_roles())
                 .chain(oxy_api_identity::workspace_route_roles())
                 .copied()
                 .collect(),
@@ -323,8 +334,9 @@ fn surface_seams() -> SurfaceSeams {
         },
         public: SurfaceSeam {
             routes: public_seam_routes(),
-            decls: oxy_api_frontline::public_route_roles()
+            decls: core_routes::public_route_roles()
                 .iter()
+                .chain(oxy_api_frontline::public_route_roles())
                 .chain(oxy_api_identity::public_route_roles())
                 .chain(oxy_api_custom_apps::public_route_roles())
                 .chain(oxy_api_slack::public_route_roles())
@@ -335,10 +347,14 @@ fn surface_seams() -> SurfaceSeams {
         },
         // Routes only: the curated external tree carries no declarations.
         external: external_seam_routes(),
-        // The route table `/api/_catalog` serves, generated above oxy-app (see
-        // `oxy-route-catalog`). Passed, not global: a composition that dropped
-        // it would serve an empty catalog.
-        catalog: oxy_route_catalog::catalog(),
+        // `/api/_catalog`, with the route table it serves bound in: the table
+        // is generated above oxy-app (see `oxy-route-catalog`), and the
+        // handler is this binary's (`core_routes`). Passed, not global: a
+        // composition that dropped it would serve no catalog at all.
+        catalog: SurfaceSeam {
+            routes: core_routes::catalog_routes(oxy_route_catalog::catalog()),
+            decls: core_routes::catalog_route_roles().to_vec(),
+        },
         // Staff-console sections, each behind the capability it names.
         admin: oxy_api_tenancy::admin_sections()
             .into_iter()
@@ -349,6 +365,7 @@ fn surface_seams() -> SurfaceSeams {
         // Operations the surfaces document, merged into the served OpenAPI
         // document (`oxyc schema` reads it).
         openapi: vec![
+            core_routes::openapi(),
             oxy_api_tenancy::openapi(),
             oxy_api_identity::openapi(),
             oxy_api_custom_apps::openapi(),
@@ -625,18 +642,16 @@ mod tests {
         );
     }
 
+    /// The document built from the seams boot hands over (`surface_seams()`),
+    /// not a hand-built list of them.
+    ///
     /// `GET /orgs` is one of the lookups an agent needs a schema for (see
     /// `oxy-app`'s `the_agent_data_plane_is_documented`). Its handler moved to
     /// `oxy-api-tenancy`, so only the document the composition root assembles
     /// can show it — a dropped `openapi:` entry would lose it silently.
     #[tokio::test]
     async fn the_served_openapi_document_includes_the_surfaces() {
-        let doc = oxy_app::server::router::build_openapi_doc(vec![
-            oxy_api_tenancy::openapi(),
-            oxy_api_identity::openapi(),
-            oxy_api_custom_apps::openapi(),
-        ])
-        .await;
+        let doc = oxy_app::server::router::build_openapi_doc(surface_seams().openapi).await;
         // `GET /user`, the lookup that turns a credential into a user, is
         // `oxy-api-identity`'s since 2026-11-15.
         let user = doc
@@ -651,6 +666,37 @@ mod tests {
             .get("/orgs")
             .expect("GET /orgs is missing from the OpenAPI document");
         assert!(orgs.get.is_some(), "/orgs is documented but carries no get");
+        // The health probes, the composition root's own since 2026-11-16
+        // (`core_routes::openapi`; were in `oxy-app`'s `openapi_router`), with
+        // the response schemas the two bodied ones name.
+        for path in ["/health", "/ready", "/live", "/version"] {
+            let item = doc
+                .paths
+                .paths
+                .get(path)
+                .unwrap_or_else(|| panic!("{path} is missing from the OpenAPI document"));
+            let get = item
+                .get
+                .as_ref()
+                .unwrap_or_else(|| panic!("{path} is documented but carries no get"));
+            assert_eq!(
+                get.tags.as_deref(),
+                Some(&["Health".to_string()][..]),
+                "{path}"
+            );
+        }
+        let schemas = &doc.components.as_ref().expect("components").schemas;
+        for schema in [
+            "HealthCheckResponse",
+            "DatabaseStatus",
+            "VersionResponse",
+            "BuildInfo",
+        ] {
+            assert!(
+                schemas.contains_key(schema),
+                "{schema} is not in components"
+            );
+        }
         // The custom-app data plane, which `oxyc schema` answers from: its
         // handlers moved to `oxy-api-custom-apps` (`data_plane`).
         for path in [
@@ -684,12 +730,7 @@ mod tests {
         use utoipa::openapi::{RefOr, Schema};
 
         // Only the served document holds both, so only it can show a collision.
-        let doc = oxy_app::server::router::build_openapi_doc(vec![
-            oxy_api_tenancy::openapi(),
-            oxy_api_identity::openapi(),
-            oxy_api_custom_apps::openapi(),
-        ])
-        .await;
+        let doc = oxy_app::server::router::build_openapi_doc(surface_seams().openapi).await;
         let components = doc.components.as_ref().expect("components");
 
         let object_with = |name: &str| -> bool {

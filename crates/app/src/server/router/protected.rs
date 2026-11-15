@@ -32,8 +32,8 @@ use oxy_app_core::serve_mode::ServeMode;
 use super::AppState;
 use super::global::build_global_routes;
 use super::role_router::{Decl, RoleRouter};
+use super::seams::SurfaceSeam;
 use super::workspace::{build_external_workspace_routes, build_workspace_routes};
-use crate::server::route_catalog::RouteCatalog;
 
 pub(super) fn build_protected_routes(
     app_state: AppState,
@@ -55,13 +55,15 @@ pub(super) fn build_protected_routes(
     // access check alone: see that crate's `routes`.
     preview_routes: Router<AppState>,
     preview_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
-    catalog: RouteCatalog,
+    // `GET /_catalog` (`SurfaceSeams::catalog`, `oxy-server`'s): merged at
+    // this tree's root, beside the global tree.
+    catalog: SurfaceSeam,
     // Staff-console sections from extracted surfaces (`SurfaceSeams::admin`);
     // they live in the global tree, so only cloud mode has them.
     admin_sections: Vec<super::AdminSection>,
 ) -> (Router<AppState>, Vec<Decl>) {
     let root = RoleRouter::new(app_state.clone())
-        .merge(build_catalog_routes(&app_state, catalog))
+        .merge_declared(catalog.routes, &catalog.decls)
         .merge(build_global_routes(&app_state, admin_sections));
     // Beside the workspace tree, not in it: see `oxy_api_previews::routes`.
     let previews = RoleRouter::new(app_state.clone())
@@ -101,35 +103,6 @@ fn with_agentic_state(
     agentic_state: &Arc<AgenticState>,
 ) -> Router<AppState> {
     routes.layer(axum::Extension(agentic_state.clone()))
-}
-
-/// Route discovery for the `oxyc` CLI: `GET /api/_catalog`.
-///
-/// ITS OWN BUILDER, and that is not stylistic. `crates/route-catalog/build_route_catalog.rs`
-/// walks a fixed list of SEED functions to generate the route table, and
-/// `build_protected_routes` is not one of them (it composes the global and
-/// workspace trees, which are seeded individually — seeding it too would
-/// double-count every route). A route written inline there is therefore
-/// invisible to the very catalog it serves, so `/api/_catalog` would be the one
-/// endpoint missing from the endpoint list. A named builder can be seeded on
-/// its own, and `oxy-route-catalog`'s `the_catalog_lists_itself` fails if it
-/// ever stops being.
-///
-/// `catalog` is the generated table, handed down from `oxy-server` through
-/// [`SurfaceSeams`](super::SurfaceSeams) and bound into the handler here.
-///
-/// Merged into BOTH the cloud and local protected routers, because local mode
-/// omits the global tree.
-///
-/// `route_fleet` and not `route_ide`: the handler reads a table compiled into
-/// the binary — no workspace working copy, no `.git`, no state dir — so any
-/// replica may answer it, and pinning it to the singleton would make the CLI's
-/// discovery depend on the one instance that can be down.
-pub(super) fn build_catalog_routes(app_state: &AppState, catalog: RouteCatalog) -> RoleRouter {
-    RoleRouter::new(app_state.clone()).route_fleet(
-        "/_catalog",
-        axum::routing::get(move |query| crate::api::catalog::get_catalog(catalog, query)),
-    )
 }
 
 /// Takes the declarations as well as the routes, and installs them, because a
@@ -215,12 +188,12 @@ pub(super) fn build_local_protected_routes(
     // branches — so merge before the local-context layer, exactly as cloud does.
     extra_workspace_routes: Router<AppState>,
     extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
-    catalog: RouteCatalog,
+    catalog: SurfaceSeam,
 ) -> (Router<AppState>, Vec<Decl>) {
     // Same discovery surface as cloud. Local mode omits the global tree, so it
     // is merged separately rather than inherited — a CLI that can enumerate
     // production but not a developer's own box is the wrong way round.
-    let root = RoleRouter::new(app_state.clone()).merge(build_catalog_routes(&app_state, catalog));
+    let root = RoleRouter::new(app_state.clone()).merge_declared(catalog.routes, &catalog.decls);
     let extra_workspace_routes = with_agentic_state(extra_workspace_routes, &agentic_state);
     let workspace = build_workspace_routes(app_state.clone(), agentic_state, true)
         .merge_declared(extra_workspace_routes, &extra_workspace_decls)
@@ -469,10 +442,16 @@ mod tests {
         // automation listing's four and `/agentic-schedules`' four left for
         // `oxy-api-automations`; 97 the same day (read off this assertion
         // again), after the workspace's five `/databases*` and four `/secrets*`
-        // paths left for `oxy-api-workspace-config`. A surface's routes are declared by the
+        // paths left for `oxy-api-workspace-config`; 90 on 2026-11-16 (read off
+        // this assertion) after the core routes' Wave A moved the consent
+        // switch, `/org-subdomain` and `/logo` (`oxy-api-tenancy`),
+        // `/integrations/looker` (`oxy-api-workspace-config`), the two
+        // `/compile/staging*` paths (`oxy-api-previews`) and `/_catalog`
+        // (`oxy-server`, now on `SurfaceSeams::catalog`) out, floor `> 90` ->
+        // `> 80`. A surface's routes are declared by the
         // surface, so lowering this when one leaves is expected; a drop nobody
         // can name is not.
-        assert!(decls.len() > 90, "only {} declarations", decls.len());
+        assert!(decls.len() > 80, "only {} declarations", decls.len());
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 

@@ -239,6 +239,20 @@ fn source_files() -> Vec<(String, String)> {
         "../api-workspace-config/src/",
         &mut out,
     );
+    // `oxy-api-tenancy`: the org subdomain's status, the logo and the consent
+    // switch moved there from `src/server/api` on 2026-11-16. The whole
+    // crate, since none of it names `compiled_reader`.
+    let tenancy = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-tenancy/src");
+    walk(&tenancy, &tenancy, "../api-tenancy/src/", &mut out);
+    // `oxy-server`'s `core_routes`: the health probes and route discovery
+    // moved UP there from `src/server/api` on 2026-11-16.
+    let core_routes = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../server/src/core_routes");
+    walk(
+        &core_routes,
+        &core_routes,
+        "../server/src/core_routes/",
+        &mut out,
+    );
     let world_model = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-world-model/src");
     walk(
         &world_model,

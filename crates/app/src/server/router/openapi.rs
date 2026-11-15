@@ -14,16 +14,14 @@ use utoipa::openapi::server::Server;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::api::{agent, data, healthcheck, thread, workspaces};
+use crate::api::{agent, data, thread, workspaces};
 
 use super::{IdeState, build_cors_layer};
 
 pub async fn openapi_router() -> OpenApiRouter<IdeState> {
     OpenApiRouter::new()
-        .routes(routes!(healthcheck::health_check))
-        .routes(routes!(healthcheck::readiness_check))
-        .routes(routes!(healthcheck::liveness_check))
-        .routes(routes!(healthcheck::version_info))
+        // The health probes' operations are `oxy-server`'s (`core_routes`,
+        // 2026-11-16), merged in through `SurfaceSeams::openapi`.
         .routes(routes!(agent::get_agents))
         // The legacy API-key operations are `oxy-api-identity`'s, merged in
         // through `SurfaceSeams::openapi`.

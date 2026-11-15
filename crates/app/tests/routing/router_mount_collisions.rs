@@ -68,7 +68,10 @@ fn the_real_router_has_no_colliding_mounts() {
     // `oxy-api-world-model`; 185 the same day (read off it again; 186 between
     // the two) after the GitHub and Toast webhook receivers left the public
     // tree for `oxy-api-github` and `oxy-api-world-model`, one declaration
-    // each. Surfaces declare their own routes, so this drops
+    // each; 168 on 2026-11-16 (read off it with the floor raised) after the
+    // core routes' Wave A: the tenancy leaves, the Looker listing, the staging
+    // compile, `/_catalog` and the four health probes, counted in both modes
+    // where they were mounted in both. Surfaces declare their own routes, so this drops
     // with each one that leaves; the floor guards against a tree that stopped
     // building, not a count.
     assert!(

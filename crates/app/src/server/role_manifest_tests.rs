@@ -505,11 +505,10 @@ fn org_subdomain_routes_are_fleet_ok() {
     // from any replica, like `oxy-access`. See
     // `internal-docs/org-subdomain-infra.md`.
     let id = "d9830be4-c6a4";
-    // Customer read-only status (workspace-scoped).
-    assert_eq!(
-        classify("GET", &format!("/api/{id}/org-subdomain")),
-        RouteRole::FleetOk,
-    );
+    // The customer's read-only status (`GET /api/{id}/org-subdomain`) is
+    // `oxy-api-tenancy`'s since 2026-11-16, and so is its pin
+    // (`the_leaves_classify_fleet_ok_against_their_declarations`), asked of
+    // that crate's declarations: here it would pass on the FleetOk default.
     // Oxy-staff control (admin surface).
     for method in ["GET", "PUT"] {
         assert_eq!(
@@ -617,8 +616,9 @@ fn every_integration_sub_route_is_classified() {
         // client secret through the workspace secret manager. No working copy,
         // no .git, no local state dir — so any replica can serve it.
         "/oauth/{provider}/authorize",
-        // Lists the Looker integrations named in the served revision's config.
-        "/looker",
+        // `/looker` left this builder for `oxy-api-workspace-config` on
+        // 2026-11-16, and its row went with it
+        // (`every_database_secret_and_integration_route_classifies_fleet_ok`).
     ];
     assert_sub_routes_classified(
         src,
@@ -729,7 +729,11 @@ fn the_public_router_declares_every_route_it_mounts() {
     );
 
     let declared = body.matches(".route_fleet(").count() + body.matches(".route_ide(").count();
-    // The file declares 9 (20 until sign-in's ten `/auth/*` routes and
+    // The file declares 3 (read off this assertion on 2026-11-16, after the
+    // four health probes left for `oxy-server`'s `core_routes`; floor `>= 7` ->
+    // `>= 2`. 7 until then: the GitHub and Toast webhook receivers had left
+    // on 2026-11-15 without this note following; 9 before that, 20 until
+    // sign-in's ten `/auth/*` routes and
     // `GET /user` left for `oxy-api-identity`, 2026-11-15; 29 until the metric tree's nine customer-app
     // twins left for `oxy-api-custom-apps`, 2026-11-14; 32 until the automation run's start, poll and
     // cancel left for `oxy-api-custom-apps`, 2026-11-14; 33 until the agent-run
@@ -741,7 +745,7 @@ fn the_public_router_declares_every_route_it_mounts() {
     // going quiet, loose enough that adding or removing a handful does not make
     // this the test everyone edits without reading.
     assert!(
-        declared >= 7,
+        declared >= 2,
         "only {declared} declared mounts found — the parser broke, or this file \
          moved. A guard that silently stops covering anything is the shape this \
          whole area exists to remove.",
@@ -1378,41 +1382,10 @@ fn airway_policy_preview_is_fleet_ok() {
     );
 }
 
-/// Staging a branch for a custom-app build looks the branch up on GitHub and
-/// queues a compile of that commit. No working copy is read, so it must not
-/// need the ide. Declared, not defaulted — an undeclared path answers `FleetOk`
-/// too. (Creating and refreshing a preview, the same lookup, moved to
-/// `oxy-api-previews` with their routes on 2026-11-14, and so did their
-/// declarations and the tests that read them: `route_roles` there. So did the
-/// checks, runs and sources routes' tests, which asked `classify` here and
-/// would now pass on the FleetOk default.)
-#[test]
-fn compiling_a_branch_for_a_staging_build_is_fleet_ok() {
-    let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
-    install_route_declarations_for_tests();
-    let manifest = dump_manifest();
-    for path in [
-        "/api/{workspace_id}/compile/staging",
-        "/api/{workspace_id}/compile/staging/status",
-    ] {
-        // The workspace tree is mounted more than once, so a path in it can be
-        // declared more than once; every declaration has to agree.
-        let declared: Vec<_> = manifest
-            .iter()
-            .filter(|(_, p, _)| p == path)
-            .map(|(method, _, role)| (*method, *role))
-            .collect();
-        assert!(!declared.is_empty(), "{path} is declared");
-        assert!(
-            declared
-                .iter()
-                .all(|d| *d == ("*", RouteRole::FleetOk.as_str())),
-            "{path} is FleetOk for every method: {declared:?}"
-        );
-        let concrete = path.replace("{workspace_id}", ws);
-        assert_eq!(classify("POST", &concrete), RouteRole::FleetOk, "{path}");
-    }
-}
+// `compiling_a_branch_for_a_staging_build_is_fleet_ok` moved to
+// `oxy-api-previews` (`lib.rs` tests) with the `/compile/staging` routes on
+// 2026-11-16, asked of that crate's declarations: this manifest no longer
+// holds them, and `classify` would pass on the FleetOk default.
 
 /// The operational tier's three routes are Postgres-only and must stay
 /// HA. The read one is the interesting case: it also reads a process-local

@@ -755,6 +755,22 @@ mod tests {
         // platform code too: no rule names them, so they keep their lines.
         assert!(!drop_log(Some("oxy_api_github::webhook")));
         assert!(!drop_log(Some("oxy_api_world_model::toast_webhook")));
+        // So are the leaves that left on 2026-11-16 (the core routes' Wave
+        // A). The health probes live in the `oxy` BINARY now, whose crate
+        // ident is `oxy`, the same as the core library's: `oxy::core_routes`
+        // must not read as `oxy::connector` (data plane) or
+        // `oxy::app_function` (custom-app code).
+        for module in [
+            "oxy::core_routes::healthcheck",
+            "oxy::core_routes::catalog",
+            "oxy_api_tenancy::org_subdomain",
+            "oxy_api_tenancy::workspace_logo",
+            "oxy_api_tenancy::partner_publish_consent",
+            "oxy_api_workspace_config::integration",
+            "oxy_api_previews::compile_staging",
+        ] {
+            assert!(!drop_log(Some(module)), "{module}");
+        }
         assert!(!drop_log(None));
     }
 
@@ -1030,6 +1046,18 @@ mod tests {
             // The Toast order webhook, out of `oxy-app` on 2026-11-15: an
             // HMAC check and a feed append, no warehouse.
             "oxy_api_world_model::toast_webhook",
+            // The leaves that left `oxy-app` on 2026-11-16: the health probes
+            // and route discovery (up into the `oxy` binary, whose crate
+            // ident collides with the core library's), the tenancy reads, the
+            // Looker listing and the staging compile. None runs a warehouse
+            // query.
+            "oxy::core_routes::healthcheck",
+            "oxy::core_routes::catalog",
+            "oxy_api_tenancy::org_subdomain",
+            "oxy_api_tenancy::workspace_logo",
+            "oxy_api_tenancy::partner_publish_consent",
+            "oxy_api_workspace_config::integration",
+            "oxy_api_previews::compile_staging",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

@@ -144,9 +144,7 @@ pub async fn admin_get_org_logo(
     let mime = org
         .logo_content_type
         .unwrap_or_else(|| "image/png".to_string());
-    Ok(oxy_app::server::api::workspace_logo::logo_response(
-        mime, bytes,
-    ))
+    Ok(crate::workspace_logo::logo_response(mime, bytes))
 }
 
 /// `PUT /api/admin/orgs/{org_id}/logo` — store raw image bytes for any tenant.
