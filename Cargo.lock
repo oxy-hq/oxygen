@@ -10020,6 +10020,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-previews"
+version = "0.5.160"
+dependencies = [
+ "agentic-airway",
+ "agentic-automation",
+ "agentic-connector",
+ "agentic-core",
+ "agentic-pipeline",
+ "agentic-runtime",
+ "airhouse",
+ "async-trait",
+ "axum",
+ "base64 0.23.0",
+ "chrono",
+ "duckdb",
+ "entity",
+ "flate2",
+ "futures",
+ "migration",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-cameras",
+ "oxy-compile",
+ "oxy-git",
+ "oxy-oltp",
+ "oxy-shared",
+ "oxy-test-utils",
+ "rand 0.10.2",
+ "regex",
+ "reqwest 0.13.4",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "serial_test",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-postgres",
+ "tokio-util",
+ "tower 0.5.3",
+ "tracing",
+ "url",
+ "urlencoding",
+ "uuid",
+ "wiremock",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-slack"
 version = "0.5.160"
 dependencies = [
@@ -10876,6 +10929,7 @@ dependencies = [
  "oxy-api-identity",
  "oxy-api-notifications",
  "oxy-api-operating-graph",
+ "oxy-api-previews",
  "oxy-api-slack",
  "oxy-api-tenancy",
  "oxy-api-workspace-health",

@@ -32,9 +32,7 @@ use oxy_app_core::serve_mode::ServeMode;
 use super::AppState;
 use super::global::build_global_routes;
 use super::role_router::{Decl, RoleRouter};
-use super::workspace::{
-    build_external_workspace_routes, build_workspace_preview_routes, build_workspace_routes,
-};
+use super::workspace::{build_external_workspace_routes, build_workspace_routes};
 use crate::server::route_catalog::RouteCatalog;
 
 pub(super) fn build_protected_routes(
@@ -52,6 +50,11 @@ pub(super) fn build_protected_routes(
     // replica clone into a workspace it does not own.
     extra_workspace_routes: Router<AppState>,
     extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
+    // Workspace previews (`SurfaceSeams::previews`, `oxy-api-previews`), nested
+    // at `/{workspace_id}/previews` BESIDE the workspace tree, behind the
+    // access check alone: see that crate's `routes`.
+    preview_routes: Router<AppState>,
+    preview_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
     catalog: RouteCatalog,
     // Staff-console sections from extracted surfaces (`SurfaceSeams::admin`);
     // they live in the global tree, so only cloud mode has them.
@@ -60,8 +63,9 @@ pub(super) fn build_protected_routes(
     let root = RoleRouter::new(app_state.clone())
         .merge(build_catalog_routes(&app_state, catalog))
         .merge(build_global_routes(&app_state, admin_sections));
-    // Beside the workspace tree, not in it: see `build_workspace_preview_routes`.
-    let previews = build_workspace_preview_routes(&app_state)
+    // Beside the workspace tree, not in it: see `oxy_api_previews::routes`.
+    let previews = RoleRouter::new(app_state.clone())
+        .merge_declared(preview_routes, &preview_decls)
         .map_router(|r| r.layer(middleware::from_fn(workspace_access_middleware)));
     let workspace = build_workspace_routes(app_state.clone(), agentic_state, false)
         .merge_declared(extra_workspace_routes, &extra_workspace_decls)
@@ -335,6 +339,8 @@ mod tests {
             super::super::test_agentic_state(),
             Router::new(),
             Vec::new(),
+            Router::new(),
+            Vec::new(),
             Default::default(),
             Vec::new(),
         );
@@ -423,14 +429,17 @@ mod tests {
             super::super::test_agentic_state(),
             Router::new(),
             Vec::new(),
+            Router::new(),
+            Vec::new(),
             Default::default(),
             Vec::new(),
         );
         // 148 on 2026-11-14, after the operating graph's nine paths left for
-        // `oxy-api-operating-graph`. A surface's routes are declared by the
+        // `oxy-api-operating-graph`; 138 after the ten preview routes left for
+        // `oxy-api-previews` the same day. A surface's routes are declared by the
         // surface, so lowering this when one leaves is expected; a drop nobody
         // can name is not.
-        assert!(decls.len() > 140, "only {} declarations", decls.len());
+        assert!(decls.len() > 130, "only {} declarations", decls.len());
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 

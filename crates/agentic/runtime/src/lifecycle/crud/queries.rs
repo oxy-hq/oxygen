@@ -28,12 +28,12 @@ use super::visibility::{in_customer_feed, in_production, in_production_sql};
 /// considered for both.
 ///
 /// `preview_analyze` is the staff-only Airway change check of a previewed
-/// branch (`oxy-app` `server::previews::analyze`), not the customer's work;
+/// branch (`oxy-api-previews` `analyze`), not the customer's work;
 /// `preview_schema_drop` is the TTL drop of a preview's Airhouse schemas
-/// (`server::previews::drop`), queued by a maintenance sweep; `preview_compare`
-/// compares a preview's transform build with live (`server::previews::compare`);
+/// (`oxy-api-previews` `drop`), queued by a maintenance sweep; `preview_compare`
+/// compares a preview's transform build with live (`oxy-api-previews` `compare`);
 /// `preview_airway_sample` is staff sampling a branch's Airway pipeline into
-/// the preview's own schemas (`server::previews::sample`).
+/// the preview's own schemas (`oxy-api-previews` `sample`).
 /// `custom_app_staging_migrations` is a custom app's staging migrations, queued
 /// by every publish (`server::api::custom_apps_nonproduction::staging_task`).
 /// `custom_app_sandbox_migrations`, `custom_app_sandbox_oltp` and

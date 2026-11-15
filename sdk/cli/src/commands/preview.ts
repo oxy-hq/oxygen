@@ -3,7 +3,7 @@
  * against real data, without the branch being live
  * (`internal-docs/workspace-previews.md`). `create`/`list`/`show`/`delete`/
  * `checks` talk to `/api/{workspace}/previews[...]`
- * (`crates/app/src/server/api/workspace_previews.rs`), staff-only
+ * (the server's workspace previews API), staff-only
  * (`WorkspacePreviewer`) — a plain user bearer, like every other `/api/
  * {workspace_id}/...` route; there is no publish-token or API-key path onto
  * this surface. Run verbs live in `preview-runs.ts`.

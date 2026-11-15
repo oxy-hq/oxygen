@@ -19,6 +19,7 @@ members = [
   "crates/api-notifications",
   "crates/api-slack",
   "crates/api-world-model",
+  "crates/api-previews",
   "crates/api-workspace-health",
   "crates/cli-shim",
   "crates/app-core",

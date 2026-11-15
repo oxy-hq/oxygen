@@ -64,6 +64,11 @@ pub async fn api_router(
                 routes: extra_workspace_routes,
                 decls: extra_workspace_decls,
             },
+        previews:
+            SurfaceSeam {
+                routes: preview_routes,
+                decls: preview_decls,
+            },
         public:
             SurfaceSeam {
                 routes: extra_public_routes,
@@ -172,13 +177,8 @@ pub async fn api_router(
         crate::server::compile_maintenance::CompileMaintenanceConfig::from_env(),
     );
 
-    // Workspace previews' TTL sweep: claim the registry rows of expired
-    // preview schemas and queue their `preview_schema_drop` tasks (the worker
-    // fleet drops). Only writes rows; runs regardless of --no-workers,
-    // idempotent across replicas.
-    crate::server::previews::maintenance::spawn(
-        crate::server::previews::maintenance::MaintenanceConfig::from_env(),
-    );
+    // Workspace previews' TTL sweep is `oxy-api-previews`'s
+    // (`preview_maintenance`), started with the surfaces' background jobs.
 
     // Audit retention: the log is write-heavy, so keep a rolling 30-day window.
     // Idempotent daily sweep; verification anchors on the oldest retained event so a
@@ -328,6 +328,8 @@ pub async fn api_router(
                 agentic_state.clone(),
                 extra_workspace_routes,
                 extra_workspace_decls,
+                preview_routes,
+                preview_decls,
                 catalog,
                 admin,
             );
@@ -355,6 +357,9 @@ pub async fn api_router(
             apply_middleware(routes.merge(extra_api_routes), decls)?
         }
         ServeMode::Local => {
+            // Workspace previews are staff-only and cloud-only; local mode drops
+            // the seam, as it did the in-tree mount.
+            drop((preview_routes, preview_decls));
             let (routes, mut decls) = build_local_protected_routes(
                 app_state.clone(),
                 agentic_state.clone(),
@@ -464,6 +469,11 @@ pub async fn internal_api_router(
                 routes: extra_workspace_routes,
                 decls: extra_workspace_decls,
             },
+        previews:
+            SurfaceSeam {
+                routes: preview_routes,
+                decls: preview_decls,
+            },
         public:
             SurfaceSeam {
                 routes: extra_public_routes,
@@ -521,6 +531,8 @@ pub async fn internal_api_router(
         agentic_state,
         extra_workspace_routes,
         extra_workspace_decls,
+        preview_routes,
+        preview_decls,
         catalog,
         admin,
     );

@@ -43,7 +43,7 @@ pub(crate) struct TokenStore {
     pub(super) updated_by: Uuid,
 }
 
-pub(crate) struct SampleSide {
+pub struct SampleSide {
     sandbox: Option<SandboxSource>,
     /// For a rotate-on-use source: the only secret names that resolve.
     allowlist: Option<HashSet<String>>,
@@ -97,7 +97,7 @@ impl SampleSide {
         ))
     }
 
-    pub(crate) fn sandbox(&self) -> Option<&SandboxSource> {
+    pub fn sandbox(&self) -> Option<&SandboxSource> {
         self.sandbox.as_ref()
     }
 
@@ -108,7 +108,7 @@ impl SampleSide {
     }
 
     /// Why the sample's destination was refused, if it was.
-    pub(crate) fn refusal(&self) -> Option<String> {
+    pub fn refusal(&self) -> Option<String> {
         self.refusal
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

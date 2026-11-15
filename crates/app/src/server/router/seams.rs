@@ -309,6 +309,13 @@ pub struct SurfaceSeams {
     /// nest, so these routes inherit the auth stack plus the workspace
     /// middleware.
     pub workspace: SurfaceSeam,
+    /// AUTHENTICATED, workspace previews (`oxy-api-previews`). Nested at
+    /// `/{workspace_id}/previews` BESIDE the workspace tree, behind
+    /// `workspace_access_middleware` alone: `?branch=` there names a preview,
+    /// not a working copy, and a request carrying the preview header must still
+    /// manage previews, which the read-only guard in `workspace_middleware`
+    /// refuses. Declarations relative to the nest. Cloud-only, like `api`.
+    pub previews: SurfaceSeam,
     /// UNAUTHENTICATED. Merged beside `build_public_routes`, outside the auth
     /// stack, in every serve mode and on the internal port. Only routes that
     /// must be reachable without a session belong here — frontline PIN sign-in
@@ -413,6 +420,23 @@ pub const NOTIFICATION_TASK_KINDS: [&str; 2] =
 /// to this string.
 pub const HEALTH_TASK_KINDS: [&str; 1] = ["health_eval_workspace"];
 
+/// The `TaskSpec::Custom` kinds workspace previews queue: the change check
+/// (queued by the compile worker through `previews::queue`), the TTL schema
+/// drop, the transform compare and the Airway sample (queued by the run
+/// queue's step). Their executors are `oxy-api-previews`'s since 2026-11-14,
+/// handed in through [`SurfaceSeams::tasks`]; a test there holds its
+/// constants to these strings.
+pub const PREVIEW_TASK_KINDS: [&str; 4] = [
+    "preview_analyze",
+    "preview_schema_drop",
+    "preview_compare",
+    "preview_airway_sample",
+];
+
+/// The background job a serve process needs for previews: the TTL sweep that
+/// queues schema drops and compares (`oxy-api-previews`, 2026-11-14).
+pub const PREVIEW_BACKGROUND_JOBS: [&str; 1] = ["preview_maintenance"];
+
 /// The background jobs a serve process needs for custom apps (usage rows,
 /// storage measurement, sandbox expiry, retention). Without the usage drain,
 /// page views and events queue until the bounded queue sheds them.
@@ -440,6 +464,7 @@ pub fn require_task_kinds(tasks: &[TaskSeam]) -> Result<(), String> {
         .iter()
         .chain(NOTIFICATION_TASK_KINDS.iter())
         .chain(HEALTH_TASK_KINDS.iter())
+        .chain(PREVIEW_TASK_KINDS.iter())
         .copied()
         .filter(|k| !seen.contains(k))
         .collect();
@@ -466,6 +491,7 @@ impl SurfaceSeams {
         require_task_kinds(&self.tasks)?;
         let missing: Vec<&str> = CUSTOM_APP_BACKGROUND_JOBS
             .iter()
+            .chain(PREVIEW_BACKGROUND_JOBS.iter())
             .copied()
             .filter(|n| !self.background.iter().any(|b| b.name == *n))
             .collect();
@@ -526,9 +552,14 @@ mod tests {
                 .iter()
                 .chain(NOTIFICATION_TASK_KINDS.iter())
                 .chain(HEALTH_TASK_KINDS.iter())
+                .chain(PREVIEW_TASK_KINDS.iter())
                 .map(|k| task(k))
                 .collect(),
-            background: CUSTOM_APP_BACKGROUND_JOBS.iter().map(|n| job(n)).collect(),
+            background: CUSTOM_APP_BACKGROUND_JOBS
+                .iter()
+                .chain(PREVIEW_BACKGROUND_JOBS.iter())
+                .map(|n| job(n))
+                .collect(),
             outer: Some(|_| Router::new()),
             ..SurfaceSeams::empty()
         }
@@ -606,6 +637,25 @@ mod tests {
         seams.tasks.retain(|t| t.kind != "health_eval_workspace");
         let err = require_task_kinds(&seams.tasks).unwrap_err();
         assert!(err.contains("health_eval_workspace"), "{err}");
+    }
+
+    /// Workspace previews' kinds are `oxy-api-previews`' since 2026-11-14; a
+    /// node without one would fail the queued check, drop, compare or sample.
+    #[test]
+    fn a_missing_preview_kind_is_a_startup_error_that_names_it() {
+        let mut seams = complete();
+        seams.tasks.retain(|t| t.kind != "preview_analyze");
+        let err = require_task_kinds(&seams.tasks).unwrap_err();
+        assert!(err.contains("preview_analyze"), "{err}");
+    }
+
+    /// Without the TTL sweep, expired preview schemas are never dropped.
+    #[test]
+    fn a_missing_preview_maintenance_job_is_a_startup_error() {
+        let mut seams = complete();
+        seams.background.retain(|b| b.name != "preview_maintenance");
+        let err = seams.require_custom_apps().unwrap_err();
+        assert!(err.contains("preview_maintenance"), "{err}");
     }
 
     /// No hooks means inbox rows with no delivery, so it is a boot error.

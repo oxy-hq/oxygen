@@ -183,7 +183,7 @@ impl PreviewPlatformContext {
     }
 
     /// The sample this platform runs, when it runs one.
-    pub(crate) fn sample(&self) -> Option<&SampleSide> {
+    pub fn sample(&self) -> Option<&SampleSide> {
         self.sample.as_ref()
     }
 

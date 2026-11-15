@@ -3,7 +3,9 @@
 //! lifecycle ([`lifecycle`]: when a run counts as over, cancelling a deleted
 //! preview's queued runs), queueing a revision's change check
 //! ([`analyze::enqueue_after_staging_compile`], from the compile worker) and
-//! seeding an Airway sample's run ([`sample_seed`], from the queue step).
+//! seeding an Airway sample's run ([`sample_seed`], from the queue step), and
+//! the per-pass [`sweep`] the global driver runs (with its [`ceiling`] and the
+//! compares it queues, [`compare`]).
 //!
 //! Rows only, over the registry's own tables: nothing here runs a check, a
 //! sample or a procedure. Its callers outside previews are the compile worker,
@@ -13,9 +15,12 @@
 //! Nothing here may name those: `queue_names_no_upper_module` holds it.
 
 pub mod analyze;
+pub mod ceiling;
+pub mod compare;
 pub mod lifecycle;
 pub mod run;
 pub mod sample_seed;
+pub mod sweep;
 
 #[cfg(test)]
 mod tests {

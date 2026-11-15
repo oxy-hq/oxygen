@@ -569,7 +569,7 @@ pub fn spawn_recovery(
                     // Held workspace-preview runs: finish those whose run is
                     // terminal, then start each workspace's next queued one.
                     // Row writes only — the runs themselves are queue work.
-                    crate::server::previews::runs::sweep(&db).await;
+                    crate::server::previews::queue::sweep::sweep(&db).await;
                     // Token hygiene (spent OIDC jtis, long-expired `ci`
                     // tokens, expiry notices, unused tokens) is
                     // `oxy-api-identity`'s tick, run with the other surfaces'
@@ -1431,38 +1431,10 @@ pub(super) fn build_custom_task_registry(
         "preagg_cycle",
         Arc::new(PreaggTaskExecutor { db: db.clone() }),
     );
-    // Workspace previews' Airway change check. Reads the compile boundary and,
-    // at most, a Reader on the workspace's Airhouse; a pod without it fails the
-    // task (unknown kind) rather than running anything as production.
-    reg.register(
-        crate::server::previews::analyze::PREVIEW_ANALYZE_KIND,
-        Arc::new(crate::server::previews::analyze::PreviewAnalyzeExecutor::airhouse(db.clone())),
-    );
-    // Workspace previews' TTL drop, queued by `previews::maintenance`. Drops
-    // only schemas a registry row claimed by the run vouches for, through a
-    // system Writer that sends fixed DDL; a pod without it fails the task.
-    reg.register(
-        crate::server::previews::drop::PREVIEW_SCHEMA_DROP_KIND,
-        Arc::new(crate::server::previews::drop::PreviewSchemaDropExecutor::airhouse(db.clone())),
-    );
-    // Workspace previews' compare of a finished transform build with live,
-    // queued by `previews::maintenance::enqueue_compares`. Reads only, through
-    // the preview's Reader; its outcome is counts. A pod without it fails the
-    // task.
-    reg.register(
-        crate::server::previews::compare::PREVIEW_COMPARE_KIND,
-        Arc::new(crate::server::previews::compare::PreviewCompareExecutor::airhouse(db.clone())),
-    );
-    // Workspace previews' Airway sample, queued by `previews::queue::run::advance`.
-    // Builds its own preview platform from the run row: preview-owned pipeline
-    // name, lease and cursor; destination only in the preview's schemas on a
-    // confined Writer. A pod without it fails the task (unknown kind).
-    reg.register(
-        crate::server::previews::sample::PREVIEW_AIRWAY_SAMPLE_KIND,
-        Arc::new(
-            crate::server::previews::sample::PreviewAirwaySampleExecutor::airhouse(db.clone()),
-        ),
-    );
+    // Workspace previews' four kinds (the change check, the TTL drop, the
+    // transform compare, the Airway sample) are `oxy-api-previews`' since
+    // 2026-11-14, handed in with the surfaces' kinds below
+    // (`PREVIEW_TASK_KINDS`).
     // The surfaces' kinds, handed in by the composition root
     // (`SurfaceSeams::tasks`): the custom-app kinds (a queued ask among them), the experiment and
     // simulation kinds (`oxy-api-experiment`: a simulation run, the price job,

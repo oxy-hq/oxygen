@@ -124,6 +124,8 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         manifest.join("../api-operating-graph/src"),
         manifest.join("../api-world-model/src"),
         manifest.join("../world-model/src"),
+        // The previews' upper half, `oxy-api-previews` since 2026-11-14.
+        manifest.join("../api-previews/src"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

@@ -233,6 +233,12 @@ fn external_seam_routes() -> SeamRouter {
 /// `/orgs/{org_id}` with `org_middleware` + the subscription guard re-applied.
 /// All nine paths are declared FleetOk (Postgres only).
 ///
+/// `oxy-api-previews` (2026-11-14) fills its own seam, `previews`: the
+/// `/{workspace_id}/previews` routes, beside the workspace tree behind the
+/// access check alone, all FleetOk. Its four task kinds join `tasks` and the
+/// TTL sweep joins `background`; `oxy-app` refuses to start without them. (The
+/// held runs' per-pass sweep is rows only and stays below, in `previews::queue`.)
+///
 /// `oxy-api-experiment` rides the workspace seam too (experiments and declared
 /// worlds under `/{workspace_id}`), declaring write-back apply IdeOnly (it creates
 /// a git worktree in the working copy). Its five task kinds join the custom-app
@@ -266,6 +272,12 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_identity::workspace_route_roles())
                 .copied()
                 .collect(),
+        },
+        // Workspace previews, beside the workspace tree behind the access
+        // check alone.
+        previews: SurfaceSeam {
+            routes: oxy_api_previews::routes(),
+            decls: oxy_api_previews::route_roles().to_vec(),
         },
         public: SurfaceSeam {
             routes: public_seam_routes(),
@@ -310,10 +322,12 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_experiment::tasks())
             .chain(oxy_api_notifications::tasks())
             .chain(oxy_api_workspace_health::tasks())
+            .chain(oxy_api_previews::tasks())
             .collect(),
         background: custom_apps_seams::background()
             .into_iter()
             .chain(oxy_api_world_model::background())
+            .chain(oxy_api_previews::background())
             .collect(),
         global_ticks: oxy_api_experiment::global_ticks()
             .into_iter()

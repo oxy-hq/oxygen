@@ -91,6 +91,10 @@ AREAS = [
     # The IDE graph + cohort handlers moved into crates/api-world-model 2026-11-12;
     # the old paths keep their history.
     ("crates/api-world-model",                            "World Model (backend)"),
+    # Workspace previews: the lower half stays in oxy-app, the upper half moved
+    # into crates/api-previews 2026-11-14.
+    ("crates/api-previews",                               "Workspace previews"),
+    ("crates/app/src/server/previews",                    "Workspace previews"),
     ("crates/app/src/server/api/cohort",                  "World Model (backend)"),
     ("web-app/src/pages/ide/WorldModel",                  "World Model (UI)"),
     ("crates/metric-monitoring",                          "Metric tree & anomaly monitoring"),

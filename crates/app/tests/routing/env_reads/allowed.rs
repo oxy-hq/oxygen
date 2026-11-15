@@ -810,12 +810,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_PREVIEW_DIFF_MAX_ROWS",
-        "crates/app/src/server/previews/compare/table.rs",
+        "crates/api-previews/src/compare/table.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_PREVIEW_MAINTENANCE_INTERVAL_SECS",
-        "crates/app/src/server/previews/maintenance.rs",
+        "crates/api-previews/src/maintenance.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
@@ -825,12 +825,12 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_PREVIEW_RUN_MAX_MINUTES",
-        "crates/app/src/server/previews/runs/ceiling.rs",
+        "crates/app/src/server/previews/queue/ceiling.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_PREVIEW_SAMPLE_MAX_SECS",
-        "crates/app/src/server/previews/sample.rs",
+        "crates/api-previews/src/sample.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

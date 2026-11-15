@@ -1,0 +1,75 @@
+[package]
+name = "oxy-api-previews"
+version.workspace = true
+authors.workspace = true
+# Editing this crate does NOT rebuild oxy-app: oxy-app never depends on it.
+description = "Workspace previews' surface (staff open a branch on the real product): the /{workspace_id}/previews routes, the change check, compares, Airway samples, schema drops, the run sweep and maintenance — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# What this surface takes from oxy-app, all through `oxy_app::surface`: the
+# previews' lower half (registry, DDL, namespace, sources, pin, the run queue),
+# the preview platform the runs execute on, the staff guard and the seam types.
+# oxy-app never depends back on this crate. default-features off so a
+# `--no-default-features` build of oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }     # AppState, default_branch
+oxy = { workspace = true }
+oxy-auth = { workspace = true }
+oxy-shared = { workspace = true }       # fleet_role::RouteRoleDecl
+oxy-compile = { workspace = true }
+oxy-git = { workspace = true }
+oxy-cameras = { workspace = true }
+entity = { workspace = true }
+airhouse = { workspace = true }
+agentic-airway = { workspace = true }
+agentic-automation = { workspace = true }
+agentic-connector = { workspace = true }
+agentic-core = { workspace = true }
+agentic-pipeline = { workspace = true }
+agentic-runtime = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+futures = { workspace = true }
+regex = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# oxy-app's in-source DB harness (`server/test_support.rs`, included by path)
+# and the integration group's per-test harness (`crates/app/tests/common`, by
+# `#[path]`, which clones a per-run template database and needs every migrator
+# `Schema::All` can apply), plus what the moved previews tests drive: a DuckDB
+# stand-in for Airhouse, a `wiremock` GitHub, the router.
+migration = { workspace = true }
+rand = { workspace = true }
+duckdb = { workspace = true }
+serial_test = { workspace = true }
+oxy-app-core = { workspace = true, features = ["test-fixtures"] }
+oxy-test-utils = { workspace = true }
+oxy-oltp = { workspace = true }
+url = { workspace = true }
+tempfile = { workspace = true }
+flate2 = { workspace = true }
+wiremock = { workspace = true }
+tar = { workspace = true }
+base64 = { workspace = true }
+reqwest = { workspace = true }
+serde_yaml = { workspace = true }
+urlencoding = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

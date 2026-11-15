@@ -303,7 +303,7 @@ async fn refusal(
 /// claimed or dropped again. The drop's refusal, for a schema the preview
 /// created that also holds relations it did not; [`ensure_schema`]'s own
 /// refusal goes through [`REFUSE_UNCREATED_SQL`] instead.
-pub(crate) async fn refuse<C: ConnectionTrait>(
+pub async fn refuse<C: ConnectionTrait>(
     db: &C,
     workspace_id: Uuid,
     schema: &str,

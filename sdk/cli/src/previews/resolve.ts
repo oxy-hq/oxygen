@@ -1,6 +1,6 @@
 /**
  * The one path helper every `oxyc preview` verb shares: `/api/{workspace_id}/previews...`
- * (`crates/app/src/server/api/workspace_previews.rs`), staff-only
+ * (the server's workspace previews API), staff-only
  * (`WorkspacePreviewer`) and mounted BESIDE the workspace tree rather than
  * inside it.
  *

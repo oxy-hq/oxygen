@@ -230,6 +230,33 @@ const ALLOWED: &[(&str, &str)] = &[
          only race, but it could be a scheduled TaskSpec: backlog. (The outbox writer \
          moved down to `oxy-world-model`, below this rule's roots.)",
     ),
+    // ---- api-previews (2026-11-14, out of oxy-app's `server::previews`) ----
+    (
+        "api-previews/src/analyze.rs",
+        "a queue executor's own task: `PreviewAnalyzeExecutor::execute` runs the \
+         change check under a spawn and reports through the task's channels",
+    ),
+    (
+        "api-previews/src/analyze/live.rs",
+        "drives a tokio-postgres connection for the change check's own read of the \
+         live tables; it ends when the client drops, inside the executor's task",
+    ),
+    (
+        "api-previews/src/compare/executor.rs",
+        "a queue executor's own task: `PreviewCompareExecutor::execute` runs the \
+         compare under a spawn and reports through the task's channels",
+    ),
+    (
+        "api-previews/src/drop/mod.rs",
+        "a queue executor's own task: `PreviewSchemaDropExecutor::execute` runs the \
+         drop under a spawn and reports through the task's channels",
+    ),
+    (
+        "api-previews/src/maintenance.rs",
+        "the TTL sweep's process-lifetime loop, started once by the surface's \
+         background seam (`preview_maintenance`), not a request's work. Row writes \
+         and queue inserts only, idempotent across replicas",
+    ),
     // ---- api-notifications ----
     (
         "api-notifications/src/settings/summary_task.rs",

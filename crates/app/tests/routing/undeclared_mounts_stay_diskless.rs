@@ -174,6 +174,13 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // were `route_fleet`. Declared FleetOk by hand in its `route_roles()`
         // now, so this scan is what stops a handler taking a working copy.
         "../api-notifications/src",
+        // Workspace previews' upper half, moved out of `oxy-app` on 2026-11-14,
+        // where its ten routes were `route_fleet` (a `FleetState` handler type
+        // refused a working-copy extractor). Declared FleetOk by hand now in
+        // `oxy_api_previews::route_roles`, so this scan is what is left: create
+        // and refresh compile a branch from the commit GitHub has, and the rest
+        // touch only Postgres.
+        "../api-previews/src",
         // Workspace health's console routes, moved out of `admin/` onto the
         // admin seam. The handlers read and enqueue in Postgres; the live
         // runners that build a workspace context run in the task executor, on

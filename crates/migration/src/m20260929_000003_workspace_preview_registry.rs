@@ -4,7 +4,7 @@
 //! - `workspace_preview_schemas` — the registry of every Airhouse schema a
 //!   preview may create, `preview_<key>__<live schema>`, and when it expires.
 //!   A row is written **before** its schema exists, and the TTL sweeper
-//!   (`server::previews::maintenance`) only ever drops a schema that has one,
+//!   (`oxy-api-previews` `maintenance`) only ever drops a schema that has one,
 //!   so a customer's own schema that happens to be called `preview_…` is never
 //!   touched. `ck_preview_schema_name` ties the name to its key and live schema,
 //!   so a row cannot claim a name its key does not own. `schema_created_at` is

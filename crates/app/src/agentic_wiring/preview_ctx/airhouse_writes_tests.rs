@@ -1,6 +1,6 @@
 //! The pure halves of a preview Airhouse step: what counts as a write, which
 //! schemas it needs, how the batch and its note are put together. Whole runs
-//! are driven in `tests/platform/preview_runs/airhouse.rs`.
+//! are driven in `oxy-api-previews`' `tests/integration/preview_runs/airhouse.rs`.
 
 use super::*;
 

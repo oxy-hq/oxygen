@@ -23,8 +23,7 @@
 //!   `worker_ctx_follows_promote`,
 //!   `semantic_scan_from_memory`, `context_documents_boundary`, `anomaly_bulk_status`,
 //!   `connector_vars_from_workspace_secrets`,
-//!   `anomaly_notify`, `usage_report`, the two
-//!   `workspace_previews_*` modules, `preview_routes`, `preview_ttl`, `encryption_key_check` and `master_key_kms` are database-backed
+//!   `anomaly_notify`, `usage_report`, `encryption_key_check` and `master_key_kms` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
 //! * `local_mode_router` calls `api_router(..)`, which
@@ -106,13 +105,6 @@ mod oltp_env_branches_stale;
 mod oltp_provisioner;
 mod periodic_claim;
 mod preagg_promote_nudge;
-mod preview_routes;
-mod preview_runs;
-mod preview_samples;
-mod preview_sources;
-mod preview_ttl;
-mod previews_e2e;
-mod previews_from_git;
 mod queued_chat_run;
 mod revision_miss_not_from_disk;
 mod rollout_gates;
@@ -129,6 +121,4 @@ mod workspace_details_fields;
 mod workspace_path_backdoor;
 mod workspace_path_escape_hatch;
 mod workspace_path_needs_is_dir;
-mod workspace_previews_lifecycle;
-mod workspace_previews_serving;
 mod workspace_repo_facts;

@@ -35,8 +35,9 @@ pub use protected::{api_auth_layers, external_auth_layers};
 pub use seams::{
     AdminSection, BackgroundDeps, BackgroundSeam, CUSTOM_APP_BACKGROUND_JOBS,
     CUSTOM_APP_TASK_KINDS, ExampleAppsSeam, GlobalTickSeam, HEALTH_TASK_KINDS, MigrateReport,
-    NOTIFICATION_TASK_KINDS, NotificationsSeam, OuterMount, SurfaceSeam, SurfaceSeams, TaskDeps,
-    TaskSeam, global_ticks, install_global_ticks, require_notifications, require_task_kinds,
+    NOTIFICATION_TASK_KINDS, NotificationsSeam, OuterMount, PREVIEW_BACKGROUND_JOBS,
+    PREVIEW_TASK_KINDS, SurfaceSeam, SurfaceSeams, TaskDeps, TaskSeam, global_ticks,
+    install_global_ticks, require_notifications, require_task_kinds,
 };
 
 // `AppState` moved to `oxy-app-core` so the router and future per-surface crates
@@ -161,6 +162,8 @@ pub fn route_declarations() -> Vec<role_router::Decl> {
     let (_, cloud) = protected::build_protected_routes(
         app_state.clone(),
         agentic_state.clone(),
+        Router::new(),
+        Vec::new(),
         Router::new(),
         Vec::new(),
         Default::default(),

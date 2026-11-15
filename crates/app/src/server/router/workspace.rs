@@ -525,42 +525,6 @@ fn build_app_integration_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone()).route_fleet("/", get(apps::list_apps))
 }
 
-/// Workspace previews, mounted at `/{workspace_id}/previews` BESIDE the
-/// workspace tree rather than inside it, behind the access check alone
-/// (`workspace_access_middleware`) instead of `workspace_middleware`.
-///
-/// Two reasons. The full middleware resolves a revision and builds a workspace
-/// manager for `?branch=`, and here `?branch=` names the preview being deleted
-/// or refreshed, not a working copy to read. And a request carrying the
-/// preview header must still be able to manage previews, which the read-only
-/// guard inside `workspace_middleware` would refuse.
-///
-/// Every route here is on the fleet. Creating and refreshing ask GitHub where
-/// the branch is and queue a compile of that commit; the rest touch only
-/// Postgres. A branch GitHub does not have is refused with the reason.
-pub(super) fn build_workspace_preview_routes(app_state: &AppState) -> RoleRouter {
-    use crate::api::workspace_previews as previews;
-    RoleRouter::new(app_state.clone())
-        .route_fleet(
-            "/",
-            post(previews::create_preview)
-                .get(previews::list_previews)
-                .delete(previews::delete_preview),
-        )
-        .route_fleet("/refresh", post(previews::refresh_preview))
-        // Postgres only (the analyze row and its run outcome): any replica.
-        .route_fleet("/checks", get(previews::get_checks))
-        // Held procedure dry runs: the handlers write and read rows; the run
-        // itself executes on the worker fleet. Any replica.
-        .route_fleet("/runs", post(previews::start_run).get(previews::list_runs))
-        .route_fleet("/runs/{run_id}", get(previews::get_run))
-        // Airway samples' sandbox companies: rows only. Any replica.
-        .route_fleet(
-            "/sources",
-            get(previews::list_sources).put(previews::put_source),
-        )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

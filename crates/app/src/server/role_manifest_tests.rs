@@ -1430,45 +1430,20 @@ fn airway_policy_preview_is_fleet_ok() {
     );
 }
 
-/// Workspace previews' Airway change check is served from the analyze row and
-/// its run outcome — Postgres only — so viewing it must not need the ide.
+/// Staging a branch for a custom-app build looks the branch up on GitHub and
+/// queues a compile of that commit. No working copy is read, so it must not
+/// need the ide. Declared, not defaulted — an undeclared path answers `FleetOk`
+/// too. (Creating and refreshing a preview, the same lookup, moved to
+/// `oxy-api-previews` with their routes on 2026-11-14, and so did their
+/// declarations and the tests that read them: `route_roles` there. So did the
+/// checks, runs and sources routes' tests, which asked `classify` here and
+/// would now pass on the FleetOk default.)
 #[test]
-fn preview_checks_is_fleet_ok() {
-    let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
-    assert_eq!(
-        classify("GET", &format!("/api/{ws}/previews/checks")),
-        RouteRole::FleetOk
-    );
-    // `FleetOk` is also what an undeclared path answers, so the classification
-    // alone would pass with the route deleted: it must be declared, as FleetOk.
-    let declared: Vec<_> = dump_manifest()
-        .into_iter()
-        .filter(|(_, path, _)| path.ends_with("/previews/checks"))
-        .collect();
-    assert_eq!(
-        declared,
-        vec![(
-            "*",
-            "/api/{workspace_id}/previews/checks".to_string(),
-            RouteRole::FleetOk.as_str()
-        )],
-        "the checks route is declared once (`route_fleet` declares every method), FleetOk"
-    );
-}
-
-/// Creating or refreshing a preview, and staging a branch for a custom-app
-/// build, look the branch up on GitHub and queue a compile of that commit. No
-/// working copy is read, so they must not need the ide: that pin is what made
-/// every preview go down with it. Declared, not defaulted — an undeclared path
-/// answers `FleetOk` too.
-#[test]
-fn compiling_a_branch_for_a_preview_or_a_staging_build_is_fleet_ok() {
+fn compiling_a_branch_for_a_staging_build_is_fleet_ok() {
     let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
     install_route_declarations_for_tests();
     let manifest = dump_manifest();
     for path in [
-        "/api/{workspace_id}/previews",
-        "/api/{workspace_id}/previews/refresh",
         "/api/{workspace_id}/compile/staging",
         "/api/{workspace_id}/compile/staging/status",
     ] {
@@ -1489,52 +1464,6 @@ fn compiling_a_branch_for_a_preview_or_a_staging_build_is_fleet_ok() {
         let concrete = path.replace("{workspace_id}", ws);
         assert_eq!(classify("POST", &concrete), RouteRole::FleetOk, "{path}");
     }
-}
-
-/// Held procedure runs only write and read Postgres rows — the run executes on
-/// the worker fleet — so submitting, listing and viewing all stay on any replica.
-#[test]
-fn preview_runs_routes_are_fleet_ok() {
-    let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
-    let run = "3f0b6c1e-8d2a-4c61-9d7e-0a1b2c3d4e5f";
-    for (method, path) in [
-        ("POST", format!("/api/{ws}/previews/runs")),
-        ("GET", format!("/api/{ws}/previews/runs")),
-        ("GET", format!("/api/{ws}/previews/runs/{run}")),
-    ] {
-        assert_eq!(
-            classify(method, &path),
-            RouteRole::FleetOk,
-            "{method} {path}"
-        );
-    }
-}
-
-/// Airway samples' sandbox sources are rows in Postgres (names, never secret
-/// values): reading and registering them stays on any replica, declared.
-#[test]
-fn preview_sources_routes_are_fleet_ok() {
-    let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
-    for method in ["GET", "PUT"] {
-        assert_eq!(
-            classify(method, &format!("/api/{ws}/previews/sources")),
-            RouteRole::FleetOk,
-            "{method} /previews/sources"
-        );
-    }
-    let declared: Vec<_> = dump_manifest()
-        .into_iter()
-        .filter(|(_, path, _)| path.ends_with("/previews/sources"))
-        .collect();
-    assert_eq!(
-        declared,
-        vec![(
-            "*",
-            "/api/{workspace_id}/previews/sources".to_string(),
-            RouteRole::FleetOk.as_str()
-        )],
-        "declared once, FleetOk"
-    );
 }
 
 /// The operational tier's three routes are Postgres-only and must stay

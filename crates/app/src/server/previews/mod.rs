@@ -27,7 +27,7 @@
 //!   HTTP). The pin is an immutable revision id, never a branch name. Every
 //!   request without the header — the IDE on the same branch included — is
 //!   untouched.
-//! * **Release** ([`revisions`]) — deleting a preview, or refreshing it to a
+//! * **Release** (`revisions`) — deleting a preview, or refreshing it to a
 //!   newer commit, deletes the staging revisions it stopped using, under the
 //!   retention rule (never current, never build-pinned) and never while another
 //!   preview or an unfinished preview run still uses them.
@@ -36,27 +36,27 @@
 //! spawned from the request does not inherit it, and `current_revision_id`
 //! never points at a staging revision.
 //!
-//! * **Checks** ([`analyze`], [`checks`]) — when a previewed branch's staging
+//! * **Checks** (`analyze`, `checks`) — when a previewed branch's staging
 //!   revision is ready, a durable `preview_analyze` task compares each
 //!   `.airway.yml` the branch changed with the live tables and flags a change
 //!   Airway cannot absorb as "needs Reset schema after merge". One check per
 //!   revision (`workspace_preview_runs`, kind `analyze`); its report is the
 //!   run's outcome metadata. The same check lists the automations the branch
 //!   changed and queues a `transform_build` for each pure-Airhouse transform.
-//! * **Procedure dry runs** ([`runs`], [`runtime`], and the platform in
+//! * **Procedure dry runs** (`runs`, [`runtime`], and the platform in
 //!   `agentic_wiring::preview_ctx`) — staff run a branch's procedure on the
 //!   worker fleet against its staging revision; reads and agents run, managed
 //!   Airhouse writes land in the preview's own schemas, every other write is
 //!   held and reported. Behind `OXY_PREVIEW_RUNS`. This is the one place
 //!   background work reads a staging revision, and only for a run the
 //!   registry names.
-//! * **Transform compares** ([`compare`]) — a finished `transform_build` is
+//! * **Transform compares** (`compare`) — a finished `transform_build` is
 //!   compared with live, table by table, counts only.
-//! * **Airway samples** ([`sample`], [`sources`]) — staff run a bounded window
+//! * **Airway samples** (`sample`, [`sources`]) — staff run a bounded window
 //!   of a branch's pipeline into the preview's own schemas, under a
 //!   preview-owned pipeline key; a QuickBooks sample runs only against a
 //!   sandbox company staff registered, never production's grant.
-//! * **Preview schemas** ([`registry`], [`ddl`], [`maintenance`], [`drop`]) —
+//! * **Preview schemas** ([`registry`], [`ddl`], `maintenance`, `drop`) —
 //!   a preview's Airhouse writes land in its own schemas,
 //!   `preview_<key>__<live schema>` ([`namespace`]). Each is registered in
 //!   `workspace_preview_schemas` before it is created, expires
@@ -66,27 +66,29 @@
 //!   dropped, and only the relations it recorded in them; a schema that was
 //!   already there, or holds anything else, is refused and left alone.
 
+//!
+//! **Where it lives.** Since 2026-11-14 this module is the lower half: what the
+//! workspace runtime, the middleware and the compile worker below the previews
+//! surface read (the registry and DDL, the namespace, the sources, the pin and
+//! read-only guard, the run platform, and the run queue in `queue`, including
+//! the per-pass runs' sweep the global driver calls inline). The upper half —
+//! the `/{workspace_id}/previews` routes, `service`, `revisions`, `analyze`,
+//! `checks`, `compare`, `sample`, `drop`, `runs` and `maintenance` — is
+//! `oxy-api-previews`, mounted through `SurfaceSeams::previews`, `tasks` and
+//! `background`; it reaches this half through `oxy_app::surface::previews`.
+
 /// Test stand-in for Airhouse; never wired into the server (see its module doc).
 #[doc(hidden)]
 pub mod airhouse_duckdb;
-pub mod analyze;
-pub mod checks;
-pub mod compare;
 pub mod ddl;
 pub mod ddl_airhouse;
 pub mod ddl_duckdb;
-pub mod drop;
-pub mod maintenance;
 pub mod namespace;
 pub mod pin;
 pub mod queue;
 pub mod read_only;
 pub mod registry;
-pub mod revisions;
-pub mod runs;
 pub mod runtime;
-pub mod sample;
-pub mod service;
 pub mod sources;
 pub mod sql_kind;
 pub mod store;

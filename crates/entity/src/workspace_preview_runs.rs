@@ -2,7 +2,7 @@
 //! Airway change check (`analyze`), and later procedure dry runs, transform
 //! builds, Airway samples and compares. Ids, names and states only; a run's
 //! result rides its `agentic_runs` row, which shares `run_id`. See
-//! `crates/app/src/server/previews/analyze.rs`.
+//! `crates/api-previews/src/analyze.rs`.
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};

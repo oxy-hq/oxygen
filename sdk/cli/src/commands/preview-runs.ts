@@ -2,8 +2,8 @@
  * `oxyc preview run` / `oxyc preview runs` — held dry runs of a previewed
  * branch (`internal-docs/workspace-previews.md`). `POST /previews/runs`
  * accepts only `kind: "procedure"` and `kind: "airway_sample"` — the server
- * refuses anything else with `400 bad_request` (`server::previews::runs::
- * submit::submit`). `transform_build` and `compare` runs are queued by the
+ * refuses anything else with `400 bad_request` (the server's run
+ * submit). `transform_build` and `compare` runs are queued by the
  * server's own change check and never started here; `runPreviewRunsList` /
  * `runPreviewRunShow` read them back the same as any other kind.
  *

@@ -256,6 +256,21 @@ pub mod workspace_git {
 /// (`workspace_preview_sources`). The fetch plane admits a QuickBooks call
 /// only to one of them.
 pub mod previews {
+    // The lower half `oxy-api-previews` builds on (2026-11-14): the registry
+    // and its DDL, the namespace, the sources, the pin, the run platform and
+    // the run queue stay below because the workspace runtime and the
+    // middleware read them. Whole modules: the surface is their one consumer
+    // above, and they move down together with the request base.
+    pub use crate::server::previews::{
+        airhouse_duckdb, ddl, ddl_airhouse, ddl_duckdb, namespace, pin, queue, registry, runtime,
+        sources, store,
+    };
+    // The preview platform a held run executes on, and the compile pieces
+    // create and refresh drive.
+    pub use crate::agentic_wiring::{preview_airhouse, preview_ctx};
+    pub use crate::server::compile_maintenance::REVISION_IN_USE;
+    pub use crate::server::compile_request;
+    pub use crate::server::preagg_promote::promoted_revision;
     pub use crate::server::previews::namespace::preview_key;
     pub use crate::server::previews::queue::run::{advance, runs_enabled};
     pub use crate::server::previews::sources::list as list_sources;
@@ -307,12 +322,13 @@ pub mod testing {
     pub use crate::server::api::admin::app_publish_tokens;
     pub use crate::server::api::middlewares::{app_publish_token_scope, workspace_context};
     pub use crate::server::api::{
-        billing, custom_apps_gates, projects, schedules, secrets, semantic,
+        billing, compile_staging, compiled_reader, custom_apps_gates, data, database, projects,
+        schedules, secrets, semantic,
     };
     pub use crate::server::router::{
         SurfaceSeam, SurfaceSeams, api_router, external_auth_layers, flat_api_surface,
     };
-    pub use crate::server::{compile_config_gate, compile_maintenance, previews};
+    pub use crate::server::{compile_config_gate, compile_maintenance, compile_request, previews};
 
     /// The router module itself, for the items tests name beside the ones above.
     pub use crate::server::router;

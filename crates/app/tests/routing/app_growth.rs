@@ -137,7 +137,6 @@ const SERVER_API: &[&str] = &[
     "workspace_members_tests",
     "workspace_org",
     "workspace_oxy_access",
-    "workspace_previews",
     "workspaces",
 ];
 

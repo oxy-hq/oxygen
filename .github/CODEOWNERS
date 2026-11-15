@@ -96,6 +96,9 @@ web-app/src/pages/auth/                            @luong-komorebi @NTtanh
 # Since 2026-11-13 the whole surface (personal tokens, legacy keys, org API
 # access, oxyc login, the OIDC exchange) is its own crate, `oxy-api-identity`.
 crates/api-identity/                               @luong-komorebi @hotay
+# Workspace previews' surface (routes, change check, compares, samples, drops,
+# the run sweep), out of `oxy-app` since 2026-11-14. Luong and Tay wrote it.
+crates/api-previews/                               @luong-komorebi @hotay
 web-app/src/components/settings/SettingsDialog/sections/account/PersonalTokens/  @luong-komorebi @hotay
 web-app/src/components/settings/SettingsDialog/sections/organization/ApiAccess/  @luong-komorebi @hotay
 

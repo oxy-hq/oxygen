@@ -24,7 +24,7 @@ use oxy_api_custom_apps::automation_run::{
 };
 use oxy_app::surface::testing::agentic_wiring::OxyThreadOwnerLookup;
 use oxy_app::surface::testing::compile_config_gate::runtime_config_gate;
-use oxy_app::surface::testing::previews::runs::sweep;
+use oxy_app::surface::testing::previews::queue::sweep::sweep;
 use oxy_app_core::AppState;
 use oxy_app_core::serve_mode::ServeMode;
 use oxy_compile::{CompileRequest, RevisionKind, compile_workspace, compiler_version};

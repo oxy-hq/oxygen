@@ -195,6 +195,9 @@ fn source_files() -> Vec<(String, String)> {
         "../api-operating-graph/src/",
         &mut out,
     );
+    // `oxy-api-previews` (2026-11-14): the previews' upper half.
+    let previews = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-previews/src");
+    walk(&previews, &previews, "../api-previews/src/", &mut out);
     let world_model = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-world-model/src");
     walk(
         &world_model,
