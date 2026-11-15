@@ -661,6 +661,11 @@ mod tests {
         // `gate_entry_points_are_complete` still sees the IDE's same-named
         // handlers.
         rust_files(&crate_root.join("../api-metric-monitoring/src"), &mut files);
+        // The observability console, `oxy-api-observability`'s since 2026-11-15
+        // (was `src/server/api/{traces,metrics,execution_analytics}.rs`). Not on
+        // the data plane (it reads Oxy's own product store); walked so a gate
+        // call added there is still seen.
+        rust_files(&crate_root.join("../api-observability/src"), &mut files);
         files.sort();
         files
             .into_iter()

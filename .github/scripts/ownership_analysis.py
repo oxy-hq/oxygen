@@ -79,6 +79,9 @@ AREAS = [
     ("crates/app-core",                                   "App-layer core seam"),
     ("crates/app/src/server/router",                      "HTTP router / fleet routing"),
     ("crates/observability",                              "Observability (traces)"),
+    # The console's handlers moved out of oxy-app into crates/api-observability
+    # 2026-11-15; the old paths keep their history.
+    ("crates/api-observability",                          "Observability (traces)"),
     ("crates/telemetry",                                  "Platform telemetry"),
     ("crates/api-tenancy/src/partner_console",            "Partner platform (backend)"),
     ("web-app/src/pages/partners",                        "Partner platform (UI)"),

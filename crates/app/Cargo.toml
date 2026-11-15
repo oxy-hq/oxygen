@@ -139,11 +139,6 @@ indicatif = { workspace = true }
 sea-orm = { workspace = true }
 clickhouse = { workspace = true, features = ["rustls-tls"] }
 
-# Machine learning (for traces analytics)
-linfa = { workspace = true }
-linfa-reduction = { workspace = true }
-ndarray = { workspace = true, features = ["rayon"] }
-
 # Data processing
 arrow = { workspace = true, features = ["json"] }
 parquet = { workspace = true }

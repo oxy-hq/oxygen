@@ -47,6 +47,7 @@ oxy-api-notifications = { path = "../api-notifications" }
 oxy-api-slack = { path = "../api-slack", default-features = false }
 oxy-api-world-model = { path = "../api-world-model" }
 oxy-api-metric-monitoring = { path = "../api-metric-monitoring" }
+oxy-api-observability = { path = "../api-observability" }
 oxy-api-previews = { path = "../api-previews" }
 oxy-api-workspace-health = { path = "../api-workspace-health" }
 oxy-cli-shim = { path = "../cli-shim" }

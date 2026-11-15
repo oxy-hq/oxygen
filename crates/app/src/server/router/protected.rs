@@ -459,10 +459,14 @@ mod tests {
         // `oxy-api-previews` the same day; 123 on 2026-11-15 (read off this
         // assertion, not subtracted), after the seventeen metric-monitoring
         // paths (the ten `/semantic/metric-tree*`, `/semantic/monitors`, the
-        // six `/semantic/anomalies*`) left for `oxy-api-metric-monitoring`. A surface's routes are declared by the
+        // six `/semantic/anomalies*`) left for `oxy-api-metric-monitoring`; 117
+        // the same day (read off this assertion too), after the observability
+        // console's six nest declarations (`/traces`, `/metrics`,
+        // `/execution-analytics`, each with its `{*rest}`) left for
+        // `oxy-api-observability`. A surface's routes are declared by the
         // surface, so lowering this when one leaves is expected; a drop nobody
         // can name is not.
-        assert!(decls.len() > 115, "only {} declarations", decls.len());
+        assert!(decls.len() > 110, "only {} declarations", decls.len());
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 

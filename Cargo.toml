@@ -20,6 +20,7 @@ members = [
   "crates/api-slack",
   "crates/api-world-model",
   "crates/api-metric-monitoring",
+  "crates/api-observability",
   "crates/api-previews",
   "crates/api-workspace-health",
   "crates/cli-shim",

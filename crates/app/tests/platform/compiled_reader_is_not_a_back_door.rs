@@ -127,7 +127,8 @@ fn app_src() -> PathBuf {
 /// itself now lives), `oxy-custom-apps`, `oxy-api-custom-apps` (the custom-app
 /// vertical lifted out of `src/server/api`) and `oxy-api-documents` and
 /// `oxy-api-airway`, `oxy-api-notifications`, `oxy-api-slack`,
-/// `oxy-api-operating-graph`, `oxy-api-metric-monitoring` and
+/// `oxy-api-operating-graph`, `oxy-api-metric-monitoring`,
+/// `oxy-api-observability` and
 /// `oxy-api-world-model` (with `oxy-world-model`, where the graph's cores
 /// went down to), and workspace health's
 /// two crates, extracted from
@@ -206,6 +207,15 @@ fn source_files() -> Vec<(String, String)> {
         &metric_monitoring,
         &metric_monitoring,
         "../api-metric-monitoring/src/",
+        &mut out,
+    );
+    // `oxy-api-observability` (2026-11-15): the observability console, which
+    // reads the ClickHouse product store.
+    let observability = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-observability/src");
+    walk(
+        &observability,
+        &observability,
+        "../api-observability/src/",
         &mut out,
     );
     let world_model = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-world-model/src");

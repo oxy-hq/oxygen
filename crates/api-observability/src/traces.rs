@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::server::router::AppState;
+use oxy_app_core::AppState;
 use oxy_observability::WorkspaceScope;
 
 /// Custom error type for trace endpoints

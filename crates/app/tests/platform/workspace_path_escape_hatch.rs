@@ -94,6 +94,8 @@ fn server_files() -> Vec<(String, String)> {
     walk(&manifest.join("../api-notifications/src"), &mut out);
     // The metric tree and the anomaly inbox (2026-11-15), served by this binary.
     walk(&manifest.join("../api-metric-monitoring/src"), &mut out);
+    // The observability console (2026-11-15), served by this binary.
+    walk(&manifest.join("../api-observability/src"), &mut out);
     // Moved out of `src/server/api/admin/workspace_health` and
     // `src/server/health_eval_executor.rs`.
     walk(&manifest.join("../workspace-health/src"), &mut out);

@@ -10022,6 +10022,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-observability"
+version = "0.5.160"
+dependencies = [
+ "axum",
+ "linfa",
+ "linfa-reduction",
+ "ndarray",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-observability",
+ "oxy-shared",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.5.3",
+ "tracing",
+ "utoipa",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-operating-graph"
 version = "0.5.160"
 dependencies = [
@@ -10341,13 +10364,10 @@ dependencies = [
  "jsonwebtoken 11.0.0",
  "lazy_static",
  "libc",
- "linfa",
- "linfa-reduction",
  "log",
  "lru 0.18.2",
  "migration",
  "minijinja",
- "ndarray",
  "omni",
  "once_cell",
  "oxy",
@@ -10910,6 +10930,7 @@ dependencies = [
  "oxy-api-experiment",
  "oxy-api-identity",
  "oxy-api-metric-monitoring",
+ "oxy-api-observability",
  "oxy-api-tenancy",
  "oxy-api-world-model",
  "oxy-app",
@@ -10967,6 +10988,7 @@ dependencies = [
  "oxy-api-identity",
  "oxy-api-metric-monitoring",
  "oxy-api-notifications",
+ "oxy-api-observability",
  "oxy-api-operating-graph",
  "oxy-api-previews",
  "oxy-api-slack",

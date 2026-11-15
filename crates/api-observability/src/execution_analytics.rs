@@ -20,7 +20,7 @@ use serde::Deserialize;
 use utoipa::IntoParams;
 use uuid::Uuid;
 
-use crate::server::router::AppState;
+use oxy_app_core::AppState;
 use oxy_observability::WorkspaceScope;
 
 #[derive(Debug)]

@@ -137,7 +137,10 @@ crates/app/.claude/skills/oxy-route-classification/           @luong-komorebi @N
 
 # Customer-facing observability (traces console)
 crates/observability/                              @luong-komorebi @hotay
-crates/app/src/server/api/traces.rs                @luong-komorebi @hotay
+# The console's HTTP surface moved out of oxy-app on 2026-11-15 (was
+# `server/api/{traces,metrics,execution_analytics}.rs`). The crate takes the
+# traces owners; `metrics.rs` keeps its own below (last match wins).
+crates/api-observability/                          @luong-komorebi @hotay
 internal-docs/observability-analytics.md           @luong-komorebi @hotay
 # Platform telemetry (new 2026-09, #3115) — the OTLP/HyperDX side, NOT the
 # product traces store above. Separate clusters, separate trace-id spaces; the
@@ -221,7 +224,7 @@ crates/app/src/agentic_wiring/metric_tree_exec.rs  @haitrr @NTtanh
 # metric_tree.rs's domain half, lowered into the domain crate: same owners.
 crates/metric-monitoring/src/metric_tree_scenario.rs  @haitrr @NTtanh
 crates/api-metric-monitoring/src/metric_anomalies/  @haitrr @luong-komorebi
-crates/app/src/server/api/metrics.rs               @haitrr @NTtanh
+crates/api-observability/src/metrics.rs            @haitrr @NTtanh
 web-app/src/pages/ide/MetricTree/                  @haitrr @NTtanh
 web-app/src/pages/ide/SemanticLayer/AnomaliesInbox/  @haitrr @luong-komorebi
 internal-docs/anomaly-monitoring.md                @haitrr @luong-komorebi

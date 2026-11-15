@@ -24,6 +24,7 @@ oxy-api-airway = { path = "../api-airway", default-features = false }
 oxy-api-experiment = { path = "../api-experiment" }
 oxy-api-world-model = { path = "../api-world-model" }
 oxy-api-metric-monitoring = { path = "../api-metric-monitoring" }
+oxy-api-observability = { path = "../api-observability" }
 oxy-api-identity = { path = "../api-identity" }
 axum = { workspace = true }
 uuid = { workspace = true }

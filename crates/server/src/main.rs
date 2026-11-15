@@ -155,6 +155,7 @@ fn workspace_seam_routes() -> SeamRouter {
         .merge(oxy_api_experiment::workspace_routes())
         .merge(oxy_api_world_model::workspace_routes())
         .merge(oxy_api_metric_monitoring::workspace_routes())
+        .merge(oxy_api_observability::workspace_routes())
         .merge(oxy_api_identity::workspace_routes())
 }
 
@@ -225,6 +226,11 @@ fn external_seam_routes() -> SeamRouter {
 /// it. Its anomaly handlers extract the `AgenticState` extension `oxy-app`
 /// layers over both seams.
 ///
+/// `oxy-api-observability` (2026-11-15) fills `workspace` only: the
+/// tenant-facing observability console's `/traces`, `/metrics` and
+/// `/execution-analytics` nests (six declarations, all FleetOk: the
+/// ClickHouse product store every replica reaches alike).
+///
 /// `oxy-api-identity` fills six seams, each where its routes sat in
 /// `oxy-app`'s router: the caller's tokens, the session's halves of `oxyc
 /// login`, `/logout`, the mobile sign-in approval and an org's API access ride
@@ -278,6 +284,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_experiment::workspace_route_roles())
                 .chain(oxy_api_world_model::workspace_route_roles())
                 .chain(oxy_api_metric_monitoring::workspace_route_roles())
+                .chain(oxy_api_observability::workspace_route_roles())
                 .chain(oxy_api_identity::workspace_route_roles())
                 .copied()
                 .collect(),

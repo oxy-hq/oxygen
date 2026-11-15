@@ -59,11 +59,14 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// `oxy-api-metric-monitoring` (the table's eight `/semantic/metric-tree*`, five
 /// `/semantic/anomalies*` and one `/semantic/monitors` rows; it has none for
 /// `preview`, `baseline` or `projection`), whose declarations are that crate's.
+/// Plus six the same day when the observability console left for
+/// `oxy-api-observability` (`/traces`, `/metrics` and `/execution-analytics`,
+/// each the prefix and its `{*rest}`, the rows `nest_all` used to declare).
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 66;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 72;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];
@@ -170,7 +173,9 @@ fn no_row_contradicts_the_role_the_code_declares() {
     // 120, not 200: oxy-app declared 200 until the custom-app agent ask's
     // two routes left for oxy-api-custom-apps (2026-11-14), and 134 since the
     // seventeen metric-tree, monitor and anomaly routes left for
-    // oxy-api-metric-monitoring (2026-11-15); every decomposition step moves
+    // oxy-api-metric-monitoring (2026-11-15), and 128 since the observability
+    // console's six nest declarations left for oxy-api-observability the same
+    // day (read off this assertion); every decomposition step moves
     // more out. The floor guards against an empty table, not a count.
     assert!(
         declared.len() > 120,

@@ -55,7 +55,6 @@ pub mod data;
 pub mod database;
 // The document-library HTTP surface moved to the `oxy-api-documents` sibling
 // crate, mounted by `oxy-server`. oxy-app no longer depends on it.
-pub mod execution_analytics;
 // The GitHub HTTP surface moved to the `oxy-api-github` sibling crate, mounted by
 // `oxy-server`. oxy-app no longer depends on it.
 pub mod chat;
@@ -64,7 +63,6 @@ pub mod integration;
 pub mod local_setup;
 // Lowered into the domain crate; re-exported so every `server::api::` path holds.
 pub use oxy_metric_monitoring::{metric_tree_baseline, metric_tree_groups, metric_tree_inputs};
-pub mod metrics;
 pub mod middlewares;
 pub mod org_subdomain;
 pub mod org_teams;
@@ -77,7 +75,9 @@ pub mod secrets;
 pub mod semantic;
 pub mod semantic_scan;
 pub mod thread;
-pub mod traces;
+// The tenant-facing observability console (`traces`, `metrics`,
+// `execution_analytics`) moved to the `oxy-api-observability` sibling crate,
+// mounted by `oxy-server` on the workspace seam. oxy-app no longer depends on it.
 pub mod typed_stream;
 pub mod video;
 pub mod webhooks;

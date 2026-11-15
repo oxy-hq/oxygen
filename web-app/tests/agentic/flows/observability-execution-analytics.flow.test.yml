@@ -30,7 +30,7 @@
 # Confirmed live via curl before writing this flow:
 #
 #   GET /{workspace}/execution-analytics/executions -> 500
-#   ERROR oxy_app::server::api::execution_analytics: Execution analytics
+#   ERROR oxy_api_observability::execution_analytics: Execution analytics
 #   query failed: Execution list query failed: bad response: Code: 386.
 #   DB::Exception: There is no supertype for types String, DateTime ...
 #   while executing function greaterOrEquals on arguments

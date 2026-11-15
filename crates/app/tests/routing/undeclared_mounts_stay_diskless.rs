@@ -189,6 +189,13 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // what is left: the tree resolves its scan through the compile boundary,
         // the inbox reads Postgres and the compiled `.monitor.yml`.
         "../api-metric-monitoring/src",
+        // The observability console (`/traces`, `/metrics`,
+        // `/execution-analytics`), moved out of `build_workspace_routes` on
+        // 2026-11-15, where each was a FleetOk `nest_all`. Declared FleetOk
+        // by hand now in `oxy_api_observability::workspace_route_roles`;
+        // the handlers read the ClickHouse product store, never the
+        // working copy.
+        "../api-observability/src",
         // Workspace health's console routes, moved out of `admin/` onto the
         // admin seam. The handlers read and enqueue in Postgres; the live
         // runners that build a workspace context run in the task executor, on

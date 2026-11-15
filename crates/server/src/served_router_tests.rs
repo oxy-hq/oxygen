@@ -539,6 +539,116 @@ async fn the_workspace_tree_mounts_metric_monitoring() {
     }
 }
 
+/// `oxy-api-observability`'s three nests under `/{workspace_id}`, one concrete
+/// route each and the parameterised ones, probed with TRACE as above.
+fn observability_routes() -> Vec<&'static str> {
+    vec![
+        "/traces",
+        "/traces/0af7651916cd43dd8448eb211c80319c",
+        "/traces/clusters/map",
+        "/metrics/analytics",
+        "/metrics/list",
+        "/metrics/revenue",
+        "/execution-analytics/summary",
+        "/execution-analytics/time-series",
+        "/execution-analytics/agents",
+        "/execution-analytics/executions",
+        "/execution-analytics/percentiles",
+        "/execution-analytics/histogram",
+        "/execution-analytics/cost",
+    ]
+}
+
+/// The workspace seam carries the observability console into the
+/// `/{workspace_id}` tree, and with it the six FleetOk declarations `oxy-app`'s
+/// `nest_all` used to write. Local mode, for the reason
+/// `the_workspace_tree_mounts_the_world_model_app` gives.
+#[tokio::test]
+async fn the_workspace_tree_mounts_the_observability_console() {
+    // The declarations reach the seam (no database needed for this half).
+    let decls = surface_seams().workspace.decls;
+    for path in [
+        "/traces",
+        "/traces/{*rest}",
+        "/metrics",
+        "/metrics/{*rest}",
+        "/execution-analytics",
+        "/execution-analytics/{*rest}",
+    ] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the workspace seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    let router = served(ServeMode::Local).await;
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    // The control sits outside the three prefixes: `/traces/{trace_id}` and
+    // `/metrics/{metric_name}` take any one segment, so a made-up path under
+    // them would answer 405 too.
+    assert_eq!(
+        status_with(
+            &router,
+            &Method::TRACE,
+            &format!("/{ws}/observability-nothing-mounts-this"),
+            None,
+            ""
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+        "control: an unmounted path must be 404, or a 405 below proves nothing"
+    );
+    for path in observability_routes() {
+        let got = status_with(&router, &Method::TRACE, &format!("/{ws}{path}"), None, "").await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "/{{ws}}{path} must be mounted, got {got}"
+        );
+    }
+}
+
+/// A GET of the trace list, through the composition `serve` uses, reaches the
+/// moved handler with the router state it reads (`AppState::observability`).
+/// The handler answers 200 when a store is configured and its own
+/// `Failed to query traces` 500 when not; anything else (the router's 404, the
+/// workspace middleware's 503) means the request never got there.
+#[tokio::test]
+async fn the_trace_list_answers_through_the_composed_router() {
+    if db_unavailable() {
+        return;
+    }
+    // A real (empty) workspace, so the workspace middleware lets the request
+    // through (see `the_workspace_tree_hands_the_anomaly_inbox_its_agentic_state`).
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("config.yml"), "models: []\ndatabases: []\n")
+        .expect("write config.yml");
+    std::env::set_current_dir(dir.path()).expect("enter the workspace");
+    let (router, _external, _preagg) = api_router(
+        ServeMode::Local,
+        false,
+        None,
+        dir.path().to_path_buf(),
+        tokio_util::sync::CancellationToken::new(),
+        false,
+        surface_seams(),
+    )
+    .await
+    .expect("router built");
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    let (status, body) = get_with_body(&router, &format!("/{ws}/traces?limit=1"), None).await;
+    let handled = status == StatusCode::OK
+        || (status == StatusCode::INTERNAL_SERVER_ERROR && body == "Failed to query traces");
+    assert!(
+        handled,
+        "GET /{{ws}}/traces must reach the trace-list handler, got {status}: {body}"
+    );
+}
+
 /// The external seam carries the world-model app, and the LLM proxy, into the
 /// curated `/external/api/{workspace_id}` tree, behind its API-key-only auth.
 /// Auth runs before routing there, so the check needs a real key: a legacy key

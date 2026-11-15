@@ -1003,6 +1003,11 @@ mod tests {
             // 2026-11-15: workspace-scoped too, so not the data plane.
             "oxy_api_metric_monitoring::metric_tree",
             "oxy_api_metric_monitoring::metric_anomalies",
+            // The observability console, out of `oxy-app` on 2026-11-15:
+            // it reads Oxy's own product store, not a tenant warehouse.
+            "oxy_api_observability::traces",
+            "oxy_api_observability::metrics",
+            "oxy_api_observability::execution_analytics",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

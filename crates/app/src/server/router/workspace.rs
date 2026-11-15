@@ -12,10 +12,9 @@ use axum::routing::{get, post, put};
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
 use crate::api::{
-    agent, apps, artifacts, automation, chart, compile_staging, data, database,
-    execution_analytics, integration, local_setup, metrics, org_subdomain, preagg, result_files,
-    schedules, semantic, semantic_scan, thread, traces, video, workspace_logo, workspace_members,
-    workspace_oxy_access, workspaces,
+    agent, apps, artifacts, automation, chart, compile_staging, data, database, integration,
+    local_setup, org_subdomain, preagg, result_files, schedules, semantic, semantic_scan, thread,
+    video, workspace_logo, workspace_members, workspace_oxy_access, workspaces,
 };
 
 use oxy_shared::fleet_role::RouteRole;
@@ -107,24 +106,10 @@ pub(super) fn build_workspace_routes(
             "/app-integrations",
             build_app_integration_routes(&app_state),
         )
-        .nest_all(
-            "/traces",
-            RouteRole::FleetOk,
-            traces::traces_routes(),
-            "trace reads come from the runtime tables",
-        )
-        .nest_all(
-            "/metrics",
-            RouteRole::FleetOk,
-            metrics::metrics_routes(),
-            "metric reads come from the runtime tables",
-        )
-        .nest_all(
-            "/execution-analytics",
-            RouteRole::FleetOk,
-            execution_analytics::execution_analytics_routes(),
-            "run analytics aggregate the runtime tables",
-        )
+        // `/traces`, `/metrics` and `/execution-analytics` (the tenant-facing
+        // observability console) moved to the `oxy-api-observability` sibling
+        // crate, merged inside this nest by `oxy-server` through the workspace
+        // seam, still FleetOk.
         .route_fleet("/artifacts/{id}", get(artifacts::get_artifact))
         .route_fleet("/charts/{file_path}", get(chart::get_chart))
         .route_fleet("/logs", get(thread::get_logs))

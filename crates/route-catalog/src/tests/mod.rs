@@ -101,6 +101,7 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/{workspace_id}/databases",
     "/api/{workspace_id}/secrets",
     "/api/{workspace_id}/api-keys",
+    // The three below are `oxy-api-observability`'s, on the workspace seam.
     "/api/{workspace_id}/traces",
     "/api/{workspace_id}/metrics",
     "/api/{workspace_id}/execution-analytics",
