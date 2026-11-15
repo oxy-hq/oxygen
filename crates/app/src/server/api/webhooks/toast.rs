@@ -421,7 +421,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 async fn resolve_store(
     project_id: Uuid,
     restaurant_guid: &str,
-) -> Option<crate::server::api::operating_graph::binding::LocationBrief> {
+) -> Option<oxy_app_core::operating_graph::binding::LocationBrief> {
     let db = establish_connection().await.ok()?;
     let org_id = Workspaces::find_by_id(project_id)
         .one(&db)
@@ -429,7 +429,7 @@ async fn resolve_store(
         .ok()
         .flatten()?
         .org_id?;
-    match crate::server::api::operating_graph::binding::locations_by_external_ids(
+    match oxy_app_core::operating_graph::binding::locations_by_external_ids(
         &db,
         org_id,
         "toast",

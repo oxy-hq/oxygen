@@ -7,7 +7,7 @@
 
 use axum::Router;
 use axum::middleware;
-use axum::routing::{delete, get, patch, post, put};
+use axum::routing::{delete, get, patch, post};
 
 use crate::api::billing;
 use crate::api::middlewares::{
@@ -16,7 +16,6 @@ use crate::api::middlewares::{
 };
 use crate::api::{admin, workspaces};
 use crate::server::api::chat;
-use crate::server::api::work;
 
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
@@ -68,22 +67,14 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
         )
         .route_fleet("/chat/channels/{id}/read", post(chat::handlers::mark_read))
         .route_fleet("/chat/channels/{id}/stream", get(chat::handlers::stream))
-        // The assignment graph. NOT nested under `/orgs/{org_id}`, and that is
-        // load-bearing: `org_middleware` resolves an org membership, and a
-        // frontline worker holds none by design. Nesting these would lock out
-        // exactly the people the graph exists to route work to.
-        //
-        // Authorization is the query filter — you see what you are assigned,
-        // supervise, or hold the addressed role for. See the module docs.
-        .route_fleet(
-            "/work",
-            get(work::handlers::list).post(work::handlers::create),
-        )
+        // The assignment graph (`/work`, `/work/{id}`) is `oxy-api-operating-graph`'s
+        // (2026-11-14), merged at this same root through `SurfaceSeams::api`.
+        // Still NOT under `/orgs/{org_id}`: a frontline worker holds no org
+        // membership, and `org_middleware` would reject them.
         // Documents — read side — moved to the `oxy-api-documents` sibling
         // crate, merged at this same root by `oxy-server` through the
         // `extra_api_routes` seam. Still NOT under `/orgs/{org_id}`: frontline
         // workers hold no org membership, and `org_middleware` would reject them.
-        .route_fleet("/work/{id}", axum::routing::patch(work::handlers::update))
         // Notifications moved to the `oxy-api-notifications` sibling crate,
         // merged at this same root by `oxy-server` through the api seam. Still
         // no org gate: self-scoped, and a frontline worker holds no org
@@ -204,50 +195,14 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
         // inventory of every token reaching the org, its token policy) is
         // `oxy-api-identity`'s, merged through `SurfaceSeams::api` with this
         // tree's `org_middleware` + subscription guard re-applied.
-        // Locations and tenant-defined roles. Under `/orgs/{org_id}` so the
-        // `OrgAdmin` extractor can see the org it is guarding — a body-carried
-        // org is invisible to a path-resolved guard, which is the hole
-        // `create_app` has to patch by hand.
-        //
-        // `route_fleet`: Postgres only, no working copy.
-        .route_fleet(
-            "/locations",
-            get(crate::server::api::operating_graph::locations::list_locations)
-                .post(work::handlers::create_location),
-        )
-        // The rest of the operating graph — the hierarchy, what each
-        // integration calls a place, the positions vocabulary, and who holds
-        // which position where. `internal-docs/operating-graph.md`.
-        .route_fleet(
-            "/locations/{id}",
-            axum::routing::patch(crate::server::api::operating_graph::locations::patch_location),
-        )
-        .route_fleet(
-            "/locations/{id}/external-ids/{system}",
-            put(crate::server::api::operating_graph::locations::put_external_id)
-                .delete(crate::server::api::operating_graph::locations::delete_external_id),
-        )
-        .route_fleet(
-            "/roles",
-            get(work::handlers::list_roles).post(work::handlers::create_role),
-        )
+        // The operating graph — locations, their hierarchy and per-integration
+        // ids, the positions vocabulary (`/roles`) and assignments — is
+        // `oxy-api-operating-graph`'s (2026-11-14), merged through
+        // `SurfaceSeams::api` with this tree's `org_middleware` + subscription
+        // guard re-applied. `internal-docs/operating-graph.md`.
         // Documents — manage side — moved to `oxy-api-documents`, which nests
         // them at `/orgs/{org_id}` itself and re-applies `org_middleware` +
         // `subscription_guard`, the two layers this function wraps them in.
-        .route_fleet(
-            "/roles/{id}",
-            axum::routing::patch(crate::server::api::operating_graph::positions::patch_role)
-                .delete(crate::server::api::operating_graph::positions::delete_role_handler),
-        )
-        .route_fleet(
-            "/assignments",
-            get(crate::server::api::operating_graph::assignments::list)
-                .post(crate::server::api::operating_graph::assignments::create),
-        )
-        .route_fleet(
-            "/assignments/{id}",
-            axum::routing::delete(crate::server::api::operating_graph::assignments::delete),
-        )
         // The three workspace-creating onboarding routes moved to the
         // `oxy-api-onboarding` sibling crate. They CREATE a checkout on disk
         // through raw `std::fs` and git rather than an extractor, so no type

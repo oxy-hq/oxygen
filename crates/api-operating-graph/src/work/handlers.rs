@@ -15,7 +15,7 @@ use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use super::dto::*;
-use crate::server::api::middlewares::role_guards::{OrgAdmin, OrgMemberStrict};
+use oxy_app::surface::role_guards::{OrgAdmin, OrgMemberStrict};
 
 /// Every role the caller holds, as `(role_id, location_id)`.
 ///
@@ -264,7 +264,7 @@ pub async fn has_standing_in_org(
 /// Sea-ORM does not model constraint kinds, so the driver's SQLSTATE is the only
 /// thing that distinguishes "this name is taken" from "the database is down".
 fn is_unique_violation(e: &DbErr) -> bool {
-    crate::server::api::operating_graph::is_unique_violation(e)
+    crate::is_unique_violation(e)
 }
 
 /// Map a lookup failure to a 500 that says so, rather than to a refusal.
@@ -534,13 +534,7 @@ pub async fn create_location(
     OrgAdmin(_ctx): OrgAdmin,
     Path(org_id): Path<Uuid>,
     Json(body): Json<CreateLocation>,
-) -> Result<
-    (
-        StatusCode,
-        Json<crate::server::api::operating_graph::dto::LocationRow>,
-    ),
-    StatusCode,
-> {
+) -> Result<(StatusCode, Json<crate::dto::LocationRow>), StatusCode> {
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -559,20 +553,15 @@ pub async fn create_location(
     }
 
     let status = body.status.clone().unwrap_or_else(|| "open".to_string());
-    if !crate::server::api::operating_graph::dto::is_location_status(&status) {
+    if !crate::dto::is_location_status(&status) {
         return Err(StatusCode::BAD_REQUEST);
     }
     let id = Uuid::new_v4();
     // The hierarchy is one self-reference, checked by the same rule PATCH
     // uses: this org's, and not a loop.
-    let parent_id = crate::server::api::operating_graph::locations::check_parent(
-        &db,
-        org_id,
-        id,
-        body.parent_id,
-    )
-    .await
-    .map_err(|e| e.status())?;
+    let parent_id = crate::locations::check_parent(&db, org_id, id, body.parent_id)
+        .await
+        .map_err(|e| e.status())?;
     let kind = body
         .kind
         .as_deref()
@@ -581,14 +570,10 @@ pub async fn create_location(
 
     // The tenant's own id, by the rule PATCH uses: trimmed, blank is none, and
     // no other place of the org carries it (409).
-    let external_id = crate::server::api::operating_graph::locations::check_external_id(
-        &db,
-        org_id,
-        id,
-        body.external_id.clone(),
-    )
-    .await
-    .map_err(|e| e.status())?;
+    let external_id =
+        crate::locations::check_external_id(&db, org_id, id, body.external_id.clone())
+            .await
+            .map_err(|e| e.status())?;
 
     let now = Utc::now().fixed_offset();
     let saved = locations::ActiveModel {
@@ -621,7 +606,7 @@ pub async fn create_location(
     info!(id = %saved.id, "location created");
     // The same shape `GET` and `PATCH` answer — with `external_ids`, empty
     // here — so a client can treat every location it holds alike.
-    match crate::server::api::operating_graph::locations::one_row(&db, org_id, saved.id).await {
+    match crate::locations::one_row(&db, org_id, saved.id).await {
         Ok(Some(row)) => Ok((StatusCode::CREATED, Json(row))),
         _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }

@@ -426,7 +426,11 @@ mod tests {
             Default::default(),
             Vec::new(),
         );
-        assert!(decls.len() > 150, "only {} declarations", decls.len());
+        // 148 on 2026-11-14, after the operating graph's nine paths left for
+        // `oxy-api-operating-graph`. A surface's routes are declared by the
+        // surface, so lowering this when one leaves is expected; a drop nobody
+        // can name is not.
+        assert!(decls.len() > 140, "only {} declarations", decls.len());
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 

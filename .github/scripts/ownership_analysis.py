@@ -163,7 +163,11 @@ AREAS = [
                                                           "API & agent tokens"),
     ("web-app/src/components/settings/SettingsDialog/sections/organization/ApiAccess",
                                                           "API & agent tokens"),
+    ("crates/api-operating-graph",                        "Work assignment graph"),
+    # Pre-extraction paths of what moved into crates/api-operating-graph/
+    # (2026-11-14) — without them the extraction reads as authorship.
     ("crates/app/src/server/api/work",                    "Work assignment graph"),
+    ("crates/app/src/server/api/operating_graph",         "Work assignment graph"),
     ("crates/api-documents",                              "Document model (KB & compliance)"),
     # Pre-extraction path (#3388) — without it the extraction reads as authorship.
     ("crates/app/src/server/api/documents",               "Document model (KB & compliance)"),

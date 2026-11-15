@@ -8,6 +8,7 @@ members = [
   "crates/api-documents",
   "crates/api-frontline",
   "crates/api-identity",
+  "crates/api-operating-graph",
   "crates/api-custom-apps",
   "crates/route-catalog",
   "crates/tenancy",

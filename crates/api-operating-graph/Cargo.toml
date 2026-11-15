@@ -1,0 +1,56 @@
+[package]
+name = "oxy-api-operating-graph"
+version.workspace = true
+authors.workspace = true
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
+# oxy-app — the catalog was moved above it for exactly that reason.
+description = "Operating-graph HTTP surface (locations, positions, assignments, work items) — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# What this surface takes from oxy-app, all through `oxy_app::surface`: the
+# OrgAdmin / OrgMemberStrict role guards and the org middlewares. The pure half
+# of the graph (DTOs, readers, the assignment writes, reach, the binding) is
+# oxy-app-core's. oxy-app never depends back on this crate. default-features off
+# so a `--no-default-features` build of oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }  # AppState (router state), the audit writer, the graph's pure half
+oxy = { workspace = true }           # database client
+oxy-auth = { workspace = true }      # AuthenticatedUserExtractor
+oxy-shared = { workspace = true }    # fleet_role::RouteRoleDecl
+entity = { workspace = true }
+
+axum = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }   # a location's timezone is validated as an IANA name
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
+# from crates/app/tests/common), which clones a per-run template database and
+# needs every migrator `Schema::All` can apply.
+oxy-custom-apps = { workspace = true }     # operating_graph: the `ctx.org` directory reads
+migration = { workspace = true }
+airhouse = { workspace = true }
+oxy-oltp = { workspace = true }
+agentic-runtime = { workspace = true }
+agentic-pipeline = { workspace = true }      # tests/common
+agentic-semantic = { workspace = true }      # operating_graph: the binding's semantic-layer fixture
+oxy-airlayer-compat = { workspace = true }   # operating_graph: the same fixture's schema types
+oxy-cameras = { workspace = true }
+tempfile = { workspace = true }
+url = { workspace = true }
+oxy-test-utils = { workspace = true }      # tests/common takes its Postgres from here
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

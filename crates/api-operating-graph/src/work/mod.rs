@@ -25,9 +25,9 @@
 //!
 //! # Fleet role
 //!
-//! `route_fleet` throughout: Postgres only, no working copy. "Assigned to me"
-//! must survive a deploy, or every store loses its checklist the moment
-//! somebody ships.
+//! FleetOk throughout (declared in [`crate::route_roles`]): Postgres only, no
+//! working copy. "Assigned to me" must survive a deploy, or every store loses
+//! its checklist the moment somebody ships.
 
 pub mod dto;
 pub mod handlers;

@@ -69,6 +69,11 @@ app's `/auth/mobile/*`, `GET /user` (public seam) and `/logout` with
 `/auth/mobile/authorize` (api seam). The session they mint stays below, in
 `server::api::auth`, reached through `surface::session`.
 
+The operating graph — `/work`, `/work/{id}` and
+`/orgs/{org_id}/{locations,roles,assignments}*` — is `oxy-api-operating-graph`'s
+(2026-11-14), served at the same paths through the `api` seam (the org half
+re-applies `org_middleware` + `subscription_guard`; roles in its `route_roles()`).
+
 ## Route tree
 
 The tree below is a hand-written orientation map — read it to learn the *shape*

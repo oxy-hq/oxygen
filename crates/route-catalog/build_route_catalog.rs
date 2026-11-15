@@ -232,6 +232,14 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_documents::router",
         function: "routes",
     },
+    // `oxy-api-operating-graph`: one seam, two subtrees — `/work` at the root,
+    // the locations, positions and assignments under `/orgs/{org_id}`.
+    Seed {
+        surface: "org",
+        prefix: "/api",
+        module: "oxy_api_operating_graph::router",
+        function: "routes",
+    },
     // `oxy-api-frontline` fills two seams: its org-admin routes ride
     // `SurfaceSeams::api` like the crates above, and its PIN sign-in + kiosk
     // binding ride `SurfaceSeams::public`, merged beside `build_public_routes`
@@ -392,6 +400,7 @@ const SEEDS: &[Seed] = &[
 /// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
 /// Both lists watch `crates/api-github/src`, `crates/api-tenancy/src`,
 /// `crates/api-documents/src`, `crates/api-frontline/src`, `crates/api-identity/src`,
+/// `crates/api-operating-graph/src`,
 /// `crates/api-custom-apps/src`, `crates/api-airway/src`,
 /// `crates/api-experiment/src`, `crates/api-notifications/src`,
 /// `crates/api-workspace-health/src`, `crates/api-slack/src` and
@@ -423,6 +432,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-documents/src",
     "crates/api-frontline/src",
     "crates/api-identity/src",
+    "crates/api-operating-graph/src",
     "crates/api-custom-apps/src",
     "crates/api-airway/src",
     "crates/api-experiment/src",
@@ -457,6 +467,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-documents/src",
     "crates/api-frontline/src",
     "crates/api-identity/src",
+    "crates/api-operating-graph/src",
     "crates/api-custom-apps/src",
     "crates/api-airway/src",
     "crates/api-experiment/src",

@@ -52,6 +52,7 @@ pub(crate) fn flat_api() -> Router {
         .merge(oxy_api_documents::routes())
         .merge(oxy_api_frontline::routes())
         .merge(oxy_api_identity::routes())
+        .merge(oxy_api_operating_graph::routes())
         .merge(oxy_api_notifications::routes())
         .merge(
             oxy_api_custom_apps::routes()

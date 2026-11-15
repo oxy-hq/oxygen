@@ -147,6 +147,10 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // gate that stopped one of these handlers taking a working copy, so
         // "stays diskless" is the check that is left.
         "../api-frontline/src",
+        // The operating graph and work items, moved out of `build_global_routes`
+        // (2026-11-14) where all nine paths were `route_fleet`. Declared FleetOk
+        // by hand in its `route_roles()`; this scan is the type gate that is left.
+        "../api-operating-graph/src",
         // The custom-app serving half: `/customer-apps/{*path}` and the health, logs
         // and client-error reads. Declared FleetOk in `public_route_roles` /
         // `serve_dispatch_roles`; the bundle and its maps come from the build store

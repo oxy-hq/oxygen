@@ -194,7 +194,7 @@ fn org_admin_ring_matches_the_shipped_guard() {
 /// loop over whatever ring it landed on.
 #[test]
 fn manage_locations_ring_matches_the_shipped_guard() {
-    // work::handlers::create_location — OrgAdmin
+    // oxy_api_operating_graph::work::handlers::create_location — OrgAdmin
     assert_matches_oracle(Action::ManageLocations, |s| {
         matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin)
     });
@@ -202,7 +202,7 @@ fn manage_locations_ring_matches_the_shipped_guard() {
 
 #[test]
 fn manage_org_roles_ring_matches_the_shipped_guard() {
-    // work::handlers::create_role — OrgAdmin
+    // oxy_api_operating_graph::work::handlers::create_role — OrgAdmin
     assert_matches_oracle(Action::ManageOrgRoles, |s| {
         matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin)
     });
@@ -240,7 +240,7 @@ fn manage_documents_ring_matches_the_shipped_guard() {
 
 #[test]
 fn manage_assignments_ring_matches_the_shipped_guard() {
-    // operating_graph::assignments::create / remove — OrgAdmin
+    // oxy_api_operating_graph::assignments::create / remove — OrgAdmin
     assert_matches_oracle(Action::ManageAssignments, |s| {
         matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin)
     });

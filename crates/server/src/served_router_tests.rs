@@ -750,3 +750,31 @@ fn the_composition_carries_the_identity_surface() {
         assert!(caps.contains(&cap), "no section behind {cap:?}");
     }
 }
+
+/// `oxy-api-operating-graph`'s api-seam routes (cloud only, like the global
+/// tree they left): work items at the root, outside the org middleware, and
+/// the registry under one org ([`ORG`] makes it answer 400, never 404).
+fn operating_graph_routes() -> Vec<(Method, String)> {
+    vec![
+        (Method::GET, "/work".to_string()),
+        (Method::GET, format!("/orgs/{ORG}/locations")),
+        (Method::GET, format!("/orgs/{ORG}/roles")),
+        (Method::GET, format!("/orgs/{ORG}/assignments")),
+    ]
+}
+
+#[tokio::test]
+async fn cloud_mode_mounts_the_operating_graph() {
+    if db_unavailable() {
+        return;
+    }
+    assert_cloud_mounts(operating_graph_routes()).await;
+}
+
+#[tokio::test]
+async fn local_mode_drops_the_operating_graph() {
+    if db_unavailable() {
+        return;
+    }
+    assert_local_drops(operating_graph_routes()).await;
+}

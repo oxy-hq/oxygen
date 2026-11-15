@@ -200,6 +200,14 @@ filter = "kind(test) & package(=oxy-api-frontline) & !test(/^(route_roles|frontl
 test-group = "db-per-test"
 retries = 2
 
+# The operating-graph and work-item tests that moved out of oxy-app's `platform`
+# binary with `oxy-api-operating-graph` (2026-11-14). Same harness, same group;
+# `route_roles` opens no database and is carved out like frontline's.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-operating-graph) & binary(=integration) & !test(/^route_roles::/)"
+test-group = "db-per-test"
+retries = 2
+
 # The tenancy tests that moved out of oxy-app's `platform` binary with the
 # `oxy-api-tenancy` move — same harness, same group. The two `*_route_roles`
 # modules open no database and are carved out like frontline's `route_roles`.

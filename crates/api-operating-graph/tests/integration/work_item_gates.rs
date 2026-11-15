@@ -13,16 +13,16 @@
 //! `a_supervisor_from_another_org_is_refused` exists for.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(work_item_gates)'`
+//! `cargo nextest run -p oxy-api-operating-graph --test integration -E 'test(work_item_gates)'`
 
 use axum::http::StatusCode;
 use chrono::Utc;
 use entity::{locations, org_members, org_roles, organizations, users};
-use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
+use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use uuid::Uuid;
 
-use oxy_app::server::api::work::dto::CreateWorkItem;
-use oxy_app::server::api::work::handlers::{gate_create, has_standing_in_org};
+use oxy_api_operating_graph::work::dto::CreateWorkItem;
+use oxy_api_operating_graph::work::handlers::{gate_create, has_standing_in_org};
 
 use crate::common::{Schema, fresh_db};
 

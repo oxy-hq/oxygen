@@ -9985,6 +9985,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-operating-graph"
+version = "0.5.160"
+dependencies = [
+ "agentic-pipeline",
+ "agentic-runtime",
+ "agentic-semantic",
+ "airhouse",
+ "axum",
+ "chrono",
+ "chrono-tz 0.10.4",
+ "entity",
+ "migration",
+ "oxy",
+ "oxy-airlayer-compat",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-cameras",
+ "oxy-custom-apps",
+ "oxy-oltp",
+ "oxy-shared",
+ "oxy-test-utils",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-slack"
 version = "0.5.160"
 dependencies = [
@@ -10840,6 +10875,7 @@ dependencies = [
  "oxy-api-github",
  "oxy-api-identity",
  "oxy-api-notifications",
+ "oxy-api-operating-graph",
  "oxy-api-slack",
  "oxy-api-tenancy",
  "oxy-api-workspace-health",

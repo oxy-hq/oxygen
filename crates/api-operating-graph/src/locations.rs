@@ -10,15 +10,14 @@ use oxy::database::client::establish_connection;
 use oxy_app_core::audit;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, ModelTrait, QueryFilter,
-    QueryOrder, Set,
+    Set,
 };
-use std::collections::{BTreeMap, HashMap};
 use tracing::{instrument, warn};
 use uuid::Uuid;
 
 use super::dto::{LocationRow, SetExternalId, UpdateLocation, is_location_status};
 use super::{is_unique_violation, json_error};
-use crate::server::api::middlewares::role_guards::{OrgAdmin, OrgMemberStrict};
+use oxy_app::surface::role_guards::{OrgAdmin, OrgMemberStrict};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LocationError {

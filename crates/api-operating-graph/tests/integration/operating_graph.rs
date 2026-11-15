@@ -14,12 +14,10 @@ use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use uuid::Uuid;
 
 use crate::common::{Schema, fresh_db};
-use oxy_app::server::api::operating_graph::assignments::{self, AssignError};
-use oxy_app::server::api::operating_graph::dto::{
-    AssignmentSpec, AssignmentsQuery, UpdateLocation,
-};
-use oxy_app::server::api::operating_graph::locations as places;
-use oxy_app::server::api::operating_graph::positions;
+use oxy_api_operating_graph::assignments::{self, AssignError};
+use oxy_api_operating_graph::dto::{AssignmentSpec, AssignmentsQuery, UpdateLocation};
+use oxy_api_operating_graph::locations as places;
+use oxy_api_operating_graph::positions;
 use oxy_custom_apps::org_directory::{org_assignments_directory, org_places_directory};
 
 struct Fx {
@@ -631,7 +629,7 @@ async fn a_function_reads_the_registry_whole_and_the_roster_by_audience() {
 
 #[tokio::test]
 async fn reach_follows_the_assignments_and_the_standing() {
-    use oxy_app::server::api::operating_graph::reach::{Caller, Reach, load_reach};
+    use oxy_api_operating_graph::reach::{Caller, Reach, load_reach};
     let (db, _url) = fresh_db(Schema::Central).await;
     let fx = seed(&db).await;
     let office = member(&db, fx.org, "Office").await;
@@ -707,11 +705,11 @@ async fn reach_follows_the_assignments_and_the_standing() {
 
 #[tokio::test]
 async fn a_bound_view_resolves_keys_to_places_and_scopes_a_query_to_reach() {
-    use oxy_app::server::api::operating_graph::binding::{
+    use oxy_api_operating_graph::binding::{
         NO_REACH_SENTINEL, ScopeError, apply_reach_scope, external_ids_for_locations,
         locations_by_external_ids,
     };
-    use oxy_app::server::api::operating_graph::reach::Reach;
+    use oxy_api_operating_graph::reach::Reach;
     let (db, _url) = fresh_db(Schema::Central).await;
     let fx = seed(&db).await;
     let fresno = location(&db, fx.org, "Fresno").await;

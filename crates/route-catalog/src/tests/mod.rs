@@ -61,6 +61,10 @@ const REQUIRED_GROUPS: &[&str] = &[
     // and the writes under the org, which `/api/orgs` above also cannot see.
     "/api/documents",
     "/api/orgs/{org_id}/documents",
+    // `oxy-api-operating-graph`: one seam, two subtrees — work items at the
+    // root, the registry under the org.
+    "/api/work",
+    "/api/orgs/{org_id}/locations",
     // Both seams of `oxy-api-frontline`: the org-admin routes, and the
     // PIN sign-in on the public seam.
     "/api/orgs/{org_id}/frontline",

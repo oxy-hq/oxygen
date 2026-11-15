@@ -123,6 +123,7 @@ fn api_seam_routes() -> SeamRouter {
         .merge(oxy_api_documents::routes())
         .merge(oxy_api_frontline::routes())
         .merge(oxy_api_identity::routes())
+        .merge(oxy_api_operating_graph::routes())
         .merge(oxy_api_notifications::routes())
         .merge(oxy_api_slack::routes())
         // The environment planes writes pin a semantic branch through a port
@@ -226,6 +227,12 @@ fn external_seam_routes() -> SeamRouter {
 /// `admin`; the legacy key operations and `GET /user` ride `openapi`; the
 /// token sweep rides `global_ticks`. Every route is FleetOk (Postgres only).
 ///
+/// `oxy-api-operating-graph` rides `api` in two halves, each where it sat in
+/// `build_global_routes`: `/work` at the root (no org gate: a frontline worker
+/// holds no org membership) and the locations, positions and assignments under
+/// `/orgs/{org_id}` with `org_middleware` + the subscription guard re-applied.
+/// All nine paths are declared FleetOk (Postgres only).
+///
 /// `oxy-api-experiment` rides the workspace seam too (experiments and declared
 /// worlds under `/{workspace_id}`), declaring write-back apply IdeOnly (it creates
 /// a git worktree in the working copy). Its five task kinds join the custom-app
@@ -241,6 +248,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_documents::route_roles())
                 .chain(oxy_api_frontline::route_roles())
                 .chain(oxy_api_identity::route_roles())
+                .chain(oxy_api_operating_graph::route_roles())
                 .chain(oxy_api_notifications::route_roles())
                 .chain(oxy_api_custom_apps::route_roles())
                 .chain(oxy_api_slack::route_roles())
