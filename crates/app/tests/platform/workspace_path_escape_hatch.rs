@@ -39,7 +39,8 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     (
         "src/agentic_wiring/project_ctx/monitor_scan.rs",
-        "BACKLOG. Same shape as `metric_anomalies/scan.rs`: `.monitor.yml` is \
+        "BACKLOG. Same shape as `oxy-api-metric-monitoring`'s \
+         `metric_anomalies/scan.rs`: `.monitor.yml` is \
          compiled and materialised first; the working copy is the fallback \
          when no revision holds one, and it errors where there is none.",
     ),
@@ -91,6 +92,8 @@ fn server_files() -> Vec<(String, String)> {
     // Likewise `src/server/api/source_upload.rs`.
     walk(&manifest.join("../api-airway/src"), &mut out);
     walk(&manifest.join("../api-notifications/src"), &mut out);
+    // The metric tree and the anomaly inbox (2026-11-15), served by this binary.
+    walk(&manifest.join("../api-metric-monitoring/src"), &mut out);
     // Moved out of `src/server/api/admin/workspace_health` and
     // `src/server/health_eval_executor.rs`.
     walk(&manifest.join("../workspace-health/src"), &mut out);

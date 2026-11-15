@@ -62,12 +62,8 @@ pub mod chat;
 pub mod healthcheck;
 pub mod integration;
 pub mod local_setup;
-pub mod metric_anomalies;
-pub mod metric_tree;
 // Lowered into the domain crate; re-exported so every `server::api::` path holds.
 pub use oxy_metric_monitoring::{metric_tree_baseline, metric_tree_groups, metric_tree_inputs};
-pub mod metric_tree_probe;
-pub mod metric_tree_projection;
 pub mod metrics;
 pub mod middlewares;
 pub mod org_subdomain;

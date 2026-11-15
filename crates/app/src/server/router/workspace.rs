@@ -13,8 +13,7 @@ use agentic_http::{AgenticState, airway_router, automation_router, router as age
 
 use crate::api::{
     agent, apps, artifacts, automation, chart, compile_staging, data, database,
-    execution_analytics, integration, local_setup, metric_anomalies, metric_tree,
-    metric_tree_probe, metric_tree_projection, metrics, org_subdomain, preagg, result_files,
+    execution_analytics, integration, local_setup, metrics, org_subdomain, preagg, result_files,
     schedules, semantic, semantic_scan, thread, traces, video, workspace_logo, workspace_members,
     workspace_oxy_access, workspaces,
 };
@@ -182,18 +181,11 @@ pub(super) fn build_workspace_routes(
         .route_fleet("/semantic/preagg-rebuild", post(preagg::rebuild_preagg))
         .route_fleet("/semantic/compile", post(semantic::compile_semantic_query))
         .route_fleet("/semantic", post(semantic::execute_semantic_query))
-        // Metric tree — structure + pure analysis ops over the semantic model.
-        // Merged as its own sub-router so the diagnostic probe layers over
-        // these ten routes and nothing else.
-        //
-        // FleetOk on every route: the scan root resolves through the compile
-        // boundary first (`semantic::resolve_query_scan_source`), working copy
-        // second, and warehouse execution needs only config + secrets — so a
-        // replica answers these. Pinned by
-        // `workspace_metric_tree_routes_are_fleet_ok`; the outage behind it is
-        // oxy-hq/oxygen#878 (every call 500'd on the serve fleet when these
-        // read `semantics_scan_path()` directly).
-        .merge(build_metric_tree_routes(&app_state))
+        // The metric tree (`/semantic/metric-tree*`, under its timing probe),
+        // `/semantic/monitors` and the anomaly inbox (`/semantic/anomalies`) are
+        // `oxy-api-metric-monitoring`'s, merged inside this nest by `oxy-server`
+        // through `SurfaceSeams::workspace`, all FleetOk in its
+        // `workspace_route_roles` (2026-11-15).
         // Declared worlds and their runs, and experiments, are
         // `oxy-api-experiment`'s: merged inside this nest by `oxy-server` through
         // `SurfaceSeams::workspace`; every route there is FleetOk.
@@ -201,26 +193,6 @@ pub(super) fn build_workspace_routes(
         // (`/semantic/cohort`) are `oxy-api-world-model`'s, merged inside this
         // nest by `oxy-server` through `SurfaceSeams::workspace`, all FleetOk
         // in its `workspace_route_roles`.
-        // Anomaly inbox — backed by oxy-metric-monitoring. Nested so the
-        // `Extension<Arc<AgenticState>>` layer scopes only to these routes
-        // (same pattern as `build_schedule_routes` below).
-        //
-        // `/semantic/monitors` is merged rather than plainly routed because it
-        // also extracts `Arc<AgenticState>` (for the per-segment scan coverage
-        // it returns alongside the config) and so needs the same Extension
-        // layer. Merging a one-route sub-router keeps the layer scoped to it
-        // and preserves the exact path — nesting would also answer on
-        // `/semantic/monitors/`, which nothing calls.
-        .merge({
-            use axum::Extension;
-            RoleRouter::new(app_state.clone())
-                .route_fleet("/semantic/monitors", get(metric_anomalies::list_monitors))
-                .map_router(|r| r.layer(Extension(agentic_state.clone())))
-        })
-        .nest(
-            "/semantic/anomalies",
-            build_metric_anomaly_routes(&app_state, agentic_state.clone()),
-        )
         // `/world-model/events`, foot traffic and competitors are
         // `oxy-api-world-model`'s, merged inside this nest by `oxy-server`
         // through `SurfaceSeams::workspace`.
@@ -327,31 +299,9 @@ pub(super) fn build_external_workspace_routes(
             "/world-model/weather/current",
             post(video::weather_current_batch),
         )
-        // Anomaly monitoring: list, scan, update status, explain — used by
-        // standalone apps (e.g. world-model-app) that can't reach the internal
-        // /api surface. Mirrors `build_metric_anomaly_routes` exactly, so the
-        // TypeScript SDK's `client.anomalies.*` (list/scan/updateStatus/explain)
-        // works against `/external/api` as well as `/api`.
-        //
-        // Nested with an explicit Extension layer because every handler extracts
-        // Arc<AgenticState> for db access (same pattern as build_metric_anomaly_routes).
-        //
-        // `/scan` and `/{id}/explain` are long-running (a scan waits up to 55 s
-        // before returning `pending: true`; an uncached explain runs a 20-30 s
-        // recursive search) but bounded by the same `timeout_middleware` the rest
-        // of this surface carries — no separate budget needed.
-        // The same builder the internal surface nests, rather than a copy of
-        // it. The two differed only in a path-parameter NAME (`{id}` vs
-        // `{anomaly_id}`), which no handler reads — both take
-        // `Path<(Uuid, Uuid)>`, positionally. Keeping the copy also hid these
-        // routes from `route_role_derivation`, whose parser resolves a nest
-        // prefix through the `build_*` call and cannot see into an inline
-        // block: `/scan` reached that guard with no prefix and classified as
-        // FleetOk by default.
-        .nest(
-            "/semantic/anomalies",
-            build_metric_anomaly_routes(&app_state, agentic_state.clone()),
-        )
+        // The anomaly inbox (list, scan, preview, status, explain) the SDK's
+        // `client.anomalies.*` calls here is `oxy-api-metric-monitoring`'s,
+        // merged into this tree by `oxy-server` through `SurfaceSeams::external`.
         // Agentic analytics: POST /analytics/runs, the SSE events stream,
         // /answer, /cancel, /threads/* — the chat surface external apps drive.
         .nest_declared(
@@ -385,91 +335,10 @@ fn build_agent_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone()).route_fleet("/", get(agent::get_agents))
 }
 
-/// Metric-tree structure + analysis ops, carrying the diagnostic probe.
-///
-/// Kept as a sub-router purely so [`metric_tree_probe::probe`] covers exactly
-/// these routes: layering it on the workspace router would time every
-/// workspace endpoint, and the question it answers is about these ten.
-/// Paths stay absolute (`.merge`, not `.nest`) so the role manifest's
-/// classification of each one is unchanged.
-fn build_metric_tree_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone())
-        .route_fleet("/semantic/metric-tree", get(metric_tree::get_metric_tree))
-        .route_fleet(
-            "/semantic/metric-tree/{measure_id}/sensitivity",
-            get(metric_tree::get_sensitivity),
-        )
-        .route_fleet(
-            "/semantic/metric-tree/predict",
-            post(metric_tree::post_predict),
-        )
-        .route_fleet(
-            "/semantic/metric-tree/explain",
-            post(metric_tree::post_explain),
-        )
-        .route_fleet(
-            "/semantic/metric-tree/opportunity",
-            post(metric_tree::post_opportunity),
-        )
-        .route_fleet(
-            "/semantic/metric-tree/drill",
-            post(metric_tree::post_opportunity_drill),
-        )
-        .route_fleet(
-            "/semantic/metric-tree/time-dimensions",
-            get(metric_tree::get_time_dimensions),
-        )
-        .route_fleet(
-            "/semantic/metric-tree/distribution",
-            post(metric_tree::post_distribution),
-        )
-        .route_fleet(
-            "/semantic/metric-tree/baseline",
-            post(metric_tree::post_baseline),
-        )
-        .route_fleet(
-            "/semantic/metric-tree/projection",
-            post(metric_tree_projection::post_projection),
-        )
-        .map_router(|r| r.layer(axum::middleware::from_fn(metric_tree_probe::probe)))
-}
-
 /// Schedule CRUD + run-now (§12 FU4b). Lives in the app crate so the
 /// handlers can use `WorkspaceAdmin` from `role_guards` (agentic-http is
 /// a lower layer and must not depend on `app`). AgenticState is attached
 /// as an Extension here so the handlers can extract it.
-fn build_metric_anomaly_routes(
-    app_state: &AppState,
-    agentic_state: Arc<AgenticState>,
-) -> RoleRouter {
-    use axum::Extension;
-    RoleRouter::new(app_state.clone())
-        .route_fleet("/", get(metric_anomalies::list_anomalies))
-        // Mounted on the external surface too (`build_external_workspace_routes`).
-        // Reads `.monitor.yml` and the semantic model from the compiled
-        // revision, as the scheduled scan on a worker does.
-        .route_fleet("/scan", post(metric_anomalies::run_scan))
-        // The dry run of one monitor. Unlike `/scan` it asks for no working
-        // copy: the file comes from the compile boundary and the semantic
-        // model through `resolve_scan`, so any replica can answer.
-        .route_fleet("/preview", post(metric_anomalies::preview_monitor))
-        // Static `/status` (bulk) and `/{anomaly_id}/status` (single) differ in
-        // segment count, so they don't compete for a match. Bulk triage writes
-        // Postgres rows only — any replica can take it.
-        .route_fleet("/status", post(metric_anomalies::update_status_bulk))
-        .route_fleet(
-            "/{anomaly_id}/status",
-            post(metric_anomalies::update_status),
-        )
-        // Like `/preview`: the semantic model through `resolve_scan`, the
-        // anomaly a Postgres row, the queries to the warehouse.
-        .route_fleet(
-            "/{anomaly_id}/explain",
-            post(metric_anomalies::explain_anomaly),
-        )
-        .map_router(|r| r.layer(Extension(agentic_state)))
-}
-
 fn build_schedule_routes(app_state: &AppState, agentic_state: Arc<AgenticState>) -> RoleRouter {
     use axum::Extension;
     RoleRouter::new(app_state.clone())
@@ -709,73 +578,6 @@ mod tests {
                 StatusCode::NOT_FOUND,
                 "{method} {path} must be mounted inside build_workspace_routes (got {status}); \
                  mounting it elsewhere bypasses workspace_middleware + auth_middleware"
-            );
-        }
-    }
-
-    /// The external API surface must expose the FULL anomaly inbox — list,
-    /// scan, status, explain — not just the read half. Standalone custom apps
-    /// can't reach `/api`, so a missing verb here means the TypeScript SDK's
-    /// `client.anomalies.scan()` / `.explain()` 404 against `/external/api`
-    /// while the same calls work in the IDE.
-    #[tokio::test]
-    async fn external_surface_exposes_full_anomaly_inbox() {
-        let state = test_app_state();
-        let router = build_external_workspace_routes(&state, test_agentic_state())
-            .into_router()
-            .with_state(state);
-
-        let anomaly_id = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
-
-        // `POST /{id}/status` was already mounted externally BEFORE this change
-        // and is known to work in production, so whatever a bare test router
-        // returns for it ("routed fine, failed later on absent workspace
-        // context") is the reference for a correctly-resolving route.
-        let baseline = status_for(
-            router.clone(),
-            "POST",
-            &format!("/semantic/anomalies/{anomaly_id}/status"),
-        )
-        .await;
-        assert!(
-            !baseline.is_success() && baseline != StatusCode::NOT_FOUND,
-            "baseline POST /semantic/anomalies/{{id}}/status returned {baseline}; this test \
-             assumes a bare router routes the request and then fails on missing context"
-        );
-
-        let cases: &[(&str, String)] = &[
-            ("GET", "/semantic/anomalies".to_string()),
-            ("POST", "/semantic/anomalies/scan".to_string()),
-            // Bulk status — `client.anomalies.updateStatusBulk()`. One segment,
-            // so it must not be swallowed by the two-segment `/{id}/status`.
-            ("POST", "/semantic/anomalies/status".to_string()),
-            ("POST", format!("/semantic/anomalies/{anomaly_id}/status")),
-            ("POST", format!("/semantic/anomalies/{anomaly_id}/explain")),
-        ];
-        for (method, path) in cases {
-            let status = status_for(router.clone(), method, path).await;
-            assert_ne!(
-                status,
-                StatusCode::NOT_FOUND,
-                "{method} {path} must be mounted on the external API surface (got {status}); \
-                 custom apps reach anomalies only through /external/api"
-            );
-            assert_ne!(
-                status,
-                StatusCode::METHOD_NOT_ALLOWED,
-                "{method} {path} is mounted on the external API surface under a DIFFERENT \
-                 verb (got {status}); the SDK calls it with {method}"
-            );
-            // Equality with the baseline is what rules out a *silently broken*
-            // mount: a route that resolves but whose role extractor stopped
-            // resolving would diverge here (401/403) while still passing the
-            // 404/405 checks above.
-            assert_eq!(
-                status, baseline,
-                "{method} {path} returned {status} but the already-proven \
-                 POST /semantic/anomalies/{{id}}/status returned {baseline}. These handlers all \
-                 take the same EffectiveWorkspaceRole extractor, so a divergence means this \
-                 route resolves differently — check the extractor stack, not just the mount."
             );
         }
     }

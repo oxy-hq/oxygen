@@ -127,7 +127,7 @@ fn app_src() -> PathBuf {
 /// itself now lives), `oxy-custom-apps`, `oxy-api-custom-apps` (the custom-app
 /// vertical lifted out of `src/server/api`) and `oxy-api-documents` and
 /// `oxy-api-airway`, `oxy-api-notifications`, `oxy-api-slack`,
-/// `oxy-api-operating-graph` and
+/// `oxy-api-operating-graph`, `oxy-api-metric-monitoring` and
 /// `oxy-api-world-model` (with `oxy-world-model`, where the graph's cores
 /// went down to), and workspace health's
 /// two crates, extracted from
@@ -198,6 +198,16 @@ fn source_files() -> Vec<(String, String)> {
     // `oxy-api-previews` (2026-11-14): the previews' upper half.
     let previews = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-previews/src");
     walk(&previews, &previews, "../api-previews/src/", &mut out);
+    // `oxy-api-metric-monitoring` (2026-11-15): the metric tree and the
+    // anomaly inbox, whose scan reads `.monitor.yml` through the compile boundary.
+    let metric_monitoring =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-metric-monitoring/src");
+    walk(
+        &metric_monitoring,
+        &metric_monitoring,
+        "../api-metric-monitoring/src/",
+        &mut out,
+    );
     let world_model = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-world-model/src");
     walk(
         &world_model,

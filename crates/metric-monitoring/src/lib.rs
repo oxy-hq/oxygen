@@ -24,8 +24,8 @@
 //!   shapes, the baseline reads and their notes, the unvalued diff; the
 //!   projection's validation, seasonality resolution, per-view read and fit;
 //!   and the bucketed time-series request with its timezone pad/trim. The
-//!   handlers that call them stay in `oxy-app`, which re-exports the items at
-//!   `server::api::metric_tree{,_projection}`.
+//!   handlers that call them are `oxy-api-metric-monitoring`'s, which
+//!   re-exports the items at `metric_tree{,_projection}`.
 //! - [`notify`] — the `notify:` block: which events a scan should announce,
 //!   the once-per-event claim on them, and the Slack message. Posting it is
 //!   the host's.

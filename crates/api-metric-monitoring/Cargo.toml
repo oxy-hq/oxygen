@@ -1,0 +1,58 @@
+[package]
+name = "oxy-api-metric-monitoring"
+version.workspace = true
+authors.workspace = true
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
+# oxy-app — the catalog was moved above it for exactly that reason.
+description = "The metric-monitoring HTTP surface (the IDE's metric tree and the anomaly inbox) — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# What this surface takes from oxy-app, all through `oxy_app::surface`: the
+# workspace extractors, the metric-tree executor and the core the customer-app
+# twins share (`metric_tree_exec`), the insights delivery a manual scan asks for
+# (`anomaly_notify`). oxy-app never depends back on this crate. default-features
+# off so a `--no-default-features` build of oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }            # AppState, write_hold, preagg_context
+oxy-metric-monitoring = { workspace = true }   # the computation: detection, scan, the tree's pure half
+oxy-airlayer-compat = { workspace = true }
+oxy-semantic = { workspace = true }
+oxy-world-model = { workspace = true }         # the one instance-scope rule (`instance_scope_filters`)
+oxy-auth = { workspace = true }
+oxy-shared = { workspace = true }              # fleet_role::RouteRoleDecl
+oxy = { workspace = true }
+entity = { workspace = true }
+agentic-analytics = { workspace = true }       # the `MetricTreeRunner` trait, anomaly periods
+agentic-http = { workspace = true }            # `AgenticState`, the anomaly handlers' database handle
+agentic-runtime = { workspace = true }         # the manual scan's run row
+axum = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# The integration group (`tests/integration/`) reuses oxy-app's per-test
+# database harness (`crates/app/tests/common/mod.rs`, included by `#[path]`),
+# so it needs that harness's dependencies too. Dev-only: nothing here ships.
+migration = { workspace = true }
+agentic-pipeline = { workspace = true }  # tests/common runs its migrators
+oxy-cameras = { workspace = true }       # ...and the cameras migrator
+airhouse = { workspace = true }
+oxy-oltp = { workspace = true }
+oxy-test-utils = { workspace = true }
+url = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+tower = { workspace = true, features = ["util"] }
+
+[lints]
+workspace = true

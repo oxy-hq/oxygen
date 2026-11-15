@@ -11,7 +11,7 @@
 //! **The wire types and the model-only helpers live in
 //! [`crate::cohort`]**, the IDE twin, and are imported here — the
 //! same direction `super::metric_tree` imports `OpportunityRequest` from
-//! `api::metric_tree`. The three response contracts they carry (`excluded`
+//! `oxy-api-metric-monitoring`'s `metric_tree`. The three response contracts they carry (`excluded`
 //! always explained, `min_peers` reports rather than filters, cohort + band
 //! window echoed back) are documented there, next to the types that encode
 //! them.

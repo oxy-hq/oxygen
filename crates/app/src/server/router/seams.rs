@@ -307,7 +307,9 @@ pub struct SurfaceSeams {
     pub api: SurfaceSeam,
     /// AUTHENTICATED, workspace-scoped. Merged INSIDE the `/{workspace_id}`
     /// nest, so these routes inherit the auth stack plus the workspace
-    /// middleware.
+    /// middleware. They also carry the process's `AgenticState` as an
+    /// `Extension` (`protected::with_agentic_state`), which the anomaly inbox
+    /// extracts.
     pub workspace: SurfaceSeam,
     /// AUTHENTICATED, workspace previews (`oxy-api-previews`). Nested at
     /// `/{workspace_id}/previews` BESIDE the workspace tree, behind
@@ -326,7 +328,8 @@ pub struct SurfaceSeams {
     /// workspace context, API-key-only auth and wide-open CORS layers, so these
     /// routes inherit all three. Routes only, no declarations: the curated tree
     /// drops its own too, and every route on it falls to the FleetOk default.
-    /// Mounted in both serve modes.
+    /// Mounted in both serve modes. Like `workspace`, it carries the
+    /// `AgenticState` extension.
     pub external: Router<AppState>,
     /// STAFF CONSOLE. Sections merged inside `/api/admin`, each behind the
     /// capability it names — see [`AdminSection`]. Cloud-only, like `api`:

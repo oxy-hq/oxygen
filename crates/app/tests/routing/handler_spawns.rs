@@ -144,7 +144,7 @@ const ALLOWED: &[(&str, &str)] = &[
          cleaned up by a guard inside the same task",
     ),
     (
-        "app/src/server/api/metric_anomalies/scan.rs",
+        "api-metric-monitoring/src/metric_anomalies/scan.rs",
         "backlog: a manually fired monitor scan runs in the request's process, writes \
          its run row's final status itself and answers over a oneshot the handler \
          waits ~55 s on. The run row exists already; the scan should be the \

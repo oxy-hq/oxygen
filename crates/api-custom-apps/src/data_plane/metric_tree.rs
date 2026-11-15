@@ -3,7 +3,7 @@
 //! opportunity sizing).
 //!
 //! These mirror the IDE's workspace-scoped `/semantic/metric-tree*`
-//! handlers (`oxy-app`'s `server::api::metric_tree`) but enter through the
+//! handlers (`oxy-api-metric-monitoring`'s `metric_tree`) but enter through the
 //! customer-app gate and load the semantic model from the compile boundary
 //! (`oxy_app::surface::custom_app_semantic`) rather than the workspace FS.
 //! Request / response shapes are the exact same types the IDE endpoints use —
@@ -69,7 +69,7 @@ async fn boundary_with_layer(
 ///
 /// The rollup short-circuit is attached here rather than at each call site so
 /// every query-executing op on this surface answers from the same tier as its
-/// IDE twin in `oxy-app`'s `server::api::metric_tree` — the two render the same
+/// IDE twin in `oxy-api-metric-monitoring`'s `metric_tree` — the two render the same
 /// analysis, and a bundle reading a measure the IDE serves from a rollup should
 /// not silently pay for a warehouse scan. These ops are FleetOk
 /// (`public_route_roles`), so any replica may run them, and the Layer-1 cache
@@ -402,7 +402,7 @@ pub async fn post_distribution(
 
 /// Resolve `req.instance` into an engine scope, `Response`-erroring instead
 /// of `MetricTreeError`. Mirrors the workspace handler's inline scope
-/// resolution in `crate::server::api::metric_tree::post_baseline` — same
+/// resolution in `oxy_api_metric_monitoring::metric_tree::post_baseline` — same
 /// rule: an instance that cannot be resolved is an error, never a silently
 /// dropped scope.
 fn baseline_scope(

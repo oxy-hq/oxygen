@@ -67,6 +67,7 @@ pub(super) fn build_protected_routes(
     let previews = RoleRouter::new(app_state.clone())
         .merge_declared(preview_routes, &preview_decls)
         .map_router(|r| r.layer(middleware::from_fn(workspace_access_middleware)));
+    let extra_workspace_routes = with_agentic_state(extra_workspace_routes, &agentic_state);
     let workspace = build_workspace_routes(app_state.clone(), agentic_state, false)
         .merge_declared(extra_workspace_routes, &extra_workspace_decls)
         .map_router(|r| {
@@ -83,6 +84,23 @@ pub(super) fn build_protected_routes(
         .into_parts();
     let decls = crate::server::role_manifest::api_prefixed(decls);
     (router, decls)
+}
+
+/// The workspace and external seams' routes, carrying the process's
+/// `AgenticState` as an `Extension`.
+///
+/// A seam contract, not a convenience: `oxy-api-metric-monitoring`'s anomaly
+/// handlers extract `Extension<Arc<AgenticState>>` (for its database handle),
+/// as they did in `oxy-app`, where the inbox's builder layered it. The surface
+/// cannot layer it itself: the composition root hands the seams in before
+/// `api_router` (and `internal_api_router`, which builds its own) creates the
+/// state. Layered on the seam router alone, before the merge, so it reaches no
+/// in-tree route; the extension is inert for a handler that does not ask.
+fn with_agentic_state(
+    routes: Router<AppState>,
+    agentic_state: &Arc<AgenticState>,
+) -> Router<AppState> {
+    routes.layer(axum::Extension(agentic_state.clone()))
 }
 
 /// Route discovery for the `oxyc` CLI: `GET /api/_catalog`.
@@ -203,6 +221,7 @@ pub(super) fn build_local_protected_routes(
     // is merged separately rather than inherited — a CLI that can enumerate
     // production but not a developer's own box is the wrong way round.
     let root = RoleRouter::new(app_state.clone()).merge(build_catalog_routes(&app_state, catalog));
+    let extra_workspace_routes = with_agentic_state(extra_workspace_routes, &agentic_state);
     let workspace = build_workspace_routes(app_state.clone(), agentic_state, true)
         .merge_declared(extra_workspace_routes, &extra_workspace_decls)
         .map_router(|r| {
@@ -282,6 +301,7 @@ pub(super) fn build_external_api_router(
     // and CORS as the curated routes beside them.
     extra_external_routes: Router<AppState>,
 ) -> Router {
+    let extra_external_routes = with_agentic_state(extra_external_routes, &agentic_state);
     let curated = build_external_workspace_routes(&app_state, agentic_state)
         .into_router()
         .merge(extra_external_routes);
@@ -436,10 +456,13 @@ mod tests {
         );
         // 148 on 2026-11-14, after the operating graph's nine paths left for
         // `oxy-api-operating-graph`; 138 after the ten preview routes left for
-        // `oxy-api-previews` the same day. A surface's routes are declared by the
+        // `oxy-api-previews` the same day; 123 on 2026-11-15 (read off this
+        // assertion, not subtracted), after the seventeen metric-monitoring
+        // paths (the ten `/semantic/metric-tree*`, `/semantic/monitors`, the
+        // six `/semantic/anomalies*`) left for `oxy-api-metric-monitoring`. A surface's routes are declared by the
         // surface, so lowering this when one leaves is expected; a drop nobody
         // can name is not.
-        assert!(decls.len() > 130, "only {} declarations", decls.len());
+        assert!(decls.len() > 115, "only {} declarations", decls.len());
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 

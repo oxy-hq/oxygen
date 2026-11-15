@@ -380,11 +380,27 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_world_model",
         function: "public_routes",
     },
+    // `oxy-api-metric-monitoring` fills two seams as well: the metric tree,
+    // `/semantic/monitors` and the anomaly inbox ride `SurfaceSeams::workspace`
+    // inside the `/{workspace_id}` tree, and the inbox again rides
+    // `SurfaceSeams::external`, walked by the second seed below.
+    Seed {
+        surface: "workspace",
+        prefix: "/api/{workspace_id}",
+        module: "oxy_api_metric_monitoring",
+        function: "workspace_routes",
+    },
     Seed {
         surface: "external",
         prefix: "/external/api/{workspace_id}",
         module: "workspace",
         function: "build_external_workspace_routes",
+    },
+    Seed {
+        surface: "external",
+        prefix: "/external/api/{workspace_id}",
+        module: "oxy_api_metric_monitoring",
+        function: "external_routes",
     },
     Seed {
         surface: "external",
@@ -405,7 +421,8 @@ const SEEDS: &[Seed] = &[
 /// `crates/api-custom-apps/src`, `crates/api-airway/src`,
 /// `crates/api-experiment/src`, `crates/api-notifications/src`,
 /// `crates/api-workspace-health/src`, `crates/api-slack/src`,
-/// `crates/api-world-model/src` and `crates/api-previews/src`, none of which `oxy-app` depends on
+/// `crates/api-world-model/src`, `crates/api-previews/src` and
+/// `crates/api-metric-monitoring/src`, none of which `oxy-app` depends on
 /// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
 /// reverse). Editing any of them therefore re-runs this build script and
 /// recompiles `oxy-app` — the workspace's largest crate — before the small
@@ -442,6 +459,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-slack/src",
     "crates/api-world-model/src",
     "crates/api-previews/src",
+    "crates/api-metric-monitoring/src",
     // `crates/oltp/src/api`, not the whole crate: every handler the OLTP routes
     // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
     // the wider path would only pull ~15 unrelated modules (`provisioner`,
@@ -478,6 +496,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-slack/src",
     "crates/api-world-model/src",
     "crates/api-previews/src",
+    "crates/api-metric-monitoring/src",
     // Mounts `/oltp/me/connection` and `/oltp/me/erd`, merged into the served
     // app as `oxy_oltp::api::router` — `role_manifest.rs` asserts that merge.
     // Missing here since #2851, so both routes were live and absent from the

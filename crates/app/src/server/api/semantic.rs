@@ -483,7 +483,8 @@ impl ScanUnavailable {
 /// `oxy-api-custom-apps`' `data_plane::semantic_query` (custom-app data plane) and
 /// `resolve_semantic_source` (single-file IDE reads) already do exactly this.
 ///
-/// The workspace-surface metric-tree handlers (`api::metric_tree`) are the
+/// The workspace-surface metric-tree handlers (`oxy-api-metric-monitoring`'s `metric_tree`, through
+/// `metric_tree_exec::resolve_scan`) are the
 /// other caller, for the same reason and with a louder symptom: scanning the
 /// missing directory failed outright there, 500ing every metric-tree call on
 /// every workspace in cloud (oxy-hq/oxygen#878).

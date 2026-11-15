@@ -999,6 +999,10 @@ mod tests {
             // The IDE twins: workspace-scoped, behind the workspace middleware.
             "oxy_api_world_model::cohort",
             "oxy_api_world_model::graph",
+            // The IDE metric tree and the anomaly inbox, out of `oxy-app` on
+            // 2026-11-15: workspace-scoped too, so not the data plane.
+            "oxy_api_metric_monitoring::metric_tree",
+            "oxy_api_metric_monitoring::metric_anomalies",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

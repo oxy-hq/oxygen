@@ -20,9 +20,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::error::AnomalyError;
-use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, WorkspaceManagerReadOnly,
-};
+use oxy_app::surface::{EffectiveWorkspaceRole, WorkspaceManagerReadOnly};
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateStatusRequest {

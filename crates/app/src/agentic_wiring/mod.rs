@@ -21,6 +21,7 @@ pub mod app_airhouse;
 pub mod builder_bridges;
 pub mod compile_dispatcher;
 pub mod metric_sink;
+pub mod metric_tree_exec;
 pub mod metric_tree_runner;
 pub mod preview_airhouse;
 pub mod preview_ctx;

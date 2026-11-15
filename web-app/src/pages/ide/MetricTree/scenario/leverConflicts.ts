@@ -10,7 +10,7 @@ export interface LeverConflict {
  *
  * Mirrors `oxy_airlayer_compat::lever_conflicts` deliberately, but the two no
  * longer play the same role. The Rust copy is the ENFORCING one, at three
- * points: both `/predict` handlers (`crates/app/src/server/api/metric_tree.rs`
+ * points: both `/predict` handlers (`crates/api-metric-monitoring/src/metric_tree.rs`
  * and its `projects/` twin) 400 on a conflict, and the agentic analytics
  * `predict_impact` tool — which builds its own tree and never goes through
  * either handler — refuses the same set. So a caller with no browser in front

@@ -1879,7 +1879,7 @@ mod tests {
 #[cfg(test)]
 mod health_scan_wiring_tests {
     /// Source up to this module's own test attribute — the same shape guard
-    /// `api::metric_tree::handlers_never_scan_the_working_copy` uses.
+    /// `oxy_api_metric_monitoring::metric_tree::handlers_never_scan_the_working_copy` uses.
     fn src() -> &'static str {
         include_str!("recovery.rs")
             .split("\n#[cfg(test)]")

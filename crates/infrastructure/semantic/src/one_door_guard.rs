@@ -81,10 +81,13 @@ const ALLOWED: &[(&str, &str)] = &[
          measure it never saw.",
     ),
     (
-        "crates/app/src/server/api/metric_tree.rs",
-        "`post_opportunity` runs `augment_layer_for_opportunity` first, so its \
-         layer is unique to the request and shares nothing with the \
-         workspace's.",
+        "crates/app/src/agentic_wiring/metric_tree_exec.rs",
+        "`build_engine`, the metric tree's per-request engine. Its callers \
+         (`oxy-api-metric-monitoring`'s handlers) build from a layer the \
+         request owns: `post_opportunity` runs `augment_layer_for_opportunity` \
+         first, so its layer is unique to the request and shares nothing with \
+         the workspace's. Moved here from `server/api/metric_tree.rs` with the \
+         core the customer-app twins share (2026-11-15).",
     ),
     (
         "crates/world-model/src/graph/breakdown.rs",
@@ -101,7 +104,7 @@ const ALLOWED: &[(&str, &str)] = &[
          the `SemanticEngineCacheCtx` extension that supplies the cache is \
          never inserted. `SemanticBoundary` holds a `CustomAppContext` and a \
          scan dir and nothing else. The workspace twin \
-         (`server/api/metric_tree.rs`) takes the extractor and IS cached.",
+         (`oxy-api-metric-monitoring`'s `metric_tree.rs`) takes the extractor and IS cached.",
     ),
     (
         "crates/api-world-model/src/customer_app/cohort.rs",

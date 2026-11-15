@@ -15,7 +15,7 @@ use oxy_airlayer_compat::engine::metric_tree_ops::BenchmarkStatistic;
 ///
 /// One constant for both surfaces: they query the same warehouse, so the
 /// deadline is one number in one place rather than two that can be tuned
-/// apart — the same reasoning as `BASELINE_TIMEOUT` in `oxy-app`'s `api::metric_tree`.
+/// apart — the same reasoning as `BASELINE_TIMEOUT` in `oxy_metric_monitoring::metric_tree_baseline`.
 pub const COHORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
 /// Parse the statistic, defaulting to `median`.

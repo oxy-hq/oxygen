@@ -2,7 +2,7 @@
 //!
 //! The tree is built per request from the workspace's semantic model, resolved
 //! through the same scan source `execute_semantic_query` uses —
-//! [`resolve_query_scan_source`]: the compile boundary first, the working copy
+//! `resolve_query_scan_source` (through `resolve_scan`): the compile boundary first, the working copy
 //! second. Every route here is `FleetOk`, so reading the working copy directly
 //! is not an option: a stateless serve replica has none, and scanning the
 //! missing directory failed every call with a flat 500 (oxy-hq/oxygen#878).
@@ -13,12 +13,7 @@
 //! compiles each `QueryRequest` to SQL, and `run_via_agentic_connector`
 //! executes it.
 
-use axum::{
-    extract::{Json, Path, Query},
-    http::StatusCode,
-    response::{IntoResponse, Response},
-};
-use serde::Deserialize;
+use axum::extract::{Json, Path, Query};
 use uuid::Uuid;
 
 use entity::workspace_members::WorkspaceRole;
@@ -28,100 +23,16 @@ use oxy_airlayer_compat::engine::metric_tree_fit::apply_fitted_coefficients;
 use oxy_airlayer_compat::engine::metric_tree_ops::{ExplainConfig, ExplainResult};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
-use crate::agentic_wiring::metric_tree_runner::{
+use oxy_app::surface::metric_tree_exec::{
+    MetricTreeError, baseline_scope_core, build_engine, load_layer_at, resolve_scan,
+    workspace_databases,
+};
+use oxy_app::surface::metric_tree_exec::{
     OxyMetricTreeRunner, build_drill_query_executor, build_query_executor,
 };
-use crate::server::api::middlewares::workspace_context::{
+use oxy_app::surface::{
     EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, WorkspaceManagerReadOnly,
 };
-use crate::server::api::semantic::{QueryScanSource, resolve_query_scan_source};
-
-#[derive(Debug)]
-pub enum MetricTreeError {
-    LayerLoad(String),
-    /// No semantic model is reachable on this node: the workspace has no
-    /// compiled revision and this replica has no working copy to fall back to.
-    /// Retryable — a compile is enqueued on the way out — so it must not be
-    /// flattened into the generic 500 above.
-    ScanUnavailable(String),
-    NotFound(String),
-    /// The request itself is out of range — a caller error, not a failure.
-    /// Distinct from [`MetricTreeError::Op`] because that one is logged as a
-    /// server error and answered with a generic message, which is exactly
-    /// wrong for something the caller can fix by changing a number.
-    BadRequest(String),
-    Op(String),
-}
-
-impl IntoResponse for MetricTreeError {
-    fn into_response(self) -> Response {
-        let mut retry_after = false;
-        let (status, msg) = match &self {
-            MetricTreeError::LayerLoad(e) => {
-                tracing::error!("metric-tree layer load failed: {e}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to load semantic model".to_string(),
-                )
-            }
-            MetricTreeError::ScanUnavailable(m) => {
-                // Logged, not silent: the "no compiled revision at all" branch
-                // leaves no breadcrumb anywhere else (`resolve_query_scan_source`
-                // only warns when a materialise actually failed), so a workspace
-                // stuck un-compiled would be visible to the client and to nobody
-                // operating the fleet.
-                tracing::warn!("metric-tree scan unavailable: {m}");
-                retry_after = true;
-                (StatusCode::SERVICE_UNAVAILABLE, m.clone())
-            }
-            MetricTreeError::NotFound(m) => (StatusCode::NOT_FOUND, m.clone()),
-            MetricTreeError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
-            MetricTreeError::Op(e) => {
-                tracing::error!("metric-tree op failed: {e}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Metric tree operation failed".to_string(),
-                )
-            }
-        };
-        if retry_after {
-            // A compile is enqueued on the way out; give the client a concrete
-            // interval instead of leaving the retry cadence to guesswork.
-            return (status, [(axum::http::header::RETRY_AFTER, "5")], msg).into_response();
-        }
-        (status, msg).into_response()
-    }
-}
-
-/// A projection refused before any query runs, in this module's currency: an
-/// unknown lever is a 404, an out-of-range request a 400.
-impl From<oxy_metric_monitoring::metric_tree_projection::ProjectionRefusal> for MetricTreeError {
-    fn from(r: oxy_metric_monitoring::metric_tree_projection::ProjectionRefusal) -> Self {
-        use oxy_metric_monitoring::metric_tree_projection::ProjectionRefusal;
-        match r {
-            ProjectionRefusal::UnknownMeasure(m) => MetricTreeError::NotFound(m),
-            ProjectionRefusal::BadRequest(m) => MetricTreeError::BadRequest(m),
-        }
-    }
-}
-
-/// Resolve the scan root for this request: compile boundary first, working copy
-/// second — the same resolution `execute_semantic_query` performs.
-///
-pub(crate) async fn resolve_scan<S: oxy::config::DiskSlot>(
-    workspace_manager: &WorkspaceManager<S>,
-) -> Result<QueryScanSource, MetricTreeError> {
-    resolve_query_scan_source(workspace_manager)
-        .await
-        .map_err(|e| MetricTreeError::ScanUnavailable(e.message()))
-}
-
-/// Parse the workspace's semantic model from an already-resolved scan.
-pub fn load_layer_at(
-    scan: &oxy::config::ScanDir,
-) -> Result<oxy_airlayer_compat::SemanticLayer, MetricTreeError> {
-    OxyMetricTreeRunner::load_layer_at(scan).map_err(|e| MetricTreeError::LayerLoad(e.to_string()))
-}
 
 /// Build the metric tree from an already-resolved scan.
 fn load_tree_at(scan: &oxy::config::ScanDir) -> Result<MetricTree, MetricTreeError> {
@@ -129,20 +40,9 @@ fn load_tree_at(scan: &oxy::config::ScanDir) -> Result<MetricTree, MetricTreeErr
     Ok(oxy_semantic::build_metric_tree(&layer))
 }
 
-/// The airlayer database configs for the workspace.
-pub fn workspace_databases<S: oxy::config::DiskSlot>(
-    workspace_manager: &WorkspaceManager<S>,
-) -> Vec<oxy_airlayer_compat::DatabaseConfig> {
-    OxyMetricTreeRunner::list_databases_sync(workspace_manager)
-}
-
 // ── Pure ops: tree, sensitivity, predict ────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
-pub struct TreeQuery {
-    /// Optional measure id to root the returned subtree at.
-    pub root: Option<String>,
-}
+pub use oxy_app::surface::metric_tree_exec::TreeQuery;
 
 /// `GET .../semantic/metric-tree` — the full tree, or `?root=<id>` subtree.
 pub async fn get_metric_tree(
@@ -209,19 +109,9 @@ pub async fn post_predict(
 // ── Executor bridge ─────────────────────────────────────────────────────────
 //
 // The executor closure that compiles airlayer `QueryRequest`s and runs them
-// through Oxy's connector pool lives in [`crate::agentic_wiring::metric_tree_runner`]
+// through Oxy's connector pool lives in `oxy-app`'s `agentic_wiring::metric_tree_runner`
 // so both this HTTP handler and the agentic analytics tools route through the
 // same code path. See `build_query_executor` there.
-
-/// Build the airlayer `SemanticEngine` for the workspace, with dialects
-/// resolved from the configured databases.
-pub(crate) fn build_engine(
-    layer: oxy_airlayer_compat::SemanticLayer,
-    databases: &[oxy_airlayer_compat::DatabaseConfig],
-) -> Result<oxy_airlayer_compat::SemanticEngine, MetricTreeError> {
-    oxy_airlayer_compat::build_engine(layer, databases)
-        .map_err(|e| MetricTreeError::Op(e.to_string()))
-}
 
 /// Soft cap on how long an explain call can run before the handler bails.
 /// Explain can fire 50+ warehouse queries on rich schemas; the UI just
@@ -360,13 +250,13 @@ pub async fn post_opportunity(
     let handle = tokio::runtime::Handle::current();
     // Read here: the executor builds its connectors on a blocking thread.
     let holds_writes = oxy_app_core::write_hold::active();
-    let preagg = crate::agentic_wiring::metric_tree_runner::RunnerPreagg {
+    let preagg = oxy_app::surface::metric_tree_exec::RunnerPreagg {
         cache: preagg_ctx.cache.clone(),
         renewal_threshold_secs: preagg_ctx
             .renewal_threshold_secs_or(&workspace_manager.config_manager),
         // A read surface: an opportunity sizing is a display of the data, so a
         // rollup a cycle behind beats a warehouse scan.
-        freshness: crate::server::preagg_context::RollupFreshness::ServeStale,
+        freshness: oxy_app_core::preagg_context::RollupFreshness::ServeStale,
     };
 
     let result = tokio::task::spawn_blocking(move || {
@@ -413,12 +303,12 @@ pub async fn post_opportunity(
 
 // The baseline budget (`BASELINE_TIMEOUT`, its headroom, the query budget and
 // the shared deadline) lives beside the executor that spends it, in
-// `metric_tree_baseline`; re-exported so every caller keeps its path.
-pub(crate) use super::metric_tree_baseline::{BASELINE_TIMEOUT, baseline_query_deadline};
+// `metric_tree_baseline`.
+use oxy_metric_monitoring::metric_tree_baseline::BASELINE_TIMEOUT;
 
 // The domain half — request/response shapes, the baseline reads and notes,
 // the unvalued diff — lives in `oxy-metric-monitoring` (lowered with the
-// projection); re-exported so every `server::api::metric_tree::` path holds.
+// projection); re-exported so every `metric_tree::` path holds.
 pub use oxy_metric_monitoring::metric_tree_scenario::{
     BaselineInstance, BaselineReads, BaselineRequest, BaselineResponse, DistributionRequest,
     DrillRequest, DrillResponse, ExplainConfigOverride, ExplainRequest, OPPORTUNITY_MIN_SUPPORT,
@@ -440,31 +330,6 @@ fn baseline_scope(
     req: &BaselineRequest,
 ) -> Result<Vec<oxy_airlayer_compat::engine::query::QueryFilter>, MetricTreeError> {
     baseline_scope_core(layer, req.instance.as_ref()).map_err(MetricTreeError::NotFound)
-}
-
-/// The rule, once, for both surfaces.
-///
-/// The `projects/` twin needs the same decision in a different error currency
-/// (a `Response`, not a `MetricTreeError`), so the rule lives here and each
-/// caller supplies only the wrapping. Two copies of *this* is what a scope that
-/// silently drops on one surface and errors on the other would look like.
-///
-/// Returns the message on failure rather than an error type, so neither
-/// currency leaks into the other's module.
-pub fn baseline_scope_core(
-    layer: &oxy_airlayer_compat::SemanticLayer,
-    instance: Option<&BaselineInstance>,
-) -> Result<Vec<oxy_airlayer_compat::engine::query::QueryFilter>, String> {
-    let Some(instance) = instance else {
-        return Ok(Vec::new());
-    };
-    oxy_world_model::graph::instance_scope_filters(layer, &instance.entity, &instance.key)
-        .ok_or_else(|| {
-            format!(
-                "cannot scope to '{}': no entity named '{}' in the semantic layer",
-                instance.key, instance.entity
-            )
-        })
 }
 
 /// Build the executor and run the baseline's per-view value and per-group fit
@@ -491,14 +356,14 @@ async fn run_baseline_query(
     let handle = tokio::runtime::Handle::current();
     // Read here: the executor builds its connectors on a blocking thread.
     let holds_writes = oxy_app_core::write_hold::active();
-    let preagg = crate::agentic_wiring::metric_tree_runner::RunnerPreagg {
+    let preagg = oxy_app::surface::metric_tree_exec::RunnerPreagg {
         cache: preagg_ctx.cache.clone(),
         renewal_threshold_secs: preagg_ctx
             .renewal_threshold_secs_or(&workspace_manager.config_manager),
         // A read surface, same as `post_opportunity` above: a baseline is a
         // display of the data, so a rollup a cycle behind beats a warehouse
         // scan across every root in the batch.
-        freshness: crate::server::preagg_context::RollupFreshness::ServeStale,
+        freshness: oxy_app_core::preagg_context::RollupFreshness::ServeStale,
     };
     let roots = req.roots.clone();
     let period = req.period.clone();
@@ -661,13 +526,13 @@ pub async fn post_opportunity_drill(
     let handle = tokio::runtime::Handle::current();
     // Read here: the executor builds its connectors on a blocking thread.
     let holds_writes = oxy_app_core::write_hold::active();
-    let preagg = crate::agentic_wiring::metric_tree_runner::RunnerPreagg {
+    let preagg = oxy_app::surface::metric_tree_exec::RunnerPreagg {
         cache: preagg_ctx.cache.clone(),
         renewal_threshold_secs: preagg_ctx
             .renewal_threshold_secs_or(&workspace_manager.config_manager),
         // A read surface: an opportunity sizing is a display of the data, so a
         // rollup a cycle behind beats a warehouse scan.
-        freshness: crate::server::preagg_context::RollupFreshness::ServeStale,
+        freshness: oxy_app_core::preagg_context::RollupFreshness::ServeStale,
     };
     let default_config = oxy_airlayer_compat::engine::metric_tree_ops::DrillConfig::default();
     let config = oxy_airlayer_compat::engine::metric_tree_ops::DrillConfig {
@@ -813,6 +678,14 @@ mod tests {
     /// the spirit of `tests/authz/authz_boundaries.rs`.
     #[test]
     fn handlers_never_scan_the_working_copy() {
+        // The scan resolution these handlers call (`resolve_scan`) lives in the
+        // shared core in `oxy-app`, so the guard reads it too.
+        let core = include_str!("../../app/src/agentic_wiring/metric_tree_exec.rs");
+        assert!(
+            !core.contains("semantics_scan_path"),
+            "agentic_wiring/metric_tree_exec.rs must resolve the scan root via \
+             resolve_query_scan_source (compile boundary first)"
+        );
         assert!(
             !handler_src().contains("semantics_scan_path"),
             "metric_tree.rs must resolve its scan root via resolve_query_scan_source \
@@ -838,15 +711,21 @@ mod tests {
                 "metric_tree_projection.rs",
                 include_str!("metric_tree_projection.rs"),
             ),
+            // The projection's executor-facing core, which the customer-app
+            // twin shares, spends it too (`run_projection_query`).
+            (
+                "app/src/agentic_wiring/metric_tree_exec.rs",
+                include_str!("../../app/src/agentic_wiring/metric_tree_exec.rs"),
+            ),
             // The domain halves spend the same budget (`baseline_reads`, the
             // projection's per-view read), so the guard follows them down.
             (
                 "metric-monitoring/src/metric_tree_scenario.rs",
-                include_str!("../../../../metric-monitoring/src/metric_tree_scenario.rs"),
+                include_str!("../../metric-monitoring/src/metric_tree_scenario.rs"),
             ),
             (
                 "metric-monitoring/src/metric_tree_projection.rs",
-                include_str!("../../../../metric-monitoring/src/metric_tree_projection.rs"),
+                include_str!("../../metric-monitoring/src/metric_tree_projection.rs"),
             ),
         ] {
             let offender = src

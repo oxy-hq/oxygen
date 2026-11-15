@@ -9934,6 +9934,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-metric-monitoring"
+version = "0.5.160"
+dependencies = [
+ "agentic-analytics",
+ "agentic-http",
+ "agentic-pipeline",
+ "agentic-runtime",
+ "airhouse",
+ "axum",
+ "chrono",
+ "entity",
+ "migration",
+ "oxy",
+ "oxy-airlayer-compat",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-cameras",
+ "oxy-metric-monitoring",
+ "oxy-oltp",
+ "oxy-semantic",
+ "oxy-shared",
+ "oxy-test-utils",
+ "oxy-world-model",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower 0.5.3",
+ "tracing",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-notifications"
 version = "0.5.160"
 dependencies = [
@@ -10872,6 +10909,7 @@ dependencies = [
  "oxy-api-custom-apps",
  "oxy-api-experiment",
  "oxy-api-identity",
+ "oxy-api-metric-monitoring",
  "oxy-api-tenancy",
  "oxy-api-world-model",
  "oxy-app",
@@ -10927,6 +10965,7 @@ dependencies = [
  "oxy-api-frontline",
  "oxy-api-github",
  "oxy-api-identity",
+ "oxy-api-metric-monitoring",
  "oxy-api-notifications",
  "oxy-api-operating-graph",
  "oxy-api-previews",

@@ -156,21 +156,30 @@ pub mod workspace_runtime {
 /// logic: the metric-tree computation itself lives in `oxy-metric-monitoring`.
 pub mod metric_tree_exec {
     pub use crate::agentic_wiring::metric_tree_runner::{
-        OxyMetricTreeRunner, RunnerPreagg, build_query_executor,
+        OxyMetricTreeRunner, RunnerPreagg, build_drill_query_executor, build_query_executor,
     };
-    pub use crate::server::api::metric_tree::workspace_databases;
     // What the customer-app twins (`oxy-api-custom-apps`' `data_plane::
-    // metric_tree*`) share with the IDE handlers that stay here: the error the
-    // projection core answers in, the tree query's shape, the one instance-scope
-    // rule (it reads the world model's entities, which `oxy-metric-monitoring`
-    // does not depend on), and the projection's executor-facing core.
-    pub use crate::server::api::metric_tree::{MetricTreeError, TreeQuery, baseline_scope_core};
-    pub use crate::server::api::metric_tree_projection::{
-        ProjectionExec, ProjectionOutcome, run_projection,
+    // metric_tree*`) share with the IDE handlers (`oxy-api-metric-monitoring`),
+    // which may not import each other (S3): the error the analysis ops answer
+    // in, the scan and layer resolution, the engine and database builders, the
+    // tree query's shape, the one instance-scope rule (it reads the world
+    // model's entities, which `oxy-metric-monitoring` does not depend on), and
+    // the projection's executor-facing core.
+    pub use crate::agentic_wiring::metric_tree_exec::{
+        MetricTreeError, ProjectionExec, ProjectionOutcome, TreeQuery, baseline_scope_core,
+        build_engine, load_layer_at, resolve_scan, run_projection, workspace_databases,
     };
     /// Whether this request is a held preview — `build_query_executor`'s
     /// `holds_writes`, read on the request's own task.
     pub use oxy_app_core::write_hold::active as request_holds_writes;
+}
+
+/// The insights delivery a monitor scan asks for once its anomalies are
+/// persisted: due-ness, the ledger and the queued delivery task. The scheduled
+/// scan on a worker calls it from here; `oxy-api-metric-monitoring`'s manual
+/// scan calls the same function, so the two cannot announce differently.
+pub mod anomaly_notify {
+    pub use crate::server::anomaly_notify::enqueue_if_due;
 }
 
 /// The connector the platform builds for every Dev Portal query (the same
@@ -345,8 +354,9 @@ pub use crate::server::router::AdminSection;
 /// Route-role (pod placement) declarations and the classifier that reads them.
 pub mod roles {
     pub use crate::server::role_manifest::{
-        RouteRole, classify, current_process_role, ensure_fs_writable, init_process_role_from_env,
-        install_route_declarations_for_tests_with, role_runs_inprocess_workers,
+        RouteRole, classify, current_process_role, declared_role_in, ensure_fs_writable,
+        init_process_role_from_env, install_route_declarations_for_tests_with,
+        role_runs_inprocess_workers,
     };
 }
 

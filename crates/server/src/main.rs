@@ -154,13 +154,14 @@ fn workspace_seam_routes() -> SeamRouter {
         .merge(oxy_api_custom_apps::workspace_routes())
         .merge(oxy_api_experiment::workspace_routes())
         .merge(oxy_api_world_model::workspace_routes())
+        .merge(oxy_api_metric_monitoring::workspace_routes())
         .merge(oxy_api_identity::workspace_routes())
 }
 
 /// The sibling crates merged into the curated `/external/api/{workspace_id}`
 /// tree standalone apps call.
 fn external_seam_routes() -> SeamRouter {
-    oxy_api_world_model::external_routes()
+    oxy_api_world_model::external_routes().merge(oxy_api_metric_monitoring::external_routes())
 }
 
 /// Every surface this composition root mounts, by seam. `cli` forwards it into
@@ -217,6 +218,13 @@ fn external_seam_routes() -> SeamRouter {
 /// `/external/api` tree standalone apps call with an API key. Its tailer,
 /// reaper and camera bridge join `background`.
 ///
+/// `oxy-api-metric-monitoring` (2026-11-15) fills two seams too: the metric
+/// tree, `/semantic/monitors` and the anomaly inbox ride `workspace` (all
+/// seventeen FleetOk: the compile boundary, Postgres and the warehouses), and
+/// the inbox again rides `external`, where the SDK's `client.anomalies.*` calls
+/// it. Its anomaly handlers extract the `AgenticState` extension `oxy-app`
+/// layers over both seams.
+///
 /// `oxy-api-identity` fills six seams, each where its routes sat in
 /// `oxy-app`'s router: the caller's tokens, the session's halves of `oxyc
 /// login`, `/logout`, the mobile sign-in approval and an org's API access ride
@@ -269,6 +277,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_custom_apps::workspace_route_roles())
                 .chain(oxy_api_experiment::workspace_route_roles())
                 .chain(oxy_api_world_model::workspace_route_roles())
+                .chain(oxy_api_metric_monitoring::workspace_route_roles())
                 .chain(oxy_api_identity::workspace_route_roles())
                 .copied()
                 .collect(),

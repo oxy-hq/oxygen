@@ -1,6 +1,6 @@
 //! Building a workspace's semantic layer, engine and query executor for one
 //! panel query. Nothing here is pricing-specific; it is the recipe
-//! `run_baseline_query` (`crates/app/src/server/api/metric_tree.rs`) uses,
+//! `run_baseline_query` (`oxy-api-metric-monitoring`'s `metric_tree`) uses,
 //! minus the HTTP request: the executor through `oxy_app::surface::metric_tree_exec`,
 //! the layer straight from the scan.
 

@@ -98,6 +98,9 @@ AREAS = [
     ("crates/app/src/server/api/cohort",                  "World Model (backend)"),
     ("web-app/src/pages/ide/WorldModel",                  "World Model (UI)"),
     ("crates/metric-monitoring",                          "Metric tree & anomaly monitoring"),
+    # The IDE metric tree and the anomaly inbox handlers moved out of oxy-app
+    # into crates/api-metric-monitoring 2026-11-15; the old paths keep their history.
+    ("crates/api-metric-monitoring",                      "Metric tree & anomaly monitoring"),
     ("crates/simulation",                                 "Metric-tree scenario simulation"),
     ("web-app/src/pages/ide/MetricTree",                  "Metric Tree (UI)"),
     ("web-app/src/pages/ide/SemanticLayer/AnomaliesInbox", "Anomalies Inbox (UI)"),

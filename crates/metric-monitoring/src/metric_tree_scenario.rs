@@ -6,8 +6,9 @@
 //!
 //! Pure over airlayer: every function here takes a layer, a tree or an
 //! already-built `QueryExecutor`. The handlers that resolve the scan, build the
-//! executor from Oxy's connector pool and answer in HTTP live in `oxy-app`'s
-//! `server::api::metric_tree`, which re-exports these items at their old paths.
+//! executor from Oxy's connector pool and answer in HTTP live in
+//! `oxy-api-metric-monitoring`'s `metric_tree` (the executor itself in `oxy-app`'s
+//! `agentic_wiring`), which re-exports these items at their old paths.
 
 use std::collections::BTreeMap;
 

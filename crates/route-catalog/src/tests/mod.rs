@@ -116,6 +116,12 @@ const REQUIRED_GROUPS: &[&str] = &[
     // `oxy-api-airway`, on the workspace seam.
     "/api/{workspace_id}/source-uploads",
     "/api/{workspace_id}/cameras",
+    // Both seams of `oxy-api-metric-monitoring`: the metric tree on the
+    // workspace seam (`/api/{workspace_id}/semantic` above is the in-tree
+    // semantic routes and does not cover it), and the anomaly inbox on the
+    // external seam, which `/external/api/` below does not pin either.
+    "/api/{workspace_id}/semantic/metric-tree",
+    "/external/api/{workspace_id}/semantic/anomalies",
     "/external/api/",
 ];
 

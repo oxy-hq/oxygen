@@ -116,11 +116,11 @@ fn ide_routes_classify_against_live_uri() {
         classify("POST", "/api/d9830be4-c6a4/agentic-airway/chunked-backfill"),
         RouteRole::FleetOk
     );
-    // The scan reads `.monitor.yml` from the compiled revision.
-    assert_eq!(
-        classify("POST", "/api/d9830be4-c6a4/semantic/anomalies/scan"),
-        RouteRole::FleetOk
-    );
+    // The anomaly scan (`/semantic/anomalies/scan`, which reads `.monitor.yml`
+    // from the compiled revision) left with the inbox for
+    // `oxy-api-metric-monitoring` (2026-11-15). Classifying it here would answer
+    // the FleetOk default for an undeclared path, which proves nothing; that
+    // crate's `the_installed_declarations_classify_fleet_ok` holds it.
     // The `/onboarding/*` routes moved to the `oxy-api-onboarding` sibling
     // crate, which declares them and asserts them in its own
     // `tests/route_roles.rs`. They cannot be checked here: `oxy-app` does not
@@ -433,52 +433,14 @@ fn workspace_health_eval_is_fleet_ok() {
 // `tests/routing/undeclared_mounts_stay_diskless.rs` scans the crate for
 // working-copy access, which the `route_fleet` type gate used to refuse.
 
-#[test]
-fn workspace_metric_tree_routes_are_fleet_ok() {
-    // Every workspace-surface metric-tree route must serve from ANY replica.
-    //
-    // They resolve their scan root through `semantic::resolve_query_scan_source`
-    // — compile boundary first, working copy second — exactly like the
-    // `/semantic` execute route next door, and their warehouse config comes
-    // from the compiled workspace config, not the FS fallback. No `.git`, no
-    // state dir.
-    //
-    // This list is a regression guard with a real outage behind it: the
-    // handlers USED to call `config_manager.semantics_scan_path()` directly, so
-    // on a stateless serve replica — which has no working copy — every call
-    // 500'd with a flat "Failed to load semantic model" for every workspace
-    // (oxy-hq/oxygen#878). The fix was to move them onto the compile boundary,
-    // NOT to pin them to the ide: viewing a metric tree is a read, and a read
-    // that needs the singleton is an HA bug. If one of these ever fails here,
-    // check that the handler still resolves its scan root through the boundary
-    // before reaching for an ide mount.
-    let ws = "d9830be4-c6a4";
-    for (method, path) in [
-        ("GET", "".to_string()),
-        ("GET", "/revenue/sensitivity".to_string()),
-        ("POST", "/predict".to_string()),
-        ("POST", "/explain".to_string()),
-        ("POST", "/opportunity".to_string()),
-        ("POST", "/drill".to_string()),
-        ("GET", "/time-dimensions".to_string()),
-        ("POST", "/distribution".to_string()),
-        ("POST", "/baseline".to_string()),
-        // The scenario projection reads exactly what `baseline` reads — the
-        // compiled layer plus one warehouse query — differing only in that it
-        // asks for the window broken out by bucket. Classified with its
-        // sibling: if one of these two ever has to move, both do, and
-        // splitting them would leave the scenario canvas drawing levels from
-        // one fleet and curves from another.
-        ("POST", "/projection".to_string()),
-    ] {
-        assert_eq!(
-            classify(method, &format!("/api/{ws}/semantic/metric-tree{path}")),
-            RouteRole::FleetOk,
-            "workspace metric-tree route {method} /semantic/metric-tree{path} must \
-             stay FleetOk (compile-boundary scan root — see resolve_query_scan_source)"
-        );
-    }
-}
+// `workspace_metric_tree_routes_are_fleet_ok` left with the metric tree for
+// `oxy-api-metric-monitoring` (2026-11-15): this crate cannot see that one's
+// declarations, so the same check here would pass on the FleetOk default. The
+// outage behind it (oxy-hq/oxygen#878: every call 500'd on the serve fleet
+// when the handlers read `semantics_scan_path()`) is now held by that crate's
+// `every_route_is_declared_fleet_ok_exactly_once` and
+// `the_installed_declarations_classify_fleet_ok`, and its
+// `handlers_never_scan_the_working_copy`.
 
 #[test]
 fn persisted_data_reads_are_fleet_ok() {
@@ -1045,16 +1007,24 @@ fn merged_builders(body: &str) -> Vec<&str> {
 
 #[test]
 fn discovers_every_merged_builder() {
-    let src = include_str!("router/workspace.rs");
+    // A fixture, not the live router: the one merged builder
+    // `build_workspace_routes` had (`build_metric_tree_routes`) left with the
+    // metric tree for `oxy-api-metric-monitoring` on 2026-11-15, and a check of
+    // the parser must not depend on the router happening to carry one.
+    let src = "fn build_workspace_routes() {\n    RoleRouter::new(s)\n        \
+               .merge(build_probe_routes(&app_state))\n        \
+               .nest(\"/threads\", build_thread_routes(&app_state))\n        \
+               .merge({ inline() })\n}\n";
     let merged = merged_builders(fn_body(src, "build_workspace_routes"));
-    assert!(
-        merged.contains(&"build_metric_tree_routes"),
-        "the known merged builder must be discovered: {merged:?}"
+    assert_eq!(
+        merged,
+        vec!["build_probe_routes"],
+        "the merged builder must be discovered, and nothing else: {merged:?}"
     );
     // A `.nest`ed builder must NOT be picked up — its paths are relative to the
     // nest prefix, so classifying them here would use the wrong URI.
     assert!(
-        !merged.iter().any(|n| *n == "build_thread_routes"),
+        !merged.contains(&"build_thread_routes"),
         "nested builders must stay out: {merged:?}"
     );
 }
@@ -1144,12 +1114,11 @@ fn every_workspace_mount_is_declared() {
     // has to be remembered when a second one is added, and nothing fails if it
     // isn't — the new routes just quietly stop being checked.
     let root = fn_body(src, "build_workspace_routes");
+    // None today: the last one (`build_metric_tree_routes`) left with the
+    // metric tree for `oxy-api-metric-monitoring` on 2026-11-15. The discovery
+    // stays so the next one is checked without anyone remembering to list it;
+    // `discovers_every_merged_builder` holds the parser on a fixture.
     let merged = merged_builders(root);
-    assert!(
-        !merged.is_empty(),
-        "found no .merge(build_*) in build_workspace_routes — the router shape \
-         changed; fix merged_builders"
-    );
     let mut bodies = root.to_string();
     for name in &merged {
         bodies.push_str(fn_body(src, name));

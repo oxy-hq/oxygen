@@ -21,7 +21,7 @@
 //! * `admin_staff_scope`, `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
 //!   `airway_compile_boundary`, `file_credentials_at_compile`, `revision_miss_not_from_disk`,
 //!   `worker_ctx_follows_promote`,
-//!   `semantic_scan_from_memory`, `context_documents_boundary`, `anomaly_bulk_status`,
+//!   `semantic_scan_from_memory`, `context_documents_boundary`,
 //!   `connector_vars_from_workspace_secrets`,
 //!   `anomaly_notify`, `usage_report`, `encryption_key_check` and `master_key_kms` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
@@ -61,7 +61,6 @@ mod admin_staff_scope;
 mod airway_compile_boundary;
 mod airway_fleet_control;
 mod analytics_run_thread_access;
-mod anomaly_bulk_status;
 mod anomaly_notify;
 mod artifact_naming_agrees;
 mod build;

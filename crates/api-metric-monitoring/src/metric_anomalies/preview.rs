@@ -21,11 +21,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::error::AnomalyError;
-use crate::agentic_wiring::OxyMetricTreeRunner;
-use crate::server::api::metric_tree::resolve_scan;
-use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly,
-};
+use oxy_app::surface::metric_tree_exec::OxyMetricTreeRunner;
+use oxy_app::surface::metric_tree_exec::resolve_scan;
+use oxy_app::surface::{EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly};
 
 /// Inside the 60-second request timeout, so a slow warehouse gets this
 /// handler's sentence rather than a bare gateway error.

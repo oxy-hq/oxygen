@@ -23,11 +23,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::error::AnomalyError;
-use crate::agentic_wiring::OxyMetricTreeRunner;
-use crate::server::api::metric_tree::resolve_scan;
-use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly,
-};
+use oxy_app::surface::metric_tree_exec::OxyMetricTreeRunner;
+use oxy_app::surface::metric_tree_exec::resolve_scan;
+use oxy_app::surface::{EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly};
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ExplainAnomalyQuery {

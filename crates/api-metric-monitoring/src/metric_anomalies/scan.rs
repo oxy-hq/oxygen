@@ -14,10 +14,8 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use super::error::AnomalyError;
-use crate::agentic_wiring::OxyMetricTreeRunner;
-use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly,
-};
+use oxy_app::surface::metric_tree_exec::OxyMetricTreeRunner;
+use oxy_app::surface::{EffectiveWorkspaceRole, PreaggCacheCtx, WorkspaceManagerReadOnly};
 
 #[derive(Debug, Serialize)]
 pub struct ScanResponse {
@@ -108,13 +106,14 @@ pub async fn run_scan(
     // scheduled scan on a worker makes, so any replica answers this. Only a
     // process that holds the workspace files (single-process mode, the CLI)
     // falls back to the working copy's own file.
-    let materialised_monitor = crate::server::api::semantic_scan::materialise_monitor_config(
-        &workspace_manager.config_manager,
-    )
-    .await
-    .map_err(|e| {
-        AnomalyError::Unavailable(format!("could not read the compiled `.monitor.yml`: {e:?}"))
-    })?;
+    let materialised_monitor =
+        oxy::config::scan::materialise_monitor_config(&workspace_manager.config_manager)
+            .await
+            .map_err(|e| {
+                AnomalyError::Unavailable(format!(
+                    "could not read the compiled `.monitor.yml`: {e:?}"
+                ))
+            })?;
     let config_path = match &materialised_monitor {
         Some(m) => m.config_path.clone(),
         None if workspace_manager.config_manager.can_read_disk() => {
@@ -213,7 +212,7 @@ pub async fn run_scan(
             // A scan pinned to a past date is a demo or a backfill; it says
             // nothing new about today, so it announces nothing.
             if !backdated {
-                crate::server::anomaly_notify::enqueue_if_due(
+                oxy_app::surface::anomaly_notify::enqueue_if_due(
                     &db_bg,
                     workspace_id,
                     result.notify.as_ref(),

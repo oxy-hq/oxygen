@@ -390,6 +390,155 @@ async fn the_workspace_tree_mounts_the_world_model_app() {
     }
 }
 
+/// `oxy-api-metric-monitoring`'s routes under `/{workspace_id}`: the metric
+/// tree, `/semantic/monitors` and the anomaly inbox. Probed with TRACE, which no
+/// route takes: a mounted path answers 405 from its method router without
+/// running a handler (a scan would otherwise run, and a handler can answer its
+/// own 404 for a missing anomaly), an unmounted one the router's 404.
+fn metric_monitoring_routes() -> Vec<&'static str> {
+    vec![
+        "/semantic/metric-tree",
+        "/semantic/metric-tree/revenue/sensitivity",
+        "/semantic/metric-tree/predict",
+        "/semantic/metric-tree/explain",
+        "/semantic/metric-tree/opportunity",
+        "/semantic/metric-tree/drill",
+        "/semantic/metric-tree/time-dimensions",
+        "/semantic/metric-tree/distribution",
+        "/semantic/metric-tree/baseline",
+        "/semantic/metric-tree/projection",
+        "/semantic/monitors",
+    ]
+}
+
+/// The anomaly inbox, on both the workspace and the external tree.
+fn anomaly_inbox_routes() -> Vec<&'static str> {
+    vec![
+        "/semantic/anomalies",
+        "/semantic/anomalies/scan",
+        "/semantic/anomalies/preview",
+        "/semantic/anomalies/status",
+        "/semantic/anomalies/3f2504e0-4f89-11d3-9a0c-0305e82c3301/status",
+        "/semantic/anomalies/3f2504e0-4f89-11d3-9a0c-0305e82c3301/explain",
+    ]
+}
+
+/// One GET, answered as `(status, body)`, with an optional API key.
+async fn get_with_body(router: &Router, path: &str, api_key: Option<&str>) -> (StatusCode, String) {
+    let mut req = Request::builder().method(Method::GET).uri(path);
+    if let Some(key) = api_key {
+        req = req.header("x-api-key", key);
+    }
+    let response = router
+        .clone()
+        .oneshot(req.body(Body::empty()).unwrap())
+        .await
+        .expect("oneshot");
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .expect("body");
+    (status, String::from_utf8_lossy(&body).into_owned())
+}
+
+/// What axum answers when a handler's `Extension<T>` is absent: a 500 with this
+/// body. The anomaly handlers extract `Extension<Arc<AgenticState>>`, which the
+/// composition (`oxy-app`'s `with_agentic_state`, over the workspace and
+/// external seams) must supply; the surface cannot layer it itself.
+const MISSING_EXTENSION: &str = "Missing request extension";
+
+/// The anomaly inbox, served through the composition `serve` uses, still gets
+/// the `AgenticState` extension its handlers extract. Before the lift the
+/// inbox's own builder layered it; now the seams do, and dropping that layer
+/// compiles fine and fails every inbox request with a 500 at run time. A real
+/// GET of the list runs the handler (it reads `metric_anomalies` through the
+/// state's database), so anything but the extension rejection proves the layer.
+#[tokio::test]
+async fn the_workspace_tree_hands_the_anomaly_inbox_its_agentic_state() {
+    if db_unavailable() {
+        return;
+    }
+    // A real (empty) workspace for local mode to serve, so the workspace
+    // middleware and `WorkspaceManagerReadOnly` resolve and the handler's
+    // `Extension` extractor is actually reached. Without one the middleware
+    // answers 503 first, and this check would pass with the layer dropped.
+    // Local mode finds its workspace by walking up from the process's current
+    // directory (`resolve_local_workspace_path`), so the test moves there.
+    // Safe because nextest runs each test in its own process (the repo never
+    // runs `cargo test`), as the `set_var` role tests rely on too.
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("config.yml"), "models: []\ndatabases: []\n")
+        .expect("write config.yml");
+    std::env::set_current_dir(dir.path()).expect("enter the workspace");
+    let (router, _external, _preagg) = api_router(
+        ServeMode::Local,
+        false,
+        None,
+        dir.path().to_path_buf(),
+        tokio_util::sync::CancellationToken::new(),
+        false,
+        surface_seams(),
+    )
+    .await
+    .expect("router built");
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    for path in [
+        format!("/{ws}/semantic/anomalies?limit=1"),
+        format!("/{ws}/semantic/monitors"),
+    ] {
+        let (status, body) = get_with_body(&router, &path, None).await;
+        assert!(
+            !body.contains(MISSING_EXTENSION),
+            "GET {path} reached its handler without the AgenticState extension \
+             ({status}: {body}) — the seam layer was dropped"
+        );
+        // The handler ran: the list and the monitor listing both answer 200
+        // from an empty workspace. Pinned so a refusal upstream of the
+        // extractors (the 503 above) can never make this check vacuous again.
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "GET {path} must reach its handler and answer from the empty workspace, \
+             got {status}: {body}"
+        );
+    }
+}
+
+/// The workspace seam carries the metric tree and the anomaly inbox into the
+/// `/{workspace_id}` tree. Local mode, for the reason
+/// `the_workspace_tree_mounts_the_world_model_app` gives.
+#[tokio::test]
+async fn the_workspace_tree_mounts_metric_monitoring() {
+    if db_unavailable() {
+        return;
+    }
+    let router = served(ServeMode::Local).await;
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    assert_eq!(
+        status_with(
+            &router,
+            &Method::TRACE,
+            &format!("/{ws}/semantic/nothing-mounts-this"),
+            None,
+            ""
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+        "control: an unmounted path must be 404, or a 405 below proves nothing"
+    );
+    for path in metric_monitoring_routes()
+        .into_iter()
+        .chain(anomaly_inbox_routes())
+    {
+        let got = status_with(&router, &Method::TRACE, &format!("/{ws}{path}"), None, "").await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "/{{ws}}{path} must be mounted, got {got}"
+        );
+    }
+}
+
 /// The external seam carries the world-model app, and the LLM proxy, into the
 /// curated `/external/api/{workspace_id}` tree, behind its API-key-only auth.
 /// Auth runs before routing there, so the check needs a real key: a legacy key
@@ -400,6 +549,13 @@ async fn the_external_tree_mounts_the_world_model_app() {
     if db_unavailable() {
         return;
     }
+    // A real (empty) workspace, so the anomaly-inbox check below reaches its
+    // handler instead of the workspace middleware's 503 (see
+    // `the_workspace_tree_hands_the_anomaly_inbox_its_agentic_state`).
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("config.yml"), "models: []\ndatabases: []\n")
+        .expect("write config.yml");
+    std::env::set_current_dir(dir.path()).expect("enter the workspace");
     let (router, external, _preagg) = api_router(
         ServeMode::Local,
         false,
@@ -461,6 +617,43 @@ async fn the_external_tree_mounts_the_world_model_app() {
             got,
             StatusCode::NOT_FOUND,
             "external {method} /{{ws}}{path} must be served, got {got}"
+        );
+    }
+    // ...and the external seam hands the inbox the AgenticState extension too:
+    // a real GET runs the list handler, which extracts it.
+    let (status, body) = get_with_body(
+        &external,
+        &format!("/{ws}/semantic/anomalies?limit=1"),
+        Some(&key),
+    )
+    .await;
+    assert!(
+        !body.contains(MISSING_EXTENSION),
+        "external GET /{{ws}}/semantic/anomalies reached its handler without the \
+         AgenticState extension ({status}: {body}) — the seam layer was dropped"
+    );
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "external GET /{{ws}}/semantic/anomalies must reach its handler and answer \
+         from the empty workspace, got {status}: {body}"
+    );
+    // The anomaly inbox, `oxy-api-metric-monitoring`'s on the external seam:
+    // the SDK's `client.anomalies.*` reaches it only here. TRACE, as in
+    // `the_workspace_tree_mounts_metric_monitoring`.
+    for path in anomaly_inbox_routes() {
+        let got = status_with(
+            &external,
+            &Method::TRACE,
+            &format!("/{ws}{path}"),
+            Some(&key),
+            "",
+        )
+        .await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "external /{{ws}}{path} must be mounted, got {got}"
         );
     }
     let got = status_with(

@@ -181,6 +181,14 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // and refresh compile a branch from the commit GitHub has, and the rest
         // touch only Postgres.
         "../api-previews/src",
+        // The metric tree and the anomaly inbox, moved out of
+        // `build_workspace_routes` on 2026-11-15, where all seventeen routes
+        // were `route_fleet` (a `FleetState` handler type refused a
+        // working-copy extractor). Declared FleetOk by hand now in
+        // `oxy_api_metric_monitoring::workspace_route_roles`, so this scan is
+        // what is left: the tree resolves its scan through the compile boundary,
+        // the inbox reads Postgres and the compiled `.monitor.yml`.
+        "../api-metric-monitoring/src",
         // Workspace health's console routes, moved out of `admin/` onto the
         // admin seam. The handlers read and enqueue in Postgres; the live
         // runners that build a workspace context run in the task executor, on

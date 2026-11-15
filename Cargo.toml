@@ -19,6 +19,7 @@ members = [
   "crates/api-notifications",
   "crates/api-slack",
   "crates/api-world-model",
+  "crates/api-metric-monitoring",
   "crates/api-previews",
   "crates/api-workspace-health",
   "crates/cli-shim",
@@ -254,7 +255,8 @@ aho-corasick = "1.1"
 #
 # The gate is opt-in via `augment_layer_for_opportunity`, which MUST be called
 # after building the metric tree and before building the engine — see
-# server/api/metric_tree.rs, where the ordering is load-bearing and commented.
+# crates/api-metric-monitoring/src/metric_tree.rs, where the ordering is
+# load-bearing and commented.
 # Without it, sizing silently reverts to reporting gaps it cannot demonstrate.
 #
 #  - Composites referencing a single foreign view isolate into per-view CTEs, so
@@ -661,7 +663,9 @@ aho-corasick = "1.1"
 #     and made the statistic an explicit argument, so **no single value
 #     reproduces the old behaviour**. oxy now passes the constants
 #     `OPPORTUNITY_STATISTIC` (= `P75`) and `OPPORTUNITY_MIN_SUPPORT` (= `1`)
-#     from crates/app/src/server/api/metric_tree.rs — P75 as the closest match,
+#     (OPPORTUNITY_MIN_SUPPORT is defined in crates/metric-monitoring/src/
+#     metric_tree_scenario.rs, and the handlers that pass it are
+#     crates/api-metric-monitoring/src/metric_tree.rs) — P75 as the closest match,
 #     and 1 because the pre-bump code had no support floor at all and
 #     upstream's new default of 2 would introduce refusals nobody asked for.
 #     Small-cardinality dimensions that used to benchmark against their best

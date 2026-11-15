@@ -17,7 +17,7 @@
 
 use chrono::{Duration, Utc};
 use entity::metric_anomalies;
-use oxy_app::server::api::metric_anomalies::{
+use oxy_api_metric_monitoring::metric_anomalies::{
     AnomalyError, apply_status_bulk, apply_status_bulk_capped,
 };
 use sea_orm::ActiveValue::Set;

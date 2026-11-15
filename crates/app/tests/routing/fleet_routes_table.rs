@@ -54,12 +54,16 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// two more with `onboarding/demo` and `onboarding/new` (no workspace without a
 /// repository). Plus two on 2026-11-14 when the workspace-preview routes left
 /// for `oxy-api-previews` (`/previews` and `/previews/refresh`; their
-/// declarations are that crate's now).
+/// declarations are that crate's now). Plus fourteen on 2026-11-15 when the
+/// metric tree, `/semantic/monitors` and the anomaly inbox left for
+/// `oxy-api-metric-monitoring` (the table's eight `/semantic/metric-tree*`, five
+/// `/semantic/anomalies*` and one `/semantic/monitors` rows; it has none for
+/// `preview`, `baseline` or `projection`), whose declarations are that crate's.
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 52;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 66;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];
@@ -163,12 +167,13 @@ fn every_row_is_one_the_script_can_read() {
 #[test]
 fn no_row_contradicts_the_role_the_code_declares() {
     let declared = declared();
-    // 150, not 200: oxy-app declares 200 since the custom-app agent ask's
-    // two routes left for oxy-api-custom-apps (2026-11-14), and every
-    // decomposition step moves more out. The floor guards against an empty
-    // table, not a count.
+    // 120, not 200: oxy-app declared 200 until the custom-app agent ask's
+    // two routes left for oxy-api-custom-apps (2026-11-14), and 134 since the
+    // seventeen metric-tree, monitor and anomaly routes left for
+    // oxy-api-metric-monitoring (2026-11-15); every decomposition step moves
+    // more out. The floor guards against an empty table, not a count.
     assert!(
-        declared.len() > 150,
+        declared.len() > 120,
         "route_declarations() returned {} routes — the comparison below would \
          be checking next to nothing",
         declared.len()

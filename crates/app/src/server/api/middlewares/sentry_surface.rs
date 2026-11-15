@@ -654,6 +654,13 @@ mod tests {
             &crate_root.join("../api-world-model/src/customer_app"),
             &mut files,
         );
+        // The IDE's metric-tree handlers, `oxy-api-metric-monitoring`'s since
+        // 2026-11-15. Not on the data plane; walked so the check that a file
+        // which only MENTIONS a gate entry point stays out of scope keeps a
+        // real subject (`../api-metric-monitoring/src/metric_tree.rs`), and so
+        // `gate_entry_points_are_complete` still sees the IDE's same-named
+        // handlers.
+        rust_files(&crate_root.join("../api-metric-monitoring/src"), &mut files);
         files.sort();
         files
             .into_iter()
@@ -941,7 +948,7 @@ mod tests {
         assert!(
             !scope
                 .iter()
-                .any(|path| path == "src/server/api/metric_tree.rs"),
+                .any(|path| path == "../api-metric-monitoring/src/metric_tree.rs"),
             "a file that only mentions a gate entry point is not on the data plane"
         );
 
@@ -965,7 +972,8 @@ mod tests {
     /// is a stale entry, kept only to match prose.
     ///
     /// The SDK's handlers share their names with the IDE's — `post_baseline`
-    /// is defined in both `api/metric_tree.rs` and `api-custom-apps`'
+    /// is defined in both `api-metric-monitoring`'s `metric_tree.rs` and
+    /// `api-custom-apps`'
     /// `data_plane/metric_tree.rs`
     /// — so a file that *defines* a function of the name is not counted as
     /// calling it: its `name(` is its own. A genuine cross-file call of a
@@ -1009,7 +1017,7 @@ mod tests {
                  If `{name}` is a helper that handlers enter the gate through, add it to the \
                  list. If it is an axum handler, listing it is the WRONG fix: the SDK's handlers \
                  share their names with the IDE's, so the entry would pull every file that calls \
-                 anything so named into the walk — the IDE's `api/metric_tree.rs` and its \
+                 anything so named into the walk — the IDE's `metric_tree.rs` and its \
                  platform-hub spawns included. The fix then is to stop calling the handler \
                  across files: mount it, or extract what the caller needs into a helper and list \
                  that."

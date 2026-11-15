@@ -109,8 +109,8 @@ pub fn workspace_routes() -> Router<AppState> {
         // section. IDE twin of the customer-app mount in
         // `public_routes`; the two share `oxy_world_model::cohort`'s wire types and
         // differ only in how a caller gets in and whether the population is
-        // reach-scoped. Not beside the metric-tree routes: those are a
-        // sub-router so `metric_tree_probe` times exactly them, and a cohort
+        // reach-scoped. Not beside the metric-tree routes (`oxy-api-metric-monitoring`'s):
+        // those are a sub-router so `metric_tree_probe` times exactly them, and a cohort
         // resolution's latency would pollute that signal.
         .route("/semantic/cohort", post(cohort::post_cohort))
 }

@@ -211,10 +211,16 @@ web-app/src/pages/ide/WorldModel/                  @haitrr @NTtanh
 # Slack (#3504) and monitor preview (#3509) are Luong's. Mars has one sweep there.
 # The metric tree itself keeps Mars as a generalist backup.
 crates/metric-monitoring/                          @haitrr @luong-komorebi
-crates/app/src/server/api/metric_tree.rs           @haitrr @NTtanh
+# The IDE metric tree and the anomaly inbox handlers moved out of oxy-app into
+# their own surface crate on 2026-11-15 (were `server/api/metric_tree*.rs` and
+# `server/api/metric_anomalies/`): the same owners followed them. The
+# executor-facing core both metric-tree surfaces share stayed below, beside the
+# runner.
+crates/api-metric-monitoring/                      @haitrr @NTtanh
+crates/app/src/agentic_wiring/metric_tree_exec.rs  @haitrr @NTtanh
 # metric_tree.rs's domain half, lowered into the domain crate: same owners.
 crates/metric-monitoring/src/metric_tree_scenario.rs  @haitrr @NTtanh
-crates/app/src/server/api/metric_anomalies/        @haitrr @luong-komorebi
+crates/api-metric-monitoring/src/metric_anomalies/  @haitrr @luong-komorebi
 crates/app/src/server/api/metrics.rs               @haitrr @NTtanh
 web-app/src/pages/ide/MetricTree/                  @haitrr @NTtanh
 web-app/src/pages/ide/SemanticLayer/AnomaliesInbox/  @haitrr @luong-komorebi

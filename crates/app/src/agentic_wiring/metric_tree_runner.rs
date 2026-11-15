@@ -33,11 +33,11 @@ use uuid::Uuid;
 use crate::agentic_wiring::project_ctx::build_connector_for_db;
 // A blocking thread is off the request's task, so the preview hold is passed
 // in (`holds_writes`) rather than read from `write_hold::active()` there.
-use crate::server::api::metric_tree::OPPORTUNITY_MIN_SUPPORT;
 use crate::server::preagg_context::RollupFreshness;
 use oxy::config::{ReadOnly, ScanDir, WorkingCopy};
 use oxy_app_core::write_hold::connector::Session;
 use oxy_app_core::write_hold::hold_if;
+use oxy_metric_monitoring::metric_tree_scenario::OPPORTUNITY_MIN_SUPPORT;
 use oxy_metric_monitoring::metric_tree_series::{build_time_series_query_request, trim_to_window};
 
 /// Adapter that exposes Oxy's semantic-model + connector pool as a
