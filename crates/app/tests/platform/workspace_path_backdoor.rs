@@ -126,6 +126,12 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         manifest.join("../world-model/src"),
         // The previews' upper half, `oxy-api-previews` since 2026-11-14.
         manifest.join("../api-previews/src"),
+        // The automation listing and the schedules, `oxy-api-automations`
+        // since 2026-11-15.
+        manifest.join("../api-automations/src"),
+        // The workspace's databases and secrets, `oxy-api-workspace-config`
+        // since 2026-11-15.
+        manifest.join("../api-workspace-config/src"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

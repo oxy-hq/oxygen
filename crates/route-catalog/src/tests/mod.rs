@@ -98,6 +98,7 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/fleet/",
     "/api/{workspace_id}/threads",
     "/api/{workspace_id}/agents",
+    // The two below are `oxy-api-workspace-config`'s, on the workspace seam.
     "/api/{workspace_id}/databases",
     "/api/{workspace_id}/secrets",
     "/api/{workspace_id}/api-keys",
@@ -109,7 +110,9 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/{workspace_id}/analytics",
     "/api/{workspace_id}/agentic-workflows",
     "/api/{workspace_id}/agentic-airway",
+    // `oxy-api-automations`' two groups, on the workspace seam.
     "/api/{workspace_id}/agentic-schedules",
+    "/api/{workspace_id}/automations",
     "/api/{workspace_id}/world-model",
     "/api/{workspace_id}/sql/",
     "/api/{workspace_id}/integrations",

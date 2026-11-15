@@ -253,7 +253,9 @@ internal-docs/experiments*.md                      @haitrr @luong-komorebi
 
 # Cameras / edge / video analytics fleet
 crates/cameras/                                    @hotay @luong-komorebi
-crates/app/src/server/api/video.rs                 @hotay @luong-komorebi
+# The UniFi camera list and the weather moved out of oxy-app on 2026-11-15
+# (was `crates/app/src/server/api/video.rs`); same owners (last match wins).
+crates/api-world-model/src/video.rs                @hotay @luong-komorebi
 crates/api-world-model/src/foot_traffic*.rs       @hotay @luong-komorebi
 internal-docs/video-processing-fleet-architecture.md  @hotay @luong-komorebi
 internal-docs/camera-fleet-local-testing.md        @hotay @luong-komorebi
@@ -340,7 +342,9 @@ web-app/src/pages/billing/                         @NTtanh @luong-komorebi
 crates/api-tenancy/src/organizations/              @NTtanh @luong-komorebi
 
 # Secrets management
-crates/app/src/server/api/secrets.rs               @NTtanh @luong-komorebi
+# The workspace's project secrets moved out of oxy-app on 2026-11-15 (was
+# `crates/app/src/server/api/secrets.rs`); same owners.
+crates/api-workspace-config/src/secrets.rs         @NTtanh @luong-komorebi
 
 # Document model (new 2026-09, #3087) — folders, documents, immutable versions,
 # visibility and search; one model for both knowledge base and compliance.

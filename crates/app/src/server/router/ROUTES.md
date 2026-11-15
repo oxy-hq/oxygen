@@ -12,7 +12,6 @@ mounted under `/api` by [`crate::cli::commands::serve`].
 | [`public.rs`](./public.rs) | Routes with no *user session* gate (health and webhook receivers — Slack, Toast, GitHub (`POST /webhooks/github`), and `POST /webhooks/apps/{org}/{app}/{fn}` with its non-production twin `POST /webhooks/apps-env/{environment}/{org}/{app}/{fn}`, which authenticate the sender by HMAC instead) |
 | [`global.rs`](./global.rs) | Cloud-only flat routes (chat, work, the admin console; logout is `oxy-api-identity`'s) |
 | [`workspace.rs`](./workspace.rs) | The `/{workspace_id}/…` tree and every per-resource sub-builder |
-| [`secrets.rs`](./secrets.rs) | Secret CRUD + the admin-only gating middleware |
 | [`protected.rs`](./protected.rs) | Cloud/local composition: which route sets are mounted and which middleware wraps them |
 | [`openapi.rs`](./openapi.rs) | Curated `utoipa` router used by Swagger UI |
 
@@ -210,5 +209,7 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 2. **Org-level / cloud-only** → add it in `global.rs`. It will not be mounted
    in local mode.
 3. **No auth required** → add it in `public.rs`. It is mounted in both modes.
-4. **Admin-only** → if it operates on secrets, add it in `secrets.rs`; otherwise
-   add your own middleware alongside an existing route group.
+4. **Admin-only** → take a `role_guards` extractor in the handler (the
+   workspace's secrets, `oxy-api-workspace-config` since 2026-11-15, take
+   `WorkspaceAdmin` that way), or add your own middleware alongside an
+   existing route group.

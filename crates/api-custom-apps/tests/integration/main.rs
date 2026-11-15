@@ -17,7 +17,6 @@
 //! | `app_environments_phase_1b` | staging hosts serve staging HTML to staff only; staging `/fn` runs for staff only; a sandbox host and a sandbox's `/fn` serve the sandbox's own build to staff only, read per request, and a name nobody created runs nothing; a cookie header and a cross-environment origin are refused; a staging task is refused by the runner |
 //! | `environment_scoped_keys` | an idempotency key, a cached result or a ledger row from a non-production environment never stands in for production's |
 //! | `env_schedules` | a non-production environment has function schedule rows only while its switch is on, kept to its build by its own publishes and flips; a promote leaves them; a due row fires through the tick into its environment and is not activity; the runner refuses a fire with the switch off or past expiry; the teardown retires a sandbox's rows |
-//! | `env_schedules_tenant` | the tenant's schedules API never lists, reads, edits, deletes, runs or backfills an environment's row, and refuses to create one |
 //! | `env_webhooks` | `apps-env/{environment}` deliveries verify against that environment's own secret only (no fallback), are refused before queueing on a bad signature, 404 for everything unknown, and run in their environment; production's route is unchanged |
 //! | `staging_functions` | a staging host runs the staging build as `ctx.channel = "staging"` for staff; the held row is written on throw and timeout; a GET carrying a body is held |
 //! | `staging_write_probe` | every write `HostOp`, from a table checked against the policy, is held (Airway refused) and listed in one `app.staging.held` row, unless the policy gives it a home — an unmapped warehouse write stays held; storage, secrets and email land in their isolated staging homes |
@@ -169,7 +168,6 @@ mod demo_fixture;
 mod draft_publish_retention;
 mod env_oltp_branch;
 mod env_schedules;
-mod env_schedules_tenant;
 mod env_webhooks;
 mod environment_scoped_keys;
 mod example_app_serving;

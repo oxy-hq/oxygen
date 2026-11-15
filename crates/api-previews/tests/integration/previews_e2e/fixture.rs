@@ -251,12 +251,32 @@ pub(super) fn enable_runs(on: bool) -> EnvGuard {
     EnvGuard::set(&[("OXY_PREVIEW_RUNS", on.then_some("1"))])
 }
 
+/// Stands in for `GET /databases`, the page these tests read: the database
+/// names of the config the workspace middleware resolved for this request,
+/// which is the one thing `names` reads off it. The real handler is
+/// `oxy-api-workspace-config`'s since 2026-11-15, and a surface may not depend
+/// on another, not even for tests (S3); what is under test here is the
+/// preview pin in the middleware, which this answers from exactly as the real
+/// list does (`config_manager.list_databases()`).
+async fn database_names(
+    oxy_app::surface::WorkspaceManagerReadOnly(workspace): oxy_app::surface::WorkspaceManagerReadOnly,
+    _user: oxy_auth::extractor::AuthenticatedUserExtractor,
+) -> axum::Json<Vec<Value>> {
+    axum::Json(
+        workspace
+            .config_manager
+            .list_databases()
+            .iter()
+            .map(|db| json!({ "name": db.name }))
+            .collect(),
+    )
+}
+
 /// The two trees as `build_protected_routes` mounts them, with the real
 /// handlers and middleware; `/databases` is the page (a FleetOk read every
-/// page load makes) and its POST the write.
+/// page load makes, here [`database_names`]) and its POST the write.
 fn app(user: AuthenticatedUser) -> Router {
     use oxy_api_previews::handlers as p;
-    use oxy_app::surface::testing::database;
     use oxy_app::surface::testing::workspace_context::{
         workspace_access_middleware, workspace_middleware,
     };
@@ -275,7 +295,7 @@ fn app(user: AuthenticatedUser) -> Router {
         .route("/sources", get(p::list_sources).put(p::put_source))
         .with_state(oxy_app::surface::testing::router::IdeState(state.clone()))
         .layer(middleware::from_fn(workspace_access_middleware));
-    let databases = get(database::list_databases)
+    let databases = get(database_names)
         .with_state(oxy_app::surface::testing::router::FleetState(state.clone()));
     // A write the preview refuses before any handler runs: the stub answers
     // only if the read-only check let it through.

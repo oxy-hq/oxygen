@@ -11,11 +11,16 @@
 //!   `workspace_middleware`.
 //! - [`external_routes`] rides the external seam, merged into the curated
 //!   `/external/api/{workspace_id}` tree before its API-key-only auth, wide-open
-//!   CORS and workspace context layers. It is the same four routes plus the LLM
+//!   CORS and workspace context layers. It is the same seven routes plus the LLM
 //!   proxy, which only standalone apps call.
 //!
-//! Every route is FleetOk: the feed reads Postgres, foot traffic and
-//! competitors call their vendors (and read `foot_traffic_by_store.yml` through
+//! Both trees also carry the UniFi camera list and the weather tiles and
+//! readings ([`video`]: `/world-model/cameras`, `/world-model/weather/*`),
+//! out of `oxy-app`'s `server/api/video.rs` since 2026-11-15, where both
+//! builders mounted them with `route_fleet`.
+//!
+//! Every route is FleetOk: the feed reads Postgres, foot traffic, competitors,
+//! the camera list and the weather call their vendors (and read `foot_traffic_by_store.yml` through
 //! the compile boundary), the proxy calls Anthropic with the workspace's key,
 //! and the graph and cohort routes read the semantic model through the compile
 //! boundary (working copy second, where the node holds one) and run on the
@@ -47,6 +52,9 @@ mod foot_traffic;
 mod foot_traffic_seed;
 pub mod graph;
 mod llm_proxy;
+// `pub` as it was in `oxy-app`: `spawn_camera_watcher` has no caller today, and
+// a private module would turn the move into a dead-code warning.
+pub mod video;
 
 use axum::Router;
 use axum::routing::{get, post};
@@ -54,7 +62,7 @@ use oxy_app::surface::seams::BackgroundSeam;
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
-/// The four routes both trees serve, relative to `/{workspace_id}`.
+/// The seven routes both trees serve, relative to `/{workspace_id}`.
 fn shared_routes() -> Router<AppState> {
     Router::new()
         // The live feed reads Postgres only: publishers append to
@@ -72,6 +80,18 @@ fn shared_routes() -> Router<AppState> {
         .route(
             "/world-model/competitors",
             post(competitors::get_competitors),
+        )
+        // The UniFi camera list and the weather tiles and readings (`video`),
+        // moved out of `oxy-app` on 2026-11-15, where both trees mounted them.
+        // Each calls its vendor with the workspace's key and caches per pod.
+        .route("/world-model/cameras", get(video::list_cameras))
+        .route(
+            "/world-model/weather/{layer}/{z}/{x}/{y}",
+            get(video::weather_tile),
+        )
+        .route(
+            "/world-model/weather/current",
+            post(video::weather_current_batch),
         )
 }
 
@@ -207,6 +227,24 @@ pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
             path: "/world-model/competitors",
             role: RouteRole::FleetOk,
         },
+        // The camera list and the weather (`video`), as `oxy-app`'s
+        // `route_fleet` declared them: method `*`, FleetOk. UniFi and
+        // OpenWeatherMap over HTTP; no disk.
+        RouteRoleDecl {
+            method: "*",
+            path: "/world-model/cameras",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "*",
+            path: "/world-model/weather/{layer}/{z}/{x}/{y}",
+            role: RouteRole::FleetOk,
+        },
+        RouteRoleDecl {
+            method: "*",
+            path: "/world-model/weather/current",
+            role: RouteRole::FleetOk,
+        },
         // The graph and cohort routes: the scan root resolves through the
         // compile boundary first, working copy second, and warehouse execution
         // needs only config + secrets. No `.git`, no state dir, and the branch
@@ -286,6 +324,88 @@ mod tests {
             assert_eq!(found[0].role, RouteRole::FleetOk, "{method} {path}");
         }
     }
+    /// The camera list and the weather came from `oxy-app`, where `route_fleet`
+    /// declared them `*` FleetOk on the workspace tree. Here the role is a
+    /// declaration, so hold it: each is declared exactly once, FleetOk, and
+    /// the classifier matches a live URI against it rather than the default.
+    /// (These replace the `/world-model/cameras` rows `oxy-app`'s
+    /// `role_manifest_tests` held, which would now pass on the default.)
+    #[test]
+    fn the_camera_and_weather_routes_are_declared_fleet_ok() {
+        use oxy_app::surface::roles::declared_role_in;
+        let declared = workspace_route_roles();
+        for path in [
+            "/world-model/cameras",
+            "/world-model/weather/{layer}/{z}/{x}/{y}",
+            "/world-model/weather/current",
+        ] {
+            let found: Vec<_> = declared.iter().filter(|d| d.path == path).collect();
+            assert_eq!(found.len(), 1, "{path}: declared {} times", found.len());
+            assert_eq!(found[0].method, "*", "{path}");
+            assert_eq!(found[0].role, RouteRole::FleetOk, "{path}");
+        }
+        let decls: Vec<_> = declared
+            .iter()
+            .map(|d| (d.method, format!("/api/{{workspace_id}}{}", d.path), d.role))
+            .collect();
+        for (method, uri) in [
+            ("GET", "/api/d9830be4-c6a4/world-model/cameras"),
+            (
+                "GET",
+                "/api/d9830be4-c6a4/world-model/weather/precipitation_new/3/4/5",
+            ),
+            ("POST", "/api/d9830be4-c6a4/world-model/weather/current"),
+        ] {
+            assert_eq!(
+                declared_role_in(&decls, method, uri),
+                Some(RouteRole::FleetOk),
+                "{method} {uri} must match a FleetOk declaration"
+            );
+        }
+    }
+
+    /// Both trees mount the camera list and the weather. TRACE, which none of
+    /// them takes, answers 405 from a mounted path and 404 from an unmounted
+    /// one, without calling a vendor.
+    #[tokio::test]
+    async fn both_trees_mount_the_camera_and_weather_routes() {
+        use axum::body::Body;
+        use axum::http::{Method, Request, StatusCode};
+        use tower::ServiceExt;
+
+        let state = oxy_app::surface::bare_app_state();
+        for (tree, router) in [
+            ("workspace", workspace_routes().with_state(state.clone())),
+            ("external", external_routes().with_state(state)),
+        ] {
+            for uri in [
+                "/world-model/cameras",
+                "/world-model/weather/precipitation_new/3/4/5",
+                "/world-model/weather/current",
+                "/world-model/nothing-mounts-this",
+            ] {
+                let status = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(Method::TRACE)
+                            .uri(uri)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap()
+                    .status();
+                let want = if uri.ends_with("nothing-mounts-this") {
+                    StatusCode::NOT_FOUND
+                } else {
+                    StatusCode::METHOD_NOT_ALLOWED
+                };
+                assert_eq!(status, want, "{tree} tree: {uri}");
+            }
+        }
+    }
+
     /// The customer-app twins came from `oxy-app`'s public tree, where
     /// `route_fleet` declared them; here the declaration is a list, so hold it.
     /// Each is declared FleetOk exactly once — not merely unclassified, which

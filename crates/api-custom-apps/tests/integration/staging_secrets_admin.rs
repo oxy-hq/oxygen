@@ -7,8 +7,9 @@
 //!
 //! A key is one path segment on every route, so no request names another
 //! environment's row; staff writes of a staging value are audited with the
-//! environment; and the tenant project-secrets routes (`api::secrets`), which
-//! address rows by id, never list or reach a staging row.
+//! environment. That the tenant project-secrets routes, which address rows by
+//! id, never list or reach a staging row is `oxy-api-workspace-config`'s
+//! `tenant_secrets` (moved there with those handlers, 2026-11-15).
 //!
 //! The handlers are called directly with the extractors the router would
 //! build; the mount's own guard (PlatformApps + scope) is `authz`'s.
@@ -519,98 +520,5 @@ async fn staging_secret_writes_are_audited_with_their_environment() {
             ("custom_app.secret.set".to_string(), "staging".to_string()),
         ],
         "one row per write, each naming its environment"
-    );
-}
-
-async fn body_of(response: axum::response::Response) -> (StatusCode, serde_json::Value) {
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("body");
-    (status, serde_json::from_slice(&bytes).unwrap_or_default())
-}
-
-/// The tenant project-secrets routes address rows by id: a workspace admin
-/// must neither list staging's row nor read, rotate or delete it by its id.
-#[tokio::test]
-async fn tenant_project_secret_routes_never_reach_a_staging_row() {
-    use axum::response::IntoResponse;
-    use entity::workspace_members::WorkspaceRole;
-    use oxy_app::surface::testing::secrets;
-    use oxy_server_authz::role_guards::WorkspaceAdmin;
-    let t = seeded_tenant().await;
-    let app = app_with_both_values(&t, "stg-tenant").await;
-    let ws = demo_workspace_id();
-    let admin = || WorkspaceAdmin(WorkspaceRole::Admin);
-    let tenant = || user(Uuid::new_v4(), "tenant-admin@customer.example");
-
-    let listed =
-        secrets::list_secrets(admin(), AuthenticatedUserExtractor(tenant().user), Path(ws))
-            .await
-            .expect("list")
-            .into_response();
-    let (_, listed) = body_of(listed).await;
-    let names: Vec<&str> = listed["secrets"]
-        .as_array()
-        .expect("secrets")
-        .iter()
-        .filter_map(|s| s["name"].as_str())
-        .collect();
-    assert!(
-        names.contains(&format!("apps/{app}/QB_TOKEN").as_str()),
-        "{names:?}"
-    );
-    assert!(
-        !names.iter().any(|n| n.contains("/staging/")),
-        "a staging row is staff-only: {names:?}"
-    );
-
-    let staging_id = SecretManagerService::new(ws)
-        .list_secrets(&t.db)
-        .await
-        .expect("rows")
-        .into_iter()
-        .find(|s| s.name == format!("apps/{app}/staging/QB_TOKEN"))
-        .expect("staging row")
-        .id
-        .to_string();
-    let by_id = || Path((ws, staging_id.clone()));
-    let got = secrets::get_secret(admin(), AuthenticatedUserExtractor(tenant().user), by_id())
-        .await
-        .unwrap();
-    assert_eq!(got.into_response().status(), StatusCode::NOT_FOUND, "get");
-    let revealed =
-        secrets::reveal_secret(admin(), AuthenticatedUserExtractor(tenant().user), by_id())
-            .await
-            .unwrap();
-    assert_eq!(
-        revealed.into_response().status(),
-        StatusCode::NOT_FOUND,
-        "reveal"
-    );
-    let rotate: secrets::UpdateSecretRequest =
-        serde_json::from_value(json!({ "value": "rotated" })).expect("request");
-    let updated = secrets::update_secret(admin(), tenant(), by_id(), axum::Json(rotate))
-        .await
-        .unwrap();
-    assert_eq!(
-        updated.into_response().status(),
-        StatusCode::NOT_FOUND,
-        "update"
-    );
-    let deleted = secrets::delete_secret(admin(), tenant(), by_id())
-        .await
-        .unwrap();
-    assert_eq!(
-        deleted.into_response().status(),
-        StatusCode::NOT_FOUND,
-        "delete"
-    );
-    assert_eq!(
-        stored(format!("apps/{app}/staging/QB_TOKEN"))
-            .await
-            .as_deref(),
-        Some("stg"),
-        "staging's row is untouched"
     );
 }

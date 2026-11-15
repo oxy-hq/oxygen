@@ -29,32 +29,11 @@ fn only_serve_offloads_workers_single_all_in_one_drains_its_own_queue() {
     );
 }
 
-#[test]
-fn every_database_route_is_fleet_ok() {
-    let ws = "d9830be4-c6a4";
-    // `POST /databases`, `/databases/{sync,clean,build}` and `test-connection`
-    // went with the IDE's Add-database flow; what is left reads the warehouse.
-
-    // The list degrades rather than failing without a working copy, and the
-    // launcher readiness check calls it on every page load.
-    assert_eq!(
-        classify("GET", &format!("/api/{ws}/databases")),
-        RouteRole::FleetOk
-    );
-
-    for (method, path) in [
-        ("POST", "/inspect"),
-        ("POST", "/inspect-schemas"),
-        ("POST", "/inspect-schema-tables"),
-        ("GET", "/warehouse/schema"),
-    ] {
-        assert_eq!(
-            classify(method, &format!("/api/{ws}/databases{path}")),
-            RouteRole::FleetOk,
-            "{method} /databases{path} introspects the warehouse, not the disk"
-        );
-    }
-}
+// `every_database_route_is_fleet_ok` moved to `oxy-api-workspace-config`
+// with the `/databases` routes (2026-11-15), as
+// `every_database_and_secret_route_classifies_fleet_ok`: here it would pass on
+// the FleetOk default, since this harness cannot see that crate's
+// declarations.
 
 #[test]
 fn draining_the_queue_is_not_owning_a_working_copy() {
@@ -489,12 +468,11 @@ fn unknown_routes_default_to_fleet_ok() {
         classify("GET", "/api/d9830be4-c6a4/analytics/not-a-route"),
         RouteRole::FleetOk
     );
-    // Every `/world-model/*` read is FleetOk — the Postgres+S3 ones here, and
-    // `/world-model/events` since its feed moved into Postgres.
-    assert_eq!(
-        classify("GET", "/api/d9830be4-c6a4/world-model/cameras"),
-        RouteRole::FleetOk
-    );
+    // Every `/world-model/*` read is FleetOk. They are all
+    // `oxy-api-world-model`'s now (`/world-model/cameras` and the weather since
+    // 2026-11-15), declared there and pinned by its
+    // `the_camera_and_weather_routes_are_declared_fleet_ok`: this harness cannot
+    // see that crate's declarations, so a pin here would pass on the default.
     // `/semantic/world-model*` and `/semantic/cohort` are `oxy-api-world-model`'s
     // now, declared FleetOk there and pinned by its
     // `the_graph_and_cohort_routes_are_declared_fleet_ok`: this harness cannot
@@ -899,7 +877,8 @@ fn manifest_covers_state_touching_routes() {
         ("GET", format!("{ws}/agentic-workflows/runs/r1/events")),
         ("POST", format!("{ws}/agentic-airway/runs")),
         ("GET", format!("{ws}/agentic-airway/runs/r1/events")),
-        ("GET", format!("{ws}/world-model/cameras")),
+        // `/world-model/cameras` left for `oxy-api-world-model` (2026-11-15),
+        // whose own test pins it FleetOk; here it would pass on the default.
         // parquet result cache — fleet-safe via the S3 read-through in
         // result_files::{store,get} (mirror on write, fetch on local miss).
         ("GET", format!("{ws}/results/files/file-123")),

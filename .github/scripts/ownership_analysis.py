@@ -93,6 +93,10 @@ AREAS = [
     ("crates/app/src/server/api/world_model_graph",       "World Model (backend)"),
     # The IDE graph + cohort handlers moved into crates/api-world-model 2026-11-12;
     # the old paths keep their history.
+    # The UniFi camera list and the weather moved into crates/api-world-model
+    # 2026-11-15 (was crates/app/src/server/api/video.rs); CODEOWNERS keeps
+    # them with the cameras owners, so the area follows. Before its parent.
+    ("crates/api-world-model/src/video.rs",               "Cameras / edge / video"),
     ("crates/api-world-model",                            "World Model (backend)"),
     # Workspace previews: the lower half stays in oxy-app, the upper half moved
     # into crates/api-previews 2026-11-14.
@@ -152,6 +156,8 @@ AREAS = [
     ("crates/api-tenancy/src/organizations",              "Multi-tenancy / orgs"),
     ("crates/app/src/server/api/organizations",           "Multi-tenancy / orgs"),
     ("crates/app/src/server/api/secrets.rs",              "Secrets"),
+    # Moved into crates/api-workspace-config 2026-11-15; the old path keeps its history.
+    ("crates/api-workspace-config/src/secrets.rs",        "Secrets"),
     # Frontline & crew ops (new 2026-09) — one area, one live prefix.
     ("crates/api-frontline",                              "Frontline & crew ops"),
     # Pre-extraction paths of what moved into crates/api-frontline/ (#3390,

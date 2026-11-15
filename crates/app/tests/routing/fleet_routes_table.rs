@@ -62,11 +62,19 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// Plus six the same day when the observability console left for
 /// `oxy-api-observability` (`/traces`, `/metrics` and `/execution-analytics`,
 /// each the prefix and its `{*rest}`, the rows `nest_all` used to declare).
+/// Plus three the same day when the camera list and the weather
+/// (`/world-model/cameras`, `/world-model/weather/{layer}/{z}/{x}/{y}`,
+/// `/world-model/weather/current`) folded into `oxy-api-world-model`, and
+/// eight when the automation listing (`/procedures`, `/automations`, each with
+/// `/{path_b64}`) and the four `/agentic-schedules*` rows left for
+/// `oxy-api-automations`, and nine when the workspace's databases (the five
+/// `/databases*` rows) and secrets (the four `/secrets*` rows) left for
+/// `oxy-api-workspace-config`.
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 72;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 92;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];
@@ -170,15 +178,20 @@ fn every_row_is_one_the_script_can_read() {
 #[test]
 fn no_row_contradicts_the_role_the_code_declares() {
     let declared = declared();
-    // 120, not 200: oxy-app declared 200 until the custom-app agent ask's
+    // 100, not 200: oxy-app declared 200 until the custom-app agent ask's
     // two routes left for oxy-api-custom-apps (2026-11-14), and 134 since the
     // seventeen metric-tree, monitor and anomaly routes left for
     // oxy-api-metric-monitoring (2026-11-15), and 128 since the observability
     // console's six nest declarations left for oxy-api-observability the same
-    // day (read off this assertion); every decomposition step moves
-    // more out. The floor guards against an empty table, not a count.
+    // day (read off this assertion), and 117 after the camera list and the
+    // weather (3, oxy-api-world-model) and the automation listing and the
+    // schedules (8, oxy-api-automations) left the same day (read off this
+    // assertion too), and 108 after the workspace's databases and secrets (9,
+    // oxy-api-workspace-config) followed (read off it again); every
+    // decomposition step moves more out. The floor guards against an empty
+    // table, not a count.
     assert!(
-        declared.len() > 120,
+        declared.len() > 100,
         "route_declarations() returned {} routes — the comparison below would \
          be checking next to nothing",
         declared.len()

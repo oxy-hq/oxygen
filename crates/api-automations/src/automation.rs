@@ -15,7 +15,7 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
+use oxy_app::surface::WorkspaceManagerReadOnly;
 
 #[derive(Debug, Deserialize)]
 pub struct ListAutomationsQuery {

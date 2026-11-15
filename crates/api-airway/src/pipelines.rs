@@ -6,7 +6,7 @@
 //! filesystem and 502d on a stateless serve node when the ide was down; it is
 //! gone. This FleetOk endpoint serves the list from the boundary, falling
 //! through to the filesystem in local / not-yet-promoted mode — mirroring
-//! `oxy-app`'s `automation.rs`. Moved here from `oxy-app`'s `api/pipeline.rs`
+//! `oxy-api-automations`' `automation.rs` (`oxy-app`'s until 2026-11-15). Moved here from `oxy-app`'s `api/pipeline.rs`
 //! on 2026-11-11 (Pending 5, `api-airway`).
 
 use axum::extract::{self, Query};

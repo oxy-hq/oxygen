@@ -1,0 +1,61 @@
+[package]
+name = "oxy-api-automations"
+version.workspace = true
+authors.workspace = true
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
+# oxy-app — the catalog was moved above it for exactly that reason.
+description = "The automations surface: the compile-boundary automation listing and the agentic scheduler's schedule CRUD, run-now and backfill — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# What this surface takes from oxy-app, all through `oxy_app::surface`: the
+# `WorkspaceAdmin` guard and the `WorkspaceManagerReadOnly` extractor (the
+# automation listing reads the compile boundary through it). oxy-app never
+# depends back on this crate. default-features off so a `--no-default-features`
+# build of oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }      # AppState
+oxy-shared = { workspace = true }        # fleet_role::RouteRoleDecl
+oxy-auth = { workspace = true }          # AuthenticatedUserExtractor
+# The scheduler itself and the run rows a manual fire writes. The schedule
+# handlers left `agentic-http` for oxy-app because they need `WorkspaceAdmin`;
+# they still take the `AgenticState` extension oxy-app layers over the
+# workspace seam.
+agentic-http = { workspace = true }
+agentic-pipeline = { workspace = true }
+agentic-runtime = { workspace = true }
+axum = { workspace = true }
+base64 = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# The integration group (`tests/integration/`) reuses oxy-app's per-test
+# database harness (`crates/app/tests/common/mod.rs`, included by `#[path]`),
+# so it needs that harness's dependencies too. Dev-only: nothing here ships.
+migration = { workspace = true }
+airhouse = { workspace = true }
+oxy-oltp = { workspace = true }
+oxy-cameras = { workspace = true }
+oxy = { workspace = true }               # the run-now test's PlatformContext workspace
+entity = { workspace = true }
+async-trait = { workspace = true }
+url = { workspace = true }
+tempfile = { workspace = true }
+chrono = { workspace = true }
+oxy-test-utils = { workspace = true }    # tests/common takes its Postgres from here
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+tokio-util = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+
+[lints]
+workspace = true

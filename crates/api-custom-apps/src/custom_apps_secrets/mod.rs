@@ -274,7 +274,7 @@ async fn stored_secrets_in(
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    let emails = oxy_app::surface::secrets::resolve_user_emails(db, &actor_ids).await;
+    let emails = oxy_identity::user_labels::resolve_user_emails(db, &actor_ids).await;
 
     scoped
         .into_iter()

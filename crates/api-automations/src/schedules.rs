@@ -1,10 +1,11 @@
 //! Cron schedule CRUD + run-now (multi-tenant, §12 FU4b).
 //!
-//! Lives in the `app` crate (not `agentic-http`) so the handlers can use
-//! `WorkspaceAdmin` from `role_guards` — the agentic-http layer must not
-//! depend on `app` (backend boundary rule). Routes are mounted under
-//! `/{workspace_id}/agentic-schedules` in `workspace.rs`, behind the
-//! standard `workspace_middleware`. All operations are scoped to
+//! Not in `agentic-http`, so the handlers can use `WorkspaceAdmin` from
+//! `role_guards` — the agentic-http layer must not depend on `app` (backend
+//! boundary rule). Lived in `oxy-app`'s `server/api/schedules.rs` until
+//! 2026-11-15; this crate takes the guard through the prelude. Routes are
+//! mounted under `/{workspace_id}/agentic-schedules` by [`crate::workspace_routes`],
+//! behind the standard `workspace_middleware`. All operations are scoped to
 //! `workspace_id` (extracted from the parent path); mutations require
 //! workspace-admin role.
 //!
@@ -43,7 +44,7 @@ use agentic_runtime::lifecycle::crud::runs::{
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use tokio::sync::{mpsc, watch};
 
-use crate::server::api::middlewares::role_guards::WorkspaceAdmin;
+use oxy_app::surface::role_guards::WorkspaceAdmin;
 
 fn map_err(e: ScheduleError) -> Response {
     match e {

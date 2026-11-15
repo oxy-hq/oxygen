@@ -463,10 +463,16 @@ mod tests {
         // the same day (read off this assertion too), after the observability
         // console's six nest declarations (`/traces`, `/metrics`,
         // `/execution-analytics`, each with its `{*rest}`) left for
-        // `oxy-api-observability`. A surface's routes are declared by the
+        // `oxy-api-observability`; 106 the same day (read off this assertion),
+        // after the camera list and the weather's three (`/world-model/cameras`,
+        // `/world-model/weather/*`) folded into `oxy-api-world-model` and the
+        // automation listing's four and `/agentic-schedules`' four left for
+        // `oxy-api-automations`; 97 the same day (read off this assertion
+        // again), after the workspace's five `/databases*` and four `/secrets*`
+        // paths left for `oxy-api-workspace-config`. A surface's routes are declared by the
         // surface, so lowering this when one leaves is expected; a drop nobody
         // can name is not.
-        assert!(decls.len() > 110, "only {} declarations", decls.len());
+        assert!(decls.len() > 90, "only {} declarations", decls.len());
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 

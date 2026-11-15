@@ -1008,6 +1008,18 @@ mod tests {
             "oxy_api_observability::traces",
             "oxy_api_observability::metrics",
             "oxy_api_observability::execution_analytics",
+            // The camera list and the weather, out of `oxy-app` on 2026-11-15:
+            // vendor calls (UniFi, OpenWeatherMap), no tenant warehouse.
+            "oxy_api_world_model::video",
+            // The automation listing and the schedules, out of `oxy-app` on
+            // 2026-11-15: the compile boundary and Postgres.
+            "oxy_api_automations::automation",
+            "oxy_api_automations::schedules",
+            // The workspace's databases and secrets, out of `oxy-app` on
+            // 2026-11-15: the IDE's schema reads and Settings, behind the
+            // workspace middleware, so not the custom-app data plane.
+            "oxy_api_workspace_config::database",
+            "oxy_api_workspace_config::secrets",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

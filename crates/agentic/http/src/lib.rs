@@ -462,8 +462,8 @@ mod airway_role_tests;
 #[path = "analytics_role_tests.rs"]
 mod analytics_role_tests;
 
-// The schedule routes were relocated to the `app` crate (§12 FU4b):
-// they require `WorkspaceAdmin` from `crate::api::middlewares::role_guards`
-// which lives above agentic-http in the layer stack. See
-// `crates/app/src/server/api/schedules.rs` and
-// `crates/app/src/server/router/workspace.rs::build_schedule_routes`.
+// The schedule routes were relocated out of this crate (§12 FU4b): they
+// require the `WorkspaceAdmin` role guard, which lives above agentic-http in
+// the layer stack. They were `oxy-app`'s until 2026-11-15 and are now the
+// `oxy-api-automations` surface's: see `crates/api-automations/src/schedules.rs`
+// and that crate's `workspace_routes`.

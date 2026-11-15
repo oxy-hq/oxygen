@@ -96,6 +96,13 @@ fn server_files() -> Vec<(String, String)> {
     walk(&manifest.join("../api-metric-monitoring/src"), &mut out);
     // The observability console (2026-11-15), served by this binary.
     walk(&manifest.join("../api-observability/src"), &mut out);
+    // The world-model app, served by this binary: the camera list and the
+    // weather (2026-11-15, was `src/server/api/video.rs`) and what came before.
+    walk(&manifest.join("../api-world-model/src"), &mut out);
+    // The automation listing and the schedules (2026-11-15), served by this binary.
+    walk(&manifest.join("../api-automations/src"), &mut out);
+    // The workspace's databases and secrets (2026-11-15), served by this binary.
+    walk(&manifest.join("../api-workspace-config/src"), &mut out);
     // Moved out of `src/server/api/admin/workspace_health` and
     // `src/server/health_eval_executor.rs`.
     walk(&manifest.join("../workspace-health/src"), &mut out);

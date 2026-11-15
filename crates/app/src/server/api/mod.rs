@@ -3,7 +3,9 @@ pub mod agent;
 pub mod apps;
 pub mod artifacts;
 pub mod auth;
-pub mod automation;
+// `automation` (the compile-boundary automation listing) and `schedules`
+// moved to the `oxy-api-automations` sibling crate, mounted by `oxy-server` on
+// the workspace seam. oxy-app no longer depends on them.
 pub mod billing;
 pub mod catalog;
 pub mod chart;
@@ -52,7 +54,10 @@ pub use oxy_custom_apps::usage_airhouse as custom_apps_usage_airhouse;
 /// Moved to the `oxy-custom-apps` domain crate; the old path stays so no call site changes.
 pub use oxy_custom_apps::usage_queue as custom_apps_usage_queue;
 pub mod data;
-pub mod database;
+// `database` (Workspace Settings → Databases, the schema and inspection
+// routes) and `secrets` (the project secrets) moved to the
+// `oxy-api-workspace-config` sibling crate, mounted by `oxy-server` on the
+// workspace seam. oxy-app no longer depends on them.
 // The document-library HTTP surface moved to the `oxy-api-documents` sibling
 // crate, mounted by `oxy-server`. oxy-app no longer depends on it.
 // The GitHub HTTP surface moved to the `oxy-api-github` sibling crate, mounted by
@@ -70,8 +75,6 @@ pub mod partner_publish_consent;
 pub mod preagg;
 pub mod projects;
 pub mod result_files;
-pub mod schedules;
-pub mod secrets;
 pub mod semantic;
 pub mod semantic_scan;
 pub mod thread;
@@ -79,7 +82,9 @@ pub mod thread;
 // `execution_analytics`) moved to the `oxy-api-observability` sibling crate,
 // mounted by `oxy-server` on the workspace seam. oxy-app no longer depends on it.
 pub mod typed_stream;
-pub mod video;
+// `video` (the UniFi camera list and the weather tiles and readings) moved to
+// the `oxy-api-world-model` sibling crate, mounted by `oxy-server` on the
+// workspace and external seams. oxy-app no longer depends on it.
 pub mod webhooks;
 pub mod workspace_logo;
 pub mod workspace_members;

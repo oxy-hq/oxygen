@@ -156,6 +156,8 @@ fn workspace_seam_routes() -> SeamRouter {
         .merge(oxy_api_world_model::workspace_routes())
         .merge(oxy_api_metric_monitoring::workspace_routes())
         .merge(oxy_api_observability::workspace_routes())
+        .merge(oxy_api_automations::workspace_routes())
+        .merge(oxy_api_workspace_config::workspace_routes())
         .merge(oxy_api_identity::workspace_routes())
 }
 
@@ -213,11 +215,12 @@ fn external_seam_routes() -> SeamRouter {
 /// and installation routes ride `api` with the org middlewares re-applied. All
 /// seven are FleetOk (Postgres and Slack's API).
 ///
-/// `oxy-api-world-model` fills two seams: the live feed, foot traffic and
-/// competitors ride `workspace` (all FleetOk: Postgres and the vendors' APIs),
-/// and the same four plus the LLM proxy ride `external`, the curated
-/// `/external/api` tree standalone apps call with an API key. Its tailer,
-/// reaper and camera bridge join `background`.
+/// `oxy-api-world-model` fills two seams: the live feed, foot traffic,
+/// competitors, and (since 2026-11-15, out of `oxy-app`'s `api/video.rs`) the
+/// UniFi camera list and the weather tiles and readings ride `workspace` (all
+/// FleetOk: Postgres and the vendors' APIs), and the same seven plus the LLM
+/// proxy ride `external`, the curated `/external/api` tree standalone apps call
+/// with an API key. Its tailer, reaper and camera bridge join `background`.
 ///
 /// `oxy-api-metric-monitoring` (2026-11-15) fills two seams too: the metric
 /// tree, `/semantic/monitors` and the anomaly inbox ride `workspace` (all
@@ -230,6 +233,19 @@ fn external_seam_routes() -> SeamRouter {
 /// tenant-facing observability console's `/traces`, `/metrics` and
 /// `/execution-analytics` nests (six declarations, all FleetOk: the
 /// ClickHouse product store every replica reaches alike).
+///
+/// `oxy-api-automations` (2026-11-15) fills `workspace` only: the
+/// compile-boundary automation listing (`/procedures`, `/automations`) and
+/// `/agentic-schedules` (eight declarations, all FleetOk: the compile boundary
+/// and Postgres). Its schedule handlers extract the `AgenticState` extension
+/// `oxy-app` layers over the workspace seam, and run-now takes the
+/// `PlatformContext` the workspace middleware inserts.
+///
+/// `oxy-api-workspace-config` (2026-11-15) fills `workspace` only: the
+/// workspace's own configured resources, `/databases` (the list, a database's
+/// schema, the onboarding inspection) and `/secrets` (nine declarations, all
+/// FleetOk: the in-memory config, the warehouses and Postgres). Each write
+/// takes `WorkspaceAdmin` in its handler, as before.
 ///
 /// `oxy-api-identity` fills six seams, each where its routes sat in
 /// `oxy-app`'s router: the caller's tokens, the session's halves of `oxyc
@@ -285,6 +301,8 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_world_model::workspace_route_roles())
                 .chain(oxy_api_metric_monitoring::workspace_route_roles())
                 .chain(oxy_api_observability::workspace_route_roles())
+                .chain(oxy_api_automations::workspace_route_roles())
+                .chain(oxy_api_workspace_config::workspace_route_roles())
                 .chain(oxy_api_identity::workspace_route_roles())
                 .copied()
                 .collect(),

@@ -9632,6 +9632,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-automations"
+version = "0.5.160"
+dependencies = [
+ "agentic-http",
+ "agentic-pipeline",
+ "agentic-runtime",
+ "airhouse",
+ "async-trait",
+ "axum",
+ "base64 0.23.0",
+ "chrono",
+ "entity",
+ "migration",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-cameras",
+ "oxy-oltp",
+ "oxy-shared",
+ "oxy-test-utils",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tower 0.5.3",
+ "tracing",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-custom-apps"
 version = "0.5.160"
 dependencies = [
@@ -10222,6 +10258,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-workspace-config"
+version = "0.5.160"
+dependencies = [
+ "agentic-pipeline",
+ "agentic-runtime",
+ "airhouse",
+ "axum",
+ "chrono",
+ "entity",
+ "garde",
+ "migration",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-cameras",
+ "oxy-custom-apps",
+ "oxy-identity",
+ "oxy-oltp",
+ "oxy-shared",
+ "oxy-test-utils",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tower 0.5.3",
+ "tracing",
+ "url",
+ "utoipa",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-workspace-health"
 version = "0.5.160"
 dependencies = [
@@ -10746,6 +10818,7 @@ dependencies = [
  "oxy-shared",
  "sea-orm",
  "serde_json",
+ "tracing",
  "uuid",
  "workspace-hack",
 ]
@@ -10926,12 +10999,14 @@ version = "0.5.160"
 dependencies = [
  "axum",
  "oxy-api-airway",
+ "oxy-api-automations",
  "oxy-api-custom-apps",
  "oxy-api-experiment",
  "oxy-api-identity",
  "oxy-api-metric-monitoring",
  "oxy-api-observability",
  "oxy-api-tenancy",
+ "oxy-api-workspace-config",
  "oxy-api-world-model",
  "oxy-app",
  "tokio",
@@ -10980,6 +11055,7 @@ dependencies = [
  "once_cell",
  "oxy",
  "oxy-api-airway",
+ "oxy-api-automations",
  "oxy-api-custom-apps",
  "oxy-api-documents",
  "oxy-api-experiment",
@@ -10993,6 +11069,7 @@ dependencies = [
  "oxy-api-previews",
  "oxy-api-slack",
  "oxy-api-tenancy",
+ "oxy-api-workspace-config",
  "oxy-api-workspace-health",
  "oxy-api-world-model",
  "oxy-app",

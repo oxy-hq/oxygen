@@ -666,6 +666,22 @@ mod tests {
         // the data plane (it reads Oxy's own product store); walked so a gate
         // call added there is still seen.
         rust_files(&crate_root.join("../api-observability/src"), &mut files);
+        // The camera list and the weather, `oxy-api-world-model`'s since
+        // 2026-11-15 (was `src/server/api/video.rs`, inside the walk above). Not
+        // on the data plane (the IDE and standalone apps call UniFi and
+        // OpenWeatherMap through it); walked so a gate call added there is
+        // still seen. The one file, not the crate: the customer-app twins are
+        // walked above, and the rest never were.
+        files.push(crate_root.join("../api-world-model/src/video.rs"));
+        // The automation listing and the schedules, `oxy-api-automations`'
+        // since 2026-11-15 (was `src/server/api/{automation,schedules}.rs`).
+        // Not on the data plane; walked so a gate call added there is seen.
+        rust_files(&crate_root.join("../api-automations/src"), &mut files);
+        // The workspace's databases and secrets, `oxy-api-workspace-config`'s
+        // since 2026-11-15 (was `src/server/api/{database,secrets}.rs`). Not on
+        // the data plane (IDE and settings reads behind the workspace
+        // middleware); walked so a gate call added there is seen.
+        rust_files(&crate_root.join("../api-workspace-config/src"), &mut files);
         files.sort();
         files
             .into_iter()

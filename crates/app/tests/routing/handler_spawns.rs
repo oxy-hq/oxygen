@@ -136,14 +136,6 @@ const ALLOWED: &[(&str, &str)] = &[
          not a request's work and not queueable",
     ),
     (
-        "app/src/server/api/database.rs",
-        "only pumps this request's own SSE stream: the Add-database connection probe \
-         (and its two Snowflake SSO-URL relays) and the onboarding schema inspection \
-         send progress and a final result over the response's channel and persist \
-         nothing; a dropped stream wastes at most one probe. The temporary secret is \
-         cleaned up by a guard inside the same task",
-    ),
-    (
         "api-metric-monitoring/src/metric_anomalies/scan.rs",
         "backlog: a manually fired monitor scan runs in the request's process, writes \
          its run row's final status itself and answers over a oneshot the handler \
@@ -180,13 +172,6 @@ const ALLOWED: &[(&str, &str)] = &[
          Lives exactly as long as the claim does; stopping it is the executor's job",
     ),
     (
-        "app/src/server/api/schedules.rs",
-        "backlog: a manual `run_now` of a monitor scan drives the run in this \
-         process, registered in the handler's RuntimeState for cancel and SSE. The \
-         scheduled firing of the same work is already a queued task; the manual fire \
-         should enqueue the same TaskSpec, as the health check's now does",
-    ),
-    (
         "api-identity/src/sign_in/ops.rs",
         "backlog: sends the magic-link email after the response; a pod that dies here \
          loses one email and the person requests another. A TaskSpec would make the \
@@ -198,12 +183,6 @@ const ALLOWED: &[(&str, &str)] = &[
          the pending device logins and queues the notification through \
          `ctx.notify`'s delivery task — the durable part is already on the queue; the \
          spawn only keeps the start's timing constant",
-    ),
-    (
-        "app/src/server/api/video.rs",
-        "backlog: the UniFi camera watcher, a polling loop started at boot on every \
-         pod with the API key. Runs once per replica when it should run once; a \
-         scheduled TaskSpec on the singleton role is the fix",
     ),
     (
         "api-world-model/src/graph/handlers.rs",
@@ -222,6 +201,14 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     // ---- api-world-model ----
     (
+        "api-world-model/src/video.rs",
+        "backlog: the UniFi camera watcher (`spawn_camera_watcher`), a polling loop \
+         meant to start once per process with the API key. Nothing calls it today \
+         (it moved here from `oxy-app`'s `api/video.rs` on 2026-11-15 uncalled); \
+         started, it would run once per replica when it should run once, so a \
+         scheduled TaskSpec on the singleton role is the fix, or deleting it",
+    ),
+    (
         "api-world-model/src/events.rs",
         "process-lifetime loops started once per process by the surface's background \
          seam behind OnceLocks, not a request's work: the tailer fanning new \
@@ -229,6 +216,24 @@ const ALLOWED: &[(&str, &str)] = &[
          definition) and the retention reaper. The reaper is idempotent so duplicates \
          only race, but it could be a scheduled TaskSpec: backlog. (The outbox writer \
          moved down to `oxy-world-model`, below this rule's roots.)",
+    ),
+    // ---- api-automations (2026-11-15, out of oxy-app's `server/api`) ----
+    (
+        "api-automations/src/schedules.rs",
+        "backlog: a manual `run_now` of a monitor scan drives the run in this \
+         process, registered in the handler's RuntimeState for cancel and SSE. The \
+         scheduled firing of the same work is already a queued task; the manual fire \
+         should enqueue the same TaskSpec, as the health check's now does",
+    ),
+    // ---- api-workspace-config (2026-11-15, out of oxy-app's `server/api`) ----
+    (
+        "api-workspace-config/src/database.rs",
+        "only pumps this request's own SSE stream: the onboarding schema inspection \
+         (`POST /databases/inspect`) sends each database's progress and a final \
+         result over the response's channel and persists nothing; a dropped stream \
+         wastes at most one inspection. (The Add-database connection probe and its \
+         Snowflake relays this entry also named went with the IDE's Add-database \
+         flow before the move.)",
     ),
     // ---- api-previews (2026-11-14, out of oxy-app's `server::previews`) ----
     (

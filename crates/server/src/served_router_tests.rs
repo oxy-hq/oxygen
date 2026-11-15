@@ -338,6 +338,19 @@ fn world_model_routes() -> Vec<(Method, &'static str, &'static str)> {
     ]
 }
 
+/// The camera list and the weather, `oxy-api-world-model`'s since 2026-11-15
+/// (out of `oxy-app`'s `api/video.rs`), on both trees. Probed with TRACE, which
+/// none of them takes: a mounted path answers 405 from its method router
+/// without calling UniFi or OpenWeatherMap (whose handlers may answer their own
+/// 404 or 503 with no key configured), an unmounted one the router's 404.
+fn world_model_video_routes() -> Vec<&'static str> {
+    vec![
+        "/world-model/cameras",
+        "/world-model/weather/precipitation_new/3/4/5",
+        "/world-model/weather/current",
+    ]
+}
+
 /// The IDE's World Model Graph and peer cohorts, `oxy-api-world-model`'s since
 /// they left `oxy-app`, on the workspace tree only. Each probe is a request its
 /// extractors reject (a missing query or body field: 400 / 422) or the model
@@ -386,6 +399,14 @@ async fn the_workspace_tree_mounts_the_world_model_app() {
             got,
             StatusCode::NOT_FOUND,
             "{method} /{{ws}}{path} must be served, got {got}"
+        );
+    }
+    for path in world_model_video_routes() {
+        let got = status_with(&router, &Method::TRACE, &format!("/{ws}{path}"), None, "").await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "/{{ws}}{path} must be mounted, got {got}"
         );
     }
 }
@@ -649,6 +670,203 @@ async fn the_trace_list_answers_through_the_composed_router() {
     );
 }
 
+/// `oxy-api-automations`' routes under `/{workspace_id}`, probed with TRACE as
+/// above (a mounted path answers 405 without running a handler).
+fn automation_routes() -> Vec<&'static str> {
+    vec![
+        "/procedures",
+        "/procedures/YXV0b21hdGlvbnMvbmlnaHRseS5hdXRvbWF0aW9uLnltbA",
+        "/automations",
+        "/automations/YXV0b21hdGlvbnMvbmlnaHRseS5hdXRvbWF0aW9uLnltbA",
+        "/agentic-schedules",
+        "/agentic-schedules/65c121b2-0000-0000-0000-000000000000",
+        "/agentic-schedules/65c121b2-0000-0000-0000-000000000000/run-now",
+        "/agentic-schedules/65c121b2-0000-0000-0000-000000000000/backfill",
+    ]
+}
+
+/// The workspace seam carries the automation listing and the schedules into
+/// the `/{workspace_id}` tree, with the eight FleetOk declarations `oxy-app`'s
+/// `route_fleet` used to write; and the schedule list, served through the
+/// composition `serve` uses, still gets the `AgenticState` extension its
+/// handlers extract. Their own builder in `oxy-app` layered it before the lift;
+/// now `with_agentic_state` over the seam does, and dropping that compiles fine
+/// and fails every schedule request with a 500 at run time. A real GET of the
+/// list runs the handler (it reads `agentic_schedules` through the state's
+/// database), so a 200 proves both the mount and the layer.
+#[tokio::test]
+async fn the_workspace_tree_mounts_the_automations_surface() {
+    let decls = surface_seams().workspace.decls;
+    for path in [
+        "/procedures",
+        "/procedures/{path_b64}",
+        "/automations",
+        "/automations/{path_b64}",
+        "/agentic-schedules",
+        "/agentic-schedules/{id}",
+        "/agentic-schedules/{id}/run-now",
+        "/agentic-schedules/{id}/backfill",
+    ] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the workspace seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    // A real (empty) workspace, so the workspace middleware lets the request
+    // through (see `the_workspace_tree_hands_the_anomaly_inbox_its_agentic_state`).
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("config.yml"), "models: []\ndatabases: []\n")
+        .expect("write config.yml");
+    std::env::set_current_dir(dir.path()).expect("enter the workspace");
+    let (router, _external, _preagg) = api_router(
+        ServeMode::Local,
+        false,
+        None,
+        dir.path().to_path_buf(),
+        tokio_util::sync::CancellationToken::new(),
+        false,
+        surface_seams(),
+    )
+    .await
+    .expect("router built");
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    assert_eq!(
+        status_with(
+            &router,
+            &Method::TRACE,
+            &format!("/{ws}/automations-nothing-mounts-this"),
+            None,
+            ""
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+        "control: an unmounted path must be 404, or a 405 below proves nothing"
+    );
+    for path in automation_routes() {
+        let got = status_with(&router, &Method::TRACE, &format!("/{ws}{path}"), None, "").await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "/{{ws}}{path} must be mounted, got {got}"
+        );
+    }
+    let (status, body) = get_with_body(&router, &format!("/{ws}/agentic-schedules"), None).await;
+    assert!(
+        !body.contains(MISSING_EXTENSION),
+        "GET /{{ws}}/agentic-schedules reached its handler without the AgenticState \
+         extension ({status}: {body}) — the seam layer was dropped"
+    );
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "GET /{{ws}}/agentic-schedules must reach its handler and answer from the \
+         empty workspace, got {status}: {body}"
+    );
+    // The listing reads the empty workspace's automations: none, but answered.
+    let (status, body) = get_with_body(&router, &format!("/{ws}/automations"), None).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "GET /{{ws}}/automations must reach its handler, got {status}: {body}"
+    );
+}
+
+/// `oxy-api-workspace-config`'s routes under `/{workspace_id}`, probed with
+/// TRACE as above.
+fn workspace_config_routes() -> Vec<&'static str> {
+    vec![
+        "/databases",
+        "/databases/inspect",
+        "/databases/inspect-schemas",
+        "/databases/inspect-schema-tables",
+        "/databases/warehouse/schema",
+        "/secrets",
+        "/secrets/bulk",
+        "/secrets/7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        "/secrets/7c9e6679-7425-40de-944b-e07fc1f90ae7/value",
+    ]
+}
+
+/// The workspace seam carries the workspace's databases and secrets into the
+/// `/{workspace_id}` tree, with the nine FleetOk declarations `oxy-app`'s
+/// `route_fleet` used to write; and a real GET of the databases list, through
+/// the composition `serve` uses, reaches its handler and answers from the
+/// empty workspace's config, not the router's 404 or the workspace
+/// middleware's 503.
+#[tokio::test]
+async fn the_workspace_tree_mounts_the_workspace_config_surface() {
+    let decls = surface_seams().workspace.decls;
+    for path in [
+        "/databases",
+        "/databases/inspect",
+        "/databases/inspect-schemas",
+        "/databases/inspect-schema-tables",
+        "/databases/{database_name}/schema",
+        "/secrets",
+        "/secrets/bulk",
+        "/secrets/{id}",
+        "/secrets/{id}/value",
+    ] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the workspace seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("config.yml"), "models: []\ndatabases: []\n")
+        .expect("write config.yml");
+    std::env::set_current_dir(dir.path()).expect("enter the workspace");
+    let (router, _external, _preagg) = api_router(
+        ServeMode::Local,
+        false,
+        None,
+        dir.path().to_path_buf(),
+        tokio_util::sync::CancellationToken::new(),
+        false,
+        surface_seams(),
+    )
+    .await
+    .expect("router built");
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    assert_eq!(
+        status_with(
+            &router,
+            &Method::TRACE,
+            &format!("/{ws}/workspace-config-nothing-mounts-this"),
+            None,
+            ""
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+        "control: an unmounted path must be 404, or a 405 below proves nothing"
+    );
+    for path in workspace_config_routes() {
+        let got = status_with(&router, &Method::TRACE, &format!("/{ws}{path}"), None, "").await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "/{{ws}}{path} must be mounted, got {got}"
+        );
+    }
+    let (status, body) = get_with_body(&router, &format!("/{ws}/databases"), None).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "GET /{{ws}}/databases must reach its handler, got {status}: {body}"
+    );
+    assert_eq!(body, "[]", "the empty workspace configures no database");
+}
+
 /// The external seam carries the world-model app, and the LLM proxy, into the
 /// curated `/external/api/{workspace_id}` tree, behind its API-key-only auth.
 /// Auth runs before routing there, so the check needs a real key: a legacy key
@@ -727,6 +945,22 @@ async fn the_external_tree_mounts_the_world_model_app() {
             got,
             StatusCode::NOT_FOUND,
             "external {method} /{{ws}}{path} must be served, got {got}"
+        );
+    }
+    // The camera list and the weather, on this tree as on the workspace one.
+    for path in world_model_video_routes() {
+        let got = status_with(
+            &external,
+            &Method::TRACE,
+            &format!("/{ws}{path}"),
+            Some(&key),
+            "",
+        )
+        .await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "external /{{ws}}{path} must be mounted, got {got}"
         );
     }
     // ...and the external seam hands the inbox the AgenticState extension too:

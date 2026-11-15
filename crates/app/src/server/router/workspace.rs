@@ -2,8 +2,9 @@
 //! cloud and local modes (local always uses the nil UUID).
 //!
 //! This module owns the tree shape plus all per-resource sub-builders
-//! (automations, threads, agents, files, etc.). Secrets live in their own
-//! module because they ship with an admin-gated middleware.
+//! (threads, agents, integrations, etc.). The workspace's databases and
+//! secrets are `oxy-api-workspace-config`'s, merged in through the workspace
+//! seam.
 
 use std::sync::Arc;
 
@@ -12,16 +13,15 @@ use axum::routing::{get, post, put};
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
 use crate::api::{
-    agent, apps, artifacts, automation, chart, compile_staging, data, database, integration,
-    local_setup, org_subdomain, preagg, result_files, schedules, semantic, semantic_scan, thread,
-    video, workspace_logo, workspace_members, workspace_oxy_access, workspaces,
+    agent, apps, artifacts, chart, compile_staging, data, integration, local_setup, org_subdomain,
+    preagg, result_files, semantic, semantic_scan, thread, workspace_logo, workspace_members,
+    workspace_oxy_access, workspaces,
 };
 
 use oxy_shared::fleet_role::RouteRole;
 
 use super::AppState;
 use super::role_router::RoleRouter;
-use super::secrets::build_secret_routes;
 
 pub(super) fn build_workspace_routes(
     app_state: AppState,
@@ -45,21 +45,11 @@ pub(super) fn build_workspace_routes(
         )
         // Legacy `/workflows` and `/automations` routes have been retired.
         // Workflow execution + the single-file fetch live under
-        // `/agentic-workflows` (IdeOnly), mounted below. The automation LIST,
-        // however, is served HERE from the compile boundary (FleetOk) so the
-        // customer-nav sidebar renders on a stateless serve replica with no
-        // working copy — `/agentic-workflows` is IdeOnly and lives in a crate
-        // that can't reach `compiled_reader`.
-        .route_fleet("/procedures", get(automation::list_automations))
-        // Single-automation YAML, also from the boundary, so clicking an automation
-        // renders its diagram on a serve node when the ide is down.
-        .route_fleet("/procedures/{path_b64}", get(automation::get_automation))
-        // Canonical "automations" aliases for the procedure list/get (the term
-        // Procedure/Workflow was renamed to Automation). Same FleetOk handlers,
-        // classified identically in `role_manifest.rs`. `/procedures` is kept
-        // for backward compatibility.
-        .route_fleet("/automations", get(automation::list_automations))
-        .route_fleet("/automations/{path_b64}", get(automation::get_automation))
+        // `/agentic-workflows` (IdeOnly), mounted below. The automation LIST
+        // and single-automation YAML (`/procedures`, `/automations` and their
+        // `/{path_b64}`), served from the compile boundary (FleetOk), are
+        // `oxy-api-automations`' since 2026-11-15, merged inside this nest by
+        // `oxy-server` through `SurfaceSeams::workspace`.
         // `/airway-pipelines` (the boundary-backed pipeline listing and the
         // sp_api marketplace list) moved to `oxy-api-airway`, merged inside this
         // nest through the workspace seam, FleetOk as before.
@@ -81,9 +71,11 @@ pub(super) fn build_workspace_routes(
             "/compile/staging/status",
             get(compile_staging::staging_compile_status),
         )
-        .nest("/databases", build_database_routes(&app_state))
+        // `/databases` and `/secrets` (Workspace Settings' Databases and
+        // Secrets, each handler `WorkspaceAdmin`-guarded where it writes) are
+        // `oxy-api-workspace-config`'s since 2026-11-15, merged inside this
+        // nest by `oxy-server` through `SurfaceSeams::workspace`, still FleetOk.
         .nest("/integrations", build_integration_routes(&app_state))
-        .nest("/secrets", build_secret_routes(app_state.clone()))
         .route_fleet("/members", get(workspace_members::list_workspace_members))
         .route_fleet(
             "/members/{user_id}",
@@ -178,18 +170,11 @@ pub(super) fn build_workspace_routes(
         // (`/semantic/cohort`) are `oxy-api-world-model`'s, merged inside this
         // nest by `oxy-server` through `SurfaceSeams::workspace`, all FleetOk
         // in its `workspace_route_roles`.
-        // `/world-model/events`, foot traffic and competitors are
+        // `/world-model/events`, foot traffic, competitors, and (since
+        // 2026-11-15) the camera list and the weather (`/world-model/cameras`,
+        // `/world-model/weather/*`, out of `api/video.rs`) are
         // `oxy-api-world-model`'s, merged inside this nest by `oxy-server`
-        // through `SurfaceSeams::workspace`.
-        .route_fleet("/world-model/cameras", get(video::list_cameras))
-        .route_fleet(
-            "/world-model/weather/{layer}/{z}/{x}/{y}",
-            get(video::weather_tile),
-        )
-        .route_fleet(
-            "/world-model/weather/current",
-            post(video::weather_current_batch),
-        )
+        // through `SurfaceSeams::workspace`, still FleetOk.
         .route_fleet(
             "/results/files/{file_id}",
             get(result_files::get_result_file).delete(result_files::delete_result_file),
@@ -215,16 +200,15 @@ pub(super) fn build_workspace_routes(
         )
         .nest_declared(
             "/agentic-airway",
-            airway_router(agentic_state.clone()),
+            airway_router(agentic_state),
             agentic_http::airway_router_roles(),
-        )
-        // Relocated from agentic-http (§12 FU4b): the schedule handlers
-        // need WorkspaceAdmin from app/role_guards which agentic-http
-        // cannot depend on.
-        .nest(
-            "/agentic-schedules",
-            build_schedule_routes(&app_state, agentic_state),
         );
+    // `/agentic-schedules` (schedule CRUD, run-now, backfill; relocated from
+    // agentic-http by §12 FU4b because the handlers need `WorkspaceAdmin`) is
+    // `oxy-api-automations`' since 2026-11-15, merged inside this nest by
+    // `oxy-server` through `SurfaceSeams::workspace`. The `AgenticState`
+    // extension its handlers extract, which `build_schedule_routes` layered
+    // here, now comes from `protected::with_agentic_state` over the seam.
 
     if include_local_setup {
         router = router
@@ -250,10 +234,10 @@ pub(super) fn build_external_workspace_routes(
         .route_fleet("/sql/query", post(data::execute_sql_query))
         .route_fleet("/semantic", post(semantic::execute_semantic_query))
         .route_fleet("/semantic/compile", post(semantic::compile_semantic_query))
-        // `/world-model/events`, foot traffic, competitors and the LLM proxy are
-        // `oxy-api-world-model`'s, merged into this tree by `oxy-server` through
-        // `SurfaceSeams::external`.
-        .route_fleet("/world-model/cameras", get(video::list_cameras))
+        // `/world-model/events`, foot traffic, competitors, the LLM proxy, the
+        // camera list and the weather (`/world-model/cameras`,
+        // `/world-model/weather/*`) are `oxy-api-world-model`'s, merged into
+        // this tree by `oxy-server` through `SurfaceSeams::external`.
         // Camera live streaming for standalone apps: registry, WHEP
         // signaling, HLS proxy. Same handlers as the operator tree —
         // only the auth wrapper differs.
@@ -275,14 +259,6 @@ pub(super) fn build_external_workspace_routes(
         .merge_undeclared(
             oxy_cameras::routes::external_clip_routes::<AppState>(),
             "oxy-cameras clip playback mints a presigned S3 GET",
-        )
-        .route_fleet(
-            "/world-model/weather/{layer}/{z}/{x}/{y}",
-            get(video::weather_tile),
-        )
-        .route_fleet(
-            "/world-model/weather/current",
-            post(video::weather_current_batch),
         )
         // The anomaly inbox (list, scan, preview, status, explain) the SDK's
         // `client.anomalies.*` calls here is `oxy-api-metric-monitoring`'s,
@@ -318,42 +294,6 @@ fn build_thread_routes(app_state: &AppState) -> RoleRouter {
 
 fn build_agent_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone()).route_fleet("/", get(agent::get_agents))
-}
-
-/// Schedule CRUD + run-now (§12 FU4b). Lives in the app crate so the
-/// handlers can use `WorkspaceAdmin` from `role_guards` (agentic-http is
-/// a lower layer and must not depend on `app`). AgenticState is attached
-/// as an Extension here so the handlers can extract it.
-fn build_schedule_routes(app_state: &AppState, agentic_state: Arc<AgenticState>) -> RoleRouter {
-    use axum::Extension;
-    RoleRouter::new(app_state.clone())
-        .route_fleet("/", get(schedules::list).post(schedules::create))
-        .route_fleet(
-            "/{id}",
-            get(schedules::get)
-                .patch(schedules::update)
-                .delete(schedules::delete),
-        )
-        .route_fleet("/{id}/run-now", post(schedules::run_now))
-        .route_fleet("/{id}/backfill", post(schedules::backfill))
-        .map_router(|r| r.layer(Extension(agentic_state)))
-}
-
-fn build_database_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone())
-        // The list degrades to `datasets: null` without a working copy and the
-        // launcher readiness check calls it on every page load.
-        .route_fleet("/", get(database::list_databases))
-        .route_fleet("/inspect", post(database::inspect_database_handler))
-        .route_fleet("/inspect-schemas", post(database::inspect_schemas_handler))
-        .route_fleet(
-            "/inspect-schema-tables",
-            post(database::inspect_schema_tables_handler),
-        )
-        .route_fleet(
-            "/{database_name}/schema",
-            get(database::get_database_schema),
-        )
 }
 
 fn build_integration_routes(app_state: &AppState) -> RoleRouter {

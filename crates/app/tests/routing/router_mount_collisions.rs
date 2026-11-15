@@ -61,8 +61,15 @@ fn nest_rejects_a_path_a_route_already_owns() {
 #[test]
 fn the_real_router_has_no_colliding_mounts() {
     let declared = oxy_app::server::router::route_declarations();
+    // 187 on 2026-11-15 (read off this assertion, both modes counted), after
+    // the workspace's databases and secrets left for
+    // `oxy-api-workspace-config`, the automation listing and the schedules for
+    // `oxy-api-automations` and the camera list and the weather for
+    // `oxy-api-world-model`. Surfaces declare their own routes, so this drops
+    // with each one that leaves; the floor guards against a tree that stopped
+    // building, not a count.
     assert!(
-        declared.len() > 200,
+        declared.len() > 150,
         "only {} routes declared — the builder shape changed and this guard \
          stopped covering the tree",
         declared.len()

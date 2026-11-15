@@ -196,6 +196,30 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // the handlers read the ClickHouse product store, never the
         // working copy.
         "../api-observability/src",
+        // The camera list and the weather (`/world-model/cameras`,
+        // `/world-model/weather/*`), moved out of both `build_workspace_routes`
+        // and `build_external_workspace_routes` on 2026-11-15, where each was
+        // `route_fleet` (a `FleetState` handler type refused a working-copy
+        // extractor). Declared FleetOk by hand now in
+        // `oxy_api_world_model::workspace_route_roles`; the handlers call
+        // UniFi and OpenWeatherMap with the workspace's keys, read through
+        // `WorkspaceManagerReadOnly`'s config.
+        "../api-world-model/src/video.rs",
+        // The automation listing and `/agentic-schedules`, moved out of
+        // `build_workspace_routes` on 2026-11-15, where all eight routes were
+        // `route_fleet` (a `FleetState` handler type refused a working-copy
+        // extractor). Declared FleetOk by hand now in
+        // `oxy_api_automations::workspace_route_roles`; the listing reads the
+        // compile boundary through `ConfigManager`, the schedules Postgres.
+        "../api-automations/src",
+        // The workspace's databases and secrets, moved out of
+        // `build_workspace_routes` (and `router/secrets.rs`) on 2026-11-15,
+        // where all nine routes were `route_fleet`. Declared FleetOk by hand
+        // now in `oxy_api_workspace_config::workspace_route_roles`; the list
+        // reads the in-memory config (its datasets only where
+        // `workspace_file_resolver` finds files), the schema and inspection
+        // talk to the warehouse, the secrets to Postgres.
+        "../api-workspace-config/src",
         // Workspace health's console routes, moved out of `admin/` onto the
         // admin seam. The handlers read and enqueue in Postgres; the live
         // runners that build a workspace context run in the task executor, on

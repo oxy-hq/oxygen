@@ -19,7 +19,8 @@
 //! (`agentic_pipeline::function_schedule`), and the runner decides again
 //! whether it may run (`custom_apps_functions::queued_admission`). A
 //! sandbox's teardown retires its rows; the tenant's schedules API never sees
-//! them (`api::schedules`).
+//! them (`oxy_api_automations::schedules`, whose own integration group
+//! holds that).
 
 pub mod handlers;
 mod lock;

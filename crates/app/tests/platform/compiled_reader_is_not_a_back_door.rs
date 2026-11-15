@@ -128,7 +128,8 @@ fn app_src() -> PathBuf {
 /// vertical lifted out of `src/server/api`) and `oxy-api-documents` and
 /// `oxy-api-airway`, `oxy-api-notifications`, `oxy-api-slack`,
 /// `oxy-api-operating-graph`, `oxy-api-metric-monitoring`,
-/// `oxy-api-observability` and
+/// `oxy-api-observability`, `oxy-api-automations`,
+/// `oxy-api-workspace-config` and
 /// `oxy-api-world-model` (with `oxy-world-model`, where the graph's cores
 /// went down to), and workspace health's
 /// two crates, extracted from
@@ -216,6 +217,25 @@ fn source_files() -> Vec<(String, String)> {
         &observability,
         &observability,
         "../api-observability/src/",
+        &mut out,
+    );
+    // `oxy-api-automations` (2026-11-15): the compile-boundary automation
+    // listing and the schedule CRUD.
+    let automations = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-automations/src");
+    walk(
+        &automations,
+        &automations,
+        "../api-automations/src/",
+        &mut out,
+    );
+    // `oxy-api-workspace-config` (2026-11-15): the workspace's databases and
+    // secrets.
+    let workspace_config =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspace-config/src");
+    walk(
+        &workspace_config,
+        &workspace_config,
+        "../api-workspace-config/src/",
         &mut out,
     );
     let world_model = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-world-model/src");

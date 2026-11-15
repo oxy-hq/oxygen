@@ -135,6 +135,11 @@ pub mod fleet {
 /// routes answer a refusal with.
 pub mod workspace_runtime {
     pub use crate::agentic_wiring::OxyProjectContext;
+    /// A database's connector, built the way every warehouse read builds one
+    /// (config + `agentic-connector`, or the host-built path where Airhouse
+    /// lives; the preview write hold applied). The workspace's schema route
+    /// (`oxy-api-workspace-config`) introspects through it.
+    pub use crate::agentic_wiring::project_ctx::build_connector_for_db;
     pub use crate::agentic_wiring::string_literal::string_literal_of;
     pub use crate::server::api::semantic::{
         ErrorResponse, QueryScanSource, resolve_compiled_scan_source, resolve_query_scan_source,
@@ -286,11 +291,6 @@ pub mod previews {
     pub use crate::server::previews::sql_kind::StatementKind;
 }
 
-/// Project secrets: the email lookup the app-secret listing shares.
-pub mod secrets {
-    pub use crate::server::api::secrets::resolve_user_emails;
-}
-
 /// The Postgres LISTEN/NOTIFY connection settings a surface's own listener
 /// rides, so it connects the way the task router does.
 pub mod listener {
@@ -331,8 +331,7 @@ pub mod testing {
     pub use crate::server::api::admin::app_publish_tokens;
     pub use crate::server::api::middlewares::{app_publish_token_scope, workspace_context};
     pub use crate::server::api::{
-        billing, compile_staging, compiled_reader, custom_apps_gates, data, database, projects,
-        schedules, secrets, semantic,
+        billing, compile_staging, compiled_reader, custom_apps_gates, data, projects, semantic,
     };
     pub use crate::server::router::{
         SurfaceSeam, SurfaceSeams, api_router, external_auth_layers, flat_api_surface,

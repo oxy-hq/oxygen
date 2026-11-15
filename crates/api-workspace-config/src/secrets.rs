@@ -1,23 +1,23 @@
-use crate::server::api::middlewares::role_guards::WorkspaceAdmin;
-use crate::server::service::secret_manager::{
-    CreateSecretParams, SecretInfo, SecretManagerService, UpdateSecretParams,
-};
 use axum::{
     extract::{self, Path},
     http::StatusCode,
     response::IntoResponse,
 };
-use entity::users::Entity as Users;
 use garde::Validate;
 use oxy::database::client::establish_connection;
+use oxy::service::secret_manager::{
+    CreateSecretParams, SecretInfo, SecretManagerService, UpdateSecretParams,
+};
+use oxy_app::surface::role_guards::WorkspaceAdmin;
 use oxy_app_core::audit::RequestActor;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_custom_apps::secret_audit::{ProjectSecretWrite, audit_if_app_secret};
+// Lowered out of this file on 2026-11-15: the custom-app secrets listing
+// shares it, and S3 keeps that surface out of this one.
+use oxy_identity::user_labels::resolve_user_emails;
 use oxy_shared::errors::OxyError;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Serialize)]
@@ -45,30 +45,6 @@ impl From<SecretInfo> for SecretResponse {
             created_by_email: None, // populated by list_secrets after user lookup
             updated_by_email: None, // populated by list_secrets after user lookup
             is_active: secret.is_active,
-        }
-    }
-}
-
-/// Resolve a set of user UUIDs to their emails in one query.
-pub async fn resolve_user_emails(
-    db: &impl sea_orm::ConnectionTrait,
-    ids: &[Uuid],
-) -> HashMap<Uuid, String> {
-    if ids.is_empty() {
-        return HashMap::new();
-    }
-    match Users::find()
-        .filter(entity::users::Column::Id.is_in(ids.to_vec()))
-        .all(db)
-        .await
-    {
-        Ok(users) => users
-            .into_iter()
-            .map(|u| (u.id, u.label().to_string()))
-            .collect(),
-        Err(e) => {
-            tracing::warn!("Failed to resolve user emails: {}", e);
-            HashMap::new()
         }
     }
 }

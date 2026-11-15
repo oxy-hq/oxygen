@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
+use oxy_app::surface::WorkspaceManagerReadOnly;
 
 const UNIFI_LIST_DEVICES_URL: &str = "https://api.ui.com/v1/devices?pageSize=200";
 const CACHE_TTL: Duration = Duration::from_secs(60);

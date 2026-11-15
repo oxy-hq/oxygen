@@ -1,7 +1,3 @@
-use crate::server::api::middlewares::role_guards::WorkspaceAdmin;
-use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspacePath,
-};
 use axum::{
     extract::{Json, Path, Query},
     http::StatusCode,
@@ -14,6 +10,8 @@ use oxy::semantic::inspector::{
     InspectEvent, InspectionResult, SchemaListResult, SchemaTablesResult, inspect_database,
     inspect_schema_tables, inspect_schemas,
 };
+use oxy_app::surface::role_guards::WorkspaceAdmin;
+use oxy_app::surface::{EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspacePath};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -79,7 +77,7 @@ pub async fn get_database_schema(
     // construction sites, while this handler needs no disk. A database that
     // does — a local DuckDB file, a BigQuery key — still says so, through
     // `try_resolve_file`.
-    let connector = crate::agentic_wiring::project_ctx::build_connector_for_db(
+    let connector = oxy_app::surface::workspace_runtime::build_connector_for_db(
         &workspace_manager,
         &database_name,
         Some(user.id),

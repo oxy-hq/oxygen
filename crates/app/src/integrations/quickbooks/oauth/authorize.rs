@@ -81,8 +81,9 @@ pub async fn authorize_by_slug(
 /// workspace secret — before any consent redirect is even returned.
 ///
 /// `WorkspaceManagerReadOnly` does NOT gate this: it is a filesystem-capability
-/// marker, not a role. `router/secrets.rs` says every route into the secret
-/// store enforces `WorkspaceAdmin` through its extractor signature; this is one
+/// marker, not a role. Every route into the secret store enforces
+/// `WorkspaceAdmin` through its extractor signature (the workspace's own are
+/// `oxy-api-workspace-config`'s `secret_routes`); this is one
 /// of those routes reached through a different door, and the UI already assumes
 /// it (`Connections` renders inside `CanWorkspaceAdmin`).
 async fn authorize_for(
