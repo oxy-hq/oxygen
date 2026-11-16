@@ -75,12 +75,15 @@ fn the_real_router_has_no_colliding_mounts() {
     // Wave B's ten conversation routes left the workspace tree for
     // `oxy-api-threads`, counted in both modes, floor `> 150` -> `> 120`; 143
     // (read off it with the floor raised) when org chat's five routes left the
-    // cloud-only global tree for the same crate.
+    // cloud-only global tree for the same crate. 104 the same day (read off
+    // it) after Wave D2's thirteen semantic routes left the workspace tree for
+    // `oxy-api-semantic` (both modes) and its three left the external tree,
+    // floor `> 120` -> `> 80`.
     // Surfaces declare their own routes, so this drops
     // with each one that leaves; the floor guards against a tree that stopped
     // building, not a count.
     assert!(
-        declared.len() > 120,
+        declared.len() > 80,
         "only {} routes declared — the builder shape changed and this guard \
          stopped covering the tree",
         declared.len()

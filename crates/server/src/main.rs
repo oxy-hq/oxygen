@@ -172,12 +172,15 @@ fn workspace_seam_routes() -> SeamRouter {
         .merge(oxy_api_identity::workspace_routes())
         .merge(oxy_api_threads::workspace_routes())
         .merge(oxy_api_workspaces::workspace_routes())
+        .merge(oxy_api_semantic::workspace_routes())
 }
 
 /// The sibling crates merged into the curated `/external/api/{workspace_id}`
 /// tree standalone apps call.
 fn external_seam_routes() -> SeamRouter {
-    oxy_api_world_model::external_routes().merge(oxy_api_metric_monitoring::external_routes())
+    oxy_api_world_model::external_routes()
+        .merge(oxy_api_metric_monitoring::external_routes())
+        .merge(oxy_api_semantic::external_routes())
 }
 
 /// Every surface this composition root mounts, by seam. `cli` forwards it into
@@ -306,6 +309,18 @@ fn external_seam_routes() -> SeamRouter {
 /// curated document has always listed (`GET /workspaces/{workspace_id}`, `GET
 /// /orgs/{org_id}/workspaces`).
 ///
+/// `oxy-api-semantic` (2026-11-16) fills `workspace`, `external` and
+/// `openapi`. On `workspace`: the Dev Portal's SQL execute (`/sql/{pathb64}`,
+/// `/sql/query`), the semantic explorer (`/semantic`, `/semantic/compile`, a
+/// topic's and a view's details), `/semantic/objects`, `/context-graph/sources`,
+/// the compile boundary's revision reads (`/revision`, `/revision/files`,
+/// `/revision/files/content`) and the pre-aggregation status and rebuild
+/// (thirteen declarations, `*` FleetOk as `route_fleet` wrote them: the compile
+/// boundary first, the warehouses, Postgres and the blob bucket). On
+/// `external`: `/sql/query`, `/semantic` and `/semantic/compile`, the three
+/// the curated API-key tree has always served. On `openapi`: `POST
+/// /{workspace_id}/sql/query`, the data-plane operation `oxyc schema` answers.
+///
 /// `oxy-api-previews` (2026-11-14) fills its own seam, `previews`: the
 /// `/{workspace_id}/previews` routes, beside the workspace tree behind the
 /// access check alone, all FleetOk. Its four task kinds join `tasks` and the
@@ -354,6 +369,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_identity::workspace_route_roles())
                 .chain(oxy_api_threads::workspace_route_roles())
                 .chain(oxy_api_workspaces::workspace_route_roles())
+                .chain(oxy_api_semantic::workspace_route_roles())
                 .copied()
                 .collect(),
         },
@@ -403,6 +419,7 @@ fn surface_seams() -> SurfaceSeams {
             oxy_api_custom_apps::openapi(),
             oxy_api_threads::openapi(),
             oxy_api_workspaces::openapi(),
+            oxy_api_semantic::openapi(),
         ],
         // The custom-app task kinds a worker runs, the background jobs a serve
         // process starts, and the outer `/customer-apps/{*path}` mount. The task
@@ -815,6 +832,122 @@ mod tests {
                 "{path} is documented but carries no post"
             );
         }
+    }
+
+    /// The data-plane operations `oxyc schema` exists to serve.
+    ///
+    /// A green build proves nothing here: `routes!(handler)` compiles fine
+    /// whether or not the handler carries a `#[utoipa::path]`, and a handler
+    /// whose annotation was dropped simply vanishes from the document. This is
+    /// the only thing that would notice.
+    ///
+    /// These are the endpoints an AGENT needs a schema for — SQL, semantic
+    /// query, and the two lookups that turn a customer into the ids everything
+    /// else takes. Web-UI-only surfaces are deliberately not in this list and
+    /// should not be added to it.
+    ///
+    /// Moved here from `oxy-app`'s `router::openapi` (Wave D2, 2026-11-16),
+    /// where it read `build_openapi_doc(Vec::new())`: its one row, the SQL
+    /// execute, is `oxy-api-semantic`'s now, so only the served document holds
+    /// it. (`GET /user`, `GET /orgs`, `GET /orgs/{org_id}/workspaces` and the
+    /// custom-app data plane are asserted in
+    /// `the_served_openapi_document_includes_the_surfaces`.)
+    const AGENT_PATHS: &[(&str, &str)] = &[("/{workspace_id}/sql/query", "post")];
+
+    /// The operation for `method`, or `None` — read off the typed `PathItem`
+    /// rather than by grepping serialized JSON, which is how the first version
+    /// of this test managed to pass on `rendered.contains("get")` matching the
+    /// word "get" anywhere in a description.
+    fn operation<'a>(
+        item: &'a utoipa::openapi::path::PathItem,
+        method: &str,
+    ) -> Option<&'a utoipa::openapi::path::Operation> {
+        match method {
+            "get" => item.get.as_ref(),
+            "post" => item.post.as_ref(),
+            "put" => item.put.as_ref(),
+            "patch" => item.patch.as_ref(),
+            "delete" => item.delete.as_ref(),
+            other => panic!("unhandled method in AGENT_PATHS: {other}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_agent_data_plane_is_documented() {
+        let doc = oxy_app::server::router::build_openapi_doc(surface_seams().openapi).await;
+        for (path, method) in AGENT_PATHS {
+            let item = doc.paths.paths.get(*path).unwrap_or_else(|| {
+                panic!(
+                    "{path} is missing from the OpenAPI document — `oxyc schema {path}` \
+                     would answer 'not documented'. Either the #[utoipa::path] annotation \
+                     was dropped from its handler, or the routes!(..) line was."
+                )
+            });
+            assert!(
+                operation(item, method).is_some(),
+                "{path} is documented but carries no {method} operation"
+            );
+        }
+    }
+
+    /// A schema with no properties is worse than none: it reads as
+    /// "documented, and the body is empty". `SQLParams` is the one an agent
+    /// copies first.
+    ///
+    /// Resolved through the operation's own `$ref` rather than by grepping the
+    /// whole components blob — the earlier version asserted only that the
+    /// strings "sql" and "database" appeared *somewhere* in the document, which
+    /// they do in half a dozen unrelated descriptions.
+    ///
+    /// Moved here from `oxy-app`'s `router::openapi` with the one above (Wave
+    /// D2): the served document is the only one that still holds the operation.
+    #[tokio::test]
+    async fn the_sql_request_body_carries_its_fields() {
+        use utoipa::openapi::{RefOr, Schema};
+
+        let doc = oxy_app::server::router::build_openapi_doc(surface_seams().openapi).await;
+        let item = doc
+            .paths
+            .paths
+            .get("/{workspace_id}/sql/query")
+            .expect("the SQL endpoint is documented");
+        let body = operation(item, "post")
+            .and_then(|op| op.request_body.as_ref())
+            .expect("the SQL endpoint declares a request body");
+
+        let reference = body
+            .content
+            .get("application/json")
+            .and_then(|c| match &c.schema {
+                Some(RefOr::Ref(r)) => Some(r.ref_location.clone()),
+                _ => None,
+            })
+            .expect("the request body is a $ref into components");
+        let name = reference
+            .rsplit('/')
+            .next()
+            .expect("a $ref ends in a component name")
+            .to_string();
+
+        let schema = doc
+            .components
+            .as_ref()
+            .and_then(|c| c.schemas.get(&name))
+            .unwrap_or_else(|| panic!("{name} is referenced but not in components/schemas"));
+
+        let RefOr::T(Schema::Object(object)) = schema else {
+            panic!("{name} did not resolve to an object schema");
+        };
+        for field in ["sql", "database"] {
+            assert!(
+                object.properties.contains_key(field),
+                "{name} lost its `{field}` property — an agent copying this body would omit it"
+            );
+        }
+        assert!(
+            object.required.iter().any(|r| r == "sql"),
+            "{name} no longer marks `sql` required"
+        );
     }
 
     /// Every operation on a path item, paired with its method name.

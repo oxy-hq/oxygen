@@ -31,6 +31,7 @@ oxy-api-workspace-config = { path = "../api-workspace-config" }
 oxy-api-identity = { path = "../api-identity" }
 oxy-api-threads = { path = "../api-threads" }
 oxy-api-workspaces = { path = "../api-workspaces" }
+oxy-api-semantic = { path = "../api-semantic" }
 axum = { workspace = true }
 uuid = { workspace = true }
 

@@ -4,12 +4,13 @@
 //! result shaped as JSON rows or a parquet file.
 //!
 //! The workspace runtime's half of the SQL surface. The IDE's SQL and semantic
-//! execute handlers (`api::data`, `api::semantic`) run on it, and so does
+//! execute handlers (`oxy-api-semantic`'s `data` and `semantic`) run on it, and so does
 //! `oxy-api-world-model`'s `WorkspaceWarehouse` (through
 //! `oxy_app::surface::world_model_exec`). It lived in `api::data` until
 //! 2026-11-16 and moved down so those handlers can leave `oxy-app` without
 //! taking a sibling surface's executor with them. The HTTP shaping of a failure
-//! (`SqlErrorResponse`, `agentic_error_response`) stays with the handlers.
+//! (`SqlErrorResponse`, `agentic_error_response`) stayed with the handlers until
+//! they left too (Wave D2); it is [`super::sql_http`] now.
 //!
 //! Not a domain crate yet: it builds on `project_ctx::build_connector_for_db`
 //! and writes results through `api::typed_stream` (the S3 result mirror), both
@@ -88,7 +89,7 @@ pub struct SQLParams {
 }
 
 /// Internal error type that preserves connector-level structure on the way
-/// from `run_via_agentic_connector` to `api::data`'s `agentic_error_response`.
+/// from `run_via_agentic_connector` to `sql_http::agentic_error_response`.
 /// Public so the `semantic` handlers can compose compile → execute without
 /// re-implementing the connector error mapping.
 pub enum SqlExecuteError {

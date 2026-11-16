@@ -30,12 +30,12 @@ use super::preagg_generation::{
     GenerationSweep, PREAGG_BUILDER_GENERATION, built_rollup_hashes, read_builder_generation,
     resolve_failed_rollup, write_builder_generation,
 };
-use super::preagg_ledger;
 use super::preagg_rebuild::{
     RebuildContext, build_layer_engine, connector_to_airlayer_dialect, rebuild_rollup,
 };
 use super::preagg_workspace::{build_workspace_manager, manifest_write_lock_for};
 use crate::agentic_wiring::OxyProjectContext;
+use oxy_compile::preagg_ledger;
 
 /// The bag `run_preagg_task`/`RebuildContext` need, built fresh per task from
 /// the payload's `workspace_id` — see [`build_task_config`].
@@ -762,7 +762,7 @@ fn skip_suffix(skipped_no_key: usize, skipped_no_datasource: usize) -> String {
 /// any node, including one with no working copy — a `serve`/`worker`-only node
 /// draining this Custom task), the workspace's FS second (works only when this
 /// node happens to have it checked out). Mirrors
-/// `semantic::resolve_query_scan_source` + the same loader
+/// `scan_source::resolve_query_scan_source` + the same loader
 /// (`ScanDir::load_layer`) every other semantic-model
 /// surface in this crate already resolves through — replaces this module's old
 /// direct `**/*.view.yml` FS glob, which only ever worked on the ide node and

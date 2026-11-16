@@ -34,8 +34,8 @@ use uuid::Uuid;
 
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
-use super::preagg_ledger;
 use super::preagg_rebuild::{mirror_manifest_to_s3, same_rollup_identity};
+use oxy_compile::preagg_ledger;
 
 /// Why the artifact is going, which decides what is remembered about it.
 #[derive(Debug, Clone)]
@@ -284,7 +284,7 @@ mod tests {
     use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
     use super::{Retraction, local_parquet_present, retract_under_publish_lock};
-    use crate::server::preagg_ledger::RollupLedger;
+    use oxy_compile::preagg_ledger::RollupLedger;
 
     fn manifest_json(entries: &[(&str, &str)]) -> String {
         let rollups: Vec<String> = entries
@@ -448,7 +448,7 @@ mod tests {
             .write()
             .expect("cache lock")
             .insert("gone".to_string(), Some("7".to_string()));
-        crate::server::preagg_ledger::record_built(dir.path(), "gone", 1, "orders", "daily").await;
+        oxy_compile::preagg_ledger::record_built(dir.path(), "gone", 1, "orders", "daily").await;
 
         retract_under_publish_lock("gone", dir.path(), 1, Retraction::Wrong, &cache)
             .await

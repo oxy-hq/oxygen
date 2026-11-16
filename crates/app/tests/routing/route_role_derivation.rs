@@ -253,15 +253,32 @@ fn a_handler_that_asks_for_a_working_copy_is_on_an_ide_only_route() {
         }
     }
 
+    // No mounted handler asks for a working copy any more (step B of the
+    // Factory retirement, 2026-11-14), so `checked` is legitimately 0. What
+    // proved the parser still worked was that it found the handlers taking the
+    // read-only manager — `read_only >= 10` — until the last of them, the
+    // semantic surface's thirteen, left `build_workspace_routes` for
+    // `oxy-api-semantic` (2026-11-16) and `read_only` read 0. Every handler
+    // still mounted here takes neither manager, so the probe is now that the
+    // parser resolves the mounts it finds to handler bodies under `api/`: a
+    // parser that broke finds none. (`oxy-api-semantic`'s handlers cannot take
+    // a working copy at all: `WorkspaceManagerWorkingCopy` resolves only from
+    // `IdeState`, and that crate's routers are `Router<AppState>`.) 6 resolve
+    // on 2026-11-16, read off this assertion.
+    let resolved = mounted_routes()
+        .iter()
+        .filter(|(_, handler)| {
+            sources
+                .values()
+                .any(|body| body.contains(&format!("fn {handler}(")))
+        })
+        .count();
     assert!(
-        // No mounted handler asks for a working copy any more (step B of the
-        // Factory retirement, 2026-11-14), so `checked` is legitimately 0.
-        // What proves the parser still works is that it finds the handlers
-        // that take the read-only manager: 22 files use it today.
-        read_only >= 10,
-        "only {read_only} mounted handlers take `WorkspaceManagerReadOnly` \
-         ({checked} take a working copy) — the parser broke; fix it rather \
-         than letting the guard pass vacuously",
+        resolved >= 6,
+        "only {resolved} mounted handlers resolve to a body under `api/` \
+         ({read_only} take `WorkspaceManagerReadOnly`, {checked} a working \
+         copy) — the parser broke; fix it rather than letting the guard pass \
+         vacuously",
     );
     offenders.sort();
     offenders.dedup();
@@ -335,12 +352,14 @@ fn api_sources_keeps_every_file_even_when_names_repeat() {
     // The collision that turned `main` red, named so a regression says which
     // handlers went missing rather than only that a count is off. (The
     // sentinel was `thread.rs` until it left for `oxy-api-threads` on
-    // 2026-11-16; `data.rs` is as unique a name in this tree.)
-    let data = sources
-        .get("data.rs")
-        .expect("api/data.rs is where the router's `data::` handlers live");
+    // 2026-11-16, then `data.rs` until it left for `oxy-api-semantic` the same
+    // day; `local_setup.rs` is as unique a name in this tree, and the router
+    // mounts its handlers.)
+    let local_setup = sources
+        .get("local_setup.rs")
+        .expect("api/local_setup.rs is where the router's `local_setup::` handlers live");
     assert!(
-        data.contains("fn execute_sql_query("),
-        "the `data.rs` entry is not api/data.rs, so every `/sql` handler is missing",
+        local_setup.contains("fn setup_empty("),
+        "the `local_setup.rs` entry is not api/local_setup.rs, so every `/setup` handler is missing",
     );
 }

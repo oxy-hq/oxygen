@@ -57,7 +57,8 @@ pub use oxy_custom_apps::updates as custom_apps_updates;
 pub use oxy_custom_apps::usage_airhouse as custom_apps_usage_airhouse;
 /// Moved to the `oxy-custom-apps` domain crate; the old path stays so no call site changes.
 pub use oxy_custom_apps::usage_queue as custom_apps_usage_queue;
-pub mod data;
+// `data` (the Dev Portal's `/sql` execute) moved to `oxy-api-semantic`
+// (2026-11-16), mounted on the workspace and external seams.
 // `database` (Workspace Settings → Databases, the schema and inspection
 // routes) and `secrets` (the project secrets) moved to the
 // `oxy-api-workspace-config` sibling crate, mounted by `oxy-server` on the
@@ -78,12 +79,16 @@ pub mod middlewares;
 // `org_teams` (the cache-flushing `write_access` wrapper, the last of it) went
 // down into `oxy-custom-apps` as `app_access`; the handlers are
 // `oxy-api-tenancy`'s and the service `oxy-tenancy`'s.
-pub mod preagg;
+// `preagg` (the pre-aggregation status and rebuild) moved to
+// `oxy-api-semantic` (2026-11-16), mounted on the workspace seam.
 pub mod projects;
 // `result_files` (a run's result parquet) moved to `oxy-api-threads`
 // (2026-11-16), mounted on the workspace seam.
-pub mod semantic;
-pub mod semantic_scan;
+// `semantic` (the semantic explorer's view, topic, compile and execute) and
+// `semantic_scan` (the semantic object list, the Context Graph's sources and
+// the compile boundary's revision reads) moved to `oxy-api-semantic`
+// (2026-11-16), mounted on the workspace seam (and the external one for
+// compile and execute).
 // `thread` (a workspace's threads and the run logs) moved to
 // `oxy-api-threads` (2026-11-16), mounted on the workspace seam.
 // The tenant-facing observability console (`traces`, `metrics`,

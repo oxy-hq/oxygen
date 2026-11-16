@@ -57,6 +57,15 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
     // slot so naming the type later does not read as a new disk access. The
     // working-copy needles still apply to the file.
     ("api-airway/src/source_upload.rs", "ConfigManager"),
+    // A view's and a topic's details (`oxy_api_semantic::workspace_route_roles`,
+    // FleetOk) resolve the file through the compile boundary first
+    // (`scan::read_semantic_entity`) and fall back to `try_resolve_file`, which
+    // has an impl for each capability, so a node without a working copy answers
+    // "not compiled" instead of reading. The bound that says so names the type
+    // (`ConfigManager<S>: ResolveWorkspaceFile`). The working-copy needles
+    // still apply to the file. As it was in `oxy-app`'s `api/semantic.rs`,
+    // where `route_fleet`'s handler type held the same line.
+    ("api-semantic/src/semantic.rs", "ConfigManager"),
     // The demo seed (`oxy seed`, and the integration fixture) deploys the example
     // apps from a workspace path it is handed. It is a CLI step, mounted on no
     // route at all, so no pod placement applies.
@@ -284,6 +293,13 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         "../api-workspaces/src/workspace_members.rs",
         "../api-workspaces/src/workspace_oxy_access.rs",
         "../api-workspaces/src/apps.rs",
+        // The semantic surface, out of `oxy-app` on 2026-11-16, where all
+        // thirteen routes were `route_fleet` (a `FleetState` handler type
+        // refused a working-copy extractor). Declared FleetOk by hand now in
+        // `oxy_api_semantic::workspace_route_roles`; every handler takes
+        // `WorkspaceManagerReadOnly`, the scan resolves through the compile
+        // boundary first, the revision reads are compiled rows.
+        "../api-semantic/src",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

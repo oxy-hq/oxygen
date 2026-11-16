@@ -795,6 +795,18 @@ mod tests {
             // The Dev Portal's SQL execution, down from `api::data` the same
             // day: kept, as it was there.
             "oxy_app::agentic_wiring::sql_exec",
+            // The rollup ledger, down from `oxy-app`'s preagg runtime into
+            // `oxy-compile` (Wave D2, 2026-11-16): kept, as it was there.
+            "oxy_compile::preagg_ledger",
+            // The semantic surface (Wave D2, 2026-11-16): the four handler
+            // modules out of `oxy-app`'s `api`, and the SQL execute's HTTP
+            // answer down from `api::data` into the workspace runtime. Kept,
+            // as each was where it came from.
+            "oxy_api_semantic::semantic",
+            "oxy_api_semantic::semantic_scan",
+            "oxy_api_semantic::data",
+            "oxy_api_semantic::preagg",
+            "oxy_app::agentic_wiring::sql_http",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1108,6 +1120,19 @@ mod tests {
             // boundary and the compile queue, no warehouse; not the custom-app
             // data plane, as `api::semantic` was not.
             "oxy_app::agentic_wiring::scan_source",
+            // The rollup ledger (Wave D2, down from `oxy-app`'s preagg
+            // runtime): a file in the cache directory, no warehouse.
+            "oxy_compile::preagg_ledger",
+            // The semantic surface (Wave D2, 2026-11-16): workspace-scoped,
+            // behind the workspace middleware, and not the custom-app data
+            // plane, as `api::{semantic, semantic_scan, data, preagg}` were
+            // not. The SQL execute's HTTP answer (`sql_http`, out of
+            // `api::data`) logs the failed query's text, as it did there.
+            "oxy_api_semantic::semantic",
+            "oxy_api_semantic::semantic_scan",
+            "oxy_api_semantic::data",
+            "oxy_api_semantic::preagg",
+            "oxy_app::agentic_wiring::sql_http",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

@@ -146,6 +146,11 @@ pub mod workspace_runtime {
     /// lives; the preview write hold applied). The workspace's schema route
     /// (`oxy-api-workspace-config`) introspects through it.
     pub use crate::agentic_wiring::project_ctx::build_connector_for_db;
+    /// The revision a scan read, `None` for a working-copy read: what the
+    /// semantic surface's single-file reads key their layer cache on, as
+    /// `QueryScanSource::source_revision` does for the query reads. Added for
+    /// `oxy-api-semantic` (2026-11-16).
+    pub use crate::agentic_wiring::scan_source::scan_source_revision;
     pub use crate::agentic_wiring::scan_source::{
         ErrorResponse, QueryScanSource, resolve_compiled_scan_source, resolve_query_scan_source,
         semantic_err,
@@ -203,6 +208,22 @@ pub mod world_model_exec {
     pub use crate::agentic_wiring::sql_exec::{
         SQLParams, SemanticQueryResponse, build_connector, run_via_agentic_connector,
         run_with_connector,
+    };
+}
+
+/// A Dev Portal SQL execute and its HTTP answer, as `oxy-api-semantic`'s `/sql`
+/// and `/semantic` handlers run it (2026-11-16): the executor and its result
+/// shapes (`world_model_exec` re-exports the same items for the World Model
+/// Graph), the error the executor fails with, the status and structured body a
+/// failure maps to (a preview's held write is `409 preview_read_only`), and
+/// the one call the `/sql` handlers make. Platform runtime: the connector, the
+/// 10k-row cap and `truncated`, and the preview write hold are all below.
+pub mod sql_exec {
+    pub use crate::agentic_wiring::sql_exec::{
+        ResultFormat, SQLParams, SemanticQueryResponse, SqlExecuteError, run_via_agentic_connector,
+    };
+    pub use crate::agentic_wiring::sql_http::{
+        SqlErrorResponse, agentic_error_response, execute_sql_response,
     };
 }
 
@@ -333,9 +354,9 @@ pub mod testing {
     pub use crate::agentic_wiring;
     pub use crate::server::api::admin::app_publish_tokens;
     pub use crate::server::api::middlewares::{app_publish_token_scope, workspace_context};
-    pub use crate::server::api::{
-        billing, compiled_reader, custom_apps_gates, data, projects, semantic,
-    };
+    // `data` and `semantic` left with their handlers for `oxy-api-semantic`
+    // (2026-11-16); `projects` had no reader once `data`'s did not need it.
+    pub use crate::server::api::{billing, compiled_reader, custom_apps_gates};
     pub use crate::server::router::{
         SurfaceSeam, SurfaceSeams, api_router, external_auth_layers, flat_api_surface,
     };

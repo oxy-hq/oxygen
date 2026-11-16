@@ -504,7 +504,7 @@ fn a_missing_parquet_and_no_blob_store_declines_instead_of_answering() {
 /// so the caller can fall back to the warehouse.
 ///
 /// This is the contract the three execute sites rely on
-/// (`api::semantic::execute_semantic_query`, the analytics executing handler,
+/// (`oxy_api_semantic::semantic::execute_semantic_query`, the analytics executing handler,
 /// the builder's `semantic_query` tool). It matters that this is an `Err` and
 /// not an empty result set: empty rows are indistinguishable from a rollup
 /// that genuinely has none, and would be served to the user as an answer.

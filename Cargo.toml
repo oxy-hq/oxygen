@@ -27,6 +27,7 @@ members = [
   "crates/api-workspace-health",
   "crates/api-threads",
   "crates/api-workspaces",
+  "crates/api-semantic",
   "crates/cli-shim",
   "crates/app-core",
   "crates/auth",
@@ -715,7 +716,7 @@ aho-corasick = "1.1"
 #         fails, naming view/rollup/measure, before the ledger prune.
 #       - promote tick (`preagg_promote::rollup_hashes`) → the view contributes
 #         no hashes, at warn — same standing as a view that won't parse.
-#       - rollups panel (`api::preagg::declared_rollups`) → rows stay listed
+#       - rollups panel (`oxy_api_semantic::preagg::declared_rollups`) → rows stay listed
 #         and carry a new additive `refused` field; the web-app does not render
 #         it yet.
 #

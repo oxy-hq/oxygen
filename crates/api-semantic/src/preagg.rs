@@ -4,8 +4,13 @@
 //!   with what this node's airlayer cache holds for each.
 //! - `POST /semantic/preagg-rebuild` — rebuild them: all, or one.
 //!
-//! Both are node-local surfaces (the cache is a directory in the state dir),
-//! so both are pinned `IdeOnly` in `role_manifest.rs`.
+//! Both are FleetOk (`*`, as `oxy-app`'s `route_fleet` declared them, in
+//! [`crate::workspace_route_roles`]). The cache is a directory in the state
+//! dir, keyed on the workspace id; the status reads it through a cross-node
+//! read-through of the manifest from the blob bucket (`sync_manifest_from_s3`),
+//! and the rebuild only queues the cycle a worker runs. (This doc said both
+//! were pinned `IdeOnly` in `role_manifest.rs`; the mount said FleetOk, and
+//! the mount was the truth.)
 
 use std::collections::HashMap;
 
@@ -19,10 +24,8 @@ use utoipa::ToSchema;
 
 use oxy_app_core::app_state::AppState;
 
-use crate::agentic_wiring::scan_source::{ErrorResponse, resolve_query_scan_source, semantic_err};
-use crate::server::api::middlewares::workspace_context::{
-    SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath,
-};
+use oxy_app::surface::workspace_runtime::{ErrorResponse, resolve_query_scan_source, semantic_err};
+use oxy_app::surface::{SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath};
 
 // ── Preagg status ─────────────────────────────────────────────────────────────
 //
@@ -260,7 +263,7 @@ pub(crate) fn read_cache_facts(
 ///
 /// Blocking (one `read_to_string`) — call it inside `spawn_blocking`.
 pub(crate) fn read_empty_since(cache_dir: &std::path::Path) -> HashMap<String, String> {
-    crate::server::preagg_ledger::empty_rollups(cache_dir)
+    oxy_compile::preagg_ledger::empty_rollups(cache_dir)
 }
 
 /// Fetch the shared manifest through from S3 (mirrored there by whichever node
@@ -474,7 +477,8 @@ pub(crate) fn declared_rollups(
 /// so a workspace with no compiled layer and no working copy gets a *retryable*
 /// error rather than a confident empty list. The cache columns, though, are
 /// node-local — a replica that never built the cache would report every rollup
-/// uncached — so the route stays pinned `IdeOnly` in `role_manifest.rs`.
+/// uncached — so it reads the manifest through the blob bucket first
+/// (`sync_manifest_from_s3`) and the route is FleetOk.
 pub async fn get_preagg_status(
     WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     layer_cache: SemanticLayerCacheCtx,
@@ -520,7 +524,7 @@ pub async fn get_preagg_status(
 
     Ok(extract::Json(PreaggStatusResponse {
         rollups: declared_rollups(&layer, &cache, &empty_since),
-        blob_reads_available: crate::server::preagg_context::blob_config().is_some(),
+        blob_reads_available: oxy_app_core::preagg_context::blob_config().is_some(),
     }))
 }
 
@@ -729,7 +733,7 @@ pre_aggregations:
         let cache_dir = dir.path().join(".airlayer").join("cache");
         let layer = layer_from_yaml(&[ORDERS_VIEW]);
         write_manifest(&cache_dir, serde_json::json!({ "rollups": [] }));
-        crate::server::preagg_ledger::record_empty(
+        oxy_compile::preagg_ledger::record_empty(
             &cache_dir,
             &declared_hash(&layer, "orders_by_month"),
             1,
@@ -782,7 +786,7 @@ pre_aggregations:
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = dir.path().join(".airlayer").join("cache");
         write_manifest(&cache_dir, serde_json::json!({ "rollups": [] }));
-        crate::server::preagg_ledger::record_empty(
+        oxy_compile::preagg_ledger::record_empty(
             &cache_dir,
             "a-hash-no-longer-declared",
             1,
@@ -812,7 +816,7 @@ pre_aggregations:
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = dir.path().join(".airlayer").join("cache");
         let layer = layer_from_yaml(&[ORDERS_VIEW]);
-        crate::server::preagg_ledger::record_empty(
+        oxy_compile::preagg_ledger::record_empty(
             &cache_dir,
             &declared_hash(&layer, "orders_by_month"),
             1,
@@ -858,7 +862,7 @@ pre_aggregations:
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = dir.path().join(".airlayer").join("cache");
         let layer = layer_from_yaml(&[ORDERS_VIEW]);
-        crate::server::preagg_ledger::record_empty(
+        oxy_compile::preagg_ledger::record_empty(
             &cache_dir,
             "the-hash-before-the-edit",
             1,
@@ -867,7 +871,7 @@ pre_aggregations:
             None,
         )
         .await;
-        crate::server::preagg_ledger::record_built(
+        oxy_compile::preagg_ledger::record_built(
             &cache_dir,
             &declared_hash(&layer, "orders_by_month"),
             1,

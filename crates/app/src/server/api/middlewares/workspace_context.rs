@@ -2232,8 +2232,16 @@ mod tests {
         // its routes became `FleetOk` and its scan moved to
         // `graph::source` (now `oxy-api-world-model`'s).
         for (name, src) in [
-            ("semantic.rs", include_str!("../semantic.rs")),
-            ("preagg.rs", include_str!("../preagg.rs")),
+            // The semantic explorer and the pre-aggregation status and
+            // rebuild, lifted into `oxy-api-semantic` (2026-11-16).
+            (
+                "oxy-api-semantic semantic.rs",
+                include_str!("../../../../../api-semantic/src/semantic.rs"),
+            ),
+            (
+                "oxy-api-semantic preagg.rs",
+                include_str!("../../../../../api-semantic/src/preagg.rs"),
+            ),
             // The IDE handlers, lifted into `oxy-api-world-model`.
             (
                 "oxy-api-world-model graph/handlers.rs",

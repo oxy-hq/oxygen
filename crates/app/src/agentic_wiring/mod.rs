@@ -28,6 +28,7 @@ pub mod preview_ctx;
 pub mod project_ctx;
 pub mod scan_source;
 pub mod sql_exec;
+pub mod sql_http;
 pub mod string_literal;
 pub mod thread_owner;
 

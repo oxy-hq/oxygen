@@ -8,11 +8,11 @@
 
 use std::sync::Arc;
 
-use axum::routing::{get, post};
+use axum::routing::post;
 
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
-use crate::api::{data, local_setup, preagg, semantic, semantic_scan};
+use crate::api::local_setup;
 
 use oxy_shared::fleet_role::RouteRole;
 
@@ -88,52 +88,13 @@ pub(super) fn build_workspace_routes(
         // `/onboarding-readiness`, `/onboarding/github-setup` and the
         // `/onboarding/*` subtree live in `oxy-api-tenancy`; `oxy-server`
         // merges them into this nest.
-        .route_fleet("/sql/{pathb64}", post(data::execute_sql))
-        .route_fleet("/sql/query", post(data::execute_sql_query))
-        // Semantic-model endpoints the IDE uses. The legacy `/semantic`
-        // execute route was retired alongside `oxy-workflow`; execution
-        // now flows through the agentic pipeline. Compile + the
-        // read-only file handlers stay here so the IDE's topic / view
-        // explorer + SQL preview panel keep working without re-introducing
-        // a workflow dependency on the request path. Compile reaches
-        // into airlayer via `agentic_automation::semantic_bridge`.
-        // The views and topics the workspace serves, for the explorer's list
-        // and the pickers: the revision (or single-process mode's directory).
-        .route_fleet(
-            "/semantic/objects",
-            get(semantic_scan::list_semantic_objects),
-        )
-        // The Context Graph page's views, topics, automations, agents and
-        // verified-query paths, from the served revision (it read `/files`).
-        .route_fleet(
-            "/context-graph/sources",
-            get(semantic_scan::get_context_graph_sources),
-        )
-        // The Factory's read-only file browser: the served revision's files
-        // and one file's content, from the compiled rows (it read `/files`).
-        // The revision this request reads and its commit, for the top bar.
-        .route_fleet("/revision", get(semantic_scan::get_served_revision))
-        .route_fleet("/revision/files", get(semantic_scan::get_revision_files))
-        .route_fleet(
-            "/revision/files/content",
-            get(semantic_scan::get_revision_file),
-        )
-        .route_fleet(
-            "/semantic/topic/{file_path_b64}",
-            get(semantic::get_topic_details),
-        )
-        .route_fleet(
-            "/semantic/view/{file_path_b64}",
-            get(semantic::get_view_details),
-        )
-        // Moved to `api::preagg` by #2989, which also added the rebuild verb.
-        // Both stay FleetOk: the list comes from the DECLARATIONS (resolved
-        // through the compile boundary first), and a rollup built on another
-        // node is readable here when a blob bucket is configured.
-        .route_fleet("/semantic/preagg-status", get(preagg::get_preagg_status))
-        .route_fleet("/semantic/preagg-rebuild", post(preagg::rebuild_preagg))
-        .route_fleet("/semantic/compile", post(semantic::compile_semantic_query))
-        .route_fleet("/semantic", post(semantic::execute_semantic_query))
+        // `/sql/{pathb64}` and `/sql/query` (the Dev Portal's SQL execute), the
+        // semantic explorer (`/semantic`, `/semantic/compile`, a topic's and a
+        // view's details), `/semantic/objects`, `/context-graph/sources`, the
+        // compile boundary's revision reads (`/revision`, `/revision/files`,
+        // `/revision/files/content`) and the pre-aggregation status and
+        // rebuild are `oxy-api-semantic`'s since 2026-11-16, merged inside this
+        // nest by `oxy-server` through the workspace seam, still FleetOk.
         // The metric tree (`/semantic/metric-tree*`, under its timing probe),
         // `/semantic/monitors` and the anomaly inbox (`/semantic/anomalies`) are
         // `oxy-api-metric-monitoring`'s, merged inside this nest by `oxy-server`
@@ -206,9 +167,9 @@ pub(super) fn build_external_workspace_routes(
     agentic_state: Arc<AgenticState>,
 ) -> RoleRouter {
     RoleRouter::new(app_state.clone())
-        .route_fleet("/sql/query", post(data::execute_sql_query))
-        .route_fleet("/semantic", post(semantic::execute_semantic_query))
-        .route_fleet("/semantic/compile", post(semantic::compile_semantic_query))
+        // `/sql/query`, `/semantic` and `/semantic/compile` are
+        // `oxy-api-semantic`'s since 2026-11-16, merged into this tree by
+        // `oxy-server` through `SurfaceSeams::external`.
         // `/world-model/events`, foot traffic, competitors, the LLM proxy, the
         // camera list and the weather (`/world-model/cameras`,
         // `/world-model/weather/*`) are `oxy-api-world-model`'s, merged into

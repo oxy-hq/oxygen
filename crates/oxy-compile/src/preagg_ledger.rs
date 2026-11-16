@@ -30,6 +30,16 @@
 //! the per-workspace publish lock — the same lock `commit_manifest_and_cache`
 //! and `retract_manifest_and_cache` require, and for the same reason: the
 //! ledger entry and the manifest entry are one publish.
+//!
+//! Lives in this crate beside [`crate::preagg_blob`], the same cache's
+//! cross-node half (the manifest and Parquet mirror), since 2026-11-16 (Wave
+//! D2). It was a private module of `oxy-app`'s preagg runtime, which still
+//! writes it (the rebuild, the retraction, the generation sweep, the freshness
+//! evaluators — `preagg_rebuild`, `preagg_retract`, `preagg_generation`,
+//! `preagg_freshness`, all in `oxy-app`); it came down so the IDE's
+//! pre-aggregation status (`oxy-api-semantic`'s `preagg`) can read
+//! [`empty_rollups`] without reaching into `oxy-app`. The body is unchanged;
+//! only the visibility widened from `oxy-app`'s `server` module to `pub`.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -40,7 +50,7 @@ const LEDGER_FILE: &str = "rollup_ledger.json";
 
 /// The zero-row record: a rebuild ran and produced nothing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct EmptyRecord {
+pub struct EmptyRecord {
     /// RFC3339 instant of the zero-row rebuild — what an `every:` interval is
     /// measured against once the manifest's `build_date` is gone.
     pub at: String,
@@ -52,7 +62,7 @@ pub(crate) struct EmptyRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(super) struct LedgerEntry {
+pub(crate) struct LedgerEntry {
     /// `PREAGG_BUILDER_GENERATION` as of this node's last published decision
     /// about the hash — a commit or a zero-row retraction.
     pub generation: u32,
@@ -76,7 +86,7 @@ pub(super) struct LedgerEntry {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub(super) struct RollupLedger {
+pub struct RollupLedger {
     #[serde(default)]
     entries: HashMap<String, LedgerEntry>,
 }
@@ -86,7 +96,7 @@ impl RollupLedger {
     /// node has published nothing it can vouch for, which is the conservative
     /// answer for both callers — the sweep covers everything, and no freshness
     /// record suppresses a rebuild.
-    pub(super) fn load(cache_dir: &Path) -> Self {
+    pub fn load(cache_dir: &Path) -> Self {
         std::fs::read_to_string(cache_dir.join(LEDGER_FILE))
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -94,13 +104,13 @@ impl RollupLedger {
     }
 
     /// Did THIS node publish this hash under the current builder generation?
-    pub(super) fn is_at_generation(&self, hash: &str, generation: u32) -> bool {
+    pub fn is_at_generation(&self, hash: &str, generation: u32) -> bool {
         self.entries
             .get(hash)
             .is_some_and(|e| e.generation == generation)
     }
 
-    pub(super) fn empty_record(&self, hash: &str) -> Option<&EmptyRecord> {
+    pub fn empty_record(&self, hash: &str) -> Option<&EmptyRecord> {
         self.entries.get(hash).and_then(|e| e.empty.as_ref())
     }
 
@@ -193,13 +203,7 @@ async fn update(cache_dir: &Path, mutate: impl FnOnce(&mut RollupLedger) -> bool
 }
 
 /// This node committed a real (non-empty) build for `hash`.
-pub(super) async fn record_built(
-    cache_dir: &Path,
-    hash: &str,
-    generation: u32,
-    view: &str,
-    rollup: &str,
-) {
+pub async fn record_built(cache_dir: &Path, hash: &str, generation: u32, view: &str, rollup: &str) {
     let hash = hash.to_string();
     let (view, rollup) = (view.to_string(), rollup.to_string());
     update(cache_dir, move |ledger| {
@@ -222,7 +226,7 @@ pub(super) async fn record_built(
 
 /// This node's rebuild of `hash` produced zero rows, so its entry was
 /// retracted. The attempt is still on record — that is the whole point.
-pub(super) async fn record_empty(
+pub async fn record_empty(
     cache_dir: &Path,
     hash: &str,
     generation: u32,
@@ -255,7 +259,7 @@ pub(super) async fn record_empty(
 /// Drop every hash the workspace no longer has: not in the manifest, not
 /// declared by the layer this cycle loaded. Called once per cycle, under the
 /// publish lock.
-pub(super) async fn prune(cache_dir: &Path, live: std::collections::HashSet<String>) {
+pub async fn prune(cache_dir: &Path, live: std::collections::HashSet<String>) {
     let dir = cache_dir.to_path_buf();
     update(&dir, move |ledger| {
         let dropped = ledger.prune(&live);
@@ -281,7 +285,7 @@ pub(super) async fn prune(cache_dir: &Path, live: std::collections::HashSet<Stri
 /// hash and looks that up, rather than joining on names that outlive the spec
 /// they described. Without that, an edited rollup reads "Empty — the last
 /// rebuild found no rows" until the next cycle prunes the old hash.
-pub(crate) fn empty_rollups(cache_dir: &Path) -> HashMap<String, String> {
+pub fn empty_rollups(cache_dir: &Path) -> HashMap<String, String> {
     RollupLedger::load(cache_dir)
         .entries
         .into_iter()
@@ -294,7 +298,7 @@ pub(crate) fn empty_rollups(cache_dir: &Path) -> HashMap<String, String> {
 /// Used where the artifact was removed because it was WRONG rather than empty
 /// — the failure-retraction under a sweep. Nothing about that attempt should
 /// suppress the next rebuild, and nothing about it certifies a generation.
-pub(super) async fn forget(cache_dir: &Path, hash: &str) {
+pub async fn forget(cache_dir: &Path, hash: &str) {
     let hash = hash.to_string();
     update(cache_dir, move |ledger| {
         ledger.entries.remove(&hash).is_some()

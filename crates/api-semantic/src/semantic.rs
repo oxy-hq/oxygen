@@ -31,19 +31,19 @@ use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::config::model::ConnectionOverrides;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
-use crate::agentic_wiring::scan_source::{
+use oxy::config::scan::{self, ScanDir, SemanticEntity, SemanticTarget};
+use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
+use oxy_app::surface::sql_exec::{
+    ResultFormat, SQLParams, SemanticQueryResponse, SqlErrorResponse, SqlExecuteError,
+    agentic_error_response, run_via_agentic_connector,
+};
+use oxy_app::surface::workspace_runtime::{
     ErrorResponse, resolve_query_scan_source, scan_source_revision, semantic_err,
 };
-use crate::agentic_wiring::sql_exec::{
-    ResultFormat, SQLParams, SemanticQueryResponse, SqlExecuteError, run_via_agentic_connector,
-};
-use crate::server::api::data::{SqlErrorResponse, agentic_error_response};
-use crate::server::api::middlewares::workspace_context::{
+use oxy_app::surface::{
     EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
     WorkspaceManagerReadOnly,
 };
-use oxy::config::scan::{self, ScanDir, SemanticEntity, SemanticTarget};
-use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
 
 #[derive(Deserialize)]
 pub struct ViewPath {
@@ -581,11 +581,11 @@ pub async fn execute_semantic_query(
     // key sends the reader to a directory nothing ever built: right rows, always
     // from the warehouse, no "Pre-aggregated" badge, no error. See
     // `resolve_and_compile`'s doc.
-    let preagg = crate::server::preagg_context::preagg_context(
+    let preagg = oxy_app_core::preagg_context::preagg_context(
         workspace_manager.workspace_id,
         preagg_cache.clone(),
         renewal_threshold_secs,
-        crate::server::preagg_context::RollupFreshness::ServeStale,
+        oxy_app_core::preagg_context::RollupFreshness::ServeStale,
     );
     // Keyed on what the scan actually READ, not on the pinned revision: this
     // node may hold a working copy and still be pinned to a revision. The

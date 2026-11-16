@@ -13,8 +13,8 @@ use std::sync::{Arc, RwLock};
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
 use super::preagg_executor::PreaggWorkerConfig;
-use super::preagg_ledger;
 use super::preagg_retract;
+use oxy_compile::preagg_ledger;
 
 /// Generation of the rollup *builder*. Bump this by hand, in the same commit,
 /// whenever an airlayer bump (or an oxy-side change) alters WHAT A BUILT ROLLUP

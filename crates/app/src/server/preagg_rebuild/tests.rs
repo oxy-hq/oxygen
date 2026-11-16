@@ -605,7 +605,7 @@ async fn a_zero_row_rebuild_retracts_the_build_its_new_hash_supersedes() {
         !dir.path().join(parquet_name(&old)).exists(),
         "and the superseded parquet is deleted, not orphaned on disk"
     );
-    let ledger = crate::server::preagg_ledger::RollupLedger::load(dir.path());
+    let ledger = oxy_compile::preagg_ledger::RollupLedger::load(dir.path());
     assert!(
         ledger.empty_record(&new.rollup_hash).is_some(),
         "the ATTEMPT stays on record under the hash the next cycle resolves, or a \
@@ -653,7 +653,7 @@ async fn a_zero_row_rebuild_with_no_entry_at_all_removes_nothing() {
         "and the unrelated rollup is still there"
     );
     assert!(
-        crate::server::preagg_ledger::RollupLedger::load(dir.path())
+        oxy_compile::preagg_ledger::RollupLedger::load(dir.path())
             .empty_record(&never_built.rollup_hash)
             .is_some(),
         "the attempt is on record either way"

@@ -141,6 +141,8 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         manifest.join("../api-threads/src"),
         // The workspaces surface, `oxy-api-workspaces` since 2026-11-16.
         manifest.join("../api-workspaces/src"),
+        // The semantic surface, `oxy-api-semantic` since 2026-11-16.
+        manifest.join("../api-semantic/src"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

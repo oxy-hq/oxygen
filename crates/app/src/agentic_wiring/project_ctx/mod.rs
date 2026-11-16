@@ -222,7 +222,7 @@ impl OxyProjectContext {
 
     /// Attach the semantic scan root this context's metric-tree runners must
     /// read, resolved through the compile boundary
-    /// (`semantic::resolve_query_scan_source`).
+    /// (`scan_source::resolve_query_scan_source`).
     ///
     /// The `QueryScanSource` is held for the life of the context because a
     /// materialised scan is a tempdir that vanishes when its guard drops.

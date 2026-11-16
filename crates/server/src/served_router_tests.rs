@@ -2133,3 +2133,174 @@ async fn the_served_cloud_router_lists_an_orgs_workspaces() {
         .collect();
     assert_eq!(ids, [workspace_id.to_string()], "{body}");
 }
+
+/// `oxy-api-semantic`'s workspace routes under `/{workspace_id}` (Wave D2,
+/// 2026-11-16), probed with TRACE as above. Concrete paths for the two
+/// parameterised reads and the SQL file execute.
+fn semantic_workspace_routes() -> Vec<&'static str> {
+    vec![
+        "/sql/cXVlcmllcy9hLnNxbA==",
+        "/sql/query",
+        "/semantic/objects",
+        "/context-graph/sources",
+        "/revision",
+        "/revision/files",
+        "/revision/files/content",
+        "/semantic/topic/c2FsZXMudG9waWMueW1s",
+        "/semantic/view/b3JkZXJzLnZpZXcueW1s",
+        "/semantic/preagg-status",
+        "/semantic/preagg-rebuild",
+        "/semantic/compile",
+        "/semantic",
+    ]
+}
+
+/// The semantic surface (Wave D2, 2026-11-16) rides the WORKSPACE seam, inside
+/// the `/{workspace_id}` tree where `build_workspace_routes` had it, with the
+/// thirteen `*` FleetOk declarations `route_fleet` wrote. Every route is
+/// mounted, and a real read reaches its handler through the composition
+/// `serve` uses: the empty workspace serves no views and no topics.
+#[tokio::test]
+async fn the_workspace_tree_mounts_the_semantic_surface() {
+    let decls = surface_seams().workspace.decls;
+    for path in [
+        "/sql/{pathb64}",
+        "/sql/query",
+        "/semantic/objects",
+        "/context-graph/sources",
+        "/revision",
+        "/revision/files",
+        "/revision/files/content",
+        "/semantic/topic/{file_path_b64}",
+        "/semantic/view/{file_path_b64}",
+        "/semantic/preagg-status",
+        "/semantic/preagg-rebuild",
+        "/semantic/compile",
+        "/semantic",
+    ] {
+        assert_eq!(
+            decls.iter().filter(|d| d.path == path).count(),
+            1,
+            "the workspace seam must carry `{path}` exactly once"
+        );
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the workspace seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    let (router, _dir) = served_over_an_empty_workspace().await;
+    assert_workspace_paths_mounted(&router, &semantic_workspace_routes()).await;
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    let (status, body) = get_json(&router, &format!("/{ws}/semantic/objects")).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "GET /{{ws}}/semantic/objects: {body}"
+    );
+    assert_eq!(
+        body,
+        serde_json::json!({ "views": [], "topics": [] }),
+        "the empty workspace serves no views and no topics"
+    );
+}
+
+/// The semantic surface's three routes on the curated external tree (Wave D2):
+/// `/sql/query`, `/semantic` and `/semantic/compile`, behind the API-key-only
+/// auth, as `build_external_workspace_routes` mounted them. Auth runs before
+/// routing there, so the probe carries a real token (minted as
+/// `the_external_tree_mounts_the_world_model_app` mints one); TRACE, which none
+/// of them takes, answers 405 from a mounted path and the external fallback's
+/// 404 from an unmounted one.
+#[tokio::test]
+async fn the_external_tree_mounts_the_semantic_surface() {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    if db_unavailable() {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("config.yml"), "models: []\ndatabases: []\n")
+        .expect("write config.yml");
+    std::env::set_current_dir(dir.path()).expect("enter the workspace");
+    let (router, external, _preagg) = api_router(
+        ServeMode::Local,
+        false,
+        None,
+        std::path::PathBuf::new(),
+        tokio_util::sync::CancellationToken::new(),
+        false,
+        surface_seams(),
+    )
+    .await
+    .expect("router built");
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    // The first guest request creates the guest user the token will belong to.
+    status(&router, &Method::GET, "/live").await;
+    let db = sea_orm::Database::connect(std::env::var("OXY_DATABASE_URL").unwrap())
+        .await
+        .expect("connect");
+    let guest = entity::users::Entity::find()
+        .filter(entity::users::Column::Email.eq(oxy_auth::user::LOCAL_GUEST_EMAIL))
+        .one(&db)
+        .await
+        .expect("query the guest")
+        .expect("the guest user exists after a guest request");
+    let key = oxy_auth::token::personal::create(
+        &db,
+        oxy_auth::token::personal::NewToken {
+            user_id: guest.id,
+            name: "served-router-semantic".into(),
+            all_access: true,
+            platform: true,
+            partner: true,
+            grants: Vec::new(),
+            expires_at: None,
+            source: oxy_auth::token::credential::source::UI,
+        },
+    )
+    .await
+    .expect("mint a token")
+    .secret;
+
+    let unmounted = format!("/{ws}/semantic/nothing-mounts-this");
+    assert_eq!(
+        status_with(&external, &Method::TRACE, &unmounted, Some(&key), "").await,
+        StatusCode::NOT_FOUND,
+        "control: with the key, an unmounted path must reach the 404 fallback"
+    );
+    for path in ["/sql/query", "/semantic", "/semantic/compile"] {
+        let got = status_with(
+            &external,
+            &Method::TRACE,
+            &format!("/{ws}{path}"),
+            Some(&key),
+            "",
+        )
+        .await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "external /{{ws}}{path} must be mounted, got {got}"
+        );
+    }
+    // The rest of the surface is the IDE's and never was on this tree.
+    for path in ["/semantic/objects", "/revision", "/semantic/preagg-status"] {
+        let got = status_with(
+            &external,
+            &Method::TRACE,
+            &format!("/{ws}{path}"),
+            Some(&key),
+            "",
+        )
+        .await;
+        assert_eq!(
+            got,
+            StatusCode::NOT_FOUND,
+            "external /{{ws}}{path} must stay off the curated tree, got {got}"
+        );
+    }
+}

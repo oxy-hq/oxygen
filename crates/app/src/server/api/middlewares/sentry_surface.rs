@@ -721,6 +721,11 @@ mod tests {
         // apps}.rs`, inside the walk above). Not on the data plane; walked so
         // a gate call added there is seen.
         rust_files(&crate_root.join("../api-workspaces/src"), &mut files);
+        // The semantic surface, `oxy-api-semantic`'s since 2026-11-16 (was
+        // `src/server/api/{semantic,semantic_scan,data,preagg}.rs`, inside the
+        // walk above). Not on the data plane; walked so a gate call added
+        // there is seen.
+        rust_files(&crate_root.join("../api-semantic/src"), &mut files);
         files.sort();
         files
             .into_iter()

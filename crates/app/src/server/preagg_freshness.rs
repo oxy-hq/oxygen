@@ -21,12 +21,12 @@ use agentic_connector::{ConnectorError, DatabaseConnector};
 use agentic_core::result::TypedValue;
 use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
-use super::preagg_ledger;
 use crate::agentic_wiring::OxyProjectContext;
+use oxy_compile::preagg_ledger;
 
 /// The refresh key that governs one rollup: the per-rollup `refresh_key:` if
 /// the declaration carries one, else the view-level key. `None` means the
-/// worker skips this rollup — `api::semantic::build_preagg_status` filters on
+/// worker skips this rollup — `oxy-api-semantic`'s `preagg::declared_rollups` filters on
 /// the same rule so the IDE never lists a rollup that will never be built.
 pub(crate) fn rollup_refresh_key<'a>(
     rollup: &'a oxy_airlayer_compat::preagg::RollupSpec,
@@ -319,7 +319,7 @@ mod tests {
 
     use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
-    use super::preagg_ledger;
+    use oxy_compile::preagg_ledger;
 
     // ── Freshness after a zero-row rebuild ────────────────────────────────
 

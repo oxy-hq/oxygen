@@ -198,8 +198,8 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /blocks
 ├── /runs/{source_id}/{run_index}          (cancel)
 ├── /builder-availability (oxy-api-threads) · /onboarding-readiness
-├── /sql/{pathb64} · /sql/query
-├── /semantic · /semantic/compile · /semantic/topic/{file_path_b64} · /semantic/view/{file_path_b64}   (compile + execute go through airlayer + agentic-connector)
+├── /sql/{pathb64} · /sql/query   (oxy-api-semantic, merged through the workspace seam)
+├── /semantic · /semantic/compile · /semantic/topic/{file_path_b64} · /semantic/view/{file_path_b64}   (oxy-api-semantic, workspace seam; compile + execute go through airlayer + agentic-connector)
 └── /results/files/{file_id}               (get, delete; oxy-api-threads)
 ```
 

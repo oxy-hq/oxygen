@@ -37,7 +37,7 @@ pub fn semantic_err(
 
 /// Where a semantic **query** (compile / execute) reads the layer from.
 ///
-/// The query-shaped counterpart to `api::semantic`'s `resolve_semantic_source`,
+/// The query-shaped counterpart to `oxy-api-semantic`'s `semantic::resolve_semantic_source`,
 /// which does the same for a single-file read. On a serve replica the scan is the compiled
 /// revision's files, held in memory, so there is nothing to keep alive; where a
 /// working copy is held it is that directory.
@@ -73,9 +73,9 @@ impl QueryScanSource {
 ///
 /// A free function, not a method, because both resolvers have to answer it and
 /// they return different shapes: `resolve_query_scan_source` wraps its guard in
-/// [`QueryScanSource`], `api::semantic`'s `resolve_semantic_source` hands the
+/// [`QueryScanSource`], `oxy-api-semantic`'s `semantic::resolve_semantic_source` hands the
 /// `Option<ScanDir>` back bare. One rule, one place.
-pub(crate) fn scan_source_revision<S: oxy::config::DiskSlot>(
+pub fn scan_source_revision<S: oxy::config::DiskSlot>(
     guard: &Option<ScanDir>,
     workspace_manager: &WorkspaceManager<S>,
 ) -> Option<Uuid> {
@@ -117,7 +117,7 @@ impl ScanUnavailable {
 /// Resolve the scan root for a semantic query — compile boundary first, working
 /// copy second.
 ///
-/// Both of `api::semantic`'s query handlers used to read `semantics_scan_path()`
+/// Both of the semantic query handlers (`api::semantic`'s then, `oxy-api-semantic`'s now) used to read `semantics_scan_path()`
 /// unconditionally, which is the workspace working copy. A stateless `serve`
 /// replica has no working copy, and scanning a directory that isn't there
 /// produced an EMPTY semantic model rather than an error — surfacing as
@@ -125,7 +125,7 @@ impl ScanUnavailable {
 /// really a missing directory. Both routes are (correctly) classified `FleetOk`
 /// in `role_manifest`, so they must serve from Postgres like their siblings:
 /// `oxy-api-custom-apps`' `data_plane::semantic_query` (custom-app data plane) and
-/// `api::semantic`'s `resolve_semantic_source` (single-file IDE reads) already
+/// `oxy-api-semantic`'s `semantic::resolve_semantic_source` (single-file IDE reads) already
 /// do exactly this.
 ///
 /// The workspace-surface metric-tree handlers (`oxy-api-metric-monitoring`'s `metric_tree`, through

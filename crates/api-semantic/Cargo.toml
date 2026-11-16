@@ -1,0 +1,47 @@
+[package]
+name = "oxy-api-semantic"
+version.workspace = true
+authors.workspace = true
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
+# oxy-app — the catalog was moved above it for exactly that reason.
+description = "The semantic model's HTTP surface: the IDE's semantic explorer, the Dev Portal's SQL execute, the pre-aggregation status and rebuild, and the compile boundary's revision reads — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+
+[dependencies]
+# What this surface takes from oxy-app, all through `oxy_app::surface`: the
+# workspace-context extractors, the scan resolution and its `{ message }`
+# envelope (`workspace_runtime`), and the SQL execute and its HTTP answer
+# (`sql_exec`). oxy-app never depends back on this crate. default-features off
+# so a `--no-default-features` build of oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }       # AppState, preagg_context (RollupFreshness, blob_config)
+oxy-shared = { workspace = true }         # fleet_role::RouteRoleDecl
+oxy-auth = { workspace = true }           # AuthenticatedUserExtractor
+oxy = { workspace = true }                # config::scan, the workspace manager, state_dir
+oxy-semantic = { workspace = true }       # the file parser a view's and a topic's details use
+oxy-airlayer-compat = { workspace = true }
+agentic-semantic = { workspace = true }   # the preagg-aware compile (`resolve_and_compile_cached`)
+agentic-pipeline = { workspace = true }   # the rebuild's queued cycle (`scheduler::enqueue_preagg_cycle`)
+oxy-compile = { workspace = true }        # the preagg manifest's blob read-through, the rollup ledger
+axum = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }           # the manifest's timestamps, normalised to RFC3339 UTC
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+utoipa = { workspace = true, features = ["uuid", "chrono", "axum_extras"] }
+utoipa-axum = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+serde_yaml = { workspace = true }         # the preagg tests build a layer from YAML
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

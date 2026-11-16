@@ -60,7 +60,7 @@ const PREAGG_S3_SECRET: &str = "oxy_preagg_s3";
 /// failure here is an error rather than a silent skip, and every caller of a
 /// rollup read now catches that error and re-runs the warehouse SQL the
 /// `CompiledQuery::Preaggregation` variant carries — see
-/// `api::semantic::execute_semantic_query`, the analytics executing handler,
+/// `oxy_api_semantic::semantic::execute_semantic_query`, the analytics executing handler,
 /// `metric_tree_runner`, and the builder's `semantic_query` tool. Returning
 /// zero rows here instead would be indistinguishable from a rollup that
 /// genuinely has none, which is why this reports rather than degrades.

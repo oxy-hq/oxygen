@@ -467,12 +467,13 @@ mod router_split_tests {
         )
         .await
         .expect("router built");
-        // `/revision`, an in-tree workspace route, by TRACE (no handler runs:
-        // 405 when mounted). It probed `GET /agents` until that left for
-        // `oxy-api-threads`, then `/meta` until that left for
-        // `oxy-api-workspaces` (both 2026-11-16); `oxy-server`'s served-router
-        // tests hold both in local mode now.
-        let uri = format!("/{}/revision", LOCAL_WORKSPACE_ID);
+        // `/integrations/quickbooks/authorize`, an in-tree workspace route, by
+        // TRACE (no handler runs: 405 when mounted). It probed `GET /agents`
+        // until that left for `oxy-api-threads`, then `/meta` until that left
+        // for `oxy-api-workspaces`, then `/revision` until that left for
+        // `oxy-api-semantic` (all 2026-11-16); `oxy-server`'s served-router
+        // tests hold all three in local mode now.
+        let uri = format!("/{}/integrations/quickbooks/authorize", LOCAL_WORKSPACE_ID);
         let req = Request::builder()
             .method(axum::http::Method::TRACE)
             .uri(&uri)

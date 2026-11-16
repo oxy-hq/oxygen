@@ -492,6 +492,17 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_workspaces",
         function: "workspace_routes",
     },
+    // `oxy-api-semantic` (2026-11-16): the SQL execute, the semantic
+    // explorer, the revision reads and the pre-aggregation status and rebuild
+    // ride `SurfaceSeams::workspace` inside the `/{workspace_id}` tree, and the
+    // SQL execute and the semantic compile and execute ride
+    // `SurfaceSeams::external`, walked by the last seed below.
+    Seed {
+        surface: "workspace",
+        prefix: "/api/{workspace_id}",
+        module: "oxy_api_semantic",
+        function: "workspace_routes",
+    },
     Seed {
         surface: "external",
         prefix: "/external/api/{workspace_id}",
@@ -510,6 +521,12 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_world_model",
         function: "external_routes",
     },
+    Seed {
+        surface: "external",
+        prefix: "/external/api/{workspace_id}",
+        module: "oxy_api_semantic",
+        function: "external_routes",
+    },
 ];
 
 /// Trees scanned for handler doc comments. Wider than [`SOURCE_DIRS`] because a
@@ -526,7 +543,8 @@ const SEEDS: &[Seed] = &[
 /// `crates/api-world-model/src`, `crates/api-previews/src`,
 /// `crates/api-metric-monitoring/src`, `crates/api-observability/src`,
 /// `crates/api-automations/src`, `crates/api-workspace-config/src`,
-/// `crates/api-threads/src` and `crates/api-workspaces/src`, none of
+/// `crates/api-threads/src`, `crates/api-workspaces/src` and
+/// `crates/api-semantic/src`, none of
 /// which `oxy-app` depends on
 /// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
 /// reverse). Editing any of them therefore re-runs this build script and
@@ -570,6 +588,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-workspace-config/src",
     "crates/api-threads/src",
     "crates/api-workspaces/src",
+    "crates/api-semantic/src",
     // The health probes and route discovery, `oxy-server`'s since
     // 2026-11-16. The one directory, not the binary's `src`: that would
     // pull `serve`'s Swagger mount and the test routers into the walk.
@@ -616,6 +635,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-workspace-config/src",
     "crates/api-threads/src",
     "crates/api-workspaces/src",
+    "crates/api-semantic/src",
     // The health probes and route discovery, `oxy-server`'s since
     // 2026-11-16. The one directory, not the binary's `src`: that would
     // pull `serve`'s Swagger mount and the test routers into the walk.

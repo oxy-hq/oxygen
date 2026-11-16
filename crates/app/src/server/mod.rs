@@ -25,7 +25,6 @@ pub use oxy_app_core::preagg_context;
 pub mod preagg_executor;
 mod preagg_freshness;
 mod preagg_generation;
-mod preagg_ledger;
 pub mod preagg_promote;
 pub(super) mod preagg_rebuild;
 mod preagg_retract;

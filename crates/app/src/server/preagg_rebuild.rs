@@ -14,8 +14,8 @@ use agentic_semantic::refresh_key_cache::RefreshKeyCache;
 
 use crate::agentic_wiring::OxyProjectContext;
 
-use super::preagg_ledger;
 use super::preagg_retract::{Retraction, retract_under_publish_lock};
+use oxy_compile::preagg_ledger;
 
 // ── Shared context for a single rollup rebuild within a cycle ─────────────────
 
@@ -516,7 +516,7 @@ async fn commit_manifest_and_cache(
         //
         // Nothing in airlayer enforces that `pre_aggregations` names are
         // unique WITHIN a view — the status endpoint's `(view, rollup)`
-        // HashMap (`crates/app/src/server/api/preagg.rs:217`) already
+        // HashMap (`oxy-api-semantic`'s `preagg::read_cache_facts`) already
         // collapses two such rows arbitrarily for display. Here it is worse
         // than a display bug: two differently-defined rollups sharing a name
         // both land under this one identity, so whichever one just built

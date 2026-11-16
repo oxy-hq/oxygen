@@ -282,7 +282,7 @@ impl OxyMetricTreeRunner {
     /// is the workspace working copy — a directory that does not exist on a
     /// stateless serve replica, so every metric-tree call 500'd there
     /// (oxy-hq/oxygen#878). Callers now resolve the root through the compile
-    /// boundary first (`semantic::resolve_query_scan_source`) and pass it in.
+    /// boundary first (`scan_source::resolve_query_scan_source`) and pass it in.
     pub fn load_layer_at(scan: &ScanDir) -> Result<SemanticLayer, MetricTreeRunnerError> {
         scan.load_layer()
             .map_err(|e| MetricTreeRunnerError::LayerLoad(e.to_string()))

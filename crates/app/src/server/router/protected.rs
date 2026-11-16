@@ -451,10 +451,14 @@ mod tests {
         // `> 80`; 80 the same day (read off this assertion) after Wave B's ten
         // workspace routes (threads, agents, logs, builder availability,
         // artifacts, charts, result files) left for `oxy-api-threads`, floor
-        // `> 80` -> `> 60`. A surface's routes are declared by the
+        // `> 80` -> `> 60`; 54 the same day (read off this assertion) after
+        // Wave D2's thirteen semantic routes (the `/sql` execute, the semantic
+        // explorer, the revision reads, the pre-aggregation status and
+        // rebuild) left for `oxy-api-semantic`, floor `> 60` -> `> 40`. A
+        // surface's routes are declared by the
         // surface, so lowering this when one leaves is expected; a drop nobody
         // can name is not.
-        assert!(decls.len() > 60, "only {} declarations", decls.len());
+        assert!(decls.len() > 40, "only {} declarations", decls.len());
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 

@@ -12,9 +12,6 @@ use utoipa::openapi::security::{
 };
 use utoipa::openapi::server::Server;
 use utoipa_axum::router::OpenApiRouter;
-use utoipa_axum::routes;
-
-use crate::api::data;
 
 use super::{IdeState, build_cors_layer};
 
@@ -38,7 +35,8 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         // construct a correct request for, which is a different set from the
         // ones the web app happens to call. Deliberately NOT web-UI surfaces —
         // an agent never uploads a logo or reorders a list.
-        .routes(routes!(data::execute_sql_query))
+        // `POST /{workspace_id}/sql/query` is `oxy-api-semantic`'s
+        // (2026-11-16), merged in through `SurfaceSeams::openapi`.
         // `/projects/{project_id}/query` and `/semantic-query` are
         // `oxy-api-custom-apps`' (`data_plane`), merged in through
         // `SurfaceSeams::openapi`; `oxy-server`'s tests assert them there.
@@ -113,127 +111,10 @@ pub async fn build_openapi_doc(
     doc
 }
 
-#[cfg(test)]
-mod openapi_coverage_tests {
-    use super::build_openapi_doc;
-
-    /// The data-plane operations `oxyc schema` exists to serve.
-    ///
-    /// A green build proves nothing here: `routes!(handler)` compiles fine
-    /// whether or not the handler carries a `#[utoipa::path]`, and a handler
-    /// whose annotation was dropped simply vanishes from the document. This is
-    /// the only thing that would notice.
-    ///
-    /// These are the endpoints an AGENT needs a schema for — SQL, semantic
-    /// query, and the two lookups that turn a customer into the ids everything
-    /// else takes. Web-UI-only surfaces are deliberately not in this list and
-    /// should not be added to it.
-    const AGENT_PATHS: &[(&str, &str)] = &[
-        ("/{workspace_id}/sql/query", "post"),
-        // `GET /user` (`oxy-api-identity`), `GET /orgs` (`oxy-api-tenancy`) and the custom-app data plane's
-        // `/projects/{project_id}/query` and `/semantic-query`
-        // (`oxy-api-custom-apps`) are merged in by the composition root;
-        // `oxy-server`'s tests assert them there. So is `GET
-        // /orgs/{org_id}/workspaces`, `oxy-api-workspaces`' since 2026-11-16
-        // (`the_served_openapi_document_includes_the_surfaces`).
-    ];
-
-    /// The operation for `method`, or `None` — read off the typed `PathItem`
-    /// rather than by grepping serialized JSON, which is how the first version
-    /// of this test managed to pass on `rendered.contains("get")` matching the
-    /// word "get" anywhere in a description.
-    fn operation<'a>(
-        item: &'a utoipa::openapi::path::PathItem,
-        method: &str,
-    ) -> Option<&'a utoipa::openapi::path::Operation> {
-        match method {
-            "get" => item.get.as_ref(),
-            "post" => item.post.as_ref(),
-            "put" => item.put.as_ref(),
-            "patch" => item.patch.as_ref(),
-            "delete" => item.delete.as_ref(),
-            other => panic!("unhandled method in AGENT_PATHS: {other}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn the_agent_data_plane_is_documented() {
-        let doc = build_openapi_doc(Vec::new()).await;
-        for (path, method) in AGENT_PATHS {
-            let item = doc.paths.paths.get(*path).unwrap_or_else(|| {
-                panic!(
-                    "{path} is missing from the OpenAPI document — `oxyc schema {path}` \
-                     would answer 'not documented'. Either the #[utoipa::path] annotation \
-                     was dropped from its handler, or the routes!(..) line was."
-                )
-            });
-            assert!(
-                operation(item, method).is_some(),
-                "{path} is documented but carries no {method} operation"
-            );
-        }
-    }
-
-    /// A schema with no properties is worse than none: it reads as
-    /// "documented, and the body is empty". `SQLParams` is the one an agent
-    /// copies first.
-    ///
-    /// Resolved through the operation's own `$ref` rather than by grepping the
-    /// whole components blob — the earlier version asserted only that the
-    /// strings "sql" and "database" appeared *somewhere* in the document, which
-    /// they do in half a dozen unrelated descriptions.
-    #[tokio::test]
-    async fn the_sql_request_body_carries_its_fields() {
-        use utoipa::openapi::{RefOr, Schema};
-
-        let doc = build_openapi_doc(Vec::new()).await;
-        let item = doc
-            .paths
-            .paths
-            .get("/{workspace_id}/sql/query")
-            .expect("the SQL endpoint is documented");
-        let body = operation(item, "post")
-            .and_then(|op| op.request_body.as_ref())
-            .expect("the SQL endpoint declares a request body");
-
-        let reference = body
-            .content
-            .get("application/json")
-            .and_then(|c| match &c.schema {
-                Some(RefOr::Ref(r)) => Some(r.ref_location.clone()),
-                _ => None,
-            })
-            .expect("the request body is a $ref into components");
-        let name = reference
-            .rsplit('/')
-            .next()
-            .expect("a $ref ends in a component name")
-            .to_string();
-
-        let schema = doc
-            .components
-            .as_ref()
-            .and_then(|c| c.schemas.get(&name))
-            .unwrap_or_else(|| panic!("{name} is referenced but not in components/schemas"));
-
-        let RefOr::T(Schema::Object(object)) = schema else {
-            panic!("{name} did not resolve to an object schema");
-        };
-        for field in ["sql", "database"] {
-            assert!(
-                object.properties.contains_key(field),
-                "{name} lost its `{field}` property — an agent copying this body would omit it"
-            );
-        }
-        assert!(
-            object.required.iter().any(|r| r == "sql"),
-            "{name} no longer marks `sql` required"
-        );
-    }
-
-    // `every_security_requirement_names_a_registered_scheme` moved to
-    // `oxy-server` (2026-11-16), where it walks the served document: the nine
-    // thread and agent operations that carried most of the security
-    // requirements it inspects left this document for `oxy-api-threads`'
-    // `SurfaceSeams::openapi`, so this one alone no longer reaches its floor.
-}
+// `openapi_coverage_tests` (`the_agent_data_plane_is_documented`,
+// `the_sql_request_body_carries_its_fields`) moved to `oxy-server`'s `main.rs`
+// tests (Wave D2, 2026-11-16), where they read the served document: their one
+// operation, `POST /{workspace_id}/sql/query`, is `oxy-api-semantic`'s, merged
+// in through `SurfaceSeams::openapi`, so this crate's document alone no longer
+// holds it. `every_security_requirement_names_a_registered_scheme` moved there
+// the same way earlier the same day.

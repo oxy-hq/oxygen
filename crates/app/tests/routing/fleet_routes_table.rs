@@ -83,12 +83,18 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// the same day (Wave C, read off the assertion) when the workspaces surface
 /// left for `oxy-api-workspaces`: `/meta`, `/members`, `/members/{user_id}`,
 /// `/oxy-access`, `/app-integrations`, and the org's `/orgs/{org_id}/workspaces`,
-/// `/workspaces/{id}` and `/workspaces/{id}/rename`.
+/// `/workspaces/{id}` and `/workspaces/{id}/rename`. Plus twelve the same day
+/// (Wave D2, read off the assertion) when the semantic surface left for
+/// `oxy-api-semantic`: `/sql/{pathb64}`, `/sql/query`, `/semantic`,
+/// `/semantic/compile`, `/semantic/objects`, `/semantic/topic/{file_path_b64}`,
+/// `/semantic/view/{file_path_b64}`, `/semantic/preagg-status`,
+/// `/context-graph/sources`, `/revision`, `/revision/files` and
+/// `/revision/files/content` (the table has no `/semantic/preagg-rebuild` row).
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 116;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 128;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];
@@ -217,11 +223,13 @@ fn no_row_contradicts_the_role_the_code_declares() {
     // tree (read off it, floor `> 80` -> `> 60`; the table has no chat rows);
     // Wave C's eight (the workspaces surface's five workspace routes and three
     // org routes, to `oxy-api-workspaces`) left the same day without tripping
-    // the floor, so no count was read off it;
+    // the floor, so no count was read off it; 59 after Wave D2's thirteen
+    // semantic routes left for `oxy-api-semantic` (read off it, floor `> 60`
+    // -> `> 40`);
     // every decomposition step moves more out. The floor guards against an empty
     // table, not a count.
     assert!(
-        declared.len() > 60,
+        declared.len() > 40,
         "route_declarations() returned {} routes — the comparison below would \
          be checking next to nothing",
         declared.len()

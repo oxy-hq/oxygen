@@ -1103,10 +1103,15 @@ fn every_workspace_mount_is_declared() {
     // `> 20`; 20 the same day (read off this assertion) after Wave C moved
     // five more (`/meta`, `/members`, `/members/{user_id}`, `/oxy-access`,
     // the `/app-integrations` nest) to `oxy-api-workspaces`, floor `> 20` ->
-    // `> 15`. The floor guards the parser, not a count: surfaces leaving
+    // `> 15`; 7 the same day (read off this assertion) after Wave D2 moved
+    // thirteen more (`/sql/{pathb64}`, `/sql/query`, `/semantic`,
+    // `/semantic/compile`, the topic and view details, `/semantic/objects`,
+    // `/context-graph/sources`, the three `/revision*` reads and the two
+    // `/semantic/preagg-*` routes) to `oxy-api-semantic`, floor `> 15` ->
+    // `> 5`. The floor guards the parser, not a count: surfaces leaving
     // lower it.
     assert!(
-        mounts.len() > 15,
+        mounts.len() > 5,
         "parser found only {} mounts — the router shape changed; fix parse_mounts",
         mounts.len()
     );

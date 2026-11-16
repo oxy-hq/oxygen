@@ -115,6 +115,13 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/{workspace_id}/meta",
     "/api/{workspace_id}/members",
     "/api/{workspace_id}/oxy-access",
+    // Both seams of `oxy-api-semantic` (2026-11-16): the SQL execute, the
+    // semantic explorer and the revision reads on the workspace seam, and the
+    // SQL execute on the external one.
+    "/api/{workspace_id}/sql/query",
+    "/api/{workspace_id}/semantic",
+    "/api/{workspace_id}/revision",
+    "/external/api/{workspace_id}/sql/query",
     // The two below are `oxy-api-workspace-config`'s, on the workspace seam.
     "/api/{workspace_id}/databases",
     "/api/{workspace_id}/secrets",

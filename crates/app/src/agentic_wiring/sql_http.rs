@@ -1,16 +1,50 @@
-use crate::agentic_wiring::sql_exec::{
-    SQLParams, SemanticQueryResponse, SqlExecuteError, run_via_agentic_connector,
-};
-use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspacePath,
-};
+//! The HTTP answer of a Dev Portal SQL execute: the structured error body, the
+//! status a failure maps to (a warehouse that is down is `502`, a query that is
+//! wrong `400`, a statement a workspace preview held `409 preview_read_only`),
+//! and the one call the `/sql` handlers make.
+//!
+//! Beside [`super::sql_exec`], which runs the query, since 2026-11-16 (Wave D2).
+//! It was `api::data`'s, kept there by D1 as the handlers' own shaping. It came
+//! down when the handlers left for `oxy-api-semantic`, because two callers
+//! outside that crate need the exact answer a handler gives:
+//! `oxy-api-previews`' `read_only_exec` test drives the preview write hold
+//! through the real workspace middleware and asserts the `409` this mapping
+//! produces, and may not depend on a sibling surface (S3). The semantic execute
+//! (`oxy-api-semantic`'s `semantic`) answers a failed execute in the same shape.
 
-use agentic_connector::{ConnectorError, QueryFailedDetails};
-use axum::extract::{self, Path};
+use axum::extract;
 use axum::http::StatusCode;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy::adapters::workspace::manager::WorkspaceManager;
+use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
 use serde::Serialize;
 use utoipa::ToSchema;
+use uuid::Uuid;
+
+use agentic_connector::{ConnectorError, QueryFailedDetails};
+use entity::workspace_members::WorkspaceRole;
+
+use super::sql_exec::{
+    SQLParams, SemanticQueryResponse, SqlExecuteError, run_via_agentic_connector,
+};
+
+/// Run `payload` the way `POST /{workspace_id}/sql/{pathb64}` and `POST
+/// /{workspace_id}/sql/query` do, and answer as they answer: the rows, or the
+/// status and structured body [`agentic_error_response`] shapes the failure
+/// into. The handlers are this call plus their extractors.
+pub async fn execute_sql_response<S: DiskSlot>(
+    workspace_manager: &WorkspaceManager<S>,
+    user_id: Uuid,
+    role: WorkspaceRole,
+    payload: &SQLParams,
+) -> Result<extract::Json<SemanticQueryResponse>, (StatusCode, extract::Json<SqlErrorResponse>)>
+where
+    ConfigManager<S>: ResolveWorkspaceFile,
+{
+    run_via_agentic_connector(workspace_manager, user_id, role, payload)
+        .await
+        .map(extract::Json)
+        .map_err(|e| agentic_error_response(payload, e))
+}
 
 /// Structured error body returned by the SQL execute endpoints.
 ///
@@ -40,7 +74,7 @@ pub struct SqlErrorResponse {
 /// Shape an `SqlExecuteError` into a (status, body) pair. Structured fields
 /// from `ConnectorError::QueryFailed(details)` propagate; everything else
 /// degrades to a single-line `message`.
-pub(crate) fn agentic_error_response(
+pub fn agentic_error_response(
     payload: &SQLParams,
     err: SqlExecuteError,
 ) -> (StatusCode, extract::Json<SqlErrorResponse>) {
@@ -171,58 +205,4 @@ fn truncate_sql_for_log(sql: &str) -> String {
             sql.len()
         )
     }
-}
-
-pub async fn execute_sql(
-    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
-    EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
-    Path(WorkspacePath {
-        workspace_id: _workspace_id,
-    }): Path<WorkspacePath>,
-    extract::Json(payload): extract::Json<SQLParams>,
-) -> Result<extract::Json<SemanticQueryResponse>, (StatusCode, extract::Json<SqlErrorResponse>)> {
-    run_via_agentic_connector(&workspace_manager, user.id, role, &payload)
-        .await
-        .map(extract::Json)
-        .map_err(|e| agentic_error_response(&payload, e))
-}
-
-/// Run SQL against one of the workspace's configured databases.
-///
-/// The workhorse of the API for anything data-shaped. `database` names a
-/// connection from the workspace's `config.yml`; `GET /{workspace_id}/databases`
-/// lists them. Mounted on BOTH the user-token surface
-/// (`/api/{workspace_id}/sql/query`) and the API-key surface
-/// (`/external/api/{workspace_id}/sql/query`) — same handler, same body.
-///
-/// **The response shape depends on `result_format`, and the default is not an
-/// object.** With `json` (the default) the body is an array of arrays of
-/// strings, **header row first**: `[["id","name"],["1","ada"]]`. With `parquet`
-/// it is an object naming a file, and only that variant carries `truncated`.
-/// The two are an untagged enum, so a client must not assume a field is there.
-#[utoipa::path(
-    method(post),
-    path = "/{workspace_id}/sql/query",
-    params(
-        ("workspace_id" = Uuid, Path, description = "Workspace UUID")
-    ),
-    request_body = SQLParams,
-    responses(
-        (status = OK, description = "`json` (default): rows as arrays of strings, header row first. `parquet`: an object naming the written file.", body = SemanticQueryResponse, content_type = "application/json"),
-        (status = BAD_REQUEST, description = "The query failed; `message` always set, vendor fields when the driver exposes them", body = SqlErrorResponse, content_type = "application/json")
-    ),
-    security(
-        ("ApiKey" = []),
-        ("BearerAuth" = [])
-    )
-)]
-pub async fn execute_sql_query(
-    workspace: WorkspaceManagerReadOnly,
-    user: AuthenticatedUserExtractor,
-    role: EffectiveWorkspaceRole,
-    path: Path<WorkspacePath>,
-    payload: extract::Json<SQLParams>,
-) -> Result<extract::Json<SemanticQueryResponse>, (StatusCode, extract::Json<SqlErrorResponse>)> {
-    execute_sql(workspace, user, role, path, payload).await
 }

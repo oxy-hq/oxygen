@@ -14,7 +14,7 @@ use axum::http::StatusCode;
 use serde::Serialize;
 use std::path::Path;
 
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
+use oxy_app::surface::WorkspaceManagerReadOnly;
 
 /// One view or topic: its name (the file stem) and workspace-relative path,
 /// which is what `/semantic/view/{b64}` and `/semantic/topic/{b64}` take.

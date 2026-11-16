@@ -43,20 +43,47 @@ pub(super) fn branch_files() -> Vec<(&'static str, String)> {
 /// Mounted beside the fixture's `/databases` behind the real workspace
 /// middleware, as `build_protected_routes` mounts them.
 pub(super) fn routes(state: &oxy_app::surface::testing::router::AppState) -> Router {
-    use oxy_app::surface::testing::data;
     use oxy_app::surface::testing::router::FleetState;
     Router::new()
         .route(
             "/sql/query",
-            post(data::execute_sql_query).with_state(FleetState(state.clone())),
+            post(sql_execute).with_state(FleetState(state.clone())),
         )
         .route(
             "/sql/{pathb64}",
-            post(data::execute_sql).with_state(FleetState(state.clone())),
+            post(sql_execute).with_state(FleetState(state.clone())),
         )
         // A GET, so the route table lets it through: what is under test is
         // the platform, not the route.
         .route("/probe/delegation", get(delegation_probe))
+}
+
+/// The `/sql` handlers as `oxy-api-semantic` writes them (`data::execute_sql`,
+/// which `execute_sql_query` calls): the same extractors, then the one call
+/// that runs the statement on the workspace's connector — the preview write
+/// hold included — and shapes a failure, a held write as `409
+/// preview_read_only`. Both handlers were mounted from `oxy-app` until the
+/// semantic surface left it (2026-11-16); this crate may not depend on that
+/// sibling (S3), so it mounts their body, which stayed in the platform
+/// (`oxy_app::surface::sql_exec`). What is under test is unchanged: the
+/// platform's hold, behind the real workspace middleware.
+async fn sql_execute(
+    oxy_app::surface::WorkspaceManagerReadOnly(workspace_manager): oxy_app::surface::WorkspaceManagerReadOnly,
+    oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
+    oxy_app::surface::EffectiveWorkspaceRole(role): oxy_app::surface::EffectiveWorkspaceRole,
+    axum::extract::Path(oxy_app::surface::WorkspacePath { .. }): axum::extract::Path<
+        oxy_app::surface::WorkspacePath,
+    >,
+    Json(payload): Json<oxy_app::surface::sql_exec::SQLParams>,
+) -> Result<
+    Json<oxy_app::surface::sql_exec::SemanticQueryResponse>,
+    (
+        StatusCode,
+        Json<oxy_app::surface::sql_exec::SqlErrorResponse>,
+    ),
+> {
+    oxy_app::surface::sql_exec::execute_sql_response(&workspace_manager, user.id, role, &payload)
+        .await
 }
 
 /// The platform the middleware installs is the one `POST /analytics/runs`
