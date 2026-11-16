@@ -497,18 +497,21 @@ fn is_no_such_lifecycle_configuration(detail: &str) -> bool {
     detail.contains("NoSuchLifecycleConfiguration")
 }
 
-/// Verify the asset bucket's retention rules once, at boot, in the background.
+/// The `fleet_job_claims` row the check claims once per build.
+pub const LIFECYCLE_VERIFY_JOB: &str = "custom_app_asset_lifecycle_verify";
+
+/// Verify the asset bucket's retention rules once per build, in the background.
 ///
 /// Logs and never fails: a missing rule means bytes accumulate, not that anything
 /// is broken right now, and taking the process down over it would turn a cost
 /// problem into an availability one. It is logged at ERROR because the symptom —
 /// storage that quietly never shrinks — is otherwise invisible until the bill.
 ///
-/// `is_singleton_role` keeps every serve replica from making the same call.
-pub fn spawn_lifecycle_verify(is_singleton_role: bool) {
-    if !is_singleton_role {
-        return;
-    }
+/// Once per build across the fleet: every replica that runs singleton work
+/// starts it, and the [`fleet_claim`](oxy_app_core::fleet_claim) row, keyed by
+/// this build's version, lets the first of them make the call. The answer is
+/// the same from every replica; the TTL classes it checks change with the build.
+pub fn spawn_lifecycle_verify(db: sea_orm::DatabaseConnection) {
     let Some(bucket) = super::bucket() else {
         tracing::info!(
             "custom-app asset retention: no OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET, so there \
@@ -518,6 +521,24 @@ pub fn spawn_lifecycle_verify(is_singleton_role: bool) {
         return;
     };
     tokio::spawn(async move {
+        // The version alone repeats across dev images built from one release;
+        // the commit tells those apart where CI stamped it.
+        let build = format!(
+            "{}+{}",
+            env!("CARGO_PKG_VERSION"),
+            option_env!("GITHUB_SHA").unwrap_or("unknown")
+        );
+        match oxy_app_core::fleet_claim::claim_once(&db, LIFECYCLE_VERIFY_JOB, &build).await {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::debug!(%build, "custom-app asset retention: already verified for this build");
+                return;
+            }
+            // Verify anyway: an extra read-only call beats an unverified bucket.
+            Err(e) => {
+                tracing::warn!(error = %e, "custom-app asset retention: claim failed; verifying anyway")
+            }
+        }
         match verify_lifecycle_rules(&bucket).await {
             Ok(report) if report.is_satisfied() => tracing::info!(
                 "custom-app asset retention: all {} TTL classes have a matching lifecycle \

@@ -319,8 +319,9 @@ pub mod seed {
 /// `oxy-app` requires of it.
 pub mod seams {
     pub use crate::server::router::{
-        BackgroundDeps, BackgroundSeam, ExampleAppsSeam, GlobalTickSeam, HEALTH_TASK_KINDS,
-        MigrateReport, NOTIFICATION_TASK_KINDS, NotificationsSeam, TaskDeps, TaskSeam,
+        BackgroundDeps, BackgroundSeam, ExampleAppsSeam, FleetJobDeps, FleetJobSeam,
+        GlobalTickSeam, HEALTH_TASK_KINDS, MigrateReport, NOTIFICATION_TASK_KINDS,
+        NotificationsSeam, TaskDeps, TaskSeam,
     };
 }
 

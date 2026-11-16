@@ -30,6 +30,7 @@ pub mod custom_domain_host;
 pub mod customer_runs;
 pub mod default_branch;
 pub mod emails;
+pub mod fleet_claim;
 pub mod forwarded;
 pub mod function_answer;
 pub mod function_seam;

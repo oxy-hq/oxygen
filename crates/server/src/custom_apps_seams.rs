@@ -28,7 +28,7 @@ use oxy_api_custom_apps::data_plane::query::DataPlaneQueryExecutor;
 use oxy_api_custom_apps::serve as custom_apps_serve;
 use oxy_app::server::api::middlewares::workspace_context::PreaggCacheCtx;
 use oxy_app::server::compile_reconcile::env_pinner::EnvPinner;
-use oxy_app::server::router::{BackgroundSeam, TaskSeam};
+use oxy_app::server::router::{BackgroundSeam, FleetJobSeam, TaskSeam};
 use oxy_app_core::function_seam::{FunctionQueryExecutor, FunctionRuntime};
 use oxy_app_core::semantic_pin_seam::SemanticPinner;
 use oxy_custom_apps::storage::{retention, sweeper};
@@ -183,29 +183,6 @@ pub(crate) fn post_migrate() -> oxy_app::server::router::MigrateReport {
 /// The jobs a serve process starts once and leaves running for custom apps.
 pub(crate) fn background() -> Vec<BackgroundSeam> {
     vec![
-        // Verify, once, that the asset bucket enforces the TTL classes this
-        // binary stamps on objects. Singleton-gated: the answer is the same from
-        // every replica.
-        BackgroundSeam {
-            name: "custom_app_asset_lifecycle_verify",
-            start: |deps| {
-                retention::spawn_lifecycle_verify(deps.singleton);
-                None
-            },
-        },
-        // Re-measure each app's asset silo into `app_storage_usage`.
-        // Singleton-gated, or every replica would multiply the LIST cost.
-        BackgroundSeam {
-            name: "custom_app_storage_sweeper",
-            start: |deps| {
-                sweeper::spawn_periodic_sweep(
-                    deps.db.clone(),
-                    deps.shutdown.clone(),
-                    deps.singleton,
-                );
-                None
-            },
-        },
         // Expire sandboxes idle past their TTL and queue again the teardowns
         // that did not finish. Only writes rows; two replicas sweeping at once
         // is harmless.
@@ -264,20 +241,6 @@ pub(crate) fn background() -> Vec<BackgroundSeam> {
                 None
             },
         },
-        // Queue the usage backfill for each workspace that has an Airhouse and
-        // is not yet marked finished. Singleton-gated: two replicas sweeping
-        // would only race to queue the same tasks.
-        BackgroundSeam {
-            name: "custom_app_usage_backfill_sweep",
-            start: |deps| {
-                custom_apps_usage_backfill::spawn_sweep(
-                    deps.db.clone(),
-                    deps.shutdown.clone(),
-                    deps.singleton,
-                );
-                None
-            },
-        },
         // The automation runs' TTL sweep: terminal rows out after a day, a
         // cross-replica cancel reconciled, a row its driver abandoned closed.
         // Every replica runs it, as it ran in `api_router` before (idempotent
@@ -299,6 +262,36 @@ pub(crate) fn background() -> Vec<BackgroundSeam> {
             start: |_| {
                 oxy_api_custom_apps::function_runtime::resolve_limits_at_boot();
                 None
+            },
+        },
+    ]
+}
+
+/// The custom-app jobs whose answer is global rather than per replica. Every
+/// process that runs singleton work starts them — each `oxy worker`, and an
+/// `all`/`ide` serve — and each claims its interval in `fleet_job_claims`, so
+/// the fleet runs it once per interval (`oxy_app::server::router::fleet_jobs`).
+pub(crate) fn fleet_jobs() -> Vec<FleetJobSeam> {
+    vec![
+        // Verify that the asset bucket enforces the TTL classes this binary
+        // stamps on objects: once per build across the fleet.
+        FleetJobSeam {
+            name: "custom_app_asset_lifecycle_verify",
+            start: |deps| retention::spawn_lifecycle_verify(deps.db.clone()),
+        },
+        // Re-measure each app's asset silo into `app_storage_usage`. Claimed per
+        // interval, or every replica would multiply the S3 LIST cost.
+        FleetJobSeam {
+            name: "custom_app_storage_sweeper",
+            start: |deps| sweeper::spawn_periodic_sweep(deps.db.clone(), deps.shutdown.clone()),
+        },
+        // Queue the usage backfill for each workspace that has an Airhouse and
+        // is not yet marked finished. Claimed per interval: two replicas
+        // sweeping would only race to queue the same tasks.
+        FleetJobSeam {
+            name: "custom_app_usage_backfill_sweep",
+            start: |deps| {
+                custom_apps_usage_backfill::spawn_sweep(deps.db.clone(), deps.shutdown.clone())
             },
         },
     ]
@@ -447,30 +440,37 @@ mod tests {
         );
     }
 
-    /// Same for the background jobs: the five `api_router` and `serve` started
-    /// by name before, plus the log tail's listener, the function limits'
-    /// boot-time resolution, the usage backfill sweep and the automation runs'
-    /// sweep (started by `api_router` until it moved, 2026-11-14).
-    /// `SurfaceSeams::require_custom_apps` refuses to start without the eight
-    /// it names; the backfill sweep is not one of them, because serving does
-    /// not need it.
+    /// Same for the background jobs every serve process starts. The storage
+    /// sweeper, the lifecycle check and the backfill sweep left this list for
+    /// `fleet_jobs` (2026-11-16): they were gated to the singleton pod, which
+    /// prod scaled to zero. `SurfaceSeams::require_custom_apps` refuses to start
+    /// without the six it names.
     #[test]
-    fn the_background_jobs_are_exactly_the_nine_the_composition_root_starts() {
+    fn the_background_jobs_are_exactly_the_six_every_serve_starts() {
         let mut names: Vec<&str> = background().iter().map(|b| b.name).collect();
         names.sort_unstable();
         assert_eq!(
             names,
             [
-                "custom_app_asset_lifecycle_verify",
                 "custom_app_automation_run_sweep",
                 "custom_app_function_limits",
                 "custom_app_sandbox_maintenance",
-                "custom_app_storage_sweeper",
                 "custom_app_tail_listener",
                 "custom_app_tracking_retention",
-                "custom_app_usage_backfill_sweep",
                 "custom_app_usage_drain",
             ]
+        );
+    }
+
+    /// The fleet jobs `oxy worker` starts. Exactly the list `oxy-app` requires,
+    /// so a worker refuses to boot rather than run without one.
+    #[test]
+    fn the_fleet_jobs_are_exactly_the_three_oxy_app_requires() {
+        let names: Vec<&str> = fleet_jobs().iter().map(|j| j.name).collect();
+        assert_eq!(names, oxy_app::server::router::CUSTOM_APP_FLEET_JOBS);
+        assert_eq!(
+            oxy_app::server::router::require_fleet_jobs(&fleet_jobs()),
+            Ok(())
         );
     }
 }

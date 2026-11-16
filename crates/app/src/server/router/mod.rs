@@ -11,6 +11,7 @@
 
 mod drive_policy;
 mod entry;
+mod fleet_jobs;
 mod global;
 mod openapi;
 pub mod periodic;
@@ -29,6 +30,7 @@ use axum::http::{HeaderMap, Method, header};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub use entry::{api_router, internal_api_router};
+pub use fleet_jobs::start_fleet_jobs;
 pub use openapi::{build_openapi_doc, openapi_router};
 pub use protected::{api_auth_layers, external_auth_layers};
 pub use seams::{
@@ -38,6 +40,7 @@ pub use seams::{
     PREVIEW_TASK_KINDS, SurfaceSeam, SurfaceSeams, TaskDeps, TaskSeam, global_ticks,
     install_global_ticks, require_notifications, require_task_kinds,
 };
+pub use seams::{CUSTOM_APP_FLEET_JOBS, FleetJobDeps, FleetJobSeam, require_fleet_jobs};
 
 // `AppState` moved to `oxy-app-core` so the router and future per-surface crates
 // can hold it without depending on `oxy-app`. Re-exported here so every existing

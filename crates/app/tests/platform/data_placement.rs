@@ -407,6 +407,13 @@ const TABLES: &[(&str, Placement)] = &[
     ),
     ("feature_flags", Control("feature flags")),
     (
+        "fleet_job_claims",
+        Control(
+            "when each fleet-wide background job is next due: job names, timestamps, a host \
+             name and a build version",
+        ),
+    ),
+    (
         "folders",
         Backlog {
             holds: "the org's document folder tree",

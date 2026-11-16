@@ -63,9 +63,9 @@ pub mod route_catalog {
 /// The router `serve` mounts, and the seams `oxy-server` composes into it.
 pub mod router {
     pub use crate::server::router::{
-        GlobalTickSeam, NotificationsSeam, SurfaceSeams, TaskSeam, api_router, build_cors_layer,
-        build_openapi_doc, install_global_ticks, internal_api_router, require_notifications,
-        require_task_kinds,
+        FleetJobDeps, FleetJobSeam, GlobalTickSeam, NotificationsSeam, SurfaceSeams, TaskSeam,
+        api_router, build_cors_layer, build_openapi_doc, install_global_ticks, internal_api_router,
+        require_fleet_jobs, require_notifications, require_task_kinds, start_fleet_jobs,
     };
 
     /// The run drivers: the startup recovery pass, the periodic one, and the

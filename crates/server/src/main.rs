@@ -425,6 +425,10 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_world_model::background())
             .chain(oxy_api_previews::background())
             .collect(),
+        // The jobs whose answer is global rather than per replica: started by
+        // every process that runs singleton work (each `oxy worker`, an
+        // `all`/`ide` serve), each claiming its interval in `fleet_job_claims`.
+        fleet_jobs: custom_apps_seams::fleet_jobs(),
         global_ticks: oxy_api_experiment::global_ticks()
             .into_iter()
             .chain(oxy_api_identity::global_ticks())

@@ -160,27 +160,31 @@ pub async fn queue_unfinished(db: &DatabaseConnection) -> Result<u64, DbErr> {
     Ok(queued)
 }
 
-/// Run [`queue_unfinished`] every [`SWEEP_INTERVAL`] until shutdown. Singleton:
-/// two replicas sweeping would only race to queue the same tasks.
-pub fn spawn_sweep(db: DatabaseConnection, shutdown: CancellationToken, is_singleton_role: bool) {
-    if !is_singleton_role {
-        return;
-    }
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(SWEEP_INTERVAL);
-        // Startup is busy enough; the first real tick is minutes away.
-        ticker.tick().await;
-        loop {
-            tokio::select! {
-                _ = ticker.tick() => match queue_unfinished(&db).await {
+/// The `fleet_job_claims` row the sweep claims each interval.
+pub const SWEEP_JOB: &str = "custom_app_usage_backfill_sweep";
+
+/// Run [`queue_unfinished`] once per [`SWEEP_INTERVAL`] across the fleet until
+/// shutdown. Every replica that runs singleton work starts it; the
+/// [`fleet_claim`](oxy_app_core::fleet_claim) row lets one of them sweep per
+/// interval, since two sweeping would only race to queue the same tasks.
+pub fn spawn_sweep(db: DatabaseConnection, shutdown: CancellationToken) {
+    let pass_db = db.clone();
+    tokio::spawn(oxy_app_core::fleet_claim::run_claimed(
+        db,
+        SWEEP_JOB,
+        SWEEP_INTERVAL,
+        shutdown.cancelled_owned(),
+        move || {
+            let db = pass_db.clone();
+            async move {
+                match queue_unfinished(&db).await {
                     Ok(0) => {}
                     Ok(queued) => tracing::info!(queued, "custom-app usage backfill swept"),
                     Err(e) => tracing::warn!(error = %e, "custom-app usage backfill sweep failed"),
-                },
-                _ = shutdown.cancelled() => return,
+                }
             }
-        }
-    });
+        },
+    ));
 }
 
 /// Runs a queued [`UsageBackfillTask`] on the worker fleet.

@@ -54,11 +54,17 @@ pub async fn run(command: ServerCommand, seams: SurfaceSeams) -> oxy_cli_shim::R
         ServerCommand::Serve(args) => serve::start_server_and_web_app(args, seams)
             .await
             .map_err(|e| OxyError::RuntimeError(format!("Server failed: {e}")))?,
-        ServerCommand::Worker(args) => {
-            worker::run_worker(args, seams.tasks, seams.global_ticks, seams.notifications)
-                .await
-                .map_err(|e| OxyError::RuntimeError(format!("Worker failed: {e}")))?
-        }
+        ServerCommand::Worker(args) => worker::run_worker(
+            args,
+            worker::WorkerSeams {
+                tasks: seams.tasks,
+                global_ticks: seams.global_ticks,
+                fleet_jobs: seams.fleet_jobs,
+                notifications: seams.notifications,
+            },
+        )
+        .await
+        .map_err(|e| OxyError::RuntimeError(format!("Worker failed: {e}")))?,
     }
     Ok(())
 }

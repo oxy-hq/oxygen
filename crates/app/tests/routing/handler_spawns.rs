@@ -397,7 +397,8 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     (
         "api-custom-apps/src/custom_apps_usage_backfill.rs",
-        "`spawn_sweep` runs only on the singleton role and only queues tasks; the \
+        "`spawn_sweep` is a fleet job (started on every worker, run by the one that \
+         claims the interval in `fleet_job_claims`) and only queues tasks; the \
          second spawn is the queue executor's own task (`UsageBackfillExecutor`)",
     ),
     // ---- api-experiment ----

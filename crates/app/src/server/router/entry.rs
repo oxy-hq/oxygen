@@ -79,6 +79,7 @@ pub async fn api_router(
         admin,
         tasks,
         background,
+        fleet_jobs,
         global_ticks,
         // Merged by `serve`, which takes it before handing the seams here.
         outer: _,
@@ -196,16 +197,15 @@ pub async fn api_router(
 
     // The jobs the composition root hands in for custom apps (`SurfaceSeams::
     // background`): the usage drain that batch-inserts page-view and beacon
-    // rows, the asset-bucket checks, sandbox expiry, usage retention. A job
-    // that flushes its memory on shutdown returns its handle; it is registered
-    // as a shutdown hook like the token-usage flush above. Each is in-process,
-    // not a `TaskSpec`: it acts on this process's memory or is a cheap idempotent
-    // sweep, and several are gated to the singleton role by `deps.singleton`.
+    // rows, sandbox expiry, usage retention. A job that flushes its memory on
+    // shutdown returns its handle; it is registered as a shutdown hook like the
+    // token-usage flush above. Each is in-process, not a `TaskSpec`: it acts on
+    // this process's memory or is a cheap idempotent sweep that every replica
+    // runs.
     {
         let deps = super::seams::BackgroundDeps {
             db: &agentic_state.db,
             shutdown: &agentic_state.shutdown_token,
-            singleton: super::recovery::inproc_global_worker_enabled(),
         };
         for job in &background {
             if let Some(handle) = (job.start)(&deps) {
@@ -214,13 +214,17 @@ pub async fn api_router(
         }
     }
 
-    // Audit tamper evidence: every hour, each org's chain head goes to S3 under
-    // Object Lock (compliance mode), so a verifier can check the database
-    // against something the database cannot rewrite. Singleton-gated; a no-op
-    // without `OXY_AUDIT_ANCHOR_S3_BUCKET`.
-    crate::server::audit_anchor::spawn_audit_anchor_loop(
-        agentic_state.db.clone(),
-        agentic_state.shutdown_token.clone(),
+    // Fleet jobs (the storage sweeper, the usage-backfill sweep, the bucket
+    // lifecycle check, the hourly audit chain-head anchor): started here only
+    // where this serve runs singleton work (`all` / `ide`). On a split fleet
+    // that is false and `oxy worker` starts them; either way each claims its
+    // interval in `fleet_job_claims`, so starting them on both is safe.
+    super::fleet_jobs::start_fleet_jobs(
+        &fleet_jobs,
+        &super::fleet_jobs::FleetJobDeps {
+            db: &agentic_state.db,
+            shutdown: &agentic_state.shutdown_token,
+        },
         super::recovery::inproc_global_worker_enabled(),
     );
 
@@ -487,6 +491,7 @@ pub async fn internal_api_router(
         // outer route.
         tasks: _,
         background: _,
+        fleet_jobs: _,
         global_ticks: _,
         outer: _,
         outer_decls: _,

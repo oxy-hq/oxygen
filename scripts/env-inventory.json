@@ -20,7 +20,7 @@
   "OXY_APP_SANDBOX_OLTP_SEED_MAX_ROWS": {"kind": "deployment", "default": "see `oltp::sandbox_schema::seed`", "gates": "Rows copied per table when a sandbox OLTP schema is seeded from production."},
   "OXY_APP_SANDBOX_OLTP_SEED_MAX_TABLE_BYTES": {"kind": "deployment", "default": "see `oltp::sandbox_schema::seed`", "gates": "Bytes copied per table when a sandbox OLTP schema is seeded."},
   "OXY_APP_SANDBOX_OLTP_SEED_MAX_TOTAL_BYTES": {"kind": "deployment", "default": "see `oltp::sandbox_schema::seed`", "gates": "Total bytes copied when a sandbox OLTP schema is seeded."},
-  "OXY_AUDIT_ANCHOR_INTERVAL_SECS": {"kind": "deployment", "default": "3600", "gates": "How often the singleton writes each org's audit-chain head to the anchor bucket."},
+  "OXY_AUDIT_ANCHOR_INTERVAL_SECS": {"kind": "deployment", "default": "3600", "gates": "How often the fleet (one replica per interval, `fleet_job_claims`) writes each org's audit-chain head to the anchor bucket."},
   "OXY_AUDIT_ANCHOR_KEY_PREFIX": {"kind": "deployment", "default": "audit-anchors", "gates": "Key prefix for audit anchors in the bucket."},
   "OXY_AUDIT_ANCHOR_RETENTION_DAYS": {"kind": "deployment", "default": "400", "gates": "Object Lock retention requested for each audit anchor."},
   "OXY_AUDIT_ANCHOR_S3_BUCKET": {"kind": "deployment", "default": "unset (anchoring off)", "gates": "The Object-Lock bucket audit-chain heads are anchored in; unset turns the job off."},

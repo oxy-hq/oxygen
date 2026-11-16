@@ -197,29 +197,46 @@ pub struct WorkerArgs {
     pub health_port: Option<u16>,
 }
 
+/// The parts of `SurfaceSeams` a worker takes: it mounts no routes, so it is
+/// not handed the rest.
+pub struct WorkerSeams {
+    /// The custom-app task kinds this worker can run (`SurfaceSeams::tasks`).
+    pub tasks: Vec<oxy_app::host::router::TaskSeam>,
+    /// The surfaces' singleton ticks (`SurfaceSeams::global_ticks`); this
+    /// process runs the global driver when its role says so, and the driver
+    /// reads them.
+    pub global_ticks: Vec<oxy_app::host::router::GlobalTickSeam>,
+    /// The jobs whose answer is global rather than per replica
+    /// (`SurfaceSeams::fleet_jobs`): on a split fleet the workers are the only
+    /// processes that run singleton work, so they start them, and each job
+    /// claims its interval so the fleet runs it once.
+    pub fleet_jobs: Vec<oxy_app::host::router::FleetJobSeam>,
+    /// The notifications surface's boot hooks (`SurfaceSeams::notifications`):
+    /// a worker both raises and delivers notifications, so it refuses to start
+    /// without them.
+    pub notifications: Option<oxy_app::host::router::NotificationsSeam>,
+}
+
 /// Entry point for `oxy worker`.
 ///
 /// Bootstraps the orchestrator, logs config, then blocks on SIGINT/SIGTERM.
 #[tracing::instrument(skip_all, fields(worker_id = tracing::field::Empty, version = tracing::field::Empty))]
-pub async fn run_worker(
-    args: WorkerArgs,
-    // The custom-app task kinds this worker can run, handed in by the composition
-    // root (`SurfaceSeams::tasks`).
-    custom_tasks: Vec<oxy_app::host::router::TaskSeam>,
-    // The surfaces' singleton ticks (`SurfaceSeams::global_ticks`); this process
-    // runs the global driver when its role says so, and the driver reads them.
-    global_ticks: Vec<oxy_app::host::router::GlobalTickSeam>,
-    // The notifications surface's boot hooks (`SurfaceSeams::notifications`):
-    // a worker both raises and delivers notifications, so it refuses to start
-    // without them.
-    notifications: Option<oxy_app::host::router::NotificationsSeam>,
-) -> Result<(), OxyError> {
+pub async fn run_worker(args: WorkerArgs, seams: WorkerSeams) -> Result<(), OxyError> {
+    let WorkerSeams {
+        tasks: custom_tasks,
+        global_ticks,
+        fleet_jobs,
+        notifications,
+    } = seams;
     // Before anything is built: a worker without an executor for a kind
     // `oxy-app` queues would claim those tasks and fail them as unknown.
     oxy_app::host::router::require_task_kinds(&custom_tasks).map_err(OxyError::RuntimeError)?;
     oxy_app::host::router::install_global_ticks(&global_ticks);
     oxy_app::host::router::require_notifications(notifications.as_ref())
         .map_err(OxyError::RuntimeError)?;
+    // Nothing else on a split fleet runs these, so a worker without them is a
+    // composition error, not a smaller worker.
+    oxy_app::host::router::require_fleet_jobs(&fleet_jobs).map_err(OxyError::RuntimeError)?;
 
     // The worker is a separate PROCESS, so `start_server_and_web_app`'s
     // registration does not reach it — and background work is where `notify`
@@ -450,6 +467,21 @@ pub async fn run_worker(
         },
         std::sync::Arc::from(custom_tasks),
         StartupPass::Skip,
+    );
+
+    // The fleet jobs (storage sweeper, usage-backfill sweep, bucket lifecycle
+    // check, audit chain-head anchor). They used to run only on the singleton
+    // `ide` pod, which prod scaled to zero; every worker replica starts them
+    // now, and each claims its interval in `fleet_job_claims`, so the fleet runs
+    // each once per interval. Same gate as the run drivers above, so
+    // `OXY_INPROC_GLOBAL_WORKER=0` stops both.
+    oxy_app::host::router::start_fleet_jobs(
+        &fleet_jobs,
+        &oxy_app::host::router::FleetJobDeps {
+            db: &runtime.db,
+            shutdown: &shutdown,
+        },
+        oxy_app::host::router::recovery::inproc_global_worker_enabled(),
     );
 
     // Optional health probe + Prometheus metrics server (off unless

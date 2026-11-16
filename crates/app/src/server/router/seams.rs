@@ -120,14 +120,11 @@ pub struct BackgroundDeps<'a> {
     pub db: &'a DatabaseConnection,
     /// Cancelled when the process shuts down.
     pub shutdown: &'a CancellationToken,
-    /// Whether this process is the role that runs singleton work
-    /// (`inproc_global_worker_enabled`). A job whose answer is global rather
-    /// than per replica returns early when it is false.
-    pub singleton: bool,
 }
 
-/// One process-lifetime job an extracted surface needs running in a serve
-/// process.
+/// One process-lifetime job an extracted surface needs running in every serve
+/// process. A job whose answer is global rather than per replica is a
+/// [`FleetJobSeam`] instead.
 #[derive(Clone, Copy)]
 pub struct BackgroundSeam {
     /// Names the job in the startup check ([`SurfaceSeams::require_custom_apps`]).
@@ -135,6 +132,57 @@ pub struct BackgroundSeam {
     /// Starts the job. A job that must finish a last flush on shutdown returns
     /// its handle, which the router registers as a shutdown hook.
     pub start: fn(&BackgroundDeps<'_>) -> Option<JoinHandle<()>>,
+}
+
+/// What a fleet job is started from.
+pub struct FleetJobDeps<'a> {
+    pub db: &'a DatabaseConnection,
+    /// Cancelled when the process shuts down.
+    pub shutdown: &'a CancellationToken,
+}
+
+/// One fleet job an extracted surface hands in. The job claims its own work
+/// through [`oxy_app_core::fleet_claim`], so starting it on several replicas
+/// at once is safe — that is the contract a job takes on by being one.
+#[derive(Clone, Copy)]
+pub struct FleetJobSeam {
+    /// Names the job in the startup check and the boot log.
+    pub name: &'static str,
+    /// Starts the job. Spawns and returns; nothing waits on it at shutdown.
+    pub start: fn(&FleetJobDeps<'_>),
+}
+
+/// The fleet jobs the custom-app surface must hand in. A worker without them
+/// would boot, and the storage figures the staff console shows would stop
+/// moving with nothing failing.
+pub const CUSTOM_APP_FLEET_JOBS: [&str; 3] = [
+    "custom_app_asset_lifecycle_verify",
+    "custom_app_storage_sweeper",
+    "custom_app_usage_backfill_sweep",
+];
+
+/// Refuse a fleet-job list that lacks one [`CUSTOM_APP_FLEET_JOBS`] names, or
+/// names one twice.
+pub fn require_fleet_jobs(jobs: &[FleetJobSeam]) -> Result<(), String> {
+    let mut seen = std::collections::HashSet::new();
+    for j in jobs {
+        if !seen.insert(j.name) {
+            return Err(format!("fleet job `{}` is registered twice", j.name));
+        }
+    }
+    let missing: Vec<&str> = CUSTOM_APP_FLEET_JOBS
+        .iter()
+        .copied()
+        .filter(|n| !seen.contains(n))
+        .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "the surface seams start none of the fleet job(s) {missing:?}; on a split fleet \
+             nothing else runs them"
+        ))
+    }
 }
 
 /// One piece of singleton work an extracted surface needs the global driver to
@@ -355,6 +403,13 @@ pub struct SurfaceSeams {
     /// Process-lifetime jobs a serve process starts for custom apps, started
     /// by `api_router`. One-shot per-request spawns stay with their handlers.
     pub background: Vec<BackgroundSeam>,
+    /// Jobs whose answer is global rather than per replica (the storage
+    /// sweeper, the usage-backfill sweep, the asset-bucket lifecycle check).
+    /// Started by every process that runs singleton work — each `oxy worker`,
+    /// and an `all`/`ide` serve — and each claims its interval in
+    /// `fleet_job_claims`, so the fleet runs it once per interval
+    /// (`router/fleet_jobs.rs` starts them).
+    pub fleet_jobs: Vec<FleetJobSeam>,
     /// Singleton work the global driver runs each pass for an extracted surface
     /// (the experiment tick). Installed process-wide by `api_router` and
     /// `oxy worker` through [`install_global_ticks`]; the driver reads them
@@ -451,11 +506,10 @@ pub const PREVIEW_BACKGROUND_JOBS: [&str; 1] = ["preview_maintenance"];
 pub const CHAT_BACKGROUND_JOBS: [&str; 1] = ["chat_delivery_listener"];
 
 /// The background jobs a serve process needs for custom apps (usage rows,
-/// storage measurement, sandbox expiry, retention). Without the usage drain,
-/// page views and events queue until the bounded queue sheds them.
-pub const CUSTOM_APP_BACKGROUND_JOBS: [&str; 8] = [
-    "custom_app_asset_lifecycle_verify",
-    "custom_app_storage_sweeper",
+/// sandbox expiry, retention). Without the usage drain, page views and events
+/// queue until the bounded queue sheds them. The storage measurement and the
+/// lifecycle check are fleet jobs ([`CUSTOM_APP_FLEET_JOBS`]).
+pub const CUSTOM_APP_BACKGROUND_JOBS: [&str; 6] = [
     "custom_app_sandbox_maintenance",
     "custom_app_tracking_retention",
     "custom_app_usage_drain",
@@ -503,6 +557,7 @@ impl SurfaceSeams {
     /// by `serve` before it builds anything.
     pub fn require_custom_apps(&self) -> Result<(), String> {
         require_task_kinds(&self.tasks)?;
+        require_fleet_jobs(&self.fleet_jobs)?;
         let missing: Vec<&str> = CUSTOM_APP_BACKGROUND_JOBS
             .iter()
             .chain(PREVIEW_BACKGROUND_JOBS.iter())
@@ -575,6 +630,13 @@ mod tests {
                 .chain(PREVIEW_BACKGROUND_JOBS.iter())
                 .chain(CHAT_BACKGROUND_JOBS.iter())
                 .map(|n| job(n))
+                .collect(),
+            fleet_jobs: CUSTOM_APP_FLEET_JOBS
+                .iter()
+                .map(|&name| FleetJobSeam {
+                    name,
+                    start: |_| {},
+                })
                 .collect(),
             outer: Some(|_| Router::new()),
             ..SurfaceSeams::empty()
@@ -706,6 +768,17 @@ mod tests {
         seams.tasks.push(task("app_function"));
         let err = seams.require_custom_apps().unwrap_err();
         assert!(err.contains("registered twice"), "{err}");
+    }
+
+    /// On a split fleet the worker is the only process that runs these.
+    #[test]
+    fn a_missing_fleet_job_is_a_startup_error() {
+        let mut seams = complete();
+        seams
+            .fleet_jobs
+            .retain(|j| j.name != "custom_app_storage_sweeper");
+        let err = seams.require_custom_apps().unwrap_err();
+        assert!(err.contains("custom_app_storage_sweeper"), "{err}");
     }
 
     #[test]

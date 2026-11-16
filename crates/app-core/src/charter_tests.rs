@@ -41,6 +41,7 @@ const CHARTER: &[(&str, Kind)] = &[
     ("compiled_reader", Service),
     ("config", Request),
     ("default_branch", Request),
+    ("fleet_claim", Service),
     ("forwarded", Request),
     ("function_seam", Seam),
     ("gate_response", Authz),

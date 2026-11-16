@@ -539,17 +539,19 @@ pub fn lock_state(
     }
 }
 
-/// Spawn the hourly anchor loop. Singleton-gated like the other periodic
-/// sweeps — every replica anchoring would write identical objects and the
-/// `if-none-match` on the second would fail as a spurious error.
+/// The `fleet_job_claims` row the anchor loop claims each interval.
+pub const ANCHOR_JOB: &str = "audit_chain_anchor";
+
+/// Spawn the hourly anchor loop: once per interval across the fleet. Every
+/// replica that runs singleton work starts it and the
+/// [`fleet_claim`](oxy_app_core::fleet_claim) row picks one per interval —
+/// every replica anchoring would write an object per replica per hour under a
+/// compliance lock nobody can delete early, and two in the same minute would
+/// fail the second's `if-none-match` as a spurious error.
 pub fn spawn_audit_anchor_loop(
     db: DatabaseConnection,
     shutdown: tokio_util::sync::CancellationToken,
-    is_singleton_role: bool,
 ) {
-    if !is_singleton_role {
-        return;
-    }
     let Some(cfg) = AnchorConfig::from_env() else {
         tracing::info!(
             "audit anchor: {BUCKET_ENV} not set; chain heads are not anchored outside the database"
@@ -558,25 +560,39 @@ pub fn spawn_audit_anchor_loop(
     };
     tokio::spawn(async move {
         let s3 = crate::server::api::custom_apps_storage::s3::client().await;
-        let mut ticker = tokio::time::interval(cfg.interval);
-        // The immediate first tick is a real anchor: a fresh deployment should
-        // have one within seconds, not an hour.
-        loop {
-            tokio::select! {
-                _ = ticker.tick() => match anchor_once(&db, &s3, &cfg).await {
-                    Ok(o) => tracing::info!(
-                        key = %o.key, heads = o.heads, sha256 = %o.sha256,
-                        retain_until = %o.retain_until, "audit anchor written"
-                    ),
-                    Err(AnchorError::AlreadyAnchored(key)) => tracing::info!(
-                        key = %key, "audit anchor: this minute is already anchored; skipping"
-                    ),
-                    Err(e) => tracing::error!(error = %e, "audit anchor failed"),
-                },
-                _ = shutdown.cancelled() => break,
-            }
-        }
+        let interval = cfg.interval;
+        let (pass_db, cfg, s3) = (
+            db.clone(),
+            std::sync::Arc::new(cfg),
+            std::sync::Arc::new(s3),
+        );
+        // A due claim anchors at the first poll: a fresh deployment should have
+        // an anchor within seconds, not an hour.
+        oxy_app_core::fleet_claim::run_claimed(
+            db,
+            ANCHOR_JOB,
+            interval,
+            shutdown.cancelled_owned(),
+            move || {
+                let (db, cfg, s3) = (pass_db.clone(), cfg.clone(), s3.clone());
+                async move { anchor_and_log(&db, &s3, &cfg).await }
+            },
+        )
+        .await;
     });
+}
+
+async fn anchor_and_log(db: &DatabaseConnection, s3: &S3Client, cfg: &AnchorConfig) {
+    match anchor_once(db, s3, cfg).await {
+        Ok(o) => tracing::info!(
+            key = %o.key, heads = o.heads, sha256 = %o.sha256,
+            retain_until = %o.retain_until, "audit anchor written"
+        ),
+        Err(AnchorError::AlreadyAnchored(key)) => tracing::info!(
+            key = %key, "audit anchor: this minute is already anchored; skipping"
+        ),
+        Err(e) => tracing::error!(error = %e, "audit anchor failed"),
+    }
 }
 
 #[cfg(test)]

@@ -305,19 +305,16 @@ pub async fn unmeasured_app_count(
     Ok(total.saturating_sub(measured))
 }
 
-/// Run [`sweep_once`] on an interval until shutdown.
+/// The `fleet_job_claims` row the periodic sweep claims each interval.
+pub const SWEEP_JOB: &str = "custom_app_storage_sweeper";
+
+/// Run [`sweep_once`] once per interval across the fleet until shutdown.
 ///
-/// `is_singleton_role` is passed in so the role decision stays at the
-/// composition root. Every replica sweeping would multiply LIST cost by the
-/// replica count for identical results.
-pub fn spawn_periodic_sweep(
-    db: DatabaseConnection,
-    shutdown: tokio_util::sync::CancellationToken,
-    is_singleton_role: bool,
-) {
-    if !is_singleton_role {
-        return;
-    }
+/// Every replica that runs singleton work starts it (the `oxy worker` fleet,
+/// or an `all`/`ide` process); the [`fleet_claim`](oxy_app_core::fleet_claim)
+/// row makes one of them sweep per interval. Each replica sweeping would
+/// multiply the S3 LIST cost by the replica count for identical results.
+pub fn spawn_periodic_sweep(db: DatabaseConnection, shutdown: tokio_util::sync::CancellationToken) {
     if super::bucket().is_none() {
         // The filesystem fallback would "work" but measure a dev laptop's temp
         // dir, so the numbers would be meaningless rather than merely absent.
@@ -326,35 +323,35 @@ pub fn spawn_periodic_sweep(
         );
         return;
     }
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval());
-        // Skip the immediate first tick — startup is busy enough, and the first
-        // real tick is only minutes away.
-        ticker.tick().await;
-        loop {
-            tokio::select! {
-                // `None` — the periodic sweep runs as the singleton with no
-                // principal, so it is unbounded by construction.
-                _ = ticker.tick() => match sweep_once(&db, None).await {
-                    Ok(report) if report.measured > 0 || report.failed > 0 => {
-                        tracing::info!(
-                            measured = report.measured,
-                            failed = report.failed,
-                            // Without this, "24 measured, 0 failed" reads as a
-                            // clean sweep even when every row is a floor.
-                            incomplete = report.incomplete,
-                            samples_pruned = report.samples_pruned,
-                            "custom-app storage usage swept",
-                        );
-                    }
-                    Ok(_) => {}
-                    Err(e) => tracing::warn!(error = %e, "custom-app storage sweep failed"),
-                },
-                _ = shutdown.cancelled() => {
-                    tracing::debug!("custom-app storage sweeper shutting down");
-                    return;
-                }
-            }
+    let pass_db = db.clone();
+    tokio::spawn(oxy_app_core::fleet_claim::run_claimed(
+        db,
+        SWEEP_JOB,
+        interval(),
+        shutdown.cancelled_owned(),
+        move || {
+            let db = pass_db.clone();
+            async move { sweep_and_log(&db).await }
+        },
+    ));
+}
+
+/// One periodic pass, logged. `None` scope — the periodic sweep runs with no
+/// principal, so it is unbounded by construction.
+async fn sweep_and_log(db: &DatabaseConnection) {
+    match sweep_once(db, None).await {
+        Ok(report) if report.measured > 0 || report.failed > 0 => {
+            tracing::info!(
+                measured = report.measured,
+                failed = report.failed,
+                // Without this, "24 measured, 0 failed" reads as a
+                // clean sweep even when every row is a floor.
+                incomplete = report.incomplete,
+                samples_pruned = report.samples_pruned,
+                "custom-app storage usage swept",
+            );
         }
-    });
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "custom-app storage sweep failed"),
+    }
 }

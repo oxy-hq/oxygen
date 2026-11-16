@@ -90,6 +90,36 @@ fn the_worker_drains_before_it_can_run_anything() {
     );
 }
 
+/// The fleet jobs (storage sweeper, usage-backfill sweep, bucket lifecycle
+/// check, audit anchor) ran only on the singleton `ide` pod; once prod scaled
+/// it to zero they ran nowhere, with nothing failing. On a split fleet the
+/// worker is the only process that runs singleton work, so `run_worker` must
+/// refuse to boot without them and must start them — and the composition must
+/// hand them in.
+#[test]
+fn the_worker_requires_and_starts_the_fleet_jobs() {
+    let body = fn_body(include_str!("worker.rs"), "fn run_worker(")
+        .expect("worker.rs has no `fn run_worker(`");
+    let at = |needle: &str| {
+        body.find(needle)
+            .unwrap_or_else(|| panic!("`{needle}` not in run_worker"))
+    };
+    assert!(
+        at("require_fleet_jobs(&fleet_jobs)") < at("WorkerRuntime::start("),
+        "`run_worker` must refuse a composition without the fleet jobs before it starts"
+    );
+    assert!(
+        at("WorkerRuntime::start(") < at("start_fleet_jobs("),
+        "`run_worker` must start the fleet jobs once the runtime's DB handle exists"
+    );
+    let dispatch = fn_body(include_str!("mod.rs"), "pub async fn run(")
+        .expect("mod.rs has no `pub async fn run(`");
+    assert!(
+        dispatch.contains("fleet_jobs: seams.fleet_jobs"),
+        "the `worker` arm must hand `run_worker` the composition's fleet jobs"
+    );
+}
+
 /// The commands `server_command` matches, sorted: the string literals of its
 /// `matches!(*a, "serve" | …)`.
 fn server_commands(main_rs: &str) -> Vec<String> {
