@@ -12,7 +12,7 @@
   "OXY_APP_ADMINS": {"kind": "deployment", "default": "unset", "gates": "Legacy spelling of `OXY_GLOBAL_ADMINS`, still honoured by the custom-apps `auth.rs` staff check alongside the current name. Nothing else reads it."},
   "OXY_APP_CALL_TRACE_RETENTION_DAYS": {"kind": "deployment", "default": "3", "gates": "How many days of custom-app host-call traces the store keeps before pruning."},
   "OXY_APP_EMAIL_FROM": {"kind": "deployment", "default": "unset (send refused)", "gates": "The verified SES sender for a custom app's `ctx.email.send`."},
-  "OXY_APP_EMAIL_LOCAL_TEST": {"kind": "developer", "default": "unset → local mode's answer", "gates": "`1`/`true` opens a custom app's rendered email in the browser instead of sending it through SES; `0`/`false` forces a real send. A dev box runs cloud mode, so set it there."},
+  "OXY_APP_EMAIL_LOCAL_TEST": {"kind": "developer", "default": "unset → local mode's answer", "gates": "`1`/`true` previews a custom app's rendered email (written under `$TMPDIR/oxy-email-previews/`, opened in the browser at most once per 10 s and never under nextest) instead of sending it through SES; `0`/`false` forces a real send. A dev box runs cloud mode, so set it there."},
   "OXY_APP_EMAIL_REGION": {"kind": "deployment", "default": "unset (SDK default region)", "gates": "The AWS region the custom-app SES client sends from."},
   "OXY_APP_ENV_OLTP_BRANCHES_MAX": {"kind": "deployment", "default": "see `oltp::env_branches`", "gates": "Cap on the OLTP branches one custom-app environment may hold."},
   "OXY_APP_SANDBOX_IDLE_DAYS": {"kind": "deployment", "default": "7", "gates": "Days a custom-app sandbox may sit unused before maintenance retires it."},

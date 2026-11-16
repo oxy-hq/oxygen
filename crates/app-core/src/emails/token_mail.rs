@@ -5,8 +5,10 @@
 //! — through one function, [`deliver`]:
 //!
 //! - **Preview** when `MAGIC_LINK_LOCAL_TEST` or `OXY_APP_EMAIL_LOCAL_TEST` is
-//!   set: the rendered mail is written to a temp file and opened, never sent,
-//!   and recorded in this process's [`outbox`] — the sink the tests read.
+//!   set: the rendered mail is written to the preview directory, never sent,
+//!   and recorded in this process's [`outbox`] — the sink the tests read. It is
+//!   opened in a browser at most once per burst and never under nextest
+//!   ([`super::local_test`]).
 //! - Otherwise **SES**, from the magic-link `from_email`.
 //! - With no magic-link config, a logged no-op: what the mail reports has
 //!   already happened and is audited either way.

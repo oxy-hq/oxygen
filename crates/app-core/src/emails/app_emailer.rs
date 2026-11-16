@@ -284,8 +284,8 @@ impl AppEmailer {
         if !msg.attachments.is_empty() {
             contents.push_str(&attachment_manifest(&msg.attachments, ext));
         }
-        let dir = preview_dir();
-        prune_old_previews(&dir);
+        let dir = super::local_test::preview_dir();
+        super::local_test::prune_old_previews(&dir);
         let path = dir.join(format!("email-{message_id}.{ext}"));
         tracing::info!(
             from = %self.from_mailbox,
@@ -296,7 +296,7 @@ impl AppEmailer {
             subject = %msg.subject,
             %message_id,
             path = %path.display(),
-            "email preview (local mode / SES not configured): not sending; opening rendered email"
+            "email preview (local mode / SES not configured): written, not sent"
         );
         match std::fs::write(&path, contents) {
             Ok(()) => super::local_test::open_in_browser(&path),
@@ -763,39 +763,6 @@ pub(super) fn sanitized_display_name(raw: &str) -> Option<String> {
         .collect();
     let cleaned = cleaned.trim();
     (!cleaned.is_empty()).then(|| cleaned.to_string())
-}
-
-/// Directory for locally-rendered email previews — one dedicated subdir of the
-/// system temp dir (so previews never litter temp), created on demand and kept
-/// small by `prune_old_previews`.
-fn preview_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join("oxy-email-previews");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
-}
-
-/// Age at which a stale preview file becomes eligible for cleanup.
-const PREVIEW_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
-
-/// Best-effort cleanup: delete preview files older than `PREVIEW_TTL` so the dir
-/// stays small. Runs before each write; the just-written file survives until a
-/// later send ages it out.
-fn prune_old_previews(dir: &std::path::Path) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let now = std::time::SystemTime::now();
-    for entry in entries.flatten() {
-        let aged_out = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|mtime| now.duration_since(mtime).ok())
-            .is_some_and(|age| age > PREVIEW_TTL);
-        if aged_out {
-            let _ = std::fs::remove_file(entry.path());
-        }
-    }
 }
 
 /// Process-wide SES client, built once. The client holds a credentials
