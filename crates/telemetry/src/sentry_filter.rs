@@ -112,7 +112,7 @@ fn is_custom_app_namespace(name: &str) -> bool {
 /// execute nothing, so they are not listed; `oxy::database` is Oxy's own
 /// Postgres, not a tenant warehouse. Prefixes, matched a path segment at a time
 /// by [`is_data_plane_module`].
-const DATA_PLANE_MODULE_PREFIXES: [&str; 6] = [
+const DATA_PLANE_MODULE_PREFIXES: [&str; 7] = [
     // The automation run's row state machine (`settle`), which stayed when its
     // handlers left, and the semantic boundary the twins enter by. (`/query`,
     // `/semantic-query` and the metric tree's twins moved to
@@ -124,6 +124,11 @@ const DATA_PLANE_MODULE_PREFIXES: [&str; 6] = [
     // The world model's customer-app twins (graph, instances, measure
     // breakdown, cohort), behind the same gate since they left `projects`.
     "oxy_api_world_model::customer_app",
+    // The Dev Portal's SQL execution and the world model's `WorkspaceWarehouse`
+    // run tenant warehouse queries through here (`run_with_connector`), and a
+    // failure line carries the warehouse's error text. Down from `api::data`
+    // in Wave D1; it was never listed there either (fixed 2026-11-16).
+    "oxy_app::agentic_wiring::sql_exec",
     // The connector those handlers and `ctx.warehouse` host calls execute through.
     "agentic_connector",
     // Compiles semantic queries and reads pre-aggregations (`execute_preagg_sql`).
@@ -1032,6 +1037,7 @@ mod tests {
             "agentic_semantic::preagg",
             "oxy::connector::snowflake",
             "airhouse::connector",
+            "oxy_app::agentic_wiring::sql_exec",
         ] {
             assert!(is_data_plane_module(module), "{module}");
         }
@@ -1102,11 +1108,6 @@ mod tests {
             // boundary and the compile queue, no warehouse; not the custom-app
             // data plane, as `api::semantic` was not.
             "oxy_app::agentic_wiring::scan_source",
-            // The Dev Portal's SQL execution (Wave D1): workspace-scoped, behind
-            // the workspace middleware, and not the custom-app data plane, as
-            // `api::data` was not. Its connector's own lines are
-            // `agentic_connector`'s, listed above.
-            "oxy_app::agentic_wiring::sql_exec",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

@@ -254,7 +254,12 @@ pub async fn run_with_connector(
             .skip(1)
             .collect(),
         Err(e) => {
-            tracing::warn!(error = %e, sql, "run_with_connector: query failed, returning empty result");
+            // The statement is the caller's (a Dev Portal query, or SQL built
+            // from a tenant's model), so only its length is logged. The
+            // warehouse's error text can still carry tenant values; this
+            // module is in `DATA_PLANE_MODULE_PREFIXES`, so Sentry Logs keep
+            // only the line's shape.
+            tracing::warn!(error = %e, sql_len = sql.len(), "run_with_connector: query failed, returning empty result");
             vec![]
         }
     }
