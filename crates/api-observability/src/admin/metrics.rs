@@ -5,7 +5,8 @@
 //! (`agentic_llm::pricing`). So this module sums tokens in SQL, then prices
 //! each model bucket in Rust.
 //!
-//! Gated on `Action::PlatformOperate` by `admin::router`. "Cross-tenant" is what
+//! Gated on `Action::PlatformOperate` by this crate's admin section (the
+//! capability `admin::router` gave it in `oxy-app`, before the admin split). "Cross-tenant" is what
 //! an unbounded grant sees: the gate cannot see grant scope, so the overview
 //! narrows its run rollup to the orgs a bounded grant names (in the CTE, so the
 //! totals, the day series, the model split and the org leaderboard all agree),
@@ -24,11 +25,11 @@ use oxy_auth::extractor::AuthenticatedUserExtractor;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::internal_jobs::{connect, db_err};
 use super::metrics_pricing::{build_org_detail, build_overview};
 use super::metrics_rollup::{fetch_day_model_rows, fetch_org_model_rows, fetch_org_usage_day_rows};
-use super::scope::list_scope;
-use crate::server::router::AppState;
+use oxy_app::surface::admin_db::{connect, db_err};
+use oxy_app::surface::admin_scope::list_scope;
+use oxy_app_core::AppState;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -141,7 +142,7 @@ async fn org_llm_usage(
     // unfenced this reads another tenant's LLM cost and token totals. Milder than the
     // subdomain toggle — a read, and cost rather than content — but the same axis, and
     // it is the fourth `{org_id}` router rather than a special case.
-    crate::server::api::admin::scope::deny_out_of_scope(&db, &actor, org_id)
+    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &actor, org_id)
         .await
         .map_err(axum::response::IntoResponse::into_response)?;
     let day_rows = fetch_org_usage_day_rows(&db, days, org_id)

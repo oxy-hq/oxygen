@@ -102,6 +102,16 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/admin/feature-flags",
     // `oxy-api-workspace-health`, on the admin seam.
     "/api/admin/workspace-health",
+    // The admin split (PR 1): three admin-seam groups that left `oxy-app`'s
+    // `admin::router` — an org's subdomain (`oxy-api-tenancy`), Admin →
+    // Metrics (`oxy-api-observability`) and the Explorer (`oxy-api-threads`).
+    "/api/admin/orgs/{org_id}/subdomain",
+    "/api/admin/metrics",
+    "/api/admin/explorer",
+    // `oxy-api-observability`'s own admin routes, on the same seed. Its seed
+    // named a re-export, not a function, so they were missing from the catalog
+    // until the admin split's first PR, with only a build warning to show it.
+    "/api/admin/observability",
     "/api/control/",
     "/api/fleet/",
     "/api/{workspace_id}/threads",

@@ -30,7 +30,7 @@
 //! queue and runs live in the runtime tables), so each test owns its database and
 //! every total asserted here is exact.
 
-mod audit_and_explorer;
+mod audit_and_assume;
 mod compiles;
 mod directories;
 mod fences;

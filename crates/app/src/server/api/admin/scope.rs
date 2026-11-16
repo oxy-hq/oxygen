@@ -197,7 +197,11 @@ pub async fn deny_out_of_scope_platform(
 /// and an empty scope correctly matches nothing. `column` is a compile-time literal at
 /// every call site (`"w.org_id"`), never request input. The placeholder is numbered
 /// from `values.len()`, so push every fixed parameter **before** calling this.
-pub(crate) fn org_scope_clause(
+///
+/// `pub`, through the prelude's `admin_scope`, since the admin split: a staff
+/// section that left `oxy-app` (Admin → Metrics, the Explorer) narrows its
+/// cross-tenant listing in the query with this same clause rather than a copy.
+pub fn org_scope_clause(
     column: &str,
     scope: Option<&[Uuid]>,
     values: &mut Vec<sea_orm::Value>,

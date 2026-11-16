@@ -18,7 +18,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrde
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::server::router::AppState;
+use oxy_app_core::AppState;
 use oxy_app_core::org_host_dispatch;
 
 pub(crate) fn router() -> Router<AppState> {
@@ -128,7 +128,7 @@ async fn deny_out_of_scope(
     actor: &oxy_auth::types::AuthenticatedUser,
     org_id: Uuid,
 ) -> Result<(), ApiError> {
-    crate::server::api::admin::scope::deny_out_of_scope(db, actor, org_id)
+    oxy_app::surface::admin_scope::deny_out_of_scope(db, actor, org_id)
         .await
         // 404 stays 404: the message is generic on purpose, so an out-of-scope caller
         // learns nothing the status doesn't already say.

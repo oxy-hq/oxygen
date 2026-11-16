@@ -393,6 +393,9 @@ pub use crate::server::api::admin::assume;
 
 /// Staff-scope fencing: whether a bounded platform grant reaches this org.
 /// Platform authz, applied inside admin handlers where the org is known.
+/// `org_scope_clause` (the same fence as a SQL `ANY($n)` clause, for a
+/// cross-tenant listing narrowed in the query) joined the glob in the admin
+/// split, when it became `pub`.
 pub mod admin_scope {
     pub use crate::server::api::admin::org_filter::{scope_org_filter, scope_org_filter_checked};
     pub use crate::server::api::admin::scope::*;

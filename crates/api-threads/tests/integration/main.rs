@@ -10,6 +10,9 @@
 #[path = "../../../app/tests/common/mod.rs"]
 mod common;
 
+// Rehomed from `oxy-app`'s `platform` group with the staff console's Explorer
+// (admin split, PR 1). Its own database per test.
+mod admin_explorer_staff_scope;
 // Rehomed from `oxy-app`'s `platform` group with the chat handlers it drives
 // (2026-11-16). Its own database per test.
 mod chat_org_standing;

@@ -30,6 +30,11 @@ fn the_whole_org_console_is_served_by_the_fleet() {
         ("PATCH", format!("/api/admin/orgs/{id}")),
         ("DELETE", format!("/api/admin/orgs/{id}")),
         ("GET", "/api/admin/workspaces-meta".to_string()),
+        // An org's subdomain (admin split, PR 1): a Postgres upsert of the
+        // `org_subdomains` row, as `oxy-app`'s `org_subdomain_routes_are_fleet_ok`
+        // pinned it while the handler was there.
+        ("GET", format!("/api/admin/orgs/{id}/subdomain")),
+        ("PUT", format!("/api/admin/orgs/{id}/subdomain")),
     ] {
         assert_eq!(
             classify(method, &path),

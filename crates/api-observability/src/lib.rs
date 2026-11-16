@@ -53,7 +53,15 @@ use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 /// The staff-console section this crate contributes under `/api/admin`, for
 /// `oxy-server` to merge — named at the crate root beside [`workspace_routes`]
 /// so a composition reads both of this surface's seams in one place.
-pub use admin::{admin_sections, route_roles as admin_route_roles, routes as admin_routes};
+pub use admin::{admin_sections, route_roles as admin_route_roles};
+
+/// The admin section's routes, relative to `/admin`. A function rather than a
+/// `pub use … as admin_routes`: the route catalog's seed (`admin_routes` in
+/// this module) resolves functions only, so the re-export left every route of
+/// this section out of `oxyc routes` with only a build warning to say so.
+pub fn admin_routes() -> Router<AppState> {
+    admin::routes()
+}
 
 /// The workspace seam's share: merged inside `/api/{workspace_id}`. Nested,
 /// as `oxy-app` nested them, so each prefix answers exactly what it did.

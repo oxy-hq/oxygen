@@ -286,8 +286,8 @@ fn external_seam_routes() -> SeamRouter {
 /// `/orgs/{org_id}` with `org_middleware` + the subscription guard re-applied.
 /// All nine paths are declared FleetOk (Postgres only).
 ///
-/// `oxy-api-threads` (2026-11-16) fills `api`, `workspace`, `openapi` and
-/// `background`. Org chat rides `api` at the root, where
+/// `oxy-api-threads` (2026-11-16) fills `api`, `workspace`, `openapi`,
+/// `background` and `admin`. Org chat rides `api` at the root, where
 /// `build_global_routes` had it (five paths, all FleetOk, the SSE stream
 /// included: a fan-out over Postgres), and its delivery listener — the
 /// `LISTEN` connection that wakes this replica's streams for a message
@@ -297,7 +297,9 @@ fn external_seam_routes() -> SeamRouter {
 /// availability, and a run's artifacts, chart files and result files (ten
 /// declarations, all FleetOk: Postgres and the S3-mirrored runtime
 /// artifacts), with the nine thread and agent operations the curated
-/// document has always listed.
+/// document has always listed. On `admin` (the admin split): the staff
+/// console's Explorer, `/explorer/threads` and `/explorer/runs` (two
+/// declarations, FleetOk: Postgres), behind `PlatformExplorer`.
 ///
 /// `oxy-api-workspaces` (2026-11-16) fills `api`, `workspace` and
 /// `openapi`. On `api`: an org's workspace list, delete and rename under
@@ -409,6 +411,7 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_airway::admin_sections())
             .chain(oxy_api_identity::admin_sections())
             .chain(oxy_api_observability::admin_sections())
+            .chain(oxy_api_threads::admin_sections())
             .collect(),
         // Operations the surfaces document, merged into the served OpenAPI
         // document (`oxyc schema` reads it).

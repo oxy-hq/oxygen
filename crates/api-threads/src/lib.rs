@@ -30,12 +30,17 @@
 //!
 //! [`openapi`] carries the thread and agent operations the curated OpenAPI
 //! document has always listed, through `SurfaceSeams::openapi`.
+//!
+//! [`admin`] is the staff console's Explorer (cross-tenant thread and run
+//! search), riding `SurfaceSeams::admin` behind `PlatformExplorer` — moved out of
+//! `oxy-app`'s `admin::explorer` in the admin split.
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`): an async handler's future can
 // exceed rustc's default query depth in the `--release` image build only.
 #![recursion_limit = "256"]
 
+pub mod admin;
 pub mod agent;
 pub mod artifacts;
 pub mod chart;
@@ -48,6 +53,19 @@ use axum::routing::{get, post};
 use oxy_app::surface::seams::BackgroundSeam;
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
+
+/// The staff-console section this crate contributes under `/api/admin`, for
+/// `oxy-server` to merge, and its pod placement.
+pub use admin::{admin_sections, route_roles as admin_route_roles};
+
+/// The admin section's routes, relative to `/admin`, here rather than in
+/// [`admin`]: the route catalog's seed (`admin_routes` in this module) resolves
+/// functions only, and a delegating `admin::routes()` would resolve to another
+/// crate's same-named builder (the walker breaks a tie by directory, and this
+/// file shares none with either).
+pub fn admin_routes() -> Router<AppState> {
+    admin::explorer::router()
+}
 
 /// The api seam's share: org chat, merged at the protected root (`/api`).
 ///

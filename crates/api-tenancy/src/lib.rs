@@ -178,9 +178,10 @@ pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
 }
 
 /// The staff console's org and workspace administration, mounted under
-/// `/api/admin` through the admin seam. One section: both sit behind
-/// `PlatformOrgs`, the capability they had in `oxy-app`; `create_org`
-/// additionally asks for `PlatformOrgCreate` inside the handler.
+/// `/api/admin` through the admin seam. One section: all three (orgs,
+/// workspaces, and an org's subdomain) sit behind `PlatformOrgs`, the
+/// capability they had in `oxy-app`; `create_org` additionally asks for
+/// `PlatformOrgCreate` inside the handler.
 pub fn admin_sections() -> Vec<AdminSection> {
     vec![AdminSection {
         capability: oxy_app::surface::Action::PlatformOrgs,
@@ -191,7 +192,9 @@ pub fn admin_sections() -> Vec<AdminSection> {
 
 /// Relative to `/admin`. Its own function so the route catalog can seed it.
 pub fn admin_routes() -> Router<AppState> {
-    admin::orgs::router().merge(admin::workspaces::router())
+    admin::orgs::router()
+        .merge(admin::workspaces::router())
+        .merge(admin::org_subdomains::router())
 }
 
 /// The OpenAPI operations this crate documents, merged into the served

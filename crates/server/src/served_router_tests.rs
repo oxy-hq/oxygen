@@ -2304,3 +2304,232 @@ async fn the_external_tree_mounts_the_semantic_surface() {
         );
     }
 }
+
+/// The three staff sections the admin split's first PR took out of `oxy-app`'s
+/// `admin::router`, each now on `SurfaceSeams::admin`: an org's subdomain
+/// (`oxy-api-tenancy`, `PlatformOrgs`), Admin → Metrics' LLM cost
+/// (`oxy-api-observability`, `PlatformOperate`) and the Explorer
+/// (`oxy-api-threads`, `PlatformExplorer`). `{org}` is filled per test.
+const ADMIN_SPLIT_ROUTES: &[(&str, &str)] = &[
+    ("GET", "/admin/orgs/{org}/subdomain"),
+    ("PUT", "/admin/orgs/{org}/subdomain"),
+    ("GET", "/admin/metrics/llm-usage"),
+    ("GET", "/admin/metrics/orgs/{org}/llm-usage"),
+    ("GET", "/admin/explorer/threads"),
+    ("GET", "/admin/explorer/runs"),
+];
+
+/// Sets `OXY_OWNER` for one test and puts back what was there. The guards read
+/// it per request, and nextest runs each test in its own process, so it never
+/// reaches another test.
+struct OwnerEnv(Option<String>);
+
+impl OwnerEnv {
+    fn set(email: &str) -> Self {
+        let prev = std::env::var("OXY_OWNER").ok();
+        unsafe { std::env::set_var("OXY_OWNER", email) };
+        Self(prev)
+    }
+}
+
+impl Drop for OwnerEnv {
+    fn drop(&mut self) {
+        match &self.0 {
+            Some(v) => unsafe { std::env::set_var("OXY_OWNER", v) },
+            None => unsafe { std::env::remove_var("OXY_OWNER") },
+        }
+    }
+}
+
+/// The served router mounts the three sections inside `/api/admin`, behind the
+/// same layers `admin::router` gave them in `oxy-app`, answering what `main`
+/// answered before the move (read off the served router at 3e347a524):
+///
+/// * the guest, who is not staff: 403 on every route, TRACE included — the
+///   staff door refuses before any section is consulted;
+/// * the guest as the Global Owner: TRACE 405 (mounted), and a real read —
+///   both LLM-usage reads and both Explorer searches 200, an org that does not
+///   exist 404 on its subdomain;
+/// * the same owner while acting as a tenant (a live assume session): 403
+///   everywhere, from `block_admin_while_acting`;
+///
+/// with a path nobody mounts answering 404 throughout, as the control.
+#[tokio::test]
+async fn the_admin_seam_mounts_the_first_split_sections_behind_the_staff_layers() {
+    if db_unavailable() {
+        return;
+    }
+    use oxy_app::surface::roles::{RouteRole, classify};
+    use sea_orm::{ActiveModelTrait, ActiveValue};
+
+    let router = served(ServeMode::Cloud).await;
+    let org = uuid::Uuid::new_v4().to_string();
+    let routes: Vec<(Method, String)> = ADMIN_SPLIT_ROUTES
+        .iter()
+        .map(|(m, p)| {
+            (
+                Method::from_bytes(m.as_bytes()).unwrap(),
+                p.replace("{org}", &org),
+            )
+        })
+        .collect();
+    let control = "/admin/nothing-mounts-this";
+
+    // Pod placement: each declared FleetOk on the served table.
+    for (method, path) in &routes {
+        assert_eq!(
+            classify(method.as_str(), &format!("/api{path}")),
+            RouteRole::FleetOk,
+            "{method} {path} is Postgres-only and must stay FleetOk"
+        );
+    }
+
+    // Not staff: the door refuses, exactly as on `main`.
+    assert_eq!(
+        status(&router, &Method::GET, control).await,
+        StatusCode::NOT_FOUND
+    );
+    for (method, path) in &routes {
+        for m in [method, &Method::TRACE] {
+            let got = status(&router, m, path).await;
+            assert_eq!(
+                got,
+                StatusCode::FORBIDDEN,
+                "non-staff {m} {path}: got {got}"
+            );
+        }
+    }
+
+    // Staff: mounted, and a real read answers.
+    let _owner = OwnerEnv::set(oxy_auth::user::LOCAL_GUEST_EMAIL);
+    assert_eq!(
+        status(&router, &Method::GET, control).await,
+        StatusCode::NOT_FOUND
+    );
+    for (_, path) in &routes {
+        let got = status(&router, &Method::TRACE, path).await;
+        assert_eq!(
+            got,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "{path} must be mounted for staff, got {got}"
+        );
+    }
+    for path in [
+        "/admin/metrics/llm-usage".to_string(),
+        format!("/admin/metrics/orgs/{org}/llm-usage"),
+        "/admin/explorer/threads".to_string(),
+        "/admin/explorer/runs".to_string(),
+    ] {
+        let (got, body) = get_json(&router, &path).await;
+        assert_eq!(got, StatusCode::OK, "staff GET {path}: {body}");
+    }
+    assert_eq!(
+        status(
+            &router,
+            &Method::GET,
+            &format!("/admin/orgs/{org}/subdomain")
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+        "an org that does not exist has no subdomain to read"
+    );
+
+    // Acting as a tenant closes the console, these sections included.
+    let db = oxy::database::client::establish_connection()
+        .await
+        .expect("database");
+    let (got, me) = get_json(&router, "/user").await;
+    assert_eq!(got, StatusCode::OK, "GET /user: {me}");
+    let user_id: uuid::Uuid = me["id"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("GET /user carries no id: {me}"));
+    let acting_org = uuid::Uuid::new_v4();
+    entity::organizations::ActiveModel {
+        id: ActiveValue::Set(acting_org),
+        name: ActiveValue::Set("Admin split".into()),
+        slug: ActiveValue::Set(format!("admin-split-{}", acting_org.simple())),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("seed the org acted as");
+    let now = chrono::Utc::now();
+    let session = entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        actor_user_id: ActiveValue::Set(user_id),
+        actor_email: ActiveValue::Set(oxy_auth::user::LOCAL_GUEST_EMAIL.into()),
+        org_id: ActiveValue::Set(acting_org),
+        reason: ActiveValue::Set("served-router admin split".into()),
+        started_at: ActiveValue::Set(now.into()),
+        // Short, so a panic below leaves the guest acting for two minutes at most.
+        expires_at: ActiveValue::Set((now + chrono::Duration::minutes(2)).into()),
+        ended_at: ActiveValue::Set(None),
+        token_id: ActiveValue::Set(None),
+    }
+    .insert(&db)
+    .await
+    .expect("seed a live assume session");
+    let mut refused = Vec::new();
+    for (method, path) in &routes {
+        refused.push((
+            method.clone(),
+            path.clone(),
+            status(&router, method, path).await,
+        ));
+    }
+    let control_while_acting = status(&router, &Method::GET, control).await;
+    entity::admin_assume_sessions::ActiveModel {
+        id: ActiveValue::Set(session.id),
+        ended_at: ActiveValue::Set(Some(chrono::Utc::now().into())),
+        ..Default::default()
+    }
+    .update(&db)
+    .await
+    .expect("end the session");
+    assert_eq!(control_while_acting, StatusCode::NOT_FOUND);
+    for (method, path, got) in refused {
+        assert_eq!(
+            got,
+            StatusCode::FORBIDDEN,
+            "acting {method} {path}: got {got}"
+        );
+    }
+}
+
+/// The composition hands the admin seam each split section behind the
+/// capability `admin::router` gave it in `oxy-app`.
+#[test]
+fn the_composition_carries_the_first_split_sections() {
+    use oxy_app::surface::Action;
+    let seams = surface_seams();
+    let section_of = |path: &str| {
+        seams
+            .admin
+            .iter()
+            .find(|s| s.decls.iter().any(|d| d.path == path))
+            .map(|s| s.capability)
+    };
+    assert_eq!(
+        section_of("/explorer/threads"),
+        Some(Action::PlatformExplorer)
+    );
+    assert_eq!(section_of("/explorer/runs"), Some(Action::PlatformExplorer));
+    assert_eq!(
+        section_of("/metrics/llm-usage"),
+        Some(Action::PlatformOperate)
+    );
+    assert_eq!(
+        section_of("/metrics/orgs/{org_id}/llm-usage"),
+        Some(Action::PlatformOperate)
+    );
+    // Tenancy's section declares nothing of its own (the console's
+    // `/{*rest}` FleetOk wildcard places it), so find it by capability.
+    assert!(
+        seams
+            .admin
+            .iter()
+            .any(|s| s.capability == Action::PlatformOrgs),
+        "no section behind PlatformOrgs"
+    );
+}

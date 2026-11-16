@@ -475,6 +475,15 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_threads",
         function: "workspace_routes",
     },
+    // The same crate's staff-console half — the Explorer's cross-tenant thread
+    // and run search, out of `oxy-app`'s `admin::explorer` in the admin split —
+    // rides `SurfaceSeams::admin`, so it lands inside `/api/admin`.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_threads",
+        function: "admin_routes",
+    },
     // `oxy-api-workspaces` (2026-11-16): an org's workspace list, delete and
     // rename ride `SurfaceSeams::api` under `/orgs/{org_id}`, where
     // `build_org_routes` had them; `/meta`, the members, the Oxy-staff

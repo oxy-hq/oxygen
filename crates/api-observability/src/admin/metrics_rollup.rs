@@ -7,7 +7,7 @@
 use sea_orm::{DatabaseBackend, DbErr, FromQueryResult, Statement};
 use uuid::Uuid;
 
-use super::scope::org_scope_clause;
+use oxy_app::surface::admin_scope::org_scope_clause;
 
 // Shared CTE
 

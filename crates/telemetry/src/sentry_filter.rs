@@ -807,6 +807,13 @@ mod tests {
             "oxy_api_semantic::data",
             "oxy_api_semantic::preagg",
             "oxy_app::agentic_wiring::sql_http",
+            // The admin split (PR 1): staff-console sections out of oxy-app's
+            // `api::admin`, Postgres only, kept and not the data plane as there.
+            "oxy_api_tenancy::admin::org_subdomains",
+            "oxy_api_observability::admin::metrics",
+            "oxy_api_observability::admin::metrics_pricing",
+            "oxy_api_observability::admin::metrics_rollup",
+            "oxy_api_threads::admin::explorer",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1133,6 +1140,13 @@ mod tests {
             "oxy_api_semantic::data",
             "oxy_api_semantic::preagg",
             "oxy_app::agentic_wiring::sql_http",
+            // The admin split (PR 1): staff-console sections out of oxy-app's
+            // `api::admin`, Postgres only, kept and not the data plane as there.
+            "oxy_api_tenancy::admin::org_subdomains",
+            "oxy_api_observability::admin::metrics",
+            "oxy_api_observability::admin::metrics_pricing",
+            "oxy_api_observability::admin::metrics_rollup",
+            "oxy_api_threads::admin::explorer",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

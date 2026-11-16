@@ -15,18 +15,13 @@ pub mod audit;
 pub mod billing;
 pub mod compiles;
 pub mod delegation;
-pub mod explorer;
 pub mod internal_jobs;
 mod internal_jobs_dead_letter;
 mod internal_jobs_fleet;
 mod internal_jobs_reach;
 mod internal_jobs_rows;
-pub mod metrics;
-pub(crate) mod metrics_pricing;
-pub(crate) mod metrics_rollup;
 pub mod oltp;
 pub mod org_filter;
-pub mod org_subdomains;
 pub mod partners;
 pub mod routing;
 pub mod scope;
@@ -160,6 +155,11 @@ use crate::server::router::{AdminSection, AppState};
 /// app-admin opening.
 /// `extracted` are the sections extracted surface crates contribute through
 /// `SurfaceSeams::admin` — see [`extracted_sections`].
+///
+/// Moved out by the admin split and arriving through `extracted` behind the
+/// capability they had here: Admin → Metrics' LLM cost (`/metrics/*`,
+/// `PlatformOperate`) is `oxy-api-observability`'s, and the Explorer
+/// (`/explorer/*`, `PlatformExplorer`) `oxy-api-threads`'.
 pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
     // route_layer applied per sub-router so only billing gets the strict
     // owner guard; everything else escalates to a capability, and anything
@@ -180,12 +180,10 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // token carrying a standing (`PlatformGrants`) moved to
         // `oxy-api-identity` and arrive through `extracted` below, behind the
         // capabilities they had here.
-        .merge(explorer::router().route_layer(cap(Action::PlatformExplorer)))
-        .merge(metrics::router().route_layer(cap(Action::PlatformOperate)))
-        // Org and workspace administration (`/orgs*`, `/workspaces*`) moved to
+        // Org and workspace administration (`/orgs*`, `/workspaces*`), and an
+        // org's subdomain (`/orgs/{org_id}/subdomain`), moved to
         // `oxy-api-tenancy` and arrive through `extracted` below, behind
         // `PlatformOrgs` — the capability they had here.
-        .merge(org_subdomains::router().route_layer(cap(Action::PlatformOrgs)))
         .merge(users_admin::router().route_layer(cap(Action::PlatformUsers)))
         .merge(routing::router().route_layer(cap(Action::PlatformOperate)))
         // Per-org OLTP: provisioning creates a billable project at the

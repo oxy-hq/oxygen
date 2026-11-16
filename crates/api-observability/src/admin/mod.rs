@@ -17,6 +17,13 @@
 //! | `GET /observability/orgs/{org_id}/apps` | one org's custom-app performance |
 //! | `GET /observability/orgs/{org_id}/resources` | what the org consumes, by meter |
 //!
+//! Beside them, Admin → Metrics' LLM cost ([`metrics`]: `GET /metrics/llm-usage`,
+//! the cross-tenant overview, and `GET /metrics/orgs/{org_id}/llm-usage`, one
+//! org's daily series), moved out of `oxy-app`'s `admin::metrics` in the admin
+//! split behind the same capability. Its SQL is [`metrics_rollup`] and its
+//! pricing [`metrics_pricing`], both on `oxy_app_core::llm_usage`, the rate
+//! table `cost_rollup` prices with.
+//!
 //! ## Two rules every handler here keeps
 //!
 //! **The staff-scope fence runs before the read.** `PlatformOperate` is held
@@ -38,6 +45,9 @@ mod cost_rollup;
 mod derive;
 mod fleet;
 mod meters;
+pub mod metrics;
+mod metrics_pricing;
+mod metrics_rollup;
 mod rates;
 mod resources;
 mod scale;
@@ -83,12 +93,13 @@ pub fn routes() -> Router<AppState> {
         .merge(cost::router())
         .merge(apps::router())
         .merge(resources::router())
+        .merge(metrics::router())
 }
 
 /// Pod placement, relative to `/admin`.
 ///
-/// Every route is `FleetOk`: all three are reads of persisted data — Postgres
-/// for cost, the ClickHouse product store for performance — and no handler
+/// Every route is `FleetOk`: all are reads of persisted data — Postgres for
+/// cost and LLM usage, the ClickHouse product store for performance — and no handler
 /// touches the working copy, `.git` or the state directory. Every replica
 /// reaches both the same way, or none does.
 pub fn route_roles() -> &'static [RouteRoleDecl] {
@@ -110,6 +121,8 @@ const ROUTE_ROLES: &[RouteRoleDecl] = &[
     fleet_ok("/observability/orgs/{org_id}/cost"),
     fleet_ok("/observability/orgs/{org_id}/apps"),
     fleet_ok("/observability/orgs/{org_id}/resources"),
+    fleet_ok("/metrics/llm-usage"),
+    fleet_ok("/metrics/orgs/{org_id}/llm-usage"),
 ];
 
 /// The window every route takes.
@@ -190,6 +203,8 @@ mod tests {
         "/observability/orgs/d9830be4-c6a4-4d4e-9b0e-6f1f0f1a2b3c/cost",
         "/observability/orgs/d9830be4-c6a4-4d4e-9b0e-6f1f0f1a2b3c/apps",
         "/observability/orgs/d9830be4-c6a4-4d4e-9b0e-6f1f0f1a2b3c/resources",
+        "/metrics/llm-usage",
+        "/metrics/orgs/d9830be4-c6a4-4d4e-9b0e-6f1f0f1a2b3c/llm-usage",
     ];
 
     async fn trace(router: &Router, uri: &str) -> StatusCode {
