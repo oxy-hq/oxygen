@@ -78,7 +78,7 @@ fn asking_token<'a>(
     actor: &'a RequestActor,
 ) -> Result<&'a CredentialContext, TokenError> {
     let credential = actor.credential.as_ref().ok_or(TokenError::NoToken)?;
-    if credential.kind != StoredKind::Personal || credential.is_legacy() {
+    if credential.kind != StoredKind::Personal {
         return Err(TokenError::PersonalTokenRequired);
     }
     // A token session carries its token's credential. It presents a JWT, not
@@ -214,7 +214,7 @@ mod tests {
     use axum::http::HeaderValue;
     use uuid::Uuid;
 
-    fn credential(kind: StoredKind, legacy_api_key_id: Option<Uuid>) -> CredentialContext {
+    fn credential(kind: StoredKind) -> CredentialContext {
         CredentialContext {
             token_id: Uuid::from_u128(9),
             kind,
@@ -224,7 +224,6 @@ mod tests {
             partner: false,
             name: "t".into(),
             display_prefix: "oxy_pat_".into(),
-            legacy_api_key_id,
             blocked_orgs: Vec::new(),
             expires_at: None,
             grants: Vec::new(),
@@ -277,7 +276,7 @@ mod tests {
 
     #[test]
     fn a_personal_token_presented_as_a_token_may_ask() {
-        let actor = actor(Some(credential(StoredKind::Personal, None)));
+        let actor = actor(Some(credential(StoredKind::Personal)));
         let asked = asking_token(&presenting("Bearer oxy_pat_abc"), &actor);
         assert_eq!(asked.map(|c| c.token_id).ok(), Some(Uuid::from_u128(9)));
     }
@@ -293,7 +292,7 @@ mod tests {
     fn a_token_session_cannot_renew_itself() {
         // The credential is the token's, but what was presented is the
         // session's JWT (here in the header; the cookie reads the same).
-        let actor = actor(Some(credential(StoredKind::Personal, None)));
+        let actor = actor(Some(credential(StoredKind::Personal)));
         for headers in [presenting("eyJ.token.session"), HeaderMap::new()] {
             assert!(matches!(
                 asking_token(&headers, &actor),
@@ -302,15 +301,17 @@ mod tests {
         }
     }
 
+    /// A browser session is a person's, so only a person's token opens one.
+    /// `legacy_key` is in the list although admission refuses the kind before
+    /// a request ever carries it: this is the second lock, and it costs one
+    /// line.
     #[test]
     fn every_other_kind_of_credential_is_refused() {
-        let legacy_minted = credential(StoredKind::Personal, Some(Uuid::from_u128(4)));
         let others = [
-            credential(StoredKind::LegacyKey, Some(Uuid::from_u128(4))),
-            credential(StoredKind::ServiceAccount, None),
-            credential(StoredKind::Ci, None),
-            credential(StoredKind::SandboxAgent, None),
-            legacy_minted,
+            credential(StoredKind::LegacyKey),
+            credential(StoredKind::ServiceAccount),
+            credential(StoredKind::Ci),
+            credential(StoredKind::SandboxAgent),
         ];
         for other in others {
             let kind = other.kind;

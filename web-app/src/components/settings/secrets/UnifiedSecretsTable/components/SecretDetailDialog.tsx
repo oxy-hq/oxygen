@@ -1,5 +1,16 @@
 import { formatDistanceToNow } from "date-fns";
-import { Check, Code2, Copy, Edit, Eye, EyeOff, Share2, Trash2, UserRound } from "lucide-react";
+import {
+  Check,
+  Code2,
+  Copy,
+  Edit,
+  Eye,
+  EyeOff,
+  Share2,
+  Trash2,
+  UserRound,
+  Users
+} from "lucide-react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -24,8 +35,10 @@ interface SecretDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Change which apps read a workspace secret. */
   onShare: (row: UnifiedRow) => void;
+  /** Move an app's own secret to the workspace, so other apps can read it. */
+  onLift: (row: UnifiedRow) => void;
   onEdit: (secret: Secret) => void;
-  onDelete: (secret: Secret) => void;
+  onDelete: (row: UnifiedRow) => void;
 }
 
 const DetailField: React.FC<React.PropsWithChildren<{ label: string }>> = ({ label, children }) => (
@@ -47,6 +60,7 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
   open,
   onOpenChange,
   onShare,
+  onLift,
   onEdit,
   onDelete
 }) => {
@@ -161,7 +175,7 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
 
           <DetailField label='Read by'>
             <div className='flex flex-col gap-2'>
-              <AvailableTo row={row} compact={false} />
+              <AvailableTo row={row} />
               <span className='text-muted-foreground text-xs'>
                 {row.app ? (
                   <>
@@ -172,10 +186,21 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
                     Each app reads it as <code>ctx.env.{row.name}</code> — one value, rotated here.
                   </>
                 ) : (
-                  "No app reads it. Share it to let an app read it."
+                  "No app reads it yet. Choose the apps that should."
                 )}
               </span>
-              {!row.app && (
+              {row.app ? (
+                <Button
+                  variant='outline'
+                  size='sm'
+                  className='w-fit'
+                  onClick={() => onLift(row)}
+                  data-testid='secret-detail-lift'
+                >
+                  <Users className='size-3.5' />
+                  Share with more apps
+                </Button>
+              ) : (
                 <Button
                   variant='outline'
                   size='sm'
@@ -184,7 +209,7 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
                   data-testid='secret-detail-share'
                 >
                   <Share2 className='size-3.5' />
-                  {row.sharedWith.length > 0 ? "Change apps" : "Share with apps"}
+                  {row.sharedWith.length > 0 ? "Change apps" : "Choose apps"}
                 </Button>
               )}
             </div>
@@ -216,7 +241,7 @@ export const SecretDetailDialog: React.FC<SecretDetailDialogProps> = ({
             variant='ghost'
             size='sm'
             className='text-destructive hover:bg-destructive/10 hover:text-destructive'
-            onClick={() => onDelete(row.secretInfo)}
+            onClick={() => onDelete(row)}
           >
             <Trash2 className='size-4' />
             Delete

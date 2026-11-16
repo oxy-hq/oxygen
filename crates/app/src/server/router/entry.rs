@@ -221,7 +221,7 @@ pub async fn api_router(
     // interval in `fleet_job_claims`, so starting them on both is safe.
     super::fleet_jobs::start_fleet_jobs(
         &fleet_jobs,
-        &super::fleet_jobs::FleetJobDeps {
+        &super::seams::FleetJobDeps {
             db: &agentic_state.db,
             shutdown: &agentic_state.shutdown_token,
         },

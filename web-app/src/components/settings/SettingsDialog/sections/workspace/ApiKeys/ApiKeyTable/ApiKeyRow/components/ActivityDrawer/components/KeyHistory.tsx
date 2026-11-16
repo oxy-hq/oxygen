@@ -1,8 +1,8 @@
 import { Ban, CalendarPlus, KeyRound, type LucideIcon, RefreshCw } from "lucide-react";
 import type React from "react";
-import type { TokenNoun } from "@/hooks/api/apiKeys/extendMessages";
+import type { TokenNoun } from "@/hooks/api/tokens/extendMessages";
 import { cn } from "@/libs/shadcn/utils";
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { ApiKeyActivityEvent } from "@/types/apiKey";
 import { type ExpiryChange, expiryChange, lifecycleLabel } from "../activity";
 import { RelativeTime } from "./RelativeTime";
@@ -14,7 +14,7 @@ const ICONS: Record<string, LucideIcon> = {
   "token.revoked": Ban
 };
 
-const expiryText = (iso: string | null) => (iso ? ApiKeyService.formatDay(iso) : "no expiry");
+const expiryText = (iso: string | null) => (iso ? TokenExpiry.formatDay(iso) : "no expiry");
 
 /** "Oct 3, 2026 → Jan 1, 2027": the old expiry recedes, the new one is what holds now. */
 const ExpiryDelta: React.FC<{ change: ExpiryChange }> = ({ change }) => (

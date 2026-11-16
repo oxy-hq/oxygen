@@ -78,20 +78,20 @@ fn stmt(sql: &str, values: Vec<sea_orm::Value>) -> Statement {
     Statement::from_sql_and_values(DatabaseBackend::Postgres, sql, values)
 }
 
-/// [`notice_due`] in SQL. Every kind that can be extended: a personal token, a
-/// legacy key (whose `api_keys` row must still be active — a pod one release
-/// back revokes there alone) and a service-account token. Never `ci`: it
-/// lives 15 minutes and has no Extend.
+/// [`notice_due`] in SQL. Every kind that can be extended: a personal token
+/// and a service-account token. Never `ci`: it lives 15 minutes and has no
+/// Extend. Never a legacy row either — the keys were removed, so telling
+/// someone theirs is about to expire would be telling them about a credential
+/// that stopped working months earlier.
 const DUE_NOTICES_SQL: &str = r#"
 SELECT t.* FROM api_tokens t
 WHERE t.expiry_notified_at IS NULL
   AND t.revoked_at IS NULL
-  AND t.kind IN ('personal', 'legacy_key', 'service_account')
+  AND t.kind IN ('personal', 'service_account')
+  AND t.legacy_api_key_id IS NULL
   AND t.expires_at > $1
   AND t.expires_at <= $1 + make_interval(days => $2)
   AND t.created_at <= t.expires_at - make_interval(days => $2)
-  AND (t.legacy_api_key_id IS NULL
-       OR EXISTS (SELECT 1 FROM api_keys k WHERE k.id = t.legacy_api_key_id AND k.is_active))
 ORDER BY t.expires_at, t.id
 LIMIT $3
 "#;

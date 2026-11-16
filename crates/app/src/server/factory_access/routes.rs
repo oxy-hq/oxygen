@@ -71,18 +71,12 @@ pub const CUSTOMER: &[(&str, &str)] = &[
     ("GET", "/org-subdomain"),
     ("GET", "/builder-availability"),
     // Settings the customer's own officers reach: the activity log, who is in the
-    // workspace, API keys and tokens, and the Oxy-access lockdown switch.
+    // workspace, the tokens that reach it, and the Oxy-access lockdown switch.
     ("GET", "/logs"),
     ("*", "/oxy-access"),
     ("GET", "/members"),
     ("PUT", "/members/{user_id}"),
     ("DELETE", "/members/{user_id}"),
-    ("GET", "/api-keys"),
-    ("POST", "/api-keys"),
-    ("GET", "/api-keys/{id}"),
-    ("DELETE", "/api-keys/{id}"),
-    ("GET", "/api-keys/{id}/activity"),
-    ("POST", "/api-keys/{id}/extend"),
     ("GET", "/api-tokens"),
     // ── Custom apps ───────────────────────────────────────────────────────────
     ("GET", "/custom-apps"),

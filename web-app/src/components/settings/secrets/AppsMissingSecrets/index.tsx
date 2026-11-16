@@ -33,7 +33,7 @@ export const AppsMissingSecrets = ({
       data-testid='secrets-apps-missing'
     >
       <h3 className='flex items-center gap-2 font-medium text-sm'>
-        <TriangleAlert className='size-4 text-warning' />
+        <TriangleAlert className='size-4 text-status-warning-text' />
         {apps.length === 1
           ? "An app is missing secrets"
           : `${apps.length} apps are missing secrets`}
@@ -77,7 +77,7 @@ export const AppsMissingSecrets = ({
                   >
                     <Plus className='size-3' />
                     {key.key}
-                    {key.required && <span className='text-warning'>required</span>}
+                    {key.required && <span className='text-status-warning-text'>required</span>}
                   </Button>
                 );
               })}

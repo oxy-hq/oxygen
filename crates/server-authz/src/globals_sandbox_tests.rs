@@ -37,7 +37,6 @@ fn agent(email: &str) -> Caller {
         partner: false,
         name: "agent".into(),
         display_prefix: "oxy_sbx_Ab3x".into(),
-        legacy_api_key_id: None,
         blocked_orgs: Vec::new(),
         expires_at: None,
         service_account: None,

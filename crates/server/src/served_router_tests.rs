@@ -896,7 +896,7 @@ async fn the_external_tree_mounts_the_world_model_app() {
     .await
     .expect("router built");
     let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
-    // The first guest request creates the guest user the key will belong to.
+    // The first guest request creates the guest user the token will belong to.
     status(&router, &Method::GET, "/live").await;
     let db = sea_orm::Database::connect(std::env::var("OXY_DATABASE_URL").unwrap())
         .await
@@ -907,19 +907,22 @@ async fn the_external_tree_mounts_the_world_model_app() {
         .await
         .expect("query the guest")
         .expect("the guest user exists after a guest request");
-    let key = oxy_auth::ApiKeyService::create_api_key(
+    let key = oxy_auth::token::personal::create(
         &db,
-        oxy_auth::CreateApiKeyParams {
+        oxy_auth::token::personal::NewToken {
             user_id: guest.id,
             name: "served-router".into(),
+            all_access: true,
+            platform: true,
+            partner: true,
+            grants: Vec::new(),
             expires_at: None,
-            project_id: ws,
+            source: oxy_auth::token::credential::source::UI,
         },
-        &oxy_auth::ApiKeyConfig::default(),
     )
     .await
-    .expect("mint a key")
-    .key;
+    .expect("mint a token")
+    .secret;
 
     let unmounted = format!("/{ws}/world-model/nothing-mounts-this");
     assert_eq!(
@@ -1218,13 +1221,16 @@ async fn both_modes_mount_the_world_model_customer_app_twins() {
     }
 }
 
-/// The workspace seam carries the legacy keys and the token inventory into the
-/// `/{workspace_id}` tree. PUT, which neither path takes, answers 405 from a
-/// mounted path and 404 from an unmounted one, whatever the handler would say.
-/// Local mode for the reason `the_workspace_tree_mounts_the_world_model_app`
-/// gives.
+/// The workspace seam carries the token inventory into the `/{workspace_id}`
+/// tree. PUT, which the path does not take, answers 405 from a mounted path and
+/// 404 from an unmounted one, whatever the handler would say. Local mode for the
+/// reason `the_workspace_tree_mounts_the_world_model_app` gives.
+///
+/// `/api-keys` was mounted beside it until legacy API keys were removed on
+/// 2026-11-16; it is now one of the unmounted paths this asserts 404 for, which
+/// is the point rather than an omission.
 #[tokio::test]
-async fn the_workspace_tree_mounts_the_legacy_keys_and_token_inventory() {
+async fn the_workspace_tree_mounts_the_token_inventory() {
     if db_unavailable() {
         return;
     }
@@ -1240,14 +1246,21 @@ async fn the_workspace_tree_mounts_the_legacy_keys_and_token_inventory() {
         StatusCode::NOT_FOUND,
         "control: an unmounted path must be 404"
     );
-    for path in ["/api-keys", "/api-tokens"] {
-        let got = status(&router, &Method::PUT, &format!("/{ws}{path}")).await;
-        assert_eq!(
-            got,
-            StatusCode::METHOD_NOT_ALLOWED,
-            "PUT /{{ws}}{path} must reach a mounted route, got {got}"
-        );
-    }
+    let got = status(&router, &Method::PUT, &format!("/{ws}/api-tokens")).await;
+    assert_eq!(
+        got,
+        StatusCode::METHOD_NOT_ALLOWED,
+        "PUT /{{ws}}/api-tokens must reach a mounted route, got {got}"
+    );
+
+    // And the removed one is gone from the tree, not merely refused by its
+    // handler: 404, the same as a path nobody ever mounted.
+    let got = status(&router, &Method::PUT, &format!("/{ws}/api-keys")).await;
+    assert_eq!(
+        got,
+        StatusCode::NOT_FOUND,
+        "PUT /{{ws}}/api-keys must be unmounted, got {got}"
+    );
 }
 
 /// The admin seam carries the two token sections into the staff console, behind

@@ -30,7 +30,7 @@ use super::{
     ManageApiAccess, ManagesServiceAccounts, ManagesTokenPolicy, RevokesTokenGrants,
     ViewsTokenInventory, account_tokens, accounts, inventory, revoke_grant, trust_policies,
 };
-use crate::api_keys::activity::{ActivityQuery, ActivityResponse, page_size};
+use crate::token_activity::{ActivityQuery, ActivityResponse, page_size};
 use crate::user_tokens::dto::TokenDto;
 use crate::user_tokens::error::TokenError;
 use crate::user_tokens::handlers::{TokenList, TokenWithSecret, parse, token_id};

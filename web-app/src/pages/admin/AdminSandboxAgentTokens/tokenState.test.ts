@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// jsdom because expiry is judged by `ApiKeyService`, the same call the Expiry cell makes, and
+// jsdom because expiry is judged by `TokenExpiry`, the same call the Expiry cell makes, and
 // that module loads the API client.
 
 import { describe, expect, it } from "vitest";

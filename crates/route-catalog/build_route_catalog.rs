@@ -289,7 +289,7 @@ const SEEDS: &[Seed] = &[
     // mobile sign-in approval ride `SurfaceSeams::api`; signing in, `/user`,
     // the CLI's halves, the ticket redeem, the OIDC exchange and leak reports
     // ride `SurfaceSeams::public`; the legacy
-    // `/api-keys` and `/api-tokens` ride `SurfaceSeams::workspace`; the two
+    // `/api-tokens` rides `SurfaceSeams::workspace`; the two
     // token sections ride `SurfaceSeams::admin`.
     Seed {
         surface: "org",

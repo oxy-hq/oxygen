@@ -22,7 +22,7 @@ use sea_orm::{
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::legacy_reach::{assert_full_reach, world};
+use super::full_reach::{assert_full_reach, world};
 use super::oidc::{
     OWNER_ID, Run, exchange, exchange_as, exchange_ok, policies_uri, policy_body, register_policy,
     trust_test_keys, whole_org,
@@ -31,7 +31,7 @@ use super::service_accounts::{
     admin_fixture, create_account, in_session, with_token, workspace_status,
 };
 use super::stack::{flat_api, published_app};
-use super::{Fixture, call, endpoint_key, legacy_key, minted_pat};
+use super::{Fixture, call, minted_pat};
 
 const LEGACY_EXCHANGE: &str = "/customer-apps/publish/oidc-exchange";
 
@@ -258,17 +258,9 @@ async fn the_sweep_removes_spent_jtis_and_long_expired_ci_tokens_and_nothing_els
     let (live, _) = exchange_ok(&fx, &Run::new()).await;
     expire(&fx.db, long_gone, Duration::days(31)).await;
     expire(&fx.db, recent, Duration::days(29)).await;
-    // Tokens of every other kind, expired just as long ago. A key an older pod
-    // minted lives in `api_keys` alone until backfill or first use mirrors it
-    // into `api_tokens` under the same id; mirror it, so the sweep sees a row.
-    let (key, _) = legacy_key(&fx, None).await;
-    oxy_auth::token::store::ensure_legacy_row(
-        &fx.db,
-        key,
-        oxy_auth::token::credential::source::LEGACY_LAZY,
-    )
-    .await
-    .expect("mirror the legacy key");
+    // Tokens of every other kind, expired just as long ago — including a
+    // leftover legacy row, which the sweep must leave where it is.
+    let (key, _) = super::mirrored_legacy_key(&fx, None).await;
     let (pat, _) = minted_pat(&fx, None).await;
     let (sat, _) =
         super::service_accounts::mint_account_token(&fx, sa, json!({ "name": "t" })).await;
@@ -311,25 +303,27 @@ async fn the_sweep_removes_spent_jtis_and_long_expired_ci_tokens_and_nothing_els
     }
 }
 
+/// An all-access personal token is untouched by everything trusted access
+/// adds: a policy, an exchange, a `ci` token, a sweep. This was the legacy-key
+/// regression before the keys were removed; the invariant it protects — that
+/// one org's CI machinery cannot narrow or end a credential that is not its
+/// account's — belongs to every credential, so a token carries it now.
 #[tokio::test]
-async fn a_legacy_key_is_unaffected_by_trust_policies_exchanges_and_sweeps() {
+async fn an_all_access_token_is_unaffected_by_trust_policies_exchanges_and_sweeps() {
     trust_test_keys();
-    // A staff member who owns two orgs, holding keys minted before any of it.
     let w = world().await;
     let fx: &Fixture = &w.fx;
-    let (legacy, key) = legacy_key(fx, None).await;
-    let (minted, pat) = endpoint_key(fx, None).await;
-    assert_full_reach(&w, "an oxy_<hex> key, before", &key).await;
-    assert_full_reach(&w, "a legacy-endpoint token, before", &pat).await;
+    let (minted, pat) = minted_pat(fx, None).await;
+    assert_full_reach(&w, "an all-access token, before", &pat).await;
 
     // The org gains an account, policies and ci tokens; a policy is disabled
     // and deleted; tokens are swept; an exchange is refused.
     let sa = create_account(fx, "deployer", "admin").await;
     let policy = register_policy(fx, sa, policy_body(json!([whole_org("admin")]))).await;
     let (_, ci_secret) = exchange_ok(fx, &Run::new()).await;
-    // An admin-ceiling ci token of the key's own org cannot touch the key.
+    // An admin-ceiling ci token of the token's own org cannot touch it.
     assert_eq!(
-        status_as(&ci_secret, "DELETE", &format!("/user/tokens/{legacy}")).await,
+        status_as(&ci_secret, "DELETE", &format!("/user/tokens/{minted}")).await,
         StatusCode::FORBIDDEN
     );
     let one = format!("{}/{policy}", policies_uri(fx.org_id, sa));
@@ -340,33 +334,29 @@ async fn a_legacy_key_is_unaffected_by_trust_policies_exchanges_and_sweeps() {
     jti::sweep_expired(&fx.db, now).await.unwrap();
     ci::delete_expired(&fx.db, now).await.unwrap();
 
-    // A legacy key cannot be traded for anything at the exchange.
-    let body = json!({ "token": key, "service_account": sa });
+    // A personal token cannot be traded for anything at the exchange.
+    let body = json!({ "token": pat, "service_account": sa });
     let (status, _) = super::oidc::exchange_with(body).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-    // Nothing narrowed, expired, revoked or deleted them.
-    assert_full_reach(&w, "an oxy_<hex> key, after", &key).await;
-    assert_full_reach(&w, "a legacy-endpoint token, after", &pat).await;
-    for id in [legacy, minted] {
-        let row = api_tokens::Entity::find_by_id(id)
-            .one(&fx.db)
-            .await
-            .unwrap()
-            .expect("the key's row survives the sweep");
-        assert!(row.all_access && row.platform && row.partner);
-        assert!(row.revoked_at.is_none());
-        assert_eq!(row.expires_at, None);
-        assert_eq!(row.trust_policy_id, None);
-    }
-    // A legacy key reads the policy routes as its owner would, and may not
-    // write them — as no key or token may.
+    // Nothing narrowed, expired, revoked or deleted it.
+    assert_full_reach(&w, "an all-access token, after", &pat).await;
+    let row = api_tokens::Entity::find_by_id(minted)
+        .one(&fx.db)
+        .await
+        .unwrap()
+        .expect("the token's row survives the sweep");
+    assert!(row.all_access && row.platform && row.partner);
+    assert!(row.revoked_at.is_none());
+    assert_eq!(row.expires_at, None);
+    assert_eq!(row.trust_policy_id, None);
+
+    // It reads the policy routes as its owner would, and may not write them —
+    // as no token may.
     let uri = policies_uri(fx.org_id, sa);
-    for secret in [&key, &pat] {
-        assert_eq!(status_as(secret, "GET", &uri).await, StatusCode::OK);
-        let body = policy_body(json!([whole_org("admin")]));
-        let (status, refused) = with_token(secret, "POST", &uri, Some(body)).await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(refused["code"], "session_required");
-    }
+    assert_eq!(status_as(&pat, "GET", &uri).await, StatusCode::OK);
+    let body = policy_body(json!([whole_org("admin")]));
+    let (status, refused) = with_token(&pat, "POST", &uri, Some(body)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(refused["code"], "session_required");
 }

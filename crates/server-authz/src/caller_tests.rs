@@ -15,7 +15,7 @@ fn user() -> AuthenticatedUser {
     }
 }
 
-fn credential(kind: StoredKind, legacy_api_key_id: Option<Uuid>) -> CredentialContext {
+fn credential(kind: StoredKind) -> CredentialContext {
     CredentialContext {
         token_id: Uuid::from_u128(9),
         kind,
@@ -25,7 +25,6 @@ fn credential(kind: StoredKind, legacy_api_key_id: Option<Uuid>) -> CredentialCo
         partner: false,
         name: "t".into(),
         display_prefix: "oxy_pat_Ab3x".into(),
-        legacy_api_key_id,
         blocked_orgs: Vec::new(),
         expires_at: None,
         service_account: None,
@@ -39,34 +38,27 @@ fn credential(kind: StoredKind, legacy_api_key_id: Option<Uuid>) -> CredentialCo
     }
 }
 
+/// A session carries no credential, so it narrows nothing and keeps the
+/// user's own standing. A legacy key used to reach here and behave the same
+/// way; it cannot any more, so a session is the only caller that does.
 #[test]
-fn a_session_and_a_legacy_credential_narrow_nothing() {
-    // The marker's flags are irrelevant for a legacy credential: it is
-    // all-access with both standings by definition (design §3.5), and it
-    // shares the browser's assume-role sessions.
-    let legacy_key = credential(StoredKind::LegacyKey, Some(Uuid::from_u128(9)));
-    let legacy_endpoint_token = credential(StoredKind::Personal, Some(Uuid::from_u128(9)));
-    for caller in [
-        Caller::of(&user(), None),
-        Caller::of(&user(), Some(&legacy_key)),
-        Caller::of(&user(), Some(&legacy_endpoint_token)),
-    ] {
-        assert_eq!(caller.reach(), None);
-        assert_eq!(caller.assume_binding(), None);
-        assert_eq!(caller.standing_email(), "staff@oxy.tech");
-        assert!(caller.carries_platform() && caller.carries_partner());
-        assert_eq!(
-            caller.org_ceiling(Uuid::from_u128(123)),
-            Some(RoleCeiling::Owner)
-        );
-        assert!(caller.touches_org(Uuid::from_u128(123)));
-        assert!(!caller.bound_to_grants() && !caller.blocked_somewhere());
-    }
+fn a_session_narrows_nothing() {
+    let caller = Caller::of(&user(), None);
+    assert_eq!(caller.reach(), None);
+    assert_eq!(caller.assume_binding(), None);
+    assert_eq!(caller.standing_email(), "staff@oxy.tech");
+    assert!(caller.carries_platform() && caller.carries_partner());
+    assert_eq!(
+        caller.org_ceiling(Uuid::from_u128(123)),
+        Some(RoleCeiling::Owner)
+    );
+    assert!(caller.touches_org(Uuid::from_u128(123)));
+    assert!(!caller.bound_to_grants() && !caller.blocked_somewhere());
 }
 
 #[test]
 fn an_orgs_block_does_not_bind_an_all_access_token_to_grants() {
-    let mut blocked = credential(StoredKind::Personal, None);
+    let mut blocked = credential(StoredKind::Personal);
     blocked.all_access = true;
     blocked.grants = Vec::new();
     blocked.blocked_orgs = vec![Uuid::from_u128(7)];
@@ -76,14 +68,8 @@ fn an_orgs_block_does_not_bind_an_all_access_token_to_grants() {
     assert!(!caller.touches_org(Uuid::from_u128(7)), "less that org");
     assert!(caller.touches_org(Uuid::from_u128(8)));
 
-    // A legacy key is never blocked, whatever rides beside it.
-    let mut legacy = credential(StoredKind::LegacyKey, Some(Uuid::from_u128(9)));
-    legacy.blocked_orgs = vec![Uuid::from_u128(7)];
-    let caller = Caller::of(&user(), Some(&legacy));
-    assert!(!caller.blocked_somewhere() && caller.touches_org(Uuid::from_u128(7)));
-
     // A grant-bound token is bound by its grants, blocked or not.
-    let mut bound = credential(StoredKind::Personal, None);
+    let mut bound = credential(StoredKind::Personal);
     bound.blocked_orgs = vec![Uuid::from_u128(7)];
     let caller = Caller::of(&user(), Some(&bound));
     assert!(caller.bound_to_grants() && !caller.blocked_somewhere());
@@ -91,7 +77,7 @@ fn an_orgs_block_does_not_bind_an_all_access_token_to_grants() {
 
 #[test]
 fn a_new_format_token_narrows_and_owns_its_assume_sessions() {
-    let token = credential(StoredKind::Personal, None);
+    let token = credential(StoredKind::Personal);
     let caller = Caller::of(&user(), Some(&token));
     assert_eq!(caller.assume_binding(), Some(Uuid::from_u128(9)));
     assert_eq!(caller.standing_email(), "", "platform=false is nobody");
@@ -105,7 +91,7 @@ fn a_new_format_token_narrows_and_owns_its_assume_sessions() {
     assert!(!caller.touches_org(Uuid::from_u128(8)));
     assert!(caller.bound_to_grants());
 
-    let mut all_access = credential(StoredKind::Personal, None);
+    let mut all_access = credential(StoredKind::Personal);
     all_access.all_access = true;
     assert!(
         !Caller::of(&user(), Some(&all_access)).bound_to_grants(),

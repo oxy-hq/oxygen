@@ -1,5 +1,5 @@
+import { tokenState } from "@/libs/tokenState";
 import type { Token } from "@/types/apiToken";
-import { tokenState } from "./tokenState";
 
 /** A staff token list in one sentence, as `TokenListSummary` sets it. */
 export interface TokenSummaryLine {

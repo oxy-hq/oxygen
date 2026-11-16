@@ -1,7 +1,7 @@
 import { CircleAlert } from "lucide-react";
 import type React from "react";
 import { lifetimeLabel, sandboxExpiry } from "@/libs/sandboxAgentToken";
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 
 /**
  * The rows a token request is read in before it is approved, whichever kind of token it asks
@@ -62,7 +62,7 @@ export const LifetimeValue: React.FC<LifetimeProps> = ({ asked, hours, problem }
       <div className='flex flex-wrap gap-x-4'>
         <span className='min-w-40 font-medium'>{lifetimeLabel(hours)}</span>
         <span className='text-muted-foreground'>
-          until {ApiKeyService.formatDate(sandboxExpiry(hours).toISOString())}
+          until {TokenExpiry.formatDate(sandboxExpiry(hours).toISOString())}
         </span>
       </div>
     )}

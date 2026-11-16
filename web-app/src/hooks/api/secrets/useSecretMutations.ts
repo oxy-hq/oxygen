@@ -12,12 +12,27 @@ import type {
 import queryKeys from "../queryKey";
 
 /**
+ * Whether a mutation announces itself. Both default to true, which is right for
+ * a mutation the user asked for on its own. A caller that runs several as one
+ * step of something larger turns them off and reports once, in its own words:
+ * two toasts for one action is noise, and a hook's generic failure beside the
+ * caller's "here is what now exists" is worse than noise.
+ */
+export interface Toasts {
+  toastOnSuccess?: boolean;
+  toastOnError?: boolean;
+}
+
+/**
  * Creates one secret and says so. A caller that creates several for one submit
  * passes `toastOnSuccess: false` and reports them together, so the user gets one
  * toast for one action; a failure is always reported here, naming the secret
  * and saying why in the server's words ("Secret with name 'X' already exists").
  */
-export const useCreateSecret = ({ toastOnSuccess = true }: { toastOnSuccess?: boolean } = {}) => {
+export const useCreateSecret = ({
+  toastOnSuccess = true,
+  toastOnError = true
+}: Toasts = {}) => {
   const queryClient = useQueryClient();
   const { project } = useCurrentProjectBranch();
   const projectId = project.id;
@@ -34,9 +49,11 @@ export const useCreateSecret = ({ toastOnSuccess = true }: { toastOnSuccess?: bo
       console.error("Failed to create secret:", error);
       // With no reason from the server, axios's own message ("Request failed
       // with status code 502", "Network Error") is the one there is.
-      toast.error(`Failed to create secret ${request.name}`, {
-        description: apiErrorMessage(error, error.message)
-      });
+      if (toastOnError) {
+        toast.error(`Failed to create secret ${request.name}`, {
+          description: apiErrorMessage(error, error.message)
+        });
+      }
     }
   });
 };
@@ -65,7 +82,10 @@ export const useUpdateSecret = () => {
   });
 };
 
-export const useDeleteSecret = () => {
+export const useDeleteSecret = ({
+  toastOnSuccess = true,
+  toastOnError = true
+}: Toasts = {}) => {
   const queryClient = useQueryClient();
   const { project } = useCurrentProjectBranch();
   const projectId = project.id;
@@ -76,11 +96,11 @@ export const useDeleteSecret = () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.secret.list(projectId)
       });
-      toast.success("Secret deleted successfully");
+      if (toastOnSuccess) toast.success("Secret deleted successfully");
     },
     onError: (error) => {
       console.error("Failed to delete secret:", error);
-      toast.error("Failed to delete secret");
+      if (toastOnError) toast.error("Failed to delete secret");
     }
   });
 };

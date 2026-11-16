@@ -12,9 +12,9 @@
 
 use axum::http::StatusCode;
 use chrono::{Duration, Utc};
+use entity::notifications;
 use entity::org_invitations::{self, InviteStatus};
 use entity::org_members::OrgRole;
-use entity::{api_token_grants, notifications};
 use oxy_authz::RoleCeiling;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use super::service_accounts::{in_session, with_token};
 use super::stack::{Reach, get_as, ids, join_org, mint, org_grant};
-use super::{Fixture, endpoint_key, fixture, legacy_key, seed_org, seed_workspace_in};
+use super::{Fixture, fixture, seed_org, seed_workspace_in};
 
 /// One of each thing a flat route answers with, in one org.
 struct Seeded {
@@ -416,48 +416,14 @@ async fn a_grant_bound_token_is_refused_on_the_flat_routes_blocked_or_not() {
     }
 }
 
-#[tokio::test]
-async fn a_legacy_key_reaches_every_flat_route_whatever_an_org_decides() {
-    // The hard constraint (§3.5): no policy and no stray block row narrows,
-    // filters or refuses a legacy key, in either of its shapes.
-    let w = world().await;
-    let (seeded_id, seeded) = legacy_key(&w.fx, None).await;
-    let (minted_id, minted) = endpoint_key(&w.fx, None).await;
-    assert_both_orgs(&w, &seeded, "a seeded legacy key").await;
-    assert_both_orgs(&w, &minted, "a key the legacy endpoint minted").await;
-
-    // The tightest policy an org can set…
-    let policy = json!({
-        "max_lifetime_days": 1,
-        "allow_all_access_tokens": false,
-        "require_environment_on_trust_policies": true,
-    });
-    for org in [w.fx.org_id, w.org_b] {
-        let uri = format!("/orgs/{org}/token-policy");
-        let (status, body) = in_session(&w.fx.cookie, "PUT", &uri, Some(policy.clone())).await;
-        assert_eq!(status, StatusCode::OK, "put policy: {body}");
-    }
-    // …revoke-grant, which refuses a legacy key outright…
-    for key in [seeded_id, minted_id] {
-        let token = super::token_row(&w.fx.db, key)
-            .await
-            .expect("the key's mirror row");
-        let uri = format!("/orgs/{}/tokens/{}/revoke-grant", w.fx.org_id, token.id);
-        let (status, _) = in_session(&w.fx.cookie, "POST", &uri, None).await;
-        assert_eq!(status, StatusCode::CONFLICT, "a legacy key's grant");
-        assert!(
-            api_token_grants::Entity::find()
-                .filter(api_token_grants::Column::TokenId.eq(token.id))
-                .all(&w.fx.db)
-                .await
-                .unwrap()
-                .is_empty(),
-            "nothing was written beside a legacy key"
-        );
-    }
-    oxy_auth::token::cache::clear();
-
-    // …and both keys still answer with both orgs, on every family.
-    assert_both_orgs(&w, &seeded, "a seeded legacy key, after").await;
-    assert_both_orgs(&w, &minted, "an endpoint-minted key, after").await;
-}
+// There was a test here — `an_all_access_token_reaches_every_flat_route_in_both_orgs`
+// — asserting that neither an org's policy nor its revoke-grant
+// could narrow the credential's flat-route reach. That was §3.5's hard
+// constraint, and it was true of a legacy key alone: a key was `legacy: true`
+// in `TokenShape`, the one shape a policy never judges, and
+// `revoke_grant::revocable` still answers 409 `legacy_immutable` for one.
+//
+// Nothing inherits the exemption. An all-access personal token is judged like
+// any other, so both levers land on it — which is the hole the removal closed,
+// and is asserted two tests up, in
+// `an_orgs_{revoke_grant,policy}_costs_an_all_access_token_that_orgs_data_only`.

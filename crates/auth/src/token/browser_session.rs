@@ -187,9 +187,6 @@ pub(super) async fn resolve(
         .ok_or_else(|| invalid("no token row for a token session"))?;
     let lapses = verify(jwt, &row).map_err(invalid)?;
     let mut resolved = resolve_row(db, row, TokenFormat::Personal).await?;
-    if resolved.credential.is_legacy() {
-        return Err(invalid("a legacy credential opens no browser session"));
-    }
     resolved.expires_at = Some(resolved.expires_at.map_or(lapses, |at| at.min(lapses)));
     Ok(resolved)
 }

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// jsdom because ApiKeyService's module pulls in the API client, which reads `window.location`.
+// jsdom because TokenExpiry's module pulls in the API client, which reads `window.location`.
 import { describe, expect, it } from "vitest";
 import {
   buildExtendRequest,

@@ -24,7 +24,7 @@ use super::dto::TokenDto;
 use super::error::TokenError;
 use super::sandbox;
 use super::service::{self, Minted};
-use crate::api_keys::activity::{ActivityQuery, ActivityResponse, page_size};
+use crate::token_activity::{ActivityQuery, ActivityResponse, page_size};
 
 #[derive(Serialize)]
 pub struct TokenList {

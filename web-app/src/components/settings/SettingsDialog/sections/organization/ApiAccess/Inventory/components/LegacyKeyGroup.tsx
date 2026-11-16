@@ -18,9 +18,7 @@ import { cn } from "@/libs/shadcn/utils";
 import type { InventoryToken } from "@/types/orgApiAccess";
 import { TokenLifecycleCell } from "../../shared/TokenLifecycleCell";
 import { lastUsedText } from "../../utils/tokens";
-import { LEGACY_REVOKE_TOOLTIP } from "../inventory";
 import { InventoryOwner } from "./InventoryOwner";
-import { LegacyRevokeAction } from "./LegacyRevokeAction";
 
 const CELL = "px-3 py-2.5 align-top max-md:px-0 max-md:py-0";
 
@@ -32,9 +30,12 @@ interface LegacyKeyGroupProps {
 }
 
 /**
- * The legacy API keys that reach an org, in a group of their own below the token list. It has
- * fewer columns than the token table because a legacy API key has less to say: it always reaches
- * what its owner does, and no policy applies to it.
+ * The legacy API keys this org's history holds, in a group of their own below the token list.
+ *
+ * **Every one of them is dead.** Legacy keys were removed; the rows are kept so the record of
+ * what reached the org is not silently rewritten, and so Activity still answers "what did that
+ * key do?". There is nothing to revoke and no row to act on — the group is a ledger now, not a
+ * list of credentials, which is why it is last and why its only action is Activity.
  */
 export function LegacyKeyGroup({ orgId, orgName, legacyKeys }: LegacyKeyGroupProps) {
   return (
@@ -45,11 +46,12 @@ export function LegacyKeyGroup({ orgId, orgName, legacyKeys }: LegacyKeyGroupPro
     >
       <div className='flex flex-col gap-1'>
         <h4 id='api-access-legacy-keys-heading' className='font-medium text-sm'>
-          Legacy API keys
+          Legacy API keys (removed)
         </h4>
         <p className='max-w-xl text-muted-foreground text-xs leading-relaxed'>
-          The older kind of key. Each one reaches everything its owner can in {orgName}, and no rule
-          on the Policy tab applies to it. Only its owner can revoke it.
+          The older `oxy_…` keys. None of them authenticates anything any more — a request carrying
+          one is refused and told to use an API token instead. They are listed so what once reached{" "}
+          {orgName} stays on the record; open Activity to see what a key did.
         </p>
       </div>
 
@@ -88,7 +90,7 @@ interface LegacyKeyInventoryRowProps {
   legacyKey: InventoryToken;
 }
 
-/** One legacy API key: badged Legacy, Activity open, Revoke disabled with the reason. */
+/** One removed legacy API key: badged, greyed, Activity its only action. */
 function LegacyKeyInventoryRow({ orgId, orgName, legacyKey }: LegacyKeyInventoryRowProps) {
   const [activityOpen, setActivityOpen] = useState(false);
   const endpoints = useOrgInventoryEndpoints(orgId);
@@ -96,7 +98,7 @@ function LegacyKeyInventoryRow({ orgId, orgName, legacyKey }: LegacyKeyInventory
 
   return (
     <TableRow
-      className={cn(legacyKey.status === "revoked" && "text-muted-foreground")}
+      className='text-muted-foreground'
       data-testid='api-access-legacy-key-row'
       data-token-name={legacyKey.name}
       data-token-kind={legacyKey.kind}
@@ -118,30 +120,22 @@ function LegacyKeyInventoryRow({ orgId, orgName, legacyKey }: LegacyKeyInventory
         {lastUsedText(legacyKey.last_used_at)}
       </TableCell>
       <TableCell className={cn(CELL, "text-right")}>
-        <div className='flex items-center justify-end gap-0.5'>
-          <Button
-            variant='ghost'
-            size='icon'
-            className='size-7 text-muted-foreground'
-            onClick={() => setActivityOpen(true)}
-            aria-label={`Activity for ${legacyKey.name}`}
-            title='Activity in this organization'
-            data-testid='api-access-legacy-key-activity'
-          >
-            <History className='size-3.5' aria-hidden />
-          </Button>
-          {legacyKey.status === "revoked" ? (
-            // Holds the column's width so the Activity buttons stay aligned down the table.
-            <span className='inline-block size-7' aria-hidden />
-          ) : (
-            <LegacyRevokeAction name={legacyKey.name} reason={LEGACY_REVOKE_TOOLTIP} />
-          )}
-        </div>
+        <Button
+          variant='ghost'
+          size='icon'
+          className='size-7 text-muted-foreground'
+          onClick={() => setActivityOpen(true)}
+          aria-label={`Activity for ${legacyKey.name}`}
+          title='Activity in this organization'
+          data-testid='api-access-legacy-key-activity'
+        >
+          <History className='size-3.5' aria-hidden />
+        </Button>
 
         <ActivityDrawer
           token={summary}
           endpoints={endpoints}
-          scopeNote={`Only what this legacy API key did in ${orgName}. Its use elsewhere isn't shown.`}
+          scopeNote={`Only what this legacy API key did in ${orgName}, while legacy keys still worked. Its use elsewhere isn't shown.`}
           usageNote="Request counts aren't shown for a person's legacy API key: they include its use in other organizations."
           open={activityOpen}
           onOpenChange={setActivityOpen}

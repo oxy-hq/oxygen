@@ -11,14 +11,10 @@
 # and add it to a cloud-mode bucket in `.github/workflows/agentic-tests.yaml`.
 #
 # Why a token and not a key: this flow first created a key in the workspace's
-# API section. That section no longer creates anything — legacy API keys have
-# their own section (Workspace → Legacy API keys) with no create button, and a
-# flow may not seed one, so there is no legacy key for a flow to extend. The
-# Extend popover and the Activity drawer are the same components on both
-# surfaces (which is why their testids still read `api-key-*`, and why this
-# file keeps its name); a personal access token is the one a flow can make.
-# NOT COVERED by any flow: Workspace → Legacy API keys itself. Its unit tests
-# are `sections/workspace/LegacyApiKeys/index.test.tsx`.
+# API section, which no longer creates anything. Legacy API keys were removed
+# altogether, so there is no key left for a flow to extend. The Extend popover
+# and the Activity drawer kept their `api-key-*` testids from that era, which is
+# why this file keeps its name.
 #
 # Surface: Settings dialog → Account → Personal access tokens, opened by the
 # `?settings=account.tokens` deep link (useSettingsDeepLink). The section needs

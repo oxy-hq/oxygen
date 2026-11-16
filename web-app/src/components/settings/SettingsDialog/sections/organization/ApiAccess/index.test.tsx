@@ -97,14 +97,14 @@ vi.mock("@/hooks/api/orgApiAccess", () => ({
 
 // Extend and Activity are the shared token components; their hooks are mocked the way the
 // personal-tokens row mocks them, so this file stays about what each action sends.
-vi.mock("@/hooks/api/apiKeys/useApiKeyMutations", () => ({
+vi.mock("@/hooks/api/tokens/useTokenMutations", () => ({
   useExtendApiKey: (endpoints: unknown) => ({
     mutate: (vars: { token: { id: string }; request: unknown }) =>
       calls.extendToken({ endpoints, tokenId: vars.token.id, request: vars.request }),
     isPending: false
   })
 }));
-vi.mock("@/hooks/api/apiKeys/useApiKeyActivity", () => ({
+vi.mock("@/hooks/api/tokens/useApiKeyActivity", () => ({
   API_KEY_ACTIVITY_LIMIT: 100,
   default: () => ({ isLoading: true, error: null, refetch: vi.fn() })
 }));
@@ -612,7 +612,7 @@ describe("the token inventory", () => {
     expect(rowNamed("nightly sync")).toHaveTextContent("Service account");
   });
 
-  it("lists legacy API keys in a group of their own, never among the tokens", async () => {
+  it("lists removed legacy API keys in a group of their own, never among the tokens", async () => {
     await openInventory();
     // The token list holds the two tokens and nothing else.
     const tokenTable = screen.getByTestId("api-access-inventory-table");
@@ -626,8 +626,10 @@ describe("the token inventory", () => {
 
     // The legacy API key sits below, under its own heading.
     const group = screen.getByTestId("api-access-legacy-keys");
-    expect(within(group).getByRole("heading", { name: "Legacy API keys" })).toBeInTheDocument();
-    expect(group).toHaveTextContent("Each one reaches everything its owner can in Acme");
+    expect(
+      within(group).getByRole("heading", { name: "Legacy API keys (removed)" })
+    ).toBeInTheDocument();
+    expect(group).toHaveTextContent("None of them authenticates anything any more");
     expect(within(group).queryByTestId("api-access-inventory-row")).not.toBeInTheDocument();
     expect(
       tokenTable.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -665,7 +667,7 @@ describe("the token inventory", () => {
     const drawer = await screen.findByTestId("api-key-activity-drawer");
     expect(drawer).toHaveTextContent("old key");
     expect(within(drawer).getByTestId("api-key-activity-scope")).toHaveTextContent(
-      "Only what this legacy API key did in Acme."
+      "Only what this legacy API key did in Acme, while legacy keys still worked."
     );
   });
 
@@ -747,12 +749,14 @@ describe("the token inventory", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows a legacy API key's revoke disabled, with the reason", async () => {
+  /// A disabled Revoke sat here while only the key's owner could end one. The
+  /// removal ended every key, so there is nothing to offer and nothing to
+  /// explain — Activity is the one thing left to do with the row.
+  it("offers nothing but Activity on a removed legacy API key", async () => {
     await openInventory();
     const row = legacyRowNamed("old key");
-    const legacy = within(row).getByTestId("api-access-inventory-revoke-legacy");
-    expect(legacy).toBeDisabled();
-    expect(legacy).toHaveAccessibleName(/Legacy API keys can only be revoked by their owner/);
+    expect(within(row).getByTestId("api-access-legacy-key-activity")).toBeEnabled();
+    expect(within(row).queryByTestId("api-access-inventory-revoke-legacy")).not.toBeInTheDocument();
     expect(within(row).queryByTestId("api-access-inventory-revoke")).not.toBeInTheDocument();
   });
 

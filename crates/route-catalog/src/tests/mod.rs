@@ -75,8 +75,8 @@ const REQUIRED_GROUPS: &[&str] = &[
     // org's API access on the api seam, the CLI's halves of `oxyc login` on the
     // public seam (`/api/auth/` above is its sign-in routes since 2026-11-15,
     // so the exchange pins the token half), and the staff sections on the
-    // admin seam. Its workspace seam
-    // is `/api/{workspace_id}/api-keys` below.
+    // admin seam. Its workspace seam is `/api/{workspace_id}/api-tokens`
+    // below — `/api-keys` was it until legacy API keys were removed.
     "/api/user/tokens",
     "/api/orgs/{org_id}/service-accounts",
     "/api/auth/cli/exchange",
@@ -118,7 +118,7 @@ const REQUIRED_GROUPS: &[&str] = &[
     // The two below are `oxy-api-workspace-config`'s, on the workspace seam.
     "/api/{workspace_id}/databases",
     "/api/{workspace_id}/secrets",
-    "/api/{workspace_id}/api-keys",
+    "/api/{workspace_id}/api-tokens",
     // The three below are `oxy-api-observability`'s, on the workspace seam.
     "/api/{workspace_id}/traces",
     "/api/{workspace_id}/metrics",

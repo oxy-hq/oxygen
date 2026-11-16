@@ -5,8 +5,21 @@
 # already holds or, for the prod bump PR, is minted from the org GitHub App
 # (`custom-app-checks.yaml`'s header lists the chain):
 #
-#   OXY_API_KEY   on custom-app-checks-staging   an API key for the canary user
-#   OXY_API_KEY   on custom-app-checks-prod      on that deployment
+#   OXY_API_KEY   on custom-app-checks-staging   a personal access token for the
+#   OXY_API_KEY   on custom-app-checks-prod        canary user on that deployment
+#
+# Mint each with All access and **platform standing** ticked: the checks page
+# the staff app console to resolve `<org>/<app>`, and a token carries its
+# owner's staff grant only when the mint asks for it (a legacy key carried it
+# implicitly). Without it a leg exits 4, which reads like a wrong value.
+#
+# The name is historical: these held a legacy API key until legacy keys were
+# removed. `X-API-Key` carries a token exactly as it carried a key, so the
+# migration is a change of value. `oxyc tokens create --env <env>` opens the
+# page to mint one — it cannot be minted headlessly, because managing tokens
+# takes a browser session (403 `session_required`, design §4.6). A value still
+# of the old `oxy_<32 hex>` shape is refused by the workflow with that advice
+# (internal-docs/api-token-migration.md).
 #   CUSTOM_APP_CHECKS_CHECKIN_URL  on the repo   the All Quiet check-in URL
 #                                                (`terraform output`), prod only
 #
@@ -141,8 +154,8 @@ set_env_secret() { # set_env_secret <environment> <name> <prompt> <var>
 
 echo "Setting what is missing. Nothing is echoed; an existing secret is kept unless --force."
 echo
-set_env_secret "${STAGING_ENV}" OXY_API_KEY "staging canary API key" STAGING_KEY
-set_env_secret "${PROD_ENV}" OXY_API_KEY "prod canary API key" PROD_KEY
+set_env_secret "${STAGING_ENV}" OXY_API_KEY "staging canary API token (oxy_pat_…)" STAGING_KEY
+set_env_secret "${PROD_ENV}" OXY_API_KEY "prod canary API token (oxy_pat_…)" PROD_KEY
 
 if repo_has "${CHECKIN_SECRET}" && ! "${force}"; then
   echo "  repo/${CHECKIN_SECRET} is already set — leaving it (use --force to replace)"

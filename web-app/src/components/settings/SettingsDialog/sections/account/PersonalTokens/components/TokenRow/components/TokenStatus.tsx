@@ -1,6 +1,6 @@
 import type React from "react";
 import { cn } from "@/libs/shadcn/utils";
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { TokenSummary } from "@/types/apiToken";
 
 interface MarkProps {
@@ -29,9 +29,9 @@ const Mark: React.FC<MarkProps> = ({ off, title, children }) => (
  */
 const TokenStatus: React.FC<{ token: TokenSummary }> = ({ token }) => {
   if (!token.is_active) return <Mark off>Revoked</Mark>;
-  if (ApiKeyService.isExpired(token.expires_at)) return <Mark off>Expired</Mark>;
+  if (TokenExpiry.isExpired(token.expires_at)) return <Mark off>Expired</Mark>;
 
-  const left = ApiKeyService.getTimeUntilExpiration(token.expires_at ?? undefined);
+  const left = TokenExpiry.getTimeUntilExpiration(token.expires_at ?? undefined);
   if (left === null) {
     return (
       <Mark>
@@ -40,7 +40,7 @@ const TokenStatus: React.FC<{ token: TokenSummary }> = ({ token }) => {
     );
   }
   return (
-    <Mark title={token.expires_at ? ApiKeyService.formatDate(token.expires_at) : undefined}>
+    <Mark title={token.expires_at ? TokenExpiry.formatDate(token.expires_at) : undefined}>
       <span className='sr-only'>Active, expires </span>
       <span data-testid='api-key-expiry-countdown'>in {left}</span>
     </Mark>

@@ -204,9 +204,10 @@ describe("oxyc tokens revoke", () => {
     const cause = await refusal(runTokensRevoke(context(), "tok-9"));
     expect(cause.code).toBe(ExitCode.NOT_FOUND);
     expect(cause.message).toContain("no token tok-9 of yours");
-    // A legacy API key's id answers 404 here too: it is not a token. Say where those live.
+    // A legacy API key's id answers 404 here too: it is not a token, and since
+    // the keys were removed there is nothing behind the id at all.
     expect(cause.hint).toContain("a legacy API key is not a token");
-    expect(cause.hint).toContain("Workspace → Legacy API keys");
+    expect(cause.hint).toContain("legacy keys were removed");
   });
 
   it("turns 403 session_required into the same pointer as list", async () => {

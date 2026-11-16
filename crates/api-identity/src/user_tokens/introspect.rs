@@ -10,11 +10,10 @@
 //!   may run the sandbox loop on (`minter`, `apps`): `oxyc` resolves
 //!   `<org>/<app>` against that list, because the token reaches no app
 //!   directory. Every other credential's answer is unchanged.
-//! - A legacy credential — an `oxy_<hex>` key, or a token the legacy endpoint
-//!   minted — can be described but not revoked here (409 `legacy_immutable`).
-//!   It ends only by its owner's hand, in a session, or by its own expiry
-//!   (design §3.5): the same key is often deployed in several places, and one
-//!   of them logging out must not take the others down.
+//! A legacy credential used to be describable here but not revocable
+//! (409 `legacy_immutable`). Legacy keys were removed and no request
+//! authenticates as one any more, so nothing reaches these routes as one and
+//! the special case is gone with it.
 
 use axum::Json;
 use axum::http::StatusCode;
@@ -63,14 +62,6 @@ async fn calling_row(
         .ok_or(TokenError::NoToken)
 }
 
-/// May this credential revoke itself here? A legacy one may not.
-fn may_revoke_itself(credential: &CredentialContext) -> Result<(), TokenError> {
-    if credential.is_legacy() {
-        return Err(TokenError::LegacyImmutable);
-    }
-    Ok(())
-}
-
 /// Describe the token this request authenticated with
 pub async fn get_calling_token(actor: RequestActor) -> Result<Json<CallingToken>, TokenError> {
     let credential = calling(&actor)?;
@@ -91,7 +82,6 @@ pub async fn get_calling_token(actor: RequestActor) -> Result<Json<CallingToken>
 /// Revoke the token this request authenticated with
 pub async fn revoke_calling_token(actor: RequestActor) -> Result<StatusCode, TokenError> {
     let credential = calling(&actor)?;
-    may_revoke_itself(credential)?;
     let db = establish_connection().await?;
     let row = calling_row(&db, &actor, credential).await?;
     service::revoke(&db, &actor, row, "self").await?;
@@ -105,7 +95,7 @@ mod tests {
     use oxy_auth::types::AuthenticatedUser;
     use uuid::Uuid;
 
-    fn credential(kind: StoredKind, legacy_api_key_id: Option<Uuid>) -> CredentialContext {
+    fn credential(kind: StoredKind) -> CredentialContext {
         CredentialContext {
             token_id: Uuid::from_u128(9),
             kind,
@@ -115,7 +105,6 @@ mod tests {
             partner: true,
             name: "t".into(),
             display_prefix: "oxy_".into(),
-            legacy_api_key_id,
             blocked_orgs: Vec::new(),
             expires_at: None,
             service_account: None,
@@ -141,26 +130,10 @@ mod tests {
     #[test]
     fn a_session_has_no_calling_token() {
         assert!(matches!(calling(&actor(None)), Err(TokenError::NoToken)));
-        let with_token = actor(Some(credential(StoredKind::Personal, None)));
+        let with_token = actor(Some(credential(StoredKind::Personal)));
         assert_eq!(
             calling(&with_token).map(|c| c.token_id).ok(),
             Some(Uuid::from_u128(9))
         );
-    }
-
-    #[test]
-    fn a_legacy_credential_cannot_revoke_itself_and_a_personal_token_can() {
-        let key = Some(Uuid::from_u128(9));
-        for legacy in [
-            credential(StoredKind::LegacyKey, key),
-            // Minted by the legacy endpoint: new format, legacy reach.
-            credential(StoredKind::Personal, key),
-        ] {
-            assert!(matches!(
-                may_revoke_itself(&legacy),
-                Err(TokenError::LegacyImmutable)
-            ));
-        }
-        assert!(may_revoke_itself(&credential(StoredKind::Personal, None)).is_ok());
     }
 }

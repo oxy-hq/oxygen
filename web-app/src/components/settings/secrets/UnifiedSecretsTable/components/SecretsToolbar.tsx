@@ -1,33 +1,60 @@
 import { Search } from "lucide-react";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/shadcn/input-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/shadcn/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/shadcn/toggle-group";
-import type { SecretsFilter } from "../types";
+import type { AppRef, SecretsFilter, SecretsScope } from "../types";
 
 const FILTERS: { value: SecretsFilter; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "shared", label: "Shared" },
-  { value: "workspace", label: "Workspace only" },
-  { value: "app", label: "App-only" }
+  { value: "shared", label: "Shared with apps" },
+  { value: "unshared", label: "Workspace only" }
 ];
 
+/** The app filter's value for "don't narrow by app". A `Select` cannot hold "". */
+const ANY_APP = "all";
+
+interface SecretsToolbarProps {
+  scope: SecretsScope;
+  query: string;
+  onQuery: (query: string) => void;
+  /** Workspace tab: whether any app reads the secret. */
+  filter: SecretsFilter;
+  onFilter: (filter: SecretsFilter) => void;
+  counts: Record<SecretsFilter, number>;
+  /** Custom apps tab: the apps that own at least one secret, and how many. */
+  apps: AppRef[];
+  appCounts: Map<string, number>;
+  appId?: string;
+  onApp: (appId?: string) => void;
+}
+
 /**
- * Search and filter for the secrets table. A filter with nothing in it is not
- * offered (a chip that selects nothing is noise), but the one in use always is,
- * so it can be cleared.
+ * Search, plus the one way of narrowing that the open tab actually has.
+ *
+ * Workspace secrets divide by whether an app reads them, which is two chips.
+ * App secrets divide by app, which is a list that grows with the workspace — so
+ * that one is a select, and it names the count beside each app.
  */
 export const SecretsToolbar = ({
+  scope,
   query,
   onQuery,
   filter,
   onFilter,
-  counts
-}: {
-  query: string;
-  onQuery: (query: string) => void;
-  filter: SecretsFilter;
-  onFilter: (filter: SecretsFilter) => void;
-  counts: Record<SecretsFilter, number>;
-}) => {
+  counts,
+  apps,
+  appCounts,
+  appId,
+  onApp
+}: SecretsToolbarProps) => {
+  // A chip that would select nothing is noise; the one in use always stays, so
+  // it can be cleared.
   const offered = FILTERS.filter(
     (f) => f.value === "all" || f.value === filter || counts[f.value] > 0
   );
@@ -38,14 +65,15 @@ export const SecretsToolbar = ({
           <Search />
         </InputGroupAddon>
         <InputGroupInput
-          placeholder='Search secrets or apps'
+          placeholder={scope === "app" ? "Search keys or apps" : "Search secrets or apps"}
           aria-label='Search secrets'
           value={query}
           onChange={(e) => onQuery(e.target.value)}
           data-testid='secrets-search'
         />
       </InputGroup>
-      {offered.length > 2 && (
+
+      {scope === "workspace" && offered.length > 2 && (
         <ToggleGroup
           type='single'
           size='sm'
@@ -67,6 +95,33 @@ export const SecretsToolbar = ({
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
+      )}
+
+      {scope === "app" && apps.length > 1 && (
+        <Select
+          value={appId ?? ANY_APP}
+          onValueChange={(value) => onApp(value === ANY_APP ? undefined : value)}
+        >
+          <SelectTrigger
+            size='sm'
+            className='sm:w-56'
+            aria-label='Filter by app'
+            data-testid='secrets-app-filter'
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY_APP}>All apps</SelectItem>
+            {apps.map((app) => (
+              <SelectItem key={app.id} value={app.id}>
+                {app.name}
+                <span className='ml-1 text-muted-foreground tabular-nums'>
+                  {appCounts.get(app.id) ?? 0}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
     </div>
   );

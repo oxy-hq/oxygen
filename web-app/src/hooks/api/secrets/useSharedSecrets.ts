@@ -5,6 +5,7 @@ import { apiErrorMessage } from "@/libs/apiError";
 import { SecretService } from "@/services/secretService";
 import type { SharedSecret, SharedSecretsResponse } from "@/types/sharedSecrets";
 import queryKeys from "../queryKey";
+import type { Toasts } from "./useSecretMutations";
 
 /**
  * Which apps each workspace secret is shared with, and the keys each app of the
@@ -23,7 +24,7 @@ export const useSharedSecrets = (enabled = true) => {
  * Share one workspace secret with exactly `appIds`. Refetches the sharing view
  * and every app's secrets view (a shared key stops reading as missing there).
  */
-export const useShareSecret = ({ toastOnSuccess = true }: { toastOnSuccess?: boolean } = {}) => {
+export const useShareSecret = ({ toastOnSuccess = true, toastOnError = true }: Toasts = {}) => {
   const queryClient = useQueryClient();
   const { project } = useCurrentProjectBranch();
   return useMutation<SharedSecret, Error, { secretId: string; name: string; appIds: string[] }>({
@@ -40,9 +41,11 @@ export const useShareSecret = ({ toastOnSuccess = true }: { toastOnSuccess?: boo
       }
     },
     onError: (error, { name }) => {
-      toast.error(`Couldn't change which apps can read ${name}`, {
-        description: apiErrorMessage(error, error.message)
-      });
+      if (toastOnError) {
+        toast.error(`Couldn't change which apps can read ${name}`, {
+          description: apiErrorMessage(error, error.message)
+        });
+      }
     }
   });
 };

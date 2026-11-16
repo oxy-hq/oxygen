@@ -21,7 +21,6 @@ import ApiKeys from "../sections/workspace/ApiKeys";
 import Apps from "../sections/workspace/Apps";
 import Connections from "../sections/workspace/Connections";
 import Databases from "../sections/workspace/Databases";
-import LegacyApiKeys from "../sections/workspace/LegacyApiKeys";
 import WorkspaceMembers from "../sections/workspace/Members";
 import Oltp from "../sections/workspace/Oltp";
 import OxyAccess from "../sections/workspace/OxyAccess";
@@ -100,7 +99,6 @@ export function ActiveSection({ activeSection, org, role, workspace, close }: Ac
         <Previews workspace={workspace} onOpened={close} />
       )}
       {workspace && activeSection === "workspace.api_keys" && <ApiKeys />}
-      {workspace && activeSection === "workspace.legacy_api_keys" && <LegacyApiKeys />}
       {workspace && activeSection === "workspace.secrets" && <Secrets />}
       {workspace && activeSection === "workspace.connections" && <Connections />}
       {workspace && activeSection === "workspace.apps" && <Apps />}

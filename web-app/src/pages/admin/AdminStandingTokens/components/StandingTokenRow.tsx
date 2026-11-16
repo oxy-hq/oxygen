@@ -1,6 +1,7 @@
 import AccessCell from "@/components/settings/SettingsDialog/sections/account/PersonalTokens/components/TokenRow/components/AccessCell";
 import { TableCell } from "@/components/ui/shadcn/table";
 import { cn } from "@/libs/shadcn/utils";
+import { tokenState } from "@/libs/tokenState";
 import {
   TOKEN_CELL,
   TokenExpiryCell,
@@ -10,7 +11,6 @@ import {
   TokenRevokeCell
 } from "@/pages/admin/components/TokenList/TokenCells";
 import { TokenListRow } from "@/pages/admin/components/TokenList/TokenListRow";
-import { tokenState } from "@/pages/admin/components/TokenList/tokenState";
 import type { Token } from "@/types/apiToken";
 import { fromOxycLogin, madeWith, standingHint, standingLabel } from "../standing";
 

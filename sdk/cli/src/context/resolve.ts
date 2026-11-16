@@ -59,7 +59,7 @@ export interface GlobalFlags {
  * The three sources ARE the resolution order, for every command:
  *
  *   env    `OXY_TOKEN` (or `--token-env`). Any credential: an API token, a
- *          legacy API key, a publish token or a session.
+ *          publish token or a session.
  *   file   what `oxyc login` cached for this host.
  *   oidc   in a GitHub Actions job granted `id-token: write`, the job's OIDC
  *          token exchanged for a fifteen-minute `oxy_ci_` token.
@@ -90,8 +90,8 @@ export interface ResolvedCredential {
  *
  * `OXY_API_KEY` IS NOT A FALLBACK THIS CLOSES. It is a second credential the
  * caller also named, and the release checks depend on exactly this pairing:
- * they pass `--token-env` a variable that is never set so that the API key is
- * what goes out (`.github/workflows/custom-app-checks.yaml`).
+ * they pass `--token-env` a variable that is never set so that `OXY_API_KEY`
+ * is what goes out (`.github/workflows/custom-app-checks.yaml`).
  */
 export function envOnly(flags: Pick<GlobalFlags, "tokenEnv" | "requireTokenEnv">): boolean {
   return flags.tokenEnv !== undefined || flags.requireTokenEnv === true;
@@ -144,13 +144,14 @@ export interface Context {
    * The bearer already on this machine — `OXY_TOKEN`, then the login cache —
    * and nothing else. Synchronous, no network, never mints.
    *
-   * For a caller with another credential in hand (an API key), or one that
+   * For a caller with another credential in hand (a token in `OXY_API_KEY`), or one that
    * must decide before it is ready to spend a single-use OIDC token.
    */
   storedBearer(): string | undefined;
   /** `--service-account`, then `OXY_SERVICE_ACCOUNT`. */
   serviceAccount(): string | undefined;
-  /** `OXY_API_KEY`: a legacy API key or an API token for `/external/api`, if one is set. */
+  /** `OXY_API_KEY`: an API token for `/external/api`, if one is set. The name is historical —
+   *  it held a legacy API key until those were removed. */
   apiKey(): string | undefined;
   /** The customer this invocation is about, if it is about one. */
   customer(): Customer | undefined;

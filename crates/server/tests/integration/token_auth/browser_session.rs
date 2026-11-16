@@ -25,7 +25,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use super::stack::{Reach, flat_api, get_as, join_org, mint, workspace_grant};
-use super::{audit_rows, call, endpoint_key, fixture, minted_pat, pat_row, seed_org};
+use super::{audit_rows, call, fixture, minted_pat, pat_row, seed_org};
 
 const OPENED: &str = "token.browser_session_opened";
 
@@ -283,8 +283,10 @@ async fn only_a_personal_token_presented_as_a_token_may_ask() {
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
     assert_eq!(body["code"], "no_token");
 
-    // A legacy key gains nothing it did not have.
-    let (_, key) = endpoint_key(&fx, None).await;
+    // A personal token in `X-API-Key` asks exactly as one in a bearer does:
+    // the header is not what the route judges. (A legacy key was refused here
+    // with `personal_token_required`; there is none left to refuse.)
+    let (_, key) = minted_pat(&fx, None).await;
     let (status, body) = call(
         flat_api(),
         "POST",
@@ -293,8 +295,8 @@ async fn only_a_personal_token_presented_as_a_token_may_ask() {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
-    assert_eq!(body["code"], "personal_token_required");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["ticket"].as_str().is_some_and(|t| !t.is_empty()));
 
     // Nobody at all is 401, before any of that.
     let (status, _) = call(flat_api(), "POST", "/auth/browser-ticket", &[], None).await;

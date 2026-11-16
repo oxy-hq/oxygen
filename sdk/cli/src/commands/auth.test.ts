@@ -122,7 +122,7 @@ describe("oxyc logout", () => {
     expect(stderr).toContain("Account → Personal access tokens");
   });
 
-  it("says a legacy API key cannot revoke itself, and where it is revoked (409 legacy_immutable)", async () => {
+  it("says a legacy API key is removed, with nothing left to revoke (409 legacy_immutable)", async () => {
     // A legacy API key is `oxy_<hex>`; `oxy_pat_` is never one.
     cache("oxy_0123456789abcdef0123456789abcdef");
     stubFetch(TARGET, {
@@ -136,10 +136,11 @@ describe("oxyc logout", () => {
     });
     await runLogout(context());
     expect(loadCredential(TARGET)).toBeUndefined();
-    expect(stderr).toContain("it is a legacy API key and cannot revoke itself");
-    expect(stderr).toContain("Workspace → Legacy API keys");
-    // Never sent to the token page, and never called a token.
-    expect(stderr).not.toContain("Personal access tokens");
+    expect(stderr).toContain("it is a legacy API key");
+    expect(stderr).toContain("legacy API keys were removed");
+    // The local copy going is the whole of it: there is no page to send
+    // anyone to any more, and it was never a token.
+    expect(stderr).not.toContain("Legacy API keys");
     expect(stderr).not.toMatch(/the token was removed/);
     expect(stderr).not.toContain("did not confirm a revoke");
   });
@@ -198,7 +199,7 @@ describe("oxyc whoami", () => {
     stubFetch(TARGET, routes({ "GET /api/auth/token": () => ({ status: 200, body: legacy }) }));
     await runWhoami(context(), false);
     expect(stdout).toMatch(/credential\s+Legacy API key: old ci key {2}\(oxy_0123…cdef\)/);
-    expect(stdout).toMatch(/reach\s+everything its owner can/);
+    expect(stdout).toMatch(/reach\s+none — legacy API keys were removed/);
     expect(stdout).toMatch(/expires\s+2099-01-30/);
     expect(stdout).not.toMatch(/^token\b/m);
     expect(stdout).not.toContain("legacy_key");

@@ -118,7 +118,7 @@ function withGlobals(command: Command): Command {
       )
       .option(
         "--api-key-env <VAR>",
-        "env var holding the legacy API key or API token for /external/api",
+        "env var holding the API token for /external/api",
         "OXY_API_KEY"
       )
       .option(
@@ -1968,7 +1968,7 @@ BODIES
 
 SURFACES
   /api/**            bearer: $OXY_TOKEN, else \`oxyc login\`, else GitHub OIDC in Actions
-  /external/api/**   X-API-Key: $OXY_API_KEY (a legacy API key or an API token),
+  /external/api/**   X-API-Key: $OXY_API_KEY (an API token),
                      else either of those in $OXY_TOKEN
 
 FINDING AN ENDPOINT

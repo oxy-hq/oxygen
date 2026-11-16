@@ -1,48 +1,14 @@
-import type {
-  ApiKey,
-  ApiKeyActivityResponse,
-  ApiKeyListResponse,
-  ExtendApiKeyRequest
-} from "@/types/apiKey";
-import { apiClient } from "./axios";
-
 /**
- * The legacy `/{workspaceId}/api-keys` routes: legacy API keys only. There is no create here on
- * purpose. The endpoint still mints a legacy key for scripts, but the app creates API tokens.
- * The date helpers below are shared with the token surfaces.
+ * Dates and expiry, as every credential surface reads them: the personal-token
+ * list, an org's service accounts, the staff token pages and the Extend
+ * popover.
+ *
+ * This was `ApiKeyService`, which also held the legacy `/{workspaceId}/api-keys`
+ * calls. Those routes went with legacy API keys; the helpers were always shared
+ * with the token surfaces, so they are all that is left — and they talk to
+ * nothing, which is why there is no client here.
  */
-export class ApiKeyService {
-  static async listApiKeys(projectId: string): Promise<ApiKeyListResponse> {
-    const response = await apiClient.get<ApiKeyListResponse>(`/${projectId}/api-keys`);
-    return response.data;
-  }
-
-  static async revokeApiKey(projectId: string, id: string): Promise<void> {
-    await apiClient.delete(`/${projectId}/api-keys/${id}`);
-  }
-
-  /** Push out a key's expiry. The secret is unchanged; an expired (not revoked) key revives. */
-  static async extendApiKey(
-    projectId: string,
-    id: string,
-    request: ExtendApiKeyRequest
-  ): Promise<ApiKey> {
-    const response = await apiClient.post<ApiKey>(`/${projectId}/api-keys/${id}/extend`, request);
-    return response.data;
-  }
-
-  static async getApiKeyActivity(
-    projectId: string,
-    id: string,
-    limit = 100
-  ): Promise<ApiKeyActivityResponse> {
-    const response = await apiClient.get<ApiKeyActivityResponse>(
-      `/${projectId}/api-keys/${id}/activity`,
-      { params: { limit } }
-    );
-    return response.data;
-  }
-
+export class TokenExpiry {
   static formatDate(dateString: string): string {
     return new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
@@ -62,7 +28,7 @@ export class ApiKeyService {
     });
   }
 
-  // `null` is accepted because the server sends `expires_at: null` for a key with no expiry.
+  // `null` is accepted because the server sends `expires_at: null` for a token with no expiry.
   static isExpired(expiresAt?: string | null): boolean {
     if (!expiresAt) return false;
     return new Date(expiresAt) < new Date();
@@ -70,7 +36,7 @@ export class ApiKeyService {
 
   /**
    * The expiry `POST …/extend` with `{ days }` produces: `days` counted from the later of now and
-   * the current expiry, so extending a lapsed key counts from today, not from when it lapsed.
+   * the current expiry, so extending a lapsed token counts from today, not from when it lapsed.
    */
   static extendedExpiry(
     currentExpiresAt: string | null | undefined,

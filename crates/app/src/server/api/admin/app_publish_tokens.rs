@@ -30,16 +30,18 @@
 //! minted here never expires and names no app, so an API token allowed to mint one could
 //! turn its own hours or days into a credential that outlives it — a credential quietly
 //! minting a stronger one, which the API-tokens design forbids (§4.6). Minting therefore
-//! takes a browser session or a **legacy API key** ([`SessionOrLegacyKey`]): CI scripts
-//! mint with a legacy key today and nothing may break one, while every new-format token
-//! (`oxy_pat_`, `oxy_sat_`, `oxy_ci_`, `oxy_sbx_`) is answered `403 session_required`,
-//! as on the token-management routes.
+//! takes a browser session ([`SessionOnly`]): every API token (`oxy_pat_`, `oxy_sat_`,
+//! `oxy_ci_`, `oxy_sbx_`) is answered `403 session_required`, as on the token-management
+//! routes. A legacy API key was the one exception, kept so CI scripts minting with one
+//! would not break; legacy keys are gone, and so is the exception. CI that needs to
+//! publish uses trusted access (`oxyc` exchanges the job's OIDC token) instead of minting
+//! a never-expiring token from a script.
 //!
 //! ## Mint and revoke are audited
 //!
 //! One `audit_events` row each ([`MINTED`], [`REVOKED`]), written in the transaction
 //! that changes the token, so neither can happen unrecorded. Built with
-//! `AuditEntry::for_request`, so a mint by a legacy key names that key. The row carries
+//! `AuditEntry::for_request`, so the row names the session that minted. It carries
 //! the token's id, label and non-secret display prefix — never the plaintext or its hash.
 //!
 //! A live token authenticates as its minting app-admin **only on the
@@ -60,7 +62,7 @@ use oxy::database::client::establish_connection;
 use oxy_app_core::audit::{self, AuditEntry, RequestActor};
 use oxy_auth::app_publish_token_domain::generate_token;
 use oxy_auth::extractor::{
-    AuthenticatedUserExtractor, SESSION_REQUIRED, SessionAction, SessionOrLegacyKey,
+    AuthenticatedUserExtractor, SESSION_REQUIRED, SessionAction, SessionOnly,
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QueryOrder,
@@ -130,7 +132,7 @@ impl From<app_publish_tokens::Model> for TokenResponse {
 pub const MINTED: &str = "admin.publish_token.minted";
 pub const REVOKED: &str = "admin.publish_token.revoked";
 
-/// What a new-format API token is told when it asks to mint a publish token.
+/// What an API token is told when it asks to mint a publish token.
 pub struct MintPublishToken;
 impl SessionAction for MintPublishToken {
     const REFUSAL: &'static str = "minting an app publish token requires a browser session";
@@ -166,7 +168,7 @@ fn token_event(
 
 pub async fn create_token(
     _: oxy_app_core::agent_refusal::RefuseSandboxAgent,
-    _: SessionOrLegacyKey<MintPublishToken>,
+    _: SessionOnly<MintPublishToken>,
     actor: RequestActor,
     body: Option<Json<CreateTokenBody>>,
 ) -> Result<Json<CreateTokenResponse>, StatusCode> {

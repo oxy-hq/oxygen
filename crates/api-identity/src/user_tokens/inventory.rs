@@ -123,7 +123,6 @@ fn inventory_token(
     row: &api_tokens::Model,
     ceiling: RoleCeiling,
     owner_label: String,
-    key_inactive: bool,
     now: DateTime<Utc>,
 ) -> InventoryToken {
     InventoryToken {
@@ -134,7 +133,7 @@ fn inventory_token(
         all_access: row.all_access,
         expires_at: row.expires_at.map(Into::into),
         last_used_at: row.last_used_at.map(Into::into),
-        status: dto::status_of(row, key_inactive, now),
+        status: dto::status_of(row, now),
         owner: OwnerDto::of(row, owner_label),
         role_ceiling_here: ceiling.as_str(),
     }
@@ -234,7 +233,7 @@ async fn load(
                 .get(&row.principal_user_id)
                 .cloned()
                 .unwrap_or_default();
-            Some(inventory_token(row, ceiling, label, false, now))
+            Some(inventory_token(row, ceiling, label, now))
         })
         .collect();
     Ok(Inventory { tokens })

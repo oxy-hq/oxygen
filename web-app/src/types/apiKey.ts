@@ -1,6 +1,12 @@
 import type { AuditEvent } from "./audit";
 
-/** A legacy API key, as the legacy `/{projectId}/api-keys` routes list it. */
+/**
+ * The row shape the shared credential pieces take: the status badge, the Extend
+ * popover, the Activity drawer. It was a legacy API key as the legacy
+ * `/{projectId}/api-keys` routes listed one; those went with the keys, and a
+ * `Token` reaches this shape through `toTokenSummary`, so what is left is the
+ * shape itself and the tests that build one.
+ */
 export interface ApiKey {
   id: string;
   name: string;
@@ -11,13 +17,9 @@ export interface ApiKey {
   masked_key?: string;
 }
 
-export interface ApiKeyListResponse {
-  api_keys: ApiKey[];
-  total: number;
-}
-
 /**
- * Body of `POST /{projectId}/api-keys/{id}/extend`. Exactly one shape:
+ * Body of `POST /user/tokens/{id}/extend` and the service-account equivalent.
+ * Exactly one shape:
  * `days` (1–3650) counts from the later of now and the current expiry;
  * `expires_at` is an RFC 3339 instant in the future, or `null` for no expiry.
  */

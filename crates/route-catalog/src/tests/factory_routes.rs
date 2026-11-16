@@ -132,7 +132,7 @@ fn the_landmarks_sit_where_the_plan_puts_them() {
         ("POST", "/analytics/runs"),
         ("GET", "/custom-apps"),
         ("GET", "/databases"),
-        ("GET", "/api-keys"),
+        ("GET", "/api-tokens"),
         ("GET", "/oxy-access"),
         ("POST", "/sql/query"),
         ("GET", "/world-model/events"),

@@ -2,12 +2,10 @@ import type { TokenOwner } from "@/types/apiToken";
 import type { InventoryFilters, InventoryToken } from "@/types/orgApiAccess";
 import { type AccessDescription, describeAccess } from "../utils/grants";
 
-export const LEGACY_REVOKE_TOOLTIP = "Legacy API keys can only be revoked by their owner";
-
 /**
  * One inventory read, in its two lists. The org's inventory is the one place a legacy API key and
- * an API token come back together, and they are never shown as one list: tokens first, legacy API
- * keys in a group of their own.
+ * an API token come back together, and they are never shown as one list: the tokens that work,
+ * then the removed legacy keys in a group of their own.
  */
 export function splitInventory<T extends Pick<InventoryToken, "kind">>(
   rows: T[]
@@ -22,16 +20,14 @@ export function splitInventory<T extends Pick<InventoryToken, "kind">>(
  * What an org admin can do about one credential's reach into the org.
  *
  * - `revoke_grant`: a personal token; the org can end its reach here.
- * - `legacy`: a legacy API key; only its owner can revoke it, so the action is
- *   shown disabled with the reason rather than hidden.
  * - `service_account`: owned by one of the org's own accounts; it is revoked
  *   from that account's page, which the row links to.
- * - `none`: nothing to do from here — already revoked, its reach here already ended, or a
- *   sandbox agent token, which its minter and Oxygen staff revoke.
+ * - `none`: nothing to do from here — already revoked, its reach here already ended, a sandbox
+ *   agent token (which its minter and Oxygen staff revoke), or a legacy API key, which the
+ *   removal already ended.
  */
 export type InventoryRevoke =
   | { kind: "revoke_grant" }
-  | { kind: "legacy"; reason: string }
   | { kind: "service_account"; accountId: string }
   | { kind: "none" };
 
@@ -44,8 +40,9 @@ export function inventoryRevokeAction(token: RevokeFields): InventoryRevoke {
   if (token.status === "revoked") return { kind: "none" };
 
   switch (token.kind) {
+    // Removed: a legacy key authenticates nothing, so there is nothing to end.
     case "legacy_key":
-      return { kind: "legacy", reason: LEGACY_REVOKE_TOOLTIP };
+      return { kind: "none" };
     case "service_account":
     case "ci":
       return { kind: "service_account", accountId: token.owner.id };
@@ -70,9 +67,10 @@ const OWNER_REACH: AccessDescription = {
 };
 
 /**
- * What a credential reaches in this org. A legacy API key, and an all-access token
- * with no narrower grant here, carries no grant to read: it simply inherits
- * its owner's reach, so the cell says that instead of "No access".
+ * What a credential reaches in this org. An all-access token with no narrower grant here carries
+ * no grant to read: it simply inherits its owner's reach, so the cell says that instead of "No
+ * access". A legacy key reached that much too, before the keys were removed, and its row still
+ * reports what it had.
  */
 export function inventoryAccess(
   token: Pick<InventoryToken, "kind" | "all_access" | "grants_here">

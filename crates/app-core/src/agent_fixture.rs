@@ -23,7 +23,6 @@ pub fn credential(
         partner: false,
         name: "agent".into(),
         display_prefix: "oxy_sbx_Ab3x".into(),
-        legacy_api_key_id: None,
         grants: vec![TokenGrant {
             org_id,
             workspace_id: Some(workspace_id),

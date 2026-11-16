@@ -662,19 +662,52 @@ async function compileAndPromote(opts, staff, _canary, workspaceId) {
   }
 }
 
-async function mintApiKey(opts, canary, workspaceId) {
-  step("API key for the canary user");
-  const expires = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+/**
+ * A personal access token for the canary user, sent as `X-API-Key`.
+ *
+ * This used to mint a legacy API key from `/api/{workspace}/api-keys`. Legacy
+ * keys were removed on 2026-11-16 and so was that route, so this mints a token
+ * instead — the header does not change, which is the whole of the migration for
+ * a caller like this one
+ * (`internal-docs/api-token-migration.md`).
+ *
+ * `/api/user/tokens` is `SessionOnly`: a credential may not mint its successor
+ * (API-tokens design §4.6). That is satisfied here because `canary.token` is a
+ * dev-login JWT, an ordinary **session** bearer, not an API token — the same
+ * reason `oxyc publish` accepts it a few lines below. A token sent here would
+ * get `403 session_required`.
+ *
+ * `platform: true` is not an upgrade over the legacy key — it is how a token
+ * says the one thing a legacy key said implicitly. A legacy key carried its
+ * owner's whole standing, the operator grant `ensureOrg` makes included, and
+ * `oxyc checks run` resolves `<org>/<app>` by paging the staff app console
+ * (`/api/customer-apps`), which that grant is what admits. A token carries a
+ * standing only when it is asked for, so without the flag the first request
+ * of the first check is a 403. It is granted only to an owner who holds the
+ * standing (`reach::require_standing`), and it reaches no further than the
+ * grant's own scope — here, this one org. Both halves of that — a key with
+ * the standing accepted on the console, one without it refused 403 — are
+ * pinned in `token_auth::monitoring_contract::auth`.
+ */
+async function mintApiToken(opts, canary) {
+  step("API token for the canary user");
   const r = await must(
     opts.target,
     canary.token,
     "POST",
-    `/api/${workspaceId}/api-keys`,
-    { name: `platform-canary-checkpoint ${new Date().toISOString()}`, expires_at: expires },
-    "mint API key"
+    "/api/user/tokens",
+    {
+      name: `platform-canary-checkpoint ${new Date().toISOString()}`,
+      all_access: true,
+      platform: true,
+      expires_in_days: 1
+    },
+    "mint API token"
   );
-  note(`minted ${r.json.masked_key}, expires ${expires}`);
-  return r.json.key;
+  const { token, secret } = r.json;
+  if (!secret) fail(`mint API token: no secret in the response (${JSON.stringify(r.json)})`);
+  note(`minted ${token?.display_prefix ?? "?"}…${token?.last_four ?? "?"}, expires in 1 day`);
+  return secret;
 }
 
 // ── 4. publish, configure, check ─────────────────────────────────────────────
@@ -765,11 +798,13 @@ function whyNotChecked(code) {
   }
 }
 
-async function runChecks(opts, apiKey, canary, work, label) {
+async function runChecks(opts, apiToken, canary, work, label) {
   step(`oxyc checks run (${label})`);
-  // The API key, the way the release checks authenticate: `--token-env` names a
-  // variable that is never set and the credentials path is empty, so no bearer
-  // resolves and oxyc sends X-API-Key as the canary user.
+  // The token in `X-API-Key`, the way the release checks authenticate:
+  // `--token-env` names a variable that is never set and the credentials path
+  // is empty, so no bearer resolves and oxyc sends X-API-Key as the canary
+  // user. The header is unchanged by the legacy-key removal; only the value's
+  // format is.
   const r = capture(
     "node",
     [
@@ -787,7 +822,7 @@ async function runChecks(opts, apiKey, canary, work, label) {
       "--timeout",
       String(opts.checkTimeout)
     ],
-    { env: { CANARY_API_KEY: apiKey, OXY_CREDENTIALS_PATH: join(work, "no-credentials.json") } }
+    { env: { CANARY_API_KEY: apiToken, OXY_CREDENTIALS_PATH: join(work, "no-credentials.json") } }
   );
   let report;
   try {
@@ -842,7 +877,7 @@ async function stepsRan(opts, canary, appId, runId) {
  * spec routes it), the config keeps screenshots and traces off, and nothing
  * here uploads the HTML report.
  */
-function runJourney(opts, apiKey) {
+function runJourney(opts, apiToken) {
   step("browser check (app-loads.spec.ts)");
   const url = `${opts.target}/customer-apps/${opts.orgSlug}/${APP_SLUG}/${opts.airhouse ? "?airhouse=1" : ""}`;
   const targets = [
@@ -863,7 +898,7 @@ function runJourney(opts, apiKey) {
       cwd: join(REPO, "web-app"),
       env: {
         CUSTOM_APP_CHECK_TARGETS: JSON.stringify(targets),
-        OXY_API_KEY: apiKey,
+        OXY_API_KEY: apiToken,
         CUSTOM_APP_CHECK_ALLOWED_ORIGINS: opts.target
       }
     }
@@ -913,7 +948,7 @@ async function main() {
     await ensureWarehouse(opts, canary, orgId, workspaceId);
     if (opts.airhouse) await ensureAirhouse(opts, canary, orgId, workspaceId);
     await compileAndPromote(opts, staff, canary, workspaceId);
-    const apiKey = await mintApiKey(opts, canary, workspaceId);
+    const apiToken = await mintApiToken(opts, canary);
 
     const appId = publish(opts, app, canary, workspaceId, work);
     await configureSteps(opts, canary, appId);
@@ -922,7 +957,7 @@ async function main() {
     // run wrote, so on a fresh stack it fails once, and only it may. Every step
     // before it in the canary's order has passed by then, because the canary
     // stops at the first failure.
-    const first = await runChecks(opts, apiKey, canary, work, "run 1, primes secrets_roundtrip");
+    const first = await runChecks(opts, apiToken, canary, work, "run 1, primes secrets_roundtrip");
     for (const c of first.checks) {
       if (c.passed) continue;
       const s = failedStep(c.error);
@@ -933,7 +968,7 @@ async function main() {
       fail(`run 1: check ${c.name} failed at step ${s ?? "(unnamed)"}: ${c.error}`);
     }
 
-    const second = await runChecks(opts, apiKey, canary, work, "run 2, must be green");
+    const second = await runChecks(opts, apiToken, canary, work, "run 2, must be green");
     for (const c of second.checks) {
       if (!c.passed) {
         fail(
@@ -968,7 +1003,7 @@ async function main() {
       });
     }
 
-    if (opts.journey) runJourney(opts, apiKey);
+    if (opts.journey) runJourney(opts, apiToken);
 
     step("green");
     note(

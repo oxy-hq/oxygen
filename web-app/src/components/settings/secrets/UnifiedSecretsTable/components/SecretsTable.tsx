@@ -1,5 +1,5 @@
 import { formatDistanceToNow } from "date-fns";
-import { KeyRound } from "lucide-react";
+import { AppWindow, KeyRound } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -10,27 +10,12 @@ import {
 } from "@/components/ui/shadcn/table";
 import TableContentWrapper from "../../../components/TableContentWrapper";
 import TableWrapper from "../../../components/TableWrapper";
-import type { UnifiedRow } from "../types";
-import { AvailableTo } from "./AvailableTo";
+import type { SecretsScope, UnifiedRow } from "../types";
+import { SharedWith } from "./AvailableTo";
 import { RowActions } from "./RowActions";
 
-/**
- * The rows. Each is a clickable summary — name and description, who can read it,
- * when it last changed — with its verbs one menu away; the value and the rest of
- * the metadata live in the detail dialog. On narrow viewports TableWrapper
- * collapses each row into a stacked card.
- */
-export const SecretsTable = ({
-  rows,
-  total,
-  loading,
-  error,
-  onRetry,
-  onOpen,
-  onShare,
-  onEdit,
-  onDelete
-}: {
+interface SecretsTableProps {
+  scope: SecretsScope;
   rows: UnifiedRow[];
   /** Rows before search and filter — tells "nothing stored" from "nothing matches". */
   total: number;
@@ -41,13 +26,49 @@ export const SecretsTable = ({
   onShare: (row: UnifiedRow) => void;
   onEdit: (row: UnifiedRow) => void;
   onDelete: (row: UnifiedRow) => void;
-}) => (
+  /** Lift an app's own key into a workspace secret several apps can read. */
+  onLift: (row: UnifiedRow) => void;
+}
+
+const EMPTY: Record<SecretsScope, { title: string; description: string }> = {
+  workspace: {
+    title: "No workspace secrets yet",
+    description:
+      "Store a credential once here and choose which apps read it. Rotating it reaches all of them."
+  },
+  app: {
+    title: "No app has its own secret",
+    description:
+      "An app stores its own value of a key when it must differ from the workspace's. Most apps read a shared workspace secret instead."
+  }
+};
+
+/**
+ * The rows of one tab.
+ *
+ * The two tabs differ in their second column, which is the only column that
+ * carries a decision: a workspace secret's is the apps that read it, and it is
+ * editable in place; an app secret's is simply which app owns it.
+ */
+export const SecretsTable = ({
+  scope,
+  rows,
+  total,
+  loading,
+  error,
+  onRetry,
+  onOpen,
+  onShare,
+  onEdit,
+  onDelete,
+  onLift
+}: SecretsTableProps) => (
   <TableWrapper>
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
-          <TableHead>Available to</TableHead>
+          <TableHead>{scope === "app" ? "App" : "Read by"}</TableHead>
           <TableHead className='max-md:hidden'>Updated</TableHead>
           <TableHead className='w-px' />
         </TableRow>
@@ -58,11 +79,9 @@ export const SecretsTable = ({
           loading={loading}
           colSpan={4}
           error={error}
-          noFoundTitle={total === 0 ? "No secrets yet" : "No secret matches"}
+          noFoundTitle={total === 0 ? EMPTY[scope].title : "No secret matches"}
           noFoundDescription={
-            total === 0
-              ? "Create one to store a credential once and share it with any of this workspace's apps."
-              : "Try another name, or clear the filter."
+            total === 0 ? EMPTY[scope].description : "Try another name, or clear the filter."
           }
           onRetry={onRetry}
         >
@@ -95,8 +114,15 @@ export const SecretsTable = ({
                   </div>
                 </div>
               </TableCell>
-              <TableCell data-label='Available to'>
-                <AvailableTo row={row} />
+              <TableCell data-label={scope === "app" ? "App" : "Read by"}>
+                {row.app ? (
+                  <span className='flex items-center gap-1.5 text-sm'>
+                    <AppWindow className='size-3.5 text-muted-foreground' />
+                    {row.app.name}
+                  </span>
+                ) : (
+                  <SharedWith row={row} onEdit={onShare} />
+                )}
               </TableCell>
               <TableCell
                 data-label='Updated'
@@ -105,7 +131,13 @@ export const SecretsTable = ({
                 {formatDistanceToNow(new Date(row.secretInfo.updated_at), { addSuffix: true })}
               </TableCell>
               <TableCell className='w-px'>
-                <RowActions row={row} onShare={onShare} onEdit={onEdit} onDelete={onDelete} />
+                <RowActions
+                  row={row}
+                  onShare={onShare}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  onLift={onLift}
+                />
               </TableCell>
             </TableRow>
           ))}

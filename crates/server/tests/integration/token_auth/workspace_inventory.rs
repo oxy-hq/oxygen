@@ -98,7 +98,8 @@ async fn a_token_the_orgs_policy_blocks_is_not_listed_as_reaching_the_workspace(
         None,
     )
     .await;
-    // A legacy key is never listed here, policy or not: it is not a token.
+    // A legacy key is never listed here, policy or not: it is not a token, and
+    // since the keys were removed it is not a credential either.
     legacy_key(&fx, None).await;
 
     let everything = sorted(vec![all_access, short, long, forever]);

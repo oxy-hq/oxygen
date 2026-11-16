@@ -12,7 +12,7 @@ use uuid::Uuid;
 use super::format::TokenFormat;
 
 pub use super::admission::{
-    LegacyLink, Links, ReadGrants, Refusal, admit, blocked_orgs, read_grants, readable_grants,
+    Links, ReadGrants, Refusal, admit, blocked_orgs, read_grants, readable_grants,
 };
 pub use super::sandbox_admission::{SandboxAppHome, place_sandbox_apps};
 
@@ -110,7 +110,9 @@ pub fn legacy_key_id(row: &api_tokens::Model) -> Uuid {
 pub enum StoredKind {
     /// `oxy_pat_…`
     Personal,
-    /// `oxy_<32 hex>` (or any value an `api_keys` row matched).
+    /// `oxy_<32 hex>` — **removed**. No presented format resolves to this and
+    /// admission refuses it, but the kind stays so the rows left in
+    /// `api_tokens` can still be listed, audited and explained.
     LegacyKey,
     /// `oxy_sat_…` — owned by an org through a service account.
     ServiceAccount,
@@ -156,13 +158,14 @@ impl StoredKind {
         }
     }
 
-    /// The stored kind a presented credential must resolve to. A legacy key is
-    /// also what any non-prefixed `X-API-Key` value is looked up as. `None`
-    /// for a format this release has no stored kind for.
+    /// The stored kind a presented credential must resolve to. `None` for a
+    /// format this release has no stored kind for — including, now, anything
+    /// that would resolve to [`Self::LegacyKey`]: no presented format maps to
+    /// it any more, which is the second of the two locks on a legacy row (the
+    /// first being admission's outright refusal).
     pub(super) fn expected_for(presented: TokenFormat) -> Option<Self> {
         match presented {
             TokenFormat::Personal => Some(Self::Personal),
-            TokenFormat::LegacyKey => Some(Self::LegacyKey),
             TokenFormat::ServiceAccount => Some(Self::ServiceAccount),
             TokenFormat::Ci => Some(Self::Ci),
             TokenFormat::SandboxAgent => Some(Self::SandboxAgent),
@@ -210,13 +213,11 @@ pub struct CredentialContext {
     /// For audit metadata (design §3.7): the name and the non-secret prefix.
     pub name: String,
     pub display_prefix: String,
-    /// The mirrored `api_keys` row, while that table exists.
-    pub legacy_api_key_id: Option<Uuid>,
     /// The live workspace grants of a token with `all_access = false`. Empty
-    /// for an all-access token and for every legacy credential.
+    /// for an all-access token.
     pub grants: Vec<TokenGrant>,
     /// The live `app_publish` grants of a token with `all_access = false`.
-    /// Empty for an all-access token and for every legacy credential.
+    /// Empty for an all-access token.
     pub app_publish: Vec<AppPublishGrant>,
     /// The apps a **sandbox agent token** is granted: its live `app_sandbox`
     /// grants whose app still exists in the org the grant names. Empty for
@@ -226,8 +227,7 @@ pub struct CredentialContext {
     pub app_sandbox: Vec<AppSandboxGrant>,
     /// Orgs this token reaches nothing in: ones that ended its reach (a
     /// revoked org-wide grant), and — added by the store after admission —
-    /// ones whose token policy it violates (`super::policy`). Always empty for
-    /// a legacy credential: only its owner can end a legacy key (§3.5).
+    /// ones whose token policy it violates (`super::policy`).
     pub blocked_orgs: Vec<Uuid>,
     /// Set for a token that acts as a service account (`service_account` or
     /// `ci`): the account's standing, read from its row when the request
@@ -239,20 +239,13 @@ pub struct CredentialContext {
 }
 
 impl CredentialContext {
-    /// A legacy credential: an `oxy_<hex>` key, or a token the legacy endpoint
-    /// minted — anything that mirrors an `api_keys` row. It keeps exactly the
-    /// reach and behaviour it had before tokens could be narrowed (§3.5):
-    /// all-access, both standings, and the browser's assume-role session.
-    pub fn is_legacy(&self) -> bool {
-        self.kind == StoredKind::LegacyKey || self.legacy_api_key_id.is_some()
-    }
-
-    /// What this credential narrows its bearer to. `None` for a legacy
-    /// credential — it narrows nothing, and decides as a session does.
+    /// What this credential narrows its bearer to.
+    ///
+    /// Always `Some`. It used to be `None` for a legacy key, the one credential
+    /// that narrowed nothing and decided exactly as a browser session did;
+    /// legacy keys are gone and admission refuses their rows, so every
+    /// credential that gets this far narrows something.
     pub fn reach(&self) -> Option<TokenReach> {
-        if self.is_legacy() {
-            return None;
-        }
         // A service account is grant-bound and holds no standing, whatever its
         // row says: admission refuses a row that claims otherwise, and this
         // does not rely on it having done so.

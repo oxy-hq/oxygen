@@ -1,29 +1,51 @@
-import { AlertTriangle } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import type React from "react";
-import { Button } from "@/components/ui/shadcn/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from "@/components/ui/shadcn/dialog";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@/components/ui/shadcn/alert-dialog";
 import type { Secret } from "@/types/secret";
 
 interface DeleteSecretDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   secret: Secret | null;
+  /** The bare key apps read, when the stored name is `apps/<id>/<KEY>`. */
+  displayName?: string;
+  /** The apps that read this secret today — named, so the cost is specific. */
+  readers?: string[];
   onConfirm: () => void;
   /** The delete is in flight: a second click would send a second request. */
   isDeleting?: boolean;
 }
 
+/** "a, b and c", so the sentence reads. */
+const list = (names: string[]) =>
+  names.length <= 1
+    ? (names[0] ?? "")
+    : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+
+/**
+ * Confirm deleting a secret.
+ *
+ * It names the apps that read it, because "configurations using this secret may
+ * stop functioning" is not something anyone can act on — the question is always
+ * *which* ones. An `AlertDialog`, like every other destructive confirmation in
+ * settings, and it stays open while the request is in flight so a failure can be
+ * read and retried in place.
+ */
 export const DeleteSecretDialog: React.FC<DeleteSecretDialogProps> = ({
   open,
   onOpenChange,
   secret,
+  displayName,
+  readers = [],
   onConfirm,
   isDeleting = false
 }) => {
@@ -31,54 +53,50 @@ export const DeleteSecretDialog: React.FC<DeleteSecretDialogProps> = ({
     return null;
   }
 
+  const name = displayName ?? secret.name;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-[425px]'>
-        <DialogHeader>
-          <DialogTitle className='flex items-center gap-2'>
-            <AlertTriangle className='h-5 w-5 text-destructive' />
-            Delete Secret
-          </DialogTitle>
-          <DialogDescription>
-            This action cannot be undone. This will permanently delete the secret.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className='py-4'>
-          <div className='rounded-lg bg-muted p-4'>
-            <p className='font-medium text-sm'>Deleting secret:</p>
-            <p className='mt-1 text-muted-foreground text-sm'>{secret.name}</p>
-            {secret.description && (
-              <>
-                <p className='mt-3 font-medium text-sm'>Description:</p>
-                <p className='mt-1 text-muted-foreground text-sm'>{secret.description}</p>
-              </>
-            )}
-          </div>
-
-          <div className='mt-4 rounded-lg border border-warning/20 bg-warning/5 p-4'>
-            <div className='flex items-start gap-2'>
-              <AlertTriangle className='mt-0.5 h-4 w-4 flex-shrink-0 text-warning' />
-              <div className='text-sm'>
-                <p className='font-medium text-warning'>Warning</p>
-                <p className='mt-1 text-muted-foreground'>
-                  Any configurations using this secret will lose access and may stop functioning
-                  properly. Make sure to update all references before deleting.
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent data-testid='delete-secret-dialog'>
+        <AlertDialogHeader>
+          <AlertDialogTitle className='break-all text-base'>
+            Delete <span className='font-mono'>{name}</span>?
+          </AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className='flex flex-col gap-2 text-muted-foreground text-xs leading-relaxed'>
+              <p>
+                The value is erased and cannot be recovered. Anything reading it gets nothing on its
+                next call — storing the secret again later means pasting the value in again.
+              </p>
+              {readers.length > 0 ? (
+                <p>
+                  <span className='text-foreground'>{list(readers)}</span>{" "}
+                  {readers.length === 1 ? "reads" : "read"} it as{" "}
+                  <code className='font-mono text-foreground'>ctx.env.{name}</code>.
                 </p>
-              </div>
+              ) : (
+                <p>No app reads it. The workspace's databases, integrations and agents may.</p>
+              )}
+              {secret.description && <p className='border-l-2 pl-3'>{secret.description}</p>}
             </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant='outline' onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button variant='destructive' onClick={onConfirm} disabled={isDeleting}>
-            Delete Secret
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeleting}>Keep secret</AlertDialogCancel>
+          <AlertDialogAction
+            className='bg-destructive text-white hover:bg-destructive/90'
+            onClick={(e) => {
+              // Radix closes on click; the caller closes on success instead.
+              e.preventDefault();
+              onConfirm();
+            }}
+            disabled={isDeleting}
+            data-testid='delete-secret-confirm'
+          >
+            {isDeleting && <Loader2 className='size-4 animate-spin' aria-hidden />}
+            Delete secret
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 };

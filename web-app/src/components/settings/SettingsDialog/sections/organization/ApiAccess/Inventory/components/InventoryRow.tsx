@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/shadcn/button";
 import { TableCell, TableRow } from "@/components/ui/shadcn/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { useOrgInventoryEndpoints, useRevokeOrgTokenGrant } from "@/hooks/api/orgApiAccess";
+import { tokenEnded } from "@/libs/tokenState";
 import { cn } from "@/libs/shadcn/utils";
 import { policyBlockReason } from "@/libs/tokenPolicy";
 import type { InventoryToken } from "@/types/orgApiAccess";
@@ -21,7 +22,6 @@ import { describeApiError } from "../../utils/errors";
 import { lastUsedText } from "../../utils/tokens";
 import { inventoryAccess, inventoryRevokeAction } from "../inventory";
 import { InventoryOwner } from "./InventoryOwner";
-import { LegacyRevokeAction } from "./LegacyRevokeAction";
 
 interface InventoryRowProps {
   orgId: string;
@@ -54,7 +54,7 @@ export function InventoryRow({ orgId, orgName, token, onOpenAccount }: Inventory
 
   return (
     <TableRow
-      className={cn(token.status === "revoked" && "text-muted-foreground")}
+      className={cn(tokenEnded(token) && "text-muted-foreground")}
       data-testid='api-access-inventory-row'
       data-token-name={token.name}
       data-token-kind={token.kind}
@@ -221,10 +221,6 @@ function RevokeAction({
           <Ban className='size-3.5' aria-hidden />
         </Button>
       );
-    case "legacy":
-      // Legacy API keys are listed in their own group (LegacyKeyGroup), so no row here is one.
-      // Should one arrive anyway, it still can't be revoked from this side.
-      return <LegacyRevokeAction name={token.name} reason={action.reason} />;
     case "service_account":
       return (
         <Button

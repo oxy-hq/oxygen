@@ -9,7 +9,7 @@ import type { Token } from "@/types/apiToken";
 
 // A row's state is read the same way on every staff token list, so it lives with the list's
 // shared pieces. This page's own part is the sentence below.
-export { endedAt, tokenState } from "@/pages/admin/components/TokenList/tokenState";
+export { endedAt, tokenState } from "@/libs/tokenState";
 
 /**
  * The list in one sentence: how many tokens work now and for how many people, then how many no

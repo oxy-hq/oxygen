@@ -14,7 +14,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::stack::{Reach, flat_api, get_as, get_in_session, make_staff, mint};
-use super::{Fixture, call, endpoint_key, fixture, legacy_key};
+use super::{Fixture, call, fixture, minted_pat};
 
 /// A staff member and a tenant org they hold no membership in.
 async fn staff_fixture() -> Fixture {
@@ -49,11 +49,14 @@ async fn sessions(fx: &Fixture) -> Vec<Option<Uuid>> {
         .collect()
 }
 
+/// A session a browser opened is inherited by no token at all. A legacy key
+/// used to inherit it — the one credential that decided exactly as a session
+/// did — which is what this test was named for; the keys are gone, so what is
+/// left is the rule without its exception.
 #[tokio::test]
-async fn a_browser_opened_session_is_inherited_by_legacy_keys_and_by_no_new_token() {
+async fn a_browser_opened_session_is_inherited_by_no_token() {
     let fx = staff_fixture().await;
-    let (_, key) = legacy_key(&fx, None).await;
-    let (_, endpoint_pat) = endpoint_key(&fx, None).await;
+    let (_, endpoint_pat) = minted_pat(&fx, None).await;
     let (_, token) = mint(&fx.db, fx.user.id, Reach::all_access().with_platform()).await;
 
     // Standing alone does not enter a tenant.
@@ -61,7 +64,10 @@ async fn a_browser_opened_session_is_inherited_by_legacy_keys_and_by_no_new_toke
         get_in_session(&fx, &listing(&fx)).await.0,
         StatusCode::FORBIDDEN
     );
-    assert_eq!(get_as(&key, &listing(&fx)).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        get_as(&endpoint_pat, &listing(&fx)).await.0,
+        StatusCode::FORBIDDEN
+    );
 
     assert_eq!(
         open_assume(&fx, ("cookie", &fx.cookie)).await,
@@ -71,21 +77,15 @@ async fn a_browser_opened_session_is_inherited_by_legacy_keys_and_by_no_new_toke
     assert_eq!(get_in_session(&fx, &listing(&fx)).await.0, StatusCode::OK);
 
     for (what, secret) in [
-        ("an oxy_<hex> key", &key),
-        ("a legacy-endpoint key", &endpoint_pat),
+        ("a personal token", &endpoint_pat),
+        ("one that is all-access with platform standing", &token),
     ] {
         assert_eq!(
             get_as(secret, &listing(&fx)).await.0,
-            StatusCode::OK,
-            "{what} inherits the browser's assume session, as it always has"
+            StatusCode::FORBIDDEN,
+            "{what} does not inherit the browser's assume session"
         );
     }
-
-    assert_eq!(
-        get_as(&token, &listing(&fx)).await.0,
-        StatusCode::FORBIDDEN,
-        "a new-format token does not — not even all-access with platform"
-    );
 }
 
 #[tokio::test]
@@ -107,7 +107,6 @@ async fn a_platform_token_opens_a_session_only_it_can_use() {
     let fx = staff_fixture().await;
     let (id, token) = mint(&fx.db, fx.user.id, Reach::all_access().with_platform()).await;
     let (_, other) = mint(&fx.db, fx.user.id, Reach::all_access().with_platform()).await;
-    let (_, key) = legacy_key(&fx, None).await;
     let bearer = format!("Bearer {token}");
 
     assert_eq!(
@@ -126,7 +125,6 @@ async fn a_platform_token_opens_a_session_only_it_can_use() {
             "another token of the same user",
             get_as(&other, &listing(&fx)).await.0,
         ),
-        ("a legacy key", get_as(&key, &listing(&fx)).await.0),
     ] {
         assert_eq!(
             status,

@@ -138,15 +138,15 @@ pub async fn app_publish_token_scope_middleware(
 }
 
 /// Whether a token-authenticated request stays inside its `app_publish`
-/// grants. True for a credential that holds none (it is not confined here),
-/// for a legacy credential (which narrows nothing, ever), and for every path
-/// off the customer-apps surface (the token's other grants decide there).
+/// grants. True for a credential that holds none (it is not confined here)
+/// and for every path off the customer-apps surface (the token's other grants
+/// decide there).
 ///
 /// On the surface: one of the apps a grant names, or the upload — whose body
 /// names the app, matched against the grants in `publish()` — and within the
 /// method-aware grant below.
 fn grant_admits(credential: &CredentialContext, method: &Method, path: &str) -> bool {
-    if credential.is_legacy() || !credential.holds_app_publish() || !under_custom_apps(path) {
+    if !credential.holds_app_publish() || !under_custom_apps(path) {
         return true;
     }
     let own_app = app_id_in_path(path).is_some_and(|id| credential.publishes_app(id));
@@ -640,7 +640,6 @@ mod tests {
             partner: false,
             name: "t".into(),
             display_prefix: "oxy_ci_".into(),
-            legacy_api_key_id: None,
             grants: Vec::new(),
             app_publish: apps
                 .iter()
@@ -727,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn a_token_with_no_app_grant_and_a_legacy_key_are_not_confined() {
+    fn a_token_with_no_app_grant_is_not_confined() {
         let plain = granted(StoredKind::Personal, &[]);
         assert!(grant_admits(&plain, &Method::GET, "/customer-apps"));
         assert!(grant_admits(
@@ -735,13 +734,6 @@ mod tests {
             &Method::DELETE,
             &format!("/customer-apps/{OTHER_APP}")
         ));
-        // A legacy credential narrows nothing, whatever sits beside it.
-        let mut legacy = granted(StoredKind::LegacyKey, &[SCOPED_APP]);
-        legacy.all_access = true;
-        assert!(grant_admits(&legacy, &Method::GET, "/customer-apps"));
-        let mut mirrored = granted(StoredKind::Personal, &[SCOPED_APP]);
-        mirrored.legacy_api_key_id = Some(uuid::Uuid::from_u128(5));
-        assert!(grant_admits(&mirrored, &Method::GET, "/customer-apps"));
     }
 
     /// Stamps a credential holding an `app_publish` grant on `SCOPED_APP`,

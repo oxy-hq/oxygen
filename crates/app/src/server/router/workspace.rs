@@ -52,9 +52,10 @@ pub(super) fn build_workspace_routes(
         // `/threads` and `/agents` (the thread routes and the agent listing)
         // are `oxy-api-threads`' since 2026-11-16, merged inside this nest by
         // `oxy-server` through the workspace seam, still FleetOk.
-        // `/api-keys` (the legacy keys) and `/api-tokens` (the tokens that can
-        // reach this workspace) moved to `oxy-api-identity`, merged inside this
-        // nest through the workspace seam, FleetOk as before.
+        // `/api-tokens` (the tokens that can reach this workspace) moved to
+        // `oxy-api-identity`, merged inside this nest through the workspace
+        // seam, FleetOk as before. `/api-keys` was beside it until legacy API
+        // keys were removed.
         // The staging branch compile (`/compile/staging` and its status, for a
         // custom-app draft build to pin) is `oxy-api-previews`' since
         // 2026-11-16, merged inside this nest by `oxy-server` through the

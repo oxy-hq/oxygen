@@ -57,14 +57,14 @@ vi.mock("@/hooks/api/orgApiAccess", () => ({
 }));
 // Extend and Activity are the shared token components; their hooks are mocked the way the
 // personal-tokens row mocks them, so this file stays about what each action sends.
-vi.mock("@/hooks/api/apiKeys/useApiKeyMutations", () => ({
+vi.mock("@/hooks/api/tokens/useTokenMutations", () => ({
   useExtendApiKey: (endpoints: unknown) => ({
     mutate: (vars: { token: { id: string }; request: unknown }) =>
       calls.extendToken({ endpoints, tokenId: vars.token.id, request: vars.request }),
     isPending: false
   })
 }));
-vi.mock("@/hooks/api/apiKeys/useApiKeyActivity", () => ({
+vi.mock("@/hooks/api/tokens/useApiKeyActivity", () => ({
   API_KEY_ACTIVITY_LIMIT: 100,
   default: () => ({ isLoading: true, error: null, refetch: vi.fn() })
 }));

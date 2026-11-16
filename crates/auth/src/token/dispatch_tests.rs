@@ -80,36 +80,57 @@ fn a_jwt_or_legacy_value_is_not_a_new_prefix() {
     assert_eq!(new_prefix_token(&h), None);
 }
 
+/// A removed legacy key is recognised in either header, so the 401 can say
+/// what happened. Nothing else is: an arbitrary `X-API-Key` value used to be
+/// looked up raw and now is not, which is the whole point.
 #[test]
-fn legacy_key_prefers_x_api_key_and_takes_any_value_there() {
-    // Rows were matched raw, so X-API-Key keeps accepting whatever it did.
-    let h = headers(&[("x-api-key", "  some-fixture-key  ")]);
-    assert_eq!(legacy_key(&h).as_deref(), Some("some-fixture-key"));
-}
-
-#[test]
-fn legacy_key_falls_back_to_a_strict_legacy_bearer() {
+fn a_removed_legacy_key_is_recognised_in_either_header() {
     let key = "oxy_0123456789abcdef0123456789abcdef";
-    let h = headers(&[("authorization", &format!("Bearer {key}"))]);
-    assert_eq!(legacy_key(&h).as_deref(), Some(key));
-}
-
-#[test]
-fn an_arbitrary_or_publish_bearer_is_not_a_legacy_key() {
-    for value in [
-        "Bearer not-a-key".to_string(),
-        session_jwt(uuid::Uuid::new_v4()),
-        format!("Bearer oxypublish_{}", "a".repeat(64)),
+    for h in [
+        headers(&[("x-api-key", key)]),
+        headers(&[("authorization", &format!("Bearer {key}"))]),
     ] {
-        let h = headers(&[("authorization", &value)]);
-        assert_eq!(legacy_key(&h), None, "{value}");
+        assert!(presents_removed_legacy_key(&h));
     }
 }
 
 #[test]
-fn an_empty_x_api_key_is_absent() {
-    let h = headers(&[("x-api-key", "   ")]);
-    assert_eq!(legacy_key(&h), None);
+fn nothing_else_reads_as_a_removed_legacy_key() {
+    for value in [
+        "Bearer not-a-key".to_string(),
+        session_jwt(uuid::Uuid::new_v4()),
+        format!("Bearer oxypublish_{}", "a".repeat(64)),
+        format!("Bearer {}", generate_personal().plaintext),
+    ] {
+        let h = headers(&[("authorization", &value)]);
+        assert!(!presents_removed_legacy_key(&h), "{value}");
+    }
+    for value in ["   ", "some-fixture-key", "oxy_short"] {
+        let h = headers(&[("x-api-key", value)]);
+        assert!(!presents_removed_legacy_key(&h), "{value}");
+    }
+}
+
+/// The one thing a caller still holding a legacy key must get: a 401 that
+/// names the replacement, not "no API key found in headers".
+#[tokio::test]
+async fn a_legacy_key_is_refused_by_name() {
+    crate::built_in::set_auth_configured(true);
+    let key = "oxy_0123456789abcdef0123456789abcdef";
+    for h in [
+        headers(&[("x-api-key", key)]),
+        headers(&[("authorization", &format!("Bearer {key}"))]),
+    ] {
+        for surface in [AuthSurface::Session, AuthSurface::ApiKeyOnly] {
+            let err = authenticate_request(&h, surface, SandboxAgent::Refuse)
+                .await
+                .expect_err("a legacy key authenticates nothing");
+            let OxyError::AuthenticationError(message) = err else {
+                panic!("expected an authentication error");
+            };
+            assert_eq!(message, LEGACY_KEY_REMOVED);
+        }
+    }
 }
 
 #[tokio::test]
@@ -142,14 +163,18 @@ async fn a_failing_new_prefix_x_api_key_beats_a_valid_jwt_header() {
     );
 }
 
+/// A session is tried before the request is refused for carrying a removed
+/// key, so a browser that still has a stale `X-API-Key` lying around is not
+/// locked out of its own cookie.
 #[tokio::test]
-async fn a_valid_session_still_beats_a_bad_legacy_key() {
-    // §3.5: legacy keys keep today's order, where a valid cookie wins. The
-    // session resolves before the key is ever looked up, so no database.
+async fn a_valid_session_still_beats_a_removed_legacy_key() {
     crate::built_in::set_auth_configured(true);
     let user = uuid::Uuid::new_v4();
     let cookie = format!("oxy_session={}", session_jwt(user));
-    let h = headers(&[("cookie", &cookie), ("x-api-key", "oxy_not-a-real-key")]);
+    let h = headers(&[
+        ("cookie", &cookie),
+        ("x-api-key", "oxy_0123456789abcdef0123456789abcdef"),
+    ]);
     let (identity, credential) =
         authenticate_request(&h, AuthSurface::Session, SandboxAgent::Refuse)
             .await
@@ -181,7 +206,6 @@ fn an_entry_point_that_has_not_admitted_it_refuses_a_sandbox_agent_token_and_not
         TokenFormat::Personal,
         TokenFormat::ServiceAccount,
         TokenFormat::Ci,
-        TokenFormat::LegacyKey,
         TokenFormat::LegacyPublish,
     ] {
         for admitted in [SandboxAgent::Admit, SandboxAgent::Refuse] {
@@ -223,9 +247,7 @@ async fn a_well_formed_sandbox_agent_token_is_refused_on_both_surfaces_in_both_h
 
 #[test]
 fn presenting_an_api_token_is_read_off_the_prefix_in_either_header() {
-    use crate::token::format::{
-        generate_ci, generate_legacy_key, generate_sandbox_agent, generate_service_account,
-    };
+    use crate::token::format::{generate_ci, generate_sandbox_agent, generate_service_account};
 
     // Every new format, in the bearer and in the API-key header.
     for (kind, token) in [
@@ -244,9 +266,10 @@ fn presenting_an_api_token_is_read_off_the_prefix_in_either_header() {
         }
     }
 
-    // Everything else is not one: nothing, a session, a legacy key, a publish
-    // token. Their requests are never counted or wrapped on the serve tree.
-    let legacy = generate_legacy_key();
+    // Everything else is not one: nothing, a session, a removed legacy key, a
+    // publish token. Their requests are never counted or wrapped on the serve
+    // tree.
+    let legacy = "oxy_0123456789abcdef0123456789abcdef".to_string();
     let legacy_bearer = format!("Bearer {legacy}");
     let session = format!("oxy_session={}", session_jwt(uuid::Uuid::new_v4()));
     let jwt = format!("Bearer {}", session_jwt(uuid::Uuid::new_v4()));

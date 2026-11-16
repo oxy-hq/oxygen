@@ -13,8 +13,11 @@ import WorkspaceTokenTable from "./WorkspaceTokenTable";
 /**
  * Workspace → API tokens: a read-only inventory of every API token that can act in this
  * workspace, the way to your own tokens, and the workspace id. Tokens are managed by their owner
- * under Account. Legacy API keys are not listed here: they have their own section,
- * Workspace → Legacy API keys.
+ * under Account.
+ *
+ * The section id stays `workspace.api_keys` because `?settings=workspace.api_keys` is a link
+ * people already hold. Legacy API keys had their own section beside this one until they were
+ * removed.
  */
 const ApiKeys: React.FC = () => {
   const { workspace } = useCurrentWorkspace();

@@ -7,7 +7,6 @@ import {
   Database,
   Eye,
   Fingerprint,
-  FolderKey,
   HardHat,
   Key,
   KeyRound,
@@ -168,18 +167,6 @@ export const CLOUD_NAV: NavGroup[] = [
       // this workspace. The section id keeps its old name because
       // `?settings=workspace.api_keys` is a link people already hold.
       { value: "workspace.api_keys", label: "API tokens", icon: Key, requires: "workspaceAdmin" },
-      // The old `oxy_<hex>` keys, kept apart from tokens: they are extended,
-      // inspected and revoked here and nowhere else.
-      //
-      // Ungated on purpose, unlike API tokens above it. A legacy key belongs
-      // to its owner: `GET /{workspace}/api-keys` has no admin guard, and
-      // extend and activity ask only that the caller owns the key. An owner
-      // who is not (or is no longer) a workspace admin must still reach their
-      // own keys, and the expiry email for one links to
-      // `?settings=workspace.legacy_api_keys` — the id is a contract. Only
-      // revoke needs workspace admin, and that is gated on the button inside
-      // the section, not here.
-      { value: "workspace.legacy_api_keys", label: "Legacy API keys", icon: FolderKey },
       {
         value: "workspace.secrets",
         label: "Secrets",
@@ -238,7 +225,6 @@ export const LOCAL_NAV: NavGroup[] = [
       { value: "workspace.airhouse", label: "Airhouse", icon: AirhouseLogo },
       { value: "workspace.oltp", label: "OLTP Database", icon: Database },
       { value: "workspace.api_keys", label: "API tokens", icon: Key },
-      { value: "workspace.legacy_api_keys", label: "Legacy API keys", icon: FolderKey },
       { value: "workspace.secrets", label: "Secrets", icon: KeyRound },
       { value: "workspace.connections", label: "Connections", icon: Plug },
       { value: "workspace.apps", label: "Apps", icon: AppWindow },

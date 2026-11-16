@@ -136,13 +136,11 @@ export async function runLogout(ctx: Context): Promise<void> {
   if (outcome === "revoked") {
     log.info("the token was revoked on the server");
   } else if (outcome === "legacy") {
-    // 409 `legacy_immutable`: the credential is a legacy API key (`oxy_<hex>`),
-    // which cannot end itself. A legacy API key is not a token, so it is not
-    // called one here, and it is not revoked where tokens are.
-    log.warn(
-      "the credential was removed from this machine, but it is a legacy API key and cannot revoke itself"
-    );
-    log.hint("revoke it in the web app: Settings → Workspace → Legacy API keys");
+    // 409 `legacy_immutable`: the credential is a legacy API key (`oxy_<hex>`).
+    // Legacy keys were removed, so there is nothing left to revoke — the local
+    // copy going is the whole of it.
+    log.warn("the credential was removed from this machine; it is a legacy API key");
+    log.hint("legacy API keys were removed and authenticate nothing — mint a token: oxyc login");
   } else if (token && isRevocable(token) && outcome !== "already_invalid") {
     // Said only for a token that SHOULD have been revocable. A session token
     // was never going to be, and saying so on every logout from an older
@@ -329,9 +327,12 @@ export function credentialLines(token: Token): string[] {
   const masked = `${token.display_prefix}…${token.last_four}`;
   if (isAgentTokenRow(token)) return agentTokenLines(token, masked);
   if (token.kind === "legacy_key") {
+    // Reachable only where a row of this kind is still listed (an org's
+    // inventory): the credential itself authenticates nothing, so "reach" is
+    // what it had, in the past tense.
     return [
       `${out.bold("credential")}  Legacy API key: ${token.name}  (${masked})`,
-      `${out.bold("reach")}       everything its owner can — it can't be limited to workspaces`,
+      `${out.bold("reach")}       none — legacy API keys were removed`,
       `${out.bold("expires")}     ${describeExpiry(token.expires_at)}`
     ];
   }

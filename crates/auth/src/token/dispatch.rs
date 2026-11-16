@@ -21,8 +21,11 @@
 //!    token's ticket (`super::browser_session`) — is read from the same two
 //!    places and decides as its token does: the request carries the token's
 //!    `CredentialContext`, and a session that fails answers 401.
-//! 3. **A legacy key** from `X-API-Key` — today's fallback, so a valid cookie
-//!    still beats a bad legacy key — or, newly, an `oxy_<32 hex>` bearer.
+//! There is no fourth step. **Legacy API keys (`oxy_<32 hex>`) were removed**:
+//! `X-API-Key` still carries a token — that is how `/external/api` is reached —
+//! but a value of the old shape authenticates nothing. It is recognised only to
+//! answer 401 with [`LEGACY_KEY_REMOVED`] instead of "no API key found", so an
+//! integration that has been sending one for a year learns what happened.
 //!
 //! A **sandbox agent token** (`oxy_sbx_`) is refused wherever the entry point
 //! has not said it may authenticate there ([`SandboxAgent`]) — before its row
@@ -41,7 +44,9 @@ use oxy_shared::errors::OxyError;
 use super::browser_session;
 use super::cache;
 use super::credential::CredentialContext;
-use super::format::{TokenFormat, hash_token, new_prefix_format, parse_format, verify_checksum};
+use super::format::{
+    TokenFormat, hash_token, is_removed_legacy_key, new_prefix_format, verify_checksum,
+};
 use super::service;
 use super::store;
 use crate::api_key_infra::require_active_owner;
@@ -115,13 +120,32 @@ pub async fn authenticate_request(
         }
     }
 
-    let Some(key) = legacy_key(headers) else {
-        return Err(OxyError::AuthenticationError(format!(
-            "No API key found in headers (expected: {DEFAULT_API_KEY_HEADER})"
-        )));
-    };
-    let (identity, credential) = authenticate_token(&key, TokenFormat::LegacyKey).await?;
-    Ok((identity, Some(credential)))
+    if presents_removed_legacy_key(headers) {
+        tracing::info!("refused a removed legacy API key (oxy_<32 hex>)");
+        return Err(OxyError::AuthenticationError(
+            LEGACY_KEY_REMOVED.to_string(),
+        ));
+    }
+    Err(OxyError::AuthenticationError(format!(
+        "No API key found in headers (expected: {DEFAULT_API_KEY_HEADER})"
+    )))
+}
+
+/// What a caller still sending `oxy_<32 hex>` is told. Names the replacement,
+/// because the whole point of recognising a removed format is to shorten the
+/// distance between the 401 and the fix.
+pub const LEGACY_KEY_REMOVED: &str = "Legacy API keys (oxy_…) were removed. Mint an API token instead: a personal \
+     access token under Settings → Account → API tokens, or an organization \
+     service account under Settings → Organization → API access. Both are sent \
+     the same way, in Authorization: Bearer or X-API-Key.";
+
+/// Whether the request's only credential is a removed legacy key, by shape
+/// alone — no database read, and nothing is admitted either way.
+fn presents_removed_legacy_key(headers: &HeaderMap) -> bool {
+    [bearer(headers), api_key_header(headers)]
+        .into_iter()
+        .flatten()
+        .any(|value| is_removed_legacy_key(&value))
 }
 
 /// Whether the request presents a sandbox agent token (`oxy_sbx_`), judged by
@@ -137,7 +161,7 @@ pub fn presents_sandbox_agent(headers: &HeaderMap) -> bool {
 /// Whether the request presents a **new-format API token** — `oxy_pat_`,
 /// `oxy_sat_`, `oxy_ci_` or `oxy_sbx_` — judged by its prefix alone, exactly
 /// where [`authenticate_request`] looks for one. False for a session, an
-/// anonymous request, a legacy key and an `oxypublish_` bearer.
+/// anonymous request, a removed legacy key and an `oxypublish_` bearer.
 ///
 /// For a path that authenticates inside its handler and wants to know, before
 /// it does and with no database read, whether there will be a token to count
@@ -229,14 +253,6 @@ fn new_prefix_token(headers: &HeaderMap) -> Option<(String, TokenFormat)> {
         .into_iter()
         .flatten()
         .find_map(|value| new_prefix_format(&value).map(|format| (value, format)))
-}
-
-/// A legacy key: `X-API-Key` as today (any value — rows were matched raw), else
-/// a bearer that is exactly `oxy_<32 hex>`. The bearer form is new and strictly
-/// additive: before, such a request answered 401.
-fn legacy_key(headers: &HeaderMap) -> Option<String> {
-    api_key_header(headers)
-        .or_else(|| bearer(headers).filter(|b| parse_format(b) == Some(TokenFormat::LegacyKey)))
 }
 
 /// Validate one token: checksum offline, then the ≤30 s cache, then the

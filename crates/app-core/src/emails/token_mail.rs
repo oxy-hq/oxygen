@@ -88,9 +88,8 @@ pub async fn deliver(to: &str, message: EmailMessage) -> Result<(), OxyError> {
         .await
 }
 
-/// Who a token mail is for: a person's own credential (a personal token, or a
-/// legacy API key — which links to its own page, [`legacy_keys_url`]), or an
-/// org's service-account token, whose mail goes to the org's admins and owners.
+/// Who a token mail is for: a person's own personal access token, or an org's
+/// service-account token, whose mail goes to the org's admins and owners.
 #[derive(Clone, Copy, Debug)]
 pub enum Audience<'a> {
     Owner,
@@ -121,20 +120,6 @@ impl Audience<'_> {
             Self::OrgAdmins { .. } => "Organization → API access",
         }
     }
-}
-
-/// The `?settings=` value of the page that lists a person's legacy API keys.
-/// A legacy key is not a token: it is extended and revoked in its own section.
-pub const LEGACY_KEYS_SETTINGS_KEY: &str = "workspace.legacy_api_keys";
-
-/// That page, in words, for a mail with no link.
-pub const LEGACY_KEYS_SETTINGS_LABEL: &str = "Workspace → Legacy API keys";
-
-/// Where a legacy API key's owner acts on it. `None` when the deployment's URL
-/// is unknown (`OXY_API_URL` unset).
-pub fn legacy_keys_url() -> Option<String> {
-    let base = crate::custom_apps_host_dispatch::admin_base_url()?;
-    Some(format!("{base}/?settings={LEGACY_KEYS_SETTINGS_KEY}"))
 }
 
 const TEMPLATE: &str = r#"<!DOCTYPE html>

@@ -45,14 +45,31 @@ name: Custom app checks
 # a person must set is three values: OXY_API_KEY in each environment and the
 # prod check-in URL. Everything else falls back.
 #
-#   OXY_API_KEY          environment only (staging and prod), a key for a
-#                        synthetic app-operator user. No fallback: it is the
-#                        credential the checks run as, and its presence is what
-#                        turns the scheduled leg on.
+#   OXY_API_KEY          environment only (staging and prod), a **personal
+#                        access token** (`oxy_pat_…`) for the synthetic
+#                        app-operator user. No fallback: it is the credential
+#                        the checks run as, and its presence is what turns the
+#                        scheduled leg on.
+#
+#                        Mint it with **platform standing** ticked: a legacy
+#                        key carried its owner's staff grant implicitly, a
+#                        token carries one only when it is asked for, and
+#                        `oxyc checks run <org>/<app>` pages the staff app
+#                        console to resolve the slug. Without it every leg
+#                        exits 4 as if the value were wrong.
+#
+#                        It held a legacy API key (`oxy_<32 hex>`) until those
+#                        were removed. The name stays — it is the variable both
+#                        `oxyc` and the browser check read, and `X-API-Key`
+#                        carries a token exactly as it carried a key — so the
+#                        migration is a change of value, not of wiring. A value
+#                        still of the old shape is rejected at `Require
+#                        secrets`, with what to mint instead, rather than
+#                        401ing inside a check.
 #
 #                        It is NOT replaceable by trusted publishing (OIDC),
 #                        although `oxyc checks run` can mint its own credential
-#                        since #3325. Two reasons, both checked:
+#                        since #3325. Two reasons, both still true:
 #                        - The browser check loads the canary AS A USER
 #                          (web-app/tests/custom-app-checks/app-loads.spec.ts
 #                          sends this key as X-API-Key). A minted publish token
@@ -65,8 +82,8 @@ name: Custom app checks
 #                          publisher registered" AND for a bad token, and 7 for
 #                          "deployment predates #3325" AND for an unreachable
 #                          host. Turning them green would hide an outage.
-#                        Removing the key first needs a way for the browser check
-#                        to sign in without one.
+#                        Going keyless first needs a way for the browser check
+#                        to sign in without a user credential.
 #   CHECKIN_URL          prod: environment CHECKIN_URL, else repository
 #                        CUSTOM_APP_CHECKS_CHECKIN_URL (the All Quiet
 #                        `custom_app_checks_prod` monitor). There is one URL and
@@ -269,6 +286,13 @@ jobs:
               missing+=("$name")
             fi
           done
+          # A legacy API key authenticates nothing since they were removed, and
+          # it is SET — so without this every check below would run and fail on
+          # a 401 somewhere inside it. Name the shape and the fix here instead.
+          if [[ "${OXY_API_KEY:-}" =~ ^oxy_[0-9a-f]{32}$ ]]; then
+            echo "::error::OXY_API_KEY in environment custom-app-checks-${ENVIRONMENT} is a legacy API key (oxy_<32 hex>). Legacy API keys were removed and authenticate nothing. Mint a personal access token for the canary user and set that instead: internal-docs/api-token-migration.md."
+            exit 1
+          fi
           if (( ${#missing[@]} == 0 )); then
             echo "ready=true" >> "$GITHUB_OUTPUT"
             if [[ "$ENVIRONMENT" == prod ]]; then

@@ -4,7 +4,7 @@ use super::*;
 fn the_workspace_and_org_trees_enforce_grants_themselves() {
     for path in [
         "/3f2504e0-4f89-11d3-9a0c-0305e82c3301/threads",
-        "/3f2504e0-4f89-11d3-9a0c-0305e82c3301/api-keys",
+        "/3f2504e0-4f89-11d3-9a0c-0305e82c3301/api-tokens",
         "/orgs",
         "/orgs/3f2504e0-4f89-11d3-9a0c-0305e82c3301/workspaces",
         "/orgs/3f2504e0-4f89-11d3-9a0c-0305e82c3301/members",

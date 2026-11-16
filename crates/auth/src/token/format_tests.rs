@@ -107,17 +107,20 @@ fn parse_recognises_every_kind() {
         parse_format(&generate_with_prefix(CI_PREFIX).plaintext),
         Some(TokenFormat::Ci)
     );
+    // A legacy API key parses as nothing: the format was removed.
     let legacy = format!("oxy_{}", uuid::Uuid::new_v4().simple());
-    assert_eq!(parse_format(&legacy), Some(TokenFormat::LegacyKey));
+    assert_eq!(parse_format(&legacy), None);
     let publish = format!("oxypublish_{}", "ab".repeat(32));
     assert_eq!(parse_format(&publish), Some(TokenFormat::LegacyPublish));
 }
 
 #[test]
-fn parse_is_strict_about_legacy_shapes() {
-    assert_eq!(parse_format("oxy_ABCDEF"), None);
-    assert_eq!(parse_format(&format!("oxy_{}", "g".repeat(32))), None);
-    assert_eq!(parse_format(&format!("oxy_{}", "a".repeat(31))), None);
+fn parse_is_strict_about_the_publish_shape() {
+    assert_eq!(parse_format("oxypublish_ABCDEF"), None);
+    assert_eq!(
+        parse_format(&format!("oxypublish_{}", "g".repeat(64))),
+        None
+    );
     assert_eq!(
         parse_format(&format!("oxypublish_{}", "a".repeat(63))),
         None
@@ -153,7 +156,6 @@ fn only_new_formats_are_new() {
     assert!(TokenFormat::ServiceAccount.is_new());
     assert!(TokenFormat::Ci.is_new());
     assert!(TokenFormat::SandboxAgent.is_new());
-    assert!(!TokenFormat::LegacyKey.is_new());
     assert!(!TokenFormat::LegacyPublish.is_new());
 }
 
@@ -188,20 +190,27 @@ fn the_hash_is_sha256_of_the_exact_string() {
     );
 }
 
+/// Nothing mints a legacy key any more, and nothing admits one. The shape is
+/// still recognised in exactly one place: so the dispatch can tell a caller
+/// still sending one that the credential was removed, instead of answering
+/// that no credential was found.
 #[test]
-fn a_minted_legacy_key_has_the_legacy_shape_and_is_never_a_token() {
-    let key = generate_legacy_key();
-    assert_eq!(parse_format(&key), Some(TokenFormat::LegacyKey), "{key}");
-    assert_eq!(
-        new_prefix_format(&key),
-        None,
-        "a legacy key has no token prefix"
-    );
-    assert!(!key.starts_with(PAT_PREFIX));
-    assert_ne!(key, generate_legacy_key(), "each mint is a new key");
-    // What the list shows of it: `oxy_` and the last four, as before.
-    assert_eq!(display_prefix(&key), "oxy_");
-    assert_eq!(last_four(&key).len(), 4);
+fn a_legacy_key_is_recognised_only_to_be_named_in_the_refusal() {
+    let key = format!("oxy_{}", uuid::Uuid::new_v4().simple());
+    assert!(is_removed_legacy_key(&key), "{key}");
+    assert_eq!(parse_format(&key), None, "it authenticates nothing");
+    assert_eq!(new_prefix_format(&key), None);
+    // Strictly that shape: `oxy_` and 32 lowercase hex, nothing else.
+    for not_one in [
+        "oxy_ABCDEF".to_string(),
+        format!("oxy_{}", "g".repeat(32)),
+        format!("oxy_{}", "a".repeat(31)),
+        format!("oxy_{}", "a".repeat(33)),
+        generate_personal().plaintext,
+        String::new(),
+    ] {
+        assert!(!is_removed_legacy_key(&not_one), "{not_one}");
+    }
 }
 
 #[test]
@@ -235,7 +244,7 @@ fn scanned_prefix(format: TokenFormat) -> Option<&'static str> {
         | TokenFormat::ServiceAccount
         | TokenFormat::Ci
         | TokenFormat::SandboxAgent => format.new_prefix(),
-        TokenFormat::LegacyKey | TokenFormat::LegacyPublish => None,
+        TokenFormat::LegacyPublish => None,
     }
 }
 

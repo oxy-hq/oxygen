@@ -1,10 +1,14 @@
-//! `GET /api/{workspace_id}/api-keys/{id}/activity` — what happened to one key
-//! and what was done with it (API-tokens design §3.7, "where people see it").
+//! One token's Activity, shared by every surface that shows it (API-tokens
+//! design §3.7, "where people see it").
 //!
-//! Browser session only, and only the key's owner (anyone else, and an unknown
-//! id, read 404). Three bounded, indexed reads, all Postgres:
+//! This was `api_keys::activity`, built for the legacy `/api-keys/{id}/activity`
+//! route. That route went with legacy keys; everything below it was never
+//! legacy-specific, so it stayed and now serves the personal-token, service-
+//! account and org-inventory drawers alone.
 //!
-//! - `events`: the key's lifecycle events and the actions performed with it,
+//! Three bounded, indexed reads, all Postgres:
+//!
+//! - `events`: the token's lifecycle events and the actions performed with it,
 //!   newest first, capped by `limit`. The audit log keeps a rolling window, so
 //!   this is recent history, not all of it.
 //! - `usage`: one row per day for the last 30 days, oldest first.
@@ -13,21 +17,15 @@
 //!
 //! Counts appear within a minute: usage is accumulated in memory and flushed.
 
-use axum::Json;
-use axum::extract::{Path, Query};
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use entity::api_token_usage_daily as usage_daily;
 use entity::prelude::ApiTokenUsageDaily;
-use oxy::database::client::establish_connection;
-use oxy_app_core::audit::{self, RequestActor, TOKEN_ID_KEY};
-use oxy_auth::ApiKeyService;
-use oxy_auth::extractor::{SessionAction, SessionOnly};
+use oxy_app_core::audit::{self, TOKEN_ID_KEY};
+use oxy_auth::extractor::SessionAction;
 use oxy_shared::errors::OxyError;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use oxy_app::surface::admin_audit::AuditEventDto;
@@ -39,6 +37,9 @@ const USAGE_DAYS: i64 = 30;
 /// The only metadata an event exposes here (contract amendment, #3406).
 const EVENT_METADATA_KEYS: &[&str] = &[TOKEN_ID_KEY, "old_expires_at", "new_expires_at"];
 
+/// What a token is told when it asks for a token's activity. The drawers that
+/// show it are browser surfaces; a credential reading its own audit trail is
+/// not something any of them need.
 pub struct ViewActivity;
 impl SessionAction for ViewActivity {
     const REFUSAL: &'static str = "activity requires a browser session";
@@ -79,45 +80,6 @@ pub struct ActivityResponse {
     pub events: Vec<ActivityEvent>,
     pub usage: Vec<UsageDay>,
     pub last_used: Option<LastUsed>,
-}
-
-fn error(status: StatusCode, message: &str) -> Response {
-    (status, Json(json!({ "error": message }))).into_response()
-}
-
-/// Activity for one of the caller's API keys
-pub async fn get_api_key_activity(
-    _: SessionOnly<ViewActivity>,
-    actor: RequestActor,
-    Path((_workspace_id, id)): Path<(Uuid, String)>,
-    Query(query): Query<ActivityQuery>,
-) -> Response {
-    let Ok(key_id) = Uuid::parse_str(&id) else {
-        return error(StatusCode::NOT_FOUND, "API key not found");
-    };
-    match load(key_id, actor.id, page_size(query.limit)).await {
-        Ok(Some(activity)) => Json(activity).into_response(),
-        Ok(None) => error(StatusCode::NOT_FOUND, "API key not found"),
-        Err(e) => {
-            tracing::error!("Failed to load API key activity: {e}");
-            error(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
-        }
-    }
-}
-
-/// `None` when the key is not the caller's (or does not exist).
-async fn load(
-    key_id: Uuid,
-    user_id: Uuid,
-    limit: u64,
-) -> Result<Option<ActivityResponse>, OxyError> {
-    let db = establish_connection().await?;
-    let Some(key) = ApiKeyService::find_owned_key(&db, key_id, user_id).await? else {
-        return Ok(None);
-    };
-    // A key's token id is its own id (see the `api_tokens` migration).
-    let fallback = fallback_last_used(&db, &key).await?;
-    token_activity(&db, key_id, fallback, limit).await.map(Some)
 }
 
 /// The page size a caller asked for, bounded.
@@ -270,23 +232,10 @@ fn last_used_from(row: usage_daily::Model) -> LastUsed {
     }
 }
 
-/// Before any usage row exists: the token's own `last_used_at` (or the key's,
-/// when it has no token row yet). When, but not from where.
-async fn fallback_last_used(
-    db: &DatabaseConnection,
-    key: &entity::api_keys::Model,
-) -> Result<Option<LastUsed>, OxyError> {
-    let token_at = ApiKeyService::mirror_of(db, key.id)
-        .await?
-        .and_then(|t| t.last_used_at);
-    Ok(token_at
-        .or(key.last_used_at)
-        .map(|at| last_used_at(at.into())))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn event_metadata_exposes_only_the_contract_keys() {

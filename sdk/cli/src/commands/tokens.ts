@@ -4,9 +4,9 @@
  * The plural manages; the singular `oxyc token` prints the one in use.
  *
  * TOKENS ONLY. A legacy API key (`oxy_<hex>`) is not a token: the server never
- * lists one under `/api/user/tokens` and answers 404 for its id there, so
- * nothing here handles one. They live in the web app, under
- * Settings → Workspace → Legacy API keys.
+ * listed one under `/api/user/tokens` and answers 404 for its id there, so
+ * nothing here handles one. Legacy keys were removed and authenticate nothing,
+ * so there is also nothing left to manage.
  *
  * MANAGEMENT IS BROWSER-SESSION-ONLY ON THE SERVER, and that is a security
  * property rather than a gap to route around: a token that could list, mint or
@@ -148,7 +148,7 @@ export async function runTokensRevoke(ctx: Context, id: string): Promise<void> {
       code: ExitCode.NOT_FOUND,
       hint:
         "`oxyc tokens list` shows the ids — someone else's token answers the same way\n" +
-        "a legacy API key is not a token: revoke one in the web app, Settings → Workspace → Legacy API keys"
+        "a legacy API key is not a token, and legacy keys were removed: there is nothing to revoke"
     });
   }
   if (!ok(response)) throw managementError(response, target, "revoking a token");

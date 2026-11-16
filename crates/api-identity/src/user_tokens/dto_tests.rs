@@ -64,7 +64,6 @@ fn dto(row: &api_tokens::Model, grants: &[api_token_grants::Model]) -> TokenDto 
             grants,
             names: &names(),
             owner: OwnerDto::user(id(2), "ada@example.com"),
-            key_inactive: false,
             now: Utc::now(),
         },
     )
@@ -235,24 +234,43 @@ fn a_legacy_rows_key_id_is_the_one_it_mirrors() {
 fn status_is_revoked_then_expired_then_active() {
     let now = Utc::now();
     let mut row = token("personal", None);
-    assert_eq!(status_of(&row, false, now), STATUS_ACTIVE);
+    assert_eq!(status_of(&row, now), STATUS_ACTIVE);
 
     row.expires_at = Some((now + Duration::days(1)).fixed_offset());
-    assert_eq!(status_of(&row, false, now), STATUS_ACTIVE);
+    assert_eq!(status_of(&row, now), STATUS_ACTIVE);
 
     row.expires_at = Some((now - Duration::seconds(1)).fixed_offset());
-    assert_eq!(status_of(&row, false, now), STATUS_EXPIRED);
+    assert_eq!(status_of(&row, now), STATUS_EXPIRED);
 
     // Revoked wins over a lapsed expiry, and stays listed with its row.
     row.revoked_at = Some(now.fixed_offset());
-    assert_eq!(status_of(&row, false, now), STATUS_REVOKED);
+    assert_eq!(status_of(&row, now), STATUS_REVOKED);
     assert_eq!(dto(&row, &[]).status, STATUS_REVOKED);
     assert!(dto(&row, &[]).revoked_at.is_some());
 }
 
+/// A legacy key reads `removed` whatever its row says, in both its shapes.
+///
+/// This is the one status the row's own state does not decide, and it has to be
+/// that way: the 2026-11-16 migration deliberately leaves the keys that were
+/// still in use **unrevoked**, so a revert can restore them. Reading those as
+/// "active" would tell an org admin — and `oxyc`, and any script — that a
+/// credential works when admission refuses it before anything else is judged.
 #[test]
-fn a_key_revoked_by_an_older_pod_reads_as_revoked() {
-    // `api_keys.is_active = false` with no `api_tokens.revoked_at` yet.
-    let row = token("legacy_key", Some(id(1)));
-    assert_eq!(status_of(&row, true, Utc::now()), STATUS_REVOKED);
+fn a_legacy_key_reads_as_removed_however_its_row_reads() {
+    let now = Utc::now();
+    for row in [token("legacy_key", None), token("personal", Some(id(44)))] {
+        // Untouched by the migration: the shape the four live keys are in.
+        assert_eq!(status_of(&row, now), STATUS_REMOVED);
+
+        // Revoked, expired, or both: still removed.
+        let mut ended = row.clone();
+        ended.revoked_at = Some(now.fixed_offset());
+        ended.expires_at = Some((now - Duration::days(400)).fixed_offset());
+        assert_eq!(status_of(&ended, now), STATUS_REMOVED);
+        assert_eq!(dto(&ended, &[]).status, STATUS_REMOVED);
+    }
+
+    // And no other kind is ever `removed`.
+    assert_ne!(status_of(&token("personal", None), now), STATUS_REMOVED);
 }

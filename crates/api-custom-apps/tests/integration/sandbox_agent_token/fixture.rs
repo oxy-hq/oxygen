@@ -57,7 +57,6 @@ pub(crate) fn credential(t: &Tenant, token_id: Uuid, app: &apps::Model) -> Crede
         partner: false,
         name: "agent".into(),
         display_prefix: "oxy_sbx_Ab3x".into(),
-        legacy_api_key_id: None,
         grants: vec![TokenGrant {
             org_id: app.org_id,
             workspace_id: Some(app.project_id),

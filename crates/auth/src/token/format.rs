@@ -6,9 +6,12 @@
 //! reject a lookalike offline. It is integrity, not authenticity: the random
 //! part is what makes a token unguessable.
 //!
-//! Two legacy formats stay valid: `oxy_<32 hex>` (the API key the legacy
-//! endpoint minted until Phase 1) and `oxypublish_<64 hex>` (the custom-app
-//! publish token). Only a SHA-256 of any token is ever stored.
+//! One legacy format stays valid: `oxypublish_<64 hex>`, the custom-app publish
+//! token. The other — `oxy_<32 hex>`, the key the legacy `/api-keys` endpoint
+//! minted — was **removed**: [`parse_format`] no longer recognises it, and
+//! [`is_removed_legacy_key`] exists only so the dispatch can say so in the 401
+//! rather than answering "no API key found". Only a SHA-256 of any token is
+//! ever stored.
 
 use sha2::{Digest, Sha256};
 
@@ -52,16 +55,14 @@ pub enum TokenFormat {
     Ci,
     /// `oxy_sbx_…`
     SandboxAgent,
-    /// `oxy_<32 hex>`, and — for lookup purposes — any other value presented
-    /// as an API key, since the legacy endpoint matched raw `api_keys` rows.
-    LegacyKey,
     /// `oxypublish_<64 hex>`
     LegacyPublish,
 }
 
 impl TokenFormat {
-    /// True for the four checksummed prefixes. Only these carry the
-    /// no-fallthrough rule (design §4.1); legacy keys keep today's precedence.
+    /// True for the four checksummed prefixes — every format that can still
+    /// authenticate a request, now that `oxy_<32 hex>` is gone. They carry the
+    /// no-fallthrough rule (design §4.1).
     pub fn is_new(self) -> bool {
         matches!(
             self,
@@ -76,7 +77,7 @@ impl TokenFormat {
             Self::ServiceAccount => Some(SAT_PREFIX),
             Self::Ci => Some(CI_PREFIX),
             Self::SandboxAgent => Some(SBX_PREFIX),
-            Self::LegacyKey | Self::LegacyPublish => None,
+            Self::LegacyPublish => None,
         }
     }
 }
@@ -97,8 +98,10 @@ pub fn new_prefix_format(candidate: &str) -> Option<TokenFormat> {
     .find(|f| f.new_prefix().is_some_and(|p| candidate.starts_with(p)))
 }
 
-/// Strict recognition of every known format. New prefixes are recognised by
-/// prefix (see [`new_prefix_format`]); the legacy formats by their exact shape.
+/// Strict recognition of every format that can still authenticate. New
+/// prefixes are recognised by prefix (see [`new_prefix_format`]); the publish
+/// token by its exact shape. `oxy_<32 hex>` is **not** one of them any more —
+/// see [`is_removed_legacy_key`].
 pub fn parse_format(candidate: &str) -> Option<TokenFormat> {
     if let Some(format) = new_prefix_format(candidate) {
         return Some(format);
@@ -106,10 +109,19 @@ pub fn parse_format(candidate: &str) -> Option<TokenFormat> {
     if is_hex_after(candidate, LEGACY_PUBLISH_PREFIX, LEGACY_PUBLISH_HEX_LEN) {
         return Some(TokenFormat::LegacyPublish);
     }
-    if is_hex_after(candidate, LEGACY_KEY_PREFIX, LEGACY_KEY_HEX_LEN) {
-        return Some(TokenFormat::LegacyKey);
-    }
     None
+}
+
+/// Whether `candidate` has the shape of a **removed** legacy API key:
+/// `oxy_` + 32 lowercase hex characters.
+///
+/// Nothing authenticates with this any more. It is recognised for one reason:
+/// so a caller still sending a key it has had for a year is told that the
+/// credential was removed and what to mint instead, rather than being told no
+/// credential was found. A shape test only — no database read, no hash, and it
+/// never admits anything.
+pub fn is_removed_legacy_key(candidate: &str) -> bool {
+    is_hex_after(candidate, LEGACY_KEY_PREFIX, LEGACY_KEY_HEX_LEN)
 }
 
 /// True when `candidate` is exactly `prefix` + `len` lowercase hex characters.
@@ -165,13 +177,6 @@ pub fn generate_ci() -> GeneratedToken {
 /// Mint a sandbox agent token (`oxy_sbx_…`).
 pub fn generate_sandbox_agent() -> GeneratedToken {
     generate_with_prefix(SBX_PREFIX)
-}
-
-/// Mint a legacy API key: `oxy_` + 32 lowercase hex characters, the shape the
-/// legacy endpoint has always returned. A legacy key is never a token — it has
-/// no checksum and is recognised by this exact shape ([`parse_format`]).
-pub fn generate_legacy_key() -> String {
-    format!("{LEGACY_KEY_PREFIX}{}", uuid::Uuid::new_v4().simple())
 }
 
 pub(crate) fn generate_with_prefix(prefix: &str) -> GeneratedToken {

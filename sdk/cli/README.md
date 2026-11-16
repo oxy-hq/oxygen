@@ -57,7 +57,7 @@ and `cache`.
 | `--env <name\|url>` | `production` | deployment to target |
 | `--target <url>` | — | explicit base URL; overrides `--env` |
 | `--token-env <VAR>` | `OXY_TOKEN` | env var holding the bearer: any credential. **Named, it is the only source** — an unset variable is exit `4`, never a fallback to your login |
-| `--api-key-env <VAR>` | `OXY_API_KEY` | env var holding the legacy API key or API token for `/external/api` |
+| `--api-key-env <VAR>` | `OXY_API_KEY` | env var holding the API token for `/external/api` |
 | `--service-account <id>` | `OXY_SERVICE_ACCOUNT` | in GitHub Actions: the **ID** of the service account the OIDC exchange acts as |
 | `--org <slug>` | — | value for the `{org}` placeholder |
 | `--workspace <id>` | — | value for the `{workspace}` placeholder |
@@ -121,8 +121,8 @@ the server.
 
 **Surfaces.** The path selects how the credential is sent. `/api/**` sends it
 as a bearer — whichever one [resolves](#authentication). `/external/api/**`
-sends `X-API-Key` from `$OXY_API_KEY`, which holds a legacy API key (`oxy_…`) or
-an API token (`oxy_pat_…`, `oxy_sat_…`, `oxy_ci_…`). With none set, an
+sends `X-API-Key` from `$OXY_API_KEY`, which holds an API token (`oxy_pat_…`,
+`oxy_sat_…`, `oxy_ci_…`). With none set, an
 `OXY_TOKEN` holding either of those stands in for it, so one `OXY_TOKEN` covers
 both surfaces. A session token never does.
 
@@ -204,8 +204,8 @@ variable exits `4` instead of quietly running on the person's cached login.
 1. **`OXY_TOKEN`** (or the variable `--token-env` names). It holds any
    credential, and all are sent as a bearer: an API token — a personal access
    token (`oxy_pat_…`), a service account token (`oxy_sat_…`), a CI token
-   (`oxy_ci_…`) or a sandbox agent token (`oxy_sbx_…`) — a legacy API key
-   (`oxy_…`), a publish token, or a session token. A blank value counts as
+   (`oxy_ci_…`) or a sandbox agent token (`oxy_sbx_…`) — a publish token, or a
+   session token. A blank value counts as
    unset. An agent token is a personal access token by its prefix: only its
    own description tells it from a login (`oxyc whoami`). The value
    `from-proxy` means the token is not on this machine at all: see
@@ -225,15 +225,15 @@ machine. A person who wants `oxyc mcp` on their own login starts it with
 `--login`. `OXY_API_KEY` is unaffected: a command that can use one on its own
 (`checks run`, the sandbox verbs) still does.
 
-`OXY_API_KEY` holds a legacy API key or an API token, and is honoured where it
-always was — the `/external/api` surface, and `checks run`.
+`OXY_API_KEY` holds an API token, and is honoured where it always was — the
+`/external/api` surface, and `checks run`. The name is historical: it held a
+legacy API key until those were removed.
 
-**Legacy API keys and API tokens are separate things.** A legacy API key is the
-older `oxy_…` key: it reaches everything its owner can and can't be limited to
-workspaces. It keeps working wherever it works today, but it is not a token —
-`oxyc tokens` never lists or revokes one, and `oxyc whoami` calls it a
-`Legacy API key`. They are extended and revoked in the web app, under
-Settings → Workspace → Legacy API keys. Use an API token for anything new.
+**Legacy API keys were removed.** The older `oxy_…` key reached everything its
+owner could and couldn't be limited to workspaces. A request carrying one is now
+answered `401` naming its replacement, so if an integration of yours stopped
+working, mint a token and set it where the key was — the header is the same.
+`oxyc whoami` still calls one a `Legacy API key`, and adds that it was removed.
 
 **`login`** runs a browser loopback flow. Against a current deployment it
 receives a one-time code and exchanges it (PKCE) for a **personal access
@@ -252,8 +252,8 @@ it from this machine whatever the server said. It never touches `OXY_TOKEN`.
 rather than reading as fine from the cache. For a token it also prints what the
 token is and what it can reach — `all access`, or one line per grant with the
 role it is capped at, and any organization whose policy blocks it. For a legacy
-API key it prints `Legacy API key`, and that it reaches everything its owner
-can. For an agent token it says `agent token`, who approved it, whether it
+API key it prints `Legacy API key`, and that legacy keys were removed. For an
+agent token it says `agent token`, who approved it, whether it
 carries their staff or partner access, and when it expires. When a token in
 `OXY_TOKEN` is refused (exit `4`), the advice is never to log in — a login
 cannot replace what is in the variable. An agent stops and reports.
@@ -455,8 +455,8 @@ Stdout is the URL and nothing else; what the link is goes to stderr.
   and cannot manage tokens.
 - **It needs a personal access token** (`oxy_pat_…`) — what `oxyc login`
   stores. Any other credential is exit `4` with the next step: a session token
-  from an older login, a service account, CI or publish token, a legacy API
-  key. A sandbox agent token is exit `2`, before any request. A deployment that
+  from an older login, a service account, CI or publish token, or a removed
+  legacy API key. A sandbox agent token is exit `2`, before any request. A deployment that
   predates sign-in links is exit `5`.
 - **`--next <path>`** is where the browser lands: a path on the deployment
   starting with a single `/`. A URL, `//host` or a backslash is exit `2`, and
@@ -1253,7 +1253,7 @@ trust policy first, the app's registered publisher second — and drives
 `/api/customer-apps/**`, the same three routes a person's credential uses. A
 service account's token (`oxy_sat_…`, `oxy_ci_…`) or a publish token set in
 `OXY_TOKEN` is used without minting. What differs is the app lookup: a
-personal token, a legacy API key or a session can list apps to resolve
+personal token or a session can list apps to resolve
 `<org>/<app>`; a machine credential may not, so it names the app by UUID or
 through its own grants. `OXY_API_KEY` is read **before** OIDC here: a job that set one has said
 which credential it means.
@@ -1300,7 +1300,8 @@ it) but does need `<org-slug>/<app-slug>`, since it is registered by slug.
 **Exit codes:** `0` every check passed; `9` (`CHECK_FAILED`) at least one check
 failed or timed out; `1` the app declares no checks; `5` the app was not
 found; `4` no credential resolved, or the API rejected it (401/403 — an
-expired legacy API key or API token reads this way, not as a missing one); `2` a bad
+expired API token, or a removed legacy API key, reads this way, not as a
+missing one); `2` a bad
 `--timeout`, or a slug where the credential needs a UUID; `7` (`UNAVAILABLE`)
 the deployment answered the OIDC exchange without an `app_id`, meaning it
 predates trusted checks.
@@ -1746,7 +1747,7 @@ its own token (`tokens create --agent` or `--sandbox-agent`) does not: there,
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `OXY_TOKEN` | — | any credential, sent as a bearer; overrides the login cache and GitHub OIDC. `from-proxy`: an egress proxy adds it, so none is sent ([A token the proxy adds](#a-token-the-proxy-adds)) |
-| `OXY_API_KEY` | — | a legacy API key or an API token, for the `/external/api` surface and for `checks run` |
+| `OXY_API_KEY` | — | an API token, for the `/external/api` surface and for `checks run` (the name is historical: it held a legacy API key until those were removed) |
 | `OXY_SERVICE_ACCOUNT` | — | the **ID** of the service account a GitHub OIDC exchange acts as (`--service-account`); never `<org>/<name>` |
 | `OXY_AGENT` | detected | the name of the agent driving `oxyc`, sent in the user agent — see below |
 | `OXY_CREDENTIALS_PATH` | OS config dir | the shared `credentials.json` |

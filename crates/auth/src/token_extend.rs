@@ -1,11 +1,31 @@
-//! Extend: push out a key's expiry without changing the key (design §3.6).
+//! Extend: push out a token's expiry without changing the token (design §3.6).
 //!
 //! The pure half — parsing the request body and computing the new expiry — so
-//! it is testable without a database. The write is
-//! [`crate::api_key_domain::ApiKeyService::extend_api_key`].
+//! it is testable without a database. The writes are in `oxy-api-identity`
+//! (`user_tokens::service` for a personal token, `org_api_access` for a
+//! service account's).
+//!
+//! It was `api_key_extend` while legacy API keys were the thing being
+//! extended. They are gone; the vocabulary is the same for every token, so
+//! this is the whole module that survived them.
 
 use chrono::{DateTime, Duration, Utc};
+use oxy_shared::errors::OxyError;
 use serde_json::Value;
+
+/// Why an extension was refused.
+#[derive(Debug, thiserror::Error)]
+pub enum ExtendError {
+    /// Unknown, or not the caller's: indistinguishable on purpose.
+    #[error("API token not found")]
+    NotFound,
+    #[error("API token is revoked")]
+    Revoked,
+    #[error("{0}")]
+    Invalid(String),
+    #[error(transparent)]
+    Db(#[from] OxyError),
+}
 
 /// The longest single extension by `days`: ten years.
 pub const MAX_EXTEND_DAYS: i64 = 3650;
@@ -13,7 +33,7 @@ pub const MAX_EXTEND_DAYS: i64 = 3650;
 /// What an extension asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExtendTo {
-    /// `max(now, current expiry) + days`. A key that never expires counts
+    /// `max(now, current expiry) + days`. A token that never expires counts
     /// from now: the caller asked for a date, and gets one.
     Days(i64),
     /// An explicit instant, which must be in the future.
@@ -119,7 +139,7 @@ mod tests {
             d.resolve(Some(later), now),
             Ok(Some(later + Duration::days(30)))
         );
-        // An expired key is revived from now, not from its lapsed expiry.
+        // An expired token is revived from now, not from its lapsed expiry.
         assert_eq!(
             d.resolve(Some(earlier), now),
             Ok(Some(now + Duration::days(30)))

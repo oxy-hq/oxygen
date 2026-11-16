@@ -22,7 +22,6 @@ fn credential(token_id: Uuid) -> CredentialContext {
         partner: true,
         name: "ci".into(),
         display_prefix: "oxy_pat_Ab3x".into(),
-        legacy_api_key_id: None,
         blocked_orgs: Vec::new(),
         expires_at: None,
         service_account: None,

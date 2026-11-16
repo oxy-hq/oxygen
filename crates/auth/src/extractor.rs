@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use crate::token::{CredentialContext, StoredKind};
+use crate::token::CredentialContext;
 use crate::types::AuthenticatedUser;
 
 #[derive(Clone)]
@@ -80,8 +80,8 @@ where
 pub trait SessionAction: Send + Sync + 'static {
     const REFUSAL: &'static str;
     /// A machine-readable `code` beside the message. The token-management
-    /// routes carry [`SESSION_REQUIRED`]; the legacy API-keys routes carry none,
-    /// so their body stays exactly what it was.
+    /// routes carry [`SESSION_REQUIRED`]; an action that wants its body left
+    /// exactly as it was carries none.
     const CODE: Option<&'static str> = None;
 }
 
@@ -137,34 +137,6 @@ impl<S: Send + Sync, A: SessionAction> FromRequestParts<S> for SessionOnly<A> {
     }
 }
 
-/// [`SessionOnly`], except that a **legacy key** still gets through.
-///
-/// For the legacy endpoint's create and revoke, which accepted any key before
-/// this release. Taking that from the keys that exist would break them, and
-/// nothing may (design §3.5), so only the new formats — none of which existed
-/// before this release — are refused here.
-pub struct SessionOrLegacyKey<A: SessionAction>(PhantomData<A>);
-
-impl<S: Send + Sync, A: SessionAction> FromRequestParts<S> for SessionOrLegacyKey<A> {
-    type Rejection = SessionOnlyRejection;
-
-    fn from_request_parts(
-        parts: &mut Parts,
-        _state: &S,
-    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
-        let refused = parts
-            .extensions
-            .get::<CredentialContext>()
-            .is_some_and(|c| c.kind != StoredKind::LegacyKey);
-        let result = if refused {
-            Err(SessionOnlyRejection::of::<A>())
-        } else {
-            Ok(SessionOrLegacyKey(PhantomData))
-        };
-        async move { result }
-    }
-}
-
 /// Extension trait to extract authenticated user from request
 pub trait RequestUserExt {
     fn user(&self) -> Option<&AuthenticatedUser>;
@@ -179,6 +151,7 @@ impl RequestUserExt for Request {
 #[cfg(test)]
 mod session_only_tests {
     use super::*;
+    use crate::token::StoredKind;
     use axum::http::Request as HttpRequest;
 
     struct Extend;
@@ -198,7 +171,6 @@ mod session_only_tests {
                 partner: true,
                 name: "k".into(),
                 display_prefix: "oxy_".into(),
-                legacy_api_key_id: None,
                 blocked_orgs: Vec::new(),
                 expires_at: None,
                 service_account: None,
@@ -217,32 +189,23 @@ mod session_only_tests {
                 .await
                 .is_ok()
         );
-        for kind in [StoredKind::Personal, StoredKind::LegacyKey] {
+        for kind in [
+            StoredKind::Personal,
+            StoredKind::ServiceAccount,
+            StoredKind::Ci,
+            StoredKind::SandboxAgent,
+        ] {
             let Err(err) =
                 SessionOnly::<Extend>::from_request_parts(&mut parts(Some(kind)), &()).await
             else {
                 panic!("{kind:?} must be refused");
             };
             assert_eq!(err.error, Extend::REFUSAL);
-            assert_eq!(err.code, None, "a legacy route's body is unchanged");
+            assert_eq!(
+                err.code, None,
+                "an action that names no code keeps its body"
+            );
             assert_eq!(err.into_response().status(), StatusCode::FORBIDDEN);
-        }
-    }
-
-    #[tokio::test]
-    async fn session_or_legacy_key_refuses_only_new_formats() {
-        for (kind, admitted) in [
-            (None, true),
-            (Some(StoredKind::LegacyKey), true),
-            (Some(StoredKind::Personal), false),
-            (Some(StoredKind::ServiceAccount), false),
-            (Some(StoredKind::Ci), false),
-            (Some(StoredKind::SandboxAgent), false),
-        ] {
-            let got = SessionOrLegacyKey::<Extend>::from_request_parts(&mut parts(kind), &())
-                .await
-                .is_ok();
-            assert_eq!(got, admitted, "{kind:?}");
         }
     }
 
@@ -254,7 +217,7 @@ mod session_only_tests {
     }
 
     #[tokio::test]
-    async fn every_new_format_is_refused_with_the_actions_status_and_code() {
+    async fn every_token_kind_is_refused_with_the_actions_status_and_code() {
         for kind in [
             StoredKind::Personal,
             StoredKind::ServiceAccount,
@@ -262,7 +225,7 @@ mod session_only_tests {
             StoredKind::SandboxAgent,
         ] {
             let Err(refused) =
-                SessionOrLegacyKey::<Mint>::from_request_parts(&mut parts(Some(kind)), &()).await
+                SessionOnly::<Mint>::from_request_parts(&mut parts(Some(kind)), &()).await
             else {
                 panic!("{kind:?} must be refused");
             };

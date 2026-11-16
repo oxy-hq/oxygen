@@ -1,4 +1,5 @@
 import { AGENT_TOKEN_LABEL, isAgentToken } from "@/libs/agentToken";
+import { tokenEnded } from "@/libs/tokenState";
 import type {
   BlockedOrg,
   Grant,
@@ -64,7 +65,7 @@ export const toTokenSummary = (
   id: token.id,
   name: token.name,
   expires_at: token.expires_at,
-  is_active: token.status !== "revoked",
+  is_active: !tokenEnded(token),
   masked_key: maskedToken({
     display_prefix: token.display_prefix,
     last_four: token.last_four ?? ""

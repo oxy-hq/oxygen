@@ -206,14 +206,14 @@ fn the_grant_is_refused_on_every_other_kind_of_token() {
 }
 
 #[test]
-fn a_legacy_row_carrying_one_is_refused_as_narrowed() {
+fn a_legacy_row_carrying_one_is_refused_for_being_legacy() {
     let legacy = api_tokens::Model {
         all_access: true,
         partner: true,
         ..row("legacy_key", "oxy_")
     };
-    let refused = admit_as(&legacy, &[staging(APP)], TokenFormat::LegacyKey);
-    assert_eq!(refused, Err(Refusal::Narrowed("grants")));
+    let refused = admit_as(&legacy, &[staging(APP)], TokenFormat::Personal);
+    assert_eq!(refused, Err(Refusal::LegacyKeyRemoved));
 }
 
 /// What a binary one release back does with the kind: it reaches the arm for

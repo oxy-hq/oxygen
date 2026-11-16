@@ -1,7 +1,9 @@
-import { KeyRound, SearchX } from "lucide-react";
-import { useState } from "react";
+import { KeyRound, Search, SearchX } from "lucide-react";
+import { useMemo, useState } from "react";
 import TableWrapper from "@/components/settings/components/TableWrapper";
+import { searchText } from "@/components/settings/tokens/tokenFilter";
 import { Button } from "@/components/ui/shadcn/button";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/shadcn/input-group";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { useOrgTokens } from "@/hooks/api/orgApiAccess";
 import type { InventoryFilters as Filters, InventoryToken } from "@/types/orgApiAccess";
@@ -22,20 +24,30 @@ interface InventoryProps {
 /**
  * Every credential that reaches this organization, whoever holds it, in two lists that are never
  * mixed: API tokens (people's personal tokens, the org's own service-account tokens, and the
- * short-lived ones trusted access hands out), then legacy API keys in a group of their own.
- * One read feeds both, so the filters above apply to both.
+ * short-lived ones trusted access hands out), then the removed legacy API keys in a group of
+ * their own. One read feeds both, so the controls above apply to both.
+ *
+ * The kind, owner and workspace filters are the server's — they are the query key, so the list
+ * is re-read. The search box is not: it narrows what came back, by token, owner, workspace and
+ * app, which is the question an org admin actually arrives with and is not worth a round trip.
  */
 export function Inventory({ org, onOpenAccount }: InventoryProps) {
   const [filters, setFilters] = useState<Filters>({});
+  const [query, setQuery] = useState("");
   const { data, isPending, error, refetch } = useOrgTokens(org.id, filters);
   // The owner menu lists owners from the *unfiltered* list, or picking an owner
   // would shrink the menu to that one owner. With no filter on, this is the
   // same cache entry as the read above, so it costs nothing extra.
   const { data: everyToken } = useOrgTokens(org.id);
   const workspaces = usePickableWorkspaces(org.id);
-  const rows = data ?? [];
+  const all = data ?? [];
+  const q = query.trim().toLowerCase();
+  const rows = useMemo(
+    () => (q ? all.filter((row) => searchText(row).includes(q)) : all),
+    [all, q]
+  );
   const { tokens, legacyKeys } = splitInventory(rows);
-  const filtered = hasActiveFilters(filters);
+  const filtered = hasActiveFilters(filters) || q !== "";
 
   return (
     <div className='flex flex-col gap-4' data-testid='api-access-inventory'>
@@ -44,12 +56,26 @@ export function Inventory({ org, onOpenAccount }: InventoryProps) {
         access here without touching what it does elsewhere.
       </p>
 
-      <InventoryFilters
-        filters={filters}
-        onChange={setFilters}
-        owners={ownerOptions(everyToken ?? [])}
-        workspaces={workspaces.items}
-      />
+      <div className='flex flex-col gap-2'>
+        <InputGroup className='sm:max-w-xs'>
+          <InputGroupAddon>
+            <Search />
+          </InputGroupAddon>
+          <InputGroupInput
+            placeholder='Search tokens, owners or workspaces'
+            aria-label='Search the inventory'
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            data-testid='api-access-inventory-search'
+          />
+        </InputGroup>
+        <InventoryFilters
+          filters={filters}
+          onChange={setFilters}
+          owners={ownerOptions(everyToken ?? [])}
+          workspaces={workspaces.items}
+        />
+      </div>
 
       <ListState
         what='tokens'
@@ -63,15 +89,22 @@ export function Inventory({ org, onOpenAccount }: InventoryProps) {
           filtered ? (
             <EmptyState
               icon={SearchX}
-              title='Nothing matches these filters'
+              title='Nothing matches'
               testId='api-access-inventory-no-match'
               action={
-                <Button size='sm' variant='outline' onClick={() => setFilters({})}>
-                  Clear filters
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => {
+                    setFilters({});
+                    setQuery("");
+                  }}
+                >
+                  Clear search and filters
                 </Button>
               }
             >
-              Nothing that reaches this organization fits them. Clear the filters to see everything.
+              Nothing that reaches this organization fits them.
             </EmptyState>
           ) : (
             <EmptyState
@@ -104,7 +137,7 @@ interface TokenListProps {
   onOpenAccount: (accountId: string) => void;
 }
 
-/** The API tokens that reach the org. Only legacy API keys did, when this is empty. */
+/** The API tokens that reach the org. When this is empty, only legacy keys ever did. */
 function TokenList({ org, tokens, filtered, onOpenAccount }: TokenListProps) {
   if (tokens.length === 0) {
     return (
@@ -112,7 +145,7 @@ function TokenList({ org, tokens, filtered, onOpenAccount }: TokenListProps) {
         className='rounded-lg border border-dashed px-4 py-3 text-muted-foreground text-xs'
         data-testid='api-access-inventory-no-tokens'
       >
-        {filtered ? "No API tokens match these filters." : `No API tokens reach ${org.name} yet.`}
+        {filtered ? "No API token matches." : `No API tokens reach ${org.name} yet.`}
       </p>
     );
   }

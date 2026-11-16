@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/shadcn/button";
 import { Calendar } from "@/components/ui/shadcn/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
 import { Spinner } from "@/components/ui/shadcn/spinner";
-import type { TokenEndpoints } from "@/hooks/api/apiKeys/tokenEndpoints";
-import { useExtendApiKey } from "@/hooks/api/apiKeys/useApiKeyMutations";
+import type { TokenEndpoints } from "@/hooks/api/tokens/tokenEndpoints";
+import { useExtendApiKey } from "@/hooks/api/tokens/useTokenMutations";
 import { cn } from "@/libs/shadcn/utils";
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { TokenSummary } from "@/types/apiToken";
 import {
   buildExtendRequest,
@@ -32,8 +32,8 @@ interface Props {
 
 /** "Expires Oct 3, 2026" / "Expired Sep 3, 2026", plus the one fact that matters. */
 const CurrentExpiry: React.FC<{ token: TokenSummary }> = ({ token }) => {
-  const expired = ApiKeyService.isExpired(token.expires_at);
-  const day = token.expires_at ? ApiKeyService.formatDay(token.expires_at) : null;
+  const expired = TokenExpiry.isExpired(token.expires_at);
+  const day = token.expires_at ? TokenExpiry.formatDay(token.expires_at) : null;
   return (
     <p className='text-muted-foreground text-xs'>
       {expired && day ? `Expired ${day}. ` : day ? `Expires ${day}. ` : ""}
@@ -119,7 +119,7 @@ const ExtendApiKeyPopover: React.FC<Props> = ({
                 checked={choice.kind === "days" && choice.days === days}
                 onSelect={() => setChoice({ kind: "days", days })}
                 label={label}
-                hint={`until ${ApiKeyService.formatDay(ApiKeyService.extendedExpiry(token.expires_at, days))}`}
+                hint={`until ${TokenExpiry.formatDay(TokenExpiry.extendedExpiry(token.expires_at, days))}`}
               />
             ))}
             <ExtendOption
@@ -130,7 +130,7 @@ const ExtendApiKeyPopover: React.FC<Props> = ({
               label='Pick a date'
               hint={
                 choice.kind === "date" && choice.date
-                  ? ApiKeyService.formatDay(choice.date)
+                  ? TokenExpiry.formatDay(choice.date)
                   : undefined
               }
             />

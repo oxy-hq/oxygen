@@ -24,7 +24,7 @@ use serde_json::json;
 
 use super::service_accounts::{admin_fixture, create_account, mint_account_token, with_token};
 use super::stack::{flat_api, join_org, published_app};
-use super::{Fixture, call, fixture, legacy_key, minted_pat};
+use super::{Fixture, call, fixture, minted_pat};
 
 /// `POST /customer-apps/<org>/<app>/fn/<name>`, mounted as `serve.rs` mounts
 /// it: the dispatcher refuses every function without the query executor.
@@ -106,8 +106,8 @@ async fn set_status(fx: &Fixture, status: UserStatus) {
 async fn a_deactivated_owners_token_is_refused_on_the_next_fn_and_logs() {
     let (fx, paths) = app_fixture().await;
     let (_, pat) = minted_pat(&fx, None).await;
-    let (_, key) = legacy_key(&fx, None).await;
-    let credentials = [bearer(&pat), api_key(&key)];
+    // Both ways a token is sent: a bearer, and `X-API-Key`.
+    let credentials = [bearer(&pat), api_key(&pat)];
 
     // Admitted while the owner is active. These calls also fill the credential
     // cache and the custom-app path's 60 s user cache.
@@ -150,11 +150,10 @@ async fn a_deactivated_owners_token_is_refused_on_the_next_fn_and_logs() {
 async fn a_deactivated_owners_token_is_refused_when_first_presented() {
     let (fx, paths) = app_fixture().await;
     let (_, pat) = minted_pat(&fx, None).await;
-    let (_, key) = legacy_key(&fx, None).await;
     set_status(&fx, UserStatus::Deleted).await;
 
     // Never presented before, so nothing is cached: the database path refuses.
-    for credential in [bearer(&pat), api_key(&key)] {
+    for credential in [bearer(&pat), api_key(&pat)] {
         assert_eq!(
             fn_and_logs(&paths, &credential).await,
             [StatusCode::UNAUTHORIZED; 2],

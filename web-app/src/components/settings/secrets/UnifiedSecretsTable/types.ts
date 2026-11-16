@@ -20,7 +20,15 @@ export interface UnifiedRow {
   secretInfo: Secret;
 }
 
-/** The table's filter: every secret, or one kind of who-can-read-it. */
-export type SecretsFilter = "all" | "shared" | "workspace" | "app";
+/**
+ * Which tab a row belongs to. The two are different things, not two views of
+ * one thing: a **workspace** secret is stored once and read by the workspace
+ * and by whichever apps it is shared with, while an **app** secret is one
+ * app's own `apps/<id>/<KEY>` and reaches nothing else.
+ */
+export type SecretsScope = "workspace" | "app";
+
+/** Within the Workspace tab: every secret, or by whether any app reads it. */
+export type SecretsFilter = "all" | "shared" | "unshared";
 
 export const DOTS = "••••••••••••••";

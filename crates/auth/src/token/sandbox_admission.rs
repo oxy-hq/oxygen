@@ -32,13 +32,13 @@ use uuid::Uuid;
 use super::admission::{ReadGrants, Refusal};
 use super::credential::{AppSandboxGrant, CredentialContext, StoredKind};
 
-/// A sandbox-agent row may not claim what the kind never holds, nor mirror an
-/// `api_keys` row (which would make it read as a legacy key and narrow
-/// nothing), nor live forever.
+/// A sandbox-agent row may not claim what the kind never holds, nor live
+/// forever.
+///
+/// It may not mirror an `api_keys` row either; `admission::is_legacy_row`
+/// refuses that before this is reached, for every kind rather than only this
+/// one.
 pub(super) fn refuse_widened(row: &api_tokens::Model) -> Result<(), Refusal> {
-    if row.legacy_api_key_id.is_some() {
-        return Err(Refusal::SandboxWidened("an api_keys mirror"));
-    }
     if row.all_access {
         return Err(Refusal::SandboxWidened("all_access"));
     }

@@ -5,7 +5,6 @@ import {
   hasActiveFilters,
   inventoryAccess,
   inventoryRevokeAction,
-  LEGACY_REVOKE_TOOLTIP,
   ownerOptions,
   showsTokenList,
   splitInventory,
@@ -69,12 +68,13 @@ describe("inventoryRevokeAction", () => {
     });
   });
 
-  it("shows a legacy API key's action disabled, with the reason", () => {
+  /// There is nothing to end: the removal already ended it. An action here
+  /// would promise the org a power over the row that it does not need and
+  /// cannot exercise.
+  it("offers nothing on a removed legacy API key", () => {
     expect(inventoryRevokeAction(row({ kind: "legacy_key", all_access: true }))).toEqual({
-      kind: "legacy",
-      reason: LEGACY_REVOKE_TOOLTIP
+      kind: "none"
     });
-    expect(LEGACY_REVOKE_TOOLTIP).toBe("Legacy API keys can only be revoked by their owner");
   });
 
   it.each(["service_account", "ci"] as const)("sends a %s token to its account's page", (kind) => {

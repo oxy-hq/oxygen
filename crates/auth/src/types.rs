@@ -111,15 +111,15 @@ impl AuthenticatedUser {
 
     /// The orgs that ended this credential's reach into them, for an answer
     /// that spans the user's orgs to leave out (`org_id NOT IN …`). Empty for
-    /// a session and for a legacy key.
+    /// a session.
     ///
     /// The list form of [`Self::reaches_org`] for an **all-access** token,
     /// which is the only token that gets as far as a route answering across
     /// orgs: a grant-bound one is refused there (`token_grant_scope`).
     pub fn blocked_orgs(&self) -> &[uuid::Uuid] {
         match &self.credential {
-            Some(credential) if !credential.is_legacy() => &credential.blocked_orgs,
-            _ => &[],
+            Some(credential) => &credential.blocked_orgs,
+            None => &[],
         }
     }
 

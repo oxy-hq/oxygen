@@ -1,108 +1,112 @@
-# API Key Developer Guide
+# API tokens
 
 ## Overview
 
-API keys provide a secure way to authenticate with the Oxygen API without requiring user credentials. This guide covers everything you need to know about implementing API key authentication in your applications.
+An API token authenticates a script, a CI job or an integration with the Oxygen
+API, without anyone signing in. This guide covers creating one, choosing how far
+it reaches, and sending it.
 
-## What are Oxygen API Keys?
+<Note>
+  Older `oxy_…` **API keys have been removed.** A request carrying one is
+  refused with a message naming its replacement. If something of yours stopped
+  working, mint a token below and set it where the key was — the header does not
+  change.
+</Note>
 
-API keys are secure tokens that identify your application to the Oxygen API. A unique string prefixed with `oxy_`
+## Which kind to create
 
-## API Documentation
+| | Belongs to | Use it for |
+| --- | --- | --- |
+| **Personal access token** (`oxy_pat_…`) | you | `oxyc`, a script on your machine, anything that should act as you |
+| **Service account token** (`oxy_sat_…`) | your organization | an integration or a scheduled job that should outlive whoever set it up |
+| **Trusted access** | nothing — nothing is stored | GitHub Actions: the job trades its own identity for a 15-minute token |
 
-For a complete reference of all available API endpoints, visit our **live Swagger API documentation** at `/apidoc`. This interactive documentation allows you to:
+A personal token carries your reach, so it stops working when you do. An
+integration that several people depend on belongs to a service account, which an
+organization admin can see and end.
 
-- Browse all available endpoints
-- View request/response schemas
-- Test API calls directly from your browser
-- Download OpenAPI specifications
+If the caller runs in GitHub Actions, prefer trusted access and store no secret
+at all: Settings → Organization → **API access** → a service account → **Trusted
+access** gives you the workflow block to paste.
 
-<Tip>
-  The Swagger documentation is automatically updated and always reflects the
-  current API version running on your Oxygen instance.
-</Tip>
+## Creating a personal access token
 
-## Creating API Keys
+1. Open **Settings → Account → API tokens**.
+2. **Create token**, and name it after where it will live — `laptop`,
+   `nightly-report` — so you can tell later which one to revoke.
+3. Choose its access: **All access** reaches everything you do, or pick the
+   workspaces it needs. Pick the workspaces.
+4. Choose when it expires. You can extend it later without changing the secret,
+   so nothing needs redeploying.
 
-### Through the Web Interface
+The token is shown **once**. Copy it then; afterwards only its first and last few
+characters are ever displayed.
 
-1. Log into your Oxygen
-2. User menu -> **API Keys**
-3. Click **Create New API Key**
-4. Provide a descriptive name for your key
-5. Set an optional expiration date
-6. Click **Create API Key**
+## Creating a service account token
 
-**Important**: Copy your API key immediately after creation. For security reasons, you won't be able to view the full key again.
+1. Open **Settings → Organization → API access → Service accounts**.
+2. **New**, and name it after the job rather than a person: `nightly-sync`,
+   `bookkeeping-upload`.
+3. Give it the workspaces it needs, at the lowest role that works.
+4. Create a token on it. Again, the secret is shown once.
 
-## Using API Keys
+## Sending a token
 
-### Authentication Header
-
-Include your API key in the `X-API-Key` header with every request. The REST
-API is served by your Oxygen host under `/api`, and most resources are
-workspace-scoped (`/api/{workspace_id}/...`):
+Either header works, and both accept every kind of token:
 
 ```bash
-curl -H "X-API-Key: oxy_your_api_key_here" \
+curl -H "Authorization: Bearer $OXY_TOKEN" \
+     https://app.oxygen-hq.com/api/{workspace_id}/agents
+
+curl -H "X-API-Key: $OXY_TOKEN" \
      https://app.oxygen-hq.com/api/{workspace_id}/agents
 ```
 
-## Examples
+Most resources are workspace-scoped (`/api/{workspace_id}/…`). The workspace id
+is on **Settings → Workspace → API tokens**, under the list.
 
-### Quick Start Examples
-
-Here are some quick examples to get you started with different programming languages:
-
-#### Python
+### Python
 
 ```python
-import requests
 import os
 
-# Set up your API key
-api_key = os.getenv('OXY_API_KEY')
-headers = {'X-API-Key': api_key}
+import requests
 
-# List the agents in a workspace
+headers = {"Authorization": f"Bearer {os.environ['OXY_TOKEN']}"}
 response = requests.get(
-    'https://app.oxygen-hq.com/api/{workspace_id}/agents', headers=headers
+    "https://app.oxygen-hq.com/api/{workspace_id}/agents", headers=headers
 )
-agents = response.json()
-print(f"Found {len(agents)} agents")
+response.raise_for_status()
+print(f"Found {len(response.json())} agents")
 ```
 
-#### JavaScript (Node.js)
+### JavaScript (Node.js)
 
 ```javascript
-const axios = require("axios");
-
 const client = axios.create({
   baseURL: "https://app.oxygen-hq.com/api",
-  headers: {
-    "X-API-Key": process.env.OXY_API_KEY,
-  },
+  headers: { Authorization: `Bearer ${process.env.OXY_TOKEN}` },
 });
 
-// List the agents in a workspace
-client
-  .get("/{workspace_id}/agents")
-  .then((response) => {
-    console.log(`Found ${response.data.length} agents`);
-  })
-  .catch((error) => {
-    console.error("Error:", error.response.data);
-  });
+const { data } = await client.get("/{workspace_id}/agents");
+console.log(`Found ${data.length} agents`);
 ```
 
-#### cURL
+## Finding and ending a token
 
-```bash
-# List the agents in a workspace
-curl -H "X-API-Key: $OXY_API_KEY" \
-     https://app.oxygen-hq.com/api/{workspace_id}/agents
+**Settings → Account → API tokens** lists your own, searchable by token, by
+organization and by the apps it reaches, and filterable by whether it still
+works or is about to expire. **Settings → Workspace → API tokens** lists every
+token that reaches one workspace, whoever owns it. **Settings → Organization →
+API access** lists every token that reaches the organization, where an admin can
+end a personal token's access to that organization without touching what it does
+elsewhere.
 
-# List threads in a workspace
-curl -H "X-API-Key: $OXY_API_KEY" \
-     https://app.oxygen-hq.com/api/{workspace_id}/threads
-```
+## API reference
+
+The live Swagger documentation at `/apidoc` on your Oxygen host browses every
+endpoint, shows request and response schemas, and runs calls from the browser.
+It reflects the version you are running.
+
+The `oxyc` CLI reads the same catalog: `oxyc routes` lists the endpoints and
+`oxyc schema <path>` prints one endpoint's shape.

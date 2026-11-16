@@ -1,5 +1,6 @@
 import AccessCell from "@/components/settings/SettingsDialog/sections/account/PersonalTokens/components/TokenRow/components/AccessCell";
 import { TableCell } from "@/components/ui/shadcn/table";
+import { tokenState } from "@/libs/tokenState";
 import {
   TOKEN_CELL,
   TokenExpiryCell,
@@ -10,7 +11,6 @@ import {
 } from "@/pages/admin/components/TokenList/TokenCells";
 import { TokenListRow } from "@/pages/admin/components/TokenList/TokenListRow";
 import type { Token } from "@/types/apiToken";
-import { tokenState } from "../tokenState";
 
 const AREA = "admin-sandbox-tokens";
 

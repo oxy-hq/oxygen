@@ -3,7 +3,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TokenEndpoints } from "@/hooks/api/apiKeys/tokenEndpoints";
+import type { TokenEndpoints } from "@/hooks/api/tokens/tokenEndpoints";
 import type { ApiKey } from "@/types/apiKey";
 import ExtendApiKeyPopover from ".";
 
@@ -15,7 +15,7 @@ const useExtend = vi.fn((_endpoints: TokenEndpoints) => ({ mutate, isPending: fa
 const endpoints = { keys: { lists: [], activity: () => [] } } as unknown as TokenEndpoints;
 
 // The mutation hook is the seam: this file is about which body the popover sends.
-vi.mock("@/hooks/api/apiKeys/useApiKeyMutations", () => ({
+vi.mock("@/hooks/api/tokens/useTokenMutations", () => ({
   useExtendApiKey: (given: TokenEndpoints) => useExtend(given)
 }));
 

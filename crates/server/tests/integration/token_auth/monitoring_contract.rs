@@ -45,7 +45,7 @@ use tower::ServiceExt;
 
 use super::service_tokens::{FERRET_TOKEN, with_ferret};
 use super::stack::{Reach, flat_api, make_staff, mint};
-use super::{Fixture, fixture, legacy_key};
+use super::{Fixture, fixture};
 
 /// One answer as ferret sees it: the status, the content type it tests for
 /// `json`, and the body.
@@ -119,16 +119,15 @@ pub(super) async fn staff_fixture() -> Fixture {
     fx
 }
 
-/// Every key ferret can hold: its service token (`oxysvc_`, configured as
-/// code, what it uses), and the staff user's keys it falls back to — a legacy
-/// `oxy_<hex>` key, and a personal token carrying platform standing.
+/// Every credential ferret can hold: its service token (`oxysvc_`, configured
+/// as code, what it uses) and the staff user's personal token carrying
+/// platform standing. A legacy `oxy_<hex>` key was a third until the keys were
+/// removed.
 pub(super) async fn staff_keys(fx: &Fixture) -> Vec<(&'static str, String)> {
     with_ferret(fx).await;
-    let (_, legacy) = legacy_key(fx, None).await;
     let (_, token) = mint(&fx.db, fx.user.id, Reach::all_access().with_platform()).await;
     vec![
         ("service token", FERRET_TOKEN.to_string()),
-        ("legacy key", legacy),
         ("personal token", token),
     ]
 }

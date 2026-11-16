@@ -1,7 +1,7 @@
 import type { Secret } from "@/types/secret";
 import type { SharedSecret } from "@/types/sharedSecrets";
 import { parseAppSecretName } from "./appSecretName";
-import type { AppRef, SecretsFilter, UnifiedRow } from "./types";
+import type { AppRef, SecretsFilter, SecretsScope, UnifiedRow } from "./types";
 
 /** App id → display name. An app the map lacks falls back to a short id —
  *  still better than the full uuid inline in the name column. */
@@ -51,40 +51,64 @@ export function buildRows(
   return rows;
 }
 
-/** Which filter a row falls under, besides "all". */
-export function kindOf(row: UnifiedRow): Exclude<SecretsFilter, "all"> {
-  if (row.app) return "app";
-  return row.sharedWith.length > 0 ? "shared" : "workspace";
-}
+/** Which tab a row lives in. */
+export const scopeOf = (row: UnifiedRow): SecretsScope => (row.app ? "app" : "workspace");
+
+/** The rows of one tab. */
+export const inScope = (rows: UnifiedRow[], scope: SecretsScope): UnifiedRow[] =>
+  rows.filter((row) => scopeOf(row) === scope);
+
+/** Whether any app reads this workspace secret. */
+export const kindOf = (row: UnifiedRow): Exclude<SecretsFilter, "all"> =>
+  row.sharedWith.length > 0 ? "shared" : "unshared";
+
+/** Everything the search box matches a row on. */
+const haystack = (row: UnifiedRow): string[] => [
+  row.name,
+  row.secretInfo.description ?? "",
+  row.app?.name ?? "",
+  ...row.sharedWith.map((a) => a.name)
+];
 
 /**
- * The rows `filter` and the search `query` keep. The query matches a secret's
- * name, its description, and the name of any app that reads it — "which secrets
- * does Platform Pulse get?" is a search for the app.
+ * The rows left after the tab's own narrowing and the search `query`.
+ *
+ * In the Workspace tab `filter` is whether apps read it; in the Custom apps tab
+ * `appId` is one app. The query matches a secret's name, its description, and
+ * the name of any app that reads it — "which secrets does Platform Pulse get?"
+ * is a search for the app.
  */
-export function filterRows(rows: UnifiedRow[], filter: SecretsFilter, query: string): UnifiedRow[] {
+export function filterRows(
+  rows: UnifiedRow[],
+  { filter = "all", appId }: { filter?: SecretsFilter; appId?: string },
+  query: string
+): UnifiedRow[] {
   const q = query.trim().toLowerCase();
   return rows.filter((row) => {
     if (filter !== "all" && kindOf(row) !== filter) return false;
+    if (appId && row.app?.id !== appId) return false;
     if (!q) return true;
-    const haystack = [
-      row.name,
-      row.secretInfo.description ?? "",
-      row.app?.name ?? "",
-      ...row.sharedWith.map((a) => a.name)
-    ];
-    return haystack.some((text) => text.toLowerCase().includes(q));
+    return haystack(row).some((text) => text.toLowerCase().includes(q));
   });
 }
 
-/** How many rows each filter would keep — for the filter's labels. */
+/** How many rows each Workspace-tab filter would keep — for the filter labels. */
 export function countByKind(rows: UnifiedRow[]): Record<SecretsFilter, number> {
-  const counts: Record<SecretsFilter, number> = {
-    all: rows.length,
-    shared: 0,
-    workspace: 0,
-    app: 0
-  };
+  const counts: Record<SecretsFilter, number> = { all: rows.length, shared: 0, unshared: 0 };
   for (const row of rows) counts[kindOf(row)] += 1;
   return counts;
 }
+
+/** How many rows each app owns — for the app filter's labels. */
+export function countByApp(rows: UnifiedRow[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.app) continue;
+    counts.set(row.app.id, (counts.get(row.app.id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/** Every app that reads `row`, by name — what deleting it would take away. */
+export const readersOf = (row: UnifiedRow): string[] =>
+  row.app ? [row.app.name] : row.sharedWith.map((a) => a.name);

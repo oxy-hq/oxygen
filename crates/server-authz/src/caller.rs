@@ -92,10 +92,7 @@ impl Caller {
             .map(|c| CallerAccount {
                 standing: c.service_account,
             });
-        // A legacy credential narrows nothing, so a grant row beside it — which
-        // admission refuses anyway — is never read as a confinement.
         let app_publish = credential
-            .filter(|c| !c.is_legacy())
             .map(|c| c.app_publish.clone())
             .unwrap_or_default();
         let service = credential

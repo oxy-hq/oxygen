@@ -12,10 +12,13 @@ const BADGE_TONES: Record<TokenTone, string> = {
   active: "border-primary/30 bg-primary/5 text-primary",
   soon: "border-warning/40 bg-warning/10 text-foreground",
   expired: "border-destructive/30 bg-destructive/5 text-destructive",
-  revoked: "text-muted-foreground"
+  revoked: "text-muted-foreground",
+  // Dead and never coming back, like revoked — same muted treatment rather
+  // than a new colour for a state nobody has to act on.
+  removed: "text-muted-foreground"
 };
 
-/** Active / Expired / Revoked, and the one line that says when. */
+/** Active / Expired / Revoked / Removed, and the one line that says when. */
 export function TokenLifecycleCell({
   token,
   testId

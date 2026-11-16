@@ -18,11 +18,12 @@
 //!   token** holds and nothing else does, and such a token holds no other
 //!   kind — nor an `app_staging` grant whose app it holds no `app_sandbox`
 //!   grant for ([`super::sandbox_admission`]);
-//! - any narrowing on a row that mirrors an `api_keys` row. A legacy key, and
-//!   a token the legacy endpoint minted, are all-access with both standings —
-//!   always (§3.5) — and a pod one release back validates them from `api_keys`
-//!   with full reach, so honouring a narrowed one here would be a restriction
-//!   a revert silently drops.
+//! - **any row that mirrors an `api_keys` row**, outright. Legacy API keys were
+//!   removed; a `legacy_key` row, or any row carrying `legacy_api_key_id`, is
+//!   refused whatever it claims. It used to be the one row admitted with full
+//!   reach and no narrowing, which is exactly why it is now refused here rather
+//!   than merely unreachable: the rows survive in the table, and nothing should
+//!   be able to bring one back by handing it a different kind.
 //!
 //! A later release that adds a restriction therefore fails closed when
 //! reverted to this one, instead of silently regaining full reach.
@@ -37,19 +38,6 @@ use super::credential::{
 };
 use super::format::TokenFormat;
 use super::sandbox_admission;
-
-/// The state of a row's mirrored `api_keys` row.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LegacyLink {
-    /// The row mirrors no `api_keys` row.
-    NotLinked,
-    Active,
-    /// `api_keys.is_active = false`: revoked, possibly by a pod one release
-    /// back that writes only `api_keys`.
-    Inactive,
-    /// Linked, but the `api_keys` row is gone.
-    Missing,
-}
 
 /// Why a stored row was not admitted. Every variant answers 401; the variant
 /// exists for the log line.
@@ -74,7 +62,9 @@ pub enum Refusal {
     AccountMissing,
     Revoked,
     Expired,
-    LegacyKeyInactive,
+    /// A legacy API key, or a token the legacy endpoint minted. The format is
+    /// gone; the rows are not, so they are refused by kind.
+    LegacyKeyRemoved,
 }
 
 impl std::fmt::Display for Refusal {
@@ -102,7 +92,9 @@ impl std::fmt::Display for Refusal {
             Self::AccountMissing => f.write_str("token's service account is gone or unreadable"),
             Self::Revoked => f.write_str("token is revoked"),
             Self::Expired => f.write_str("token is expired"),
-            Self::LegacyKeyInactive => f.write_str("token's api_keys row is revoked or gone"),
+            Self::LegacyKeyRemoved => {
+                f.write_str("legacy API keys were removed; this row cannot authenticate")
+            }
         }
     }
 }
@@ -188,25 +180,15 @@ pub fn readable_grants(grants: &[api_token_grants::Model]) -> Result<Vec<TokenGr
     Ok(read_grants(grants)?.workspace)
 }
 
-/// A row that mirrors `api_keys` — a legacy key, or a token the legacy
-/// endpoint minted — may not be narrowed at all.
-fn refuse_narrowed_legacy(
-    row: &api_tokens::Model,
-    grants: &[api_token_grants::Model],
-) -> Result<(), Refusal> {
-    for (flag, value) in [
-        ("all_access=false", row.all_access),
-        ("platform=false", row.platform),
-        ("partner=false", row.partner),
-    ] {
-        if !value {
-            return Err(Refusal::Narrowed(flag));
-        }
-    }
-    if !grants.is_empty() {
-        return Err(Refusal::Narrowed("grants"));
-    }
-    Ok(())
+/// Whether a stored row is a removed legacy credential: a `legacy_key` row, or
+/// any row the legacy endpoint minted and stamped with the `api_keys` id it
+/// mirrors. Either way nothing admits it any more.
+///
+/// SUNSET after 0.5.161: reads `legacy_api_key_id`, so that column cannot be
+/// dropped until this goes (internal-docs/legacy-removal.md §4). A revert to
+/// 0.5.160 needs both the column and this check.
+fn is_legacy_row(kind: StoredKind, row: &api_tokens::Model) -> bool {
+    kind == StoredKind::LegacyKey || row.legacy_api_key_id.is_some()
 }
 
 /// The orgs that ended a token's reach into them: a **revoked org-wide**
@@ -227,12 +209,12 @@ pub fn blocked_orgs(grants: &[api_token_grants::Model]) -> Vec<Uuid> {
 }
 
 /// An account's row — a `service_account` token or a `ci` one — may not claim
-/// what an account never holds, nor mirror an `api_keys` row, which would make
-/// it read as a legacy key and narrow nothing.
+/// what an account never holds.
+///
+/// It may not mirror an `api_keys` row either, which would once have made it
+/// read as a legacy key and narrow nothing; [`is_legacy_row`] refuses that
+/// before this is reached, for every kind rather than only an account's.
 fn refuse_widened_account(row: &api_tokens::Model) -> Result<(), Refusal> {
-    if row.legacy_api_key_id.is_some() {
-        return Err(Refusal::Widened("an api_keys mirror"));
-    }
     for (flag, value) in [
         ("all_access", row.all_access),
         ("platform", row.platform),
@@ -267,32 +249,21 @@ fn account_standing(account: AccountLink, grants: &ReadGrants) -> Result<Account
     Ok(standing)
 }
 
-/// The two rows a token may hang off, as the store found them.
+/// The row a token may hang off, as the store found it. Once a legacy key
+/// could also hang off an `api_keys` row; that link is gone with the format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Links {
-    pub legacy: LegacyLink,
     pub account: AccountLink,
 }
 
 impl Links {
-    /// A personal token: it mirrors no `api_keys` row and acts as a person.
+    /// A personal token: it acts as a person, not as a service account.
     pub const NONE: Links = Links {
-        legacy: LegacyLink::NotLinked,
         account: AccountLink::NotAccount,
     };
 
-    pub fn legacy(legacy: LegacyLink) -> Self {
-        Self {
-            legacy,
-            ..Self::NONE
-        }
-    }
-
     pub fn account(account: AccountLink) -> Self {
-        Self {
-            account,
-            ..Self::NONE
-        }
+        Self { account }
     }
 }
 
@@ -310,22 +281,19 @@ pub fn admit(
 ) -> Result<CredentialContext, Refusal> {
     let kind =
         StoredKind::parse(&row.kind).ok_or_else(|| Refusal::UnknownKind(row.kind.clone()))?;
+    // Before anything else: a legacy row never authenticates again, whatever
+    // kind it claims or how it is presented.
+    if is_legacy_row(kind, row) {
+        return Err(Refusal::LegacyKeyRemoved);
+    }
     if kind.acts_as_account() {
         refuse_widened_account(row)?;
     }
     if kind == StoredKind::SandboxAgent {
         sandbox_admission::refuse_widened(row)?;
     }
-    let legacy = kind == StoredKind::LegacyKey || row.legacy_api_key_id.is_some();
-    let blocked = if legacy {
-        Vec::new()
-    } else {
-        blocked_orgs(grants)
-    };
-    let grants = if legacy {
-        refuse_narrowed_legacy(row, grants)?;
-        ReadGrants::default()
-    } else if kind.acts_as_account() {
+    let blocked = blocked_orgs(grants);
+    let grants = if kind.acts_as_account() {
         read_grants(grants)?
     } else if row.all_access {
         // "Everything I can reach" is a flag, not a grant: live grants beside
@@ -347,9 +315,6 @@ pub fn admit(
     {
         return Err(Refusal::Expired);
     }
-    if matches!(links.legacy, LegacyLink::Inactive | LegacyLink::Missing) {
-        return Err(Refusal::LegacyKeyInactive);
-    }
     let service_account = match kind {
         StoredKind::ServiceAccount | StoredKind::Ci => {
             Some(account_standing(links.account, &grants)?)
@@ -370,7 +335,6 @@ pub fn admit(
         partner: row.partner,
         name: row.name.clone(),
         display_prefix: row.display_prefix.clone(),
-        legacy_api_key_id: row.legacy_api_key_id,
         grants: grants.workspace,
         app_publish: grants.app_publish,
         app_sandbox: grants.app_sandbox,

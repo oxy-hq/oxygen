@@ -19,10 +19,9 @@ tokio::task_local! {
 }
 
 /// Note the token a request authenticated with, for the count taken when the
-/// request ends. A no-op for a session and a legacy key, and outside
-/// [`UsageProbe::counted`].
+/// request ends. A no-op for a session, and outside [`UsageProbe::counted`].
 pub fn seen(credential: Option<&CredentialContext>) {
-    if let Some(credential) = credential.filter(|c| !c.is_legacy()) {
+    if let Some(credential) = credential {
         let _ = SEEN.try_with(|slot| slot.set(Some(credential.token_id)));
     }
 }

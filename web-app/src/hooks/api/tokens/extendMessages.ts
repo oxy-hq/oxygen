@@ -1,6 +1,6 @@
 import { apiErrorCode, apiErrorMessage, apiStatus } from "@/libs/apiError";
 import { exceedsPolicyMessage } from "@/libs/tokenPolicy";
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { TokenKind } from "@/types/apiToken";
 
 /**
@@ -49,13 +49,13 @@ export const extendSuccessMessage = (
   before: { expires_at?: string | null },
   after: { name: string; expires_at?: string | null }
 ): string => {
-  const revived = ApiKeyService.isExpired(before.expires_at);
+  const revived = TokenExpiry.isExpired(before.expires_at);
   if (!after.expires_at) {
     return revived
       ? `"${after.name}" is active again and no longer expires`
       : `"${after.name}" no longer expires`;
   }
-  const until = ApiKeyService.formatDay(after.expires_at);
+  const until = TokenExpiry.formatDay(after.expires_at);
   return revived
     ? `"${after.name}" is active again until ${until}`
     : `"${after.name}" now expires ${until}`;

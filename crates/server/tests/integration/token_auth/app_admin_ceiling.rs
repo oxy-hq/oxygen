@@ -19,7 +19,7 @@ use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use uuid::Uuid;
 
 use super::stack::{Reach, custom_app_caller, join_org, mint, published_app, workspace_grant};
-use super::{endpoint_key, fixture, legacy_key, seed_workspace_in};
+use super::{fixture, minted_pat, seed_workspace_in};
 
 async fn make_app_admin(db: &DatabaseConnection, app_id: Uuid, user_id: Uuid) {
     app_members::ActiveModel {
@@ -90,12 +90,10 @@ async fn an_uncapped_credential_of_an_app_admin_is_still_an_app_admin() {
     make_app_admin(&fx.db, app.id, fx.user.id).await;
 
     let (_, all_access) = mint(&fx.db, fx.user.id, Reach::all_access()).await;
-    let (_, seeded) = legacy_key(&fx, None).await;
-    let (_, minted) = endpoint_key(&fx, None).await;
+    let (_, minted) = minted_pat(&fx, None).await;
     for (what, secret) in [
         ("an all-access token", all_access),
-        ("a legacy key", seeded),
-        ("a key the legacy endpoint minted", minted),
+        ("a personal token", minted),
     ] {
         let caller = custom_app_caller(&fx, &secret).await;
         assert_eq!(

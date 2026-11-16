@@ -24,7 +24,8 @@ export const ShareSecretDialog = ({
   secret,
   apps,
   ownValue,
-  onOpenChange
+  onOpenChange,
+  onCreateFor
 }: {
   /** The workspace secret, and the apps it is shared with now. `null` closes. */
   secret: { id: string; name: string; appIds: string[] } | null;
@@ -32,6 +33,8 @@ export const ShareSecretDialog = ({
   /** Apps that store their own value of this key. */
   ownValue?: Set<string>;
   onOpenChange: (open: boolean) => void;
+  /** Offered when the workspace has no apps yet: nothing to share with. */
+  onCreateFor?: (name: string, appIds: string[]) => void;
 }) => {
   const share = useShareSecret();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -55,11 +58,12 @@ export const ShareSecretDialog = ({
       <DialogContent className='sm:max-w-md' data-testid='share-secret-dialog'>
         <DialogHeader>
           <DialogTitle className='break-all'>
-            Share <code className='font-mono'>{secret.name}</code> with apps
+            Which apps read <code className='font-mono'>{secret.name}</code>?
           </DialogTitle>
           <DialogDescription>
-            Each app reads it as <code className='font-mono'>ctx.env.{secret.name}</code>. It stays
-            one value: change it here and every app gets the new one on its next call.
+            Each one reads it as <code className='font-mono'>ctx.env.{secret.name}</code>. It stays
+            one value: change it here and every app gets the new one on its next call. Unticking an
+            app stops it reading the secret on its next call.
           </DialogDescription>
         </DialogHeader>
         <AppChecklist
@@ -69,6 +73,12 @@ export const ShareSecretDialog = ({
           onChange={setSelected}
           ownValue={ownValue}
         />
+        {apps.length === 0 && onCreateFor && (
+          <p className='text-muted-foreground text-xs'>
+            Publish an app and it will appear here. The secret keeps its value in the meantime — the
+            workspace's databases, integrations and agents already read it.
+          </p>
+        )}
         <DialogFooter>
           <Button variant='outline' onClick={() => onOpenChange(false)}>
             Cancel

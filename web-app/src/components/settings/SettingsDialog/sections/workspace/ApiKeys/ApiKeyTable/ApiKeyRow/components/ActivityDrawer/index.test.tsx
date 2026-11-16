@@ -3,7 +3,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { AxiosError, type AxiosResponse } from "axios";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TokenEndpoints } from "@/hooks/api/apiKeys/tokenEndpoints";
+import type { TokenEndpoints } from "@/hooks/api/tokens/tokenEndpoints";
 import type { ApiKey, ApiKeyActivityResponse } from "@/types/apiKey";
 import type { TokenSummary } from "@/types/apiToken";
 import ActivityDrawer from ".";
@@ -19,7 +19,7 @@ type QueryState = {
 let query: QueryState = { isLoading: true, error: null, refetch: vi.fn() };
 
 // The query hook is the seam: this file is about what each state renders.
-vi.mock("@/hooks/api/apiKeys/useApiKeyActivity", () => ({
+vi.mock("@/hooks/api/tokens/useApiKeyActivity", () => ({
   API_KEY_ACTIVITY_LIMIT: 100,
   default: () => query
 }));

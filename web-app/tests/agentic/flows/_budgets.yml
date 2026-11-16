@@ -272,8 +272,8 @@
   # Cloud mode. Five acts (create a personal access token with the dialog's
   # defaults, dismiss the one-time secret, open Extend, pick 90 days and
   # submit, open Activity), six $0 asserts, one judge. Every click is
-  # testid-led and none picks a date. It extends a token, not a key: no flow
-  # can create a legacy API key any more, so the stem is historical.
+  # testid-led and none picks a date. It extends a token, not a key: legacy API
+  # keys were removed, so the stem is historical.
   # Not recorded yet, and in no CI bucket: it has never been run against a
   # live backend.
   cold_usd: 0.50

@@ -164,7 +164,6 @@ async fn viewer(fx: &Fx) -> Who {
         partner: false,
         name: "read-only".into(),
         display_prefix: "oxy_pat_test".into(),
-        legacy_api_key_id: None,
         blocked_orgs: Vec::new(),
         expires_at: None,
         service_account: None,

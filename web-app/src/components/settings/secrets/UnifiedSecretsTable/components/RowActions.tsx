@@ -1,4 +1,4 @@
-import { Edit, MoreHorizontal, Share2, Trash2 } from "lucide-react";
+import { Edit, MoreHorizontal, Share2, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   DropdownMenu,
@@ -10,20 +10,26 @@ import {
 import type { UnifiedRow } from "../types";
 
 /**
- * The row's verbs, one click from the table: share (a workspace secret only —
- * an app's own secret belongs to that app), change the value, delete. The click
- * never reaches the row, which opens the detail view.
+ * The row's verbs. The click never reaches the row, which opens the detail
+ * view.
+ *
+ * A workspace secret can be handed to more apps in place. An app's own secret
+ * cannot — it is stored under that app and nothing else can read it — so its
+ * menu offers the one move that gets there: store the key as a workspace
+ * secret instead, which can then be shared with as many apps as you like.
  */
 export const RowActions = ({
   row,
   onShare,
   onEdit,
-  onDelete
+  onDelete,
+  onLift
 }: {
   row: UnifiedRow;
   onShare: (row: UnifiedRow) => void;
   onEdit: (row: UnifiedRow) => void;
   onDelete: (row: UnifiedRow) => void;
+  onLift: (row: UnifiedRow) => void;
 }) => (
   <DropdownMenu>
     <DropdownMenuTrigger asChild>
@@ -40,10 +46,15 @@ export const RowActions = ({
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align='end' onClick={(e) => e.stopPropagation()}>
-      {!row.app && (
+      {row.app ? (
+        <DropdownMenuItem onSelect={() => onLift(row)} data-testid='secret-row-lift'>
+          <Users />
+          Share with more apps…
+        </DropdownMenuItem>
+      ) : (
         <DropdownMenuItem onSelect={() => onShare(row)} data-testid='secret-row-share'>
           <Share2 />
-          Share with apps…
+          Choose apps…
         </DropdownMenuItem>
       )}
       <DropdownMenuItem onSelect={() => onEdit(row)}>

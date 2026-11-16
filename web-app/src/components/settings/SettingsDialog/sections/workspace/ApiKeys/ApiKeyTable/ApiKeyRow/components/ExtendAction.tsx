@@ -1,14 +1,14 @@
 import { CalendarPlus } from "lucide-react";
 import type React from "react";
 import { Button } from "@/components/ui/shadcn/button";
-import type { TokenEndpoints } from "@/hooks/api/apiKeys/tokenEndpoints";
-import { ApiKeyService } from "@/services/api/apiKey";
+import type { TokenEndpoints } from "@/hooks/api/tokens/tokenEndpoints";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { TokenSummary } from "@/types/apiToken";
 import ExtendApiKeyPopover from "./ExtendApiKeyPopover";
 
 /** A live token with an expiry: the only state the actions column offers Extend for. */
 const isExtendable = (token: TokenSummary): boolean =>
-  token.is_active && !!token.expires_at && !ApiKeyService.isExpired(token.expires_at);
+  token.is_active && !!token.expires_at && !TokenExpiry.isExpired(token.expires_at);
 
 /**
  * Extend sits in the actions column for a live key that has an expiry. An expired key gets

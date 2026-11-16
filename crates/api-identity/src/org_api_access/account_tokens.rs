@@ -24,7 +24,7 @@ use sea_orm::{
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::api_keys::activity::{ActivityResponse, last_used_at, token_activity};
+use crate::token_activity::{ActivityResponse, last_used_at, token_activity};
 use crate::user_tokens::access_audit::Access;
 use crate::user_tokens::audit::{self as token_audit, Event};
 use crate::user_tokens::dto::TokenDto;

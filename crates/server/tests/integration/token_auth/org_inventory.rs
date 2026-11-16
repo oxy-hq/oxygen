@@ -13,15 +13,13 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::legacy_reach::{assert_full_reach, world};
+use super::full_reach::{assert_full_reach, world};
 use super::service_accounts::{
     admin_fixture, create_account, in_session, mint_account_token, session_of, with_token,
     workspace_status,
 };
 use super::stack::{Reach, get_as, join_org, mint, org_grant, workspace_grant};
-use super::{
-    Fixture, audit_rows, call, endpoint_key, legacy_key, seed_org, seed_user, seed_workspace_in,
-};
+use super::{Fixture, audit_rows, call, minted_pat, seed_org, seed_user, seed_workspace_in};
 
 fn inventory_uri(org: Uuid) -> String {
     format!("/orgs/{org}/tokens")
@@ -101,8 +99,9 @@ async fn tokens() -> Tokens {
     let org_b = seed_org(&fx.db).await;
     join_org(&fx.db, org_b, fx.user.id, OrgRole::Owner).await;
 
-    let (legacy, key) = legacy_key(&fx, None).await;
-    touch(&fx, &key).await;
+    // A removed legacy key's row: still listed, no longer usable, so there is
+    // no request of its own to record.
+    let (legacy, _) = super::mirrored_legacy_key(&fx, None).await;
     let (all_access, _) = mint(&fx.db, fx.user.id, Reach::all_access()).await;
     // One workspace here, and the whole of another org.
     let grants = vec![
@@ -146,11 +145,22 @@ async fn the_inventory_lists_every_kind_with_its_grants_here() {
     );
     for row in &rows {
         assert!(row["blocked_by_policy"].is_null());
-        assert_eq!(row["status"], "active");
+        // A legacy key is `removed`, never `active`: admission refuses it
+        // before anything else is judged, so its row's own state says nothing
+        // about whether it works. The migration leaves the keys that were
+        // still in use unrevoked — so that a revert can restore them — and
+        // these rows are exactly that shape.
+        let expected = if row["kind"] == "legacy_key" {
+            "removed"
+        } else {
+            "active"
+        };
+        assert_eq!(row["status"], expected, "{row}");
     }
 
     let legacy = row_of(&rows, t.legacy);
     assert_eq!(legacy["kind"], "legacy_key");
+    assert_eq!(legacy["status"], "removed");
     assert_eq!(legacy["grants_here"], json!([]));
     assert_eq!(legacy["all_access"], true);
     assert_eq!(legacy["owner"]["type"], "user");
@@ -463,25 +473,22 @@ async fn revoke_grant_refuses_what_is_not_the_orgs_to_end() {
     let w = two_orgs().await;
     let fx = &w.fx;
 
-    // A legacy key, in both its shapes: only its owner can end it.
-    let (legacy, key) = legacy_key(fx, None).await;
-    touch(fx, &key).await;
-    let (minted, pat) = endpoint_key(fx, None).await;
-    for (id, secret) in [(legacy, &key), (minted, &pat)] {
-        let (status, refused) =
-            in_session(&fx.cookie, "POST", &revoke_uri(fx.org_id, id), None).await;
-        assert_eq!(status, StatusCode::CONFLICT, "{refused}");
-        assert_eq!(refused["code"], "legacy_immutable");
-        assert!(
-            grants_of(&fx.db, id).await.is_empty(),
-            "nothing was written"
-        );
-        assert_eq!(
-            workspace_status(secret, fx.workspace_id, "POST", "manage").await,
-            StatusCode::NO_CONTENT,
-            "and the key works exactly as before"
-        );
-    }
+    // A removed legacy key's row: there is nothing of its reach left to end,
+    // and the refusal says so rather than writing a block nobody reads.
+    let (legacy, key) = super::mirrored_legacy_key(fx, None).await;
+    let (status, refused) =
+        in_session(&fx.cookie, "POST", &revoke_uri(fx.org_id, legacy), None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert_eq!(refused["code"], "legacy_immutable");
+    assert!(
+        grants_of(&fx.db, legacy).await.is_empty(),
+        "nothing was written"
+    );
+    assert_eq!(
+        workspace_status(&key, fx.workspace_id, "POST", "manage").await,
+        StatusCode::UNAUTHORIZED,
+        "and the key reaches nothing either way"
+    );
 
     // The org's own token is revoked from its account.
     let account = create_account(fx, "deploy-bot", "member").await;
@@ -517,18 +524,18 @@ async fn revoke_grant_refuses_what_is_not_the_orgs_to_end() {
     );
 }
 
-// ── The legacy-key regression (design §3.5) ──────────────────────────────────
+// ── An all-access token, against everything an org can do ───────────────────
 
+/// What §3.5 pinned for legacy keys, now carried by the all-access token that
+/// replaced them: an org adding, disabling and deleting service accounts, and
+/// ending its *other* tokens' reach, does not narrow, block, expire or revoke
+/// a token whose reach is not a grant of that org's to take.
 #[tokio::test]
-async fn a_legacy_key_is_unaffected_by_service_accounts_and_org_revokes() {
-    // The Phase 2 world — a staff member who owns two orgs — with everything
-    // Phase 3 adds happening around its keys.
+async fn an_all_access_token_is_unaffected_by_service_accounts_and_org_revokes() {
     let w = world().await;
     let fx = &w.fx;
-    let (legacy, key) = legacy_key(fx, None).await;
-    let (minted, pat) = endpoint_key(fx, None).await;
-    assert_full_reach(&w, "an oxy_<hex> key, before", &key).await;
-    assert_full_reach(&w, "a legacy-endpoint token, before", &pat).await;
+    let (minted, pat) = minted_pat(fx, None).await;
+    assert_full_reach(&w, "an all-access token, before", &pat).await;
 
     // The org gains service accounts and tokens; one is disabled, one deleted.
     let account = create_account(fx, "deploy-bot", "admin").await;
@@ -545,48 +552,31 @@ async fn a_legacy_key_is_unaffected_by_service_accounts_and_org_revokes() {
     .await;
     in_session(&fx.cookie, "DELETE", &format!("{accounts}/{doomed}"), None).await;
 
-    // The org ends the reach of the owner's OTHER tokens...
+    // The org ends the reach of the owner's OTHER token...
     let (personal, _) = mint(&fx.db, fx.user.id, Reach::all_access()).await;
     let (status, _) = in_session(&fx.cookie, "POST", &revoke_uri(fx.org_id, personal), None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    // ...and tries to end the keys', in both orgs. It cannot.
-    for org in [fx.org_id, w.org_b] {
-        for id in [legacy, minted] {
-            let (status, refused) =
-                in_session(&fx.cookie, "POST", &revoke_uri(org, id), None).await;
-            assert_eq!(status, StatusCode::CONFLICT);
-            assert_eq!(refused["code"], "legacy_immutable");
-        }
-    }
 
-    // Nothing narrowed, blocked, expired or revoked them.
-    assert_full_reach(&w, "an oxy_<hex> key, after", &key).await;
-    assert_full_reach(&w, "a legacy-endpoint token, after", &pat).await;
-    for id in [legacy, minted] {
-        assert!(grants_of(&fx.db, id).await.is_empty());
-        let row = api_tokens::Entity::find_by_id(id)
-            .one(&fx.db)
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(row.all_access && row.platform && row.partner);
-        assert!(row.revoked_at.is_none());
-        assert_eq!(row.expires_at, None);
-    }
+    // ...and nothing it did touched this one.
+    assert_full_reach(&w, "an all-access token, after", &pat).await;
+    let row = api_tokens::Entity::find_by_id(minted)
+        .one(&fx.db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(row.all_access && row.platform && row.partner);
+    assert!(row.revoked_at.is_none());
+    assert_eq!(row.expires_at, None);
 
-    // A legacy key reads the new admin routes as its owner would, and is
-    // listed — as a legacy key — in the inventory of each org it reaches.
-    for secret in [&key, &pat] {
-        assert_eq!(
-            with_token(secret, "GET", &accounts, None).await.0,
-            StatusCode::OK
-        );
-        let (status, listed) =
-            with_token(secret, "GET", &format!("/orgs/{}/tokens", fx.org_id), None).await;
-        assert_eq!(status, StatusCode::OK);
-        let rows = listed["tokens"].as_array().unwrap();
-        for id in [legacy, minted] {
-            assert_eq!(row_of(rows, id)["kind"], "legacy_key");
-        }
-    }
+    // It reads the admin routes as its owner would, and is listed in the
+    // inventory of each org it reaches.
+    assert_eq!(
+        with_token(&pat, "GET", &accounts, None).await.0,
+        StatusCode::OK
+    );
+    let (status, listed) =
+        with_token(&pat, "GET", &format!("/orgs/{}/tokens", fx.org_id), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let rows = listed["tokens"].as_array().unwrap();
+    assert_eq!(row_of(rows, minted)["kind"], "personal");
 }

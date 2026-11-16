@@ -33,6 +33,37 @@ describe("tokenLifecycle", () => {
     ).toEqual({ tone: "active", label: "Active", detail: "Expires in 30 days" });
   });
 
+  // The four keys that were still in use on 2026-11-16 are deliberately left
+  // unrevoked by the migration, so that reverting the image can restore them.
+  // Their rows therefore read exactly like a live token's, and the only thing
+  // that says otherwise is the status the server sends.
+  it("says Removed for a legacy key, whatever the rest of the row says", () => {
+    const removed = { tone: "removed", label: "Removed", detail: "Legacy API keys no longer authenticate" };
+    // Not revoked, never expires: the live shape.
+    expect(tokenLifecycle({ status: "removed", expires_at: null, revoked_at: null }, NOW)).toEqual(
+      removed
+    );
+    // A future expiry, which would otherwise read "Expires in 30 days".
+    expect(
+      tokenLifecycle({ status: "removed", expires_at: inDays(30), revoked_at: null }, NOW)
+    ).toEqual(removed);
+    // Inside the last week, which would otherwise be the amber "soon" tone.
+    expect(
+      tokenLifecycle({ status: "removed", expires_at: inDays(3), revoked_at: null }, NOW)
+    ).toEqual(removed);
+    // And revoked as well: still Removed, not Revoked.
+    expect(
+      tokenLifecycle({ status: "removed", expires_at: inDays(-5), revoked_at: inDays(-1) }, NOW)
+    ).toEqual(removed);
+  });
+
+  it("offers no action on a removed legacy key", () => {
+    const key = { kind: "legacy_key", status: "removed", expires_at: inDays(30) } as const;
+    expect(isExtendable(key)).toBe(false);
+    expect(isRegenerable(key)).toBe(false);
+    expect(isRevocable(key)).toBe(false);
+  });
+
   it("flags a token inside its last week", () => {
     const life = tokenLifecycle({ status: "active", expires_at: inDays(3), revoked_at: null }, NOW);
     expect(life.tone).toBe("soon");

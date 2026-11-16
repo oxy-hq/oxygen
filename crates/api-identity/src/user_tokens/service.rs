@@ -34,8 +34,8 @@ use super::audit::{self, Event};
 use super::dto::TokenDto;
 use super::error::TokenError;
 use super::{agent, policy_cap, reach, sandbox, view};
-use crate::api_keys::activity::{ActivityResponse, last_used_at, token_activity};
 use crate::authz::{self, PrincipalFacts};
+use crate::token_activity::{ActivityResponse, last_used_at, token_activity};
 
 /// A token and the secret that is shown exactly once.
 pub(super) struct Minted {

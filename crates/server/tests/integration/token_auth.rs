@@ -12,7 +12,6 @@
 //! in nextest's `db-per-test` group, not `serial-db`.
 
 mod account_discovery;
-mod activity;
 mod agent_token;
 mod agent_token_rules;
 mod agent_token_standing;
@@ -28,11 +27,10 @@ mod device_login;
 mod device_login_approver;
 mod discovery;
 mod email_identity;
-mod extend;
+mod full_reach;
 mod grant_reach;
 mod hygiene;
-mod legacy_keys;
-mod legacy_reach;
+mod legacy_removed;
 mod mint_locks;
 mod mobile_login;
 mod monitoring_contract;
@@ -68,19 +66,17 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use axum::routing::{delete, get, post};
+use axum::routing::get;
 use axum::{Extension, Json, Router};
 use chrono::{DateTime, Utc};
 use entity::users::UserStatus;
 use entity::workspace_members::WorkspaceRole;
 use entity::workspaces::WorkspaceStatus;
 use entity::{api_keys, api_tokens, organizations, users, workspaces};
-use oxy_api_identity::api_keys::{delete_api_key, extend_api_key, get_api_key_activity};
 use oxy_app::api::middlewares::workspace_context::EffectiveWorkspaceRole;
 use oxy_app_core::audit::{self, AuditEntry, RequestActor};
 use oxy_auth::token::CredentialContext;
 use oxy_auth::types::AuthenticatedUser;
-use oxy_auth::{ApiKeyConfig, ApiKeyService, CreateApiKeyParams};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };
@@ -199,8 +195,12 @@ pub(crate) async fn seed_workspace_in(db: &DatabaseConnection, org_id: Uuid) -> 
     workspace_id
 }
 
-/// A key exactly as every release before this one wrote it: `oxy_<32 hex>`, its
-/// plaintext in `api_keys.key_hash`, and no `api_tokens` row.
+/// A legacy API key left over from before they were removed: `oxy_<32 hex>`,
+/// its plaintext in `api_keys.key_hash`, and no `api_tokens` row.
+///
+/// Nothing mints one any more. It is seeded so tests can show what happens to
+/// the keys still sitting in customers' deployments — they authenticate
+/// nothing, and say so.
 pub(crate) async fn legacy_key(fx: &Fixture, expires_at: Option<DateTime<Utc>>) -> (Uuid, String) {
     let id = Uuid::new_v4();
     let key = format!("oxy_{}", Uuid::new_v4().simple());
@@ -245,37 +245,38 @@ pub(crate) async fn minted_pat(fx: &Fixture, expires_at: Option<DateTime<Utc>>) 
     (minted.row.id, minted.secret)
 }
 
-/// A legacy API key minted through the legacy endpoint's own path: an
-/// `oxy_<hex>` key, written to `api_keys` and mirrored into `api_tokens`.
-pub(crate) async fn endpoint_key(
+/// A legacy key that still has its `api_tokens` mirror — what the backfill
+/// left behind, and what the removal migration revokes. Admission refuses it
+/// by kind, so the mirror makes no difference; a test that wants to prove that
+/// uses this instead of [`legacy_key`].
+pub(crate) async fn mirrored_legacy_key(
     fx: &Fixture,
     expires_at: Option<DateTime<Utc>>,
 ) -> (Uuid, String) {
-    let created = ApiKeyService::create_api_key(
-        &fx.db,
-        CreateApiKeyParams {
-            user_id: fx.user.id,
-            name: "minted".into(),
-            expires_at,
-            project_id: fx.workspace_id,
-        },
-        &ApiKeyConfig::default(),
-    )
+    let (id, key) = legacy_key(fx, expires_at).await;
+    let now = Utc::now().fixed_offset();
+    api_tokens::ActiveModel {
+        id: ActiveValue::Set(id),
+        kind: ActiveValue::Set("legacy_key".into()),
+        principal_user_id: ActiveValue::Set(fx.user.id),
+        name: ActiveValue::Set("legacy".into()),
+        display_prefix: ActiveValue::Set("oxy_".into()),
+        last_four: ActiveValue::Set(key[key.len() - 4..].to_string()),
+        token_hash: ActiveValue::Set(oxy_auth::token::format::hash_token(&key)),
+        all_access: ActiveValue::Set(true),
+        platform: ActiveValue::Set(true),
+        partner: ActiveValue::Set(true),
+        expires_at: ActiveValue::Set(expires_at.map(|t| t.fixed_offset())),
+        created_at: ActiveValue::Set(now),
+        created_by: ActiveValue::Set(Some(fx.user.id)),
+        source: ActiveValue::Set("legacy_backfill".into()),
+        legacy_api_key_id: ActiveValue::Set(Some(id)),
+        ..Default::default()
+    }
+    .insert(&fx.db)
     .await
-    .expect("mint a legacy key through the endpoint");
-    (created.id, created.key)
-}
-
-/// N-1 revokes by writing `api_keys` alone.
-pub(crate) async fn revoke_in_api_keys_only(db: &DatabaseConnection, id: Uuid) {
-    let row = api_keys::Entity::find_by_id(id)
-        .one(db)
-        .await
-        .unwrap()
-        .expect("key row");
-    let mut active: api_keys::ActiveModel = row.into();
-    active.is_active = ActiveValue::Set(false);
-    active.update(db).await.expect("revoke in api_keys");
+    .expect("seed the legacy key's mirror row");
+    (id, key)
 }
 
 /// A token's own row, by its own id (a personal token mirrors no `api_keys` row).
@@ -329,9 +330,6 @@ fn workspace_routes() -> Router {
         .route("/probe", get(probe))
         .route("/teapot", get(|| async { StatusCode::IM_A_TEAPOT }))
         .route("/boom", get(|| async { StatusCode::INTERNAL_SERVER_ERROR }))
-        .route("/api-keys/{id}", delete(delete_api_key))
-        .route("/api-keys/{id}/extend", post(extend_api_key))
-        .route("/api-keys/{id}/activity", get(get_api_key_activity))
         .layer(middleware::from_fn(as_workspace_admin))
 }
 

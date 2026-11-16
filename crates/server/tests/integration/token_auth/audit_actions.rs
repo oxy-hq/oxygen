@@ -1,10 +1,18 @@
-//! "What did this key do?" (design §3.7, layer 2): an audited action performed
-//! with a key says so, the same action from a session does not, and neither
-//! breaks the org's hash chain.
+//! "What did this token do?" (design §3.7, layer 2): an audited action
+//! performed with a token says so, the same action from a session does not,
+//! and neither breaks the org's hash chain.
+//!
+//! These read as legacy-key tests until the keys were removed. The contract
+//! never belonged to legacy keys — it is the same for every credential — so
+//! the vehicle is now a personal access token, and the lifecycle event in the
+//! chain comes from `/user/tokens/{id}/extend` rather than the `/api-keys`
+//! route that went with them.
 
+use super::stack::{Reach, flat_api, mint, org_grant};
 use super::*;
 use axum::http::StatusCode;
 use oxy_app_core::audit::AuditFilter;
+use oxy_authz::RoleCeiling;
 
 async fn audited_as(fx: &Fixture, headers: &[(&str, &str)]) -> StatusCode {
     let uri = format!("/{}/audited", fx.workspace_id);
@@ -13,15 +21,30 @@ async fn audited_as(fx: &Fixture, headers: &[(&str, &str)]) -> StatusCode {
         .0
 }
 
+/// Push out a personal token's expiry in the fixture's session — one audited
+/// `token.extended` row, in the same org chain.
+async fn extend_in_session(fx: &Fixture, id: Uuid, body: Value) {
+    let uri = format!("/user/tokens/{id}/extend");
+    let (status, extended) = call(
+        flat_api(),
+        "POST",
+        &uri,
+        &[("cookie", &fx.cookie)],
+        Some(body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{extended}");
+}
+
 #[tokio::test]
-async fn an_action_performed_with_a_key_records_api_key_and_the_token_id() {
+async fn an_action_performed_with_a_token_records_api_key_and_the_token_id() {
     let fx = fixture().await;
-    let (legacy_id, legacy) = legacy_key(&fx, None).await;
+    let (first_id, first) = minted_pat(&fx, None).await;
     let (pat_id, pat) = minted_pat(&fx, None).await;
     let bearer = format!("Bearer {pat}");
 
     let headers = [
-        ("x-api-key", legacy.as_str()),
+        ("x-api-key", first.as_str()),
         ("x-forwarded-for", "203.0.113.4"),
     ];
     assert_eq!(audited_as(&fx, &headers).await, StatusCode::OK);
@@ -35,7 +58,7 @@ async fn an_action_performed_with_a_key_records_api_key_and_the_token_id() {
     let rows = audit_rows(&fx.db, AUDITED_ACTION).await;
     assert_eq!(rows.len(), 2);
     for (row, id, kind, name) in [
-        (&rows[0], legacy_id, "legacy_key", "legacy"),
+        (&rows[0], first_id, "personal", "minted"),
         (&rows[1], pat_id, "personal", "minted"),
     ] {
         assert_eq!(row.actor_type, "api_key");
@@ -60,7 +83,7 @@ async fn an_action_performed_with_a_key_records_api_key_and_the_token_id() {
     );
     // Never the credential itself, in any column.
     let everything = format!("{rows:?}");
-    assert!(!everything.contains(&legacy) && !everything.contains(&pat));
+    assert!(!everything.contains(&first) && !everything.contains(&pat));
 }
 
 #[tokio::test]
@@ -80,12 +103,12 @@ async fn the_same_action_from_a_session_records_a_user_and_no_token_id() {
 }
 
 #[tokio::test]
-async fn key_stamped_rows_keep_the_org_hash_chain_intact() {
+async fn token_stamped_rows_keep_the_org_hash_chain_intact() {
     // jsonb hands object keys back sorted by length, then bytes. A row hashed
     // in any other order verifies as tampered, so every entry is written in
     // that order — including the four stamp keys and nested objects.
     let fx = fixture().await;
-    let (_, key) = legacy_key(&fx, None).await;
+    let (_, key) = minted_pat(&fx, None).await;
     assert_eq!(
         audited_as(&fx, &[("x-api-key", &key)]).await,
         StatusCode::OK
@@ -95,17 +118,16 @@ async fn key_stamped_rows_keep_the_org_hash_chain_intact() {
         StatusCode::OK
     );
     // A token lifecycle event in the same chain (multi-key metadata and change).
-    let (target, _) = legacy_key(&fx, None).await;
-    let uri = format!("/{}/api-keys/{target}/extend", fx.workspace_id);
-    let (status, _) = call(
-        api_surface(),
-        "POST",
-        &uri,
-        &[("cookie", &fx.cookie)],
-        Some(json!({ "days": 30 })),
+    // Granted this org, so its event is written in this org's chain: a token's
+    // lifecycle event is recorded once per org it reaches, and an all-access
+    // token with no grant reaches no org by a grant.
+    let (target, _) = mint(
+        &fx.db,
+        fx.user.id,
+        Reach::granted(vec![org_grant(fx.org_id, RoleCeiling::Owner)]),
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
+    extend_in_session(&fx, target, json!({ "days": 30 })).await;
 
     let report = audit::verify_chain(&fx.db, fx.org_id)
         .await
@@ -115,52 +137,13 @@ async fn key_stamped_rows_keep_the_org_hash_chain_intact() {
 }
 
 #[tokio::test]
-async fn a_real_handler_run_with_a_legacy_key_names_that_key() {
-    // Revoke is a shipped, audited handler a legacy key may still call.
-    let fx = fixture().await;
-    let (acting_id, acting) = legacy_key(&fx, None).await;
-    let (by_key, _) = legacy_key(&fx, None).await;
-    let (by_session, _) = legacy_key(&fx, None).await;
-
-    let uri = format!("/{}/api-keys/{by_key}", fx.workspace_id);
-    let (status, _) = call(
-        api_surface(),
-        "DELETE",
-        &uri,
-        &[("x-api-key", &acting)],
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-    let uri = format!("/{}/api-keys/{by_session}", fx.workspace_id);
-    let (status, _) = call(
-        api_surface(),
-        "DELETE",
-        &uri,
-        &[("cookie", &fx.cookie)],
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-
-    let rows = audit_rows(&fx.db, "token.revoked").await;
-    assert_eq!(rows.len(), 2);
-    // Performed with a key: the stamp names the key that ACTED; the key acted
-    // ON is the target.
-    assert_eq!(rows[0].actor_type, "api_key");
-    assert_eq!(rows[0].metadata["token_id"], json!(acting_id));
-    assert_eq!(rows[0].target_id, Some(by_key.to_string()));
-    assert_eq!(rows[0].metadata["api_key_id"], json!(by_key));
-    // Performed in a session: a user, and the token it is about.
-    assert_eq!(rows[1].actor_type, "user");
-    assert_eq!(rows[1].metadata["token_id"], json!(by_session));
-}
-
-#[tokio::test]
 async fn the_admin_audit_token_filter_finds_actions_and_lifecycle_events() {
     let fx = fixture().await;
-    let (id, key) = legacy_key(&fx, None).await;
-    let (other_id, other) = legacy_key(&fx, None).await;
+    // Granted this org, so the lifecycle event below lands in its chain and
+    // the admin filter has both kinds of row to find.
+    let granted = || Reach::granted(vec![org_grant(fx.org_id, RoleCeiling::Owner)]);
+    let (id, key) = mint(&fx.db, fx.user.id, granted()).await;
+    let (other_id, other) = mint(&fx.db, fx.user.id, granted()).await;
     assert_eq!(
         audited_as(&fx, &[("x-api-key", &key)]).await,
         StatusCode::OK
@@ -173,16 +156,7 @@ async fn the_admin_audit_token_filter_finds_actions_and_lifecycle_events() {
         audited_as(&fx, &[("cookie", &fx.cookie)]).await,
         StatusCode::OK
     );
-    let uri = format!("/{}/api-keys/{id}/extend", fx.workspace_id);
-    let (status, _) = call(
-        api_surface(),
-        "POST",
-        &uri,
-        &[("cookie", &fx.cookie)],
-        Some(json!({ "expires_at": null })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
+    extend_in_session(&fx, id, json!({ "expires_at": null })).await;
 
     let filter = AuditFilter {
         token_id: Some(id),

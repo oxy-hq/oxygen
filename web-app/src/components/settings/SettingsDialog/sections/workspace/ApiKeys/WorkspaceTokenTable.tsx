@@ -1,6 +1,14 @@
 import type React from "react";
+import { useMemo, useState } from "react";
 import TableContentWrapper from "@/components/settings/components/TableContentWrapper";
 import TableWrapper from "@/components/settings/components/TableWrapper";
+import { TokensToolbar } from "@/components/settings/tokens/TokensToolbar";
+import {
+  filterCounts,
+  filterTokens,
+  noMatchMessage,
+  type TokenFilter
+} from "@/components/settings/tokens/tokenFilter";
 import { Badge } from "@/components/ui/shadcn/badge";
 import {
   Table,
@@ -88,44 +96,72 @@ const InventoryRow: React.FC<{ token: WorkspaceTokenRow }> = ({ token }) => {
   );
 };
 
+/** Below this the list is readable whole, and a toolbar is just furniture. */
+const SEARCH_FROM = 5;
+
 /**
- * Every API token that can reach this workspace, whoever owns it. Read-only. The route returns
- * no legacy API keys: those are listed under Workspace → Legacy API keys.
+ * Every API token that can reach this workspace, whoever owns it. Read-only — whoever owns a
+ * token changes it from their own account.
+ *
+ * Searchable by token, owner and kind, and filterable by whether it still works: on a workspace
+ * several people and a few CI jobs reach, "who can get in here, and what is about to break?" is
+ * the question this table is opened with.
  */
 const WorkspaceTokenTable: React.FC = () => {
   const { data, isLoading, error, refetch } = useWorkspaceTokens();
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<TokenFilter>("all");
   const tokens = data?.tokens ?? [];
+  const shown = useMemo(() => filterTokens(tokens, filter, query), [tokens, filter, query]);
+  const counts = useMemo(() => filterCounts(tokens, query), [tokens, query]);
+  const narrowing = query.trim() !== "" || filter !== "all";
 
   return (
-    <TableWrapper>
-      <Table className='text-xs' data-testid='workspace-tokens-table'>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Owner</TableHead>
-            <TableHead>Kind</TableHead>
-            <TableHead>Access here</TableHead>
-            <TableHead>Expiry</TableHead>
-            <TableHead>Last used</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableContentWrapper
-            isEmpty={tokens.length === 0}
-            loading={isLoading}
-            colSpan={6}
-            error={loadError(error)}
-            noFoundTitle='No tokens reach this workspace'
-            noFoundDescription='A token appears here once someone creates one that covers it.'
-            onRetry={apiStatus(error) === 404 ? undefined : refetch}
-          >
-            {tokens.map((token) => (
-              <InventoryRow key={token.id} token={token} />
-            ))}
-          </TableContentWrapper>
-        </TableBody>
-      </Table>
-    </TableWrapper>
+    <div className='flex flex-col gap-3'>
+      {tokens.length >= SEARCH_FROM && (
+        <TokensToolbar
+          query={query}
+          onQuery={setQuery}
+          filter={filter}
+          onFilter={setFilter}
+          counts={counts}
+          testIdPrefix='workspace-tokens'
+        />
+      )}
+      <TableWrapper>
+        <Table className='text-xs' data-testid='workspace-tokens-table'>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Owner</TableHead>
+              <TableHead>Kind</TableHead>
+              <TableHead>Access here</TableHead>
+              <TableHead>Expiry</TableHead>
+              <TableHead>Last used</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableContentWrapper
+              isEmpty={shown.length === 0}
+              loading={isLoading}
+              colSpan={6}
+              error={loadError(error)}
+              noFoundTitle={narrowing ? "No token matches" : "No tokens reach this workspace"}
+              noFoundDescription={
+                narrowing
+                  ? noMatchMessage(filter, query)
+                  : "A token appears here once someone creates one that covers it."
+              }
+              onRetry={apiStatus(error) === 404 ? undefined : refetch}
+            >
+              {shown.map((token) => (
+                <InventoryRow key={token.id} token={token} />
+              ))}
+            </TableContentWrapper>
+          </TableBody>
+        </Table>
+      </TableWrapper>
+    </div>
   );
 };
 

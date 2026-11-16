@@ -23,9 +23,7 @@ use super::service_accounts::{
     workspace_status,
 };
 use super::stack::{Reach, join_org, mint, org_grant};
-use super::{
-    Fixture, audit_rows, endpoint_key, legacy_key, seed_org, seed_user, seed_workspace_in,
-};
+use super::{Fixture, audit_rows, seed_org, seed_user, seed_workspace_in};
 
 fn policy_uri(org: Uuid) -> String {
     format!("/orgs/{org}/token-policy")
@@ -481,49 +479,31 @@ async fn turning_the_environment_requirement_back_on_stops_policies_that_name_no
     assert_eq!(minted_from(&fx, token).await, Some(bare));
 }
 
+/// A legacy key used to be exempt from every policy — never blocked, never
+/// capped, extendable to no expiry. It is exempt now in the only way left: it
+/// authenticates nothing, so no policy has anything to decide about. The row
+/// is still listed in the org's inventory, which is what the group below it
+/// shows, and still carries no block.
 #[tokio::test]
-async fn a_legacy_key_is_never_blocked_or_capped() {
+async fn a_removed_legacy_key_is_refused_before_any_policy_applies() {
     let fx = admin_fixture().await;
-    let (key_id, key) = legacy_key(&fx, None).await;
-    let (pat_id, pat) = endpoint_key(&fx, None).await;
+    let (key_id, key) = super::mirrored_legacy_key(&fx, None).await;
     // The strictest policy there is.
     put_policy(&fx, fx.org_id, policy(Some(1), false, true)).await;
 
     let ws = fx.workspace_id;
-    for secret in [&key, &pat] {
-        let (status, _) = super::call(
-            super::stack::workspace_api(),
-            "GET",
-            &format!("/{ws}/read"),
-            &[("x-api-key", secret)],
-            None,
-        )
-        .await;
-        assert_eq!(
-            status,
-            StatusCode::NO_CONTENT,
-            "a legacy key still reaches the org"
-        );
-    }
-    for id in [key_id, pat_id] {
-        // A legacy key is not in the token list; the org inventory shows it.
-        let row = inventory_row(&fx, fx.org_id, id).await;
-        assert_eq!(row["kind"], "legacy_key");
-        assert_eq!(row["blocked_orgs"], json!([]));
-        assert!(row["blocked_by_policy"].is_null());
-        // Extend, through the legacy route, is never capped for one — not
-        // even to no expiry.
-        let extend = format!("/{ws}/api-keys/{id}/extend");
-        for body in [json!({ "days": 365 }), json!({ "expires_at": null })] {
-            let (status, extended) = super::call(
-                super::api_surface(),
-                "POST",
-                &extend,
-                &[("cookie", &fx.cookie)],
-                Some(body),
-            )
-            .await;
-            assert_eq!(status, StatusCode::OK, "{extended}");
-        }
-    }
+    let (status, _) = super::call(
+        super::stack::workspace_api(),
+        "GET",
+        &format!("/{ws}/read"),
+        &[("x-api-key", &key)],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let row = inventory_row(&fx, fx.org_id, key_id).await;
+    assert_eq!(row["kind"], "legacy_key");
+    assert_eq!(row["blocked_orgs"], json!([]));
+    assert!(row["blocked_by_policy"].is_null());
 }

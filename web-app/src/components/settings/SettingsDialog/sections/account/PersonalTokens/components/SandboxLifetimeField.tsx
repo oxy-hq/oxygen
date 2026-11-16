@@ -2,7 +2,7 @@ import type React from "react";
 import { useId } from "react";
 import { Input } from "@/components/ui/shadcn/input";
 import { lifetimeLabel, lifetimePresets, sandboxExpiry } from "@/libs/sandboxAgentToken";
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { SandboxAgentLimits } from "@/types/apiToken";
 import { type LifetimeChoice, lifetimeHours, lifetimeProblem } from "../sandboxDraft";
 import OptionChip from "./OptionChip";
@@ -31,7 +31,7 @@ const Outcome: React.FC<Pick<Props, "choice" | "limits">> = ({ choice, limits })
     <p className='text-muted-foreground text-xs' data-testid={`${TEST_ID}-outcome`}>
       {hours === null
         ? `Enter how many hours the token should last, up to ${limits.max_hours}.`
-        : `Stops working ${ApiKeyService.formatDate(sandboxExpiry(hours).toISOString())}. It can't be extended: create a new token when this one lapses.`}
+        : `Stops working ${TokenExpiry.formatDate(sandboxExpiry(hours).toISOString())}. It can't be extended: create a new token when this one lapses.`}
     </p>
   );
 };

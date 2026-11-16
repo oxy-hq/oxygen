@@ -114,7 +114,7 @@ fn the_credential_carries_the_principal_and_platform_standing() {
     assert_eq!(credential.name, "service:ferret");
     assert_eq!(credential.principal_user_id, token.user_id());
     assert!(credential.all_access && credential.platform && !credential.partner);
-    assert!(!credential.is_legacy() && !credential.is_service_account());
+    assert!(!credential.is_service_account());
     let reach = credential.reach().expect("a token narrows by its reach");
     assert!(reach.all_access && reach.platform && !reach.partner);
 }

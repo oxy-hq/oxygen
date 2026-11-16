@@ -1,11 +1,14 @@
 import { KeyRound, Plus } from "lucide-react";
 import type React from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CanWorkspaceAdmin } from "@/components/auth/Can";
 import { AppsMissingSecrets } from "@/components/settings/secrets/AppsMissingSecrets";
 import { CreateSecretDialog } from "@/components/settings/secrets/CreateSecretDialog";
 import { UnifiedSecretsTable } from "@/components/settings/secrets/UnifiedSecretsTable";
+import { buildRows, inScope } from "@/components/settings/secrets/UnifiedSecretsTable/rows";
+import type { SecretsScope } from "@/components/settings/secrets/UnifiedSecretsTable/types";
 import { Button } from "@/components/ui/shadcn/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
 import useSecrets from "@/hooks/api/secrets/useSecrets";
 import { useSharedSecrets } from "@/hooks/api/secrets/useSharedSecrets";
 import NoAccessNotice from "../../../components/NoAccessNotice";
@@ -14,10 +17,40 @@ import SectionHeader from "../../../components/SectionHeader";
 /** What the create dialog opens with: blank, or a key an app is missing. */
 type CreateFor = { name?: string; appIds?: string[] };
 
+const BLURB: Record<SecretsScope, React.ReactNode> = {
+  workspace: (
+    <>
+      Stored once and shared with whichever apps you choose — each reads it as{" "}
+      <code>ctx.env.NAME</code>, and changing it here reaches every one of them. The workspace's
+      databases, integrations and agents read these too.
+    </>
+  ),
+  app: (
+    <>
+      A value one app keeps for itself, stored under that app and readable by nothing else. An app's
+      own value of a key wins over a shared one, so this is where a single app differs from the
+      rest.
+    </>
+  )
+};
+
 const SecretsBody: React.FC = () => {
+  const [tab, setTab] = useState<SecretsScope>("workspace");
   const [createFor, setCreateFor] = useState<CreateFor | null>(null);
   const { data: secrets } = useSecrets();
   const { data: sharing } = useSharedSecrets();
+
+  // The counts on the tabs, from the same two queries the tables read.
+  const counts = useMemo(() => {
+    const names = new Map((sharing?.apps ?? []).map((a) => [a.app_id, a.app_name]));
+    const rows = buildRows(secrets?.secrets ?? [], sharing?.shared ?? [], names);
+    return {
+      workspace: inScope(rows, "workspace").length,
+      app: inScope(rows, "app").length
+    };
+  }, [secrets, sharing]);
+
+  const openCreate = (name?: string, appIds?: string[]) => setCreateFor({ name, appIds });
 
   return (
     <div className='flex flex-col gap-5'>
@@ -25,24 +58,41 @@ const SecretsBody: React.FC = () => {
         icon={KeyRound}
         title='Secrets'
         actions={
-          <Button size='sm' variant='outline' onClick={() => setCreateFor({})}>
+          <Button size='sm' variant='outline' onClick={() => openCreate()}>
             <Plus />
             Create
           </Button>
         }
       />
-      <p className='-mt-2 text-muted-foreground text-sm'>
-        Store a credential once and share it with any of this workspace's apps — each reads it as{" "}
-        <code>ctx.env.NAME</code>, and changing it here updates every one of them.
-      </p>
 
       <AppsMissingSecrets
         sharing={sharing}
         secrets={secrets?.secrets ?? []}
-        onCreate={(name, appId) => setCreateFor({ name, appIds: [appId] })}
+        onCreate={(name, appId) => openCreate(name, [appId])}
       />
 
-      <UnifiedSecretsTable />
+      {/* Two tabs rather than one list with a kind filter: a workspace secret
+          and an app's own secret are different things with different verbs, and
+          a filter chip made them look like two views of one list. */}
+      <Tabs value={tab} onValueChange={(value) => setTab(value as SecretsScope)}>
+        <TabsList data-testid='secrets-tabs'>
+          <TabsTrigger value='workspace' data-testid='secrets-tab-workspace'>
+            Workspace
+            <span className='ml-1.5 text-muted-foreground tabular-nums'>{counts.workspace}</span>
+          </TabsTrigger>
+          <TabsTrigger value='app' data-testid='secrets-tab-app'>
+            Custom apps
+            <span className='ml-1.5 text-muted-foreground tabular-nums'>{counts.app}</span>
+          </TabsTrigger>
+        </TabsList>
+
+        {(["workspace", "app"] as const).map((scope) => (
+          <TabsContent key={scope} value={scope} className='flex flex-col gap-3'>
+            <p className='text-muted-foreground text-sm'>{BLURB[scope]}</p>
+            <UnifiedSecretsTable scope={scope} onCreateFor={openCreate} />
+          </TabsContent>
+        ))}
+      </Tabs>
 
       <CreateSecretDialog
         open={createFor !== null}

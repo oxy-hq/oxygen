@@ -149,7 +149,6 @@ impl ServiceToken {
             partner: false,
             name: self.principal(),
             display_prefix: PREFIX.to_string(),
-            legacy_api_key_id: None,
             grants: Vec::new(),
             app_publish: Vec::new(),
             app_sandbox: Vec::new(),

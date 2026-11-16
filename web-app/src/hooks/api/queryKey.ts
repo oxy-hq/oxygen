@@ -193,12 +193,13 @@ const onboardingKeys = {
   githubSetup: (projectId: string) => [...onboardingKeys.all, "githubSetup", projectId] as const
 };
 
+/**
+ * Workspace token inventories. The `list`, `item` and `activity` keys went with the legacy
+ * `/{workspaceId}/api-keys` routes; `all` stays as the prefix a token change invalidates, since
+ * one token shows in the inventory of every workspace it reaches.
+ */
 const apiKeyKeys = {
   all: ["apiKey"] as const,
-  list: (projectId: string) => [...apiKeyKeys.all, "list", projectId] as const,
-  item: (projectId: string, id: string) => [...apiKeyKeys.all, projectId, { id }] as const,
-  activity: (projectId: string, id: string) =>
-    [...apiKeyKeys.all, "activity", projectId, { id }] as const,
   /** Every token that can reach the workspace, whoever owns it (`GET /{id}/api-tokens`). */
   inventory: (projectId: string) => [...apiKeyKeys.all, "inventory", projectId] as const
 };

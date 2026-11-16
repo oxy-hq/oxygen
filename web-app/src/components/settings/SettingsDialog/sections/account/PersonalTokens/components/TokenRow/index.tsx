@@ -3,10 +3,10 @@ import { useState } from "react";
 import ActivityDrawer from "@/components/settings/SettingsDialog/sections/workspace/ApiKeys/ApiKeyTable/ApiKeyRow/components/ActivityDrawer";
 import { formatLastUsed } from "@/components/settings/SettingsDialog/sections/workspace/ApiKeys/ApiKeyTable/ApiKeyRow/formatLastUsed";
 import { TableCell, TableRow } from "@/components/ui/shadcn/table";
-import { USER_TOKEN_ENDPOINTS } from "@/hooks/api/apiKeys/tokenEndpoints";
+import { USER_TOKEN_ENDPOINTS } from "@/hooks/api/tokens/tokenEndpoints";
 import { AGENT_TOKEN_HINT, isAgentToken } from "@/libs/agentToken";
 import { cn } from "@/libs/shadcn/utils";
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { Token, TokenWithSecret } from "@/types/apiToken";
 import { isFixedToken, tokenKindLabel, toTokenSummary } from "../../accessSummary";
 import { TOKEN_COLUMNS } from "../tokenColumns";
@@ -31,7 +31,7 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
  */
 const lastUsed = (at: string | null): string =>
   at && Date.now() - new Date(at).getTime() >= WEEK_MS
-    ? ApiKeyService.formatDay(at)
+    ? TokenExpiry.formatDay(at)
     : formatLastUsed(at);
 
 /**
@@ -103,7 +103,7 @@ const TokenRow: React.FC<Props> = ({ token, onRegenerated }) => {
       <TableCell
         data-label='Last used'
         className={cn(CELL, TOKEN_COLUMNS.lastUsed.shown, "truncate text-muted-foreground")}
-        title={token.last_used_at ? ApiKeyService.formatDate(token.last_used_at) : undefined}
+        title={token.last_used_at ? TokenExpiry.formatDate(token.last_used_at) : undefined}
       >
         {lastUsed(token.last_used_at)}
       </TableCell>

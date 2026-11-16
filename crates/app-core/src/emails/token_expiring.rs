@@ -1,7 +1,8 @@
 //! "Your API token expires in a week." Sent once per token per expiry, 7 days
 //! ahead, by the token sweeper (API-tokens design §3.6, §8 Phase 5) — for a
-//! personal token or legacy key to its owner, for a service-account token to
-//! its org's admins and owners. Legacy keys included: the mail only informs.
+//! personal token to its owner, for a service-account token to its org's
+//! admins and owners. A legacy API key used to get one too; the keys were
+//! removed, so nothing is left to warn anyone about.
 //!
 //! Plain on purpose: what expires, when, what stops working, and the link to
 //! Extend — which keeps the secret, so nothing needs redeploying. Sent through
@@ -17,9 +18,6 @@ pub struct ExpiringEmail<'a> {
     pub token_name: &'a str,
     /// The token's non-secret leading fragment, e.g. `oxy_pat_Ab3x`.
     pub display_prefix: &'a str,
-    /// A legacy `oxy_<hex>` key: called a legacy API key, as its page calls it,
-    /// and sent to that page — never to the token list.
-    pub legacy: bool,
     pub expires_at: DateTime<Utc>,
     pub audience: Audience<'a>,
     /// The Extend page; `None` names it in words instead.
@@ -35,11 +33,7 @@ fn day(at: DateTime<Utc>) -> String {
 }
 
 pub(crate) fn message(args: &ExpiringEmail<'_>) -> Result<EmailMessage, OxyError> {
-    let (article, noun) = if args.legacy {
-        ("A", "legacy API key")
-    } else {
-        ("An", "API token")
-    };
+    let (article, noun) = ("An", "API token");
     let (subject, opening, who_extends) = match args.audience {
         Audience::Owner => (
             format!(
@@ -71,7 +65,6 @@ pub(crate) fn message(args: &ExpiringEmail<'_>) -> Result<EmailMessage, OxyError
     };
     let place = match &args.extend_url {
         Some(_) => String::new(),
-        None if args.legacy => format!(" under {}", token_mail::LEGACY_KEYS_SETTINGS_LABEL),
         None => format!(" under {}", args.audience.settings_label()),
     };
     Plain {
@@ -87,14 +80,7 @@ pub(crate) fn message(args: &ExpiringEmail<'_>) -> Result<EmailMessage, OxyError
                  redeploying. If it is no longer needed, you can let it expire."
             ),
         ],
-        link: args.extend_url.clone().map(|url| {
-            let label = if args.legacy {
-                "Extend the key"
-            } else {
-                "Extend the token"
-            };
-            (label, url)
-        }),
+        link: args.extend_url.clone().map(|url| ("Extend the token", url)),
     }
     .message()
 }
@@ -118,7 +104,6 @@ mod tests {
         let mail = message(&ExpiringEmail {
             token_name: "laptop",
             display_prefix: "oxy_pat_Ab3x",
-            legacy: false,
             expires_at: at(),
             audience: Audience::Owner,
             extend_url: Some("https://oxy.example/?settings=account.tokens".into()),
@@ -140,28 +125,10 @@ mod tests {
     }
 
     #[test]
-    fn a_legacy_key_is_called_a_legacy_api_key_and_an_accounts_token_goes_to_its_org() {
-        let legacy = message(&ExpiringEmail {
-            token_name: "deploy",
-            display_prefix: "oxy_1234",
-            legacy: true,
-            expires_at: at(),
-            audience: Audience::Owner,
-            extend_url: None,
-        })
-        .unwrap();
-        assert!(legacy.subject.starts_with("Your legacy API key \"deploy\""));
-        assert!(
-            legacy
-                .text_body
-                .contains("under Workspace → Legacy API keys")
-        );
-        assert!(!legacy.text_body.contains("Personal access tokens"));
-
+    fn an_accounts_token_goes_to_its_org() {
         let account = message(&ExpiringEmail {
             token_name: "release",
             display_prefix: "oxy_sat_Zz9q",
-            legacy: false,
             expires_at: at(),
             audience: Audience::OrgAdmins {
                 org_name: "Acme",

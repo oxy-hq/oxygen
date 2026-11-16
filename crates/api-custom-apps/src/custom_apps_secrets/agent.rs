@@ -128,7 +128,9 @@ pub(super) fn refuse_credential(user: &AuthenticatedUser, value: &str) -> Result
 ///
 /// - a new-format token, by its prefix (`oxy_pat_`, `oxy_sat_`, `oxy_ci_`,
 ///   `oxy_sbx_`);
-/// - a legacy `oxy_<32 hex>` key;
+/// - a legacy `oxy_<32 hex>` key. Those were removed and authenticate
+///   nothing, so one is harmless — but the shape is still what a credential
+///   looked like, and refusing it costs nothing;
 /// - an `oxypublish_<64 hex>` publish token;
 /// - a JWT: three base64url segments, the first a JSON header (`eyJ…`).
 ///
@@ -137,7 +139,11 @@ pub(super) fn refuse_credential(user: &AuthenticatedUser, value: &str) -> Result
 fn holds_oxy_credential(value: &str) -> bool {
     value
         .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')))
-        .any(|piece| oxy_auth::token::parse_format(piece).is_some() || is_jwt(piece))
+        .any(|piece| {
+            oxy_auth::token::parse_format(piece).is_some()
+                || oxy_auth::token::format::is_removed_legacy_key(piece)
+                || is_jwt(piece)
+        })
 }
 
 fn is_jwt(piece: &str) -> bool {

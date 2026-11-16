@@ -156,7 +156,7 @@ function describeCredential(token: string): string {
     case "publish":
       return "a publish token";
     case "legacy_key":
-      return "a legacy API key";
+      return "a legacy API key, which was removed";
     case "session":
       return "a session token";
     case "proxy":

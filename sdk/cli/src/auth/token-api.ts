@@ -59,7 +59,11 @@ export interface Token {
   last_used_at: string | null;
   created_at: string;
   revoked_at: string | null;
-  status: "active" | "expired" | "revoked";
+  /**
+   * `removed` is a legacy API key (`oxy_<32 hex>`), refused by admission since
+   * 2026-11-16 whatever its row reads — never a state a token reaches.
+   */
+  status: "active" | "expired" | "revoked" | "removed";
   source: string;
   owner: { type: "user" | "service_account"; id: string; label: string };
   blocked_orgs: { org_id: string; org_name: string; reason: string }[];

@@ -6,7 +6,7 @@ import { Calendar } from "@/components/ui/shadcn/calendar";
 import { Label } from "@/components/ui/shadcn/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
 import { cn } from "@/libs/shadcn/utils";
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { LifetimeCap } from "../accessDraft";
 import {
   type ExpiryChoice,
@@ -58,7 +58,7 @@ const DateChoice: React.FC<{
           data-testid={`${testId}-date-button`}
         >
           <CalendarDays className='size-3.5' />
-          {date ? ApiKeyService.formatDay(date) : "Choose a date"}
+          {date ? TokenExpiry.formatDay(date) : "Choose a date"}
         </Button>
       </PopoverTrigger>
       <PopoverContent align='start' className='w-auto p-0'>
@@ -99,7 +99,7 @@ const Outcome: React.FC<{ choice: ExpiryChoice; cap: LifetimeCap | null; testId:
         ? "Choose the day the token stops working."
         : expires === null
           ? "Works until you revoke it."
-          : `Stops working ${ApiKeyService.formatDay(expires)}. You can extend it later.`}
+          : `Stops working ${TokenExpiry.formatDay(expires)}. You can extend it later.`}
       {cap && ` ${capNote(cap)}`}
     </p>
   );

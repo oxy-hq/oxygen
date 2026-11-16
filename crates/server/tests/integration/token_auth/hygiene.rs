@@ -17,7 +17,6 @@ use oxy_app::emails::token_mail::outbox;
 use oxy_auth::token::credential::source;
 use oxy_auth::token::format::generate_personal;
 use oxy_auth::token::personal::{self, NewToken};
-use oxy_auth::token::store::ensure_legacy_row;
 use oxy_authz::RoleCeiling;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, Statement};
 use serde_json::{Value, json};
@@ -28,7 +27,7 @@ use super::service_accounts::{
     admin_fixture, create_account, in_session, mint_account_token, workspace_status,
 };
 use super::stack::{Reach, flat_api, join_org, org_grant, workspace_api, workspace_external};
-use super::{Fixture, audit_rows, call, endpoint_key, legacy_key, seed_user};
+use super::{Fixture, audit_rows, call, legacy_key, mirrored_legacy_key, seed_user};
 
 const HEADER: &str = "x-oxy-token-expiration";
 
@@ -170,13 +169,6 @@ async fn every_token_response_says_when_the_token_expires() {
         "the same on /external/api"
     );
 
-    // A legacy key too: the header informs and changes nothing.
-    let (key_id, key) = legacy_key(&fx, Some(Utc::now() + Duration::days(7))).await;
-    let stored = super::key_row(&fx.db, key_id).await.expires_at.unwrap();
-    let (status, headers) = read_headers(workspace_api(), ws, &[("x-api-key", &key)]).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-    assert_eq!(headers[HEADER], rfc3339(stored.into()).as_str());
-
     // Nothing to say for a token that never expires, or a session.
     let (_, forever) = mint_expiring(&fx, Reach::all_access(), None).await;
     let bearer = format!("Bearer {forever}");
@@ -251,8 +243,11 @@ async fn a_leaked_token_is_revoked_once_audited_and_its_owner_told() {
 async fn a_lookalike_an_unknown_token_and_a_legacy_key_are_left_alone() {
     preview_mail();
     let fx = admin_fixture().await;
-    let (key_id, key) = legacy_key(&fx, None).await;
-    let (pat_id, pat) = endpoint_key(&fx, None).await;
+    // A legacy key with no mirror reads as unknown — there is no row to judge.
+    // One the backfill mirrored is recognised and deliberately ignored: there
+    // is nothing to revoke, since it already authenticates nothing.
+    let (_, key) = legacy_key(&fx, None).await;
+    let (mirror_id, mirrored) = mirrored_legacy_key(&fx, None).await;
     let (_, live) = mint_expiring(&fx, Reach::all_access(), Some(30)).await;
     let forged = format!(
         "{}{}",
@@ -265,7 +260,7 @@ async fn a_lookalike_an_unknown_token_and_a_legacy_key_are_left_alone() {
         { "token": forged },
         { "token": stranger },
         { "token": key, "source": "github" },
-        { "token": pat },
+        { "token": mirrored },
     ]);
     let (status, answer) = report(body, None).await;
     assert_eq!(status, StatusCode::OK, "{answer}");
@@ -275,24 +270,34 @@ async fn a_lookalike_an_unknown_token_and_a_legacy_key_are_left_alone() {
         .iter()
         .map(|a| a["status"].as_str().unwrap())
         .collect();
+    // Both legacy shapes read as legacy from the value alone: `classify` is a
+    // shape test, so neither one needs a row to be recognised and ignored.
     assert_eq!(
         statuses,
         ["unknown", "unknown", "ignored_legacy", "ignored_legacy"]
     );
 
-    // Nothing was revoked, audited or mailed; every key still works.
+    // Nothing was revoked, audited or mailed, and the live token still works.
     assert!(audit_rows(&fx.db, "token.revoked").await.is_empty());
     assert!(outbox().is_empty());
-    assert_eq!(legacy_reads(&fx, &key).await, StatusCode::NO_CONTENT);
-    assert_eq!(legacy_reads(&fx, &pat).await, StatusCode::NO_CONTENT);
     assert_eq!(
         workspace_status(&live, fx.workspace_id, "GET", "read").await,
         StatusCode::NO_CONTENT
     );
-    for id in [key_id, pat_id] {
-        let mirror = super::token_row(&fx.db, id).await.expect("mirror");
-        assert!(mirror.revoked_at.is_none());
+    // Both legacy keys were already dead; the report did not change that.
+    for key in [&key, &mirrored] {
+        assert_eq!(legacy_reads(&fx, key).await, StatusCode::UNAUTHORIZED);
     }
+    assert!(
+        entity::prelude::ApiTokens::find_by_id(mirror_id)
+            .one(&fx.db)
+            .await
+            .unwrap()
+            .expect("the mirror row")
+            .revoked_at
+            .is_none(),
+        "a report revokes nothing it ignored"
+    );
 
     // At most a hundred per report.
     let many: Vec<Value> = (0..101).map(|_| json!({ "token": "x" })).collect();
@@ -382,19 +387,15 @@ async fn the_expiry_notice_goes_out_once_a_week_ahead_and_again_after_extend() {
     age(&fx.db, later_id, 30).await;
     let (forever_id, _) = mint_expiring(&fx, Reach::all_access(), None).await;
     age(&fx.db, forever_id, 30).await;
-    // A legacy key is told too.
-    let (key_id, _) = legacy_key(&fx, Some(Utc::now() + Duration::days(3))).await;
-    ensure_legacy_row(&fx.db, key_id, source::LEGACY_LAZY)
-        .await
-        .unwrap();
+    // A legacy key is never told: it stopped working when the keys were
+    // removed, so a notice about its expiry would be about nothing.
+    let (key_id, _) = mirrored_legacy_key(&fx, Some(Utc::now() + Duration::days(3))).await;
     age(&fx.db, key_id, 30).await;
 
     let sent = send_expiry_notices(&fx.db, Utc::now()).await.unwrap();
-    assert_eq!(sent.sent, 2, "{sent:?}");
+    assert_eq!(sent.sent, 1, "{sent:?}");
     let mail = outbox();
     assert!(mail.iter().all(|m| Some(m.to.clone()) == fx.user.email));
-    // Each is told in its own words and sent to its own page: a token to the
-    // token list, a legacy API key to the Legacy API keys section.
     let token_mail = mail
         .iter()
         .find(|m| {
@@ -407,19 +408,10 @@ async fn the_expiry_notice_goes_out_once_a_week_ahead_and_again_after_extend() {
             .text_body
             .contains("https://oxy.example/?settings=account.tokens")
     );
-    let key_mail = mail
-        .iter()
-        .find(|m| {
-            m.subject
-                .starts_with("Your legacy API key \"legacy\" expires on")
-        })
-        .expect("the legacy key's notice");
     assert!(
-        key_mail
-            .text_body
-            .contains("https://oxy.example/?settings=workspace.legacy_api_keys")
+        !mail.iter().any(|m| m.subject.contains("legacy")),
+        "no notice for a removed legacy key"
     );
-    assert!(!key_mail.text_body.contains("settings=account.tokens"));
     assert!(hygiene_of(&fx.db, due_id).await.0);
     assert!(!hygiene_of(&fx.db, later_id).await.0);
 
@@ -428,35 +420,22 @@ async fn the_expiry_notice_goes_out_once_a_week_ahead_and_again_after_extend() {
         send_expiry_notices(&fx.db, Utc::now()).await.unwrap().sent,
         0
     );
-    assert_eq!(outbox().len(), 2);
+    assert_eq!(outbox().len(), 1);
 
-    // Extend resets it — a personal token through the token route, a legacy
-    // key through its own.
+    // Extend resets it.
     let extend = format!("/user/tokens/{due_id}/extend");
     let (status, extended) =
         in_session(&fx.cookie, "POST", &extend, Some(json!({ "days": 1 }))).await;
     assert_eq!(status, StatusCode::OK, "{extended}");
-    let extend = format!("/{}/api-keys/{key_id}/extend", fx.workspace_id);
-    let (status, extended) = call(
-        super::api_surface(),
-        "POST",
-        &extend,
-        &[("cookie", &fx.cookie)],
-        Some(json!({ "days": 1 })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{extended}");
-    for id in [due_id, key_id] {
-        assert!(
-            !hygiene_of(&fx.db, id).await.0,
-            "a new expiry, a new notice"
-        );
-    }
+    assert!(
+        !hygiene_of(&fx.db, due_id).await.0,
+        "a new expiry, a new notice"
+    );
     assert_eq!(
         send_expiry_notices(&fx.db, Utc::now()).await.unwrap().sent,
-        2
+        1
     );
-    assert_eq!(outbox().len(), 4);
+    assert_eq!(outbox().len(), 2);
 }
 
 #[tokio::test]
@@ -497,7 +476,7 @@ async fn a_service_account_tokens_notice_goes_to_its_orgs_admins() {
 // ── The unused-token sweep ───────────────────────────────────────────────────
 
 #[tokio::test]
-async fn a_year_idle_token_expires_and_a_legacy_key_never_does() {
+async fn a_year_idle_token_expires_and_a_legacy_row_is_left_alone() {
     let fx = admin_fixture().await;
     let (idle_id, idle) = mint_expiring(&fx, Reach::all_access(), None).await;
     age(&fx.db, idle_id, 400).await;
@@ -513,13 +492,8 @@ async fn a_year_idle_token_expires_and_a_legacy_key_never_does() {
     let sa = create_account(&fx, "deploy-bot", "member").await;
     let (sa_id, _) = mint_account_token(&fx, sa, json!({ "name": "ci", "expires_at": null })).await;
     age(&fx.db, sa_id, 400).await;
-    let (key_id, key) = legacy_key(&fx, None).await;
-    ensure_legacy_row(&fx.db, key_id, source::LEGACY_LAZY)
-        .await
-        .unwrap();
+    let (key_id, key) = mirrored_legacy_key(&fx, None).await;
     age(&fx.db, key_id, 400).await;
-    let (pat_id, pat) = endpoint_key(&fx, None).await;
-    age(&fx.db, pat_id, 400).await;
 
     assert_eq!(expire_unused_tokens(&fx.db, Utc::now()).await.unwrap(), 2);
 
@@ -550,13 +524,11 @@ async fn a_year_idle_token_expires_and_a_legacy_key_never_does() {
     assert_eq!(audit.len(), 2);
     assert!(audit.iter().all(|a| a.actor_type == "system"));
 
-    // Legacy keys are exempt, however idle.
-    for id in [key_id, pat_id] {
-        let mirror = super::token_row(&fx.db, id).await.expect("mirror");
-        assert!(mirror.expires_at.is_none() && mirror.revoked_at.is_none());
-    }
-    assert_eq!(legacy_reads(&fx, &key).await, StatusCode::NO_CONTENT);
-    assert_eq!(legacy_reads(&fx, &pat).await, StatusCode::NO_CONTENT);
+    // A legacy row is exempt from the sweep, however idle — it is already
+    // dead, and expiring it would only muddy what ended it.
+    let mirror = super::token_row(&fx.db, key_id).await.expect("mirror");
+    assert!(mirror.expires_at.is_none() && mirror.revoked_at.is_none());
+    assert_eq!(legacy_reads(&fx, &key).await, StatusCode::UNAUTHORIZED);
 
     // Idempotent, and an owner's Extend revives a swept token for good.
     assert_eq!(expire_unused_tokens(&fx.db, Utc::now()).await.unwrap(), 0);

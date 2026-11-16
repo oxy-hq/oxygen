@@ -40,10 +40,10 @@ const options: TokenOptions = {
 vi.mock("@/hooks/api/userTokens/useUserTokens", () => ({
   useTokenOptions: () => ({ data: options, isLoading: false, isError: false, refetch: vi.fn() })
 }));
-vi.mock("@/hooks/api/apiKeys/useApiKeyMutations", () => ({
+vi.mock("@/hooks/api/tokens/useTokenMutations", () => ({
   useExtendApiKey: () => ({ mutate: vi.fn(), isPending: false })
 }));
-vi.mock("@/hooks/api/apiKeys/useApiKeyActivity", () => ({
+vi.mock("@/hooks/api/tokens/useApiKeyActivity", () => ({
   API_KEY_ACTIVITY_LIMIT: 100,
   default: () => ({ isLoading: true, error: null, refetch: vi.fn() })
 }));

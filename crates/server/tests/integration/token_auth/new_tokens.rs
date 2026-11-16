@@ -102,80 +102,16 @@ async fn an_expired_pat_is_401_even_with_a_valid_cookie() {
     assert_refused_despite_cookie(&fx, &pat, "expired").await;
 }
 
+/// §4.7, refuse what you cannot enforce: a row edited into a shape this
+/// release does not implement fails closed rather than being guessed at. The
+/// two that matter are a personal row claiming to be a service account — whose
+/// standing comes from an account row that does not exist — and one stamped as
+/// the `api_keys` mirror of a removed legacy key.
 #[tokio::test]
-async fn the_legacy_endpoint_mints_a_legacy_key_the_previous_release_still_validates() {
-    // The legacy endpoint mints a legacy API key — `oxy_<32 hex>`, never an
-    // `oxy_pat_`. N-1 looks keys up by plaintext in api_keys, so a key minted
-    // here must pass that lookup, or a rollout or revert would break it.
+async fn a_row_edited_into_a_shape_this_release_cannot_enforce_is_refused() {
     let fx = fixture().await;
-    let (id, key) = endpoint_key(&fx, None).await;
-    assert_eq!(
-        oxy_auth::token::format::parse_format(&key),
-        Some(oxy_auth::token::format::TokenFormat::LegacyKey),
-        "the legacy endpoint returns a legacy key: {key}"
-    );
-    assert!(!key.starts_with("oxy_pat_"));
-    let validated = ApiKeyService::validate_api_key(&fx.db, &key, &ApiKeyConfig::default())
-        .await
-        .expect("plaintext lookup");
-    assert_eq!(validated.id, id);
-
-    let row = token_row(&fx.db, id).await.expect("api_tokens mirror row");
-    assert_eq!(row.id, id, "one id across both tables");
-    assert_eq!(row.kind, "legacy_key");
-    assert_eq!(row.source, "legacy_endpoint");
-    assert_eq!(row.token_hash, oxy_auth::token::hash_token(&key));
-    assert!(row.all_access && row.platform && row.partner);
-    assert!(!row.display_prefix.is_empty() && key.starts_with(&row.display_prefix));
-
-    // It authenticates on both surfaces, by either header and by query.
-    let bearer = format!("Bearer {key}");
-    for router in [api_surface(), external_surface()] {
-        for (name, value) in [
-            ("x-api-key", key.as_str()),
-            ("authorization", bearer.as_str()),
-        ] {
-            let (status, body) = probe_as(&fx, router.clone(), "", &[(name, value)]).await;
-            assert_eq!(status, StatusCode::OK, "{name}: {body}");
-            assert_eq!(body["kind"], "legacy_key");
-        }
-        let (status, _) = probe_as(&fx, router, &format!("?api_key={key}"), &[]).await;
-        assert_eq!(status, StatusCode::OK, "?api_key=");
-    }
-
-    // And N-1 sees this release's revoke.
-    ApiKeyService::revoke_api_key(&fx.db, id, fx.user.id)
-        .await
-        .unwrap();
-    assert!(
-        ApiKeyService::validate_api_key(&fx.db, &key, &ApiKeyConfig::default())
-            .await
-            .is_err()
-    );
-}
-
-#[tokio::test]
-async fn a_legacy_endpoint_key_revoked_by_the_previous_release_is_refused() {
-    let fx = fixture().await;
-    let (id, key) = endpoint_key(&fx, None).await;
-    revoke_in_api_keys_only(&fx.db, id).await;
-    let (status, _) = probe_as(&fx, api_surface(), "", &[("x-api-key", &key)]).await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
-async fn a_legacy_mirror_row_asking_for_what_a_legacy_key_never_is_is_refused() {
-    // §4.7: a legacy key is all-access with both standings, always. A mirror
-    // row that says otherwise is not something this release can enforce, so it
-    // fails closed rather than guess.
-    let fx = fixture().await;
-    for (column, value) in [
-        ("platform", "false"),
-        ("partner", "false"),
-        ("all_access", "false"),
-        ("kind", "'service_account'"),
-    ] {
-        let (id, pat) = endpoint_key(&fx, None).await;
+    for (column, value) in [("kind", "'service_account'"), ("kind", "'legacy_key'")] {
+        let (id, pat) = minted_pat(&fx, None).await;
         let (ok, _) = probe_as(&fx, api_surface(), "", &[("x-api-key", &pat)]).await;
         assert_eq!(ok, StatusCode::OK);
 

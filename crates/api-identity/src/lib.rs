@@ -13,7 +13,6 @@
 //!   calling token about itself, the token's browser sign-in, leak response,
 //!   sandbox agent and agent tokens, the workspace inventory, the hygiene the
 //!   sweep runs;
-//! - [`api_keys`]: the legacy workspace `/api-keys` endpoint;
 //! - [`org_api_access`]: an org's service accounts, their tokens and trust
 //!   policies, the inventory of every token reaching the org, its token policy;
 //! - [`oidc_exchange`]: a GitHub Actions run trading its OIDC token for an
@@ -62,12 +61,12 @@
 #![recursion_limit = "256"]
 
 pub mod admin;
-pub mod api_keys;
 mod authz;
 pub mod oidc_exchange;
 pub mod org_api_access;
 pub mod public_rate_limit;
 pub mod sign_in;
+pub mod token_activity;
 pub mod token_sweep;
 pub mod user;
 pub mod user_tokens;
@@ -291,28 +290,17 @@ fn token_public_routes() -> Router<AppState> {
         .route("/auth/tokens/revoke-leaked", post(leak::revoke_leaked))
 }
 
-/// Inside `/{workspace_id}`: the legacy API keys and the tokens that can reach
-/// the workspace.
+/// Inside `/{workspace_id}`: the tokens that can reach the workspace.
+///
+/// `/api-keys` used to be nested here — mint, list, revoke, extend and the
+/// activity of a legacy API key. The format is gone, so the routes are too: a
+/// request to one now 404s, which is the honest answer for a surface that no
+/// longer exists.
 pub fn workspace_routes() -> Router<AppState> {
     Router::new()
-        .nest("/api-keys", api_key_routes())
         // Read-only, Postgres only (api_tokens, api_token_grants, org_members,
         // users). The tokens that can reach this workspace, for its admins.
         .route("/api-tokens", get(inventory::list_workspace_tokens))
-}
-
-fn api_key_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/",
-            get(api_keys::list_api_keys).post(api_keys::create_api_key),
-        )
-        .route(
-            "/{id}",
-            get(api_keys::get_api_key).delete(api_keys::delete_api_key),
-        )
-        .route("/{id}/extend", post(api_keys::extend_api_key))
-        .route("/{id}/activity", get(api_keys::get_api_key_activity))
 }
 
 /// The staff-console sections, each behind the capability it had in-tree.
@@ -342,15 +330,11 @@ pub fn admin_routes() -> Router<AppState> {
     admin::sandbox_agent_tokens::router().merge(admin::standing_tokens::router())
 }
 
-/// The legacy key operations, merged into the served OpenAPI document
-/// (`oxyc schema` reads it).
+/// This crate's operations in the served OpenAPI document (`oxyc schema`
+/// reads it). It held the legacy `/api-keys` operations until those routes
+/// were removed.
 pub fn openapi() -> utoipa::openapi::OpenApi {
     utoipa_axum::router::OpenApiRouter::<AppState>::new()
-        .routes(utoipa_axum::routes!(api_keys::create_api_key))
-        .routes(utoipa_axum::routes!(api_keys::list_api_keys))
-        .routes(utoipa_axum::routes!(api_keys::get_api_key))
-        .routes(utoipa_axum::routes!(api_keys::delete_api_key))
-        .routes(utoipa_axum::routes!(api_keys::extend::extend_api_key))
         .routes(utoipa_axum::routes!(user::get_current_user_public))
         .into_openapi()
 }
@@ -448,13 +432,7 @@ pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
     WORKSPACE_ROLES
 }
 
-const WORKSPACE_ROLES: &[RouteRoleDecl] = &[
-    fleet("/api-keys"),
-    fleet("/api-keys/{id}"),
-    fleet("/api-keys/{id}/extend"),
-    fleet("/api-keys/{id}/activity"),
-    fleet("/api-tokens"),
-];
+const WORKSPACE_ROLES: &[RouteRoleDecl] = &[fleet("/api-tokens")];
 
 #[cfg(test)]
 mod tests;

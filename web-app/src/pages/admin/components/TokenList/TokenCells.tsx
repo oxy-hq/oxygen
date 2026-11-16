@@ -7,10 +7,10 @@ import TokenStatus from "@/components/settings/SettingsDialog/sections/account/P
 import { Button } from "@/components/ui/shadcn/button";
 import { TableCell } from "@/components/ui/shadcn/table";
 import { cn } from "@/libs/shadcn/utils";
+import { endedAt, tokenState } from "@/libs/tokenState";
 import { relativeTime } from "@/pages/admin/utils";
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { Token } from "@/types/apiToken";
-import { endedAt, tokenState } from "./tokenState";
 
 /**
  * One line and one height a row, with or without a Revoke button: a cell is cut with an ellipsis
@@ -85,7 +85,7 @@ export function TokenExpiryCell({ area, token }: CellProps) {
       {ended && (
         <span
           className='ml-1.5 tabular-nums'
-          title={ApiKeyService.formatDate(ended)}
+          title={TokenExpiry.formatDate(ended)}
           data-testid={`${area}-ended`}
         >
           {relativeTime(ended)}
@@ -99,7 +99,7 @@ export function TokenLastUsedCell({ area, token }: CellProps) {
   return (
     <TableCell
       className={cn(TOKEN_CELL, "truncate text-muted-foreground tabular-nums")}
-      title={token.last_used_at ? ApiKeyService.formatDate(token.last_used_at) : undefined}
+      title={token.last_used_at ? TokenExpiry.formatDate(token.last_used_at) : undefined}
       data-testid={`${area}-last-used`}
     >
       {relativeTime(token.last_used_at)}

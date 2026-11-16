@@ -869,7 +869,7 @@ ok "discovery complete"
 # a direct DB write — and is named with a "fleet-assert-scratch" prefix so it's
 # unmistakable in an admin view. Cleanup runs from the trap regardless of
 # --keep: these are OUR scratch rows, not fleet state worth preserving.
-SECRET_ID=""; API_KEY_ID=""; TEAM_ID=""; DISPOSABLE_SCHEDULE_ID=""
+SECRET_ID=""; TEAM_ID=""; DISPOSABLE_SCHEDULE_ID=""
 DISPOSABLE_ORG_ID=""; DISPOSABLE_WS_ID=""; DISPOSABLE_APP_ID=""
 INVITATION_ID=""; INVITATION_TOKEN=""
 # Extended fixtures (step 8b, below the original disposable-resource block) —
@@ -891,16 +891,6 @@ else
     [ -n "$SECRET_ID" ] && { ok "created disposable secret $SECRET_ID"; CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/secrets/${SECRET_ID}"); }
   else
     skip "secret create returned $c — secrets/{id}, secrets/{id}/value left uncovered"
-  fi
-  rm -f "$out"
-
-  # api key
-  out=$(mktemp); c=$(req POST "${S1_BASE}/api/${WS}/api-keys" "$out" '{"name":"fleet-assert-scratch-key"}')
-  if [ "$c" = "200" ] || [ "$c" = "201" ]; then
-    API_KEY_ID=$(jq -r '.id // empty' "$out")
-    [ -n "$API_KEY_ID" ] && { ok "created disposable api-key $API_KEY_ID"; CLEANUP_CMDS+=("DELETE|${S1_BASE}/api/${WS}/api-keys/${API_KEY_ID}"); }
-  else
-    skip "api-key create returned $c — api-keys/{id} left uncovered"
   fi
   rm -f "$out"
 
@@ -1261,7 +1251,7 @@ add Now  "schedules-list"    GET "/api/${WS}/agentic-schedules"         body "/a
 
 # ── Workspace: core data resources (Now) ────────────────────────────────────
 add Now  "agents-list"       GET "/api/${WS}/agents"                    body "/api/{workspace_id}/agents"
-add Now  "api-keys-list"     GET "/api/${WS}/api-keys"                  body "/api/{workspace_id}/api-keys"
+add Now  "api-tokens-list"   GET "/api/${WS}/api-tokens"                body "/api/{workspace_id}/api-tokens"
 add Now  "app-integrations-list" GET "/api/${WS}/app-integrations"      body "/api/{workspace_id}/app-integrations"
 add Now  "automations-list"  GET "/api/${WS}/automations"               body "/api/{workspace_id}/automations"
 add Now  "builder-availability" GET "/api/${WS}/builder-availability"   body "/api/{workspace_id}/builder-availability"
@@ -1347,7 +1337,6 @@ if [ -n "$SECRET_ID" ]; then
   add Fixture "secret-get" GET "/api/${WS}/secrets/${SECRET_ID}" body "/api/{workspace_id}/secrets/{id}"
   add Fixture "secret-value" GET "/api/${WS}/secrets/${SECRET_ID}/value" body "/api/{workspace_id}/secrets/{id}/value"
 fi
-[ -n "$API_KEY_ID" ] && add Fixture "api-key-get" GET "/api/${WS}/api-keys/${API_KEY_ID}" body "/api/{workspace_id}/api-keys/{id}"
 [ -n "$TEAM_ID" ] && add Fixture "team-get" GET "/api/orgs/${ORG_ID}/teams/${TEAM_ID}" body "/api/orgs/{org_id}/teams/{team_id}"
 [ -n "$DISPOSABLE_SCHEDULE_ID" ] && add Fixture "disposable-schedule-get" GET "/api/${WS}/agentic-schedules/${DISPOSABLE_SCHEDULE_ID}" body "/api/{workspace_id}/agentic-schedules/{id}"
 [ -n "$INVITATION_ID" ] && add Fixture "invitation-get" GET "/api/orgs/${ORG_ID}/invitations/${INVITATION_ID}" body "/api/orgs/{org_id}/invitations/{invitation_id}"

@@ -96,7 +96,7 @@ fn a_ci_token_is_admitted_as_its_account_grant_bound_with_no_standing() {
     let grants = [grant(row.id, "workspace", ORG)];
     let cred = admit_ci(&row, &grants, active()).expect("admit");
     assert_eq!(cred.kind, StoredKind::Ci);
-    assert!(cred.is_service_account() && !cred.is_legacy());
+    assert!(cred.is_service_account());
     assert_eq!(
         cred.service_account,
         Some(AccountStanding {
@@ -126,7 +126,7 @@ fn a_ci_row_is_admitted_only_when_presented_as_one() {
     for presented in [
         TokenFormat::Personal,
         TokenFormat::ServiceAccount,
-        TokenFormat::LegacyKey,
+        TokenFormat::SandboxAgent,
     ] {
         let refused = admit(&row, &[], presented, Links::account(active()), Utc::now());
         assert_eq!(refused, Err(Refusal::KindMismatch), "{presented:?}");
@@ -151,9 +151,6 @@ fn a_ci_row_claiming_what_no_account_holds_is_refused() {
         ),
         ("platform", |r| r.platform = true),
         ("partner", |r| r.partner = true),
-        ("an api_keys mirror", |r| {
-            r.legacy_api_key_id = Some(Uuid::new_v4())
-        }),
     ] {
         let mut row = ci_row();
         widen(&mut row);
@@ -163,6 +160,14 @@ fn a_ci_row_claiming_what_no_account_holds_is_refused() {
             "{flag}"
         );
     }
+    // An `api_keys` mirror is refused for being one, whatever kind claims it —
+    // the check runs before any kind's own.
+    let mut mirrored = ci_row();
+    mirrored.legacy_api_key_id = Some(Uuid::new_v4());
+    assert_eq!(
+        admit_ci(&mirrored, &[], active()),
+        Err(Refusal::LegacyKeyRemoved)
+    );
 }
 
 #[test]
@@ -277,29 +282,21 @@ fn an_all_access_token_holds_no_app_publish_confinement() {
 
 #[test]
 fn a_legacy_credential_never_carries_an_app_publish_grant() {
-    // A row that mirrors `api_keys` may not be narrowed at all: a grant row
-    // beside it refuses the token rather than confining it.
+    // A row that mirrors `api_keys` is refused outright, grants or no grants:
+    // legacy keys were removed and their rows cannot authenticate again.
     let mut row = personal_row();
     row.all_access = true;
     row.platform = true;
     row.partner = true;
     row.legacy_api_key_id = Some(row.id);
-    let grants = [grant(row.id, "app_publish", ORG)];
-    let refused = admit(
-        &row,
-        &grants,
-        TokenFormat::Personal,
-        Links::legacy(LegacyLink::Active),
-        Utc::now(),
-    );
-    assert_eq!(refused, Err(Refusal::Narrowed("grants")));
-    let admitted = admit(
-        &row,
-        &[],
-        TokenFormat::Personal,
-        Links::legacy(LegacyLink::Active),
-        Utc::now(),
-    )
-    .expect("a legacy credential with no grant rows is admitted, as ever");
-    assert!(admitted.is_legacy() && !admitted.holds_app_publish());
+    for grants in [vec![grant(row.id, "app_publish", ORG)], Vec::new()] {
+        let refused = admit(
+            &row,
+            &grants,
+            TokenFormat::Personal,
+            Links::NONE,
+            Utc::now(),
+        );
+        assert_eq!(refused, Err(Refusal::LegacyKeyRemoved));
+    }
 }

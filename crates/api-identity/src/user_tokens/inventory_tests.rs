@@ -176,7 +176,6 @@ fn a_row_carries_the_fields_the_contract_picks() {
         &row,
         RoleCeiling::Admin,
         "ada@example.com".into(),
-        false,
         Utc::now(),
     );
     let wire = serde_json::to_value(&out).unwrap();

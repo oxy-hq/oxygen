@@ -2,7 +2,7 @@ use axum::{
     extract::State,
     http::{Method, Request, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use std::sync::Arc;
 
@@ -13,11 +13,63 @@ use crate::{authenticator::Authenticator, built_in::BuiltInAuthenticator};
 use entity::users::UserStatus;
 use oxy_shared::errors::OxyError;
 
-/// On every response to a request that authenticated with a key or token that
-/// expires: when it does, RFC 3339 UTC (API-tokens design §8 Phase 5). Legacy
-/// keys included — a header informs and changes nothing. Absent for a session
-/// and for a credential that never expires.
+/// On every response to a request that authenticated with a token that
+/// expires: when it does, RFC 3339 UTC (API-tokens design §8 Phase 5). Absent
+/// for a session and for a credential that never expires.
 pub const TOKEN_EXPIRATION_HEADER: &str = "x-oxy-token-expiration";
+
+/// What a surface answers for every refusal that is not the legacy one.
+type Fallback<E> = fn(E) -> Response;
+
+/// `/api`: the error's own status, which logs it and reports it to Sentry.
+fn mapped<E: Into<StatusCode>>(err: E) -> Response {
+    err.into().into_response()
+}
+
+/// `/external/api`: a bare 401, whatever went wrong. The caller has already
+/// logged one `warn` with the detail.
+fn unauthorized<E>(_: E) -> Response {
+    StatusCode::UNAUTHORIZED.into_response()
+}
+
+/// The response a refused request gets.
+///
+/// A failed authentication has always been a **bodyless** 401 here, and stays
+/// one: the body of a refusal tells an attacker which guess was closer, and
+/// every caller that should see detail is a browser being redirected to sign
+/// in.
+///
+/// One exception, and it is the reason this function exists: a **removed legacy
+/// API key**. That caller is a script or a cron nobody is watching, the key has
+/// worked for a year, and the 401 is the only place the explanation can land —
+/// a log line on our side reaches nobody who can act. Saying "legacy API keys
+/// were removed, mint a token" gives away nothing: the shape is recognised
+/// offline, so the answer is the same whether or not such a key ever existed.
+/// Generic over the authenticator's error, because `auth_middleware` is: the
+/// one case this answers is matched on the message, which `OxyError`'s
+/// `Display` renders verbatim for an `AuthenticationError`. A different
+/// authenticator simply never produces it.
+///
+/// Everything else is the caller's own `fallback`, unchanged. That is not
+/// ceremony: `/api` maps the error through `From<OxyError> for StatusCode`,
+/// which logs at `error` and calls `capture_to_sentry`, while `/external/api`
+/// has always answered a bare 401 and logged one `warn`. Routing the public,
+/// `CORS: *` surface through the former would let anyone fill the Sentry quota
+/// with junk `X-API-Key` values, and would turn a `DBError` during lookup into
+/// a 500 where that surface has always said 401.
+fn refusal<E: std::error::Error>(err: E, fallback: Fallback<E>) -> Response {
+    if err.to_string() == crate::token::dispatch::LEGACY_KEY_REMOVED {
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({
+                "error": crate::token::dispatch::LEGACY_KEY_REMOVED,
+                "code": "legacy_api_key_removed",
+            })),
+        )
+            .into_response();
+    }
+    fallback(err)
+}
 
 /// Run the rest of the stack, then stamp [`TOKEN_EXPIRATION_HEADER`]. The one
 /// place the header is written, so no handler has to remember it.
@@ -135,14 +187,17 @@ pub async fn auth_middleware<T: Authenticator>(
 
     // Authenticate using the configured authenticator — `authenticate_request`
     // for the built-in one, which also names the key or token when one was used.
-    let (claims, credential) = auth_state
+    let (claims, credential) = match auth_state
         .authenticator
         .authenticate_with_credential(request.headers())
         .await
-        .map_err(|err| {
+    {
+        Ok(pair) => pair,
+        Err(err) => {
             tracing::error!("Authentication failed: {}", err);
-            err.into()
-        })?;
+            return Ok(refusal(err, mapped));
+        }
+    };
 
     let user = UserService::get_or_create_user(&claims)
         .await
@@ -265,16 +320,19 @@ pub async fn api_key_only_middleware(
         return Ok(next.run(request).await);
     }
 
-    let (identity, credential) = crate::token::authenticate_request(
+    let (identity, credential) = match crate::token::authenticate_request(
         request.headers(),
         crate::token::AuthSurface::ApiKeyOnly,
         crate::token::SandboxAgent::Refuse,
     )
     .await
-    .map_err(|err| {
-        tracing::warn!("external API: API key authentication failed: {err}");
-        StatusCode::UNAUTHORIZED
-    })?;
+    {
+        Ok(pair) => pair,
+        Err(err) => {
+            tracing::warn!("external API: API key authentication failed: {err}");
+            return Ok(refusal(err, unauthorized));
+        }
+    };
 
     let user = UserService::get_or_create_user(&identity)
         .await
@@ -339,5 +397,76 @@ mod tests {
     fn guest_only_state_flags_itself() {
         let state = AuthState::<BuiltInAuthenticator>::guest_only();
         assert!(state.guest_only);
+    }
+
+    async fn body_of(response: Response) -> String {
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("read the body");
+        String::from_utf8_lossy(&bytes).to_string()
+    }
+
+    /// The one refusal that carries a body. Pinned here because the value of
+    /// recognising a removed format at all is that the caller is *told*: a
+    /// bodyless 401 sends a script's owner looking for a network fault.
+    #[tokio::test]
+    async fn a_removed_legacy_key_is_refused_with_the_text_that_names_its_replacement() {
+        let refused = refusal(
+            OxyError::AuthenticationError(crate::token::dispatch::LEGACY_KEY_REMOVED.to_string()),
+            mapped,
+        );
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+        let body = body_of(refused).await;
+        assert!(body.contains("legacy_api_key_removed"), "{body}");
+        assert!(body.contains("were removed"), "{body}");
+        assert!(body.contains("API token"), "{body}");
+    }
+
+    /// Every other authentication failure stays bodyless, as it has always
+    /// been: a refusal's body would say which guess was closer. On both
+    /// surfaces, since each has its own fallback.
+    #[tokio::test]
+    async fn every_other_refusal_stays_bodyless() {
+        for message in ["Invalid API key", "No API key found in headers"] {
+            for fallback in [mapped as Fallback<OxyError>, unauthorized] {
+                let err = OxyError::AuthenticationError(message.to_string());
+                let refused = refusal(err, fallback);
+                assert_eq!(refused.status(), StatusCode::UNAUTHORIZED, "{message}");
+                assert_eq!(body_of(refused).await, "", "{message}");
+            }
+        }
+    }
+
+    /// `/external/api` answers 401 for **every** failure, including one that is
+    /// our fault. It is a public, `CORS: *` surface: mapping the error through
+    /// `From<OxyError>` instead would report each junk `X-API-Key` to Sentry at
+    /// `error`, and turn a database error during lookup into a 500 where this
+    /// surface has always said 401.
+    #[tokio::test]
+    async fn the_external_surface_answers_401_even_when_the_fault_is_ours() {
+        let refused = refusal(
+            OxyError::DBError("pool timed out".to_string()),
+            unauthorized,
+        );
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(body_of(refused).await, "");
+
+        // …and that is a real difference, not a restatement: the same error on
+        // `/api` is a 500.
+        let on_api = refusal(OxyError::DBError("pool timed out".to_string()), mapped);
+        assert_eq!(on_api.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    /// The legacy body wins over either fallback: it is the one case the
+    /// function exists for, and a script on `/external/api` is exactly the
+    /// caller that needs telling.
+    #[tokio::test]
+    async fn the_legacy_body_reaches_the_external_surface_too() {
+        let refused = refusal(
+            OxyError::AuthenticationError(crate::token::dispatch::LEGACY_KEY_REMOVED.to_string()),
+            unauthorized,
+        );
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+        assert!(body_of(refused).await.contains("legacy_api_key_removed"));
     }
 }

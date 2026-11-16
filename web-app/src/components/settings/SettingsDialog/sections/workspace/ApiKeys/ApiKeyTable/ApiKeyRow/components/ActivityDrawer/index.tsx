@@ -9,9 +9,9 @@ import {
   SheetTitle
 } from "@/components/ui/shadcn/sheet";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
-import { type TokenNoun, tokenNoun } from "@/hooks/api/apiKeys/extendMessages";
-import type { TokenActivityEndpoints } from "@/hooks/api/apiKeys/tokenEndpoints";
-import useApiKeyActivity, { API_KEY_ACTIVITY_LIMIT } from "@/hooks/api/apiKeys/useApiKeyActivity";
+import { type TokenNoun, tokenNoun } from "@/hooks/api/tokens/extendMessages";
+import type { TokenActivityEndpoints } from "@/hooks/api/tokens/tokenEndpoints";
+import useApiKeyActivity, { API_KEY_ACTIVITY_LIMIT } from "@/hooks/api/tokens/useApiKeyActivity";
 import { apiStatus } from "@/libs/apiError";
 import type { ApiKeyActivityResponse } from "@/types/apiKey";
 import type { TokenSummary } from "@/types/apiToken";

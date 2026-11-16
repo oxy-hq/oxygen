@@ -60,8 +60,8 @@ are still mounted by `public.rs`.
 The token routes below — `/user/tokens*`, `/user/token-options`, `/auth/token`,
 `/auth/browser-ticket*`, `/auth/cli/*`, `/auth/oidc/exchange`,
 `/auth/tokens/revoke-leaked`, `/orgs/{org_id}/{service-accounts,tokens,token-policy}*`,
-`/admin/{sandbox-agent,standing}-tokens*` and the workspace's `/api-keys` and
-`/api-tokens` — are `oxy-api-identity`'s (2026-11-13), served at the same paths
+`/admin/{sandbox-agent,standing}-tokens*` and the workspace's `/api-tokens` —
+are `oxy-api-identity`'s (2026-11-13), served at the same paths
 through the `api`, `public`, `workspace` and `admin` seams (roles in its
 `route_roles()`, `public_route_roles()` and `workspace_route_roles()`). So, since
 2026-11-15, is signing in: `/auth/{config,session,oauth/state,google,github,okta}`,
@@ -177,8 +177,9 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /automations/save
 ├── /threads/            list, create, delete-all, bulk-delete, get, delete, stop  (oxy-api-threads)
 ├── /agents/             list  (oxy-api-threads)
-├── /api-keys/           list, create, get, delete, extend, activity
 ├── /api-tokens          the tokens that can reach this workspace (read-only, admin)
+│                        (`/api-keys/` was beside it until legacy API keys were
+│                        removed, 2026-11-16)
 ├── /files/              tree, diff-summary, get, from-git, revert, save,
 │                        delete(-file|-folder), rename-(file|folder), new-(file|folder)
 ├── /databases/          list, create, test-connection, sync, build, clean

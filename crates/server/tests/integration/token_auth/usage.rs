@@ -25,7 +25,7 @@ async fn get_as(fx: &Fixture, router: Router, path: &str, headers: &[(&str, &str
 #[tokio::test]
 async fn usage_counts_2xx_4xx_and_5xx_and_records_the_route_template() {
     let fx = fixture().await;
-    let (id, key) = legacy_key(&fx, None).await;
+    let (id, key) = minted_pat(&fx, None).await;
     let headers = [
         ("x-api-key", key.as_str()),
         // The caller wrote the first hop; the load balancer appended the second.
@@ -95,7 +95,7 @@ async fn usage_counts_2xx_4xx_and_5xx_and_records_the_route_template() {
 #[tokio::test]
 async fn the_response_carries_the_token_id_for_the_request_span() {
     let fx = fixture().await;
-    let (id, key) = legacy_key(&fx, None).await;
+    let (id, key) = minted_pat(&fx, None).await;
     let uri = format!("/{}/probe", fx.workspace_id);
     let send = |name: &'static str, value: String| {
         let req = Request::builder()
@@ -152,7 +152,7 @@ fn record_days(token_id: Uuid, newest: DateTime<Utc>, days: i64, status: u16, ro
 async fn one_flush_writes_many_token_days_and_the_next_adds_to_them() {
     let fx = fixture().await;
     // A legacy key the endpoint minted (so it has its mirror) and a new token.
-    let (legacy, _) = endpoint_key(&fx, None).await;
+    let (legacy, _) = minted_pat(&fx, None).await;
     let (pat, _) = minted_pat(&fx, None).await;
     let gone = Uuid::new_v4(); // no api_tokens row
     // 7,400 rows of nine values is more than one statement can bind at all

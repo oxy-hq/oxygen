@@ -34,7 +34,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use super::dto::{Here, InventoryTokenDto, inventory_dto};
-use crate::api_keys::activity::{
+use crate::token_activity::{
     ActivityResponse, last_used_at, token_activity, token_activity_in_org,
 };
 use crate::user_tokens::dto;
@@ -175,14 +175,23 @@ impl OrgSide {
                     .is_in([StoredKind::ServiceAccount.as_str(), StoredKind::Ci.as_str()]),
             )
             .add(api_tokens::Column::PrincipalUserId.is_in(self.accounts.keys().copied()));
-        let mut query = ApiTokens::find()
-            .filter(api_tokens::Column::RevokedAt.is_null())
-            .filter(
-                Condition::any()
-                    .add(of_members)
-                    .add(of_accounts)
-                    .add(api_tokens::Column::Id.is_in(granted)),
-            );
+        // A live token, or a legacy key in any state. The legacy group is a
+        // ledger: what reached this org is not rewritten by the removal, and
+        // "what did that key do before it stopped?" is the question someone
+        // asks while migrating it. Filtering on `revoked_at IS NULL` would show
+        // only the keys the 2026-11-16 migration deliberately left alone (the
+        // ones still in use, so a revert can restore them) and hide every key
+        // it ended — the exact inverse of the truth.
+        let live_or_legacy = Condition::any()
+            .add(api_tokens::Column::RevokedAt.is_null())
+            .add(api_tokens::Column::Kind.eq(StoredKind::LegacyKey.as_str()))
+            .add(api_tokens::Column::LegacyApiKeyId.is_not_null());
+        let mut query = ApiTokens::find().filter(live_or_legacy).filter(
+            Condition::any()
+                .add(of_members)
+                .add(of_accounts)
+                .add(api_tokens::Column::Id.is_in(granted)),
+        );
         if let Some(id) = only {
             query = query.filter(api_tokens::Column::Id.eq(id));
         }
@@ -195,12 +204,15 @@ impl OrgSide {
         db: &DatabaseConnection,
         only: Option<Uuid>,
     ) -> Result<Vec<api_tokens::Model>, TokenError> {
-        let rows = self.candidates(db, only).await?;
-        let inactive = view::inactive_keys(db, &rows).await?;
-        let mut rows: Vec<api_tokens::Model> = rows
+        // An inactive `api_keys` row used to drop a legacy key from this list.
+        // Now every legacy key is gone whatever that flag says, and the group
+        // that holds them is a ledger, so nothing filters on it: `status_of`
+        // reports every one of them as `removed`.
+        let mut rows: Vec<api_tokens::Model> = self
+            .candidates(db, only)
+            .await?
             .into_iter()
             .filter(|row| self.lists(row))
-            .filter(|row| !inactive.contains(&dto::legacy_key_id(row)))
             .collect();
         rows.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
         Ok(rows)

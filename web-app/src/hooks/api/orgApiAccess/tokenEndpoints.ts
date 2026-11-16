@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { TokenActivityEndpoints, TokenEndpoints } from "@/hooks/api/apiKeys/tokenEndpoints";
+import type { TokenActivityEndpoints, TokenEndpoints } from "@/hooks/api/tokens/tokenEndpoints";
 import { OrgTokenService, ServiceAccountService } from "@/services/api/orgApiAccess";
 import queryKeys from "../queryKey";
 

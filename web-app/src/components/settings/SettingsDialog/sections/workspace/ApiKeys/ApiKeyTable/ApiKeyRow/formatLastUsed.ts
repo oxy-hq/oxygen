@@ -1,4 +1,4 @@
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 
 /** "Never", "Today", "3 days ago", then the date once it is over a week old. */
 export const formatLastUsed = (lastUsedAt?: string | null): string => {
@@ -10,5 +10,5 @@ export const formatLastUsed = (lastUsedAt?: string | null): string => {
   if (diffDays === 1) return "Yesterday";
   if (diffDays < 7) return `${diffDays} days ago`;
 
-  return ApiKeyService.formatDate(lastUsedAt);
+  return TokenExpiry.formatDate(lastUsedAt);
 };

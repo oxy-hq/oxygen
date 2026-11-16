@@ -29,6 +29,10 @@ vi.mock("@/services/secretService", () => ({
   SecretService: { updateSecret: vi.fn(), deleteSecret: vi.fn() }
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/hooks/api/secrets/useSharedSecrets", () => ({
+  useSharedSecrets: () => ({ data: { shared: [], apps: [] } }),
+  useShareSecret: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })
+}));
 // Not under test: the detail dialog is reduced to its actions.
 vi.mock("./components/SecretDetailDialog", () => ({
   SecretDetailDialog: ({
@@ -38,14 +42,14 @@ vi.mock("./components/SecretDetailDialog", () => ({
   }: {
     row: UnifiedRow | null;
     onEdit: (secret: Secret) => void;
-    onDelete: (secret: Secret) => void;
+    onDelete: (row: UnifiedRow) => void;
   }) =>
     row?.secretInfo ? (
       <>
         <button type='button' onClick={() => row.secretInfo && onEdit(row.secretInfo)}>
           Edit from detail
         </button>
-        <button type='button' onClick={() => row.secretInfo && onDelete(row.secretInfo)}>
+        <button type='button' onClick={() => onDelete(row)}>
           Delete from detail
         </button>
       </>
@@ -66,7 +70,7 @@ const openFromDetail = (action: string) => {
   const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <UnifiedSecretsTable />
+      <UnifiedSecretsTable scope='workspace' />
     </QueryClientProvider>
   );
   fireEvent.click(screen.getByText("API_KEY"));
@@ -76,7 +80,7 @@ const openFromDetail = (action: string) => {
 /** Opens the table's delete confirmation for the one secret and confirms it. */
 const confirmDelete = () => {
   openFromDetail("Delete from detail");
-  fireEvent.click(screen.getByRole("button", { name: "Delete Secret" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete secret" }));
 };
 
 beforeEach(() => {
@@ -101,7 +105,7 @@ describe("UnifiedSecretsTable delete", () => {
     await settled();
     expect(toast.error).toHaveBeenCalledTimes(1);
     expect(unhandledRejection).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Delete Secret" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete secret" })).toBeTruthy();
   });
 
   it("closes the dialog once the secret is deleted", async () => {
@@ -109,7 +113,7 @@ describe("UnifiedSecretsTable delete", () => {
 
     confirmDelete();
 
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Delete Secret" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Delete secret" })).toBeNull());
     expect(deleteSecret).toHaveBeenCalledWith("proj-1", "secret-1");
     expect(toast.success).toHaveBeenCalledWith("Secret deleted successfully");
   });
@@ -119,13 +123,13 @@ describe("UnifiedSecretsTable delete", () => {
     deleteSecret.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
 
     confirmDelete();
-    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Delete Secret" });
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Delete secret" });
     await waitFor(() => expect(button).toBeDisabled());
     fireEvent.click(button);
     expect(deleteSecret).toHaveBeenCalledTimes(1);
 
     finish();
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Delete Secret" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Delete secret" })).toBeNull());
   });
 });
 

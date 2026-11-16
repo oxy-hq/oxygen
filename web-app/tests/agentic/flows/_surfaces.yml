@@ -216,9 +216,8 @@
     - settings-account-sandbox-token
     - settings-org-api-access
 
-# Workspace → Legacy API keys (`sections/workspace/LegacyApiKeys/`) has no entry
-# on purpose: no flow drives it. It has no create button and a flow may not
-# seed a key, so there is nothing for a flow to extend or revoke there.
+# Workspace → Legacy API keys had no entry here, because no flow could drive a
+# section with no create button. The section is gone with the keys themselves.
 
 # The expiry field, the token mask and the kind labels here are also used by
 # Organization → API access.

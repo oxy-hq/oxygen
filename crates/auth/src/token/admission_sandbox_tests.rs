@@ -91,7 +91,7 @@ fn home(app_id: Uuid, org_id: Uuid) -> SandboxAppHome {
 fn a_sandbox_row_is_admitted_with_its_apps_and_no_workspace_grant_yet() {
     let cred = admit_sandbox(&sandbox_row(), &[app_sandbox(ORG, APP)]).unwrap();
     assert_eq!(cred.kind, StoredKind::SandboxAgent);
-    assert!(cred.is_sandbox_agent() && !cred.is_legacy() && !cred.is_service_account());
+    assert!(cred.is_sandbox_agent() && !cred.is_service_account());
     assert_eq!(
         cred.app_sandbox,
         vec![AppSandboxGrant {
@@ -200,9 +200,12 @@ fn a_sandbox_row_claiming_more_than_the_kind_holds_is_refused() {
         widened(|r| r.expires_at = None),
         Err(Refusal::SandboxWidened("no expiry"))
     );
+    // An `api_keys` mirror is refused for being one, before the kind's own
+    // checks run — so a sandbox-agent row carrying it reads as a removed
+    // legacy key rather than as a widened sandbox token.
     assert_eq!(
         widened(|r| r.legacy_api_key_id = Some(Uuid::from_u128(3))),
-        Err(Refusal::SandboxWidened("an api_keys mirror"))
+        Err(Refusal::LegacyKeyRemoved)
     );
 }
 

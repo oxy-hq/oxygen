@@ -35,7 +35,7 @@ async fn a_new_format_token_is_counted_on_fn_and_logs_and_no_other_credential_is
     let (pat_id, pat) = minted_pat(&fx, None).await;
     let account = create_account(&fx, "reader", "admin").await;
     let (sat_id, sat) = mint_account_token(&fx, account, json!({ "name": "t" })).await;
-    let (key_id, key) = legacy_key(&fx, None).await;
+    let (key_id, key) = legacy_key(&fx, None).await; // removed: authenticates nothing
     // Nothing the setup did is left to be flushed with what follows.
     usage::flush(&fx.db).await.expect("flush the setup");
 
@@ -45,7 +45,11 @@ async fn a_new_format_token_is_counted_on_fn_and_logs_and_no_other_credential_is
             assert_ne!(status, StatusCode::UNAUTHORIZED, "a live token is admitted");
         }
     }
-    fn_and_logs(&paths, &api_key(&key)).await;
+    assert_eq!(
+        fn_and_logs(&paths, &api_key(&key)).await,
+        [StatusCode::UNAUTHORIZED; 2],
+        "a removed legacy key authenticates nothing here either"
+    );
     fn_and_logs(&paths, &("cookie", fx.cookie.clone())).await;
     // A token nobody minted presents the prefix and authenticates as no one.
     let unknown = oxy_auth::token::format::generate_personal().plaintext;
@@ -67,6 +71,6 @@ async fn a_new_format_token_is_counted_on_fn_and_logs_and_no_other_credential_is
     }
     assert!(
         usage_rows(&fx.db, key_id).await.is_empty(),
-        "a legacy key on the serve tree is counted no more than it ever was"
+        "a removed legacy key is counted no more than it ever was"
     );
 }

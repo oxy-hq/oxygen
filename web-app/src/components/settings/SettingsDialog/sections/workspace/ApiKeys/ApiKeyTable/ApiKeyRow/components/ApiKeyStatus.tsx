@@ -1,8 +1,8 @@
 import type React from "react";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
-import type { TokenEndpoints } from "@/hooks/api/apiKeys/tokenEndpoints";
-import { ApiKeyService } from "@/services/api/apiKey";
+import type { TokenEndpoints } from "@/hooks/api/tokens/tokenEndpoints";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { TokenSummary } from "@/types/apiToken";
 import ExtendApiKeyPopover from "./ExtendApiKeyPopover";
 
@@ -21,7 +21,7 @@ const ApiKeyStatus: React.FC<Props> = ({ token, endpoints }) => {
     return <Badge variant='destructive'>Revoked</Badge>;
   }
 
-  if (ApiKeyService.isExpired(token.expires_at)) {
+  if (TokenExpiry.isExpired(token.expires_at)) {
     return (
       <div className='flex items-center gap-2'>
         <Badge variant='destructive'>Expired</Badge>
@@ -41,7 +41,7 @@ const ApiKeyStatus: React.FC<Props> = ({ token, endpoints }) => {
     );
   }
 
-  const timeUntilExpiration = ApiKeyService.getTimeUntilExpiration(token.expires_at ?? undefined);
+  const timeUntilExpiration = TokenExpiry.getTimeUntilExpiration(token.expires_at ?? undefined);
   if (timeUntilExpiration === null) {
     return <Badge variant='default'>Active</Badge>;
   }
@@ -51,7 +51,7 @@ const ApiKeyStatus: React.FC<Props> = ({ token, endpoints }) => {
       <Badge variant='default'>Active</Badge>
       <span
         className='text-muted-foreground text-sm'
-        title={token.expires_at ? ApiKeyService.formatDate(token.expires_at) : undefined}
+        title={token.expires_at ? TokenExpiry.formatDate(token.expires_at) : undefined}
         data-testid='api-key-expiry-countdown'
       >
         Expires in {timeUntilExpiration}

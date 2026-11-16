@@ -76,7 +76,6 @@ fn credential(staging: bool) -> CredentialContext {
         partner: false,
         name: "agent".into(),
         display_prefix: "oxy_sbx_Ab3x".into(),
-        legacy_api_key_id: None,
         grants: vec![TokenGrant {
             org_id: org(),
             workspace_id: Some(ws_id()),

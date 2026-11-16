@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { TableRow } from "@/components/ui/shadcn/table";
 import { cn } from "@/libs/shadcn/utils";
+import { tokenState } from "@/libs/tokenState";
 import type { Token } from "@/types/apiToken";
-import { tokenState } from "./tokenState";
 
 interface Props {
   /** `admin-<area>`: the row is `<area>-row`. */

@@ -78,7 +78,6 @@ fn credential_of(kind: crate::token::StoredKind) -> crate::token::CredentialCont
         partner: false,
         name: "t".to_string(),
         display_prefix: "oxy_".to_string(),
-        legacy_api_key_id: None,
         grants: Vec::new(),
         blocked_orgs: Vec::new(),
         expires_at: None,
@@ -142,27 +141,30 @@ fn an_orgs_block_takes_that_org_away_from_a_token_and_nothing_else() {
     }
 }
 
+/// A block is read off every credential, with no exception.
+///
+/// There used to be one: a legacy key narrowed nothing (§3.5), so a block
+/// beside one was ignored. Legacy keys are gone and admission refuses their
+/// rows, so nothing reaches this code claiming to be above a block.
 #[test]
-fn a_legacy_key_reaches_every_org_whatever_its_marker_says() {
+fn a_block_is_read_off_every_credential() {
     use crate::token::StoredKind;
 
-    // §3.5: nothing narrows a legacy key. A block beside one — which admission
-    // never writes — is not read, for either shape of legacy credential.
     let org = Uuid::new_v4();
-    let seeded = crate::token::CredentialContext {
-        blocked_orgs: vec![org],
-        ..credential_of(StoredKind::LegacyKey)
-    };
-    let minted_by_the_legacy_endpoint = crate::token::CredentialContext {
-        blocked_orgs: vec![org],
-        legacy_api_key_id: Some(Uuid::new_v4()),
-        ..credential_of(StoredKind::Personal)
-    };
-    for credential in [seeded, minted_by_the_legacy_endpoint] {
-        let key = user_with(Some(credential));
-        assert!(key.reaches_org(org));
-        assert_eq!(key.require_org_reach(org), Ok(()));
-        assert!(key.blocked_orgs().is_empty());
+    for kind in [
+        StoredKind::Personal,
+        StoredKind::LegacyKey,
+        StoredKind::ServiceAccount,
+        StoredKind::Ci,
+    ] {
+        let blocked = crate::token::CredentialContext {
+            blocked_orgs: vec![org],
+            ..credential_of(kind)
+        };
+        let caller = user_with(Some(blocked));
+        assert!(!caller.reaches_org(org), "{kind:?}");
+        assert!(caller.require_org_reach(org).is_err(), "{kind:?}");
+        assert_eq!(caller.blocked_orgs(), [org], "{kind:?}");
     }
 }
 

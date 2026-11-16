@@ -1,13 +1,13 @@
 //! The reads that turn token rows into [`TokenDto`]s: their grants, the names
-//! behind the ids, whether a legacy row's `api_keys` row is still active, and
-//! the orgs whose token policy blocks each one ([`policy_view`]).
+//! behind the ids, and the orgs whose token policy blocks each one
+//! ([`policy_view`]).
 //! A fixed number of queries per call, whatever the number of tokens.
 
 use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
-use entity::prelude::{ApiKeys, Apps, Organizations, Workspaces};
-use entity::{api_keys, api_token_grants, api_tokens, apps, organizations, workspaces};
+use entity::prelude::{Apps, Organizations, Workspaces};
+use entity::{api_token_grants, api_tokens, apps, organizations, workspaces};
 use oxy_auth::token::personal;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use uuid::Uuid;
@@ -60,28 +60,6 @@ pub(crate) async fn names_for<C: ConnectionTrait>(
     Ok(names)
 }
 
-/// The legacy rows among `rows` whose `api_keys` row is revoked — which a pod
-/// one release back does by writing `api_keys` alone.
-pub(crate) async fn inactive_keys<C: ConnectionTrait>(
-    db: &C,
-    rows: &[api_tokens::Model],
-) -> Result<HashSet<Uuid>, TokenError> {
-    let key_ids: Vec<Uuid> = rows
-        .iter()
-        .filter(|r| dto::is_legacy(r))
-        .map(dto::legacy_key_id)
-        .collect();
-    if key_ids.is_empty() {
-        return Ok(HashSet::new());
-    }
-    let inactive = ApiKeys::find()
-        .filter(api_keys::Column::Id.is_in(key_ids))
-        .filter(api_keys::Column::IsActive.eq(false))
-        .all(db)
-        .await?;
-    Ok(inactive.into_iter().map(|k| k.id).collect())
-}
-
 /// The wire form of `rows`, in order. `owners` labels each row's principal.
 pub(crate) async fn tokens<C: ConnectionTrait>(
     db: &C,
@@ -91,7 +69,6 @@ pub(crate) async fn tokens<C: ConnectionTrait>(
     let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
     let grants = personal::grants_for(db, &ids).await?;
     let names = names_for(db, &grants).await?;
-    let inactive = inactive_keys(db, rows).await?;
     let mut blocked = policy_view::blocked_orgs(db, rows, &grants).await?;
     let now = Utc::now();
     Ok(rows
@@ -107,7 +84,6 @@ pub(crate) async fn tokens<C: ConnectionTrait>(
                     grants: &grants,
                     names: &names,
                     owner: OwnerDto::of(row, label),
-                    key_inactive: inactive.contains(&dto::legacy_key_id(row)),
                     now,
                 },
             );

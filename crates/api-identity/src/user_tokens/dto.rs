@@ -134,16 +134,30 @@ pub(crate) struct Names {
 pub(crate) const STATUS_ACTIVE: &str = "active";
 pub(crate) const STATUS_EXPIRED: &str = "expired";
 pub(crate) const STATUS_REVOKED: &str = "revoked";
+/// A legacy API key. The format authenticates nothing since 2026-11-16, so the
+/// row's own state does not decide this one.
+pub(crate) const STATUS_REMOVED: &str = "removed";
 
-/// `revoked` wins over `expired`: a revoked token stays revoked however its
-/// expiry reads. `key_inactive` is a legacy row whose `api_keys` row was
-/// revoked by a pod one release back, which writes that table alone.
-pub(crate) fn status_of(
-    row: &api_tokens::Model,
-    key_inactive: bool,
-    now: DateTime<Utc>,
-) -> &'static str {
-    if row.revoked_at.is_some() || key_inactive {
+/// `removed` outranks everything: a legacy key is refused by admission before
+/// any other judgement, so whether its row happens to read revoked, expired or
+/// active says nothing about whether it works. Reporting one of those instead
+/// would tell an admin — and `oxyc`, and anything else reading this — the
+/// opposite of what the server does, and the migration deliberately leaves the
+/// keys that were still in use **unrevoked** so that reverting the image can
+/// restore them.
+///
+/// Then `revoked` over `expired`: a revoked token stays revoked however its
+/// expiry reads.
+///
+/// This used to take a `key_inactive` flag as well — whether the row's
+/// `api_keys` row was revoked, which a pod one release back does by writing
+/// that table alone. Since `removed` comes first and only a legacy row has an
+/// `api_keys` row, that flag can no longer reach a judgement, so the query
+/// behind it is gone rather than paid for on every listing.
+pub(crate) fn status_of(row: &api_tokens::Model, now: DateTime<Utc>) -> &'static str {
+    if is_legacy(row) {
+        STATUS_REMOVED
+    } else if row.revoked_at.is_some() {
         STATUS_REVOKED
     } else if row
         .expires_at
@@ -200,7 +214,6 @@ pub(crate) struct TokenView<'a> {
     pub grants: &'a [api_token_grants::Model],
     pub names: &'a Names,
     pub owner: OwnerDto,
-    pub key_inactive: bool,
     pub now: DateTime<Utc>,
 }
 
@@ -231,7 +244,7 @@ pub(crate) fn token_dto(row: &api_tokens::Model, view: TokenView<'_>) -> TokenDt
         last_used_at: row.last_used_at.map(Into::into),
         created_at: row.created_at.into(),
         revoked_at: row.revoked_at.map(Into::into),
-        status: status_of(row, view.key_inactive, view.now),
+        status: status_of(row, view.now),
         source: row.source.clone(),
         owner: view.owner,
         // Filled by `view::tokens`, which reads the policies.

@@ -934,7 +934,6 @@ async fn load_facts_as_token(
     user_id: Uuid,
     email: &str,
     shape: TokenShape,
-    legacy: bool,
 ) -> oxy_authz::PrincipalFacts {
     let credential = oxy_auth::token::CredentialContext {
         token_id: Uuid::new_v4(),
@@ -945,7 +944,6 @@ async fn load_facts_as_token(
         partner: false,
         name: "differential".into(),
         display_prefix: "oxy_pat_diff".into(),
-        legacy_api_key_id: legacy.then(Uuid::new_v4),
         blocked_orgs: Vec::new(),
         expires_at: None,
         service_account: None,
@@ -1001,7 +999,7 @@ async fn loader_caps_a_tokens_org_role_sets_at_its_ceiling() {
             platform: false,
             grants: vec![org_wide(org_id, ceiling)],
         };
-        let facts = load_facts_as_token(&conn, user_id, &email, shape, false).await;
+        let facts = load_facts_as_token(&conn, user_id, &email, shape).await;
 
         assert!(facts.member_orgs.contains(&org_id), "{ceiling:?}: a member");
         assert_eq!(facts.admin_orgs.contains(&org_id), admin, "{ceiling:?}");
@@ -1047,7 +1045,7 @@ async fn loader_gives_a_token_nothing_outside_its_grants() {
             ceiling: RoleCeiling::Owner,
         }],
     };
-    let facts = load_facts_as_token(&conn, user_id, &email, shape, false).await;
+    let facts = load_facts_as_token(&conn, user_id, &email, shape).await;
 
     assert!(facts.member_orgs.contains(&granted));
     for set in [&facts.member_orgs, &facts.admin_orgs, &facts.owned_orgs] {
@@ -1107,7 +1105,7 @@ async fn loader_carries_staff_standing_only_on_a_platform_token() {
         platform,
         grants: Vec::new(),
     };
-    let without = load_facts_as_token(&conn, user_id, &email, all_access(false), false).await;
+    let without = load_facts_as_token(&conn, user_id, &email, all_access(false)).await;
     assert!(
         !without.is_staff(),
         "platform=false: nobody to the platform"
@@ -1118,7 +1116,7 @@ async fn loader_carries_staff_standing_only_on_a_platform_token() {
         &Resource::platform()
     ));
 
-    let with = load_facts_as_token(&conn, user_id, &email, all_access(true), false).await;
+    let with = load_facts_as_token(&conn, user_id, &email, all_access(true)).await;
     assert!(with.is_staff());
     assert!(allows(&with, Action::PlatformOps, &Resource::platform()));
     let scope = with.platform.as_ref().map(|s| s.scope.clone());
@@ -1132,7 +1130,7 @@ async fn loader_carries_staff_standing_only_on_a_platform_token() {
         platform: true,
         grants: vec![org_wide(granted, RoleCeiling::Owner)],
     };
-    let bound = load_facts_as_token(&conn, user_id, &email, bound, false).await;
+    let bound = load_facts_as_token(&conn, user_id, &email, bound).await;
     let scope = bound
         .platform
         .as_ref()
@@ -1145,38 +1143,12 @@ async fn loader_carries_staff_standing_only_on_a_platform_token() {
     );
 }
 
-/// The hard constraint: a legacy credential narrows nothing, whatever its row
-/// says. Its facts are the session's.
-#[tokio::test]
-async fn loader_gives_a_legacy_key_exactly_the_sessions_facts() {
-    if db_unavailable() {
-        eprintln!("skipping: OXY_DATABASE_URL unset");
-        return;
-    }
-    let conn = establish_connection().await.expect("db connect");
-    let (user_id, email) = seed_user(&conn).await;
-    seed_app_admin(&conn, &email).await;
-    let org_id = seed_org(&conn).await;
-    seed_membership(&conn, org_id, user_id, org_members::OrgRole::Owner).await;
-
-    let session = load_principal_facts(&conn, user_id, &email).await.unwrap();
-    // A legacy row that (wrongly) reads as narrowed in every way it could.
-    let shape = TokenShape {
-        all_access: false,
-        platform: false,
-        grants: Vec::new(),
-    };
-    let legacy = load_facts_as_token(&conn, user_id, &email, shape, true).await;
-
-    assert_eq!(legacy.owned_orgs, session.owned_orgs);
-    assert_eq!(legacy.admin_orgs, session.admin_orgs);
-    assert_eq!(legacy.member_orgs, session.member_orgs);
-    assert!(legacy.is_staff() && session.is_staff());
-    assert!(legacy.token.is_none(), "no reach is attached to narrow by");
-    assert!(allows(
-        &legacy,
-        Action::OrgOwnerManage,
-        &Resource::org(org_id)
-    ));
-    assert!(allows(&legacy, Action::PlatformOps, &Resource::platform()));
-}
+// `loader_gives_a_legacy_key_exactly_the_sessions_facts` stood here: §3.5's hard
+// constraint that a legacy credential narrows nothing, its facts being the
+// session's whatever its row said.
+//
+// There is no longer any such credential to load facts for. `CredentialContext`
+// has no `legacy_api_key_id` and `StoredKind::LegacyKey` never reaches the
+// loader, because admission refuses a row that mirrors `api_keys` before a
+// context is built at all (`admission::is_legacy_row`). The nearest live
+// assertion is `legacy_removed`, which pins the refusal itself.

@@ -1,4 +1,4 @@
-import { tokenState } from "@/pages/admin/components/TokenList/tokenState";
+import { tokenState } from "@/libs/tokenState";
 import type { Token } from "@/types/apiToken";
 
 /** Which standing a row must carry to be shown. A token with both is under each. */

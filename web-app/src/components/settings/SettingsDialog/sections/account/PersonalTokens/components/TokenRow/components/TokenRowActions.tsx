@@ -8,13 +8,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "@/components/ui/shadcn/dropdown-menu";
-import { USER_TOKEN_ENDPOINTS } from "@/hooks/api/apiKeys/tokenEndpoints";
+import { USER_TOKEN_ENDPOINTS } from "@/hooks/api/tokens/tokenEndpoints";
 import {
   useRegenerateUserToken,
   useRevokeUserToken
 } from "@/hooks/api/userTokens/useUserTokenMutations";
 import { cn } from "@/libs/shadcn/utils";
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { Token, TokenSummary, TokenWithSecret } from "@/types/apiToken";
 import { isFixedToken } from "../../../accessSummary";
 import EditAccessDialog from "../../EditAccessDialog";
@@ -75,7 +75,7 @@ const TokenRowActions: React.FC<Props> = ({ token, summary, onActivity, onRegene
   const fixed = isFixedToken(token);
   const live = summary.is_active;
   const busy = regenerate.isPending || revoke.isPending;
-  const expired = ApiKeyService.isExpired(summary.expires_at);
+  const expired = TokenExpiry.isExpired(summary.expires_at);
 
   return (
     <div className='flex items-center justify-end gap-0.5'>

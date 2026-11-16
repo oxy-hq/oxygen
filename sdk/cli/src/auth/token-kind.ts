@@ -26,7 +26,10 @@ export type CredentialShape =
   | "sandbox_agent"
   /** `oxypublish_…` — the legacy app-scoped publish token. */
   | "publish"
-  /** `oxy_<hex>` — a legacy API key. Not a token: `oxy_pat_` is never one of these. */
+  /**
+   * `oxy_<hex>` — a legacy API key. **Removed**: the server refuses one. Recognised
+   * so this CLI can say so, rather than passing it on for a bare 401.
+   */
   | "legacy_key"
   /**
    * `OXY_TOKEN=from-proxy` — no credential on this machine at all. The

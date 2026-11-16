@@ -18,7 +18,7 @@ use super::service_accounts::{create_account, mint_account_token, with_token};
 use super::stack::{
     Reach, flat_api, get_as, get_in_session, ids, join_org, make_staff, mint, org_grant,
 };
-use super::{audit_rows, call, endpoint_key, key_row, legacy_key, pat_row};
+use super::{audit_rows, call, key_row, pat_row};
 
 const LIST: &str = "/admin/standing-tokens";
 
@@ -75,11 +75,14 @@ async fn the_list_holds_personal_tokens_with_a_standing_and_no_other_credential(
     let (sandbox_agent, _) = minted(&fx, &[app.id]).await;
     let account = create_account(&fx, "deployer", "member").await;
     let (account_token, _) = mint_account_token(&fx, account, json!({ "name": "t" })).await;
-    // Legacy keys store both standings always: one the endpoint mirrored at
-    // mint, one mirrored when it was first used.
-    let (endpoint, _) = endpoint_key(&fx, None).await;
-    let (lazy, lazy_key) = legacy_key(&fx, None).await;
-    assert_eq!(get_as(&lazy_key, "/auth/token").await.0, StatusCode::OK);
+    let (endpoint, _) = mint(&fx.db, engineer.id, Reach::all_access()).await;
+    // A removed legacy key's row is still in `api_tokens`, and still not a
+    // standing token.
+    let (lazy, lazy_key) = super::mirrored_legacy_key(&fx, None).await;
+    assert_eq!(
+        get_as(&lazy_key, "/auth/token").await.0,
+        StatusCode::UNAUTHORIZED
+    );
 
     let (status, list) = get_in_session(&fx, LIST).await;
     assert_eq!(status, StatusCode::OK, "{list}");
@@ -115,16 +118,15 @@ async fn the_list_holds_personal_tokens_with_a_standing_and_no_other_credential(
         ("an ordinary personal token", ordinary),
         ("a sandbox agent token", sandbox_agent),
         ("a service-account token", account_token),
-        ("a legacy key the endpoint minted", endpoint),
-        ("a legacy key mirrored on use", lazy),
+        ("a personal token with no standing", endpoint),
+        ("a removed legacy key's row", lazy),
     ] {
         let (status, body) = post_as(&fx.cookie, &revoke_uri(id), json!({})).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{what}: {body}");
         assert_eq!(body, json!({ "error": "not found" }), "{what}");
         assert!(pat_row(&fx.db, id).await.revoked_at.is_none(), "{what}");
     }
-    assert!(key_row(&fx.db, endpoint).await.is_active);
-    assert!(key_row(&fx.db, lazy).await.is_active);
+    assert!(key_row(&fx.db, lazy).await.is_active, "untouched");
     let (status, body) = post_as(&fx.cookie, &revoke_uri("not-a-uuid"), json!({})).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
     assert_eq!(body, json!({ "error": "not found" }));
@@ -337,12 +339,9 @@ async fn only_a_browser_session_holding_the_capability_may_call() {
 
     // A credential cannot manage credentials. The staff member's own
     // all-access token carries their standing, so it passes the capability
-    // guard — and is refused as `/api/user/tokens` refuses it. A legacy key
-    // is refused the same way there, and so here: these routes are new, so
-    // that takes nothing from a key that exists.
+    // guard — and is refused as `/api/user/tokens` refuses it.
     let (_, pat) = mint(&fx.db, fx.user.id, all_access(true, false)).await;
-    let (_, legacy) = legacy_key(&fx, None).await;
-    for (what, secret) in [("a personal token", &pat), ("a legacy key", &legacy)] {
+    for (what, secret) in [("a personal token", &pat)] {
         for (method, uri) in [("GET", LIST), ("POST", revoke.as_str())] {
             let (status, body) = with_token(secret, method, uri, None).await;
             assert_eq!(status, StatusCode::FORBIDDEN, "{what} {method}: {body}");

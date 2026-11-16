@@ -8,8 +8,9 @@
 //!   checksum offline, hash, display;
 //! - [`credential`] — the [`CredentialContext`] request marker and the
 //!   refuse-what-you-can't-enforce admission check;
-//! - [`store`] — the `api_tokens` lookup, the `api_keys` fallback and mirror,
-//!   and `last_used_at`;
+//! - [`store`] — the `api_tokens` lookup and `last_used_at`. One lookup: the
+//!   `api_keys` fallback and the mirror writes went with legacy keys on
+//!   2026-11-16;
 //! - [`cache`] — the ≤30 s in-process cache;
 //! - [`usage`] — per-token daily usage, counted in memory and flushed each minute;
 //! - [`dispatch`] — [`authenticate_request`], behind every entry point;
@@ -41,6 +42,23 @@
 //!   standing: the staff reads behind `/api/admin/standing-tokens`;
 //! - [`service`] — service tokens (`oxysvc_`), configured as code in
 //!   `OXY_SERVICE_TOKENS`: a platform principal with no account to create.
+//!
+//! # SUNSET after 0.5.161: `api_tokens.legacy_api_key_id`
+//!
+//! Legacy API keys stopped authenticating in 0.5.160, but the column they are
+//! stamped with is still **read** across this module — [`admission`] (refuse
+//! the row), [`credential`], [`store`], [`policy`] (never judge a legacy row),
+//! [`leak`], [`hygiene`], [`personal`] and [`standing`] (keep those rows out of
+//! their lists). The `api_keys` table is still read by nothing but the
+//! inventory.
+//!
+//! Dropping either before 0.5.162 breaks a revert at runtime: a binary one
+//! release back needs the column to be there, which is
+//! `internal-docs/legacy-removal.md` §4 and product-context's "a revert
+//! tolerates newer ledger rows, not newer schema". The four keys still live on
+//! 2026-11-16 are also deliberately left active until their owners migrate
+//! (`internal-docs/api-token-migration.md`), so ending those is the step before
+//! any drop, not after it.
 
 pub mod access;
 pub mod account_access;

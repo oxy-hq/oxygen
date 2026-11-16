@@ -4,14 +4,15 @@ import { useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import SectionHeader from "../../../components/SectionHeader";
 import CreateTokenDialog from "./components/CreateTokenDialog";
-import LegacyKeysPointer from "./components/LegacyKeysPointer";
 import TokenSecretDialog, { type SecretReveal } from "./components/TokenSecretDialog";
 import TokenTable from "./components/TokenTable";
 
 /**
  * Account → Personal access tokens: the caller's own tokens, across every organization and
- * workspace. Needs no workspace, so it works before one is selected. Legacy API keys are not
- * here; one line under the table says where they are.
+ * workspace. Needs no workspace, so it works before one is selected.
+ *
+ * It used to end with a line pointing at Workspace → Legacy API keys. Legacy keys were removed,
+ * so there is nowhere left to point.
  */
 const PersonalTokens: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
@@ -37,10 +38,7 @@ const PersonalTokens: React.FC = () => {
         }
       />
 
-      <div className='flex flex-col gap-2'>
-        <TokenTable onRegenerated={(result) => setReveal({ ...result, reason: "regenerated" })} />
-        <LegacyKeysPointer />
-      </div>
+      <TokenTable onRegenerated={(result) => setReveal({ ...result, reason: "regenerated" })} />
 
       <CreateTokenDialog
         open={createOpen}

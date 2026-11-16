@@ -1,5 +1,5 @@
 import type React from "react";
-import type { TokenNoun } from "@/hooks/api/apiKeys/extendMessages";
+import type { TokenNoun } from "@/hooks/api/tokens/extendMessages";
 import { cn } from "@/libs/shadcn/utils";
 import type { ApiKeyActivityEvent } from "@/types/apiKey";
 import { RelativeTime } from "./RelativeTime";

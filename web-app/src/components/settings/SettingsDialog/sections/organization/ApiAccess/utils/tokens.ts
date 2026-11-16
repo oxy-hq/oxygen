@@ -1,4 +1,5 @@
 import { TOKEN_KIND_LABELS } from "@/components/settings/SettingsDialog/sections/account/PersonalTokens/accessSummary";
+import { tokenEnded } from "@/libs/tokenState";
 import type { Token } from "@/types/apiToken";
 
 export const KIND_LABELS = TOKEN_KIND_LABELS;
@@ -22,11 +23,11 @@ export function durationText(ms: number): string {
 /** A token inside this many days of its expiry is worth a second look. */
 const EXPIRING_SOON_DAYS = 7;
 
-export type TokenTone = "active" | "soon" | "expired" | "revoked";
+export type TokenTone = "active" | "soon" | "expired" | "revoked" | "removed";
 
 export interface TokenLifecycle {
   tone: TokenTone;
-  /** The badge: Active, Expired or Revoked. */
+  /** The badge: Active, Expired, Revoked or Removed. */
   label: string;
   /** The line beside it: when it ends, or ended. */
   detail: string;
@@ -40,6 +41,19 @@ type LifecycleFields = Pick<Token, "status" | "expires_at" | "revoked_at">;
  * the page was open doesn't keep reading as active.
  */
 export function tokenLifecycle(token: LifecycleFields, now = new Date()): TokenLifecycle {
+  // A legacy API key, which the format's removal ended on 2026-11-16 whatever
+  // its row says. This is checked first and ignores `revoked_at` and
+  // `expires_at` on purpose: the migration leaves the keys that were still in
+  // use unrevoked, so that reverting the image can restore them, and reading
+  // those rows as "Active, No expiry" would say the opposite of what the
+  // server does.
+  if (token.status === "removed") {
+    return {
+      tone: "removed",
+      label: "Removed",
+      detail: "Legacy API keys no longer authenticate"
+    };
+  }
   if (token.status === "revoked" || token.revoked_at) {
     return {
       tone: "revoked",
@@ -77,13 +91,13 @@ type ActionFields = Pick<Token, "kind" | "status" | "expires_at">;
  * for fifteen minutes by design.
  */
 export const isExtendable = (token: ActionFields): boolean =>
-  token.kind !== "ci" && token.status !== "revoked" && token.expires_at !== null;
+  token.kind !== "ci" && !tokenEnded(token) && token.expires_at !== null;
 
 /** Regenerate swaps the secret and keeps the id and grants. Service-account tokens only here. */
 export const isRegenerable = (token: ActionFields): boolean =>
-  token.kind === "service_account" && token.status !== "revoked";
+  token.kind === "service_account" && !tokenEnded(token);
 
-export const isRevocable = (token: ActionFields): boolean => token.status !== "revoked";
+export const isRevocable = (token: ActionFields): boolean => !tokenEnded(token);
 
 /** "Never", "Today", "Yesterday", "5 days ago", then the date. */
 export function lastUsedText(lastUsedAt: string | null, now = new Date()): string {

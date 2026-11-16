@@ -6,6 +6,8 @@ use chrono::Duration;
 use entity::service_accounts;
 use oxy_authz::TokenReach;
 
+/// A token this release mints: it mirrors no `api_keys` row, which is the
+/// only shape admission still accepts.
 fn row(kind: &str) -> api_tokens::Model {
     let now = Utc::now().fixed_offset();
     let id = Uuid::new_v4();
@@ -27,20 +29,25 @@ fn row(kind: &str) -> api_tokens::Model {
         revoked_at: None,
         revoked_by: None,
         revoke_reason: None,
-        source: source::LEGACY_ENDPOINT.into(),
-        legacy_api_key_id: Some(id),
+        source: source::UI.into(),
+        legacy_api_key_id: None,
         trust_policy_id: None,
         oidc_claims: None,
     }
 }
 
-/// A personal token minted by the tokens API: it mirrors no `api_keys` row,
-/// so it is the one shape this release may narrow.
 fn own_row() -> api_tokens::Model {
+    row("personal")
+}
+
+/// A removed legacy credential: a `legacy_key` row, or a token the legacy
+/// endpoint minted and stamped with the `api_keys` id it mirrors.
+fn legacy_row(kind: &str) -> api_tokens::Model {
+    let base = row(kind);
     api_tokens::Model {
-        source: source::UI.into(),
-        legacy_api_key_id: None,
-        ..row("personal")
+        source: source::LEGACY_ENDPOINT.into(),
+        legacy_api_key_id: Some(base.id),
+        ..base
     }
 }
 
@@ -62,67 +69,69 @@ fn grant_row(token_id: Uuid, kind: &str, ceiling: Option<&str>) -> api_token_gra
 fn admit_now(
     row: &api_tokens::Model,
     presented: TokenFormat,
-    link: LegacyLink,
 ) -> Result<CredentialContext, Refusal> {
-    admit(row, &[], presented, Links::legacy(link), Utc::now())
+    admit(row, &[], presented, Links::NONE, Utc::now())
 }
 
 fn admit_with(
     row: &api_tokens::Model,
     grants: &[api_token_grants::Model],
 ) -> Result<CredentialContext, Refusal> {
-    let (presented, link) = match (row.kind.as_str(), row.legacy_api_key_id) {
-        ("legacy_key", _) => (TokenFormat::LegacyKey, LegacyLink::Active),
-        (_, Some(_)) => (TokenFormat::Personal, LegacyLink::Active),
-        _ => (TokenFormat::Personal, LegacyLink::NotLinked),
-    };
-    admit(row, grants, presented, Links::legacy(link), Utc::now())
+    admit(row, grants, TokenFormat::Personal, Links::NONE, Utc::now())
 }
 
 #[test]
 fn a_live_all_access_personal_token_is_admitted() {
     let r = row("personal");
-    let cred = admit_now(&r, TokenFormat::Personal, LegacyLink::Active).expect("admit");
+    let cred = admit_now(&r, TokenFormat::Personal).expect("admit");
     assert_eq!(cred.token_id, r.id);
     assert_eq!(cred.kind, StoredKind::Personal);
     assert!(cred.all_access && cred.platform && cred.partner);
-    assert_eq!(cred.legacy_api_key_id, Some(r.id));
 }
 
+/// Legacy API keys were removed. The rows survive in `api_tokens`, so this is
+/// the lock that keeps one from ever authenticating again — whatever kind it
+/// claims, whatever it is presented as, and whether or not it is still live.
 #[test]
-fn a_live_legacy_key_is_admitted() {
-    let r = row("legacy_key");
-    assert!(admit_now(&r, TokenFormat::LegacyKey, LegacyLink::Active).is_ok());
-}
-
-#[test]
-fn a_row_that_mirrors_api_keys_is_never_narrowed() {
-    // A legacy key and a legacy-endpoint token are all-access with both
-    // standings, always (§3.5). A pod one release back validates them from
-    // `api_keys` with full reach, so a narrowed one is refused rather than
-    // honoured here and widened there.
-    for kind in ["personal", "legacy_key"] {
-        for (flag, name) in [
-            (0, "all_access=false"),
-            (1, "platform=false"),
-            (2, "partner=false"),
-        ] {
-            let mut r = row(kind);
-            match flag {
-                0 => r.all_access = false,
-                1 => r.platform = false,
-                _ => r.partner = false,
-            }
-            assert_eq!(admit_with(&r, &[]), Err(Refusal::Narrowed(name)), "{kind}");
-        }
-        let r = row(kind);
-        let grants = [grant_row(r.id, "workspace", Some("owner"))];
+fn every_row_that_mirrors_api_keys_is_refused() {
+    for kind in ["legacy_key", "personal"] {
+        let r = legacy_row(kind);
         assert_eq!(
-            admit_with(&r, &grants),
-            Err(Refusal::Narrowed("grants")),
+            admit_with(&r, &[]),
+            Err(Refusal::LegacyKeyRemoved),
             "{kind}"
         );
+        for presented in [
+            TokenFormat::Personal,
+            TokenFormat::ServiceAccount,
+            TokenFormat::Ci,
+            TokenFormat::SandboxAgent,
+        ] {
+            assert_eq!(
+                admit_now(&r, presented),
+                Err(Refusal::LegacyKeyRemoved),
+                "{kind} as {presented:?}"
+            );
+        }
     }
+    // Refused before anything else is judged: a revoked, expired, narrowed
+    // legacy row still reads as a legacy row, so the log says why.
+    let mut r = legacy_row("legacy_key");
+    r.revoked_at = Some(Utc::now().fixed_offset());
+    r.expires_at = Some((Utc::now() - Duration::days(1)).fixed_offset());
+    r.all_access = false;
+    assert_eq!(admit_with(&r, &[]), Err(Refusal::LegacyKeyRemoved));
+}
+
+/// A `legacy_key` row is refused for being legacy, not for being an unknown
+/// kind: the kind still parses, so the inventory can list what is there.
+#[test]
+fn the_legacy_kind_still_parses_so_old_rows_stay_listable() {
+    assert_eq!(StoredKind::parse("legacy_key"), Some(StoredKind::LegacyKey));
+    assert_eq!(
+        admit_with(&row("legacy_key"), &[]),
+        Err(Refusal::LegacyKeyRemoved)
+    );
 }
 
 #[test]
@@ -202,17 +211,12 @@ fn an_all_access_token_does_not_consult_its_grants() {
     assert!(cred.all_access && cred.grants.is_empty());
 }
 
+/// Every admitted credential narrows something now. A legacy key was the one
+/// that did not — it decided exactly as a session did — and it cannot be
+/// admitted any more, so `reach()` never answers `None`.
 #[test]
-fn a_legacy_credential_narrows_nothing() {
-    // The marker a legacy key and a legacy-endpoint token carry: no reach to
-    // narrow by, so every decision is the one a session would get.
-    for kind in ["personal", "legacy_key"] {
-        let cred = admit_with(&row(kind), &[]).expect("admit");
-        assert!(cred.is_legacy(), "{kind}");
-        assert_eq!(cred.reach(), None, "{kind}");
-    }
+fn every_admitted_credential_narrows() {
     let own = admit_with(&own_row(), &[]).expect("admit");
-    assert!(!own.is_legacy());
     assert_eq!(own.reach(), Some(TokenReach::unrestricted()));
 }
 
@@ -221,7 +225,7 @@ fn kinds_this_release_does_not_enforce_are_refused() {
     for kind in ["legacy_publish", "personal_v2", ""] {
         let r = row(kind);
         assert_eq!(
-            admit_now(&r, TokenFormat::Personal, LegacyLink::NotLinked),
+            admit_now(&r, TokenFormat::Personal),
             Err(Refusal::UnknownKind(kind.to_string())),
             "{kind}"
         );
@@ -231,20 +235,16 @@ fn kinds_this_release_does_not_enforce_are_refused() {
 #[test]
 fn the_presented_format_must_match_the_stored_kind() {
     let personal = row("personal");
-    assert_eq!(
-        admit_now(&personal, TokenFormat::LegacyKey, LegacyLink::Active),
-        Err(Refusal::KindMismatch)
-    );
-    let legacy = row("legacy_key");
-    assert_eq!(
-        admit_now(&legacy, TokenFormat::Personal, LegacyLink::Active),
-        Err(Refusal::KindMismatch)
-    );
     // An account's prefixes never open a person's row.
-    for presented in [TokenFormat::ServiceAccount, TokenFormat::Ci] {
+    for presented in [
+        TokenFormat::ServiceAccount,
+        TokenFormat::Ci,
+        TokenFormat::SandboxAgent,
+    ] {
         assert_eq!(
-            admit_now(&personal, presented, LegacyLink::Active),
-            Err(Refusal::KindMismatch)
+            admit_now(&personal, presented),
+            Err(Refusal::KindMismatch),
+            "{presented:?}"
         );
     }
 }
@@ -253,35 +253,16 @@ fn the_presented_format_must_match_the_stored_kind() {
 fn a_revoked_row_is_refused() {
     let mut r = row("personal");
     r.revoked_at = Some(Utc::now().fixed_offset());
-    assert_eq!(
-        admit_now(&r, TokenFormat::Personal, LegacyLink::Active),
-        Err(Refusal::Revoked)
-    );
+    assert_eq!(admit_now(&r, TokenFormat::Personal), Err(Refusal::Revoked));
 }
 
 #[test]
 fn an_expired_row_is_refused_and_a_future_one_admitted() {
-    let mut r = row("legacy_key");
+    let mut r = row("personal");
     r.expires_at = Some((Utc::now() - Duration::seconds(1)).fixed_offset());
-    assert_eq!(
-        admit_now(&r, TokenFormat::LegacyKey, LegacyLink::Active),
-        Err(Refusal::Expired)
-    );
+    assert_eq!(admit_now(&r, TokenFormat::Personal), Err(Refusal::Expired));
     r.expires_at = Some((Utc::now() + Duration::days(1)).fixed_offset());
-    assert!(admit_now(&r, TokenFormat::LegacyKey, LegacyLink::Active).is_ok());
-}
-
-#[test]
-fn an_inactive_or_missing_api_keys_row_is_refused() {
-    // A pod one release back revokes by writing api_keys alone; this is what
-    // makes that revoke stick on this release.
-    let r = row("legacy_key");
-    for link in [LegacyLink::Inactive, LegacyLink::Missing] {
-        assert_eq!(
-            admit_now(&r, TokenFormat::LegacyKey, link),
-            Err(Refusal::LegacyKeyInactive)
-        );
-    }
+    assert!(admit_now(&r, TokenFormat::Personal).is_ok());
 }
 
 #[test]
@@ -364,7 +345,7 @@ fn a_service_account_token_is_admitted_grant_bound_with_no_standing() {
     let grants = [grant_row(row.id, "workspace", Some("member"))];
     let cred = admit_account(&row, &grants, active(false)).expect("admit");
     assert_eq!(cred.kind, StoredKind::ServiceAccount);
-    assert!(cred.is_service_account() && !cred.is_legacy());
+    assert!(cred.is_service_account());
     assert_eq!(
         cred.service_account,
         Some(AccountStanding {
@@ -394,15 +375,17 @@ fn a_service_account_row_claiming_more_than_an_account_holds_is_refused() {
             Err(Refusal::Widened(flag))
         );
     }
-    // Nor may it mirror an `api_keys` row: that would read as a legacy key.
+    // Nor may it mirror an `api_keys` row. That is refused for being one,
+    // before an account's own checks run, so it reads as a removed legacy key
+    // rather than as a widened account.
     let mirrored = api_tokens::Model {
         legacy_api_key_id: Some(Uuid::new_v4()),
         ..account_row()
     };
-    assert!(matches!(
+    assert_eq!(
         admit_account(&mirrored, &[], active(true)),
-        Err(Refusal::Widened(_))
-    ));
+        Err(Refusal::LegacyKeyRemoved)
+    );
     // And were one ever admitted, its reach would still claim nothing.
     let cred = CredentialContext {
         all_access: true,
@@ -548,15 +531,4 @@ fn a_revoked_workspace_grant_blocks_only_that_grant() {
         reach.workspace_ceiling(Uuid::from_u128(7), Uuid::from_u128(71)),
         None
     );
-}
-
-#[test]
-fn a_legacy_key_is_never_blocked() {
-    // Admission refuses a legacy row with ANY grant beside it rather than
-    // honouring a block on it — and the store never loads grants for one, so
-    // in practice a legacy key carries no block at all (§3.5).
-    let legacy = row("legacy_key");
-    let cred = admit_now(&legacy, TokenFormat::LegacyKey, LegacyLink::Active).unwrap();
-    assert!(cred.blocked_orgs.is_empty());
-    assert!(cred.reach().is_none(), "a legacy key narrows nothing");
 }

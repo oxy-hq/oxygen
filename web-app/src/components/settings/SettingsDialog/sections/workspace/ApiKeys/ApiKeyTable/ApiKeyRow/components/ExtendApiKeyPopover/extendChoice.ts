@@ -1,4 +1,4 @@
-import { ApiKeyService } from "@/services/api/apiKey";
+import { TokenExpiry } from "@/services/api/tokenExpiry";
 import type { ExtendApiKeyRequest } from "@/types/apiKey";
 
 /** What the person picked in the Extend popover. */
@@ -42,7 +42,7 @@ export const previewExpiry = (
 ): Date | null | undefined => {
   switch (choice.kind) {
     case "days":
-      return ApiKeyService.extendedExpiry(token.expires_at, choice.days, now);
+      return TokenExpiry.extendedExpiry(token.expires_at, choice.days, now);
     case "date":
       return choice.date ? endOfLocalDay(choice.date) : undefined;
     case "never":
@@ -66,5 +66,5 @@ export const buildExtendRequest = (choice: ExtendChoice): ExtendApiKeyRequest | 
 export const submitLabel = (preview: Date | null | undefined): string => {
   if (preview === undefined) return "Pick a date";
   if (preview === null) return "Remove expiry";
-  return `Extend to ${ApiKeyService.formatDay(preview)}`;
+  return `Extend to ${TokenExpiry.formatDay(preview)}`;
 };

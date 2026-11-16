@@ -25,12 +25,10 @@ use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde_json::json;
 
 use super::audit::{self as token_audit, Event};
-use super::dto;
 use super::error::TokenError;
 use super::recipients;
 use super::service::reach_of;
 use oxy_app_core::emails::token_expiring::{ExpiringEmail, send_expiring_email};
-use oxy_app_core::emails::token_mail;
 
 /// How long one pass may spend mailing. The rest is sent ten minutes on.
 const MAIL_BUDGET: Duration = Duration::from_secs(20);
@@ -60,19 +58,12 @@ async fn notify(db: &DatabaseConnection, row: &api_tokens::Model) -> Result<bool
         return Ok(false);
     };
     let audience = to.audience();
-    let legacy = dto::is_legacy(row);
     let mail = ExpiringEmail {
         token_name: &row.name,
         display_prefix: &row.display_prefix,
-        legacy,
         expires_at,
         audience,
-        // A legacy API key is extended on its own page, not in the token list.
-        extend_url: if legacy {
-            token_mail::legacy_keys_url()
-        } else {
-            audience.settings_url()
-        },
+        extend_url: audience.settings_url(),
     };
     let mut reached = 0;
     let mut last_error = String::new();

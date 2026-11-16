@@ -17,7 +17,7 @@ use uuid::Uuid;
 use super::stack::{
     Reach, flat_api, get_as, get_in_session, join_org, mint, workspace_api, workspace_grant,
 };
-use super::{Fixture, call, endpoint_key, fixture, legacy_key, seed_org, seed_workspace_in};
+use super::{Fixture, call, fixture, minted_pat, seed_org, seed_workspace_in};
 
 async fn owner_fixture() -> Fixture {
     let fx = fixture().await;
@@ -86,8 +86,6 @@ async fn a_token_cannot_create_patch_extend_or_regenerate_a_token() {
         )]),
     )
     .await;
-    let (_, legacy) = legacy_key(&fx, None).await;
-
     let attempts = [
         ("POST", "/user/tokens".to_string(), json!({ "name": "x" })),
         (
@@ -116,7 +114,6 @@ async fn a_token_cannot_create_patch_extend_or_regenerate_a_token() {
     for (who, secret) in [
         ("an all-access token", &all_access),
         ("a grant-bound token", &bound),
-        ("a legacy key", &legacy),
     ] {
         for (method, uri, body) in &attempts {
             let (status, answer) = with_token(secret, method, uri, Some(body.clone())).await;
@@ -331,10 +328,13 @@ async fn regenerate_keeps_the_token_and_kills_the_old_secret() {
 async fn revoke_ends_the_token_and_the_list_keeps_showing_it() {
     let fx = owner_fixture().await;
     let (id, secret) = mint(&fx.db, fx.user.id, Reach::all_access()).await;
-    // A legacy key with its mirror row: it is not a token, so the token list
-    // never shows it.
-    let (_, key) = legacy_key(&fx, None).await;
-    assert_eq!(get_as(&key, "/auth/token").await.0, StatusCode::OK);
+    // A removed legacy key with its mirror row: not a token, so the token list
+    // never shows it — and not a credential either.
+    let (_, key) = super::mirrored_legacy_key(&fx, None).await;
+    assert_eq!(
+        get_as(&key, "/auth/token").await.0,
+        StatusCode::UNAUTHORIZED
+    );
 
     let (status, _) = in_session(&fx, "DELETE", &format!("/user/tokens/{id}"), None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
@@ -394,21 +394,23 @@ async fn the_calling_token_describes_and_revokes_itself() {
     );
 }
 
+/// A removed legacy key's row is not a token on any token route: absent from
+/// the list, and its id reads as nothing at all. It never was one — legacy
+/// keys and tokens were separate by decision (2026-10-05) and had their own
+/// routes — and now that those routes are gone there is nowhere it *is* one.
 #[tokio::test]
 async fn a_legacy_key_is_not_a_token_on_any_token_route() {
-    // Legacy API keys and API tokens are separate (decided 2026-10-05). A
-    // legacy key is managed through its own routes; on the token routes it is
-    // absent from the list and its id reads as nothing at all.
     let fx = owner_fixture().await;
-    let (minted, minted_key) = endpoint_key(&fx, None).await;
-    let (seeded, seeded_key) = legacy_key(&fx, None).await;
-    // Used once, so the seeded key has its `api_tokens` mirror row too.
-    assert_eq!(get_as(&seeded_key, "/auth/token").await.0, StatusCode::OK);
+    let (seeded, seeded_key) = super::mirrored_legacy_key(&fx, None).await;
+    assert_eq!(
+        get_as(&seeded_key, "/auth/token").await.0,
+        StatusCode::UNAUTHORIZED
+    );
 
     let (status, list) = get_in_session(&fx, "/user/tokens").await;
     assert_eq!(status, StatusCode::OK);
     let listed = list["tokens"].as_array().expect("tokens");
-    for id in [minted, seeded] {
+    for id in [seeded] {
         assert!(
             listed.iter().all(|t| t["id"] != json!(id)),
             "a legacy key in the token list: {list}"
@@ -438,37 +440,34 @@ async fn a_legacy_key_is_not_a_token_on_any_token_route() {
         }
     }
 
-    // None of that touched either key: both still work, as legacy keys.
-    for key in [&minted_key, &seeded_key] {
-        let (status, me) = get_as(key, "/auth/token").await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(me["kind"], "legacy_key");
-        assert_eq!(me["name"].is_string(), true);
-    }
+    // And it is still refused, as it was before any of that.
+    assert_eq!(
+        get_as(&seeded_key, "/auth/token").await.0,
+        StatusCode::UNAUTHORIZED
+    );
 }
 
+/// `DELETE /auth/token` is the one route a token may call about itself, and a
+/// personal token ends itself there.
+///
+/// A legacy key used to be refused here (409 `legacy_immutable`) because the
+/// same key was often deployed in several places and one of them logging out
+/// must not take the others down. There is no legacy key left to refuse, so
+/// what this pins now is the ordinary case the refusal was carved out of.
 #[tokio::test]
-async fn a_legacy_key_cannot_revoke_itself_through_the_new_door() {
+async fn a_token_ends_itself_through_the_calling_token_route() {
     let fx = owner_fixture().await;
-    let (_, key) = legacy_key(&fx, None).await;
-    let (_, endpoint_pat) = endpoint_key(&fx, None).await;
+    let (_, pat) = minted_pat(&fx, None).await;
 
-    for (what, secret) in [
-        ("an oxy_<hex> key", &key),
-        ("a legacy-endpoint key", &endpoint_pat),
-    ] {
-        let (status, me) = get_as(secret, "/auth/token").await;
-        assert_eq!(status, StatusCode::OK, "{what}");
-        assert_eq!(me["kind"], "legacy_key", "{what}");
-        assert_eq!(me["all_access"], true, "{what}");
+    let (status, me) = get_as(&pat, "/auth/token").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(me["kind"], "personal");
 
-        let (status, answer) = with_token(secret, "DELETE", "/auth/token", None).await;
-        assert_eq!(status, StatusCode::CONFLICT, "{what}");
-        assert_eq!(answer["code"], "legacy_immutable", "{what}");
-        assert_eq!(
-            get_as(secret, "/auth/token").await.0,
-            StatusCode::OK,
-            "{what} still works: nothing here ends a legacy key"
-        );
-    }
+    let (status, _) = with_token(&pat, "DELETE", "/auth/token", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        get_as(&pat, "/auth/token").await.0,
+        StatusCode::UNAUTHORIZED,
+        "it ended itself"
+    );
 }

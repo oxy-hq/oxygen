@@ -19,7 +19,7 @@ use super::oidc::{Run, exchange_as, policy_body, register_policy, trust_test_key
 use super::sandbox_agent::{another_session, minted as sandbox_agent_token, staff_with_app};
 use super::service_accounts::{create_account, mint_account_token};
 use super::stack::{Reach, flat_api, join_org, mint, org_grant};
-use super::{Fixture, audit_rows, call, endpoint_key, legacy_key};
+use super::{Fixture, audit_rows, call, legacy_key, minted_pat};
 
 const TOKENS: &str = "/admin/app-publish-tokens";
 
@@ -74,37 +74,30 @@ async fn a_session_mints_and_the_mint_is_audited_without_the_secret() {
     );
 }
 
+/// Minting a publish token takes a browser session, and nothing else.
+///
+/// A legacy API key was the one exception — kept because CI scripts minted
+/// with one and nothing could break them. The keys are gone, so the exception
+/// is too, and a key presented here is refused like any other credential.
 #[tokio::test]
-async fn a_legacy_key_still_mints_and_the_row_names_that_key() {
+async fn no_credential_mints_a_publish_token_not_even_a_legacy_key() {
     let (fx, _app) = staff_with_app().await;
-    // One as every release before this one wrote it, one the legacy endpoint
-    // mints today: CI scripts hold both.
-    let seeded = legacy_key(&fx, None).await;
-    let endpoint = endpoint_key(&fx, None).await;
+    let (_, key) = legacy_key(&fx, None).await;
+    let (_, pat) = minted_pat(&fx, None).await;
 
-    for (what, (key_id, key)) in [("seeded", seeded), ("endpoint-minted", endpoint)] {
-        let (status, body) = mint_with(&[("x-api-key", &key)]).await;
-        assert_eq!(status, StatusCode::OK, "a {what} legacy key: {body}");
-        assert!(body["token"].as_str().unwrap().starts_with("oxypublish_"));
-
-        let rows = audit_rows(&fx.db, MINTED).await;
-        let row = rows.last().expect("the mint's row");
-        assert_eq!(row.target_id, Some(id_of(&body).to_string()), "{what}");
-        assert_eq!(row.actor_type, "api_key", "{what}");
-        assert_eq!(row.metadata["token_id"], json!(key_id), "{what}");
-        assert_eq!(row.metadata["token_kind"], "legacy_key", "{what}");
-        assert_eq!(row.metadata["token_prefix"], body["token_prefix"], "{what}");
+    for (what, secret) in [("a removed legacy key", &key), ("a personal token", &pat)] {
+        let (status, body) = mint_with(&[("x-api-key", secret)]).await;
+        assert_ne!(status, StatusCode::OK, "{what} must not mint: {body}");
     }
-    assert_eq!(publish_tokens(&fx.db).await, 2);
-    assert_eq!(audit_rows(&fx.db, MINTED).await.len(), 2);
+    assert_eq!(publish_tokens(&fx.db).await, 0);
+    assert!(audit_rows(&fx.db, MINTED).await.is_empty());
 }
 
 #[tokio::test]
-async fn the_staff_audit_console_shows_the_key_the_address_and_the_client_of_a_mint() {
+async fn the_staff_audit_console_shows_who_minted_the_address_and_the_client() {
     let (fx, _app) = staff_with_app().await;
-    let (key_id, key) = legacy_key(&fx, None).await;
     let headers = [
-        ("x-api-key", key.as_str()),
+        ("cookie", fx.cookie.as_str()),
         ("user-agent", "oxyc/9.9.9 agent/test"),
         // The last hop is the one the load balancer wrote.
         ("x-forwarded-for", "10.0.0.1, 198.51.100.4"),
@@ -118,17 +111,19 @@ async fn the_staff_audit_console_shows_the_key_the_address_and_the_client_of_a_m
     let rows = rows.as_array().expect("a bare array, as before");
     assert_eq!(rows.len(), 1);
     let row = &rows[0];
-    assert_eq!(row["token_id"], json!(key_id));
-    assert_eq!(row["token_name"], "legacy");
-    assert_eq!(row["token_kind"], "legacy_key");
-    assert!(row["token_prefix"].as_str().is_some_and(|p| !p.is_empty()));
+    // Minting takes a session, so the row names the person, not a credential:
+    // the columns that used to carry the key are empty, and the address and
+    // the client — what this test is for — are recorded either way.
+    assert_eq!(row["actor_type"], "user");
+    assert!(row["token_id"].is_null());
     assert_eq!(row["user_agent"], "oxyc/9.9.9 agent/test");
     assert_eq!(row["ip"], "198.51.100.4");
-    // The fields the console already read are unchanged.
     assert_eq!(row["action"], MINTED);
-    assert_eq!(row["actor_type"], "api_key");
     assert_eq!(row["target_id"], minted["id"]);
-    assert!(!row.to_string().contains(&key), "never the key itself");
+    assert!(
+        !row.to_string().contains(minted["token"].as_str().unwrap()),
+        "never the publish token itself"
+    );
 }
 
 #[tokio::test]

@@ -61,7 +61,7 @@ export function buildUrl(target: string, path: string): string {
  * credential this tool does not model.
  *
  * ANY KIND OF TOKEN IS A BEARER on `/api/**` — a session JWT, `oxy_pat_`,
- * `oxy_sat_`, `oxy_ci_`, a legacy `oxy_<hex>` key, `oxypublish_`. On the
+ * `oxy_sat_`, `oxy_ci_`, `oxypublish_`. On the
  * API-key surface, `OXY_API_KEY` is what goes out as `X-API-Key`; with none
  * set, a bearer that IS an API token stands in for it, so one `OXY_TOKEN`
  * covers both surfaces. A session JWT never does — it is not a key, and a

@@ -20,7 +20,12 @@ export type TokenKind = "personal" | "legacy_key" | "service_account" | "ci" | "
 /** What a grant lets the token do in a workspace. `owner` means "no cap". */
 export type RoleCeiling = "viewer" | "member" | "admin" | "owner";
 
-export type TokenStatus = "active" | "expired" | "revoked";
+/**
+ * `removed` is a legacy API key: the format stopped authenticating on
+ * 2026-11-16, whatever its row says. The server reports it for every legacy row
+ * and for no other kind, so it is never a state a token can enter or leave.
+ */
+export type TokenStatus = "active" | "expired" | "revoked" | "removed";
 
 export interface Grant {
   id: string;

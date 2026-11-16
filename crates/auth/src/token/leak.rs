@@ -21,7 +21,7 @@ use oxy_shared::errors::OxyError;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 
 use super::credential::StoredKind;
-use super::format::{TokenFormat, hash_token, parse_format, verify_checksum};
+use super::format::{hash_token, is_removed_legacy_key, verify_checksum};
 
 /// The most values one report may carry.
 pub const MAX_REPORTS: usize = 100;
@@ -44,7 +44,7 @@ pub fn classify(token: &str) -> Presented {
     let token = token.trim();
     if verify_checksum(token) {
         Presented::NewFormat
-    } else if parse_format(token) == Some(TokenFormat::LegacyKey) {
+    } else if is_removed_legacy_key(token) {
         Presented::Legacy
     } else {
         Presented::Unknown

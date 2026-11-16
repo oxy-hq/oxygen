@@ -94,28 +94,23 @@ fn the_admin_sections_keep_their_capabilities() {
     assert_eq!(caps, vec![Action::PlatformOperate, Action::PlatformGrants]);
 }
 
-/// The five legacy key operations stay in the served OpenAPI document.
+/// The legacy key operations are **out** of the served OpenAPI document.
+///
+/// This test used to require them. `oxyc schema` and `/apidoc` read this
+/// document, so leaving a removed route in it would describe, in detail, a
+/// surface that answers 404 — the most expensive kind of wrong documentation.
 #[test]
-fn the_legacy_key_operations_are_documented() {
+fn the_legacy_key_operations_are_not_documented() {
     let doc = openapi();
-    for (path, methods) in [
-        ("/{workspace_id}/api-keys", &["get", "post"][..]),
-        ("/{workspace_id}/api-keys/{id}", &["get", "delete"][..]),
-        ("/{workspace_id}/api-keys/{id}/extend", &["post"][..]),
+    for path in [
+        "/{workspace_id}/api-keys",
+        "/{workspace_id}/api-keys/{id}",
+        "/{workspace_id}/api-keys/{id}/extend",
+        "/{workspace_id}/api-keys/{id}/activity",
     ] {
-        let item = doc
-            .paths
-            .paths
-            .get(path)
-            .unwrap_or_else(|| panic!("{path} is missing"));
-        for method in methods {
-            let op = match *method {
-                "get" => &item.get,
-                "post" => &item.post,
-                "delete" => &item.delete,
-                _ => unreachable!(),
-            };
-            assert!(op.is_some(), "{method} {path} is missing");
-        }
+        assert!(
+            doc.paths.paths.get(path).is_none(),
+            "{path} is still in the served OpenAPI document"
+        );
     }
 }

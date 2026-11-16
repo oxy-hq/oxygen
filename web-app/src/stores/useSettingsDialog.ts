@@ -17,7 +17,6 @@ export type SettingsSection =
   | "workspace.airhouse"
   | "workspace.oltp"
   | "workspace.api_keys"
-  | "workspace.legacy_api_keys"
   | "workspace.secrets"
   | "workspace.connections"
   | "workspace.apps"

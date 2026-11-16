@@ -1,12 +1,13 @@
-//! The Phase 2 legacy-key regression (design §3.5): after grants, ceilings,
-//! standing flags, credential-bound assume sessions and the flat-route guard,
-//! a legacy key reaches **exactly what it reached before** — every workspace
-//! and org of its owner at the owner's full role, staff standing, the flat
-//! routes, on `/api`, `/external/api` and the custom-app path.
+//! What an **all-access** credential reaches: every workspace and org of its
+//! owner at the owner's full role, their staff standing, and the flat routes a
+//! grant-bound token is refused — on `/api`, `/external/api` and the
+//! custom-app path.
 //!
-//! Both shapes of legacy credential are covered: an `oxy_<hex>` key written
-//! before the migration, and an `oxy_pat_` minted by the legacy
-//! `/api/{workspace_id}/api-keys` endpoint. Assume-session inheritance is in
+//! This was `legacy_reach`, which pinned the same reach for a legacy API key,
+//! the one credential that was all-access by definition. Legacy keys are gone;
+//! the reach is still a contract, now carried by an all-access personal token.
+//! `world()` and `assert_full_reach()` are shared from here by the inventory
+//! and trusted-publish suites. Assume-session inheritance is in
 //! `assume_binding`.
 
 use axum::http::StatusCode;
@@ -19,7 +20,7 @@ use super::stack::{
     custom_app_caller, get_as, ids, join_org, make_staff, published_app, workspace_api,
     workspace_external,
 };
-use super::{Fixture, call, endpoint_key, fixture, legacy_key, seed_org, seed_workspace_in};
+use super::{Fixture, call, fixture, minted_pat, seed_org, seed_workspace_in};
 
 pub(crate) struct World {
     pub fx: Fixture,
@@ -100,13 +101,13 @@ pub(crate) async fn assert_full_reach(w: &World, what: &str, secret: &str) {
     assert_eq!(
         get_as(secret, "/admin/orgs-meta").await.0,
         StatusCode::OK,
-        "{what}: platform standing rides a legacy key"
+        "{what}: platform standing rides an all-access token"
     );
 
     // It describes itself as all-access with both standings.
     let (status, me) = get_as(secret, "/auth/token").await;
     assert_eq!(status, StatusCode::OK, "{what}");
-    assert_eq!(me["kind"], "legacy_key", "{what}");
+    assert_eq!(me["kind"], "personal", "{what}");
     assert_eq!(
         (&me["all_access"], &me["platform"], &me["partner"]),
         (&json!(true), &json!(true), &json!(true)),
@@ -116,21 +117,14 @@ pub(crate) async fn assert_full_reach(w: &World, what: &str, secret: &str) {
 }
 
 #[tokio::test]
-async fn a_legacy_key_keeps_its_full_reach() {
+async fn an_all_access_token_reaches_every_org_and_workspace_of_its_owner() {
     let w = world().await;
-    let (_, key) = legacy_key(&w.fx, None).await;
-    assert_full_reach(&w, "an oxy_<hex> key", &key).await;
+    let (_, token) = minted_pat(&w.fx, None).await;
+    assert_full_reach(&w, "an all-access personal token", &token).await;
 }
 
 #[tokio::test]
-async fn a_key_minted_by_the_legacy_endpoint_keeps_its_full_reach() {
-    let w = world().await;
-    let (_, key) = endpoint_key(&w.fx, None).await;
-    assert_full_reach(&w, "a key the legacy endpoint minted", &key).await;
-}
-
-#[tokio::test]
-async fn a_legacy_key_reaches_every_custom_app_and_lists_them() {
+async fn an_all_access_token_reaches_every_custom_app_and_lists_them() {
     let w = world().await;
     let mut apps = Vec::new();
     for (org, workspace) in [
@@ -141,13 +135,10 @@ async fn a_legacy_key_reaches_every_custom_app_and_lists_them() {
         apps.push(published_app(&w.fx.db, org, workspace).await);
     }
 
-    for (what, secret) in [
-        ("an oxy_<hex> key", legacy_key(&w.fx, None).await.1),
-        (
-            "a legacy-endpoint oxy_pat_",
-            endpoint_key(&w.fx, None).await.1,
-        ),
-    ] {
+    for (what, secret) in [(
+        "an all-access personal token",
+        minted_pat(&w.fx, None).await.1,
+    )] {
         let caller = custom_app_caller(&w.fx, &secret).await;
         for app in &apps {
             assert!(
