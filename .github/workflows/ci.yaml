@@ -1437,6 +1437,10 @@ jobs:
       DOMO_DEVELOPER_TOKEN: "empty"
     # Each partition gets its own backends, so the `serial-db` test group
     # (.config/nextest.toml) is serial per partition, not across the suite.
+    # Health checks every 2s, not 10s: Docker runs the first one only after an
+    # interval, so at 10s no service could be "ready" sooner than 10s after it
+    # started, and the job waited ~11s on ClickHouse alone (2026-11-16). The
+    # retries keep the same 50-100s budget before a service counts as failed.
     services:
       postgres:
         image: postgres:18-alpine
@@ -1452,8 +1456,8 @@ jobs:
         # device" (seen in oxy-cameras smoke_e2e on main, 2026-10-19).
         options: >-
           --shm-size=1g
-          --health-cmd "pg_isready -U admin -d default" --health-interval 10s
-          --health-timeout 5s --health-retries 5
+          --health-cmd "pg_isready -U admin -d default" --health-interval 2s
+          --health-timeout 5s --health-retries 25
       # A SECOND, throwaway cluster for the OLTP integration suite, and it is
       # not redundant with the one above.
       #
@@ -1483,8 +1487,8 @@ jobs:
           - 15433:5432
         options: >-
           --shm-size=1g
-          --health-cmd "pg_isready -U postgres" --health-interval 10s
-          --health-timeout 5s --health-retries 5
+          --health-cmd "pg_isready -U postgres" --health-interval 2s
+          --health-timeout 5s --health-retries 25
       # An object store, for the same reason `oltp-postgres` is here.
       #
       # `crates/api-documents/tests/integration/document_storage.rs` skips when no bucket is
@@ -1524,8 +1528,8 @@ jobs:
         ports:
           - 9000:9000
         options: >-
-          --health-cmd "mc ready local" --health-interval 10s
-          --health-timeout 5s --health-retries 10
+          --health-cmd "mc ready local" --health-interval 2s
+          --health-timeout 5s --health-retries 50
       # The ClickHouse the engine-backed suites write to: agentic-connector's
       # ClickHouse tests and oxy-app's `warehouse_writes_on_engines`. Both fell
       # back to a testcontainer and skipped when none started, and a skip
@@ -1542,8 +1546,8 @@ jobs:
         ports:
           - 18123:8123
         options: >-
-          --health-cmd "wget --spider -q http://127.0.0.1:8123/ping" --health-interval 10s
-          --health-timeout 5s --health-retries 5
+          --health-cmd "wget --spider -q http://127.0.0.1:8123/ping" --health-interval 2s
+          --health-timeout 5s --health-retries 25
     steps:
       - name: Free disk space
         if: runner.environment == 'github-hosted'
@@ -1587,6 +1591,34 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: nextest-archive
+      # Throwaway clusters, so no durability: every commit, migration and
+      # per-test `CREATE DATABASE … TEMPLATE` otherwise waits on an fsync. A
+      # local run never paid that: testcontainers' Postgres starts with
+      # `fsync=off` unless asked not to. Service containers take no command
+      # line, but all three settings reload without a restart.
+      - name: Postgres without durability
+        env:
+          CONTROL_PLANE: ${{ job.services.postgres.id }}
+          OLTP: ${{ job.services['oltp-postgres'].id }}
+        run: |
+          relax() {
+            local container=$1 user=$2 db=$3
+            for setting in "fsync = off" "synchronous_commit = off" "full_page_writes = off"; do
+              docker exec "$container" psql -v ON_ERROR_STOP=1 -qU "$user" -d "$db" -c "ALTER SYSTEM SET $setting"
+            done
+            docker exec "$container" psql -v ON_ERROR_STOP=1 -qU "$user" -d "$db" -c "SELECT pg_reload_conf()" >/dev/null
+            # The reload is a signal, not a barrier: wait until a new session sees it.
+            for _ in $(seq 20); do
+              now=$(docker exec "$container" psql -qAtU "$user" -d "$db" \
+                -c "SELECT string_agg(name || '=' || setting, ' ' ORDER BY name) FROM pg_settings WHERE name IN ('fsync', 'synchronous_commit', 'full_page_writes')")
+              [[ "$now" == "fsync=off full_page_writes=off synchronous_commit=off" ]] && { echo "$container: $now"; return 0; }
+              sleep 0.5
+            done
+            echo "::error::$container still has $now after pg_reload_conf()"
+            return 1
+          }
+          relax "$CONTROL_PLANE" admin default
+          relax "$OLTP" postgres postgres
       - name: Run tests
         env:
           OXY_DATABASE_URL: "postgresql://admin:password@localhost:5432/default"
@@ -1629,10 +1661,23 @@ jobs:
         run: |
           junit=target/nextest/default/junit.xml
           if [[ -f "$junit" ]]; then
-            python3 scripts/ci/nextest-summary.py "$junit" --slowest 15 \
+            python3 scripts/ci/nextest-summary.py "$junit" --slowest 15 --threads "$(nproc)" \
               --title "Rust tests, partition ${{ matrix.partition }}/${{ needs.cargo-test-archive.outputs.partition-count }}" \
               >>"$GITHUB_STEP_SUMMARY"
           fi
+      # The report behind that summary, kept: a job summary is not readable
+      # through the API, and its slowest-15 table cannot say what a partition
+      # was waiting on. With every test's start time and duration, a slow
+      # partition can be replayed — how busy the four slots were, and when the
+      # `serial-db` chain ran alone (scripts/ci/nextest_timeline.py).
+      - name: Upload test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: nextest-junit-${{ matrix.partition }}
+          path: target/nextest/default/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The status branch protection requires. It used to be the test leg of
   # `cargo-check-and-test`'s matrix; its name is kept so the rule still binds.

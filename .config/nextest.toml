@@ -51,7 +51,7 @@ path = "junit.xml"
 # in the suite continues to run in parallel alongside it.
 #
 # Why these need it:
-#   * `oxy`, `oxy-cameras` and the `agentic-*` integration tests migrate a SINGLE
+#   * `oxy` and the `agentic-*` integration tests migrate a SINGLE
 #     shared Postgres (CI sets `OXY_DATABASE_URL` to one service container;
 #     locally they reuse one testcontainer) against the same `public` schema, so
 #     two concurrent runs race on `CREATE TABLE IF NOT EXISTS
@@ -79,7 +79,7 @@ serial-db = { max-threads = 1 }
 db-per-test = { max-threads = 4 }
 
 [[profile.default.overrides]]
-filter = "kind(test) & (package(=oxy) | package(=oxy-cameras) | package(=agentic-pipeline) | package(=agentic-runtime) | package(=agentic-connector) | package(=agentic-airway))"
+filter = "kind(test) & (package(=oxy) | package(=agentic-pipeline) | package(=agentic-runtime) | package(=agentic-connector) | package(=agentic-airway))"
 test-group = "serial-db"
 # Small retry budget scoped to ONLY the DB-backed serial tests. The suite runs
 # with `--no-fail-fast`, so before this a single flaky DB/timing test (a
@@ -90,6 +90,19 @@ test-group = "serial-db"
 # exhausting its retries. Deliberately NOT set at profile scope — the fast,
 # hermetic unit tests must stay `retries = 0` so a real regression can't hide
 # behind a retry.
+retries = 2
+
+# `oxy-cameras`' integration group: every `smoke_e2e` test migrates a database
+# of its own (`containers::fresh_db_url`), and `smoke_real_airhouse` is
+# `#[ignore]` and does the same; nothing in the crate reaches the shared
+# `OXY_DATABASE_URL`. It sat in `serial-db` with the packages above all the
+# same, and by 2026-11-16 its 129 tests (~1.7s each, the migration chain) were
+# the longest stretch of that one-at-a-time chain and the tail of every
+# partition: the last ~25s of each ran nothing else
+# (scripts/ci/nextest_timeline.py over that day's JUnit reports).
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-cameras)"
+test-group = "db-per-test"
 retries = 2
 
 # `oxy-app`'s integration tests are grouped into one binary per domain

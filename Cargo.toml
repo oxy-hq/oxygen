@@ -1282,16 +1282,21 @@ todo = "deny"
 # units already carry no debug info here, so the knob buys nothing and a comment
 # claiming a win it does not deliver is worse than its absence.
 
-# NOTE: there is deliberately no `[profile.dev.package]` block here.
+# NOTE: there is deliberately no `opt-level = 0` block here.
 # One used to sit at this spot pinning `opt-level = 0` on aws-lc-sys,
 # libduckdb-sys, lz4-sys, onig_sys, openssl-sys, ring, aws-sdk-sts,
 # datafusion-common, parquet and sqlx-postgres, described as speeding up dev
 # builds. It could not: `[profile.dev] opt-level` is already 0 by default, so
-# every one of those entries set a value to what it already was. (It also could
-# not touch the C/C++ those `*-sys` build scripts compile — that is the `cc`
-# crate's business, not a Cargo profile's.) Removed rather than left in place,
-# because inert config reads as a tuning lever and stops anyone from looking for
-# a real one.
+# every one of those entries set a value to what it already was. Removed rather
+# than left in place, because inert config reads as a tuning lever and stops
+# anyone from looking for a real one.
+#
+# A per-package `opt-level` DOES reach the C/C++ a `*-sys` build script
+# compiles: Cargo runs the script with `OPT_LEVEL` from that package's profile,
+# and `cc` turns it into `-O<n>`. (This note used to say otherwise; checked
+# 2026-11-16 with a build script that prints `OPT_LEVEL`: 0 by default, 2 under
+# a `[profile.dev.package.<it>] opt-level = 2`.) `libduckdb-sys` below is the
+# one that pays for it.
 #
 # The real per-package lever, if dependency *runtime* ever dominates a test run,
 # is the opposite of what was written: `[profile.dev.package."*"] opt-level = 1`
@@ -1335,7 +1340,8 @@ todo = "deny"
 #
 # This is not a per-package override of anything: the `[profile.dev.package]` block
 # that used to sit above was deleted as inert (see the note above). Besides this
-# glob, the one per-dependency setting is `airlayer`'s opt-level, just below.
+# glob, the per-dependency settings are `airlayer`'s and `libduckdb-sys`'s
+# opt-level, just below.
 debug = false
 
 [profile.dev.package.airlayer]
@@ -1344,6 +1350,26 @@ debug = false
 # decision; at opt-level 0 one such pricing takes tens of seconds in a dev build
 # and a test that prices one takes as long. Optimising airlayer alone rebuilds only airlayer
 # and what already depends on it, which a rev bump rebuilds anyway.
+opt-level = 2
+
+[profile.dev.package.libduckdb-sys]
+# The bundled DuckDB C++ (`cc` reads this as `-O2`). At the default `-O0` it is
+# a 545 MB static library that every binary touching DuckDB links, and slow:
+# tests, `oxy start` and the IDE's DuckDB warehouses all run engine code built
+# for a debugger nobody attaches to it. Measured 2026-11-16, duckdb =1.10501.0
+# (bundled, parquet), x86_64, 4 cores, the same program both ways (20 rounds of
+# load 200k rows, join, group, parquet round trip):
+#
+#                                -O0        -O2
+#   workload                     4.0–4.3s   1.0–1.1s
+#   libduckdb.a                  545 MB     127 MB
+#   linked binary, stripped      66.6 MB    40.3 MB
+#   relink after a touch (bfd)   1.3–1.5s   0.7–0.8s
+#   cold build of the crate      341s       520s
+#
+# The cost is the last row, once per target dir (a cached `target/` keeps the
+# build; CI restores it). Only libduckdb-sys and its dependents rebuild when
+# this changes.
 opt-level = 2
 
 [profile.dev]

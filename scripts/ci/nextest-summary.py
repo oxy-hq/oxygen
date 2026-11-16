@@ -10,12 +10,20 @@ collapsed: worth a look when a partition drags, noise when it doesn't.
 
 It used to print only the slowest-15 table, so a red partition's summary
 listed fifteen tests that passed and none of the ones that failed.
+
+Between the two, how busy the test slots were and the longest stretches with
+at most one test running (`nextest_timeline.replay`): a partition that drags
+because of a serial chain says so here rather than in a replay of its report.
 """
 
 import argparse
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from nextest_timeline import cases_of, replay  # noqa: E402
 
 MAX_FAILURES = 25
 
@@ -49,11 +57,33 @@ def rerun(binary: str, name: str) -> str:
     return f"cargo nextest run -p {package} -E 'binary_id(={binary}) and test(={name})'"
 
 
+def concurrency(root: ET.Element, slots: int, stretches: int = 5) -> list[str]:
+    run = replay(cases_of(root))
+    if run is None or run.wall <= 0:
+        return []
+    lone = run.lone_seconds
+    out = [
+        f"<details><summary>{run.busy / run.wall:.1f} of {slots} test slots busy on average; "
+        f"at most one test running for {duration(lone)} of {duration(run.wall)} "
+        f"({lone / run.wall * 100:.0f}%)</summary>",
+        "",
+        "| stretch | from | tests running in it |",
+        "| ---: | ---: | --- |",
+    ]
+    for length, at, tests in run.lone[:stretches]:
+        names = sorted(f"{b} {n}" for b, n in tests)
+        shown = ", ".join(code(n) for n in names[:3])
+        more = f" and {len(names) - 3} more" if len(names) > 3 else ""
+        out.append(f"| {duration(length)} | {duration(at)} | {shown}{more} |")
+    return out + ["", "</details>", ""]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("junit")
     ap.add_argument("--title", default="Rust tests")
     ap.add_argument("--slowest", type=int, default=15)
+    ap.add_argument("--threads", type=int, default=4, help="test slots the run had")
     args = ap.parse_args()
 
     try:
@@ -100,6 +130,8 @@ def main() -> int:
 
     if flaky:
         out += ["Flaky: " + ", ".join(f"{code(n)} ({code(b)})" for b, n in flaky), ""]
+
+    out += concurrency(root, args.threads)
 
     if cases and args.slowest > 0:
         cases.sort(reverse=True)
