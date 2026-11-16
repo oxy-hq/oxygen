@@ -18,9 +18,9 @@
 //! Mounted on `SurfaceSeams::public` ([`crate::public_routes`]), beside the
 //! public tree outside the auth stack, where `oxy-app`'s `build_public_routes`
 //! mounted it with `route_fleet` until 2026-11-15.
-//! Whether a verified push does anything is decided by the same gate as the
-//! periodic check (the `compile_reconcile` flag); with it off the delivery is
-//! acknowledged `202` and nothing is queued.
+//! A verified push to a workspace's default branch always queues a commit
+//! compile; the `compile_reconcile` gate it once shared with the periodic check
+//! is retired.
 
 use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};

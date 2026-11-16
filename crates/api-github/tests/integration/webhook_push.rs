@@ -9,12 +9,12 @@
 //! dedupe, the gate, retries) stayed there, driving `push::handle` directly.
 //!
 //! The signature cases run against a database holding a workspace the push
-//! DOES match, with the compile gate on, so a forged delivery that got through
+//! DOES match, so a forged delivery that got through
 //! would queue a `compile_git` task: refusing it is proven by the empty queue,
 //! not by the status alone.
 //!
-//! The handler reads `GITHUB_WEBHOOK_SECRET` and `OXY_COMPILE_RECONCILE` from
-//! the environment, so each test sets them for its own process: nextest runs
+//! The handler reads `GITHUB_WEBHOOK_SECRET` from the environment, so each
+//! test sets it for its own process: nextest runs
 //! this binary process-per-test (`db-per-test` in `.config/nextest.toml`).
 
 use axum::Router;
@@ -47,7 +47,6 @@ fn configure(secret: Option<&str>) {
             Some(secret) => std::env::set_var("GITHUB_WEBHOOK_SECRET", secret),
             None => std::env::remove_var("GITHUB_WEBHOOK_SECRET"),
         }
-        std::env::set_var("OXY_COMPILE_RECONCILE", "1");
     }
 }
 

@@ -38,8 +38,7 @@ pub enum Heal {
     Commit(Target),
     /// The workspace has nothing compiled and a GitHub branch to compile: ask
     /// the periodic check to look at that branch now, rather than queue a
-    /// compile only the Factory could run. Only while that check is switched
-    /// on ([`crate::server::compile_reconcile::enabled`]).
+    /// compile only the Factory could run.
     CheckBranch,
     /// Compile the working copy, as every self-heal used to.
     WorkingCopy,
@@ -54,9 +53,7 @@ pub async fn heal(db: &DatabaseConnection, workspace_id: Uuid) -> Heal {
     let remote = row.git_remote_url.as_deref();
     let connected = row.git_namespace_id.is_some();
     let Some(promoted_id) = row.current_revision_id else {
-        let may_check = crate::server::compile_reconcile::enabled();
-        return if first_compile_by_check(remote, connected, &stored_default_branch(&row), may_check)
-        {
+        return if first_compile_by_check(remote, connected, &stored_default_branch(&row)) {
             Heal::CheckBranch
         } else {
             Heal::WorkingCopy
@@ -98,12 +95,8 @@ pub(crate) fn first_compile_by_check(
     remote: Option<&str>,
     has_github_connection: bool,
     default_branch: &Option<String>,
-    check_enabled: bool,
 ) -> bool {
-    check_enabled
-        && has_github_connection
-        && default_branch.is_some()
-        && remote.and_then(github_slug_of).is_some()
+    has_github_connection && default_branch.is_some() && remote.and_then(github_slug_of).is_some()
 }
 
 /// The decision, apart from the reads.
@@ -165,18 +158,15 @@ mod tests {
     #[test]
     fn a_workspace_with_nothing_compiled_waits_for_the_branch_check_only_when_it_can_run() {
         let main = Some("main".to_string());
-        assert!(first_compile_by_check(Some(REMOTE), true, &main, true));
-        // The check is off: the working-copy compile is the only first compile.
-        assert!(!first_compile_by_check(Some(REMOTE), true, &main, false));
+        assert!(first_compile_by_check(Some(REMOTE), true, &main));
         // The check would skip it: nothing to ask GitHub about, or no way to.
-        assert!(!first_compile_by_check(Some(REMOTE), true, &None, true));
-        assert!(!first_compile_by_check(Some(REMOTE), false, &main, true));
-        assert!(!first_compile_by_check(None, true, &main, true));
+        assert!(!first_compile_by_check(Some(REMOTE), true, &None));
+        assert!(!first_compile_by_check(Some(REMOTE), false, &main));
+        assert!(!first_compile_by_check(None, true, &main));
         assert!(!first_compile_by_check(
             Some("https://gitlab.com/acme/analytics.git"),
             true,
-            &main,
-            true
+            &main
         ));
     }
 

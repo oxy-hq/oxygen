@@ -272,9 +272,20 @@ async fn a_stepped_aside_revision_is_still_the_last_known_good() {
 }
 
 #[tokio::test]
-async fn a_workspace_that_cannot_be_recompiled_from_git_keeps_the_working_copy_self_heal() {
-    // Nothing promoted yet.
+async fn a_never_compiled_workspace_the_branch_check_cannot_look_at_keeps_the_working_copy_self_heal()
+ {
+    // Nothing promoted yet, and no default branch recorded, so the branch check has
+    // nothing to ask GitHub about (`self_heal::first_compile_by_check`). A workspace
+    // that has one gets its first compile from the check instead
+    // (`compile_first::a_request_for_an_empty_workspace_asks_for_the_check_not_a_compile`).
     let fx = Fx::new().await;
+    fx.db
+        .execute_unprepared(&format!(
+            "UPDATE workspaces SET default_branch = NULL WHERE id = '{}'",
+            fx.ws
+        ))
+        .await
+        .unwrap();
     enqueue_lazy_compile(&fx.db, fx.ws).await;
     assert_eq!(fx.tasks().await, [("compile".to_string(), None)]);
 }
@@ -315,8 +326,6 @@ async fn a_compiler_bump_reaches_a_workspace_whose_head_has_not_moved() {
     use oxy_app::server::compile_reconcile::tick;
 
     let fx = Fx::new().await;
-    // SAFETY: single test per process.
-    unsafe { std::env::set_var("OXY_COMPILE_RECONCILE", "1") };
     fx.github_has_the_commit().await;
     Mock::given(method("GET"))
         .and(path("/repos/acme/analytics/commits/heads/main"))

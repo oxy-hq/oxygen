@@ -48,7 +48,6 @@ impl Fx {
         // asserts it), and nothing has read these yet.
         unsafe {
             std::env::set_var("GITHUB_API_URL", github.uri());
-            std::env::set_var("OXY_COMPILE_RECONCILE", "1");
         }
         let ws = seed_workspace(&db, None).await;
         Self { db, ws, github }
@@ -180,26 +179,6 @@ impl Fx {
 /// How far in the future a check's next run is, in seconds.
 fn due_in(row: &workspace_compile_checks::Model) -> i64 {
     (row.next_check_at.with_timezone(&Utc) - Utc::now()).num_seconds()
-}
-
-#[tokio::test]
-async fn with_the_gate_off_the_loop_does_nothing() {
-    let fx = Fx::new().await;
-    fx.branch_head_is(HEAD).await;
-    // SAFETY: process-per-test; the loop reads this on every tick.
-    unsafe { std::env::remove_var("OXY_COMPILE_RECONCILE") };
-
-    for _ in 0..2 {
-        assert_eq!(tick(&fx.db).await, Tick::default());
-    }
-
-    let rows = workspace_compile_checks::Entity::find()
-        .all(&fx.db)
-        .await
-        .expect("read checks");
-    assert!(rows.is_empty(), "no check may even be scheduled: {rows:?}");
-    assert_eq!(fx.requests().await, 0);
-    assert!(fx.compile_tasks().await.is_empty());
 }
 
 #[tokio::test]

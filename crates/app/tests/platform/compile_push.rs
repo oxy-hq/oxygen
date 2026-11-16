@@ -4,8 +4,7 @@
 //! A parsed delivery is handed to `push::handle` against a real database, as the
 //! receiver hands it once the signature checks out: what matters is which
 //! workspaces get a `compile_git` task and, as much, which do not — another
-//! repository, another branch, another subdirectory, a duplicate delivery, a
-//! gate that is off.
+//! repository, another branch, another subdirectory, a duplicate delivery.
 //!
 //! The receiver itself — the signature, `ping`, other events, a malformed
 //! payload, an unconfigured secret — is `oxy-api-github`'s `webhook` since
@@ -47,7 +46,7 @@ struct Fx {
 }
 
 impl Fx {
-    async fn new(gate_on: bool) -> Self {
+    async fn new() -> Self {
         let db = test_db_with(Schema::All).await;
         let github = MockServer::start().await;
         // SAFETY: nextest runs each test in its own process (`test_db_with`
@@ -55,11 +54,6 @@ impl Fx {
         unsafe {
             std::env::set_var("GITHUB_API_URL", github.uri());
             std::env::remove_var("OXY_COMPILE_BLOB_S3_BUCKET");
-            if gate_on {
-                std::env::set_var("OXY_COMPILE_RECONCILE", "1");
-            } else {
-                std::env::remove_var("OXY_COMPILE_RECONCILE");
-            }
         }
         let ws = seed_workspace(&db, None).await;
         Self { db, ws, github }
@@ -173,7 +167,7 @@ fn main_push(paths: &[&str]) -> Value {
 
 #[tokio::test]
 async fn a_push_queues_one_commit_compile_for_the_matching_workspace_and_no_other() {
-    let fx = Fx::new(true).await;
+    let fx = Fx::new().await;
     let other_repo = fx
         .another("https://github.com/acme/other.git", "main", None)
         .await;
@@ -226,7 +220,7 @@ async fn a_push_queues_one_commit_compile_for_the_matching_workspace_and_no_othe
 
 #[tokio::test]
 async fn a_duplicate_delivery_queues_nothing_new() {
-    let fx = Fx::new(true).await;
+    let fx = Fx::new().await;
     let body = main_push(&["config.yml"]);
 
     fx.push(&body).await;
@@ -248,7 +242,7 @@ async fn a_duplicate_delivery_queues_nothing_new() {
 
 #[tokio::test]
 async fn a_head_that_is_already_compiled_or_served_queues_nothing() {
-    let fx = Fx::new(true).await;
+    let fx = Fx::new().await;
     fx.serve_ready_revision(fx.ws, HEAD).await;
     let body = fx.push(&main_push(&["config.yml"])).await;
     assert_eq!(body, "1 workspace(s) match; 0 handed to the compile queue");
@@ -257,7 +251,7 @@ async fn a_head_that_is_already_compiled_or_served_queues_nothing() {
 
 #[tokio::test]
 async fn pushes_that_are_not_to_a_branch_head_do_nothing() {
-    let fx = Fx::new(true).await;
+    let fx = Fx::new().await;
     for body in [
         push_body("refs/heads/feature/x", "acme/analytics", HEAD, &[]),
         push_body("refs/tags/v1", "acme/analytics", HEAD, &[]),
@@ -273,20 +267,12 @@ async fn pushes_that_are_not_to_a_branch_head_do_nothing() {
     assert!(fx.tasks().await.is_empty(), "{:?}", fx.tasks().await);
 }
 
-#[tokio::test]
-async fn with_the_gate_off_a_delivery_is_acknowledged_and_does_nothing() {
-    let fx = Fx::new(false).await;
-    let body = fx.push(&main_push(&["config.yml"])).await;
-    assert!(body.starts_with("ignored: "), "{body}");
-    assert!(fx.tasks().await.is_empty());
-}
-
 /// The task the webhook queued retries on the queue's own policy: GitHub is
 /// down for the first attempt, the same row is claimed again after its backoff,
 /// and the compile promotes.
 #[tokio::test]
 async fn a_transient_github_failure_is_requeued_and_the_commit_is_promoted() {
-    let fx = Fx::new(true).await;
+    let fx = Fx::new().await;
     // SAFETY: single test per process.
     unsafe { std::env::set_var("OXY_ROLE", "worker") };
     oxy_app::server::role_manifest::init_process_role_from_env();
@@ -375,7 +361,7 @@ async fn a_transient_github_failure_is_requeued_and_the_commit_is_promoted() {
 #[tokio::test]
 async fn a_retried_commit_compile_does_not_take_over_from_one_that_started_after_it_was_asked_for()
 {
-    let fx = Fx::new(true).await;
+    let fx = Fx::new().await;
     // SAFETY: single test per process.
     unsafe { std::env::set_var("OXY_ROLE", "worker") };
     oxy_app::server::role_manifest::init_process_role_from_env();

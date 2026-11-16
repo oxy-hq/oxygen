@@ -9,8 +9,8 @@
 //!
 //! What is under test here is each step the first compile now takes:
 //!
-//! 1. a request finds the workspace empty and, with the branch check on,
-//!    brings that check forward instead of queueing a working-copy compile;
+//! 1. a request finds the workspace empty and brings the branch check forward
+//!    instead of queueing a working-copy compile;
 //! 2. the check queues a commit compile of the branch head;
 //! 3. a context built the way the worker builds one for a workspace with
 //!    nothing compiled (its path is not on this node) drives that compile, and
@@ -51,7 +51,7 @@ struct Fx {
 }
 
 impl Fx {
-    async fn new(gate_on: bool) -> Self {
+    async fn new() -> Self {
         let db = test_db_with(Schema::All).await;
         let github = MockServer::start().await;
         // SAFETY: nextest runs each test in its own process (`test_db_with`
@@ -60,11 +60,6 @@ impl Fx {
             std::env::set_var("OXY_ROLE", "worker");
             std::env::set_var("GITHUB_API_URL", github.uri());
             std::env::remove_var("OXY_COMPILE_BLOB_S3_BUCKET");
-            if gate_on {
-                std::env::set_var("OXY_COMPILE_RECONCILE", "1");
-            } else {
-                std::env::remove_var("OXY_COMPILE_RECONCILE");
-            }
         }
         oxy_app::server::role_manifest::init_process_role_from_env();
         let ws = seed_workspace(&db, None).await;
@@ -124,8 +119,8 @@ impl Fx {
 }
 
 #[tokio::test]
-async fn with_the_check_on_a_request_for_an_empty_workspace_asks_for_the_check_not_a_compile() {
-    let fx = Fx::new(true).await;
+async fn a_request_for_an_empty_workspace_asks_for_the_check_not_a_compile() {
+    let fx = Fx::new().await;
     enqueue_lazy_compile(&fx.db, fx.ws).await;
     assert!(
         fx.tasks().await.is_empty(),
@@ -139,7 +134,7 @@ async fn with_the_check_on_a_request_for_an_empty_workspace_asks_for_the_check_n
 /// nothing: the working-copy compile is the only way to a first revision.
 #[tokio::test]
 async fn a_workspace_the_check_will_not_look_at_still_gets_the_working_copy_compile() {
-    let fx = Fx::new(true).await;
+    let fx = Fx::new().await;
     // Its last check found something only a person can fix.
     fx.db
         .execute_unprepared(&format!(
@@ -158,7 +153,7 @@ async fn a_workspace_the_check_will_not_look_at_still_gets_the_working_copy_comp
 
 #[tokio::test]
 async fn a_workspace_that_is_not_ready_still_gets_the_working_copy_compile() {
-    let fx = Fx::new(true).await;
+    let fx = Fx::new().await;
     fx.db
         .execute_unprepared(&format!(
             "UPDATE workspaces SET status = 'cloning' WHERE id = '{}'",
@@ -175,19 +170,8 @@ async fn a_workspace_that_is_not_ready_still_gets_the_working_copy_compile() {
 }
 
 #[tokio::test]
-async fn with_the_check_off_it_is_still_a_working_copy_compile() {
-    let fx = Fx::new(false).await;
-    enqueue_lazy_compile(&fx.db, fx.ws).await;
-    assert_eq!(
-        fx.tasks().await,
-        [("compile".to_string(), "queued".to_string())]
-    );
-    assert!(fx.check().await.is_none());
-}
-
-#[tokio::test]
 async fn asking_again_straight_after_a_check_does_not_bring_the_next_one_forward() {
-    let fx = Fx::new(true).await;
+    let fx = Fx::new().await;
     fx.github_has_the_branch().await;
     request_check(&fx.db, fx.ws).await;
     let first = tick(&fx.db).await;
@@ -207,7 +191,7 @@ async fn asking_again_straight_after_a_check_does_not_bring_the_next_one_forward
 
 #[tokio::test]
 async fn an_empty_workspace_is_compiled_from_its_branch_by_a_context_with_no_files() {
-    let fx = Fx::new(true).await;
+    let fx = Fx::new().await;
     fx.github_has_the_branch().await;
 
     enqueue_lazy_compile(&fx.db, fx.ws).await;

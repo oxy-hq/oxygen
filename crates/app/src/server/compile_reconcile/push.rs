@@ -200,11 +200,6 @@ impl Handled {
 
 /// Act on one verified `push` delivery.
 pub async fn handle(db: &DatabaseConnection, push: &PushEvent) -> Result<Handled, DbErr> {
-    if !super::enabled() {
-        return Ok(Handled::Ignored(
-            "push-triggered compiles are switched off on this deployment",
-        ));
-    }
     let Some(branch) = push.branch() else {
         return Ok(Handled::Ignored("not a branch"));
     };

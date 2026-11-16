@@ -269,8 +269,6 @@ async fn a_redelivered_older_push_cannot_roll_the_pin_back() {
 #[tokio::test]
 async fn push_handle_ignores_deleted_branch_for_env_pins() {
     let fx = Fx::new(Some("serve")).await;
-    // SAFETY: nextest runs each test in its own process.
-    unsafe { std::env::set_var("OXY_COMPILE_RECONCILE", "1") };
     let org = seed_org(&fx.db).await;
     let app = seed_app(&fx.db, org, fx.ws).await;
     set_planes(&fx.db, app, "staging", on_feature_branch()).await;
@@ -288,8 +286,6 @@ async fn push_handle_ignores_deleted_branch_for_env_pins() {
 async fn push_handle_counts_env_pin_compiles_as_queued() {
     let fx = Fx::new(Some("serve")).await;
     fx.branch_is_at(BRANCH, HEAD).await;
-    // SAFETY: nextest runs each test in its own process.
-    unsafe { std::env::set_var("OXY_COMPILE_RECONCILE", "1") };
     let org = seed_org(&fx.db).await;
     let app = seed_app(&fx.db, org, fx.ws).await;
     set_planes(&fx.db, app, "staging", on_feature_branch()).await;

@@ -312,9 +312,8 @@ pub async fn run_worker(
         (hooks.after_migrations)().await;
     }
     // As at `oxy serve` boot: the feature-flag cache, with its refresh. The
-    // worker runs three flag-gated paths — the worker-fleet compile
-    // (`compile_config_gate`), the reconcile tick and `self_heal`
-    // (`compile_reconcile::enabled`) — and an unloaded cache reads every flag
+    // worker runs flag-gated paths — the worker-fleet compile
+    // (`compile_config_gate`) — and an unloaded cache reads every flag
     // at its registry default, so the rollout gates would stay off here while
     // the admin page said they were on. Fail-fast for the same reason serve
     // does; the refresh is what lets a flag flipped later reach the fleet.

@@ -345,8 +345,8 @@ pub async fn start_server_and_web_app(
 }
 
 /// Load the feature-flag cache and start its refresh. Shared with `oxy worker`,
-/// which runs the same flag-gated compile paths (`compile_config_gate`,
-/// `compile_reconcile`) and would otherwise read every flag at its registry
+/// which runs the same flag-gated compile path (`compile_config_gate`) and
+/// would otherwise read every flag at its registry
 /// default — the rollout gates off — for the life of the pod.
 pub(super) async fn init_feature_flags() -> Result<(), OxyError> {
     // `cache::init` opens its own connection, starts the refresh, and does the

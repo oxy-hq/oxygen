@@ -139,8 +139,7 @@ async fn place_adopted(
 /// branch's head commit). A settle that fails gives the row back, so the
 /// retry is not refused as `org_has_workspace` until the claim goes stale. A
 /// compile that cannot be queued now is queued by the branch check, which a
-/// request for the workspace brings forward, and by the next push — both of
-/// which [`resolve_import_head`] required to be on.
+/// request for the workspace brings forward, and by the next push.
 pub(super) async fn connect(
     placed: PlacedImport,
     head: String,
@@ -215,15 +214,13 @@ async fn give_back(
 
 /// The commit the import will compile: the head of the repository's default
 /// branch, once `config.yml` is found at it (inside `subdir` when given). A
-/// repository without one is refused `422` before anything is recorded, and so
-/// is every import on a deployment that does not compile from git.
+/// repository without one is refused `422` before anything is recorded.
 pub(super) async fn resolve_import_head(
     client: &oxy::github::GitHubClient,
     repo_id: i64,
     repo: &GitHubRepository,
     subdir: Option<&Path>,
 ) -> Result<String, HandlerError> {
-    require_compiles_from_git(oxy_app::surface::compiles_from_git())?;
     let head = client
         .get_branch_commit_hash(repo_id, &repo.default_branch)
         .await
@@ -247,22 +244,6 @@ pub(super) async fn resolve_import_head(
         return Err(not_an_oxy_project(&repo.clone_url, subdir));
     }
     Ok(head)
-}
-
-/// Refuse an import on a deployment that does not compile from git. The
-/// import clones nothing, so its workspace is served only from commit
-/// compiles; without the `compile_reconcile` flag none run (not the first, not
-/// a push's), and the workspace would sit Ready with nothing ever compiled.
-fn require_compiles_from_git(enabled: bool) -> Result<(), HandlerError> {
-    if enabled {
-        return Ok(());
-    }
-    Err((
-        StatusCode::SERVICE_UNAVAILABLE,
-        "This deployment does not compile workspaces from git yet, so a repository cannot be \
-         connected. An operator turns it on with `oxyc flags set compile_reconcile --on`."
-            .to_string(),
-    ))
 }
 
 /// Where the workspace root would sit, as the row records it. Nothing is

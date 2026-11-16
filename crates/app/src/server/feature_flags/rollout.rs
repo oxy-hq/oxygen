@@ -3,17 +3,19 @@
 //! deployment from "set the variable" to "flip the flag" without a behaviour
 //! change at merge.
 //!
-//! Three compile-boundary gates started life as environment variables read at
-//! their call sites (`OXY_COMPILE_RECONCILE`, `OXY_COMPILE_REFUSE_FILE_CREDENTIALS`,
+//! Two compile-boundary gates started life as environment variables read at
+//! their call sites (`OXY_COMPILE_REFUSE_FILE_CREDENTIALS`,
 //! `OXY_COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS`). They are now flags, so an
 //! operator turns one on from the admin page or `oxyc flags set <flag> --on`,
 //! per deployment, with the kill switch and the audit trail every flag has, and
 //! so the registry's sunset test retires them on time. For **one release** the
 //! variable still wins when it is set, with a deprecation warning logged once
 //! per process, so a deployment that sets it today behaves exactly as it did;
-//! unset, the flag decides. The variable's own truthiness is kept per gate
-//! (`OXY_COMPILE_RECONCILE` took `1`/`true`/`yes`/`on`; the other two took `1`
-//! only), for the same reason.
+//! unset, the flag decides. Both variables took `1` only, and still do.
+//!
+//! A third, `compile_reconcile` (and its `OXY_COMPILE_RECONCILE` override), was
+//! retired: with no working copy left, a commit compile from git is the only way a
+//! workspace compiles, so the branch check and the push webhook always run.
 //!
 //! The flag side reads the in-process cache (`super::cache`), which is loaded at
 //! boot by every process that runs a gated path — `oxy serve` and `oxy worker`
@@ -32,9 +34,6 @@ use std::sync::{LazyLock, Mutex};
 
 use super::cache;
 
-/// Registry key of the gate on the periodic branch check and the GitHub push
-/// webhook that queue a commit compile when a default branch moves.
-pub const COMPILE_RECONCILE_FLAG: &str = "compile_reconcile";
 /// Registry key of the gate that fails (rather than warns on) a compile whose
 /// config reads a key file on a cloud role.
 pub const COMPILE_REFUSE_FILE_CREDENTIALS_FLAG: &str = "compile_refuse_file_credentials";
@@ -52,7 +51,6 @@ pub const COMPILE_REFUSE_CLASSIC_AGENTS_FLAG: &str = "compile_refuse_classic_age
 
 /// The deprecated overrides. Read only by [`is_on`], and inventoried in
 /// `internal-docs/configuration.md` as rollout gates.
-pub const COMPILE_RECONCILE_ENV: &str = "OXY_COMPILE_RECONCILE";
 pub const COMPILE_REFUSE_FILE_CREDENTIALS_ENV: &str = "OXY_COMPILE_REFUSE_FILE_CREDENTIALS";
 pub const COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS_ENV: &str =
     "OXY_COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS";
@@ -66,19 +64,9 @@ pub struct RolloutGate {
     pub env_is_on: fn(&str) -> bool,
 }
 
-fn truthy(value: &str) -> bool {
-    matches!(value, "1" | "true" | "yes" | "on")
-}
-
 fn is_one(value: &str) -> bool {
     value == "1"
 }
-
-pub const COMPILE_RECONCILE: RolloutGate = RolloutGate {
-    flag: COMPILE_RECONCILE_FLAG,
-    env: COMPILE_RECONCILE_ENV,
-    env_is_on: truthy,
-};
 
 pub const COMPILE_REFUSE_FILE_CREDENTIALS: RolloutGate = RolloutGate {
     flag: COMPILE_REFUSE_FILE_CREDENTIALS_FLAG,
@@ -144,8 +132,16 @@ mod tests {
 
     #[test]
     fn unset_the_flag_decides() {
-        assert!(is_on_with(&COMPILE_RECONCILE, unset, |_| true));
-        assert!(!is_on_with(&COMPILE_RECONCILE, unset, |_| false));
+        assert!(is_on_with(
+            &COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS,
+            unset,
+            |_| true
+        ));
+        assert!(!is_on_with(
+            &COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS,
+            unset,
+            |_| false
+        ));
         assert!(is_on_with(&COMPILE_REFUSE_FILE_CREDENTIALS, unset, |key| {
             key == COMPILE_REFUSE_FILE_CREDENTIALS_FLAG
         }));
@@ -154,25 +150,18 @@ mod tests {
     #[test]
     fn set_the_variable_wins_in_both_directions() {
         let set = |v: &'static str| move |_: &str| Some(v.to_string());
-        assert!(is_on_with(&COMPILE_RECONCILE, set("1"), |_| false));
-        assert!(!is_on_with(&COMPILE_RECONCILE, set("0"), |_| true));
+        for gate in [
+            &COMPILE_REFUSE_FILE_CREDENTIALS,
+            &COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS,
+        ] {
+            assert!(is_on_with(gate, set("1"), |_| false), "{}", gate.env);
+            assert!(!is_on_with(gate, set("0"), |_| true), "{}", gate.env);
+        }
     }
 
-    /// `OXY_COMPILE_RECONCILE` always took four spellings; the other two took `1`.
+    /// Both variables took `1` only: `true` is not on.
     #[test]
     fn each_gate_keeps_the_truthiness_its_variable_had() {
-        for on in ["1", "true", "yes", "on"] {
-            assert!(
-                is_on_with(&COMPILE_RECONCILE, |_| Some(on.into()), |_| false),
-                "{on}"
-            );
-        }
-        for off in ["", "0", "false", "no", "TRUE"] {
-            assert!(
-                !is_on_with(&COMPILE_RECONCILE, |_| Some(off.into()), |_| true),
-                "{off:?}"
-            );
-        }
         for gate in [
             &COMPILE_REFUSE_FILE_CREDENTIALS,
             &COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS,
@@ -189,7 +178,6 @@ mod tests {
     #[test]
     fn every_gate_names_a_registered_rollout_flag() {
         for gate in [
-            &COMPILE_RECONCILE,
             &COMPILE_REFUSE_FILE_CREDENTIALS,
             &COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS,
         ] {

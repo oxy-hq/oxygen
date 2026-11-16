@@ -133,23 +133,6 @@ pub static FLAGS: &[FlagDef] = &[
         sunset: None,
     },
     FlagDef {
-        key: super::rollout::COMPILE_RECONCILE_FLAG,
-        description: "Keep a remote-backed workspace serving what its default branch has: \
-                      the periodic branch check (every 5 minutes per workspace) and the \
-                      GitHub push webhook queue a commit compile when the branch is ahead \
-                      of what is served. Turning it on changes what the deployment serves \
-                      without anyone clicking Compile; the webhook also needs \
-                      GITHUB_WEBHOOK_SECRET. Was OXY_COMPILE_RECONCILE, which still \
-                      overrides this flag for one release when set.",
-        default_enabled: false,
-        variants: BOOLEAN,
-        unit: Unit::Org,
-        per_org: false,
-        client: false,
-        kind: FlagKind::Rollout,
-        sunset: Some("2027-01-31"),
-    },
-    FlagDef {
         key: super::rollout::COMPILE_REFUSE_FILE_CREDENTIALS_FLAG,
         description: "Fail, instead of warn on, a compile whose config.yml reads a key file \
                       from the repository (BigQuery key_path, Snowflake private-key path) on \

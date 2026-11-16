@@ -4,15 +4,14 @@
 //!
 //! The unit tests in `rollout.rs` inject the lookups, so they pin the
 //! precedence but never that the real `is_on` sees a real flag row. The hole
-//! this guards: `oxy worker` ran the worker-fleet compile, the reconcile tick
-//! and `self_heal` without ever loading the flag cache, so with the variable
+//! this guards: `oxy worker` ran the worker-fleet compile without ever loading
+//! the flag cache, so with the variable
 //! unset every gate read its registry default — off — while the admin page
 //! said it was on. `oxy compile` had the same gap.
 
 use oxy_app::server::compile_config_gate::runtime_config_gate;
-use oxy_app::server::compile_reconcile;
 use oxy_app::server::feature_flags::rollout::{
-    COMPILE_RECONCILE, COMPILE_REFUSE_CLASSIC_AGENTS_FLAG, COMPILE_REFUSE_FILE_CREDENTIALS,
+    COMPILE_REFUSE_CLASSIC_AGENTS_FLAG, COMPILE_REFUSE_FILE_CREDENTIALS,
     COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS, is_on,
 };
 use oxy_app::server::feature_flags::{cache, store};
@@ -30,16 +29,12 @@ async fn with_the_variables_unset_a_flag_row_turns_the_gate_on() {
     // SAFETY: nextest runs each test in its own process (`test_db` asserts it),
     // so unsetting the overrides touches nobody else.
     for gate in [
-        &COMPILE_RECONCILE,
         &COMPILE_REFUSE_FILE_CREDENTIALS,
         &COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS,
     ] {
         unsafe { std::env::remove_var(gate.env) };
     }
 
-    store::upsert(&db, COMPILE_RECONCILE.flag, true)
-        .await
-        .expect("flip compile_reconcile on");
     store::upsert(&db, COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS.flag, true)
         .await
         .expect("flip compile_refuse_retired_automation_steps on");
@@ -50,7 +45,7 @@ async fn with_the_variables_unset_a_flag_row_turns_the_gate_on() {
     // Before the load the gates read the registry default — the state a
     // process that never called `init` stays in for its whole life.
     assert!(
-        !is_on(&COMPILE_RECONCILE),
+        !is_on(&COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS),
         "unloaded: registry default, off"
     );
 
@@ -58,10 +53,9 @@ async fn with_the_variables_unset_a_flag_row_turns_the_gate_on() {
         .await
         .expect("feature flag cache init, as the worker does");
 
-    assert!(is_on(&COMPILE_RECONCILE), "the row decides once loaded");
     assert!(
-        compile_reconcile::enabled(),
-        "the reconcile tick and self_heal read the same gate"
+        is_on(&COMPILE_REFUSE_RETIRED_AUTOMATION_STEPS),
+        "the row decides once loaded"
     );
     assert!(
         runtime_config_gate().refuses_retired_automation_steps(),

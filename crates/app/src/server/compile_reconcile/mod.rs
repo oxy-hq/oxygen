@@ -13,12 +13,11 @@
 //! `internal-docs/factory-retirement.md`, phase 1. Its other half is the GitHub
 //! `push` webhook ([`push`]), which reaches the same enqueue sooner.
 //!
-//! **Off unless the `compile_reconcile` feature flag is on** (or, for one more
-//! release, `OXY_COMPILE_RECONCILE` is set: `feature_flags::rollout`), and the
-//! webhook obeys the same gate. Turning it on changes what a deployment serves:
-//! a push to a default branch is promoted without anyone clicking Compile. It is
-//! a rollout gate — dev, then staging — not a setting, and the registry names
-//! its sunset.
+//! **Always on.** It began behind the `compile_reconcile` rollout gate (and the
+//! `OXY_COMPILE_RECONCILE` variable), turned on in dev and then staging; with no
+//! working copy left, a commit compile from git is the only way a workspace
+//! compiles, so the gate was retired. A push to a default branch is promoted
+//! without anyone clicking Compile.
 //!
 //! Three properties the loop is built around:
 //!
@@ -81,24 +80,14 @@ const DEFAULT_BRANCH_BUDGET: Duration = Duration::from_secs(5);
 /// pauses itself.
 static PAUSED_UNTIL: AtomicI64 = AtomicI64::new(0);
 
-/// Whether the loop is switched on for this process: the `compile_reconcile`
-/// flag, or its deprecated environment override
-/// ([`rollout::COMPILE_RECONCILE`](crate::server::feature_flags::rollout::COMPILE_RECONCILE)).
-pub fn enabled() -> bool {
-    use crate::server::feature_flags::rollout;
-    rollout::is_on(&rollout::COMPILE_RECONCILE)
-}
-
 /// Say at boot whether this node will move what workspaces serve on its own.
 pub fn announce() {
-    if enabled() {
-        tracing::info!(
-            target: "compile_reconcile",
-            interval_secs = CHECK_INTERVAL.as_secs(),
-            "compile_reconcile is on: this node compares each remote-backed workspace's default \
-             branch with the revision it serves, and queues a commit compile when they differ"
-        );
-    }
+    tracing::info!(
+        target: "compile_reconcile",
+        interval_secs = CHECK_INTERVAL.as_secs(),
+        "this node compares each remote-backed workspace's default branch with the revision \
+         it serves, and queues a commit compile when they differ"
+    );
 }
 
 /// Ask for `workspace_id`'s branch to be checked at the next tick instead of
@@ -106,17 +95,14 @@ pub fn announce() {
 /// compiled: its first compile is a commit compile of its default branch, and
 /// the check is what finds the head and queues it.
 ///
-/// Does nothing with the gate off, and what it does is bounded (see
-/// [`state::pull_forward`]): it moves a due time, it does not ask GitHub.
+/// What it does is bounded (see [`state::pull_forward`]): it moves a due time,
+/// it does not ask GitHub.
 ///
 /// Returns whether a check **will** look at the workspace. `false` means no
-/// commit compile can come of it (the gate is off, the workspace is not ready,
-/// or its last check found something only a person can fix), and the caller
+/// commit compile can come of it (the workspace is not ready, or its last check
+/// found something only a person can fix), and the caller
 /// has to compile some other way or the workspace waits for nothing.
 pub async fn request_check(db: &DatabaseConnection, workspace_id: uuid::Uuid) -> bool {
-    if !enabled() {
-        return false;
-    }
     match state::pull_forward(db, workspace_id).await {
         Ok(pull) => {
             if pull.moved {
@@ -149,10 +135,10 @@ pub struct Tick {
     pub rate_limited: bool,
 }
 
-/// One pass of the loop. Does nothing at all — no query, no request — unless
-/// the gate is on.
+/// One pass of the loop. Does nothing at all — no query, no request — while a
+/// rate limit pauses this process.
 pub async fn tick(db: &DatabaseConnection) -> Tick {
-    if !enabled() || paused() {
+    if paused() {
         return Tick::default();
     }
     // The budget covers the whole tick, the default-branch pass included.

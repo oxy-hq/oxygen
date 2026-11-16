@@ -45,15 +45,9 @@ pub use crate::server::api::middlewares::workspace_context::{
     enqueue_lazy_compile,
 };
 
-/// Whether this deployment compiles workspaces from git: the push webhook, the
-/// branch check and the first commit compile of a never-compiled workspace all
-/// run only with the `compile_reconcile` flag on. A repository-backed
-/// workspace with no working copy compiles nothing without it.
-pub use crate::server::compile_reconcile::enabled as compiles_from_git;
-
 /// What a verified GitHub `push` delivery does: which workspaces it concerns
-/// and a deduped commit compile for each (`handle`, `PushEvent`, `Handled`),
-/// behind the same gate as [`compiles_from_git`]. `oxy-api-github`'s webhook
+/// and a deduped commit compile for each (`handle`, `PushEvent`, `Handled`).
+/// `oxy-api-github`'s webhook
 /// receiver (`POST /webhooks/github`) verifies the signature and hands the
 /// payload here; the compile runtime it queues into stays in `oxy-app`.
 pub use crate::server::compile_reconcile::push as compile_push;

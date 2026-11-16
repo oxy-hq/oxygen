@@ -254,9 +254,8 @@ fn report_workspace(workspace_id: uuid::Uuid, recovered: usize, fired: usize, mo
 
 /// The ticks that need no workspace context, once per pass: due health
 /// evals, pre-aggregation cycles and experiment checks (each a cheap indexed
-/// SELECT of due rows plus a CAS per fire), and the compile reconcile (which
-/// does nothing unless `OXY_COMPILE_RECONCILE` is set; each check is claimed
-/// in Postgres, so it does not matter how many nodes run it).
+/// SELECT of due rows plus a CAS per fire), and the compile reconcile (each
+/// check is claimed in Postgres, so it does not matter how many nodes run it).
 async fn tick_global(db: &DatabaseConnection) {
     let health_fired = agentic_pipeline::scheduler::tick_health_schedules(db).await;
     if health_fired > 0 {
