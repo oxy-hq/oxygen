@@ -434,6 +434,15 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_observability",
         function: "workspace_routes",
     },
+    // The same crate's staff-console half — Admin → Observability's fleet list
+    // and the two per-org readouts — rides `SurfaceSeams::admin`, so it lands
+    // inside `/api/admin` rather than a workspace tree.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_observability",
+        function: "admin_routes",
+    },
     // `oxy-api-automations`: the automation listing and `/agentic-schedules`
     // ride `SurfaceSeams::workspace` inside the `/{workspace_id}` tree.
     Seed {

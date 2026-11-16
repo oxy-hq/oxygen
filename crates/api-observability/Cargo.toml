@@ -11,15 +11,32 @@ publish.workspace = true
 edition.workspace = true
 
 [dependencies]
-# No `oxy-app` here, not even through `oxy_app::surface`: the handlers take
-# `AppState` (from `oxy-app-core`) and read the observability store it carries,
-# and nothing else of oxy-app's. So this crate compiles beside oxy-app, not
-# after it. oxy-app is a dev-dependency only, for the tests' router state and
-# role classifier.
+# `oxy-app`, for the `admin/` section only (added 2026-11-16 with Admin →
+# Observability). The tenant handlers still take nothing of oxy-app's — they
+# read `AppState` (`oxy-app-core`) and the observability store it carries — but
+# a staff-console section cannot be oxy-app-free: `AdminSection` is oxy-app's
+# type, and the staff-scope fence (`admin_scope`) and the console's
+# connect-on-demand DB handle (`admin_db`) are oxy-app's too. Deciding a
+# bounded grant's reach by hand instead would violate the one rule authz has,
+# so this crate waits for oxy-app rather than reimplementing the fence. Nothing
+# depends back on this crate, so the catalog note above still holds.
+oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }            # AppState and its observability store
 oxy-observability = { workspace = true }       # WorkspaceScope, the store's row types
 oxy = { workspace = true }                     # oxy::metrics / oxy::execution_analytics response shapes
 oxy-shared = { workspace = true }              # fleet_role::RouteRoleDecl
+oxy-auth = { workspace = true }                # AuthenticatedUserExtractor, for the admin section
+# The storage meter's decided algorithm — `storage::metering::time_weighted_average_bytes`,
+# the one definition of what a GB-month is. The I/O is batched here (one
+# statement over the fleet rather than two per org); the arithmetic is not
+# re-implemented, because two copies would eventually disagree about an app
+# created mid-period. Free in the graph: `oxy-app`, already a dependency above,
+# pulls this crate.
+oxy-custom-apps = { workspace = true }
+# The admin section's cost rollup reads Postgres directly (`agentic_runs` ×
+# `agentic_run_events`), priced by `oxy_app_core::llm_usage`.
+sea-orm = { workspace = true }
+chrono = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

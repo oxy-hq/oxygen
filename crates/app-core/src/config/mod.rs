@@ -25,12 +25,14 @@
 //! can name it and the lenient path can fall back to the old behaviour.
 
 pub mod hosts;
+pub mod metering;
 pub mod retention;
 pub mod role;
 
 use std::sync::{Arc, OnceLock};
 
 pub use hosts::HostsConfig;
+pub use metering::MeteringConfig;
 pub use retention::RunRetentionSetting;
 pub use role::RoleSetting;
 
@@ -62,6 +64,10 @@ pub struct BootConfig {
     pub service_tokens: Option<String>,
     /// `OXY_RUN_RETENTION_DAYS`: how long a finished run is kept.
     pub run_retention: RunRetentionSetting,
+    /// What the staff console's resource meters may assume: the fleet's
+    /// monthly cost and the isolate heap ceiling. Both permissive — an
+    /// unconfigured deployment still serves the console, with less on it.
+    pub metering: MeteringConfig,
 }
 
 static BOOT: OnceLock<Arc<BootConfig>> = OnceLock::new();
@@ -79,6 +85,7 @@ impl BootConfig {
             ),
             service_tokens: var("OXY_SERVICE_TOKENS"),
             run_retention: RunRetentionSetting::parse(var("OXY_RUN_RETENTION_DAYS")),
+            metering: MeteringConfig::parse(var),
         }
     }
 

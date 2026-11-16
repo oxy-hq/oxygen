@@ -14,6 +14,13 @@
 //! - `/execution-analytics` ([`execution_analytics`]): verified vs generated
 //!   executions, latency, cost.
 //!
+//! [`admin`] is the crate's other half, and a different audience: the staff
+//! console's **Admin → Observability**, per org — what an org costs us, and
+//! how its custom apps perform. It rides the `/api/admin` seam as an
+//! [`AdminSection`](oxy_app::surface::AdminSection) under `PlatformOperate`,
+//! not the workspace seam, because its reads are cross-tenant and its gate is
+//! platform standing rather than a workspace session.
+//!
 //! Every route is FleetOk. The old mounts' reasons said "the runtime tables",
 //! which reads as Postgres; the reads go to the observability store, which is
 //! ClickHouse, and every replica reaches it the same way (or none does: with no
@@ -21,14 +28,20 @@
 //! working copy, which `oxy-app`'s `undeclared_mounts_stay_diskless` checks by
 //! scanning this crate.
 //!
-//! The handlers take `AppState` (`oxy-app-core`) and nothing of `oxy-app`'s,
-//! so this crate does not depend on `oxy-app` outside its tests.
+//! The **tenant** handlers take `AppState` (`oxy-app-core`) and nothing of
+//! `oxy-app`'s. [`admin`] cannot: `AdminSection` is oxy-app's type, and so are
+//! the staff-scope fence and the console's connect-on-demand DB handle. That
+//! is why this crate depends on `oxy-app` as of 2026-11-16, where it
+//! previously compiled beside it — deciding a bounded grant's reach by hand
+//! instead would break the one rule authz has. Nothing depends back on this
+//! crate, so a surface edit still does not rebuild oxy-app.
 
 // The same headroom every surface crate takes (see
 // `crates/server/src/recursion_limit_guard.rs`): an async handler's future can
 // exceed rustc's default query depth in the `--release` image build only.
 #![recursion_limit = "256"]
 
+pub mod admin;
 pub mod execution_analytics;
 pub mod metrics;
 pub mod traces;
@@ -36,6 +49,11 @@ pub mod traces;
 use axum::Router;
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
+
+/// The staff-console section this crate contributes under `/api/admin`, for
+/// `oxy-server` to merge — named at the crate root beside [`workspace_routes`]
+/// so a composition reads both of this surface's seams in one place.
+pub use admin::{admin_sections, route_roles as admin_route_roles, routes as admin_routes};
 
 /// The workspace seam's share: merged inside `/api/{workspace_id}`. Nested,
 /// as `oxy-app` nested them, so each prefix answers exactly what it did.

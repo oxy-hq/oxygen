@@ -6,8 +6,8 @@ import { useAdminWorkspacesList } from "@/hooks/api/adminTenants/useAdminWorkspa
 import ROUTES from "@/libs/utils/routes";
 import { AdminPage } from "../components/AdminPage";
 import { AdminStatCard } from "../components/AdminStatCard";
-import { LlmCostSection } from "./components/LlmCostSection";
 import { ATTENTION_ICONS, attentionLink, NeedsAttention } from "./components/NeedsAttention";
+import { ObservabilityLink } from "./components/ObservabilityLink";
 import { ResourceRoster } from "./components/ResourceRoster";
 import {
   computeOrgStats,
@@ -110,8 +110,14 @@ export default function AdminTenants() {
         />
       </section>
 
-      {/* ── LLM cost & usage ────────────────────────────────────────── */}
-      <LlmCostSection />
+      {/* ── Cost & performance ──────────────────────────────────────── */}
+      {/* This used to be `LlmCostSection`, a cross-tenant cost command centre
+          living on the tenant directory. Admin → Observability supersedes it:
+          it answers the same question per org and adds the dimensions that say
+          why — by model, by workspace, by surface, and whether a person was
+          there. Removing a surface means checking what it stranded, so the
+          link stays here rather than the section. */}
+      <ObservabilityLink />
 
       {/* ── Needs attention ─────────────────────────────────────────── */}
       <section aria-label='Needs attention'>

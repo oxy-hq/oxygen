@@ -21,8 +21,8 @@ use crate::types::{
     ClusterMapDataRow, CustomAppClientErrorRecord, CustomAppEventRecord, CustomAppLogRecord,
     ExecutionListData, ExecutionSummaryData, ExecutionTimeBucketData, FunctionLogRow,
     IntentAnalyticsRow, LatencyHistogramData, LatencyPercentilesData, MetricAnalyticsData,
-    MetricDetailData, MetricUsageRecord, MetricsListData, ModelUsageData, SpanRecord,
-    TraceDetailRow, TraceEnrichmentRow, TraceRow,
+    MetricDetailData, MetricUsageRecord, MetricsListData, ModelUsageData, OrgAppTotals,
+    OrgAppTraffic, SpanRecord, TraceDetailRow, TraceEnrichmentRow, TraceRow,
 };
 
 /// Abstraction over an observability storage backend.
@@ -378,6 +378,52 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
         _cycle_days: u32,
     ) -> Result<HashMap<String, u64>, OxyError> {
         Ok(HashMap::new())
+    }
+
+    /// One org's custom-app performance over `days`: totals with the latency
+    /// tail, the failure classes apart, a daily series, the per-app breakdown
+    /// and the slowest routes. What Admin → Observability's Performance panel
+    /// reads.
+    ///
+    /// An org that served nothing is `Ok` with zeros; a deployment with no
+    /// observability store configured never reaches here, and the surface
+    /// names the meters absent rather than drawing those zeros. The default
+    /// impl below is what a mock store answers, so a consumer can be tested
+    /// without a ClickHouse.
+    async fn get_org_app_traffic(
+        &self,
+        _org_id: &str,
+        _days: u32,
+    ) -> Result<OrgAppTraffic, OxyError> {
+        Ok(OrgAppTraffic::default())
+    }
+
+    /// The same headline for many orgs at once, keyed by `org_id` — the fleet
+    /// list's performance columns.
+    ///
+    /// Batched for the reason `get_fleet_availability` is: one statement over
+    /// a whole page of orgs, rather than a round trip each. Only the fields
+    /// the list renders are filled (requests, failures, sessions, people,
+    /// apps, bytes and p95); the rest stay at their zero default, and a caller
+    /// that needs them asks [`Self::get_org_app_traffic`] for one org.
+    ///
+    /// An org absent from the map served nothing in the window.
+    async fn get_fleet_org_traffic(
+        &self,
+        _org_ids: &[String],
+        _days: u32,
+    ) -> Result<HashMap<String, OrgAppTotals>, OxyError> {
+        Ok(HashMap::new())
+    }
+
+    /// Function wall time across the **whole fleet**, in milliseconds — the
+    /// denominator for apportioning the serving bill.
+    ///
+    /// Unfenced on purpose: the bill is over every tenant, so a share computed
+    /// against a bounded subset would overstate it by whatever the caller
+    /// cannot see. One scalar, carrying no tenant identity.
+    async fn get_fleet_wall_ms(&self, _days: u32) -> Result<u64, OxyError> {
+        Ok(0)
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────

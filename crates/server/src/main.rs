@@ -392,6 +392,7 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_workspace_health::admin_sections())
             .chain(oxy_api_airway::admin_sections())
             .chain(oxy_api_identity::admin_sections())
+            .chain(oxy_api_observability::admin_sections())
             .collect(),
         // Operations the surfaces document, merged into the served OpenAPI
         // document (`oxyc schema` reads it).

@@ -546,3 +546,131 @@ pub struct FunctionLogRow {
     /// or `dev-<handle>`.
     pub environment: String,
 }
+
+// ── Per-org custom-app performance ────────────────────────────────────────
+//
+// What Admin → Observability's Performance panel reads, rolled up for one
+// organization (`backends/clickhouse/org_apps.rs`). Design:
+// `internal-docs/2026-11-16-admin-observability-design.md` §5.
+//
+// Latency is carried as `f64` milliseconds throughout because these are
+// **interpolated quantiles**: a p95 over an even sample is not one of the
+// samples, so rounding them to integers here would be a lie about precision
+// that the caller cannot undo.
+
+/// Totals and the latency tail for one org's custom apps over a window.
+///
+/// Every field defaults to zero, and that zero means **served nothing** — an
+/// org whose apps took no traffic. "Not measured" (no observability store
+/// configured) is carried by the read returning `Err`, never by a zero here,
+/// because a caller that collapses the two reports an unmeasured org as an
+/// idle one.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OrgAppTotals {
+    pub requests: u64,
+    /// Requests whose `outcome` was not `ok` — explicit, implicit and policy
+    /// failures together, which is the taxonomy availability is defined on.
+    pub failed: u64,
+    pub sessions: u64,
+    /// Distinct signed-in people. Blank user ids are excluded, so an app
+    /// served entirely to anonymous visitors reports 0 people and non-zero
+    /// sessions rather than conflating the two.
+    pub people: u64,
+    pub apps: u64,
+    pub bytes: u64,
+    /// `ctx.*` calls the org's functions made — the work behind the requests.
+    pub host_calls: u64,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub p99_ms: f64,
+    /// p95 of `init_ms` over requests that actually paid a start-up cost.
+    /// Warm requests record 0 and are excluded, so this is the cold-start
+    /// tail rather than a mostly-zero average.
+    pub cold_start_p95_ms: f64,
+    /// **Exact** summed wall time across the window.
+    ///
+    /// The quantity a compute meter multiplies by the provisioned ceiling.
+    /// Summed rather than approximated from `requests × p50_ms`: a median
+    /// times a count is not the area under the curve, and on a workload with a
+    /// long tail it understates the real time by a wide margin.
+    pub wall_ms: u64,
+    /// Summed start-up time. `wall_ms - init_ms` is the tenant's own code —
+    /// the split `internal-docs/platform-metrics.md` names, and the one that
+    /// says whether an org's compute is going into our cold starts or its own
+    /// work.
+    pub init_ms: u64,
+}
+
+impl OrgAppTotals {
+    /// Fraction of requests that failed, or `None` on an empty window.
+    ///
+    /// No traffic has **no opinion** about reliability, the same contract
+    /// [`AppAvailabilityWindow::failure_ratio`] holds: returning 0.0 would
+    /// render a dead org as a perfect one.
+    pub fn failure_ratio(&self) -> Option<f64> {
+        if self.requests == 0 {
+            return None;
+        }
+        Some(self.failed as f64 / self.requests as f64)
+    }
+}
+
+/// One failure class and cause, counted.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrgAppOutcomes {
+    /// The `outcome` the writer stamped: `error` (an explicit 5xx), `empty`
+    /// (an implicit failure — a 200 carrying a shell that never mounted), or
+    /// `slow` (a policy failure). Passed through rather than re-derived: the
+    /// column exists precisely because `status` cannot tell these apart.
+    pub outcome: String,
+    /// The cause, where the writer named one; blank when it did not.
+    pub error_kind: String,
+    pub requests: u64,
+}
+
+/// One day of the org's app traffic, so a regression is dated.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrgAppDay {
+    /// `YYYY-MM-DD`.
+    pub day: String,
+    pub requests: u64,
+    pub failed: u64,
+    pub p95_ms: f64,
+    /// Exact wall time for the day, and the start-up share of it.
+    pub wall_ms: u64,
+    pub init_ms: u64,
+}
+
+/// One of the org's apps, as a row of the breakdown table.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrgAppRow {
+    pub app_id: String,
+    pub requests: u64,
+    pub failed: u64,
+    pub sessions: u64,
+    pub bytes: u64,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub cold_start_p95_ms: f64,
+}
+
+/// One route, ranked by its latency tail — the cut that narrows a slow
+/// deployment to a single handler.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrgAppRoute {
+    pub app_id: String,
+    pub route: String,
+    pub requests: u64,
+    pub failed: u64,
+    pub p95_ms: f64,
+}
+
+/// Everything the per-org Performance panel renders.
+#[derive(Debug, Clone, Default)]
+pub struct OrgAppTraffic {
+    pub totals: OrgAppTotals,
+    pub outcomes: Vec<OrgAppOutcomes>,
+    pub by_day: Vec<OrgAppDay>,
+    pub by_app: Vec<OrgAppRow>,
+    pub routes: Vec<OrgAppRoute>,
+}

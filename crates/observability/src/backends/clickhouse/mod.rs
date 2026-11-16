@@ -9,6 +9,7 @@ mod execution_analytics;
 mod intents;
 mod latency_cost;
 mod metrics;
+mod org_apps;
 pub mod schema;
 #[cfg(test)]
 mod scope_live_tests;
@@ -248,8 +249,8 @@ use crate::types::{
     ClusterMapDataRow, CustomAppClientErrorRecord, CustomAppEventRecord, CustomAppLogRecord,
     ExecutionListData, ExecutionSummaryData, ExecutionTimeBucketData, FunctionLogRow,
     IntentAnalyticsRow, LatencyHistogramData, LatencyPercentilesData, MetricAnalyticsData,
-    MetricDetailData, MetricUsageRecord, MetricsListData, ModelUsageData, SpanRecord,
-    TraceDetailRow, TraceEnrichmentRow, TraceRow,
+    MetricDetailData, MetricUsageRecord, MetricsListData, ModelUsageData, OrgAppTotals,
+    OrgAppTraffic, SpanRecord, TraceDetailRow, TraceEnrichmentRow, TraceRow,
 };
 
 pub struct ClickHouseObservabilityStorage {
@@ -1058,6 +1059,34 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
             custom_apps::get_fleet_heartbeat_baseline(self, apps, window_minutes, cycle_days),
         )
         .await
+    }
+
+    async fn get_org_app_traffic(
+        &self,
+        org_id: &str,
+        days: u32,
+    ) -> Result<OrgAppTraffic, OxyError> {
+        with_query_timeout(
+            "get_org_app_traffic",
+            org_apps::get_org_app_traffic(self, org_id, days),
+        )
+        .await
+    }
+
+    async fn get_fleet_org_traffic(
+        &self,
+        org_ids: &[String],
+        days: u32,
+    ) -> Result<HashMap<String, OrgAppTotals>, OxyError> {
+        with_query_timeout(
+            "get_fleet_org_traffic",
+            org_apps::get_fleet_org_traffic(self, org_ids, days),
+        )
+        .await
+    }
+
+    async fn get_fleet_wall_ms(&self, days: u32) -> Result<u64, OxyError> {
+        with_query_timeout("get_fleet_wall_ms", org_apps::get_fleet_wall_ms(self, days)).await
     }
 
     async fn shutdown(&self) {

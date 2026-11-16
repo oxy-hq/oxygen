@@ -165,6 +165,7 @@ const AdminWorkspaceDetail = React.lazy(
 const AdminWorkspaceHealth = React.lazy(() => import("./pages/admin/AdminWorkspaceHealth"));
 const AdminAirway = React.lazy(() => import("./pages/admin/AdminAirway"));
 const AdminUsageReport = React.lazy(() => import("./pages/admin/AdminUsageReport"));
+const AdminObservability = React.lazy(() => import("./pages/admin/AdminObservability"));
 const AdminSettings = React.lazy(() => import("./pages/admin/AdminSettings"));
 
 const CheckoutSuccessPage = React.lazy(() => import("./pages/billing/CheckoutSuccess"));
@@ -719,6 +720,12 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
             <Route path='admin/airway' element={<AdminAirway />} />
             {/* ROUTES.ADMIN.USAGE_REPORT — the weekly custom-app usage report. */}
             <Route path='admin/usage-report' element={<AdminUsageReport />} />
+            {/* ROUTES.ADMIN.OBSERVABILITY — what an org costs us and how its apps
+                perform. A fleet list and a per-org console on one route, the shape
+                `/admin/apps` settled on: the list answers "what is out there?"
+                before the console answers "which one thing?". */}
+            <Route path='admin/observability' element={<AdminObservability />} />
+            <Route path='admin/observability/orgs/:orgId' element={<AdminObservability />} />
             {/* ROUTES.ADMIN.SETTINGS — one staff member's own preferences. No rail
                 entry: reached from the rail footer's user menu and from the report. */}
             <Route path='admin/settings' element={<AdminSettings />} />

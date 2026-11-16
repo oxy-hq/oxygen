@@ -202,7 +202,7 @@ export const OrgOverviewTab = ({
           )}
         </section>
 
-        <OrgCostCard usage={usage} days={usageDays} isLoading={usageLoading} />
+        <OrgCostCard orgId={detail.id} usage={usage} days={usageDays} isLoading={usageLoading} />
       </div>
     </div>
   );

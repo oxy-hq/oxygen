@@ -785,9 +785,25 @@ const adminOrgsKeys = {
 
 const adminMetricsKeys = {
   all: ["admin", "metrics"] as const,
-  llmUsage: (days: number) => [...adminMetricsKeys.all, "llm-usage", days] as const,
   orgLlmUsage: (orgId: string, days: number) =>
     [...adminMetricsKeys.all, "llm-usage", "org", orgId, days] as const
+};
+
+/**
+ * Admin → Observability. The window is part of every key: a 7-day answer and a
+ * 30-day answer are different data, not a stale version of each other, so
+ * switching the picker must refetch rather than show the previous window's
+ * numbers under the new label.
+ */
+const adminObservabilityKeys = {
+  all: ["admin", "observability"] as const,
+  fleet: (days: number) => [...adminObservabilityKeys.all, "fleet", days] as const,
+  orgCost: (orgId: string, days: number) =>
+    [...adminObservabilityKeys.all, "org", orgId, "cost", days] as const,
+  orgApps: (orgId: string, days: number) =>
+    [...adminObservabilityKeys.all, "org", orgId, "apps", days] as const,
+  orgResources: (orgId: string, days: number) =>
+    [...adminObservabilityKeys.all, "org", orgId, "resources", days] as const
 };
 
 interface ExplorerQueryKeyParams {
@@ -1221,6 +1237,7 @@ const queryKeys = {
   compile: compileKeys,
   adminOrgs: adminOrgsKeys,
   adminMetrics: adminMetricsKeys,
+  adminObservability: adminObservabilityKeys,
   adminExplorer: adminExplorerKeys,
   adminUsers: adminUsersKeys,
   adminWorkspaces: adminWorkspacesKeys,

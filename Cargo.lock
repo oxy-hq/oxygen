@@ -10063,14 +10063,18 @@ name = "oxy-api-observability"
 version = "0.5.160"
 dependencies = [
  "axum",
+ "chrono",
  "linfa",
  "linfa-reduction",
  "ndarray",
  "oxy",
  "oxy-app",
  "oxy-app-core",
+ "oxy-auth",
+ "oxy-custom-apps",
  "oxy-observability",
  "oxy-shared",
+ "sea-orm",
  "serde",
  "serde_json",
  "tokio",

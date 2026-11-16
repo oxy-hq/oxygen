@@ -61,6 +61,14 @@ const ROUTES = {
     AIRWAY: "/admin/airway",
     /** The weekly report on how each organization used its custom apps. */
     USAGE_REPORT: "/admin/usage-report",
+    /**
+     * What an org costs us and how its apps perform. A fleet list and a
+     * per-org console on one route, the shape `/admin/apps` settled on: the
+     * list answers "what is out there?" before the console answers "which one
+     * thing?".
+     */
+    OBSERVABILITY: "/admin/observability",
+    OBSERVABILITY_ORG: (orgId: string) => `/admin/observability/orgs/${orgId}`,
     /** The signed-in staff member's own preferences. Not a rail entry. */
     SETTINGS: "/admin/settings"
   },

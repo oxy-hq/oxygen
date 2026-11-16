@@ -15,6 +15,7 @@ import {
   Database,
   FileCheck,
   Flag,
+  Gauge,
   Handshake,
   HeartPulse,
   Inbox,
@@ -164,6 +165,23 @@ export const ADMIN_NAV: AdminNavItem[] = [
     to: ROUTES.ADMIN.USAGE_REPORT,
     label: "Usage report",
     icon: ChartColumn,
+    capability: "operate_platform",
+    group: "operations"
+  },
+  // What an org costs us and how its apps perform. Gated like the other
+  // fleet-wide readouts — the server mounts the whole section under
+  // `PlatformOperate` — and deliberately NOT `manage_apps`: an App Operator
+  // ships custom apps and nothing else, and what every tenant costs the
+  // company is not part of shipping one.
+  //
+  // It sits beside the usage report because they answer adjacent questions,
+  // and apart because they are different instruments: the report is a weekly
+  // period snapshot that gets emailed, this is a live window-selectable
+  // readout.
+  {
+    to: ROUTES.ADMIN.OBSERVABILITY,
+    label: "Observability",
+    icon: Gauge,
     capability: "operate_platform",
     group: "operations"
   },
