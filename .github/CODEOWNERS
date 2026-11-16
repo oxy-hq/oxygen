@@ -389,8 +389,10 @@ crates/agentic/builder/                            @haitrr @nresh
 # Automation/workflow engine (Luong = engine; Nick = http_request task)
 crates/agentic/automation/                         @luong-komorebi @nresh
 web-app/src/pages/automation/                      @luong-komorebi @NTtanh
-# Workspaces API (Luong = fleet materialization; Mars = multi-tenancy)
-crates/app/src/server/api/workspaces/              @luong-komorebi @NTtanh
+# Workspaces API (Luong = fleet materialization; Mars = multi-tenancy). Its own
+# crate, `oxy-api-workspaces`, since 2026-11-16 (was crates/app/src/server/api/
+# workspaces/), owners unchanged.
+crates/api-workspaces/                             @luong-komorebi @NTtanh
 # TypeScript SDK (Luong = bulk/releases; Mars = @oxy-hq/sdk/shell)
 sdk/typescript/                                    @luong-komorebi @NTtanh
 sdk/vite-plugin/                                   @luong-komorebi @NTtanh

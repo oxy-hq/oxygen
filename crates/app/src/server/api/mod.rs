@@ -1,7 +1,8 @@
 pub mod admin;
 // `agent` (the agent listing, builder availability) and `artifacts` moved to
 // `oxy-api-threads` (2026-11-16), mounted on the workspace seam.
-pub mod apps;
+// `apps` (the app integrations `config.yml` declares, `/app-integrations`)
+// moved to `oxy-api-workspaces` (2026-11-16), mounted on the workspace seam.
 pub mod auth;
 // `automation` (the compile-boundary automation listing) and `schedules`
 // moved to the `oxy-api-automations` sibling crate, mounted by `oxy-server` on
@@ -95,7 +96,9 @@ pub mod typed_stream;
 // `org_subdomain`, `workspace_logo` and `partner_publish_consent` moved to
 // `oxy-api-tenancy` (2026-11-16), mounted by `oxy-server` on the workspace
 // and api seams.
-pub mod workspace_members;
+// `workspace_members` (a workspace's members and role overrides),
+// `workspace_oxy_access` (the Oxy-staff lockdown) and `workspaces` (an org's
+// workspace list, rename and delete, and a workspace's `/meta`) moved to
+// `oxy-api-workspaces` (2026-11-16), mounted by `oxy-server` on the workspace
+// and api seams.
 pub mod workspace_org;
-pub mod workspace_oxy_access;
-pub mod workspaces;

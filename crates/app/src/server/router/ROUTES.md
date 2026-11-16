@@ -119,9 +119,9 @@ POST   /invitations/{token}/accept
 ├── GET /invitations · POST /invitations
 ├── DELETE /invitations/{invitation_id}
 ├── POST /onboarding/demo · /onboarding/new · /onboarding/github
-├── GET /workspaces
-├── DELETE /workspaces/{id}
-├── PATCH  /workspaces/{id}/rename
+├── GET /workspaces                          (oxy-api-workspaces)
+├── DELETE /workspaces/{id}                   (oxy-api-workspaces)
+├── PATCH  /workspaces/{id}/rename            (oxy-api-workspaces)
 ├── GET|PUT /token-policy                    (org admin; PUT session-only — API-tokens Phase 5)
 └── /github/
     ├── GET /repositories · /branches · /namespaces
@@ -189,7 +189,9 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /execution-analytics/
 ├── /analytics/          agentic_router() (chart pipeline)
 │
-├── /members · /members/{user_id}         (put / delete role overrides)
+├── /meta                                  (oxy-api-workspaces)
+├── /members · /members/{user_id}         (put / delete role overrides; oxy-api-workspaces)
+├── /oxy-access · /app-integrations       (oxy-api-workspaces)
 ├── /artifacts/{id} · /charts/{file_path} · /logs   (oxy-api-threads)
 ├── /events · /events/lookup · /events/sync
 ├── /blocks

@@ -274,6 +274,16 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // `oxy_api_threads::workspace_route_roles`; Postgres, the read-only
         // workspace manager and the S3-mirrored runtime artifacts.
         "../api-threads/src",
+        // Three of the workspaces surface's files, out of `oxy-app` on
+        // 2026-11-16, where every route was `route_fleet`. Declared FleetOk by
+        // hand now in `oxy_api_workspaces::workspace_route_roles`; Postgres
+        // and the read-only workspace manager. By name, not the crate: the
+        // workspace details (`workspaces/`) resolve the working copy where the
+        // serving process owns one (local mode's details, a delete's files),
+        // which `workspace_path_backdoor` lists.
+        "../api-workspaces/src/workspace_members.rs",
+        "../api-workspaces/src/workspace_oxy_access.rs",
+        "../api-workspaces/src/apps.rs",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

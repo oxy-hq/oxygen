@@ -39,10 +39,15 @@ pub use crate::server::api::middlewares::org_context::{
 pub use crate::server::api::middlewares::subscription_guard::subscription_guard_middleware;
 
 /// Workspace-scoped request context, as the workspace seam provides it.
+///
+/// `OrgMembershipExtractor` (the caller's org membership, for a workspace
+/// route that rules on it) and `WorkspaceGlobalOverride` (the request is a
+/// staff override, not a member) were added for `oxy-api-workspaces`' member
+/// and Oxy-access routes (2026-11-16).
 pub use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, PreaggCacheCtx, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
-    WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath, enqueue_import_compile,
-    enqueue_lazy_compile,
+    EffectiveWorkspaceRole, OrgMembershipExtractor, PreaggCacheCtx, SemanticEngineCacheCtx,
+    SemanticLayerCacheCtx, WorkspaceGlobalOverride, WorkspaceManagerReadOnly,
+    WorkspaceManagerWorkingCopy, WorkspacePath, enqueue_import_compile, enqueue_lazy_compile,
 };
 
 /// What a verified GitHub `push` delivery does: which workspaces it concerns
@@ -263,12 +268,6 @@ pub mod runtime_artifact {
     pub use crate::server::runtime_artifact::{chart_key, fetch, mirror, remove, result_key};
 }
 
-/// Git operations on the workspace root working copy, as the workspace
-/// handlers perform them: switching to and deleting a branch.
-pub mod workspace_git {
-    pub use crate::server::api::workspaces::{git_delete_branch, git_switch_branch};
-}
-
 /// The sandbox companies staff registered for a workspace's Airway samples
 /// (`workspace_preview_sources`). The fetch plane admits a QuickBooks call
 /// only to one of them.
@@ -355,6 +354,10 @@ pub use crate::server::router::AdminSection;
 
 /// Route-role (pod placement) declarations and the classifier that reads them.
 pub mod roles {
+    /// Whether this process owns the workspace files (`ide`, or `all` in
+    /// single-process mode). `oxy-api-workspaces`' details answer a missing
+    /// working copy with the transient 503 only where it does (2026-11-16).
+    pub use crate::server::role_manifest::process_is_fs_writable;
     pub use crate::server::role_manifest::{
         RouteRole, classify, current_process_role, declared_role_in, ensure_fs_writable,
         init_process_role_from_env, install_route_declarations_for_tests_with,
@@ -385,4 +388,10 @@ pub mod admin_audit {
 /// connect or query exactly the way the in-tree sections do.
 pub mod admin_db {
     pub use crate::server::api::admin::internal_jobs::{connect, db_err, error_body};
+}
+
+/// Whether the caller may open the Factory, as `/meta` reports it (the
+/// extractor), added for `oxy-api-workspaces` (2026-11-16).
+pub mod factory_access {
+    pub use crate::server::factory_access::FactoryAccess;
 }

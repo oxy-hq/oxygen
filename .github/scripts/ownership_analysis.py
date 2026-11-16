@@ -212,6 +212,8 @@ AREAS = [
     ("web-app/src/pages/github",                          "GitHub import (UI)"),
     ("web-app/src/pages/Invite",                          "Invites (UI)"),
     ("web-app/src/pages/ide/observability",               "Metrics-observability IDE tab"),
+    ("crates/api-workspaces",                             "Workspaces API"),
+    # Pre-extraction path (2026-11-16) — without it the extraction reads as authorship.
     ("crates/app/src/server/api/workspaces",              "Workspaces API"),
 ]
 

@@ -1940,3 +1940,183 @@ async fn the_served_router_starts_the_chat_delivery_listener() {
         }
     }
 }
+
+/// `oxy-api-workspaces`' workspace routes under `/{workspace_id}`, probed with
+/// TRACE as above.
+fn workspaces_workspace_routes() -> Vec<&'static str> {
+    vec![
+        "/meta",
+        "/members",
+        "/members/65c121b2-0000-0000-0000-000000000000",
+        "/oxy-access",
+        "/app-integrations",
+    ]
+}
+
+/// The workspaces surface (Wave C, 2026-11-16) rides the WORKSPACE seam,
+/// inside the `/{workspace_id}` tree where `build_workspace_routes` had it,
+/// in both modes, with the five FleetOk declarations `route_fleet` wrote. Real
+/// reads, through the composition `serve` uses, reach their handlers: the
+/// workspace's metadata, its members (the guest owner) and the app
+/// integrations its `config.yml` declares (none).
+#[tokio::test]
+async fn the_workspace_tree_mounts_the_workspaces_surface() {
+    let decls = surface_seams().workspace.decls;
+    for path in [
+        "/meta",
+        "/members",
+        "/members/{user_id}",
+        "/oxy-access",
+        "/app-integrations",
+    ] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the workspace seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    let (router, _dir) = served_over_an_empty_workspace().await;
+    assert_workspace_paths_mounted(&router, &workspaces_workspace_routes()).await;
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    let (status, body) = get_json(&router, &format!("/{ws}/meta")).await;
+    assert_eq!(status, StatusCode::OK, "GET /{{ws}}/meta: {body}");
+    assert_eq!(
+        body["id"].as_str(),
+        Some(ws.to_string().as_str()),
+        "GET /{{ws}}/meta must answer this workspace's metadata: {body}"
+    );
+    let (status, body) = get_json(&router, &format!("/{ws}/members")).await;
+    assert_eq!(status, StatusCode::OK, "GET /{{ws}}/members: {body}");
+    assert!(
+        body.is_array(),
+        "GET /{{ws}}/members must answer a list: {body}"
+    );
+    let (status, body) = get_json(&router, &format!("/{ws}/app-integrations")).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "GET /{{ws}}/app-integrations: {body}"
+    );
+    assert_eq!(
+        body,
+        serde_json::json!([]),
+        "the empty workspace's config.yml declares no app integrations"
+    );
+}
+
+/// `oxy-api-workspaces`' org routes (Wave C, 2026-11-16): the api seam, under
+/// `/orgs/{org_id}` where `build_org_routes` had them, so cloud only. Probed
+/// with the methods they take: `org_middleware` answers an id that is not one
+/// before any method routing, so a mounted path answers that refusal and an
+/// unmounted one 404s.
+fn workspaces_org_routes() -> Vec<(Method, String)> {
+    vec![
+        (Method::GET, format!("/orgs/{ORG}/workspaces")),
+        (
+            Method::DELETE,
+            format!("/orgs/{ORG}/workspaces/65c121b2-0000-0000-0000-000000000000"),
+        ),
+        (
+            Method::PATCH,
+            format!("/orgs/{ORG}/workspaces/65c121b2-0000-0000-0000-000000000000/rename"),
+        ),
+    ]
+}
+
+/// The org's workspace list, delete and rename ride the api seam with the
+/// three FleetOk declarations `route_fleet` wrote, are mounted in cloud mode
+/// and dropped in local mode as the global tree was.
+#[tokio::test]
+async fn cloud_mode_mounts_the_org_workspace_routes_and_local_mode_drops_them() {
+    let decls = surface_seams().api.decls;
+    for path in [
+        "/orgs/{org_id}/workspaces",
+        "/orgs/{org_id}/workspaces/{id}",
+        "/orgs/{org_id}/workspaces/{id}/rename",
+    ] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the api seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    assert_cloud_mounts(workspaces_org_routes()).await;
+    assert_local_drops(workspaces_org_routes()).await;
+}
+
+/// A real read of the org's workspace list through the composed cloud router:
+/// `org_middleware` resolves the guest's own org (seeded here, the guest its
+/// owner), the subscription guard lets it through, and the handler answers the
+/// one workspace the org holds.
+#[tokio::test]
+async fn the_served_cloud_router_lists_an_orgs_workspaces() {
+    if db_unavailable() {
+        return;
+    }
+    use sea_orm::{ActiveModelTrait, ActiveValue};
+    let router = served(ServeMode::Cloud).await;
+    let db = oxy::database::client::establish_connection()
+        .await
+        .expect("database");
+    let (status, me) = get_json(&router, "/user").await;
+    assert_eq!(status, StatusCode::OK, "GET /user: {me}");
+    let user_id: uuid::Uuid = me["id"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("GET /user carries no id: {me}"));
+    let org_id = uuid::Uuid::new_v4();
+    entity::organizations::ActiveModel {
+        id: ActiveValue::Set(org_id),
+        name: ActiveValue::Set("Wave C".into()),
+        slug: ActiveValue::Set(format!("wave-c-{}", org_id.simple())),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("seed the org");
+    entity::org_members::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4()),
+        org_id: ActiveValue::Set(org_id),
+        user_id: ActiveValue::Set(user_id),
+        role: ActiveValue::Set(entity::org_members::OrgRole::Owner),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("seed the guest's membership");
+    let workspace_id = uuid::Uuid::new_v4();
+    let now = chrono::Utc::now();
+    entity::workspaces::ActiveModel {
+        id: ActiveValue::Set(workspace_id),
+        name: ActiveValue::Set("listed".into()),
+        org_id: ActiveValue::Set(Some(org_id)),
+        status: ActiveValue::Set(entity::workspaces::WorkspaceStatus::Ready),
+        created_at: ActiveValue::Set(now.into()),
+        updated_at: ActiveValue::Set(now.into()),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("seed the workspace");
+    let (status, body) = get_json(&router, &format!("/orgs/{org_id}/workspaces")).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "GET /orgs/{{org}}/workspaces: {body}"
+    );
+    let ids: Vec<&str> = body
+        .as_array()
+        .unwrap_or_else(|| panic!("the list must be an array: {body}"))
+        .iter()
+        .filter_map(|w| w["id"].as_str())
+        .collect();
+    assert_eq!(ids, [workspace_id.to_string()], "{body}");
+}

@@ -37,8 +37,9 @@ const ALLOWED: &[(&str, &str)] = &[
          (`oxy-api-world-model`'s since 2026-11-15, was `src/server/api/webhooks/toast.rs`)",
     ),
     (
-        "src/server/api/workspaces/ops.rs",
-        "workspace registration: computes the path before the workspace exists",
+        "../api-workspaces/src/workspaces/ops.rs",
+        "workspace registration: computes the path before the workspace exists \
+         (`oxy-api-workspaces`' since 2026-11-16, was `src/server/api/workspaces/ops.rs`)",
     ),
     (
         "src/server/api/custom_apps_gates.rs",
@@ -138,6 +139,8 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         manifest.join("../server/src/core_routes"),
         // The conversation surface, `oxy-api-threads` since 2026-11-16.
         manifest.join("../api-threads/src"),
+        // The workspaces surface, `oxy-api-workspaces` since 2026-11-16.
+        manifest.join("../api-workspaces/src"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

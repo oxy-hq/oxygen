@@ -115,6 +115,14 @@ const ALLOWED: &[(&str, &str)] = &[
          something to scope against. Inserts only — a miss is never cached — and \
          it never updates a slug nor deletes a row",
     ),
+    (
+        "server/src/served_router_tests.rs",
+        "test fixture (`#[cfg(test)]` in the binary): seeds one org under a fresh \
+         uuid slug so the served cloud router has a workspace list to read \
+         (`the_served_cloud_router_lists_an_orgs_workspaces`, 2026-11-16). Inserts \
+         only — a miss is never cached — and it never updates a slug nor deletes a \
+         row",
+    ),
 ];
 
 /// Files below the cache that write a row but cannot name the invalidator,

@@ -5,16 +5,14 @@ use reqwest::StatusCode;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::server::api::middlewares::org_context::OrgContextExtractor;
-use crate::server::api::middlewares::role_guards::{
-    OrgAdmin, ensure_org_admin_or_workspace_creator,
-};
-use crate::server::api::middlewares::workspace_context::EffectiveWorkspaceRole;
-use crate::server::authz;
-use crate::server::router::AppState;
+use crate::authz;
 use oxy::api_types::{BranchOrigin, BranchType, ProjectBranch};
 use oxy::config::ConfigBuilder;
 use oxy::github::default_git_client;
+use oxy_app::surface::EffectiveWorkspaceRole;
+use oxy_app::surface::OrgContextExtractor;
+use oxy_app::surface::role_guards::{OrgAdmin, ensure_org_admin_or_workspace_creator};
+use oxy_app_core::AppState;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_git::GitClient;
 
@@ -65,7 +63,7 @@ pub async fn get_workspace_meta(
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     project: Extension<entity::workspaces::Model>,
     path: Path<Uuid>,
-    crate::server::factory_access::FactoryAccess(factory_access): crate::server::factory_access::FactoryAccess,
+    oxy_app::surface::factory_access::FactoryAccess(factory_access): oxy_app::surface::factory_access::FactoryAccess,
 ) -> Result<ResponseJson<WorkspaceMetaResponse>, Response> {
     // Local mode keeps the delegation. Both of the fields that can only be
     // answered from disk — `requires_local_setup` and `workspace_error` — are
@@ -233,7 +231,7 @@ pub async fn get_workspace(
     // is false there in normal operation; answering 503 would turn a benign
     // degraded page into an unusable one.
     let missing_copy_is_transient =
-        !app_state.mode.is_local() && crate::server::role_manifest::process_is_fs_writable();
+        !app_state.mode.is_local() && oxy_app::surface::roles::process_is_fs_writable();
 
     build_workspace_details_response(
         workspace_id,
@@ -285,7 +283,7 @@ fn workspace_materializing_response(workspace_root: &std::path::Path) -> Respons
         StatusCode::SERVICE_UNAVAILABLE,
         [
             (
-                crate::server::ide_proxy::HEADER_UNAVAILABLE,
+                oxy_app::surface::fleet::ide_proxy::HEADER_UNAVAILABLE,
                 "workspace-materializing",
             ),
             (
@@ -464,7 +462,7 @@ pub async fn build_workspace_details_response(
     )
 )]
 pub async fn list_workspaces(
-    crate::server::api::middlewares::org_context::OrgContextExtractor(ctx): crate::server::api::middlewares::org_context::OrgContextExtractor,
+    oxy_app::surface::OrgContextExtractor(ctx): oxy_app::surface::OrgContextExtractor,
     caller: authz::Caller,
     State(_app_state): State<AppState>,
 ) -> Result<ResponseJson<Vec<WorkspaceSummary>>, StatusCode> {
@@ -658,7 +656,7 @@ pub async fn rename_workspace(
     let legacy = ensure_org_admin_or_workspace_creator(&ctx, &workspace).is_ok();
     let allowed = authz::enforce_for(
         &db,
-        &crate::server::authz::caller_of(&actor),
+        &crate::authz::caller_of(&actor),
         "workspace.rename",
         authz::Action::WorkspaceRename,
         authz::Resource::workspace_with_creator(workspace.id, org_id, workspace.created_by),
@@ -763,7 +761,7 @@ pub async fn delete_workspace(
     // the delete above had failed we'd have stripped a still-live workspace of
     // its workflow/monitor schedules (which, unlike `health_eval`, startup
     // reconcile never recreates).
-    cleanup_workspace_schedules(&db, workspace_id).await;
+    agentic_pipeline::scheduler::cleanup_workspace_schedules(&db, workspace_id).await;
 
     // Files only on request, and only where they are: without the flag the
     // directory stays so an accidental delete can be recovered.

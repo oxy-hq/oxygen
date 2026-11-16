@@ -340,6 +340,31 @@ pub async fn delete_workspace_schedules(
     Ok(res.rows_affected)
 }
 
+/// Best-effort removal of a workspace's schedule rows, to be called *after* the
+/// workspace has been deleted. Schedules carry a plain `workspace_id` with no FK,
+/// so nothing cascades — an orphaned `health_eval` row keeps firing health-eval
+/// tasks for the deleted workspace and piles them up in the dead-letter queue
+/// (`monitor_scan` rows do the same). Shared by every workspace-removal path
+/// (the workspace delete, the admin delete, and org deletion) so they stay in
+/// sync. Logged, never fatal.
+///
+/// Lowered here from `oxy-app`'s `api::workspaces` (2026-11-16): two surfaces
+/// that may not import each other (`oxy-api-workspaces`, `oxy-api-tenancy`)
+/// both delete workspaces, and the scheduler owns the rows.
+pub async fn cleanup_workspace_schedules(db: &DatabaseConnection, workspace_id: uuid::Uuid) {
+    match delete_workspace_schedules(db, workspace_id).await {
+        Ok(n) if n > 0 => {
+            tracing::info!("Removed {} schedule(s) for workspace {}", n, workspace_id)
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!(
+            "Failed to delete schedules for workspace {}: {}",
+            workspace_id,
+            e
+        ),
+    }
+}
+
 /// Fire a schedule out-of-band, now, without touching `next_run_at` (the
 /// recurring cadence is unaffected). Returns the seeded run id.
 pub async fn run_schedule_now(

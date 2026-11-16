@@ -56,7 +56,7 @@ after the skill's checklist says the work really is request-scoped.
 
 | Path | Owns |
 | ---- | ---- |
-| `server/api/**` | One file (or dir) per resource: `apps`, `projects/`, `admin/`, `billing/`, `custom_apps_*` (the serve + data hot path), `workspaces/`, `auth/`. Threads, agents, run artifacts and org chat are `oxy-api-threads` (`crates/api-threads`) since 2026-11-16. |
+| `server/api/**` | One file (or dir) per resource: `projects/`, `admin/`, `billing/`, `custom_apps_*` (the serve + data hot path), `auth/`. Threads, agents, run artifacts and org chat are `oxy-api-threads` (`crates/api-threads`) since 2026-11-16; the workspaces surface (an org's workspace list, rename and delete, `/meta`, members, the Oxy-staff lockdown, the app integrations) is `oxy-api-workspaces` (`crates/api-workspaces`) the same day. |
 | `server/router/` | Route mounting: `public.rs`, `protected.rs`, `workspace.rs`, `global.rs`, `entry.rs`, `openapi.rs`. `ROUTES.md` documents the surface. |
 | `server/role_manifest.rs` (~230 lines; roles travel as `RouteRoleDecl` next to each route) | **Routing authority** for the split fleet — classifies every route `IdeOnly` vs `FleetOk`. FS/`.git`/state-dir routes MUST be `IdeOnly`; persisted-data reads MUST stay `FleetOk`. Invoke `oxy-route-classification` before touching routes. |
 | `server/{worker_runtime,worker_health,worker_metrics}.rs`, `preagg_*`, `compile_*` | Durable-task worker fleet + pre-aggregation + compile-boundary workers. |
@@ -96,5 +96,5 @@ own schedule ticks.
 - Check both packages after edits: `cargo check -p oxy-app` **and** `cargo check -p oxy`.
 - The file/function size limits bite hardest here — this crate holds the workspace's worst
   god files (`role_manifest.rs`, `admin/apps/handlers.rs`,
-  `project_ctx.rs`, `workspaces.rs`). Prefer a new module over growing one; see
+  `project_ctx.rs`). Prefer a new module over growing one; see
   `internal-docs/domain-boundaries.md`.

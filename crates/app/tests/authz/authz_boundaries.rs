@@ -128,7 +128,9 @@ const ALLOWED: &[(&str, &str)] = &[
          — the needle matches the set {Owner, Admin}, not the question being asked of it",
     ),
     (
-        "app/src/server/api/workspace_members.rs",
+        // `oxy-api-workspaces`' since 2026-11-16 (was
+        // `app/src/server/api/workspace_members.rs`).
+        "api-workspaces/src/workspace_members.rs",
         "role-*transition* invariants (actor x target x new role). `target.role >= caller.role` is \
          NOT `authorize_target_modification`: for Owner-on-Owner the former denies and the latter \
          allows, so merging them would silently change behaviour",

@@ -108,6 +108,13 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/{workspace_id}/agents",
     // `oxy-api-threads`' org chat, on the api seam since 2026-11-16.
     "/api/chat/channels",
+    // Both seams of `oxy-api-workspaces` (2026-11-16): the org's workspace
+    // list on the api seam, and a workspace's metadata, members and
+    // Oxy-staff lockdown on the workspace seam.
+    "/api/orgs/{org_id}/workspaces",
+    "/api/{workspace_id}/meta",
+    "/api/{workspace_id}/members",
+    "/api/{workspace_id}/oxy-access",
     // The two below are `oxy-api-workspace-config`'s, on the workspace seam.
     "/api/{workspace_id}/databases",
     "/api/{workspace_id}/secrets",

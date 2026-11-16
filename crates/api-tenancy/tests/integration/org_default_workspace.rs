@@ -13,14 +13,9 @@
 //! reaches no other test.
 
 use axum::Json;
-use axum::extract::State;
 use axum::http::HeaderMap;
-use entity::workspaces::WorkspaceStatus;
-use entity::{org_members, organizations, users, workspaces};
+use entity::{organizations, users, workspaces};
 use oxy_api_tenancy::admin::orgs::{AdminCreateOrgBody, create_org};
-use oxy_app::server::api::workspaces::list_workspaces;
-use oxy_app::surface::bare_app_state;
-use oxy_app::surface::{OrgContext, OrgContextExtractor};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{
@@ -115,59 +110,8 @@ async fn a_serve_replica_creates_an_org() {
     assert_eq!(org.map(|o| o.slug), Some(slug));
 }
 
-/// Cloud refuses a nil-UUID workspace path outright — that id is the legacy
-/// `--local` convention — so an org's workspace list must never offer one. A dev
-/// database a `--local` run once touched carries a nil "Local" row in its org;
-/// listed, the post-login dispatcher picks it and the workspace shell spins on
-/// `/meta` 404s forever.
-#[tokio::test]
-async fn the_workspace_list_never_offers_the_local_mode_nil_workspace() {
-    let db = test_db().await;
-    let staff = seed_owner(&db).await;
-    let Json(created) = create_org(actor(&staff), HeaderMap::new(), body(&staff, &fresh_slug()))
-        .await
-        .expect("staff create org");
-
-    let now = chrono::Utc::now();
-    workspaces::ActiveModel {
-        id: ActiveValue::Set(Uuid::nil()),
-        name: ActiveValue::Set("Local".into()),
-        org_id: ActiveValue::Set(Some(created.org.id)),
-        status: ActiveValue::Set(WorkspaceStatus::Ready),
-        created_at: ActiveValue::Set(now.into()),
-        updated_at: ActiveValue::Set(now.into()),
-        ..Default::default()
-    }
-    .insert(&db)
-    .await
-    .expect("seed the row a --local run leaves behind");
-
-    let ctx = OrgContext {
-        org: organizations::Entity::find_by_id(created.org.id)
-            .one(&db)
-            .await
-            .expect("load org")
-            .expect("org exists"),
-        membership: org_members::Entity::find()
-            .filter(org_members::Column::OrgId.eq(created.org.id))
-            .filter(org_members::Column::UserId.eq(staff.id))
-            .one(&db)
-            .await
-            .expect("load membership")
-            .expect("staff owns the org"),
-        is_global_override: false,
-    };
-
-    let Json(listed) = list_workspaces(
-        OrgContextExtractor(ctx),
-        oxy_server_authz::Caller::without_credential(staff.id, ""),
-        State(bare_app_state()),
-    )
-    .await
-    .expect("list workspaces");
-    let ids: Vec<Uuid> = listed.iter().map(|w| w.id).collect();
-    assert!(
-        ids.is_empty(),
-        "the nil workspace is never listed, so this org lists none: {ids:?}"
-    );
-}
+// `the_workspace_list_never_offers_the_local_mode_nil_workspace` moved to
+// `oxy-api-workspaces`' integration group (`workspace_list`) with
+// `list_workspaces` (2026-11-16): S3 forbids this crate depending on that
+// one, dev dependencies included. It seeds the org there by rows rather than
+// through `create_org`.

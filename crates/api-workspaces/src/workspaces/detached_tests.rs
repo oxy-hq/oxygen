@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use axum::http::StatusCode;
 use tempfile::TempDir;
 
 use super::*;
@@ -54,21 +53,4 @@ async fn details_report_the_label_and_its_sha() {
         active_head(on_branch.path(), "main").await,
         ("main".to_string(), None)
     );
-}
-
-/// A stale label is a conflict with the workspace's state; a value that is not
-/// a label at all is still a bad request.
-#[test]
-fn only_a_well_formed_label_is_a_conflict() {
-    assert_eq!(
-        unresolved_branch_status(Some("HEAD@abc1234")),
-        StatusCode::CONFLICT
-    );
-    for value in [Some("HEAD@../../etc"), Some("has@symbol"), Some(""), None] {
-        assert_eq!(
-            unresolved_branch_status(value),
-            StatusCode::BAD_REQUEST,
-            "{value:?}"
-        );
-    }
 }

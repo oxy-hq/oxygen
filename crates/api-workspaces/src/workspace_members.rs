@@ -9,13 +9,13 @@ use entity::prelude::{OrgMembers, Users, WorkspaceMembers};
 use entity::workspace_members::WorkspaceRole;
 use oxy::database::client::establish_connection;
 
-use crate::server::authz;
+use crate::authz;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::server::api::middlewares::workspace_context::OrgMembershipExtractor;
-use crate::server::router::WorkspaceExtractor;
+use oxy_app::surface::OrgMembershipExtractor;
+use oxy_app::surface::WorkspaceExtractor;
 
 // Request / Response types
 
@@ -171,7 +171,7 @@ pub async fn set_workspace_role_override(
     let legacy = matches!(org_membership.role, OrgRole::Owner | OrgRole::Admin);
     let allowed = authz::enforce_for(
         &db,
-        &crate::server::authz::caller_of(&actor),
+        &crate::authz::caller_of(&actor),
         "workspace_members.set_role",
         authz::Action::MemberSetRole,
         authz::Resource::org(org_membership.org_id),
@@ -268,7 +268,7 @@ pub async fn remove_workspace_role_override(
     let legacy = matches!(org_membership.role, OrgRole::Owner | OrgRole::Admin);
     let allowed = authz::enforce_for(
         &db,
-        &crate::server::authz::caller_of(&actor),
+        &crate::authz::caller_of(&actor),
         "workspace_members.remove_role",
         authz::Action::MemberRemove,
         authz::Resource::org(org_membership.org_id),

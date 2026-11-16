@@ -113,6 +113,9 @@ fn server_files() -> Vec<(String, String)> {
     // The conversation surface (2026-11-16), served by this binary from
     // `oxy-api-threads`.
     walk(&manifest.join("../api-threads/src"), &mut out);
+    // The workspaces surface (2026-11-16), served by this binary from
+    // `oxy-api-workspaces`.
+    walk(&manifest.join("../api-workspaces/src"), &mut out);
     // Three files `oxy-api-tenancy` took from `src/server/api` on 2026-11-16
     // (the org subdomain's status, the logo, the consent switch), by name: the
     // rest of that crate provisions and clones working copies on purpose.

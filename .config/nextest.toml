@@ -196,6 +196,17 @@ filter = "kind(test) & package(=oxy-api-threads) & binary(=integration) & !test(
 test-group = "db-per-test"
 retries = 2
 
+# `oxy-api-workspaces`' integration group: `workspace_list`, rehomed from
+# `oxy-api-tenancy`'s `org_default_workspace` with `list_workspaces`
+# (2026-11-16) — oxy-app's harness (`common::test_db`, its own database per
+# test), same group. `meta_canary` and `workspace_details_fields` (from
+# oxy-app's `routing` and `platform` binaries) open no database and stay
+# ungrouped, as they were there.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-workspaces) & binary(=integration) & test(/^workspace_list::/)"
+test-group = "db-per-test"
+retries = 2
+
 # `oxy-api-workspace-config`'s integration group: the tenant secrets tests,
 # rehomed from `oxy-api-custom-apps` with the secrets handlers (2026-11-15) —
 # oxy-app's harness, same group.

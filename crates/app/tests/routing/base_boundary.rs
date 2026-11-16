@@ -82,10 +82,11 @@ const BACKLOG: &[(&str, &str)] = &[
     ("agentic_wiring", "server::api::semantic"),
     ("agentic_wiring", "server::api::typed_stream"),
     // The workspace middleware: branch self-heal, the reconcile check, the
-    // Factory-access gate, preview pins and read-only holds, the worktree
-    // registry and the detached-branch status. The largest knot: it is where
-    // request context meets every context that can refuse a request.
-    ("server::api::middlewares", "server::api::workspaces"),
+    // Factory-access gate, preview pins and read-only holds. The largest
+    // knot: it is where request context meets every context that can refuse
+    // a request. (Its reach into `server::api::workspaces`, the detached-branch
+    // status, cleared on 2026-11-16: `unresolved_branch_status` moved beside
+    // its one caller, the middleware, before the workspaces surface left.)
     // The subscription guard asks billing whether billing is switched off.
     ("server::api::middlewares", "server::api::billing"),
     ("server::api::middlewares", "server::compile_git"),

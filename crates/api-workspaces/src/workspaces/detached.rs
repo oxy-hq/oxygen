@@ -11,7 +11,11 @@
 //! instead of handing git a `HEAD@<sha>` refspec. Switching to or creating a
 //! real branch stays open: it is the way out the message points at.
 //!
-//! The label itself is produced and recognised in `oxy_git::cli::head`.
+//! The label itself is produced and recognised in `oxy_git::cli::head`. The
+//! workspace middleware's answer to a `?branch=` label it cannot resolve
+//! (`unresolved_branch_status`) lives beside its one caller, in
+//! `middlewares::workspace_context` (moved there 2026-11-16, so the base
+//! names no workspace handler module).
 
 use std::path::Path;
 
@@ -59,17 +63,6 @@ impl IntoResponse for GitRefusal {
             )
                 .into_response(),
         }
-    }
-}
-
-/// The status for a `?branch=` value the workspace middleware could not
-/// resolve. A well-formed detached label that no longer matches the working
-/// copy is a conflict with the workspace's state (the checkout moved since the
-/// caller read it), not a malformed request; everything else stays a `400`.
-pub(crate) fn unresolved_branch_status(branch: Option<&str>) -> StatusCode {
-    match branch.map(str::trim) {
-        Some(b) if oxy_git::is_detached_label(b) => StatusCode::CONFLICT,
-        _ => StatusCode::BAD_REQUEST,
     }
 }
 

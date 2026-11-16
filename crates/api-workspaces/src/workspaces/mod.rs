@@ -9,14 +9,14 @@
 
 pub(crate) mod detached;
 mod dto;
-mod handlers;
+// `pub(crate)` so the router can name `handlers::list_workspaces` for the
+// route catalog (see `crate::org_handlers`).
+pub(crate) mod handlers;
 mod ops;
 
 pub use detached::GitRefusal;
 pub use dto::*;
 pub use handlers::*;
-pub use ops::cleanup_workspace_schedules;
 pub use ops::{
     build_workspace_details_response_for_uninitialized_local, compute_workspace_storage_key,
 };
-pub use ops::{git_delete_branch, git_switch_branch};

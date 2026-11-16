@@ -132,6 +132,7 @@ fn api_seam_routes() -> SeamRouter {
         .merge(oxy_api_notifications::routes())
         .merge(oxy_api_slack::routes())
         .merge(oxy_api_threads::routes())
+        .merge(oxy_api_workspaces::routes())
         // The environment planes writes pin a semantic branch through a port
         // `oxy-app` implements (a surface may not depend on `oxy-app`). The
         // staff console's "Test notifications" reads an app's kinds through a
@@ -170,6 +171,7 @@ fn workspace_seam_routes() -> SeamRouter {
         .merge(oxy_api_previews::workspace_routes())
         .merge(oxy_api_identity::workspace_routes())
         .merge(oxy_api_threads::workspace_routes())
+        .merge(oxy_api_workspaces::workspace_routes())
 }
 
 /// The sibling crates merged into the curated `/external/api/{workspace_id}`
@@ -294,6 +296,16 @@ fn external_seam_routes() -> SeamRouter {
 /// artifacts), with the nine thread and agent operations the curated
 /// document has always listed.
 ///
+/// `oxy-api-workspaces` (2026-11-16) fills `api`, `workspace` and
+/// `openapi`. On `api`: an org's workspace list, delete and rename under
+/// `/orgs/{org_id}`, with `org_middleware` + the subscription guard
+/// re-applied as `build_org_routes` wrapped them (three paths, FleetOk, cloud
+/// only like the global tree). On `workspace`: a workspace's `/meta`, its
+/// members and role overrides, the Oxy-staff lockdown and the app
+/// integrations (five declarations, FleetOk), with the two operations the
+/// curated document has always listed (`GET /workspaces/{workspace_id}`, `GET
+/// /orgs/{org_id}/workspaces`).
+///
 /// `oxy-api-previews` (2026-11-14) fills its own seam, `previews`: the
 /// `/{workspace_id}/previews` routes, beside the workspace tree behind the
 /// access check alone, all FleetOk. Its four task kinds join `tasks` and the
@@ -321,6 +333,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_custom_apps::route_roles())
                 .chain(oxy_api_slack::route_roles())
                 .chain(oxy_api_threads::route_roles())
+                .chain(oxy_api_workspaces::route_roles())
                 .copied()
                 .collect(),
         },
@@ -340,6 +353,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_previews::workspace_route_roles())
                 .chain(oxy_api_identity::workspace_route_roles())
                 .chain(oxy_api_threads::workspace_route_roles())
+                .chain(oxy_api_workspaces::workspace_route_roles())
                 .copied()
                 .collect(),
         },
@@ -387,6 +401,7 @@ fn surface_seams() -> SurfaceSeams {
             oxy_api_identity::openapi(),
             oxy_api_custom_apps::openapi(),
             oxy_api_threads::openapi(),
+            oxy_api_workspaces::openapi(),
         ],
         // The custom-app task kinds a worker runs, the background jobs a serve
         // process starts, and the outer `/customer-apps/{*path}` mount. The task
@@ -752,6 +767,28 @@ mod tests {
             "LogItem",
             "LogsResponse",
         ] {
+            assert!(
+                schemas.contains_key(schema),
+                "{schema} is not in components"
+            );
+        }
+        // The workspace lookups, `oxy-api-workspaces`' since 2026-11-16 (were
+        // in `oxy-app`'s `openapi_router`; `GET /orgs/{org_id}/workspaces`
+        // was a row of its `the_agent_data_plane_is_documented`: the second
+        // step of turning a customer into the ids every endpoint takes), with
+        // the response schemas they name.
+        for path in ["/orgs/{org_id}/workspaces", "/workspaces/{workspace_id}"] {
+            let item = doc
+                .paths
+                .paths
+                .get(path)
+                .unwrap_or_else(|| panic!("{path} is missing from the OpenAPI document"));
+            assert!(
+                item.get.is_some(),
+                "{path} is documented but carries no get"
+            );
+        }
+        for schema in ["WorkspaceSummary", "WorkspaceDetailsResponse"] {
             assert!(
                 schemas.contains_key(schema),
                 "{schema} is not in components"

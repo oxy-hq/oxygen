@@ -92,7 +92,6 @@ const SERVER: &[&str] = &[
 
 const SERVER_API: &[&str] = &[
     "admin",
-    "apps",
     "auth",
     "billing",
     "compile",
@@ -105,11 +104,7 @@ const SERVER_API: &[&str] = &[
     "semantic",
     "semantic_scan",
     "typed_stream",
-    "workspace_members",
-    "workspace_members_tests",
     "workspace_org",
-    "workspace_oxy_access",
-    "workspaces",
 ];
 
 /// The module names a directory declares at its top level: `foo.rs` and `foo/`

@@ -776,6 +776,14 @@ mod tests {
             "oxy_api_threads::result_files",
             "oxy_api_threads::chat::handlers",
             "oxy_api_threads::chat::delivery",
+            // The workspaces surface (Wave C, 2026-11-16): Postgres, the
+            // compiled config and git metadata, never a tenant warehouse.
+            "oxy_api_workspaces::workspaces::handlers",
+            "oxy_api_workspaces::workspaces::ops",
+            "oxy_api_workspaces::workspaces::detached",
+            "oxy_api_workspaces::workspace_members",
+            "oxy_api_workspaces::workspace_oxy_access",
+            "oxy_api_workspaces::apps",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1076,6 +1084,14 @@ mod tests {
             "oxy_api_threads::result_files",
             "oxy_api_threads::chat::handlers",
             "oxy_api_threads::chat::delivery",
+            // The workspaces surface (Wave C, 2026-11-16): Postgres, the
+            // compiled config and git metadata, never a tenant warehouse.
+            "oxy_api_workspaces::workspaces::handlers",
+            "oxy_api_workspaces::workspaces::ops",
+            "oxy_api_workspaces::workspaces::detached",
+            "oxy_api_workspaces::workspace_members",
+            "oxy_api_workspaces::workspace_oxy_access",
+            "oxy_api_workspaces::apps",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

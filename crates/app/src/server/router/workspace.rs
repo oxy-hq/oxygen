@@ -8,14 +8,11 @@
 
 use std::sync::Arc;
 
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
-use crate::api::{
-    apps, data, local_setup, preagg, semantic, semantic_scan, workspace_members,
-    workspace_oxy_access, workspaces,
-};
+use crate::api::{data, local_setup, preagg, semantic, semantic_scan};
 
 use oxy_shared::fleet_role::RouteRole;
 
@@ -28,9 +25,9 @@ pub(super) fn build_workspace_routes(
     include_local_setup: bool,
 ) -> RoleRouter {
     let mut router = RoleRouter::new(app_state.clone())
-        // `/details` served both halves and was the last route needing the
-        // ide-down degrade mechanism. The frontend fetches these two instead.
-        .route_fleet("/meta", get(workspaces::get_workspace_meta))
+        // `/meta` (the workspace's metadata, the Postgres half of the retired
+        // `/details`) is `oxy-api-workspaces`' since 2026-11-16, merged inside
+        // this nest by `oxy-server` through the workspace seam, still FleetOk.
         // Camera fleet operator endpoints (sites / cameras / edge-boxes /
         // UniFi integration). Mounted here so `workspace_middleware`
         // (cloud) / `local_context_middleware` (local) gate them, and
@@ -67,30 +64,19 @@ pub(super) fn build_workspace_routes(
         // `oxy-api-workspace-config`'s since 2026-11-15, merged inside this
         // nest by `oxy-server` through `SurfaceSeams::workspace`, still FleetOk.
         .nest("/integrations", build_integration_routes(&app_state))
-        .route_fleet("/members", get(workspace_members::list_workspace_members))
-        .route_fleet(
-            "/members/{user_id}",
-            put(workspace_members::set_workspace_role_override)
-                .delete(workspace_members::remove_workspace_role_override),
-        )
-        // POST = lock Oxy staff OUT; DELETE = lift the lockdown (default is
-        // access-granted). Only a REAL org officer may do either.
-        .route_fleet(
-            "/oxy-access",
-            get(workspace_oxy_access::get_oxy_access)
-                .post(workspace_oxy_access::lock_oxy_access)
-                .delete(workspace_oxy_access::unlock_oxy_access),
-        )
+        // `/members`, `/members/{user_id}` (a workspace's members and their
+        // role overrides) and `/oxy-access` (the Oxy-staff lockdown) are
+        // `oxy-api-workspaces`' since 2026-11-16, merged inside this nest
+        // through the workspace seam, still FleetOk.
         // `/org-subdomain` (the org subdomain's read-only status) and `/logo`
         // (the org's uploaded logo) are `oxy-api-tenancy`'s since 2026-11-16,
         // merged inside this nest by `oxy-server` through the workspace seam,
         // still FleetOk.
         // `/source-uploads` moved to the `oxy-api-airway` sibling crate,
         // merged inside this nest by `oxy-server` through the workspace seam.
-        .nest(
-            "/app-integrations",
-            build_app_integration_routes(&app_state),
-        )
+        // `/app-integrations` (the app integrations `config.yml` declares) is
+        // `oxy-api-workspaces`' since 2026-11-16, merged inside this nest
+        // through the workspace seam, still FleetOk.
         // `/traces`, `/metrics` and `/execution-analytics` (the tenant-facing
         // observability console) moved to the `oxy-api-observability` sibling
         // crate, merged inside this nest by `oxy-server` through the workspace
@@ -281,13 +267,6 @@ fn build_integration_routes(app_state: &AppState) -> RoleRouter {
             "/oauth/{provider}/authorize",
             post(crate::integrations::quickbooks::oauth::authorize::authorize_by_slug),
         )
-}
-
-/// World-model "Apps" configuration routes — Toast / OpenWeatherMap /
-/// BestTime integration entries surfaced in the Workspace Settings →
-/// Apps tab.
-fn build_app_integration_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone()).route_fleet("/", get(apps::list_apps))
 }
 
 #[cfg(test)]

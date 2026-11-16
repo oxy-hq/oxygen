@@ -375,7 +375,7 @@ pub async fn delete_workspace(
     txn.commit().await.map_err(map_destructive_db_err)?;
     // Remove the deleted workspace's orphaned schedule rows (no FK cascade),
     // else its health_eval row keeps firing tasks into the dead-letter queue.
-    oxy_app::server::api::workspaces::cleanup_workspace_schedules(&db, workspace_id).await;
+    agentic_pipeline::scheduler::cleanup_workspace_schedules(&db, workspace_id).await;
     tracing::info!(
         admin_email = %actor.label(),
         target_id = %workspace_id,

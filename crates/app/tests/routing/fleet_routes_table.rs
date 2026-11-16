@@ -79,12 +79,16 @@ const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 /// off the assertion) when the conversation surface left for
 /// `oxy-api-threads`: `/threads`, `/threads/bulk-delete`, `/threads/{id}`,
 /// `/threads/{id}/stop`, `/agents`, `/artifacts/{id}`, `/charts/{file_path}`,
-/// `/logs`, `/builder-availability` and `/results/files/{file_id}`.
+/// `/logs`, `/builder-availability` and `/results/files/{file_id}`. Plus eight
+/// the same day (Wave C, read off the assertion) when the workspaces surface
+/// left for `oxy-api-workspaces`: `/meta`, `/members`, `/members/{user_id}`,
+/// `/oxy-access`, `/app-integrations`, and the org's `/orgs/{org_id}/workspaces`,
+/// `/workspaces/{id}` and `/workspaces/{id}/rename`.
 ///
 /// A backlog with a number on it, not an exemption: a new row that matches no
 /// declaration fails here, and so does forgetting to lower this after pruning
 /// one — the role check must not be able to skip rows nobody counted.
-const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 108;
+const ROWS_OXY_APP_DOES_NOT_DECLARE: usize = 116;
 
 /// Every spelling `RouteRole::as_str` produces.
 const ROLES: [&str; 3] = ["fleet-ok", "ide-only", "worker-only"];
@@ -211,6 +215,9 @@ fn no_row_contradicts_the_role_the_code_declares() {
     // oxy-api-threads the same day (read off it with the floor raised), and 80
     // when org chat's five `/chat/channels*` rows followed it out of the global
     // tree (read off it, floor `> 80` -> `> 60`; the table has no chat rows);
+    // Wave C's eight (the workspaces surface's five workspace routes and three
+    // org routes, to `oxy-api-workspaces`) left the same day without tripping
+    // the floor, so no count was read off it;
     // every decomposition step moves more out. The floor guards against an empty
     // table, not a count.
     assert!(

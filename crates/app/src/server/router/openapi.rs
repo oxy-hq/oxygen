@@ -14,7 +14,7 @@ use utoipa::openapi::server::Server;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::api::{data, workspaces};
+use crate::api::data;
 
 use super::{IdeState, build_cors_layer};
 
@@ -24,7 +24,9 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         // 2026-11-16), merged in through `SurfaceSeams::openapi`.
         // The legacy API-key operations are `oxy-api-identity`'s, merged in
         // through `SurfaceSeams::openapi`.
-        .routes(routes!(workspaces::get_workspace))
+        // `GET /workspaces/{workspace_id}` and `GET /orgs/{org_id}/workspaces`
+        // are `oxy-api-workspaces`' (2026-11-16), merged in through
+        // `SurfaceSeams::openapi`.
         // The agent listing, the thread operations and the run logs are
         // `oxy-api-threads`' (2026-11-16), merged in through
         // `SurfaceSeams::openapi`.
@@ -42,8 +44,8 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         // `SurfaceSeams::openapi`; `oxy-server`'s tests assert them there.
         // Turning "the customer" into the ids every other endpoint wants.
         // `GET /user` is `oxy-api-identity`'s, merged in through
-        // `SurfaceSeams::openapi`.
-        .routes(routes!(workspaces::list_workspaces))
+        // `SurfaceSeams::openapi`, and `GET /orgs/{org_id}/workspaces`
+        // `oxy-api-workspaces`' (above).
         // Database routes
         .layer(build_cors_layer())
         .layer(ServiceBuilder::new().layer(NewSentryLayer::<Request<Body>>::new_from_top()))
@@ -131,8 +133,9 @@ mod openapi_coverage_tests {
         // `GET /user` (`oxy-api-identity`), `GET /orgs` (`oxy-api-tenancy`) and the custom-app data plane's
         // `/projects/{project_id}/query` and `/semantic-query`
         // (`oxy-api-custom-apps`) are merged in by the composition root;
-        // `oxy-server`'s tests assert them there.
-        ("/orgs/{org_id}/workspaces", "get"),
+        // `oxy-server`'s tests assert them there. So is `GET
+        // /orgs/{org_id}/workspaces`, `oxy-api-workspaces`' since 2026-11-16
+        // (`the_served_openapi_document_includes_the_surfaces`).
     ];
 
     /// The operation for `method`, or `None` — read off the typed `PathItem`

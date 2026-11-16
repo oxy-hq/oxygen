@@ -6,7 +6,7 @@
 //! That gives us the same field-level coverage the plan calls for without
 //! inventing a new test harness.
 
-use oxy_app::api::workspaces::{
+use oxy_api_workspaces::workspaces::{
     GitCapabilities, GitMode, build_workspace_details_response,
     build_workspace_details_response_for_uninitialized_local, compute_workspace_storage_key,
 };

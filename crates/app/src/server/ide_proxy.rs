@@ -59,7 +59,9 @@ const HEADER_REQUIRED_ROLE: &str = "x-oxy-required-role";
 /// off [`HEADER_REQUIRED_ROLE`] alone (see `ideHealth.ts`) — so the table was
 /// pure drift risk. `forward_to_ide_opt` already WARNs with the failing `url`,
 /// which is the signal ops actually had.
-pub(crate) const HEADER_UNAVAILABLE: &str = "x-oxy-unavailable";
+// `pub` (was `pub(crate)`) since 2026-11-16: `oxy-api-workspaces`' details
+// raise the "materializing" 503 with it, through `surface::fleet::ide_proxy`.
+pub const HEADER_UNAVAILABLE: &str = "x-oxy-unavailable";
 
 /// The caller-visible host, carried across the proxy hop because `Host` cannot
 /// be. See [`preserve_public_host`].

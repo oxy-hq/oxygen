@@ -42,9 +42,10 @@
 //!
 //! `authz::shared_db_registry` fails the build if that classification drifts.
 //!
-//! Two members mutate process cwd —
-//! `workspace_details_fields::storage_key_normalizes_relative_to_absolute` and
-//! all of `metric_tree_fit_panel`. Both carry `#[serial_test::serial]`, whose
+//! One member mutates process cwd — all of `metric_tree_fit_panel` (and
+//! `workspace_details_fields::storage_key_normalizes_relative_to_absolute` did,
+//! until it moved to `oxy-api-workspaces` on 2026-11-16). It carries
+//! `#[serial_test::serial]`, whose
 //! lock is global to this binary; anything folded in here that touches cwd,
 //! environment variables or another process-global needs the same attribute — a
 //! guard private to one file excludes nothing once the files share a binary.
@@ -116,7 +117,8 @@ mod shared_state_boot;
 mod usage_report;
 mod walker_storage_divergence;
 mod worker_ctx_follows_promote;
-mod workspace_details_fields;
+// `workspace_details_fields` moved to `oxy-api-workspaces`' integration group
+// with the details builders it drives (2026-11-16).
 mod workspace_path_backdoor;
 mod workspace_path_escape_hatch;
 mod workspace_path_needs_is_dir;

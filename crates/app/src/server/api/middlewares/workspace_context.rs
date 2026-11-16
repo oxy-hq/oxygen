@@ -1514,6 +1514,18 @@ pub(crate) async fn enqueue_compile_deduped_as(
     }
 }
 
+/// The status for a `?branch=` value the workspace middleware could not
+/// resolve. A well-formed detached label that no longer matches the working
+/// copy is a conflict with the workspace's state (the checkout moved since the
+/// caller read it), not a malformed request; everything else stays a `400`.
+/// (In `api::workspaces::detached` until 2026-11-16; its one caller is here.)
+fn unresolved_branch_status(branch: Option<&str>) -> StatusCode {
+    match branch.map(str::trim) {
+        Some(b) if oxy_git::is_detached_label(b) => StatusCode::CONFLICT,
+        _ => StatusCode::BAD_REQUEST,
+    }
+}
+
 /// Best-effort: builds the `WorkspaceManager` (with secrets, runs, intent classifier)
 /// and inserts it into request extensions. The only fatal outcome is an invalid
 /// branch query parameter, which yields BAD_REQUEST.
@@ -1547,7 +1559,7 @@ async fn try_attach_workspace_manager(
                 workspace_id,
                 e
             );
-            crate::server::api::workspaces::detached::unresolved_branch_status(branch_name)
+            unresolved_branch_status(branch_name)
         })?;
 
     // Compile-boundary fast path: when the workspace has a promoted revision,
@@ -1929,6 +1941,24 @@ mod tests {
     use super::*;
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
+
+    /// A stale label is a conflict with the workspace's state; a value that is not
+    /// a label at all is still a bad request. (Moved from
+    /// `api::workspaces::detached_tests` with the function, 2026-11-16.)
+    #[test]
+    fn only_a_well_formed_label_is_a_conflict() {
+        assert_eq!(
+            unresolved_branch_status(Some("HEAD@abc1234")),
+            StatusCode::CONFLICT
+        );
+        for value in [Some("HEAD@../../etc"), Some("has@symbol"), Some(""), None] {
+            assert_eq!(
+                unresolved_branch_status(value),
+                StatusCode::BAD_REQUEST,
+                "{value:?}"
+            );
+        }
+    }
 
     /// The boundary-miss 503 has to speak the protocol the frontend listens on.
     ///

@@ -7,14 +7,14 @@
 
 use axum::Router;
 use axum::middleware;
-use axum::routing::{delete, get, patch};
+use axum::routing::get;
 
+use crate::api::admin;
 use crate::api::billing;
 use crate::api::middlewares::{
     app_scope_guard, org_context, oxy_owner_or_app_admin_guard, platform_cap_guard,
     subscription_guard,
 };
-use crate::api::{admin, workspaces};
 
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
@@ -183,13 +183,11 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
         // gate can see them — and the crate sits outside this router, so
         // `route_ide` cannot reach them either. They are declared by hand at
         // the `nest_declared` seam that mounts the crate.
-        .route_fleet("/workspaces", get(workspaces::list_workspaces))
-        // Deletes the row, schedules and Airhouse tenant: Postgres only.
-        .route_fleet("/workspaces/{id}", delete(workspaces::delete_workspace))
-        .route_fleet(
-            "/workspaces/{id}/rename",
-            patch(workspaces::rename_workspace),
-        )
+        // The org's workspace list, delete and rename (`/workspaces`,
+        // `/workspaces/{id}`, `/workspaces/{id}/rename`) are
+        // `oxy-api-workspaces`' since 2026-11-16, merged through
+        // `SurfaceSeams::api` with this tree's `org_middleware` + subscription
+        // guard re-applied, still FleetOk.
         // Slack installation management (`/slack/install`, `/slack/installation`)
         // is `oxy-api-slack`'s, merged through `SurfaceSeams::api` with this
         // tree's `org_middleware` + subscription guard re-applied.

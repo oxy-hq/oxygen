@@ -22,23 +22,11 @@
 use oxy_app::server::role_manifest::{RouteRole, classify, install_route_declarations_for_tests};
 
 const ORG: &str = "11111111-1111-1111-1111-111111111111";
-const WORKSPACE: &str = "22222222-2222-2222-2222-222222222222";
 
-/// Deleting a workspace is a Postgres delete (the row, its schedules, its
-/// Airhouse tenant record) and stays on the fleet. It used to be pinned to the
-/// ide because it also removed the working copy; since step B of the Factory
-/// retirement (2026-11-14) it removes files only where the serving process owns
-/// them (`process_owns_workspace_files`), so a fleet replica answers it whole.
-#[test]
-fn deleting_a_workspace_stays_on_the_fleet() {
-    install_route_declarations_for_tests();
-    let path = format!("/api/orgs/{ORG}/workspaces/{WORKSPACE}");
-    assert_eq!(
-        classify("DELETE", &path),
-        RouteRole::FleetOk,
-        "DELETE {path} is Postgres only"
-    );
-}
+// `deleting_a_workspace_stays_on_the_fleet` moved to `oxy-api-workspaces`
+// (2026-11-16) with the route, as `persisted_data_routes_are_declared_fleet_ok`:
+// this harness installs `oxy-app`'s declarations only, so `classify` would
+// answer the FleetOk default here and prove nothing.
 
 /// The org surface's reads must NOT follow them to the singleton — listing
 /// workspaces is a Postgres query, and pinning it would put the workspace
@@ -47,10 +35,10 @@ fn deleting_a_workspace_stays_on_the_fleet() {
 fn org_reads_stay_on_the_fleet() {
     install_route_declarations_for_tests();
 
-    for (method, path) in [
-        ("GET", format!("/api/orgs/{ORG}/workspaces")),
-        ("GET", format!("/api/orgs/{ORG}/members")),
-    ] {
+    // `GET /orgs/{org_id}/workspaces` left for `oxy-api-workspaces`
+    // (2026-11-16), whose `persisted_data_routes_are_declared_fleet_ok` pins it
+    // against its own declarations.
+    for (method, path) in [("GET", format!("/api/orgs/{ORG}/members"))] {
         assert_eq!(
             classify(method, &path),
             RouteRole::FleetOk,

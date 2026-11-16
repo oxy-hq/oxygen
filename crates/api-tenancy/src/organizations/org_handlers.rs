@@ -374,7 +374,7 @@ pub async fn delete_org(OrgOwner(ctx): OrgOwner) -> Result<StatusCode, StatusCod
     // or their health_eval/monitor schedules keep firing into the dead-letter
     // queue.
     for workspace_id in &workspace_ids {
-        oxy_app::server::api::workspaces::cleanup_workspace_schedules(&db, *workspace_id).await;
+        agentic_pipeline::scheduler::cleanup_workspace_schedules(&db, *workspace_id).await;
     }
 
     // The org delete cascades its apps away, but a cached `(org_slug, app_slug)`

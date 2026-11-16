@@ -108,23 +108,11 @@ fn ide_routes_classify_against_live_uri() {
     // a failure that says nothing about the product.
     // `/orgs/{id}/onboarding/github` moved with the rest of the onboarding
     // surface — asserted in `crates/api-tenancy/tests/integration/onboarding_route_roles.rs`.
-    // The workspace's metadata is Postgres.
-    assert_eq!(
-        classify("GET", "/api/d9830be4-c6a4/meta"),
-        RouteRole::FleetOk
-    );
-    // Deletion removes the row, schedules and Airhouse tenant: Postgres only.
-    // `?delete_files=true` touches disk only where the process holds the files.
-    assert_eq!(
-        classify("DELETE", "/api/orgs/some-org/workspaces/d9830be4-c6a4"),
-        RouteRole::FleetOk
-    );
-    // The sibling LIST must stay on the fleet — viewing workspaces cannot
-    // require the singleton.
-    assert_eq!(
-        classify("GET", "/api/orgs/some-org/workspaces"),
-        RouteRole::FleetOk
-    );
+    // The workspace's metadata (`GET /meta`), deletion and the sibling LIST
+    // (`/orgs/{org_id}/workspaces`, DELETE and GET) left for
+    // `oxy-api-workspaces` (2026-11-16), whose
+    // `persisted_data_routes_are_declared_fleet_ok` pins all three against its
+    // own declarations; here they would pass on the default.
     // `/world-model/events` used to belong in this list and no longer does.
     // Its publishers append to `world_model_events` and every pod tails that
     // table onto its own bus, so the feed is no longer process-local and any
@@ -1112,10 +1100,13 @@ fn every_workspace_mount_is_declared() {
     // mounts (the `/threads` and `/agents` nests, `/artifacts/{id}`,
     // `/charts/{file_path}`, `/logs`, `/builder-availability`,
     // `/results/files/{file_id}`) to `oxy-api-threads`, floor `> 30` ->
-    // `> 20`. The floor guards the parser, not a count: surfaces leaving
+    // `> 20`; 20 the same day (read off this assertion) after Wave C moved
+    // five more (`/meta`, `/members`, `/members/{user_id}`, `/oxy-access`,
+    // the `/app-integrations` nest) to `oxy-api-workspaces`, floor `> 20` ->
+    // `> 15`. The floor guards the parser, not a count: surfaces leaving
     // lower it.
     assert!(
-        mounts.len() > 20,
+        mounts.len() > 15,
         "parser found only {} mounts — the router shape changed; fix parse_mounts",
         mounts.len()
     );

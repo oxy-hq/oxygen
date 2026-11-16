@@ -1,14 +1,9 @@
 use axum::response::Json as ResponseJson;
-use chrono::Utc;
 use reqwest::StatusCode;
-use tracing::{error, info};
+use tracing::error;
 use uuid::Uuid;
 
 use oxy::adapters::workspace::effective_workspace_path;
-use oxy::api_types::{BranchType, ProjectBranch};
-use oxy::github::{default_git_client, github_token_for_workspace_as_user};
-use oxy_git::GitClient;
-use oxy_shared::errors::OxyError;
 
 use super::dto::*;
 
@@ -49,59 +44,6 @@ pub(super) async fn workspace_root(
         error!("Failed to resolve workspace path for {}: {}", ws.id, e);
         StatusCode::INTERNAL_SERVER_ERROR
     })
-}
-
-/// Switches the IDE-local branch. Materialises a local ref via
-/// `ensure_local_ref` (no checkout) before `worktree add` so the main
-/// worktree's HEAD and working tree are untouched.
-pub async fn git_switch_branch(
-    root: &std::path::Path,
-    branch: &str,
-    workspace: Option<&entity::workspaces::Model>,
-    workspace_id: Uuid,
-    user_id: Option<Uuid>,
-) -> Result<ProjectBranch, OxyError> {
-    let git = default_git_client();
-    git.ensure_initialized(root).await?;
-
-    // Best-effort: without a token this still switches to any branch that
-    // already exists locally; only materialising a remote-only branch needs
-    // the network.
-    let token = if let Some(ws) = workspace {
-        github_token_for_workspace_as_user(ws, user_id)
-            .await
-            .ok()
-            .flatten()
-    } else {
-        None
-    };
-    let resolved_origin = git.ensure_local_ref(root, branch, token.as_deref()).await?;
-
-    git.get_or_create_worktree(root, branch).await?;
-    let now = Utc::now().to_string();
-    Ok(ProjectBranch {
-        id: Uuid::nil(),
-        workspace_id,
-        branch_type: BranchType::Local,
-        name: branch.to_string(),
-        revision: String::new(),
-        origin: resolved_origin.into(),
-        created_at: now.clone(),
-        updated_at: now,
-    })
-}
-
-pub async fn git_delete_branch(root: &std::path::Path, branch: &str) -> Result<(), OxyError> {
-    let git = default_git_client();
-    let default_branch = git.get_default_branch(root).await;
-    if branch == default_branch {
-        return Err(OxyError::RuntimeError(format!(
-            "Cannot delete the default branch '{default_branch}'"
-        )));
-    }
-    // Lenient validation so legacy `--` branches (predating the strict
-    // rule) can still be cleaned up.
-    git.delete_branch(root, branch).await
 }
 
 /// Build a `WorkspaceDetailsResponse` in one of the two "no git visible"
@@ -241,27 +183,5 @@ mod tests {
             2,
             "`.workflow.yml` is not a recognised kind, so the card must not count it"
         );
-    }
-}
-
-/// Best-effort removal of a workspace's schedule rows, to be called *after* the
-/// workspace has been deleted. Schedules carry a plain `workspace_id` with no FK,
-/// so nothing cascades — an orphaned `health_eval` row keeps firing health-eval
-/// tasks for the deleted workspace and piles them up in the dead-letter queue
-/// (`monitor_scan` rows do the same). Shared by every workspace-removal path
-/// (this handler, the admin delete, and org deletion) so they stay in sync.
-/// Logged, never fatal.
-// `pub` for `oxy-api-tenancy` (deleting an org or a workspace drops its
-// schedules) — on its `surface_contract` backlog until the workspace context
-// is lowered.
-pub async fn cleanup_workspace_schedules(db: &sea_orm::DatabaseConnection, workspace_id: Uuid) {
-    match agentic_pipeline::scheduler::delete_workspace_schedules(db, workspace_id).await {
-        Ok(n) if n > 0 => info!("Removed {} schedule(s) for workspace {}", n, workspace_id),
-        Ok(_) => {}
-        Err(e) => tracing::warn!(
-            "Failed to delete schedules for workspace {}: {}",
-            workspace_id,
-            e
-        ),
     }
 }

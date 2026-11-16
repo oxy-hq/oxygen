@@ -27,9 +27,7 @@ use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilt
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, WorkspaceGlobalOverride,
-};
+use oxy_app::surface::{EffectiveWorkspaceRole, WorkspaceGlobalOverride};
 use oxy_custom_apps::auth::invalidate_access_cache;
 
 /// Status payload. `locked` is always present; the audit fields are only
@@ -129,7 +127,7 @@ pub async fn get_oxy_access(
 /// org model doesn't apply and the legacy verdict stands.
 async fn enforce_oxy_access(
     db: &sea_orm::DatabaseConnection,
-    caller: &crate::server::authz::Caller,
+    caller: &crate::authz::Caller,
     workspace_id: Uuid,
     legacy: bool,
 ) -> bool {
@@ -141,12 +139,12 @@ async fn enforce_oxy_access(
         .and_then(|w| w.org_id);
     match org_id {
         Some(org_id) => {
-            crate::server::authz::enforce_for(
+            crate::authz::enforce_for(
                 db,
                 caller,
                 "workspace.oxy_access",
-                crate::server::authz::Action::WorkspaceOxyAccess,
-                crate::server::authz::Resource::workspace(workspace_id, org_id),
+                crate::authz::Action::WorkspaceOxyAccess,
+                crate::authz::Resource::workspace(workspace_id, org_id),
                 legacy,
             )
             .await
@@ -166,14 +164,7 @@ pub async fn lock_oxy_access(
         tracing::error!("lock_oxy_access DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    if !enforce_oxy_access(
-        &db,
-        &crate::server::authz::caller_of(&actor),
-        workspace_id,
-        legacy,
-    )
-    .await
-    {
+    if !enforce_oxy_access(&db, &crate::authz::caller_of(&actor), workspace_id, legacy).await {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -223,14 +214,7 @@ pub async fn unlock_oxy_access(
         tracing::error!("unlock_oxy_access DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    if !enforce_oxy_access(
-        &db,
-        &crate::server::authz::caller_of(&actor),
-        workspace_id,
-        legacy,
-    )
-    .await
-    {
+    if !enforce_oxy_access(&db, &crate::authz::caller_of(&actor), workspace_id, legacy).await {
         return Err(StatusCode::FORBIDDEN);
     }
 

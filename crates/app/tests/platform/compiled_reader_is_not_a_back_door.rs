@@ -257,6 +257,10 @@ fn source_files() -> Vec<(String, String)> {
     // `src/server/api` on 2026-11-16. The whole crate.
     let threads = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-threads/src");
     walk(&threads, &threads, "../api-threads/src/", &mut out);
+    // `oxy-api-workspaces`: the workspaces surface moved there from
+    // `src/server/api` on 2026-11-16. The whole crate.
+    let workspaces = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-workspaces/src");
+    walk(&workspaces, &workspaces, "../api-workspaces/src/", &mut out);
     let world_model = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-world-model/src");
     walk(
         &world_model,

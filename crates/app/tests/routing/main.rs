@@ -24,11 +24,9 @@
 //! cases carry `#[serial_test::serial]` — a guard private to one file excludes
 //! nothing across module boundaries once the files share a binary.
 
-// `fleet_canary`'s meta-route test awaits a handler whose future nests deeper
-// than rustc's default 128 when its layout is computed ("queries overflow the
-// depth limit", depth 130). The future is the handler's own; the limit is only
-// how far the compiler will follow it.
-#![recursion_limit = "256"]
+// (`fleet_canary`'s meta-route test, whose handler's future needed
+// `#![recursion_limit = "256"]` here, moved to `oxy-api-workspaces`'
+// integration group on 2026-11-16, and the attribute with it.)
 
 mod app_growth;
 mod base_boundary;

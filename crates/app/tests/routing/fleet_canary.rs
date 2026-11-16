@@ -178,66 +178,13 @@ fn every_route_that_owns_a_disk_is_classified_ide_only() {
     );
 }
 
+// `the_meta_route_reads_no_filesystem_on_a_replica` moved to
+// `oxy-api-workspaces`' integration group (`meta_canary`) with the `/meta`
+// handler it drives (2026-11-16), with a copy of this file's
+// `AsDisklessReplica` and workspace row.
+
 /// A workspace row carrying only what path resolution reads: `id` and `path`.
 /// The rest is inert here.
-/// `/meta` is mounted `route_fleet`, so a replica answers it — and until this
-/// was split it answered by delegating to `get_workspace`, which resolves the
-/// workspace root and then runs `detect_git_mode` / `get_default_branch` /
-/// `get_current_branch` and builds an `Origin::Disk` ConfigManager, before
-/// `/meta` threw every git field away.
-///
-/// Two costs, and the second is the one that showed: on an fs-writable pod
-/// whose volume is not populated yet, `build_workspace_details_response` raises
-/// the "materializing" 503 — so `/meta` reported unavailable for data no volume
-/// holds. Its whole response is DB row plus constants.
-///
-/// Asserting through the probe rather than on the status code: a 200 could
-/// still have walked the filesystem to produce it.
-#[tokio::test]
-#[serial]
-async fn the_meta_route_reads_no_filesystem_on_a_replica() {
-    let _guard = AsDisklessReplica::enter();
-
-    let workspace_id = uuid::Uuid::new_v4();
-    let row = entity::workspaces::Model {
-        id: workspace_id,
-        name: "canary".to_string(),
-        path: Some("/nonexistent/workspace/oxy".to_string()),
-        ..fake_workspace()
-    };
-
-    let meta = oxy_app::server::api::workspaces::get_workspace_meta(
-        axum::extract::State(oxy_app::server::router::bare_app_state()),
-        oxy_auth::extractor::AuthenticatedUserExtractor(oxy_auth::types::AuthenticatedUser {
-            id: uuid::Uuid::new_v4(),
-            email: Some("canary@example.com".to_string()),
-            name: "canary".to_string(),
-            picture: None,
-            status: entity::users::UserStatus::Active,
-            credential: None,
-        }),
-        oxy_server_authz::workspace_role::EffectiveWorkspaceRole(
-            entity::workspace_members::WorkspaceRole::Admin,
-        ),
-        axum::extract::Extension(row),
-        axum::extract::Path(workspace_id),
-        // The stub passes `true`: this test is about the working copy, not Factory access.
-        oxy_app::server::factory_access::FactoryAccess(true),
-    )
-    .await
-    .expect("meta needs no working copy, so it cannot fail for want of one");
-
-    assert_eq!(meta.0.id, workspace_id);
-    assert_eq!(meta.0.name, "canary");
-    assert_eq!(
-        leaks(),
-        0,
-        "`/meta` resolved a workspace path on a diskless replica — it is \
-         mounted FleetOk, so every field it returns must come from the database \
-         row or a constant"
-    );
-}
-
 fn fake_workspace() -> entity::workspaces::Model {
     let now = chrono::Utc::now().into();
     entity::workspaces::Model {

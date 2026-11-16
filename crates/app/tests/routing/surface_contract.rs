@@ -38,8 +38,10 @@ const BACKLOG: &[(&str, &str)] = &[
     // tenancy (api-tenancy)
     // billing: seat sync when a member is added or removed
     ("api-tenancy", "server::api::billing::billing_service"),
-    // workspace context: schedule cleanup on delete, the directory read
-    ("api-tenancy", "server::api::workspaces"),
+    // (workspace context: schedule cleanup on delete, the directory read —
+    // cleared 2026-11-16: the cleanup went down to
+    // `agentic_pipeline::scheduler`, the read's test moved to
+    // `oxy-api-workspaces` with `list_workspaces`.)
 ];
 
 /// `path` is `prefix` or lies under it — on a segment boundary, so
