@@ -548,6 +548,27 @@ jobs:
           fi
           git push --force --quiet origin "$BUMP_BRANCH"
 
+          # The compare link: what this promotion ships, or on a rollback what it
+          # takes out of prod (written newer-first, so the list is not empty).
+          # Built from the INTERNAL shas — `main-<sha>` names a mirror commit, and
+          # a mirror sha compared in oxygen-internal is a commit that does not
+          # exist. Without both internal shas it falls back to the mirror, which
+          # has the code but not internal-only paths, and says so.
+          if [[ "$ROLLBACK" == "true" ]]; then
+            DIFF_LABEL="Diff (what leaves prod)"
+            OLD_I="$CANDIDATE_INTERNAL" NEW_I="$CURRENT_INTERNAL" OLD_M="$CANDIDATE" NEW_M="$CURRENT"
+          else
+            DIFF_LABEL="Diff"
+            OLD_I="$CURRENT_INTERNAL" NEW_I="$CANDIDATE_INTERNAL" OLD_M="$CURRENT" NEW_M="$CANDIDATE"
+          fi
+          if [[ -n "$OLD_I" && -n "$NEW_I" ]]; then
+            DIFF="[\`${OLD_I:0:9}...${NEW_I:0:9}\`](https://github.com/oxy-hq/oxygen-internal/compare/${OLD_I}...${NEW_I}) in oxygen-internal"
+          elif [[ -n "$OLD_M" && -n "$NEW_M" ]]; then
+            DIFF="[\`${OLD_M}...${NEW_M}\`](https://github.com/oxy-hq/oxygen/compare/${OLD_M}...${NEW_M}) in the oxy-hq/oxygen mirror (one side's internal commit is unknown)"
+          else
+            DIFF="not determined (one side's commit is unknown)"
+          fi
+
           BODY="${RUNNER_TEMP}/pr-body.md"
           {
             [[ -z "$CI_WARNING" ]] || printf '%s\n\n' "$CI_WARNING"
@@ -559,6 +580,7 @@ jobs:
             else
               printf 'Moves prod from `main-%s` to `main-%s`.\n\n' "$CURRENT" "$CANDIDATE"
             fi
+            printf -- '- **%s:** %s\n' "$DIFF_LABEL" "$DIFF"
             printf -- '- **Migrations vs the candidate:** %s\n' "$MIGRATIONS"
             printf -- '- **Pins:** `%s` (signature checked before this PR was written)\n' "$PIN"
             printf -- '- **Proposed by:** [this run](%s)\n\n' "$RUN_URL"
