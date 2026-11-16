@@ -32,7 +32,7 @@ pub use entry::{api_router, internal_api_router};
 pub use openapi::{build_openapi_doc, openapi_router};
 pub use protected::{api_auth_layers, external_auth_layers};
 pub use seams::{
-    AdminSection, BackgroundDeps, BackgroundSeam, CUSTOM_APP_BACKGROUND_JOBS,
+    AdminSection, BackgroundDeps, BackgroundSeam, CHAT_BACKGROUND_JOBS, CUSTOM_APP_BACKGROUND_JOBS,
     CUSTOM_APP_TASK_KINDS, ExampleAppsSeam, GlobalTickSeam, HEALTH_TASK_KINDS, MigrateReport,
     NOTIFICATION_TASK_KINDS, NotificationsSeam, OuterMount, PREVIEW_BACKGROUND_JOBS,
     PREVIEW_TASK_KINDS, SurfaceSeam, SurfaceSeams, TaskDeps, TaskSeam, global_ticks,
@@ -464,8 +464,16 @@ mod router_split_tests {
         )
         .await
         .expect("router built");
-        let uri = format!("/{}/agents", LOCAL_WORKSPACE_ID);
-        let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
+        // `/meta`, an in-tree workspace route, by TRACE (no handler runs:
+        // 405 when mounted). It probed `GET /agents` until that left for
+        // `oxy-api-threads` (2026-11-16); `oxy-server`'s served-router tests
+        // hold `/agents` in local mode now.
+        let uri = format!("/{}/meta", LOCAL_WORKSPACE_ID);
+        let req = Request::builder()
+            .method(axum::http::Method::TRACE)
+            .uri(&uri)
+            .body(Body::empty())
+            .unwrap();
         let resp = router.oneshot(req).await.expect("oneshot");
         assert_ne!(
             resp.status(),

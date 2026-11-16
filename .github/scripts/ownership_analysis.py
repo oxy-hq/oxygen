@@ -187,6 +187,8 @@ AREAS = [
     ("crates/api-documents",                              "Document model (KB & compliance)"),
     # Pre-extraction path (#3388) — without it the extraction reads as authorship.
     ("crates/app/src/server/api/documents",               "Document model (KB & compliance)"),
+    ("crates/api-threads/src/chat",                       "Chat channels"),
+    # Pre-extraction path (2026-11-16) — without it the extraction reads as authorship.
     ("crates/app/src/server/api/chat",                    "Chat channels"),
     ("crates/api-notifications",                          "Notifications & push"),
     # Pre-extraction path (#4038) — without it the extraction reads as authorship.

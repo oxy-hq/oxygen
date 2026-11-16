@@ -268,6 +268,12 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // hand now in `core_routes::{public_route_roles, catalog_route_roles}`;
         // they read a ping, the build stamp and a compiled-in table.
         "../server/src/core_routes",
+        // The conversation surface, out of `oxy-app` on 2026-11-16, where
+        // every route was `route_fleet` (a `FleetState` handler type refused
+        // a working-copy extractor). Declared FleetOk by hand now in
+        // `oxy_api_threads::workspace_route_roles`; Postgres, the read-only
+        // workspace manager and the S3-mirrored runtime artifacts.
+        "../api-threads/src",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

@@ -13,8 +13,8 @@ use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::{delete, post};
 use entity::workspace_members::WorkspaceRole;
-use oxy_app::api::middlewares::workspace_context::EffectiveWorkspaceRole;
-use oxy_app::api::thread::{bulk_delete_threads, delete_all_threads};
+use oxy_api_threads::thread::{bulk_delete_threads, delete_all_threads};
+use oxy_app::surface::EffectiveWorkspaceRole;
 use tower::ServiceExt;
 
 /// Inserts an `EffectiveWorkspaceRole` extension so downstream extractors
@@ -38,8 +38,8 @@ fn build_router(role: WorkspaceRole) -> Router {
         .route("/threads", delete(delete_all_threads))
         .route("/threads/bulk-delete", post(bulk_delete_threads))
         .layer(middleware::from_fn(inject_role(role)))
-        .with_state(oxy_app::server::router::IdeState(
-            oxy_app::server::router::bare_app_state(),
+        .with_state(oxy_app::surface::fleet::IdeState(
+            oxy_app::surface::bare_app_state(),
         ))
 }
 

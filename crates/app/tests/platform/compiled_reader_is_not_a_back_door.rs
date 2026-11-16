@@ -253,6 +253,10 @@ fn source_files() -> Vec<(String, String)> {
         "../server/src/core_routes/",
         &mut out,
     );
+    // `oxy-api-threads`: the conversation surface moved there from
+    // `src/server/api` on 2026-11-16. The whole crate.
+    let threads = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-threads/src");
+    walk(&threads, &threads, "../api-threads/src/", &mut out);
     let world_model = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-world-model/src");
     walk(
         &world_model,

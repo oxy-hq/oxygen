@@ -52,6 +52,7 @@ oxy-api-automations = { path = "../api-automations" }
 oxy-api-workspace-config = { path = "../api-workspace-config" }
 oxy-api-previews = { path = "../api-previews" }
 oxy-api-workspace-health = { path = "../api-workspace-health" }
+oxy-api-threads = { path = "../api-threads" }
 oxy-cli-shim = { path = "../cli-shim" }
 # Dev-dynamic-linking shim, pulled in only by the `dev-dynamic` feature above.
 oxy-app-dylib = { path = "../app-dylib", optional = true }

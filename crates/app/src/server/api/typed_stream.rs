@@ -5,7 +5,7 @@
 //! - [`typed_stream_to_parquet`]: streams rows into an Arrow `RecordBatch`
 //!   builder, flushes every 10K rows into a Parquet file in the workspace
 //!   results directory, and returns the filename — matching the contract of
-//!   [`crate::server::api::result_files::store_result_file`].
+//!   `oxy_api_threads::result_files::store_result_file`.
 //! - [`typed_stream_to_json_array`]: eagerly collects every row into the
 //!   `Vec<Vec<String>>` shape the `ResultFormat::Json` branch expects.
 //!

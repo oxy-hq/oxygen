@@ -1775,3 +1775,168 @@ async fn the_route_catalog_refuses_an_anonymous_caller_and_the_probes_do_not() {
         );
     }
 }
+
+/// `oxy-api-threads`' workspace routes under `/{workspace_id}`, probed with
+/// TRACE as above.
+fn thread_workspace_routes() -> Vec<&'static str> {
+    vec![
+        "/threads",
+        "/threads/bulk-delete",
+        "/threads/65c121b2-0000-0000-0000-000000000000",
+        "/threads/65c121b2-0000-0000-0000-000000000000/stop",
+        "/agents",
+        "/artifacts/65c121b2-0000-0000-0000-000000000000",
+        "/charts/chart-1.json",
+        "/logs",
+        "/builder-availability",
+        "/results/files/65c121b2-0000-0000-0000-000000000000.parquet",
+    ]
+}
+
+/// The conversation surface (Wave B, 2026-11-16) rides the WORKSPACE seam,
+/// inside the `/{workspace_id}` tree where `build_workspace_routes` had it,
+/// with the ten FleetOk declarations `route_fleet` wrote. Real reads, through
+/// the composition `serve` uses, reach their handlers: the thread list (the
+/// guest's threads in the empty workspace: none, but answered) and the agent
+/// listing `oxy-app`'s local-mode router test used to probe.
+#[tokio::test]
+async fn the_workspace_tree_mounts_the_conversation_surface() {
+    let decls = surface_seams().workspace.decls;
+    for path in [
+        "/threads",
+        "/threads/bulk-delete",
+        "/threads/{id}",
+        "/threads/{id}/stop",
+        "/agents",
+        "/artifacts/{id}",
+        "/charts/{file_path}",
+        "/logs",
+        "/builder-availability",
+        "/results/files/{file_id}",
+    ] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the workspace seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    let (router, _dir) = served_over_an_empty_workspace().await;
+    assert_workspace_paths_mounted(&router, &thread_workspace_routes()).await;
+    let ws = oxy_app_core::serve_mode::LOCAL_WORKSPACE_ID;
+    let (status, body) = get_json(&router, &format!("/{ws}/threads")).await;
+    assert_eq!(status, StatusCode::OK, "GET /{{ws}}/threads: {body}");
+    assert!(
+        body["threads"].is_array(),
+        "GET /{{ws}}/threads must answer the paginated list: {body}"
+    );
+    let (status, body) = get_with_body(&router, &format!("/{ws}/agents"), None).await;
+    assert_eq!(status, StatusCode::OK, "GET /{{ws}}/agents: {body}");
+}
+
+/// `oxy-api-threads`' org chat (Wave B, 2026-11-16): the api seam, at the root
+/// where `build_global_routes` had it, so cloud only.
+fn chat_routes() -> Vec<(Method, String)> {
+    let id = "65c121b2-0000-0000-0000-000000000000";
+    vec![
+        (Method::TRACE, "/chat/channels".to_string()),
+        (Method::TRACE, format!("/chat/channels/{id}/join")),
+        (Method::TRACE, format!("/chat/channels/{id}/messages")),
+        (Method::TRACE, format!("/chat/channels/{id}/read")),
+        (Method::TRACE, format!("/chat/channels/{id}/stream")),
+    ]
+}
+
+/// Chat rides the api seam with the five FleetOk declarations `route_fleet`
+/// wrote (the SSE stream included), is mounted in cloud mode and dropped in
+/// local mode as the global tree was, and a real read reaches its handler:
+/// the guest belongs to no channel, so the list is empty but answered.
+#[tokio::test]
+async fn cloud_mode_mounts_org_chat_and_local_mode_drops_it() {
+    let decls = surface_seams().api.decls;
+    for path in [
+        "/chat/channels",
+        "/chat/channels/{id}/join",
+        "/chat/channels/{id}/messages",
+        "/chat/channels/{id}/read",
+        "/chat/channels/{id}/stream",
+    ] {
+        assert!(
+            decls.iter().any(|d| d.method == "*"
+                && d.path == path
+                && d.role == oxy_shared::fleet_role::RouteRole::FleetOk),
+            "the api seam must carry `* {path}` as FleetOk"
+        );
+    }
+    if db_unavailable() {
+        return;
+    }
+    assert_cloud_mounts(chat_routes()).await;
+    let router = served(ServeMode::Cloud).await;
+    for (method, path) in chat_routes() {
+        assert_eq!(
+            status(&router, &method, &path).await,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "{path} must be mounted (TRACE answers 405 from a mounted path)"
+        );
+    }
+    let (status, body) = get_json(&router, "/chat/channels").await;
+    assert_eq!(status, StatusCode::OK, "GET /chat/channels: {body}");
+    assert!(
+        body.is_array(),
+        "GET /chat/channels must answer a list: {body}"
+    );
+    assert_local_drops(chat_routes()).await;
+}
+
+/// The composition starts chat's delivery listener through
+/// `SurfaceSeams::background`, first, and `serve`'s boot check holds it there.
+#[test]
+fn the_composition_starts_the_chat_delivery_listener() {
+    let seams = surface_seams();
+    let names: Vec<&str> = seams.background.iter().map(|b| b.name).collect();
+    assert_eq!(
+        names.first(),
+        Some(&"chat_delivery_listener"),
+        "chat's listener must start first, as `new_agentic_state` started it: {names:?}"
+    );
+    for name in oxy_app::server::router::CHAT_BACKGROUND_JOBS {
+        assert!(names.contains(&name), "no job `{name}`: {names:?}");
+    }
+    assert_eq!(seams.require_custom_apps(), Ok(()));
+}
+
+/// The listener `api_router` starts through the seam really attaches. A NOTIFY
+/// never wakes the posting process directly (`announce` deliberately skips the
+/// local bus), so a wake on this process's subscriber can only have come back
+/// through the `LISTEN` connection the `chat_delivery_listener` job opened. The
+/// announce repeats until the listener has attached (it connects in the
+/// background), within a deadline.
+#[tokio::test]
+async fn the_served_router_starts_the_chat_delivery_listener() {
+    if db_unavailable() {
+        return;
+    }
+    let _router = served(ServeMode::Cloud).await;
+    let channel = uuid::Uuid::new_v4();
+    let mut rx = oxy_api_threads::chat::delivery::subscribe(channel);
+    let db = oxy::database::client::establish_connection()
+        .await
+        .expect("database");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        oxy_api_threads::chat::delivery::announce(&db, channel).await;
+        match tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await {
+            Ok(Ok(())) => break,
+            Ok(Err(e)) => panic!("the chat bus closed: {e}"),
+            Err(_) => assert!(
+                std::time::Instant::now() < deadline,
+                "no wake within 10s: the chat delivery listener never attached, so \
+                 a message posted on another replica would reach nobody here"
+            ),
+        }
+    }
+}

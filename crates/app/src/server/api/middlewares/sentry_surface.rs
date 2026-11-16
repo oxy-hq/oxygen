@@ -711,6 +711,11 @@ mod tests {
         // the walk above). Not on the data plane; walked so a gate call added
         // there is seen.
         rust_files(&crate_root.join("../server/src/core_routes"), &mut files);
+        // The conversation surface, `oxy-api-threads`' since 2026-11-16 (was
+        // `src/server/api/{thread,agent,artifacts,chart,result_files}.rs` and
+        // `chat/`, inside the walk above). Not on the data plane (the IDE's
+        // threads and org chat); walked so a gate call added there is seen.
+        rust_files(&crate_root.join("../api-threads/src"), &mut files);
         files.sort();
         files
             .into_iter()

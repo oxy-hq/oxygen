@@ -10,7 +10,7 @@ mounted under `/api` by [`crate::cli::commands::serve`].
 | [`mod.rs`](./mod.rs) | `AppState`, `WorkspaceExtractor`, shared `build_cors_layer`, router tests |
 | [`entry.rs`](./entry.rs) | `api_router` / `internal_api_router` — assembles the full router, applies CORS, timeout, Sentry |
 | [`public.rs`](./public.rs) | Routes with no *user session* gate (the Stripe webhook receiver and the OAuth callbacks; the health probes are `oxy-server`'s `core_routes` and, like the other receivers — Slack, Toast's `POST /webhooks/toast/orders` (`oxy-api-world-model`), the GitHub App's `POST /webhooks/github` (`oxy-api-github`) and `POST /webhooks/apps/{org}/{app}/{fn}` with its non-production twin `POST /webhooks/apps-env/{environment}/{org}/{app}/{fn}` — are merged beside it through `SurfaceSeams::public`, and authenticate the sender by HMAC instead) |
-| [`global.rs`](./global.rs) | Cloud-only flat routes (chat, work, the admin console; logout is `oxy-api-identity`'s) |
+| [`global.rs`](./global.rs) | Cloud-only flat routes (the admin console; logout is `oxy-api-identity`'s, org chat `oxy-api-threads`', work `oxy-api-operating-graph`'s) |
 | [`workspace.rs`](./workspace.rs) | The `/{workspace_id}/…` tree and every per-resource sub-builder |
 | [`protected.rs`](./protected.rs) | Cloud/local composition: which route sets are mounted and which middleware wraps them |
 | [`openapi.rs`](./openapi.rs) | Curated `utoipa` router used by Swagger UI |
@@ -175,9 +175,8 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 │
 ├── /workflows/          list, get, run, run-sync, logs, runs CRUD, bulk-delete
 ├── /automations/save
-├── /threads/            list, create, delete-all, bulk-delete, get, delete,
-│                        task, agentic, workflow, workflow-sync, messages, agent, stop
-├── /agents/             list, get, ask, ask-sync, run-test
+├── /threads/            list, create, delete-all, bulk-delete, get, delete, stop  (oxy-api-threads)
+├── /agents/             list  (oxy-api-threads)
 ├── /api-keys/           list, create, get, delete, extend, activity
 ├── /api-tokens          the tokens that can reach this workspace (read-only, admin)
 ├── /files/              tree, diff-summary, get, from-git, revert, save,
@@ -191,16 +190,14 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /analytics/          agentic_router() (chart pipeline)
 │
 ├── /members · /members/{user_id}         (put / delete role overrides)
-├── /artifacts/{id}
-├── /charts/{file_path}
-├── /logs
+├── /artifacts/{id} · /charts/{file_path} · /logs   (oxy-api-threads)
 ├── /events · /events/lookup · /events/sync
 ├── /blocks
 ├── /runs/{source_id}/{run_index}          (cancel)
-├── /builder-availability · /onboarding-readiness
+├── /builder-availability (oxy-api-threads) · /onboarding-readiness
 ├── /sql/{pathb64} · /sql/query
 ├── /semantic · /semantic/compile · /semantic/topic/{file_path_b64} · /semantic/view/{file_path_b64}   (compile + execute go through airlayer + agentic-connector)
-└── /results/files/{file_id}               (get, delete)
+└── /results/files/{file_id}               (get, delete; oxy-api-threads)
 ```
 
 ## Where to add a new route

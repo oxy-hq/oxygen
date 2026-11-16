@@ -14,7 +14,7 @@ use utoipa::openapi::server::Server;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::api::{agent, data, thread, workspaces};
+use crate::api::{data, workspaces};
 
 use super::{IdeState, build_cors_layer};
 
@@ -22,18 +22,12 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
     OpenApiRouter::new()
         // The health probes' operations are `oxy-server`'s (`core_routes`,
         // 2026-11-16), merged in through `SurfaceSeams::openapi`.
-        .routes(routes!(agent::get_agents))
         // The legacy API-key operations are `oxy-api-identity`'s, merged in
         // through `SurfaceSeams::openapi`.
         .routes(routes!(workspaces::get_workspace))
-        .routes(routes!(thread::get_threads))
-        .routes(routes!(thread::get_thread))
-        .routes(routes!(thread::create_thread))
-        .routes(routes!(thread::delete_thread))
-        .routes(routes!(thread::delete_all_threads))
-        .routes(routes!(thread::stop_thread))
-        .routes(routes!(thread::bulk_delete_threads))
-        .routes(routes!(thread::get_logs))
+        // The agent listing, the thread operations and the run logs are
+        // `oxy-api-threads`' (2026-11-16), merged in through
+        // `SurfaceSeams::openapi`.
         // Workflow + automation routes have been retired; the new workflow
         // surface lives under `/agentic-workflows` (see agentic-http).
         // ── the data plane ────────────────────────────────────────────────
@@ -159,25 +153,6 @@ mod openapi_coverage_tests {
         }
     }
 
-    /// Every operation on a path item, paired with its method name.
-    fn operations(
-        item: &utoipa::openapi::path::PathItem,
-    ) -> Vec<(&'static str, &utoipa::openapi::path::Operation)> {
-        [
-            ("get", item.get.as_ref()),
-            ("put", item.put.as_ref()),
-            ("post", item.post.as_ref()),
-            ("delete", item.delete.as_ref()),
-            ("options", item.options.as_ref()),
-            ("head", item.head.as_ref()),
-            ("patch", item.patch.as_ref()),
-            ("trace", item.trace.as_ref()),
-        ]
-        .into_iter()
-        .filter_map(|(name, op)| op.map(|o| (name, o)))
-        .collect()
-    }
-
     #[tokio::test]
     async fn the_agent_data_plane_is_documented() {
         let doc = build_openapi_doc(Vec::new()).await;
@@ -253,56 +228,9 @@ mod openapi_coverage_tests {
         );
     }
 
-    /// Every `security(..)` name an operation cites must be a scheme this
-    /// document actually registers.
-    ///
-    /// Six annotations shipped citing `"Bearer"` while the registered scheme is
-    /// `"BearerAuth"` — a dangling reference that generates a valid-looking
-    /// document in which no client can work out how to authenticate. Nothing
-    /// fails on it: utoipa does not resolve the name, and the JSON is still
-    /// well-formed.
-    #[tokio::test]
-    async fn every_security_requirement_names_a_registered_scheme() {
-        let doc = build_openapi_doc(Vec::new()).await;
-        let registered: Vec<String> = doc
-            .components
-            .as_ref()
-            .map(|c| c.security_schemes.keys().cloned().collect())
-            .unwrap_or_default();
-        assert!(
-            !registered.is_empty(),
-            "the document registers no security schemes at all"
-        );
-
-        let mut checked = 0usize;
-        for (path, item) in &doc.paths.paths {
-            for (method, op) in operations(item) {
-                for requirement in op.security.iter().flatten() {
-                    // `SecurityRequirement`'s map is private, so the scheme
-                    // names are read back off its serialized form — which is
-                    // also exactly what a client sees.
-                    let as_json: serde_json::Value =
-                        serde_json::to_value(requirement).expect("serialize security requirement");
-                    let Some(map) = as_json.as_object() else {
-                        continue;
-                    };
-                    for name in map.keys() {
-                        checked += 1;
-                        assert!(
-                            registered.contains(name),
-                            "{method} {path} cites security scheme {name:?}, which is not \
-                             registered. Registered: {registered:?}"
-                        );
-                    }
-                }
-            }
-        }
-        // A loop that inspected nothing would pass silently, which is exactly
-        // how the dangling `"Bearer"` survived six annotations in the first
-        // place.
-        assert!(
-            checked > 5,
-            "only {checked} security requirements inspected — the walk found almost nothing"
-        );
-    }
+    // `every_security_requirement_names_a_registered_scheme` moved to
+    // `oxy-server` (2026-11-16), where it walks the served document: the nine
+    // thread and agent operations that carried most of the security
+    // requirements it inspects left this document for `oxy-api-threads`'
+    // `SurfaceSeams::openapi`, so this one alone no longer reaches its floor.
 }

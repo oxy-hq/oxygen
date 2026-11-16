@@ -56,7 +56,7 @@ after the skill's checklist says the work really is request-scoped.
 
 | Path | Owns |
 | ---- | ---- |
-| `server/api/**` | One file (or dir) per resource: `threads`, `apps`, `automation`, `projects/`, `admin/`, `billing/`, `custom_apps_*` (the serve + data hot path), `workspaces.rs`, `onboarding.rs`, `auth.rs`. |
+| `server/api/**` | One file (or dir) per resource: `apps`, `projects/`, `admin/`, `billing/`, `custom_apps_*` (the serve + data hot path), `workspaces/`, `auth/`. Threads, agents, run artifacts and org chat are `oxy-api-threads` (`crates/api-threads`) since 2026-11-16. |
 | `server/router/` | Route mounting: `public.rs`, `protected.rs`, `workspace.rs`, `global.rs`, `entry.rs`, `openapi.rs`. `ROUTES.md` documents the surface. |
 | `server/role_manifest.rs` (~230 lines; roles travel as `RouteRoleDecl` next to each route) | **Routing authority** for the split fleet — classifies every route `IdeOnly` vs `FleetOk`. FS/`.git`/state-dir routes MUST be `IdeOnly`; persisted-data reads MUST stay `FleetOk`. Invoke `oxy-route-classification` before touching routes. |
 | `server/{worker_runtime,worker_health,worker_metrics}.rs`, `preagg_*`, `compile_*` | Durable-task worker fleet + pre-aggregation + compile-boundary workers. |

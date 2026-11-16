@@ -1,7 +1,7 @@
 pub mod admin;
-pub mod agent;
+// `agent` (the agent listing, builder availability) and `artifacts` moved to
+// `oxy-api-threads` (2026-11-16), mounted on the workspace seam.
 pub mod apps;
-pub mod artifacts;
 pub mod auth;
 // `automation` (the compile-boundary automation listing) and `schedules`
 // moved to the `oxy-api-automations` sibling crate, mounted by `oxy-server` on
@@ -10,7 +10,7 @@ pub mod billing;
 // `catalog` (`GET /_catalog`) and `healthcheck` (`/health`, `/ready`, `/live`,
 // `/version`) moved UP into `oxy-server` (`core_routes`, 2026-11-16), mounted
 // through `SurfaceSeams::catalog` and `::public`.
-pub mod chart;
+// `chart` (a legacy chart file) moved to `oxy-api-threads` (2026-11-16).
 pub mod compile;
 // `compile_staging` (`/compile/staging` and its status) moved to
 // `oxy-api-previews` (2026-11-16), mounted on the workspace seam.
@@ -65,7 +65,9 @@ pub mod data;
 // crate, mounted by `oxy-server`. oxy-app no longer depends on it.
 // The GitHub HTTP surface moved to the `oxy-api-github` sibling crate, mounted by
 // `oxy-server`. oxy-app no longer depends on it.
-pub mod chat;
+// `chat` (org chat: channels, messages and the cross-replica delivery
+// listener) moved to `oxy-api-threads` (2026-11-16), mounted on the api seam,
+// its listener started through `SurfaceSeams::background`.
 // `integration` (the Looker listing, `/integrations/looker`) moved to
 // `oxy-api-workspace-config` (2026-11-16), mounted on the workspace seam.
 pub mod local_setup;
@@ -77,10 +79,12 @@ pub mod middlewares;
 // `oxy-api-tenancy`'s and the service `oxy-tenancy`'s.
 pub mod preagg;
 pub mod projects;
-pub mod result_files;
+// `result_files` (a run's result parquet) moved to `oxy-api-threads`
+// (2026-11-16), mounted on the workspace seam.
 pub mod semantic;
 pub mod semantic_scan;
-pub mod thread;
+// `thread` (a workspace's threads and the run logs) moved to
+// `oxy-api-threads` (2026-11-16), mounted on the workspace seam.
 // The tenant-facing observability console (`traces`, `metrics`,
 // `execution_analytics`) moved to the `oxy-api-observability` sibling crate,
 // mounted by `oxy-server` on the workspace seam. oxy-app no longer depends on it.

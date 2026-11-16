@@ -129,7 +129,9 @@ const ALLOWED: &[(&str, &str)] = &[
          magic link: one email, best effort, should be a durable delivery task",
     ),
     (
-        "app/src/server/api/chat/delivery.rs",
+        // `oxy-api-threads` since 2026-11-16 (was `app/src/server/api/chat/`),
+        // started through the `chat_delivery_listener` background seam.
+        "api-threads/src/chat/delivery.rs",
         "process-wide chat LISTEN/NOTIFY listener, started once per process behind a \
          OnceLock, plus the tokio_postgres connection driver its notifications arrive \
          through. Per-process by nature (it feeds this pod's in-memory subscribers), \

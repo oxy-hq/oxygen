@@ -54,6 +54,9 @@ pub(crate) fn flat_api() -> Router {
         .merge(oxy_api_identity::routes())
         .merge(oxy_api_operating_graph::routes())
         .merge(oxy_api_notifications::routes())
+        // Org chat, `oxy-api-threads`' since 2026-11-16 (was
+        // `build_global_routes`, which `flat_api_surface` still builds).
+        .merge(oxy_api_threads::routes())
         .merge(
             oxy_api_custom_apps::routes()
                 .layer(axum::Extension(oxy_api_notifications::live_kinds())),

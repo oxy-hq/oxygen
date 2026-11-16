@@ -5,9 +5,9 @@
 //! panel's agent selector — and the built-in builder readiness check remain
 //! here, both serving the agentic-only world.
 
-use crate::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
 use axum::{extract, http::StatusCode};
 use oxy::config::model::BuilderAgentConfig;
+use oxy_app::surface::WorkspaceManagerReadOnly;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]

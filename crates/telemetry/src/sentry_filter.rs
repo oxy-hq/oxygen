@@ -768,6 +768,14 @@ mod tests {
             "oxy_api_tenancy::partner_publish_consent",
             "oxy_api_workspace_config::integration",
             "oxy_api_previews::compile_staging",
+            // The conversation surface (Wave B, 2026-11-16).
+            "oxy_api_threads::thread",
+            "oxy_api_threads::agent",
+            "oxy_api_threads::artifacts",
+            "oxy_api_threads::chart",
+            "oxy_api_threads::result_files",
+            "oxy_api_threads::chat::handlers",
+            "oxy_api_threads::chat::delivery",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1058,6 +1066,16 @@ mod tests {
             "oxy_api_tenancy::partner_publish_consent",
             "oxy_api_workspace_config::integration",
             "oxy_api_previews::compile_staging",
+            // The conversation surface that left `oxy-app` on 2026-11-16:
+            // threads, the agent listing and a run's artifacts. A result
+            // parquet is read back from disk or S3, never a warehouse.
+            "oxy_api_threads::thread",
+            "oxy_api_threads::agent",
+            "oxy_api_threads::artifacts",
+            "oxy_api_threads::chart",
+            "oxy_api_threads::result_files",
+            "oxy_api_threads::chat::handlers",
+            "oxy_api_threads::chat::delivery",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

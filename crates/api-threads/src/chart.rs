@@ -1,7 +1,7 @@
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
-use crate::server::runtime_artifact;
 use axum::extract::{self, Path};
 use axum::http::StatusCode;
+use oxy_app::surface::WorkspaceManagerReadOnly;
+use oxy_app::surface::runtime_artifact;
 use uuid::Uuid;
 
 /// Serve a legacy visualize-task chart file (the `:chart{chart_src=NAME}`
@@ -12,7 +12,7 @@ use uuid::Uuid;
 ///
 /// - When the ide serves a chart it mirrors the file to S3 (best-effort, no-op
 ///   without a bucket), so the object exists for cross-node reads.
-/// - The route is `FleetOk` (`route_fleet` in `router/workspace.rs`), so a serve
+/// - The route is `FleetOk` (declared in this crate's `workspace_route_roles`), so a serve
 ///   replica runs this handler itself, misses on disk, and serves the S3 mirror
 ///   — a chart you've already viewed keeps loading while Oxygen Factory
 ///   restarts, instead of a hard 502.

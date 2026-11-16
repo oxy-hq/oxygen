@@ -112,7 +112,8 @@ crates/route-catalog/                              @luong-komorebi @NTtanh
 # Since 2026-11-14 the assignment graph's routes (locations, positions,
 # assignments, work items) are their own crate, `oxy-api-operating-graph`.
 crates/api-operating-graph/                        @luong-komorebi @NTtanh
-crates/app/src/server/api/chat/                    @luong-komorebi @NTtanh
+# Org chat moved into `oxy-api-threads` (2026-11-16), owners unchanged.
+crates/api-threads/src/chat/                       @luong-komorebi @NTtanh
 crates/api-notifications/                          @luong-komorebi @NTtanh
 # The notifications page and its settings UI (#3626, #3640), uncovered until
 # 2026-10-19. A feature leaf inside the shared components/ tree, like Crew/.

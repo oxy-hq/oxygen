@@ -443,6 +443,13 @@ pub const PREVIEW_TASK_KINDS: [&str; 4] = [
 /// queues schema drops and compares (`oxy-api-previews`, 2026-11-14).
 pub const PREVIEW_BACKGROUND_JOBS: [&str; 1] = ["preview_maintenance"];
 
+/// The background job a serve process needs for chat: the `LISTEN` connection
+/// that fans a posted message's wake out to this replica's open streams
+/// (`oxy-api-threads`, 2026-11-16; `new_agentic_state` started it before).
+/// Without it chat still works on the replica that took the POST and on no
+/// other: invisible on one box, total on a fleet.
+pub const CHAT_BACKGROUND_JOBS: [&str; 1] = ["chat_delivery_listener"];
+
 /// The background jobs a serve process needs for custom apps (usage rows,
 /// storage measurement, sandbox expiry, retention). Without the usage drain,
 /// page views and events queue until the bounded queue sheds them.
@@ -491,13 +498,15 @@ impl SurfaceSeams {
     }
 
     /// The startup check for a process that serves custom apps: every task
-    /// kind and background job `oxy-app` depends on is present, and the outer
-    /// mount is. Called by `serve` before it builds anything.
+    /// kind and background job `oxy-app` depends on is present (the previews'
+    /// sweep and chat's listener among them), and the outer mount is. Called
+    /// by `serve` before it builds anything.
     pub fn require_custom_apps(&self) -> Result<(), String> {
         require_task_kinds(&self.tasks)?;
         let missing: Vec<&str> = CUSTOM_APP_BACKGROUND_JOBS
             .iter()
             .chain(PREVIEW_BACKGROUND_JOBS.iter())
+            .chain(CHAT_BACKGROUND_JOBS.iter())
             .copied()
             .filter(|n| !self.background.iter().any(|b| b.name == *n))
             .collect();
@@ -564,6 +573,7 @@ mod tests {
             background: CUSTOM_APP_BACKGROUND_JOBS
                 .iter()
                 .chain(PREVIEW_BACKGROUND_JOBS.iter())
+                .chain(CHAT_BACKGROUND_JOBS.iter())
                 .map(|n| job(n))
                 .collect(),
             outer: Some(|_| Router::new()),
@@ -662,6 +672,18 @@ mod tests {
         seams.background.retain(|b| b.name != "preview_maintenance");
         let err = seams.require_custom_apps().unwrap_err();
         assert!(err.contains("preview_maintenance"), "{err}");
+    }
+
+    /// Without chat's listener a message reaches only the streams on the
+    /// replica that took the POST, so it is a boot error.
+    #[test]
+    fn a_missing_chat_listener_is_a_startup_error() {
+        let mut seams = complete();
+        seams
+            .background
+            .retain(|b| b.name != "chat_delivery_listener");
+        let err = seams.require_custom_apps().unwrap_err();
+        assert!(err.contains("chat_delivery_listener"), "{err}");
     }
 
     /// No hooks means inbox rows with no delivery, so it is a boot error.

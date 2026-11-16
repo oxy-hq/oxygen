@@ -136,6 +136,8 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
         // The health probes and route discovery, `oxy-server`'s `core_routes`
         // since 2026-11-16.
         manifest.join("../server/src/core_routes"),
+        // The conversation surface, `oxy-api-threads` since 2026-11-16.
+        manifest.join("../api-threads/src"),
     ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

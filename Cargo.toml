@@ -25,6 +25,7 @@ members = [
   "crates/api-workspace-config",
   "crates/api-previews",
   "crates/api-workspace-health",
+  "crates/api-threads",
   "crates/cli-shim",
   "crates/app-core",
   "crates/auth",

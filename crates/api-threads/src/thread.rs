@@ -1,7 +1,3 @@
-use crate::server::api::middlewares::role_guards::WorkspaceEditor;
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
-use crate::server::router::WorkspaceExtractor;
-use crate::server::service::task_manager::TASK_MANAGER;
 use axum::{
     extract::{self, Path, Query},
     http::StatusCode,
@@ -10,10 +6,13 @@ use entity::logs;
 use entity::prelude::Logs;
 use entity::prelude::Threads;
 use entity::threads;
+use oxy::service::task_manager::TASK_MANAGER;
 use oxy::{
     database::client::establish_connection,
     exec_types::{ReferenceKind, event::SandboxInfo},
 };
+use oxy_app::surface::role_guards::WorkspaceEditor;
+use oxy_app::surface::{WorkspaceExtractor, WorkspaceManagerReadOnly};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::ExprTrait;
 use sea_orm::{
@@ -287,16 +286,16 @@ pub async fn get_thread(
             // Unknown standing denies. There is no legacy check beside this one to defer
             // to, so unlike `enforce`, a fail-open here would be a real grant — a blip
             // must not hand anyone another tenant's thread.
-            let is_operator = match crate::server::authz::loader::load_platform_facts(
+            let is_operator = match oxy_server_authz::loader::load_platform_facts(
                 &connection,
-                &crate::server::authz::Caller::from_user(&user),
+                &oxy_server_authz::Caller::from_user(&user),
             )
             .await
             {
-                Some(facts) => crate::server::authz::allows(
+                Some(facts) => oxy_server_authz::allows(
                     &facts,
-                    crate::server::authz::Action::PlatformOps,
-                    &crate::server::authz::Resource::platform(),
+                    oxy_server_authz::Action::PlatformOps,
+                    &oxy_server_authz::Resource::platform(),
                 ),
                 None => false,
             };

@@ -427,8 +427,10 @@ fn persisted_data_reads_are_fleet_ok() {
     // The neighbours that must NOT be swept along: same prefixes, but pure
     // reads of persisted data, so pinning them to the singleton would make
     // *viewing* need the ide — the HA bug the split exists to prevent.
+    // `GET /threads` left for `oxy-api-threads` (2026-11-16), whose
+    // `persisted_data_reads_are_declared_fleet_ok` pins it against its own
+    // declarations; here it would pass on the default.
     for (method, path) in [
-        ("GET", format!("/api/{ws}/threads")),
         // Reads `world_model_events` from Postgres — it sits under a prefix
         // full of ide-pinned streams, which is exactly why it is named here.
         ("GET", format!("/api/{ws}/world-model/events")),
@@ -883,10 +885,9 @@ fn manifest_covers_state_touching_routes() {
         ("GET", format!("{ws}/agentic-airway/runs/r1/events")),
         // `/world-model/cameras` left for `oxy-api-world-model` (2026-11-15),
         // whose own test pins it FleetOk; here it would pass on the default.
-        // parquet result cache — fleet-safe via the S3 read-through in
-        // result_files::{store,get} (mirror on write, fetch on local miss).
-        ("GET", format!("{ws}/results/files/file-123")),
-        ("DELETE", format!("{ws}/results/files/file-123")),
+        // So did the parquet result cache (`/results/files/{file_id}`, GET and
+        // DELETE) for `oxy-api-threads` (2026-11-16), whose
+        // `persisted_data_reads_are_declared_fleet_ok` pins both.
     ];
     for (method, path) in &fleet_ok {
         assert_eq!(
@@ -1107,8 +1108,14 @@ fn every_workspace_mount_is_declared() {
         bodies.push_str(fn_body(src, name));
     }
     let mounts = parse_mounts(&bodies);
+    // 25 on 2026-11-16 (read off this assertion), after Wave B moved seven
+    // mounts (the `/threads` and `/agents` nests, `/artifacts/{id}`,
+    // `/charts/{file_path}`, `/logs`, `/builder-availability`,
+    // `/results/files/{file_id}`) to `oxy-api-threads`, floor `> 30` ->
+    // `> 20`. The floor guards the parser, not a count: surfaces leaving
+    // lower it.
     assert!(
-        mounts.len() > 30,
+        mounts.len() > 20,
         "parser found only {} mounts — the router shape changed; fix parse_mounts",
         mounts.len()
     );

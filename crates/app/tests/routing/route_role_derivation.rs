@@ -333,12 +333,14 @@ fn api_sources_keeps_every_file_even_when_names_repeat() {
     );
 
     // The collision that turned `main` red, named so a regression says which
-    // handlers went missing rather than only that a count is off.
-    let thread = sources
-        .get("thread.rs")
-        .expect("api/thread.rs is where the router's `thread::` handlers live");
+    // handlers went missing rather than only that a count is off. (The
+    // sentinel was `thread.rs` until it left for `oxy-api-threads` on
+    // 2026-11-16; `data.rs` is as unique a name in this tree.)
+    let data = sources
+        .get("data.rs")
+        .expect("api/data.rs is where the router's `data::` handlers live");
     assert!(
-        thread.contains("fn get_threads("),
-        "the `thread.rs` entry is not api/thread.rs, so every `/threads` handler is missing",
+        data.contains("fn execute_sql_query("),
+        "the `data.rs` entry is not api/data.rs, so every `/sql` handler is missing",
     );
 }

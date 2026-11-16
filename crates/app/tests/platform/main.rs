@@ -64,7 +64,8 @@ mod analytics_run_thread_access;
 mod anomaly_notify;
 mod artifact_naming_agrees;
 mod build;
-mod chat_org_standing;
+// `chat_org_standing` moved to `oxy-api-threads`' integration group with the
+// chat handlers (2026-11-16).
 mod compile;
 mod compile_first;
 mod compile_from_git;

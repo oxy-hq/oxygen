@@ -2,9 +2,9 @@
 //! cloud and local modes (local always uses the nil UUID).
 //!
 //! This module owns the tree shape plus all per-resource sub-builders
-//! (threads, agents, integrations, etc.). The workspace's databases and
-//! secrets are `oxy-api-workspace-config`'s, merged in through the workspace
-//! seam.
+//! (integrations, app integrations, etc.). The workspace's databases and
+//! secrets are `oxy-api-workspace-config`'s, and its threads, agents and run
+//! artifacts `oxy-api-threads`', merged in through the workspace seam.
 
 use std::sync::Arc;
 
@@ -13,8 +13,8 @@ use axum::routing::{get, post, put};
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
 use crate::api::{
-    agent, apps, artifacts, chart, data, local_setup, preagg, result_files, semantic,
-    semantic_scan, thread, workspace_members, workspace_oxy_access, workspaces,
+    apps, data, local_setup, preagg, semantic, semantic_scan, workspace_members,
+    workspace_oxy_access, workspaces,
 };
 
 use oxy_shared::fleet_role::RouteRole;
@@ -52,8 +52,9 @@ pub(super) fn build_workspace_routes(
         // `/airway-pipelines` (the boundary-backed pipeline listing and the
         // sp_api marketplace list) moved to `oxy-api-airway`, merged inside this
         // nest through the workspace seam, FleetOk as before.
-        .nest("/threads", build_thread_routes(&app_state))
-        .nest("/agents", build_agent_routes(&app_state))
+        // `/threads` and `/agents` (the thread routes and the agent listing)
+        // are `oxy-api-threads`' since 2026-11-16, merged inside this nest by
+        // `oxy-server` through the workspace seam, still FleetOk.
         // `/api-keys` (the legacy keys) and `/api-tokens` (the tokens that can
         // reach this workspace) moved to `oxy-api-identity`, merged inside this
         // nest through the workspace seam, FleetOk as before.
@@ -94,13 +95,9 @@ pub(super) fn build_workspace_routes(
         // observability console) moved to the `oxy-api-observability` sibling
         // crate, merged inside this nest by `oxy-server` through the workspace
         // seam, still FleetOk.
-        .route_fleet("/artifacts/{id}", get(artifacts::get_artifact))
-        .route_fleet("/charts/{file_path}", get(chart::get_chart))
-        .route_fleet("/logs", get(thread::get_logs))
-        .route_fleet(
-            "/builder-availability",
-            get(agent::check_builder_availability),
-        )
+        // `/artifacts/{id}`, `/charts/{file_path}`, `/logs` and
+        // `/builder-availability` are `oxy-api-threads`' since 2026-11-16,
+        // merged inside this nest through the workspace seam, still FleetOk.
         // `/onboarding-readiness`, `/onboarding/github-setup` and the
         // `/onboarding/*` subtree live in `oxy-api-tenancy`; `oxy-server`
         // merges them into this nest.
@@ -167,10 +164,9 @@ pub(super) fn build_workspace_routes(
         // `/world-model/weather/*`, out of `api/video.rs`) are
         // `oxy-api-world-model`'s, merged inside this nest by `oxy-server`
         // through `SurfaceSeams::workspace`, still FleetOk.
-        .route_fleet(
-            "/results/files/{file_id}",
-            get(result_files::get_result_file).delete(result_files::delete_result_file),
-        )
+        // `/results/files/{file_id}` (a run's result parquet, S3-mirrored) is
+        // `oxy-api-threads`' since 2026-11-16, merged inside this nest through
+        // the workspace seam, still FleetOk.
         .nest_declared(
             "/analytics",
             agentic_router(agentic_state.clone()),
@@ -267,26 +263,6 @@ pub(super) fn build_external_workspace_routes(
 // `build_workflow_routes` and `build_automation_routes` were retired
 // alongside `oxy-workflow`. The agentic-pipeline workflow surface mounted
 // at `/agentic-workflows` replaces every endpoint they exposed.
-
-fn build_thread_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone())
-        .route_fleet(
-            "/",
-            get(thread::get_threads)
-                .post(thread::create_thread)
-                .delete(thread::delete_all_threads),
-        )
-        .route_fleet("/bulk-delete", post(thread::bulk_delete_threads))
-        .route_fleet(
-            "/{id}",
-            get(thread::get_thread).delete(thread::delete_thread),
-        )
-        .route_fleet("/{id}/stop", post(thread::stop_thread))
-}
-
-fn build_agent_routes(app_state: &AppState) -> RoleRouter {
-    RoleRouter::new(app_state.clone()).route_fleet("/", get(agent::get_agents))
-}
 
 fn build_integration_routes(app_state: &AppState) -> RoleRouter {
     // `/looker` (the Looker integrations `config.yml` declares) is

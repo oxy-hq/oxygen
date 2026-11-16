@@ -448,10 +448,13 @@ mod tests {
         // `/integrations/looker` (`oxy-api-workspace-config`), the two
         // `/compile/staging*` paths (`oxy-api-previews`) and `/_catalog`
         // (`oxy-server`, now on `SurfaceSeams::catalog`) out, floor `> 90` ->
-        // `> 80`. A surface's routes are declared by the
+        // `> 80`; 80 the same day (read off this assertion) after Wave B's ten
+        // workspace routes (threads, agents, logs, builder availability,
+        // artifacts, charts, result files) left for `oxy-api-threads`, floor
+        // `> 80` -> `> 60`. A surface's routes are declared by the
         // surface, so lowering this when one leaves is expected; a drop nobody
         // can name is not.
-        assert!(decls.len() > 80, "only {} declarations", decls.len());
+        assert!(decls.len() > 60, "only {} declarations", decls.len());
 
         let _installed = apply_middleware(routes, decls).expect("middleware applies");
 

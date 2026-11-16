@@ -29,4 +29,5 @@ mod authz_loader_differential;
 mod document_write_guards;
 mod org_invitations;
 mod shared_db_registry;
-mod thread_role_guards;
+// `thread_role_guards` moved to `oxy-api-threads`' integration group with
+// the thread handlers it drives (2026-11-16).

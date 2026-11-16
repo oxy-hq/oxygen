@@ -10259,6 +10259,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-threads"
+version = "0.5.160"
+dependencies = [
+ "agentic-pipeline",
+ "agentic-runtime",
+ "airhouse",
+ "arrow 58.3.0",
+ "async-stream",
+ "async-trait",
+ "axum",
+ "chrono",
+ "entity",
+ "futures",
+ "migration",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-cameras",
+ "oxy-oltp",
+ "oxy-server-authz",
+ "oxy-shared",
+ "oxy-test-utils",
+ "parquet",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-postgres",
+ "tokio-util",
+ "tower 0.5.3",
+ "tracing",
+ "url",
+ "utoipa",
+ "utoipa-axum",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-workspace-config"
 version = "0.5.160"
 dependencies = [
@@ -11011,6 +11052,7 @@ dependencies = [
  "oxy-api-metric-monitoring",
  "oxy-api-observability",
  "oxy-api-tenancy",
+ "oxy-api-threads",
  "oxy-api-workspace-config",
  "oxy-api-world-model",
  "oxy-app",
@@ -11073,6 +11115,7 @@ dependencies = [
  "oxy-api-previews",
  "oxy-api-slack",
  "oxy-api-tenancy",
+ "oxy-api-threads",
  "oxy-api-workspace-config",
  "oxy-api-workspace-health",
  "oxy-api-world-model",

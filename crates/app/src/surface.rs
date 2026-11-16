@@ -262,9 +262,11 @@ pub mod automation_runs {
 
 /// The S3 mirror of a runtime artifact (a chart image, a query result) written
 /// to one pod's disk, so a read on another pod finds it. The Slack bot mirrors
-/// the chart PNGs it renders.
+/// the chart PNGs it renders; `oxy-api-threads`' chart and result-file routes
+/// read a local miss back through it (`fetch`), key result parquet files
+/// (`result_key`) and delete the mirrored copy with the local one (`remove`).
 pub mod runtime_artifact {
-    pub use crate::server::runtime_artifact::{chart_key, mirror};
+    pub use crate::server::runtime_artifact::{chart_key, fetch, mirror, remove, result_key};
 }
 
 /// Git operations on the workspace root working copy, as the workspace

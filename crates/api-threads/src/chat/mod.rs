@@ -24,7 +24,8 @@
 //!
 //! # Fleet role
 //!
-//! Every route here is `route_fleet`, **including the SSE stream**. The
+//! Every route here is FleetOk (`route_roles` in this crate; `route_fleet` in
+//! `oxy-app` before 2026-11-16), **including the SSE stream**. The
 //! route-classification skill pins live streams to the ide, but that rule is
 //! about runs executing in-process against a working copy. This stream is a
 //! fan-out over persisted data, and pinning it to the singleton would mean chat

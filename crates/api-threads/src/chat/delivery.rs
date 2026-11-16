@@ -152,10 +152,12 @@ pub fn start_listener(
     verification: agentic_runtime::router::TlsVerification,
     cancel: tokio_util::sync::CancellationToken,
 ) {
-    // Once per process, whatever the caller does. `new_agentic_state` has two
-    // callers in one process — the public router and the internal :3001 one —
-    // so an unguarded spawn opened two dedicated LISTEN connections per replica
-    // and delivered every NOTIFY twice. Doubling a *wake* sounds harmless; it is
+    // Once per process, whatever the caller does. It was started from
+    // `new_agentic_state`, which has two callers in one process — the public
+    // router and the internal :3001 one — so an unguarded spawn opened two
+    // dedicated LISTEN connections per replica and delivered every NOTIFY
+    // twice. (Its caller is the `chat_delivery_listener` background seam now,
+    // which `api_router` runs once; the guard stays, for any second caller.) Doubling a *wake* sounds harmless; it is
     // not, because each wake makes every SSE client re-query and emit, so the
     // reader sees the message twice.
     static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();

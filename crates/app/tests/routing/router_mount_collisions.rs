@@ -71,11 +71,16 @@ fn the_real_router_has_no_colliding_mounts() {
     // each; 168 on 2026-11-16 (read off it with the floor raised) after the
     // core routes' Wave A: the tenancy leaves, the Looker listing, the staging
     // compile, `/_catalog` and the four health probes, counted in both modes
-    // where they were mounted in both. Surfaces declare their own routes, so this drops
+    // where they were mounted in both; 148 the same day (read off it) after
+    // Wave B's ten conversation routes left the workspace tree for
+    // `oxy-api-threads`, counted in both modes, floor `> 150` -> `> 120`; 143
+    // (read off it with the floor raised) when org chat's five routes left the
+    // cloud-only global tree for the same crate.
+    // Surfaces declare their own routes, so this drops
     // with each one that leaves; the floor guards against a tree that stopped
     // building, not a count.
     assert!(
-        declared.len() > 150,
+        declared.len() > 120,
         "only {} routes declared — the builder shape changed and this guard \
          stopped covering the tree",
         declared.len()

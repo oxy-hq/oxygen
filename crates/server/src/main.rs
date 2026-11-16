@@ -131,6 +131,7 @@ fn api_seam_routes() -> SeamRouter {
         .merge(oxy_api_operating_graph::routes())
         .merge(oxy_api_notifications::routes())
         .merge(oxy_api_slack::routes())
+        .merge(oxy_api_threads::routes())
         // The environment planes writes pin a semantic branch through a port
         // `oxy-app` implements (a surface may not depend on `oxy-app`). The
         // staff console's "Test notifications" reads an app's kinds through a
@@ -168,6 +169,7 @@ fn workspace_seam_routes() -> SeamRouter {
         .merge(oxy_api_workspace_config::workspace_routes())
         .merge(oxy_api_previews::workspace_routes())
         .merge(oxy_api_identity::workspace_routes())
+        .merge(oxy_api_threads::workspace_routes())
 }
 
 /// The sibling crates merged into the curated `/external/api/{workspace_id}`
@@ -279,6 +281,19 @@ fn external_seam_routes() -> SeamRouter {
 /// `/orgs/{org_id}` with `org_middleware` + the subscription guard re-applied.
 /// All nine paths are declared FleetOk (Postgres only).
 ///
+/// `oxy-api-threads` (2026-11-16) fills `api`, `workspace`, `openapi` and
+/// `background`. Org chat rides `api` at the root, where
+/// `build_global_routes` had it (five paths, all FleetOk, the SSE stream
+/// included: a fan-out over Postgres), and its delivery listener — the
+/// `LISTEN` connection that wakes this replica's streams for a message
+/// another replica took — rides `background` (`chat_delivery_listener`,
+/// which `oxy-app` refuses to boot without). On `workspace`: a
+/// workspace's threads, the run logs, the agent listing and builder
+/// availability, and a run's artifacts, chart files and result files (ten
+/// declarations, all FleetOk: Postgres and the S3-mirrored runtime
+/// artifacts), with the nine thread and agent operations the curated
+/// document has always listed.
+///
 /// `oxy-api-previews` (2026-11-14) fills its own seam, `previews`: the
 /// `/{workspace_id}/previews` routes, beside the workspace tree behind the
 /// access check alone, all FleetOk. Its four task kinds join `tasks` and the
@@ -305,6 +320,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_notifications::route_roles())
                 .chain(oxy_api_custom_apps::route_roles())
                 .chain(oxy_api_slack::route_roles())
+                .chain(oxy_api_threads::route_roles())
                 .copied()
                 .collect(),
         },
@@ -323,6 +339,7 @@ fn surface_seams() -> SurfaceSeams {
                 .chain(oxy_api_workspace_config::workspace_route_roles())
                 .chain(oxy_api_previews::workspace_route_roles())
                 .chain(oxy_api_identity::workspace_route_roles())
+                .chain(oxy_api_threads::workspace_route_roles())
                 .copied()
                 .collect(),
         },
@@ -369,6 +386,7 @@ fn surface_seams() -> SurfaceSeams {
             oxy_api_tenancy::openapi(),
             oxy_api_identity::openapi(),
             oxy_api_custom_apps::openapi(),
+            oxy_api_threads::openapi(),
         ],
         // The custom-app task kinds a worker runs, the background jobs a serve
         // process starts, and the outer `/customer-apps/{*path}` mount. The task
@@ -384,8 +402,11 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_workspace_health::tasks())
             .chain(oxy_api_previews::tasks())
             .collect(),
-        background: custom_apps_seams::background()
+        // Chat's delivery listener first: `new_agentic_state` started it
+        // ahead of every other listener, before it moved (2026-11-16).
+        background: oxy_api_threads::background()
             .into_iter()
+            .chain(custom_apps_seams::background())
             .chain(oxy_api_world_model::background())
             .chain(oxy_api_previews::background())
             .collect(),
@@ -697,6 +718,45 @@ mod tests {
                 "{schema} is not in components"
             );
         }
+        // The thread and agent operations and the run logs, `oxy-api-threads`'
+        // since 2026-11-16 (were in `oxy-app`'s `openapi_router`), with the
+        // request and response schemas they name.
+        for (path, methods) in [
+            ("/{workspace_id}/agents", &["get"][..]),
+            ("/{workspace_id}/threads", &["get", "post", "delete"][..]),
+            ("/{workspace_id}/threads/{id}", &["get", "delete"][..]),
+            ("/{workspace_id}/threads/{id}/stop", &["post"][..]),
+            ("/{workspace_id}/threads/bulk-delete", &["post"][..]),
+            ("/logs", &["get"][..]),
+        ] {
+            let item = doc
+                .paths
+                .paths
+                .get(path)
+                .unwrap_or_else(|| panic!("{path} is missing from the OpenAPI document"));
+            for method in methods {
+                let op = match *method {
+                    "get" => item.get.as_ref(),
+                    "post" => item.post.as_ref(),
+                    "delete" => item.delete.as_ref(),
+                    _ => unreachable!(),
+                };
+                assert!(op.is_some(), "{path} is documented but carries no {method}");
+            }
+        }
+        for schema in [
+            "ThreadItem",
+            "ThreadsResponse",
+            "CreateThreadRequest",
+            "BulkDeleteThreadsRequest",
+            "LogItem",
+            "LogsResponse",
+        ] {
+            assert!(
+                schemas.contains_key(schema),
+                "{schema} is not in components"
+            );
+        }
         // The custom-app data plane, which `oxyc schema` answers from: its
         // handlers moved to `oxy-api-custom-apps` (`data_plane`).
         for path in [
@@ -713,6 +773,81 @@ mod tests {
                 "{path} is documented but carries no post"
             );
         }
+    }
+
+    /// Every operation on a path item, paired with its method name.
+    fn operations(
+        item: &utoipa::openapi::path::PathItem,
+    ) -> Vec<(&'static str, &utoipa::openapi::path::Operation)> {
+        [
+            ("get", item.get.as_ref()),
+            ("put", item.put.as_ref()),
+            ("post", item.post.as_ref()),
+            ("delete", item.delete.as_ref()),
+            ("options", item.options.as_ref()),
+            ("head", item.head.as_ref()),
+            ("patch", item.patch.as_ref()),
+            ("trace", item.trace.as_ref()),
+        ]
+        .into_iter()
+        .filter_map(|(name, op)| op.map(|o| (name, o)))
+        .collect()
+    }
+
+    /// Every `security(..)` name an operation cites must be a scheme this
+    /// document actually registers.
+    ///
+    /// Six annotations shipped citing `"Bearer"` while the registered scheme is
+    /// `"BearerAuth"` — a dangling reference that generates a valid-looking
+    /// document in which no client can work out how to authenticate. Nothing
+    /// fails on it: utoipa does not resolve the name, and the JSON is still
+    /// well-formed.
+    #[tokio::test]
+    async fn every_security_requirement_names_a_registered_scheme() {
+        // The served document, the seams' operations included (was
+        // `oxy-app`'s `build_openapi_doc(Vec::new())`, until the thread and
+        // agent operations left for `oxy-api-threads` on 2026-11-16).
+        let doc = oxy_app::server::router::build_openapi_doc(surface_seams().openapi).await;
+        let registered: Vec<String> = doc
+            .components
+            .as_ref()
+            .map(|c| c.security_schemes.keys().cloned().collect())
+            .unwrap_or_default();
+        assert!(
+            !registered.is_empty(),
+            "the document registers no security schemes at all"
+        );
+
+        let mut checked = 0usize;
+        for (path, item) in &doc.paths.paths {
+            for (method, op) in operations(item) {
+                for requirement in op.security.iter().flatten() {
+                    // `SecurityRequirement`'s map is private, so the scheme
+                    // names are read back off its serialized form — which is
+                    // also exactly what a client sees.
+                    let as_json: serde_json::Value =
+                        serde_json::to_value(requirement).expect("serialize security requirement");
+                    let Some(map) = as_json.as_object() else {
+                        continue;
+                    };
+                    for name in map.keys() {
+                        checked += 1;
+                        assert!(
+                            registered.contains(name),
+                            "{method} {path} cites security scheme {name:?}, which is not \
+                             registered. Registered: {registered:?}"
+                        );
+                    }
+                }
+            }
+        }
+        // A loop that inspected nothing would pass silently, which is exactly
+        // how the dangling `"Bearer"` survived six annotations in the first
+        // place.
+        assert!(
+            checked > 5,
+            "only {checked} security requirements inspected — the walk found almost nothing"
+        );
     }
 
     /// Two Rust types are both called `SemanticQueryResponse` — the custom-app

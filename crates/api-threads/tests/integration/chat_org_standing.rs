@@ -5,15 +5,13 @@
 //! org standing at read time, and this is the case that proves they do:
 //! membership row present, org membership gone, access refused.
 //!
-//! Lives in `tests/platform/` rather than `tests/authz/` for a mechanical
-//! reason, not a topical one: this uses `common::fresh_db`, which
-//! `.config/nextest.toml` routes to `db-per-test` via `binary(=platform)` with
-//! no list edit. The DB-touching cases in `tests/authz/` share one
-//! `OXY_DATABASE_URL` and are pinned into `serial-db` by a registry that fails
-//! the build when it drifts.
+//! Moved from `oxy-app`'s `platform` group with the chat handlers
+//! (2026-11-16). It uses `common::fresh_db`, its own database per test, which
+//! `.config/nextest.toml` routes to `db-per-test` for this crate's
+//! integration group.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(chat_org_standing)'`
+//! `cargo nextest run -p oxy-api-threads --test integration -E 'test(chat_org_standing)'`
 
 use chrono::Utc;
 use entity::{
@@ -24,7 +22,7 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use oxy_app::server::api::chat::handlers::{
+use oxy_api_threads::chat::handlers::{
     join_channel_for, member_channel, new_channel, unread_for, visible_channels,
 };
 

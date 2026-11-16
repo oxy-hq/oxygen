@@ -7,7 +7,7 @@
 
 use axum::Router;
 use axum::middleware;
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch};
 
 use crate::api::billing;
 use crate::api::middlewares::{
@@ -15,7 +15,6 @@ use crate::api::middlewares::{
     subscription_guard,
 };
 use crate::api::{admin, workspaces};
-use crate::server::api::chat;
 
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
@@ -39,34 +38,10 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
         // (`/auth/mobile/authorize`) are `oxy-api-identity`'s, merged beside
         // this tree through `SurfaceSeams::api` (2026-11-15), as are the
         // personal-token routes.
-        // ── Chat ────────────────────────────────────────────────────────────
-        //
-        // Every route here is `route_fleet`, INCLUDING the SSE stream, and that
-        // is the interesting call. The route-classification skill pins live
-        // streams to the ide — but that rule is about runs executing in-process
-        // against a working copy. This stream is a fan-out over persisted data,
-        // woken by Postgres LISTEN/NOTIFY, and touches no working copy, no
-        // `.git` and no state dir.
-        //
-        // Pinning it to the singleton would be actively wrong twice over: chat
-        // would die on every deploy, and it would only work at all for whoever
-        // happened to be routed to the ide. This is the "reads must stay HA"
-        // half of that skill, and a conversation is the most read-shaped thing
-        // in the product.
-        .route_fleet(
-            "/chat/channels",
-            get(chat::handlers::list_channels).post(chat::handlers::create_channel),
-        )
-        .route_fleet(
-            "/chat/channels/{id}/join",
-            post(chat::handlers::join_channel),
-        )
-        .route_fleet(
-            "/chat/channels/{id}/messages",
-            get(chat::handlers::list_messages).post(chat::handlers::post_message),
-        )
-        .route_fleet("/chat/channels/{id}/read", post(chat::handlers::mark_read))
-        .route_fleet("/chat/channels/{id}/stream", get(chat::handlers::stream))
+        // Chat (`/chat/channels*`, the SSE stream included, every route
+        // FleetOk) is `oxy-api-threads`' since 2026-11-16, merged at this same
+        // root through `SurfaceSeams::api`; its delivery listener starts
+        // through `SurfaceSeams::background`.
         // The assignment graph (`/work`, `/work/{id}`) is `oxy-api-operating-graph`'s
         // (2026-11-14), merged at this same root through `SurfaceSeams::api`.
         // Still NOT under `/orgs/{org_id}`: a frontline worker holds no org
