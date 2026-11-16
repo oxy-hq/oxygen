@@ -1634,27 +1634,28 @@ pub async fn build_workspace_ctx(
     // The scan is resolved ONCE and held for the life of the context: a
     // materialised scan is a tempdir, and every probe in the pass reads it.
     let ctx = ctx.requiring_compiled_semantic_scan();
-    let ctx =
-        match crate::server::api::semantic::resolve_compiled_scan_source(ctx.workspace_manager())
-            .await
-        {
-            Ok(scan) => ctx.with_semantic_scan(scan),
-            Err(unavailable) => {
-                // Not fatal: the connection and app probes don't need a layer, and
-                // the workspace is still evaluated on everything else. A compile is
-                // enqueued, and the semantic checks report that the model is not
-                // compiled rather than blaming the YAML — or, worse, judging
-                // someone's draft.
-                tracing::warn!(
-                    target: "health_eval",
-                    %workspace_id,
-                    reason = %unavailable.message(),
-                    "no compiled semantic model for the health eval; semantic checks will \
-                     report unavailable until a compile lands"
-                );
-                ctx
-            }
-        };
+    let ctx = match crate::agentic_wiring::scan_source::resolve_compiled_scan_source(
+        ctx.workspace_manager(),
+    )
+    .await
+    {
+        Ok(scan) => ctx.with_semantic_scan(scan),
+        Err(unavailable) => {
+            // Not fatal: the connection and app probes don't need a layer, and
+            // the workspace is still evaluated on everything else. A compile is
+            // enqueued, and the semantic checks report that the model is not
+            // compiled rather than blaming the YAML — or, worse, judging
+            // someone's draft.
+            tracing::warn!(
+                target: "health_eval",
+                %workspace_id,
+                reason = %unavailable.message(),
+                "no compiled semantic model for the health eval; semantic checks will \
+                 report unavailable until a compile lands"
+            );
+            ctx
+        }
+    };
     Some(Arc::new(ctx))
 }
 

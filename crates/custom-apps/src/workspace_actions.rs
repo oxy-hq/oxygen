@@ -11,9 +11,18 @@
 //! A web framework is not a dependency of this crate, so a plane that cannot
 //! be read is a `String` here; each door answers it as `409` through
 //! `oxy_app_core::custom_app_env_request::planes_unreadable`.
+//!
+//! The environment guard (`custom_app_env_request`) is the fourth door: it
+//! reads the plane through [`PlanesWorkspaceActions`], so a `refused`
+//! environment answers `403` before a handler runs. `oxy serve` hands it to
+//! the guard. It lived in `oxy-app`'s `api::projects::workspace_actions` until
+//! 2026-11-16 and moved down here, beside the two functions every other door
+//! shares; its body is unchanged.
 
+use async_trait::async_trait;
 use entity::apps;
 use http::HeaderMap;
+use oxy_app_core::custom_app_env_request::WorkspaceActions;
 use oxy_app_core::custom_app_environment::{AppEnvironment, AppEnvironmentKind};
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::DatabaseConnection;
@@ -63,4 +72,54 @@ pub async fn non_production_app(
         _ => may_open_non_production(db, &caller, &app).await,
     };
     allowed.then_some(app)
+}
+
+/// The environment guard's lookup: whether the `workspace-actions` plane of
+/// the app a request names is `held` (or `preview`) in its environment. Runs
+/// before authentication, and decides nothing but the guard's `403`: a request that
+/// names no app, or one that does not exist, is not held (the guard's old
+/// answer), and every handler behind it still gates the caller.
+pub struct PlanesWorkspaceActions;
+
+#[async_trait]
+impl WorkspaceActions for PlanesWorkspaceActions {
+    async fn held(
+        &self,
+        headers: &HeaderMap,
+        environment: &AppEnvironment,
+    ) -> Result<bool, String> {
+        // `preview` lets the write through too: the ask is held and the
+        // automation run becomes a preview dry run, both behind the guard.
+        Ok(matches!(
+            guard_mode(headers, environment).await?,
+            Some(WorkspaceActionsMode::Held | WorkspaceActionsMode::Preview)
+        ))
+    }
+
+    async fn previews(
+        &self,
+        headers: &HeaderMap,
+        environment: &AppEnvironment,
+    ) -> Result<bool, String> {
+        Ok(guard_mode(headers, environment).await? == Some(WorkspaceActionsMode::Preview))
+    }
+}
+
+/// The `workspace-actions` mode of the app a request names, for the guard:
+/// `None` when it names no app or one that does not exist.
+async fn guard_mode(
+    headers: &HeaderMap,
+    environment: &AppEnvironment,
+) -> Result<Option<WorkspaceActionsMode>, String> {
+    let db = oxy::database::client::establish_connection()
+        .await
+        .map_err(|e| format!("database: {e}"))?;
+    let Some(app_ref) = staging_app_ref(headers) else {
+        return Ok(None);
+    };
+    let Some(app) = find_app(&db, &app_ref).await else {
+        return Ok(None);
+    };
+    let planes = environment_planes(&db, app.id, environment).await?;
+    Ok(planes.map(|p| p.workspace_actions))
 }

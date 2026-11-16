@@ -154,7 +154,7 @@ impl WorkspaceContext for PreviewPlatformContext {
     async fn context_root(&self) -> ContextRoot {
         let manager = &self.inner.workspace_manager().config_manager;
         let materialised = self
-            .pinned(crate::server::api::semantic_scan::materialise_agent_context(manager))
+            .pinned(oxy::config::scan::materialise_agent_context(manager))
             .await;
         match materialised {
             Ok(Some(m)) => {

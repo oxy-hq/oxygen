@@ -1199,7 +1199,7 @@ fn wrap_outer_service(
             axum::extract::Request,
         >::new_from_top())
         .layer(axum::middleware::from_fn_with_state(
-            std::sync::Arc::new(oxy_app::host::middleware::PlanesWorkspaceActions)
+            std::sync::Arc::new(oxy_custom_apps::workspace_actions::PlanesWorkspaceActions)
                 as std::sync::Arc<dyn oxy_app_core::custom_app_env_request::WorkspaceActions>,
             oxy_app_core::custom_app_env_request::environment_guard_middleware,
         ))

@@ -73,9 +73,11 @@ const ALLOWED: &[(&str, &str)] = &[
         "Same, off the HTTP path entirely.",
     ),
     (
-        "src/server/api/semantic.rs",
+        "src/agentic_wiring/scan_source.rs",
         "Doc comment only — explains where branch semantics come from. If this \
-         ever becomes a call, it is a bug: the handler has a manager.",
+         ever becomes a call, it is a bug: the caller has a manager. (Was \
+         `src/server/api/semantic.rs` until the scan resolution moved down, \
+         2026-11-16.)",
     ),
     (
         "src/server/compile_worker.rs",

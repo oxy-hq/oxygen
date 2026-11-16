@@ -773,7 +773,7 @@ async fn load_views(
     >,
     database_override: Option<&str>,
 ) -> Result<Vec<(oxy_airlayer_compat::View, String)>, String> {
-    let scan = crate::server::api::semantic::resolve_query_scan_source(workspace_manager)
+    let scan = crate::agentic_wiring::scan_source::resolve_query_scan_source(workspace_manager)
         .await
         .map_err(|e| e.message())?;
     let scan = scan.scan.clone();

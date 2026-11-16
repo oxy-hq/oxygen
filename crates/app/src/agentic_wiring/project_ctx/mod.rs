@@ -104,7 +104,7 @@ pub struct OxyProjectContext {
     /// stateless fleet holds a workspace *row* whose *directory* is on another
     /// machine. Set it on any path that builds a context away from an HTTP
     /// request — see `recovery::build_workspace_ctx`.
-    semantic_scan: Option<Arc<crate::server::api::semantic::QueryScanSource>>,
+    semantic_scan: Option<Arc<crate::agentic_wiring::scan_source::QueryScanSource>>,
     /// Whether this context may fall back to the node's working copy when no
     /// scan was resolved. `true` for a reader that JUDGES the workspace rather
     /// than serving it — workspace health — where the working copy is whatever
@@ -228,7 +228,7 @@ impl OxyProjectContext {
     /// materialised scan is a tempdir that vanishes when its guard drops.
     pub(crate) fn with_semantic_scan(
         mut self,
-        scan: crate::server::api::semantic::QueryScanSource,
+        scan: crate::agentic_wiring::scan_source::QueryScanSource,
     ) -> Self {
         self.semantic_scan = Some(Arc::new(scan));
         self
@@ -236,7 +236,9 @@ impl OxyProjectContext {
 
     /// [`Self::with_semantic_scan`] for a root that is already on disk.
     pub(crate) fn with_semantic_scan_path(self, scan_path: PathBuf) -> Self {
-        self.with_semantic_scan(crate::server::api::semantic::QueryScanSource::at(scan_path))
+        self.with_semantic_scan(crate::agentic_wiring::scan_source::QueryScanSource::at(
+            scan_path,
+        ))
     }
 
     /// Refuse the working-copy fallback: with no resolved scan, the metric-tree

@@ -784,6 +784,12 @@ mod tests {
             "oxy_api_workspaces::workspace_members",
             "oxy_api_workspaces::workspace_oxy_access",
             "oxy_api_workspaces::apps",
+            // The semantic scan resolution, down from `api::semantic` into the
+            // workspace runtime (Wave D1, 2026-11-16): kept, as it was there.
+            "oxy_app::agentic_wiring::scan_source",
+            // The Dev Portal's SQL execution, down from `api::data` the same
+            // day: kept, as it was there.
+            "oxy_app::agentic_wiring::sql_exec",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1092,6 +1098,15 @@ mod tests {
             "oxy_api_workspaces::workspace_members",
             "oxy_api_workspaces::workspace_oxy_access",
             "oxy_api_workspaces::apps",
+            // The semantic scan resolution (Wave D1, 2026-11-16): the compile
+            // boundary and the compile queue, no warehouse; not the custom-app
+            // data plane, as `api::semantic` was not.
+            "oxy_app::agentic_wiring::scan_source",
+            // The Dev Portal's SQL execution (Wave D1): workspace-scoped, behind
+            // the workspace middleware, and not the custom-app data plane, as
+            // `api::data` was not. Its connector's own lines are
+            // `agentic_connector`'s, listed above.
+            "oxy_app::agentic_wiring::sql_exec",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

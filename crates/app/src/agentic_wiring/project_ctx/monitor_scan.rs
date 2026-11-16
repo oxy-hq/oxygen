@@ -31,11 +31,12 @@ impl MonitorScanPort for OxyProjectContext {
         // not have. `materialised_monitor` owns the tempdir for the whole scan. A
         // manager with no revision (the CLI, single-process mode) reads the
         // working copy's file, and a node with neither says so.
-        let materialised_monitor = crate::server::api::semantic_scan::materialise_monitor_config(
-            &self.workspace_manager.config_manager,
-        )
-        .await
-        .map_err(|e| format!("monitor scan: could not read the compiled `.monitor.yml`: {e:?}"))?;
+        let materialised_monitor =
+            oxy::config::scan::materialise_monitor_config(&self.workspace_manager.config_manager)
+                .await
+                .map_err(|e| {
+                    format!("monitor scan: could not read the compiled `.monitor.yml`: {e:?}")
+                })?;
         let config_path = match &materialised_monitor {
             Some(m) => m.config_path.clone(),
             None => {

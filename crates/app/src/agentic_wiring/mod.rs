@@ -26,6 +26,8 @@ pub mod metric_tree_runner;
 pub mod preview_airhouse;
 pub mod preview_ctx;
 pub mod project_ctx;
+pub mod scan_source;
+pub mod sql_exec;
 pub mod string_literal;
 pub mod thread_owner;
 

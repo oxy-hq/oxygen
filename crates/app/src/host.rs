@@ -86,7 +86,6 @@ pub mod middleware {
         REQUEST_ID_HEADER, request_id_middleware,
     };
     pub use crate::server::api::middlewares::sentry_surface::tag_custom_app_surface;
-    pub use crate::server::api::projects::workspace_actions::PlanesWorkspaceActions;
     pub use crate::server::role_middleware::{enforce_role, enforce_role_external};
 }
 

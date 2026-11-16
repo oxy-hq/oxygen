@@ -19,10 +19,10 @@ use utoipa::ToSchema;
 
 use oxy_app_core::app_state::AppState;
 
+use crate::agentic_wiring::scan_source::{ErrorResponse, resolve_query_scan_source, semantic_err};
 use crate::server::api::middlewares::workspace_context::{
     SemanticLayerCacheCtx, WorkspaceManagerReadOnly, WorkspacePath,
 };
-use crate::server::api::semantic::{ErrorResponse, resolve_query_scan_source, semantic_err};
 
 // ── Preagg status ─────────────────────────────────────────────────────────────
 //

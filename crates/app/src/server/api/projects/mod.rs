@@ -4,9 +4,9 @@
 //! plane, the metric-tree twins, the agent ask, the agent-run stream, the
 //! automation run) and `oxy-api-world-model` (the world-model twins). What
 //! stays here is the shared platform half they reach through
-//! `oxy_app::surface`: the semantic boundary, the automation run's row state
-//! machine, and the workspace-actions mode read.
+//! `oxy_app::surface`: the semantic boundary and the automation run's row state
+//! machine. (The workspace-actions mode read, `PlanesWorkspaceActions`, went
+//! down to `oxy_custom_apps::workspace_actions` on 2026-11-16.)
 
 pub mod automation_run;
 pub mod semantic_boundary;
-pub mod workspace_actions;

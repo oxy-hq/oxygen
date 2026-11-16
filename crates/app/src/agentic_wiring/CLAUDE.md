@@ -16,6 +16,8 @@ refactor lands, the churn lives in this module.
 | [`builder_bridges/project_validator.rs`](builder_bridges/project_validator.rs) | `OxyBuilderProjectValidator` — validates workflow / agent / app / semantic files via oxy's `ConfigBuilder` |
 | [`builder_bridges/schema_provider.rs`](builder_bridges/schema_provider.rs) | `OxyBuilderSchemaProvider` — generates JSON schemas for builder-copilot tools via `schemars::schema_for!` on `oxy::config::model` types |
 | [`builder_bridges/semantic_compiler.rs`](builder_bridges/semantic_compiler.rs) | `OxyBuilderSemanticCompiler` — compiles semantic queries via `agentic_automation::semantic_bridge` |
+| [`scan_source.rs`](scan_source.rs) | Where a semantic read finds the model (`resolve_query_scan_source`, `resolve_compiled_scan_source`, `QueryScanSource`) and the `{ message }` refusal envelope. Down from `api::semantic` (2026-11-16) |
+| [`sql_exec.rs`](sql_exec.rs) | How a Dev Portal query runs (`run_via_agentic_connector`, `build_connector`, the 10k ad-hoc row cap). Down from `api::data` (2026-11-16) |
 | [`thread_owner.rs`](thread_owner.rs) | `OxyThreadOwnerLookup` — implements the auth-facing `ThreadOwnerLookup` trait against `entity::threads` |
 | [`mod.rs`](mod.rs) | `build_builder_bridges(project_ctx)` — assembles the four builder bridges into `BuilderBridges` for `PipelineBuilder::with_builder_bridges` |
 

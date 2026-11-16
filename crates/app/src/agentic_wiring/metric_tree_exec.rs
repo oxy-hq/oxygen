@@ -35,7 +35,7 @@ use oxy_metric_monitoring::metric_tree_scenario::BaselineInstance;
 use oxy_metric_monitoring::metric_tree_series::build_time_series_query_request;
 
 use super::metric_tree_runner::{OxyMetricTreeRunner, RunnerPreagg, build_query_executor};
-use crate::server::api::semantic::{QueryScanSource, resolve_query_scan_source};
+use crate::agentic_wiring::scan_source::{QueryScanSource, resolve_query_scan_source};
 use crate::server::preagg_context::RollupFreshness;
 
 #[derive(Debug)]

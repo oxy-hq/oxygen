@@ -65,7 +65,7 @@ impl OxyProjectContext {
         let manager = &self.workspace_manager.config_manager;
         let stateless = matches!(current_process_role(), Role::Serve | Role::Worker);
         if tries_compiled(run, manager.revision_id().is_some(), stateless) {
-            match crate::server::api::semantic_scan::materialise_agent_context(manager).await {
+            match oxy::config::scan::materialise_agent_context(manager).await {
                 Ok(Some(materialised)) => {
                     // The revision travels with the root because anything a
                     // caller caches off this path must be keyed by it: a

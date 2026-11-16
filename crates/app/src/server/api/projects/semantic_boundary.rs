@@ -28,7 +28,7 @@ use crate::agentic_wiring::OxyProjectContext;
 use crate::server::api::custom_apps_gates::{
     CustomAppContext, CustomAppContextExt, check_custom_app_gates,
 };
-use crate::server::api::semantic_scan::{ScanDir, scan_dir};
+use oxy::config::scan::{ScanDir, scan_dir};
 
 #[derive(Serialize)]
 struct ApiErr {

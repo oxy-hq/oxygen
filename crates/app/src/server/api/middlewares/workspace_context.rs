@@ -424,7 +424,7 @@ impl SemanticEngineCacheCtx {
     ///
     /// `source_revision` is what that scan actually read — `Some` only when it
     /// materialised the compiled revision. Get it from
-    /// [`crate::server::api::semantic::QueryScanSource::source_revision`],
+    /// [`crate::agentic_wiring::scan_source::QueryScanSource::source_revision`],
     /// never from `ConfigManager::revision_id()`.
     pub fn scan_key(
         &self,

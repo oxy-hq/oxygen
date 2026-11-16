@@ -146,11 +146,11 @@ pub mod workspace_runtime {
     /// lives; the preview write hold applied). The workspace's schema route
     /// (`oxy-api-workspace-config`) introspects through it.
     pub use crate::agentic_wiring::project_ctx::build_connector_for_db;
-    pub use crate::agentic_wiring::string_literal::string_literal_of;
-    pub use crate::server::api::semantic::{
+    pub use crate::agentic_wiring::scan_source::{
         ErrorResponse, QueryScanSource, resolve_compiled_scan_source, resolve_query_scan_source,
         semantic_err,
     };
+    pub use crate::agentic_wiring::string_literal::string_literal_of;
     pub use crate::server::api::typed_stream::typed_stream_to_json_objects;
     pub use crate::server::preagg_workspace::build_workspace_manager;
     pub use crate::server::router::recovery::{
@@ -200,7 +200,7 @@ pub mod anomaly_notify {
 /// and the IDE handlers' own fan-outs (filter counts, instance detail) use them
 /// directly. Platform runtime, not graph logic.
 pub mod world_model_exec {
-    pub use crate::server::api::data::{
+    pub use crate::agentic_wiring::sql_exec::{
         SQLParams, SemanticQueryResponse, build_connector, run_via_agentic_connector,
         run_with_connector,
     };

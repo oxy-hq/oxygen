@@ -75,11 +75,12 @@ const BACKLOG: &[(&str, &str)] = &[
     // context builds on. Clears when previews leaves (or its hold goes down).
     ("agentic_wiring", "server::previews"),
     // The compile dispatcher builds the compile worker; the monitor scan
-    // queues an anomaly notice; the project context reads the compiled scan
-    // source; the metric-tree runner streams through `typed_stream`.
+    // queues an anomaly notice; the metric-tree runner streams through
+    // `typed_stream`. (The project context's reach into `api::semantic`, the
+    // compiled scan source, cleared on 2026-11-16: the scan resolution moved
+    // down into `agentic_wiring::scan_source`.)
     ("agentic_wiring", "server::compile_worker"),
     ("agentic_wiring", "server::anomaly_notify"),
-    ("agentic_wiring", "server::api::semantic"),
     ("agentic_wiring", "server::api::typed_stream"),
     // The workspace middleware: branch self-heal, the reconcile check, the
     // Factory-access gate, preview pins and read-only holds. The largest
