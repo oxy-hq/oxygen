@@ -13,8 +13,11 @@ vi.mock("@/services/api/version", async (importOriginal) => ({
 
 import { VersionBadge } from "./index";
 
-// No org flags answer, so the apps-first flag reads from the auth config.
-vi.mock("@/hooks/api/featureFlags", () => ({ useOrgFeatureFlags: () => ({ data: undefined }) }));
+// The build details popover is Oxy staff's; everyone else sees only the name.
+let staff = true;
+vi.mock("@/hooks/api/users/useCurrentUser", () => ({
+  default: () => ({ data: { is_owner: false, is_app_admin: staff } })
+}));
 
 const info = (over: Partial<VersionInfo> = {}): VersionInfo => ({
   image_tag: "main-1bcefe3",
@@ -31,6 +34,7 @@ const info = (over: Partial<VersionInfo> = {}): VersionInfo => ({
 afterEach(() => {
   cleanup();
   getVersion.mockReset();
+  staff = true;
 });
 
 describe("VersionBadge", () => {
@@ -53,5 +57,14 @@ describe("VersionBadge", () => {
 
     await userEvent.click(screen.getByTestId("version-badge"));
     expect(screen.getByTestId("version-badge-image").textContent).toBe("not an image");
+  });
+
+  it("shows everyone but Oxy staff only the build's name, with no commit", async () => {
+    staff = false;
+    getVersion.mockResolvedValue(info());
+    render(<VersionBadge />);
+    expect((await screen.findByTestId("version-badge")).textContent).toBe("main-1bcefe3");
+    await userEvent.click(screen.getByTestId("version-badge"));
+    expect(screen.queryByTestId("version-badge-image")).toBeNull();
   });
 });

@@ -2,7 +2,6 @@ import { Hammer, Loader2, Maximize2, Sparkles, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import ErrorAlert from "@/components/ui/ErrorAlert";
 import { Dialog, DialogContent } from "@/components/ui/shadcn/dialog";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import type { BuilderFileChange } from "@/hooks/useBuilderActivity";
 import { useBuilderActivity } from "@/hooks/useBuilderActivity";
 import { objectNameFromPath } from "@/libs/utils/objectName";
@@ -28,8 +27,7 @@ export default function BuilderDelegationPanel({
   projectId,
   onClose
 }: BuilderDelegationPanelProps) {
-  // Apps-first: what changed by plain name, never by file path.
-  const plainNames = useAppsFirstExperience();
+  // What changed by plain name, never by file path.
   const {
     events,
     isStreaming,
@@ -116,7 +114,7 @@ export default function BuilderDelegationPanel({
                 <div key={change.id} className='rounded-lg border'>
                   <div className='flex items-center justify-between gap-2 border-b px-3 py-2'>
                     <span className='min-w-0 truncate font-medium text-xs'>
-                      {plainNames ? objectNameFromPath(change.filePath) : change.filePath}
+                      {objectNameFromPath(change.filePath)}
                     </span>
                     <div className='flex shrink-0 items-center gap-1'>
                       {isReverted(change) && (

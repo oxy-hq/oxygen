@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { OxyMark } from "@/components/OxyMark";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import useHomeV3 from "@/hooks/useHomeV3";
 import { cn } from "@/libs/shadcn/utils";
 import useAskDock from "@/stores/useAskDock";
@@ -8,7 +7,6 @@ import { Breadcrumb } from "./Breadcrumb";
 import { AppHealthItem } from "./MenuBar/AppHealthItem";
 import { ConnectionItem } from "./MenuBar/ConnectionItem";
 import { NotificationsBell } from "./NotificationsBell";
-import { SystemIndicator } from "./SystemIndicator";
 import { TodayButton } from "./TodayButton";
 import { WorkspaceClock } from "./WorkspaceClock";
 
@@ -39,51 +37,37 @@ function AskOxygenButton() {
 }
 
 /**
- * The universal top bar: breadcrumb (left) + system status, clock, the inbox
- * bell, and the Ask Oxygen toggle (right). Spans the content column above `<main>` and the
- * Ask dock. Hidden inside the IDE and onboarding (gated with the rail in
- * WorkspaceShell). Mirrors the rail's `bg-sidebar-background` so the two read
- * as one frame. `leading` sits before the breadcrumb — the shell puts the
- * mobile nav drawer's menu button there. Follow-up: lift into `@oxy-hq/sdk`
- * for custom apps.
+ * The universal top bar: the home's menu bar, macOS-style. The breadcrumb on the
+ * left; the rail is the dock; on the right Ask (the Spotlight) and the bell
+ * (Notification Center), plus a status item while something is wrong (an app
+ * down, the browser offline), and the day and time last. Spans the content column
+ * above `<main>` and the Ask dock. Hidden inside the IDE and onboarding (gated with
+ * the rail in WorkspaceShell). Mirrors the rail's `bg-sidebar-background` so the
+ * two read as one frame. `leading` sits before the breadcrumb — the shell puts the
+ * mobile nav drawer's menu button there.
  *
- * With the apps-first experience on it is the home's menu bar, macOS-style: the
- * rail is the dock; on the right Ask (the Spotlight) and the bell (Notification
- * Center), plus a status item while something is wrong (an app down, the browser
- * offline), and the day and time last.
- *
- * With home v3 (`home_v3`) on too it is as quiet as it can be: Today (the
+ * With home v3 (`home_v3`) on it is as quiet as it can be: Today (the
  * widgets, from any page) joins Ask and the bell, and there is no clock: the
  * computer already shows one.
  */
 export function TopBar({ leading }: { leading?: ReactNode }) {
-  const appsFirst = useAppsFirstExperience();
   const homeV3 = useHomeV3();
   return (
     <header
       data-testid='workspace-topbar'
-      data-menubar={appsFirst || undefined}
+      data-menubar
       className='flex h-12 shrink-0 items-center gap-3 border-b bg-sidebar-background px-3'
     >
       {leading}
       <Breadcrumb />
-      {appsFirst ? (
-        <div className='ml-auto flex shrink-0 items-center gap-1.5' data-testid='menubar-status'>
-          <AppHealthItem />
-          <ConnectionItem />
-          <AskOxygenButton />
-          {homeV3 && <TodayButton />}
-          <NotificationsBell />
-          {!homeV3 && <WorkspaceClock withDate />}
-        </div>
-      ) : (
-        <div className='ml-auto flex shrink-0 items-center gap-3'>
-          <SystemIndicator />
-          <WorkspaceClock />
-          <NotificationsBell />
-          <AskOxygenButton />
-        </div>
-      )}
+      <div className='ml-auto flex shrink-0 items-center gap-1.5' data-testid='menubar-status'>
+        <AppHealthItem />
+        <ConnectionItem />
+        <AskOxygenButton />
+        {homeV3 && <TodayButton />}
+        <NotificationsBell />
+        {!homeV3 && <WorkspaceClock withDate />}
+      </div>
     </header>
   );
 }

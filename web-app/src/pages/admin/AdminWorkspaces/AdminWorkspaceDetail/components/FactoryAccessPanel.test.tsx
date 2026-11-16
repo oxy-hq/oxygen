@@ -39,7 +39,6 @@ afterEach(cleanup);
 describe("FactoryAccessPanel", () => {
   it("grants a member with the toggle, and revokes a granted one", () => {
     access = {
-      enforced: true,
       members: [
         member({ user_id: "u-granted", email: "grace@acme.test", name: "Grace", granted: true }),
         member({ user_id: "u-plain", email: "ada@acme.test" })
@@ -54,21 +53,15 @@ describe("FactoryAccessPanel", () => {
     expect(mutate).toHaveBeenLastCalledWith({ userId: "u-granted", granted: false });
   });
 
-  it("says whether enforcement is on", () => {
-    access = { enforced: false, members: [member({})] };
+  it("says who can use the Factory", () => {
+    access = { members: [member({})] };
     render(<FactoryAccessPanel workspaceId='ws-1' />);
-    expect(screen.getByText(/Enforcement is off/)).toBeInTheDocument();
-    cleanup();
-
-    access = { enforced: true, members: [member({})] };
-    render(<FactoryAccessPanel workspaceId='ws-1' />);
-    expect(screen.getByText(/Enforcement is on/)).toBeInTheDocument();
+    expect(screen.getByText(/the members granted here can use/)).toBeInTheDocument();
   });
 
   /// A grant whose holder left the org opens nothing, but must stay removable.
   it("lists a grant whose holder left the org, and lets it be removed but not re-added", () => {
     access = {
-      enforced: true,
       members: [member({ user_id: "u-left", org_role: null, granted: true })]
     };
     render(<FactoryAccessPanel workspaceId='ws-1' />);
@@ -83,7 +76,6 @@ describe("FactoryAccessPanel", () => {
   /// says so on their rows and in the summary.
   it("marks owners and admins as having access by role", () => {
     access = {
-      enforced: true,
       members: [
         member({ user_id: "u-owner", org_role: "owner" }),
         member({ user_id: "u-admin", org_role: "admin" }),
@@ -104,7 +96,7 @@ describe("FactoryAccessPanel", () => {
   });
 
   it("links to the workspace's Factory when the org is known, and not otherwise", () => {
-    access = { enforced: true, members: [member({})] };
+    access = { members: [member({})] };
     render(
       <MemoryRouter>
         <FactoryAccessPanel workspaceId='ws-1' orgSlug='acme' />

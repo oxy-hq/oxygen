@@ -4,80 +4,30 @@
 # ([data-testid=shell-rail]) plus a universal top bar
 # ([data-testid=workspace-topbar]) on every workspace page outside /ide and
 # /onboarding:
-#   - rail-hq returns to the HQ launcher,
+#   - rail-hq returns to the org home ([data-testid=customer-home]),
 #   - rail-chat opens the Chat page (/threads),
 #   - rail-core opens Oxygen Factory (the IDE).
-# The top bar's breadcrumb shows the current page name ("HQ" on the launcher,
+# The top bar's breadcrumb shows the current page name ("Home" on the home,
 # "Chat" on /threads). "Ask Oxygen" ([data-testid=ask-oxygen-button]) opens the
 # right-side Ask dock ([data-testid=ask-dock]); ⌘K toggles it too.
 #
-# When there are zero published custom apps (the local CI backend's case), the
-# launcher renders the ask-forward fallback: greeting + the ask-locked
-# ChatPanel composer (no agent picker — the analytics agent is the default).
-#
-#   fallback-home       — greeting + composer + rail (HQ / Chat / Oxygen
+#   home-chrome         — the customer home + rail (Home / Chat / Oxygen
 #                         Factory) + top bar visible.
 #   ask-dock-roundtrip  — ask-oxygen-button opens the ask-dock; submitting
 #                         streams in the dock; "Full view" promotes to
 #                         /threads/<id>.
 #   rail-chat-and-home  — rail-chat navigates to the Chat page (breadcrumb
-#                         "Chat"); rail-hq returns to the launcher
-#                         (breadcrumb "HQ").
+#                         "Chat"); rail-hq returns to the home.
+#
+# The home is the customer home whatever the workspace holds: the HQ launcher and
+# its zero-apps greeting went with the `apps_first_experience` flag, and with them
+# the zero-published-apps precondition these cases used to need.
 #
 # Backend mode: enterprise mode (the default `backend_mode`): the runner starts `oxy start
 # --enterprise`, seeds `demo_project/` as the `local` org's Demo workspace, signs
 # in as `flow@oxy.local` and prefixes `goto:` paths with
 # `/local/workspaces/<demo id>`. The runner injects that session before the
 # first case, so there is no login step in the flow.
-#
-# CLOUD/FLEET PORTABILITY — `fallback-home` and `rail-chat-and-home` need a
-# workspace with ZERO published custom apps; the fleet's shared workspace
-# fixture (`examples/`, seeded via `oxy seed` as part of
-# docker-compose.fleet.yml's documented bootstrap, scripts/fleet-assert.sh)
-# UNCONDITIONALLY publishes one ("Oxy Starter"). Confirmed by navigating `/`
-# against the fleet as `flow@oxy.local`: an apps grid, not the ask-forward
-# fallback — `demo_project/` (the `--local` fixture) never publishes an app,
-# so this precondition only ever holds there by default. `ask-dock-roundtrip`
-# is unaffected either way — the Ask dock is reachable from the universal top
-# bar regardless of published-app count — and DOES pass against the fleet's
-# shared workspace (verified 2026-08-24).
-#
-# THE FIX IS A SEPARATE FIXTURE WORKSPACE, NOT A FLOW CHANGE. The shared
-# fleet workspace is long-running and other agents assert against it, so
-# unpublishing its seeded app is out of scope. Instead, create a SECOND,
-# dedicated workspace in the same org via the product's own onboarding API —
-# the "New workspace" (blank) option (`POST /orgs/{orgId}/onboarding/new`,
-# what `WorkspaceCreator.tsx`'s "New workspace" card calls) — which does NOT
-# seed any app. Verified live (2026-08-24, org `local` /
-# `00000000-0000-0000-0000-000000000000`): `POST .../onboarding/new` returns
-# a `workspace_id` immediately in `status: ready`, and
-# `GET /<that-id>/custom-apps` returns `[]` where the shared workspace
-# returns the seeded `oxy-starter` entry. This is a workspace-selection
-# concern, not something a `setup:` command in this file can express — the
-# three setup commands (`goto:`, `reset_test_file`, `restore_demo_file:`) act
-# on ONE already-chosen workspace, and which workspace that is comes from
-# `OXY_FIXTURE_WORKSPACE` / `OXY_PATH_PREFIX`, set once for the whole runner
-# invocation (`runner/backend.ts`) — a single flow file cannot address two
-# workspaces in one invocation. Hardcoding a fleet-specific workspace UUID
-# into `goto:` would also break `--local`, which has no workspace-scoped
-# routing at all (`--local` is a single fixed project). So: run
-# `fallback-home` and `rail-chat-and-home` — tagged `fleet-empty-workspace`
-# below — in a SEPARATE invocation pointed at a dedicated empty workspace's
-# `OXY_FIXTURE_WORKSPACE`/`OXY_PATH_PREFIX`; run `ask-dock-roundtrip` (not
-# tagged) against the normal shared workspace as usual. Both were run this
-# way against the fleet and passed — see the per-case tag note below.
-#
-# Since 2026-10-14 a zero-app workspace's HQ shows the apps of the org's OTHER
-# workspaces (a smaller "Or ask a question" composer below them); the greeting
-# renders only when the whole org has no published app. So a dedicated empty
-# workspace in the shared fleet org no longer gets the greeting — the
-# `fleet-empty-workspace` run needs an org with no published app at all.
-#
-# `chat-panel-agent-switch.flow.test.yml` hit the identical zero-apps
-# precondition and was ported by switching its entry point from the home
-# fallback to the Ask dock; that adaptation does not fit here because this
-# flow's OWN subject is the fallback rendering itself, not just "a composer
-# with no agent picker".
 
 name: launcher home surfaces
 target: chat
@@ -110,21 +60,10 @@ setup:
   - "goto:/home"
 
 cases:
-  - name: fallback-home shows greeting, chat composer, rail, and top bar
-    tags: [launcher, chat, critical, fleet-empty-workspace]
-    # See the file header's "CLOUD/FLEET PORTABILITY" note — this case's
-    # precondition (zero published apps) does not hold on the shared fleet
-    # workspace. Against a fleet, point OXY_FIXTURE_WORKSPACE /
-    # OXY_PATH_PREFIX at a dedicated empty workspace and run with
-    # `--tag fleet-empty-workspace` to select just this case and
-    # rail-chat-and-home below (NOT ask-dock-roundtrip, which needs the
-    # shared workspace's actual data and has no zero-apps precondition).
+  - name: home-chrome shows the customer home, rail, and top bar
+    tags: [launcher, critical]
     steps:
-      # The fallback greeting is time-of-day-aware ("Good Morning/Afternoon/
-      # Evening"); the selector covers the outer paragraph regardless.
-      - wait_for: "selector:text=How can I assist you?"
-
-      - wait_for: "selector:[data-testid=chat-panel-submit-button]"
+      - wait_for: "selector:[data-testid=customer-home]"
 
       - act: |
           Verify the chrome is present without clicking anything —
@@ -134,7 +73,7 @@ cases:
           and [data-testid=ask-oxygen-button] inside it.
 
     expect:
-      - assert: "selector [data-testid=chat-panel-submit-button] is visible"
+      - assert: "selector [data-testid=customer-home] is visible"
       - assert: "selector [data-testid=shell-rail] is visible"
       - assert: "selector [data-testid=rail-hq] is visible"
       - assert: "selector [data-testid=rail-chat] is visible"
@@ -186,12 +125,7 @@ cases:
           visible and the run is not suspended awaiting a clarifying question.
 
   - name: rail-chat-and-home navigates the Chat page and back via the rail
-    tags: [launcher, regression, fleet-empty-workspace]
-    # Same fleet-precondition gap as fallback-home above (see the file
-    # header) — the trailing wait_for re-checks the ask-forward fallback
-    # greeting after returning to HQ, which needs a zero-apps workspace.
-    # Run with `--tag fleet-empty-workspace` against a dedicated empty
-    # workspace on a fleet; passes unmodified under `--local`.
+    tags: [launcher, regression]
     steps:
       - wait_for: "selector:[data-testid=rail-chat]"
 
@@ -203,13 +137,12 @@ cases:
       - wait_for: "selector:text=Chat"
 
       - act: |
-          browser_click [data-testid=rail-hq]. The app returns to the HQ
-          launcher; the breadcrumb page name becomes "HQ" and the greeting +
-          composer fallback renders (zero published custom apps on this backend).
+          browser_click [data-testid=rail-hq]. The app returns to the org
+          home; the breadcrumb page name becomes "Home" and the customer home
+          renders.
 
-      - wait_for: "selector:text=How can I assist you?"
+      - wait_for: "selector:[data-testid=customer-home]"
 
-    # Rows may be empty on a cold backend — assert only the page shells.
     expect:
       - assert: "selector [data-testid=shell-rail] is visible"
-      - assert: "selector [data-testid=chat-panel-submit-button] is visible"
+      - assert: "selector [data-testid=customer-home] is visible"

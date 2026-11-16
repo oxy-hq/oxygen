@@ -1,10 +1,7 @@
-import { Navigate } from "react-router-dom";
 import { Card } from "@/components/ui/shadcn/card";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useWorldModel } from "@/hooks/api/useWorldModel";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { cn } from "@/libs/shadcn/utils";
-import ROUTES from "@/libs/utils/routes";
 import { worldModelTitle } from "@/pages/launcher/CustomerHome/components/WorldModelCard";
 import { WorldModelCounts } from "@/pages/launcher/CustomerHome/components/WorldModelCard/WorldModelCounts";
 import { HOME_CONTAINER } from "@/pages/launcher/CustomerHome/layout";
@@ -17,18 +14,8 @@ import { WorldModelExplorer } from "./components/WorldModelExplorer";
  * draws the Factory's own graph component and reads one customer route
  * (`GET /semantic/world-model`); exploring instances, breakdowns and peers, and
  * changing the model, stay in the Factory.
- *
- * Apps-first only. With the flag off there is no card linking here, and a stray
- * link goes to the home.
  */
 export default function CustomerWorldModelPage() {
-  const appsFirst = useAppsFirstExperience();
-  const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
-  if (!appsFirst) return <Navigate to={ROUTES.ORG(orgSlug).HOME} replace />;
-  return <WorldModelPageContent />;
-}
-
-function WorldModelPageContent() {
   const org = useCurrentOrg((s) => s.org);
   const { data: model, isLoading, error } = useWorldModel();
   const ready = !!model && model.entities.length > 0;

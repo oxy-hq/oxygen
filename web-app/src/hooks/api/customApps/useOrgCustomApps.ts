@@ -24,25 +24,14 @@ import { useWorkspacesCustomApps } from "./useWorkspacesCustomApps";
  * failing workspace never holds the page up once the current one has answered;
  * `apps` fills in as the rest settle.
  */
-export default function useOrgCustomApps(
-  currentWorkspaceId: string,
-  {
-    acrossOrg = true
-  }: {
-    /** `false`: only the current workspace's apps, the very query (and cache entry)
-     *  `useCustomApps` reads, as the rail showed before the org home. */
-    acrossOrg?: boolean;
-  } = {}
-): {
+export default function useOrgCustomApps(currentWorkspaceId: string): {
   apps: CustomAppSummary[];
   isPending: boolean;
 } {
   const { data: workspaces, isLoading } = useAllWorkspaces();
-  const others = acrossOrg
-    ? navigableWorkspaces(workspaces ?? [])
-        .map((w) => w.id)
-        .filter((id) => id !== currentWorkspaceId)
-    : [];
+  const others = navigableWorkspaces(workspaces ?? [])
+    .map((w) => w.id)
+    .filter((id) => id !== currentWorkspaceId);
   const ids = currentWorkspaceId ? [currentWorkspaceId, ...others] : others;
   // Two calls, so "the current workspace has answered" is its own answer. The
   // lists are the same queries either way, under the same cache keys.

@@ -7,7 +7,6 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsDialog from "@/components/settings/SettingsDialog";
 import { SidebarProvider } from "@/components/ui/shadcn/sidebar";
-import { ManageWorkspacesDialog } from "@/components/workspaces/components/ManageWorkspacesDialog";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { apiClient } from "@/services/api/axios";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -71,9 +70,7 @@ vi.mock("@/hooks/api/users/useCurrentUser", () => ({
   default: () => ({ data: { is_owner: false, is_app_admin: false, partner_memberships: [] } })
 }));
 
-// `factory_access: false` only ever comes from a server with the apps-first flag on,
-// which is also what turns the customer's screens off the Factory's routes.
-const authConfig = { billing_enabled: false, apps_first_experience: true, mode: "cloud" } as never;
+const authConfig = { billing_enabled: false, mode: "cloud" } as never;
 
 const requested: string[] = [];
 
@@ -97,7 +94,6 @@ function renderWhatEveryPageMounts() {
         <MemoryRouter initialEntries={["/acme/workspaces/ws-1/home"]}>
           <SidebarProvider>
             <SettingsDialog />
-            <ManageWorkspacesDialog />
             <WorkspaceShell>
               <div />
             </WorkspaceShell>

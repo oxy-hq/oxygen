@@ -195,6 +195,19 @@ async fn seed(db: &DatabaseConnection) -> Fx {
     preview(db, ws, "feat/compiling", fx.compiling_rev, fx.staff.id).await;
     preview(db, other_ws, BRANCH, fx.foreign_rev, fx.staff.id).await;
     preview(db, ws, "feat/draft", fx.draft_rev, fx.staff.id).await;
+    // Factory access is enforced for every org, and this file's probe routes are on
+    // no customer list, so `factory_access::gate` would refuse a plain member before
+    // the preview logic ran. Grant the customer the workspace's Factory: still a
+    // customer, not staff, which is the line every case here is about.
+    entity::workspace_factory_grants::ActiveModel {
+        workspace_id: ActiveValue::Set(ws),
+        user_id: ActiveValue::Set(fx.customer.id),
+        granted_by: ActiveValue::Set(Some(fx.staff.id)),
+        granted_at: ActiveValue::Set(chrono::Utc::now().fixed_offset()),
+    }
+    .insert(db)
+    .await
+    .expect("seed the customer's factory grant");
     fx
 }
 

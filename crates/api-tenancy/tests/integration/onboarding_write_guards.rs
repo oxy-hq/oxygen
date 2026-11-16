@@ -25,7 +25,9 @@ use axum::{Router, middleware};
 use entity::org_members::OrgRole;
 use entity::workspace_members::WorkspaceRole;
 use entity::workspaces::WorkspaceStatus;
-use entity::{org_members, organizations, users, workspace_members, workspaces};
+use entity::{
+    org_members, organizations, users, workspace_factory_grants, workspace_members, workspaces,
+};
 use oxy_api_tenancy::onboarding::workspace_routes;
 use oxy_app::surface::bare_app_state;
 use oxy_app::surface::testing::workspace_context::workspace_middleware;
@@ -122,6 +124,19 @@ async fn person(fx: &Fx, role: OrgRole) -> Who {
     .insert(&fx.db)
     .await
     .expect("seed membership");
+    // Factory access is enforced for every org, and these routes are the Factory's:
+    // without a grant a plain member is refused by `factory_access::gate` before the
+    // role guard this file is about. Grant it, as an operator does for whoever uses
+    // these screens, so each status below is the role guard's.
+    workspace_factory_grants::ActiveModel {
+        workspace_id: ActiveValue::Set(fx.ws),
+        user_id: ActiveValue::Set(id),
+        granted_by: ActiveValue::Set(None),
+        granted_at: ActiveValue::Set(chrono::Utc::now().fixed_offset()),
+    }
+    .insert(&fx.db)
+    .await
+    .expect("seed factory grant");
     Who {
         user: AuthenticatedUser {
             id,
@@ -176,15 +191,14 @@ async fn role_probe(EffectiveWorkspaceRole(role): EffectiveWorkspaceRole) -> Str
 /// The surface's workspace routes inside the `/{workspace_id}` nest, behind
 /// `workspace_middleware` — where `oxy-server` merges them — plus a probe that
 /// reports the resolved role, so the fixture can show each caller is who its
-/// name says.
+/// name says. The probe sits at `GET /members`, a path `factory_access`'s table
+/// lists as a customer's, so the Factory gate does not refuse a read-only token
+/// (which never reaches the Factory, granted or not) before the probe reports it.
 fn app(who: &Who) -> Router {
     let state = bare_app_state();
-    let workspace = workspace_routes()
-        .route("/role-probe", get(role_probe))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            workspace_middleware,
-        ));
+    let workspace = workspace_routes().route("/members", get(role_probe)).layer(
+        middleware::from_fn_with_state(state.clone(), workspace_middleware),
+    );
     let mut app = Router::new()
         .nest("/{workspace_id}", workspace)
         .layer(Extension(who.user.clone()));
@@ -228,7 +242,7 @@ async fn upload(fx: &Fx, who: &Who) -> StatusCode {
 
 async fn resolved_role(fx: &Fx, who: &Who) -> String {
     let request = Request::builder()
-        .uri(format!("/{}/role-probe", fx.ws))
+        .uri(format!("/{}/members", fx.ws))
         .body(Body::empty())
         .unwrap();
     let response = app(who).oneshot(request).await.expect("oneshot");

@@ -96,17 +96,8 @@ pub struct AuthConfigResponse {
     /// the org Billing settings tab and the admin Billing queue surfaces a
     /// "Billing is disabled" notice instead of a misleading empty state.
     pub billing_enabled: bool,
-    /// The backend `apps_first_experience` feature flag as an org with no override
-    /// gets it: the customer home and onboarding, the read-only world model page, and
-    /// the web app without its workspace management and creation screens. The flag
-    /// is per org, and this route has none, so the web app reads it only for screens
-    /// before an org (the person with no org); with an org it reads the org's value
-    /// from `GET /orgs/{org_id}/feature-flags`. Factory access is the server's to
-    /// enforce and still reads `factory_access` on `/meta`.
-    pub apps_first_experience: bool,
     /// Mirror of the backend `home_v3` feature flag: the third apps-first home
-    /// (ask first, big apps, Today folded, simple and full views). The web app reads
-    /// it only where `apps_first_experience` is on.
+    /// (ask first, big apps, Today folded, simple and full views).
     pub home_v3: bool,
     /// True when `OXY_DEV_LOGIN_EMAILS` is set, i.e. the dev sign-in bypass is
     /// available. Drives the "Dev sign-in" button on the login page — the one

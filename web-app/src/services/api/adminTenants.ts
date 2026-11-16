@@ -345,8 +345,6 @@ export interface AdminFactoryAccessMember {
 }
 
 export interface AdminFactoryAccess {
-  /** Whether enforcement is on. Off, a grant changes nobody's access yet. */
-  enforced: boolean;
   members: AdminFactoryAccessMember[];
 }
 

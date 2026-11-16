@@ -4,7 +4,6 @@ import { SidebarProvider } from "@/components/ui/shadcn/sidebar";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useOrgs } from "@/hooks/api/organizations";
 import { useAllWorkspaces } from "@/hooks/api/workspaces/useWorkspaces";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { useLandingWorkspace } from "@/hooks/useLandingWorkspace";
 import ROUTES from "@/libs/utils/routes";
 
@@ -36,12 +35,8 @@ export default function OrgHome({ Layout }: { Layout: ComponentType<OrgHomeLayou
   const org = orgs?.find((o) => o.slug === orgSlug);
   const { data: workspaces, isPending: wsPending, isError } = useAllWorkspaces(org?.id);
   const landing = useLandingWorkspace(workspaces, org?.id);
-  const appsFirst = useAppsFirstExperience();
 
   if (!orgSlug) return <Navigate to={ROUTES.ROOT} replace />;
-  // The org home is the apps-first experience's. Without it, `/<org>/home` goes to
-  // the org root, which lands in a workspace as before.
-  if (!appsFirst) return <Navigate to={ROUTES.ORG(orgSlug).ROOT} replace />;
   if (orgsPending || !org || wsPending || landing.isPending) return <HomeSpinner />;
   if (isError || !landing.target) {
     return <Navigate to={ROUTES.ORG(orgSlug).ROOT} replace />;

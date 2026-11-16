@@ -6,8 +6,8 @@ import type { Workspace } from "@/types/workspace";
  *
  * The server decides — Oxy staff, an owner or admin of the org, or a member an
  * operator granted the workspace to
- * (`GET /{workspace}/meta` → `factory_access`) — and sends `true` to everyone while
- * enforcement is off. Only an explicit `false` hides it: a response that predates
+ * (`GET /{workspace}/meta` → `factory_access`). Only an explicit `false` hides it: a
+ * response that predates
  * the field, or a workspace not loaded yet, shows what the rail always showed.
  *
  * This is presentation, not access control. Every Factory route refuses the rest

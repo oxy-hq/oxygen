@@ -4,22 +4,21 @@ import { parseAst } from "vite";
 import { describe, expect, it } from "vitest";
 
 /**
- * With the apps-first experience on (`apps_first_experience`), a customer never sees
- * the word "workspace" (internal-docs/apps-first-product-plan.md, decision 4), nor a
- * file, a branch, a repository or a commit: they see their company and its apps.
+ * A customer never sees the word "workspace" (internal-docs/apps-first-product-plan.md,
+ * decision 4), nor a file, a branch, a repository or a commit: they see their company
+ * and its apps.
  *
- * This parses the source of the screens a plain member reaches with the flag on
+ * This parses the source of the screens a plain member reaches
  * (`CUSTOMER_SCREENS`) and reports each piece of text a person could read that says
  * so: JSX text, and string or template literals that contain a space (prose) or are a
  * bare capitalised label. Parsing the source, rather than rendering screens, covers
  * the states a render test forgets (errors, empty states); a new string fails with a
  * file and line.
  *
- * With the flag off the screens say "workspace" as they always did (Luong,
- * 2026-10-27): the flag-off surfaces (workspace management, the switcher, the HQ
- * launcher) are simply not reached with it on. So the scan is scoped to the flag-on
- * screens, and text in those files that renders only with the flag off, or only for a
- * Factory user or staff, is listed by name below with why.
+ * The scan is scoped to the customer screens, and text in those files that renders
+ * only for a Factory user or staff is listed by name below with why. (These screens
+ * once had a flag-off form, the pre-apps-first UI, which said "workspace"; it was
+ * deleted with the `apps_first_experience` flag.)
  *
  * What it does not see: text that arrives from the server and text built from a
  * variable; the plain-name call sites have their own tests.
@@ -27,7 +26,7 @@ import { describe, expect, it } from "vitest";
 
 const SRC = path.resolve(__dirname);
 
-/** The screens a plain member reaches with the flag on (path prefixes under `src/`). */
+/** The screens a plain member reaches (path prefixes under `src/`). */
 const CUSTOMER_SCREENS: readonly string[] = [
   "pages/launcher/",
   "pages/world-model/",
@@ -39,7 +38,6 @@ const CUSTOMER_SCREENS: readonly string[] = [
   "components/org/OrgSetupPending/index.tsx",
   "components/Shell/",
   "components/Ask/",
-  "components/RecentThreads/",
   "components/ThreadRow.tsx",
   "components/IdeUnavailableBanner/",
   "components/ArtifactPanel/ArtifactsContent/automation.tsx",
@@ -48,21 +46,6 @@ const CUSTOMER_SCREENS: readonly string[] = [
   "components/settings/SettingsDialog/sections/workspace/Oltp/",
   "components/settings/SettingsDialog/sections/workspace/ActivityLogs/",
   "hooks/api/agentic-automations/useLogItems.ts"
-];
-
-/** Files under `CUSTOMER_SCREENS` that render only with the flag off. */
-const FLAG_OFF_ONLY: readonly { prefix: string; why: string }[] = [
-  {
-    prefix: "pages/launcher/HqLauncher.tsx",
-    why: "The HQ launcher: LauncherPage renders it only with the flag off."
-  },
-  { prefix: "pages/launcher/components/AskForwardFallback.tsx", why: "Used only by HqLauncher." },
-  { prefix: "pages/launcher/components/OtherWorkspaceApps.tsx", why: "Used only by HqLauncher." },
-  { prefix: "pages/launcher/useOtherWorkspaceApps.ts", why: "Used only by HqLauncher." },
-  {
-    prefix: "components/Shell/RailWorkspaceSwitch.tsx",
-    why: "The rail mounts it only with the flag off."
-  }
 ];
 
 interface Finding {
@@ -141,18 +124,18 @@ function findingsIn(file: string, readable: (text: string) => boolean = isReadab
   return found;
 }
 
-/** Text in a customer screen that only renders with the flag off, or only for a
- *  Factory user or staff. Each says which. */
-const FLAG_OFF_OR_FACTORY_TEXT: readonly { file: string; text: string; why: string }[] = [
+/** Text in a customer screen that only renders for a Factory user or staff, or only
+ *  in local mode. Each says which. */
+const FACTORY_OR_STAFF_TEXT: readonly { file: string; text: string; why: string }[] = [
   {
     file: "components/settings/SettingsDialog/sections/workspace/Airhouse/components/ConnectionDetails.tsx",
     text: "to the workspace's",
-    why: "The config.yml pointer under the connection details renders only with the flag off or for a Factory user (showConfigHint)."
+    why: "The config.yml pointer under the connection details renders only for a Factory user (showConfigHint)."
   },
   {
     file: "components/settings/SettingsDialog/sections/workspace/Airhouse/components/ConnectionDetails.tsx",
     text: "in its repository and push it.",
-    why: "Same footer: flag off or a Factory user only (showConfigHint)."
+    why: "Same footer: a Factory user only (showConfigHint)."
   },
   {
     file: "components/Shell/TopBar/Breadcrumb.tsx",
@@ -165,39 +148,29 @@ const FLAG_OFF_OR_FACTORY_TEXT: readonly { file: string; text: string; why: stri
     why: "Tooltip of the Open Factory rail entry, which only operators (isOperator) get."
   },
   {
-    file: "components/org/OrgSetupPending/index.tsx",
-    text: "setting up your workspace and apps",
-    why: "The flag-off wording; with the flag on it says the Oxy team is setting up the apps."
-  },
-  {
-    file: "components/org/OrgSetupPending/index.tsx",
-    text: "Create workspace",
-    why: "The create button renders only with the flag off (canCreateWorkspace)."
-  },
-  {
     file: "components/settings/SettingsDialog/sections/workspace/Airhouse/components/CatalogIndexes.tsx",
     text: "this workspace",
-    why: "Rendered only where canProvision: with the flag on, a Factory user."
+    why: "Rendered only where canProvision: a Factory user."
   },
   {
     file: "components/settings/SettingsDialog/sections/workspace/Airhouse/components/ProvisionPrompt.tsx",
     text: "workspace",
-    why: "Rendered only where canProvision: with the flag on, a Factory user."
+    why: "Rendered only where canProvision: a Factory user."
   },
   {
     file: "components/IdeUnavailableBanner/index.tsx",
     text: "File editing, Git, and live app runs are paused",
-    why: "The Factory wording: flag off, or a Factory user. Otherwise it says live data is paused."
+    why: "The Factory wording: a Factory user only. Otherwise it says live data is paused."
   },
   {
     file: "components/settings/SettingsDialog/components/VersionBadge/index.tsx",
     text: "Commit:",
-    why: "Build details: flag off, or Oxy staff. Everyone else sees only the build's name."
+    why: "Build details: Oxy staff only. Everyone else sees only the build's name."
   },
   {
     file: "components/settings/SettingsDialog/sections/workspace/Airhouse/components/ConnectionDetails.tsx",
     text: "config.yml",
-    why: "The add-to-config action: flag off, or a Factory user (showConfigAction)."
+    why: "The add-to-config action: a Factory user only (showConfigAction)."
   },
   {
     file: "components/settings/SettingsDialog/sections/workspace/Airhouse/components/ConnectionDetails.tsx",
@@ -212,22 +185,12 @@ const FLAG_OFF_OR_FACTORY_TEXT: readonly { file: string; text: string; why: stri
   {
     file: "components/settings/SettingsDialog/sections/workspace/Oltp/index.tsx",
     text: "Add to config.yml",
-    why: "The config snippet: flag off, or a Factory user (showConfigSnippet)."
-  },
-  {
-    file: "hooks/api/agentic-automations/useLogItems.ts",
-    text: "Reused from cached file",
-    why: "Flag off only (hidePaths); with it on the line says it was reused from cache."
+    why: "The config snippet: a Factory user only (showConfigSnippet)."
   },
   {
     file: "hooks/api/agentic-automations/useLogItems.ts",
     text: "branch:",
     why: "A conditional task's branch (which arm ran), not a git branch."
-  },
-  {
-    file: "pages/automation/AutomationsListPage.tsx",
-    text: "Create a `.automation.yml`",
-    why: "Flag off only (plainNames); with it on the empty state says there are none yet."
   }
 ];
 
@@ -242,13 +205,12 @@ function namesFilesystem(text: string): boolean {
 
 describe("apps-first customer screens", () => {
   const relOf = (file: string) => path.relative(SRC, file).split(path.sep).join("/");
-  const flagOffOnly = (rel: string) => FLAG_OFF_ONLY.some((f) => rel.startsWith(f.prefix));
   const files = sourceFiles(SRC).filter((f) => {
     const rel = relOf(f);
-    return CUSTOMER_SCREENS.some((prefix) => rel.startsWith(prefix)) && !flagOffOnly(rel);
+    return CUSTOMER_SCREENS.some((prefix) => rel.startsWith(prefix));
   });
   const exempt = (f: Finding) =>
-    FLAG_OFF_OR_FACTORY_TEXT.some((a) => a.file === f.file && f.text.includes(a.text));
+    FACTORY_OR_STAFF_TEXT.some((a) => a.file === f.file && f.text.includes(a.text));
   const report = (findings: Finding[]) =>
     findings.map((f) => `${f.file}:${f.line}  ${f.text.slice(0, 120)}`);
 
@@ -256,7 +218,7 @@ describe("apps-first customer screens", () => {
     const findings = files.flatMap((f) => findingsIn(f)).filter((f) => !exempt(f));
     expect(
       report(findings),
-      "With apps_first_experience on, a customer sees their company and its apps, never a workspace. Reword the text, or if it renders only with the flag off or only for a Factory user, add it to FLAG_OFF_OR_FACTORY_TEXT (or the file to FLAG_OFF_ONLY) and say why."
+      "A customer sees their company and its apps, never a workspace. Reword the text, or if it renders only for a Factory user or staff, add it to FACTORY_OR_STAFF_TEXT and say why."
     ).toEqual([]);
   });
 
@@ -264,7 +226,7 @@ describe("apps-first customer screens", () => {
     const findings = files.flatMap((f) => findingsIn(f, namesFilesystem)).filter((f) => !exempt(f));
     expect(
       report(findings),
-      "With apps_first_experience on, a customer never sees filesystem or git concepts. Use a plain name (objectNameFromPath, appDisplayLabel), or if the text renders only with the flag off or only for a Factory user, add it to FLAG_OFF_OR_FACTORY_TEXT and say why."
+      "A customer never sees filesystem or git concepts. Use a plain name (objectNameFromPath, appDisplayLabel), or if the text renders only for a Factory user or staff, add it to FACTORY_OR_STAFF_TEXT and say why."
     ).toEqual([]);
   });
 
@@ -272,8 +234,7 @@ describe("apps-first customer screens", () => {
     const all = sourceFiles(SRC).map(relOf);
     const stale = [
       ...CUSTOMER_SCREENS.filter((p) => !all.some((f) => f.startsWith(p))),
-      ...FLAG_OFF_ONLY.filter((f) => !all.some((a) => a.startsWith(f.prefix))).map((f) => f.prefix),
-      ...FLAG_OFF_OR_FACTORY_TEXT.filter((a) => !all.includes(a.file)).map((a) => a.file)
+      ...FACTORY_OR_STAFF_TEXT.filter((a) => !all.includes(a.file)).map((a) => a.file)
     ];
     expect(stale).toEqual([]);
   });

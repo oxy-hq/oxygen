@@ -1,6 +1,5 @@
 import type React from "react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/shadcn/card";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import useFactoryAccess from "@/hooks/useFactoryAccess";
 import type { AirhouseConnectionInfo } from "@/services/api";
 import { CopyableField } from "./CopyableField";
@@ -10,11 +9,9 @@ interface ConnectionDetailsProps {
 }
 
 export const ConnectionDetails: React.FC<ConnectionDetailsProps> = ({ connection }) => {
-  // The config.yml pointer is for whoever works on the workspace's files: apps-first,
-  // only a Factory user is shown it.
-  const appsFirst = useAppsFirstExperience();
-  const factoryUser = useFactoryAccess();
-  const showConfigHint = !appsFirst || factoryUser;
+  // The config.yml pointer is for whoever works on the workspace's files: only a
+  // Factory user is shown it.
+  const showConfigHint = useFactoryAccess();
   return (
     <Card>
       <CardHeader>

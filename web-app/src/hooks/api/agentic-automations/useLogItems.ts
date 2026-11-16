@@ -10,7 +10,6 @@
  */
 
 import { useMemo } from "react";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 
 import type { AutomationEvent, SubrunStepInfo } from "@/services/api/automations";
 import type { LogItem } from "@/services/types/logs";
@@ -47,9 +46,7 @@ const STATUS_LABEL: Record<StepRow["status"], string> = {
  * output, so the memo only re-runs when `events` changes.
  */
 export function useLogItems(events: AutomationEvent[]): LogItem[] {
-  // Apps-first: a run log a customer reads names no file.
-  const hidePaths = useAppsFirstExperience();
-  return useMemo(() => buildLogItems(events, { hidePaths }), [events, hidePaths]);
+  return useMemo(() => buildLogItems(events), [events]);
 }
 
 /**
@@ -57,10 +54,7 @@ export function useLogItems(events: AutomationEvent[]): LogItem[] {
  * chat-thread automation runner, which keeps events in a closure and writes
  * the tree into a zustand store on each SSE message).
  */
-export function buildLogItems(
-  events: AutomationEvent[],
-  { hidePaths = false }: { hidePaths?: boolean } = {}
-): LogItem[] {
+export function buildLogItems(events: AutomationEvent[]): LogItem[] {
   const stepsByName = new Map<string, StepRow>();
   const order: string[] = [];
 
@@ -103,17 +97,13 @@ export function buildLogItems(
         const row = upsert(event.payload.step, "");
         row.status = "cached";
         row.timestamp = nowIso();
-        // Two cache sources surface as the same event type. The file
-        // path is the more useful pointer when the user is the one
-        // who's editing it; the prior-run id is what an admin uses to
-        // debug a step-hash cascade. Branch the message so neither
-        // case shows `undefined`.
-        const content =
-          event.payload.source === "file" && event.payload.path && !hidePaths
-            ? `Reused from cached file \`${event.payload.path}\``
-            : event.payload.prior_run_id
-              ? `Reused from prior run \`${event.payload.prior_run_id}\``
-              : "Reused from cache";
+        // Two cache sources surface as the same event type. A run log names
+        // no file; the prior-run id is what an admin uses to debug a
+        // step-hash cascade. Branch the message so neither case shows
+        // `undefined`.
+        const content = event.payload.prior_run_id
+          ? `Reused from prior run \`${event.payload.prior_run_id}\``
+          : "Reused from cache";
         row.body.push({
           content,
           log_type: "info",

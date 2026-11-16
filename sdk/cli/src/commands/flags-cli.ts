@@ -27,7 +27,7 @@ Staff only (platform operate). Every write hits the deployment --env names — p
 default — and is deployment-wide. Writes ask first; pass --yes when stdin is not a terminal.
 
   oxyc flags list                                       every flag: kill switch, rules, unit
-  oxyc flags show apps_first_experience                 full detail, rules and any rules error
+  oxyc flags show home_v3                               full detail, rules and any rules error
   oxyc flags set my_flag --off --yes                    the kill switch: off serves every org the off variant
   oxyc flags rules my_flag --set-org acme=on            one org override, the other rules untouched
   oxyc flags rules my_flag --set-org acme=             remove that override

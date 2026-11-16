@@ -2,7 +2,6 @@ import { Database, ExternalLink } from "lucide-react";
 import type React from "react";
 import { Badge } from "@/components/ui/shadcn/badge";
 import useOltpConnection from "@/hooks/api/oltp/useOltpConnection";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { canUseFactory } from "@/libs/utils/factoryAccess";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import SectionHeader from "../../../components/SectionHeader";
@@ -43,7 +42,7 @@ const ProjectField: React.FC<{ name: string; url: string | null }> = ({ name, ur
 const Oltp: React.FC = () => {
   const { workspace } = useCurrentWorkspace();
   const { data: connection, isLoading, error } = useOltpConnection(workspace?.id);
-  const showConfigSnippet = !useAppsFirstExperience() || canUseFactory(workspace);
+  const showConfigSnippet = canUseFactory(workspace);
 
   const renderContent = () => {
     if (isLoading) {
@@ -100,7 +99,7 @@ const Oltp: React.FC = () => {
             <code className='font-mono text-xs'>{connection.analyst_role}</code>, which is
             read-only. Writes come only from published app functions and Airway pipelines.
           </p>
-          {/* Configuring it is the Factory's; apps-first, only a Factory user sees how. */}
+          {/* Configuring it is the Factory's: only a Factory user sees how. */}
           {showConfigSnippet && (
             <div className='rounded-md border bg-muted/40 p-3'>
               <p className='mb-2 text-muted-foreground text-xs'>Add to config.yml to query it:</p>

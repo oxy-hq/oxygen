@@ -92,7 +92,7 @@ pub mod session {
 /// `oxy-app` until it leaves (sideways, the compile / preagg / feature-flag
 /// runtime).
 pub mod feature_flags {
-    pub use crate::server::feature_flags::{APPS_FIRST_EXPERIENCE, home_v3, is_enabled};
+    pub use crate::server::feature_flags::{home_v3, is_enabled};
 }
 
 /// The CORS origin allowlist, for routes that gate on where a call came from.
@@ -385,10 +385,4 @@ pub mod admin_audit {
 /// connect or query exactly the way the in-tree sections do.
 pub mod admin_db {
     pub use crate::server::api::admin::internal_jobs::{connect, db_err, error_body};
-}
-
-/// Whether Factory access is enforced in an org (the `apps_first_experience` flag),
-/// for the staff console's Factory-access tab to say what a grant changes today.
-pub mod factory_access {
-    pub use crate::server::factory_access::enforced_in;
 }

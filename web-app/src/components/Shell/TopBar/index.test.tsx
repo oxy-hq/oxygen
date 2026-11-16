@@ -4,10 +4,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TopBar } from "./index";
 
-/** With the apps-first experience the top bar is the home's menu bar; without it, main's. */
+/** The top bar is the home's menu bar. */
 
-let appsFirst = false;
-vi.mock("@/hooks/useAppsFirstExperience", () => ({ default: () => appsFirst }));
 let homeV3 = false;
 vi.mock("@/hooks/useHomeV3", () => ({ default: () => homeV3 }));
 vi.mock("./Breadcrumb", () => ({ Breadcrumb: () => null }));
@@ -30,7 +28,6 @@ vi.mock("@/hooks/useOnlineStatus", () => ({ default: () => online }));
 
 afterEach(() => {
   cleanup();
-  appsFirst = false;
   homeV3 = false;
   online = true;
 });
@@ -41,15 +38,7 @@ const order = () =>
   );
 
 describe("the top bar", () => {
-  it("is main's with the flag off: clock without a date, bell, Ask", () => {
-    render(<TopBar />);
-    expect(screen.getByTestId("topbar-clock")).toHaveAttribute("data-with-date", "false");
-    expect(screen.queryByTestId("menubar-status")).toBeNull();
-    expect(screen.getByTestId("workspace-topbar")).not.toHaveAttribute("data-menubar");
-  });
-
-  it("is a menu bar with apps-first on, the day and time last", () => {
-    appsFirst = true;
+  it("is a menu bar, the day and time last", () => {
     render(<TopBar />);
     expect(screen.getByTestId("workspace-topbar")).toHaveAttribute("data-menubar", "true");
     expect(screen.queryByTestId("topbar-today-button")).toBeNull();
@@ -63,11 +52,9 @@ describe("the top bar", () => {
   });
 
   it("is minimal with home v3 on: Ask, Today and the bell, no clock, no connection while online", () => {
-    appsFirst = true;
     homeV3 = true;
     render(<TopBar />);
     expect(screen.getByTestId("workspace-topbar")).toHaveAttribute("data-menubar", "true");
-    expect(screen.queryByTestId("topbar-system")).toBeNull();
     expect(screen.queryByTestId("topbar-clock")).toBeNull();
     expect(order()).toEqual([
       "menubar-health",
@@ -77,21 +64,13 @@ describe("the top bar", () => {
     ]);
   });
 
-  it("says nothing about the connection while online, on either bar", () => {
-    render(<TopBar />);
-    expect(screen.queryByTestId("topbar-system")).toBeNull();
-    cleanup();
-    appsFirst = true;
+  it("says nothing about the connection while online", () => {
     render(<TopBar />);
     expect(screen.queryByTestId("menubar-connection")).toBeNull();
   });
 
-  it("says Offline when the browser is offline, on either bar", () => {
+  it("says Offline when the browser is offline", () => {
     online = false;
-    render(<TopBar />);
-    expect(screen.getByTestId("topbar-system")).toHaveTextContent("Offline");
-    cleanup();
-    appsFirst = true;
     homeV3 = true;
     render(<TopBar />);
     expect(screen.getByTestId("menubar-connection")).toHaveAccessibleName("Offline");

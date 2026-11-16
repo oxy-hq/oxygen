@@ -3,11 +3,11 @@
 //!
 //! The Factory is for Oxy staff, the org's owners and admins, and the members an
 //! operator granted a workspace to; a plain org membership or a workspace role does
-//! not mean it. With the switch (`apps_first_experience`) on, a Factory route
-//! refuses a plain customer member with `403 factory_access_required`, and lets in
-//! the org's admin and owner, a granted member and Oxy staff; a route a customer's
-//! surfaces call stays open to all of them. With the switch off nothing changes for
-//! anyone.
+//! not mean it. A Factory route refuses a plain customer member with
+//! `403 factory_access_required`, and lets in the org's admin and owner, a granted
+//! member and Oxy staff; a route a customer's surfaces call stays open to all of
+//! them. Enforcement was once behind the `apps_first_experience` flag; it is now
+//! unconditional.
 //!
 //! The routes are mounted at the paths the real router mounts them at, with stub
 //! handlers: what is under test is the gate and the table it reads, not what a
@@ -24,8 +24,7 @@ use entity::users::UserStatus;
 use entity::workspaces::WorkspaceStatus;
 use entity::{organizations, users, workspace_factory_grants, workspaces};
 use oxy_app::server::api::middlewares::workspace_context::workspace_middleware;
-use oxy_app::server::factory_access::{APPS_FIRST_EXPERIENCE, FactoryAccess};
-use oxy_app::server::feature_flags::cache;
+use oxy_app::server::factory_access::FactoryAccess;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use serde_json::{Value, json};
@@ -35,7 +34,6 @@ use uuid::Uuid;
 const STAFF: &str = "staff@oxy.test";
 
 struct Fx {
-    org: Uuid,
     ws: Uuid,
     member: AuthenticatedUser,
     admin: AuthenticatedUser,
@@ -109,9 +107,8 @@ async fn grant(db: &DatabaseConnection, ws: Uuid, user: &AuthenticatedUser, by: 
     .expect("seed grant");
 }
 
-/// Seed the org, two workspaces, and one caller of each shape; start the flag cache
-/// with the switch `on` or off.
-async fn setup(on: bool) -> Fx {
+/// Seed the org, two workspaces, and one caller of each shape.
+async fn setup() -> Fx {
     let db = crate::common::test_db().await;
     // SAFETY: nextest runs each test in its own process; set before any request.
     unsafe {
@@ -138,7 +135,6 @@ async fn setup(on: bool) -> Fx {
     let ws = workspace(&db, org).await;
     let other_ws = workspace(&db, org).await;
     let fx = Fx {
-        org,
         ws,
         member: user(&db, org, "member@acme.test", OrgRole::Member).await,
         admin: user(&db, org, "admin@acme.test", OrgRole::Admin).await,
@@ -150,8 +146,6 @@ async fn setup(on: bool) -> Fx {
     grant(&db, ws, &fx.granted, fx.staff.id).await;
     grant(&db, other_ws, &fx.granted_elsewhere, fx.staff.id).await;
 
-    cache::init().await.expect("feature flag cache init");
-    cache::set(APPS_FIRST_EXPERIENCE, on);
     fx
 }
 
@@ -247,11 +241,9 @@ fn assert_through(r: &Reply, who: &str) {
     assert_eq!(r.body["ran"], true, "{who}");
 }
 
-// ── Switch on ────────────────────────────────────────────────────────────────
-
 #[tokio::test]
-async fn with_the_switch_on_a_plain_customer_member_is_refused_a_factory_route() {
-    let fx = setup(true).await;
+async fn a_plain_customer_member_is_refused_a_factory_route() {
+    let fx = setup().await;
     for (who, user) in [("member", &fx.member)] {
         for (method, route) in [
             ("POST", "/files/abc"),
@@ -267,8 +259,8 @@ async fn with_the_switch_on_a_plain_customer_member_is_refused_a_factory_route()
 }
 
 #[tokio::test]
-async fn with_the_switch_on_org_officers_a_granted_member_and_oxy_staff_get_through() {
-    let fx = setup(true).await;
+async fn org_officers_a_granted_member_and_oxy_staff_get_through() {
+    let fx = setup().await;
     for (who, user) in [
         ("org admin without a grant", &fx.admin),
         ("org owner without a grant", &fx.owner),
@@ -288,8 +280,8 @@ async fn with_the_switch_on_org_officers_a_granted_member_and_oxy_staff_get_thro
 }
 
 #[tokio::test]
-async fn with_the_switch_on_a_customer_route_still_works_for_a_plain_member() {
-    let fx = setup(true).await;
+async fn a_customer_route_still_works_for_a_plain_member() {
+    let fx = setup().await;
     for (who, user) in [
         ("member", &fx.member),
         ("admin", &fx.admin),
@@ -316,8 +308,8 @@ async fn with_the_switch_on_a_customer_route_still_works_for_a_plain_member() {
 /// `.world-model.yml` and the views, so changing it is a write through `/files`, and
 /// the exploration routes beside the graph stay the Factory's too.
 #[tokio::test]
-async fn with_the_switch_on_a_plain_member_reads_the_world_model_but_cannot_change_it() {
-    let fx = setup(true).await;
+async fn a_plain_member_reads_the_world_model_but_cannot_change_it() {
+    let fx = setup().await;
     assert_through(
         &call(&fx.member, "GET", api(&fx, "/semantic/world-model")).await,
         "member GET /semantic/world-model",
@@ -348,8 +340,8 @@ async fn with_the_switch_on_a_plain_member_reads_the_world_model_but_cannot_chan
 /// plain member, or the app breaks for its customers while staff see nothing wrong.
 /// Nothing else under the prefix comes with those two routes.
 #[tokio::test]
-async fn with_the_switch_on_a_plain_member_reaches_what_a_custom_app_reads_live() {
-    let fx = setup(true).await;
+async fn a_plain_member_reaches_what_a_custom_app_reads_live() {
+    let fx = setup().await;
     for (method, route) in [
         ("GET", "/world-model/events"),
         ("POST", "/world-model/weather/current"),
@@ -369,8 +361,8 @@ async fn with_the_switch_on_a_plain_member_reaches_what_a_custom_app_reads_live(
 /// a plain member is refused them, an org officer is not. (The web app no longer asks
 /// for them for a customer; this is what makes that the server's rule too.)
 #[tokio::test]
-async fn with_the_switch_on_the_shells_git_and_setup_reads_are_the_factorys() {
-    let fx = setup(true).await;
+async fn the_shells_git_and_setup_reads_are_the_factorys() {
+    let fx = setup().await;
     for route in [
         "/git-state",
         "/status",
@@ -390,8 +382,8 @@ async fn with_the_switch_on_the_shells_git_and_setup_reads_are_the_factorys() {
 
 /// A grant is for one workspace: holding another's opens nothing here.
 #[tokio::test]
-async fn with_the_switch_on_a_grant_for_another_workspace_opens_nothing() {
-    let fx = setup(true).await;
+async fn a_grant_for_another_workspace_opens_nothing() {
+    let fx = setup().await;
     let r = call(&fx.granted_elsewhere, "POST", api(&fx, "/files/abc")).await;
     assert_refused(&r, "granted elsewhere");
 }
@@ -399,8 +391,8 @@ async fn with_the_switch_on_a_grant_for_another_workspace_opens_nothing() {
 /// A route nobody classified is the Factory's, so a gap in the table refuses a
 /// customer a page instead of handing them the IDE.
 #[tokio::test]
-async fn with_the_switch_on_an_unlisted_route_is_the_factorys() {
-    let fx = setup(true).await;
+async fn an_unlisted_route_is_the_factorys() {
+    let fx = setup().await;
     let refused = call(
         &fx.member,
         "GET",
@@ -420,8 +412,8 @@ async fn with_the_switch_on_an_unlisted_route_is_the_factorys() {
 /// The external API is the customer's programmatic access: the gate lets it through
 /// whole, whatever a route is called.
 #[tokio::test]
-async fn with_the_switch_on_the_external_api_is_not_gated() {
-    let fx = setup(true).await;
+async fn the_external_api_is_not_gated() {
+    let fx = setup().await;
     let r = call(
         &fx.member,
         "POST",
@@ -434,8 +426,8 @@ async fn with_the_switch_on_the_external_api_is_not_gated() {
 /// What the rail reads: false for a plain member, true for the org's owner and admin,
 /// a granted member and staff.
 #[tokio::test]
-async fn with_the_switch_on_the_workspace_response_says_who_may_use_the_factory() {
-    let fx = setup(true).await;
+async fn the_workspace_response_says_who_may_use_the_factory() {
+    let fx = setup().await;
     for (who, user, want) in [
         ("member", &fx.member, false),
         ("admin", &fx.admin, true),
@@ -447,115 +439,4 @@ async fn with_the_switch_on_the_workspace_response_says_who_may_use_the_factory(
         assert_eq!(r.status, StatusCode::OK, "{who}: {}", r.body);
         assert_eq!(r.body["factory_access"], want, "{who}");
     }
-}
-
-// ── Switch off ───────────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn with_the_switch_off_nothing_changes_for_anyone() {
-    let fx = setup(false).await;
-    for (who, user) in [
-        ("member", &fx.member),
-        ("admin", &fx.admin),
-        ("owner", &fx.owner),
-        ("granted", &fx.granted),
-        ("granted elsewhere", &fx.granted_elsewhere),
-        ("staff", &fx.staff),
-    ] {
-        for (method, route) in [
-            ("POST", "/files/abc"),
-            ("GET", "/files"),
-            ("POST", "/compile"),
-            ("POST", "/databases"),
-            ("GET", "/not-a-route-anyone-classified"),
-            ("GET", "/threads"),
-            ("POST", "/analytics/runs"),
-            ("GET", "/semantic/world-model"),
-            ("GET", "/git-state"),
-            ("GET", "/status"),
-        ] {
-            let r = call(user, method, api(&fx, route)).await;
-            assert_through(&r, &format!("{who} {method} {route}, switch off"));
-        }
-        let r = call(user, "GET", api(&fx, "/meta")).await;
-        assert_eq!(
-            r.body["factory_access"], true,
-            "{who}: the rail is unchanged while the switch is off"
-        );
-    }
-}
-
-/// The switch is read per request: turning it on takes effect on the next one, and
-/// turning it off lets everyone back in.
-#[tokio::test]
-async fn the_switch_takes_effect_on_the_next_request() {
-    let fx = setup(false).await;
-    assert_through(
-        &call(&fx.member, "POST", api(&fx, "/files/abc")).await,
-        "before",
-    );
-    cache::set(APPS_FIRST_EXPERIENCE, true);
-    assert_refused(
-        &call(&fx.member, "POST", api(&fx, "/files/abc")).await,
-        "after turning it on",
-    );
-    cache::set(APPS_FIRST_EXPERIENCE, false);
-    assert_through(
-        &call(&fx.member, "POST", api(&fx, "/files/abc")).await,
-        "after turning it off",
-    );
-}
-
-/// Turn the switch on for `org` alone, by org override, with everyone else off:
-/// the rules an operator saves to try apps-first on one customer.
-fn on_for_only(org: Uuid) {
-    use oxy_app::server::feature_flags::targeting::{Fallthrough, Targeting};
-    use oxy_app::server::feature_flags::{registry, store};
-    let def = registry::get(APPS_FIRST_EXPERIENCE).expect("registered");
-    let targeting = Targeting {
-        users: Default::default(),
-        orgs: [(org, "on".to_string())].into(),
-        fallthrough: Fallthrough::Variant {
-            variant: "off".into(),
-        },
-        salt: None,
-    };
-    let decoded = store::Decoded {
-        enabled: true,
-        targeting: Ok(Some(targeting)),
-    };
-    cache::set_state(APPS_FIRST_EXPERIENCE, cache::state_of(def, &decoded));
-}
-
-/// The switch is per org: an override for this org enforces the Factory here, and
-/// an override for another org leaves this one exactly as with the switch off.
-#[tokio::test]
-async fn an_org_override_enforces_the_factory_in_that_org_only() {
-    let fx = setup(false).await;
-
-    on_for_only(fx.org);
-    assert_refused(
-        &call(&fx.member, "POST", api(&fx, "/files/abc")).await,
-        "the org the override names",
-    );
-    assert_through(
-        &call(&fx.admin, "POST", api(&fx, "/files/abc")).await,
-        "an admin of the org the override names",
-    );
-    let r = call(&fx.member, "GET", api(&fx, "/meta")).await;
-    assert_eq!(
-        r.body["factory_access"], false,
-        "the rail follows the override"
-    );
-
-    on_for_only(Uuid::new_v4());
-    assert_through(
-        &call(&fx.member, "POST", api(&fx, "/files/abc")).await,
-        "an org the override does not name",
-    );
-    let r = call(&fx.member, "GET", api(&fx, "/meta")).await;
-    assert_eq!(
-        r.body["factory_access"], true,
-        "the rail is unchanged elsewhere"
-    );
 }

@@ -165,17 +165,8 @@ export interface AuthConfigResponse {
    */
   billing_enabled: boolean;
   /**
-   * The backend `apps_first_experience` feature flag as an org with no override
-   * gets it (the flag is per org; this config has none). On: the
-   * customer home and onboarding, the read-only world model page, and no
-   * workspace management or creation screens. Read it through
-   * `useAppsFirstExperience`. Absent (an older server) reads as off.
-   */
-  apps_first_experience?: boolean;
-  /**
-   * Mirror of the backend `home_v3` feature flag (global): the third apps-first
-   * home. Read it through `useHomeV3`, which also needs `apps_first_experience`.
-   * Absent (an older server) reads as off.
+   * Mirror of the backend `home_v3` feature flag (global): the third home. Read
+   * it through `useHomeV3`. Absent (an older server) reads as off.
    */
   home_v3?: boolean;
   /**

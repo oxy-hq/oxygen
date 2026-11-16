@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import OrgSetupPending from "@/components/org/OrgSetupPending";
 import { NOTIFICATIONS_PARAM } from "@/components/Shell/TopBar/NotificationsBell/constants";
@@ -7,7 +6,6 @@ import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useOrgs } from "@/hooks/api/organizations";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useAllWorkspaces } from "@/hooks/api/workspaces/useWorkspaces";
-import { useAppsFirstExperienceState } from "@/hooks/useAppsFirstExperience";
 import { useLandingWorkspace } from "@/hooks/useLandingWorkspace";
 import { carriedSearch } from "@/libs/utils/carriedSearch";
 import { clearLastWorkspaceId, setLastWorkspaceId } from "@/libs/utils/lastWorkspace";
@@ -44,9 +42,6 @@ export default function OrgDispatcher() {
   const org = orgs?.find((o) => o.slug === orgSlug);
   const { data: workspaces, isPending: wsPending, isError } = useAllWorkspaces(org?.id);
   const landing = useLandingWorkspace(workspaces, org?.id);
-  const { enabled: appsFirst, isPending: appsFirstPending } = useAppsFirstExperienceState(org?.id);
-  // Keyed by org: this element survives an org switch, and "creating" must not.
-  const [creatingInOrgId, setCreatingInOrgId] = useState<string | null>(null);
 
   // Defensive: the route schema guarantees orgSlug, but useParams types it as
   // optional. Bail to root rather than spin forever on the false branch below.
@@ -58,20 +53,9 @@ export default function OrgDispatcher() {
     </div>
   );
 
-  // The org's own apps-first answer decides both the setup screen and the landing.
-  if (orgsPending || userPending || !org || wsPending || appsFirstPending) return spinner;
+  if (orgsPending || userPending || !org || wsPending) return spinner;
 
-  const setupPending = (
-    <OrgSetupPending
-      org={org}
-      creating={creatingInOrgId === org.id}
-      onCreatingChange={(creating) => setCreatingInOrgId(creating ? org.id : null)}
-    />
-  );
-
-  // Mid-creation the new workspace flips the list 0 → 1 (and later to ready);
-  // stay on the preparing screen, which hands off to the setup wizard itself.
-  if (creatingInOrgId === org.id) return setupPending;
+  const setupPending = <OrgSetupPending org={org} />;
 
   if (isError) {
     return (
@@ -99,10 +83,8 @@ export default function OrgDispatcher() {
   const search = carriedSearch(searchParams, [SETTINGS_PARAM, NOTIFICATIONS_PARAM]);
   // A customer lands on the org's home, which loads from the workspace picked
   // above; staff (an operator or a partner's staff) go into that workspace.
-  // Without the apps-first experience everyone goes into the workspace, as before.
-  const pathname =
-    !appsFirst || landsInWorkspace(user)
-      ? ROUTES.ORG(org.slug).WORKSPACE(target.id).ROOT
-      : ROUTES.ORG(org.slug).HOME;
+  const pathname = landsInWorkspace(user)
+    ? ROUTES.ORG(org.slug).WORKSPACE(target.id).ROOT
+    : ROUTES.ORG(org.slug).HOME;
   return <Navigate to={{ pathname, search }} replace />;
 }

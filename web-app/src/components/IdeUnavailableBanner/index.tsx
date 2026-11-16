@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Unplug, X } from "lucide-react";
 import { useState } from "react";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import useFactoryAccess from "@/hooks/useFactoryAccess";
 import useIdeHealth from "@/hooks/useIdeHealth";
 import { cn } from "@/libs/shadcn/utils";
@@ -18,11 +17,9 @@ export default function IdeUnavailableBanner() {
   const { unavailable, dismissed, lastPath, since } = useIdeHealth();
   const queryClient = useQueryClient();
   const [retrying, setRetrying] = useState(false);
-  // Apps-first: someone who may not use the Factory is not told about it, its
-  // files or git, nor shown the API path that failed.
-  const appsFirst = useAppsFirstExperience();
-  const factoryUser = useFactoryAccess();
-  const plain = appsFirst && !factoryUser;
+  // Someone who may not use the Factory is not told about it, its files or git,
+  // nor shown the API path that failed.
+  const plain = !useFactoryAccess();
 
   if (!unavailable || dismissed) return null;
 

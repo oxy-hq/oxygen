@@ -91,7 +91,6 @@ const BACKLOG: &[(&str, &str)] = &[
     ("server::api::middlewares", "server::compile_git"),
     ("server::api::middlewares", "server::compile_reconcile"),
     ("server::api::middlewares", "server::factory_access"),
-    ("server::api::middlewares", "server::feature_flags"),
     ("server::api::middlewares", "server::previews"),
     // `IdeState` and `FleetState` are base types defined in the router's
     // `mod.rs`, which goes up last. They clear when the two move beside

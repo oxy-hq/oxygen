@@ -9,7 +9,7 @@ use oxy::service::secret_manager::SecretManagerService;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use tracing::error;
 
-use oxy_app::surface::role_guards::{OrgWorkspaceCreator, WorkspaceAdmin};
+use oxy_app::surface::role_guards::{OrgWorkspaceProvisioner, WorkspaceAdmin};
 use oxy_app::surface::{WorkspaceManagerReadOnly, WorkspacePath};
 use oxy_app_core::AppState;
 
@@ -25,7 +25,7 @@ use super::ops::*;
 /// Ready and the default branch's head is queued to compile from git, as a push
 /// would. See `github_import`.
 pub async fn setup_github(
-    OrgWorkspaceCreator(ctx): OrgWorkspaceCreator,
+    OrgWorkspaceProvisioner(ctx): OrgWorkspaceProvisioner,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     axum::Json(req): axum::Json<GitHubSetupRequest>,
 ) -> Result<Json<OnboardingResult>, (StatusCode, String)> {

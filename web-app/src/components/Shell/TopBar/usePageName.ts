@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useLocation } from "react-router-dom";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
@@ -15,7 +14,6 @@ export function usePageName(): string {
   const { pathname } = useLocation();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
   const { workspace } = useCurrentWorkspace();
-  const appsFirst = useAppsFirstExperience();
   const ws = ROUTES.ORG(orgSlug).WORKSPACE(workspace?.id ?? "");
 
   return useMemo(() => {
@@ -25,8 +23,8 @@ export function usePageName(): string {
     if (pathname.startsWith(ws.WORKFLOWS)) return "Automations";
     if (pathname.includes("/pipelines/")) return "Pipeline";
     if (pathname === ws.CONTEXT_GRAPH) return "Context Graph";
-    if (appsFirst && pathname === ws.WORLD_MODEL) return "World model";
-    // Home / index / anything else → the home (the HQ launcher before apps-first).
-    return appsFirst ? "Home" : "HQ";
-  }, [pathname, appsFirst, ws.THREADS, ws.WORKFLOWS, ws.CONTEXT_GRAPH, ws.WORLD_MODEL]);
+    if (pathname === ws.WORLD_MODEL) return "World model";
+    // Home / index / anything else → the home.
+    return "Home";
+  }, [pathname, ws.THREADS, ws.WORKFLOWS, ws.CONTEXT_GRAPH, ws.WORLD_MODEL]);
 }

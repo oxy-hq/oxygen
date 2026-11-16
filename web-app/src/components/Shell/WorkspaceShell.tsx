@@ -5,17 +5,16 @@ import { AskDock } from "@/components/Ask/AskDock";
 import { OpenFactoryDialog } from "@/components/admin/OpenFactoryDialog";
 import { OxygenFactoryMark } from "@/components/OxygenFactoryMark";
 import { PreviewBar } from "@/components/PreviewBar";
+import { useOptionalAuth } from "@/contexts/AuthContext";
 import useOrgCustomApps from "@/hooks/api/customApps/useOrgCustomApps";
 import { useAppUnreadCounts } from "@/hooks/api/notifications";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { useOpensFactoryDirectly, useOperatesPlatform } from "@/hooks/useStaffFactory";
 import { canUseFactory } from "@/libs/utils/factoryAccess";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import { RailUserMenu } from "./RailUserMenu";
-import { RailWorkspaceSwitch } from "./RailWorkspaceSwitch";
 import { RailWorkspaceTile } from "./RailWorkspaceTile";
 import { ShellNavSheet } from "./ShellNavSheet";
 import { type RailItem, ShellRail } from "./ShellRail";
@@ -37,12 +36,11 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   // The rail's app marks are the org's: every app the person can open across its
   // workspaces, the same list the org home's grid shows.
-  // With the apps-first experience off, the current workspace's apps, as before.
-  const appsFirst = useAppsFirstExperience();
-  const { apps: customApps } = useOrgCustomApps(wsId, { acrossOrg: appsFirst });
-  // Apps-first only: each app's unread count as a badge on its mark, like a dock.
-  // The bell's own poll, so it costs no request.
-  const unreadByApp = useAppUnreadCounts(appsFirst);
+  const { apps: customApps } = useOrgCustomApps(wsId);
+  // Each app's unread count as a badge on its mark, like a dock. The bell's own
+  // poll, so it costs no request; legacy local mode has nobody to notify.
+  const localMode = useOptionalAuth()?.isLocalMode === true;
+  const unreadByApp = useAppUnreadCounts(!localMode);
   const { data: profile } = useCurrentUser();
   // Global Owners (`OXY_OWNER`) and Global Admins (`app_admins` table) get a
   // one-click hop into the admin console. Tenant-internal org roles never do —
@@ -64,21 +62,20 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   // In local mode ws.ROOT is "" — the index route is "/".
   const isHome = path === org.HOME || path === ws.HOME || path === (ws.ROOT || "/");
-  // The read-only world model (apps-first) is opened from the home's card and has
-  // no rail entry of its own, so Home stays lit there.
-  const onWorldModel = appsFirst && path === ws.WORLD_MODEL;
+  // The read-only world model is opened from the home's card and has no rail entry
+  // of its own, so Home stays lit there.
+  const onWorldModel = path === ws.WORLD_MODEL;
 
   // Conceptual groups (divided in the rail): Home + Chat · Apps. (World Model
   // moved into Oxygen Factory as its own IDE sidebar surface.)
   const hq: RailItem = {
     key: "hq",
-    label: appsFirst ? "Home" : "HQ",
+    label: "Home",
     testId: "rail-hq",
     icon: <House className='h-4 w-4' />,
     active: isHome || onWorldModel,
     onSelect: () => {
-      // The org home is the apps-first experience's; without it, the workspace's.
-      navigate(appsFirst ? org.HOME : ws.HOME);
+      navigate(org.HOME);
     }
   };
   // The Chat landing (composer + recent threads) reached at /threads. Replaces
@@ -103,7 +100,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     letter: app.name.slice(0, 1).toUpperCase(),
     imageUrl: app.icon_url,
     href: app.url,
-    badge: appsFirst ? unreadByApp[app.id] : undefined
+    badge: unreadByApp[app.id]
   }));
   // System: the intelligence substrate powering the HQ. Pinned at the
   // bottom of the nav, distinct from the operator apps above.
@@ -156,7 +153,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       setOpenFactoryOpen(true);
     }
   };
-  const staffFactory = appsFirst && operatesPlatform;
+  const staffFactory = operatesPlatform;
   // Stable, so the dialog does not start over on every render while it is open.
   const factoryScope = useMemo(
     () =>
@@ -207,10 +204,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   const bottom = (
     <>
-      {/* Apps-first drops the switcher: the home lists every app across
-          the org, and Oxy engineers move between workspaces and
-          organizations in the Factory's top bar. */}
-      {!appsFirst && <RailWorkspaceSwitch />}
+      {/* No workspace switcher: the home lists every app across the org, and
+          Oxy engineers move between workspaces and organizations in the
+          Factory's top bar. */}
       <RailUserMenu />
     </>
   );

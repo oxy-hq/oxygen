@@ -17,9 +17,6 @@ type Workspace = { id: string; status: "ready" | "cloning" | "failed" };
 let workspaces: Workspace[];
 let appCounts: Record<string, number>;
 
-// The apps-first flag: the org home exists only with it on.
-const appsFirst = vi.hoisted(() => ({ on: true }));
-vi.mock("@/hooks/useAppsFirstExperience", () => ({ default: () => appsFirst.on }));
 vi.mock("@/hooks/api/organizations", () => ({
   useOrgs: () => ({ data: [{ id: "org-1", slug: "acme", name: "Acme" }], isPending: false })
 }));
@@ -56,7 +53,6 @@ beforeEach(() => {
   workspaces = [];
   appCounts = {};
   localStorage.clear();
-  appsFirst.on = true;
 });
 afterEach(cleanup);
 
@@ -94,16 +90,6 @@ describe("OrgHome", () => {
 
   it("goes back to the org root when nothing is ready, rather than render an empty shell", () => {
     workspaces = [{ id: "ws-cloning", status: "cloning" }];
-    renderHome();
-    expect(screen.queryByTestId("layout")).toBeNull();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme$/);
-  });
-});
-
-describe("OrgHome with the apps-first experience off", () => {
-  it("goes to the org root, which lands in a workspace as before", () => {
-    appsFirst.on = false;
-    workspaces = [{ id: "ws-apps", status: "ready" }];
     renderHome();
     expect(screen.queryByTestId("layout")).toBeNull();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme$/);

@@ -4,7 +4,6 @@ import { AirhouseLogo } from "@/components/icons";
 import useAirhouseConnection from "@/hooks/api/airhouse/useAirhouseConnection";
 import useProvisionAirhouse from "@/hooks/api/airhouse/useProvisionAirhouse";
 import useAuthConfig from "@/hooks/auth/useAuthConfig";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import { canUseFactory } from "@/libs/utils/factoryAccess";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
@@ -35,12 +34,10 @@ const Airhouse: React.FC = () => {
   // that regardless), so treat local mode as always able to provision.
   const isLocal = authConfig?.mode === "local";
   // The server provisions a workspace's tenant itself; the prompt below is a
-  // manual retry. With the apps-first experience on, only a Factory user sees
-  // it: everyone else reads the connection details, or that it is on its way.
-  const appsFirst = useAppsFirstExperience();
+  // manual retry. Only a Factory user sees it: everyone else reads the connection
+  // details, or that it is on its way.
   const canProvision =
-    isLocal ||
-    ((orgRole === "owner" || orgRole === "admin") && (!appsFirst || canUseFactory(workspace)));
+    isLocal || ((orgRole === "owner" || orgRole === "admin") && canUseFactory(workspace));
 
   const handleProvision = async (tenantName: string) => {
     try {

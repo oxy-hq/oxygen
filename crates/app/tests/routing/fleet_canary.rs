@@ -221,7 +221,7 @@ async fn the_meta_route_reads_no_filesystem_on_a_replica() {
         ),
         axum::extract::Extension(row),
         axum::extract::Path(workspace_id),
-        // What the extractor answers with the Factory switch off: everyone.
+        // The stub passes `true`: this test is about the working copy, not Factory access.
         oxy_app::server::factory_access::FactoryAccess(true),
     )
     .await

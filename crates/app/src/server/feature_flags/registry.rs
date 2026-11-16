@@ -91,37 +91,13 @@ pub static FLAGS: &[FlagDef] = &[
         sunset: None,
     },
     FlagDef {
-        key: super::APPS_FIRST_EXPERIENCE,
-        description: "The apps-first experience, per org. When on for an org: (1) \
-                      customers get the new home (their apps, an ask box, how their data \
-                      fits together, recent questions) and the new onboarding screens; \
-                      (2) the web app drops \"Manage sets of apps\", the set switcher, \
-                      the git details on workspace cards and the web workspace-creation \
-                      screens (Oxy staff use oxyc and the API); (3) customers can open \
-                      a read-only world model page; (4) Factory access is enforced: every \
-                      Factory route refuses everyone but Oxy staff, the org's owners and \
-                      admins, and the members an operator granted that workspace to \
-                      (403 factory_access_required), and the rail hides the Factory \
-                      from the rest. When off, everything is as before and nobody is \
-                      refused the Factory. Grant the plain members who use the Factory \
-                      today BEFORE turning this on. Replaces factory_access_enforcement.",
-        default_enabled: false,
-        variants: BOOLEAN,
-        unit: Unit::Org,
-        per_org: true,
-        client: true,
-        kind: FlagKind::Product,
-        sunset: None,
-    },
-    FlagDef {
         key: super::HOME_V3,
-        description: "Home page v3, for every org at once, and only where \
-                      apps_first_experience is on. When on: the ask box comes first, \
+        description: "Home page v3, for every org at once. When on: the ask box comes first, \
                       the apps follow, bigger, and Today folds to one line under them; \
                       a Simple/Full switch (members start on Simple, owners and admins \
                       on Full; Full adds recent questions and the world model); the \
                       top bar loses its clock and gains a Today button. When off, the \
-                      apps-first home is as before (greeting, Today beside the apps). \
+                      home is as before (greeting, Today beside the apps). \
                       Presentation only: nothing is refused either way.",
         default_enabled: false,
         variants: BOOLEAN,

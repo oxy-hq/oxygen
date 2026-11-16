@@ -135,12 +135,6 @@ pub async fn get_config(
 
     let observability_enabled = app_state.observability().is_some();
     let billing_enabled = oxy_app::surface::feature_flags::is_enabled("billing");
-    // This route has no org, so it says what an org with no override gets; the web
-    // app reads the org's own value from `GET /orgs/{org_id}/feature-flags` once it
-    // knows the org, and uses this only before that (a person with no org yet).
-    let apps_first_experience = oxy_app::surface::feature_flags::is_enabled(
-        oxy_app::surface::feature_flags::APPS_FIRST_EXPERIENCE,
-    );
     let home_v3 = oxy_app::surface::feature_flags::home_v3();
     // Per-caller, not process-wide: an off-box peer that the dev-login route
     // 404s must not be told from here that a bypass exists. See
@@ -158,7 +152,6 @@ pub async fn get_config(
             github: github_client_id.map(|client_id| GitHubAuthConfig { client_id }),
             mode: app_state.mode.label(),
             billing_enabled,
-            apps_first_experience,
             home_v3,
             dev_login,
         }));
@@ -186,7 +179,6 @@ pub async fn get_config(
         github: github_client_id.map(|client_id| GitHubAuthConfig { client_id }),
         mode: app_state.mode.label(),
         billing_enabled,
-        apps_first_experience,
         home_v3,
         dev_login,
     };
@@ -524,7 +516,6 @@ mod mode_field_tests {
             github: None,
             mode: ServeMode::Local.label(),
             billing_enabled: false,
-            apps_first_experience: false,
             home_v3: false,
             dev_login: false,
         };
@@ -544,7 +535,6 @@ mod mode_field_tests {
             github: None,
             mode: ServeMode::Cloud.label(),
             billing_enabled: false,
-            apps_first_experience: false,
             home_v3: false,
             dev_login: false,
         };

@@ -165,7 +165,7 @@ export const Automation: React.FC<{
 
   return (
     <div className='flex h-full w-full flex-col'>
-      {!hideHeader && <AutomationPageHeader path={path} runId={controller.runId} />}
+      {!hideHeader && <AutomationPageHeader path={path} />}
       <ResizablePanelGroup direction={effectiveDirection} className='flex-1'>
         <ResizablePanel
           defaultSize={showOutput ? 60 : 100}

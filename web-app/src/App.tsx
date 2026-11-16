@@ -44,13 +44,11 @@ import SettingsDialog from "./components/settings/SettingsDialog";
 import { useSettingsDeepLink } from "./components/settings/SettingsDialog/useSettingsDeepLink";
 import AgenticSetupPage from "./components/workspaces/components/CreateWorkspaceDialog/components/AgenticSetup";
 import { LocalWorkspaceSetupDialog } from "./components/workspaces/components/LocalWorkspaceSetupDialog";
-import { ManageWorkspacesDialog } from "./components/workspaces/components/ManageWorkspacesDialog";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ChosenWorkspaceProvider } from "./contexts/ChosenWorkspaceContext";
 import { PreviewPinProvider } from "./contexts/PreviewPinContext";
 import { useWorkspace } from "./hooks/api/workspaces/useWorkspaces";
 import useAuthConfig from "./hooks/auth/useAuthConfig";
-import useAppsFirstExperience from "./hooks/useAppsFirstExperience";
 import useOauthConnectReturn from "./hooks/useOauthConnectReturn";
 import useVersionCheck from "./hooks/useVersionCheck";
 import { LOCAL_WORKSPACE_ID } from "./libs/utils/constants";
@@ -199,7 +197,6 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
   orgHome = false
 }: WorkspaceLayoutProps) {
   const { authConfig, isLocalMode } = useAuth();
-  const appsFirst = useAppsFirstExperience();
   const { wsId: wsIdParam } = useParams<{ wsId: string }>();
   const orgSlug = useCurrentOrg((s) => s.org?.slug);
   const orgId = useCurrentOrg((s) => s.org?.id);
@@ -380,10 +377,6 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
   const shell = (
     <HotkeysProvider>
       <SettingsDialog />
-      {/* Apps-first has no opener for it (the rail switcher and the Factory
-          picker's "Manage sets of apps" are gone), so it is not mounted. */}
-      {!appsFirst && <ManageWorkspacesDialog />}
-
       <WorkspaceShell>
         {orgHome ? (
           <LauncherPage />
@@ -396,8 +389,7 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
               (replacing the old bulk threads-management list). */}
             <Route path='threads' element={<ChatPage />} />
             <Route path='threads/:threadId' element={<ThreadPage />} />
-            {/* The customer's read-only world model, opened from the home's card.
-                Apps-first only: with the flag off it sends people home. */}
+            {/* The customer's read-only world model, opened from the home's card. */}
             <Route path='world-model' element={<CustomerWorldModelPage />} />
             {/* Canonical "Automations" routes (formerly Automations / Automations). */}
             <Route path='automations' element={<AutomationsListPage />} />

@@ -8,11 +8,9 @@ import CustomerWorldModelPage from "./index";
 
 /** The customer's read-only world model: apps-first only, plain words, no paths. */
 
-let appsFirst = true;
 const askedForModel = vi.fn();
 let model: WorldModel;
 
-vi.mock("@/hooks/useAppsFirstExperience", () => ({ default: () => appsFirst }));
 vi.mock("@/stores/useCurrentOrg", () => ({
   default: <T,>(selector: (s: unknown) => T) =>
     selector({ org: { id: "org-1", slug: "northwind", name: "Northwind" } })
@@ -59,7 +57,6 @@ const renderPage = () =>
   );
 
 beforeEach(() => {
-  appsFirst = true;
   askedForModel.mockClear();
   model = {
     entities: [
@@ -97,13 +94,6 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("the customer's world model page", () => {
-  it("sends people home, without asking for the model, with the flag off", () => {
-    appsFirst = false;
-    renderPage();
-    expect(screen.getByTestId("location")).toHaveTextContent("/northwind/home");
-    expect(askedForModel).not.toHaveBeenCalled();
-  });
-
   it("names the page for the org and opens no instance picker", () => {
     renderPage();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(

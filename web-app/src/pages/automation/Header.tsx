@@ -3,7 +3,6 @@ import type React from "react";
 import { useNavigate } from "react-router-dom";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/shadcn/button";
-import useAppsFirstExperience from "@/hooks/useAppsFirstExperience";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import useFactoryAccess from "@/hooks/useFactoryAccess";
 import { encodeBase64 } from "@/libs/encoding";
@@ -13,16 +12,13 @@ import useCurrentOrg from "@/stores/useCurrentOrg";
 
 type AutomationPageHeaderProps = {
   path: string;
-  runId?: string;
 };
 
-const AutomationPageHeader: React.FC<AutomationPageHeaderProps> = ({ path, runId }) => {
-  // Apps-first: a plain name and no run path; "Edit" only for a Factory user, who
-  // is the one it can take anywhere.
-  const appsFirst = useAppsFirstExperience();
-  const factoryUser = useFactoryAccess();
-  const relativePath = appsFirst ? objectNameFromPath(path) : path;
-  const showEdit = !appsFirst || factoryUser;
+const AutomationPageHeader: React.FC<AutomationPageHeaderProps> = ({ path }) => {
+  // A plain name and no run path; "Edit" only for a Factory user, who is the one
+  // it can take anywhere.
+  const relativePath = objectNameFromPath(path);
+  const showEdit = useFactoryAccess();
   const pathb64 = encodeBase64(path);
   const navigate = useNavigate();
   const { project } = useCurrentProjectBranch();
@@ -33,10 +29,7 @@ const AutomationPageHeader: React.FC<AutomationPageHeaderProps> = ({ path, runId
       <div className='hidden flex-1 md:block' />
       <div className='flex min-w-0 flex-1 items-center justify-center gap-1'>
         <Automation className='h-4 w-4 shrink-0' />
-        <span className='min-w-0 truncate text-sm'>
-          {relativePath}
-          {runId && !appsFirst ? `/runs/${runId}` : ""}
-        </span>
+        <span className='min-w-0 truncate text-sm'>{relativePath}</span>
       </div>
       <div className='flex shrink-0 items-center gap-2 md:flex-1 md:justify-end'>
         {showEdit && (

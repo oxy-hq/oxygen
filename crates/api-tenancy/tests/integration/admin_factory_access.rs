@@ -66,7 +66,10 @@ async fn an_operator_grants_and_revokes_a_member_and_the_list_says_so() {
 
     let before = list(&w.unbounded, w.ws_a).await;
     assert_eq!(before.status, StatusCode::OK);
-    assert_eq!(before.body["enforced"], false, "the flag is off by default");
+    assert!(
+        before.body.get("enforced").is_none(),
+        "enforcement is unconditional, so the list no longer reports it"
+    );
     let members = before.body["members"].as_array().unwrap();
     assert_eq!(members.len(), 2, "every member of the org can be granted");
     assert!(members.iter().all(|m| m["granted"] == false));

@@ -571,8 +571,8 @@ pub async fn workspace_middleware(
     let workspace_row = authorize_workspace(workspace_id, &user, &mut request).await?;
 
     // The Factory's routes are for Oxy staff, the org's owners and admins, and the
-    // members an operator granted this workspace to. A no-op unless the switch is on, and for every route a
-    // customer reaches — see `server::factory_access`.
+    // members an operator granted this workspace to. A no-op for every route a customer
+    // reaches — see `server::factory_access`.
     request = match crate::server::factory_access::gate(request).await {
         Ok(request) => request,
         Err(refusal) => return Ok(refusal),

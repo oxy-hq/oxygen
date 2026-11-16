@@ -52,21 +52,9 @@ pub fn is_enabled_for(key: &'static str, ctx: &FlagContext) -> bool {
     registry::get(key).is_some_and(|def| eval.variant != def.off())
 }
 
-/// The apps-first experience, in one switch: the customer home and onboarding, the
-/// customer's read-only world model page, the web app without its workspace
-/// management and creation screens, and Factory access enforcement
-/// (`server::factory_access`). Targeted per org: every read site passes the org,
-/// so an org override or a rollout split decides it for that org.
-pub const APPS_FIRST_EXPERIENCE: &str = "apps_first_experience";
-
-/// Whether [`APPS_FIRST_EXPERIENCE`] is on for `org_id`.
-pub fn apps_first_experience_in(org_id: uuid::Uuid) -> bool {
-    is_enabled_for(APPS_FIRST_EXPERIENCE, &FlagContext::org(org_id))
-}
-
-/// The third home, on top of [`APPS_FIRST_EXPERIENCE`]: the ask box first, the apps
+/// The third home: the ask box first, the apps
 /// big, Today folded to one line, two views (simple and full) and a top bar with
-/// no clock and a Today button. Off, the apps-first home is the one before it.
+/// no clock and a Today button. Off, the home is the one before it.
 /// Presentation only: the web app reads it from `GET /auth/config`.
 pub const HOME_V3: &str = "home_v3";
 

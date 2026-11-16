@@ -1,21 +1,15 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Organization, OrgRole } from "@/types/organization";
 import OrgDispatcher from "./OrgDispatcher";
 
-// No org flags answer, so the apps-first flag reads from the auth config.
-vi.mock("@/hooks/api/featureFlags", () => ({
-  useOrgFeatureFlags: () => ({ data: undefined, isPending: orgFlagsPending })
-}));
-
 /**
  * `/:orgSlug` for an org with nothing ready. It used to redirect into a
  * self-serve onboarding wizard; orgs are provisioned for their members now, so
- * it renders "being set up" in place — and must never strand an admin who is
- * mid-way through creating a workspace.
+ * it renders "being set up" in place.
  */
 
 type Workspace = { id: string; status: "ready" | "cloning" | "failed" };
@@ -51,16 +45,9 @@ vi.mock("@/hooks/api/customApps/useWorkspacesCustomApps", () => ({
 vi.mock("@/hooks/api/users/useCurrentUser", () => ({
   default: () => ({ data: user, isPending: false })
 }));
-// The apps-first flag as `GET /auth/config` reports it; off unless a test turns it on.
-let appsFirst = false;
-// Whether the org's own flags (`GET /orgs/{id}/feature-flags`) are still on their way.
-let orgFlagsPending = false;
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ logout: vi.fn() }),
-  useOptionalAuth: () => ({
-    isLocalMode: false,
-    authConfig: { apps_first_experience: appsFirst }
-  })
+  useOptionalAuth: () => ({ isLocalMode: false, authConfig: {} })
 }));
 vi.mock("@/components/OxyLogo", () => ({ default: () => null }));
 vi.mock("@/components/settings/SettingsDialog", () => ({ default: () => null }));
@@ -70,11 +57,6 @@ vi.mock("@/components/settings/SettingsDialog/useSettingsDeepLink", () => ({
 }));
 vi.mock("@/stores/useSettingsDialog", () => ({
   default: <T,>(selector: (s: { open: () => void }) => T) => selector({ open: vi.fn() })
-}));
-// The creator itself (GitHub / demo / blank, polling, wizard hand-off) is out
-// of scope; a marker is enough to see whether the dispatcher kept it mounted.
-vi.mock("@/components/org/OrgSetupPending/components/CreateWorkspacePanel", () => ({
-  default: () => <div data-testid='creator' />
 }));
 
 function Location() {
@@ -111,8 +93,6 @@ beforeEach(() => {
   user = MEMBER_USER;
   appCounts = {};
   countsPending = false;
-  appsFirst = false;
-  orgFlagsPending = false;
   localStorage.clear();
 });
 afterEach(cleanup);
@@ -150,53 +130,15 @@ describe("OrgDispatcher — an org with nothing ready", () => {
   );
 
   it("does not offer staff who are a plain Member here a button the server refuses", () => {
-    // Every creator endpoint takes OrgAdmin, which reads the org role only.
     user = { ...MEMBER_USER, is_app_admin: true };
     renderAt();
     expect(screen.queryByTestId("org-setup-pending-create-workspace")).toBeNull();
     // Org settings follow the org role, not platform standing.
     expect(screen.queryByTestId("org-setup-pending-open-settings")).toBeNull();
   });
-
-  it("offers Create workspace to staff holding an Owner role (e.g. an assume-role session)", () => {
-    user = { ...MEMBER_USER, is_app_admin: true };
-    setRole("owner");
-    allowProvisioning();
-    renderAt();
-    expect(screen.getByTestId("org-setup-pending-create-workspace")).toBeInTheDocument();
-    expect(screen.getByTestId("org-setup-pending-open-settings")).toBeInTheDocument();
-  });
-
-  it("keeps the creator mounted when the new workspace turns ready", () => {
-    // The created workspace flips the list to ready before the preparing screen
-    // has handed off to the setup wizard. Navigating to the workspace here would
-    // unmount the creator and skip that hand-off.
-    user = { ...MEMBER_USER, is_app_admin: true };
-    setRole("owner");
-    allowProvisioning();
-    const { rerender } = renderAt();
-    fireEvent.click(screen.getByTestId("org-setup-pending-create-workspace"));
-    expect(screen.getByTestId("creator")).toBeInTheDocument();
-
-    workspaces = [{ id: "ws-new", status: "ready" }];
-    rerender(
-      <MemoryRouter initialEntries={["/acme"]}>
-        <Routes>
-          <Route path=':orgSlug' element={<OrgDispatcher />} />
-          <Route path='*' element={<Location />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    expect(screen.getByTestId("creator")).toBeInTheDocument();
-    expect(screen.queryByTestId("location")).toBeNull();
-  });
 });
 
-describe("OrgDispatcher — an org with nothing ready, apps-first", () => {
-  beforeEach(() => {
-    appsFirst = true;
-  });
-
+describe("OrgDispatcher — an org with nothing ready, what each person is offered", () => {
   it("tells a customer their Oxy team is setting their apps up, with nothing to create", () => {
     renderAt();
     expect(screen.getByTestId("org-setup-pending")).toHaveTextContent(
@@ -237,21 +179,10 @@ describe("OrgDispatcher — an org with nothing ready, apps-first", () => {
 });
 
 describe("OrgDispatcher — an org with a ready workspace", () => {
-  beforeEach(() => {
-    appsFirst = true;
-  });
-
   it("sends a customer to the org home", () => {
     workspaces = [{ id: "ws-1", status: "ready" }];
     renderAt();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home$/);
-  });
-
-  it("waits for the org's own apps-first answer before it lands anywhere", () => {
-    workspaces = [{ id: "ws-1", status: "ready" }];
-    orgFlagsPending = true;
-    renderAt();
-    expect(screen.queryByTestId("location")).toBeNull();
   });
 
   it("sends an operator straight into the workspace", () => {
@@ -295,7 +226,6 @@ describe("OrgDispatcher — an org with a ready workspace", () => {
 
 describe("OrgDispatcher — an org with several workspaces", () => {
   beforeEach(() => {
-    appsFirst = true;
     // The prod repro: the API lists an app-less workspace first.
     workspaces = [
       { id: "ws-empty", status: "ready" },
@@ -328,21 +258,5 @@ describe("OrgDispatcher — an org with several workspaces", () => {
   it("sends a customer to the org home, which picks the workspace itself", () => {
     renderAt();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home$/);
-  });
-});
-
-describe("OrgDispatcher — the apps-first experience off", () => {
-  it("sends a customer into the workspace, as before the org home", () => {
-    workspaces = [{ id: "ws-1", status: "ready" }];
-    renderAt();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1$/);
-  });
-
-  it("carries a settings deep link into the workspace", () => {
-    workspaces = [{ id: "ws-1", status: "ready" }];
-    renderAt("/acme?settings=organization.crew&slack_installed=ok");
-    expect(screen.getByTestId("location")).toHaveTextContent(
-      /^\/acme\/workspaces\/ws-1\?settings=organization\.crew$/
-    );
   });
 });

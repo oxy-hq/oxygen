@@ -25,11 +25,6 @@ vi.mock("@/hooks/api/workspaces/useWorkspaces", () => ({
   useAllWorkspaces: () => ({ data: workspaces.data, isPending: false, isError: false })
 }));
 vi.mock("@/libs/orgSubdomain", () => ({ getInjectedOrg: () => null }));
-// The apps-first flag (`GET /auth/config`). On for the org-home tests, off for main's.
-const appsFirst = vi.hoisted(() => ({ on: true, pending: false }));
-vi.mock("@/hooks/useAppsFirstExperience", () => ({
-  useAppsFirstExperienceState: () => ({ enabled: appsFirst.on, isPending: appsFirst.pending })
-}));
 const appCounts = vi.hoisted(() => ({ data: {} as Record<string, number> }));
 vi.mock("@/hooks/api/customApps/useWorkspacesCustomApps", () => ({
   useWorkspacesCustomApps: (ids: readonly string[]) => ({
@@ -66,21 +61,6 @@ describe("PostLoginDispatcher", () => {
     workspaces.data = [{ id: "ws-1", status: "ready" }];
     appCounts.data = {};
     user.data = { partner_memberships: [], is_app_admin: false, is_owner: false };
-    appsFirst.on = true;
-    appsFirst.pending = false;
-  });
-
-  it("waits for the org's own apps-first answer before it lands anywhere", () => {
-    appsFirst.pending = true;
-    render(
-      <MemoryRouter initialEntries={["/"]}>
-        <Routes>
-          <Route index element={<PostLoginDispatcher />} />
-          <Route path='*' element={<Landed />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    expect(screen.queryByTestId("landed")).toBeNull();
   });
 
   it("carries the token emails' ?settings= link into the page it lands on", () => {
@@ -124,30 +104,5 @@ describe("PostLoginDispatcher", () => {
     ];
     appCounts.data = { "ws-apps": 2 };
     expect(land("/")).toBe("/acme/workspaces/ws-apps");
-  });
-});
-
-describe("PostLoginDispatcher with the apps-first experience off", () => {
-  afterEach(cleanup);
-
-  beforeEach(() => {
-    localStorage.clear();
-    orgs.data = [{ id: "org-1", slug: "acme" }];
-    workspaces.data = [{ id: "ws-1", status: "ready" }];
-    appCounts.data = {};
-    user.data = { partner_memberships: [], is_app_admin: false, is_owner: false };
-    appsFirst.on = false;
-  });
-
-  it("lands a customer in the workspace, as before the org home", () => {
-    expect(land("/")).toBe("/acme/workspaces/ws-1");
-  });
-
-  it("carries the token emails' ?settings= link into the workspace it picks", () => {
-    expect(land("/?settings=account.tokens")).toBe("/acme/workspaces/ws-1?settings=account.tokens");
-  });
-
-  it("carries the page a push notification opens into the workspace", () => {
-    expect(land("/?notifications=open&utm=push")).toBe("/acme/workspaces/ws-1?notifications=open");
   });
 });

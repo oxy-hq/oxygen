@@ -8,9 +8,6 @@ import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import type { Workspace } from "@/types/workspace";
 import { WorkspaceShell } from "./WorkspaceShell";
 
-// No org flags answer, so the apps-first flag reads from the auth config.
-vi.mock("@/hooks/api/featureFlags", () => ({ useOrgFeatureFlags: () => ({ data: undefined }) }));
-
 // The shell's own children fetch and subscribe to things this test is not about.
 vi.mock("@/hooks/api/adminAssume/useActingSession", () => ({
   useActingSession: () => ({ session: undefined, isActing: false })
@@ -19,7 +16,6 @@ vi.mock("@/hooks/api/organizations", () => ({ useOrgs: () => ({ data: [] }) }));
 vi.mock("@/components/Ask/AskDock", () => ({ AskDock: () => null }));
 vi.mock("@/components/PreviewBar", () => ({ PreviewBar: () => null }));
 vi.mock("./RailUserMenu", () => ({ RailUserMenu: () => null }));
-vi.mock("./RailWorkspaceSwitch", () => ({ RailWorkspaceSwitch: () => null }));
 vi.mock("./RailWorkspaceTile", () => ({ RailWorkspaceTile: () => null }));
 vi.mock("./TopBar", () => ({ TopBar: () => null }));
 vi.mock("@/hooks/api/notifications", () => ({ useAppUnreadCounts: () => ({}) }));
@@ -75,8 +71,7 @@ describe("the rail's Oxygen Factory entry", () => {
     expect(screen.getByTestId("rail-core")).toBeInTheDocument();
   });
 
-  /// While enforcement is off the server sends `true` to everyone, and a server
-  /// that predates the field sends nothing: either way the rail is what it was.
+  /// A server that predates the field sends nothing: the rail is what it was.
   it("is shown when the response does not carry the field", () => {
     useCurrentWorkspace.setState({ workspace: workspace(undefined) });
     renderShell();

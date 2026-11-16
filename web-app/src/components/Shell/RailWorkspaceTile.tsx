@@ -5,8 +5,7 @@ import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 
 /** Rail-top workspace identity: the org logo when present, the
- *  name initial otherwise. Pure branding — switching workspaces lives in
- *  the bottom cluster (`RailWorkspaceSwitch`). */
+ *  name initial otherwise. Pure branding. */
 export function RailWorkspaceTile() {
   const { workspace } = useCurrentWorkspace();
   const orgUpdatedAt = useCurrentOrg((s) => s.org?.updated_at);

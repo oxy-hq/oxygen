@@ -45,8 +45,7 @@ export interface Workspace {
 
   /** Whether the caller may use the Oxygen Factory (the IDE and back office) in
    * this workspace: Oxy staff, an owner or admin of the org, or a member an Oxy
-   * operator granted it to. The
-   * server sends `true` to everyone while enforcement is off. Absent on a response
+   * operator granted it to. Absent on a response
    * from a server that predates it, which reads as "yes" — the rail is not access
    * control; the server refuses Factory routes (403 `factory_access_required`)
    * whatever the client shows. */
