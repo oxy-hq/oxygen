@@ -646,7 +646,7 @@ async fn new_agentic_state(
         AgenticState::new(shutdown_token, db, thread_owner)
             .with_builder_test_runner(Arc::new(OxyTestRunner))
             .with_router(router)
-            .with_queued_starts(crate::server::queued_analytics::queued_starts_enabled),
+            .with_queued_starts(true),
     );
     // A run driven on another pod appends to `agentic_run_events` and NOTIFYs
     // `oxy_run_events`; the listener above hands the run id to this state's

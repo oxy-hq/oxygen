@@ -623,7 +623,7 @@ async fn a_workflow_started_for_a_requester_is_driven_from_the_queue() {
             db.clone(),
             Arc::new(crate::run_routes_workspace_scope::NoThreads),
         )
-        .with_queued_starts(|| true),
+        .with_queued_starts(true),
     );
     let user = oxy_auth::types::AuthenticatedUser {
         id: f.user_id,
@@ -743,7 +743,7 @@ async fn workflow_app(
             f.db.clone(),
             Arc::new(crate::run_routes_workspace_scope::NoThreads),
         )
-        .with_queued_starts(move || queued_starts),
+        .with_queued_starts(queued_starts),
     );
     let user = oxy_auth::types::AuthenticatedUser {
         id: f.user_id,

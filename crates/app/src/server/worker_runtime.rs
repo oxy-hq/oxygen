@@ -140,7 +140,7 @@ impl WorkerRuntime {
                     crate::server::builder_test_runner::OxyTestRunner,
                 ))
                 .with_router(self.router.clone())
-                .with_queued_starts(crate::server::queued_analytics::queued_starts_enabled),
+                .with_queued_starts(true),
         )
     }
 }

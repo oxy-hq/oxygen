@@ -36,16 +36,12 @@ pub struct AgenticState {
     /// Whether a qualifying chat start (`queued_run::ChatAdmission`) and a
     /// requester's agentic-workflow start (`queued_run::AutomationAdmission`) go
     /// on the Global queue for any driver, rather than being driven in this
-    /// process. Asked on every start, so the host can turn it on and off at run
-    /// time.
-    ///
-    /// **Off unless the host says otherwise**, because no driver reads which run
-    /// kinds it can execute before it claims one: a driver built before the chat
-    /// executor (`analytics_chat_run`) claims a queued chat and fails it as an
-    /// unknown kind, and one built before the requester record runs a queued
-    /// workflow on its own subject-less context. So the starts stay in the
-    /// request's process until every driver is on a build that runs them.
-    pub queued_starts: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// process. A property of the host: set it only where the deployment runs
+    /// drivers that claim queued runs (`oxy serve` and `oxy worker` do). Off by
+    /// default, so a host with no driver (a test, a router built without the
+    /// runtime) never queues a start nothing would pick up. Starts that do not
+    /// qualify are driven here either way.
+    pub queued_starts: bool,
 }
 
 impl AgenticState {
@@ -63,7 +59,7 @@ impl AgenticState {
             db,
             thread_owner,
             router: Arc::new(NoopTaskRouter),
-            queued_starts: Arc::new(|| false),
+            queued_starts: false,
         }
     }
 
@@ -80,13 +76,11 @@ impl AgenticState {
         self
     }
 
-    /// Say, per start, whether qualifying chat and workflow starts go on the
-    /// queue ([`Self::queued_starts`]). Without this they never do.
-    pub fn with_queued_starts(
-        mut self,
-        enabled: impl Fn() -> bool + Send + Sync + 'static,
-    ) -> Self {
-        self.queued_starts = Arc::new(enabled);
+    /// Put qualifying chat and workflow starts on the queue
+    /// ([`Self::queued_starts`]). Without this they are driven in the process
+    /// that took the request.
+    pub fn with_queued_starts(mut self, queued: bool) -> Self {
+        self.queued_starts = queued;
         self
     }
 }

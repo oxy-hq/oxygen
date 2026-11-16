@@ -133,23 +133,6 @@ pub static FLAGS: &[FlagDef] = &[
         sunset: None,
     },
     FlagDef {
-        key: crate::server::queued_analytics::QUEUED_STARTS_FLAG,
-        description: "Start a plain chat and a member's agentic-workflow run on the \
-                      queue, driven by whichever pod claims it, instead of in the pod \
-                      that took the request. ON BY DEFAULT since every pod runs a build \
-                      with the queued chat executor; this is now the kill switch. Turn \
-                      off to drive both in the pod that took the request, as before the \
-                      queue (a run already queued is still finished by a driver). The \
-                      switch is kept for one release and then removed.",
-        default_enabled: true,
-        variants: BOOLEAN,
-        unit: Unit::Org,
-        per_org: false,
-        client: false,
-        kind: FlagKind::Product,
-        sunset: None,
-    },
-    FlagDef {
         key: super::rollout::COMPILE_RECONCILE_FLAG,
         description: "Keep a remote-backed workspace serving what its default branch has: \
                       the periodic branch check (every 5 minutes per workspace) and the \

@@ -154,8 +154,9 @@ pub fn router_roles() -> &'static [RouteRoleDecl] {
         // reads the promoted revision on every role (the agent, the semantic
         // model and verified queries through the compile boundary, its context
         // root materialised from it), so none of this needs the working copy.
-        // The start is queued while `queued_chat_and_workflow_starts` is on,
-        // and driven in this process while it is off. An answer finds the
+        // The start is queued where the host queues starts
+        // (`AgenticState::queued_starts`), and driven in this process where it
+        // does not. An answer finds the
         // driver's channel here, or continues the run from its checkpoint; a
         // cancel is the durable flag the driver's lease polls; the stream polls
         // the event log when another process drives. A Builder start or a
@@ -252,8 +253,8 @@ pub fn automation_router_roles() -> &'static [RouteRoleDecl] {
         // Starting a run, cancelling one and streaming one, from any pod. The
         // automation's YAML resolves through the compile boundary
         // (`resolve_automation_yaml` answers from the pinned revision on every
-        // role), a start is queued while `queued_chat_and_workflow_starts` is
-        // on and driven in this process while it is off, a cancel is the
+        // role), a start is queued where the host queues starts and driven in
+        // this process where it does not, a cancel is the
         // durable flag, and a stream polls the event log when another process
         // drives.
         RouteRoleDecl {

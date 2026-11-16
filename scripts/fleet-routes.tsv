@@ -55,7 +55,7 @@ GET	/api/{workspace_id}/agentic-airway/runs/{id}/events	fleet-ok	Fixture	SSE; ne
 GET	/api/{workspace_id}/agentic-automations/files	fleet-ok	Now	the automation list from the revision's `automation_definitions` rows on a pod with no working copy; 23 automations exist
 GET	/api/{workspace_id}/agentic-automations/files/{path_b64}	fleet-ok	Now	one automation's YAML through `resolve_automation_yaml`, which answers from the pinned revision on every role; use a `path_b64` from the list
 GET	/api/{workspace_id}/agentic-automations/runs	fleet-ok	Now	verified live: `400` = missing-param, not failure; buildable with a real `workflow_ref`
-POST	/api/{workspace_id}/agentic-automations/runs	fleet-ok	Fixture	needs a real `workflow_ref`; queued while `queued_chat_and_workflow_starts` is on, driven in the accepting process while it is off — not yet in this script's case table
+POST	/api/{workspace_id}/agentic-automations/runs	fleet-ok	Fixture	needs a real `workflow_ref`; queued on `oxy serve` and `oxy worker`, driven by whichever process claims it — not yet in this script's case table
 GET	/api/{workspace_id}/agentic-automations/runs/{id}	fleet-ok	Fixture	needs a real run id — start one first
 POST	/api/{workspace_id}/agentic-automations/runs/{id}/cancel	fleet-ok	Fixture	needs a live run id; writes the durable cancel flag the driver polls
 GET	/api/{workspace_id}/agentic-automations/runs/{id}/events	fleet-ok	Fixture	needs a real run id; polls the event log when another process drives
@@ -81,7 +81,7 @@ GET	/api/{workspace_id}/analytics/coordinator/recovery	fleet-ok	Fixture	Postgres
 GET	/api/{workspace_id}/analytics/coordinator/runs	fleet-ok	Fixture	Postgres only (run history, with LLM cost and duration baselines from the event rows)
 POST	/api/{workspace_id}/analytics/coordinator/runs/{id}/retry	fleet-ok	Fixture	needs a failed workflow or airway run id; writes Postgres and enqueues `Global`; a reaped airway run is re-seeded through `submit_airway_run`, so an unservable ref is the start route's 503 — not yet in this script's case table
 GET	/api/{workspace_id}/analytics/coordinator/runs/{id}/tree	fleet-ok	Fixture	needs a real run id; Postgres only, each node's status the row's own — not yet in this script's case table
-POST	/api/{workspace_id}/analytics/runs	fleet-ok	Fixture	`POST /runs` against one of 4 real agents — needs a real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` value; queued while `queued_chat_and_workflow_starts` is on, driven in the accepting process while it is off. A Builder or onboarding start is refused `410 builder_removed`
+POST	/api/{workspace_id}/analytics/runs	fleet-ok	Fixture	`POST /runs` against one of 4 real agents — needs a real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` value; queued on `oxy serve` and `oxy worker`, driven by whichever process claims it. A Builder or onboarding start is refused `410 builder_removed`
 POST	/api/{workspace_id}/analytics/runs/{id}/answer	fleet-ok	Fixture	needs a suspended chat run; an answer to a Builder run on a serve pod is refused `421` naming the Builder answer route
 POST	/api/{workspace_id}/analytics/runs/{id}/cancel	fleet-ok	Fixture	needs a live run id; writes the durable cancel flag the driver's lease polls
 GET	/api/{workspace_id}/analytics/runs/{id}/events	fleet-ok	Fixture	needs a real run id; polls the event log when another process drives

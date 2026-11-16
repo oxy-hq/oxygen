@@ -102,10 +102,10 @@ pub async fn create_automation_run(
     // app's workspace_middleware from the `/{workspace_id}/...` path) so
     // out-of-process drivers can route this row back to its workspace.
     //
-    // Only while the host turns queued starts on (`AgenticState::queued_starts`):
-    // until then every run keeps its co-located coordinator, as before.
+    // Only where the host queues starts (`AgenticState::queued_starts`);
+    // elsewhere every run keeps its co-located coordinator.
     let workspace_id = platform.workspace_id();
-    let queued_for = if (state.queued_starts)() {
+    let queued_for = if state.queued_starts {
         agentic_pipeline::queued_run::AutomationAdmission {
             working_copy_branch: super::run::branch_in_query(query.as_deref()),
         }

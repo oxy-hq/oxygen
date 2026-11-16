@@ -250,16 +250,15 @@ async fn create_run_on(
     // A plain chat is started on the queue: seeded here, driven by whichever
     // driver claims it, so this replica may go away without taking the run
     // with it. Which starts qualify, and why the rest stay here:
-    // `agentic_pipeline::queued_run::ChatAdmission`. Only while the host turns
-    // queued starts on (`AgenticState::queued_starts`): until then every chat is
-    // driven here, as before.
+    // `agentic_pipeline::queued_run::ChatAdmission`. Only where the host queues
+    // starts (`AgenticState::queued_starts`); elsewhere every chat is driven here.
     let admission = agentic_pipeline::queued_run::ChatAdmission {
         builder_domain: body.domain.as_deref() == Some("builder"),
         onboarding: body.onboarding_context.is_some(),
         auto_accept: body.auto_accept,
         working_copy_branch: branch_in_query(query.as_deref()),
     };
-    let queued_for = if (state.queued_starts)() {
+    let queued_for = if state.queued_starts {
         admission.queueable(&*platform)
     } else {
         None
@@ -716,7 +715,7 @@ pub async fn stream_events(
     // interactive submit. A queued chat or member-started automation is too,
     // but its stream finds no notifier here and is caught by
     // `driver_may_be_elsewhere` below. A direct-driven run — builder, preview,
-    // branch, a chat with the queue flag off — has a notifier, and it IS
+    // branch, a chat on a host that does not queue starts — has a notifier, and it IS
     // authoritative, so a fast
     // timer buys nothing while costing a `get_events_after` per second through
     // every LLM call and warehouse query. That is most open streams, and on
@@ -1097,14 +1096,11 @@ async fn answer_run_on(
     // onboarding run, a preview's, a chat from before the record — is rebuilt
     // and driven here, as before.
     //
-    // Only for a run already on the queue, or while queued starts are on
-    // (`AgenticState::queued_starts`). With the switch off, a chat driven in
+    // Only for a run already on the queue, or where the host queues starts
+    // (`AgenticState::queued_starts`). On a host that does not, a chat driven in
     // a request's process that lost its channel (its pod restarted) is resumed
-    // here, as before: queueing its answer would hand a Global resume to
-    // whatever driver claims it, and in a rolling deploy that can be one from
-    // before the requester record, which would run it on its own subject-less
-    // context.
-    let queue_answers = (state.queued_starts)()
+    // here: no driver there would claim a queued answer.
+    let queue_answers = state.queued_starts
         || agentic_pipeline::queued_run::started_on_the_queue(&db, &run_id)
             .await
             .unwrap_or(false);
