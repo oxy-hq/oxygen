@@ -52,17 +52,17 @@ describe("theme contract", () => {
     expect(contract.version).toBe(1);
   });
 
-  it("has 206 authored tokens (122 per-mode, 84 both), 30 derived aliases and 9 fixed names", () => {
-    expect(authored).toHaveLength(206);
+  it("has 207 authored tokens (122 per-mode, 85 both), 30 derived aliases and 9 fixed names", () => {
+    expect(authored).toHaveLength(207);
     expect(authored.filter((r) => r.modes === "per-mode")).toHaveLength(122);
-    expect(authored.filter((r) => r.modes === "both")).toHaveLength(84);
+    expect(authored.filter((r) => r.modes === "both")).toHaveLength(85);
     expect(aliases).toHaveLength(30);
     expect(fixed).toHaveLength(9);
-    expect(rows).toHaveLength(206 + 30 + 9);
+    expect(rows).toHaveLength(207 + 30 + 9);
     expect(contract.counts).toEqual({
-      authored: 206,
+      authored: 207,
       perMode: 122,
-      both: 84,
+      both: 85,
       aliases: 30,
       fixed: 9
     });

@@ -18,7 +18,10 @@
    targets read `--control-h-lg`; every focus ring reads `--focus-ring-width`
    and `--focus-ring-color` (the reference's one ring: 1.5px, full strength,
    never at an alpha); the kit's primary button reads `--button-primary-bg`
-   and `--button-primary-fg`. Each is read where it is used, as
+   and `--button-primary-fg`; the nav drawer's scrim reads `--scrim` and
+   blurs by `--scrim-blur`, the design system's overlay (with no
+   `--scrim-blur`, the blur is invalid at computed-value time: `none`). Each
+   is read where it is used, as
    `var(--<theme token>, <what this file drew before>)`, so an app that does
    not import the theme draws exactly what it did, its own `--radius`,
    `--border` and `--oxy-shell-*` overrides included. Every corner computed
@@ -26,9 +29,10 @@
    negative. The kit's secondary fill (`--secondary`), its segment track and
    selected segment (`--segment-track`, `--segment-selected`), the tab bar's
    selected label (foreground, not the link blue), the breadcrumb's "/" (the
-   muted ink at full strength) and the keyboard hint's 11px floor are switched
-   by `--oxy-shell-themed` instead (below), because apps set those names
-   themselves. Two parts cannot be mixed by a number, a font family and an
+   muted ink at full strength), the Ask button as the reference's secondary
+   button (`--btn-surface`, `--btn-surface-hover`, full ink) and the keyboard
+   hint's 11px floor are switched by `--oxy-shell-themed` instead (below),
+   because apps set those names themselves. Two parts cannot be mixed by a number, a font family and an
    outline style, so they switch on the same marker through a style query,
    `@container style(--oxy-theme-contract: 1)`: the Today clock's sans face and
    the breadcrumb home link's ring. A browser without style queries keeps
@@ -540,10 +544,16 @@
   z-index: 50;
 }
 
+/* The scrim behind the drawer. With the theme it is the design system's overlay (theme.css): the
+   page dims by `--scrim` and blurs by `--scrim-blur` (0px under reduced transparency). Without it,
+   2.28's black at 0.8 and no blur: an unset `--scrim-blur` leaves `blur(var(--scrim-blur))` invalid
+   at computed-value time, which is `none`. */
 .oxy-navsheet__overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: var(--scrim, rgba(0, 0, 0, 0.8));
+  -webkit-backdrop-filter: blur(var(--scrim-blur));
+  backdrop-filter: blur(var(--scrim-blur));
   animation: oxy-navsheet-fade var(--oxy-duration-slow) var(--oxy-ease-out);
 }
 
@@ -1398,17 +1408,36 @@
 
 /* ─── Ask Oxygen button (top bar) ───────────────────────────────────────── */
 
+/* With the theme, Ask is the reference's secondary button, like every app button beside it
+   (`btnCompactSecondary`, reference ui.ts:615): filled `--btn-surface` on its `--border-subtle`
+   edge (`--button-secondary-border`), in full ink, and hover moves the fill (`--btn-surface-hover`),
+   never the edge or the ink. 2.28's transparent, muted button whose hover darkened its outline is
+   what the reference retired as "the outline logic showing through" (ui.ts:575-582). Open (the dock
+   showing) keeps the hover fill. The ⌘K hint keeps its chip, the reference's count inside a control
+   (`tabCountNeutral`: `--muted` and the muted ink). Size, icon, hint and touch reach do not change.
+   Switched by --oxy-shell-themed, because apps set `--btn-surface*` and `--foreground` for
+   themselves; without the theme every state is 2.28's. `--oxy-askbtn-ink` is 2.28's ink for the
+   state, which the hint takes too, as it inherited it there. */
 .oxy-askbtn {
+  --oxy-askbtn-ink: var(--oxy-shell-muted-fg);
   display: flex;
   align-items: center;
   gap: 0.375rem;
   border: 1px solid var(--button-secondary-border, var(--oxy-shell-border));
   border-radius: var(--button-radius, max(0px, calc(var(--oxy-shell-radius) - 2px)));
-  background: transparent;
+  background: color-mix(
+    in srgb,
+    var(--btn-surface, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    transparent
+  );
   padding: 0.25rem 0.5rem;
   font-family: var(--oxy-shell-font);
   font-size: 12px;
-  color: var(--oxy-shell-muted-fg);
+  color: color-mix(
+    in srgb,
+    var(--oxy-shell-foreground) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--oxy-askbtn-ink)
+  );
   cursor: pointer;
   transition:
     color var(--oxy-duration-fast) var(--oxy-ease-out),
@@ -1417,14 +1446,35 @@
 }
 
 .oxy-askbtn:hover {
-  border-color: color-mix(in srgb, var(--oxy-shell-primary) 40%, transparent);
-  color: var(--oxy-shell-foreground);
+  --oxy-askbtn-ink: var(--oxy-shell-foreground);
+  border-color: color-mix(
+    in srgb,
+    var(--button-secondary-border, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    color-mix(in srgb, var(--oxy-shell-primary) 40%, transparent)
+  );
+}
+
+/* Not on the open button, whose own fill (2.28's tint) a hover never replaced. */
+.oxy-askbtn:not(.oxy-askbtn--open):hover {
+  background: color-mix(
+    in srgb,
+    var(--btn-surface-hover, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    transparent
+  );
 }
 
 .oxy-askbtn--open {
-  border-color: color-mix(in srgb, var(--oxy-shell-primary) 40%, transparent);
-  background: color-mix(in srgb, var(--oxy-shell-primary) 10%, transparent);
-  color: var(--oxy-shell-foreground);
+  --oxy-askbtn-ink: var(--oxy-shell-foreground);
+  border-color: color-mix(
+    in srgb,
+    var(--button-secondary-border, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    color-mix(in srgb, var(--oxy-shell-primary) 40%, transparent)
+  );
+  background: color-mix(
+    in srgb,
+    var(--btn-surface-hover, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    color-mix(in srgb, var(--oxy-shell-primary) 10%, transparent)
+  );
 }
 
 .oxy-askbtn:focus-visible {
@@ -1447,6 +1497,11 @@
 .oxy-askbtn__kbd {
   border-radius: var(--badge-radius, 4px);
   background: var(--oxy-shell-muted);
+  color: color-mix(
+    in srgb,
+    var(--oxy-shell-muted-fg) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--oxy-askbtn-ink)
+  );
   padding: 0.125rem 0.375rem;
   font-family: var(--oxy-shell-font-mono);
   /* 10px as 2.28 drew it; 11px with the theme, the reference's smallest step (`text-2xs`). The

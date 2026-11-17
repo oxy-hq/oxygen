@@ -31,6 +31,10 @@ const blocks = parseCssBlocks(css);
 const ids = THEMES.map((t) => t.id);
 const shipped = ids[0];
 const selectorsOf = (id: string) => themeSelectors(id, shipped);
+const REDUCED_MEDIA = "@media (prefers-reduced-transparency: reduce)";
+const REDUCED = `${REDUCED_MEDIA} :where(:root)`;
+const BACKDROP = ":where(dialog)::backdrop";
+const SCRIM_CLASS = ":where(.oxy-scrim)";
 const generic = new Set([
   "system-ui",
   "sans-serif",
@@ -58,13 +62,24 @@ describe("theme.css", () => {
     });
   });
 
-  it("has exactly the documented selectors: two per direction, in order, then one alias block", () => {
+  it("has exactly the documented selectors: two per direction, the reduced-transparency block, the alias block, then the two overlay rules", () => {
     const want = ids.flatMap((id) => [selectorsOf(id).light, selectorsOf(id).dark]);
-    expect(blocks.map((b) => b.selector)).toEqual([...want, ALIAS_SELECTOR]);
+    expect(blocks.map((b) => b.selector)).toEqual([
+      ...want,
+      REDUCED,
+      ALIAS_SELECTOR,
+      BACKDROP,
+      SCRIM_CLASS
+    ]);
   });
 
   it("weighs nothing: every selector is inside :where(), so an app's own tokens win", () => {
-    for (const b of blocks) expect(b.selector, b.selector).toMatch(/^:where\(.*\)$/);
+    // `::backdrop` is a pseudo-element, which :where() cannot hold; its rule is in @layer theme
+    // (below), where any rule an app writes outranks it whatever its weight.
+    for (const b of blocks)
+      expect(b.selector.replace(`${REDUCED_MEDIA} `, ""), b.selector).toMatch(
+        /^:where\([^)]*\)(::backdrop)?$/
+      );
   });
 
   it.each(ids)(
@@ -99,17 +114,20 @@ describe("theme.css", () => {
   });
 
   it("derives every alias once, as var() of its target, for all directions", () => {
-    const shared = blocks[blocks.length - 1];
-    expect(shared?.selector).toBe(ALIAS_SELECTOR);
-    expect(shared?.decls).toEqual(aliases.map((a) => [a.name, `var(${a.target})`]));
+    const shared = blocks.filter((b) => b.selector === ALIAS_SELECTOR);
+    expect(shared).toHaveLength(1);
+    expect(shared[0]?.decls).toEqual(aliases.map((a) => [a.name, `var(${a.target})`]));
   });
 
-  it("keeps the aliases in @layer theme, so an app's own (its Tailwind @theme too) win", () => {
-    const at = css.indexOf("@layer theme {");
-    expect(at).toBeGreaterThan(css.lastIndexOf(selectorsOf(shipped).dark));
-    expect(css.slice(at)).toMatch(/^@layer theme \{\s*:where\(html\) \{[^}]*\}\s*\}\s*$/);
-    // Only the aliases: the theme's own blocks stay unlayered, so they beat Tailwind's defaults.
-    expect(css.replace(/\/\*[\s\S]*?\*\//g, "").match(/@layer/g)).toHaveLength(1);
+  it("keeps the aliases and the overlay rules in @layer theme, so an app's own (its Tailwind @theme and utilities too) win", () => {
+    const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const at = bare.indexOf("@layer theme {");
+    expect(at).toBeGreaterThan(bare.lastIndexOf(selectorsOf(shipped).dark));
+    expect(bare.slice(at)).toMatch(
+      /^@layer theme \{\s*:where\(html\) \{[^}]*\}\s*\}\s*@layer theme \{\s*:where\(dialog\)::backdrop \{[^}]*\}\s*:where\(\.oxy-scrim\) \{[^}]*\}\s*\}\s*$/
+    );
+    // Only those: the theme's own blocks stay unlayered, so they beat Tailwind's defaults.
+    expect(bare.match(/@layer/g)).toHaveLength(2);
   });
 
   it("leaves motion to motion.css", () => {
@@ -203,6 +221,49 @@ describe("the reference's names an app no longer copies", () => {
       }
     }
   );
+});
+
+// Overlays blur the page behind them (Mars, 17 Nov): a design-system rule beyond the reference, whose
+// dialogs only dim (Modal.tsx:273). The tokens are --scrim (the colour) and --scrim-blur (the blur);
+// the rules are rules, so they sit after the names.
+describe("overlays", () => {
+  const map = cssBlockMap(css);
+  const sel = selectorsOf(shipped);
+  const blur = "blur(var(--scrim-blur))";
+
+  it("blurs by 8px in both modes, under the reference's black at 0.35 in light and black at 0.5 in dark", () => {
+    expect(map.get(sel.light)?.get("--scrim-blur")).toBe("8px");
+    expect(map.get(sel.dark)?.has("--scrim-blur")).toBe(false);
+    expect(map.get(sel.light)?.get("--scrim")).toBe("rgba(0, 0, 0, 0.35)");
+    expect(map.get(sel.dark)?.get("--scrim")).toBe("rgba(0, 0, 0, 0.5)");
+  });
+
+  it("blurs every modal <dialog>'s backdrop and never sets its colour, which stays the app's", () => {
+    expect([...(map.get(BACKDROP) ?? [])]).toEqual([
+      ["-webkit-backdrop-filter", blur],
+      ["backdrop-filter", blur]
+    ]);
+  });
+
+  it("gives an element with the oxy-scrim class the scrim's colour and its blur", () => {
+    expect([...(map.get(SCRIM_CLASS) ?? [])]).toEqual([
+      ["background-color", "var(--scrim)"],
+      ["-webkit-backdrop-filter", blur],
+      ["backdrop-filter", blur]
+    ]);
+  });
+
+  it("drops the blur to 0px under reduced transparency, unlayered and after every direction, and keeps the scrim", () => {
+    expect([...(map.get(REDUCED) ?? [])]).toEqual([["--scrim-blur", "0px"]]);
+    const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const at = bare.indexOf(REDUCED_MEDIA);
+    for (const id of ids) {
+      // Each direction's own blocks (the first of each selector; the media block reuses the light one).
+      expect(at, id).toBeGreaterThan(bare.indexOf(`${selectorsOf(id).light} {`));
+      expect(at, id).toBeGreaterThan(bare.indexOf(`${selectorsOf(id).dark} {`));
+    }
+    expect(at).toBeLessThan(bare.indexOf("@layer"));
+  });
 });
 
 describe("fonts", () => {

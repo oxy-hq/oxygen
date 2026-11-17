@@ -3,6 +3,7 @@
 :root[data-oxy-theme="x0"] {
   color-scheme: light;
   --oxy-theme-contract: 1;
+  --scrim-blur: 8px;
   --radius-control: 4px;
   --radius-surface: 6px;
   --radius-overlay: 8px;

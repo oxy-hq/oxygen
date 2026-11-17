@@ -307,7 +307,10 @@ import "@oxy-hq/sdk/shell.css";
   `--card-border` (the frame line); the Ask button and the kit's chips, segments and
   secondary buttons on `--button-secondary-border` (the reference's secondary-button
   edge), while fields keep `--border`; the rail and bars sit on `--rail-bg` and
-  `--topbar-bg`; touch targets are
+  `--topbar-bg`; the top bar's Ask is the reference's secondary button, like the app
+  buttons beside it (`btnCompactSecondary`: filled `--btn-surface`, hover
+  `--btn-surface-hover`, full ink, its ⌘K hint on a `--muted` chip in the muted ink, at
+  its old size); the nav drawer's scrim is the theme's overlay (below); touch targets are
   `--control-h-lg`; and the shell's type follows the kit's, `--font-sans`. Every focus
   ring is the theme's one ring (`--focus-ring-width`, `--focus-ring-color`: 1.5px, at full
   strength), and every focused control also draws a transparent outline, which is what
@@ -339,6 +342,26 @@ import "@oxy-hq/sdk/shell.css";
   (its name for the one shadow, the same as `--shadow-overlay`), `--select-chevron` (the
   12x8 chevron image for a native `<select>` with `appearance: none`) and the dots' glows
   `--dot-success-glow`, `--dot-info-glow`, `--dot-warning-glow`, `--dot-error-glow`.
+- **Overlays blur the page behind them.** A design-system rule beyond the reference, whose
+  dialogs only dim: every scrim is `--scrim` (light black at 0.35, the reference's; dark
+  black at 0.5) and blurs the page by `--scrim-blur` (8px). Under
+  `prefers-reduced-transparency: reduce` the blur is 0px and the scrim stays (Chrome and
+  Edge report that setting; Safari and Firefox do not yet, so they keep the blur). Which to
+  use:
+  - **A native modal `<dialog>`** (the reference's `Modal`, opened with `showModal()`):
+    nothing. `theme.css` blurs every dialog's `::backdrop` and never sets its colour, so
+    your own `::backdrop` rule or `backdrop:bg-*` stays; make that colour the theme's
+    (`dialog::backdrop { background: var(--scrim); }` or `backdrop:bg-(--scrim)`).
+  - **Any other scrim** (a fixed `div`, a Radix or shadcn `DialogOverlay` /
+    `SheetOverlay`): put the class `oxy-scrim` on it, which gives it `--scrim` and the
+    blur, and drop its own `bg-*` (a utility would win over the class's colour). In
+    Tailwind without the class: `bg-(--scrim) backdrop-blur-(--scrim-blur)`.
+  - Both rules sit in `@layer theme`, so any rule you write wins over them; set
+    `--scrim-blur` yourself only to change the blur everywhere (you then own the
+    reduced-transparency case too).
+  - The shell's own: the nav drawer (the phone menu) dims and blurs this way. `PhoneSheet`
+    and the Ask dock on a phone cover the whole screen, opaque, so nothing shows behind
+    them; on a desk the dock sits beside the app, not over it.
 - **`--chart-1` … `--chart-5` are the reference's sequential blue ramp** (the same as
   `--chart-seq-1…5`: light `#5d73ff` to `#05081a`, dark `#3550ff` to `#ebedff`), not a
   categorical palette: neighbours of one ramp cannot be told apart as categories, so series
@@ -353,22 +376,29 @@ import "@oxy-hq/sdk/shell.css";
     `--button-primary-bg` on it;
   - dark `--disabled-foreground` `#626268` (the reference's `#606066`, 2.45:1 on the dark
     field, under the theme's 2.5 floor for inactive text; `#626268` reads 2.53);
-  - dark `--scrim` black at 0.92 (the reference's 0.35 leaves a dialog's card at 1.16:1 over
-    the dimmed page; 0.92 reads 1.20);
   - light `--status-warning-series` `#be8204` (the reference's `#ca8a04`, 2.72:1 on the
     canvas, under 3:1 for a chart mark);
   - light `--dot-success`, `--dot-warning` and `--dot-error` (`#059341`, `#a5770d`,
     `#eb3c3e`, 3:1 on every light ground a dot sits on), and their glows, which are those
     dots again at 0.7 by the reference's own rule.
+
+  Two more are a design choice, not a contrast fix: the overlay blur. Mars chose the blurred
+  overlays the Poke House apps had before the design system (17 Nov), so `--scrim-blur` is
+  8px where the reference has none, and dark `--scrim` is black at 0.5 (the reference's
+  0.35 leaves a dialog's card at 1.16:1 over the dimmed page and 0.5 at 1.17, both over the
+  contract's 1.15 floor for a scrim that also blurs; 0.5 sets the dialog off a step more and
+  the blurred page still reads through it, where 0.92, the value before the blur, hid it).
 - **Without it nothing moves.** An app that does not import `theme.css` renders as it
   did on 2.28: every name above is read as `var(--theme-name, <the old value>)`, and the
   old value still follows your `--radius`, `--border`, `--font-inter` and
   `--oxy-shell-*`. The parts that read names apps also set for themselves (`--secondary`,
   `--segment-track`, `--segment-selected`, the status pairs, dots and `--dim-foreground` for
-  the kit's tones, and `--foreground` / `--muted-foreground` for the tab bar's label and
-  the breadcrumb's "/"), and the keyboard hint's 11px floor, are
+  the kit's tones, `--foreground` / `--muted-foreground` for the tab bar's label and
+  the breadcrumb's "/", and `--btn-surface`, `--btn-surface-hover` and `--foreground` for
+  the Ask button), and the keyboard hint's 11px floor, are
   switched on the theme's own marker (`--oxy-theme-contract`) instead, so declaring them
-  without the theme changes nothing either. The clock's face and the home link's ring
+  without the theme changes nothing either. The overlay blur reads `--scrim-blur` with no
+  fallback, so without the theme it is `none`. The clock's face and the home link's ring
   switch on the same marker through a style query; a browser without style queries keeps
   2.28's monospace clock and its own focus outline there.
 - The token list, with each value's source line in the reference app, is

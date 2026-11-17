@@ -1063,6 +1063,61 @@ function aliasBlock(contract) {
   return `@layer theme {\n  ${ALIAS_SELECTOR} {\n${lines.join("\n")}\n  }\n}\n`;
 }
 
+/**
+ * Overlays, which are rules rather than names. The page behind a dialog or sheet blurs by
+ * `--scrim-blur` under its `--scrim` (a design-system rule beyond the reference, whose dialogs only
+ * dim: Mars, 17 Nov). Two parts:
+ *
+ * - Reduced transparency: the blur drops to 0px and the scrim stays. Unlayered and after every
+ *   direction's blocks, at their weight (none), so it wins over each of them; an app that sets
+ *   `--scrim-blur` itself owns it.
+ * - The rules, in `@layer theme` like the aliases, so every rule an app writes wins, its Tailwind
+ *   utilities included: a native modal `<dialog>`'s `::backdrop` takes the blur only, never a
+ *   colour (the app's own `::backdrop` rule or `backdrop:bg-*` keeps its scrim), and `.oxy-scrim`
+ *   is the class an app puts on any other scrim (a fixed div, a Radix overlay) for both. Without
+ *   theme.css none of it exists; where `--scrim-blur` does not reach `::backdrop` (a browser that
+ *   does not inherit into it), the declaration is invalid at computed-value time, which is `none`.
+ */
+const SCRIM_BLUR = "--scrim-blur";
+
+function overlayCss(contract) {
+  if (!contract.authored.some((t) => t.name === SCRIM_BLUR))
+    throw fail(
+      "contract",
+      `the overlay rules read ${SCRIM_BLUR}, which the contract no longer names`
+    );
+  const blur = [
+    `    -webkit-backdrop-filter: blur(var(${SCRIM_BLUR}));`,
+    `    backdrop-filter: blur(var(${SCRIM_BLUR}));`
+  ];
+  const reduced = [
+    "/* Reduced transparency: the scrim's blur drops; its colour stays. */",
+    "@media (prefers-reduced-transparency: reduce) {",
+    "  :where(:root) {",
+    `    ${SCRIM_BLUR}: 0px;`,
+    "  }",
+    "}",
+    ""
+  ];
+  const rules = [
+    "/* Overlays: the page behind a dialog or sheet blurs under its scrim. A native modal <dialog>",
+    " * takes the blur on its ::backdrop and keeps the app's own scrim colour; put `oxy-scrim` on any",
+    " * other scrim (a fixed div, a Radix overlay) for the scrim's colour and its blur. */",
+    "@layer theme {",
+    "  :where(dialog)::backdrop {",
+    ...blur,
+    "  }",
+    "",
+    "  :where(.oxy-scrim) {",
+    "    background-color: var(--scrim);",
+    ...blur,
+    "  }",
+    "}",
+    ""
+  ];
+  return { reduced: reduced.join("\n"), rules: rules.join("\n") };
+}
+
 function themeCss(directions, contract) {
   const header = [
     "/*",
@@ -1080,6 +1135,10 @@ function themeCss(directions, contract) {
     " * the end are aliases inside @layer theme, so an app's own (its Tailwind @theme included) still",
     " * win there too. The SDK shell and phone kit read these names (their fallbacks are what an app",
     " * without this file has always seen).",
+    " *",
+    " * Two rules sit at the end, in @layer theme too: a modal <dialog>'s ::backdrop blurs the page",
+    " * behind it by --scrim-blur, and the `oxy-scrim` class gives any other scrim --scrim and that",
+    " * blur. Under prefers-reduced-transparency the blur is 0px and the scrim stays.",
     " */"
   ].join("\n");
   const fontsImport = hasFaces(directions) ? '@import "./theme-fonts.css";\n\n' : "";
@@ -1089,7 +1148,10 @@ function themeCss(directions, contract) {
       `/* ${d.name} (${d.id}): ${d.fonts.description} */\n${directionBlocks(d, contract)}`
     );
   }
+  const overlays = overlayCss(contract);
+  parts.push(overlays.reduced);
   parts.push(`/* Derived names, shared by every direction. */\n${aliasBlock(contract)}`);
+  parts.push(overlays.rules);
   return parts.join("\n");
 }
 

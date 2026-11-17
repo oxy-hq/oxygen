@@ -315,6 +315,20 @@ weigh nothing, so your own token declarations still win; adopting it means delet
 them, and deleting any `--oxy-shell-*` or `!important` rules aimed at the shell or
 kit. Without the import, nothing about the app's look changes.
 
+Three rules of the design system go beyond the reference:
+
+- **Overlays blur the page behind them** (`--scrim`, and `--scrim-blur`, 8px; 0px under
+  reduced transparency). A modal `<dialog>` gets the blur from the theme on its own; give
+  its `::backdrop` the colour `var(--scrim)`. On any other scrim (a fixed div, a Radix or
+  shadcn overlay) put the class `oxy-scrim` and remove its own `bg-*`.
+- **The top bar's Ask Oxygen is the reference's secondary button**, so a button the app
+  puts beside it (`topBarExtra`) is the secondary too (`btnCompactSecondary`: the
+  `--btn-surface` fill, `--border-subtle` edge, full ink, `--btn-surface-hover` on hover).
+- **An attention strip on a page whose ground is not the card** (the reference's
+  `AlertStrip`, `bg-card py-2`, on a grey page) takes the card's inner padding
+  (`--card-padding`) at its sides, so its label lines up with the cards below rather than
+  sitting on the box's edge.
+
 **Light and dark.** With the theme, the app has both modes and shows the signed-in
 person's, the one Oxygen home shows: `OxyShell` applies it and puts one Light / Dark /
 System switch at the bottom of the rail (the nav sheet's bottom on a phone), and a change

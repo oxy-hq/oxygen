@@ -6,25 +6,56 @@ export interface CssBlock {
   decls: [string, string][];
 }
 
-/** Every `selector { property: value; … }` rule, in order; comments and @import dropped. */
+function parseDecls(body: string): [string, string][] {
+  const decls: [string, string][] = [];
+  for (const part of body.split(";")) {
+    const decl = part.trim();
+    if (!decl) continue;
+    const colon = decl.indexOf(":");
+    decls.push([
+      decl.slice(0, colon).trim(),
+      decl
+        .slice(colon + 1)
+        .trim()
+        .replace(/\s+/g, " ")
+    ]);
+  }
+  return decls;
+}
+
+/**
+ * Every `selector { property: value; … }` rule, in order; comments and @import dropped. A rule
+ * inside a conditional at-rule is keyed with its prelude first (`@media (…) :where(:root)`), so it
+ * never reads as the unconditional block of the same selector; `@layer` adds nothing to the key.
+ */
 export function parseCssBlocks(css: string): CssBlock[] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@import[^;]*;/g, "");
   const blocks: CssBlock[] = [];
-  for (const m of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const decls: [string, string][] = [];
-    for (const part of m[2].split(";")) {
-      const decl = part.trim();
-      if (!decl) continue;
-      const colon = decl.indexOf(":");
-      decls.push([
-        decl.slice(0, colon).trim(),
-        decl
-          .slice(colon + 1)
-          .trim()
-          .replace(/\s+/g, " ")
-      ]);
+  const context: string[] = [];
+  const pushed: boolean[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "}") {
+      if (pushed.pop()) context.pop();
+      start = i + 1;
+    } else if (text[i] === "{") {
+      const prelude = text.slice(start, i).trim().replace(/\s+/g, " ");
+      const close = text.indexOf("}", i);
+      const inner = text.indexOf("{", i + 1);
+      if (inner !== -1 && inner < close) {
+        const keyed = !prelude.startsWith("@layer");
+        if (keyed) context.push(prelude);
+        pushed.push(keyed);
+        start = i + 1;
+      } else {
+        blocks.push({
+          selector: [...context, prelude].join(" "),
+          decls: parseDecls(text.slice(i + 1, close))
+        });
+        i = close;
+        start = close + 1;
+      }
     }
-    blocks.push({ selector: m[1].trim().replace(/\s+/g, " "), decls });
   }
   return blocks;
 }

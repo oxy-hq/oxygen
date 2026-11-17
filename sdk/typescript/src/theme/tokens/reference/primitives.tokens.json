@@ -1541,9 +1541,9 @@
               0
             ],
             "hex": "#000000",
-            "alpha": 0.92
+            "alpha": 0.5
           },
-          "$description": "rgba(0,0,0,0.92): FIX, not the reference: the reference dims every dialog with black at 0.35 (Modal.tsx:273). On the dark canvas that leaves the modal's card (#1a1a1a) at 1.16:1 over the dimmed page, under the contract's 1.2 (pairs.json, popover on scrim). Black at 0.92 measures 1.20; the light theme keeps the reference's 0.35."
+          "$description": "rgba(0,0,0,0.5): FIX, not the reference: the reference dims every dialog with black at 0.35 (Modal.tsx:273), and the design system now also blurs the page behind every overlay (--scrim-blur; Mars, 17 Nov). In dark, black at 0.35 leaves the modal's card (#1a1a1a) at 1.16:1 over the dimmed page and black at 0.5 at 1.17, both over the contract's 1.15 floor for a blurred scrim (pairs.json, popover on scrim); 0.5 is a step darker, so the dialog stands off, while the blurred page still reads through it (0.92, the value before the blur, at 1.20, hid it). The light theme keeps the reference's 0.35."
         },
         "chart-div-neg-3": {
           "$value": {

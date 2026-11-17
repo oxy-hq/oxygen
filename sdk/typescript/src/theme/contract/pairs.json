@@ -990,9 +990,9 @@
  {
   "fg": "--popover",
   "bg": "--scrim",
-  "min": 1.2,
+  "min": 1.15,
   "kind": "non-text",
-  "note": "House floor: a dialog or sheet stands off the dimmed page.",
+  "note": "House floor: a dialog or sheet stands off the dimmed page. 1.15, not 1.2, since the scrim also blurs the page (--scrim-blur): the blur takes the page's detail away, so the step is the ground's alone, and the reference's own black at 0.35 reads 1.16 on the dark canvas.",
   "over": "--background"
  },
  {

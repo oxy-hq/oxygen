@@ -635,5 +635,15 @@
         }
       }
     }
+  },
+  "scrim": {
+    "blur": {
+      "$type": "dimension",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      },
+      "$description": "Blurs the page behind a dialog or sheet."
+    }
   }
 }

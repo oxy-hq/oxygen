@@ -277,6 +277,96 @@ for (const { id } of THEMES) {
   }
 }
 
+// The shell's Ask button with the theme: the reference's secondary button (`btnCompactSecondary`,
+// reference ui.ts:615), like the app buttons beside it in the top bar. Its fills, its ink, its ⌘K
+// hint and its ring are read out of shell.css (the theme half of each switched colour) and measured
+// on the top bar, at rest, on hover, open and focused (a focused button keeps its resting fill).
+/** Every rule body whose selector, from the start of a line, is `selector`. */
+function shellRules(selector: string): string[] {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return [...shellCss.matchAll(new RegExp(`(?:^|\\n)${esc}\\s*\\{([^}]*)\\}`, "g"))].map(
+    (m) => m[1]
+  );
+}
+/** The name `prop` reads with the theme in `selector`'s rule: a switched colour's theme half. */
+function themedHalf(selector: string, prop: string): string | undefined {
+  const re = new RegExp(
+    `(?:^|[\\s;])${prop}: color-mix\\(\\s*in srgb,\\s*(var\\([^)]*\\)) calc\\(var\\(--oxy-shell-themed, 0\\) \\* 100%\\)`
+  );
+  for (const body of shellRules(selector)) {
+    const m = re.exec(body);
+    if (m) return themeName(m[1]);
+  }
+  return undefined;
+}
+/** The name a plain `prop: var(...)` reads in `selector`'s rule. */
+function plainRead(selector: string, prop: string): string | undefined {
+  for (const body of shellRules(selector)) {
+    const m = new RegExp(`(?:^|[\\s;])${prop}: (var\\([^;]*\\));`).exec(body);
+    if (m) return themeName(m[1]);
+  }
+  return undefined;
+}
+
+for (const { id } of THEMES) {
+  for (const mode of ["light", "dark"]) {
+    describe(`${id} ${mode}: the shell's Ask button, the reference's secondary`, () => {
+      const { colour, surface } = palette(id, mode);
+      const bar = surface("--topbar-bg");
+      const over = (name: string | undefined, under: Rgb | undefined): Rgb | undefined => {
+        const c = name ? colour(name) : undefined;
+        return c && under && composite(c, under);
+      };
+      const fills: Record<string, string | undefined> = {
+        rest: themedHalf(".oxy-askbtn", "background"),
+        hover: themedHalf(".oxy-askbtn:not(.oxy-askbtn--open):hover", "background"),
+        open: themedHalf(".oxy-askbtn--open", "background"),
+        focused: themedHalf(".oxy-askbtn", "background")
+      };
+      const ink = themedHalf(".oxy-askbtn", "color");
+      const hintFill = plainRead(".oxy-askbtn__kbd", "background");
+      const hintInk = themedHalf(".oxy-askbtn__kbd", "color");
+      const mark = plainRead(".oxy-askbtn__mark", "color");
+      const ring = /var\((--focus-ring-color),/.exec(shellRule(".oxy-askbtn:focus-visible"))?.[1];
+
+      it("reads the reference's secondary pair and the hint's chip", () => {
+        expect(fills).toEqual({
+          rest: "--btn-surface",
+          hover: "--btn-surface-hover",
+          open: "--btn-surface-hover",
+          focused: "--btn-surface"
+        });
+        expect([ink, hintFill, hintInk, mark, ring]).toEqual([
+          "--foreground",
+          "--muted",
+          "--muted-foreground",
+          "--primary",
+          "--focus-ring-color"
+        ]);
+      });
+
+      const cases: { what: string; fg: Rgb | undefined; bg: Rgb | undefined; min: number }[] = [];
+      for (const [state, fill] of Object.entries(fills)) {
+        const ground = over(fill, bar);
+        const chip = over(hintFill, ground);
+        cases.push({ what: `label ${state}`, fg: over(ink, ground), bg: ground, min: 4.5 });
+        cases.push({ what: `⌘K hint ${state}`, fg: over(hintInk, chip), bg: chip, min: 4.5 });
+        cases.push({ what: `mark ${state}`, fg: over(mark, ground), bg: ground, min: 3 });
+      }
+      const rest = over(fills.rest, bar);
+      cases.push({ what: "ring on the top bar", fg: over(ring, bar), bg: bar, min: 3 });
+      cases.push({ what: "ring beside the fill", fg: over(ring, bar), bg: rest, min: 3 });
+      for (const c of cases) {
+        const ratio = c.fg && c.bg ? wcagRatio(c.fg, c.bg) : undefined;
+        it(`${c.what} >= ${c.min} (${ratio ? `WCAG ${ratio.toFixed(2)}` : "a colour is missing"})`, () => {
+          expect(ratio, `${c.what}: a colour is missing`).toBeDefined();
+          expect((ratio ?? 0) + 1e-9, c.what).toBeGreaterThanOrEqual(c.min);
+        });
+      }
+    });
+  }
+}
+
 it("lists only known failures that exist", () => {
   const labels = new Set(
     THEMES.flatMap(({ id }) =>

@@ -13,12 +13,17 @@
  * the end are aliases inside @layer theme, so an app's own (its Tailwind @theme included) still
  * win there too. The SDK shell and phone kit read these names (their fallbacks are what an app
  * without this file has always seen).
+ *
+ * Two rules sit at the end, in @layer theme too: a modal <dialog>'s ::backdrop blurs the page
+ * behind it by --scrim-blur, and the `oxy-scrim` class gives any other scrim --scrim and that
+ * blur. Under prefers-reduced-transparency the blur is 0px and the scrim stays.
  */
 
 /* Reference (reference): The oxygen reference app's design: a near-black canvas (white in light), hairline frames, one brand blue, square corners and the system face. */
 :where(:root) {
   color-scheme: light;
   --oxy-theme-contract: 1;
+  --scrim-blur: 8px;
   --radius-control: 0px;
   --radius-surface: 0px;
   --radius-overlay: 0px;
@@ -334,7 +339,7 @@
   --trend-peer: #8b8b95;
   --shadow-raised: none;
   --shadow-overlay: 0 6px 20px 0 rgba(0, 0, 0, 0.55);
-  --scrim: rgba(0, 0, 0, 0.92);
+  --scrim: rgba(0, 0, 0, 0.5);
   --focus-ring-color: #aaaab3;
   --tile-bg: #27272a;
   --tile-fg: #ededed;
@@ -364,6 +369,13 @@
   --button-primary-bg-hover: rgba(68, 93, 255, 0.9);
   --button-primary-fg: #ffffff;
   --button-secondary-border: rgba(255, 255, 255, 0.09);
+}
+
+/* Reduced transparency: the scrim's blur drops; its colour stays. */
+@media (prefers-reduced-transparency: reduce) {
+  :where(:root) {
+    --scrim-blur: 0px;
+  }
 }
 
 /* Derived names, shared by every direction. */
@@ -399,5 +411,21 @@
     --color-status-warning: var(--status-warning);
     --color-status-error: var(--status-error);
     --zinc-200: var(--muted);
+  }
+}
+
+/* Overlays: the page behind a dialog or sheet blurs under its scrim. A native modal <dialog>
+ * takes the blur on its ::backdrop and keeps the app's own scrim colour; put `oxy-scrim` on any
+ * other scrim (a fixed div, a Radix overlay) for the scrim's colour and its blur. */
+@layer theme {
+  :where(dialog)::backdrop {
+    -webkit-backdrop-filter: blur(var(--scrim-blur));
+    backdrop-filter: blur(var(--scrim-blur));
+  }
+
+  :where(.oxy-scrim) {
+    background-color: var(--scrim);
+    -webkit-backdrop-filter: blur(var(--scrim-blur));
+    backdrop-filter: blur(var(--scrim-blur));
   }
 }

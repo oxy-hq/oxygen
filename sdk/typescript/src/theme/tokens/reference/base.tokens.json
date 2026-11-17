@@ -347,6 +347,16 @@
       }
     }
   },
+  "scrim": {
+    "blur": {
+      "$type": "dimension",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      },
+      "$description": "Blurs the page behind every overlay, under --scrim: FIX, not the reference, whose dialogs only dim (Modal.tsx:273, backdrop:bg-black/35). Mars chose the blurred look of the Poke House apps before the design system (17 Nov): Command Center's store search, backdrop-blur-sm (8px), and Store Ops' task sheet. Drops to 0px under prefers-reduced-transparency: reduce (theme.css), and the scrim stays."
+    }
+  },
   "type": {
     "display": {
       "family": {

@@ -169,8 +169,17 @@ describe("shell.css reads the theme", () => {
   });
 
   it("falls back on every theme name to what it drew before, so an app without the theme is unmoved", () => {
-    const bare = themeReads().filter((r) => !r.fallback);
+    // One name is read bare on purpose: `--scrim-blur`, only as `blur(var(--scrim-blur))` in a
+    // backdrop-filter. Unset, that declaration is invalid at computed-value time, which is `none`,
+    // what 2.28 drew; a fallback length would draw `blur(0px)`, a backdrop pass of its own.
+    const bare = themeReads().filter((r) => !r.fallback && r.name !== "--scrim-blur");
     expect(bare).toEqual([]);
+    const reads = css.match(/var\(--scrim-blur[,)]/g) ?? [];
+    const inFilter =
+      css.match(/^\s*(?:-webkit-)?backdrop-filter: blur\(var\(--scrim-blur\)\);$/gm) ?? [];
+    expect(reads.length).toBeGreaterThan(0);
+    expect(inFilter.length).toBe(reads.length);
+    expect(shipped.get("--scrim-blur")).toBe("8px");
   });
 
   it("clamps every corner computed off --oxy-shell-radius at zero", () => {
@@ -235,6 +244,8 @@ describe("shell.css follows the design system's own parts with the theme", () =>
     const hostReads = reads().filter((r) => HOST.has(r.name) && !HOST_READ_IN_2_28.has(r.name));
     const names = [...new Set(hostReads.map((r) => r.name))].sort();
     expect(names).toEqual([
+      "--btn-surface",
+      "--btn-surface-hover",
       "--dim-foreground",
       "--dot-error",
       "--dot-success",
@@ -402,6 +413,57 @@ describe("shell.css follows the design system's own parts with the theme", () =>
       /var\(--oxy-shell-background\)\s*\);/
     );
     expect(shipped.get("--secondary")).toBe(shipped.get("--btn-surface"));
+  });
+
+  it("draws Ask as the reference's secondary button with the theme, and 2.28's outline without it", () => {
+    // `btnCompactSecondary` (reference ui.ts:615): the fill, its hover fill, full ink, the frame
+    // edge. Each read behind the switch, with 2.28's value as the other half.
+    const base = rule(".oxy-askbtn");
+    expect(base).toMatch(/--oxy-askbtn-ink: var\(--oxy-shell-muted-fg\);/);
+    expect(base).toMatch(
+      new RegExp(`background: ${switched("--btn-surface").source}\\s*transparent\\s*\\);`)
+    );
+    expect(base).toMatch(
+      /color: color-mix\(\s*in srgb,\s*var\(--oxy-shell-foreground\) calc\(var\(--oxy-shell-themed, 0\) \* 100%\),\s*var\(--oxy-askbtn-ink\)\s*\);/
+    );
+    // Its size is 2.28's: nothing else in the top bar moves.
+    expect(base).toMatch(/padding: 0\.25rem 0\.5rem;/);
+    expect(base).toMatch(/font-size: 12px;/);
+    expect(base).toMatch(/border: 1px solid/);
+    const edge = new RegExp(
+      `border-color: ${switched("--button-secondary-border").source}\\s*color-mix\\(in srgb, var\\(--oxy-shell-primary\\) 40%, transparent\\)\\s*\\);`
+    );
+    for (const state of [".oxy-askbtn:hover", ".oxy-askbtn--open"]) {
+      expect(rule(state), state).toMatch(/--oxy-askbtn-ink: var\(--oxy-shell-foreground\);/);
+      expect(rule(state), state).toMatch(edge);
+      expect(rule(state), state).not.toMatch(/(^|\s)color:/);
+    }
+    expect(rule(".oxy-askbtn:hover")).not.toMatch(/background/);
+    expect(rule(".oxy-askbtn:not(.oxy-askbtn--open):hover")).toMatch(
+      new RegExp(`background: ${switched("--btn-surface-hover").source}\\s*transparent\\s*\\);`)
+    );
+    expect(rule(".oxy-askbtn--open")).toMatch(
+      new RegExp(
+        `background: ${switched("--btn-surface-hover").source}\\s*color-mix\\(in srgb, var\\(--oxy-shell-primary\\) 10%, transparent\\)\\s*\\);`
+      )
+    );
+    // The hint: the muted ink on its own chip with the theme (`tabCountNeutral`), the button's
+    // 2.28 ink for the state without it, as it inherited it there.
+    const kbd = rules().find(
+      ([sel, body]) => sel === ".oxy-askbtn__kbd" && /background/.test(body)
+    );
+    expect(kbd?.[1]).toMatch(/background: var\(--oxy-shell-muted\);/);
+    expect(kbd?.[1]).toMatch(
+      /color: color-mix\(\s*in srgb,\s*var\(--oxy-shell-muted-fg\) calc\(var\(--oxy-shell-themed, 0\) \* 100%\),\s*var\(--oxy-askbtn-ink\)\s*\);/
+    );
+  });
+
+  it("dims the nav drawer's page with the theme's scrim and blurs it, and draws 2.28's black at 0.8 without", () => {
+    const body = rule(".oxy-navsheet__overlay");
+    expect(body).toMatch(/background: var\(--scrim, rgba\(0, 0, 0, 0\.8\)\);/);
+    expect(body).toMatch(/-webkit-backdrop-filter: blur\(var\(--scrim-blur\)\);/);
+    expect(body).toMatch(/(^|\s)backdrop-filter: blur\(var\(--scrim-blur\)\);/);
+    expect(shipped.get("--scrim")).toBe("rgba(0, 0, 0, 0.35)");
   });
 
   it("sets the keyboard hint at 10px without the theme and 11px with it", () => {

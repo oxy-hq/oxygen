@@ -1,9 +1,9 @@
 {
   "version": 1,
   "counts": {
-    "authored": 206,
+    "authored": 207,
     "perMode": 122,
-    "both": 84,
+    "both": 85,
     "aliases": 30,
     "fixed": 9
   },
@@ -848,7 +848,15 @@
       "type": "color",
       "modes": "per-mode",
       "path": "color.scrim",
-      "description": "Dims the page behind a dialog or sheet. Translucent."
+      "description": "Dims the page behind a dialog or sheet, under its blur (`--scrim-blur`). Translucent."
+    },
+    {
+      "name": "--scrim-blur",
+      "group": "Elevation",
+      "type": "length",
+      "modes": "both",
+      "path": "scrim.blur",
+      "description": "Blurs the page behind a dialog or sheet, under `--scrim` (`backdrop-filter: blur(var(--scrim-blur))`); 0px under `prefers-reduced-transparency: reduce`, where the scrim stays."
     },
     {
       "name": "--shadow-elevated",

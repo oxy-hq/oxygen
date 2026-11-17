@@ -53,6 +53,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `display: contents` wrapper too.
 - **`PhoneKpi.tone` takes `warn`.** With the theme it is the warning status ink
   (`--status-warning`), as the desk draws it; without the prop the delta stays neutral.
+- **Overlays blur the page behind them.** With `theme.css`, a design-system rule beyond the
+  reference (whose dialogs only dim): a new token, `--scrim-blur` (8px), and two rules in
+  `@layer theme`. Every native modal `<dialog>`'s `::backdrop` blurs by it and keeps the
+  app's own scrim colour; the class `oxy-scrim` gives any other scrim (a fixed div, a Radix
+  overlay) `--scrim` and the blur. The shell's nav drawer (the phone menu) dims by `--scrim`
+  and blurs too. Dark `--scrim` is black at 0.5 (light keeps the reference's 0.35), so the
+  blurred page still reads through it. Under `prefers-reduced-transparency: reduce` the blur
+  is 0px and the scrim stays. Without `theme.css`, nothing changes: the drawer keeps 2.28's
+  black at 0.8 and no blur.
+- **The top bar's Ask Oxygen is the reference's secondary button**, like the app buttons
+  beside it (`btnCompactSecondary`): with the theme it is filled `--btn-surface` on its
+  `--border-subtle` edge in full ink, hover and open move the fill to `--btn-surface-hover`,
+  and the ⌘K hint is a `--muted` chip in the muted ink. Its size, icon, hint and 44px touch
+  reach are unchanged; without the theme it is 2.28's outlined button.
 
 - **`@oxy-hq/sdk/theme.css`: the reference app's design, applied by importing it.** The
   design standard for every custom app is the oxygen reference app
@@ -66,9 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The old names it maps onto the theme (`--radius`, `--font-inter`, `--ring`,
   `--color-border`, `--chart-1…5`, …) sit in `@layer theme`, so an app's Tailwind
   `@theme` keeps them too.
-  Four reference values that miss a contrast obligation are corrected in the theme,
+  Three reference values that miss a contrast obligation are corrected in the theme,
   with a comment each (dark `--brand`, dark `--disabled-foreground`, light
-  `--status-warning-series`, dark `--scrim`).
+  `--status-warning-series`).
 - **The shell and the phone kit read the theme.** Corners from `--radius-control`,
   `--radius-surface`, `--radius-overlay`, `--radius-pill`, `--button-radius`,
   `--card-radius`, `--input-radius` and `--badge-radius`; the rail, top bar, tab bar,
