@@ -27,15 +27,18 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 mod actor;
+pub mod anchor;
 #[cfg(test)]
 mod call_sites_guard;
 mod canonical;
+mod event_dto;
 mod token_events;
 
 /// The address an audit row records: the one the load balancer saw, never the
 /// hop the caller wrote. The same function the rate limit and token usage use.
 pub use crate::forwarded::client_ip;
 pub use actor::{RequestActor, TOKEN_ID_KEY, user_agent};
+pub use event_dto::AuditEventDto;
 pub use token_events::{TOKEN_TARGET_TYPE, events_for_token, events_for_token_in_org};
 
 /// Seed for the first event in any chain.

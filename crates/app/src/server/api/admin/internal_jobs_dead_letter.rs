@@ -16,10 +16,11 @@ use sea_orm::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::internal_jobs::{connect, db_err, error_body, not_found_row};
+use super::internal_jobs::not_found_row;
 use super::internal_jobs_reach::{deny_out_of_scope_task, listing_scope, run_scope_clause};
 use super::internal_jobs_rows::{ENRICHED_SELECT, EnrichedQueueRowRaw, QueueRowDto, QueueRowRaw};
-use super::scope::org_scope_clause;
+use oxy_app_core::admin_db::{connect, db_err, error_body};
+use oxy_server_authz::staff::scope::org_scope_clause;
 
 // Recent failures
 

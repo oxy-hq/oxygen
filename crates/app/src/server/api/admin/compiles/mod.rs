@@ -33,8 +33,8 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait,
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::server::api::admin::scope;
 use crate::server::router::AppState;
+use oxy_server_authz::staff::scope;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()

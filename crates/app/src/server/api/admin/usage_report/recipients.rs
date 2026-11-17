@@ -19,8 +19,8 @@ use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_authz::Scope;
 use serde::{Deserialize, Serialize};
 
-use crate::server::api::admin::internal_jobs::{connect, db_err, error_body};
 use crate::server::router::AppState;
+use oxy_app_core::admin_db::{connect, db_err, error_body};
 
 use super::delivery::{self, Recipient};
 use super::store;

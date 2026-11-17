@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use oxy_app::surface::admin_audit::AuditEventDto;
+use oxy_app_core::audit::AuditEventDto;
 
 const DEFAULT_LIMIT: u64 = 100;
 const MAX_LIMIT: u64 = 500;

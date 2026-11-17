@@ -45,9 +45,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use axum::response::{IntoResponse, Response};
-use oxy_app::surface::admin_db::{connect, db_err};
 use oxy_app::surface::admin_scope::{list_scope, org_scope_clause};
 use oxy_app_core::AppState;
+use oxy_app_core::admin_db::{connect, db_err};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
 pub(crate) fn router() -> Router<AppState> {

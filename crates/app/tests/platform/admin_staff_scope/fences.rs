@@ -9,11 +9,11 @@
 //! whole: a fence that drifted from the listing shows up as one field of one diff.
 
 use axum::http::StatusCode;
-use oxy_app::server::api::admin::scope::{
+use oxy_auth::types::AuthenticatedUser;
+use oxy_server_authz::staff::scope::{
     deny_out_of_scope, deny_out_of_scope_for_workspace, deny_out_of_scope_opt,
     deny_out_of_scope_platform, list_scope,
 };
-use oxy_auth::types::AuthenticatedUser;
 use sea_orm::ConnectionTrait;
 use uuid::Uuid;
 

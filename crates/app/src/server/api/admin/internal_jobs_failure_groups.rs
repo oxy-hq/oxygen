@@ -20,9 +20,9 @@ use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::internal_jobs::{connect, db_err};
 use super::internal_jobs_reach::listing_scope;
-use super::scope::org_scope_clause;
+use oxy_app_core::admin_db::{connect, db_err};
+use oxy_server_authz::staff::scope::org_scope_clause;
 
 /// How far back a group may reach. A week by default: long enough to see a nightly
 /// failure as recurring, short enough that a fixed one ages off.

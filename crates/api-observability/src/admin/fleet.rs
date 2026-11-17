@@ -19,8 +19,8 @@
 use axum::extract::{Query, State};
 use axum::response::Response;
 use axum::{Json, Router, routing::get};
-use oxy_app::surface::admin_db::db_err;
 use oxy_app_core::AppState;
+use oxy_app_core::admin_db::db_err;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
 use serde::Serialize;

@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::server::router::AppState;
-use oxy_app_core::audit::{self, AuditFilter};
+use oxy_app_core::audit::{self, AuditEventDto, AuditFilter};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -41,7 +41,7 @@ pub async fn verify_audit_chain(
     // Scope. Found by the merge-derived coverage test on its first run — a fifth
     // `{org_id}` router nobody had swept. Verifying another tenant's hash chain is a
     // read of that tenant's audit trail.
-    crate::server::api::admin::scope::deny_out_of_scope(&db, &actor, org_id).await?;
+    oxy_server_authz::staff::scope::deny_out_of_scope(&db, &actor, org_id).await?;
     audit::verify_chain(&db, org_id)
         .await
         .map(Json)
@@ -57,26 +57,26 @@ pub async fn verify_audit_chain(
 pub async fn verify_audit_anchor(
     oxy_auth::extractor::AuthenticatedUserExtractor(actor): oxy_auth::extractor::AuthenticatedUserExtractor,
     axum::extract::Path(org_id): axum::extract::Path<Uuid>,
-) -> Result<Json<crate::server::audit_anchor::AnchorReport>, StatusCode> {
+) -> Result<Json<oxy_app_core::audit::anchor::AnchorReport>, StatusCode> {
     let db = establish_connection().await.map_err(|e| {
         tracing::error!("admin/audit: DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     // Same scope rule as the chain verifier: another tenant's anchor is a
     // read of that tenant's audit trail.
-    crate::server::api::admin::scope::deny_out_of_scope(&db, &actor, org_id).await?;
-    let cfg = crate::server::audit_anchor::AnchorConfig::from_env();
+    oxy_server_authz::staff::scope::deny_out_of_scope(&db, &actor, org_id).await?;
+    let cfg = oxy_app_core::audit::anchor::AnchorConfig::from_env();
     let s3 = crate::server::api::custom_apps_storage::s3::client().await;
     // A verification that cannot complete — an unlocked or lapsed object, a
     // rewritten pointer, S3 unreachable — is itself what the operator came to
     // learn, so it is a 200 with `present`/`matches` false and the reason in
     // `detail`, not a bare 500 with the reason in a log line.
     Ok(Json(
-        match crate::server::audit_anchor::verify_latest(&db, &s3, cfg.as_ref(), org_id).await {
+        match oxy_app_core::audit::anchor::verify_latest(&db, &s3, cfg.as_ref(), org_id).await {
             Ok(report) => report,
             Err(reason) => {
                 tracing::warn!(%org_id, %reason, "admin/audit: anchor verification failed");
-                crate::server::audit_anchor::AnchorReport::failed(org_id, reason)
+                oxy_app_core::audit::anchor::AnchorReport::failed(org_id, reason)
             }
         },
     ))
@@ -94,52 +94,6 @@ pub struct AuditQuery {
     pub token_id: Option<Uuid>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
-}
-
-#[derive(Serialize)]
-pub struct AuditEventDto {
-    pub id: Uuid,
-    pub created_at: String,
-    pub actor_email: String,
-    pub actor_type: String,
-    pub action: String,
-    pub org_id: Option<Uuid>,
-    pub workspace_id: Option<Uuid>,
-    pub partner_id: Option<Uuid>,
-    pub target_type: Option<String>,
-    pub target_id: Option<String>,
-    pub target_label: Option<String>,
-    pub outcome: String,
-    pub reason: Option<String>,
-    /// Staff/org action taken through the assume-role override — the single most
-    /// important thing to spot when auditing, so it's lifted out of `metadata`.
-    pub via_global_override: bool,
-}
-
-impl From<entity::audit_events::Model> for AuditEventDto {
-    fn from(e: entity::audit_events::Model) -> Self {
-        let via_global_override = e
-            .metadata
-            .get("via_global_override")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        Self {
-            id: e.id,
-            created_at: e.created_at.to_rfc3339(),
-            actor_email: e.actor_email,
-            actor_type: e.actor_type,
-            action: e.action,
-            org_id: e.org_id,
-            workspace_id: e.workspace_id,
-            partner_id: e.partner_id,
-            target_type: e.target_type,
-            target_id: e.target_id,
-            target_label: e.target_label,
-            outcome: e.outcome,
-            reason: e.reason,
-            via_global_override,
-        }
-    }
 }
 
 /// One row of `GET /admin/audit`: [`AuditEventDto`], plus what only the staff
@@ -220,7 +174,7 @@ pub async fn list_audit(
         outcome: q.outcome,
         q: q.q,
         token_id: q.token_id,
-        org_scope: crate::server::api::admin::scope::list_scope(&db, &actor).await?,
+        org_scope: oxy_server_authz::staff::scope::list_scope(&db, &actor).await?,
     };
     // CLAMPED AT BOTH ENDS. `?limit=0` past a top-only clamp is an infinite
     // pagination loop, not an empty page: the over-fetch reads one row,

@@ -27,8 +27,9 @@ use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{DatabaseBackend, DatabaseConnection, FromQueryResult, Statement, Value};
 use uuid::Uuid;
 
-use super::internal_jobs::{db_err, error_body, not_found_row};
-use super::scope;
+use super::internal_jobs::not_found_row;
+use oxy_app_core::admin_db::{db_err, error_body};
+use oxy_server_authz::staff::scope;
 
 /// The caller's listing scope, as this surface's error type.
 pub(super) async fn listing_scope(

@@ -23,7 +23,7 @@ use oxy_auth::types::AuthenticatedUser;
 use oxy_authz::{DelegationDenial, PrincipalFacts};
 use sea_orm::DatabaseConnection;
 
-use crate::server::authz::globals;
+use crate::globals;
 
 /// The actor's platform standing, shaped for a delegation decision.
 ///
@@ -35,27 +35,26 @@ use crate::server::authz::globals;
 /// `DbErr` into `None`, which reads identically to holding no grant — on a write path
 /// that turns a transient blip into a silent denial, and worse, a `None` standing that
 /// later gained a permissive default would fail *open*. This is the same rule
-/// `admin::scope` applies: unknown is not unbounded, and on a write it is not "nothing"
+/// [`super::scope`] applies: unknown is not unbounded, and on a write it is not "nothing"
 /// either. It is a refusal that says so.
 pub async fn actor_facts(
     db: &DatabaseConnection,
     actor: &AuthenticatedUser,
 ) -> Result<PrincipalFacts, StatusCode> {
-    let platform =
-        globals::platform_grant_checked(db, &crate::server::authz::Caller::from_user(actor))
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    target: "authz",
-                    error = %e,
-                    "platform grant unreadable on a grant-table decision — refusing"
-                );
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    let platform = globals::platform_grant_checked(db, &crate::Caller::from_user(actor))
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                target: "authz",
+                error = %e,
+                "platform grant unreadable on a grant-table decision — refusing"
+            );
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     Ok(PrincipalFacts {
         user_id: actor.id,
         platform,
-        is_global_owner: globals::is_global_owner(&crate::server::authz::Caller::from_user(actor)),
+        is_global_owner: globals::is_global_owner(&crate::Caller::from_user(actor)),
         ..Default::default()
     })
 }

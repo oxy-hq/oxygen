@@ -485,7 +485,7 @@ pub async fn history(
     // The capability says the caller may read the log; the grant's SCOPE says whose.
     // A session row names the org that was impersonated, so a bounded grant reads the
     // sessions into its own orgs and no others — narrowed here, ahead of the paging.
-    let scope = crate::server::api::admin::scope::list_scope(&db, &actor).await?;
+    let scope = oxy_server_authz::staff::scope::list_scope(&db, &actor).await?;
     let limit = history_page_size(q.limit);
     let offset = q.offset.unwrap_or(0);
     let mut find = AdminAssumeSessions::find();

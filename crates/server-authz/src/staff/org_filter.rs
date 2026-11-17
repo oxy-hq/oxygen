@@ -1,17 +1,15 @@
 //! The staff console's lenient org filter: which orgs a **bounded** platform grant
 //! reaches, for the registry listings.
 //!
-//! Not in `admin::scope`: that module is the one reader of a grant's scope
+//! Not in [`super::scope`]: that module is the one reader of a grant's scope
 //! (`caller_scope`, and `app_scope_boundary` holds it to that). This is the
 //! app registry's older, separate read, kept as it was when it lived in
 //! `admin::apps::handlers`; the registry and the airhouse, airway-config, OLTP and
 //! Oxy-access listings share it.
 
-use oxy_auth::types::AuthenticatedUser;
-use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use crate::server::authz::{Caller, globals};
+use crate::{Caller, globals};
 
 /// The org ids a **bounded** platform grant reaches — `None` for unbounded.
 ///

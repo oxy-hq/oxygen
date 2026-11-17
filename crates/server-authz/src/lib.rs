@@ -28,6 +28,7 @@ pub mod org_context;
 pub mod oxy_owner_guard;
 pub mod partner_authz;
 pub mod role_guards;
+pub mod staff;
 pub mod workspace_role;
 
 #[cfg(test)]

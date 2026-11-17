@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::source::{self, CompileSource};
 use super::{PromoteError, connect, db_err, error_body, listing_scope, promote_one};
-use crate::server::api::admin::scope;
+use oxy_server_authz::staff::scope;
 
 // GET /admin/compiles
 

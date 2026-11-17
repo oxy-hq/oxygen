@@ -655,7 +655,7 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
 /// every caller hands that 500 on with `?` rather than absorbing it.
 #[test]
 fn the_admin_scope_fence_refuses_rather_than_allowing() {
-    let src = read("crates/app/src/server/api/admin/scope.rs");
+    let src = read("crates/server-authz/src/staff/scope.rs");
 
     let body_of = |name: &str| -> &str {
         src.split(&format!("async fn {name}("))
@@ -902,9 +902,12 @@ fn the_grant_table_is_capability_gated_and_every_handler_is_row_fenced() {
         );
     }
     // `delegatable` is a spelling; this is the assertion that it still routes to the
-    // model rather than having grown a local opinion about who out-ranks whom.
+    // model rather than having grown a local opinion about who out-ranks whom. It lives
+    // beside the stored grant shape in `oxy-server-authz` since the admin split's PR 3.
+    let grant = read("crates/server-authz/src/staff/stored_grant.rs");
     assert!(
-        src.split("fn delegatable(")
+        grant
+            .split("fn delegatable(")
             .nth(1)
             .is_some_and(|b| b.contains("may_delegate(facts")),
         "`delegatable` no longer defers to `oxy_authz::may_delegate` — the bound is now \
@@ -961,7 +964,10 @@ fn the_grant_table_is_capability_gated_and_every_handler_is_row_fenced() {
 #[test]
 fn an_unexpandable_stored_role_denies_everyone_but_the_owner() {
     let src = read("crates/app/src/server/api/admin/app_admins.rs");
-    let body = src
+    // `delegatable` sits beside the stored grant shape in `oxy-server-authz` since the
+    // admin split's PR 3; its callers, the grant-table handlers, stay in `app_admins.rs`.
+    let grant = read("crates/server-authz/src/staff/stored_grant.rs");
+    let body = grant
         .split("fn delegatable(")
         .nth(1)
         .expect("`delegatable` is gone — the owner short-circuit lived in it")
@@ -1108,7 +1114,7 @@ fn the_grant_audit_records_scope_on_both_sides() {
 /// the frontend reads `err.response.data.message` and rendered the axios default.
 #[test]
 fn a_delegation_denial_carries_its_reason_to_the_client() {
-    let src = read("crates/app/src/server/api/admin/delegation.rs");
+    let src = read("crates/server-authz/src/staff/delegation.rs");
     assert!(
         src.contains("impl axum::response::IntoResponse for Refusal"),
         "`Refusal` no longer renders itself, so the denial cannot reach the client"

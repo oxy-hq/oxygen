@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use super::source::enqueue_main;
 use super::{BATCH_MAX_IDS, connect, error_body, promote_one};
-use crate::server::api::admin::scope;
+use oxy_server_authz::staff::scope;
 
 // POST /admin/compiles/batch/run — enqueue a compile per workspace
 

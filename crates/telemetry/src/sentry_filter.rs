@@ -601,6 +601,35 @@ mod tests {
         }
     }
 
+    /// The admin split's PR 3 moved the staff console's shared helpers down, out
+    /// of `oxy-app`'s `api::admin` (kept, and not data plane, as there): the
+    /// connect-on-demand handle and its error body (`internal-jobs: DB error`,
+    /// which every admin section's failed query logs), the staff scope fences,
+    /// the delegation bound, and the audit chain anchor. Pinned at both barriers,
+    /// so a later rule naming one of these crates cannot silently drop them.
+    #[test]
+    fn the_admin_split_move_downs_keep_their_sentry_lines() {
+        for module in [
+            "oxy_app_core::admin_db",
+            "oxy_app_core::audit::anchor",
+            "oxy_app_core::audit::event_dto",
+            "oxy_server_authz::staff::scope",
+            "oxy_server_authz::staff::org_filter",
+            "oxy_server_authz::staff::delegation",
+            "oxy_server_authz::staff::stored_grant",
+            // What stayed: the anchor loop's own log line.
+            "oxy_app::server::audit_anchor",
+        ] {
+            assert_eq!(
+                sentry_disposition(module, &Level::ERROR),
+                Disposition::Event,
+                "{module}"
+            );
+            assert!(!drop_log(Some(module)), "{module}");
+            assert!(!is_data_plane_module(module), "{module}");
+        }
+    }
+
     /// #3204. The 5xx line duplicates the handler's own error, so it raises no
     /// issue — but it is still real signal, so it is not dropped either.
     #[test]

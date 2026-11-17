@@ -1,6 +1,6 @@
 //! Scope for a row that belongs to a **person**: the user directory.
 //!
-//! [`super::scope`] fences a row by its org. A user has none — they are a member of zero
+//! [`scope`] fences a row by its org. A user has none — they are a member of zero
 //! or more orgs — so whether a bounded grant reaches one is a question about those
 //! memberships, and it has three answers:
 //!
@@ -12,7 +12,7 @@
 //!   the person on every protected route and at every login, in all of them at once.
 //!
 //! A user in no org is platform-level — an all-orgs grant and the Global Owner only —
-//! the answer [`super::scope::deny_out_of_scope_opt`] gives any org-less row. Out of
+//! the answer [`scope::deny_out_of_scope_opt`] gives any org-less row. Out of
 //! reach is the same 404 a missing user gets.
 //!
 //! A status change has a second fence past scope ([`may_change_status`]): the Global
@@ -33,9 +33,9 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use super::app_admins::{StoredGrant, delegatable, stored_grant_of};
-use super::{delegation, scope};
 use crate::server::authz::{Caller, globals};
+use oxy_server_authz::staff::stored_grant::{StoredGrant, delegatable, stored_grant_of};
+use oxy_server_authz::staff::{delegation, scope};
 
 /// Does a caller whose scope is `scope` (`None` = unbounded) reach **every** org of a
 /// user who is a member of `member_orgs`? What changing that user's status takes. A user
@@ -62,7 +62,7 @@ pub(super) fn row_in_scope(scope: Option<&[Uuid]>, org: Option<Uuid>) -> bool {
 /// whose members it may see.
 ///
 /// The Global Owner passes on the `OXY_OWNER` allow-list before any grant is read, as
-/// every by-id fence in [`super::scope`] does; everyone else is [`scope::list_scope`],
+/// every by-id fence in [`scope`] does; everyone else is [`scope::list_scope`],
 /// so an unreadable grant is a 500 and no standing reaches nobody.
 pub(super) async fn user_scope(
     db: &DatabaseConnection,

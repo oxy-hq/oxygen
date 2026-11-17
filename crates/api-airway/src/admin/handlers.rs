@@ -46,9 +46,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::KNOWN_SOURCE_KINDS;
-use oxy_app::surface::admin_db::{connect, db_err, error_body};
 use oxy_app::surface::admin_scope as scope;
 use oxy_app::surface::admin_scope::scope_org_filter;
+use oxy_app_core::admin_db::{connect, db_err, error_body};
 
 /// A config row's two editable fields plus its freshness. Shared shape for
 /// both the global row and a workspace override — `updated_at` lets Task 5's

@@ -10,6 +10,7 @@
 //! Nothing in here may depend on a per-surface crate. If something in this crate
 //! needs a surface, the dependency is pointing the wrong way.
 
+pub mod admin_db;
 pub mod agent_body;
 /// A sandbox-agent credential and its request, for tests. Behind `test-fixtures`
 /// (enabled from the dev-dependencies of the crates whose tests use it) so a

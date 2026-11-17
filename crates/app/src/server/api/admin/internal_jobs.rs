@@ -23,13 +23,14 @@
 //!   reaper / retention runs;
 //! * `internal_jobs_reach` — grant scope for all of the above.
 //!
-//! This file keeps the router, the queue stats, and the connection and error helpers
-//! the rest of the admin console reuses.
+//! This file keeps the router and the queue stats. The connection and error helpers
+//! the rest of the admin console reuses went down to `oxy_app_core::admin_db` in the
+//! admin split's PR 3.
 
 use axum::Json;
 use axum::Router;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::routing::{delete, get, post};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{DatabaseBackend, DatabaseConnection, DbErr, FromQueryResult, Statement};
@@ -50,6 +51,7 @@ pub use super::internal_jobs_fleet::{
 use super::internal_jobs_reach::{listing_scope, run_scope_clause};
 pub use super::internal_jobs_rows::QueueRowDto;
 use crate::server::router::AppState;
+use oxy_app_core::admin_db::{connect, db_err, error_body};
 
 /// Mount internal-jobs routes under `/admin`. Caller (see `admin::router`)
 /// Routes are flat (no `/internal-jobs/` prefix) — `router::global` nests
@@ -68,21 +70,6 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/scheduled", get(list_scheduled))
         .route("/run-reaper", post(run_reaper))
         .route("/run-retention", post(run_retention))
-}
-
-// Connect-on-demand helper
-
-pub async fn connect() -> Result<DatabaseConnection, Response> {
-    oxy::database::client::establish_connection()
-        .await
-        .map_err(|e| {
-            tracing::error!(?e, "internal-jobs: DB connect failed");
-            error_body(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "db_unavailable",
-                Some("Database connection failed".into()),
-            )
-        })
 }
 
 // Queue stats
@@ -184,33 +171,6 @@ fn accumulate(counts: &mut QueueStatusCounts, status: &str, n: i64) {
         "dead" => counts.dead += n,
         _ => {}
     }
-}
-
-// Error helpers
-
-/// Shared error body shape for every admin write route that reuses `connect`
-/// / `db_err` from this module (`internal_jobs` itself, plus `oxy-api-airway`'s
-/// admin write handlers, through `surface::admin_db`) — `pub(crate)` specifically
-/// so a validation-style 400 elsewhere in `admin/` doesn't have to invent a
-/// one-off shape the frontend would need to special-case.
-#[derive(Serialize)]
-pub(crate) struct ErrorBody {
-    pub(crate) code: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) message: Option<String>,
-}
-
-pub fn error_body(status: StatusCode, code: &'static str, message: Option<String>) -> Response {
-    (status, Json(ErrorBody { code, message })).into_response()
-}
-
-pub fn db_err(e: DbErr) -> Response {
-    tracing::error!(?e, "internal-jobs: DB error");
-    error_body(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "db_error",
-        Some(e.to_string()),
-    )
 }
 
 pub(super) fn not_found_row() -> Response {

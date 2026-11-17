@@ -23,7 +23,7 @@ use oxy_authz::Scope;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use crate::server::authz::{Caller, globals, loader};
+use crate::{Caller, globals, loader};
 
 /// The caller's platform scope — the **one** read of a grant's scope on this console.
 ///
@@ -201,6 +201,7 @@ pub async fn deny_out_of_scope_platform(
 /// `pub`, through the prelude's `admin_scope`, since the admin split: a staff
 /// section that left `oxy-app` (Admin → Metrics, the Explorer) narrows its
 /// cross-tenant listing in the query with this same clause rather than a copy.
+/// Down from `oxy-app`'s `api::admin::scope` in the admin split's PR 3.
 pub fn org_scope_clause(
     column: &str,
     scope: Option<&[Uuid]>,

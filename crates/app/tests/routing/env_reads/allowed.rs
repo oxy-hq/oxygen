@@ -110,22 +110,22 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "OXY_AUDIT_ANCHOR_INTERVAL_SECS",
-        "crates/app/src/server/audit_anchor.rs",
+        "crates/app-core/src/audit/anchor.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AUDIT_ANCHOR_KEY_PREFIX",
-        "crates/app/src/server/audit_anchor.rs",
+        "crates/app-core/src/audit/anchor.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AUDIT_ANCHOR_RETENTION_DAYS",
-        "crates/app/src/server/audit_anchor.rs",
+        "crates/app-core/src/audit/anchor.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (
         "OXY_AUDIT_ANCHOR_S3_BUCKET",
-        "crates/app/src/server/audit_anchor.rs",
+        "crates/app-core/src/audit/anchor.rs",
         "oxy-app read at the call site with its default; migrate to BootConfig when the module is next changed",
     ),
     (

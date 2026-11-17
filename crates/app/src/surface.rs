@@ -394,24 +394,11 @@ pub use crate::server::api::admin::assume;
 /// Platform authz, applied inside admin handlers where the org is known.
 /// `org_scope_clause` (the same fence as a SQL `ANY($n)` clause, for a
 /// cross-tenant listing narrowed in the query) joined the glob in the admin
-/// split, when it became `pub`.
+/// split, when it became `pub`. Both live in `oxy-server-authz` (`staff`) since
+/// the admin split's PR 3; this module re-exports them.
 pub mod admin_scope {
-    pub use crate::server::api::admin::org_filter::{scope_org_filter, scope_org_filter_checked};
-    pub use crate::server::api::admin::scope::*;
-}
-
-/// The admin audit log's row as the console reads it (`GET /admin/audit`), so a
-/// surface that lists audit rows (a legacy key's activity) answers with the same
-/// wire shape.
-pub mod admin_audit {
-    pub use crate::server::api::admin::audit::AuditEventDto;
-}
-
-/// The admin console's connect-on-demand database handle and its JSON error
-/// body (`{ code, message }`), so an extracted admin section answers a failed
-/// connect or query exactly the way the in-tree sections do.
-pub mod admin_db {
-    pub use crate::server::api::admin::internal_jobs::{connect, db_err, error_body};
+    pub use oxy_server_authz::staff::org_filter::{scope_org_filter, scope_org_filter_checked};
+    pub use oxy_server_authz::staff::scope::*;
 }
 
 /// Whether the caller may open the Factory, as `/meta` reports it (the

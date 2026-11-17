@@ -22,6 +22,8 @@ sea-orm = { workspace = true }
 
 # HTTP (request extensions / middleware / status codes)
 axum = { workspace = true }
+# `staff::delegation`: a refusal's JSON body (`message`, `denial`).
+serde_json = { workspace = true }
 
 # Identifiers, time, logging
 uuid = { workspace = true }

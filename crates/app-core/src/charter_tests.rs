@@ -33,6 +33,7 @@ use Kind::*;
 
 /// Modules that belong here. Sorted.
 const CHARTER: &[(&str, Kind)] = &[
+    ("admin_db", Service),
     ("agent_body", Authz),
     ("agent_fixture", Authz),
     ("agent_refusal", Authz),

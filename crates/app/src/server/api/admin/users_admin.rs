@@ -40,9 +40,10 @@ use uuid::Uuid;
 
 use serde_json::json;
 
-use crate::server::api::admin::{scope, user_scope};
+use crate::server::api::admin::user_scope;
 use crate::server::router::AppState;
 use oxy_app_core::audit;
+use oxy_server_authz::staff::scope;
 use sea_orm::ExprTrait;
 
 pub(crate) fn router() -> Router<AppState> {

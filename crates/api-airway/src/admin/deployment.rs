@@ -55,7 +55,7 @@ use sea_orm::sea_query::OnConflict;
 use sea_orm::{ActiveValue::Set, DatabaseConnection, DbErr, EntityTrait};
 use serde::Serialize;
 
-use oxy_app::surface::admin_db::{connect, db_err, error_body};
+use oxy_app_core::admin_db::{connect, db_err, error_body};
 
 /// Where the `installed` half of the response came from.
 ///

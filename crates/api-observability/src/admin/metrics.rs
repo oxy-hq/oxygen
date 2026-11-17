@@ -27,9 +27,9 @@ use uuid::Uuid;
 
 use super::metrics_pricing::{build_org_detail, build_overview};
 use super::metrics_rollup::{fetch_day_model_rows, fetch_org_model_rows, fetch_org_usage_day_rows};
-use oxy_app::surface::admin_db::{connect, db_err};
 use oxy_app::surface::admin_scope::list_scope;
 use oxy_app_core::AppState;
+use oxy_app_core::admin_db::{connect, db_err};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()

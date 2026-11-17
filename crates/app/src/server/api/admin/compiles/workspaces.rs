@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{connect, db_err, listing_scope};
-use crate::server::api::admin::scope::org_scope_clause;
+use oxy_server_authz::staff::scope::org_scope_clause;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct WorkspacesQuery {

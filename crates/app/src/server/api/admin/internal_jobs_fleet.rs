@@ -11,8 +11,8 @@ use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
 use serde::Serialize;
 
-use super::internal_jobs::{connect, db_err};
 use super::internal_jobs_reach::{deny_out_of_scope_fleet, listing_scope, run_scope_clause};
+use oxy_app_core::admin_db::{connect, db_err};
 
 // Worker fleet
 

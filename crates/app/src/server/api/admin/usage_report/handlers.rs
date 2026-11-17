@@ -13,8 +13,8 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
 use crate::emails::usage_report::{DeliveryMode, delivery_mode};
-use crate::server::api::admin::internal_jobs::{connect, db_err, error_body};
-use crate::server::api::admin::scope;
+use oxy_app_core::admin_db::{connect, db_err, error_body};
+use oxy_server_authz::staff::scope;
 
 use super::delivery::{self, CopyError};
 use super::store;
