@@ -4,6 +4,8 @@ import type { PublishAttemptList } from "@/types/appPublishAttempts";
 import type {
   AppBuildHistory,
   AppFunctionSummary,
+  AppInvocationList,
+  AppInvocationQuery,
   AppNotificationKinds,
   AppSecrets,
   BatchAppResult,
@@ -14,6 +16,7 @@ import type {
   CustomAppSummary,
   CustomDomain,
   CustomDomainsResponse,
+  EnvironmentSchedules,
   FleetHealthResponse,
   FunctionInvocation,
   FunctionLogLine,
@@ -230,6 +233,41 @@ export const CustomAppsService = {
     const response = await apiClient.get(
       `${appPath(id)}/functions/${encodeURIComponent(name)}/invocations`,
       { params: environmentParams(environment) }
+    );
+    return response.data;
+  },
+
+  /** Every function's invocations, newest first, narrowed in SQL by `query` and
+   *  capped at its `limit`. `environment` is always sent — production included —
+   *  because the endpoint reads an absent one as "every environment" for staff.
+   *  With `since`, the answer also counts the whole window (`window`). */
+  async listInvocations(id: string, query: AppInvocationQuery): Promise<AppInvocationList> {
+    // axios drops undefined params, so an unset filter is no param at all.
+    const response = await apiClient.get(`${appPath(id)}/invocations`, { params: query });
+    return response.data;
+  },
+
+  /** Run a scheduled function once as its schedule would (`?as=schedule`): no
+   *  input, the system identity, the build `environment` serves — whether or not
+   *  that environment's schedules switch is on. 409 `not_scheduled` otherwise. */
+  async runFunctionAsSchedule(
+    id: string,
+    name: string,
+    environment?: string
+  ): Promise<{ run_id: string; environment: string }> {
+    const response = await apiClient.post(
+      `${appPath(id)}/functions/${encodeURIComponent(name)}/runs`,
+      undefined,
+      { params: { as: "schedule", ...environmentParams(environment) } }
+    );
+    return response.data;
+  },
+
+  /** A non-production environment's schedules switch and rows. Production has
+   *  no switch (400 `production_has_no_switch`); an environment with no row is a 404. */
+  async getEnvironmentSchedules(id: string, name: string): Promise<EnvironmentSchedules> {
+    const response = await apiClient.get(
+      `${appPath(id)}/environments/${encodeURIComponent(name)}/schedules`
     );
     return response.data;
   },

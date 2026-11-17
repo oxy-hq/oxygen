@@ -42,6 +42,12 @@ pub struct FunctionSummary {
     /// Cron expression when the function declares a schedule.
     pub schedule: Option<String>,
     pub timezone: Option<String>,
+    /// The schedule's next fire after now, RFC 3339 UTC: what the scheduler
+    /// computes (`agentic_runtime::cron`, in `timezone`, UTC when none is
+    /// named). `None` with no schedule, or one the scheduler cannot read.
+    /// Whether a non-production environment fires it at all is its schedules
+    /// switch, which this does not read.
+    pub next_run_at: Option<String>,
     /// The function is wired as an Airway pipeline transform step.
     pub airway: bool,
     pub timeout_seconds: Option<u32>,
@@ -144,11 +150,17 @@ fn to_summary(name: String, manifest: Option<&serde_json::Value>) -> FunctionSum
             max_timeout_ms: r.max_timeout_ms,
         })
     });
+    let next_run_at = next_run_at(
+        m.schedule.as_deref(),
+        m.timezone.as_deref(),
+        chrono::Utc::now(),
+    );
     FunctionSummary {
         name,
         route,
         schedule: m.schedule,
         timezone: m.timezone,
+        next_run_at,
         airway: has_airway,
         timeout_seconds: m.timeout_seconds,
         check: m.check.unwrap_or(false),
@@ -159,6 +171,20 @@ fn to_summary(name: String, manifest: Option<&serde_json::Value>) -> FunctionSum
         input_schema: schema("inputSchema"),
         output_schema: schema("outputSchema"),
     }
+}
+
+/// The first fire of `schedule` strictly after `after`, as the scheduler
+/// reads it: the same function and the same `UTC` default the publish
+/// reconcile gives a schedule row (`custom_apps_env_schedules::reconcile`).
+pub(super) fn next_run_at(
+    schedule: Option<&str>,
+    timezone: Option<&str>,
+    after: chrono::DateTime<chrono::Utc>,
+) -> Option<String> {
+    let next =
+        agentic_runtime::cron::next_occurrence_after(schedule?, timezone.unwrap_or("UTC"), after);
+    next.ok()
+        .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────

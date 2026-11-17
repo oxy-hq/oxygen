@@ -1,4 +1,5 @@
 import type { PaginationState } from "@tanstack/react-table";
+import type { AppInvocationQuery } from "@/types/apps";
 import type { InboxFilter } from "@/types/notifications";
 
 const agentKeys = {
@@ -589,6 +590,15 @@ const customAppKeys = {
       ? (["customApps", "functions", id, name, "invocations", environment] as const)
       : (["customApps", "functions", id, name, "invocations"] as const),
   functionRun: (id: string, runId: string) => ["customApps", "functionRun", id, runId] as const,
+  /** The app-wide invocation listing for one environment, window and filter set. */
+  invocations: (id: string, query: AppInvocationQuery) =>
+    ["customApps", "invocations", id, query] as const,
+  /** Every app-wide invocation read of one app, to refetch after a run. */
+  appInvocations: (id: string) => ["customApps", "invocations", id] as const,
+  /** A non-production environment's schedules switch. Under `environments(id)`,
+   *  so anything that refreshes the app's environments refreshes it. */
+  environmentSchedules: (id: string, name: string) =>
+    ["customApps", "environments", id, name, "schedules"] as const,
   /** One invocation's call trace. A recorded trace never changes. */
   invocationCalls: (id: string, invocationId: string) =>
     ["customApps", "invocationCalls", id, invocationId] as const,

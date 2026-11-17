@@ -23,10 +23,13 @@ import { AppIdentity } from "../AppIdentity";
 import { AppLifecycle, LifecycleVerdictPill } from "../AppLifecycle";
 import { ConsolePanel } from "../ConsolePanel";
 import { AppStoragePanel } from "./AppStoragePanel";
+import { ChecksPanel } from "./Checks";
 import { EnvironmentStrip } from "./EnvironmentStrip";
 import { environmentScope } from "./environmentScope";
+import { InvocationsPanel } from "./Invocations";
 import { PreviewCard } from "./PreviewCard";
 import { PublishCiPanel } from "./PublishCiPanel";
+import { SchedulesPanel } from "./Schedules";
 import { TestNotifications } from "./TestNotifications";
 
 /**
@@ -178,6 +181,10 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
               </div>
             </ConsolePanel>
 
+            {/* Every function's invocations in the switch's environment, over a
+                window: what Functions shows one function at a time. */}
+            <InvocationsPanel app={app} environment={environment} scope={followsSwitch} />
+
             <ConsolePanel
               id='build'
               title='Live build & releases'
@@ -247,6 +254,11 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
           </div>
 
           <div className='flex min-w-0 flex-col gap-3'>
+            {/* The functions on a timer and the functions marked as checks, each
+                with its last run, in the switch's environment. */}
+            <SchedulesPanel app={app} environment={environment} scope={followsSwitch} />
+            <ChecksPanel app={app} environment={environment} scope={followsSwitch} />
+
             <AppStoragePanel app={app} />
 
             <PublishCiPanel app={app} />

@@ -1,6 +1,7 @@
 //! Unit tests for the Functions admin read side (`functions.rs`).
 
-use super::to_summary;
+use super::{next_run_at, to_summary};
+use chrono::{TimeZone, Utc};
 use serde_json::json;
 
 #[test]
@@ -78,4 +79,41 @@ fn summary_projects_declared_schemas() {
     .unwrap();
     assert_eq!(wire["input_schema"], json!({ "type": "object" }));
     assert_eq!(wire["output_schema"], serde_json::Value::Null);
+}
+
+/// The next run is the scheduler's own reading of the cron, in the schedule's
+/// timezone: 09:00 in New York is 14:00 UTC in November (EST) and 13:00 in
+/// July (EDT), and no timezone means UTC, as the schedule row defaults it.
+#[test]
+fn next_run_is_the_schedulers_reading_in_the_timezone() {
+    let november = Utc.with_ymd_and_hms(2026, 11, 17, 10, 0, 0).unwrap();
+    let ny = next_run_at(Some("0 9 * * *"), Some("America/New_York"), november);
+    assert_eq!(ny.as_deref(), Some("2026-11-17T14:00:00Z"));
+    let july = Utc.with_ymd_and_hms(2026, 7, 1, 10, 0, 0).unwrap();
+    let ny = next_run_at(Some("0 9 * * *"), Some("America/New_York"), july);
+    assert_eq!(ny.as_deref(), Some("2026-07-01T13:00:00Z"));
+    // No timezone: UTC, so 09:00 has passed and the next is tomorrow's.
+    let utc = next_run_at(Some("0 9 * * *"), None, november);
+    assert_eq!(utc.as_deref(), Some("2026-11-18T09:00:00Z"));
+    // Strictly after: a fire due exactly now is the following one.
+    let on_the_hour = next_run_at(Some("0 * * * *"), None, november);
+    assert_eq!(on_the_hour.as_deref(), Some("2026-11-17T11:00:00Z"));
+    // No schedule, an unreadable one, or an unknown zone: no next run.
+    assert_eq!(next_run_at(None, None, november), None);
+    assert_eq!(next_run_at(Some("every tuesday"), None, november), None);
+    assert_eq!(
+        next_run_at(Some("0 9 * * *"), Some("Mars/Olympus"), november),
+        None
+    );
+}
+
+#[test]
+fn summary_carries_the_next_run_of_a_schedule() {
+    let cron = json!({ "schedule": "*/15 * * * *" });
+    assert!(to_summary("tick".into(), Some(&cron)).next_run_at.is_some());
+    assert!(
+        to_summary("plain".into(), Some(&json!({})))
+            .next_run_at
+            .is_none()
+    );
 }

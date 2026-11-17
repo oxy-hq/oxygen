@@ -11,7 +11,9 @@ import type { FunctionInvocation, InvocationCalls } from "@/types/apps";
  * and the call trace beside it could not be copied at all.
  *
  * `calls` is the invocation's trace when it has been fetched (the row is open); the
- * brief says when it has not, rather than implying the trace was empty.
+ * brief says when it has not, rather than implying the trace was empty. The
+ * environment and build come from the trace when there is one, else from the row
+ * itself, which the app-wide listing sends.
  */
 export function invocationBrief(
   app: { id: string; org_slug: string; slug: string },
@@ -29,8 +31,8 @@ export function invocationBrief(
     `Function:     ${fn}`,
     `Invocation:   ${iv.id}`,
     `Mode:         ${iv.mode}`,
-    `Environment:  ${calls?.environment ?? "unknown"}`,
-    `Build:        ${calls?.build_id ?? "unknown"}`,
+    `Environment:  ${calls?.environment ?? iv.environment ?? "unknown"}`,
+    `Build:        ${calls?.build_id ?? iv.build_id ?? "unknown"}`,
     `Outcome:      ${outcome}${iv.duration_ms != null ? ` after ${iv.duration_ms}ms` : ""}`,
     `At:           ${iv.created_at}`,
     "",

@@ -30,31 +30,36 @@ function invocationTone(iv: Pick<FunctionInvocation, "status" | "failed">): stri
   return iv.failed ? ADMIN_TONE.danger.text : ADMIN_TONE.muted.text;
 }
 
-/** One invocation in a function's history. The whole line toggles its call
- *  waterfall, which is fetched only once opened. */
+/** One invocation in a function's history, or in the app-wide explorer
+ *  (`showFunction`). The whole line toggles its call waterfall, which is fetched
+ *  only once opened. */
 export const InvocationRow = ({
   appId,
   iv,
   fn,
-  appRef
+  appRef,
+  showFunction = false
 }: {
   appId: string;
   iv: FunctionInvocation;
-  /** The function's name, for the brief. */
+  /** The function's name, for the brief. Defaults to the row's own `function_name`. */
   fn?: string;
   /** When given, a failed row offers "Copy for an agent". */
   appRef?: AppRef;
+  /** Name the function on the line: for a list of every function's invocations. */
+  showFunction?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
   const callsId = useId();
   const failedSuccess = iv.status === "success" && iv.failed;
+  const fnName = fn ?? iv.function_name;
   // The same query (and cache entry) as the waterfall below, enabled with it, so the
   // brief carries the failed calls once the row is open and costs no extra request.
   const calls = useInvocationCalls(appId, iv.id, open);
   const copyBrief = async () => {
-    if (!appRef || !fn) return;
+    if (!appRef || !fnName) return;
     try {
-      await navigator.clipboard.writeText(invocationBrief(appRef, fn, iv, calls.data));
+      await navigator.clipboard.writeText(invocationBrief(appRef, fnName, iv, calls.data));
       toast.success("Invocation copied");
     } catch (err) {
       console.error("Could not copy the invocation", err);
@@ -90,6 +95,15 @@ export const InvocationRow = ({
             ? `failed${iv.result_status != null ? ` · ${iv.result_status}` : ""}`
             : iv.status}
         </span>
+        {showFunction && (
+          <span
+            className='w-36 shrink-0 truncate font-mono'
+            title={iv.function_name}
+            data-testid='admin-app-invocation-function'
+          >
+            {iv.function_name ?? "—"}
+          </span>
+        )}
         <span className='w-16 shrink-0 text-muted-foreground'>{iv.mode}</span>
         <span className='w-14 shrink-0 text-muted-foreground'>
           {iv.duration_ms != null ? formatMs(iv.duration_ms) : "—"}
@@ -124,7 +138,7 @@ export const InvocationRow = ({
             </pre>
           )}
           <InvocationCalls appId={appId} invocationId={iv.id} />
-          {iv.failed && appRef && fn && (
+          {iv.failed && appRef && fnName && (
             <div>
               <Button
                 variant='outline'
@@ -144,7 +158,8 @@ export const InvocationRow = ({
   );
 };
 
-const formatMs = (ms: number): string => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
+export const formatMs = (ms: number): string =>
+  ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 
 const RTF = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [

@@ -23,6 +23,13 @@
 //! build only such an environment serves is naming that environment, and
 //! naming neither lists production's rows alone — filtered in the query, so a
 //! page is filled from them rather than cut short.
+//!
+//! **A read can be narrowed to a window** (`?since=` / `?until=`, half-open),
+//! a `?mode=` and `?outcome=failed`, all in the same `WHERE` before `LIMIT`.
+//! The app-wide route then also answers how many rows the window holds in all
+//! ([`WindowCounts`]): the list stays capped, the count does not, so the
+//! console can say "the newest 200 of 1,412" instead of passing the cap off
+//! as the total.
 
 use std::collections::HashMap;
 
@@ -30,12 +37,16 @@ use axum::Json;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
+use chrono::{DateTime, Utc};
 use entity::prelude::{AppBuilds, AppFunctionInvocations};
 use entity::{app_builds, app_function_invocations, apps};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AppPublishTokenAuth;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Select,
+};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -48,7 +59,8 @@ pub(crate) const DEFAULT_LIMIT: u64 = 50;
 /// and environments, so the cap is a hard bound, not a default.
 pub(crate) const MAX_LIMIT: u64 = 200;
 
-/// `?function=&environment=&build=&limit=` on an invocation listing.
+/// `?function=&environment=&build=&mode=&outcome=&since=&until=&limit=` on an
+/// invocation listing.
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct InvocationQuery {
     pub function: Option<String>,
@@ -56,11 +68,34 @@ pub struct InvocationQuery {
     /// The publish's build id (`app_builds.build_id`) or the build's UUID.
     pub build: Option<String>,
     pub limit: Option<u64>,
+    /// The recorded `mode`, verbatim (`route`, `schedule`, `manual`, …).
+    pub mode: Option<String>,
+    /// `failed` — only the invocations the platform counted as failures
+    /// ([`counted_as_failure`]); `all`, the default, every one. Anything else
+    /// is `400 invalid_outcome`.
+    pub outcome: Option<String>,
+    /// RFC 3339 instants: rows created at or after `since` and before
+    /// `until`. Malformed, or `since` not before `until`, is
+    /// `400 invalid_window`.
+    pub since: Option<String>,
+    pub until: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct InvocationList {
     pub invocations: Vec<InvocationSummary>,
+    /// How many rows the window holds in all, when the read named a `since`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowCounts>,
+}
+
+/// Every row a windowed read matched, not only the `limit` it returned.
+#[derive(Debug, Default, PartialEq, Eq, Serialize)]
+pub struct WindowCounts {
+    /// Rows matching every filter of the read, in its window.
+    pub total: u64,
+    /// Of those, the ones the platform counted as failures.
+    pub failed: u64,
 }
 
 /// One recorded invocation (route / schedule / airway / manual job).
@@ -112,7 +147,80 @@ pub struct InvocationSummary {
 /// only stored for keyed calls. `cancelled`, `shed` and `running` are not
 /// failures.
 pub(crate) fn counted_as_failure(status: &str, failure_fingerprint: Option<&str>) -> bool {
-    failure_fingerprint.is_some() || matches!(status, "error" | "timeout")
+    failure_fingerprint.is_some() || FAILED_STATUSES.contains(&status)
+}
+
+/// The statuses that are failures with or without a fingerprint.
+const FAILED_STATUSES: [&str; 2] = ["error", "timeout"];
+
+/// [`counted_as_failure`] as a `WHERE` clause: `?outcome=failed` and the
+/// window's `failed` count select exactly the rows the DTO marks `failed`.
+fn failed_rows() -> sea_orm::Condition {
+    sea_orm::Condition::any()
+        .add(app_function_invocations::Column::FailureFingerprint.is_not_null())
+        .add(app_function_invocations::Column::Status.is_in(FAILED_STATUSES))
+}
+
+/// What `?mode=`, `?outcome=`, `?since=` and `?until=` narrow a read to,
+/// checked before anything is read.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Narrowing {
+    mode: Option<String>,
+    failed_only: bool,
+    since: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+}
+
+impl Narrowing {
+    pub(crate) fn of(q: &InvocationQuery) -> Result<Self, ScopeError> {
+        let failed_only = match q.outcome.as_deref().map(str::trim) {
+            None | Some("") | Some("all") => false,
+            Some("failed") => true,
+            Some(other) => {
+                return Err(ScopeError::new(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_outcome",
+                    format!("outcome is \"failed\" or \"all\"; got {other:?}"),
+                ));
+            }
+        };
+        let since = instant("since", q.since.as_deref())?;
+        let until = instant("until", q.until.as_deref())?;
+        if let (Some(since), Some(until)) = (since, until)
+            && since >= until
+        {
+            return Err(window_refused(format!(
+                "since ({}) must be before until ({})",
+                since.to_rfc3339(),
+                until.to_rfc3339()
+            )));
+        }
+        let mode = q.mode.as_deref().map(str::trim).filter(|m| !m.is_empty());
+        Ok(Self {
+            mode: mode.map(str::to_owned),
+            failed_only,
+            since,
+            until,
+        })
+    }
+}
+
+/// One bound of the window, when the query names it.
+fn instant(name: &str, raw: Option<&str>) -> Result<Option<DateTime<Utc>>, ScopeError> {
+    let Some(raw) = raw.map(str::trim).filter(|r| !r.is_empty()) else {
+        return Ok(None);
+    };
+    DateTime::parse_from_rfc3339(raw)
+        .map(|at| Some(at.with_timezone(&Utc)))
+        .map_err(|e| {
+            window_refused(format!(
+                "{name} must be an RFC 3339 instant such as 2026-11-17T09:00:00Z; got {raw:?}: {e}"
+            ))
+        })
+}
+
+fn window_refused(message: String) -> ScopeError {
+    ScopeError::new(StatusCode::BAD_REQUEST, "invalid_window", message)
 }
 
 /// A query string that does not deserialize. `limit` is the only typed
@@ -267,14 +375,27 @@ async fn environment_of(
 ///
 /// `environment`: see [`row_scope`]. `build`: an unknown one is an empty
 /// list, not an error. `limit`: 1–200, default 50; out of range is
-/// `400 invalid_limit`.
+/// `400 invalid_limit`. `mode`, `outcome`, `since`, `until`: [`Narrowing`].
 pub(crate) async fn list(
     db: &DatabaseConnection,
     app: &apps::Model,
     caller: &Caller<'_>,
     q: &InvocationQuery,
 ) -> Result<Vec<InvocationSummary>, ScopeError> {
+    Ok(read(db, app, caller, q, false).await?.invocations)
+}
+
+/// [`list`], and — when `count` is set and the read names a `since` — how
+/// many rows its window holds in all.
+async fn read(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    caller: &Caller<'_>,
+    q: &InvocationQuery,
+    count: bool,
+) -> Result<InvocationList, ScopeError> {
     let limit = parse_limit(q.limit)?;
+    let narrowing = Narrowing::of(q)?;
     let named = match q.build.as_deref().filter(|b| !b.is_empty()) {
         Some(raw) => Some(builds_named(db, app.id, raw).await?),
         None => None,
@@ -289,7 +410,23 @@ pub(crate) async fn list(
         rows.since = agent.await?;
         rows.environment = Some(environment.name());
     }
-    fetch(db, app.id, q, limit, named, rows).await
+    let windowed = count && narrowing.since.is_some();
+    let Some(select) = filtered(app.id, q, &narrowing, named, rows) else {
+        return Ok(InvocationList {
+            invocations: Vec::new(),
+            window: windowed.then(WindowCounts::default),
+        });
+    };
+    let window = if windowed {
+        Some(window_counts(db, &select).await?)
+    } else {
+        None
+    };
+    let invocations = fetch(db, app.id, select, limit).await?;
+    Ok(InvocationList {
+        invocations,
+        window,
+    })
 }
 
 /// The non-production environment a `?build=` names, when only one serves
@@ -317,6 +454,7 @@ pub(crate) async fn list_in_environment(
     q: &InvocationQuery,
 ) -> Result<Vec<InvocationSummary>, ScopeError> {
     let limit = parse_limit(q.limit)?;
+    let narrowing = Narrowing::of(q)?;
     let named = match q.build.as_deref().filter(|b| !b.is_empty()) {
         Some(raw) => Some(builds_named(db, app_id, raw).await?),
         None => None,
@@ -325,7 +463,10 @@ pub(crate) async fn list_in_environment(
         environment,
         since: None,
     };
-    fetch(db, app_id, q, limit, named, rows).await
+    match filtered(app_id, q, &narrowing, named, rows) {
+        Some(select) => fetch(db, app_id, select, limit).await,
+        None => Ok(Vec::new()),
+    }
 }
 
 /// Which rows of the app a read may return: one environment's (`None` is
@@ -336,34 +477,72 @@ struct RowFilter {
     since: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// The invocation query both listings run, filtered in SQL before `LIMIT`.
-/// `named` is the builds `?build=` named (`None` when it named none); an
-/// empty set matches nothing.
-async fn fetch(
-    db: &DatabaseConnection,
+/// The invocation query both listings run, filtered in SQL — the caller's
+/// rows, `?function=`, `?build=` and every [`Narrowing`] — before any `LIMIT`
+/// or count. `named` is the builds `?build=` named (`None` when it named
+/// none); `None` back when that set is empty, which matches nothing.
+fn filtered(
     app_id: Uuid,
     q: &InvocationQuery,
-    limit: u64,
+    narrowing: &Narrowing,
     named: Option<Vec<Uuid>>,
     rows: RowFilter,
-) -> Result<Vec<InvocationSummary>, ScopeError> {
-    let mut find =
-        AppFunctionInvocations::find().filter(app_function_invocations::Column::AppId.eq(app_id));
+) -> Option<Select<AppFunctionInvocations>> {
+    use app_function_invocations::Column;
+    let mut find = AppFunctionInvocations::find().filter(Column::AppId.eq(app_id));
     if let Some(function) = q.function.as_deref().filter(|f| !f.is_empty()) {
-        find = find.filter(app_function_invocations::Column::FunctionName.eq(function));
+        find = find.filter(Column::FunctionName.eq(function));
     }
     if let Some(environment) = rows.environment {
-        find = find.filter(app_function_invocations::Column::Environment.eq(environment));
+        find = find.filter(Column::Environment.eq(environment));
     }
     if let Some(since) = rows.since {
-        find = find.filter(app_function_invocations::Column::CreatedAt.gte(since));
+        find = find.filter(Column::CreatedAt.gte(since));
     }
     if let Some(builds) = named {
         if builds.is_empty() {
-            return Ok(Vec::new());
+            return None;
         }
-        find = find.filter(app_function_invocations::Column::BuildId.is_in(builds));
+        find = find.filter(Column::BuildId.is_in(builds));
     }
+    if let Some(mode) = &narrowing.mode {
+        find = find.filter(Column::Mode.eq(mode.as_str()));
+    }
+    if narrowing.failed_only {
+        find = find.filter(failed_rows());
+    }
+    // Half-open, so two adjacent windows never count one row twice.
+    if let Some(since) = narrowing.since {
+        find = find.filter(Column::CreatedAt.gte(since));
+    }
+    if let Some(until) = narrowing.until {
+        find = find.filter(Column::CreatedAt.lt(until));
+    }
+    Some(find)
+}
+
+/// How many rows `select` matches, and how many of those failed: two
+/// `COUNT(*)`s over the `(app_id, environment, created_at)` index.
+async fn window_counts(
+    db: &DatabaseConnection,
+    select: &Select<AppFunctionInvocations>,
+) -> Result<WindowCounts, ScopeError> {
+    let counted = |e: sea_orm::DbErr| ScopeError::internal("invocation count failed", e);
+    let total = select.clone().count(db).await.map_err(counted)?;
+    let failed = select.clone().filter(failed_rows()).count(db);
+    Ok(WindowCounts {
+        total,
+        failed: failed.await.map_err(counted)?,
+    })
+}
+
+/// The newest `limit` rows of `find`, as DTOs.
+async fn fetch(
+    db: &DatabaseConnection,
+    app_id: Uuid,
+    find: Select<AppFunctionInvocations>,
+    limit: u64,
+) -> Result<Vec<InvocationSummary>, ScopeError> {
     // `find()` selects every column, so `failure_fingerprint` and
     // `result_status` are on each row for `failed` / `result_status`.
     let rows = find
@@ -399,6 +578,7 @@ pub(crate) async fn list_of(
         Some(app) => list(db, &app, caller, q).await,
         None => {
             parse_limit(q.limit)?;
+            Narrowing::of(q)?;
             environment_scope::parse(q.environment.as_deref())?;
             Ok(Vec::new())
         }
@@ -406,9 +586,11 @@ pub(crate) async fn list_of(
 }
 
 /// `GET /admin/apps/{id}/invocations` — every function's invocations for the
-/// app, newest first, filtered by `?function=`, `?environment=`, `?build=`
-/// and bounded by `?limit=`. A non-production row is returned only to a
-/// caller with reach ([`row_scope`]).
+/// app, newest first, filtered by `?function=`, `?environment=`, `?build=`,
+/// `?mode=`, `?outcome=` and the window `?since=` / `?until=`, and bounded by
+/// `?limit=`. A read that names `since` also answers `window`: how many rows
+/// it holds past the cap. A non-production row is returned only to a caller
+/// with reach ([`row_scope`]).
 pub async fn list_app_invocations(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     marker: Option<axum::Extension<AppPublishTokenAuth>>,
@@ -418,8 +600,8 @@ pub async fn list_app_invocations(
     let Query(q) = query.map_err(rejected)?;
     let db = environment_scope::connect().await?;
     let app = environment_scope::load_app(&db, id).await?;
-    let invocations = list(&db, &app, &Caller::new(&user, marker.as_ref()), &q).await?;
-    Ok(Json(InvocationList { invocations }))
+    let caller = Caller::new(&user, marker.as_ref());
+    Ok(Json(read(&db, &app, &caller, &q, true).await?))
 }
 
 #[cfg(test)]
@@ -445,6 +627,102 @@ mod tests {
         assert!(!counted_as_failure("cancelled", None));
         assert!(!counted_as_failure("shed", None));
         assert!(!counted_as_failure("running", None));
+    }
+
+    fn query(pairs: &str) -> InvocationQuery {
+        serde_urlencoded::from_str(pairs).expect("parses")
+    }
+
+    /// `outcome` is `failed` or `all`, and nothing else; `mode` is read
+    /// verbatim, and blank means unset.
+    #[test]
+    fn outcome_and_mode_narrow_or_are_refused() {
+        assert_eq!(Narrowing::of(&query("")).unwrap(), Narrowing::default());
+        assert!(!Narrowing::of(&query("outcome=all")).unwrap().failed_only);
+        assert!(Narrowing::of(&query("outcome=failed")).unwrap().failed_only);
+        for refused in ["error", "FAILED", "true"] {
+            let e = Narrowing::of(&query(&format!("outcome={refused}"))).expect_err(refused);
+            assert_eq!(
+                (e.status, e.code),
+                (StatusCode::BAD_REQUEST, "invalid_outcome")
+            );
+        }
+        let mode = Narrowing::of(&query("mode=schedule")).unwrap().mode;
+        assert_eq!(mode.as_deref(), Some("schedule"));
+        assert_eq!(Narrowing::of(&query("mode=")).unwrap().mode, None);
+    }
+
+    /// A window is two RFC 3339 instants, `since` strictly before `until`;
+    /// either may be absent.
+    #[test]
+    fn a_window_is_two_ordered_instants() {
+        let both = Narrowing::of(&query(
+            "since=2026-11-16T09:00:00Z&until=2026-11-17T09:00:00Z",
+        ))
+        .unwrap();
+        assert_eq!(
+            both.since.map(|t| t.to_rfc3339()).as_deref(),
+            Some("2026-11-16T09:00:00+00:00")
+        );
+        assert!(both.until.is_some());
+        assert!(
+            Narrowing::of(&query("since=2026-11-16T09:00:00Z"))
+                .unwrap()
+                .until
+                .is_none()
+        );
+        for refused in [
+            "since=yesterday",
+            "until=2026-11-17",
+            "since=2026-11-17T09:00:00Z&until=2026-11-17T09:00:00Z",
+            "since=2026-11-18T09:00:00Z&until=2026-11-17T09:00:00Z",
+        ] {
+            let e = Narrowing::of(&query(refused)).expect_err(refused);
+            assert_eq!(
+                (e.status, e.code),
+                (StatusCode::BAD_REQUEST, "invalid_window"),
+                "{refused}"
+            );
+        }
+    }
+
+    /// Every narrowing lands in the `WHERE`, before the `LIMIT` — so a page of
+    /// failures is filled with failures rather than cut from a mixed page —
+    /// and `failed` is the DTO's own rule.
+    #[test]
+    fn narrowing_is_in_the_query() {
+        let q = query(
+            "function=sync&mode=schedule&outcome=failed\
+             &since=2026-11-16T09:00:00Z&until=2026-11-17T09:00:00Z",
+        );
+        let narrowing = Narrowing::of(&q).unwrap();
+        let rows = RowFilter {
+            environment: Some("staging".into()),
+            since: None,
+        };
+        let select = filtered(Uuid::nil(), &q, &narrowing, None, rows).expect("a query");
+        let sql = sea_orm::QueryTrait::build(&select, sea_orm::DbBackend::Postgres).to_string();
+        for clause in [
+            r#""function_name" = 'sync'"#,
+            r#""environment" = 'staging'"#,
+            r#""mode" = 'schedule'"#,
+            r#""failure_fingerprint" IS NOT NULL OR "app_function_invocations"."status" IN ('error', 'timeout')"#,
+            r#""created_at" >= '2026-11-16 09:00:00.000000 +00:00'"#,
+            r#""created_at" < '2026-11-17 09:00:00.000000 +00:00'"#,
+        ] {
+            assert!(sql.contains(clause), "{clause} missing from {sql}");
+        }
+        // A `?build=` that named none of this app's builds matches nothing.
+        assert!(
+            filtered(
+                Uuid::nil(),
+                &q,
+                &narrowing,
+                Some(vec![]),
+                RowFilter::default()
+            )
+            .is_none()
+        );
     }
 
     /// A read is always bounded, and an out-of-range bound is refused rather

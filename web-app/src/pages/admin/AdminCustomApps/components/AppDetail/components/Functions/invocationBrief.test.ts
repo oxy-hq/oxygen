@@ -103,4 +103,17 @@ describe("invocationBrief", () => {
     const text = invocationBrief(app, "ingest", iv({ status: "timeout", error: null }));
     expect(text).toContain("Timed out. No error text is recorded");
   });
+
+  it("reads the environment and build off the row when no trace was fetched", () => {
+    const brief = invocationBrief(
+      app,
+      "ingest",
+      iv({ environment: "staging", build_id: "b-12", function_name: "ingest" })
+    );
+    expect(brief).toContain("Environment:  staging");
+    expect(brief).toContain("Build:        b-12");
+    // The trace, when there is one, is what the brief trusts.
+    const traced = invocationBrief(app, "ingest", iv({ environment: "production" }), calls());
+    expect(traced).toContain("Environment:  staging");
+  });
 });

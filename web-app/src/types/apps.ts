@@ -226,6 +226,10 @@ export interface AppFunctionSummary {
   timeout_seconds: number | null;
   /** Marked `"check": true` in the manifest — run by `oxyc checks run`. */
   check?: boolean;
+  /** The schedule's next fire after now (RFC 3339 UTC), as the scheduler reads
+   *  the cron in `timezone`. Null with no schedule or one it cannot read. Whether
+   *  a non-production environment fires it is that environment's switch. */
+  next_run_at?: string | null;
   /** Background-run retry policy, when declared. */
   retries: {
     max_attempts: number;
@@ -341,6 +345,64 @@ export interface FunctionInvocation {
   error: string | null;
   created_at: string;
   has_result: boolean;
+  /** Sent on every row; optional for callers that built one before they were. */
+  function_name?: string;
+  environment?: string;
+  /** The publish's build id of the build that ran. */
+  build_id?: string | null;
+}
+
+/** One row of the app-wide listing (`GET /customer-apps/{id}/invocations`). */
+export interface AppInvocation extends FunctionInvocation {
+  function_name: string;
+  environment: string;
+  build_id: string | null;
+  /** `app_builds.id` of the build that ran. */
+  build_uuid: string;
+  /** `threw` | `internal` | `timeout` | `http_5xx` | `host_call` | …; null if it did not fail. */
+  error_kind: string | null;
+}
+
+/** The app-wide listing's filters. All are applied in SQL before the cap. */
+export interface AppInvocationQuery {
+  function?: string;
+  /** Always named for a read that must stay in one environment: with none, a
+   *  caller with non-production reach reads every environment's rows. */
+  environment: string;
+  /** The recorded `mode`, verbatim. */
+  mode?: string;
+  outcome?: "failed" | "all";
+  /** RFC 3339; rows at or after `since` and before `until`. */
+  since?: string;
+  until?: string;
+  /** 1–200 (the server's cap). */
+  limit?: number;
+}
+
+export interface AppInvocationList {
+  /** Newest first, at most `limit`. */
+  invocations: AppInvocation[];
+  /** Every row the window holds, past the cap — present when `since` was sent. */
+  window?: { total: number; failed: number };
+}
+
+/** A non-production environment's schedules switch, and the scheduler's rows
+ *  for it (`GET /customer-apps/{id}/environments/{name}/schedules`). */
+export interface EnvironmentSchedules {
+  environment: string;
+  /** Off by default. Production has no switch: its schedules always run. */
+  enabled: boolean;
+  schedules: {
+    id: string;
+    function: string;
+    cron_expr: string;
+    timezone: string;
+    next_run_at: string;
+    last_fired_at: string | null;
+    last_run_id: string | null;
+    last_error: string | null;
+  }[];
+  warnings: string[];
 }
 
 /** What one `ctx.*` call of an invocation did, as the host recorded it: the
