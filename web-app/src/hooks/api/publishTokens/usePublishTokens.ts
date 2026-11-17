@@ -11,10 +11,11 @@ function errorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-export const usePublishTokens = () =>
+export const usePublishTokens = (options: { enabled?: boolean } = {}) =>
   useQuery({
     queryKey: queryKeys.publishTokens.list(),
-    queryFn: PublishTokensService.list
+    queryFn: PublishTokensService.list,
+    enabled: options.enabled ?? true
   });
 
 /**

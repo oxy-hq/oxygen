@@ -12,6 +12,7 @@
 
 use oxy_app_core::llm_usage::price;
 use oxy_observability::types::OrgAppTotals;
+use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use uuid::Uuid;
@@ -194,6 +195,22 @@ pub(super) fn prior_retained(days: u32, horizon: Option<u32>) -> bool {
     horizon.is_none_or(|h| days.saturating_mul(2) <= h)
 }
 
+/// Why there is no comparison with the window before. Only one of these is a
+/// fault, so the page gives each its own sentence: telling an operator a read
+/// failed when it did not sends them looking for an outage that never happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PriorMissing {
+    /// The window before reaches past retention: its runs and events are
+    /// deleted, so it was not read.
+    Retention,
+    /// A read of the window before failed.
+    ReadFailed,
+    /// Every read came back, but the two windows priced different components:
+    /// compute was priced in this window and not in the one before.
+    Incomparable,
+}
+
 /// The prior window's reads, all of which came back.
 #[derive(Default)]
 pub(super) struct PriorReads {
@@ -284,6 +301,16 @@ pub(super) fn prior_totals(
             },
         },
     ))
+}
+
+/// Each org's prior-window total, or why there is none: the reads' own
+/// outcome, then whether what they read can be compared with this window.
+pub(super) fn compare(
+    org_ids: &[Uuid],
+    current: &Basis,
+    prior: Result<PriorReads, PriorMissing>,
+) -> Result<HashMap<Uuid, f64>, PriorMissing> {
+    prior.and_then(|p| prior_totals(org_ids, current, &p).ok_or(PriorMissing::Incomparable))
 }
 
 #[cfg(test)]

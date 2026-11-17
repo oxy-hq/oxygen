@@ -11,11 +11,14 @@ import {
  * Every sandbox agent token the caller's staff access reaches. A 403 is the capability gate
  * (`operate_platform`): asking again cannot change it, so it is not retried.
  */
-export const useSandboxAgentTokens = () =>
+export const useSandboxAgentTokens = (options: { enabled?: boolean } = {}) =>
   useQuery({
     queryKey: queryKeys.sandboxAgentTokens.list(),
     queryFn: SandboxAgentTokensService.list,
-    retry: retryUnlessRefused
+    retry: retryUnlessRefused,
+    // The Tokens page lists every kind it may; a grant that cannot see this one does not
+    // ask for it, rather than collecting a 403.
+    enabled: options.enabled ?? true
   });
 
 /**

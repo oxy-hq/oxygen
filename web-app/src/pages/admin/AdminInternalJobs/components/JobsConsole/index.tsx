@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/shadcn/checkbox";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
@@ -41,7 +42,16 @@ export const JobsConsole = () => {
   const remove = useDeleteDead();
 
   const [filter, setFilter] = useState<Filter>("all");
-  const [query, setQuery] = useState("");
+  // The search lives in the URL (`?q=`), so the "Failing now" groups above can narrow
+  // this list to one cause's jobs, and a pasted link shows the same rows.
+  const [params, setParams] = useSearchParams();
+  const query = params.get("q") ?? "";
+  const setQuery = (next: string) => {
+    const update = new URLSearchParams(params);
+    if (next) update.set("q", next);
+    else update.delete("q");
+    setParams(update, { replace: true });
+  };
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [isBulking, setIsBulking] = useState<"reenqueue" | "delete" | null>(null);
@@ -151,7 +161,11 @@ export const JobsConsole = () => {
   };
 
   return (
-    <section className='space-y-3' data-testid='admin-internal-jobs-console'>
+    <section
+      className='space-y-3'
+      id='admin-internal-jobs-console'
+      data-testid='admin-internal-jobs-console'
+    >
       <header className='flex flex-wrap items-center justify-between gap-3'>
         <div className='flex items-center gap-3'>
           <h3 className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>

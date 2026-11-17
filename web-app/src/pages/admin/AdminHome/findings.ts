@@ -1,8 +1,10 @@
 import ROUTES from "@/libs/utils/routes";
+import { compileState } from "@/pages/admin/AdminCompiles/compileState";
 import { lifecycleVerdict } from "@/pages/admin/AdminCustomApps/appStatus";
 import { groupByCause } from "@/pages/admin/AdminWorkspaceHealth/groupByCause";
 import type { AdminTone } from "@/pages/admin/components/adminTone";
 import { workerLiveness } from "@/pages/admin/components/workerLiveness";
+import type { AdminOrgMeta, AdminUserRow, AdminWorkspaceRow } from "@/services/api/adminTenants";
 import type { WorkspaceCompileRow } from "@/services/api/compiles";
 import type { QueueStatsResponse, WorkersResponse } from "@/services/api/internalJobs";
 import type { WorkspaceHealthResponse } from "@/services/api/workspaceHealth";
@@ -184,7 +186,11 @@ export function compilesReport(
 
   const findings: Finding[] = [];
   const notReady = rows.filter((r) => r.current_status !== "ready");
-  const behind = rows.filter((r) => r.current_status === "ready" && !r.current_is_latest_ready);
+  // Serving, but every compile since its last good one failed. It answers today and
+  // will keep answering yesterday's model until someone fixes it — the state that read
+  // "ready · up to date" for 18 days on dev. Same rule as the compiles page's State.
+  const failing = rows.filter((r) => r.current_status === "ready" && compileState(r) === "failing");
+  const behind = rows.filter((r) => r.current_status === "ready" && compileState(r) === "behind");
 
   if (notReady.length > 0) {
     findings.push({
@@ -193,6 +199,15 @@ export function compilesReport(
       title: `${plural(notReady.length, "workspace")} not serving`,
       // This is the 503 `needs_recompile` an operator gets paged about.
       detail: "no promoted revision — these answer 503",
+      to: ROUTES.ADMIN.COMPILES
+    });
+  }
+  if (failing.length > 0) {
+    findings.push({
+      id: "compiles-failing",
+      tone: "danger",
+      title: `${plural(failing.length, "workspace")} failing to compile`,
+      detail: "serving an older revision; every compile since has failed",
       to: ROUTES.ADMIN.COMPILES
     });
   }
@@ -271,6 +286,103 @@ export function appsReport(query: SourceInput<FleetHealthResponse>): SourceRepor
   // outage, and treating "nobody visited" as a problem is how a console teaches its
   // operators to ignore it.
   return { ...base, findings, ok: `All ${plural(data.apps.length, "published app")} serving.` };
+}
+
+/** The three tenant directories the tenants source reads, each optional by grant. */
+export type TenantInputs = {
+  orgs?: SourceInput<AdminOrgMeta[]>;
+  users?: SourceInput<AdminUserRow[]>;
+  workspaces?: SourceInput<AdminWorkspaceRow[]>;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** No members and older than `days`: an org somebody created and nobody joined. */
+export function findStaleOrgs(orgs: AdminOrgMeta[], days = 90, now = Date.now()): AdminOrgMeta[] {
+  return orgs.filter(
+    (o) =>
+      o.member_count === 0 &&
+      (!o.created_at || now - new Date(o.created_at).getTime() > days * DAY_MS)
+  );
+}
+
+/** Active users who belong to no org — signed up, and landed nowhere. */
+export function findOrglessUsers(users: AdminUserRow[]): AdminUserRow[] {
+  return users.filter((u) => u.org_count === 0 && u.status === "active");
+}
+
+/**
+ * Tenant-side triage: what the Operator overview page reported, as one source of the
+ * home. That page was a second "does anything need me" beside this one, reached only from
+ * a link at the bottom of it; two pages answering one question is how one of them stops
+ * being read.
+ *
+ * Each directory is read only when the grant reaches it (the caller passes `undefined`
+ * otherwise), and a directory that did not answer makes the whole source unanswered
+ * rather than quietly reporting the others as all clear.
+ */
+export function tenantsReport({ orgs, users, workspaces }: TenantInputs): SourceReport {
+  const base = {
+    key: "tenants",
+    label: "Tenants",
+    to: ROUTES.ADMIN.TENANTS_OF("orgs"),
+    ok: "No stale orgs, stranded users or broken workspaces."
+  };
+  const inputs: SourceInput<unknown[]>[] = [];
+  for (const q of [orgs, users, workspaces]) if (q) inputs.push(q);
+  if (inputs.length === 0 || inputs.some((q) => q.isError || !q.data)) {
+    return unanswered(base, "the tenant directories");
+  }
+
+  const findings: Finding[] = [];
+  const failed = workspaces?.data?.filter((w) => w.status === "failed") ?? [];
+  if (failed.length > 0) {
+    findings.push({
+      id: "tenants-failed-workspaces",
+      tone: "danger",
+      title: `${plural(failed.length, "workspace")} failed to provision`,
+      detail:
+        failed.length === 1 ? failed[0].name : `${failed[0].name} and ${failed.length - 1} more`,
+      to: `${ROUTES.ADMIN.WORKSPACES}?status=failed`
+    });
+  }
+  const orphan = workspaces?.data?.filter((w) => w.org_id === null) ?? [];
+  if (orphan.length > 0) {
+    findings.push({
+      id: "tenants-orphan-workspaces",
+      tone: "warn",
+      title: `${plural(orphan.length, "workspace")} with no org`,
+      detail: "nobody can reach them through an org's console",
+      to: ROUTES.ADMIN.WORKSPACES
+    });
+  }
+  const orgless = users?.data ? findOrglessUsers(users.data) : [];
+  if (orgless.length > 0) {
+    findings.push({
+      id: "tenants-orgless-users",
+      tone: "warn",
+      title: `${plural(orgless.length, "active user")} in no org`,
+      detail: "signed up and landed nowhere",
+      to: ROUTES.ADMIN.TENANTS_OF("users")
+    });
+  }
+  const stale = orgs?.data ? findStaleOrgs(orgs.data) : [];
+  if (stale.length > 0) {
+    findings.push({
+      id: "tenants-stale-orgs",
+      tone: "warn",
+      title: `${plural(stale.length, "org")} with no members after 90 days`,
+      detail: stale.length === 1 ? stale[0].name : `${stale[0].name} and ${stale.length - 1} more`,
+      to: ROUTES.ADMIN.TENANTS_OF("orgs")
+    });
+  }
+
+  const counted = [
+    orgs?.data ? plural(orgs.data.length, "org") : null,
+    users?.data ? plural(users.data.length, "user") : null,
+    workspaces?.data ? plural(workspaces.data.length, "workspace") : null
+  ].filter(Boolean);
+  return { ...base, findings, ok: `${counted.join(", ")} — nothing stranded.` };
 }
 
 const TONE_RANK: Record<Finding["tone"], number> = { danger: 0, warn: 1 };

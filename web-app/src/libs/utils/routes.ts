@@ -42,25 +42,22 @@ const ROUTES = {
     CUSTOMER_APPS: "/admin/apps",
     AIRHOUSE: "/admin/airhouse",
     APP_ADMINS: "/admin/app-admins",
-    PUBLISH_TOKENS: "/admin/publish-tokens",
-    /** Every staff member's sandbox agent tokens, with revoke. */
-    SANDBOX_AGENT_TOKENS: "/admin/sandbox-agent-tokens",
-    /** Every personal token that carries staff or partner standing, with revoke. */
-    STANDING_TOKENS: "/admin/standing-tokens",
+    /**
+     * Every long-lived credential staff can mint or revoke — app publish tokens,
+     * sandbox agent tokens, and staff & partner tokens — on one list, filtered
+     * by `?kind=`. It replaced three pages that answered one question.
+     */
+    TOKENS: "/admin/tokens",
     TENANTS: "/admin/tenants",
-    /** Tenant-side triage hub: stale orgs, org-less users, failed and orphan workspaces. */
-    TENANTS_OVERVIEW: "/admin/tenants/overview",
-    ORGS: "/admin/orgs",
+    /** The tenants directory focused on one entity type. */
+    TENANTS_OF: (type: "orgs" | "users" | "partners") => `/admin/tenants?type=${type}`,
     OLTP: "/admin/oltp",
     ORG_DETAIL: (orgId: string) => `/admin/orgs/${orgId}`,
-    USERS: "/admin/users",
     USER_DETAIL: (userId: string) => `/admin/users/${userId}`,
     WORKSPACES: "/admin/workspaces",
     WORKSPACE_DETAIL: (workspaceId: string) => `/admin/workspaces/${workspaceId}`,
     WORKSPACE_HEALTH: "/admin/workspace-health",
     AIRWAY: "/admin/airway",
-    /** The weekly report on how each organization used its custom apps. */
-    USAGE_REPORT: "/admin/usage-report",
     /**
      * What an org costs us and how its apps perform. A fleet list and a
      * per-org console on one route, the shape `/admin/apps` settled on: the
@@ -69,6 +66,11 @@ const ROUTES = {
      */
     OBSERVABILITY: "/admin/observability",
     OBSERVABILITY_ORG: (orgId: string) => `/admin/observability/orgs/${orgId}`,
+    /**
+     * Last week's custom-app usage — the report the server emails every Monday,
+     * shown as a view of Observability rather than a page of its own.
+     */
+    OBSERVABILITY_WEEKLY: "/admin/observability/weekly",
     /** The signed-in staff member's own preferences. Not a rail entry. */
     SETTINGS: "/admin/settings"
   },

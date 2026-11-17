@@ -24,17 +24,13 @@ export function formatRelative(iso: string | null | undefined): string {
  *  colours here (emerald=ready, destructive=failed, amber=compiling); the
  *  console now has one status vocabulary, so the mapping names a tone and
  *  `adminTone.ts` owns the colour. */
+/**
+ * Only a failed revision takes a colour. On this console colour means something is wrong
+ * (`pages/admin/CLAUDE.md`), and "ready" in green beside every healthy row, or
+ * "compiling" in amber on a run doing its job, spent the alarm on good news.
+ */
 function compileTone(status: string | null | undefined): AdminTone {
-  switch (status) {
-    case "ready":
-      return "ok";
-    case "failed":
-      return "danger";
-    case "compiling":
-      return "warn";
-    default:
-      return "muted";
-  }
+  return status === "failed" ? "danger" : "muted";
 }
 
 /** `<Badge>` classes for a tone. `border-transparent` because the hairline is

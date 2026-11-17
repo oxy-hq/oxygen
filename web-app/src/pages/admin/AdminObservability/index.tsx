@@ -1,6 +1,6 @@
-import { ArrowLeft, Building2, Gauge, Search } from "lucide-react";
+import { ArrowLeft, Building2, CalendarClock, Gauge, Search } from "lucide-react";
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useMatch, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import { useObservabilityFleet } from "@/hooks/api/adminObservability/useObservabilityFleet";
@@ -18,6 +18,7 @@ import { OrgStanding } from "./components/OrgStanding";
 import { PerformancePanel } from "./components/PerformancePanel";
 import { ResourcesPanel } from "./components/ResourcesPanel";
 import { DEFAULT_WINDOW, isWindow, type WindowDays, WindowPicker } from "./components/WindowPicker";
+import { WeeklyUsage } from "./weekly/WeeklyUsage";
 
 /**
  * Admin → Observability: what an org costs us, and how its apps perform.
@@ -53,6 +54,12 @@ const AdminObservability = () => {
     setParams(update, { replace: true });
   };
 
+  // Last week's usage report: a view of this surface, routed (`/weekly`) rather than a
+  // tab, like `/admin/apps/storage`. It has its own fixed period — the report's week — so
+  // the window picker does not apply to it.
+  const weekly = useMatch(ROUTES.ADMIN.OBSERVABILITY_WEEKLY);
+  if (weekly) return <WeeklyUsage />;
+
   return orgId ? (
     <OrgConsole orgId={orgId} days={days} setDays={setDays} />
   ) : (
@@ -80,6 +87,12 @@ const FleetList = ({
       description='What each organization costs us to serve, and what it did for it. Pick one to see why.'
       actions={
         <div className='flex items-center gap-2'>
+          <Button asChild variant='ghost' size='sm' className='h-7 gap-1.5 text-xs'>
+            <Link to={ROUTES.ADMIN.OBSERVABILITY_WEEKLY} data-testid='admin-observability-weekly'>
+              <CalendarClock className='size-3.5' />
+              Weekly app usage
+            </Link>
+          </Button>
           <div className='relative w-56'>
             <Search className='pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground' />
             <Input

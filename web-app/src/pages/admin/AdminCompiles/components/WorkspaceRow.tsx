@@ -1,7 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import { Fragment, useState } from "react";
-
-import { Badge } from "@/components/ui/shadcn/badge";
+import { Link } from "react-router-dom";
 import { Checkbox } from "@/components/ui/shadcn/checkbox";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import {
@@ -14,12 +13,14 @@ import {
 } from "@/components/ui/shadcn/table";
 import { useWorkspaceRevisions } from "@/hooks/api/compiles";
 import { cn } from "@/libs/shadcn/utils";
+import ROUTES from "@/libs/utils/routes";
 import { AdminAsync } from "@/pages/admin/components/AdminAsync";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import { CopyableId } from "@/pages/admin/components/CopyableId";
 import type { WorkspaceCompileRow } from "@/services/api/compiles";
-import { formatRelative, toneBadgeClass } from "../utils";
+import { compileState, STATE_LABEL, STATE_TONE } from "../compileState";
+import { formatRelative } from "../utils";
 import { RevisionRow } from "./RevisionRow";
-import { StatusBadge } from "./StatusBadge";
 
 type RevisionToggle = (id: string, shiftKey: boolean) => void;
 
@@ -50,6 +51,8 @@ export const WorkspaceRow = ({
 }) => {
   const [expanded, setExpanded] = useState(false);
   const revisions = useWorkspaceRevisions(row.workspace_id, { enabled: expanded, paused });
+  const state = compileState(row);
+  const tone = STATE_TONE[state];
 
   return (
     <Fragment>
@@ -80,20 +83,45 @@ export const WorkspaceRow = ({
         <TableCell className='max-w-0'>
           <div className='flex flex-col leading-tight'>
             <span className='truncate font-medium'>{row.workspace_name ?? "—"}</span>
-            <CopyableId value={row.workspace_id} head={8} className='self-start' />
+            {/* The org first: four workspaces called `pokehouse-oxy` were told apart
+                only by an id prefix. */}
+            <span className='flex min-w-0 items-center gap-1.5'>
+              {row.org_name ? (
+                <span className='truncate text-muted-foreground'>{row.org_name}</span>
+              ) : null}
+              <CopyableId value={row.workspace_id} head={8} />
+            </span>
           </div>
         </TableCell>
-        <TableCell>
-          <div className='flex items-center gap-1.5'>
-            <StatusBadge status={row.current_status} />
-            {row.current_is_latest_ready ? (
-              <Badge className={cn(toneBadgeClass("ok"), "px-1.5 py-0 text-[10px]")}>
-                up to date
-              </Badge>
-            ) : row.latest_status && row.latest_status !== row.current_status ? (
-              <Badge variant='outline' className='px-1.5 py-0 text-[10px]'>
-                latest: {row.latest_status}
-              </Badge>
+        <TableCell data-testid={`admin-compiles-workspace-state-${row.workspace_id}`}>
+          {/* The state against the last good revision, not the current revision's own
+              status: "ready" is true of a workspace serving an old revision while every
+              compile since has failed. Colour only when it is wrong. */}
+          <div className='flex flex-col leading-tight'>
+            <span className={cn("flex items-center gap-1.5 font-medium", ADMIN_TONE[tone].text)}>
+              {tone !== "muted" ? (
+                <span className={cn("size-1.5 rounded-full", ADMIN_TONE[tone].dot)} aria-hidden />
+              ) : null}
+              {STATE_LABEL[state]}
+            </span>
+            {state === "failing" ? (
+              <span className='text-[10px] text-muted-foreground'>
+                {row.last_ready_at
+                  ? `serving a revision from ${formatRelative(row.last_ready_at)}`
+                  : "no good revision yet"}
+                {" · "}
+                <Link
+                  to={`${ROUTES.ADMIN.INTERNAL_JOBS}?q=${encodeURIComponent(row.workspace_name ?? row.workspace_id)}`}
+                  className='underline-offset-2 hover:underline'
+                  data-testid={`admin-compiles-workspace-jobs-${row.workspace_id}`}
+                >
+                  failed jobs
+                </Link>
+              </span>
+            ) : state === "behind" ? (
+              <span className='text-[10px] text-muted-foreground'>
+                newer good revision not promoted
+              </span>
             ) : null}
           </div>
         </TableCell>
@@ -103,8 +131,10 @@ export const WorkspaceRow = ({
         <TableCell className='tabular-nums'>
           <span className='font-medium'>{row.revision_count}</span>
           <span className='text-muted-foreground'> total</span>
+          {/* Historic failures are context, not an alarm: the State column says whether
+              the workspace is failing *now*. */}
           {row.failed_count > 0 ? (
-            <span className='ml-1 text-destructive'>· {row.failed_count} failed</span>
+            <span className='ml-1 text-muted-foreground'>· {row.failed_count} failed</span>
           ) : null}
         </TableCell>
         <TableCell className='text-muted-foreground tabular-nums'>

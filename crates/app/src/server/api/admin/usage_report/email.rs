@@ -13,9 +13,11 @@ use crate::emails::usage_report::{EmailHighlight, EmailOrg, EmailStat, ReportEma
 use super::highlights::{Highlight, Tone, highlights};
 use super::model::{OrgUsage, Snapshot, Summary, plural};
 
-/// The console pages the mail links to — `ROUTES.ADMIN.USAGE_REPORT` and
-/// `ROUTES.ADMIN.SETTINGS` in `web-app/src/libs/utils/routes.ts`.
-const REPORT_PATH: &str = "/admin/usage-report";
+/// The console pages the mail links to — `ROUTES.ADMIN.OBSERVABILITY_WEEKLY` and
+/// `ROUTES.ADMIN.SETTINGS` in `web-app/src/libs/utils/routes.ts`. The report used to be a
+/// page of its own at `/admin/usage-report`; that route now redirects here, anchors and
+/// all, so mails sent before the move still land.
+const REPORT_PATH: &str = "/admin/observability/weekly";
 const SETTINGS_PATH: &str = "/admin/settings";
 
 /// How much of each list a mail carries; the rest is a count and a link.

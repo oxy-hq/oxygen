@@ -1,8 +1,9 @@
 # yaml-language-server: $schema=../../../../json-schemas/flow-test.json
 #
-# Admin → Sandbox agent tokens (`/admin/sandbox-agent-tokens`): every staff
-# member's sandbox agent tokens (`oxy_sbx_…`), newest first, with revoke
-# (web-app/src/pages/admin/AdminSandboxAgentTokens/index.tsx, over
+# Admin → Tokens, sandbox agent kind (`/admin/tokens?kind=sandbox`; the old
+# `/admin/sandbox-agent-tokens` redirects there): every staff member's sandbox
+# agent tokens (`oxy_sbx_…`), newest first, with revoke
+# (web-app/src/pages/admin/AdminTokens/index.tsx, over
 # `GET /api/admin/sandbox-agent-tokens` and `POST …/{id}/revoke`).
 #
 # NOT RECORDED YET, and in no CI bucket. It was written without a running
@@ -47,35 +48,35 @@ settings:
   max_steps: 30
 
 setup:
-  - "goto:/dev-login?email=e2e@oxy.tech&next=/admin/sandbox-agent-tokens"
+  - "goto:/dev-login?email=e2e@oxy.tech&next=%2Fadmin%2Ftokens%3Fkind%3Dsandbox"
 
 cases:
   - name: the list mounts and resolves
     tags: [admin, sandbox-agent, api-tokens, regression]
     steps:
-      - wait_for: "selector:[data-testid=admin-sandbox-tokens]"
+      - wait_for: "selector:[data-testid=admin-tokens]"
       - wait_for: "selector_hidden:[data-testid=admin-async-loading]"
     expect:
-      - assert: "selector [data-testid=admin-sandbox-tokens] is visible"
+      - assert: "selector [data-testid=admin-tokens] is visible"
       - assert: "selector [data-testid=admin-async-error] is not visible"
-      - assert: "selector [data-testid=admin-sandbox-tokens-refused] is not visible"
+      - assert: "selector [data-testid=admin-tokens-refused-sandbox] is not visible"
       # A token that has ended offers no Revoke. Asserted, not judged: run
       # against a real list, the judge read an empty Actions cell beside
       # "Revoked" as a control and failed a correct page.
-      - assert: "selector [data-testid=admin-sandbox-tokens-row][data-token-status=revoked] [data-testid=admin-sandbox-tokens-revoke] is not visible"
-      - assert: "selector [data-testid=admin-sandbox-tokens-row][data-token-status=expired] [data-testid=admin-sandbox-tokens-revoke] is not visible"
+      - assert: "selector [data-testid=admin-tokens-row][data-token-status=revoked] [data-testid=admin-tokens-revoke] is not visible"
+      - assert: "selector [data-testid=admin-tokens-row][data-token-status=expired] [data-testid=admin-tokens-revoke] is not visible"
       - judge: |
-          The page is at /admin/sandbox-agent-tokens and shows the heading
-          "Sandbox agent tokens".
+          The page is at /admin/tokens?kind=sandbox and shows the heading
+          "Tokens", filtered to sandbox agent tokens.
           Pass in either of these resolved states:
           (1) a one-line summary of how many tokens are live, above a table
-              with the columns Token, Minted by, Apps, Expiry and Last used,
+              with the columns Token, Kind, Owner, Reach, Expires and Last used,
               where each row names a token, an email address and one or more
               apps written like "org/app"; or
-          (2) the message "No agent holds a token right now." with no table.
+          (2) the message "No sandbox agent tokens." with no table.
           Fail if ANY of the following is true:
-          (a) a "Couldn't load sandbox agent tokens" message is visible;
-          (b) the text "Your staff access doesn't include this list" is
+          (a) a "Couldn’t load sandbox agent tokens" message is visible;
+          (b) the text "tokens are not shown" is
               visible;
           (c) the page is blank or shows loading placeholders that never
               resolved.
@@ -83,7 +84,7 @@ cases:
   - name: a staff member revokes a live token from the list
     tags: [admin, sandbox-agent, api-tokens, regression]
     steps:
-      - wait_for: "selector:[data-testid=admin-sandbox-tokens]"
+      - wait_for: "selector:[data-testid=admin-tokens]"
       - act: |
           Open your own token list: browser_navigate to
           /home?settings=account.tokens.
@@ -109,26 +110,26 @@ cases:
           (it reads "I've copied it").
       - wait_for: "selector_hidden:[data-testid=account-token-secret-dialog]"
       - act: |
-          Go to the staff list: browser_navigate to /admin/sandbox-agent-tokens
-          (the page is [data-testid=admin-sandbox-tokens]).
-      - wait_for: 'selector:[data-testid=admin-sandbox-tokens-table] tbody tr:first-child[data-token-name="flow admin revoke token"][data-token-status=active]'
+          Go to the staff list: browser_navigate to /admin/tokens?kind=sandbox
+          (the page is [data-testid=admin-tokens]).
+      - wait_for: 'selector:[data-testid=admin-tokens-table] tbody tr:first-child[data-token-name="flow admin revoke token"][data-token-status=active]'
       - act: |
           Revoke the new token: browser_click the
-          [data-testid=admin-sandbox-tokens-revoke] (it reads "Revoke") inside the
-          first [data-testid=admin-sandbox-tokens-row][data-token-name="flow admin revoke token"].
-      - wait_for: "selector:[data-testid=admin-sandbox-tokens-revoke-confirm]"
+          [data-testid=admin-tokens-revoke] (it reads "Revoke") inside the
+          first [data-testid=admin-tokens-row][data-token-name="flow admin revoke token"].
+      - wait_for: "selector:[data-testid=admin-tokens-sandbox-revoke-confirm]"
       - act: |
-          Confirm: browser_click [data-testid=admin-sandbox-tokens-revoke-confirm]
+          Confirm: browser_click [data-testid=admin-tokens-sandbox-revoke-confirm]
           (it reads "Revoke").
-      - wait_for: "selector_hidden:[data-testid=admin-sandbox-tokens-revoke-confirm]"
-      - wait_for: 'selector:[data-testid=admin-sandbox-tokens-table] tbody tr:first-child[data-token-name="flow admin revoke token"][data-token-status=revoked]'
+      - wait_for: "selector_hidden:[data-testid=admin-tokens-sandbox-revoke-confirm]"
+      - wait_for: 'selector:[data-testid=admin-tokens-table] tbody tr:first-child[data-token-name="flow admin revoke token"][data-token-status=revoked]'
     expect:
-      - assert: 'selector [data-testid=admin-sandbox-tokens-table] tbody tr:first-child[data-token-name="flow admin revoke token"][data-token-status=revoked] is visible'
-      - assert: 'selector [data-testid=admin-sandbox-tokens-table] tbody tr:first-child [data-testid=admin-sandbox-tokens-revoke] is not visible'
-      - assert: "selector [data-testid=admin-sandbox-tokens-revoke-confirm] is not visible"
+      - assert: 'selector [data-testid=admin-tokens-table] tbody tr:first-child[data-token-name="flow admin revoke token"][data-token-status=revoked] is visible'
+      - assert: 'selector [data-testid=admin-tokens-table] tbody tr:first-child [data-testid=admin-tokens-revoke] is not visible'
+      - assert: "selector [data-testid=admin-tokens-sandbox-revoke-confirm] is not visible"
       - assert: "selector [data-testid=admin-async-error] is not visible"
       - judge: |
-          The page is at /admin/sandbox-agent-tokens and shows a table of
+          The page is at /admin/tokens?kind=sandbox and shows a table of
           sandbox agent tokens. The first row named "flow admin revoke token"
-          reads "Revoked" in its Expiry column and has no "Revoke" button. No
+          reads "Revoked" in its Expires column and has no "Revoke" button. No
           error message is shown, and no confirmation dialog is open.

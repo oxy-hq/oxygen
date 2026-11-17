@@ -4,6 +4,7 @@ import { useQueueStats } from "@/hooks/api/internalJobs";
 import queryKeys from "@/hooks/api/queryKey";
 import { AdminAsync } from "../components/AdminAsync";
 import { AdminPage } from "../components/AdminPage";
+import { FailureGroups } from "./components/FailureGroups";
 import { HealthRibbon } from "./components/HealthRibbon";
 import { JobsConsole } from "./components/JobsConsole";
 import { LiveIndicator } from "./components/LiveIndicator";
@@ -55,9 +56,9 @@ function PageBody() {
       }
       data-testid='admin-internal-jobs'
     >
-      {/* Four independent regions, four gates: the ribbon, the console, the fleet
-          and the schedule each poll their own endpoint, so one being down must not
-          blank the other three. */}
+      {/* Five independent regions, five gates: the ribbon, the failure groups, the
+          console, the fleet and the schedule each poll their own endpoint, so one
+          being down must not blank the others. */}
       <AdminAsync
         query={queueStats}
         noun='queue stats'
@@ -65,6 +66,11 @@ function PageBody() {
       >
         {(stats) => <HealthRibbon total={stats.total} history={history} />}
       </AdminAsync>
+
+      {/* What is broken, by cause, before the job-by-job list: the question this page
+          is opened with is "what broke and why", and one recurring failure used to
+          fill the whole list. */}
+      <FailureGroups />
 
       <JobsConsole />
 

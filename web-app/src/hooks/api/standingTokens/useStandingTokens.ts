@@ -13,11 +13,14 @@ import {
  * a browser sign-in (a token, or the session `oxyc login-link` opens from one). None changes on
  * asking again, so it is not retried.
  */
-export const useStandingTokens = () =>
+export const useStandingTokens = (options: { enabled?: boolean } = {}) =>
   useQuery({
     queryKey: queryKeys.standingTokens.list(),
     queryFn: StandingTokensService.list,
-    retry: retryUnlessRefused
+    retry: retryUnlessRefused,
+    // The Tokens page lists every kind it may; a grant that cannot see this one does not
+    // ask for it, rather than collecting a 403.
+    enabled: options.enabled ?? true
   });
 
 /**

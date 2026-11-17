@@ -100,7 +100,7 @@ export function UsageReportEmailSetting({
           Send me the latest report
         </Button>
         <Link
-          to={ROUTES.ADMIN.USAGE_REPORT}
+          to={ROUTES.ADMIN.OBSERVABILITY_WEEKLY}
           className='text-muted-foreground text-xs underline underline-offset-2 transition-colors hover:text-foreground'
           data-testid='admin-settings-open-report'
         >

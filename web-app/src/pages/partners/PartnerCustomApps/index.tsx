@@ -5,7 +5,7 @@ import { type PartnerAppWithOrg, usePartnerApps, usePartnerOrgs } from "@/hooks/
 import { cn } from "@/libs/shadcn/utils";
 import { AgentSkillsButton } from "@/pages/admin/AdminCustomApps/components/AgentSkills";
 import { PartnerAppLifecycle } from "@/pages/admin/AdminCustomApps/components/AppLifecycle";
-import CiInstructions from "@/pages/admin/AdminPublishTokens/components/CiInstructions";
+import CiInstructions from "@/pages/admin/AdminTokens/components/CiInstructions";
 import {
   ADMIN_HEADER_ROW_CLASS,
   ADMIN_ROW_CLASS,

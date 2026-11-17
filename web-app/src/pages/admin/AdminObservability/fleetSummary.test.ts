@@ -6,6 +6,7 @@ import {
   isIdle,
   JUMP_FLOOR_USD,
   matchesQuery,
+  priorNote,
   summarizeFleet
 } from "./fleetSummary";
 
@@ -48,7 +49,7 @@ function fleet(rows: FleetRow[], prior_read = true): Fleet {
     storage_read: true,
     compute_priced: false,
     prior_read,
-    prior_retained: true,
+    prior_missing: prior_read ? null : "read_failed",
     provisioned_memory_mb: 128,
     rows
   };
@@ -131,5 +132,21 @@ describe("matchesQuery", () => {
     expect(matchesQuery(r, "poke-h")).toBe(true);
     expect(matchesQuery(r, "bmg")).toBe(false);
     expect(matchesQuery(r, "  ")).toBe(true);
+  });
+});
+
+describe("priorNote", () => {
+  const missing = (prior_missing: Fleet["prior_missing"]) => ({
+    ...fleet([], false),
+    prior_missing
+  });
+
+  it("says a read failed only when one did", () => {
+    expect(priorNote(missing("read_failed"))).toMatch(/^Couldn’t read/);
+    expect(priorNote(missing("retention"))).toMatch(/past data retention/);
+    expect(priorNote(missing("incomparable"))).toMatch(/count different things/);
+    for (const why of ["retention", "incomparable"] as const) {
+      expect(priorNote(missing(why))).not.toMatch(/Couldn’t read/);
+    }
   });
 });

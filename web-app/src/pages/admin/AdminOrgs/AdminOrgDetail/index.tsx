@@ -170,7 +170,7 @@ export default function AdminOrgDetail({
     remove.mutate(detail.id, {
       onSuccess: () => {
         setConfirmDelete(false);
-        navigate(ROUTES.ADMIN.ORGS);
+        navigate(ROUTES.ADMIN.TENANTS_OF("orgs"));
       }
     });
   };
@@ -186,7 +186,7 @@ export default function AdminOrgDetail({
               segments={[
                 { label: "Admin", to: ROUTES.ADMIN.TENANTS },
                 { label: "Tenants", to: ROUTES.ADMIN.TENANTS },
-                { label: "Organizations", to: ROUTES.ADMIN.ORGS },
+                { label: "Organizations", to: ROUTES.ADMIN.TENANTS_OF("orgs") },
                 { label: detail.name }
               ]}
             />

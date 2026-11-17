@@ -243,3 +243,42 @@ fn storage_failed_now_is_left_out_of_the_prior_total() {
         "an org absent then spent nothing then"
     );
 }
+
+/// Each reason for no comparison is told apart, so the page says a read failed
+/// only when one did.
+#[test]
+fn a_missing_comparison_says_why() {
+    let now = priced(400.0);
+    let ids = [org(1)];
+    assert_eq!(
+        compare(&ids, &now, Err(PriorMissing::Retention)),
+        Err(PriorMissing::Retention)
+    );
+    assert_eq!(
+        compare(&ids, &now, Err(PriorMissing::ReadFailed)),
+        Err(PriorMissing::ReadFailed)
+    );
+    assert_eq!(
+        compare(&ids, &now, Ok(prior_reads(Some(0.0)))),
+        Err(PriorMissing::Incomparable),
+        "every read came back; the windows priced different components"
+    );
+    assert!(compare(&ids, &now, Ok(prior_reads(Some(200.0)))).is_ok());
+}
+
+/// The page matches on these names.
+#[test]
+fn the_reasons_serialize_as_the_page_reads_them() {
+    let names: Vec<String> = [
+        PriorMissing::Retention,
+        PriorMissing::ReadFailed,
+        PriorMissing::Incomparable,
+    ]
+    .iter()
+    .map(|r| serde_json::to_string(r).expect("serialize"))
+    .collect();
+    assert_eq!(
+        names,
+        [r#""retention""#, r#""read_failed""#, r#""incomparable""#]
+    );
+}

@@ -29,8 +29,8 @@ use uuid::Uuid;
 
 use super::cost_rollup::{self, Period};
 use super::cost_to_serve::{
-    self, BYTES_PER_GB_DECIMAL, Basis, PriorReads, TrafficRead, Window, accumulate_cost,
-    cost_to_serve,
+    self, BYTES_PER_GB_DECIMAL, Basis, PriorMissing, PriorReads, TrafficRead, Window,
+    accumulate_cost, cost_to_serve,
 };
 use super::{WindowQuery, connect_fleet, rates, storage_rollup};
 
@@ -109,9 +109,10 @@ pub struct Fleet {
     /// retention, a read of it failed, or it priced different components — so
     /// the page drops its comparison rather than reporting every org as new.
     pub prior_read: bool,
-    /// False when the window before reaches past run or traffic retention, so
-    /// the page can say *why* there is no comparison: nothing failed.
-    pub prior_retained: bool,
+    /// Why `prior_read` is false — past retention, a failed read, or windows
+    /// that priced different components — so the page says which. Only a
+    /// failed read is a fault. `None` when there is a comparison.
+    pub prior_missing: Option<PriorMissing>,
     /// What a compute figure assumes, so the page can say so.
     pub provisioned_memory_mb: Option<f64>,
     pub rows: Vec<FleetRow>,
@@ -127,7 +128,7 @@ impl Fleet {
             storage_read: true,
             compute_priced: false,
             prior_read: true,
-            prior_retained: true,
+            prior_missing: None,
             provisioned_memory_mb: rates::provisioned_memory_mb(),
             rows: Vec::new(),
         }
@@ -271,13 +272,13 @@ impl Reader<'_> {
     }
 
     /// The prior window, when it is still retained and every read of it
-    /// came back; otherwise no comparison.
-    async fn prior(&self, retained: bool) -> Option<PriorReads> {
+    /// came back; otherwise why not.
+    async fn prior(&self, retained: bool) -> Result<PriorReads, PriorMissing> {
         if !retained {
-            return None;
+            return Err(PriorMissing::Retention);
         }
         let (cost, storage, traffic) = self.window(Period::Prior).await;
-        cost_to_serve::gather_prior(cost, storage, traffic)
+        cost_to_serve::gather_prior(cost, storage, traffic).ok_or(PriorMissing::ReadFailed)
     }
 }
 
@@ -350,15 +351,13 @@ async fn fleet(
             fleet_bill,
         },
     };
-    let prior_totals = prior
-        .as_ref()
-        .and_then(|p| cost_to_serve::prior_totals(&org_ids, &current.basis, p));
+    let prior_totals = cost_to_serve::compare(&org_ids, &current.basis, prior);
 
     let provisioned_mb = rates::provisioned_memory_mb();
     let rows = fold_fleet(FleetFold {
         orgs,
         current: &current,
-        prior: prior_totals.as_ref(),
+        prior: prior_totals.as_ref().ok(),
         provisioned_mb,
         days,
     });
@@ -368,8 +367,8 @@ async fn fleet(
         apps_measured,
         storage_read,
         compute_priced: current.basis.compute_priced(),
-        prior_read: prior_totals.is_some(),
-        prior_retained: retained,
+        prior_read: prior_totals.is_ok(),
+        prior_missing: prior_totals.as_ref().err().copied(),
         provisioned_memory_mb: provisioned_mb,
         rows,
     }))

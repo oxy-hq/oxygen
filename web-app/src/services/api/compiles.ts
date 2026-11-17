@@ -56,6 +56,8 @@ export interface ListCompilesResponse {
 export interface WorkspaceCompileRow {
   workspace_id: string;
   workspace_name: string | null;
+  /** The workspace's org — several workspaces share a name across orgs. */
+  org_name: string | null;
   workspace_path: string | null;
   current_revision_id: string | null;
   current_status: string | null;

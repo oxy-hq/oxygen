@@ -12,6 +12,7 @@ import { LiveIndicator } from "../AdminInternalJobs/components/LiveIndicator";
 import { AdminAsync } from "../components/AdminAsync";
 import { AdminEmptyState } from "../components/AdminEmptyState";
 import { AdminPage } from "../components/AdminPage";
+import { compilesSentence } from "./compileState";
 import { BulkActionBar } from "./components/BulkActionBar";
 import { CompileFilters, type CompileView } from "./components/CompileFilters";
 import { RevisionTable } from "./components/RevisionTable";
@@ -169,12 +170,18 @@ export default function AdminCompilesPage() {
             }
           >
             {(d) => (
-              <WorkspaceTable
-                rows={d.rows}
-                paused={c.paused}
-                selection={wsSelection}
-                revisionSelection={wsRevSelection}
-              />
+              <div className='space-y-2'>
+                {/* The page's first answer: is anything failing, and how much. */}
+                <p className='text-muted-foreground text-xs' data-testid='admin-compiles-sentence'>
+                  {compilesSentence(d.rows)}
+                </p>
+                <WorkspaceTable
+                  rows={d.rows}
+                  paused={c.paused}
+                  selection={wsSelection}
+                  revisionSelection={wsRevSelection}
+                />
+              </div>
             )}
           </AdminAsync>
         ) : (

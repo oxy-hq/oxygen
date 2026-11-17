@@ -39,10 +39,17 @@ pub struct WorkspacesQuery {
 pub struct WorkspaceRow {
     pub workspace_id: Uuid,
     pub workspace_name: Option<String>,
+    /// The workspace's org. Several workspaces share a name across orgs — on dev, four
+    /// called `pokehouse-oxy` told apart only by an id prefix — so the row needs it.
+    pub org_name: Option<String>,
     pub workspace_path: Option<String>,
     pub current_revision_id: Option<Uuid>,
     pub current_status: Option<String>,
     pub current_git_sha: Option<String>,
+    /// The newest **main** revision, whatever its status. Draft and staging compiles
+    /// (custom-app preview builds) are never promoted, so a failed one says nothing
+    /// about what the workspace serves: counting it would mark a healthy workspace
+    /// Failing and rank it first.
     pub latest_revision_id: Option<Uuid>,
     pub latest_status: Option<String>,
     pub latest_started_at: Option<DateTime<Utc>>,
@@ -67,6 +74,7 @@ pub struct WorkspacesResponse {
 struct WorkspaceAggRow {
     workspace_id: Uuid,
     workspace_name: Option<String>,
+    org_name: Option<String>,
     workspace_path: Option<String>,
     current_revision_id: Option<Uuid>,
     current_status: Option<String>,
@@ -93,6 +101,7 @@ impl From<WorkspaceAggRow> for WorkspaceRow {
         WorkspaceRow {
             workspace_id: r.workspace_id,
             workspace_name: r.workspace_name,
+            org_name: r.org_name,
             workspace_path: r.workspace_path,
             current_revision_id: r.current_revision_id,
             current_status: r.current_status,
@@ -115,6 +124,10 @@ impl From<WorkspaceAggRow> for WorkspaceRow {
 /// (and latest-ready) revision per workspace — no N+1 across workspaces.
 ///
 /// Narrowed to the caller's grant scope in the `WHERE`, ahead of `LIMIT`/`OFFSET`.
+///
+/// Workspaces whose latest main compile failed come first, newest first within each: the page
+/// is opened to find what is broken, and at a page size of 200 a failing workspace must
+/// not be pushed past the limit by quiet ones that compiled more recently.
 pub async fn list_workspaces(
     AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Query(query): Query<WorkspacesQuery>,
@@ -147,49 +160,7 @@ pub async fn list_workspaces(
         status_param.into(),
     ];
     let in_scope = org_scope_clause("w.org_id", reach.as_deref(), &mut values);
-    let sql = format!(
-        "SELECT \
-            w.id AS workspace_id, \
-            w.name AS workspace_name, \
-            w.path AS workspace_path, \
-            w.current_revision_id AS current_revision_id, \
-            cur.status AS current_status, \
-            cur.git_sha AS current_git_sha, \
-            latest.revision_id AS latest_revision_id, \
-            latest.status AS latest_status, \
-            latest.started_at AS latest_started_at, \
-            lr.last_ready_at AS last_ready_at, \
-            lr.latest_ready_revision_id AS latest_ready_revision_id, \
-            COALESCE(agg.revision_count, 0) AS revision_count, \
-            COALESCE(agg.ready_count, 0) AS ready_count, \
-            COALESCE(agg.failed_count, 0) AS failed_count \
-        FROM workspaces w \
-        LEFT JOIN ( \
-            SELECT workspace_id, \
-                COUNT(*) AS revision_count, \
-                COUNT(*) FILTER (WHERE status = 'ready') AS ready_count, \
-                COUNT(*) FILTER (WHERE status = 'failed') AS failed_count \
-            FROM revisions GROUP BY workspace_id \
-        ) agg ON agg.workspace_id = w.id \
-        LEFT JOIN revisions cur ON cur.revision_id = w.current_revision_id \
-        LEFT JOIN LATERAL ( \
-            SELECT revision_id, status, started_at \
-            FROM revisions r WHERE r.workspace_id = w.id \
-            ORDER BY started_at DESC LIMIT 1 \
-        ) latest ON true \
-        LEFT JOIN LATERAL ( \
-            SELECT revision_id AS latest_ready_revision_id, started_at AS last_ready_at \
-            FROM revisions r \
-            WHERE r.workspace_id = w.id AND r.status = 'ready' AND r.kind = 'main' \
-            ORDER BY started_at DESC LIMIT 1 \
-        ) lr ON true \
-        WHERE (w.path IS NOT NULL OR agg.revision_count IS NOT NULL) \
-            AND ($3::text IS NULL OR w.id::text ILIKE '%' || $3 || '%' \
-                 OR w.name ILIKE '%' || $3 || '%') \
-            AND ($4::text IS NULL OR cur.status = $4){in_scope} \
-        ORDER BY latest.started_at DESC NULLS LAST \
-        LIMIT $1 OFFSET $2"
-    );
+    let sql = workspaces_sql(&in_scope);
 
     let rows = WorkspaceAggRow::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -206,4 +177,105 @@ pub async fn list_workspaces(
         rows: out,
         total_returned,
     }))
+}
+
+/// The rollup's statement. `in_scope` is the grant fence, already bound into the
+/// values after `$1..$4`. Pure, so the shape that decides each row's state — which
+/// revisions count as its latest — is testable without a database.
+fn workspaces_sql(in_scope: &str) -> String {
+    format!(
+        "SELECT \
+        w.id AS workspace_id, \
+        w.name AS workspace_name, \
+        o.name AS org_name, \
+        w.path AS workspace_path, \
+        w.current_revision_id AS current_revision_id, \
+        cur.status AS current_status, \
+        cur.git_sha AS current_git_sha, \
+        latest.revision_id AS latest_revision_id, \
+        latest.status AS latest_status, \
+        latest.started_at AS latest_started_at, \
+        lr.last_ready_at AS last_ready_at, \
+        lr.latest_ready_revision_id AS latest_ready_revision_id, \
+        COALESCE(agg.revision_count, 0) AS revision_count, \
+        COALESCE(agg.ready_count, 0) AS ready_count, \
+        COALESCE(agg.failed_count, 0) AS failed_count \
+    FROM workspaces w \
+    LEFT JOIN organizations o ON o.id = w.org_id \
+    LEFT JOIN ( \
+        SELECT workspace_id, \
+            COUNT(*) AS revision_count, \
+            COUNT(*) FILTER (WHERE status = 'ready') AS ready_count, \
+            COUNT(*) FILTER (WHERE status = 'failed') AS failed_count \
+        FROM revisions GROUP BY workspace_id \
+    ) agg ON agg.workspace_id = w.id \
+    LEFT JOIN revisions cur ON cur.revision_id = w.current_revision_id \
+    LEFT JOIN LATERAL ( \
+        SELECT revision_id, status, started_at \
+        FROM revisions r WHERE r.workspace_id = w.id AND r.kind = 'main' \
+        ORDER BY started_at DESC LIMIT 1 \
+    ) latest ON true \
+    LEFT JOIN LATERAL ( \
+        SELECT revision_id AS latest_ready_revision_id, started_at AS last_ready_at \
+        FROM revisions r \
+        WHERE r.workspace_id = w.id AND r.status = 'ready' AND r.kind = 'main' \
+        ORDER BY started_at DESC LIMIT 1 \
+    ) lr ON true \
+    WHERE (w.path IS NOT NULL OR agg.revision_count IS NOT NULL) \
+        AND ($3::text IS NULL OR w.id::text ILIKE '%' || $3 || '%' \
+             OR w.name ILIKE '%' || $3 || '%' \
+             OR o.name ILIKE '%' || $3 || '%') \
+        AND ($4::text IS NULL OR cur.status = $4){in_scope} \
+    ORDER BY (latest.status = 'failed') DESC NULLS LAST, \
+        latest.started_at DESC NULLS LAST \
+    LIMIT $1 OFFSET $2"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `latest` lateral in isolation: the subquery a row's State is read from.
+    fn latest_lateral(sql: &str) -> &str {
+        let head = sql
+            .split(") latest ON true")
+            .next()
+            .expect("latest lateral");
+        &head[head.rfind("LEFT JOIN LATERAL").expect("lateral")..]
+    }
+
+    /// A failed draft or staging compile is a preview build's problem: those are
+    /// never promoted, so a workspace serving a good, up-to-date main revision must
+    /// not read Failing, or sort first, because of one.
+    #[test]
+    fn a_rows_latest_revision_is_its_latest_main_one() {
+        let sql = workspaces_sql("");
+        assert!(
+            latest_lateral(&sql).contains("r.kind = 'main'"),
+            "{}",
+            latest_lateral(&sql)
+        );
+    }
+
+    /// The page is opened to find what is broken: failing workspaces lead, so a page
+    /// of 200 cannot push one past the limit.
+    #[test]
+    fn failing_workspaces_sort_first() {
+        let sql = workspaces_sql("");
+        assert!(
+            sql.contains("ORDER BY (latest.status = 'failed') DESC NULLS LAST"),
+            "{sql}"
+        );
+    }
+
+    /// The grant fence narrows the rows before `LIMIT`, not after.
+    #[test]
+    fn the_grant_fence_sits_inside_the_where() {
+        let sql = workspaces_sql(" AND w.org_id IN ($5)");
+        let where_at = sql.find("WHERE (w.path").expect("where");
+        let fence_at = sql.find("w.org_id IN ($5)").expect("fence");
+        let order_at = sql.find("ORDER BY (latest").expect("order");
+        assert!(where_at < fence_at && fence_at < order_at, "{sql}");
+    }
 }

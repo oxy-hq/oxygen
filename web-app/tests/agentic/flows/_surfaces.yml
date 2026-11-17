@@ -54,7 +54,6 @@
 - surface: admin-customer-apps
   paths:
     - "src/pages/admin/AdminCustomApps/"
-    - "src/pages/admin/AdminPublishTokens/"
     # Repo-relative, not web-app-relative: `customer-apps-oxy-starter-fleet`
     # drives the SERVED example bundle, so an edit to that bundle can break the
     # flow while nothing under web-app/ moves. It did — the four-screen rewrite
@@ -141,12 +140,13 @@
   flows:
     - admin-airway-config
 
+# Both token flows drive the one Tokens page (`AdminTokens/`), each on its own kind.
 # The staff list's Apps and Expiry cells are the account list's own
 # (`PersonalTokens/components/TokenRow/components/`), so the
 # settings-account-tokens surface below names this flow too.
 - surface: admin-sandbox-agent-tokens
   paths:
-    - "src/pages/admin/AdminSandboxAgentTokens/"
+    - "src/pages/admin/AdminTokens/"
     - "src/hooks/api/sandboxAgentTokens/"
     - "src/services/api/sandboxAgentTokens.ts"
   flows:
@@ -156,7 +156,7 @@
 # settings-account-tokens surface below names this flow as well.
 - surface: admin-standing-tokens
   paths:
-    - "src/pages/admin/AdminStandingTokens/"
+    - "src/pages/admin/AdminTokens/"
     - "src/hooks/api/standingTokens/"
     - "src/services/api/standingTokens.ts"
   flows:

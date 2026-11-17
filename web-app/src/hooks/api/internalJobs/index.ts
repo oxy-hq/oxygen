@@ -1,4 +1,5 @@
 export { useDeleteDead } from "./useDeleteDead";
+export { useFailureGroups } from "./useFailureGroups";
 export { useQueueStats } from "./useQueueStats";
 export { useRecentFailures } from "./useRecentFailures";
 export { useReenqueueDead } from "./useReenqueueDead";

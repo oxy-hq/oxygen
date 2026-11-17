@@ -21,9 +21,11 @@ import { ConsolePanel, PanelRow } from "../ConsolePanel";
  * a tab — so the rail and the ⌘K palette, which both read `ADMIN_NAV`, had nothing
  * either. For one commit, minting or revoking a CI token was a type-the-URL operation.
  *
- * The module-graph walk this branch relies on cannot see that: `AdminPublishTokens` is
- * still routed in `App.tsx`, so it is reachable as a *module* while being unreachable as
- * a *surface*. Routes are the thing to check by hand.
+ * The module-graph walk this branch relies on cannot see that: `AdminPublishTokens` was
+ * still routed in `App.tsx`, so it was reachable as a *module* while being unreachable as
+ * a *surface*. Routes are the thing to check by hand. Publish tokens now live on the
+ * Tokens page (`/admin/tokens?kind=publish`), which does have a rail entry; this link
+ * opens it on this kind.
  *
  * What this panel adds beyond the link is the *specific* next command for *this* app.
  */
@@ -42,7 +44,7 @@ export const PublishCiPanel = ({ app }: { app: CustomApp }) => {
             "—"
           ) : (
             <Link
-              to={ROUTES.ADMIN.PUBLISH_TOKENS}
+              to={`${ROUTES.ADMIN.TOKENS}?kind=publish`}
               className='underline underline-offset-2 hover:text-foreground'
               data-testid='apps-console-ci-tokens-link'
             >

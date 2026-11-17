@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
+import type { AdminOrgMeta, AdminUserRow, AdminWorkspaceRow } from "@/services/api/adminTenants";
 import type { WorkspaceCompileRow } from "@/services/api/compiles";
 import type { QueueStatusCounts } from "@/services/api/internalJobs";
 import type { WorkspaceHealthEntry } from "@/services/api/workspaceHealth";
 import type { AppHealth, AppHealthRow, FleetHealthResponse } from "@/types/apps";
-import { appsReport, compilesReport, healthReport, jobsReport, rankFindings } from "./findings";
+import {
+  appsReport,
+  compilesReport,
+  findStaleOrgs,
+  healthReport,
+  jobsReport,
+  rankFindings,
+  tenantsReport
+} from "./findings";
 
 /**
  * These decide whether the console says "you are needed". Three failure modes matter more
@@ -56,6 +65,7 @@ const fleetOf = (...workers: Array<{ worker_id: string; last_claim_at: string | 
 const row = (over: Partial<WorkspaceCompileRow> = {}): WorkspaceCompileRow => ({
   workspace_id: "w",
   workspace_name: "W",
+  org_name: null,
   workspace_path: null,
   current_revision_id: "r1",
   current_status: "ready",
@@ -276,5 +286,69 @@ describe("rankFindings", () => {
     // It belongs in the "could not be checked" line, not the attention list — a source
     // that is down is not a fleet problem to triage.
     expect(rankFindings([healthReport({ data: undefined, isError: true })])).toEqual([]);
+  });
+});
+
+describe("tenantsReport", () => {
+  const OLD = "2025-01-01T00:00:00Z";
+  const org = (name: string, member_count: number, created_at = OLD) =>
+    ({ id: name, name, slug: name, created_at, member_count }) as unknown as AdminOrgMeta;
+  const user = (org_count: number, status = "active") =>
+    ({ id: `u${Math.random()}`, org_count, status }) as unknown as AdminUserRow;
+  const workspace = (name: string, status: string, org_id: string | null = "o") =>
+    ({ id: name, name, status, org_id }) as unknown as AdminWorkspaceRow;
+
+  it("is unanswered — not clear — when a directory it reads failed", () => {
+    const r = tenantsReport({
+      orgs: { data: [org("a", 2)] },
+      users: { data: undefined, isError: true }
+    });
+    expect(r.findings).toEqual([]);
+    expect(r.okTone).toBe("unknown");
+  });
+
+  it("reads only the directories it was given", () => {
+    const r = tenantsReport({ orgs: { data: [org("a", 2)] } });
+    expect(r.okTone).toBeUndefined();
+    expect(r.ok).toMatch(/^1 org —/);
+  });
+
+  it("ranks a failed workspace as danger and the stranded tenants as warn", () => {
+    const r = tenantsReport({
+      orgs: { data: [org("empty", 0), org("busy", 3)] },
+      users: { data: [user(0), user(0, "disabled"), user(2)] },
+      workspaces: { data: [workspace("w1", "failed"), workspace("w2", "ready", null)] }
+    });
+    const byId = Object.fromEntries(r.findings.map((f) => [f.id, f]));
+    expect(byId["tenants-failed-workspaces"].tone).toBe("danger");
+    expect(byId["tenants-failed-workspaces"].to).toContain("status=failed");
+    expect(byId["tenants-orphan-workspaces"].tone).toBe("warn");
+    // Only the active org-less user counts.
+    expect(byId["tenants-orgless-users"].title).toBe("1 active user in no org");
+    expect(byId["tenants-stale-orgs"].detail).toBe("empty");
+  });
+
+  it("does not call a new empty org stale", () => {
+    const now = Date.parse("2026-11-17T00:00:00Z");
+    expect(findStaleOrgs([org("new", 0, "2026-11-10T00:00:00Z")], 90, now)).toEqual([]);
+    expect(findStaleOrgs([org("old", 0, OLD)], 90, now)).toHaveLength(1);
+  });
+});
+
+describe("compilesReport — a workspace failing behind a good revision", () => {
+  it("is danger, not all clear, though its current revision is ready", () => {
+    const r = compilesReport({
+      data: {
+        rows: [
+          row({
+            current_status: "ready",
+            current_is_latest_ready: true,
+            latest_status: "failed",
+            failed_count: 52
+          })
+        ]
+      }
+    });
+    expect(r.findings.map((f) => [f.id, f.tone])).toEqual([["compiles-failing", "danger"]]);
   });
 });

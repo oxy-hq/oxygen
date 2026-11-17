@@ -116,7 +116,7 @@ describe("AdminSettings — the page", () => {
   it("links to the latest report", () => {
     mount();
     expect(screen.getByTestId("admin-settings-open-report").getAttribute("href")).toBe(
-      "/admin/usage-report"
+      "/admin/observability/weekly"
     );
   });
 

@@ -1,5 +1,8 @@
-import { ArrowRight, Building2, Check, Minus, ShieldCheck, TriangleAlert } from "lucide-react";
+import { ArrowRight, Check, Minus, ShieldCheck, TriangleAlert } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useAdminOrgsList } from "@/hooks/api/adminTenants/useAdminOrgs";
+import { useAdminUsersList } from "@/hooks/api/adminTenants/useAdminUsers";
+import { useAdminWorkspacesList } from "@/hooks/api/adminTenants/useAdminWorkspaces";
 import { useCompileWorkspaces } from "@/hooks/api/compiles";
 import { useFleetHealth } from "@/hooks/api/customApps/useFleetHealth";
 import { useQueueStats, useWorkers } from "@/hooks/api/internalJobs";
@@ -7,7 +10,7 @@ import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useWorkspaceHealth } from "@/hooks/api/workspaceHealth/useWorkspaceHealth";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
-import { navItemReachable } from "@/pages/admin/AdminLayout/adminNav";
+import { itemReachable, navItemReachable } from "@/pages/admin/AdminLayout/adminNav";
 import { AdminEmptyState } from "@/pages/admin/components/AdminEmptyState";
 import { AdminPage } from "@/pages/admin/components/AdminPage";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
@@ -17,7 +20,8 @@ import {
   healthReport,
   jobsReport,
   rankFindings,
-  type SourceReport
+  type SourceReport,
+  tenantsReport
 } from "./findings";
 
 /**
@@ -25,8 +29,10 @@ import {
  *
  * It used to redirect to Custom apps, so the console had no answer to the question people
  * actually open it with: *does anything need me right now?* Answering it meant visiting
- * Workspace health, Internal jobs, Compiles and Apps in turn and holding four partial
- * pictures in your head. This page asks all four at once and ranks what comes back.
+ * Workspace health, Internal jobs, Compiles, Apps and the tenant directories in turn and
+ * holding five partial pictures in your head. This page asks all of them at once and
+ * ranks what comes back. (The tenant directories had a page of their own, the Operator
+ * overview — a second "does anything need me", reached only from a link here.)
  *
  * Two rules keep it honest:
  *
@@ -38,6 +44,8 @@ import {
  */
 /** One page of compile rows. The all-clear sentence says so when the page comes back full. */
 const COMPILE_PAGE = 200;
+/** One page of each tenant directory — what the operator overview read, at ~100 orgs ample. */
+const TENANT_PAGE = 200;
 
 export default function AdminHome() {
   const { data: user } = useCurrentUser();
@@ -51,9 +59,13 @@ export default function AdminHome() {
   const canJobs = can(ROUTES.ADMIN.INTERNAL_JOBS);
   const canCompiles = can(ROUTES.ADMIN.COMPILES);
   const canApps = can(ROUTES.ADMIN.CUSTOMER_APPS);
-  // The overview reads the org / user / workspace directories, so gate it on the same
-  // capability the Organizations rail entry declares.
-  const canTenants = can(ROUTES.ADMIN.TENANTS);
+  // The tenants source reads three directories, each behind its own rule: orgs and users
+  // the capability their rail entries declare, workspaces the owner-only gate the
+  // cross-org workspace list sits behind. A grant reaching none of them has no source.
+  const canOrgs = itemReachable({ capability: "manage_org_settings" }, standing);
+  const canUsers = itemReachable({ capability: "manage_members" }, standing);
+  const canWorkspaces = standing.isOwner;
+  const canTenants = canOrgs || canUsers || canWorkspaces;
 
   // Fetching is gated on the same standing that decides whether the section renders, not
   // just the result: `/admin` is now the rail logo's target and every stale bookmark's
@@ -72,12 +84,22 @@ export default function AdminHome() {
     { paused: true, enabled: canCompiles }
   );
   const apps = useFleetHealth(false, { enabled: canApps });
+  const orgs = useAdminOrgsList({ page_size: TENANT_PAGE }, { enabled: canOrgs });
+  const users = useAdminUsersList({ page_size: TENANT_PAGE }, { enabled: canUsers });
+  const workspaces = useAdminWorkspacesList({ page_size: TENANT_PAGE }, { enabled: canWorkspaces });
 
   const reports: SourceReport[] = [
     canHealth ? healthReport(health) : null,
     canJobs ? jobsReport(stats, workers) : null,
     canCompiles ? compilesReport(compiles, COMPILE_PAGE) : null,
-    canApps ? appsReport(apps) : null
+    canApps ? appsReport(apps) : null,
+    canTenants
+      ? tenantsReport({
+          orgs: canOrgs ? orgs : undefined,
+          users: canUsers ? users : undefined,
+          workspaces: canWorkspaces ? workspaces : undefined
+        })
+      : null
   ].filter((r): r is SourceReport => r !== null);
 
   const findings = rankFindings(reports);
@@ -87,7 +109,10 @@ export default function AdminHome() {
     (canHealth && health.isPending) ||
     (canJobs && (stats.isPending || workers.isPending)) ||
     (canCompiles && compiles.isPending) ||
-    (canApps && apps.isPending);
+    (canApps && apps.isPending) ||
+    (canOrgs && orgs.isPending) ||
+    (canUsers && users.isPending) ||
+    (canWorkspaces && workspaces.isPending);
 
   return (
     <AdminPage
@@ -142,7 +167,7 @@ export default function AdminHome() {
         <AdminEmptyState
           icon={ShieldCheck}
           title='Nothing to monitor with this grant.'
-          description='Your platform grant does not reach workspace health, internal jobs, compiles or custom apps. The rail shows everything you can open.'
+          description='Your platform grant does not reach workspace health, internal jobs, compiles, custom apps or the tenant directories. The rail shows everything you can open.'
         />
       ) : null}
 
@@ -180,17 +205,6 @@ export default function AdminHome() {
             ))}
           </ul>
         </section>
-      ) : null}
-      {canTenants ? (
-        <Link
-          to={ROUTES.ADMIN.TENANTS_OVERVIEW}
-          data-testid='admin-home-tenants-overview'
-          className='flex items-center gap-2 text-muted-foreground text-xs transition-colors hover:text-foreground'
-        >
-          <Building2 className='size-3' />
-          Tenant-side triage: stale orgs, users with no org, orphan workspaces
-          <ArrowRight className='size-3' />
-        </Link>
       ) : null}
     </AdminPage>
   );

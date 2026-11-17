@@ -66,7 +66,9 @@ export const RevisionRow = ({
         <div className='flex items-center gap-1.5'>
           <StatusBadge status={row.status} />
           {row.is_current_for_workspace ? (
-            <Badge className={cn(toneBadgeClass("ok"), "px-1.5 py-0 text-[10px]")}>current</Badge>
+            <Badge className={cn(toneBadgeClass("muted"), "px-1.5 py-0 text-[10px]")}>
+              current
+            </Badge>
           ) : null}
           {row.kind === "draft" ? (
             <Badge variant='outline' className='px-1.5 py-0 text-[10px]'>

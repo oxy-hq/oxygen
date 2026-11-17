@@ -251,12 +251,20 @@ export interface Fleet {
    * comparison is drawn.
    */
   prior_read: boolean;
-  /** False when the window before reaches past retention: nothing failed. */
-  prior_retained: boolean;
+  /**
+   * Why `prior_read` is false, so the page says which: `retention` (the window
+   * before is past data retention), `read_failed` (the only fault), or
+   * `incomparable` (compute priced in this window and not the one before).
+   * `null` when there is a comparison.
+   */
+  prior_missing: PriorMissing | null;
   /** What a compute figure assumes. */
   provisioned_memory_mb: number | null;
   rows: FleetRow[];
 }
+
+/** Why a fleet response carries no comparison with the window before. */
+export type PriorMissing = "retention" | "read_failed" | "incomparable";
 
 export const AdminObservabilityService = {
   async fleet(days: number): Promise<Fleet> {

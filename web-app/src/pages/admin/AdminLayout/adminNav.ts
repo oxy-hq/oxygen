@@ -9,9 +9,7 @@
 import {
   Activity,
   AppWindow,
-  Bot,
   Building2,
-  ChartColumn,
   Database,
   FileCheck,
   Flag,
@@ -34,10 +32,17 @@ import type { PlatformCapability } from "@/types/auth";
 /**
  * The rail's groups, in the order they are rendered. Their labels are here rather than
  * in the sidebar because the topbar breadcrumb names them too.
+ *
+ * Four groups, by the question an operator brings: is something broken (Health), who is
+ * on the platform and what do they run (Tenants), what does it cost (Cost & usage), and
+ * who may do what (Access). They replaced a fifteen-item "Operations" group that held
+ * all four questions in the order the pages happened to be built.
  */
 export const ADMIN_NAV_GROUPS = {
-  operations: "Operations",
-  tenants: "Tenants"
+  health: "Health",
+  tenants: "Tenants",
+  cost: "Cost & usage",
+  access: "Access"
 } as const;
 
 export type AdminNavGroup = keyof typeof ADMIN_NAV_GROUPS;
@@ -67,37 +72,91 @@ export type AdminNavItem = {
  * non-owner could reach, written before capabilities existed. Adding a capability to a
  * nav item made it appear and then bounce, because the two lists disagreed — which is
  * how `Staff access` shipped visible and unreachable for every Global Admin.
+ *
+ * Order is the rail's order within each group, and the first reachable entry is where
+ * [`firstReachableAdminRoute`] sends someone, so the groups are kept contiguous.
  */
 export const ADMIN_NAV: AdminNavItem[] = [
-  // Billing queue is strict Global Owner — "billing adjustment" per the
-  // server-side route_layer in admin/mod.rs (OXY_OWNER env-var allow-list).
+  // ── Health ────────────────────────────────────────────────────────────────
   {
-    to: ROUTES.ADMIN.BILLING_QUEUE,
-    label: "Billing queue",
-    icon: Inbox,
-    ownerOnly: true,
-    group: "operations"
-  },
-  {
-    to: ROUTES.ADMIN.FEATURE_FLAGS,
-    label: "Feature flags",
-    icon: Flag,
+    to: ROUTES.ADMIN.WORKSPACE_HEALTH,
+    label: "Workspace health",
+    icon: HeartPulse,
     capability: "operate_platform",
-    group: "operations"
+    group: "health"
   },
   {
     to: ROUTES.ADMIN.INTERNAL_JOBS,
     label: "Internal jobs",
     icon: Activity,
     capability: "operate_platform",
-    group: "operations"
+    group: "health"
   },
   {
     to: ROUTES.ADMIN.COMPILES,
     label: "Compile revisions",
     icon: FileCheck,
     capability: "operate_platform",
-    group: "operations"
+    group: "health"
+  },
+  // Deployment-wide operational config, beside Workspace health / routing /
+  // metrics — the server gates it on exactly that capability
+  // (`admin::router()` mounts `airway_config` under
+  // `cap(Action::PlatformOperate)`), so this must too.
+  //
+  // It was `ownerOnly: true`, written when the surface really was mounted
+  // under the strict OXY_OWNER guard. When the backend moved to the
+  // capability, this entry did not, and the two disagreeing is worse than
+  // either alone: `canReachAdminRoute` votes with the same rule, so a
+  // `operate_platform` holder was bounced off a page the API would serve them
+  // — the link absent, the route redirecting, and `GET /admin/airway/config`
+  // returning 200 the whole time.
+  //
+  // The original rationale (a policy flip can halt every pipeline of a kind)
+  // is real and is answered where it belongs: the page previews the blast
+  // radius and confirms a save that is not provably clean. It is not an
+  // argument for a *narrower audience* than the endpoint has.
+  {
+    to: ROUTES.ADMIN.AIRWAY,
+    label: "Airway",
+    icon: Waypoints,
+    capability: "operate_platform",
+    group: "health"
+  },
+
+  // ── Tenants ───────────────────────────────────────────────────────────────
+  // Tenant management: the unified, relationship-first directory of orgs /
+  // partners / users (workspaces live one level down, inside their org). Each
+  // entry is a shortcut to one entity type of the SAME surface — clicking
+  // "Partners" here is identical to picking Partners in the directory's own
+  // header switcher (both just drive `?type=`). Open to owner OR app admin.
+  {
+    to: ROUTES.ADMIN.TENANTS_OF("orgs"),
+    label: "Organizations",
+    icon: Building2,
+    capability: "manage_org_settings",
+    group: "tenants"
+  },
+  {
+    to: ROUTES.ADMIN.TENANTS_OF("partners"),
+    label: "Partners",
+    icon: Handshake,
+    capability: "manage_partners",
+    group: "tenants"
+  },
+  {
+    to: ROUTES.ADMIN.TENANTS_OF("users"),
+    label: "Users",
+    icon: Users,
+    capability: "manage_members",
+    group: "tenants"
+  },
+  {
+    to: ROUTES.ADMIN.CUSTOMER_APPS,
+    label: "Custom apps",
+    icon: AppWindow,
+    capability: "manage_apps",
+    group: "tenants"
   },
   {
     to: ROUTES.ADMIN.OLTP,
@@ -122,15 +181,35 @@ export const ADMIN_NAV: AdminNavItem[] = [
     label: "Explorer",
     icon: Telescope,
     capability: "view_tenants",
-    group: "operations"
+    group: "tenants"
   },
+
+  // ── Cost & usage ──────────────────────────────────────────────────────────
+  // What an org costs us and how its apps perform — and, at
+  // `/admin/observability/weekly`, the Monday usage report that used to be a page
+  // of its own. Gated like the other fleet-wide readouts — the server mounts the
+  // whole section, and every `/admin/usage-report` API route, under
+  // `PlatformOperate` — and deliberately NOT `manage_apps`: an App Operator ships
+  // custom apps and nothing else, and what every tenant costs the company is not
+  // part of shipping one.
   {
-    to: ROUTES.ADMIN.AUDIT,
-    label: "Audit log",
-    icon: ScrollText,
-    capability: "view_audit",
-    group: "operations"
+    to: ROUTES.ADMIN.OBSERVABILITY,
+    label: "Observability",
+    icon: Gauge,
+    capability: "operate_platform",
+    group: "cost"
   },
+  // Billing queue is strict Global Owner — "billing adjustment" per the
+  // server-side route_layer in admin/mod.rs (OXY_OWNER env-var allow-list).
+  {
+    to: ROUTES.ADMIN.BILLING_QUEUE,
+    label: "Billing queue",
+    icon: Inbox,
+    ownerOnly: true,
+    group: "cost"
+  },
+
+  // ── Access ────────────────────────────────────────────────────────────────
   // "Global admins" manages the `app_admins` table itself — "promotion /
   // demotion of admin", strict Global Owner only.
   {
@@ -141,128 +220,34 @@ export const ADMIN_NAV: AdminNavItem[] = [
     label: "Staff access",
     icon: ShieldCheck,
     capability: "manage_platform_grants",
-    group: "operations"
+    group: "access"
   },
+  // One list of every credential staff can mint or revoke. The entry takes the widest
+  // of its three kinds' gates — app publish tokens, which the server mounts under
+  // `cap(Action::PlatformApps)` — and each kind on the page is gated by its own rule
+  // (`TOKEN_KINDS` in `AdminTokens/tokenRows.ts`), so a narrower grant sees fewer kinds,
+  // not a 403. It replaced three pages, one of which (publish tokens) had no rail entry
+  // at all and was reachable only from a count in the app console.
   {
-    to: ROUTES.ADMIN.CUSTOMER_APPS,
-    label: "Custom apps",
-    icon: AppWindow,
-    capability: "manage_apps",
-    group: "operations"
-  },
-  // Publish tokens has no nav item: it is part of shipping apps, not a separate
-  // surface. It used to be a tab inside Custom apps (`/admin/apps?view=tokens`); that
-  // tab is gone, and the path to `/admin/publish-tokens` is now the token count in the
-  // app console's Publishing & CI panel. If that link goes, so does the only way in —
-  // the rail and the ⌘K palette both build from this list, so an omission here is not
-  // "hidden", it is unreachable.
-  //
-  // The weekly report on how organizations used those apps. It sits beside Custom apps
-  // because that is what it is about, but it is gated like the other fleet-wide readouts:
-  // the server mounts all four `/admin/usage-report` routes under `operate_platform`, so
-  // an App Operator — who holds `manage_apps` and nothing else — is not offered it.
-  {
-    to: ROUTES.ADMIN.USAGE_REPORT,
-    label: "Usage report",
-    icon: ChartColumn,
-    capability: "operate_platform",
-    group: "operations"
-  },
-  // What an org costs us and how its apps perform. Gated like the other
-  // fleet-wide readouts — the server mounts the whole section under
-  // `PlatformOperate` — and deliberately NOT `manage_apps`: an App Operator
-  // ships custom apps and nothing else, and what every tenant costs the
-  // company is not part of shipping one.
-  //
-  // It sits beside the usage report because they answer adjacent questions,
-  // and apart because they are different instruments: the report is a weekly
-  // period snapshot that gets emailed, this is a live window-selectable
-  // readout.
-  {
-    to: ROUTES.ADMIN.OBSERVABILITY,
-    label: "Observability",
-    icon: Gauge,
-    capability: "operate_platform",
-    group: "operations"
-  },
-
-  // Sandbox agent tokens: every staff member's, with revoke. The route gate is
-  // `cap(Action::PlatformOperate)` on `sandbox_agent_tokens::router()`, so an App
-  // Operator, who may mint one, is not shown the shared list.
-  {
-    to: ROUTES.ADMIN.SANDBOX_AGENT_TOKENS,
-    label: "Sandbox agent tokens",
-    icon: Bot,
-    capability: "operate_platform",
-    group: "operations"
-  },
-  // Staff & partner tokens: every personal token that carries its owner's standing,
-  // with revoke. Seeing who holds one is the same question as who holds staff access,
-  // so it is gated as Staff access is: `manage_platform_grants`, on this entry and on
-  // `GET /api/admin/standing-tokens`.
-  {
-    to: ROUTES.ADMIN.STANDING_TOKENS,
-    label: "Staff & partner tokens",
+    to: ROUTES.ADMIN.TOKENS,
+    label: "Tokens",
     icon: KeyRound,
-    capability: "manage_platform_grants",
-    group: "operations"
+    capability: "manage_apps",
+    group: "access"
   },
   {
-    to: ROUTES.ADMIN.WORKSPACE_HEALTH,
-    label: "Workspace health",
-    icon: HeartPulse,
+    to: ROUTES.ADMIN.FEATURE_FLAGS,
+    label: "Feature flags",
+    icon: Flag,
     capability: "operate_platform",
-    group: "operations"
-  },
-  // Deployment-wide operational config, beside Workspace health / routing /
-  // metrics — the server gates it on exactly that capability
-  // (`admin::router()` mounts `airway_config` under
-  // `cap(Action::PlatformOperate)`), so this must too.
-  //
-  // It was `ownerOnly: true`, written when the surface really was mounted
-  // under the strict OXY_OWNER guard. When the backend moved to the
-  // capability, this entry did not, and the two disagreeing is worse than
-  // either alone: `canReachAdminRoute` votes with the same rule, so a
-  // `operate_platform` holder was bounced off a page the API would serve them
-  // — the link absent, the route redirecting, and `GET /admin/airway/config`
-  // returning 200 the whole time.
-  //
-  // The original rationale (a policy flip can halt every pipeline of a kind)
-  // is real and is answered where it belongs: the page previews the blast
-  // radius and confirms a save that is not provably clean. It is not an
-  // argument for a *narrower audience* than the endpoint has.
-  {
-    to: ROUTES.ADMIN.AIRWAY,
-    label: "Airway",
-    icon: Waypoints,
-    capability: "operate_platform",
-    group: "operations"
-  },
-  // Tenant management: the unified, relationship-first directory of orgs /
-  // partners / users (workspaces live one level down, inside their org). Each
-  // entry is a shortcut to one entity type of the SAME surface — clicking
-  // "Partners" here is identical to picking Partners in the directory's own
-  // header switcher (both just drive `?type=`). Open to owner OR app admin.
-  {
-    to: `${ROUTES.ADMIN.TENANTS}?type=orgs`,
-    label: "Organizations",
-    icon: Building2,
-    capability: "manage_org_settings",
-    group: "tenants"
+    group: "access"
   },
   {
-    to: `${ROUTES.ADMIN.TENANTS}?type=partners`,
-    label: "Partners",
-    icon: Handshake,
-    capability: "manage_partners",
-    group: "tenants"
-  },
-  {
-    to: `${ROUTES.ADMIN.TENANTS}?type=users`,
-    label: "Users",
-    icon: Users,
-    capability: "manage_members",
-    group: "tenants"
+    to: ROUTES.ADMIN.AUDIT,
+    label: "Audit log",
+    icon: ScrollText,
+    capability: "view_audit",
+    group: "access"
   }
 ];
 
@@ -395,21 +380,21 @@ export function firstReachableAdminRoute(standing: Standing): string {
 }
 
 /**
- * Pages that have a title but no rail entry: the flat directories the tenants surface
- * links down into; Publish tokens, which is reached from the app console's
- * Publishing & CI panel; and Settings, which is reached from the rail footer's user menu
- * and from the usage report.
+ * Pages that have a title but no rail entry: the cross-org workspace directory the
+ * tenants surface links down into; the weekly usage report, a view of Observability;
+ * and Settings, which is reached from the rail footer's user menu.
  */
 const UNLISTED_TITLES: Record<string, string> = {
   // The console home. Deliberately not a rail entry — the rail's logo is its affordance.
   [ROUTES.ADMIN.ROOT]: "Operations",
-  // Tenant-side triage. Not a rail entry either: it is reached from the console home,
-  // and until then nothing linked to it at all — the route existed, unreferenced.
-  [ROUTES.ADMIN.TENANTS_OVERVIEW]: "Operator overview",
-  [ROUTES.ADMIN.ORGS]: "Organizations",
-  [ROUTES.ADMIN.USERS]: "Users",
+  // Prefixes of the org and user detail pages. Their list pages are gone — each
+  // redirects to its tenants rail — but `/admin/orgs/<id>` still needs a name and a group.
+  "/admin/orgs": "Organizations",
+  "/admin/users": "Users",
   [ROUTES.ADMIN.WORKSPACES]: "Workspaces",
-  [ROUTES.ADMIN.PUBLISH_TOKENS]: "Publish tokens",
+  // Named exactly: it sits under Observability's path, so a prefix scan would call it
+  // "Observability" — right group, wrong page.
+  [ROUTES.ADMIN.OBSERVABILITY_WEEKLY]: "Weekly app usage",
   [ROUTES.ADMIN.SETTINGS]: "Settings"
 };
 
@@ -420,8 +405,6 @@ const UNLISTED_TITLES: Record<string, string> = {
  * breadcrumb reads `Admin / Tenants / Settings`.
  */
 const UNLISTED_OUTSIDE_TENANTS = new Set<string>([
-  // Belongs to shipping apps, not to the tenant directories.
-  ROUTES.ADMIN.PUBLISH_TOKENS,
   // One person's preferences. It belongs to no group at all.
   ROUTES.ADMIN.SETTINGS
 ]);
@@ -484,8 +467,7 @@ export function adminPageGroup(pathname: string, search = ""): AdminNavGroup | n
   const unlisted = Object.keys(UNLISTED_TITLES)
     .filter((p) => p !== ROUTES.ADMIN.ROOT && within(p))
     .sort((a, b) => b.length - a.length)[0];
-  // Publish tokens belongs to shipping apps, not to the tenant directories, and Settings
-  // to no group; the home is not a tenant page either, and being every path's prefix it
-  // would claim all of them. (The reason changed when the tab went; the exclusion did not.)
+  // Settings belongs to no group; the home is not a tenant page either, and being every
+  // path's prefix it would claim all of them.
   return unlisted && !UNLISTED_OUTSIDE_TENANTS.has(unlisted) ? "tenants" : null;
 }

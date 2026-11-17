@@ -1,5 +1,5 @@
 import ROUTES from "@/libs/utils/routes";
-import type { UsageHighlight, UsageHighlightKind } from "@/types/usageReport";
+import type { UsageHighlight, UsageHighlightKind, UsageOrg } from "@/types/usageReport";
 
 /** One app's console, where a highlight or a table row sends the reader. */
 export const appConsolePath = (orgSlug: string, appSlug: string): string =>
@@ -122,4 +122,13 @@ export function highlightsByTone(highlights: readonly UsageHighlight[]): Highlig
     else groups.attention.push(highlight);
   }
   return groups;
+}
+
+/**
+ * An organization that did nothing all week: nobody opened an app, no function ran,
+ * nothing was released. The compact table folds these into one line — at a fleet of ~100
+ * most rows are this, and they were burying the ones that moved.
+ */
+export function isQuietOrg(org: UsageOrg): boolean {
+  return org.people === 0 && org.views === 0 && org.function_calls === 0 && org.releases === 0;
 }

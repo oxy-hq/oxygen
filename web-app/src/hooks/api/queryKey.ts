@@ -734,6 +734,7 @@ const internalJobsKeys = {
   queueStats: () => [...internalJobsKeys.all, "queue-stats"] as const,
   recentFailures: (limit?: number) =>
     [...internalJobsKeys.all, "recent-failures", limit ?? 50] as const,
+  failureGroups: (days: number) => [...internalJobsKeys.all, "failure-groups", days] as const,
   deadLetter: (limit?: number, offset?: number) =>
     [...internalJobsKeys.all, "dead-letter", limit ?? 50, offset ?? 0] as const,
   workers: () => [...internalJobsKeys.all, "workers"] as const,

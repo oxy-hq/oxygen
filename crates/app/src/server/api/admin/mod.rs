@@ -17,6 +17,7 @@ pub mod compiles;
 pub mod delegation;
 pub mod internal_jobs;
 mod internal_jobs_dead_letter;
+mod internal_jobs_failure_groups;
 mod internal_jobs_fleet;
 mod internal_jobs_reach;
 mod internal_jobs_rows;
@@ -62,6 +63,7 @@ use crate::server::router::{AdminSection, AppState};
 ///   - POST   /admin/standing-tokens/{id}/revoke
 ///   - GET    /admin/internal-jobs/queue-stats
 ///   - GET    /admin/internal-jobs/recent-failures
+///   - GET    /admin/internal-jobs/failure-groups
 ///   - GET    /admin/internal-jobs/dead-letter
 ///   - POST   /admin/internal-jobs/dead-letter/{task_id}/reenqueue
 ///   - DELETE /admin/internal-jobs/dead-letter/{task_id}

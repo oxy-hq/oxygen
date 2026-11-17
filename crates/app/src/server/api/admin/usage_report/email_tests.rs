@@ -147,7 +147,7 @@ fn links_point_at_the_console_when_its_address_is_known() {
     let mail = view(&week(), Some(CONSOLE));
     assert_eq!(
         mail.report_url.as_deref(),
-        Some("https://app.oxygen-hq.com/admin/usage-report")
+        Some("https://app.oxygen-hq.com/admin/observability/weekly")
     );
     assert_eq!(
         mail.settings_url.as_deref(),

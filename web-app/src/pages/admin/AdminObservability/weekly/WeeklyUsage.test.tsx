@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageReport } from "@/types/usageReport";
+import { COMPACT_ABOVE } from "./components/UsageByOrganization";
 import { app, counts, highlight, org, report, summary } from "./testFixtures";
 
 const useUsageReport = vi.fn();
@@ -11,14 +12,14 @@ vi.mock("@/hooks/api/usageReport", () => ({
   useUsageReport: () => useUsageReport()
 }));
 
-import AdminUsageReport from "./index";
+import { WeeklyUsage } from "./WeeklyUsage";
 
 // Routed at the real path: `AdminPage` takes its `<h1>` from the admin route map, which
 // is keyed off `useLocation()`.
 const mount = (hash = "") =>
   render(
-    <MemoryRouter initialEntries={[`/admin/usage-report${hash}`]}>
-      <AdminUsageReport />
+    <MemoryRouter initialEntries={[`/admin/observability/weekly${hash}`]}>
+      <WeeklyUsage />
     </MemoryRouter>
   );
 
@@ -39,10 +40,10 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("AdminUsageReport — the top of the report", () => {
+describe("WeeklyUsage — the top of the report", () => {
   it("is named by the route map and leads with the server's sentence", () => {
     loaded(report());
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Usage report");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Weekly app usage");
     expect(screen.getByTestId("admin-usage-report-headline").textContent).toBe(
       "42 people opened 9 custom apps across 4 organizations."
     );
@@ -117,7 +118,7 @@ describe("AdminUsageReport — the top of the report", () => {
   });
 });
 
-describe("AdminUsageReport — highlights", () => {
+describe("WeeklyUsage — highlights", () => {
   const mixed = [
     highlight({
       app_id: "quiet",
@@ -274,7 +275,7 @@ describe("AdminUsageReport — highlights", () => {
   });
 });
 
-describe("AdminUsageReport — by organization", () => {
+describe("WeeklyUsage — by organization", () => {
   const rivermark = org({
     org_id: "org-r",
     name: "Rivermark",
@@ -465,7 +466,7 @@ describe("AdminUsageReport — by organization", () => {
   });
 });
 
-describe("AdminUsageReport — before there is a report, and when the fetch fails", () => {
+describe("WeeklyUsage — before there is a report, and when the fetch fails", () => {
   it("shows the empty state when no report has been written yet", () => {
     loaded(null);
     const empty = screen.getByTestId("admin-usage-report-empty");
@@ -507,5 +508,58 @@ describe("AdminUsageReport — before there is a report, and when the fetch fail
     expect(screen.getByTestId("admin-async-loading")).toBeTruthy();
     expect(screen.queryByTestId("admin-usage-report-empty")).toBeNull();
     expect(screen.queryByTestId("admin-async-error")).toBeNull();
+  });
+});
+
+describe("WeeklyUsage — at fleet size", () => {
+  // One more org than the compact threshold: the first has people and an app, the last
+  // did nothing all week; everything between is active with one app each.
+  const fleet = () => {
+    const orgs = Array.from({ length: COMPACT_ABOVE + 1 }, (_, i) =>
+      org({
+        org_id: `org-${i}`,
+        name: `Org ${i}`,
+        slug: `org-${i}`,
+        people: i === COMPACT_ABOVE ? 0 : 3,
+        views: i === COMPACT_ABOVE ? 0 : 10,
+        apps: [app({ app_id: `app-${i}`, slug: `app-${i}` })]
+      })
+    );
+    return report({ orgs });
+  };
+
+  it("lists organizations without their apps until one is opened", () => {
+    loaded(fleet());
+    expect(screen.queryByTestId("admin-usage-report-app-app-0")).toBeNull();
+    fireEvent.click(screen.getByTestId("admin-usage-report-org-org-0-toggle"));
+    expect(screen.getByTestId("admin-usage-report-app-app-0")).toBeTruthy();
+  });
+
+  it("folds the organizations that did nothing into one line", () => {
+    loaded(fleet());
+    const quiet = `org-${COMPACT_ABOVE}`;
+    expect(screen.queryByTestId(`admin-usage-report-org-${quiet}`)).toBeNull();
+    expect(screen.getByTestId("admin-usage-report-quiet").textContent).toContain(
+      "1 organization had no activity"
+    );
+    fireEvent.click(screen.getByTestId("admin-usage-report-quiet-toggle"));
+    expect(screen.getByTestId(`admin-usage-report-org-${quiet}`)).toBeTruthy();
+  });
+
+  it("opens, and never folds, the organization an #org- link names", () => {
+    const quiet = `org-${COMPACT_ABOVE}`;
+    loaded(fleet(), `#org-${quiet}`);
+    expect(screen.getByTestId(`admin-usage-report-org-${quiet}`).getAttribute("aria-current")).toBe(
+      "location"
+    );
+    expect(screen.getByTestId(`admin-usage-report-app-app-${COMPACT_ABOVE}`)).toBeTruthy();
+    expect(screen.queryByTestId("admin-usage-report-quiet")).toBeNull();
+  });
+
+  it("links each organization to its Observability console over the same week", () => {
+    loaded(fleet());
+    expect(screen.getByTestId("admin-usage-report-org-org-0-link").getAttribute("href")).toBe(
+      "/admin/observability/orgs/org-0?days=7"
+    );
   });
 });

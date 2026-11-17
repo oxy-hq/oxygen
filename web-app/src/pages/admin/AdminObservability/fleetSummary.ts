@@ -124,3 +124,16 @@ export function matchesQuery(r: FleetRow, query: string): boolean {
   if (!q) return true;
   return r.org_name.toLowerCase().includes(q) || r.org_slug.toLowerCase().includes(q);
 }
+
+/** Why there is no comparison. Only a failed read is a fault, so only it says so. */
+export function priorNote(fleet: Fleet): string {
+  const days = fleet.window_days;
+  switch (fleet.prior_missing) {
+    case "retention":
+      return `No comparison: the ${days} days before this window are past data retention, so they would read as empty.`;
+    case "incomparable":
+      return `No comparison: compute is priced in this window but couldn’t be in the ${days} days before, so the two totals would count different things.`;
+    default:
+      return "Couldn’t read the prior window, so nothing here is compared against it.";
+  }
+}

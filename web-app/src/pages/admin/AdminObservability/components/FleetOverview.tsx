@@ -5,7 +5,13 @@ import ROUTES from "@/libs/utils/routes";
 import type { Fleet } from "@/services/api/adminObservability";
 import { AdminEmptyState } from "../../components/AdminEmptyState";
 import { ADMIN_TONE } from "../../components/adminTone";
-import { type FleetSummary, isCostJump, matchesQuery, summarizeFleet } from "../fleetSummary";
+import {
+  type FleetSummary,
+  isCostJump,
+  matchesQuery,
+  priorNote,
+  summarizeFleet
+} from "../fleetSummary";
 import { money, pct } from "../format";
 import { RELIABILITY_DANGER_AT, reliabilityTone } from "../reliabilityTone";
 import { CompositionKey } from "./CompositionBar";
@@ -277,12 +283,7 @@ const FleetNotes = ({ fleet, unpriced }: { fleet: Fleet; unpriced: number }) => 
     });
   }
   if (!fleet.prior_read) {
-    notes.push({
-      key: "prior",
-      text: fleet.prior_retained
-        ? "Couldn’t read the prior window, so nothing here is compared against it."
-        : `No comparison: the ${fleet.window_days} days before this window are past data retention, so they would read as empty.`
-    });
+    notes.push({ key: "prior", text: priorNote(fleet) });
   }
   if (unpriced > 0) {
     notes.push({

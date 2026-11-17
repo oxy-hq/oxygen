@@ -1,6 +1,6 @@
 import { FolderOpen, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { type FactoryTarget, OpenFactoryDialog } from "@/components/admin/OpenFactoryDialog";
 import { OxygenFactoryMark } from "@/components/OxygenFactoryMark";
 import { Button } from "@/components/ui/shadcn/button";
@@ -42,7 +42,12 @@ export default function AdminWorkspaces() {
   const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<StatusFilter>("all");
+  // Seeded from `?status=` so the console home's "failed to provision" finding opens
+  // this list already narrowed to those rows.
+  const [params] = useSearchParams();
+  const [status, setStatus] = useState<StatusFilter>(
+    () => (params.get("status") as StatusFilter | null) ?? "all"
+  );
   // "Open Factory…" from the header (pick any workspace), or a row's own action.
   const [openFactory, setOpenFactory] = useState<{ target: FactoryTarget | null } | null>(null);
   // The row has only the org's slug; the consent text names the org, so look its

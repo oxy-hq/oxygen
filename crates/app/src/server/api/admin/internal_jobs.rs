@@ -40,6 +40,8 @@ pub use super::internal_jobs_dead_letter::{
     DeadLetterQuery, DeadLetterResponse, LimitQuery, delete_dead, list_dead_letter,
     recent_failures, reenqueue_dead,
 };
+use super::internal_jobs_failure_groups::failure_groups;
+pub use super::internal_jobs_failure_groups::{FailureGroupDto, FailureGroupsResponse};
 use super::internal_jobs_fleet::list_scheduled;
 pub use super::internal_jobs_fleet::{
     RunReaperResponse, RunRetentionResponse, ScheduledJobDto, WorkerDto, WorkersResponse,
@@ -58,6 +60,7 @@ pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/queue-stats", get(queue_stats))
         .route("/recent-failures", get(recent_failures))
+        .route("/failure-groups", get(failure_groups))
         .route("/dead-letter", get(list_dead_letter))
         .route("/dead-letter/{task_id}/reenqueue", post(reenqueue_dead))
         .route("/dead-letter/{task_id}", delete(delete_dead))

@@ -22,6 +22,7 @@ import ChatPage from "@/pages/chat";
 import LauncherPage from "@/pages/launcher";
 import ThreadPage from "@/pages/thread";
 import CustomerWorldModelPage from "@/pages/world-model";
+import { AdminRedirect } from "./pages/admin/components/AdminRedirect";
 import "@xyflow/react/dist/style.css";
 import React, { Suspense, useEffect, useRef } from "react";
 import { HotkeysProvider } from "react-hotkeys-hook";
@@ -141,9 +142,7 @@ const AdminAirhouse = React.lazy(() => import("./pages/admin/AdminAirhouse"));
 // customer-apps registry (Add / Link / Sync / Publish). Lazy-loaded
 // alongside the rest of admin since most users never visit it.
 const AdminAppAdmins = React.lazy(() => import("./pages/admin/AdminAppAdmins"));
-const AdminPublishTokens = React.lazy(() => import("./pages/admin/AdminPublishTokens"));
-const AdminSandboxAgentTokens = React.lazy(() => import("./pages/admin/AdminSandboxAgentTokens"));
-const AdminStandingTokens = React.lazy(() => import("./pages/admin/AdminStandingTokens"));
+const AdminTokens = React.lazy(() => import("./pages/admin/AdminTokens"));
 const AdminCustomApps = React.lazy(() => import("./pages/admin/AdminCustomApps"));
 const AppDossierWindow = React.lazy(() => import("./pages/admin/AdminCustomApps/AppDossierWindow"));
 const AppsStorageAudit = React.lazy(() => import("./pages/admin/AdminCustomApps/StorageAudit"));
@@ -151,12 +150,9 @@ const AppsAccessAudit = React.lazy(() => import("./pages/admin/AdminCustomApps/A
 const AppsPreviewStage = React.lazy(() => import("./pages/admin/AdminCustomApps/AppPreviewStage"));
 // Tenant-management admin surfaces (OXY_OWNER-only). Lazy-loaded alongside
 // the rest of admin since most users never visit /admin/* at all.
-const AdminTenants = React.lazy(() => import("./pages/admin/AdminTenants"));
 const AdminTenantsCockpit = React.lazy(() => import("./pages/admin/AdminTenantsCockpit"));
-const AdminOrgs = React.lazy(() => import("./pages/admin/AdminOrgs"));
 const AdminOltp = React.lazy(() => import("./pages/admin/AdminOltp"));
 const AdminOrgDetail = React.lazy(() => import("./pages/admin/AdminOrgs/AdminOrgDetail"));
-const AdminUsers = React.lazy(() => import("./pages/admin/AdminUsers"));
 const AdminUserDetail = React.lazy(() => import("./pages/admin/AdminUsers/AdminUserDetail"));
 const AdminWorkspaces = React.lazy(() => import("./pages/admin/AdminWorkspaces"));
 const AdminWorkspaceDetail = React.lazy(
@@ -164,7 +160,6 @@ const AdminWorkspaceDetail = React.lazy(
 );
 const AdminWorkspaceHealth = React.lazy(() => import("./pages/admin/AdminWorkspaceHealth"));
 const AdminAirway = React.lazy(() => import("./pages/admin/AdminAirway"));
-const AdminUsageReport = React.lazy(() => import("./pages/admin/AdminUsageReport"));
 const AdminObservability = React.lazy(() => import("./pages/admin/AdminObservability"));
 const AdminSettings = React.lazy(() => import("./pages/admin/AdminSettings"));
 
@@ -679,12 +674,22 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
             <Route path='admin/airhouse' element={<AdminAirhouse />} />
             {/* ROUTES.ADMIN.EXPLORER */}
             <Route path='admin/app-admins' element={<AdminAppAdmins />} />
-            {/* ROUTES.ADMIN.PUBLISH_TOKENS — open to any Global Admin */}
-            <Route path='admin/publish-tokens' element={<AdminPublishTokens />} />
-            {/* ROUTES.ADMIN.SANDBOX_AGENT_TOKENS — staff holding operate_platform */}
-            <Route path='admin/sandbox-agent-tokens' element={<AdminSandboxAgentTokens />} />
-            {/* ROUTES.ADMIN.STANDING_TOKENS — staff holding manage_platform_grants */}
-            <Route path='admin/standing-tokens' element={<AdminStandingTokens />} />
+            {/* ROUTES.ADMIN.TOKENS — every credential staff can mint or revoke, one
+                list, each kind gated by its own rule. The three pages it replaced
+                redirect to it with their kind selected. */}
+            <Route path='admin/tokens' element={<AdminTokens />} />
+            <Route
+              path='admin/publish-tokens'
+              element={<AdminRedirect to='/admin/tokens?kind=publish' />}
+            />
+            <Route
+              path='admin/sandbox-agent-tokens'
+              element={<AdminRedirect to='/admin/tokens?kind=sandbox' />}
+            />
+            <Route
+              path='admin/standing-tokens'
+              element={<AdminRedirect to='/admin/tokens?kind=standing' />}
+            />
             {/* Custom apps. `/admin/apps` is the fleet — every app, worst first;
                 `/admin/apps/:orgSlug/:appSlug` is one app's console. The bare
                 route briefly redirected to whichever app most needed a person,
@@ -705,11 +710,14 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
             <Route path='admin/apps/:orgSlug/:appSlug/preview' element={<AppsPreviewStage />} />
             {/* Tenant-management surfaces — list + master/detail via :id tail. */}
             <Route path='admin/tenants' element={<AdminTenantsCockpit />} />
-            <Route path='admin/tenants/overview' element={<AdminTenants />} />
+            {/* The operator overview's findings moved onto the console home. */}
+            <Route path='admin/tenants/overview' element={<AdminRedirect to='/admin' />} />
             <Route path='admin/oltp' element={<AdminOltp />} />
-            <Route path='admin/orgs' element={<AdminOrgs />} />
+            {/* The flat org and user lists repeated the tenants rail; their detail
+                pages stay, which is what every org and user link points at. */}
+            <Route path='admin/orgs' element={<AdminRedirect to='/admin/tenants?type=orgs' />} />
             <Route path='admin/orgs/:orgId' element={<AdminOrgDetail />} />
-            <Route path='admin/users' element={<AdminUsers />} />
+            <Route path='admin/users' element={<AdminRedirect to='/admin/tenants?type=users' />} />
             <Route path='admin/users/:userId' element={<AdminUserDetail />} />
             <Route path='admin/workspaces' element={<AdminWorkspaces />} />
             <Route path='admin/workspaces/:workspaceId' element={<AdminWorkspaceDetail />} />
@@ -718,14 +726,20 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
                 ownerOnly gate and AdminLayout's APP_ADMIN_ROUTE_PREFIXES, which
                 deliberately omits this route). */}
             <Route path='admin/airway' element={<AdminAirway />} />
-            {/* ROUTES.ADMIN.USAGE_REPORT — the weekly custom-app usage report. */}
-            <Route path='admin/usage-report' element={<AdminUsageReport />} />
+            {/* The weekly usage report is a view of Observability now. Emails sent
+                before the move link here, often to an org's anchor, which the
+                redirect carries across. */}
+            <Route
+              path='admin/usage-report'
+              element={<AdminRedirect to='/admin/observability/weekly' />}
+            />
             {/* ROUTES.ADMIN.OBSERVABILITY — what an org costs us and how its apps
                 perform. A fleet list and a per-org console on one route, the shape
                 `/admin/apps` settled on: the list answers "what is out there?"
                 before the console answers "which one thing?". */}
             <Route path='admin/observability' element={<AdminObservability />} />
             <Route path='admin/observability/orgs/:orgId' element={<AdminObservability />} />
+            <Route path='admin/observability/weekly' element={<AdminObservability />} />
             {/* ROUTES.ADMIN.SETTINGS — one staff member's own preferences. No rail
                 entry: reached from the rail footer's user menu and from the report. */}
             <Route path='admin/settings' element={<AdminSettings />} />

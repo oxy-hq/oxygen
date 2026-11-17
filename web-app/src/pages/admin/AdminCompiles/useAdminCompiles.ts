@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { useCompiles, useCompileWorkspaces } from "@/hooks/api/compiles";
 
@@ -15,7 +16,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export function useAdminCompiles() {
   const [view, setView] = useState<CompileView>("workspace");
   const [paused, setPaused] = useState(false);
-  const [query, setQuery] = useState("");
+  // Seeded from `?q=`, so Internal jobs' "Compile history" link opens this page already
+  // narrowed to the failing workspace.
+  const [params] = useSearchParams();
+  const [query, setQuery] = useState(() => params.get("q") ?? "");
   const [status, setStatus] = useState("");
 
   const trimmed = query.trim();

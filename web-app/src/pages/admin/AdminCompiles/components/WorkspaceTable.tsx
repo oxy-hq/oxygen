@@ -41,9 +41,9 @@ export const WorkspaceTable = ({
               />
             </TableHead>
             <TableHead className={`${HEAD_CLS} w-7 pr-0`} />
-            <TableHead className={HEAD_CLS}>Workspace</TableHead>
-            <TableHead className={HEAD_CLS}>Current</TableHead>
-            <TableHead className={HEAD_CLS}>Git</TableHead>
+            <TableHead className={`${HEAD_CLS} w-[26%]`}>Workspace</TableHead>
+            <TableHead className={HEAD_CLS}>State</TableHead>
+            <TableHead className={`${HEAD_CLS} w-[12%]`}>Git</TableHead>
             <TableHead className={HEAD_CLS}>Revisions</TableHead>
             <TableHead className={HEAD_CLS}>Last ready</TableHead>
             <TableHead className={`${HEAD_CLS} pr-3`}>Latest run</TableHead>

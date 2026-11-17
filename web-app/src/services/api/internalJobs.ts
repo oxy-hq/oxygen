@@ -63,6 +63,32 @@ export interface ScheduledJob {
   trigger_path: string | null;
 }
 
+/**
+ * One cause of failure: failed and dead jobs of one task type, in one workspace, whose
+ * errors match once ids and counts are masked (`GET /admin/internal-jobs/failure-groups`).
+ */
+export interface FailureGroup {
+  task_type: string;
+  workspace_id: string | null;
+  workspace_name: string | null;
+  org_id: string | null;
+  org_name: string | null;
+  /** The error with ids and counts masked — what the group is keyed on. */
+  signature: string;
+  /** The newest occurrence's message, unmasked. */
+  latest_error: string | null;
+  occurrences: number;
+  dead: number;
+  first_seen: string;
+  last_seen: string;
+  latest_task_id: string;
+}
+
+export interface FailureGroupsResponse {
+  days: number;
+  groups: FailureGroup[];
+}
+
 export interface RunReaperResponse {
   rows_affected: number;
 }
@@ -75,6 +101,12 @@ export const InternalJobsService = {
     return response.data;
   },
 
+  async failureGroups(days: number): Promise<FailureGroupsResponse> {
+    const response = await apiClient.get<FailureGroupsResponse>(`${BASE}/failure-groups`, {
+      params: { days }
+    });
+    return response.data;
+  },
   async recentFailures(limit: number = 50): Promise<QueueRow[]> {
     const response = await apiClient.get<QueueRow[]>(`${BASE}/recent-failures`, {
       params: { limit }

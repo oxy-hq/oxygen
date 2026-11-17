@@ -188,15 +188,6 @@ async fn org_cost(
     }))
 }
 
-/// The org's name and slug.
-///
-/// A direct lookup, not a row plucked out of the fleet rollup: that rollup
-/// joins `agentic_runs` × `agentic_run_events` for every tenant over the
-/// window, and a page about one org has no business running it.
-///
-/// A missing row keeps the id as the name — the fence already proved the
-/// caller may see this org, so an absent `organizations` row is a race with a
-/// deletion, not an authorization question.
 /// The `days` before the window, folded — or `None`, and the page draws no
 /// comparison.
 ///
@@ -222,6 +213,15 @@ async fn read_prior(
     }
 }
 
+/// The org's name and slug.
+///
+/// A direct lookup, not a row plucked out of the fleet rollup: that rollup
+/// joins `agentic_runs` × `agentic_run_events` for every tenant over the
+/// window, and a page about one org has no business running it.
+///
+/// A missing row keeps the id as the name — the fence already proved the
+/// caller may see this org, so an absent `organizations` row is a race with a
+/// deletion, not an authorization question.
 async fn load_identity(
     db: &sea_orm::DatabaseConnection,
     org_id: Uuid,

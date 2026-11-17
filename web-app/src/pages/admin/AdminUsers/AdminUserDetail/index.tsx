@@ -135,7 +135,7 @@ export default function AdminUserDetail({
               segments={[
                 { label: "Admin", to: ROUTES.ADMIN.TENANTS },
                 { label: "Tenants", to: ROUTES.ADMIN.TENANTS },
-                { label: "Users", to: ROUTES.ADMIN.USERS },
+                { label: "Users", to: ROUTES.ADMIN.TENANTS_OF("users") },
                 { label: detail.name || detail.email }
               ]}
             />

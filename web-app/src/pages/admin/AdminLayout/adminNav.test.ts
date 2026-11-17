@@ -3,6 +3,7 @@ import ROUTES from "@/libs/utils/routes";
 import type { PlatformCapability } from "@/types/auth";
 import {
   ADMIN_NAV,
+  ADMIN_NAV_GROUPS,
   adminPageGroup,
   adminPageTitle,
   adminSettingsReachable,
@@ -85,43 +86,25 @@ describe("canReachAdminRoute", () => {
     expect(canReachAdminRoute(ROUTES.ADMIN.OLTP, nobody)).toBe(false);
   });
 
-  it("gates sandbox agent tokens on operate_platform, matching the endpoint", () => {
-    // The server mounts the list under `cap(Action::PlatformOperate)`. An App Operator
-    // may mint a sandbox agent token and still does not hold the shared list, so
-    // `manage_apps` and `develop_apps` must not open it.
-    const route = ROUTES.ADMIN.SANDBOX_AGENT_TOKENS;
-    expect(canReachAdminRoute(route, staff("operate_platform"))).toBe(true);
+  it("gates Tokens on manage_apps, what the publish-token endpoint asks for", () => {
+    // The page lists three kinds and gates each by its own endpoint's rule; the entry
+    // takes the widest of them, `cap(Action::PlatformApps)` on the publish-token router.
+    // A principal holding nothing still has no admin surface.
+    const route = ROUTES.ADMIN.TOKENS;
+    expect(canReachAdminRoute(route, staff("manage_apps", "develop_apps"))).toBe(true);
     expect(canReachAdminRoute(route, owner)).toBe(true);
-    expect(canReachAdminRoute(route, staff("manage_apps", "develop_apps"))).toBe(false);
+    expect(canReachAdminRoute(route, staff("view_audit"))).toBe(false);
     expect(canReachAdminRoute(route, nobody)).toBe(false);
-    // The rail asks the same question of the same entry.
-    expect(navItemReachable(route, staff("operate_platform"))).toBe(true);
-    expect(navItemReachable(route, staff("manage_apps", "develop_apps"))).toBe(false);
-    expect(adminPageTitle(route)).toBe("Sandbox agent tokens");
-    expect(adminPageGroup(route)).toBe("operations");
+    expect(navItemReachable(route, staff("manage_apps"))).toBe(true);
+    expect(adminPageTitle(route)).toBe("Tokens");
+    expect(adminPageGroup(route)).toBe("access");
   });
 
-  it("gates staff & partner tokens as Staff access is, on manage_platform_grants", () => {
-    // Who holds a token with standing is the same question as who holds staff access,
-    // and `GET /api/admin/standing-tokens` asks for the same capability. Operating the
-    // platform does not open it, and neither does reading the audit log.
-    const route = ROUTES.ADMIN.STANDING_TOKENS;
-    expect(canReachAdminRoute(route, staff("manage_platform_grants"))).toBe(true);
-    expect(canReachAdminRoute(route, owner)).toBe(true);
-    expect(canReachAdminRoute(route, staff("operate_platform", "view_audit"))).toBe(false);
-    expect(canReachAdminRoute(route, nobody)).toBe(false);
-    // One entry answers for the rail, the ⌘K palette and the route guard.
-    expect(navItemReachable(route, staff("manage_platform_grants"))).toBe(true);
-    expect(navItemReachable(route, staff("operate_platform", "view_audit"))).toBe(false);
-    const entry = (to: string) => ADMIN_NAV.find((item) => item.to === to);
-    expect(entry(route)?.capability).toBe(entry(ROUTES.ADMIN.APP_ADMINS)?.capability);
-    expect(adminPageTitle(route)).toBe("Staff & partner tokens");
-    // Beside Sandbox agent tokens, in the same group.
-    expect(adminPageGroup(route)).toBe(adminPageGroup(ROUTES.ADMIN.SANDBOX_AGENT_TOKENS));
+  it("has one Tokens entry where there were three token pages", () => {
     const labels = ADMIN_NAV.map((item) => item.label);
-    expect(labels.indexOf("Staff & partner tokens")).toBe(
-      labels.indexOf("Sandbox agent tokens") + 1
-    );
+    expect(labels).toContain("Tokens");
+    expect(labels).not.toContain("Sandbox agent tokens");
+    expect(labels).not.toContain("Staff & partner tokens");
   });
 
   it("gates the grant console on manage_platform_grants", () => {
@@ -224,8 +207,25 @@ describe("adminPageTitle", () => {
 
 describe("adminPageGroup", () => {
   it("places a page in the group its rail entry sits in", () => {
-    expect(adminPageGroup(ROUTES.ADMIN.COMPILES)).toBe("operations");
+    expect(adminPageGroup(ROUTES.ADMIN.COMPILES)).toBe("health");
     expect(adminPageGroup(ROUTES.ADMIN.AIRHOUSE)).toBe("tenants");
+    expect(adminPageGroup(ROUTES.ADMIN.OBSERVABILITY)).toBe("cost");
+    expect(adminPageGroup(ROUTES.ADMIN.AUDIT)).toBe("access");
+  });
+
+  it("keeps each group contiguous in the map, in the rail's order", () => {
+    // `firstReachableAdminRoute` and the rail both walk the map in order; a group split
+    // across it would render out of place in neither, but would make the landing page
+    // depend on where an entry happened to be written.
+    const order = Object.keys(ADMIN_NAV_GROUPS);
+    const groups = ADMIN_NAV.map((i) => i.group);
+    const firstSeen = [...new Set(groups)];
+    expect(firstSeen).toEqual(order);
+    for (const g of order) {
+      const first = groups.indexOf(g as (typeof groups)[number]);
+      const last = groups.lastIndexOf(g as (typeof groups)[number]);
+      expect(groups.slice(first, last + 1).every((x) => x === g)).toBe(true);
+    }
   });
 
   it("tells the three tenants entries apart by ?type=", () => {
@@ -233,12 +233,8 @@ describe("adminPageGroup", () => {
   });
 
   it("places the flat directories with the tenants, and their detail pages too", () => {
-    expect(adminPageGroup(ROUTES.ADMIN.ORGS)).toBe("tenants");
+    expect(adminPageGroup(ROUTES.ADMIN.ORG_DETAIL("o1"))).toBe("tenants");
     expect(adminPageGroup(ROUTES.ADMIN.WORKSPACE_DETAIL("w1"))).toBe("tenants");
-  });
-
-  it("does not call publish tokens a tenant page just because it has no rail entry", () => {
-    expect(adminPageGroup(ROUTES.ADMIN.PUBLISH_TOKENS)).toBeNull();
   });
 
   it("has no opinion about a path outside the console", () => {
@@ -265,24 +261,16 @@ describe("the console home", () => {
 
 describe("pages registered exactly", () => {
   /**
-   * Two pages sit *under* another entry's path — the home is a prefix of every admin
-   * route, and the overview lives beneath `/admin/tenants`. A prefix scan named both
-   * after their parent, so the overview's breadcrumb read "Organizations".
+   * The weekly usage view sits *under* Observability's path. A prefix scan names it after
+   * its parent, which is the right group and the wrong page.
    */
-  it("names the tenants overview itself, not its parent directory", () => {
-    expect(adminPageTitle(ROUTES.ADMIN.TENANTS_OVERVIEW)).toBe("Operator overview");
+  it("names the weekly usage view itself, not Observability", () => {
+    expect(adminPageTitle(ROUTES.ADMIN.OBSERVABILITY_WEEKLY)).toBe("Weekly app usage");
+    expect(adminPageTitle(ROUTES.ADMIN.OBSERVABILITY)).toBe("Observability");
   });
 
-  it("still names the directory the overview sits under", () => {
-    expect(adminPageTitle(ROUTES.ADMIN.TENANTS, "?type=partners")).toBe("Partners");
-  });
-
-  it("puts the overview with the tenants in the rail groups", () => {
-    expect(adminPageGroup(ROUTES.ADMIN.TENANTS_OVERVIEW)).toBe("tenants");
-  });
-
-  it("is reachable by anyone the tenants directory admits", () => {
-    expect(canReachAdminRoute(ROUTES.ADMIN.TENANTS_OVERVIEW, staff("manage_members"))).toBe(true);
+  it("puts it in Observability's group", () => {
+    expect(adminPageGroup(ROUTES.ADMIN.OBSERVABILITY_WEEKLY)).toBe("cost");
   });
 });
 
@@ -308,32 +296,21 @@ describe("navItemReachable", () => {
 });
 
 /**
- * The weekly custom-app usage report. It sits beside Custom apps in the rail but is gated
- * like the other fleet-wide readouts: the server mounts every `/admin/usage-report` route
- * under `operate_platform`, so an App Operator — `manage_apps` and nothing else — must not
- * be offered a link the API answers with a 403.
+ * The weekly custom-app usage report, now a view of Observability. The server mounts every
+ * `/admin/usage-report` API route under `operate_platform`, and Observability's entry asks
+ * the same, so an App Operator — `manage_apps` and nothing else — is not offered a view
+ * the API answers with a 403.
  */
-describe("the usage report", () => {
-  it("is offered to operate_platform and to the owner", () => {
-    expect(navItemReachable(ROUTES.ADMIN.USAGE_REPORT, staff("operate_platform"))).toBe(true);
-    expect(navItemReachable(ROUTES.ADMIN.USAGE_REPORT, owner)).toBe(true);
+describe("the weekly usage view", () => {
+  it("inherits Observability's gate: operate_platform or the owner", () => {
+    const route = ROUTES.ADMIN.OBSERVABILITY_WEEKLY;
+    expect(canReachAdminRoute(route, staff("operate_platform"))).toBe(true);
+    expect(canReachAdminRoute(route, owner)).toBe(true);
+    expect(canReachAdminRoute(route, staff("manage_apps"))).toBe(false);
   });
 
-  it("is not offered to staff holding only manage_apps, and the guard agrees", () => {
-    expect(navItemReachable(ROUTES.ADMIN.USAGE_REPORT, staff("manage_apps"))).toBe(false);
-    expect(navItemReachable(ROUTES.ADMIN.USAGE_REPORT, nobody)).toBe(false);
-    // The rail and the route guard read one map, so a hidden link is also a bounced URL.
-    expect(canReachAdminRoute(ROUTES.ADMIN.USAGE_REPORT, staff("manage_apps"))).toBe(false);
-    expect(canReachAdminRoute(ROUTES.ADMIN.USAGE_REPORT, staff("operate_platform"))).toBe(true);
-  });
-
-  it("is named by the map and sits right after Custom apps in the operations group", () => {
-    expect(adminPageTitle(ROUTES.ADMIN.USAGE_REPORT)).toBe("Usage report");
-    expect(adminPageGroup(ROUTES.ADMIN.USAGE_REPORT)).toBe("operations");
-    const order = ADMIN_NAV.map((i) => i.to);
-    expect(order.indexOf(ROUTES.ADMIN.USAGE_REPORT)).toBe(
-      order.indexOf(ROUTES.ADMIN.CUSTOMER_APPS) + 1
-    );
+  it("has no rail entry of its own", () => {
+    expect(ADMIN_NAV.some((i) => i.label === "Usage report")).toBe(false);
   });
 });
 
@@ -350,7 +327,7 @@ describe("the settings page", () => {
   it("belongs to no rail group", () => {
     expect(adminPageGroup(ROUTES.ADMIN.SETTINGS)).toBeNull();
     // The exclusion is for Settings alone: the directories it sits beside keep theirs.
-    expect(adminPageGroup(ROUTES.ADMIN.ORGS)).toBe("tenants");
+    expect(adminPageGroup(ROUTES.ADMIN.ORG_DETAIL("o1"))).toBe("tenants");
   });
 
   it("has no rail entry, so it is not in the rail or the palette", () => {

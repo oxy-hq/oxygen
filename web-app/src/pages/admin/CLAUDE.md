@@ -196,7 +196,7 @@ an idle worker on a quiet queue, an app with no traffic), `fleetColumns.test.ts`
 column nothing can answer is absent and named, never `—` per row) and
 `fleetFilters.test.ts` (a chip that selects everything is not a filter). The usage
 report applies the `fleetColumns` rule to its own table in
-`AdminUsageReport/usageColumns.test.ts`.
+`AdminObservability/weekly/usageColumns.test.ts`.
 
 Run them with `./node_modules/.bin/vitest run src/pages/admin`. When you change one
 of these rules, **mutate the source and watch the test fail before you trust it** —
