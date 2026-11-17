@@ -5,6 +5,19 @@
 // the validator without the browser half of the SDK — the two packages that
 // used to carry byte copies of `notification-catalog.ts` now import it here.
 
+export {
+  checkFunctionSchema,
+  checkFunctionSchemas,
+  FUNCTION_SCHEMA_DIALECT,
+  FUNCTION_SCHEMA_KEYS,
+  FUNCTION_SCHEMA_KEYWORDS,
+  FUNCTION_SCHEMA_MAX_BYTES,
+  FUNCTION_SCHEMA_MAX_DEPTH,
+  FUNCTION_SCHEMA_TYPES,
+  type FunctionSchemaFinding,
+  type FunctionSchemaProblem,
+  serializedSchemaBytes
+} from "./custom-app/function-schema";
 export type {
   HomeCatalogEntry,
   HomeDescribedSection,
@@ -48,6 +61,8 @@ export type {
   OxyAppEnvironmentManifest,
   OxyAppFetchManifest,
   OxyAppFunctionManifest,
+  OxyAppJsonSchema,
+  OxyAppJsonSchemaType,
   OxyAppManifest,
   OxyAppMigrationsManifest,
   OxyAppNonProductionManifest,

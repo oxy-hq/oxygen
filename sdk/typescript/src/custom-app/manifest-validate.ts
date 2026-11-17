@@ -21,6 +21,7 @@
 // carries no dependency and runs in a browser, a Vite config and `oxyc` alike.
 // Nothing past ES2020.
 
+import { checkFunctionSchemas } from "./function-schema";
 import { FUNCTION_NAME_RULE, SLUG_RULE } from "./manifest-rules";
 import { type ManifestSchemaNode, OXY_APP_SCHEMA } from "./manifest-schema";
 import { checkNotifications } from "./notification-catalog";
@@ -61,6 +62,9 @@ const LENIENT_ENUMS: ReadonlyArray<{ path: RegExp; because: string }> = [
       "the platform drops this rule with a warning, so a broader sibling rule applies to the prefix, else it never expires"
   }
 ];
+
+/** A path inside a function's `inputSchema` / `outputSchema`. */
+const IN_FUNCTION_SCHEMA = /^functions\.[^.]+\.(inputSchema|outputSchema)(\.|$)/;
 
 /** The schema's answer about `raw`, as `ManifestIssue`s. Never throws. */
 export function validateOxyAppManifest(raw: unknown): ManifestIssue[] {
@@ -113,9 +117,18 @@ export function validateOxyAppManifest(raw: unknown): ManifestIssue[] {
   // (which categories exist, which kinds a function sends), so where both speak
   // about one path the catalogue's sentence is the one kept.
   // `checkWidgets` does the same for `widgets`.
-  const catalogue = [...checkNotifications(raw), ...checkWidgets(raw)];
+  const catalogue = [
+    ...checkNotifications(raw),
+    ...checkWidgets(raw),
+    ...checkFunctionSchemas(raw)
+  ];
   const said = new Set(catalogue.map((f) => f.path));
-  const kept = issues.filter((issue) => !said.has(issue.path));
+  // A function's `inputSchema` / `outputSchema` is the subset check's alone,
+  // whole subtree: the walker calls an unknown keyword there a warning, where
+  // the server refuses it.
+  const kept = issues.filter(
+    (issue) => !said.has(issue.path) && !IN_FUNCTION_SCHEMA.test(issue.path)
+  );
   for (const f of catalogue) kept.push({ level: f.level, path: f.path, message: f.message });
 
   return dedupe(kept);

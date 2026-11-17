@@ -7,8 +7,11 @@ import { PRODUCTION } from "@/types/appEnvironments";
 import type { AppFunctionSummary } from "@/types/apps";
 import { CopyButton } from "../../../UrlActions";
 import { environmentLabel } from "../Secrets/environmentLabel";
+import { FunctionSchemas } from "./FunctionSchemaTable";
+import { checkRunInput } from "./functionSchema";
 import { functionUrl } from "./functionUrl";
 import { type AppRef, InvocationRow } from "./InvocationRow";
+import { RunInputErrors } from "./RunInputErrors";
 import { RunPanel } from "./RunPanel";
 
 /** How many invocations to show before "Show more" (the endpoint returns up to
@@ -41,22 +44,13 @@ export const FunctionDetail = ({
   const [inputText, setInputText] = useState(() =>
     fn.input_example != null ? JSON.stringify(fn.input_example, null, 2) : ""
   );
+  // Why the box was not sent: invalid JSON, or the input schema's first errors.
+  const [refused, setRefused] = useState<{ errors: string[]; bySchema: boolean } | null>(null);
   const run = useRunFunction();
   const invocations = useFunctionInvocations(appId, fn.name, true, environment);
 
-  const onRun = () => {
-    // The input box is handed to the function as its `req` body (its params).
-    // Empty → no params; otherwise it must parse as JSON.
-    let input: unknown;
-    const trimmed = inputText.trim();
-    if (trimmed) {
-      try {
-        input = JSON.parse(trimmed);
-      } catch {
-        toast.error("Input must be valid JSON");
-        return;
-      }
-    }
+  const send = (input: unknown) => {
+    setRefused(null);
     run.mutate(
       { id: appId, name: fn.name, input, environment },
       {
@@ -66,10 +60,28 @@ export const FunctionDetail = ({
     );
   };
 
+  const onRun = () => {
+    // The input box is handed to the function as its `req` body (its params).
+    // Empty → no params; otherwise it must parse as JSON, and fit the
+    // function's input schema when it declares one.
+    const checked = checkRunInput(inputText, fn.input_schema);
+    if (checked.ok) send(checked.input);
+    else setRefused({ errors: checked.errors, bySchema: checked.bySchema });
+  };
+
+  // "Run anyway": the schema is advisory at run time, and a stale one must not
+  // stand between an operator and the function. Offered only for a schema
+  // refusal, so the box is empty or valid JSON here.
+  const runAnyway = () => {
+    const trimmed = inputText.trim();
+    send(trimmed ? JSON.parse(trimmed) : undefined);
+  };
+
   return (
     <div className='flex flex-col gap-3 border-border/60 border-t px-3 py-3'>
       <ConfigChips fn={fn} />
       {fn.route && appUrl && where === PRODUCTION && <RouteUrl appUrl={appUrl} name={fn.name} />}
+      <FunctionSchemas fn={fn} />
 
       <div className='flex flex-col gap-1.5'>
         <span className='font-medium text-muted-foreground text-xs uppercase tracking-wide'>
@@ -77,7 +89,10 @@ export const FunctionDetail = ({
         </span>
         <textarea
           value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
+          onChange={(e) => {
+            setInputText(e.target.value);
+            setRefused(null);
+          }}
           rows={2}
           spellCheck={false}
           placeholder='e.g. { "store": 1 } — leave empty for no params'
@@ -88,6 +103,14 @@ export const FunctionDetail = ({
             The box is empty — the function runs with no params. Declare <code>inputExample</code>{" "}
             on the function in <code>oxy-app.json</code> to prefill a real, editable value here.
           </span>
+        )}
+        {refused && (
+          <RunInputErrors
+            errors={refused.errors}
+            canRunAnyway={refused.bySchema}
+            onRunAnyway={runAnyway}
+            pending={run.isPending}
+          />
         )}
         <div className='flex flex-wrap items-center gap-2'>
           <Button size='sm' variant='outline' disabled={run.isPending} onClick={onRun}>

@@ -51,3 +51,31 @@ fn summary_projects_the_check_flag() {
     assert!(!to_summary("echo".into(), Some(&without)).check);
     assert!(!to_summary("bare".into(), None).check);
 }
+
+#[test]
+fn summary_projects_declared_schemas() {
+    let input = json!({ "type": "object", "properties": { "store": { "type": "integer" } } });
+    let output = json!({ "type": "array", "items": { "type": "string" } });
+    let s = to_summary(
+        "quote".into(),
+        Some(&json!({ "inputSchema": input, "outputSchema": output })),
+    );
+    assert_eq!(s.input_schema, Some(input));
+    assert_eq!(s.output_schema, Some(output));
+
+    // Absent → None; a value that is not a schema object is not projected
+    // (publish refuses one, so only a pre-gate row could hold it).
+    let s = to_summary("bare".into(), Some(&json!({ "inputSchema": "object" })));
+    assert!(s.input_schema.is_none());
+    assert!(s.output_schema.is_none());
+    assert!(to_summary("none".into(), None).input_schema.is_none());
+
+    // Serialized under the snake_case names the console reads.
+    let wire = serde_json::to_value(to_summary(
+        "quote".into(),
+        Some(&json!({ "inputSchema": { "type": "object" } })),
+    ))
+    .unwrap();
+    assert_eq!(wire["input_schema"], json!({ "type": "object" }));
+    assert_eq!(wire["output_schema"], serde_json::Value::Null);
+}

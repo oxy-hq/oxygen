@@ -227,6 +227,87 @@ export interface OxyAppFunctionManifest {
    * enforced at runtime.
    */
   inputExample?: unknown;
+  /**
+   * JSON Schema for the function's request body — what `useFunction().invoke`,
+   * a route POST or the console's Run now sends. The console shows it as a
+   * field table and checks Run now's input against it before sending.
+   *
+   * Omit it and `oxyc publish` generates it from the function's TypeScript
+   * types: an `Input` type the entry file declares, or the type its handler
+   * casts `JSON.parse(req.body)` to. A schema written here wins; `null`
+   * declares none and stops the generation.
+   *
+   * A subset of draft 2020-12, whose keywords `OxyAppJsonSchema` lists; any
+   * other keyword, or more than 16 KiB, refuses the publish. Advisory at run
+   * time: the platform does not validate calls against it.
+   */
+  inputSchema?: OxyAppJsonSchema | null;
+  /**
+   * JSON Schema for the value the function returns. Generated like
+   * `inputSchema`, from an `Output` type or the handler's declared return type
+   * (not when it returns a `Response`). Display only.
+   */
+  outputSchema?: OxyAppJsonSchema | null;
+}
+
+/** A JSON Schema type name. */
+export type OxyAppJsonSchemaType =
+  | "object"
+  | "array"
+  | "string"
+  | "number"
+  | "integer"
+  | "boolean"
+  | "null";
+
+/**
+ * A function's `inputSchema` / `outputSchema`: the subset of JSON Schema draft
+ * 2020-12 every reader of one agrees on — the publish gate, `oxyc validate`
+ * and the console. No `$ref` / `$defs`, `allOf`, `not`, `if`, tuples or
+ * `patternProperties`: a keyword outside this list refuses the publish by name.
+ * `format` is an annotation; nothing asserts it.
+ */
+export interface OxyAppJsonSchema {
+  /** Root only, and only `https://json-schema.org/draft/2020-12/schema`. */
+  $schema?: string;
+  $comment?: string;
+  title?: string;
+  /** Shown in the console's field table. */
+  description?: string;
+  default?: unknown;
+  examples?: unknown[];
+  deprecated?: boolean;
+  /** An annotation (`date-time`, `email`, `uuid`, …); not asserted. */
+  format?: string;
+  type?: OxyAppJsonSchemaType | OxyAppJsonSchemaType[];
+  enum?: unknown[];
+  const?: unknown;
+  anyOf?: OxyAppJsonSchema[];
+  oneOf?: OxyAppJsonSchema[];
+  /** Each field's schema. */
+  properties?: Record<string, OxyAppJsonSchema>;
+  /** The fields a value must have. */
+  required?: string[];
+  /** `false` refuses a field not in `properties`; a schema types every other field. */
+  additionalProperties?: boolean | OxyAppJsonSchema;
+  /** One schema for every item; tuples are not supported. */
+  items?: OxyAppJsonSchema;
+  /** @asType integer */
+  minItems?: number;
+  /** @asType integer */
+  maxItems?: number;
+  uniqueItems?: boolean;
+  /** @asType integer */
+  minLength?: number;
+  /** @asType integer */
+  maxLength?: number;
+  /** An ECMA-262 regular expression, unanchored as JSON Schema reads it. */
+  pattern?: string;
+  minimum?: number;
+  maximum?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
+  multipleOf?: number;
 }
 
 /** `functions.<name>.airwayStep`: the pipeline and resource the step transforms. */

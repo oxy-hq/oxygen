@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "slug": "schema-fixture",
+  "functions": {
+    "quote": { "route": true },
+    "notify": { "route": true },
+    "orders": { "route": true },
+    "sync": { "route": true },
+    "tangled": { "route": true },
+    "handwritten": {
+      "route": true,
+      "inputSchema": { "type": "object", "properties": { "by": { "type": "string" } } },
+      "outputSchema": null
+    },
+    "nested-entry": { "route": true, "entry": "functions/nested/entry.ts" }
+  }
+}

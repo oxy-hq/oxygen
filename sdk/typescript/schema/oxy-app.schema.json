@@ -258,6 +258,28 @@
         },
         "inputExample": {
           "description": "Example input params for the function — a sample JSON body the admin \"Run now\" surface prefills so an operator knows what to pass (the function reads it as its `req` body, same as a route invocation). Advisory only; not enforced at runtime."
+        },
+        "inputSchema": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OxyAppJsonSchema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "JSON Schema for the function's request body — what `useFunction().invoke`, a route POST or the console's Run now sends. The console shows it as a field table and checks Run now's input against it before sending.\n\nOmit it and `oxyc publish` generates it from the function's TypeScript types: an `Input` type the entry file declares, or the type its handler casts `JSON.parse(req.body)` to. A schema written here wins; `null` declares none and stops the generation.\n\nA subset of draft 2020-12, whose keywords `OxyAppJsonSchema` lists; any other keyword, or more than 16 KiB, refuses the publish. Advisory at run time: the platform does not validate calls against it."
+        },
+        "outputSchema": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OxyAppJsonSchema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "JSON Schema for the value the function returns. Generated like `inputSchema`, from an `Output` type or the handler's declared return type (not when it returns a `Response`). Display only."
         }
       },
       "additionalProperties": false,
@@ -447,6 +469,137 @@
       },
       "additionalProperties": false,
       "description": "`functions.<name>.retries`: the durable queue's retry policy for background runs."
+    },
+    "OxyAppJsonSchema": {
+      "type": "object",
+      "properties": {
+        "$schema": {
+          "type": "string",
+          "description": "Root only, and only `https://json-schema.org/draft/2020-12/schema`."
+        },
+        "$comment": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "description": "Shown in the console's field table."
+        },
+        "default": {},
+        "examples": {
+          "type": "array",
+          "items": {}
+        },
+        "deprecated": {
+          "type": "boolean"
+        },
+        "format": {
+          "type": "string",
+          "description": "An annotation (`date-time`, `email`, `uuid`, …); not asserted."
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OxyAppJsonSchemaType"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/OxyAppJsonSchemaType"
+              }
+            }
+          ]
+        },
+        "enum": {
+          "type": "array",
+          "items": {}
+        },
+        "const": {},
+        "anyOf": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/OxyAppJsonSchema"
+          }
+        },
+        "oneOf": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/OxyAppJsonSchema"
+          }
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/OxyAppJsonSchema"
+          },
+          "description": "Each field's schema."
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The fields a value must have."
+        },
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/OxyAppJsonSchema"
+            }
+          ],
+          "description": "`false` refuses a field not in `properties`; a schema types every other field."
+        },
+        "items": {
+          "$ref": "#/definitions/OxyAppJsonSchema",
+          "description": "One schema for every item; tuples are not supported."
+        },
+        "minItems": {
+          "type": "integer"
+        },
+        "maxItems": {
+          "type": "integer"
+        },
+        "uniqueItems": {
+          "type": "boolean"
+        },
+        "minLength": {
+          "type": "integer"
+        },
+        "maxLength": {
+          "type": "integer"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "An ECMA-262 regular expression, unanchored as JSON Schema reads it."
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "exclusiveMinimum": {
+          "type": "number"
+        },
+        "exclusiveMaximum": {
+          "type": "number"
+        },
+        "multipleOf": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "description": "A function's `inputSchema` / `outputSchema`: the subset of JSON Schema draft 2020-12 every reader of one agrees on — the publish gate, `oxyc validate` and the console. No `$ref` / `$defs`, `allOf`, `not`, `if`, tuples or `patternProperties`: a keyword outside this list refuses the publish by name. `format` is an annotation; nothing asserts it."
+    },
+    "OxyAppJsonSchemaType": {
+      "type": "string",
+      "enum": ["object", "array", "string", "number", "integer", "boolean", "null"],
+      "description": "A JSON Schema type name."
     },
     "OxyAppMigrationsManifest": {
       "type": "object",

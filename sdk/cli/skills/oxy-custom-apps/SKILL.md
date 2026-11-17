@@ -604,6 +604,25 @@ oxyc fn dev report --read-through --env dev     # reads hit that deployment; wri
   `createTestContext` from `@oxy-hq/sdk/testing` in vitest, as the functions
   template does.
 
+### Say what a function takes and returns
+
+Declare an `Input` (and `Output`) type in the function's entry file, or cast the
+body (`JSON.parse(req.body) as Body`) and annotate the handler's return type.
+`oxyc publish` turns them into the function's `inputSchema` / `outputSchema` in
+the uploaded manifest. The staff console shows them as a field table, and Run now
+checks its input against `inputSchema` before sending it. JSDoc becomes the field
+description, and `@minimum`, `@maxLength`, `@pattern`, `@format` and
+`@asType integer` become constraints.
+
+- **Plain data types only:** interfaces, aliases, literals, unions, arrays,
+  `Record`, `Date`, relative type imports. A generic, intersection or tuple is a
+  publish **warning** naming the line, and that function ships without a schema.
+- **A schema written in `oxy-app.json` wins**, and `null` turns generation off.
+  It must use the JSON Schema 2020-12 subset `OxyAppJsonSchema` lists (no
+  `$ref`) and stay under 16 KiB, or the publish is refused (`oxyc validate` says
+  so first).
+- **Advisory:** a call that does not fit still runs.
+
 ## Publishing
 
 **These commands are a person's, or an agent's on a token that person

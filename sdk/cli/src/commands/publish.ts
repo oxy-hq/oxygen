@@ -40,6 +40,7 @@ import {
   type FunctionLintResult,
   lintAppFunctions
 } from "../publish/function-lint.js";
+import { embedFunctionSchemas } from "../publish/function-schemas.js";
 import {
   bundleFunctions,
   enforceReservedFunctionsDir,
@@ -221,6 +222,13 @@ function prepareBundle(
   } else {
     const entries = declared.map((name) => ({ name, entry: functionEntry(manifest, name) }));
     bundleFunctions(entries, ctx.cwd, bundleDir);
+    // From the same sources, into the bundle's copy of the manifest: what the
+    // platform reads. Never fails the publish; a type it cannot read is a warning.
+    const schemas = embedFunctionSchemas(ctx.cwd, bundleDir, manifest);
+    if (schemas.generated.length > 0) {
+      log.info(`function schemas generated: ${schemas.generated.join("; ")}`);
+    }
+    for (const warning of schemas.warnings) log.warn(`function schema: ${warning}`);
   }
   return bundleDir;
 }

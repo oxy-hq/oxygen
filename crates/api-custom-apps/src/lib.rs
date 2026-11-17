@@ -73,6 +73,8 @@ pub mod custom_apps_build_history;
 pub mod custom_apps_debug;
 pub mod custom_apps_env_branch;
 pub mod custom_apps_env_schedules;
+/// A function's `inputSchema` / `outputSchema`: the subset, the cap, the gate.
+pub mod custom_apps_function_schema;
 pub mod custom_apps_functions;
 pub mod custom_apps_migrations;
 pub mod custom_apps_nonproduction;

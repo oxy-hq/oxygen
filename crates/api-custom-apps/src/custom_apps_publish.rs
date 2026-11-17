@@ -1293,6 +1293,7 @@ fn check_declared_functions(
 ) -> Result<(), PublishError> {
     validate_function_names(specs)?;
     refuse_reserved_notify_kinds(specs)?;
+    crate::custom_apps_function_schema::check_functions(specs).map_err(PublishError::Invalid)?;
     let missing = missing_function_artifacts(files, specs);
     if !missing.is_empty() {
         return Err(PublishError::MissingFunctionArtifacts { missing });
@@ -2063,6 +2064,29 @@ mod tests {
             "expected notify_kind_reserved, got {err:?}"
         );
         assert_eq!(err.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    /// A function schema outside the supported subset refuses the publish
+    /// before anything is stored, as a 422 naming the check; a valid one ships.
+    #[test]
+    fn a_function_schema_outside_the_subset_is_a_422_naming_the_check() {
+        let files = vec![("functions/quote.js".to_string(), b"x".to_vec())];
+        let specs = vec![(
+            "quote".to_string(),
+            serde_json::json!({ "inputSchema": { "$ref": "#/$defs/Input" } }),
+        )];
+        let err = check_declared_functions(&files, &specs).unwrap_err();
+        assert!(
+            matches!(&err, PublishError::Invalid(v) if v.check == "function_schema_invalid"),
+            "{err:?}"
+        );
+        assert_eq!(err.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        let specs = vec![(
+            "quote".to_string(),
+            serde_json::json!({ "inputSchema": { "type": "object" } }),
+        )];
+        assert!(check_declared_functions(&files, &specs).is_ok());
     }
 
     #[test]
