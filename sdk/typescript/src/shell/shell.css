@@ -6,6 +6,38 @@
 
      --oxy-shell-<name>: var(--<host token>, <pinned fallback>);
 
+   The theme (`@oxy-hq/sdk/theme.css`) comes first where it has a name for
+   the part: corners read `--radius-control`, `--radius-surface`,
+   `--radius-overlay`, `--radius-pill`, `--button-radius`, `--input-radius`,
+   `--card-radius` and `--badge-radius`; frame lines read `--rail-border`,
+   `--topbar-border`, `--card-border` and the table rules; the Ask button, the
+   phone kit's chips, segments and secondary buttons read
+   `--button-secondary-border` (the reference draws them on the frame line, as
+   its secondary buttons and segment strips), and a field keeps `--border`; the
+   rail and bars read `--rail-bg` and `--topbar-bg`; touch
+   targets read `--control-h-lg`; every focus ring reads `--focus-ring-width`
+   and `--focus-ring-color` (the reference's one ring: 1.5px, full strength,
+   never at an alpha); the kit's primary button reads `--button-primary-bg`
+   and `--button-primary-fg`. Each is read where it is used, as
+   `var(--<theme token>, <what this file drew before>)`, so an app that does
+   not import the theme draws exactly what it did, its own `--radius`,
+   `--border` and `--oxy-shell-*` overrides included. Every corner computed
+   off `--oxy-shell-radius` is clamped at 0, so a zero radius never goes
+   negative. The kit's secondary fill (`--secondary`), its segment track and
+   selected segment (`--segment-track`, `--segment-selected`), the tab bar's
+   selected label (foreground, not the link blue), the breadcrumb's "/" (the
+   muted ink at full strength) and the keyboard hint's 11px floor are switched
+   by `--oxy-shell-themed` instead (below), because apps set those names
+   themselves. Two parts cannot be mixed by a number, a font family and an
+   outline style, so they switch on the same marker through a style query,
+   `@container style(--oxy-theme-contract: 1)`: the Today clock's sans face and
+   the breadcrumb home link's ring. A browser without style queries keeps
+   2.28's monospace clock and its own outline there.
+
+   Every focus-visible rule also draws a transparent 2px outline: invisible
+   normally, it is what forced colours (Windows contrast themes) paint, since
+   they drop box-shadow rings.
+
    Inside the Oxygen web-app the host tokens (--sidebar-background, --border,
    …) exist, so the shell tracks the product theme exactly. In an external
    customer app the pinned fallbacks apply — their values are copied verbatim
@@ -50,6 +82,16 @@
   --oxy-shell-radius: var(--radius, 0.625rem);
   --oxy-shell-font: var(--font-inter, "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif);
   --oxy-shell-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* 1 where the theme is loaded, 0 where it is not: theme.css is the only file that sets
+     --oxy-theme-contract (its contract version, 1). It switches the few theme values that a plain
+     `var(--theme-name, <fallback>)` cannot carry without moving an app that never imported the
+     theme: a size the theme has no name for (the 11px keyboard hint), and a colour whose name an
+     app also sets for itself (`--secondary`, `--segment-track` and `--segment-selected`, which
+     Store Ops and Command Center declare; `--foreground` and `--muted-foreground`, which every
+     shadcn app does). Those colours read `color-mix(in srgb, var(--name, transparent)
+     calc(var(--oxy-shell-themed, 0) * 100%), <what 2.28 drew>)`: all theme with it, all 2.28
+     without it. */
+  --oxy-shell-themed: min(1, var(--oxy-theme-contract, 0));
 
   font-family: var(--oxy-shell-font);
 }
@@ -134,8 +176,8 @@
   flex-direction: column;
   /* border color: the web-app frame borders resolve to --border (the global
      base rule), NOT --sidebar-border — only the group divider uses that. */
-  border-right: 1px solid var(--oxy-shell-border);
-  background: var(--oxy-shell-sidebar-bg);
+  border-right: 1px solid var(--rail-border, var(--oxy-shell-border));
+  background: var(--rail-bg, var(--oxy-shell-sidebar-bg));
 }
 
 /* Fixed 3rem so the logo cell matches the top bar height exactly — the two
@@ -147,7 +189,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid var(--oxy-shell-border);
+  border-bottom: 1px solid var(--rail-border, var(--oxy-shell-border));
   padding: 0 0.25rem;
 }
 
@@ -185,8 +227,110 @@
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
-  border-top: 1px solid var(--oxy-shell-border);
+  border-top: 1px solid var(--rail-border, var(--oxy-shell-border));
   padding: 0.5rem 0.25rem;
+}
+
+/* The mode switch (ModeSwitch.tsx): drawn only with theme.css applied, so none of these rules
+   reaches an app without the theme. In the rail it is an ordinary rail entry opening a three-item
+   menu to the right; in the nav sheet's bottom, a three-way control. */
+.oxy-modeswitch {
+  position: relative;
+  display: flex;
+}
+
+.oxy-modeswitch__menu {
+  box-sizing: border-box;
+  position: absolute;
+  bottom: 0;
+  left: calc(100% + 0.5rem);
+  z-index: 50;
+  display: flex;
+  min-width: 9rem;
+  flex-direction: column;
+  gap: 0.125rem;
+  border: 1px solid var(--card-border, var(--oxy-shell-border));
+  border-radius: var(--radius-overlay, var(--oxy-shell-radius));
+  background: var(--oxy-shell-background);
+  color: var(--oxy-shell-foreground);
+  padding: 0.25rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  font-family: var(--oxy-shell-font);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.oxy-modeswitch__item {
+  box-sizing: border-box;
+  display: flex;
+  min-height: 2rem;
+  align-items: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
+  background: transparent;
+  color: inherit;
+  padding: 0.375rem 0.5rem;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.oxy-modeswitch__item:hover,
+.oxy-modeswitch__item:focus-visible {
+  outline: 2px solid transparent;
+  background: var(--oxy-shell-accent);
+}
+
+.oxy-modeswitch__item[aria-checked="true"] {
+  background: var(--oxy-shell-muted);
+  font-weight: 500;
+}
+
+.oxy-modeswitch__label {
+  flex: 1;
+}
+
+.oxy-modeswitch-seg {
+  box-sizing: border-box;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  gap: 0.125rem;
+  border: 1px solid var(--card-border, var(--oxy-shell-border));
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
+  padding: 0.125rem;
+}
+
+.oxy-modeswitch-seg__option {
+  box-sizing: border-box;
+  display: inline-flex;
+  min-width: 0;
+  min-height: var(--control-h-lg, 2.75rem);
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border: none;
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 4px)));
+  background: transparent;
+  color: var(--oxy-shell-muted-fg);
+  padding: 0 0.5rem;
+  font-family: var(--oxy-shell-font);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.oxy-modeswitch-seg__option--on {
+  background: var(--oxy-shell-muted);
+  color: var(--oxy-shell-foreground);
+  font-weight: 500;
+}
+
+.oxy-modeswitch-seg__option:focus-visible {
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 /* Rail entry — replicates the web-app ghost icon Button + itemClasses. */
@@ -198,7 +342,7 @@
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: transparent;
   color: var(--oxy-shell-foreground);
   padding: 0;
@@ -219,7 +363,17 @@
 }
 
 .oxy-rail__item:focus-visible {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
+}
+
+/* The tile rests at 0.6 opacity, and opacity takes its ring with it: the theme's ring measured
+   2.74:1 on the light rail and 3.65:1 on the dark one, against 6.85 and 8.25 at full strength.
+   With the theme a focused tile is drawn at full strength, as a hovered one is; 0.6 without it,
+   as 2.28 drew. Hovered and selected tiles are already at 1 and keep their own rules. */
+.oxy-rail__item:focus-visible:not(:hover):not(.oxy-rail__item--active) {
+  opacity: calc(0.6 + 0.4 * var(--oxy-shell-themed, 0));
 }
 
 .oxy-rail__item--active,
@@ -235,16 +389,18 @@
      would be the only brand hue in otherwise neutral chrome. The ring is an
      inset shadow rather than a border so the tile stays 2rem without relying
      on the host app's box-sizing. */
-  background: var(--oxy-shell-muted);
-  color: var(--oxy-shell-sidebar-accent-fg);
+  background: var(--rail-item-active-bg, var(--oxy-shell-muted));
+  color: var(--rail-item-active-fg, var(--oxy-shell-sidebar-accent-fg));
   box-shadow: inset 0 0 0 1px var(--oxy-shell-border-strong);
 }
 
 /* Focus ring still wins over the selected outline. */
 .oxy-rail__item--active:focus-visible {
+  outline: 2px solid transparent;
   box-shadow:
     inset 0 0 0 1px var(--oxy-shell-border-strong),
-    0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+    0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 .oxy-rail__item svg {
@@ -262,7 +418,7 @@
 .oxy-rail__item-img {
   height: 1.25rem;
   width: 1.25rem;
-  border-radius: calc(var(--oxy-shell-radius) - 4px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 4px)));
   object-fit: contain;
 }
 
@@ -290,8 +446,8 @@
   }
 
   .oxy-rail__item {
-    height: 2.75rem;
-    width: 2.75rem;
+    height: var(--control-h-lg, 2.75rem);
+    width: var(--control-h-lg, 2.75rem);
   }
 }
 
@@ -304,7 +460,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   /* Fill backs the letter fallback. A real logo (often a transparent PNG)
      sits on its own — the `--logo` modifier drops the fill so it doesn't show
      through as a grey square behind the mark. */
@@ -349,7 +505,7 @@
   justify-content: center;
   margin-left: -0.25rem;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: transparent;
   color: var(--oxy-shell-foreground);
   padding: 0;
@@ -363,8 +519,9 @@
 .oxy-navsheet-trigger:focus-visible,
 .oxy-navsheet__close:focus-visible,
 .oxy-navsheet__row:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 @media (max-width: 767.98px), (pointer: coarse) and (max-height: 500px) {
@@ -398,8 +555,8 @@
   width: 75%; /* mirrors the web-app's w-3/4 max-w-72 */
   max-width: 18rem;
   flex-direction: column;
-  border-right: 1px solid var(--oxy-shell-border);
-  background: var(--oxy-shell-sidebar-bg);
+  border-right: 1px solid var(--rail-border, var(--oxy-shell-border));
+  background: var(--rail-bg, var(--oxy-shell-sidebar-bg));
   color: var(--oxy-shell-foreground);
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   animation: oxy-navsheet-slide var(--oxy-duration-slow) var(--oxy-ease-out);
@@ -412,7 +569,7 @@
   flex-shrink: 0;
   align-items: center;
   gap: 0.75rem;
-  border-bottom: 1px solid var(--oxy-shell-border);
+  border-bottom: 1px solid var(--rail-border, var(--oxy-shell-border));
   padding: 0 0.75rem;
 }
 
@@ -434,7 +591,7 @@
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: transparent;
   color: var(--oxy-shell-muted-fg);
   padding: 0;
@@ -466,13 +623,13 @@
 .oxy-navsheet__row {
   box-sizing: border-box;
   display: flex;
-  height: 2.75rem;
+  height: var(--control-h-lg, 2.75rem);
   width: 100%;
   flex-shrink: 0;
   align-items: center;
   gap: 0.75rem;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: transparent;
   color: var(--oxy-shell-foreground);
   padding: 0 0.75rem;
@@ -523,7 +680,7 @@
   flex-shrink: 0;
   align-items: center;
   gap: 0.5rem;
-  border-top: 1px solid var(--oxy-shell-border);
+  border-top: 1px solid var(--rail-border, var(--oxy-shell-border));
   padding: 0.5rem 0.75rem;
 }
 
@@ -554,8 +711,8 @@
   flex-shrink: 0;
   align-items: center;
   gap: 0.75rem;
-  border-bottom: 1px solid var(--oxy-shell-border);
-  background: var(--oxy-shell-sidebar-bg);
+  border-bottom: 1px solid var(--topbar-border, var(--oxy-shell-border));
+  background: var(--topbar-bg, var(--oxy-shell-sidebar-bg));
   padding: 0 0.75rem;
 }
 
@@ -589,19 +746,42 @@
   opacity: 0.7;
 }
 
-/* The workspace link is the way home from every app, but its text box was 20px
-   tall. On a touch screen it fills the bar's height so a thumb can hit it; the
-   text sits where it always did. */
-@media (pointer: coarse) {
-  .oxy-breadcrumb__workspace {
-    display: inline-flex;
-    align-items: center;
-    min-height: 2.75rem;
+/* 2.28 drew no focus rule here, so the home link shows the browser's own outline; it still does
+   without the theme. With it, the one ring. An outline style cannot be mixed, so this switches on
+   the theme's marker through a style query rather than --oxy-shell-themed (where a browser has no
+   style queries, the browser's outline stays, as on 2.28). */
+@container style(--oxy-theme-contract: 1) {
+  .oxy-breadcrumb__workspace:focus-visible {
+    outline: 2px solid transparent;
+    box-shadow: 0 0 0 var(--focus-ring-width, 1.5px) var(--focus-ring-color, var(--oxy-shell-ring));
   }
 }
 
+/* The workspace link is the way home from every app, but its text box was 20px
+   tall. On a touch screen it fills the bar's height so a thumb can hit it; the
+   text sits where it always did. A screen that turns the shell's tap areas off
+   (`data-oxy-touch-targets="off"`, a store's enrolled tablet) keeps the link at
+   its drawn size, as the touch rules below do. The opt-out sits in :where(), so
+   the rule weighs what it did on 2.28 (one class) and an app's own rule for the
+   link still wins as it did. */
+@media (pointer: coarse) {
+  :where(:root:not([data-oxy-touch-targets="off"])) .oxy-breadcrumb__workspace {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--control-h-lg, 2.75rem);
+  }
+}
+
+/* 40% of the muted ink as 2.28 drew it (text at 1.88:1 on the theme's light bar, 2.29 on its dark
+   one); with the theme, the muted ink at full strength, as the reference draws its own "/"
+   (TopBarLeft.tsx's breadcrumb stand-in, `text-muted-foreground`): 6.85:1 light, 8.25 dark.
+   Switched by --oxy-shell-themed because apps set `--muted-foreground` for themselves. */
 .oxy-breadcrumb__sep {
-  color: color-mix(in srgb, var(--oxy-shell-muted-fg) 40%, transparent);
+  color: color-mix(
+    in srgb,
+    var(--oxy-shell-muted-fg) calc(40% + 60% * var(--oxy-shell-themed, 0)),
+    transparent
+  );
 }
 
 .oxy-breadcrumb__page {
@@ -645,6 +825,15 @@
   }
 }
 
+/* With the theme, the clock is drawn in the shell's sans face, its figures tabular as above: the
+   design system draws figures in sans with `tabular-nums`, never monospace. A font family cannot be
+   mixed, so this switches on the theme's marker through a style query (see the home link). */
+@container style(--oxy-theme-contract: 1) {
+  .oxy-clock {
+    font-family: var(--oxy-shell-font);
+  }
+}
+
 /* ─── Today (the clock opens a panel of this person's widget cards) ─────── */
 
 .oxy-today-anchor {
@@ -661,7 +850,7 @@
   gap: 0.375rem;
   margin: 0;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 4px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 4px)));
   background: transparent;
   padding: 0.25rem 0.375rem;
   cursor: pointer;
@@ -677,8 +866,9 @@
 }
 
 .oxy-clock--button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 /* On a phone the time gives way to an icon, so the button still has a place. */
@@ -707,8 +897,8 @@
   max-width: calc(100vw - 1rem);
   max-height: calc(100vh - 4.5rem);
   flex-direction: column;
-  border: 1px solid var(--oxy-shell-border);
-  border-radius: var(--oxy-shell-radius);
+  border: 1px solid var(--card-border, var(--oxy-shell-border));
+  border-radius: var(--radius-overlay, var(--oxy-shell-radius));
   background: var(--oxy-shell-background);
   color: var(--oxy-shell-foreground);
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
@@ -858,7 +1048,7 @@
   display: flex;
   align-items: center;
   gap: 0.625rem;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   padding: 0.5rem;
   color: inherit;
   text-decoration: none;
@@ -874,8 +1064,9 @@
 }
 
 .oxy-today__row[href]:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 .oxy-today__mark {
@@ -886,7 +1077,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: calc(var(--oxy-shell-radius) - 4px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 4px)));
   background: var(--oxy-shell-muted);
   color: var(--oxy-shell-muted-fg);
   font-size: 11px;
@@ -947,7 +1138,7 @@
 
 .oxy-today__footer {
   flex-shrink: 0;
-  border-top: 1px solid var(--oxy-shell-border);
+  border-top: 1px solid var(--card-border, var(--oxy-shell-border));
   padding: 0.625rem 1rem;
   color: var(--oxy-shell-link);
   font-size: 12px;
@@ -959,9 +1150,12 @@
 }
 
 .oxy-today__footer:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
-  border-radius: 0 0 var(--oxy-shell-radius) var(--oxy-shell-radius);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
+  border-radius: 0 0 var(--radius-overlay, var(--oxy-shell-radius))
+    var(--radius-overlay, var(--oxy-shell-radius));
 }
 
 /* ─── Update ready pill (prompt mode, or an installed PWA) ──────────────── */
@@ -970,7 +1164,7 @@
   display: inline-flex;
   align-items: center;
   border: 1px solid color-mix(in srgb, var(--oxy-shell-link) 45%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill, 999px);
   background: color-mix(in srgb, var(--oxy-shell-link) 10%, transparent);
   padding: 0.125rem 0.625rem;
   font-family: var(--oxy-shell-font);
@@ -1012,9 +1206,19 @@
     position: absolute;
     top: 50%;
     left: 50%;
-    width: max(100%, 44px);
-    height: max(100%, 44px);
+    width: max(100%, var(--control-h-lg, 44px));
+    height: max(100%, var(--control-h-lg, 44px));
     transform: translate(-50%, -50%);
+  }
+
+  /* With the theme, the Today clock's reach sits above its neighbours'. Its centre is 44px from
+     the Ask button's, so the two 44px reaches meet edge to edge, and Chrome gives the shared edge
+     to the later one: on a 390px phone a tap 21.5px right of the clock's centre landed on the Ask
+     button, so the clock reached 21.5px left but under 21.5px right. Raised, the clock keeps its
+     whole reach and the Ask button still keeps its own (measured both ways). 0 without the
+     theme, which paints and hits as 2.28's `auto` did. */
+  .oxy-clock--button::before {
+    z-index: var(--oxy-shell-themed, 0);
   }
 
   /* Upright, the Today clock is a 28px icon: 2px either side puts its centre 44px
@@ -1043,9 +1247,63 @@
       position: absolute;
       top: 50%;
       left: 50%;
-      width: max(100%, 44px);
-      height: max(100%, 44px);
+      width: max(100%, var(--control-h-lg, 44px));
+      height: max(100%, var(--control-h-lg, 44px));
       transform: translate(-50%, -50%);
+    }
+  }
+}
+
+/* ─── Touch targets on a touch screen, with the theme (decision 16) ─────── */
+
+/* Every desk app on a touch screen gives each control 44px, and the shell's own chrome is no
+   exception: on a coarse pointer, with theme.css applied, the rail's entries (the mode switch
+   among them), the Today clock, the Ask button and the update pill each answer a tap within an
+   area at least 44px each way, centred on it: the box grown by a negative inset where it is under
+   44px (the reference's hit-area trick), and not at all where it is not. Nothing drawn grows.
+   One thing moves: the rail's entries, 36px apart, could not each own 44px (a neighbour's area
+   took the edge of the next entry), so on a touch screen they sit 44px apart (12px gaps), and
+   the areas tile the rail without overlapping. The mode switch's menu rows are a real 44px.
+   Switched on the theme's marker through a style query, so an app without the theme, a fine
+   pointer, and a browser without style queries keep the shell as it was. An app opts a screen out
+   (a store's enrolled tablet) with `<html data-oxy-touch-targets="off">`,
+   `<OxyShell touchTargets={false}>` or `useOxyTouchTargets(false)`. */
+@media (pointer: coarse) {
+  @container style(--oxy-theme-contract: 1) {
+    :root:not([data-oxy-touch-targets="off"]) .oxy-rail__nav,
+    :root:not([data-oxy-touch-targets="off"]) .oxy-rail__footer,
+    :root:not([data-oxy-touch-targets="off"]) .oxy-rail__bottom {
+      gap: calc(var(--control-h-lg, 44px) - 2rem);
+    }
+
+    :root:not([data-oxy-touch-targets="off"]) .oxy-rail__item,
+    :root:not([data-oxy-touch-targets="off"]) .oxy-clock--button,
+    :root:not([data-oxy-touch-targets="off"]) .oxy-askbtn,
+    :root:not([data-oxy-touch-targets="off"]) .oxy-updatepill {
+      position: relative;
+    }
+
+    :root:not([data-oxy-touch-targets="off"]) .oxy-rail__item::before,
+    :root:not([data-oxy-touch-targets="off"]) .oxy-clock--button::before,
+    :root:not([data-oxy-touch-targets="off"]) .oxy-askbtn::before,
+    :root:not([data-oxy-touch-targets="off"]) .oxy-updatepill::before {
+      content: "";
+      position: absolute;
+      top: min(0px, calc((100% - var(--control-h-lg, 44px)) / 2));
+      right: min(0px, calc((100% - var(--control-h-lg, 44px)) / 2));
+      bottom: min(0px, calc((100% - var(--control-h-lg, 44px)) / 2));
+      left: min(0px, calc((100% - var(--control-h-lg, 44px)) / 2));
+      /* The insets alone place the area. In the phone layout the top bar's own rule (above) also
+         gives the clock, the Ask button and the update pill a centred 44px box (`width`, `height`,
+         `transform`); left on, it combined with these insets into a 44px box 22px up and left of
+         the control, so a tap 21.5px from the Today clock's centre, any side, missed it. */
+      width: auto;
+      height: auto;
+      transform: none;
+    }
+
+    :root:not([data-oxy-touch-targets="off"]) .oxy-modeswitch__item {
+      min-height: var(--control-h-lg, 44px);
     }
   }
 }
@@ -1055,7 +1313,7 @@
 .oxy-shell-tooltip {
   z-index: 50;
   width: fit-content;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: var(--oxy-shell-tooltip-bg);
   color: var(--oxy-shell-foreground);
   padding: 0.375rem 0.75rem;
@@ -1111,7 +1369,7 @@
   width: 0.625rem;
   translate: 0 calc(-50% - 2px);
   rotate: 45deg;
-  border-radius: 2px;
+  border-radius: var(--radius-control, 2px);
   background: var(--oxy-shell-tooltip-bg);
   fill: var(--oxy-shell-tooltip-bg);
 }
@@ -1144,8 +1402,8 @@
   display: flex;
   align-items: center;
   gap: 0.375rem;
-  border: 1px solid var(--oxy-shell-border);
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border: 1px solid var(--button-secondary-border, var(--oxy-shell-border));
+  border-radius: var(--button-radius, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: transparent;
   padding: 0.25rem 0.5rem;
   font-family: var(--oxy-shell-font);
@@ -1170,8 +1428,9 @@
 }
 
 .oxy-askbtn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 .oxy-askbtn__mark {
@@ -1186,11 +1445,13 @@
 }
 
 .oxy-askbtn__kbd {
-  border-radius: 4px;
+  border-radius: var(--badge-radius, 4px);
   background: var(--oxy-shell-muted);
   padding: 0.125rem 0.375rem;
   font-family: var(--oxy-shell-font-mono);
-  font-size: 10px;
+  /* 10px as 2.28 drew it; 11px with the theme, the reference's smallest step (`text-2xs`). The
+     theme has no type step for it, so the shell switches on --oxy-shell-themed. */
+  font-size: calc(10px + var(--oxy-shell-themed, 0) * 1px);
   line-height: 1.2;
 }
 
@@ -1204,6 +1465,15 @@
   }
 }
 
+/* No keyboard hint in the phone layout. A phone on its side is wider than 640px, so the rule above
+   showed ⌘K there, at 10px, to a person with no keyboard. Same query as PHONE_LAYOUT_QUERY
+   (usePhoneLayout.ts); below 640px the hint was never shown. */
+@media (pointer: coarse) and (max-height: 500px) {
+  .oxy-askbtn__kbd {
+    display: none;
+  }
+}
+
 /* ─── Ask Oxygen dock ───────────────────────────────────────────────────── */
 
 .oxy-askdock {
@@ -1213,7 +1483,7 @@
   flex-shrink: 0;
   flex-direction: column;
   min-width: 0;
-  border-left: 1px solid var(--oxy-shell-border);
+  border-left: 1px solid var(--rail-border, var(--oxy-shell-border));
   background: var(--oxy-shell-background);
   color: var(--oxy-shell-foreground);
   overflow: hidden;
@@ -1232,7 +1502,7 @@
   flex-shrink: 0;
   align-items: center;
   gap: 0.5rem;
-  border-bottom: 1px solid var(--oxy-shell-border);
+  border-bottom: 1px solid var(--topbar-border, var(--oxy-shell-border));
   padding: 0 0.75rem;
 }
 
@@ -1263,7 +1533,7 @@
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--button-radius, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: transparent;
   color: var(--oxy-shell-muted-fg);
   cursor: pointer;
@@ -1278,8 +1548,9 @@
 }
 
 .oxy-askdock__iconbtn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 .oxy-askdock__iconbtn:disabled {
@@ -1322,12 +1593,14 @@
   margin-bottom: 0.25rem;
   padding: 0.5rem 0.625rem;
   border: 1px solid var(--oxy-shell-border);
-  border-radius: var(--oxy-shell-radius);
+  border-radius: var(--input-radius, var(--oxy-shell-radius));
   color: var(--oxy-shell-muted-fg);
 }
 
 .oxy-askdock__history-search:focus-within {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 45%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 45%, transparent));
 }
 
 .oxy-askdock__history-search svg {
@@ -1376,7 +1649,7 @@
   gap: 0.5rem;
   width: 100%;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: transparent;
   padding: 0.5rem 0.625rem;
   font-family: var(--oxy-shell-font);
@@ -1396,8 +1669,9 @@
 }
 
 .oxy-askdock__history-item:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 /* The conversation currently open in the dock — kept in the list (not hidden)
@@ -1445,8 +1719,8 @@
 }
 
 .oxy-askdock__chip {
-  border: 1px solid var(--oxy-shell-border);
-  border-radius: 999px;
+  border: 1px solid var(--button-secondary-border, var(--oxy-shell-border));
+  border-radius: var(--radius-pill, 999px);
   background: transparent;
   padding: 0.375rem 0.75rem;
   font-family: var(--oxy-shell-font);
@@ -1462,8 +1736,9 @@
 }
 
 .oxy-askdock__chip:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 .oxy-askdock__turn {
@@ -1475,7 +1750,7 @@
 .oxy-askdock__q {
   align-self: flex-end;
   max-width: 85%;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-surface, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: var(--oxy-shell-muted);
   padding: 0.375rem 0.625rem;
   margin: 0.5rem 0 0.375rem;
@@ -1487,12 +1762,13 @@
   margin: 0.75rem;
   flex-shrink: 0;
   border: 1px solid var(--oxy-shell-border);
-  border-radius: var(--oxy-shell-radius);
+  border-radius: var(--input-radius, var(--oxy-shell-radius));
   padding: 0.625rem;
   transition: border-color var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
 .oxy-askdock__composer:focus-within {
+  outline: 2px solid transparent;
   border-color: var(--oxy-shell-ring);
 }
 
@@ -1552,8 +1828,8 @@
 }
 
 .oxy-askdock--phone .oxy-askdock__iconbtn {
-  width: 44px;
-  height: 44px;
+  width: var(--control-h-lg, 44px);
+  height: var(--control-h-lg, 44px);
 }
 
 .oxy-askdock--phone .oxy-askdock__input,
@@ -1573,7 +1849,7 @@
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--button-radius, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: var(--oxy-shell-primary);
   color: var(--oxy-shell-primary-fg);
   cursor: pointer;
@@ -1586,16 +1862,17 @@
 }
 
 .oxy-askdock__send:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 /* ─── Reasoning trace (Ask dock) ────────────────────────────────────────── */
 
 .oxy-trace {
   margin: 0.375rem 0;
-  border: 1px solid var(--oxy-shell-border);
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border: 1px solid var(--card-border, var(--oxy-shell-border));
+  border-radius: var(--radius-surface, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   font-size: 12px;
   color: var(--oxy-shell-muted-fg);
   overflow: hidden;
@@ -1621,8 +1898,10 @@
 }
 
 .oxy-trace__head:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 .oxy-trace__title {
@@ -1638,7 +1917,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
-  border-top: 1px solid var(--oxy-shell-border);
+  border-top: 1px solid var(--card-border, var(--oxy-shell-border));
   padding: 0.5rem 0.625rem;
 }
 
@@ -1775,8 +2054,8 @@
 
 .oxy-chart {
   margin: 0.5rem 0;
-  border: 1px solid var(--oxy-shell-border);
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border: 1px solid var(--card-border, var(--oxy-shell-border));
+  border-radius: var(--radius-surface, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   padding: 0.625rem 0.625rem 0.375rem;
 }
 
@@ -1845,14 +2124,14 @@
 .oxy-chart__table th {
   text-align: left;
   padding: 0.25rem 0.5rem;
-  border-bottom: 1px solid var(--oxy-shell-border);
+  border-bottom: 1px solid var(--table-rule, var(--oxy-shell-border));
   font-weight: 600;
   color: var(--oxy-shell-foreground);
 }
 
 .oxy-chart__table td {
   padding: 0.25rem 0.5rem;
-  border-bottom: 1px solid var(--oxy-shell-border);
+  border-bottom: 1px solid var(--table-row-rule, var(--oxy-shell-border));
   color: var(--oxy-shell-muted-fg);
 }
 
@@ -1880,9 +2159,10 @@
 }
 
 .oxy-trace__step-row--btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
-  border-radius: 4px;
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
+  border-radius: var(--radius-control, 4px);
 }
 
 .oxy-trace__count {
@@ -1926,9 +2206,10 @@
 }
 
 .oxy-trace__row--btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
-  border-radius: 4px;
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
+  border-radius: var(--radius-control, 4px);
 }
 
 .oxy-trace__row--btn:not(:hover) .oxy-trace__step-chevron {
@@ -1969,8 +2250,16 @@
    text 13px or more, labels 11px or more, primary actions 44px or more, and
    small fields raised to 16px so iOS does not zoom into them.
 
-   Corners follow the app's `--radius` through `--oxy-shell-radius`, so an app at
-   `--radius: 0` gets square controls. Only a status dot stays round: the design
+   Corners read the theme's radius tokens (`--card-radius`, `--button-radius`,
+   `--radius-control`, `--badge-radius`, …) and otherwise follow the app's
+   `--radius` through `--oxy-shell-radius`, so an app at `--radius: 0` gets square
+   controls either way. Card and sheet edges read `--card-border` and
+   `--topbar-border` (the frame weight), chips, segments and secondary buttons
+   `--button-secondary-border`, fields keep `--border`, and the 44px
+   touch floor reads `--control-h-lg`. With the theme the primary button is the
+   brand fill (`--button-primary-bg`), the secondary button `--secondary`, the
+   selected segment `--segment-selected`, and every focus ring the theme's 1.5px
+   `--focus-ring-color` at full strength. Only a status dot stays round: the design
    system's one exception, a dot is a point and not a container. */
 
 .oxy-phone {
@@ -2013,21 +2302,49 @@
 /* Tones. `warn` has no shell token: it is mixed from destructive and success,
    which lands on an amber in both themes. Text in a tone is pulled toward the
    foreground so it stays readable on the page (a pure #22c55e on white is
-   2.3:1); dots and pill fills use the tone itself. */
+   2.3:1); dots and pill fills use the tone itself.
+
+   With the theme, a tone is the design system's status family instead, the same
+   one the desk draws, so one status reads one way on both layouts. Each tone
+   holds its theme values below, and the pill, the row dot, the KPI caption and a
+   toned tab count read them behind --oxy-shell-themed (Store Ops sets the status
+   names for itself, so a plain fallback would move it without the theme):
+   - fill and ink: the reference's chip pair (`tag` + `chipTone`): the status tint
+     with its ink, and for neutral the neutral tint with the dim ink;
+   - text: a caption coloured by its verdict, the status ink; neutral is the muted
+     ink of a plain caption (the reference's `note`);
+   - dot: `StatusDot`'s `--dot-*`; neutral is the unjudged series grey.
+   `--oxy-phone-tone` itself stays what 2.28 set, for apps that read it. */
 .oxy-phone-tone--good {
   --oxy-phone-tone: var(--oxy-shell-success);
+  --oxy-phone-tone-fill: var(--status-success-bg, transparent);
+  --oxy-phone-tone-ink: var(--status-success, transparent);
+  --oxy-phone-tone-text: var(--status-success, transparent);
+  --oxy-phone-tone-dot: var(--dot-success, transparent);
 }
 
 .oxy-phone-tone--warn {
   --oxy-phone-tone: color-mix(in oklch, var(--oxy-shell-destructive) 50%, var(--oxy-shell-success));
+  --oxy-phone-tone-fill: var(--status-warning-bg, transparent);
+  --oxy-phone-tone-ink: var(--status-warning, transparent);
+  --oxy-phone-tone-text: var(--status-warning, transparent);
+  --oxy-phone-tone-dot: var(--dot-warning, transparent);
 }
 
 .oxy-phone-tone--bad {
   --oxy-phone-tone: var(--oxy-shell-destructive);
+  --oxy-phone-tone-fill: var(--status-error-bg, transparent);
+  --oxy-phone-tone-ink: var(--status-error, transparent);
+  --oxy-phone-tone-text: var(--status-error, transparent);
+  --oxy-phone-tone-dot: var(--dot-error, transparent);
 }
 
 .oxy-phone-tone--neutral {
   --oxy-phone-tone: var(--oxy-shell-muted-fg);
+  --oxy-phone-tone-fill: var(--status-neutral-bg, transparent);
+  --oxy-phone-tone-ink: var(--dim-foreground, transparent);
+  --oxy-phone-tone-text: var(--oxy-shell-muted-fg);
+  --oxy-phone-tone-dot: var(--status-neutral-series, transparent);
 }
 
 /* ── PhonePage ── */
@@ -2093,15 +2410,15 @@
   height: calc(56px + env(safe-area-inset-bottom, 0px));
   padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px)
     env(safe-area-inset-left, 0px);
-  border-top: 1px solid var(--oxy-shell-border);
-  background: var(--oxy-shell-sidebar-bg);
+  border-top: 1px solid var(--topbar-border, var(--oxy-shell-border));
+  background: var(--topbar-bg, var(--oxy-shell-sidebar-bg));
 }
 
 .oxy-phone-tabbar__slot {
   box-sizing: border-box;
   position: relative;
   display: flex;
-  min-width: 44px;
+  min-width: var(--control-h-lg, 44px);
   flex: 1 1 0;
   flex-direction: column;
   align-items: center;
@@ -2119,13 +2436,22 @@
   transition: color var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
+/* The link blue as 2.28 drew it; with the theme, foreground ink (the label's weight below carries
+   it too), because selection is monochrome in the design system (the reference's `tabOn` and
+   `segmentOn`; blue is links, focus and the primary action). Switched by --oxy-shell-themed. */
 .oxy-phone-tabbar__slot[aria-current="page"] {
-  color: var(--oxy-shell-link);
+  color: color-mix(
+    in srgb,
+    var(--oxy-shell-foreground) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--oxy-shell-link)
+  );
 }
 
 .oxy-phone-tabbar__slot:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent));
 }
 
 .oxy-phone-tabbar__icon {
@@ -2163,7 +2489,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--badge-radius, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   background: var(--oxy-shell-destructive);
   /* The page background contrasts with the destructive token in both themes
      (near-white on #e7000b, near-black on #ff6467). */
@@ -2175,6 +2501,28 @@
   text-align: center;
 }
 
+/* A count with a tone (PhoneTabItem `badgeTone`): the kit's tone pill without the
+   theme; with it, the reference's tab count (`tabCount`, ui.ts), the tone's chip
+   pair, or for neutral, a count that is just a count, `tabCountNeutral`: --muted
+   in the muted ink. A badge with no tone keeps the red above in both. */
+.oxy-phone-tabbar__badge--toned {
+  background: color-mix(
+    in srgb,
+    var(--oxy-phone-tone-fill, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    color-mix(in srgb, var(--oxy-phone-tone) 16%, transparent)
+  );
+  color: color-mix(
+    in srgb,
+    var(--oxy-phone-tone-ink, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    color-mix(in oklab, var(--oxy-phone-tone) 65%, var(--oxy-shell-foreground))
+  );
+}
+
+.oxy-phone-tabbar__badge--toned.oxy-phone-tone--neutral {
+  --oxy-phone-tone-fill: var(--oxy-shell-muted);
+  --oxy-phone-tone-ink: var(--oxy-shell-muted-fg);
+}
+
 .oxy-phone-tabbar__dot {
   position: absolute;
   top: 6px;
@@ -2183,6 +2531,15 @@
   width: 8px;
   border-radius: 9999px;
   background: var(--oxy-shell-destructive);
+}
+
+/* More's dot once every badge behind it has a tone: the strongest of them. */
+.oxy-phone-tabbar__dot--toned {
+  background: color-mix(
+    in srgb,
+    var(--oxy-phone-tone-dot, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--oxy-phone-tone)
+  );
 }
 
 /* The More sheet's list. */
@@ -2200,7 +2557,7 @@
   gap: 12px;
   margin: 0;
   border: none;
-  border-bottom: 1px solid var(--oxy-shell-border);
+  border-bottom: 1px solid var(--table-row-rule, var(--oxy-shell-border));
   padding: 0 4px;
   background: transparent;
   color: var(--oxy-shell-foreground);
@@ -2217,8 +2574,10 @@
 }
 
 .oxy-phone-more__row:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent));
 }
 
 .oxy-phone-more__icon {
@@ -2266,21 +2625,21 @@
   gap: 4px;
   padding: env(safe-area-inset-top, 0px) calc(16px + env(safe-area-inset-right, 0px)) 0
     calc(4px + env(safe-area-inset-left, 0px));
-  border-bottom: 1px solid var(--oxy-shell-border);
-  background: var(--oxy-shell-sidebar-bg);
+  border-bottom: 1px solid var(--topbar-border, var(--oxy-shell-border));
+  background: var(--topbar-bg, var(--oxy-shell-sidebar-bg));
 }
 
 .oxy-phone-sheet__back {
   box-sizing: border-box;
   display: inline-flex;
-  height: 44px;
-  min-width: 44px;
+  height: var(--control-h-lg, 44px);
+  min-width: var(--control-h-lg, 44px);
   flex-shrink: 0;
   align-items: center;
   gap: 2px;
   margin: 0;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--button-radius, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   padding: 0 8px 0 2px;
   background: transparent;
   color: var(--oxy-shell-link);
@@ -2292,8 +2651,9 @@
 }
 
 .oxy-phone-sheet__back:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 .oxy-phone-sheet__title {
@@ -2325,6 +2685,16 @@
   flex-shrink: 0;
 }
 
+/* A kit row keeps its whole height anywhere in the sheet, not only as the body's own child. Under
+   a wrapper that draws no box (`display: contents`, as an app's grouping div often is) the row is
+   still the scrolling column's item, but the rule above reaches the wrapper, and the row's own
+   56px minimum replaces a flex item's content minimum: a row of three lines and a button was
+   squeezed to 56px and its text ran over its edges (Warehouse's phone report sheet). With the
+   theme only (`--oxy-shell-themed`); without it the row shrinks as 2.28 drew it. */
+.oxy-phone-sheet__body .oxy-phone-row {
+  flex-shrink: calc(1 - var(--oxy-shell-themed, 0));
+}
+
 .oxy-phone-sheet--footer .oxy-phone-sheet__body {
   padding-bottom: 16px;
 }
@@ -2336,7 +2706,7 @@
   gap: 8px;
   padding: 12px calc(16px + env(safe-area-inset-right, 0px))
     calc(12px + env(safe-area-inset-bottom, 0px)) calc(16px + env(safe-area-inset-left, 0px));
-  border-top: 1px solid var(--oxy-shell-border);
+  border-top: 1px solid var(--topbar-border, var(--oxy-shell-border));
   background: var(--oxy-shell-background);
 }
 
@@ -2370,7 +2740,7 @@
   gap: 8px;
   padding: 12px calc(16px + env(safe-area-inset-right, 0px))
     calc(12px + env(safe-area-inset-bottom, 0px)) calc(16px + env(safe-area-inset-left, 0px));
-  border-top: 1px solid var(--oxy-shell-border);
+  border-top: 1px solid var(--topbar-border, var(--oxy-shell-border));
   background: var(--oxy-shell-background);
 }
 
@@ -2388,7 +2758,7 @@
   gap: 8px;
   margin: 0;
   border: 1px solid transparent;
-  border-radius: var(--oxy-shell-radius);
+  border-radius: var(--button-radius, var(--oxy-shell-radius));
   padding: 0 20px;
   font: inherit;
   font-size: 16px;
@@ -2400,14 +2770,22 @@
   touch-action: manipulation;
 }
 
+/* The theme's primary is the reference's: `Button` primary, brand blue (`PhoneBookkeeping.tsx`
+   156-158), not the ink `--primary`. */
 .oxy-phone-btn--primary {
-  background: var(--oxy-shell-primary);
-  color: var(--oxy-shell-primary-fg);
+  background: var(--button-primary-bg, var(--oxy-shell-primary));
+  color: var(--button-primary-fg, var(--oxy-shell-primary-fg));
 }
 
+/* The theme's secondary is a fill, `--secondary` (the reference's `--btn-surface`), switched by
+   --oxy-shell-themed because apps set `--secondary` for themselves. */
 .oxy-phone-btn--secondary {
-  border-color: var(--oxy-shell-border);
-  background: color-mix(in srgb, var(--oxy-shell-foreground) 4%, var(--oxy-shell-background));
+  border-color: var(--button-secondary-border, var(--oxy-shell-border));
+  background: color-mix(
+    in srgb,
+    var(--secondary, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    color-mix(in srgb, var(--oxy-shell-foreground) 4%, var(--oxy-shell-background))
+  );
   color: var(--oxy-shell-foreground);
 }
 
@@ -2425,8 +2803,9 @@
 }
 
 .oxy-phone-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 /* ── PhoneKpiStrip ── */
@@ -2452,8 +2831,8 @@
   align-items: flex-start;
   gap: 4px;
   margin: 0 0 8px;
-  border: 1px solid var(--oxy-shell-border);
-  border-radius: var(--oxy-shell-radius);
+  border: 1px solid var(--card-border, var(--oxy-shell-border));
+  border-radius: var(--radius-surface, var(--oxy-shell-radius));
   padding: 12px;
   background: color-mix(in srgb, var(--oxy-shell-foreground) 4%, var(--oxy-shell-background));
   color: var(--oxy-shell-foreground);
@@ -2483,8 +2862,9 @@
 }
 
 .oxy-phone-kpi--button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 .oxy-phone-kpi__label {
@@ -2508,12 +2888,17 @@
   letter-spacing: -0.01em;
 }
 
+/* With the theme, the tone's caption ink (see Tones). */
 .oxy-phone-kpi__delta {
   font-size: 12px;
   line-height: 1.3;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  color: color-mix(in oklab, var(--oxy-phone-tone) 65%, var(--oxy-shell-foreground));
+  color: color-mix(
+    in srgb,
+    var(--oxy-phone-tone-text, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    color-mix(in oklab, var(--oxy-phone-tone) 65%, var(--oxy-shell-foreground))
+  );
 }
 
 /* ── PhoneSection ── */
@@ -2569,7 +2954,7 @@
   margin-top: 0;
   border-top-left-radius: 0;
   border-top-right-radius: 0;
-  box-shadow: inset 0 1px 0 var(--oxy-shell-border);
+  box-shadow: inset 0 1px 0 var(--table-row-rule, var(--oxy-shell-border));
 }
 
 .oxy-phone-section__body > .oxy-phone-row:has(+ .oxy-phone-row) {
@@ -2587,7 +2972,7 @@
   min-width: 0;
   align-items: center;
   gap: 12px;
-  border-radius: var(--oxy-shell-radius);
+  border-radius: var(--card-radius, var(--oxy-shell-radius));
   padding: 8px 14px;
   background: color-mix(in srgb, var(--oxy-shell-foreground) 4%, var(--oxy-shell-background));
   color: var(--oxy-shell-foreground);
@@ -2643,19 +3028,26 @@
 }
 
 .oxy-phone-row--button .oxy-phone-row__main:focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
 }
 
 .oxy-phone-row--button .oxy-phone-row__main:focus-visible::after {
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent);
+  box-shadow: inset 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent));
 }
 
+/* With the theme, the tone's status dot (see Tones). */
 .oxy-phone-row__dot {
   height: 8px;
   width: 8px;
   flex-shrink: 0;
   border-radius: 9999px;
-  background: var(--oxy-phone-tone);
+  background: color-mix(
+    in srgb,
+    var(--oxy-phone-tone-dot, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--oxy-phone-tone)
+  );
 }
 
 .oxy-phone-row__text {
@@ -2732,8 +3124,8 @@
 .oxy-phone-cards__summary {
   grid-column: 1 / -1;
   box-sizing: border-box;
-  border: 1px solid var(--oxy-shell-border);
-  border-radius: var(--oxy-shell-radius);
+  border: 1px solid var(--card-border, var(--oxy-shell-border));
+  border-radius: var(--card-radius, var(--oxy-shell-radius));
   padding: 10px 14px;
   background: color-mix(in srgb, var(--oxy-shell-foreground) 7%, var(--oxy-shell-background));
   font-size: 14px;
@@ -2749,8 +3141,8 @@
   min-width: 0;
   flex-direction: column;
   gap: 10px;
-  border: 1px solid var(--oxy-shell-border);
-  border-radius: var(--oxy-shell-radius);
+  border: 1px solid var(--card-border, var(--oxy-shell-border));
+  border-radius: var(--card-radius, var(--oxy-shell-radius));
   padding: 12px 14px;
   background: color-mix(in srgb, var(--oxy-shell-foreground) 4%, var(--oxy-shell-background));
   color: var(--oxy-shell-foreground);
@@ -2797,7 +3189,7 @@
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: var(--oxy-shell-radius);
+  border-radius: var(--card-radius, var(--oxy-shell-radius));
   transition: background var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
@@ -2806,11 +3198,13 @@
 }
 
 .oxy-phone-card--button .oxy-phone-card__main:focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
 }
 
 .oxy-phone-card--button .oxy-phone-card__main:focus-visible::after {
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent);
+  box-shadow: inset 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent));
 }
 
 .oxy-phone-card__titleline {
@@ -2893,17 +3287,26 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The status pill (PhoneCard's `status`). */
+/* The status pill (PhoneCard's `status`). With the theme, the tone's chip pair,
+   as the desk's chip (see Tones). */
 .oxy-phone-pill {
   box-sizing: border-box;
   display: inline-flex;
   height: 22px;
   flex-shrink: 0;
   align-items: center;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--badge-radius, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   padding: 0 8px;
-  background: color-mix(in srgb, var(--oxy-phone-tone) 16%, transparent);
-  color: color-mix(in oklab, var(--oxy-phone-tone) 65%, var(--oxy-shell-foreground));
+  background: color-mix(
+    in srgb,
+    var(--oxy-phone-tone-fill, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    color-mix(in srgb, var(--oxy-phone-tone) 16%, transparent)
+  );
+  color: color-mix(
+    in srgb,
+    var(--oxy-phone-tone-ink, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    color-mix(in oklab, var(--oxy-phone-tone) 65%, var(--oxy-shell-foreground))
+  );
   font-size: 11px;
   line-height: 1;
   font-weight: 600;
@@ -2919,18 +3322,26 @@
   grid-auto-columns: minmax(0, 1fr);
   grid-auto-flow: column;
   gap: 2px;
-  border-radius: var(--oxy-shell-radius);
+  border-radius: var(--radius-control, var(--oxy-shell-radius));
   padding: 2px;
-  background: color-mix(in srgb, var(--oxy-shell-foreground) 8%, var(--oxy-shell-background));
+  /* 8% ink over the page as 2.28 drew it; with the theme, the reference's segment track (its desk
+     `segmentRow`, `--segment-track`), so the selected fill below steps off it as on the desk:
+     #e4e4e7 on #ffffff, 1.27:1 (on the 8% track it was 1.00:1). Switched by --oxy-shell-themed
+     because apps set `--segment-track` for themselves. */
+  background: color-mix(
+    in srgb,
+    var(--segment-track, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    color-mix(in srgb, var(--oxy-shell-foreground) 8%, var(--oxy-shell-background))
+  );
 }
 
 .oxy-phone-segmented__option {
   box-sizing: border-box;
-  min-height: 44px;
+  min-height: var(--control-h-lg, 44px);
   min-width: 0;
   margin: 0;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   padding: 0 8px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2948,16 +3359,24 @@
     background var(--oxy-duration-fast) var(--oxy-ease-out);
 }
 
+/* With the theme, the selected segment takes the reference's selected-segment fill (`segmentOn`,
+   `--segment-selected`; its phone.css does the same to the kit) rather than a raised page-colour
+   tile; switched by --oxy-shell-themed because apps set `--segment-selected` for themselves. */
 .oxy-phone-segmented__option--active {
-  background: var(--oxy-shell-background);
+  background: color-mix(
+    in srgb,
+    var(--segment-selected, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
+    var(--oxy-shell-background)
+  );
   color: var(--oxy-shell-foreground);
-  box-shadow: inset 0 0 0 1px var(--oxy-shell-border);
+  box-shadow: inset 0 0 0 1px var(--button-secondary-border, var(--oxy-shell-border));
   font-weight: 600;
 }
 
 .oxy-phone-segmented__option:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent));
 }
 
 /* ── PhoneFilterChip ── */
@@ -2966,13 +3385,13 @@
   box-sizing: border-box;
   position: relative;
   display: inline-flex;
-  height: 44px;
+  height: var(--control-h-lg, 44px);
   max-width: 100%;
   align-items: center;
   gap: 6px;
   margin: 0;
-  border: 1px solid var(--oxy-shell-border);
-  border-radius: var(--oxy-shell-radius);
+  border: 1px solid var(--button-secondary-border, var(--oxy-shell-border));
+  border-radius: var(--radius-control, var(--oxy-shell-radius));
   padding: 0 10px 0 12px;
   background: color-mix(in srgb, var(--oxy-shell-foreground) 4%, var(--oxy-shell-background));
   color: var(--oxy-shell-foreground);
@@ -2994,8 +3413,9 @@
 }
 
 .oxy-phone-chip:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 3px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 50%, transparent));
 }
 
 .oxy-phone-chip__label {
@@ -3010,7 +3430,7 @@
   min-width: 20px;
   height: 20px;
   flex-shrink: 0;
-  border-radius: calc(var(--oxy-shell-radius) - 4px);
+  border-radius: var(--badge-radius, max(0px, calc(var(--oxy-shell-radius) - 4px)));
   padding: 0 6px;
   background: var(--oxy-shell-link);
   color: var(--oxy-shell-background);
@@ -3034,7 +3454,7 @@
   justify-content: center;
   margin: 0;
   border: none;
-  border-radius: calc(var(--oxy-shell-radius) - 2px);
+  border-radius: var(--radius-control, max(0px, calc(var(--oxy-shell-radius) - 2px)));
   padding: 0;
   background: transparent;
   color: var(--oxy-shell-muted-fg);
@@ -3063,8 +3483,9 @@
 }
 
 .oxy-phone-hint:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent);
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 var(--focus-ring-width, 2px)
+    var(--focus-ring-color, color-mix(in srgb, var(--oxy-shell-ring) 60%, transparent));
 }
 
 .oxy-phone-hint__pop {
@@ -3075,8 +3496,8 @@
   max-width: calc(100vw - 32px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  border: 1px solid var(--oxy-shell-border);
-  border-radius: var(--oxy-shell-radius);
+  border: 1px solid var(--card-border, var(--oxy-shell-border));
+  border-radius: var(--radius-overlay, var(--oxy-shell-radius));
   padding: 10px 12px;
   background: var(--oxy-shell-tooltip-bg);
   color: var(--oxy-shell-foreground);

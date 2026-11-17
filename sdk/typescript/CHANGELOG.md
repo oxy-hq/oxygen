@@ -7,6 +7,142 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.29.0] - 2026-11-12
+
+### Added
+
+- **One light/dark mode per person, shared with Oxygen.** With `theme.css` imported,
+  `OxyShell` applies the signed-in person's mode from the shell context's new `mode`
+  field (`null` until they choose: light), keeps this origin's copy for the pre-paint
+  (`OXY_THEME_PREPAINT`, an inline script anywhere in `<head>`, now applies it before first
+  paint; it settles theme-color, a later pin and `__OXY_APP__` just before the first frame,
+  and takes the mode back off if `theme.css` never applied), re-reads it when the tab is
+  shown again, and follows the device under `system`. A Light / Dark / System switch at
+  the bottom of the rail (and of the nav sheet on a phone) writes it back, so Oxygen and
+  the person's other apps follow. `<html data-oxy-mode-pin="light">`,
+  `<OxyShell modePin>` and `useOxyModePin` pin a mode and hide the switch; while a pin is in
+  force the shell leaves this origin's copy alone, so a pinned shared screen keeps nobody's
+  mode for the next load. Without
+  `theme.css`, on a server without the field, and for a crew sign-in, none of it acts.
+  New in `@oxy-hq/sdk/theme`: `OxyModeChoice`, `OXY_MODE_PIN_ATTRIBUTE`,
+  `OXY_PERSON_MODE_KEY`, `applyOxyMode`, `isOxyThemeApplied`, `isOxyModeChoice`,
+  `resolveOxyMode`, `readOxyModePin`, `readOxyPersonMode`, `rememberOxyPersonMode`,
+  `readOxyPreviewMode`.
+- **44px tap areas on the shell's own chrome on a touch screen.** With `theme.css`, under
+  `pointer: coarse`, the rail's entries, the Today clock, the Ask button and the update pill
+  answer a tap within 44px (an invisible `::before`; nothing drawn grows; in the phone layout's
+  top bar too, where the bar's own centred box no longer pulls the area off the clock), the rail's entries
+  sit 44px apart so each owns its area, and the mode menu's rows are 44px. `<OxyShell touchTargets={false}>`, `useOxyTouchTargets(false)` and
+  `<html data-oxy-touch-targets="off">` turn them off for an enrolled store tablet. Without the
+  theme or on a fine pointer, nothing changes.
+- **Staging and sandbox previews never change the person's real mode.** On a staging or
+  sandbox host the switch keeps a choice in that origin's copy and never sends it (the server
+  refuses the write there too); it does not snap back on a re-read or a reload.
+- **`<meta name="theme-color">` follows the mode.** With `theme.css`, the shell and
+  `OXY_THEME_PREPAINT` set every theme-color meta (adding one where there is none) to
+  `--background` in the mode in force, pins included, and follow any later change of
+  `.dark` or `data-oxy-mode` on `<html>`. New: `syncOxyThemeColor`.
+- **The reference's names an app copied in by hand.** `--status-info`, `--status-info-bg`,
+  `--status-info-line`, `--shadow-elevated`, `--select-chevron` and `--dot-*-glow`, in both
+  modes, at the reference's values (light glows follow the corrected light dots).
+- **`--chart-1` … `--chart-5` are the reference's sequential blue ramp** (`--chart-seq-1…5`),
+  as its own are; categorical series take `--chart-cat-*`.
+- **The breadcrumb's home link honours `data-oxy-touch-targets="off"`**, at its drawn size on
+  a store tablet as the other touch rules are.
+- **A `PhoneRow` in a `PhoneSheet` keeps its whole height** with the theme, under a
+  `display: contents` wrapper too.
+- **`PhoneKpi.tone` takes `warn`.** With the theme it is the warning status ink
+  (`--status-warning`), as the desk draws it; without the prop the delta stays neutral.
+
+- **`@oxy-hq/sdk/theme.css`: the reference app's design, applied by importing it.** The
+  design standard for every custom app is the oxygen reference app
+  (`oxy-hq/reference-app`). `theme.css` carries its values as the theme contract's
+  custom properties, each primitive citing its source line: surfaces and ink tiers,
+  the frame line apart from the 3:1 control line, one brand blue, the status family,
+  square corners, the system face first, 32px desk and 44px touch controls, the 1.5px
+  focus ring, one elevation. Light on `<html>`, dark under `.dark` or
+  `data-oxy-mode="dark"`. Every selector sits in `:where()`, so an app's own token
+  declarations still win; adopting the theme means importing it and deleting them.
+  The old names it maps onto the theme (`--radius`, `--font-inter`, `--ring`,
+  `--color-border`, `--chart-1…5`, …) sit in `@layer theme`, so an app's Tailwind
+  `@theme` keeps them too.
+  Four reference values that miss a contrast obligation are corrected in the theme,
+  with a comment each (dark `--brand`, dark `--disabled-foreground`, light
+  `--status-warning-series`, dark `--scrim`).
+- **The shell and the phone kit read the theme.** Corners from `--radius-control`,
+  `--radius-surface`, `--radius-overlay`, `--radius-pill`, `--button-radius`,
+  `--card-radius`, `--input-radius` and `--badge-radius`; the rail, top bar, tab bar,
+  sheets, cards and KPI tiles edged with `--rail-border`, `--topbar-border` and
+  `--card-border`; the Ask button and the kit's chips, segments and secondary buttons
+  with `--button-secondary-border` (fields keep `--border`); the rail and bars on `--rail-bg` and
+  `--topbar-bg`; touch targets from `--control-h-lg`. Each is read as
+  `var(--theme-name, <what 2.28 drew>)`, so an app that does not import the theme
+  renders as before, its own `--radius`, `--border` and `--oxy-shell-*` overrides
+  included.
+- **With the theme, the shell's and the kit's own parts follow the design system.**
+  Every focus ring is the reference's one ring, 1.5px of `--focus-ring-color` at full
+  strength (2.28 drew 2–3px of the host ring at 45–60%, measured 2.82:1 on the rail and
+  2.90:1 on the top bar), and a focused rail tile is drawn at full strength, because its
+  0.6 resting opacity dimmed the ring with it. The kit's primary button is the brand fill
+  (`--button-primary-bg` / `--button-primary-fg`), not the ink `--primary`; its
+  secondary button is `--secondary`; its selected segment is `--segment-selected`, not
+  a raised page-colour tile. `OxyChat`'s Ask is the primary pair (it was white on the
+  dark link blue, 2.69:1) and its field and buttons take `--input-radius` and
+  `--button-radius`. The ⌘K hint is 11px, the reference's smallest step. The Today
+  clock keeps its whole 44px reach on a phone (its neighbour's reach took its right
+  edge). The kit's segment track is `--segment-track`, so the selected segment steps off
+  it as on the reference's desk strip (1.27:1 light; on the old track it was 1.00:1). The
+  tab bar's selected label is foreground ink, not the link blue: selection is
+  monochrome. In the top bar the breadcrumb's "/" is the muted ink at full strength
+  (6.85:1 light, 8.25:1 dark; at 40% it was 1.88:1 and 2.29:1, every desk screen's only
+  text under 4.5:1), the home link takes the one ring instead of the browser's outline,
+  and the Today clock is drawn in the shell's sans face with tabular figures, not
+  monospace. `--secondary`, `--segment-track`, `--segment-selected`, the tab label, the
+  "/" and the 11px are switched on `--oxy-theme-contract` rather than read as plain
+  names, because apps set those names for themselves; the clock's face and the home
+  link's ring switch on it through a style query, which no colour mix can carry.
+- **With the theme, the kit's tones are the design system's status family**, the one the
+  desk draws, so one status no longer reads two ways. The kit mixed its own from the
+  destructive and success tokens: a warning pill was `#573e00` on `#dbd4c0` beside the
+  desk chip's `#865108` on `#fbf0ce`, an error pill `#782420` on `#e3cbcc`, and the dark
+  row dots `rgb(218,161,0)`, `rgb(250,142,142)` and `rgb(170,170,179)`. Now a
+  `PhoneCard` status pill is the reference's chip pair (`--status-*-bg` with
+  `--status-*`; neutral `--status-neutral-bg` with `--dim-foreground`), a `PhoneKpiStrip`
+  delta the status ink (neutral `--muted-foreground`), and a `PhoneRow` dot `--dot-*`
+  (neutral `--status-neutral-series`). Measured on the kit's own surface, the pills read
+  5.06:1 or more light and 6.53:1 dark, the deltas 5.63:1 and 8.05:1, the dots 3.42:1 and
+  4.93:1; 56 contrast cases hold them, each on the ground the kit draws it on. Switched
+  on `--oxy-theme-contract`, because Store Ops sets the status names for itself.
+- **`PhoneTabItem.badgeTone`.** A tab badge is the shell's red, as before, unless it has a
+  tone: then it is the kit's tone pill, and with the theme the reference's tab count, the
+  tone's status pair or, for `neutral` (a count that is just a count), `--muted` in the
+  muted ink. More's dot takes the strongest tone behind it once every badge there has one.
+- **Theme names for the reference's own parts:** `--segment-track`,
+  `--segment-selected`, `--btn-surface`, `--btn-surface-hover`, and the status dots
+  `--dot-success`, `--dot-info`, `--dot-warning`, `--dot-error`, light and dark, from
+  the reference's values. Light `--dot-success`, `--dot-warning` and `--dot-error` are
+  corrected with a comment: on a selected row over the light canvas the reference's
+  `#22c55e`, `#f5b000` and `#ef4444` measure 1.71:1, 1.42:1 and 2.85:1, under the 3:1 a
+  status mark needs. Each takes the colour closest to the reference's at the same hue that
+  clears 3:1 on every light ground a dot sits on (the canvas, the card, `--muted`, a
+  selected row on either, the segment track and selected segment, the shell rail at rest
+  and selected, the top bar, white): `#059341`, `#a5770d` and `#eb3c3e`, 3.02:1 or more on
+  the worst of them. Light info and all four dark dots keep the reference's values, which
+  clear 3:1 on every ground of their mode (dark info 3.44:1 at worst). 32 more contrast
+  obligations hold them, each dot on each of those grounds (40 dot pairs in all).
+
+### Fixed
+
+- **A focused shell or kit control shows focus under forced colours.** Each draws a
+  transparent 2px outline beside its ring: invisible otherwise, it is what Windows
+  contrast themes paint, since they drop the box-shadow rings.
+- **No ⌘K hint on a phone on its side.** At 844x390 the Ask button is wider than the
+  640px breakpoint, so it showed the keyboard hint, at 10px, to a person with no
+  keyboard. The hint is hidden whenever the phone layout is on.
+- **A corner computed from the radius never goes negative.** Every
+  `calc(var(--oxy-shell-radius) - Npx)` is clamped at 0, so a zero radius gives a
+  square corner by value rather than by the browser dropping an invalid length.
+
 ## [2.28.1] - 2026-11-11
 
 ### Fixed

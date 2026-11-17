@@ -9,11 +9,14 @@
 // The plain `pnpm build` (and every tsdown rebuild) still copies the CSS via
 // `onSuccess` in tsdown.config.ts; this script only adds the CSS-only-edit
 // case that tsdown can't see. Copies here are idempotent with that.
+//
+// theme.css is generated (`pnpm build:theme` rewrites it), so it is watched
+// the same way: a regeneration reaches dist without a restart.
 import { spawn } from "node:child_process";
 import { copyFileSync, mkdirSync, watch } from "node:fs";
 import { basename, dirname } from "node:path";
 
-const ASSETS = ["src/shell/shell.css", "src/motion/motion.css"];
+const ASSETS = ["src/shell/shell.css", "src/motion/motion.css", "src/theme/theme.css"];
 
 function copyCss(src) {
   const out = `dist/${basename(src)}`;

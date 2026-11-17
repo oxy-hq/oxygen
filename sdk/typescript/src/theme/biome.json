@@ -1,0 +1,7 @@
+{
+  "root": false,
+  "extends": "//",
+  "files": {
+    "includes": ["**", "!tokens/**/*.tokens.json", "!contract/pairs.json", "!__fixtures__"]
+  }
+}

@@ -7,7 +7,10 @@ export interface PhoneKpi {
   value: ReactNode;
   /** e.g. "+8.9% vs LY", coloured by `tone`. */
   delta?: ReactNode;
-  tone?: "good" | "bad" | "neutral";
+  /** The delta's colour; neutral when unset. With `@oxy-hq/sdk/theme.css` each
+   *  tone is the theme's status ink (`warn`: `--status-warning`), so a count
+   *  drawn in warning on the desk reads warning on the phone too. */
+  tone?: "good" | "warn" | "bad" | "neutral";
   /** Makes the tile a button (e.g. scroll to the section behind the number). */
   onClick?: () => void;
 }

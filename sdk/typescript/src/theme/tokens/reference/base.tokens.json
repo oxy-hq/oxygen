@@ -1,0 +1,667 @@
+{
+  "$description": "Reference mode-independent tokens: type, space, density, shape, focus, icons, tile and component structure. Values from reference-app@7c1ee7e src/index.css and src/components/ui.ts.",
+  "$extensions": {
+    "com.oxygen": {
+      "direction": "reference",
+      "name": "Reference",
+      "contract": 1
+    }
+  },
+  "radius": {
+    "control": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      },
+      "$description": "Zero radius everywhere, set explicitly (index.css:8-11, 1266-1276)."
+    },
+    "surface": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      },
+      "$description": "Zero radius everywhere (index.css:1269-1276)."
+    },
+    "overlay": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      },
+      "$description": "Zero radius everywhere (index.css:1269-1276)."
+    },
+    "pill": {
+      "$type": "dimension",
+      "$value": {
+        "value": 9999,
+        "unit": "px"
+      },
+      "$description": "Only a status dot is round: a dot is a point, not a container (index.css:1351-1354)."
+    }
+  },
+  "font": {
+    "sans": {
+      "$type": "fontFamily",
+      "$value": [
+        "-apple-system",
+        "BlinkMacSystemFont",
+        "Inter",
+        "system-ui",
+        "Segoe UI",
+        "Roboto",
+        "sans-serif"
+      ],
+      "$description": "The system face first (index.css:1278-1280). Nothing is self-hosted: Inter is used where installed."
+    },
+    "display": {
+      "$type": "fontFamily",
+      "$value": "{font.sans}",
+      "$description": "No display face: titles are the UI face at a larger step."
+    },
+    "mono": {
+      "$type": "fontFamily",
+      "$value": [
+        "ui-monospace",
+        "SFMono-Regular",
+        "Menlo",
+        "Monaco",
+        "Consolas",
+        "Liberation Mono",
+        "Courier New",
+        "monospace"
+      ],
+      "$description": "Tailwind's default mono, which the reference's font-mono renders with (it sets none)."
+    }
+  },
+  "space": {
+    "2xs": {
+      "$type": "dimension",
+      "$value": {
+        "value": 2,
+        "unit": "px"
+      },
+      "$description": "Hairline gaps (gap-0.5)."
+    },
+    "xs": {
+      "$type": "dimension",
+      "$value": {
+        "value": 4,
+        "unit": "px"
+      },
+      "$description": "spacingXs = gap-1 (ui.ts:213)."
+    },
+    "sm": {
+      "$type": "dimension",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      },
+      "$description": "spacingSm = gap-2 (ui.ts:214)."
+    },
+    "md": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "spacingMd = gap-4 (ui.ts:215)."
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": {
+        "value": 32,
+        "unit": "px"
+      },
+      "$description": "spacingLg = gap-8 (ui.ts:216)."
+    },
+    "xl": {
+      "$type": "dimension",
+      "$value": {
+        "value": 48,
+        "unit": "px"
+      },
+      "$description": "Between sections of one record: the next step of the 8px grid after spacingLg (derived)."
+    },
+    "2xl": {
+      "$type": "dimension",
+      "$value": {
+        "value": 64,
+        "unit": "px"
+      },
+      "$description": "Between page regions (derived)."
+    }
+  },
+  "page": {
+    "gutter": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "page = w-full p-4 (ui.ts:228)."
+    },
+    "gutter-wide": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "The same p-4 at every width (ui.ts:228)."
+    }
+  },
+  "section": {
+    "gap": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "spacingMd between blocks (ui.ts:215)."
+    }
+  },
+  "control-h": {
+    "sm": {
+      "$type": "dimension",
+      "$value": {
+        "value": 32,
+        "unit": "px"
+      },
+      "$description": "heightSm = min-h-8: desk controls (ui.ts:376)."
+    },
+    "md": {
+      "$type": "dimension",
+      "$value": {
+        "value": 36,
+        "unit": "px"
+      },
+      "$description": "heightMd = min-h-9: tabs, segments, section links (ui.ts:377)."
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": {
+        "value": 44,
+        "unit": "px"
+      },
+      "$description": "heightLg = min-h-11: the touch floor, and no lower (ui.ts:378, README)."
+    }
+  },
+  "row-h": {
+    "$type": "dimension",
+    "$value": {
+      "value": 48,
+      "unit": "px"
+    },
+    "$description": "sheetRow = h-12, the data sheet's row (ui.ts:976)."
+  },
+  "row-h-compact": {
+    "$type": "dimension",
+    "$value": {
+      "value": 32,
+      "unit": "px"
+    },
+    "$description": "cell = py-[0.4rem] at 13px/1.4: the dense records row (ui.ts:952)."
+  },
+  "focus-ring": {
+    "width": {
+      "$type": "dimension",
+      "$value": {
+        "value": 1.5,
+        "unit": "px"
+      },
+      "$description": "focus-visible:ring-[1.5px] (ui.ts:94)."
+    },
+    "offset": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      },
+      "$description": "ring-offset-0 (ui.ts:94); primary buttons add a 1px band of page colour."
+    }
+  },
+  "icon": {
+    "stroke": {
+      "$type": "number",
+      "$value": 1.5,
+      "$description": "Phosphor at its regular weight (16/256 of the 24 grid): src/main.tsx sets weight regular app-wide."
+    },
+    "size": {
+      "sm": {
+        "$type": "dimension",
+        "$value": {
+          "value": 14,
+          "unit": "px"
+        },
+        "$description": "iconInline = size-3.5 (ui.ts:993)."
+      },
+      "md": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        },
+        "$description": "iconControl = size-4 (ui.ts:994)."
+      },
+      "lg": {
+        "$type": "dimension",
+        "$value": {
+          "value": 24,
+          "unit": "px"
+        },
+        "$description": "The phone tab bar's icons, size-6 (src/phone/PhoneApp.tsx:78)."
+      }
+    }
+  },
+  "tile": {
+    "radius": {
+      "$type": "number",
+      "$value": 0,
+      "$description": "Square tiles, like every corner in the reference.",
+      "$extensions": {
+        "com.oxygen": {
+          "cssUnit": "%"
+        }
+      }
+    },
+    "glyph-scale": {
+      "$type": "number",
+      "$value": 0.5,
+      "$description": "Half the tile: a 16px glyph in the shell's 32px tile."
+    }
+  },
+  "card": {
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.surface}",
+      "$description": "Square cards."
+    },
+    "padding": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "panel = p-4 (ui.ts:259)."
+    }
+  },
+  "topbar": {
+    "height": {
+      "$type": "dimension",
+      "$value": {
+        "value": 48,
+        "unit": "px"
+      },
+      "$description": "The shell's 3rem top bar."
+    }
+  },
+  "rail": {
+    "width": {
+      "$type": "dimension",
+      "$value": {
+        "value": 48,
+        "unit": "px"
+      },
+      "$description": "The shell's 3rem rail."
+    }
+  },
+  "input": {
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.control}",
+      "$description": "Square fields."
+    }
+  },
+  "button": {
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.control}",
+      "$description": "Square buttons."
+    }
+  },
+  "badge": {
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.control}",
+      "$description": "Square chips and count badges; only dots are round (index.css:1351-1354)."
+    },
+    "fill": {
+      "$type": "number",
+      "$value": 100,
+      "$description": "chipTone: the full status tint behind the word (ui.ts:460-467).",
+      "$extensions": {
+        "com.oxygen": {
+          "cssUnit": "%"
+        }
+      }
+    },
+    "outline": {
+      "$type": "number",
+      "$value": 0,
+      "$description": "No outline on a chip (ui.ts:460-467).",
+      "$extensions": {
+        "com.oxygen": {
+          "cssUnit": "%"
+        }
+      }
+    }
+  },
+  "type": {
+    "display": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "text-2xl, a hero figure: 36px / 1.1 semibold (index.css:1191-1192, ui.ts:302): the UI face."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2.25,
+          "unit": "rem"
+        },
+        "$description": "text-2xl, a hero figure: 36px / 1.1 semibold (index.css:1191-1192, ui.ts:302)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.1,
+        "$description": "text-2xl, a hero figure: 36px / 1.1 semibold (index.css:1191-1192, ui.ts:302): line height 1.1."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 600,
+        "$description": "text-2xl, a hero figure: 36px / 1.1 semibold (index.css:1191-1192, ui.ts:302): weight 600."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "text-2xl, a hero figure: 36px / 1.1 semibold (index.css:1191-1192, ui.ts:302): tracking 0em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "title": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "text-xl leading-tight: page and record headings, 24px semibold (index.css:1189, ui.ts:303): the UI face."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.5,
+          "unit": "rem"
+        },
+        "$description": "text-xl leading-tight: page and record headings, 24px semibold (index.css:1189, ui.ts:303)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.25,
+        "$description": "text-xl leading-tight: page and record headings, 24px semibold (index.css:1189, ui.ts:303): line height 1.25."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 600,
+        "$description": "text-xl leading-tight: page and record headings, 24px semibold (index.css:1189, ui.ts:303): weight 600."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "text-xl leading-tight: page and record headings, 24px semibold (index.css:1189, ui.ts:303): tracking 0em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "heading": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "text-lg: figures and sub-headings, 20px medium (index.css:1187, ui.ts:304): the UI face."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.25,
+          "unit": "rem"
+        },
+        "$description": "text-lg: figures and sub-headings, 20px medium (index.css:1187, ui.ts:304)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-lg: figures and sub-headings, 20px medium (index.css:1187, ui.ts:304): line height 1.4."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "text-lg: figures and sub-headings, 20px medium (index.css:1187, ui.ts:304): weight 500."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "text-lg: figures and sub-headings, 20px medium (index.css:1187, ui.ts:304): tracking 0em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "body": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "text-sm: body, table cells, notes, 13px (index.css:1181, ui.ts:307): the UI face."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.8125,
+          "unit": "rem"
+        },
+        "$description": "text-sm: body, table cells, notes, 13px (index.css:1181, ui.ts:307)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-sm: body, table cells, notes, 13px (index.css:1181, ui.ts:307): line height 1.4."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "text-sm: body, table cells, notes, 13px (index.css:1181, ui.ts:307): weight 400."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "text-sm: body, table cells, notes, 13px (index.css:1181, ui.ts:307): tracking 0em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "body-sm": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "text-xs: callouts, hints, counts, 12px (index.css:1179): the UI face."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.75,
+          "unit": "rem"
+        },
+        "$description": "text-xs: callouts, hints, counts, 12px (index.css:1179)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "text-xs: callouts, hints, counts, 12px (index.css:1179): line height 1.4."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "text-xs: callouts, hints, counts, 12px (index.css:1179): weight 400."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "text-xs: callouts, hints, counts, 12px (index.css:1179): tracking 0em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "label": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "label = text-md font-medium: a field's label and every control, 14px (ui.ts:1185, index.css:1183): the UI face."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.875,
+          "unit": "rem"
+        },
+        "$description": "label = text-md font-medium: a field's label and every control, 14px (ui.ts:1185, index.css:1183)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "label = text-md font-medium: a field's label and every control, 14px (ui.ts:1185, index.css:1183): line height 1.4."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "label = text-md font-medium: a field's label and every control, 14px (ui.ts:1185, index.css:1183): weight 500."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "label = text-md font-medium: a field's label and every control, 14px (ui.ts:1185, index.css:1183): tracking 0em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "eyebrow": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "textXs: caps eyebrow, 12px semibold, 0.06em (ui.ts:308): the UI face."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.75,
+          "unit": "rem"
+        },
+        "$description": "textXs: caps eyebrow, 12px semibold, 0.06em (ui.ts:308)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "textXs: caps eyebrow, 12px semibold, 0.06em (ui.ts:308): line height 1.4."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 600,
+        "$description": "textXs: caps eyebrow, 12px semibold, 0.06em (ui.ts:308): weight 600."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0.06,
+        "$description": "textXs: caps eyebrow, 12px semibold, 0.06em (ui.ts:308): tracking 0.06em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "figure": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "textLg tabular: 20px medium (ui.ts:304): the UI face."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.25,
+          "unit": "rem"
+        },
+        "$description": "textLg tabular: 20px medium (ui.ts:304)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.4,
+        "$description": "textLg tabular: 20px medium (ui.ts:304): line height 1.4."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "textLg tabular: 20px medium (ui.ts:304): weight 500."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "textLg tabular: 20px medium (ui.ts:304): tracking 0em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "figure-lg": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "text2xl tabular: a hero figure, 36px semibold (ui.ts:302): the UI face."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2.25,
+          "unit": "rem"
+        },
+        "$description": "text2xl tabular: a hero figure, 36px semibold (ui.ts:302)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.1,
+        "$description": "text2xl tabular: a hero figure, 36px semibold (ui.ts:302): line height 1.1."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 600,
+        "$description": "text2xl tabular: a hero figure, 36px semibold (ui.ts:302): weight 600."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "text2xl tabular: a hero figure, 36px semibold (ui.ts:302): tracking 0em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    }
+  }
+}

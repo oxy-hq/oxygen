@@ -18,13 +18,16 @@ import { useOxyApp, useResolvedManifest } from "../custom-app/react";
 import { AskDock } from "./AskDock";
 import { cx } from "./cx";
 import { useDockPrefetch } from "./dockPrefetch";
+import { ModeSwitch } from "./ModeSwitch";
 import { OxyMark } from "./marks";
+import { useOxyModePin, useShellMode } from "./mode";
 import { NavSheetPanel, NavSheetTrigger, useNavSheet } from "./NavSheet";
 import { ShellPortalContext, useShellPortalContainer } from "./portal";
 import { type RailItem, ShellRail } from "./ShellRail";
 import { type ShellContextData, useShellContext } from "./shellContext";
 import { TodayClock } from "./TodayClock";
 import { Breadcrumb, SystemIndicator, TopBar, WorkspaceClock } from "./TopBar";
+import { useOxyTouchTargets } from "./touch";
 import { UpdatePill } from "./UpdatePill";
 import { WorkspaceTile } from "./WorkspaceTile";
 
@@ -111,6 +114,22 @@ export interface OxyShellProps {
    *  contrast when using a background outside the current light/dark family.
    *  Unset keeps the theme's foreground. */
   chromeForeground?: string;
+  /** Show only this mode while the shell is mounted, whatever the person
+   *  picked, and hide the Light / Dark / System switch: for a screen that is
+   *  never one person's, such as a store's shared tablet. Unset (the default)
+   *  follows the person's mode, which Oxygen shares. A whole app can pin in
+   *  its `index.html` instead (`<html data-oxy-mode-pin="light">`), which the
+   *  pre-paint sees too; a screen without the shell uses `useOxyModePin`.
+   *  Like the mode itself, acts only with `@oxy-hq/sdk/theme.css` imported. */
+  modePin?: "light" | "dark";
+  /** On a touch screen, with `@oxy-hq/sdk/theme.css` imported, the shell's
+   *  rail entries, Today clock, Ask button and update pill each answer a
+   *  tap within a 44px area (nothing drawn grows). `false` keeps them at
+   *  their drawn size, for a screen that is not a person's desk, such as a
+   *  store's enrolled tablet. A component around the shell uses
+   *  `useOxyTouchTargets(false)`; a whole app,
+   *  `<html data-oxy-touch-targets="off">`. Default true. */
+  touchTargets?: boolean;
 }
 
 /** Rewrite a shell-context relative product path to an absolute URL against
@@ -177,7 +196,9 @@ export function OxyShell({
   productBaseUrl,
   className,
   chromeBackground,
-  chromeForeground
+  chromeForeground,
+  modePin,
+  touchTargets
 }: OxyShellProps) {
   const abs = makeAbs(productBaseUrl);
   // Chrome color overrides. We set the HOST tokens (--sidebar-background,
@@ -201,6 +222,11 @@ export function OxyShell({
   // resolved, and OxyShell must sit inside the provider.
   const { manifest } = useResolvedManifest();
   const { data, loading } = useShellContext();
+  // The person's light/dark mode (theme.css only): applied, followed, and
+  // switchable from the rail unless this screen pins one.
+  useOxyModePin(modePin);
+  useOxyTouchTargets(touchTargets);
+  const mode = useShellMode(data);
   const { container, setContainer } = useShellPortalContainer();
   // The rail is the dock: its apps open in this tab, warmed on hover.
   useDockPrefetch();
@@ -239,10 +265,21 @@ export function OxyShell({
     return () => window.removeEventListener("keydown", onKey);
   }, [askAgent, askHotkey]);
 
-  // Bottom rail slot: the host app's custom content only. The built-in
-  // Settings link was removed — a bundle that wants one can supply it via
-  // `railBottom`.
-  const bottom = railBottom;
+  // Bottom rail slot: the host app's custom content, then the mode switch,
+  // where Oxygen keeps its user menu. The built-in Settings link was removed —
+  // a bundle that wants one can supply it via `railBottom`. Without the switch
+  // (no theme, a pin, an older server, a crew sign-in) the slot is exactly the
+  // app's, so a rail with no `railBottom` still has no bottom section.
+  const modeSwitch = (variant: "rail" | "sheet") =>
+    mode.switchable ? (
+      <>
+        {railBottom}
+        <ModeSwitch mode={mode.choice} onChoose={mode.choose} variant={variant} />
+      </>
+    ) : (
+      railBottom
+    );
+  const bottom = modeSwitch("rail");
 
   const groups = data ? buildRailGroups(data, effectiveSlug, abs) : [[]];
   const workspaceTile = data ? (
@@ -342,7 +379,7 @@ export function OxyShell({
             title={workspaceLabel}
             top={workspaceTile}
             groups={groups}
-            bottom={bottom}
+            bottom={modeSwitch("sheet")}
           />
         )}
       </div>

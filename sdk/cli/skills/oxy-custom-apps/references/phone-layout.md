@@ -78,6 +78,13 @@ history and settings come after, or behind a tab.
 - Use the kit's colours (it follows your theme tokens and a `.dark` ancestor)
   rather than hard-coded ones, so light and dark both work. Its corners follow
   `--radius` (at `0`, square, with only status dots round) and its text `--font-sans`.
+- **Take the look from `@oxy-hq/sdk/theme.css`** (SDK 2.29 and later), the reference
+  app's design and the standard for every custom app. Import it above your own CSS and
+  the kit and shell draw square corners, frame lines on the subtle line, 44px touch
+  targets and one font with the app, with no rules of your own. Don't restyle the kit
+  with `!important` corner rules or `--oxy-shell-*` overrides: delete them when you
+  import the theme, because the theme's names are read first and those rules only
+  fight it.
 
 ## Checking it
 

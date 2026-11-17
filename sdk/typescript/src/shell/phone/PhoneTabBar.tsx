@@ -20,6 +20,7 @@ import { cx } from "../cx";
 import { ChevronRightIcon, MoreIcon } from "./icons";
 import { PhoneSheet } from "./PhoneSheet";
 import { holdHistoryEntry } from "./sheetHistory";
+import { type PhoneTone, toneClass } from "./tone";
 import { usePhoneLayout } from "./usePhoneLayout";
 
 export interface PhoneTabItem {
@@ -29,6 +30,11 @@ export interface PhoneTabItem {
   icon?: ReactNode;
   /** A count or short word on the tab ("3", "New"); 0, "0" and "" show nothing. */
   badge?: number | string;
+  /** What the badge means. Left out, the badge is the shell's red, as it always was. Given, it
+   *  is drawn in that tone: the kit's tone pill, and with the theme the reference's tab count
+   *  (the tone's status pair, or for `neutral`, a count that is just a count, the muted pair).
+   *  An attention count takes the worst status it holds; a plain count is `neutral`. */
+  badgeTone?: PhoneTone;
 }
 
 export interface PhoneTabBarProps {
@@ -58,11 +64,31 @@ function badgeText(badge: number | string): string {
   return typeof badge === "number" && badge > 99 ? "99+" : String(badge);
 }
 
+function badgeClass(tone: PhoneTone | undefined, ...extra: string[]): string {
+  return cx(
+    "oxy-phone-tabbar__badge",
+    ...extra,
+    tone && "oxy-phone-tabbar__badge--toned",
+    toneClass(tone)
+  );
+}
+
+/** More's dot: the strongest tone among the badges behind it (error over warning over neutral,
+ *  success counted as neutral), once every one of them has a tone; while any has none, the red
+ *  dot it always was. */
+function restTone(rest: PhoneTabItem[]): PhoneTone | undefined {
+  const tones = rest.filter((item) => hasBadge(item.badge)).map((item) => item.badgeTone);
+  if (!tones.length || tones.includes(undefined)) return undefined;
+  return tones.includes("bad") ? "bad" : tones.includes("warn") ? "warn" : "neutral";
+}
+
 function TabSlot({
   label,
   icon,
   badge,
+  badgeTone,
   dot,
+  dotTone,
   active,
   expanded,
   onClick
@@ -70,7 +96,9 @@ function TabSlot({
   label: string;
   icon?: ReactNode;
   badge?: number | string;
+  badgeTone?: PhoneTone;
   dot?: boolean;
+  dotTone?: PhoneTone;
   active: boolean;
   expanded?: boolean;
   onClick: () => void;
@@ -91,11 +119,18 @@ function TabSlot({
       )}
       <span className='oxy-phone-tabbar__label'>{label}</span>
       {badge !== undefined && hasBadge(badge) && (
-        <span className='oxy-phone-tabbar__badge'>{badgeText(badge)}</span>
+        <span className={badgeClass(badgeTone)}>{badgeText(badge)}</span>
       )}
       {dot && (
         <>
-          <span className='oxy-phone-tabbar__dot' aria-hidden='true' />
+          <span
+            className={cx(
+              "oxy-phone-tabbar__dot",
+              dotTone && "oxy-phone-tabbar__dot--toned",
+              toneClass(dotTone)
+            )}
+            aria-hidden='true'
+          />
           <span className='oxy-phone-sr'>, has updates</span>
         </>
       )}
@@ -144,6 +179,7 @@ export function PhoneTabBar({
           label={item.label}
           icon={item.icon}
           badge={item.badge}
+          badgeTone={item.badgeTone}
           active={item.id === activeId}
           onClick={() => onSelect(item.id)}
         />
@@ -153,6 +189,7 @@ export function PhoneTabBar({
           label={moreLabel}
           icon={<MoreIcon />}
           dot={restDot}
+          dotTone={restDot ? restTone(rest) : undefined}
           active={restActive}
           expanded={moreOpen}
           onClick={() => setMoreOpen(true)}
@@ -180,7 +217,7 @@ export function PhoneTabBar({
                 )}
                 <span className='oxy-phone-more__label'>{item.label}</span>
                 {item.badge !== undefined && hasBadge(item.badge) && (
-                  <span className='oxy-phone-tabbar__badge oxy-phone-more__badge'>
+                  <span className={badgeClass(item.badgeTone, "oxy-phone-more__badge")}>
                     {badgeText(item.badge)}
                   </span>
                 )}

@@ -56,11 +56,12 @@ describe("shell.css token scheme", () => {
   it("defines every color token in both light and dark scopes", () => {
     const light = varsIn(lightBlock);
     const dark = varsIn(darkBlock);
-    // Radius + fonts are theme-invariant; every color token must flip.
+    // Radius, fonts and the theme switch are mode-invariant; every color token must flip.
     const themeInvariant = new Set([
       "--oxy-shell-radius",
       "--oxy-shell-font",
-      "--oxy-shell-font-mono"
+      "--oxy-shell-font-mono",
+      "--oxy-shell-themed"
     ]);
     const lightColors = [...light].filter((v) => !themeInvariant.has(v));
     for (const v of lightColors) {
@@ -85,8 +86,11 @@ describe("shell.css token scheme", () => {
   it("only uses namespaced selectors", () => {
     // Guard against ANY selector leaking styles into host apps: every rule
     // header (at any nesting level, e.g. inside @media) must be a comma
-    // list of .oxy-* selectors, optionally under a .dark ancestor. Element,
-    // id, attribute, and universal selectors are all leaks.
+    // list of .oxy-* selectors, optionally under a .dark ancestor or under the
+    // root's touch opt-out (`:root:not([data-oxy-touch-targets="off"])`, or the
+    // same inside `:where()`, which weighs nothing; both still style only .oxy-*
+    // elements). Element, id, other attribute, and universal selectors are all
+    // leaks.
     const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
     // `[^{}]+\{` can't cross a rule body (the body's `}` breaks the run),
     // so each match is exactly one rule/at-rule header.
@@ -99,7 +103,9 @@ describe("shell.css token scheme", () => {
       if (KEYFRAME_STEP.test(header)) continue; // steps inside @keyframes
       for (const sel of header.split(",").map((sub) => sub.trim())) {
         expect(
-          /^(\.dark\s+)?\.oxy-/.test(sel),
+          /^(\.dark\s+|(:where\()?:root:not\(\[data-oxy-touch-targets="off"\]\)\)?\s+)?\.oxy-/.test(
+            sel
+          ),
           `selector "${sel}" is not namespaced under .oxy-*`
         ).toBe(true);
       }

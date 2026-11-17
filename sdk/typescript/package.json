@@ -1,6 +1,6 @@
 {
   "name": "@oxy-hq/sdk",
-  "version": "2.28.1",
+  "version": "2.29.0",
   "description": "React SDK for building custom-app bundles on the Oxy platform",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -29,6 +29,17 @@
     },
     "./shell.css": "./dist/shell.css",
     "./motion.css": "./dist/motion.css",
+    "./theme": {
+      "import": {
+        "types": "./dist/theme.d.mts",
+        "default": "./dist/theme.mjs"
+      },
+      "require": {
+        "types": "./dist/theme.d.cts",
+        "default": "./dist/theme.cjs"
+      }
+    },
+    "./theme.css": "./dist/theme.css",
     "./email": {
       "import": {
         "types": "./dist/email.d.mts",
@@ -83,6 +94,8 @@
   },
   "scripts": {
     "build": "tsdown",
+    "build:theme": "node scripts/build-theme.mjs",
+    "check:theme": "node scripts/build-theme.mjs --check",
     "build:watch": "node scripts/watch-shell-css.mjs",
     "dev": "node scripts/watch-shell-css.mjs",
     "typecheck": "tsc --noEmit",

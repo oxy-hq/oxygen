@@ -237,7 +237,9 @@ if the endpoint is unavailable (older server), your app renders unchromed.
 
 | Export | What it does |
 | --- | --- |
-| `OxyShell` | Wired frame: rail + top bar + content column around your app. Slots: `topBarExtra`, `railBottom`, `hideTopBar`, `plainClock`, `pageLabel`. |
+| `OxyShell` | Wired frame: rail + top bar + content column around your app. Slots: `topBarExtra`, `railBottom`, `hideTopBar`, `plainClock`, `pageLabel`; `modePin` (see the theme's light and dark, below). |
+| `useOxyModePin(mode)` | Pin one screen to `"light"` or `"dark"` while it is mounted, and hide the mode switch (theme.css only). |
+| `useOxyTouchTargets(false)` | Turn the shell's 44px touch tap areas off while mounted, for a store's enrolled tablet (`<OxyShell touchTargets={false}>` from inside the shell). |
 | `useShellContext()` | The raw shell bootstrap payload (`{ data, loading, error }`). |
 | `ShellRail`, `RailItem` | Presentational icon rail — props only, router-free. |
 | `TopBar`, `Breadcrumb`, `SystemIndicator`, `WorkspaceClock` | Presentational top bar pieces. |
@@ -270,6 +272,193 @@ Styling: `shell.css` is namespaced (`oxy-shell-*`) — no Tailwind required, no
 global styles leak into your app. It follows your design tokens when present
 (`--sidebar-background`, `--foreground`, …) and falls back to the Oxygen
 defaults. Dark mode: put a `.dark` class on any ancestor.
+
+### Theme (`@oxy-hq/sdk/theme.css`)
+
+The Oxygen design standard for every custom app is the
+[reference app](https://github.com/oxy-hq/reference-app) (`oxy-hq/reference-app`, `main`).
+`theme.css` is that app's design as CSS custom properties, and importing it applies
+it: the reference's surfaces, three ink tiers below the primary, the frame line
+(`--border-subtle`) apart from the 3:1 control line (`--border`), one brand blue, the
+status family (ink, tint, line, chart cut), square corners (every `--radius-*` is 0;
+only a status dot is round), the system face first (`-apple-system, BlinkMacSystemFont,
+"Inter", system-ui, …`, nothing downloaded), 32px desk and 44px touch controls
+(`--control-h-sm` / `--control-h-lg`), the 1.5px `--muted-foreground` focus ring, and
+one elevation for what floats. Light is the default; `.dark` (or
+`data-oxy-mode="dark"`) on `<html>` switches to dark.
+
+```ts
+// main.tsx, above your own CSS
+import "@oxy-hq/sdk/theme.css";
+import "./index.css";
+import "@oxy-hq/sdk/shell.css";
+```
+
+- **Your own tokens still win.** Every selector in `theme.css` sits in `:where()`, so a
+  `--border` or `--radius` your app declares overrides the theme in either import
+  order (Tailwind's `@layer theme` does not: an imported theme beats it). Adopting the
+  theme means importing it and **deleting** your own palette, radii and fonts, and
+  any `--oxy-shell-*` overrides and `!important` corner rules aimed at the shell or
+  kit.
+- **The shell and the phone kit read it.** Corners come from `--radius-control`,
+  `--radius-surface`, `--radius-overlay`, `--button-radius`, `--card-radius`,
+  `--input-radius` and `--badge-radius` (each clamped at 0); the rail, top bar, tab bar,
+  sheets, cards and KPI tiles draw their edges on `--rail-border`, `--topbar-border` and
+  `--card-border` (the frame line); the Ask button and the kit's chips, segments and
+  secondary buttons on `--button-secondary-border` (the reference's secondary-button
+  edge), while fields keep `--border`; the rail and bars sit on `--rail-bg` and
+  `--topbar-bg`; touch targets are
+  `--control-h-lg`; and the shell's type follows the kit's, `--font-sans`. Every focus
+  ring is the theme's one ring (`--focus-ring-width`, `--focus-ring-color`: 1.5px, at full
+  strength), and every focused control also draws a transparent outline, which is what
+  forced colours show. The kit's primary button is the brand fill (`--button-primary-bg`,
+  `--button-primary-fg`), its secondary button `--secondary` (the reference's
+  `--btn-surface`) and its selected segment `--segment-selected` on a `--segment-track`
+  track; the tab bar's selected label is foreground ink, not the link blue (selection is
+  monochrome); `OxyChat`'s Ask is the primary pair too, its field and buttons on
+  `--input-radius` and `--button-radius`. In the top bar the breadcrumb's "/" is the muted
+  ink at full strength, its home link takes the one ring, and the Today clock is drawn in
+  the shell's sans face with tabular figures. The kit's tones (`good`, `warn`, `bad`,
+  `neutral`) are the status family the desk draws, so one status reads one way on both
+  layouts: a `PhoneCard` status pill is the reference's chip pair (`--status-*-bg` with
+  `--status-*`, and for neutral `--status-neutral-bg` with `--dim-foreground`), a
+  `PhoneKpiStrip` delta is the status ink (`warn`: `--status-warning`; neutral:
+  `--muted-foreground`), and a `PhoneRow`
+  dot is `--dot-*` (neutral: `--status-neutral-series`), in place of the kit's own mix of
+  the destructive and success tokens. `--oxy-phone-tone` itself is unchanged.
+- **Names for the reference's own parts.** `--segment-track`, `--segment-selected`,
+  `--btn-surface`, `--btn-surface-hover` and the status dots `--dot-success`,
+  `--dot-info`, `--dot-warning`, `--dot-error` carry the reference's values (light
+  `--dot-success`, `--dot-warning` and `--dot-error` are corrected, with a comment, to clear
+  3:1 on every light ground a dot sits on, a selected row and the selected segment
+  included), so an app
+  that draws a segmented strip, a filled secondary button or a status dot deletes its
+  own copies. So do these, at the reference's values in both modes: `--status-info`,
+  `--status-info-bg` and `--status-info-line` (info's ink, tint and edge; the reference
+  retired info as a status, so they keep an app's existing calls in colour), `--shadow-elevated`
+  (its name for the one shadow, the same as `--shadow-overlay`), `--select-chevron` (the
+  12x8 chevron image for a native `<select>` with `appearance: none`) and the dots' glows
+  `--dot-success-glow`, `--dot-info-glow`, `--dot-warning-glow`, `--dot-error-glow`.
+- **`--chart-1` … `--chart-5` are the reference's sequential blue ramp** (the same as
+  `--chart-seq-1…5`: light `#5d73ff` to `#05081a`, dark `#3550ff` to `#ebedff`), not a
+  categorical palette: neighbours of one ramp cannot be told apart as categories, so series
+  that are categories read `--chart-cat-1…8`. An app that declares its own `--chart-*`
+  keeps them.
+- **Where the theme is not the reference, and why.** Each of these misses a contrast
+  obligation at the reference's value, so the theme moves it the smallest step that clears
+  it; the token's source (`src/theme/tokens/reference/primitives.tokens.json`,
+  `palette.derived`, each marked "FIX, not the reference") says how it was measured:
+  - dark `--brand` `#445dff` (the reference's `#3550ff`, 2.65:1 on the dark `--muted`, under
+    the 3:1 a mark needs; `#445dff` reads 3.02, white on it 4.93), with `--brand-hover` and
+    `--button-primary-bg` on it;
+  - dark `--disabled-foreground` `#626268` (the reference's `#606066`, 2.45:1 on the dark
+    field, under the theme's 2.5 floor for inactive text; `#626268` reads 2.53);
+  - dark `--scrim` black at 0.92 (the reference's 0.35 leaves a dialog's card at 1.16:1 over
+    the dimmed page; 0.92 reads 1.20);
+  - light `--status-warning-series` `#be8204` (the reference's `#ca8a04`, 2.72:1 on the
+    canvas, under 3:1 for a chart mark);
+  - light `--dot-success`, `--dot-warning` and `--dot-error` (`#059341`, `#a5770d`,
+    `#eb3c3e`, 3:1 on every light ground a dot sits on), and their glows, which are those
+    dots again at 0.7 by the reference's own rule.
+- **Without it nothing moves.** An app that does not import `theme.css` renders as it
+  did on 2.28: every name above is read as `var(--theme-name, <the old value>)`, and the
+  old value still follows your `--radius`, `--border`, `--font-inter` and
+  `--oxy-shell-*`. The parts that read names apps also set for themselves (`--secondary`,
+  `--segment-track`, `--segment-selected`, the status pairs, dots and `--dim-foreground` for
+  the kit's tones, and `--foreground` / `--muted-foreground` for the tab bar's label and
+  the breadcrumb's "/"), and the keyboard hint's 11px floor, are
+  switched on the theme's own marker (`--oxy-theme-contract`) instead, so declaring them
+  without the theme changes nothing either. The clock's face and the home link's ring
+  switch on the same marker through a style query; a browser without style queries keeps
+  2.28's monospace clock and its own focus outline there.
+- The token list, with each value's source line in the reference app, is
+  `src/theme/tokens/reference/` (contract: `src/theme/contract/contract.json`). The
+  optional JS entry `@oxy-hq/sdk/theme` switches the mode (`applyOxyTheme({ mode })`).
+
+#### Light and dark: one setting, Oxygen's
+
+With `theme.css` imported, your app shows the signed-in person's light/dark mode, the
+same one Oxygen home shows, and changing it in either place changes it in both:
+
+- **`OxyShell` applies it.** The shell context carries the person's `mode` (`"light"`,
+  `"dark"`, `"system"`, or `null` until they choose, which shows Oxygen's default, light).
+  The shell applies it (`data-oxy-mode` and `.dark` on `<html>`), re-reads it whenever the
+  tab is shown again (`GET /api/projects/:id/shell-context/mode`), so a change made in
+  Oxygen or another app shows up, and follows the device under `system`.
+- **One switch, in the same place in every app.** A Light / Dark / System switch sits at
+  the bottom of the rail, where Oxygen keeps its user menu, and at the bottom of the nav
+  sheet on a phone. A choice applies at once and is written to the person
+  (`PUT /api/projects/:id/shell-context/mode`); if the server refuses it, the old mode
+  comes back.
+- **Staging and sandbox previews never change the person's real mode.** On a staging or
+  sandbox host (`window.__OXY_APP__.environment` is `staging` or `dev-<handle>`) the switch
+  still works, for that preview only: the choice is kept in that origin's copy and never
+  sent (the server refuses the write there as well), and it stays put when the tab is shown
+  again or the page reloads, so a tester can check dark mode on staging. Until a tester
+  chooses, a preview shows the person's mode as read.
+- **The browser's chrome follows.** Whenever the shell or the pre-paint applies a mode, pins
+  included, every `<meta name="theme-color">` (a phone browser's toolbar, an installed app's
+  status bar) takes the page ground of that mode, `--background` as `<html>` computes it
+  (light `#f6f6f7`, dark `#0a0a0a`); a page with none gets one. It follows any later change
+  of `.dark` or `data-oxy-mode` on `<html>` too, whoever makes it, while the shell is mounted
+  and, with the pre-paint, for the page's life. Keep the meta in `index.html` for the first
+  paint, and delete a hook of your own that sets it. `syncOxyThemeColor()`
+  (`@oxy-hq/sdk/theme`) sets it once, on demand. Without `theme.css` the meta is left alone.
+- **No flash.** This origin keeps a copy (`localStorage["oxy-person-mode"]`), and
+  `OXY_THEME_PREPAINT` (`@oxy-hq/sdk/theme`) applies it before the first paint. Put it in
+  an inline script in `<head>`, anywhere there, before or after your stylesheets. With
+  Vite:
+
+  ```ts
+  // vite.config.ts
+  import { OXY_THEME_PREPAINT } from "@oxy-hq/sdk/theme";
+  // in `plugins`:
+  {
+    name: "oxy-theme-prepaint",
+    transformIndexHtml: () => [{ tag: "script", children: OXY_THEME_PREPAINT, injectTo: "head" }]
+  }
+  ```
+
+  Why `<head>`: a browser paints nothing until the stylesheets in `<head>` have loaded and
+  `<body>` has begun. A script at the top of `<body>` runs after both, and Chrome can paint
+  the empty page in between: one light frame for a dark person. In `<head>` the mode is on
+  `<html>` before anything paints. Ahead of your stylesheets the script cannot yet tell
+  whether `theme.css` applies, so it puts the mode on at once and, just before the first
+  frame, settles what it could not know yet: a pin set after it, the platform's
+  `window.__OXY_APP__` (added at the end of `<head>`), and `theme-color`. If `theme.css`
+  never applied, it takes the mode back off. Without the script the shell applies the mode
+  when it first renders.
+- **Pin a mode where it must not move.** `<html data-oxy-mode-pin="light">` in your
+  `index.html` pins the whole app, and so does a script in `<head>` that sets it before the
+  first frame (the pre-paint reads the pin again there). For one screen, such as a store's
+  shared tablet, pass `<OxyShell modePin="light">`, or call `useOxyModePin("light")` in a
+  screen that renders without the shell. A pin wins over the person's mode and hides the
+  switch; when the screen unmounts, the person's mode returns. While a pin is in force the
+  shell leaves this origin's copy as it is, so a person who signs in on a pinned screen (a
+  store's shared tablet) leaves no mode behind for the next load to paint; their own,
+  unpinned screen keeps it.
+- **When it does nothing.** Without `theme.css` the shell applies no mode and draws no
+  switch, so an app that never imported the theme, its own `.dark` styles included, looks
+  as on 2.28.1. A server older than the field sends no `mode`: the app keeps its own mode
+  and shows no switch. A crew (PIN) sign-in has no Oxygen account, so it gets neither. In
+  a staging preview, `?oxy-mode=` still wins for that session.
+- An app that sets `.dark` on `<html>` itself and imports the theme now follows the person
+  instead; pin `dark` to keep it dark-only.
+
+#### Touch screens: 44px on the shell's own chrome
+
+With `theme.css` imported, on a touch screen (`pointer: coarse`) the shell's rail entries (the
+mode switch among them), the Today clock, the Ask button and the update pill each answer a
+tap within an invisible area at least 44px each way, centred on them, in the phone layout's
+top bar as on a tablet; nothing drawn grows, and
+the mode switch's menu rows are a real 44px. One thing moves: the rail's entries sit 44px apart
+(12px gaps instead of 4px), so each owns its 44px and no entry's area takes the edge of the next
+one. A screen that is not a
+person's desk, such as a store's enrolled tablet, turns the areas off with
+`<OxyShell touchTargets={false}>`, `useOxyTouchTargets(false)` in a frame around the shell, or
+`<html data-oxy-touch-targets="off">` for a whole app; there the breadcrumb's home link, which
+fills the top bar's height on any touch screen since 2.27, keeps its drawn size too. Without the
+theme, on a fine pointer, and in a browser without CSS style queries, the chrome is as it was.
 
 Motion: `shell.css` loads `@oxy-hq/sdk/motion.css`, the motion language
 Oxygen itself uses, so your app moves like Oxygen without doing anything:
@@ -355,12 +544,12 @@ function OrdersPhone({ stores, totals }: OrdersData) {
 | --- | --- |
 | `usePhoneLayout()` | `true` on a phone upright (narrower than 640px) or on its side (a touch screen no taller than 500px); re-renders when that changes, `false` on the server. `PHONE_LAYOUT_QUERY` is the media query, for code outside React. |
 | `PhonePage` | The frame: 16px gutters (plus safe-area insets), 12px rhythm. It scrolls with the shell's main area or the document, never in a box of its own. `tabBar` and `stickyAction` dock at the bottom of the screen and the content clears them, also under wrappers that hug their content (padding on a wrapper insets the dock, so for an edge-to-edge dock render the page without one); a new `scrollKey` scrolls back to the top. |
-| `PhoneTabBar` | Bottom navigation, 56px plus the home indicator. Up to five slots; past five, four and a **More** slot that lists the rest in a sheet. `items: { id, label, icon?, badge? }[]`, `activeId`, `onSelect`. `historyEntry` (off by default) makes the phone's Back work as in a native app's bottom navigation: from any section but the first it calls `onSelect` with the first item's id, and from the first it leaves; the bar holds one history entry while another section shows (one, however many tabs are tapped), only in the phone layout. Turn it on when the section lives in state or in the URL by replace. Leave it off when `onSelect` pushes history (a route or `?tab=` per section): Back would swap between two sections forever. |
+| `PhoneTabBar` | Bottom navigation, 56px plus the home indicator. Up to five slots; past five, four and a **More** slot that lists the rest in a sheet. `items: { id, label, icon?, badge?, badgeTone? }[]`, `activeId`, `onSelect`. A badge is the shell's red unless you give it a `badgeTone` (`good`, `warn`, `bad`, `neutral`): then it is drawn in that tone, and with the theme as the reference's tab count, the tone's status pair or, for `neutral` (a count that is just a count), `--muted` in the muted ink. An attention count takes the worst status it holds. More's dot takes the strongest tone behind it (error, then warning, then neutral; success counts as neutral) once every badge there has one. `historyEntry` (off by default) makes the phone's Back work as in a native app's bottom navigation: from any section but the first it calls `onSelect` with the first item's id, and from the first it leaves; the bar holds one history entry while another section shows (one, however many tabs are tapped), only in the phone layout. Turn it on when the section lives in state or in the URL by replace. Leave it off when `onSelect` pushes history (a route or `?tab=` per section): Back would swap between two sections forever. |
 | `PhoneSheet` | A full-screen sheet with a 44px Back, a scrolling body and an optional `footer`. Back and Escape call `onClose`; focus goes in on open and back to the control that opened it on close; the page behind does not scroll. The phone's Back also calls `onClose` and leaves the page where it was: an open sheet holds a history entry on the same URL. A sheet that opened by pushing its own entry (a route, `?item=`) passes `historyEntry={false}`. |
 | `PhoneStickyAction`, `PhoneButton` | The action a screen exists for, pinned above the tab bar. Buttons are 48px; `tone` is `primary`, `secondary` or `danger`. |
 | `PhoneKpiStrip` | Headline numbers, two per row: label, value, a `delta` coloured by `tone`. A tile with `onClick` is a button. |
 | `PhoneSection` | An 11px label with an optional `action`, then its content. Rows directly inside join into one list. |
-| `PhoneRow` | A 56px list row: status dot (`tone`), title, subtitle, a `trailing` slot, and a chevron when it has `onClick`. With `onClick` the row's button is the row's full height, so a tap anywhere on it opens it; a control in `trailing` keeps its own tap. |
+| `PhoneRow` | A 56px list row: status dot (`tone`), title, subtitle, a `trailing` slot, and a chevron when it has `onClick`. With `onClick` the row's button is the row's full height, so a tap anywhere on it opens it; a control in `trailing` keeps its own tap. With the theme, a row anywhere in a `PhoneSheet` (under a `display: contents` wrapper too) keeps its whole height rather than squeezing to 56px. |
 | `PhoneCard`, `PhoneCardList` | A table row as a card: title with a status pill, subtitle, up to three figures, a `trailing` action (it keeps its own tap). The list puts a one-line `summary` on top and goes to two columns on a phone on its side. |
 | `PhoneSegmented` | Two to four equal 44px segments (List / Map) as a radio group. |
 | `PhoneFilterChip` | A 44px chip: the one filter control in a page header ("Oct 2026 · All companies"), with the count of filters set; it opens your filters `PhoneSheet`. |

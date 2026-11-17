@@ -1,7 +1,8 @@
 // The top bar's touch targets, checked as text: a 44px reach on each control,
-// only under the phone layout's own query, so a landscape touch tablet (Store
-// Ops' kiosk: coarse pointer, wider than 640 and taller than 500) and a desktop
-// keep the bar exactly as it was.
+// under the phone layout's own query, and (decision 16) on any touch screen with
+// the theme applied, which an enrolled store tablet turns off
+// (`data-oxy-touch-targets="off"`, `touch.test.tsx`). A desktop, a fine pointer and
+// an app without the theme keep the bar exactly as it was.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -42,6 +43,17 @@ const CONTROLS = [
 describe("top bar touch targets", () => {
   const blocks = mediaBlocks(PHONE_LAYOUT_QUERY);
   const inPhone = (at: number) => blocks.some(([a, b]) => at > a && at < b);
+  // The coarse-pointer block whose rules all sit under the theme's style query and the opt-out.
+  const coarse = mediaBlocks("(pointer: coarse)").filter(([a, b]) =>
+    /^@media \(pointer: coarse\) \{\s*@container style\(--oxy-theme-contract: 1\) \{/.test(
+      css.slice(a, b)
+    )
+  );
+  const inCoarseThemed = (at: number) =>
+    coarse.some(([a, b]) => at > a && at < b) &&
+    css
+      .slice(css.lastIndexOf("}", at) + 1, at)
+      .includes(':root:not([data-oxy-touch-targets="off"])');
 
   it("live in a block keyed on the phone layout's own query", () => {
     expect(PHONE_LAYOUT_QUERY).toBe(
@@ -59,13 +71,13 @@ describe("top bar touch targets", () => {
       expect(at, `${sel}::before`).toBeGreaterThan(0);
       const body = css.slice(css.indexOf("{", at), css.indexOf("}", at));
       expect(body).toMatch(/content: "";/);
-      expect(body).toMatch(/width: max\(100%, 44px\);/);
-      expect(body).toMatch(/height: max\(100%, 44px\);/);
+      expect(body).toMatch(/width: max\(100%, var\(--control-h-lg, 44px\)\);/);
+      expect(body).toMatch(/height: max\(100%, var\(--control-h-lg, 44px\)\);/);
       expect(body).toMatch(/transform: translate\(-50%, -50%\);/);
     }
   });
 
-  it("touch nothing outside the phone layout", () => {
+  it("touch nothing outside the phone layout and the themed touch screen", () => {
     for (const sel of CONTROLS) {
       for (const suffix of ["::before", " {", ",\n"]) {
         const needle = `${sel}${suffix}`;
@@ -74,7 +86,7 @@ describe("top bar touch targets", () => {
           // The control's own drawn rules (size, colour) sit outside on purpose;
           // only a reach or the position it needs must be phone-only.
           if (/::before|position: relative/.test(rule))
-            expect(inPhone(at), `${needle} @${at}`).toBe(true);
+            expect(inPhone(at) || inCoarseThemed(at), `${needle} @${at}`).toBe(true);
         }
       }
     }

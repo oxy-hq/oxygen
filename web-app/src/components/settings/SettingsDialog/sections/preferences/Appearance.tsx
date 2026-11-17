@@ -1,5 +1,7 @@
 import { Monitor, Moon, Sun, SunMoon } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/libs/shadcn/utils";
+import { chooseThemeMode } from "@/stores/themeSync";
 import useTheme, { type ThemeMode } from "@/stores/useTheme";
 import SectionHeader from "../../components/SectionHeader";
 
@@ -9,25 +11,30 @@ const MODES: { value: ThemeMode; label: string; hint: string; icon: typeof Sun }
   { value: "system", label: "System", hint: "Follow your OS", icon: Monitor }
 ];
 
-/** Per-browser presentation preferences. Theme lives here (not in the
- *  shell rail) — it applies across every workspace on this device. */
+/** The person's light/dark mode. Signed in to a server, it is theirs, not the
+ *  browser's: every custom app follows it, and changing it in an app changes it
+ *  here (`stores/themeSync.ts`). In local mode it stays with this browser. */
 export default function Appearance() {
   const mode = useTheme((s) => s.mode);
-  const setMode = useTheme((s) => s.setMode);
+  const { isLocalMode } = useAuth();
 
   return (
     <div className='flex flex-col gap-6'>
       <SectionHeader
         icon={SunMoon}
         title='Appearance'
-        description='Theme applies to this browser, across every workspace.'
+        description={
+          isLocalMode
+            ? "Theme applies to this browser, across every workspace."
+            : "Theme follows you across Oxygen and every app."
+        }
       />
       <div className='grid max-w-xl grid-cols-3 gap-3'>
         {MODES.map(({ value, label, hint, icon: Icon }) => (
           <button
             key={value}
             type='button'
-            onClick={() => setMode(value)}
+            onClick={() => chooseThemeMode(value)}
             data-active={mode === value}
             data-testid={`appearance-mode-${value}`}
             className={cn(

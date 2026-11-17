@@ -7,6 +7,7 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/shadcn/dropdown-menu";
 import { cn } from "@/libs/shadcn/utils";
+import { chooseThemeMode } from "@/stores/themeSync";
 import useTheme, { type ThemeMode } from "@/stores/useTheme";
 
 const MODE_OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
@@ -29,7 +30,6 @@ interface ThemeToggleProps {
 
 export function ThemeToggle({ className, align = "end", side = "top" }: ThemeToggleProps) {
   const mode = useTheme((state) => state.mode);
-  const setMode = useTheme((state) => state.setMode);
   const TriggerIcon = TRIGGER_ICON[mode];
 
   return (
@@ -48,7 +48,7 @@ export function ThemeToggle({ className, align = "end", side = "top" }: ThemeTog
         {MODE_OPTIONS.map(({ value, label, icon: Icon }) => (
           <DropdownMenuItem
             key={value}
-            onClick={() => setMode(value)}
+            onClick={() => chooseThemeMode(value)}
             className={cn("cursor-pointer", mode === value && "bg-muted")}
           >
             <Icon className='h-4 w-4' />

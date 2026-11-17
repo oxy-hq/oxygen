@@ -1,0 +1,1944 @@
+{
+  "version": 1,
+  "counts": {
+    "authored": 206,
+    "perMode": 122,
+    "both": 84,
+    "aliases": 30,
+    "fixed": 9
+  },
+  "tokens": [
+    {
+      "name": "--background",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.background",
+      "description": "The app canvas: behind cards, the springboard, the launch screen. Opaque."
+    },
+    {
+      "name": "--foreground",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.foreground",
+      "description": "Primary ink: headings, a row's own name, key figures. Also the SDK shell tooltip text."
+    },
+    {
+      "name": "--card",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.card",
+      "description": "Panel surface, one step off the canvas (in dark mode lighter, never darker). Read by anything that needs the card colour without the Card frame. Opaque."
+    },
+    {
+      "name": "--card-foreground",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.card-foreground",
+      "description": "Ink on `--card` and `--card-bg`. Usually equal to `--foreground`."
+    },
+    {
+      "name": "--popover",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.popover",
+      "description": "Overlay surface: menus, popovers, selects, dialogs, sheets, toasts, the inbox. Opaque."
+    },
+    {
+      "name": "--popover-foreground",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.popover-foreground",
+      "description": "Ink on `--popover`."
+    },
+    {
+      "name": "--muted",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.muted",
+      "description": "Quiet fill: neutral count badges, skeleton bars, the progress-ring track, the SDK shell tooltip box."
+    },
+    {
+      "name": "--muted-foreground",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.muted-foreground",
+      "description": "Tertiary ink: metadata, captions, timestamps, placeholders."
+    },
+    {
+      "name": "--accent",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.accent",
+      "description": "Highlight fill (shadcn meaning, not a brand accent): menu-item highlight, ghost and icon-button hover."
+    },
+    {
+      "name": "--accent-foreground",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.accent-foreground",
+      "description": "Ink on `--accent`."
+    },
+    {
+      "name": "--secondary",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.secondary",
+      "description": "Secondary button fill (shadcn `secondary`). May equal `--card` for an outlined style; see `--button-secondary-border`."
+    },
+    {
+      "name": "--secondary-foreground",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.secondary-foreground",
+      "description": "Label on `--secondary`."
+    },
+    {
+      "name": "--field",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.field",
+      "description": "Fill of inputs, selects, comboboxes, textareas, the Ask composer, segmented tracks. Opaque."
+    },
+    {
+      "name": "--field-border",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.field-border",
+      "description": "Resting edge of every field and of unchecked checkboxes and radios."
+    },
+    {
+      "name": "--row-hover",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.row-hover",
+      "description": "Hover fill of rows and tiles. May be translucent; composited over the surface below."
+    },
+    {
+      "name": "--row-selected",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.row-selected",
+      "description": "Selected row. Neutral by default: the state is carried by a checked box or `aria-selected`, not by this tint."
+    },
+    {
+      "name": "--segment-track",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.segment-track",
+      "description": "The track a segmented control sits in: a control surface, usually `--field`."
+    },
+    {
+      "name": "--segment-selected",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.segment-selected",
+      "description": "Fill of the selected segment; the SDK phone kit's selected segment reads it. One surface step off the track; its label is `--foreground`."
+    },
+    {
+      "name": "--btn-surface",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.btn-surface",
+      "description": "The secondary button fill under the reference app's name. Equal to `--secondary`."
+    },
+    {
+      "name": "--btn-surface-hover",
+      "group": "Surfaces",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.btn-surface-hover",
+      "description": "Secondary button fill on hover: the fill moves, not the edge."
+    },
+    {
+      "name": "--dim-foreground",
+      "group": "Ink tiers",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.dim-foreground",
+      "description": "Secondary ink: body copy, table cells, field labels, descriptions."
+    },
+    {
+      "name": "--subtle-foreground",
+      "group": "Ink tiers",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.subtle-foreground",
+      "description": "Quiet ink with a job: eyebrows, units, deliberately quiet figures. The floor for readable text."
+    },
+    {
+      "name": "--disabled-foreground",
+      "group": "Ink tiers",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.disabled-foreground",
+      "description": "Inactive controls and their labels only (WCAG 1.4.3 exempts inactive UI)."
+    },
+    {
+      "name": "--inverse-foreground",
+      "group": "Ink tiers",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.inverse-foreground",
+      "description": "Text and glyphs on `--brand` and `--brand-hover` fills."
+    },
+    {
+      "name": "--border-subtle",
+      "group": "Lines",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.border-subtle",
+      "description": "Structure only: card edges, dividers, header rules, the rail and top-bar frame. Under 3:1 is allowed, so nothing interactive or stateful is drawn with it alone."
+    },
+    {
+      "name": "--border",
+      "group": "Lines",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.border",
+      "description": "Interactive edges: outlined buttons, chips, toggles, the segmented strip (the canon's meaning, reference-app `src/index.css:270-277`; shadcn's structural uses re-point to the component tokens below)."
+    },
+    {
+      "name": "--border-strong",
+      "group": "Lines",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.border-strong",
+      "description": "Hover and pressed edges; an emphasis rule."
+    },
+    {
+      "name": "--input",
+      "group": "Lines",
+      "type": "alias",
+      "target": "--field-border",
+      "description": "shadcn's input-border name (web-app inputs read `border-input`)."
+    },
+    {
+      "name": "--ring",
+      "group": "Lines",
+      "type": "alias",
+      "target": "--focus-ring-color",
+      "description": "shadcn and SDK-shell name for the focus ring (`shell.css:40`)."
+    },
+    {
+      "name": "--primary",
+      "group": "Action and brand",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.primary",
+      "description": "shadcn primary: default button fill in shadcn components and the checked fill of checkboxes, radios, switches, sliders, progress bars. It marks state, so it must stand off the page. The one prime action per view reads `--button-primary-bg`, which may differ."
+    },
+    {
+      "name": "--primary-foreground",
+      "group": "Action and brand",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.primary-foreground",
+      "description": "Label and check glyph on `--primary`."
+    },
+    {
+      "name": "--brand",
+      "group": "Action and brand",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.brand",
+      "description": "The direction's signature colour as a mark: progress fill, selected-tab underline, the launch progress bar, the wordmark colour version. Not a text colour (use `--link`)."
+    },
+    {
+      "name": "--brand-hover",
+      "group": "Action and brand",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.brand-hover",
+      "description": "Hover of brand-filled surfaces."
+    },
+    {
+      "name": "--brand-subtle",
+      "group": "Action and brand",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.brand-subtle",
+      "description": "Brand tint for quiet emphasis: the \"New\" and \"Updated\" marks. May be translucent."
+    },
+    {
+      "name": "--link",
+      "group": "Action and brand",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.link",
+      "description": "Text-safe brand: links, text actions that navigate, the caret, and the SDK shell's link (through `--info`)."
+    },
+    {
+      "name": "--destructive",
+      "group": "Action and brand",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.destructive",
+      "description": "Destructive action: destructive button fill, destructive menu-item text. Never the colour of a routine count."
+    },
+    {
+      "name": "--destructive-foreground",
+      "group": "Action and brand",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.destructive-foreground",
+      "description": "Label on `--destructive`."
+    },
+    {
+      "name": "--sidebar",
+      "group": "Chrome",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.sidebar",
+      "description": "Surface of the sidebar family (current shadcn name). Keep it equal to `--rail-bg` unless the old shell's single chrome colour is acceptable for the direction. Opaque."
+    },
+    {
+      "name": "--sidebar-background",
+      "group": "Chrome",
+      "type": "alias",
+      "target": "--sidebar",
+      "description": "The name SDK shell ≤ 2.26 reads for rail and top bar (`shell.css:27,60`). Both names exist; one value."
+    },
+    {
+      "name": "--sidebar-foreground",
+      "group": "Chrome",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.sidebar-foreground",
+      "description": "Ink on the sidebar."
+    },
+    {
+      "name": "--sidebar-accent",
+      "group": "Chrome",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.sidebar-accent",
+      "description": "Hover and active fill inside the sidebar; the SDK shell's active rail item. May be translucent."
+    },
+    {
+      "name": "--sidebar-accent-foreground",
+      "group": "Chrome",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.sidebar-accent-foreground",
+      "description": "Ink on `--sidebar-accent`."
+    },
+    {
+      "name": "--sidebar-border",
+      "group": "Chrome",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.sidebar-border",
+      "description": "Frame line between the sidebar family and content."
+    },
+    {
+      "name": "--sidebar-primary",
+      "group": "Chrome",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.sidebar-primary",
+      "description": "shadcn Sidebar's primary (active marker)."
+    },
+    {
+      "name": "--sidebar-primary-foreground",
+      "group": "Chrome",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.sidebar-primary-foreground",
+      "description": "Ink on `--sidebar-primary`."
+    },
+    {
+      "name": "--sidebar-ring",
+      "group": "Chrome",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.sidebar-ring",
+      "description": "Focus ring inside the sidebar family."
+    },
+    {
+      "name": "--status-success",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-success",
+      "description": "Success ink: \"Done\", \"Posted\", a favourable change. Always beside a word."
+    },
+    {
+      "name": "--status-success-bg",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-success-bg",
+      "description": "Success tint behind a status word or callout. May be translucent."
+    },
+    {
+      "name": "--status-success-line",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-success-line",
+      "description": "Decorative edge of a success callout; never the only signal."
+    },
+    {
+      "name": "--status-success-series",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-success-series",
+      "description": "Success as a chart mark (a met-target bar)."
+    },
+    {
+      "name": "--status-warning",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-warning",
+      "description": "Warning ink: \"Due soon\", \"Above comparable stores\"."
+    },
+    {
+      "name": "--status-warning-bg",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-warning-bg",
+      "description": "Warning tint. May be translucent."
+    },
+    {
+      "name": "--status-warning-line",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-warning-line",
+      "description": "Decorative edge of a warning callout."
+    },
+    {
+      "name": "--status-warning-series",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-warning-series",
+      "description": "Warning as a chart mark (a flagged series)."
+    },
+    {
+      "name": "--status-error",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-error",
+      "description": "Error and critical ink: \"Failed\", \"Overdue\", \"Does not balance\"."
+    },
+    {
+      "name": "--status-error-bg",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-error-bg",
+      "description": "Error tint. May be translucent."
+    },
+    {
+      "name": "--status-error-line",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-error-line",
+      "description": "Decorative edge of an error callout (a field in error uses `--status-error` itself)."
+    },
+    {
+      "name": "--status-error-series",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-error-series",
+      "description": "Error as a chart mark."
+    },
+    {
+      "name": "--status-neutral",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-neutral",
+      "description": "A state with no verdict: \"Pending\", \"Not entered\", \"Closed\"."
+    },
+    {
+      "name": "--status-neutral-bg",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-neutral-bg",
+      "description": "Neutral tint; routine counts sit on it. May be translucent."
+    },
+    {
+      "name": "--status-neutral-line",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-neutral-line",
+      "description": "Decorative edge of a neutral callout."
+    },
+    {
+      "name": "--status-neutral-series",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-neutral-series",
+      "description": "An unjudged series in a chart."
+    },
+    {
+      "name": "--status-info-line",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.status-info-line",
+      "description": "Info edge, decorative (reference-app `src/index.css:402, 673`). The reference retired info as a status (`:379-399`: blue is links, focus and the primary action); its ink and tint are `--status-info` and `--status-info-bg`."
+    },
+    {
+      "name": "--dot-success",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.dot-success",
+      "description": "A status dot (a small filled circle with nothing inside), success. Apart from `--status-success`, which is tuned for text on its tint; at least 3:1 on the canvas and the card."
+    },
+    {
+      "name": "--dot-info",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.dot-info",
+      "description": "A status dot, info."
+    },
+    {
+      "name": "--dot-warning",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.dot-warning",
+      "description": "A status dot, warning."
+    },
+    {
+      "name": "--dot-error",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.dot-error",
+      "description": "A status dot, error."
+    },
+    {
+      "name": "--dot-success-glow",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.dot-success-glow",
+      "description": "The glow a success dot carries, the dot's fill again at 0.7 (reference-app `src/index.css:422-423`, `:425`). Decorative; nothing in the reference draws it."
+    },
+    {
+      "name": "--dot-info-glow",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.dot-info-glow",
+      "description": "The glow a info dot carries, the dot's fill again at 0.7 (reference-app `src/index.css:422-423`, `:427, 682`). Decorative; nothing in the reference draws it."
+    },
+    {
+      "name": "--dot-warning-glow",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.dot-warning-glow",
+      "description": "The glow a warning dot carries, the dot's fill again at 0.7 (reference-app `src/index.css:422-423`, `:429`). Decorative; nothing in the reference draws it."
+    },
+    {
+      "name": "--dot-error-glow",
+      "group": "Status",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.dot-error-glow",
+      "description": "The glow a error dot carries, the dot's fill again at 0.7 (reference-app `src/index.css:422-423`, `:431`). Decorative; nothing in the reference draws it."
+    },
+    {
+      "name": "--success",
+      "group": "Status",
+      "type": "alias",
+      "target": "--status-success",
+      "description": "Host name read by the SDK shell and the web-app (`bg-success`)."
+    },
+    {
+      "name": "--warning",
+      "group": "Status",
+      "type": "alias",
+      "target": "--status-warning",
+      "description": "Host name read by the web-app."
+    },
+    {
+      "name": "--error",
+      "group": "Status",
+      "type": "alias",
+      "target": "--status-error",
+      "description": "Host name read by the web-app."
+    },
+    {
+      "name": "--info",
+      "group": "Status",
+      "type": "alias",
+      "target": "--link",
+      "description": "The canon retired info as a status (reference-app `src/index.css:379-402`); the SDK shell reads `--info` as its link colour (`shell.css:49,76`)."
+    },
+    {
+      "name": "--status-info",
+      "group": "Status",
+      "type": "alias",
+      "target": "--link",
+      "description": "The reference's info ink, `var(--link)` (`src/index.css:400, 671`). Info is retired there as a status (`:379-399`); the name stays so an app's calls keep their colour."
+    },
+    {
+      "name": "--status-info-bg",
+      "group": "Status",
+      "type": "alias",
+      "target": "--brand-subtle",
+      "description": "The reference's info tint (`src/index.css:401, 672`): the same values as `--brand-subtle`, which is that tint."
+    },
+    {
+      "name": "--chart-cat-1",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-cat-1",
+      "description": "Categorical series, used in order from 1. Also the module-icon collection hues (components.md C35)."
+    },
+    {
+      "name": "--chart-cat-2",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-cat-2",
+      "description": "Categorical series 2."
+    },
+    {
+      "name": "--chart-cat-3",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-cat-3",
+      "description": "Categorical series 3."
+    },
+    {
+      "name": "--chart-cat-4",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-cat-4",
+      "description": "Categorical series 4."
+    },
+    {
+      "name": "--chart-cat-5",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-cat-5",
+      "description": "Categorical series 5."
+    },
+    {
+      "name": "--chart-cat-6",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-cat-6",
+      "description": "Categorical series 6."
+    },
+    {
+      "name": "--chart-cat-7",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-cat-7",
+      "description": "Categorical series 7. More than seven series is a table, not a chart."
+    },
+    {
+      "name": "--chart-cat-8",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-cat-8",
+      "description": "Categorical series 8 (\"Other\")."
+    },
+    {
+      "name": "--chart-seq-1",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-seq-1",
+      "description": "Sequential magnitude, lowest step."
+    },
+    {
+      "name": "--chart-seq-2",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-seq-2",
+      "description": "Sequential step 2."
+    },
+    {
+      "name": "--chart-seq-3",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-seq-3",
+      "description": "Sequential step 3."
+    },
+    {
+      "name": "--chart-seq-4",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-seq-4",
+      "description": "Sequential step 4."
+    },
+    {
+      "name": "--chart-seq-5",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-seq-5",
+      "description": "Sequential magnitude, highest step: the strongest contrast with the background in both modes (darkest in light, lightest in dark)."
+    },
+    {
+      "name": "--chart-div-neg-3",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-div-neg-3",
+      "description": "Diverging scale, furthest below the reference (variance to plan, vs comparable stores). \"neg\" means below the midpoint, not bad: a direction maps meaning in the chart, not here."
+    },
+    {
+      "name": "--chart-div-neg-2",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-div-neg-2",
+      "description": "Diverging, below the reference."
+    },
+    {
+      "name": "--chart-div-neg-1",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-div-neg-1",
+      "description": "Diverging, just below the reference."
+    },
+    {
+      "name": "--chart-div-mid",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-div-mid",
+      "description": "Diverging midpoint (the reference itself). Near-neutral: OKLCH chroma ≤ 0.04."
+    },
+    {
+      "name": "--chart-div-pos-1",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-div-pos-1",
+      "description": "Diverging, just above the reference."
+    },
+    {
+      "name": "--chart-div-pos-2",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-div-pos-2",
+      "description": "Diverging, above the reference."
+    },
+    {
+      "name": "--chart-div-pos-3",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.chart-div-pos-3",
+      "description": "Diverging, furthest above the reference."
+    },
+    {
+      "name": "--trend-store",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.trend-store",
+      "description": "The subject series in a comparison (this store, this month)."
+    },
+    {
+      "name": "--trend-peer",
+      "group": "Data visualisation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.trend-peer",
+      "description": "The comparison series (comparable stores, last year, plan)."
+    },
+    {
+      "name": "--chart-1",
+      "group": "Data visualisation",
+      "type": "alias",
+      "target": "--chart-seq-1",
+      "description": "The reference's `--chart-1…5`: the sequential oxy-blue ramp (`src/index.css:451-455` dark, `:689-693` light), the same values as `--chart-seq-1…5`. A ramp, not a categorical palette: two neighbours of one ramp cannot be told apart as categories (`:457-470`), so series that are categories take `--chart-cat-*`."
+    },
+    {
+      "name": "--chart-2",
+      "group": "Data visualisation",
+      "type": "alias",
+      "target": "--chart-seq-2",
+      "description": "The reference's `--chart-2` (`src/index.css:452, 690`): `--chart-seq-2`, see `--chart-1`."
+    },
+    {
+      "name": "--chart-3",
+      "group": "Data visualisation",
+      "type": "alias",
+      "target": "--chart-seq-3",
+      "description": "The reference's `--chart-3` (`src/index.css:453, 691`): `--chart-seq-3`, see `--chart-1`."
+    },
+    {
+      "name": "--chart-4",
+      "group": "Data visualisation",
+      "type": "alias",
+      "target": "--chart-seq-4",
+      "description": "The reference's `--chart-4` (`src/index.css:454, 692`): `--chart-seq-4`, see `--chart-1`."
+    },
+    {
+      "name": "--chart-5",
+      "group": "Data visualisation",
+      "type": "alias",
+      "target": "--chart-seq-5",
+      "description": "The reference's `--chart-5` (`src/index.css:455, 693`): `--chart-seq-5`, see `--chart-1`."
+    },
+    {
+      "name": "--shadow-raised",
+      "group": "Elevation",
+      "type": "shadow",
+      "modes": "per-mode",
+      "path": "shadow.raised",
+      "description": "Small lift for what moves under a pointer (a dragged row; a hovered tile if the direction lifts). \"Border, never shadow\" directions set no shadow."
+    },
+    {
+      "name": "--shadow-overlay",
+      "group": "Elevation",
+      "type": "shadow",
+      "modes": "per-mode",
+      "path": "shadow.overlay",
+      "description": "Floating layers: menus, popovers, dialogs, sheets, toasts."
+    },
+    {
+      "name": "--scrim",
+      "group": "Elevation",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.scrim",
+      "description": "Dims the page behind a dialog or sheet. Translucent."
+    },
+    {
+      "name": "--shadow-elevated",
+      "group": "Elevation",
+      "type": "alias",
+      "target": "--shadow-overlay",
+      "description": "The reference's name for its one shadow, on what floats (`src/index.css:477, 698`): the same values as `--shadow-overlay`."
+    },
+    {
+      "name": "--radius-control",
+      "group": "Shape",
+      "type": "length",
+      "modes": "both",
+      "path": "radius.control",
+      "description": "Buttons, inputs, selects, chips, tabs, segmented controls, tooltips. ≥ 0."
+    },
+    {
+      "name": "--radius-surface",
+      "group": "Shape",
+      "type": "length",
+      "modes": "both",
+      "path": "radius.surface",
+      "description": "Cards, panels, the outer frame of a table, KPI tiles, the desktop app tile. ≥ 0."
+    },
+    {
+      "name": "--radius-overlay",
+      "group": "Shape",
+      "type": "length",
+      "modes": "both",
+      "path": "radius.overlay",
+      "description": "Menus, popovers, dialogs, sheets (inner corners), toasts. ≥ 0."
+    },
+    {
+      "name": "--radius-pill",
+      "group": "Shape",
+      "type": "length",
+      "modes": "both",
+      "path": "radius.pill",
+      "description": "Fully round ends: avatars, count badges, switch tracks, status dots. ≥ 500px so it is round at any height."
+    },
+    {
+      "name": "--radius",
+      "group": "Shape",
+      "type": "alias",
+      "target": "--radius-control",
+      "description": "shadcn base and SDK shell ≤ 2.26 (`shell.css:50`). That shell computes `calc(var(--radius) - N)`, so its corners come out N px squarer than `--radius-control` until the SDK reads the explicit steps (synthesis §4.7 P1)."
+    },
+    {
+      "name": "--radius-tile",
+      "group": "Shape",
+      "type": "alias",
+      "target": "--tile-radius",
+      "description": "The module-icon tile corner, listed with the radius family so an audit of corners sees it. A percentage of the tile side."
+    },
+    {
+      "name": "--font-sans",
+      "group": "Type families",
+      "type": "font-family",
+      "modes": "both",
+      "path": "font.sans",
+      "description": "The primary UI face: controls, body, tables. OFL with a Vietnamese subset, tabular figures available, self-hosted, distinct per direction (invariants.md I-T)."
+    },
+    {
+      "name": "--font-display",
+      "group": "Type families",
+      "type": "font-family",
+      "modes": "both",
+      "path": "font.display",
+      "description": "Titles and hero figures. May equal `--font-sans`."
+    },
+    {
+      "name": "--font-mono",
+      "group": "Type families",
+      "type": "font-family",
+      "modes": "both",
+      "path": "font.mono",
+      "description": "Codes and IDs (\"NK-1004\", \"PO-4471\"). Not for figures: figures are tabular sans."
+    },
+    {
+      "name": "--font-inter",
+      "group": "Type families",
+      "type": "alias",
+      "target": "--font-sans",
+      "description": "The web-app's `font-inter` class and SDK shell (`shell.css:51`) read this name."
+    },
+    {
+      "name": "--type-display-family",
+      "group": "Type roles",
+      "type": "font-family",
+      "modes": "both",
+      "path": "type.display.family",
+      "description": "Display: the one largest line on a screen (the Home greeting, a launch line)."
+    },
+    {
+      "name": "--type-display-size",
+      "group": "Type roles",
+      "type": "length",
+      "modes": "both",
+      "path": "type.display.size",
+      "description": "Display size; ≥ 1.25 × title."
+    },
+    {
+      "name": "--type-display-line",
+      "group": "Type roles",
+      "type": "number",
+      "modes": "both",
+      "path": "type.display.line",
+      "description": "Display line height (1.0 to 1.8)."
+    },
+    {
+      "name": "--type-display-weight",
+      "group": "Type roles",
+      "type": "font-weight",
+      "modes": "both",
+      "path": "type.display.weight",
+      "description": "Display weight."
+    },
+    {
+      "name": "--type-display-tracking",
+      "group": "Type roles",
+      "type": "em",
+      "modes": "both",
+      "path": "type.display.tracking",
+      "description": "Display tracking, within ±0.04em."
+    },
+    {
+      "name": "--type-title-family",
+      "group": "Type roles",
+      "type": "font-family",
+      "modes": "both",
+      "path": "type.title.family",
+      "description": "Title: a page's own heading."
+    },
+    {
+      "name": "--type-title-size",
+      "group": "Type roles",
+      "type": "length",
+      "modes": "both",
+      "path": "type.title.size",
+      "description": "Title size; ≥ 1.25 × heading."
+    },
+    {
+      "name": "--type-title-line",
+      "group": "Type roles",
+      "type": "number",
+      "modes": "both",
+      "path": "type.title.line",
+      "description": "Title line height."
+    },
+    {
+      "name": "--type-title-weight",
+      "group": "Type roles",
+      "type": "font-weight",
+      "modes": "both",
+      "path": "type.title.weight",
+      "description": "Title weight."
+    },
+    {
+      "name": "--type-title-tracking",
+      "group": "Type roles",
+      "type": "em",
+      "modes": "both",
+      "path": "type.title.tracking",
+      "description": "Title tracking."
+    },
+    {
+      "name": "--type-heading-family",
+      "group": "Type roles",
+      "type": "font-family",
+      "modes": "both",
+      "path": "type.heading.family",
+      "description": "Heading: a section inside a page (\"Your apps\", \"Today\")."
+    },
+    {
+      "name": "--type-heading-size",
+      "group": "Type roles",
+      "type": "length",
+      "modes": "both",
+      "path": "type.heading.size",
+      "description": "Heading size; ≥ 1.25 × body."
+    },
+    {
+      "name": "--type-heading-line",
+      "group": "Type roles",
+      "type": "number",
+      "modes": "both",
+      "path": "type.heading.line",
+      "description": "Heading line height."
+    },
+    {
+      "name": "--type-heading-weight",
+      "group": "Type roles",
+      "type": "font-weight",
+      "modes": "both",
+      "path": "type.heading.weight",
+      "description": "Heading weight."
+    },
+    {
+      "name": "--type-heading-tracking",
+      "group": "Type roles",
+      "type": "em",
+      "modes": "both",
+      "path": "type.heading.tracking",
+      "description": "Heading tracking."
+    },
+    {
+      "name": "--type-body-family",
+      "group": "Type roles",
+      "type": "font-family",
+      "modes": "both",
+      "path": "type.body.family",
+      "description": "Body: running text, list rows, table cells at comfortable density."
+    },
+    {
+      "name": "--type-body-size",
+      "group": "Type roles",
+      "type": "length",
+      "modes": "both",
+      "path": "type.body.size",
+      "description": "Body size; ≥ 14px."
+    },
+    {
+      "name": "--type-body-line",
+      "group": "Type roles",
+      "type": "number",
+      "modes": "both",
+      "path": "type.body.line",
+      "description": "Body line height; ≥ 1.4."
+    },
+    {
+      "name": "--type-body-weight",
+      "group": "Type roles",
+      "type": "font-weight",
+      "modes": "both",
+      "path": "type.body.weight",
+      "description": "Body weight."
+    },
+    {
+      "name": "--type-body-tracking",
+      "group": "Type roles",
+      "type": "em",
+      "modes": "both",
+      "path": "type.body.tracking",
+      "description": "Body tracking."
+    },
+    {
+      "name": "--type-body-sm-family",
+      "group": "Type roles",
+      "type": "font-family",
+      "modes": "both",
+      "path": "type.body-sm.family",
+      "description": "Small body: dense table cells, secondary lines."
+    },
+    {
+      "name": "--type-body-sm-size",
+      "group": "Type roles",
+      "type": "length",
+      "modes": "both",
+      "path": "type.body-sm.size",
+      "description": "Small body size; ≥ 12px."
+    },
+    {
+      "name": "--type-body-sm-line",
+      "group": "Type roles",
+      "type": "number",
+      "modes": "both",
+      "path": "type.body-sm.line",
+      "description": "Small body line height."
+    },
+    {
+      "name": "--type-body-sm-weight",
+      "group": "Type roles",
+      "type": "font-weight",
+      "modes": "both",
+      "path": "type.body-sm.weight",
+      "description": "Small body weight."
+    },
+    {
+      "name": "--type-body-sm-tracking",
+      "group": "Type roles",
+      "type": "em",
+      "modes": "both",
+      "path": "type.body-sm.tracking",
+      "description": "Small body tracking."
+    },
+    {
+      "name": "--type-label-family",
+      "group": "Type roles",
+      "type": "font-family",
+      "modes": "both",
+      "path": "type.label.family",
+      "description": "Label: button text, tabs, field labels, menu items."
+    },
+    {
+      "name": "--type-label-size",
+      "group": "Type roles",
+      "type": "length",
+      "modes": "both",
+      "path": "type.label.size",
+      "description": "Label size; ≥ 12px."
+    },
+    {
+      "name": "--type-label-line",
+      "group": "Type roles",
+      "type": "number",
+      "modes": "both",
+      "path": "type.label.line",
+      "description": "Label line height."
+    },
+    {
+      "name": "--type-label-weight",
+      "group": "Type roles",
+      "type": "font-weight",
+      "modes": "both",
+      "path": "type.label.weight",
+      "description": "Label weight."
+    },
+    {
+      "name": "--type-label-tracking",
+      "group": "Type roles",
+      "type": "em",
+      "modes": "both",
+      "path": "type.label.tracking",
+      "description": "Label tracking."
+    },
+    {
+      "name": "--type-eyebrow-family",
+      "group": "Type roles",
+      "type": "font-family",
+      "modes": "both",
+      "path": "type.eyebrow.family",
+      "description": "Eyebrow: group labels and column headings. Sentence case; never a kicker above a page title (invariants.md T10)."
+    },
+    {
+      "name": "--type-eyebrow-size",
+      "group": "Type roles",
+      "type": "length",
+      "modes": "both",
+      "path": "type.eyebrow.size",
+      "description": "Eyebrow size; ≥ 11px."
+    },
+    {
+      "name": "--type-eyebrow-line",
+      "group": "Type roles",
+      "type": "number",
+      "modes": "both",
+      "path": "type.eyebrow.line",
+      "description": "Eyebrow line height."
+    },
+    {
+      "name": "--type-eyebrow-weight",
+      "group": "Type roles",
+      "type": "font-weight",
+      "modes": "both",
+      "path": "type.eyebrow.weight",
+      "description": "Eyebrow weight."
+    },
+    {
+      "name": "--type-eyebrow-tracking",
+      "group": "Type roles",
+      "type": "em",
+      "modes": "both",
+      "path": "type.eyebrow.tracking",
+      "description": "Eyebrow tracking."
+    },
+    {
+      "name": "--type-figure-family",
+      "group": "Type roles",
+      "type": "font-family",
+      "modes": "both",
+      "path": "type.figure.family",
+      "description": "Figure: numbers in KPI tiles, ring centres, table totals."
+    },
+    {
+      "name": "--type-figure-size",
+      "group": "Type roles",
+      "type": "length",
+      "modes": "both",
+      "path": "type.figure.size",
+      "description": "Figure size; ≥ 14px."
+    },
+    {
+      "name": "--type-figure-line",
+      "group": "Type roles",
+      "type": "number",
+      "modes": "both",
+      "path": "type.figure.line",
+      "description": "Figure line height."
+    },
+    {
+      "name": "--type-figure-weight",
+      "group": "Type roles",
+      "type": "font-weight",
+      "modes": "both",
+      "path": "type.figure.weight",
+      "description": "Figure weight."
+    },
+    {
+      "name": "--type-figure-tracking",
+      "group": "Type roles",
+      "type": "em",
+      "modes": "both",
+      "path": "type.figure.tracking",
+      "description": "Figure tracking."
+    },
+    {
+      "name": "--type-figure-lg-family",
+      "group": "Type roles",
+      "type": "font-family",
+      "modes": "both",
+      "path": "type.figure-lg.family",
+      "description": "Large figure: the hero number of a KPI tile or the phone Home story."
+    },
+    {
+      "name": "--type-figure-lg-size",
+      "group": "Type roles",
+      "type": "length",
+      "modes": "both",
+      "path": "type.figure-lg.size",
+      "description": "Large figure size; ≥ 1.25 × figure."
+    },
+    {
+      "name": "--type-figure-lg-line",
+      "group": "Type roles",
+      "type": "number",
+      "modes": "both",
+      "path": "type.figure-lg.line",
+      "description": "Large figure line height."
+    },
+    {
+      "name": "--type-figure-lg-weight",
+      "group": "Type roles",
+      "type": "font-weight",
+      "modes": "both",
+      "path": "type.figure-lg.weight",
+      "description": "Large figure weight."
+    },
+    {
+      "name": "--type-figure-lg-tracking",
+      "group": "Type roles",
+      "type": "em",
+      "modes": "both",
+      "path": "type.figure-lg.tracking",
+      "description": "Large figure tracking."
+    },
+    {
+      "name": "--space-2xs",
+      "group": "Space and layout",
+      "type": "length",
+      "modes": "both",
+      "path": "space.2xs",
+      "description": "Hairline gaps (icon to badge). The scale strictly increases."
+    },
+    {
+      "name": "--space-xs",
+      "group": "Space and layout",
+      "type": "length",
+      "modes": "both",
+      "path": "space.xs",
+      "description": "Lines within one item."
+    },
+    {
+      "name": "--space-sm",
+      "group": "Space and layout",
+      "type": "length",
+      "modes": "both",
+      "path": "space.sm",
+      "description": "Rows within a group; icon to label."
+    },
+    {
+      "name": "--space-md",
+      "group": "Space and layout",
+      "type": "length",
+      "modes": "both",
+      "path": "space.md",
+      "description": "Blocks on a page; the usual card padding."
+    },
+    {
+      "name": "--space-lg",
+      "group": "Space and layout",
+      "type": "length",
+      "modes": "both",
+      "path": "space.lg",
+      "description": "Between groups."
+    },
+    {
+      "name": "--space-xl",
+      "group": "Space and layout",
+      "type": "length",
+      "modes": "both",
+      "path": "space.xl",
+      "description": "Between sections of one record."
+    },
+    {
+      "name": "--space-2xl",
+      "group": "Space and layout",
+      "type": "length",
+      "modes": "both",
+      "path": "space.2xl",
+      "description": "Between page regions."
+    },
+    {
+      "name": "--page-gutter",
+      "group": "Space and layout",
+      "type": "length",
+      "modes": "both",
+      "path": "page.gutter",
+      "description": "Side gutter below 600px (phones); ≥ 16px."
+    },
+    {
+      "name": "--page-gutter-wide",
+      "group": "Space and layout",
+      "type": "length",
+      "modes": "both",
+      "path": "page.gutter-wide",
+      "description": "Side gutter from 600px; ≥ `--page-gutter`."
+    },
+    {
+      "name": "--section-gap",
+      "group": "Space and layout",
+      "type": "length",
+      "modes": "both",
+      "path": "section.gap",
+      "description": "Vertical gap between page sections (\"Your apps\" to \"Today\"); ≥ 16px."
+    },
+    {
+      "name": "--control-h-sm",
+      "group": "Density",
+      "type": "length",
+      "modes": "both",
+      "path": "control-h.sm",
+      "description": "Desk controls (a toolbar button, a table filter); ≥ 24px (WCAG 2.5.8)."
+    },
+    {
+      "name": "--control-h-md",
+      "group": "Density",
+      "type": "length",
+      "modes": "both",
+      "path": "control-h.md",
+      "description": "Standalone controls, top-bar controls, form fields on desktop; ≥ 32px."
+    },
+    {
+      "name": "--control-h-lg",
+      "group": "Density",
+      "type": "length",
+      "modes": "both",
+      "path": "control-h.lg",
+      "description": "Touch: tablet checklists, phone forms, the springboard; ≥ 44px."
+    },
+    {
+      "name": "--row-h",
+      "group": "Density",
+      "type": "length",
+      "modes": "both",
+      "path": "row-h",
+      "description": "Default table and list row; ≥ 40px."
+    },
+    {
+      "name": "--row-h-compact",
+      "group": "Density",
+      "type": "length",
+      "modes": "both",
+      "path": "row-h-compact",
+      "description": "Dense money-table row; ≥ 32px."
+    },
+    {
+      "name": "--focus-ring-width",
+      "group": "Focus",
+      "type": "length",
+      "modes": "both",
+      "path": "focus-ring.width",
+      "description": "Ring width; ≥ 1.5px (2px meets WCAG 2.4.13 AAA focus appearance)."
+    },
+    {
+      "name": "--focus-ring-offset",
+      "group": "Focus",
+      "type": "length",
+      "modes": "both",
+      "path": "focus-ring.offset",
+      "description": "Gap between control and ring; ≥ 0."
+    },
+    {
+      "name": "--focus-ring-color",
+      "group": "Focus",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "color.focus-ring-color",
+      "description": "Ring colour; visible on every surface a control can sit on."
+    },
+    {
+      "name": "--icon-stroke",
+      "group": "Icons",
+      "type": "number",
+      "modes": "both",
+      "path": "icon.stroke",
+      "description": "UI glyph stroke in the 24-unit grid (Lucide's `stroke-width`): 1.5 draws 1px at 16px. 1 to 2.5. Applied once: `.lucide { stroke-width: var(--icon-stroke) }`."
+    },
+    {
+      "name": "--icon-size-sm",
+      "group": "Icons",
+      "type": "length",
+      "modes": "both",
+      "path": "icon.size.sm",
+      "description": "Inline in text, chips, callouts; ≥ 12px."
+    },
+    {
+      "name": "--icon-size-md",
+      "group": "Icons",
+      "type": "length",
+      "modes": "both",
+      "path": "icon.size.md",
+      "description": "Inside a control; > sm."
+    },
+    {
+      "name": "--icon-size-lg",
+      "group": "Icons",
+      "type": "length",
+      "modes": "both",
+      "path": "icon.size.lg",
+      "description": "List rows, empty states, the tab bar; > md."
+    },
+    {
+      "name": "--tile-bg",
+      "group": "Module-icon tile",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "tile.bg",
+      "description": "Tile fill before the collection tint. Opaque."
+    },
+    {
+      "name": "--tile-fg",
+      "group": "Module-icon tile",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "tile.fg",
+      "description": "Glyph colour before the glyph tint; the monogram fallback letters. Opaque."
+    },
+    {
+      "name": "--tile-border",
+      "group": "Module-icon tile",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "tile.border",
+      "description": "Keyline. Fully transparent is allowed when the fill alone separates the tile."
+    },
+    {
+      "name": "--tile-shadow",
+      "group": "Module-icon tile",
+      "type": "shadow",
+      "modes": "per-mode",
+      "path": "tile.shadow",
+      "description": "Tile lift; no shadow allowed."
+    },
+    {
+      "name": "--tile-tint",
+      "group": "Module-icon tile",
+      "type": "percent",
+      "modes": "per-mode",
+      "path": "tile.tint",
+      "description": "Share of the app's collection hue (`--app-hue`) mixed into the fill: `color-mix(in oklab, var(--app-hue) var(--tile-tint), var(--tile-bg))`. 0% gives monochrome tiles."
+    },
+    {
+      "name": "--tile-glyph-tint",
+      "group": "Module-icon tile",
+      "type": "percent",
+      "modes": "per-mode",
+      "path": "tile.glyph-tint",
+      "description": "Share of the collection hue mixed into the glyph. 0% keeps the glyph `--tile-fg`."
+    },
+    {
+      "name": "--tile-radius",
+      "group": "Module-icon tile",
+      "type": "percent",
+      "modes": "both",
+      "path": "tile.radius",
+      "description": "Corner as a percentage of the tile side (0 to 50; 50 is a circle), so one value fits every size from 16px to the 1024px master."
+    },
+    {
+      "name": "--tile-glyph-scale",
+      "group": "Module-icon tile",
+      "type": "number",
+      "modes": "both",
+      "path": "tile.glyph-scale",
+      "description": "Glyph box as a fraction of the tile side (0.4 to 0.8)."
+    },
+    {
+      "name": "--card-bg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "card.bg",
+      "description": "The Card component's fill. Transparent gives \"rules, not cards\"."
+    },
+    {
+      "name": "--card-border",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "card.border",
+      "description": "The Card's box edge. Transparent for a filled or rule-only card."
+    },
+    {
+      "name": "--card-rule",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "card.rule",
+      "description": "The Card's top edge. Equal to `--card-border` for a boxed card; a stronger line with a transparent border for an editorial rule."
+    },
+    {
+      "name": "--card-shadow",
+      "group": "Components",
+      "type": "shadow",
+      "modes": "per-mode",
+      "path": "card.shadow",
+      "description": "The Card's lift. No shadow for \"border, never shadow\"; a ring shadow for a borderless card."
+    },
+    {
+      "name": "--card-radius",
+      "group": "Components",
+      "type": "length",
+      "modes": "both",
+      "path": "card.radius",
+      "description": "The Card's corners (usually `{radius.surface}`)."
+    },
+    {
+      "name": "--card-padding",
+      "group": "Components",
+      "type": "length",
+      "modes": "both",
+      "path": "card.padding",
+      "description": "Inside a card; ≥ 8px."
+    },
+    {
+      "name": "--topbar-bg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "topbar.bg",
+      "description": "Top bar surface. Opaque."
+    },
+    {
+      "name": "--topbar-fg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "topbar.fg",
+      "description": "Top bar ink: the current breadcrumb, icons, the Ask label."
+    },
+    {
+      "name": "--topbar-fg-muted",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "topbar.fg-muted",
+      "description": "Quieter top-bar ink: breadcrumb parents, key hints. Coloured chrome cannot borrow `--muted-foreground`."
+    },
+    {
+      "name": "--topbar-border",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "topbar.border",
+      "description": "Top bar's lower edge."
+    },
+    {
+      "name": "--topbar-height",
+      "group": "Components",
+      "type": "length",
+      "modes": "both",
+      "path": "topbar.height",
+      "description": "Top bar height; ≥ 44px."
+    },
+    {
+      "name": "--rail-bg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "rail.bg",
+      "description": "Rail surface (the web-app shell and SDK shell after synthesis §4.7 P1). Opaque."
+    },
+    {
+      "name": "--rail-fg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "rail.fg",
+      "description": "Rail glyphs and letters."
+    },
+    {
+      "name": "--rail-item-active-bg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "rail.item-active-bg",
+      "description": "The current item's fill. May be translucent."
+    },
+    {
+      "name": "--rail-item-active-fg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "rail.item-active-fg",
+      "description": "The current item's glyph."
+    },
+    {
+      "name": "--rail-border",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "rail.border",
+      "description": "Edge between rail and content."
+    },
+    {
+      "name": "--rail-width",
+      "group": "Components",
+      "type": "length",
+      "modes": "both",
+      "path": "rail.width",
+      "description": "Rail width; ≥ 44px."
+    },
+    {
+      "name": "--table-header-bg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "table.header-bg",
+      "description": "Header row fill. May be translucent or equal to the card."
+    },
+    {
+      "name": "--table-header-fg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "table.header-fg",
+      "description": "Column-heading ink."
+    },
+    {
+      "name": "--table-rule",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "table.rule",
+      "description": "Rule under the header and above a totals row."
+    },
+    {
+      "name": "--table-row-rule",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "table.row-rule",
+      "description": "Rule between body rows. Dense money tables keep a rule (no zebra)."
+    },
+    {
+      "name": "--input-radius",
+      "group": "Components",
+      "type": "length",
+      "modes": "both",
+      "path": "input.radius",
+      "description": "Corners of inputs, selects, comboboxes, textareas (usually `{radius.control}`). Fills and edges are `--field` and `--field-border`."
+    },
+    {
+      "name": "--select-chevron",
+      "group": "Components",
+      "type": "chevron",
+      "modes": "per-mode",
+      "path": "color.select-chevron",
+      "description": "A native select's chevron as an image, for `appearance: none` with `background-image: var(--select-chevron)` at 12px by 8px (reference-app `src/index.css:130-140, 558`; `ui.ts:388-395`). Authored as the stroke colour; written as the reference's own SVG in it."
+    },
+    {
+      "name": "--button-primary-bg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "button.primary-bg",
+      "description": "Fill of the one prime action per view. May be a colour that fails 3:1 as a mark (its label carries it)."
+    },
+    {
+      "name": "--button-primary-bg-hover",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "button.primary-bg-hover",
+      "description": "Its hover fill."
+    },
+    {
+      "name": "--button-primary-fg",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "button.primary-fg",
+      "description": "Its label."
+    },
+    {
+      "name": "--button-secondary-border",
+      "group": "Components",
+      "type": "color",
+      "modes": "per-mode",
+      "path": "button.secondary-border",
+      "description": "Secondary button edge; transparent for a filled style. Fill and label are `--secondary` and `--secondary-foreground`."
+    },
+    {
+      "name": "--button-radius",
+      "group": "Components",
+      "type": "length",
+      "modes": "both",
+      "path": "button.radius",
+      "description": "Corners of every button variant. One shape per control family: a pill prime action beside square buttons is not a direction choice."
+    },
+    {
+      "name": "--badge-radius",
+      "group": "Components",
+      "type": "length",
+      "modes": "both",
+      "path": "badge.radius",
+      "description": "Status badge corners."
+    },
+    {
+      "name": "--badge-fill",
+      "group": "Components",
+      "type": "percent",
+      "modes": "both",
+      "path": "badge.fill",
+      "description": "Share of the status tint filled behind a badge word (100% filled tag, 0% tinted text)."
+    },
+    {
+      "name": "--badge-outline",
+      "group": "Components",
+      "type": "percent",
+      "modes": "both",
+      "path": "badge.outline",
+      "description": "Share of the status line drawn as a badge edge (0% none)."
+    },
+    {
+      "name": "--oxy-duration-instant",
+      "group": "Fixed",
+      "type": "fixed",
+      "value": "80ms",
+      "owner": "sdk/typescript/src/motion/motion.css",
+      "description": "Press feedback."
+    },
+    {
+      "name": "--oxy-duration-fast",
+      "group": "Fixed",
+      "type": "fixed",
+      "value": "120ms",
+      "owner": "sdk/typescript/src/motion/motion.css",
+      "description": "Exits, hover, small state changes."
+    },
+    {
+      "name": "--oxy-duration-base",
+      "group": "Fixed",
+      "type": "fixed",
+      "value": "160ms",
+      "owner": "sdk/typescript/src/motion/motion.css",
+      "description": "Menus, popovers, tooltips arriving; most transitions."
+    },
+    {
+      "name": "--oxy-duration-slow",
+      "group": "Fixed",
+      "type": "fixed",
+      "value": "240ms",
+      "owner": "sdk/typescript/src/motion/motion.css",
+      "description": "Dialogs and sheets; a layout change."
+    },
+    {
+      "name": "--oxy-duration-focal",
+      "group": "Fixed",
+      "type": "fixed",
+      "value": "600ms",
+      "owner": "sdk/typescript/src/motion/motion.css",
+      "description": "The one drawn moment (a progress ring filling)."
+    },
+    {
+      "name": "--oxy-ease-out",
+      "group": "Fixed",
+      "type": "fixed",
+      "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+      "owner": "sdk/typescript/src/motion/motion.css",
+      "description": "Arrivals."
+    },
+    {
+      "name": "--oxy-ease-in",
+      "group": "Fixed",
+      "type": "fixed",
+      "value": "cubic-bezier(0.4, 0, 1, 1)",
+      "owner": "sdk/typescript/src/motion/motion.css",
+      "description": "Departures."
+    },
+    {
+      "name": "--oxy-ease-in-out",
+      "group": "Fixed",
+      "type": "fixed",
+      "value": "cubic-bezier(0.65, 0, 0.35, 1)",
+      "owner": "sdk/typescript/src/motion/motion.css",
+      "description": "Moves within the page."
+    },
+    {
+      "name": "--oxy-theme-contract",
+      "group": "Fixed",
+      "type": "fixed",
+      "value": "1",
+      "owner": "sdk/typescript/scripts/build-theme.mjs",
+      "description": "Contract marker in every generated theme.css; the design checker looks for it (synthesis §4.3, §5.3 `theme-contract`)."
+    },
+    {
+      "name": "--color-background",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--background",
+      "description": "Template and Mission Control apps."
+    },
+    {
+      "name": "--color-foreground",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--foreground",
+      "description": ""
+    },
+    {
+      "name": "--color-card",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--card",
+      "description": ""
+    },
+    {
+      "name": "--color-muted",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--muted",
+      "description": ""
+    },
+    {
+      "name": "--color-muted-foreground",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--muted-foreground",
+      "description": ""
+    },
+    {
+      "name": "--color-border",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--border-subtle",
+      "description": "Those apps use it for cards and dividers; mapping it to the 3:1 `--border` would draw every frame heavy. Their inputs move to `--field-border` per app."
+    },
+    {
+      "name": "--color-brand",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--brand",
+      "description": ""
+    },
+    {
+      "name": "--color-info",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--info",
+      "description": ""
+    },
+    {
+      "name": "--color-status-success",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--status-success",
+      "description": ""
+    },
+    {
+      "name": "--color-status-warning",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--status-warning",
+      "description": ""
+    },
+    {
+      "name": "--color-status-error",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--status-error",
+      "description": ""
+    },
+    {
+      "name": "--zinc-200",
+      "group": "Compatibility aliases",
+      "type": "alias",
+      "target": "--muted",
+      "description": "SDK 2.23.0 reads `var(--zinc-200, #e4e4e7)` for its light tooltip (`dist/shell.css:37`); HEAD reads `--muted` first."
+    }
+  ],
+  "runtime": ["--app-hue"],
+  "rejected": ["--button-primary-radius", "--input-bg", "--input-border"]
+}

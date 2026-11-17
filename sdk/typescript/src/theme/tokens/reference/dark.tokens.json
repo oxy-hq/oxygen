@@ -1,0 +1,746 @@
+{
+  "$description": "Reference dark mode (:root, [data-theme=\"dark\"], reference-app@7c1ee7e src/index.css:63-510): every colour-bearing semantic and component token.",
+  "color": {
+    "background": {
+      "$type": "color",
+      "$value": "{palette.dark.background}",
+      "$description": "App canvas (index.css:68 dark, 532 light)."
+    },
+    "foreground": {
+      "$type": "color",
+      "$value": "{palette.dark.foreground}",
+      "$description": "Primary ink (index.css:216, 585)."
+    },
+    "card": {
+      "$type": "color",
+      "$value": "{palette.dark.card}",
+      "$description": "Panels and cards, one step off the canvas (index.css:69, 533)."
+    },
+    "card-foreground": {
+      "$type": "color",
+      "$value": "{color.foreground}",
+      "$description": "Ink on cards: the primary ink; the reference has no separate card ink."
+    },
+    "popover": {
+      "$type": "color",
+      "$value": "{color.card}",
+      "$description": "Overlays: the reference draws its modal and sheets on bg-card (src/components/Modal.tsx:300)."
+    },
+    "popover-foreground": {
+      "$type": "color",
+      "$value": "{color.foreground}",
+      "$description": "Ink on overlays: the primary ink."
+    },
+    "muted": {
+      "$type": "color",
+      "$value": "{palette.dark.muted}",
+      "$description": "Quiet fill (index.css:217, 586)."
+    },
+    "muted-foreground": {
+      "$type": "color",
+      "$value": "{palette.dark.muted-foreground}",
+      "$description": "Tertiary ink, 7.55:1 on the dark card (index.css:255, 594)."
+    },
+    "accent": {
+      "$type": "color",
+      "$value": "{palette.dark.accent}",
+      "$description": "shadcn's neutral hover fill, not a brand colour (index.css:490, 700)."
+    },
+    "accent-foreground": {
+      "$type": "color",
+      "$value": "{color.foreground}",
+      "$description": "Ink on the hover fill: the primary ink."
+    },
+    "secondary": {
+      "$type": "color",
+      "$value": "{palette.dark.btn-surface}",
+      "$description": "Secondary button: a fill, not an outline (--btn-surface, index.css:212, 582)."
+    },
+    "secondary-foreground": {
+      "$type": "color",
+      "$value": "{color.foreground}",
+      "$description": "Secondary button label: text-foreground (ui.ts:615)."
+    },
+    "field": {
+      "$type": "color",
+      "$value": "{palette.dark.field}",
+      "$description": "Inputs, selects, textareas: one step further from the page than the card (index.css:91, 547)."
+    },
+    "field-border": {
+      "$type": "color",
+      "$value": "{color.border}",
+      "$description": "A field's edge is --border, the 3:1 interactive weight (index.css:107, 551)."
+    },
+    "select-chevron": {
+      "$type": "color",
+      "$value": "{palette.dark.select-chevron}",
+      "$description": "A native select's chevron (index.css:130-140, 558; ui.ts:388-395): its stroke colour. theme.css writes it as the reference's 12x8 chevron image (contract type chevron)."
+    },
+    "row-hover": {
+      "$type": "color",
+      "$value": "{palette.dark.row-hover}",
+      "$description": "Row hover: an overlay, not an opaque grey (index.css:111, 552)."
+    },
+    "row-selected": {
+      "$type": "color",
+      "$value": "{palette.dark.row-selected}",
+      "$description": "Row selected: a neutral overlay (index.css:123, 556)."
+    },
+    "segment-track": {
+      "$type": "color",
+      "$value": "{color.field}",
+      "$description": "The segmented strip's track: a control surface, the field colour (--segment-track: var(--field), index.css:184, 576)."
+    },
+    "segment-selected": {
+      "$type": "color",
+      "$value": "{palette.dark.segment-raised}",
+      "$description": "The selected segment's fill: segmentOn's bg-segment-selected (ui.ts:878; index.css:185, 577). Light steps down from the white track, dark down to black."
+    },
+    "btn-surface": {
+      "$type": "color",
+      "$value": "{palette.dark.btn-surface}",
+      "$description": "The reference's name for the secondary button fill, the same value as --secondary (--btn-surface, index.css:212, 582)."
+    },
+    "btn-surface-hover": {
+      "$type": "color",
+      "$value": "{palette.dark.btn-surface-hover}",
+      "$description": "Secondary button hover: the fill moves (hover:bg-btn-surface-hover, ui.ts:616, 1240; index.css:213, 583)."
+    },
+    "dim-foreground": {
+      "$type": "color",
+      "$value": "{palette.dark.dim-foreground}",
+      "$description": "Secondary ink (index.css:240, 588)."
+    },
+    "subtle-foreground": {
+      "$type": "color",
+      "$value": "{palette.dark.subtle-foreground}",
+      "$description": "Subtle ink: placeholders, low-priority figures (index.css:256, 595)."
+    },
+    "disabled-foreground": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.disabled-foreground}",
+      "$description": "Inactive only (index.css:257, 596)."
+    },
+    "inverse-foreground": {
+      "$type": "color",
+      "$value": "{palette.dark.inverse-foreground}",
+      "$description": "Text on a filled brand surface (index.css:258, 597)."
+    },
+    "border-subtle": {
+      "$type": "color",
+      "$value": "{palette.dark.border-subtle}",
+      "$description": "Structure only: card edges, row dividers, the rail and the top bar (index.css:282, 599)."
+    },
+    "border": {
+      "$type": "color",
+      "$value": "{palette.dark.border}",
+      "$description": "Interactive edges at 3:1 on both grounds (index.css:283, 600)."
+    },
+    "border-strong": {
+      "$type": "color",
+      "$value": "{palette.dark.border-strong}",
+      "$description": "Hover and the 44px touch control (index.css:284, 601)."
+    },
+    "primary": {
+      "$type": "color",
+      "$value": "{palette.dark.primary}",
+      "$description": "shadcn primary: the ink colour as a fill (index.css:491, 701)."
+    },
+    "primary-foreground": {
+      "$type": "color",
+      "$value": "{palette.dark.primary-foreground}",
+      "$description": "Label on --primary (index.css:492, 702)."
+    },
+    "brand": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.brand}",
+      "$description": "The one brand blue (index.css:294, 603); dark is one step lighter so it holds 3:1 on --muted (see the palette entry)."
+    },
+    "brand-hover": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.brand-hover}",
+      "$description": "Brand at 90%, the reference's hover:bg-brand/90."
+    },
+    "brand-subtle": {
+      "$type": "color",
+      "$value": "{palette.dark.status-info-bg}",
+      "$description": "Brand tint: the reference's link-hue tint (--status-info-bg, index.css:401, 672)."
+    },
+    "link": {
+      "$type": "color",
+      "$value": "{palette.dark.link}",
+      "$description": "Text-safe brand: links, the active tab, the active nav item (index.css:300, 617)."
+    },
+    "destructive": {
+      "$type": "color",
+      "$value": "{color.status-error}",
+      "$description": "Destructive: the error ink (the reference has no separate destructive colour)."
+    },
+    "destructive-foreground": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.destructive-foreground}",
+      "$description": "Label on the destructive fill: white on #b01b1b, the canvas on #fa8e8e."
+    },
+    "sidebar": {
+      "$type": "color",
+      "$value": "{palette.dark.sidebar-background}",
+      "$description": "The rail and top bar surface (index.css:498, 708)."
+    },
+    "sidebar-foreground": {
+      "$type": "color",
+      "$value": "{color.dim-foreground}",
+      "$description": "Ink on the sidebar: the secondary ink, as the reference's section rail (ui.ts:1009)."
+    },
+    "sidebar-accent": {
+      "$type": "color",
+      "$value": "{palette.dark.sidebar-accent}",
+      "$description": "Hover fill inside the sidebar (index.css:499, 709)."
+    },
+    "sidebar-accent-foreground": {
+      "$type": "color",
+      "$value": "{palette.dark.sidebar-accent-foreground}",
+      "$description": "Ink on the sidebar accent (index.css:500, 710)."
+    },
+    "sidebar-border": {
+      "$type": "color",
+      "$value": "{palette.dark.sidebar-border}",
+      "$description": "The rail's own divider (index.css:501, 711)."
+    },
+    "sidebar-primary": {
+      "$type": "color",
+      "$value": "{color.primary}",
+      "$description": "shadcn sidebar primary: --primary."
+    },
+    "sidebar-primary-foreground": {
+      "$type": "color",
+      "$value": "{color.primary-foreground}",
+      "$description": "Label on the sidebar primary."
+    },
+    "sidebar-ring": {
+      "$type": "color",
+      "$value": "{color.focus-ring-color}",
+      "$description": "One focus ring everywhere (ui.ts:94)."
+    },
+    "focus-ring-color": {
+      "$type": "color",
+      "$value": "{color.muted-foreground}",
+      "$description": "The one ring: ring-muted-foreground at full strength (ui.ts:94; --ring, index.css:496, 706)."
+    },
+    "scrim": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.scrim}",
+      "$description": "Dims the page behind a dialog: the reference's black at 0.35 (Modal.tsx:273); dark is raised so the dialog separates (see the palette entry)."
+    },
+    "trend-store": {
+      "$type": "color",
+      "$value": "{color.chart-seq-2}",
+      "$description": "The subject series: --chart-2 (index.css:470, 695)."
+    },
+    "trend-peer": {
+      "$type": "color",
+      "$value": "{palette.dark.trend-peer}",
+      "$description": "The comparison series: a neutral grey (index.css:471, 696)."
+    },
+    "status-success": {
+      "$type": "color",
+      "$value": "{palette.dark.status-success}",
+      "$description": "Success ink (index.css:353, 621)."
+    },
+    "status-success-bg": {
+      "$type": "color",
+      "$value": "{palette.dark.status-success-bg}",
+      "$description": "Success tint (index.css:354, 622)."
+    },
+    "status-success-line": {
+      "$type": "color",
+      "$value": "{palette.dark.status-success-line}",
+      "$description": "Success edge (index.css:355, 623)."
+    },
+    "status-success-series": {
+      "$type": "color",
+      "$value": "{color.status-success}",
+      "$description": "Success at chart weight (index.css:375, 667)."
+    },
+    "status-warning": {
+      "$type": "color",
+      "$value": "{palette.dark.status-warning}",
+      "$description": "Warning ink (index.css:356, 637)."
+    },
+    "status-warning-bg": {
+      "$type": "color",
+      "$value": "{palette.dark.status-warning-bg}",
+      "$description": "Warning tint (index.css:357, 638)."
+    },
+    "status-warning-line": {
+      "$type": "color",
+      "$value": "{palette.dark.status-warning-line}",
+      "$description": "Warning edge (index.css:358, 639)."
+    },
+    "status-warning-series": {
+      "$type": "color",
+      "$value": "{color.status-warning}",
+      "$description": "Warning at chart weight (index.css:376, 668)."
+    },
+    "status-error": {
+      "$type": "color",
+      "$value": "{palette.dark.status-error}",
+      "$description": "Error ink (index.css:361, 642)."
+    },
+    "status-error-bg": {
+      "$type": "color",
+      "$value": "{palette.dark.status-error-bg}",
+      "$description": "Error tint (index.css:362, 643)."
+    },
+    "status-error-line": {
+      "$type": "color",
+      "$value": "{palette.dark.status-error-line}",
+      "$description": "Error edge (index.css:363, 644)."
+    },
+    "status-error-series": {
+      "$type": "color",
+      "$value": "{color.status-error}",
+      "$description": "Error at chart weight (index.css:377, 669)."
+    },
+    "status-neutral": {
+      "$type": "color",
+      "$value": "{color.dim-foreground}",
+      "$description": "Neutral: the app's own secondary ink (index.css:403, 674)."
+    },
+    "status-neutral-bg": {
+      "$type": "color",
+      "$value": "{palette.dark.status-neutral-bg}",
+      "$description": "Neutral tint (index.css:404, 675)."
+    },
+    "status-neutral-line": {
+      "$type": "color",
+      "$value": "{palette.dark.status-neutral-line}",
+      "$description": "Neutral edge (index.css:405, 676)."
+    },
+    "status-neutral-series": {
+      "$type": "color",
+      "$value": "{color.trend-peer}",
+      "$description": "An unjudged series: the comparison grey (index.css:471, 696)."
+    },
+    "status-info-line": {
+      "$type": "color",
+      "$value": "{palette.dark.status-info-line}",
+      "$description": "Info edge (index.css:402, 673), decorative as every -line. Info is retired as a status there (index.css:379-399); --status-info and --status-info-bg alias --link and --brand-subtle."
+    },
+    "dot-success": {
+      "$type": "color",
+      "$value": "{palette.any.dot-success}",
+      "$description": "A 7px status dot, success (StatusDot.tsx:42; --dot-success, index.css:424). Apart from the --status-* inks, which are tuned for text on a tint."
+    },
+    "dot-info": {
+      "$type": "color",
+      "$value": "{palette.dark.dot-info}",
+      "$description": "A status dot, info (StatusDot.tsx:43; --dot-info, index.css:426, 681)."
+    },
+    "dot-warning": {
+      "$type": "color",
+      "$value": "{palette.any.dot-warning}",
+      "$description": "A status dot, warning (StatusDot.tsx:44; --dot-warning, index.css:428)."
+    },
+    "dot-error": {
+      "$type": "color",
+      "$value": "{palette.any.dot-error}",
+      "$description": "A status dot, error (StatusDot.tsx:45; --dot-error, index.css:430)."
+    },
+    "dot-success-glow": {
+      "$type": "color",
+      "$value": "{palette.any.dot-success-glow}",
+      "$description": "The glow a success dot carries, the dot again at 0.7 (index.css:422-425). Nothing in the reference draws it."
+    },
+    "dot-info-glow": {
+      "$type": "color",
+      "$value": "{palette.dark.dot-info-glow}",
+      "$description": "The glow an info dot carries (index.css:427, 682)."
+    },
+    "dot-warning-glow": {
+      "$type": "color",
+      "$value": "{palette.any.dot-warning-glow}",
+      "$description": "The glow a warning dot carries (index.css:429)."
+    },
+    "dot-error-glow": {
+      "$type": "color",
+      "$value": "{palette.any.dot-error-glow}",
+      "$description": "The glow an error dot carries (index.css:431)."
+    },
+    "chart-cat-1": {
+      "$type": "color",
+      "$value": "{color.trend-store}",
+      "$description": "Categorical 1: the store blue. The reference has no categorical palette (its --chart-* are sequential, index.css:440-450); 1-8 are hues it already ships, blue first."
+    },
+    "chart-cat-2": {
+      "$type": "color",
+      "$value": "{palette.dark.vis-purple}",
+      "$description": "Categorical 2: --hr-vis-purple."
+    },
+    "chart-cat-3": {
+      "$type": "color",
+      "$value": "{palette.dark.vis-teal}",
+      "$description": "Categorical 3: --hr-vis-teal."
+    },
+    "chart-cat-4": {
+      "$type": "color",
+      "$value": "{palette.dark.vis-amber}",
+      "$description": "Categorical 4: --hr-vis-amber."
+    },
+    "chart-cat-5": {
+      "$type": "color",
+      "$value": "{color.status-success-series}",
+      "$description": "Categorical 5: the success series green."
+    },
+    "chart-cat-6": {
+      "$type": "color",
+      "$value": "{palette.dark.vis-orange}",
+      "$description": "Categorical 6: --wh-loc-attention orange."
+    },
+    "chart-cat-7": {
+      "$type": "color",
+      "$value": "{color.status-error-series}",
+      "$description": "Categorical 7: the error series red."
+    },
+    "chart-cat-8": {
+      "$type": "color",
+      "$value": "{color.trend-peer}",
+      "$description": "Categorical 8, Other: the comparison grey."
+    },
+    "chart-seq-1": {
+      "$type": "color",
+      "$value": "{palette.dark.chart-1}",
+      "$description": "Sequential, lowest: --chart-1 (index.css:451, 689)."
+    },
+    "chart-seq-2": {
+      "$type": "color",
+      "$value": "{palette.dark.chart-2}",
+      "$description": "Sequential: --chart-2 (index.css:452, 690)."
+    },
+    "chart-seq-3": {
+      "$type": "color",
+      "$value": "{palette.dark.chart-3}",
+      "$description": "Sequential: --chart-3 (index.css:453, 691)."
+    },
+    "chart-seq-4": {
+      "$type": "color",
+      "$value": "{palette.dark.chart-4}",
+      "$description": "Sequential: --chart-4 (index.css:454, 692)."
+    },
+    "chart-seq-5": {
+      "$type": "color",
+      "$value": "{palette.dark.chart-5}",
+      "$description": "Sequential, highest: --chart-5 (index.css:455, 693)."
+    },
+    "chart-div-neg-3": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.chart-div-neg-3}",
+      "$description": "Diverging (derived; the reference has none)."
+    },
+    "chart-div-neg-2": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.chart-div-neg-2}",
+      "$description": "Diverging (derived)."
+    },
+    "chart-div-neg-1": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.chart-div-neg-1}",
+      "$description": "Diverging (derived)."
+    },
+    "chart-div-mid": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.chart-div-mid}",
+      "$description": "Diverging midpoint (derived, neutral)."
+    },
+    "chart-div-pos-1": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.chart-div-pos-1}",
+      "$description": "Diverging (derived, the brand ramp)."
+    },
+    "chart-div-pos-2": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.chart-div-pos-2}",
+      "$description": "Diverging (derived, the brand ramp)."
+    },
+    "chart-div-pos-3": {
+      "$type": "color",
+      "$value": "{palette.derived.dark.chart-div-pos-3}",
+      "$description": "Diverging (derived, the brand ramp)."
+    }
+  },
+  "shadow": {
+    "raised": {
+      "$type": "shadow",
+      "$value": [
+        {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0,
+              0,
+              0
+            ],
+            "hex": "#000000",
+            "alpha": 0
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 0,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 0,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      ],
+      "$description": "No lift: the reference spends its one shadow on what floats (index.css:473-477)."
+    },
+    "overlay": {
+      "$type": "shadow",
+      "$value": [
+        {
+          "color": "{palette.dark.shadow-elevated}",
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 6,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 20,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      ],
+      "$description": "The one shadow, 0 6px 20px (index.css:477, 698)."
+    }
+  },
+  "tile": {
+    "bg": {
+      "$type": "color",
+      "$value": "{color.muted}",
+      "$description": "Tile fill: the muted chip the rail's selected item uses (shell rail active)."
+    },
+    "fg": {
+      "$type": "color",
+      "$value": "{color.foreground}",
+      "$description": "Tile glyph: the primary ink."
+    },
+    "border": {
+      "$type": "color",
+      "$value": "{color.border-subtle}",
+      "$description": "Tile keyline: the frame weight."
+    },
+    "shadow": {
+      "$type": "shadow",
+      "$value": [
+        {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0,
+              0,
+              0
+            ],
+            "hex": "#000000",
+            "alpha": 0
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 0,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 0,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      ],
+      "$description": "No lift."
+    },
+    "tint": {
+      "$type": "number",
+      "$value": 0,
+      "$description": "Monochrome tiles: no hue mixed in.",
+      "$extensions": {
+        "com.oxygen": {
+          "cssUnit": "%"
+        }
+      }
+    },
+    "glyph-tint": {
+      "$type": "number",
+      "$value": 0,
+      "$description": "The glyph keeps --tile-fg.",
+      "$extensions": {
+        "com.oxygen": {
+          "cssUnit": "%"
+        }
+      }
+    }
+  },
+  "card": {
+    "bg": {
+      "$type": "color",
+      "$value": "{color.card}",
+      "$description": "card = border border-border-subtle bg-card (ui.ts:243)."
+    },
+    "border": {
+      "$type": "color",
+      "$value": "{color.border-subtle}",
+      "$description": "card = border border-border-subtle bg-card (ui.ts:243)."
+    },
+    "rule": {
+      "$type": "color",
+      "$value": "{color.border-subtle}",
+      "$description": "A boxed card: the rule is the edge."
+    },
+    "shadow": {
+      "$type": "shadow",
+      "$value": [
+        {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0,
+              0,
+              0
+            ],
+            "hex": "#000000",
+            "alpha": 0
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 0,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 0,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      ],
+      "$description": "Border, never shadow (ui.ts:243)."
+    }
+  },
+  "topbar": {
+    "bg": {
+      "$type": "color",
+      "$value": "{color.sidebar}",
+      "$description": "The top bar on the rail's surface (the shell draws both from --sidebar-background)."
+    },
+    "fg": {
+      "$type": "color",
+      "$value": "{color.foreground}",
+      "$description": "Top bar ink."
+    },
+    "fg-muted": {
+      "$type": "color",
+      "$value": "{color.muted-foreground}",
+      "$description": "Breadcrumb parents and key hints: the tertiary ink."
+    },
+    "border": {
+      "$type": "color",
+      "$value": "{color.border-subtle}",
+      "$description": "The seam under the top bar at the frame weight, not --border (index.css:1355-1377)."
+    }
+  },
+  "rail": {
+    "bg": {
+      "$type": "color",
+      "$value": "{color.sidebar}",
+      "$description": "Rail surface (index.css:498, 708)."
+    },
+    "fg": {
+      "$type": "color",
+      "$value": "{color.foreground}",
+      "$description": "Rail glyphs (the shell draws them in --foreground at 60%)."
+    },
+    "item-active-bg": {
+      "$type": "color",
+      "$value": "{color.muted}",
+      "$description": "The current item: the opaque --muted chip (index.css:1396-1404)."
+    },
+    "item-active-fg": {
+      "$type": "color",
+      "$value": "{color.sidebar-accent-foreground}",
+      "$description": "The current item's glyph."
+    },
+    "border": {
+      "$type": "color",
+      "$value": "{color.border-subtle}",
+      "$description": "The rail's edge at the frame weight (index.css:1363-1366)."
+    }
+  },
+  "table": {
+    "header-bg": {
+      "$type": "color",
+      "$value": "{color.card}",
+      "$description": "Header row on the card itself (src/components/PanelTable.tsx:98)."
+    },
+    "header-fg": {
+      "$type": "color",
+      "$value": "{color.muted-foreground}",
+      "$description": "Column headings: text-muted-foreground (PanelTable.tsx:98)."
+    },
+    "rule": {
+      "$type": "color",
+      "$value": "{color.border-subtle}",
+      "$description": "border-b border-border-subtle under the header (PanelTable.tsx:98)."
+    },
+    "row-rule": {
+      "$type": "color",
+      "$value": "{color.border-subtle}",
+      "$description": "Row dividers at the frame weight (index.css:265)."
+    }
+  },
+  "button": {
+    "primary-bg": {
+      "$type": "color",
+      "$value": "{color.brand}",
+      "$description": "bg-brand (ui.ts:587, 1216)."
+    },
+    "primary-bg-hover": {
+      "$type": "color",
+      "$value": "{color.brand-hover}",
+      "$description": "hover:bg-brand/90 (ui.ts:587)."
+    },
+    "primary-fg": {
+      "$type": "color",
+      "$value": "{color.inverse-foreground}",
+      "$description": "text-inverse-foreground (ui.ts:587)."
+    },
+    "secondary-border": {
+      "$type": "color",
+      "$value": "{color.border-subtle}",
+      "$description": "border-border-subtle on the filled secondary (ui.ts:616)."
+    }
+  }
+}

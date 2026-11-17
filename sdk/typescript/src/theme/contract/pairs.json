@@ -1,0 +1,1307 @@
+[
+ {
+  "fg": "--foreground",
+  "bg": "--background",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Primary ink on background."
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Primary ink on card."
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--popover",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Primary ink on popover."
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--muted",
+  "min": 4.5,
+  "kind": "text",
+  "note": "SDK shell tooltip text on its box (shell.css:48); neutral count numerals."
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--field",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Typed value inside an input, select or the Ask composer."
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--row-hover",
+  "min": 4.5,
+  "kind": "text",
+  "note": "A hovered row's name.",
+  "over": "--card"
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--row-selected",
+  "min": 4.5,
+  "kind": "text",
+  "note": "A selected row's name.",
+  "over": "--card"
+ },
+ {
+  "fg": "--card-foreground",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Ink inside panels."
+ },
+ {
+  "fg": "--card-foreground",
+  "bg": "--card-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Ink inside the Card component, including a transparent rule-only card.",
+  "over": "--background"
+ },
+ {
+  "fg": "--popover-foreground",
+  "bg": "--popover",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Menu items, dialog copy, toast text."
+ },
+ {
+  "fg": "--dim-foreground",
+  "bg": "--background",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Secondary ink (body copy, table cells, labels) on background."
+ },
+ {
+  "fg": "--dim-foreground",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Secondary ink (body copy, table cells, labels) on card."
+ },
+ {
+  "fg": "--dim-foreground",
+  "bg": "--popover",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Secondary ink (body copy, table cells, labels) on popover."
+ },
+ {
+  "fg": "--dim-foreground",
+  "bg": "--row-selected",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Table cells inside a selected row.",
+  "over": "--card"
+ },
+ {
+  "fg": "--muted-foreground",
+  "bg": "--background",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Tertiary ink (metadata, timestamps) on background."
+ },
+ {
+  "fg": "--muted-foreground",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Tertiary ink (metadata, timestamps) on card."
+ },
+ {
+  "fg": "--muted-foreground",
+  "bg": "--popover",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Tertiary ink (metadata, timestamps) on popover."
+ },
+ {
+  "fg": "--muted-foreground",
+  "bg": "--field",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Placeholder text inside a field."
+ },
+ {
+  "fg": "--subtle-foreground",
+  "bg": "--background",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Eyebrows and units on background: the floor for readable text."
+ },
+ {
+  "fg": "--subtle-foreground",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Eyebrows and units on card: the floor for readable text."
+ },
+ {
+  "fg": "--disabled-foreground",
+  "bg": "--background",
+  "min": 2.5,
+  "kind": "text",
+  "note": "House floor: inactive labels on background stay legible. WCAG 1.4.3 exempts inactive UI, so this is not a WCAG obligation."
+ },
+ {
+  "fg": "--disabled-foreground",
+  "bg": "--card",
+  "min": 2.5,
+  "kind": "text",
+  "note": "House floor: inactive labels on card stay legible. WCAG 1.4.3 exempts inactive UI, so this is not a WCAG obligation."
+ },
+ {
+  "fg": "--disabled-foreground",
+  "bg": "--field",
+  "min": 2.5,
+  "kind": "text",
+  "note": "House floor: inactive labels on field stay legible. WCAG 1.4.3 exempts inactive UI, so this is not a WCAG obligation."
+ },
+ {
+  "fg": "--accent-foreground",
+  "bg": "--accent",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Highlighted menu item.",
+  "over": "--popover"
+ },
+ {
+  "fg": "--accent-foreground",
+  "bg": "--accent",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Ghost or icon button on hover.",
+  "over": "--background"
+ },
+ {
+  "fg": "--secondary-foreground",
+  "bg": "--secondary",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Secondary button label."
+ },
+ {
+  "fg": "--primary-foreground",
+  "bg": "--primary",
+  "min": 4.5,
+  "kind": "text",
+  "note": "shadcn default button label; the check glyph in a checked box."
+ },
+ {
+  "fg": "--button-primary-fg",
+  "bg": "--button-primary-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "The prime action's label."
+ },
+ {
+  "fg": "--button-primary-fg",
+  "bg": "--button-primary-bg-hover",
+  "min": 4.5,
+  "kind": "text",
+  "note": "The prime action's label on hover."
+ },
+ {
+  "fg": "--inverse-foreground",
+  "bg": "--brand",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Text or a glyph on a brand fill."
+ },
+ {
+  "fg": "--inverse-foreground",
+  "bg": "--brand-hover",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Text or a glyph on a hovered brand fill."
+ },
+ {
+  "fg": "--link",
+  "bg": "--background",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Link text on background."
+ },
+ {
+  "fg": "--link",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Link text on card."
+ },
+ {
+  "fg": "--link",
+  "bg": "--popover",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Link text on popover."
+ },
+ {
+  "fg": "--link",
+  "bg": "--sidebar",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Link text on sidebar. The SDK shell's link reads --info, which aliases --link."
+ },
+ {
+  "fg": "--link",
+  "bg": "--brand-subtle",
+  "min": 4.5,
+  "kind": "text",
+  "note": "The 'New' and 'Updated' marks: link-coloured word on the brand tint.",
+  "over": "--card"
+ },
+ {
+  "fg": "--destructive",
+  "bg": "--background",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Destructive text action ('Delete list') on background."
+ },
+ {
+  "fg": "--destructive",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Destructive text action ('Delete list') on card."
+ },
+ {
+  "fg": "--destructive",
+  "bg": "--popover",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Destructive text action ('Delete list') on popover."
+ },
+ {
+  "fg": "--destructive-foreground",
+  "bg": "--destructive",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Destructive button label."
+ },
+ {
+  "fg": "--status-success",
+  "bg": "--background",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Success word as plain text on background (checklist state, table status)."
+ },
+ {
+  "fg": "--status-success",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Success word as plain text on card (checklist state, table status)."
+ },
+ {
+  "fg": "--status-success",
+  "bg": "--status-success-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Success word inside its badge on a card.",
+  "over": "--card"
+ },
+ {
+  "fg": "--status-success",
+  "bg": "--status-success-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Success word inside its badge on the canvas.",
+  "over": "--background"
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--status-success-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Body text of a success callout.",
+  "over": "--card"
+ },
+ {
+  "fg": "--status-warning",
+  "bg": "--background",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Warning word as plain text on background (checklist state, table status)."
+ },
+ {
+  "fg": "--status-warning",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Warning word as plain text on card (checklist state, table status)."
+ },
+ {
+  "fg": "--status-warning",
+  "bg": "--status-warning-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Warning word inside its badge on a card.",
+  "over": "--card"
+ },
+ {
+  "fg": "--status-warning",
+  "bg": "--status-warning-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Warning word inside its badge on the canvas.",
+  "over": "--background"
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--status-warning-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Body text of a warning callout.",
+  "over": "--card"
+ },
+ {
+  "fg": "--status-error",
+  "bg": "--background",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Error word as plain text on background (checklist state, table status)."
+ },
+ {
+  "fg": "--status-error",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Error word as plain text on card (checklist state, table status)."
+ },
+ {
+  "fg": "--status-error",
+  "bg": "--status-error-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Error word inside its badge on a card.",
+  "over": "--card"
+ },
+ {
+  "fg": "--status-error",
+  "bg": "--status-error-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Error word inside its badge on the canvas.",
+  "over": "--background"
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--status-error-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Body text of a error callout.",
+  "over": "--card"
+ },
+ {
+  "fg": "--status-neutral",
+  "bg": "--card",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Neutral state word ('Pending', 'Not entered') on a card."
+ },
+ {
+  "fg": "--status-neutral",
+  "bg": "--status-neutral-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Neutral word or routine count inside its badge.",
+  "over": "--card"
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--status-neutral-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Body text of a neutral callout.",
+  "over": "--card"
+ },
+ {
+  "fg": "--sidebar-foreground",
+  "bg": "--sidebar",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Ink in the sidebar family."
+ },
+ {
+  "fg": "--sidebar-accent-foreground",
+  "bg": "--sidebar-accent",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Active or hovered sidebar item.",
+  "over": "--sidebar"
+ },
+ {
+  "fg": "--sidebar-primary-foreground",
+  "bg": "--sidebar-primary",
+  "min": 4.5,
+  "kind": "text",
+  "note": "shadcn Sidebar active marker label."
+ },
+ {
+  "fg": "--topbar-fg",
+  "bg": "--topbar-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Current breadcrumb, Ask label, bell glyph."
+ },
+ {
+  "fg": "--topbar-fg-muted",
+  "bg": "--topbar-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Breadcrumb parents and key hints in the top bar."
+ },
+ {
+  "fg": "--rail-fg",
+  "bg": "--rail-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Rail glyphs and the workspace initial."
+ },
+ {
+  "fg": "--rail-item-active-fg",
+  "bg": "--rail-item-active-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "The current rail item.",
+  "over": "--rail-bg"
+ },
+ {
+  "fg": "--table-header-fg",
+  "bg": "--table-header-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Column headings.",
+  "over": "--card"
+ },
+ {
+  "fg": "--tile-fg",
+  "bg": "--tile-bg",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Monogram fallback letters on the untinted module tile (the rail draws them as small as 9px, so the text rule applies). Glyphs on tinted tiles are checked by the validator's tile rule at 3:1."
+ },
+ {
+  "fg": "--brand",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "large-text",
+  "note": "The wordmark in its brand colour version (lockups are 24px and larger)."
+ },
+ {
+  "fg": "--border",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "control-border",
+  "note": "Interactive edge (outlined button, chip, toggle) on background."
+ },
+ {
+  "fg": "--border",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "control-border",
+  "note": "Interactive edge (outlined button, chip, toggle) on card."
+ },
+ {
+  "fg": "--border",
+  "bg": "--popover",
+  "min": 3.0,
+  "kind": "control-border",
+  "note": "Interactive edge (outlined button, chip, toggle) on popover."
+ },
+ {
+  "fg": "--field-border",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "control-border",
+  "note": "Field and unchecked checkbox edge against background."
+ },
+ {
+  "fg": "--field-border",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "control-border",
+  "note": "Field and unchecked checkbox edge against card."
+ },
+ {
+  "fg": "--field-border",
+  "bg": "--popover",
+  "min": 3.0,
+  "kind": "control-border",
+  "note": "Field and unchecked checkbox edge against popover."
+ },
+ {
+  "fg": "--field-border",
+  "bg": "--field",
+  "min": 3.0,
+  "kind": "control-border",
+  "note": "Field and unchecked checkbox edge against field."
+ },
+ {
+  "fg": "--border-strong",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "control-border",
+  "note": "Hover and pressed edge on background."
+ },
+ {
+  "fg": "--border-strong",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "control-border",
+  "note": "Hover and pressed edge on card."
+ },
+ {
+  "fg": "--focus-ring-color",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "focus",
+  "note": "Focus ring visible on background (WCAG 2.4.7; 2.4.13 asks a 3:1 change)."
+ },
+ {
+  "fg": "--focus-ring-color",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "focus",
+  "note": "Focus ring visible on card (WCAG 2.4.7; 2.4.13 asks a 3:1 change)."
+ },
+ {
+  "fg": "--focus-ring-color",
+  "bg": "--popover",
+  "min": 3.0,
+  "kind": "focus",
+  "note": "Focus ring visible on popover (WCAG 2.4.7; 2.4.13 asks a 3:1 change)."
+ },
+ {
+  "fg": "--focus-ring-color",
+  "bg": "--field",
+  "min": 3.0,
+  "kind": "focus",
+  "note": "Focus ring visible on field (WCAG 2.4.7; 2.4.13 asks a 3:1 change)."
+ },
+ {
+  "fg": "--focus-ring-color",
+  "bg": "--sidebar",
+  "min": 3.0,
+  "kind": "focus",
+  "note": "Focus ring visible on sidebar (WCAG 2.4.7; 2.4.13 asks a 3:1 change)."
+ },
+ {
+  "fg": "--focus-ring-color",
+  "bg": "--rail-bg",
+  "min": 3.0,
+  "kind": "focus",
+  "note": "Focus ring visible on rail-bg (WCAG 2.4.7; 2.4.13 asks a 3:1 change)."
+ },
+ {
+  "fg": "--focus-ring-color",
+  "bg": "--topbar-bg",
+  "min": 3.0,
+  "kind": "focus",
+  "note": "Focus ring visible on topbar-bg (WCAG 2.4.7; 2.4.13 asks a 3:1 change)."
+ },
+ {
+  "fg": "--sidebar-ring",
+  "bg": "--sidebar",
+  "min": 3.0,
+  "kind": "focus",
+  "note": "Focus ring inside the sidebar family."
+ },
+ {
+  "fg": "--primary",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Checked checkbox, radio, switch or progress fill on background."
+ },
+ {
+  "fg": "--primary",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Checked checkbox, radio, switch or progress fill on card."
+ },
+ {
+  "fg": "--primary",
+  "bg": "--popover",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Checked checkbox, radio, switch or progress fill on popover."
+ },
+ {
+  "fg": "--brand",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Progress fill, selected-tab underline on background."
+ },
+ {
+  "fg": "--brand",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Progress fill, selected-tab underline on card."
+ },
+ {
+  "fg": "--brand",
+  "bg": "--muted",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Progress-ring fill against its track."
+ },
+ {
+  "fg": "--chart-cat-1",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 1 mark on background."
+ },
+ {
+  "fg": "--chart-cat-1",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 1 mark on card."
+ },
+ {
+  "fg": "--chart-cat-2",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 2 mark on background."
+ },
+ {
+  "fg": "--chart-cat-2",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 2 mark on card."
+ },
+ {
+  "fg": "--chart-cat-3",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 3 mark on background."
+ },
+ {
+  "fg": "--chart-cat-3",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 3 mark on card."
+ },
+ {
+  "fg": "--chart-cat-4",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 4 mark on background."
+ },
+ {
+  "fg": "--chart-cat-4",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 4 mark on card."
+ },
+ {
+  "fg": "--chart-cat-5",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 5 mark on background."
+ },
+ {
+  "fg": "--chart-cat-5",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 5 mark on card."
+ },
+ {
+  "fg": "--chart-cat-6",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 6 mark on background."
+ },
+ {
+  "fg": "--chart-cat-6",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 6 mark on card."
+ },
+ {
+  "fg": "--chart-cat-7",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 7 mark on background."
+ },
+ {
+  "fg": "--chart-cat-7",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 7 mark on card."
+ },
+ {
+  "fg": "--chart-cat-8",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 8 mark on background."
+ },
+ {
+  "fg": "--chart-cat-8",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Categorical series 8 mark on card."
+ },
+ {
+  "fg": "--chart-seq-5",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Strongest sequential step on background."
+ },
+ {
+  "fg": "--chart-div-neg-3",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Diverging extreme (below) on background."
+ },
+ {
+  "fg": "--chart-div-pos-3",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Diverging extreme (above) on background."
+ },
+ {
+  "fg": "--trend-store",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Subject line in a comparison chart on background."
+ },
+ {
+  "fg": "--trend-peer",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Comparison line on background."
+ },
+ {
+  "fg": "--status-success-series",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success chart mark on background."
+ },
+ {
+  "fg": "--status-warning-series",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning chart mark on background."
+ },
+ {
+  "fg": "--status-error-series",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error chart mark on background."
+ },
+ {
+  "fg": "--status-neutral-series",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Neutral chart mark on background."
+ },
+ {
+  "fg": "--chart-seq-5",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Strongest sequential step on card."
+ },
+ {
+  "fg": "--link",
+  "bg": "--brand-subtle",
+  "min": 4.5,
+  "kind": "text",
+  "note": "The info word on its tint on the canvas: `--status-info` on `--status-info-bg`, which alias these two (the reference's info pair, held on the page and a card, `src/lib/contrast.test.ts:143-151`).",
+  "over": "--background"
+ },
+ {
+  "fg": "--chart-seq-1",
+  "bg": "--background",
+  "min": 3,
+  "kind": "non-text",
+  "note": "Sequential step 1 on background, which `--chart-1` reads (the reference's chart scale)."
+ },
+ {
+  "fg": "--chart-seq-1",
+  "bg": "--card",
+  "min": 3,
+  "kind": "non-text",
+  "note": "Sequential step 1 on card, which `--chart-1` reads (the reference's chart scale)."
+ },
+ {
+  "fg": "--chart-seq-2",
+  "bg": "--background",
+  "min": 3,
+  "kind": "non-text",
+  "note": "Sequential step 2 on background, which `--chart-2` reads (the reference's chart scale)."
+ },
+ {
+  "fg": "--chart-seq-2",
+  "bg": "--card",
+  "min": 3,
+  "kind": "non-text",
+  "note": "Sequential step 2 on card, which `--chart-2` reads (the reference's chart scale)."
+ },
+ {
+  "fg": "--chart-seq-3",
+  "bg": "--background",
+  "min": 3,
+  "kind": "non-text",
+  "note": "Sequential step 3 on background, which `--chart-3` reads (the reference's chart scale)."
+ },
+ {
+  "fg": "--chart-seq-3",
+  "bg": "--card",
+  "min": 3,
+  "kind": "non-text",
+  "note": "Sequential step 3 on card, which `--chart-3` reads (the reference's chart scale)."
+ },
+ {
+  "fg": "--chart-seq-4",
+  "bg": "--background",
+  "min": 3,
+  "kind": "non-text",
+  "note": "Sequential step 4 on background, which `--chart-4` reads (the reference's chart scale)."
+ },
+ {
+  "fg": "--chart-seq-4",
+  "bg": "--card",
+  "min": 3,
+  "kind": "non-text",
+  "note": "Sequential step 4 on card, which `--chart-4` reads (the reference's chart scale)."
+ },
+ {
+  "fg": "--chart-div-neg-3",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Diverging extreme (below) on card."
+ },
+ {
+  "fg": "--chart-div-pos-3",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Diverging extreme (above) on card."
+ },
+ {
+  "fg": "--trend-store",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Subject line in a comparison chart on card."
+ },
+ {
+  "fg": "--trend-peer",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Comparison line on card."
+ },
+ {
+  "fg": "--status-success-series",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success chart mark on card."
+ },
+ {
+  "fg": "--status-warning-series",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning chart mark on card."
+ },
+ {
+  "fg": "--status-error-series",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error chart mark on card."
+ },
+ {
+  "fg": "--status-neutral-series",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Neutral chart mark on card."
+ },
+ {
+  "fg": "--border-subtle",
+  "bg": "--background",
+  "min": 1.15,
+  "kind": "non-text",
+  "note": "House floor: a structural line on background must still be seen. Under 3:1 by design."
+ },
+ {
+  "fg": "--border-subtle",
+  "bg": "--card",
+  "min": 1.15,
+  "kind": "non-text",
+  "note": "House floor: a structural line on card must still be seen. Under 3:1 by design."
+ },
+ {
+  "fg": "--table-rule",
+  "bg": "--card",
+  "min": 1.15,
+  "kind": "non-text",
+  "note": "House floor: the header rule of a table."
+ },
+ {
+  "fg": "--table-row-rule",
+  "bg": "--card",
+  "min": 1.15,
+  "kind": "non-text",
+  "note": "House floor: dense money tables keep a visible row rule (no zebra)."
+ },
+ {
+  "fg": "--popover",
+  "bg": "--scrim",
+  "min": 1.2,
+  "kind": "non-text",
+  "note": "House floor: a dialog or sheet stands off the dimmed page.",
+  "over": "--background"
+ },
+ {
+  "fg": "--dot-success",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success status dot on background."
+ },
+ {
+  "fg": "--dot-success",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success status dot on card."
+ },
+ {
+  "fg": "--dot-info",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info status dot on background."
+ },
+ {
+  "fg": "--dot-info",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info status dot on card."
+ },
+ {
+  "fg": "--dot-warning",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning status dot on background."
+ },
+ {
+  "fg": "--dot-warning",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning status dot on card."
+ },
+ {
+  "fg": "--dot-error",
+  "bg": "--background",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error status dot on background."
+ },
+ {
+  "fg": "--dot-error",
+  "bg": "--card",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error status dot on card."
+ },
+ {
+  "fg": "--dot-success",
+  "bg": "--muted",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success status dot on the muted fill (a chip, a filled tile)."
+ },
+ {
+  "fg": "--dot-success",
+  "bg": "--row-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success status dot on a selected row on the canvas: the darkest light ground a dot sits on.",
+  "over": "--background"
+ },
+ {
+  "fg": "--dot-success",
+  "bg": "--row-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success status dot on a selected row on a card.",
+  "over": "--card"
+ },
+ {
+  "fg": "--dot-success",
+  "bg": "--segment-track",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success status dot on a segmented strip's track."
+ },
+ {
+  "fg": "--dot-success",
+  "bg": "--segment-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success status dot on the selected segment (a dot in a tab count or a measure strip)."
+ },
+ {
+  "fg": "--dot-success",
+  "bg": "--rail-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success status dot on the shell rail at rest."
+ },
+ {
+  "fg": "--dot-success",
+  "bg": "--rail-item-active-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success status dot on the shell rail's selected row."
+ },
+ {
+  "fg": "--dot-success",
+  "bg": "--topbar-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Success status dot on the top bar."
+ },
+ {
+  "fg": "--dot-info",
+  "bg": "--muted",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info status dot on the muted fill (a chip, a filled tile)."
+ },
+ {
+  "fg": "--dot-info",
+  "bg": "--row-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info status dot on a selected row on the canvas: the darkest light ground a dot sits on.",
+  "over": "--background"
+ },
+ {
+  "fg": "--dot-info",
+  "bg": "--row-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info status dot on a selected row on a card.",
+  "over": "--card"
+ },
+ {
+  "fg": "--dot-info",
+  "bg": "--segment-track",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info status dot on a segmented strip's track."
+ },
+ {
+  "fg": "--dot-info",
+  "bg": "--segment-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info status dot on the selected segment (a dot in a tab count or a measure strip)."
+ },
+ {
+  "fg": "--dot-info",
+  "bg": "--rail-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info status dot on the shell rail at rest."
+ },
+ {
+  "fg": "--dot-info",
+  "bg": "--rail-item-active-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info status dot on the shell rail's selected row."
+ },
+ {
+  "fg": "--dot-info",
+  "bg": "--topbar-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Info status dot on the top bar."
+ },
+ {
+  "fg": "--dot-warning",
+  "bg": "--muted",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning status dot on the muted fill (a chip, a filled tile)."
+ },
+ {
+  "fg": "--dot-warning",
+  "bg": "--row-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning status dot on a selected row on the canvas: the darkest light ground a dot sits on.",
+  "over": "--background"
+ },
+ {
+  "fg": "--dot-warning",
+  "bg": "--row-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning status dot on a selected row on a card.",
+  "over": "--card"
+ },
+ {
+  "fg": "--dot-warning",
+  "bg": "--segment-track",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning status dot on a segmented strip's track."
+ },
+ {
+  "fg": "--dot-warning",
+  "bg": "--segment-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning status dot on the selected segment (a dot in a tab count or a measure strip)."
+ },
+ {
+  "fg": "--dot-warning",
+  "bg": "--rail-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning status dot on the shell rail at rest."
+ },
+ {
+  "fg": "--dot-warning",
+  "bg": "--rail-item-active-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning status dot on the shell rail's selected row."
+ },
+ {
+  "fg": "--dot-warning",
+  "bg": "--topbar-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Warning status dot on the top bar."
+ },
+ {
+  "fg": "--dot-error",
+  "bg": "--muted",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error status dot on the muted fill (a chip, a filled tile)."
+ },
+ {
+  "fg": "--dot-error",
+  "bg": "--row-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error status dot on a selected row on the canvas: the darkest light ground a dot sits on.",
+  "over": "--background"
+ },
+ {
+  "fg": "--dot-error",
+  "bg": "--row-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error status dot on a selected row on a card.",
+  "over": "--card"
+ },
+ {
+  "fg": "--dot-error",
+  "bg": "--segment-track",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error status dot on a segmented strip's track."
+ },
+ {
+  "fg": "--dot-error",
+  "bg": "--segment-selected",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error status dot on the selected segment (a dot in a tab count or a measure strip)."
+ },
+ {
+  "fg": "--dot-error",
+  "bg": "--rail-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error status dot on the shell rail at rest."
+ },
+ {
+  "fg": "--dot-error",
+  "bg": "--rail-item-active-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error status dot on the shell rail's selected row."
+ },
+ {
+  "fg": "--dot-error",
+  "bg": "--topbar-bg",
+  "min": 3.0,
+  "kind": "non-text",
+  "note": "Error status dot on the top bar."
+ },
+ {
+  "fg": "--foreground",
+  "bg": "--segment-selected",
+  "min": 4.5,
+  "kind": "text",
+  "note": "The selected segment's label."
+ },
+ {
+  "fg": "--secondary-foreground",
+  "bg": "--btn-surface-hover",
+  "min": 4.5,
+  "kind": "text",
+  "note": "Secondary button label on hover."
+ },
+ {
+  "fg": "--focus-ring-color",
+  "bg": "--segment-selected",
+  "min": 3.0,
+  "kind": "focus",
+  "note": "Focus ring on the selected segment (the reference insets it there)."
+ }
+]

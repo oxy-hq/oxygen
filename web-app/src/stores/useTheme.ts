@@ -22,21 +22,28 @@ const getSystemTheme = (): ResolvedTheme => {
 const resolveTheme = (mode: ThemeMode, systemTheme: ResolvedTheme): ResolvedTheme =>
   mode === "system" ? systemTheme : mode;
 
-const isThemeMode = (value: unknown): value is ThemeMode =>
+export const isThemeMode = (value: unknown): value is ThemeMode =>
   value === "light" || value === "dark" || value === "system";
+
+/** Where this browser keeps its own copy of the mode. It paints the first frame
+ *  before the server's copy (`stores/themeSync.ts`) is read. */
+export const THEME_STORAGE_KEY = "theme-storage";
+
+/** Oxygen's mode for a person who has not chosen one. */
+export const DEFAULT_THEME_MODE: ThemeMode = "light";
 
 const useTheme = create<ThemeState>()(
   persist(
     (set) => ({
-      mode: "light",
-      theme: "light",
+      mode: DEFAULT_THEME_MODE,
+      theme: DEFAULT_THEME_MODE,
       setMode: (mode) => {
         const theme = resolveTheme(mode, getSystemTheme());
         set({ mode, theme });
       }
     }),
     {
-      name: "theme-storage",
+      name: THEME_STORAGE_KEY,
       partialize: (state) => ({ mode: state.mode }),
       merge: (persisted, current) => {
         const p = persisted as { mode?: unknown } | null;

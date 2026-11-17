@@ -1,0 +1,639 @@
+{
+  "$description": "x0 mode-independent tokens: type, space, density, shape, focus, icons, tile structure, component structure.",
+  "$extensions": {
+    "com.oxygen": {
+      "direction": "x0",
+      "name": "Example (skeleton fill, not a candidate)",
+      "contract": 1
+    }
+  },
+  "font": {
+    "$type": "fontFamily",
+    "sans": {
+      "$value": [
+        "Hanken Grotesk",
+        "system-ui",
+        "sans-serif"
+      ],
+      "$description": "UI face. OFL 1.1, Vietnamese subset, tabular default digits (research/00-critic.md §3); x0 reserves nothing for the directions."
+    },
+    "display": {
+      "$value": "{font.sans}",
+      "$description": "x0 uses one family for display."
+    },
+    "mono": {
+      "$value": [
+        "ui-monospace",
+        "SFMono-Regular",
+        "Menlo",
+        "monospace"
+      ],
+      "$description": "Codes and IDs only."
+    }
+  },
+  "type": {
+    "display": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.display}",
+        "$description": "Display: family."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2.25,
+          "unit": "rem"
+        },
+        "$description": "Display: size (36px)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.1,
+        "$description": "Display: line height."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "Display: weight."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": -0.02,
+        "$description": "Display: tracking in em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "title": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.display}",
+        "$description": "Title: family."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.75,
+          "unit": "rem"
+        },
+        "$description": "Title: size (28px)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.2,
+        "$description": "Title: line height."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "Title: weight."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": -0.015,
+        "$description": "Title: tracking in em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "heading": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "Heading: family."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.25,
+          "unit": "rem"
+        },
+        "$description": "Heading: size (20px)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.3,
+        "$description": "Heading: line height."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "Heading: weight."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": -0.01,
+        "$description": "Heading: tracking in em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "body": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "Body: family."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.9375,
+          "unit": "rem"
+        },
+        "$description": "Body: size (15px)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.5,
+        "$description": "Body: line height."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "Body: weight."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "Body: tracking in em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "body-sm": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "Small body: family."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.8125,
+          "unit": "rem"
+        },
+        "$description": "Small body: size (13px)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.45,
+        "$description": "Small body: line height."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "Small body: weight."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "Small body: tracking in em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "label": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "Label: family."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.8125,
+          "unit": "rem"
+        },
+        "$description": "Label: size (13px)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.3,
+        "$description": "Label: line height."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "Label: weight."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0.005,
+        "$description": "Label: tracking in em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "eyebrow": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "Eyebrow: family."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0.75,
+          "unit": "rem"
+        },
+        "$description": "Eyebrow: size (12px)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.3,
+        "$description": "Eyebrow: line height."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "Eyebrow: weight."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0.02,
+        "$description": "Eyebrow: tracking in em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "figure": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.sans}",
+        "$description": "Figure: family."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.25,
+          "unit": "rem"
+        },
+        "$description": "Figure: size (20px)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.2,
+        "$description": "Figure: line height."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "Figure: weight."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "Figure: tracking in em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    },
+    "figure-lg": {
+      "family": {
+        "$type": "fontFamily",
+        "$value": "{font.display}",
+        "$description": "Large figure: family."
+      },
+      "size": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2.0,
+          "unit": "rem"
+        },
+        "$description": "Large figure: size (32px)."
+      },
+      "line": {
+        "$type": "number",
+        "$value": 1.1,
+        "$description": "Large figure: line height."
+      },
+      "weight": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "Large figure: weight."
+      },
+      "tracking": {
+        "$type": "number",
+        "$value": -0.02,
+        "$description": "Large figure: tracking in em.",
+        "$extensions": {
+          "com.oxygen": {
+            "cssUnit": "em"
+          }
+        }
+      }
+    }
+  },
+  "space": {
+    "$type": "dimension",
+    "2xs": {
+      "$value": {
+        "value": 2,
+        "unit": "px"
+      },
+      "$description": "2px."
+    },
+    "xs": {
+      "$value": {
+        "value": 4,
+        "unit": "px"
+      },
+      "$description": "4px."
+    },
+    "sm": {
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      },
+      "$description": "8px."
+    },
+    "md": {
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "16px."
+    },
+    "lg": {
+      "$value": {
+        "value": 24,
+        "unit": "px"
+      },
+      "$description": "24px."
+    },
+    "xl": {
+      "$value": {
+        "value": 32,
+        "unit": "px"
+      },
+      "$description": "32px."
+    },
+    "2xl": {
+      "$value": {
+        "value": 48,
+        "unit": "px"
+      },
+      "$description": "48px."
+    }
+  },
+  "page": {
+    "$type": "dimension",
+    "gutter": {
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "Phone gutter."
+    },
+    "gutter-wide": {
+      "$value": {
+        "value": 32,
+        "unit": "px"
+      },
+      "$description": "Gutter from 600px."
+    }
+  },
+  "section": {
+    "$type": "dimension",
+    "gap": {
+      "$value": {
+        "value": 32,
+        "unit": "px"
+      },
+      "$description": "Between page sections."
+    }
+  },
+  "control-h": {
+    "$type": "dimension",
+    "sm": {
+      "$value": {
+        "value": 32,
+        "unit": "px"
+      },
+      "$description": "Desk control."
+    },
+    "md": {
+      "$value": {
+        "value": 36,
+        "unit": "px"
+      },
+      "$description": "Standalone control."
+    },
+    "lg": {
+      "$value": {
+        "value": 44,
+        "unit": "px"
+      },
+      "$description": "Touch control."
+    }
+  },
+  "row-h": {
+    "$type": "dimension",
+    "$value": {
+      "value": 44,
+      "unit": "px"
+    },
+    "$description": "Default row."
+  },
+  "row-h-compact": {
+    "$type": "dimension",
+    "$value": {
+      "value": 36,
+      "unit": "px"
+    },
+    "$description": "Dense money-table row."
+  },
+  "radius": {
+    "$type": "dimension",
+    "control": {
+      "$value": {
+        "value": 4,
+        "unit": "px"
+      },
+      "$description": "Controls."
+    },
+    "surface": {
+      "$value": {
+        "value": 6,
+        "unit": "px"
+      },
+      "$description": "Cards and panels."
+    },
+    "overlay": {
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      },
+      "$description": "Menus, dialogs, sheets."
+    },
+    "pill": {
+      "$value": {
+        "value": 999,
+        "unit": "px"
+      },
+      "$description": "Fully round ends."
+    }
+  },
+  "focus-ring": {
+    "$type": "dimension",
+    "width": {
+      "$value": {
+        "value": 2,
+        "unit": "px"
+      },
+      "$description": "2px meets WCAG 2.4.13."
+    },
+    "offset": {
+      "$value": {
+        "value": 2,
+        "unit": "px"
+      },
+      "$description": "A band of the surface between control and ring."
+    }
+  },
+  "icon": {
+    "stroke": {
+      "$type": "number",
+      "$value": 1.75,
+      "$description": "Lucide stroke-width in the 24-unit grid."
+    },
+    "size": {
+      "$type": "dimension",
+      "sm": {
+        "$value": {
+          "value": 14,
+          "unit": "px"
+        },
+        "$description": "Inline."
+      },
+      "md": {
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        },
+        "$description": "In a control."
+      },
+      "lg": {
+        "$value": {
+          "value": 20,
+          "unit": "px"
+        },
+        "$description": "List rows."
+      }
+    }
+  },
+  "tile": {
+    "radius": {
+      "$type": "number",
+      "$value": 22,
+      "$description": "Corner as a share of the side.",
+      "$extensions": {
+        "com.oxygen": {
+          "cssUnit": "%"
+        }
+      }
+    },
+    "glyph-scale": {
+      "$type": "number",
+      "$value": 0.6,
+      "$description": "Glyph box as a share of the side."
+    }
+  },
+  "card": {
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.surface}",
+      "$description": "Card corners."
+    },
+    "padding": {
+      "$type": "dimension",
+      "$value": "{space.md}",
+      "$description": "Inside a card."
+    }
+  },
+  "topbar": {
+    "height": {
+      "$type": "dimension",
+      "$value": {
+        "value": 48,
+        "unit": "px"
+      },
+      "$description": "Top bar."
+    }
+  },
+  "rail": {
+    "width": {
+      "$type": "dimension",
+      "$value": {
+        "value": 56,
+        "unit": "px"
+      },
+      "$description": "Rail."
+    }
+  },
+  "input": {
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.control}",
+      "$description": "Field corners."
+    }
+  },
+  "button": {
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.control}",
+      "$description": "Every button variant."
+    }
+  },
+  "badge": {
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.control}",
+      "$description": "Badge corners."
+    },
+    "fill": {
+      "$type": "number",
+      "$value": 100,
+      "$description": "Filled tag.",
+      "$extensions": {
+        "com.oxygen": {
+          "cssUnit": "%"
+        }
+      }
+    },
+    "outline": {
+      "$type": "number",
+      "$value": 0,
+      "$description": "No edge.",
+      "$extensions": {
+        "com.oxygen": {
+          "cssUnit": "%"
+        }
+      }
+    }
+  }
+}

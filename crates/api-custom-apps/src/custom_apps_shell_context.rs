@@ -27,7 +27,8 @@
 //! What IS cached is the server side of the prelude: the gate chain
 //! (user, workspace, access — `custom_apps_gates`) and the owning org row
 //! both come from the 60 s process caches, so a boot costs the per-viewer
-//! reads only: the published-apps list the viewer may see and their reach.
+//! reads only: the published-apps list the viewer may see, their reach, and
+//! their light/dark mode (one primary-key read, `appearance`).
 
 use axum::Json;
 use axum::extract::Path;
@@ -57,6 +58,14 @@ pub struct ShellContextResponse {
     /// Viewer display identity (never authorization data — gates are
     /// server-side).
     pub user: Option<ShellUser>,
+    /// The viewer's light/dark mode (`appearance`), which the shell applies
+    /// and its switch writes: `"light"`, `"dark"`, `"system"`, or `null` for a
+    /// person who has not chosen (Oxygen's default, light, applies). Left OUT
+    /// for a frontline worker, who has no Oxygen account to carry one, and
+    /// when the read fails: an absent field is what an older server sends,
+    /// so the bundle keeps its own mode and shows no switch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<Option<&'static str>>,
 }
 
 #[derive(Serialize)]
@@ -179,6 +188,22 @@ async fn owning_org(ctx: &CustomAppContext) -> Result<entity::organizations::Mod
     }
 }
 
+/// The viewer's mode for [`ShellContextResponse::mode`]: one primary-key read,
+/// skipped for a frontline worker. A failed read leaves the field out rather
+/// than costing the bundle its chrome over a display preference.
+async fn viewer_mode(ctx: &CustomAppContext) -> Option<Option<&'static str>> {
+    if !crate::appearance::has_mode(&ctx.user) {
+        return None;
+    }
+    match crate::appearance::store::load(&ctx.db, ctx.user.id).await {
+        Ok(mode) => Some(mode.map(crate::appearance::ColorMode::as_str)),
+        Err(e) => {
+            tracing::warn!("shell-context mode read failed: {e}");
+            None
+        }
+    }
+}
+
 pub async fn get_shell_context(
     Path(project_id): Path<Uuid>,
     axum::extract::Query(query): axum::extract::Query<ShellContextQuery>,
@@ -231,6 +256,7 @@ pub async fn get_shell_context(
         query.app_id(),
     )
     .await;
+    let mode = viewer_mode(&ctx).await;
     let body = ShellContextResponse {
         workspace: ShellWorkspace {
             id: ctx.workspace.id,
@@ -277,6 +303,7 @@ pub async fn get_shell_context(
             },
             reach,
         }),
+        mode,
     };
 
     // Never cached: the payload embeds the viewer's identity and the URL
@@ -318,6 +345,40 @@ mod tests {
     #[test]
     fn relative_base_without_host_header() {
         assert_eq!(product_url_base(&HeaderMap::new(), false), "");
+    }
+
+    fn body_with_mode(mode: Option<Option<&'static str>>) -> serde_json::Value {
+        let id = Uuid::nil();
+        serde_json::to_value(ShellContextResponse {
+            workspace: ShellWorkspace {
+                id,
+                name: "w".into(),
+            },
+            org: ShellOrg {
+                id,
+                slug: "o".into(),
+                name: "O".into(),
+            },
+            logo_url: None,
+            apps: vec![],
+            links: ShellLinks {
+                home: "/h".into(),
+                threads: "/t".into(),
+                settings: "/s".into(),
+                login: "/login".into(),
+            },
+            user: None,
+            mode,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn mode_is_absent_for_no_account_null_when_unchosen_and_named_when_chosen() {
+        // Absent is what an older server sends, and what a crew sign-in gets.
+        assert!(body_with_mode(None).get("mode").is_none());
+        assert_eq!(body_with_mode(Some(None))["mode"], serde_json::Value::Null);
+        assert_eq!(body_with_mode(Some(Some("dark")))["mode"], "dark");
     }
 
     #[test]

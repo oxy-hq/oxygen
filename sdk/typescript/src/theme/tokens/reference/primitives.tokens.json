@@ -1,0 +1,1821 @@
+{
+  "$description": "Reference tier 1: the oxygen reference app's own colour values, verbatim from reference-app@7c1ee7e (src/index.css, src/components/), each with its source line. derived.* are the few values the reference does not state, each saying what it is derived from and why. Never emitted as CSS.",
+  "palette": {
+    "$type": "color",
+    "dark": {
+      "background": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0392,
+            0.0392,
+            0.0392
+          ],
+          "hex": "#0a0a0a"
+        },
+        "$description": "#0a0a0a: reference-app@7c1ee7e src/index.css:68"
+      },
+      "card": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.102,
+            0.102,
+            0.102
+          ],
+          "hex": "#1a1a1a"
+        },
+        "$description": "#1a1a1a: reference-app@7c1ee7e src/index.css:69"
+      },
+      "field": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1451,
+            0.1451,
+            0.1451
+          ],
+          "hex": "#252525"
+        },
+        "$description": "#252525: reference-app@7c1ee7e src/index.css:91"
+      },
+      "row-hover": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff",
+          "alpha": 0.045
+        },
+        "$description": "rgba(255,255,255,0.045): reference-app@7c1ee7e src/index.css:111"
+      },
+      "row-selected": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff",
+          "alpha": 0.09
+        },
+        "$description": "rgba(255,255,255,0.09): reference-app@7c1ee7e src/index.css:123"
+      },
+      "btn-surface": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.2275,
+            0.2275,
+            0.2549
+          ],
+          "hex": "#3a3a41"
+        },
+        "$description": "#3a3a41: reference-app@7c1ee7e src/index.css:212"
+      },
+      "foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9294,
+            0.9294,
+            0.9294
+          ],
+          "hex": "#ededed"
+        },
+        "$description": "#ededed: reference-app@7c1ee7e src/index.css:216"
+      },
+      "muted": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1529,
+            0.1529,
+            0.1647
+          ],
+          "hex": "#27272a"
+        },
+        "$description": "#27272a: reference-app@7c1ee7e src/index.css:217"
+      },
+      "dim-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.7294,
+            0.7294,
+            0.7725
+          ],
+          "hex": "#babac5"
+        },
+        "$description": "#babac5: reference-app@7c1ee7e src/index.css:240"
+      },
+      "muted-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.6667,
+            0.6667,
+            0.702
+          ],
+          "hex": "#aaaab3"
+        },
+        "$description": "#aaaab3: reference-app@7c1ee7e src/index.css:255"
+      },
+      "subtle-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5843,
+            0.5843,
+            0.6157
+          ],
+          "hex": "#95959d"
+        },
+        "$description": "#95959d: reference-app@7c1ee7e src/index.css:256"
+      },
+      "disabled-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.3765,
+            0.3765,
+            0.4
+          ],
+          "hex": "#606066"
+        },
+        "$description": "#606066: reference-app@7c1ee7e src/index.css:257"
+      },
+      "inverse-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff"
+        },
+        "$description": "#ffffff: reference-app@7c1ee7e src/index.css:258"
+      },
+      "border-subtle": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff",
+          "alpha": 0.09
+        },
+        "$description": "rgba(255,255,255,0.09): reference-app@7c1ee7e src/index.css:282"
+      },
+      "border": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff",
+          "alpha": 0.34
+        },
+        "$description": "rgba(255,255,255,0.34): reference-app@7c1ee7e src/index.css:283"
+      },
+      "border-strong": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff",
+          "alpha": 0.46
+        },
+        "$description": "rgba(255,255,255,0.46): reference-app@7c1ee7e src/index.css:284"
+      },
+      "brand": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.2078,
+            0.3137,
+            1
+          ],
+          "hex": "#3550ff"
+        },
+        "$description": "#3550ff: reference-app@7c1ee7e src/index.css:294"
+      },
+      "link": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5255,
+            0.5882,
+            1
+          ],
+          "hex": "#8696ff"
+        },
+        "$description": "#8696ff: reference-app@7c1ee7e src/index.css:300"
+      },
+      "status-success": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1333,
+            0.7725,
+            0.3686
+          ],
+          "hex": "#22c55e"
+        },
+        "$description": "#22c55e: reference-app@7c1ee7e src/index.css:353"
+      },
+      "status-success-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1333,
+            0.7725,
+            0.3686
+          ],
+          "hex": "#22c55e",
+          "alpha": 0.14
+        },
+        "$description": "rgba(34,197,94,0.14): reference-app@7c1ee7e src/index.css:354"
+      },
+      "status-success-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1333,
+            0.7725,
+            0.3686
+          ],
+          "hex": "#22c55e",
+          "alpha": 0.32
+        },
+        "$description": "rgba(34,197,94,0.32): reference-app@7c1ee7e src/index.css:355"
+      },
+      "status-warning": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9176,
+            0.702,
+            0.0314
+          ],
+          "hex": "#eab308"
+        },
+        "$description": "#eab308: reference-app@7c1ee7e src/index.css:356"
+      },
+      "status-warning-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9176,
+            0.702,
+            0.0314
+          ],
+          "hex": "#eab308",
+          "alpha": 0.14
+        },
+        "$description": "rgba(234,179,8,0.14): reference-app@7c1ee7e src/index.css:357"
+      },
+      "status-warning-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9176,
+            0.702,
+            0.0314
+          ],
+          "hex": "#eab308",
+          "alpha": 0.34
+        },
+        "$description": "rgba(234,179,8,0.34): reference-app@7c1ee7e src/index.css:358"
+      },
+      "status-error": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9804,
+            0.5569,
+            0.5569
+          ],
+          "hex": "#fa8e8e"
+        },
+        "$description": "#fa8e8e: reference-app@7c1ee7e src/index.css:361"
+      },
+      "status-error-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9804,
+            0.5569,
+            0.5569
+          ],
+          "hex": "#fa8e8e",
+          "alpha": 0.14
+        },
+        "$description": "rgba(250,142,142,0.14): reference-app@7c1ee7e src/index.css:362"
+      },
+      "status-error-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9804,
+            0.5569,
+            0.5569
+          ],
+          "hex": "#fa8e8e",
+          "alpha": 0.34
+        },
+        "$description": "rgba(250,142,142,0.34): reference-app@7c1ee7e src/index.css:363"
+      },
+      "status-info-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5255,
+            0.5882,
+            1
+          ],
+          "hex": "#8696ff",
+          "alpha": 0.14
+        },
+        "$description": "rgba(134,150,255,0.14): reference-app@7c1ee7e src/index.css:401"
+      },
+      "status-info-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5255,
+            0.5882,
+            1
+          ],
+          "hex": "#8696ff",
+          "alpha": 0.32
+        },
+        "$description": "rgba(134,150,255,0.32): reference-app@7c1ee7e src/index.css:402"
+      },
+      "dot-info-glow": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.3647,
+            0.451,
+            1
+          ],
+          "hex": "#5d73ff",
+          "alpha": 0.7
+        },
+        "$description": "rgba(93,115,255,0.7): reference-app@7c1ee7e src/index.css:427"
+      },
+      "select-chevron": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5922,
+            0.5922,
+            0.6275
+          ],
+          "hex": "#9797a0"
+        },
+        "$description": "#9797a0: reference-app@7c1ee7e src/index.css:140 (the stroke of --select-chevron's image)"
+      },
+      "status-neutral-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff",
+          "alpha": 0.08
+        },
+        "$description": "rgba(255,255,255,0.08): reference-app@7c1ee7e src/index.css:404"
+      },
+      "status-neutral-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff",
+          "alpha": 0.18
+        },
+        "$description": "rgba(255,255,255,0.18): reference-app@7c1ee7e src/index.css:405"
+      },
+      "chart-1": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.2078,
+            0.3137,
+            1
+          ],
+          "hex": "#3550ff"
+        },
+        "$description": "#3550ff: reference-app@7c1ee7e src/index.css:451"
+      },
+      "chart-2": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.3647,
+            0.451,
+            1
+          ],
+          "hex": "#5d73ff"
+        },
+        "$description": "#5d73ff: reference-app@7c1ee7e src/index.css:452"
+      },
+      "chart-3": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5255,
+            0.5882,
+            1
+          ],
+          "hex": "#8696ff"
+        },
+        "$description": "#8696ff: reference-app@7c1ee7e src/index.css:453"
+      },
+      "chart-4": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.6824,
+            0.7255,
+            1
+          ],
+          "hex": "#aeb9ff"
+        },
+        "$description": "#aeb9ff: reference-app@7c1ee7e src/index.css:454"
+      },
+      "chart-5": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9216,
+            0.9294,
+            1
+          ],
+          "hex": "#ebedff"
+        },
+        "$description": "#ebedff: reference-app@7c1ee7e src/index.css:455"
+      },
+      "trend-peer": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5451,
+            0.5451,
+            0.5843
+          ],
+          "hex": "#8b8b95"
+        },
+        "$description": "#8b8b95: reference-app@7c1ee7e src/index.css:471"
+      },
+      "shadow-elevated": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.55
+        },
+        "$description": "rgba(0,0,0,0.55): reference-app@7c1ee7e src/index.css:477 (the colour of 0 6px 20px)"
+      },
+      "accent": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff",
+          "alpha": 0.06
+        },
+        "$description": "rgba(255,255,255,0.06): reference-app@7c1ee7e src/index.css:490"
+      },
+      "primary": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9294,
+            0.9294,
+            0.9294
+          ],
+          "hex": "#ededed"
+        },
+        "$description": "#ededed: reference-app@7c1ee7e src/index.css:491"
+      },
+      "primary-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0392,
+            0.0392,
+            0.0392
+          ],
+          "hex": "#0a0a0a"
+        },
+        "$description": "#0a0a0a: reference-app@7c1ee7e src/index.css:492"
+      },
+      "sidebar-background": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0627,
+            0.0627,
+            0.0627
+          ],
+          "hex": "#101010"
+        },
+        "$description": "#101010: reference-app@7c1ee7e src/index.css:498"
+      },
+      "sidebar-accent": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff",
+          "alpha": 0.08
+        },
+        "$description": "rgba(255,255,255,0.08): reference-app@7c1ee7e src/index.css:499"
+      },
+      "sidebar-accent-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9294,
+            0.9294,
+            0.9294
+          ],
+          "hex": "#ededed"
+        },
+        "$description": "#ededed: reference-app@7c1ee7e src/index.css:500"
+      },
+      "sidebar-border": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff",
+          "alpha": 0.16
+        },
+        "$description": "rgba(255,255,255,0.16): reference-app@7c1ee7e src/index.css:501"
+      },
+      "vis-purple": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.6588,
+            0.3333,
+            0.9686
+          ],
+          "hex": "#a855f7"
+        },
+        "$description": "#a855f7: reference-app@7c1ee7e src/index.css:929 (--hr-vis-purple)"
+      },
+      "vis-teal": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1765,
+            0.8314,
+            0.749
+          ],
+          "hex": "#2dd4bf"
+        },
+        "$description": "#2dd4bf: reference-app@7c1ee7e src/index.css:930 (--hr-vis-teal)"
+      },
+      "vis-amber": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9608,
+            0.6196,
+            0.0431
+          ],
+          "hex": "#f59e0b"
+        },
+        "$description": "#f59e0b: reference-app@7c1ee7e src/index.css:931 (--hr-vis-amber)"
+      },
+      "vis-orange": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9765,
+            0.451,
+            0.0863
+          ],
+          "hex": "#f97316"
+        },
+        "$description": "#f97316: reference-app@7c1ee7e src/index.css:833 (--wh-loc-attention)"
+      },
+      "segment-raised": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000"
+        },
+        "$description": "#000000: reference-app@7c1ee7e src/index.css:179 (--segment-selected: var(--segment-raised), :185)"
+      },
+      "btn-surface-hover": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.2706,
+            0.2706,
+            0.3059
+          ],
+          "hex": "#45454e"
+        },
+        "$description": "#45454e: reference-app@7c1ee7e src/index.css:213"
+      },
+      "dot-info": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.3647,
+            0.451,
+            1
+          ],
+          "hex": "#5d73ff"
+        },
+        "$description": "#5d73ff: reference-app@7c1ee7e src/index.css:426"
+      }
+    },
+    "light": {
+      "background": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9647,
+            0.9647,
+            0.9686
+          ],
+          "hex": "#f6f6f7"
+        },
+        "$description": "#f6f6f7: reference-app@7c1ee7e src/index.css:532"
+      },
+      "card": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff"
+        },
+        "$description": "#ffffff: reference-app@7c1ee7e src/index.css:533"
+      },
+      "field": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff"
+        },
+        "$description": "#ffffff: reference-app@7c1ee7e src/index.css:547"
+      },
+      "row-hover": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.04
+        },
+        "$description": "rgba(0,0,0,0.04): reference-app@7c1ee7e src/index.css:552"
+      },
+      "row-selected": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.09
+        },
+        "$description": "rgba(0,0,0,0.09): reference-app@7c1ee7e src/index.css:556"
+      },
+      "btn-surface": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.8627,
+            0.8627,
+            0.8784
+          ],
+          "hex": "#dcdce0"
+        },
+        "$description": "#dcdce0: reference-app@7c1ee7e src/index.css:582"
+      },
+      "foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0941,
+            0.0941,
+            0.1059
+          ],
+          "hex": "#18181b"
+        },
+        "$description": "#18181b: reference-app@7c1ee7e src/index.css:585"
+      },
+      "muted": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9255,
+            0.9255,
+            0.9333
+          ],
+          "hex": "#ececee"
+        },
+        "$description": "#ececee: reference-app@7c1ee7e src/index.css:586"
+      },
+      "dim-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.2667,
+            0.2667,
+            0.2824
+          ],
+          "hex": "#444448"
+        },
+        "$description": "#444448: reference-app@7c1ee7e src/index.css:588"
+      },
+      "muted-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.3529,
+            0.3529,
+            0.3765
+          ],
+          "hex": "#5a5a60"
+        },
+        "$description": "#5a5a60: reference-app@7c1ee7e src/index.css:594"
+      },
+      "subtle-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.3843,
+            0.3843,
+            0.4118
+          ],
+          "hex": "#626269"
+        },
+        "$description": "#626269: reference-app@7c1ee7e src/index.css:595"
+      },
+      "disabled-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5804,
+            0.5804,
+            0.6157
+          ],
+          "hex": "#94949d"
+        },
+        "$description": "#94949d: reference-app@7c1ee7e src/index.css:596"
+      },
+      "inverse-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff"
+        },
+        "$description": "#ffffff: reference-app@7c1ee7e src/index.css:597"
+      },
+      "border-subtle": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.08
+        },
+        "$description": "rgba(0,0,0,0.08): reference-app@7c1ee7e src/index.css:599"
+      },
+      "border": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.42
+        },
+        "$description": "rgba(0,0,0,0.42): reference-app@7c1ee7e src/index.css:600"
+      },
+      "border-strong": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.54
+        },
+        "$description": "rgba(0,0,0,0.54): reference-app@7c1ee7e src/index.css:601"
+      },
+      "brand": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.2078,
+            0.3137,
+            1
+          ],
+          "hex": "#3550ff"
+        },
+        "$description": "#3550ff: reference-app@7c1ee7e src/index.css:603"
+      },
+      "link": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1647,
+            0.251,
+            0.8
+          ],
+          "hex": "#2a40cc"
+        },
+        "$description": "#2a40cc: reference-app@7c1ee7e src/index.css:617"
+      },
+      "status-success": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0706,
+            0.4118,
+            0.1961
+          ],
+          "hex": "#126932"
+        },
+        "$description": "#126932: reference-app@7c1ee7e src/index.css:621"
+      },
+      "status-success-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1333,
+            0.7725,
+            0.3686
+          ],
+          "hex": "#22c55e",
+          "alpha": 0.16
+        },
+        "$description": "rgba(34,197,94,0.16): reference-app@7c1ee7e src/index.css:622"
+      },
+      "status-success-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0745,
+            0.4471,
+            0.2118
+          ],
+          "hex": "#137236",
+          "alpha": 0.32
+        },
+        "$description": "rgba(19,114,54,0.32): reference-app@7c1ee7e src/index.css:623"
+      },
+      "status-warning": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5255,
+            0.3176,
+            0.0314
+          ],
+          "hex": "#865108"
+        },
+        "$description": "#865108: reference-app@7c1ee7e src/index.css:637"
+      },
+      "status-warning-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9176,
+            0.702,
+            0.0314
+          ],
+          "hex": "#eab308",
+          "alpha": 0.2
+        },
+        "$description": "rgba(234,179,8,0.2): reference-app@7c1ee7e src/index.css:638"
+      },
+      "status-warning-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5608,
+            0.3412,
+            0.0235
+          ],
+          "hex": "#8f5706",
+          "alpha": 0.32
+        },
+        "$description": "rgba(143,87,6,0.32): reference-app@7c1ee7e src/index.css:639"
+      },
+      "status-error": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.6902,
+            0.1059,
+            0.1059
+          ],
+          "hex": "#b01b1b"
+        },
+        "$description": "#b01b1b: reference-app@7c1ee7e src/index.css:642"
+      },
+      "status-error-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9373,
+            0.2667,
+            0.2667
+          ],
+          "hex": "#ef4444",
+          "alpha": 0.12
+        },
+        "$description": "rgba(239,68,68,0.12): reference-app@7c1ee7e src/index.css:643"
+      },
+      "status-error-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.7255,
+            0.1098,
+            0.1098
+          ],
+          "hex": "#b91c1c",
+          "alpha": 0.32
+        },
+        "$description": "rgba(185,28,28,0.32): reference-app@7c1ee7e src/index.css:644"
+      },
+      "status-success-series": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0863,
+            0.6392,
+            0.2902
+          ],
+          "hex": "#16a34a"
+        },
+        "$description": "#16a34a: reference-app@7c1ee7e src/index.css:667"
+      },
+      "status-warning-series": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.7922,
+            0.5412,
+            0.0157
+          ],
+          "hex": "#ca8a04"
+        },
+        "$description": "#ca8a04: reference-app@7c1ee7e src/index.css:668"
+      },
+      "status-error-series": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.8627,
+            0.149,
+            0.149
+          ],
+          "hex": "#dc2626"
+        },
+        "$description": "#dc2626: reference-app@7c1ee7e src/index.css:669"
+      },
+      "status-info-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1647,
+            0.251,
+            0.8
+          ],
+          "hex": "#2a40cc",
+          "alpha": 0.12
+        },
+        "$description": "rgba(42,64,204,0.12): reference-app@7c1ee7e src/index.css:672"
+      },
+      "status-info-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1647,
+            0.251,
+            0.8
+          ],
+          "hex": "#2a40cc",
+          "alpha": 0.3
+        },
+        "$description": "rgba(42,64,204,0.3): reference-app@7c1ee7e src/index.css:673"
+      },
+      "dot-info-glow": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.2078,
+            0.3137,
+            1
+          ],
+          "hex": "#3550ff",
+          "alpha": 0.7
+        },
+        "$description": "rgba(53,80,255,0.7): reference-app@7c1ee7e src/index.css:682"
+      },
+      "select-chevron": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.3686,
+            0.3686,
+            0.3922
+          ],
+          "hex": "#5e5e64"
+        },
+        "$description": "#5e5e64: reference-app@7c1ee7e src/index.css:558 (the stroke of --select-chevron's image)"
+      },
+      "status-neutral-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.06
+        },
+        "$description": "rgba(0,0,0,0.06): reference-app@7c1ee7e src/index.css:675"
+      },
+      "status-neutral-line": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.16
+        },
+        "$description": "rgba(0,0,0,0.16): reference-app@7c1ee7e src/index.css:676"
+      },
+      "chart-1": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.3647,
+            0.451,
+            1
+          ],
+          "hex": "#5d73ff"
+        },
+        "$description": "#5d73ff: reference-app@7c1ee7e src/index.css:689"
+      },
+      "chart-2": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.2078,
+            0.3137,
+            1
+          ],
+          "hex": "#3550ff"
+        },
+        "$description": "#3550ff: reference-app@7c1ee7e src/index.css:690"
+      },
+      "chart-3": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1647,
+            0.251,
+            0.8
+          ],
+          "hex": "#2a40cc"
+        },
+        "$description": "#2a40cc: reference-app@7c1ee7e src/index.css:691"
+      },
+      "chart-4": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1255,
+            0.1882,
+            0.6
+          ],
+          "hex": "#203099"
+        },
+        "$description": "#203099: reference-app@7c1ee7e src/index.css:692"
+      },
+      "chart-5": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0196,
+            0.0314,
+            0.102
+          ],
+          "hex": "#05081a"
+        },
+        "$description": "#05081a: reference-app@7c1ee7e src/index.css:693"
+      },
+      "trend-peer": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.4431,
+            0.4431,
+            0.4784
+          ],
+          "hex": "#71717a"
+        },
+        "$description": "#71717a: reference-app@7c1ee7e src/index.css:696"
+      },
+      "shadow-elevated": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.16
+        },
+        "$description": "rgba(0,0,0,0.16): reference-app@7c1ee7e src/index.css:698 (the colour of 0 6px 20px)"
+      },
+      "accent": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.05
+        },
+        "$description": "rgba(0,0,0,0.05): reference-app@7c1ee7e src/index.css:700"
+      },
+      "primary": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0941,
+            0.0941,
+            0.1059
+          ],
+          "hex": "#18181b"
+        },
+        "$description": "#18181b: reference-app@7c1ee7e src/index.css:701"
+      },
+      "primary-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff"
+        },
+        "$description": "#ffffff: reference-app@7c1ee7e src/index.css:702"
+      },
+      "sidebar-background": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#ffffff"
+        },
+        "$description": "#ffffff: reference-app@7c1ee7e src/index.css:708"
+      },
+      "sidebar-accent": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.06
+        },
+        "$description": "rgba(0,0,0,0.06): reference-app@7c1ee7e src/index.css:709"
+      },
+      "sidebar-accent-foreground": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0941,
+            0.0941,
+            0.1059
+          ],
+          "hex": "#18181b"
+        },
+        "$description": "#18181b: reference-app@7c1ee7e src/index.css:710"
+      },
+      "sidebar-border": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.14
+        },
+        "$description": "rgba(0,0,0,0.14): reference-app@7c1ee7e src/index.css:711"
+      },
+      "vis-purple": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.4941,
+            0.1333,
+            0.8078
+          ],
+          "hex": "#7e22ce"
+        },
+        "$description": "#7e22ce: reference-app@7c1ee7e src/index.css:1107 (--hr-vis-purple)"
+      },
+      "vis-teal": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0588,
+            0.4627,
+            0.4314
+          ],
+          "hex": "#0f766e"
+        },
+        "$description": "#0f766e: reference-app@7c1ee7e src/index.css:1108 (--hr-vis-teal)"
+      },
+      "vis-amber": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.7059,
+            0.3255,
+            0.0353
+          ],
+          "hex": "#b45309"
+        },
+        "$description": "#b45309: reference-app@7c1ee7e src/index.css:1109 (--hr-vis-amber)"
+      },
+      "vis-orange": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.7608,
+            0.2549,
+            0.0471
+          ],
+          "hex": "#c2410c"
+        },
+        "$description": "#c2410c: reference-app@7c1ee7e src/index.css:1037 (--wh-loc-attention)"
+      },
+      "segment-selected": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.8941,
+            0.8941,
+            0.9059
+          ],
+          "hex": "#e4e4e7"
+        },
+        "$description": "#e4e4e7: reference-app@7c1ee7e src/index.css:577"
+      },
+      "btn-surface-hover": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.8157,
+            0.8157,
+            0.8353
+          ],
+          "hex": "#d0d0d5"
+        },
+        "$description": "#d0d0d5: reference-app@7c1ee7e src/index.css:583"
+      },
+      "dot-info": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.2078,
+            0.3137,
+            1
+          ],
+          "hex": "#3550ff"
+        },
+        "$description": "#3550ff: reference-app@7c1ee7e src/index.css:681"
+      }
+    },
+    "any": {
+      "scrim": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0.35
+        },
+        "$description": "rgba(0,0,0,0.35): reference-app@7c1ee7e src/components/Modal.tsx:273 (backdrop:bg-black/35)"
+      },
+      "none": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "hex": "#000000",
+          "alpha": 0
+        },
+        "$description": "rgba(0,0,0,0): No colour: the zero layer of a shadow that is not drawn."
+      },
+      "dot-success": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1333,
+            0.7725,
+            0.3686
+          ],
+          "hex": "#22c55e"
+        },
+        "$description": "#22c55e: reference-app@7c1ee7e src/index.css:424, the same in both themes (the light block resets only --dot-info, :681)"
+      },
+      "dot-warning": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9608,
+            0.6902,
+            0
+          ],
+          "hex": "#f5b000"
+        },
+        "$description": "#f5b000: reference-app@7c1ee7e src/index.css:428, the same in both themes"
+      },
+      "dot-error": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9373,
+            0.2667,
+            0.2667
+          ],
+          "hex": "#ef4444"
+        },
+        "$description": "#ef4444: reference-app@7c1ee7e src/index.css:430, the same in both themes"
+      },
+      "dot-success-glow": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.1333,
+            0.7725,
+            0.3686
+          ],
+          "hex": "#22c55e",
+          "alpha": 0.7
+        },
+        "$description": "rgba(34,197,94,0.7): reference-app@7c1ee7e src/index.css:425, the same in both themes"
+      },
+      "dot-warning-glow": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9608,
+            0.6902,
+            0
+          ],
+          "hex": "#f5b000",
+          "alpha": 0.7
+        },
+        "$description": "rgba(245,176,0,0.7): reference-app@7c1ee7e src/index.css:429, the same in both themes"
+      },
+      "dot-error-glow": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9373,
+            0.2667,
+            0.2667
+          ],
+          "hex": "#ef4444",
+          "alpha": 0.7
+        },
+        "$description": "rgba(239,68,68,0.7): reference-app@7c1ee7e src/index.css:431, the same in both themes"
+      }
+    },
+    "derived": {
+      "dark": {
+        "brand": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.2667,
+              0.3647,
+              1
+            ],
+            "hex": "#445dff"
+          },
+          "$description": "#445dff: FIX, not the reference: the reference's brand is #3550ff in both themes (reference-app@7c1ee7e src/index.css:294). On the dark --muted (#27272a) that measures 2.65:1, under the 3:1 a mark needs (pairs.json, brand on muted; WCAG 1.4.11). #445dff is the nearest step toward white that clears it (3.02), and white on it still reads 4.93:1. Light keeps #3550ff."
+        },
+        "brand-hover": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.2667,
+              0.3647,
+              1
+            ],
+            "hex": "#445dff",
+            "alpha": 0.9
+          },
+          "$description": "rgba(68,93,255,0.9): --brand at 90%: the reference's hover:bg-brand/90 (reference-app@7c1ee7e src/components/ui.ts:587, 1218), on the fixed dark brand"
+        },
+        "disabled-foreground": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.3843,
+              0.3843,
+              0.4078
+            ],
+            "hex": "#626268"
+          },
+          "$description": "#626268: FIX, not the reference: #606066 (reference-app@7c1ee7e src/index.css:257) measures 2.45:1 on the dark field (#252525), under the contract's 2.5 for inactive text (pairs.json). #626268 is the nearest step that clears it (2.53)."
+        },
+        "destructive-foreground": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.0392,
+              0.0392,
+              0.0392
+            ],
+            "hex": "#0a0a0a"
+          },
+          "$description": "#0a0a0a: Ink on the dark destructive fill (#fa8e8e): the canvas, reference-app@7c1ee7e src/index.css:68. The reference has no destructive fill."
+        },
+        "scrim": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0,
+              0,
+              0
+            ],
+            "hex": "#000000",
+            "alpha": 0.92
+          },
+          "$description": "rgba(0,0,0,0.92): FIX, not the reference: the reference dims every dialog with black at 0.35 (Modal.tsx:273). On the dark canvas that leaves the modal's card (#1a1a1a) at 1.16:1 over the dimmed page, under the contract's 1.2 (pairs.json, popover on scrim). Black at 0.92 measures 1.20; the light theme keeps the reference's 0.35."
+        },
+        "chart-div-neg-3": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9922,
+              0.7294,
+              0.4549
+            ],
+            "hex": "#fdba74"
+          },
+          "$description": "#fdba74: Diverging, far below: orange-300. The reference has no diverging scale; its warm hue is --wh-loc-attention orange (index.css:833)."
+        },
+        "chart-div-neg-2": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9765,
+              0.451,
+              0.0863
+            ],
+            "hex": "#f97316"
+          },
+          "$description": "#f97316: Diverging: orange-500, --wh-loc-attention (index.css:833)."
+        },
+        "chart-div-neg-1": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.6039,
+              0.2039,
+              0.0706
+            ],
+            "hex": "#9a3412"
+          },
+          "$description": "#9a3412: Diverging, just below: orange-800."
+        },
+        "chart-div-mid": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.2471,
+              0.2471,
+              0.2745
+            ],
+            "hex": "#3f3f46"
+          },
+          "$description": "#3f3f46: Diverging midpoint: zinc-700, a neutral step above --muted (#27272a, index.css:217)."
+        },
+        "chart-div-pos-1": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.1647,
+              0.251,
+              0.8
+            ],
+            "hex": "#2a40cc"
+          },
+          "$description": "#2a40cc: Diverging, just above: oxy-blue-600 (index.css:691)."
+        },
+        "chart-div-pos-2": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.3647,
+              0.451,
+              1
+            ],
+            "hex": "#5d73ff"
+          },
+          "$description": "#5d73ff: Diverging: oxy-blue-400 (index.css:452)."
+        },
+        "chart-div-pos-3": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.6824,
+              0.7255,
+              1
+            ],
+            "hex": "#aeb9ff"
+          },
+          "$description": "#aeb9ff: Diverging, far above: oxy-blue-200 (index.css:454)."
+        }
+      },
+      "light": {
+        "status-warning-series": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.7451,
+              0.5098,
+              0.0157
+            ],
+            "hex": "#be8204"
+          },
+          "$description": "#be8204: FIX, not the reference: #ca8a04 (reference-app@7c1ee7e src/index.css:668) measures 2.72:1 on the light canvas and 2.94 on the card, under the 3:1 a chart mark needs (WCAG 1.4.11). #be8204, the same hue a step darker, measures 3.05 and 3.29."
+        },
+        "brand-hover": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.2078,
+              0.3137,
+              1
+            ],
+            "hex": "#3550ff",
+            "alpha": 0.9
+          },
+          "$description": "rgba(53,80,255,0.9): --brand at 90%: the reference's hover:bg-brand/90 (reference-app@7c1ee7e src/components/ui.ts:587, 1218)"
+        },
+        "chart-div-neg-3": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.6039,
+              0.2039,
+              0.0706
+            ],
+            "hex": "#9a3412"
+          },
+          "$description": "#9a3412: Diverging, far below: orange-800."
+        },
+        "chart-div-neg-2": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9176,
+              0.3451,
+              0.0471
+            ],
+            "hex": "#ea580c"
+          },
+          "$description": "#ea580c: Diverging: orange-600."
+        },
+        "chart-div-neg-1": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9922,
+              0.7294,
+              0.4549
+            ],
+            "hex": "#fdba74"
+          },
+          "$description": "#fdba74: Diverging, just below: orange-300."
+        },
+        "chart-div-mid": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.8941,
+              0.8941,
+              0.9059
+            ],
+            "hex": "#e4e4e7"
+          },
+          "$description": "#e4e4e7: Diverging midpoint: zinc-200, a neutral step below --muted (#ececee, index.css:586)."
+        },
+        "chart-div-pos-1": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.6824,
+              0.7255,
+              1
+            ],
+            "hex": "#aeb9ff"
+          },
+          "$description": "#aeb9ff: Diverging, just above: oxy-blue-200 (index.css:454)."
+        },
+        "chart-div-pos-2": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.3647,
+              0.451,
+              1
+            ],
+            "hex": "#5d73ff"
+          },
+          "$description": "#5d73ff: Diverging: oxy-blue-400 (index.css:689)."
+        },
+        "chart-div-pos-3": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.1255,
+              0.1882,
+              0.6
+            ],
+            "hex": "#203099"
+          },
+          "$description": "#203099: Diverging, far above: oxy-blue-700 (index.css:692)."
+        },
+        "dot-success": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.0196,
+              0.5765,
+              0.2549
+            ],
+            "hex": "#059341"
+          },
+          "$description": "#059341: FIX, not the reference: the reference's light dot is #22c55e (reference-app@7c1ee7e src/index.css:424), which measures 1.71:1 on a selected row over the light canvas (2.28 on white), under the 3:1 a status mark needs (WCAG 1.4.11). This is the colour closest to it (OKLab distance) at its own OKLCH hue (149.6 deg; 149.5 once rounded to hex) that clears 3:1 on every light ground a dot sits on, with a ground one 8-bit step darker too: 3.02 on a selected row over the canvas (the worst), 3.15 on the selected segment, 3.39 on --muted and the rail's selected row, 3.70 on the canvas, 4.00 on white. Round 1's #16a34a measured 2.49 and 2.60 there."
+        },
+        "dot-warning": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.6471,
+              0.4667,
+              0.051
+            ],
+            "hex": "#a5770d"
+          },
+          "$description": "#a5770d: FIX, not the reference: the reference's light dot is #f5b000 (reference-app@7c1ee7e src/index.css:428), which measures 1.42:1 on a selected row over the light canvas (1.89 on white), under the 3:1 a status mark needs (WCAG 1.4.11). This is the colour closest to it (OKLab distance) at its own OKLCH hue (80.2 deg; 80.7 once rounded to hex) that clears 3:1 on every light ground a dot sits on, with a ground one 8-bit step darker too: 3.03 on a selected row over the canvas (the worst), 3.16 on the selected segment, 3.39 on --muted and the rail's selected row, 3.71 on the canvas, 4.00 on white. Round 1's #be8204 measured 2.49 and 2.59 there."
+        },
+        "dot-error": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9216,
+              0.2353,
+              0.2431
+            ],
+            "hex": "#eb3c3e"
+          },
+          "$description": "#eb3c3e: FIX, not the reference: the reference's light dot is #ef4444 (reference-app@7c1ee7e src/index.css:430), which measures 2.85:1 on a selected row over the light canvas (2.97 on the selected segment), under the 3:1 a status mark needs (WCAG 1.4.11). This is the colour closest to it (OKLab distance) at its own OKLCH hue (25.3 deg) that clears 3:1 on every light ground a dot sits on, with a ground one 8-bit step darker too: 3.03 on a selected row over the canvas (the worst), 3.15 on the selected segment, 3.39 on --muted and the rail's selected row, 3.70 on the canvas, 4.00 on white. Dark keeps #ef4444, which clears 3:1 on every dark ground (3.58 at worst)."
+        },
+        "dot-success-glow": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.0196,
+              0.5765,
+              0.2549
+            ],
+            "hex": "#059341",
+            "alpha": 0.7
+          },
+          "$description": "rgba(5,147,65,0.7): FIX, not the reference: the reference's glow is its dot again at 0.7 (reference-app@7c1ee7e src/index.css:422-423; rgba(34,197,94,0.7) at :425, in both themes). The light dot is corrected (derived.light.dot-success), so its glow is that dot at 0.7, by the same rule."
+        },
+        "dot-warning-glow": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.6471,
+              0.4667,
+              0.051
+            ],
+            "hex": "#a5770d",
+            "alpha": 0.7
+          },
+          "$description": "rgba(165,119,13,0.7): FIX, not the reference: the reference's glow is its dot again at 0.7 (reference-app@7c1ee7e src/index.css:422-423; rgba(245,176,0,0.7) at :429, in both themes). The light dot is corrected (derived.light.dot-warning), so its glow is that dot at 0.7, by the same rule."
+        },
+        "dot-error-glow": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9216,
+              0.2353,
+              0.2431
+            ],
+            "hex": "#eb3c3e",
+            "alpha": 0.7
+          },
+          "$description": "rgba(235,60,62,0.7): FIX, not the reference: the reference's glow is its dot again at 0.7 (reference-app@7c1ee7e src/index.css:422-423; rgba(239,68,68,0.7) at :431, in both themes). The light dot is corrected (derived.light.dot-error), so its glow is that dot at 0.7, by the same rule."
+        }
+      }
+    }
+  }
+}

@@ -2501,20 +2501,23 @@ const styles: Record<string, React.CSSProperties> = {
   },
   chatWrap: { fontFamily: SANS, fontSize: 14, color: "var(--oxy-shell-foreground, #1f2937)" },
   chatForm: { display: "flex", gap: 8, marginBottom: 12 },
+  // With `@oxy-hq/sdk/theme.css` the field and its buttons take the theme's corners and Ask the
+  // theme's primary pair (brand fill, its label colour): white on the dark `--oxy-shell-link`
+  // measured 2.69:1. Without the theme each falls back to what it drew before.
   chatInput: {
     flex: 1,
     padding: "8px 12px",
     border: "1px solid var(--oxy-shell-border, #d1d5db)",
-    borderRadius: 6,
+    borderRadius: "var(--input-radius, 6px)",
     fontSize: 14,
     fontFamily: SANS
   },
   chatSubmit: {
     padding: "8px 16px",
     border: "none",
-    borderRadius: 6,
-    background: "var(--oxy-shell-link, #2563eb)",
-    color: "#ffffff",
+    borderRadius: "var(--button-radius, 6px)",
+    background: "var(--button-primary-bg, var(--oxy-shell-link, #2563eb))",
+    color: "var(--button-primary-fg, #ffffff)",
     fontSize: 14,
     fontWeight: 500,
     cursor: "pointer"
@@ -2522,7 +2525,7 @@ const styles: Record<string, React.CSSProperties> = {
   chatCancel: {
     padding: "8px 12px",
     border: "1px solid var(--oxy-shell-border, #d1d5db)",
-    borderRadius: 6,
+    borderRadius: "var(--button-radius, 6px)",
     background: "var(--oxy-shell-background, #ffffff)",
     color: "var(--oxy-shell-foreground, #374151)",
     fontSize: 14,

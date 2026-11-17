@@ -41,6 +41,13 @@ export interface ShellContextData {
   links: { home: string; threads: string; settings?: string; login?: string };
   /** Viewer display identity; null on unauthenticated/local modes. */
   user: ShellContextUser | null;
+  /**
+   * The viewer's light/dark mode, shared with Oxygen and every app: `"light"`, `"dark"`,
+   * `"system"`, or `null` when they have not chosen (Oxygen's default, light). ABSENT for a
+   * frontline (crew) sign-in, which has no Oxygen account, and on a server older than the field:
+   * then the shell applies no mode and draws no switch. `OxyShell` applies it with theme.css only.
+   */
+  mode?: "light" | "dark" | "system" | null;
 }
 
 /**

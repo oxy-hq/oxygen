@@ -134,4 +134,66 @@ describe("PhoneTabBar", () => {
     expect($$(".oxy-phone-tabbar__badge").map((b) => b.textContent)).toEqual(["New"]);
     await page.unmount();
   });
+
+  it("draws a badge with no tone as before, and a toned one with its tone, on the bar and in More", async () => {
+    const page = await render(
+      <PhoneTabBar
+        items={[
+          { id: "a", label: "A", badge: 3 },
+          { id: "b", label: "B", badge: 1, badgeTone: "neutral" },
+          { id: "c", label: "C", badge: 2, badgeTone: "bad" },
+          { id: "d", label: "D" },
+          { id: "e", label: "E", badge: 4, badgeTone: "warn" },
+          { id: "f", label: "F", badge: 5 }
+        ]}
+        activeId='a'
+        onSelect={() => {}}
+      />
+    );
+    expect(
+      $$(".oxy-phone-tabbar__slot > .oxy-phone-tabbar__badge").map((b) => b.className)
+    ).toEqual([
+      "oxy-phone-tabbar__badge",
+      "oxy-phone-tabbar__badge oxy-phone-tabbar__badge--toned oxy-phone-tone--neutral",
+      "oxy-phone-tabbar__badge oxy-phone-tabbar__badge--toned oxy-phone-tone--bad"
+    ]);
+    // F behind More has no tone, so More's dot is the one it always was.
+    expect(slots()[4].querySelector(".oxy-phone-tabbar__dot")?.className).toBe(
+      "oxy-phone-tabbar__dot"
+    );
+    await click(slots()[4]);
+    expect($$(".oxy-phone-more__row .oxy-phone-tabbar__badge").map((b) => b.className)).toEqual([
+      "oxy-phone-tabbar__badge oxy-phone-more__badge oxy-phone-tabbar__badge--toned oxy-phone-tone--warn",
+      "oxy-phone-tabbar__badge oxy-phone-more__badge"
+    ]);
+    await page.unmount();
+  });
+
+  it("tones More's dot with the strongest tone behind it once every badge there has one", async () => {
+    // error > warning > neutral, success counted as neutral (the design system's strongestTone).
+    const items = (...tones: (PhoneTabItem["badgeTone"] | "none")[]): PhoneTabItem[] => [
+      ...["a", "b", "c", "d"].map((id) => ({ id, label: id })),
+      ...tones.map((t, i) => ({
+        id: `x${i}`,
+        label: `X${i}`,
+        badge: 1,
+        ...(t === "none" ? {} : { badgeTone: t })
+      }))
+    ];
+    const dot = () => slots()[4].querySelector(".oxy-phone-tabbar__dot")?.className;
+    const bar = (list: PhoneTabItem[]) => (
+      <PhoneTabBar items={list} activeId='a' onSelect={() => {}} />
+    );
+    const page = await render(bar(items("neutral", "warn", "good")));
+    expect(dot()).toBe("oxy-phone-tabbar__dot oxy-phone-tabbar__dot--toned oxy-phone-tone--warn");
+    await page.rerender(bar(items("warn", "bad")));
+    expect(dot()).toBe("oxy-phone-tabbar__dot oxy-phone-tabbar__dot--toned oxy-phone-tone--bad");
+    await page.rerender(bar(items("good", "good")));
+    expect(dot()).toBe(
+      "oxy-phone-tabbar__dot oxy-phone-tabbar__dot--toned oxy-phone-tone--neutral"
+    );
+    await page.rerender(bar(items("neutral", "none")));
+    expect(dot()).toBe("oxy-phone-tabbar__dot");
+    await page.unmount();
+  });
 });

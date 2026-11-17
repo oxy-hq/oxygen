@@ -33,7 +33,11 @@
 //!   Staging holds by default and so does a sandbox; one set to `refused` keeps
 //!   the 403. The plane is read from the environment's row by the middleware's
 //!   [`WorkspaceActions`] lookup, only for those three `POST`s outside
-//!   production ([`guard_with_actions`] takes the answer).
+//!   production ([`guard_with_actions`] takes the answer). The shell's
+//!   light/dark switch (`PUT /api/projects/{p}/shell-context/mode`) is refused
+//!   like every other write: a staging or sandbox preview never changes the
+//!   person's real mode (Mars, 16 Nov), and the SDK keeps a choice made there
+//!   in that origin's own copy. Reading the mode is a read, and passes.
 //! - **A cookie-authenticated write whose `Origin` belongs to another
 //!   environment** answers 403. Every app host shares the `.oxygen-hq.com`
 //!   `SameSite=Lax` session cookie, so without this a staging page could post
@@ -692,6 +696,55 @@ mod tests {
         assert_eq!(
             status_of(Method::POST, "/customer-apps/acme/store/fn/x", &staging),
             None
+        );
+    }
+
+    #[test]
+    fn the_shell_mode_switch_is_refused_on_staging_and_sandboxes_and_its_read_passes() {
+        // A staging or sandbox preview never changes the person's real mode
+        // (Mars, 16 Nov): the switch's write is refused like every other
+        // write there, under every `workspace-actions` plane. Its read passes.
+        let mode = "/api/projects/p1/shell-context/mode";
+        let sandbox_host = "dev-luong--acme--store.customer-apps.oxygen-hq.com";
+        for host in [STAGING_HOST, sandbox_host] {
+            let page = headers(&[
+                ("host", host),
+                ("cookie", "oxy_session=x"),
+                ("origin", &format!("https://{host}")),
+            ]);
+            for open in [
+                ActionsOpen::Refused,
+                ActionsOpen::Held,
+                ActionsOpen::Preview,
+            ] {
+                let refused = guard_with_actions(&Method::PUT, mode, &page, open)
+                    .err()
+                    .map(|r| r.status());
+                assert_eq!(
+                    refused,
+                    Some(StatusCode::FORBIDDEN),
+                    "PUT on {host}, {open:?}"
+                );
+            }
+            assert_eq!(status_of(Method::GET, mode, &page), None, "GET on {host}");
+        }
+        // Production still writes it.
+        let prod_page = headers(&[
+            ("host", PROD_HOST),
+            ("cookie", "oxy_session=x"),
+            ("origin", &format!("https://{PROD_HOST}")),
+        ]);
+        assert_eq!(status_of_refused(Method::PUT, mode, &prod_page), None);
+        // And a staging page cannot reach production's write through the
+        // production host with the cookie: the origin check holds.
+        let cross = headers(&[
+            ("host", PROD_HOST),
+            ("cookie", "oxy_session=x"),
+            ("origin", &format!("https://{STAGING_HOST}")),
+        ]);
+        assert_eq!(
+            status_of_refused(Method::PUT, mode, &cross),
+            Some(StatusCode::FORBIDDEN)
         );
     }
 

@@ -5,8 +5,9 @@
  * different user signing in on the same browser does not inherit the prior
  * user's IDE branch selections, open database tabs, or stale sync state.
  *
- * The theme preference is intentionally kept — it's a device-level setting,
- * not a per-user one, and clearing it makes the page flash on sign-in.
+ * The theme preference is intentionally kept: it is this browser's copy of the
+ * mode, which paints the first frame (clearing it makes the page flash on
+ * sign-in) until the signed-in person's own copy is read (`stores/themeSync.ts`).
  */
 
 const PERSISTED_AUTH_SCOPED_KEYS = [

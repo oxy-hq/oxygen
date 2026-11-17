@@ -191,7 +191,9 @@ describe("shell.css nav sheet breakpoint", () => {
     const at = css.indexOf(head);
     expect(at).toBeGreaterThanOrEqual(0);
     const rail = css.slice(at, css.indexOf("\n}\n", at));
-    expect(rail).toMatch(/\.oxy-rail__item \{\s*height: 2\.75rem;\s*width: 2\.75rem;/);
+    expect(rail).toMatch(
+      /\.oxy-rail__item \{\s*height: var\(--control-h-lg, 2\.75rem\);\s*width: var\(--control-h-lg, 2\.75rem\);/
+    );
     expect(rail).toMatch(
       /\.oxy-rail__nav,\s*\.oxy-rail__bottom \{\s*padding-left: 0;\s*padding-right: 0;/
     );

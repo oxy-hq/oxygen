@@ -189,7 +189,10 @@ describe("Ask Oxygen on a phone", () => {
     expect(rule(".oxy-askdock--phone[data-fit]:not(.oxy-askdock--closed)")).toMatch(
       /height: var\(--oxy-askdock-vh\)/
     );
-    expect(rule(".oxy-askdock--phone .oxy-askdock__iconbtn")).toMatch(/width: 44px/);
+    // The touch height: the theme's --control-h-lg, else 44px.
+    expect(rule(".oxy-askdock--phone .oxy-askdock__iconbtn")).toMatch(
+      /width: var\(--control-h-lg, 44px\)/
+    );
     expect(
       rule(
         ".oxy-askdock--phone .oxy-askdock__input,\n.oxy-askdock--phone .oxy-askdock__history-searchinput"

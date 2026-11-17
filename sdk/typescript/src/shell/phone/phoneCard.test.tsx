@@ -129,6 +129,14 @@ describe("PhoneKpiStrip", () => {
     expect(onClick).toHaveBeenCalledTimes(1);
     await page.unmount();
   });
+
+  it("draws a warn delta in the kit's warn tone, the desk's warning family", async () => {
+    const page = await render(
+      <PhoneKpiStrip items={[{ label: "Open", value: "3", delta: "follow-ups", tone: "warn" }]} />
+    );
+    expect($(".oxy-phone-kpi__delta")?.classList).toContain("oxy-phone-tone--warn");
+    await page.unmount();
+  });
 });
 
 describe("PhoneSegmented", () => {

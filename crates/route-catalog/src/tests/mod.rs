@@ -392,6 +392,8 @@ fn the_custom_app_routes_are_catalogued_on_every_seam() {
     for (method, path) in [
         ("GET", "/api/apps/mine"),
         ("GET", "/api/me/apps"),
+        ("GET", "/api/me/appearance"),
+        ("PUT", "/api/me/appearance"),
         ("GET", "/api/home/widgets"),
         ("GET", "/api/home/preferences"),
         ("PUT", "/api/home/preferences"),
@@ -421,6 +423,8 @@ fn the_custom_app_routes_are_catalogued_on_every_seam() {
         ),
         ("GET", "/api/apps/{org_slug}/{app_slug}/build-config"),
         ("GET", "/api/projects/{project_id}/shell-context"),
+        ("GET", "/api/projects/{project_id}/shell-context/mode"),
+        ("PUT", "/api/projects/{project_id}/shell-context/mode"),
         ("POST", "/api/customer-apps/{project_id}/events"),
         (
             "GET",

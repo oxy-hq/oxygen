@@ -184,6 +184,7 @@ pub mod test_run_sequences;
 pub mod test_runs;
 pub mod threads;
 pub mod user_credentials;
+pub mod user_ui_preferences;
 pub mod users;
 pub mod work_items;
 pub mod workspace_compile_checks;

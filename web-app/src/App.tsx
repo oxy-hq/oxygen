@@ -43,6 +43,7 @@ import UnknownWorkspacePath from "./components/Shell/UnknownWorkspacePath";
 import { WorkspaceShell } from "./components/Shell/WorkspaceShell";
 import SettingsDialog from "./components/settings/SettingsDialog";
 import { useSettingsDeepLink } from "./components/settings/SettingsDialog/useSettingsDeepLink";
+import { ThemeServerSync } from "./components/ThemeServerSync";
 import AgenticSetupPage from "./components/workspaces/components/CreateWorkspaceDialog/components/AgenticSetup";
 import { LocalWorkspaceSetupDialog } from "./components/workspaces/components/LocalWorkspaceSetupDialog";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -625,6 +626,7 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
           path='/*'
           element={
             <ProtectedRoute>
+              <ThemeServerSync />
               <ActingShell>
                 <Outlet />
               </ActingShell>

@@ -59,6 +59,7 @@
 //! | `custom_app_functions_manual_run` | admin Run now, queue, the production driver entry point and executor, run status; its children: a check run in a named environment and every refusal around one, the invocation listings and who may read which rows (a build only staging or a sandbox serves included, and an agent's draft on an app unpublished since), the held-write and run read-backs, the logs filter |
 //! | `custom_app_functions_manual_run_guards` | source scans: the executor registration and admin stack that test copies still match production |
 //! | `invocation_queries` | the SQL statements a warm function call issues before its isolate starts, counted from `sqlx::query` events and bounded above |
+//! | `appearance` | `user_ui_preferences`: no row is not chosen; a save is read back and replaced, and is one person's; the column refuses a fourth mode and the row goes with its person; the bundle's mode routes answer an anonymous caller 401 before reading a body |
 //! | `home_preferences` | `home_user_preferences`: no row is nothing hidden and Today shown; a save is read back and replaced, never merged, and is one person's in one org; the org teams a layout's `for` reads are those of that org only |
 //! | `custom_app_functions_shape_zoo` | every ClickHouse, Postgres and DuckDB zoo case, read one column at a time through `ctx.warehouse.query` in a published function, against `expect.warehouse` |
 //! | `custom_app_functions_shape_zoo_oltp` | the Postgres zoo cases through `ctx.oltp` in the app's own provisioned schema, against `expect.oltp` |
@@ -128,6 +129,7 @@ mod app_environments_phase_1b;
 mod app_preflight;
 mod app_role_memo;
 mod app_scoped_secrets;
+mod appearance;
 mod ask_wait;
 mod canary_coverage;
 mod custom_app_access_control;

@@ -92,6 +92,10 @@ pub const REFUSED: &[(&str, &str)] = &[
     ),
     ("/oltp", "per-org database status from raw membership"),
     ("/user/github", "the user's own GitHub account"),
+    (
+        "/me/appearance",
+        "the person's own light/dark mode, across every org; nothing a workspace's token needs",
+    ),
 ];
 
 /// The [`REFUSED`] family `path` (relative to `/api`) belongs to, if any.
@@ -319,6 +323,11 @@ pub const WHEN_BLOCKED: &[(&str, Blocked, &str)] = &[
         "/user/github/account",
         Blocked::NoOrgData,
         "the user's own GitHub account",
+    ),
+    (
+        "/me/appearance",
+        Blocked::NoOrgData,
+        "the person's own light/dark mode",
     ),
     (
         "/user/github/installations",

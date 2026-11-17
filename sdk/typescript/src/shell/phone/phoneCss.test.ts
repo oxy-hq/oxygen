@@ -100,11 +100,11 @@ describe("shell.css phone kit", () => {
 
   it("keeps the touch floor", () => {
     expect(rule(".oxy-phone-tabbar")).toMatch(/height: calc\(56px \+ env\(safe-area-inset-bottom/);
-    expect(rule(".oxy-phone-tabbar__slot")).toMatch(/min-width: 44px/);
+    expect(rule(".oxy-phone-tabbar__slot")).toMatch(/min-width: var\(--control-h-lg, 44px\)/);
     expect(rule(".oxy-phone-btn")).toMatch(/min-height: 48px/);
     expect(rule(".oxy-phone-row")).toMatch(/min-height: 56px/);
     expect(rule(".oxy-phone-segmented")).toMatch(/min-height: 48px/);
-    expect(rule(".oxy-phone-sheet__back")).toMatch(/height: 44px/);
+    expect(rule(".oxy-phone-sheet__back")).toMatch(/height: var\(--control-h-lg, 44px\)/);
     // A 24px ⓘ with a 10px reach on every side is a 44px target.
     expect(rule(".oxy-phone-hint")).toMatch(/height: 24px/);
     expect(rule(".oxy-phone-hint::before")).toMatch(/inset: -10px/);
@@ -113,9 +113,9 @@ describe("shell.css phone kit", () => {
   it("makes every control at least 44px to tap, drawn or reached", () => {
     // Measured on phones in 2.27.1: a chip 36 tall, a segment 40, a row's button
     // 39 inside its 56px row, a one-line card's button 20.
-    expect(rule(".oxy-phone-chip")).toMatch(/\bheight: 44px/);
+    expect(rule(".oxy-phone-chip")).toMatch(/\bheight: var\(--control-h-lg, 44px\)/);
     expect(section).not.toMatch(/\.oxy-phone-chip::before/);
-    expect(rule(".oxy-phone-segmented__option")).toMatch(/min-height: 44px/);
+    expect(rule(".oxy-phone-segmented__option")).toMatch(/min-height: var\(--control-h-lg, 44px\)/);
     expect(rule(".oxy-phone-segmented")).toMatch(/padding: 2px/);
 
     // The row's vertical 8px and left 14px move onto its button, which stretches
@@ -152,6 +152,16 @@ describe("shell.css phone kit", () => {
     expect(rule(".oxy-phone-page")).not.toMatch(/overflow/);
     expect(rule(".oxy-phone-tabbar")).toMatch(
       /env\(safe-area-inset-bottom, 0px\)\s*env\(safe-area-inset-left/
+    );
+  });
+
+  it("keeps a row's whole height anywhere in a sheet, with the theme", () => {
+    // The sheet's body is a scrolling flex column; a row under a `display: contents` wrapper is
+    // still its item, and the row's 56px minimum would otherwise let it squeeze to 56px. Measured
+    // in Chrome for the PR; jsdom lays nothing out, so the rule is held as text.
+    expect(rule(".oxy-phone-sheet__body > *")).toMatch(/flex-shrink: 0;/);
+    expect(rule(".oxy-phone-sheet__body .oxy-phone-row")).toMatch(
+      /flex-shrink: calc\(1 - var\(--oxy-shell-themed, 0\)\);/
     );
   });
 

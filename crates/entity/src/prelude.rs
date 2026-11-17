@@ -85,6 +85,7 @@ pub use super::test_run_sequences::Entity as TestRunSequences;
 pub use super::test_runs::Entity as TestRuns;
 pub use super::threads::Entity as Threads;
 pub use super::user_credentials::Entity as UserCredentials;
+pub use super::user_ui_preferences::Entity as UserUiPreferences;
 pub use super::users::Entity as Users;
 pub use super::work_items::Entity as WorkItems;
 pub use super::workspace_compile_checks::Entity as WorkspaceCompileChecks;

@@ -701,6 +701,12 @@ const TABLES: &[(&str, Placement)] = &[
         Control("pointer to the UniFi key secret"),
     ),
     ("user_credentials", Control("login credentials")),
+    (
+        "user_ui_preferences",
+        Control(
+            "a person's own choice of how Oxy draws its interface (light/dark), across orgs; no org content",
+        ),
+    ),
     ("users", Control("users")),
     ("verified_queries", Control("compiled verified .sql files")),
     (

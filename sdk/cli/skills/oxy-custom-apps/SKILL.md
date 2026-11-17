@@ -307,6 +307,29 @@ opening in this tab and warmed on hover. Pass `hideTopBar` if the app draws its
 own header. Link to another app with a plain `<a href>`, never `target="_blank"`;
 moving between apps is meant to feel like one product.
 
+**Look.** The design standard for every custom app is the oxygen reference app
+(`oxy-hq/reference-app`). Import `@oxy-hq/sdk/theme.css` (SDK ≥ 2.29) above your own
+CSS to get it: its palette, square corners, frame and control lines, the system face
+and 44px touch targets, which the shell and the phone kit read too. Its selectors
+weigh nothing, so your own token declarations still win; adopting it means deleting
+them, and deleting any `--oxy-shell-*` or `!important` rules aimed at the shell or
+kit. Without the import, nothing about the app's look changes.
+
+**Light and dark.** With the theme, the app has both modes and shows the signed-in
+person's, the one Oxygen home shows: `OxyShell` applies it and puts one Light / Dark /
+System switch at the bottom of the rail (the nav sheet's bottom on a phone), and a change
+there changes Oxygen too. Write every colour from the theme's tokens so both modes work;
+never set `.dark` on `<html>` yourself. A screen that must not move, such as a store's
+shared tablet, pins one: `<OxyShell modePin="light">`, `useOxyModePin("light")`, or
+`<html data-oxy-mode-pin="light">` for the whole app. A crew sign-in has no mode and no
+switch. On a staging or sandbox host the switch works for that preview only: it is kept on
+that origin and never changes the person's real mode. The shell keeps
+`<meta name="theme-color">` on the mode's ground, so the app needs no hook of its own for it.
+`--chart-1…5` are the reference's sequential blue ramp; series that are categories take
+`--chart-cat-*`. On a touch screen the shell's own chrome answers taps within 44px; a store's
+enrolled tablet turns that off with `useOxyTouchTargets(false)` (or
+`<OxyShell touchTargets={false}>`).
+
 **Motion.** `shell.css` loads `@oxy-hq/sdk/motion.css` (SDK ≥ 2.24), Oxygen's
 own motion language, so shadcn dialogs, menus and tooltips already open and
 close like Oxygen's. Time your own transitions with its tokens
@@ -316,6 +339,7 @@ are 120–240 ms), and give every slide or zoom a `motion-reduce:` counterpart.
 
 ```tsx
 import { OxyShell } from "@oxy-hq/sdk/shell";
+import "@oxy-hq/sdk/theme.css";
 import "@oxy-hq/sdk/shell.css";
 
 <OxyAppProvider>

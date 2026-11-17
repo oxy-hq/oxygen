@@ -58,6 +58,8 @@ pub mod agent_run_stream;
 mod app_function_agent;
 pub mod app_function_executor;
 pub mod app_lifecycle;
+/// A person's light/dark mode, which Oxygen and every app follow.
+pub mod appearance;
 pub mod automation_run;
 pub mod beacon;
 pub mod client;
@@ -254,6 +256,12 @@ pub fn routes() -> Router<AppState> {
         .route("/apps/mine", get(admin::apps::handlers::list_my_apps))
         // The mobile home screen.
         .route("/me/apps", get(me_apps::list_openable_apps))
+        // The person's light/dark mode, which Oxygen and every app follow
+        // (`appearance`). Postgres only.
+        .route(
+            "/me/appearance",
+            get(appearance::routes::get_mine).put(appearance::routes::put_mine),
+        )
         // Each app's live cards on the Oxygen home (`home_widgets`).
         .route("/home/widgets", get(home_widgets::list))
         // A person's own choices about the home: widgets hidden, Today shown.
@@ -449,6 +457,7 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
     const ROLES: &[RouteRoleDecl] = &[
         fleet("/apps/mine"),
         fleet("/me/apps"),
+        fleet("/me/appearance"),
         fleet("/home/widgets"),
         fleet("/home/preferences"),
         fleet("/home/widgets/{app_id}/{widget}/actions/{action}"),
@@ -711,6 +720,13 @@ pub fn public_routes() -> Router<AppState> {
             "/projects/{project_id}/shell-context",
             get(custom_apps_shell_context::get_shell_context),
         )
+        // The person's light/dark mode for the shell: re-read when a tab is
+        // shown again, written by the shell's switch (`appearance`). The same
+        // gate chain, then one Postgres row; never cached.
+        .route(
+            "/projects/{project_id}/shell-context/mode",
+            get(appearance::routes::get_for_app).put(appearance::routes::put_for_app),
+        )
         // Bundle chat history for the SDK Ask dock. `/threads` lists the viewer's
         // threads; `/threads/{id}` rebuilds a transcript for restore.
         .route(
@@ -800,6 +816,7 @@ pub fn public_route_roles() -> &'static [RouteRoleDecl] {
         fleet("/projects/{project_id}/procedures/runs/{run_id}"),
         fleet("/projects/{project_id}/procedures/runs/{run_id}/cancel"),
         fleet("/projects/{project_id}/shell-context"),
+        fleet("/projects/{project_id}/shell-context/mode"),
         fleet("/projects/{project_id}/threads"),
         fleet("/projects/{project_id}/threads/{thread_id}"),
         fleet("/customer-apps/{project_id}/events"),

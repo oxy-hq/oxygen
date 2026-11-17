@@ -1,0 +1,713 @@
+{
+  "$description": "x0 dark mode: every colour-bearing semantic and component token.",
+  "color": {
+    "$type": "color",
+    "background": {
+      "$value": "{palette.neutral.dark.1}",
+      "$description": "Canvas."
+    },
+    "foreground": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Primary ink."
+    },
+    "card": {
+      "$value": "{palette.neutral.dark.3}",
+      "$description": "Cards."
+    },
+    "card-foreground": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Ink on cards."
+    },
+    "popover": {
+      "$value": "{palette.neutral.dark.4}",
+      "$description": "Overlays."
+    },
+    "popover-foreground": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Ink on overlays."
+    },
+    "muted": {
+      "$value": "{palette.neutral.dark.5}",
+      "$description": "Quiet fill."
+    },
+    "muted-foreground": {
+      "$value": "{palette.neutral.dark.10}",
+      "$description": "Tertiary ink."
+    },
+    "accent": {
+      "$value": "{palette.neutral.dark.5}",
+      "$description": "Highlight fill."
+    },
+    "accent-foreground": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Ink on highlight."
+    },
+    "secondary": {
+      "$value": "{palette.neutral.dark.4}",
+      "$description": "Secondary button: an outlined style, so the fill is the card."
+    },
+    "secondary-foreground": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Secondary label."
+    },
+    "field": {
+      "$value": "{palette.neutral.dark.4}",
+      "$description": "Field fill."
+    },
+    "field-border": {
+      "$value": "{palette.neutral.dark.8}",
+      "$description": "Field edge at 3:1."
+    },
+    "select-chevron": {
+      "$value": "{color.muted-foreground}",
+      "$description": "Select chevron stroke."
+    },
+    "row-hover": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "alpha": 0.05,
+        "hex": "#ffffff"
+      },
+      "$description": "Row hover overlay."
+    },
+    "row-selected": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "alpha": 0.1,
+        "hex": "#ffffff"
+      },
+      "$description": "Selected row overlay, neutral."
+    },
+    "segment-track": {
+      "$value": "{color.field}",
+      "$description": "Segmented track."
+    },
+    "segment-selected": {
+      "$value": "{color.muted}",
+      "$description": "Selected segment."
+    },
+    "btn-surface": {
+      "$value": "{color.secondary}",
+      "$description": "Secondary fill."
+    },
+    "btn-surface-hover": {
+      "$value": "{color.muted}",
+      "$description": "Secondary fill, hover."
+    },
+    "dim-foreground": {
+      "$value": "{palette.neutral.dark.11}",
+      "$description": "Secondary ink."
+    },
+    "subtle-foreground": {
+      "$value": "{palette.neutral.dark.9}",
+      "$description": "Quiet ink."
+    },
+    "disabled-foreground": {
+      "$value": "{palette.neutral.dark.8}",
+      "$description": "Inactive."
+    },
+    "inverse-foreground": {
+      "$value": "{palette.neutral.dark.1}",
+      "$description": "On brand fills. Dark ink: the dark-mode brand is a light blue."
+    },
+    "border-subtle": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "alpha": 0.1,
+        "hex": "#ffffff"
+      },
+      "$description": "Structure."
+    },
+    "border": {
+      "$value": "{palette.neutral.dark.8}",
+      "$description": "Interactive edge."
+    },
+    "border-strong": {
+      "$value": "{palette.neutral.dark.9}",
+      "$description": "Hover edge."
+    },
+    "primary": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "shadcn primary: ink."
+    },
+    "primary-foreground": {
+      "$value": "{palette.neutral.dark.1}",
+      "$description": "On primary."
+    },
+    "brand": {
+      "$value": "{palette.blue.dark.10}",
+      "$description": "Brand as a mark."
+    },
+    "brand-hover": {
+      "$value": "{palette.blue.dark.11}",
+      "$description": "Brand hover."
+    },
+    "brand-subtle": {
+      "$value": "{palette.blue.dark.3}",
+      "$description": "Brand tint."
+    },
+    "link": {
+      "$value": "{palette.blue.dark.11}",
+      "$description": "Link text."
+    },
+    "destructive": {
+      "$value": "{palette.red.dark.10}",
+      "$description": "Destructive."
+    },
+    "destructive-foreground": {
+      "$value": "{palette.neutral.dark.1}",
+      "$description": "On destructive. Dark ink on the light dark-mode red."
+    },
+    "sidebar": {
+      "$value": "{palette.neutral.dark.2}",
+      "$description": "Sidebar family surface, equal to the rail."
+    },
+    "sidebar-foreground": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Sidebar ink."
+    },
+    "sidebar-accent": {
+      "$value": "{palette.neutral.dark.5}",
+      "$description": "Sidebar active fill."
+    },
+    "sidebar-accent-foreground": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Sidebar active ink."
+    },
+    "sidebar-border": {
+      "$value": "{palette.neutral.dark.6}",
+      "$description": "Sidebar edge."
+    },
+    "sidebar-primary": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Sidebar primary."
+    },
+    "sidebar-primary-foreground": {
+      "$value": "{palette.neutral.dark.1}",
+      "$description": "On sidebar primary."
+    },
+    "sidebar-ring": {
+      "$value": "{palette.blue.dark.10}",
+      "$description": "Sidebar focus."
+    },
+    "focus-ring-color": {
+      "$value": "{palette.blue.dark.10}",
+      "$description": "Focus ring."
+    },
+    "scrim": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "alpha": 0.6,
+        "hex": "#000000"
+      },
+      "$description": "Behind dialogs."
+    },
+    "trend-store": {
+      "$value": "{palette.blue.dark.10}",
+      "$description": "Subject series."
+    },
+    "trend-peer": {
+      "$value": "{palette.neutral.dark.9}",
+      "$description": "Comparison series."
+    },
+    "status-success": {
+      "$value": "{palette.green.dark.11}",
+      "$description": "success ink."
+    },
+    "status-success-bg": {
+      "$value": "{palette.green.dark.3}",
+      "$description": "success tint."
+    },
+    "status-success-line": {
+      "$value": "{palette.green.dark.7}",
+      "$description": "success line, decorative."
+    },
+    "status-success-series": {
+      "$value": "{palette.green.dark.9}",
+      "$description": "success chart mark."
+    },
+    "status-warning": {
+      "$value": "{palette.amber.dark.11}",
+      "$description": "warning ink."
+    },
+    "status-warning-bg": {
+      "$value": "{palette.amber.dark.3}",
+      "$description": "warning tint."
+    },
+    "status-warning-line": {
+      "$value": "{palette.amber.dark.7}",
+      "$description": "warning line, decorative."
+    },
+    "status-warning-series": {
+      "$value": "{palette.amber.dark.9}",
+      "$description": "warning chart mark."
+    },
+    "status-error": {
+      "$value": "{palette.red.dark.11}",
+      "$description": "error ink."
+    },
+    "status-error-bg": {
+      "$value": "{palette.red.dark.3}",
+      "$description": "error tint."
+    },
+    "status-error-line": {
+      "$value": "{palette.red.dark.7}",
+      "$description": "error line, decorative."
+    },
+    "status-error-series": {
+      "$value": "{palette.red.dark.9}",
+      "$description": "error chart mark."
+    },
+    "status-neutral": {
+      "$value": "{palette.neutral.dark.10}",
+      "$description": "Neutral state ink."
+    },
+    "status-neutral-bg": {
+      "$value": "{palette.neutral.dark.5}",
+      "$description": "Neutral tint."
+    },
+    "status-neutral-line": {
+      "$value": "{palette.neutral.dark.7}",
+      "$description": "Neutral line, decorative."
+    },
+    "status-neutral-series": {
+      "$value": "{palette.neutral.dark.9}",
+      "$description": "Unjudged series."
+    },
+    "status-info-line": {
+      "$value": "{color.link}",
+      "$description": "Info line."
+    },
+    "dot-success": {
+      "$value": "{color.status-success-series}",
+      "$description": "Success dot."
+    },
+    "dot-info": {
+      "$value": "{color.link}",
+      "$description": "Info dot."
+    },
+    "dot-warning": {
+      "$value": "{color.status-warning-series}",
+      "$description": "Warning dot."
+    },
+    "dot-error": {
+      "$value": "{color.status-error-series}",
+      "$description": "Error dot."
+    },
+    "dot-success-glow": {
+      "$value": "{color.dot-success}",
+      "$description": "Success dot glow."
+    },
+    "dot-info-glow": {
+      "$value": "{color.dot-info}",
+      "$description": "Info dot glow."
+    },
+    "dot-warning-glow": {
+      "$value": "{color.dot-warning}",
+      "$description": "Warning dot glow."
+    },
+    "dot-error-glow": {
+      "$value": "{color.dot-error}",
+      "$description": "Error dot glow."
+    },
+    "chart-cat-1": {
+      "$value": "{palette.viz.dark.cat-1}",
+      "$description": "Categorical 1."
+    },
+    "chart-cat-2": {
+      "$value": "{palette.viz.dark.cat-2}",
+      "$description": "Categorical 2."
+    },
+    "chart-cat-3": {
+      "$value": "{palette.viz.dark.cat-3}",
+      "$description": "Categorical 3."
+    },
+    "chart-cat-4": {
+      "$value": "{palette.viz.dark.cat-4}",
+      "$description": "Categorical 4."
+    },
+    "chart-cat-5": {
+      "$value": "{palette.viz.dark.cat-5}",
+      "$description": "Categorical 5."
+    },
+    "chart-cat-6": {
+      "$value": "{palette.viz.dark.cat-6}",
+      "$description": "Categorical 6."
+    },
+    "chart-cat-7": {
+      "$value": "{palette.viz.dark.cat-7}",
+      "$description": "Categorical 7."
+    },
+    "chart-cat-8": {
+      "$value": "{palette.viz.dark.cat-8}",
+      "$description": "Categorical 8."
+    },
+    "chart-seq-1": {
+      "$value": "{palette.blue.dark.4}",
+      "$description": "Sequential 1."
+    },
+    "chart-seq-2": {
+      "$value": "{palette.blue.dark.6}",
+      "$description": "Sequential 2."
+    },
+    "chart-seq-3": {
+      "$value": "{palette.blue.dark.8}",
+      "$description": "Sequential 3."
+    },
+    "chart-seq-4": {
+      "$value": "{palette.blue.dark.10}",
+      "$description": "Sequential 4."
+    },
+    "chart-seq-5": {
+      "$value": "{palette.blue.dark.12}",
+      "$description": "Sequential 5."
+    },
+    "chart-div-neg-3": {
+      "$value": "{palette.red.dark.11}",
+      "$description": "Diverging neg-3."
+    },
+    "chart-div-neg-2": {
+      "$value": "{palette.red.dark.9}",
+      "$description": "Diverging neg-2."
+    },
+    "chart-div-neg-1": {
+      "$value": "{palette.red.dark.7}",
+      "$description": "Diverging neg-1."
+    },
+    "chart-div-mid": {
+      "$value": "{palette.neutral.dark.5}",
+      "$description": "Diverging mid."
+    },
+    "chart-div-pos-1": {
+      "$value": "{palette.blue.dark.7}",
+      "$description": "Diverging pos-1."
+    },
+    "chart-div-pos-2": {
+      "$value": "{palette.blue.dark.10}",
+      "$description": "Diverging pos-2."
+    },
+    "chart-div-pos-3": {
+      "$value": "{palette.blue.dark.11}",
+      "$description": "Diverging pos-3."
+    }
+  },
+  "shadow": {
+    "$type": "shadow",
+    "raised": {
+      "$value": [
+        {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "alpha": 0.4,
+            "hex": "#000000"
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 1,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 2,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      ],
+      "$description": "Small lift."
+    },
+    "overlay": {
+      "$value": [
+        {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "alpha": 0.5,
+            "hex": "#000000"
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 8,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 24,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        },
+        {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "alpha": 0.06,
+            "hex": "#ffffff"
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 0,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 0,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 1,
+            "unit": "px"
+          }
+        }
+      ],
+      "$description": "Floating layers."
+    }
+  },
+  "card": {
+    "bg": {
+      "$type": "color",
+      "$value": "{color.card}",
+      "$description": "Card fill."
+    },
+    "border": {
+      "$type": "color",
+      "$value": "{color.border-subtle}",
+      "$description": "Card edge."
+    },
+    "rule": {
+      "$type": "color",
+      "$value": "{color.border-subtle}",
+      "$description": "Boxed card: the rule is the edge."
+    },
+    "shadow": {
+      "$type": "shadow",
+      "$value": [
+        {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "alpha": 0,
+            "hex": "#000000"
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 0,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 0,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      ],
+      "$description": "Border, never shadow."
+    }
+  },
+  "topbar": {
+    "$type": "color",
+    "bg": {
+      "$value": "{palette.neutral.dark.2}",
+      "$description": "Top bar."
+    },
+    "fg": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Top bar ink."
+    },
+    "fg-muted": {
+      "$value": "{palette.neutral.dark.10}",
+      "$description": "Breadcrumb parents."
+    },
+    "border": {
+      "$value": "{palette.neutral.dark.6}",
+      "$description": "Top bar edge."
+    }
+  },
+  "rail": {
+    "$type": "color",
+    "bg": {
+      "$value": "{palette.neutral.dark.2}",
+      "$description": "Rail."
+    },
+    "fg": {
+      "$value": "{palette.neutral.dark.10}",
+      "$description": "Rail glyphs."
+    },
+    "item-active-bg": {
+      "$value": "{palette.neutral.dark.5}",
+      "$description": "Current item."
+    },
+    "item-active-fg": {
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Current glyph."
+    },
+    "border": {
+      "$value": "{palette.neutral.dark.6}",
+      "$description": "Rail edge."
+    }
+  },
+  "table": {
+    "$type": "color",
+    "header-bg": {
+      "$value": "{color.card}",
+      "$description": "Header row."
+    },
+    "header-fg": {
+      "$value": "{palette.neutral.dark.11}",
+      "$description": "Column headings."
+    },
+    "rule": {
+      "$value": "{palette.neutral.dark.7}",
+      "$description": "Header rule."
+    },
+    "row-rule": {
+      "$value": "{color.border-subtle}",
+      "$description": "Row rule."
+    }
+  },
+  "button": {
+    "$type": "color",
+    "primary-bg": {
+      "$value": "{palette.blue.light.9}",
+      "$description": "Prime action fill: the brand blue."
+    },
+    "primary-bg-hover": {
+      "$value": "{palette.blue.light.10}",
+      "$description": "Prime action hover."
+    },
+    "primary-fg": {
+      "$value": "{palette.neutral.light.1}",
+      "$description": "Prime action label: white."
+    },
+    "secondary-border": {
+      "$value": "{color.border}",
+      "$description": "Outlined secondary."
+    }
+  },
+  "tile": {
+    "bg": {
+      "$type": "color",
+      "$value": "{palette.neutral.dark.4}",
+      "$description": "Tile fill."
+    },
+    "fg": {
+      "$type": "color",
+      "$value": "{palette.neutral.dark.12}",
+      "$description": "Glyph."
+    },
+    "border": {
+      "$type": "color",
+      "$value": "{palette.neutral.dark.7}",
+      "$description": "Keyline."
+    },
+    "shadow": {
+      "$type": "shadow",
+      "$value": [
+        {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "alpha": 0,
+            "hex": "#000000"
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 0,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 0,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      ],
+      "$description": "Flat tile."
+    },
+    "tint": {
+      "$type": "number",
+      "$value": 22,
+      "$description": "Collection hue in the fill.",
+      "$extensions": {
+        "com.oxygen": {
+          "cssUnit": "%"
+        }
+      }
+    },
+    "glyph-tint": {
+      "$type": "number",
+      "$value": 0,
+      "$description": "Glyph stays ink.",
+      "$extensions": {
+        "com.oxygen": {
+          "cssUnit": "%"
+        }
+      }
+    }
+  }
+}

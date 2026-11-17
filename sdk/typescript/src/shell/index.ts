@@ -25,7 +25,11 @@ export { useDockPrefetch } from "./dockPrefetch";
 export type { KioskIdleOptions, KioskIdleState } from "./kioskIdle";
 export { useKioskIdle } from "./kioskIdle";
 export { workspaceLogoUrl } from "./logoUrl";
+export type { ModeSwitchProps } from "./ModeSwitch";
+export { ModeSwitch } from "./ModeSwitch";
 export { OXY_MARK_PATH, OxygenFactoryMark, OxyMark } from "./marks";
+export type { ShellMode } from "./mode";
+export { useOxyModePin } from "./mode";
 export { NavSheet } from "./NavSheet";
 export type { OxyShellProps } from "./OxyShell";
 export { OxyShell } from "./OxyShell";
@@ -89,6 +93,7 @@ export type {
   UseThreadHistoryResult
 } from "./threadHistory";
 export { fetchThreadTranscript, useThreadHistory } from "./threadHistory";
+export { OXY_TOUCH_TARGETS_ATTRIBUTE, useOxyTouchTargets } from "./touch";
 export type { TraceItem, TraceStep, TraceStepStatus } from "./trace";
 export { buildTraceSteps } from "./trace";
 export { UpdatePill } from "./UpdatePill";
