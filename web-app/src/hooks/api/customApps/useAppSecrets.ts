@@ -1,4 +1,10 @@
-import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { CustomAppsService } from "@/services/api/customApps";
@@ -23,6 +29,32 @@ export function useAppSecrets(id: string | undefined, environment: string = PROD
     enabled: !!id,
     retry: (failures, error) => !isForbidden(error) && failures < 3
   });
+}
+
+/**
+ * How many required secrets each named environment is missing — the "not set in
+ * <env>" view, read where an operator picks the environment rather than one
+ * environment at a time. Each entry is the same query (and cache entry) the
+ * Secrets pane uses for that environment, so switching to one costs nothing more.
+ *
+ * `undefined` for an environment whose count is not known yet, or that the viewer
+ * may not read (403): no count is shown rather than a guessed zero.
+ */
+export function useSecretsGaps(
+  id: string | undefined,
+  environments: string[]
+): Record<string, number | undefined> {
+  const results = useQueries({
+    queries: environments.map((environment) => ({
+      queryKey: queryKeys.customApps.secrets(id ?? "", environment),
+      queryFn: () => CustomAppsService.listSecrets(id as string, environment),
+      enabled: !!id,
+      retry: (failures: number, error: unknown) => !isForbidden(error) && failures < 3
+    }))
+  });
+  return Object.fromEntries(
+    environments.map((environment, i) => [environment, results[i]?.data?.missing_required])
+  );
 }
 
 /**

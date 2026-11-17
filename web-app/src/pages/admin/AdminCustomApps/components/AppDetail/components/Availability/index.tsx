@@ -1,5 +1,9 @@
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
-import { useListedAvailability } from "@/hooks/api/customApps/useCustomApps";
+import {
+  AVAILABILITY_REREAD_SECONDS,
+  useListedAvailability
+} from "@/hooks/api/customApps/useCustomApps";
+import { timeAgo } from "@/libs/utils/date";
 import type { CustomApp } from "@/types/apps";
 import { AvailabilityVerdict } from "./components/AvailabilityVerdict";
 import { AvailabilityWindows } from "./components/AvailabilityWindows";
@@ -27,7 +31,7 @@ type AvailabilityApp = Pick<CustomApp, "id" | "org_slug" | "slug" | "availabilit
  * there is no reading, which says nothing about whether the app is up.
  */
 export const Availability = ({ app }: { app: AvailabilityApp }) => {
-  const { reading: data, isLoading } = useListedAvailability(app);
+  const { reading: data, isLoading, readAt } = useListedAvailability(app);
 
   if (isLoading) {
     return (
@@ -56,6 +60,13 @@ export const Availability = ({ app }: { app: AvailabilityApp }) => {
       <AvailabilityVerdict data={data} />
       <AvailabilityWindows windows={data.windows} />
       <OpenBuildsLine open={data.open_builds} />
+      {/* A reading's age, next to it: re-read on a timer, so a number that has not
+          moved is either a steady app or a re-read that has not happened yet. */}
+      <p className='text-[11px] text-muted-foreground' data-testid='admin-app-availability-read'>
+        {readAt ? `Read ${timeAgo(new Date(readAt).toISOString())} · ` : ""}re-read every{" "}
+        {AVAILABILITY_REREAD_SECONDS === 60 ? "minute" : `${AVAILABILITY_REREAD_SECONDS} seconds`}{" "}
+        from real requests.
+      </p>
     </div>
   );
 };

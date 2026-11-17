@@ -123,7 +123,7 @@ export const LifecycleCard = ({
           data-testid='app-lifecycle-promote'
         >
           <ArrowUpCircle className='size-3.5' />
-          Promote draft
+          Promote to production
         </Button>
       )}
       {canPublish && (
@@ -214,28 +214,32 @@ export const LifecycleCard = ({
       </div>
 
       <dl className='grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs'>
-        <dt className='text-muted-foreground'>Live</dt>
+        {/* "Production" and "Staging", the names the preview toolbar and the publish
+            pipeline use (`published_to: staging`). This card said "Live" and "Draft"
+            for the same two places, so one app was described in two vocabularies a
+            panel apart. */}
+        <dt className='text-muted-foreground'>Production</dt>
         <dd className='min-w-0 truncate' data-testid='app-lifecycle-live'>
           {liveBuild ? (
             <BuildLine build={liveBuild} promoted={lifecycle.lastPromoted} />
           ) : published ? (
             <span className='text-muted-foreground'>Published, no build recorded</span>
           ) : (
-            <span className='text-muted-foreground'>Nothing live — a draft only</span>
+            <span className='text-muted-foreground'>Nothing in production — staging only</span>
           )}
         </dd>
 
-        <dt className='text-muted-foreground'>Draft</dt>
+        <dt className='text-muted-foreground'>Staging</dt>
         <dd className='min-w-0 truncate' data-testid='app-lifecycle-draft'>
           {draftAhead && draftBuild ? (
             <span className='flex items-center gap-1.5'>
               <span className='size-1.5 shrink-0 rounded-full bg-warning' aria-hidden />
               <BuildLine build={draftBuild} />
-              <span className='text-muted-foreground'>· ahead of live</span>
+              <span className='text-muted-foreground'>· ahead of production</span>
             </span>
           ) : (
             <span className='text-muted-foreground'>
-              {draftBuild ? "Same as live" : "No draft"}
+              {draftBuild ? "Same as production" : "Nothing on staging"}
             </span>
           )}
         </dd>

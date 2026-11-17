@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import { useAppLifecycle } from "@/hooks/api/customApps/useAppLifecycle";
 import { timeAgo } from "@/libs/utils/date";
+import { PRODUCTION } from "@/types/appEnvironments";
 import type { CustomApp } from "@/types/apps";
 import { resolveBundleUrl } from "../../resolveBundleUrl";
 import { Activity } from "../AppDetail/components/Activity";
@@ -16,12 +17,14 @@ import { Functions } from "../AppDetail/components/Functions";
 import { Issues, IssuesBadge } from "../AppDetail/components/Issues";
 import { Publishers } from "../AppDetail/components/Publishers";
 import { Releases } from "../AppDetail/components/Releases";
-import { Secrets } from "../AppDetail/components/Secrets";
+import { Secrets, SecretsBadge } from "../AppDetail/components/Secrets";
 import { useAppViewState } from "../AppDetail/useAppViewState";
 import { AppIdentity } from "../AppIdentity";
 import { AppLifecycle, LifecycleVerdictPill } from "../AppLifecycle";
 import { ConsolePanel } from "../ConsolePanel";
 import { AppStoragePanel } from "./AppStoragePanel";
+import { EnvironmentStrip } from "./EnvironmentStrip";
+import { environmentScope } from "./environmentScope";
 import { PreviewCard } from "./PreviewCard";
 import { PublishCiPanel } from "./PublishCiPanel";
 import { TestNotifications } from "./TestNotifications";
@@ -62,6 +65,13 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
   // re-derived one of the two forms and silently picked the wrong one for any app with
   // a subdomain — which `AppInfo`, two panels over, labels "(recommended)".
   const servedAt = app.url_subdomain ?? resolveBundleUrl(app.url);
+  // The environment Functions and Secrets act on, from `?env=` (production when
+  // absent). One value for both panels, set by the strip at the top.
+  const environment = view.env ?? PRODUCTION;
+  const here = environmentScope(environment);
+  const setEnvironment = (next: string) => patch({ env: next === PRODUCTION ? null : next });
+  const followsSwitch = { label: here.label, warn: here.tone === "warn" };
+  const productionOnly = { label: "Production" };
   // An issue names a function; following it lands on that function's history —
   // its own row, not the top of a list that can run to sixty functions.
   const openFunction = (name: string) => {
@@ -76,6 +86,7 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
   return (
     <div className='min-h-0 flex-1 overflow-auto' data-testid='apps-console'>
       <div className='mx-auto w-full max-w-[110rem] p-4 lg:p-6'>
+        <EnvironmentStrip appId={app.id} value={environment} onChange={setEnvironment} />
         <header className='mb-4 flex flex-wrap items-start justify-between gap-3'>
           <div className='flex min-w-0 flex-col gap-1.5'>
             <AppIdentity app={app} size='lg' data-testid='apps-console-identity' />
@@ -141,6 +152,7 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
               id='observability'
               title='Availability & activity'
               question='Q1 — is it broken'
+              scope={productionOnly}
             >
               <div className='flex flex-col gap-3'>
                 <Availability app={app} />
@@ -157,6 +169,7 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
               id='issues'
               title='Issues'
               question='Q1 — what is failing'
+              scope={productionOnly}
               actions={<IssuesBadge appId={app.id} />}
             >
               {/* The list runs edge to edge and owns its gutter. */}
@@ -186,7 +199,12 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
               <AppAccessPane app={app} />
             </ConsolePanel>
 
-            <ConsolePanel id='functions' title='Functions' question='Q1 — what it runs server-side'>
+            <ConsolePanel
+              id='functions'
+              title='Functions'
+              question='Q1 — what it runs server-side'
+              scope={followsSwitch}
+            >
               {/* Through `useAppViewState`, not local state, so `?fn=` means the same
                   thing here as in the popped-out dossier and the preview stage — and a
                   link to one function's manifest, invocation history and Run panel is
@@ -197,11 +215,30 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
                 appId={app.id}
                 selected={view.fn}
                 onSelect={(name) => patch({ fn: name })}
+                environment={environment === PRODUCTION ? undefined : environment}
+                // The canonical subpath URL, which the runtime routes `fn/<name>` under
+                // (`FN_ROUTE`) — not `servedAt`, which may be the app's subdomain. Resolved
+                // against this origin: the API can answer it as a bare path
+                // (`/customer-apps/local/pulse-demo/` on a local stack), which no URL can
+                // be built from, and the function's row then showed no URL at all.
+                appUrl={resolveBundleUrl(app.url)}
+                appRef={app}
               />
             </ConsolePanel>
 
-            <ConsolePanel id='secrets' title='Secrets'>
-              <Secrets appId={app.id} />
+            {/* The badge counts the environment the panel shows, the one its scope chip
+                names; the switch's options carry every other environment's count. */}
+            <ConsolePanel
+              id='secrets'
+              title='Secrets'
+              scope={followsSwitch}
+              actions={<SecretsBadge appId={app.id} environment={environment} />}
+            >
+              <Secrets
+                appId={app.id}
+                environment={environment}
+                onEnvironmentChange={setEnvironment}
+              />
             </ConsolePanel>
 
             {/* Beside Functions: what its `ctx.notify` sends, tried on your own phone

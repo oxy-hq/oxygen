@@ -1,9 +1,20 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ClipboardCopy } from "lucide-react";
 import { useId, useState } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/shadcn/button";
+import { useInvocationCalls } from "@/hooks/api/customApps/useAppFunctions";
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { FunctionInvocation } from "@/types/apps";
 import { InvocationCalls } from "../CallWaterfall/InvocationCalls";
+import { invocationBrief } from "./invocationBrief";
+
+/** Who the brief is about: the app's id and the slugs its `oxyc api` reads take. */
+export interface AppRef {
+  id: string;
+  org_slug: string;
+  slug: string;
+}
 
 /** Tooltip on a `success` the platform counted as a failure. */
 const FAILED_SUCCESS_HINT =
@@ -21,10 +32,35 @@ function invocationTone(iv: Pick<FunctionInvocation, "status" | "failed">): stri
 
 /** One invocation in a function's history. The whole line toggles its call
  *  waterfall, which is fetched only once opened. */
-export const InvocationRow = ({ appId, iv }: { appId: string; iv: FunctionInvocation }) => {
+export const InvocationRow = ({
+  appId,
+  iv,
+  fn,
+  appRef
+}: {
+  appId: string;
+  iv: FunctionInvocation;
+  /** The function's name, for the brief. */
+  fn?: string;
+  /** When given, a failed row offers "Copy for an agent". */
+  appRef?: AppRef;
+}) => {
   const [open, setOpen] = useState(false);
   const callsId = useId();
   const failedSuccess = iv.status === "success" && iv.failed;
+  // The same query (and cache entry) as the waterfall below, enabled with it, so the
+  // brief carries the failed calls once the row is open and costs no extra request.
+  const calls = useInvocationCalls(appId, iv.id, open);
+  const copyBrief = async () => {
+    if (!appRef || !fn) return;
+    try {
+      await navigator.clipboard.writeText(invocationBrief(appRef, fn, iv, calls.data));
+      toast.success("Invocation copied");
+    } catch (err) {
+      console.error("Could not copy the invocation", err);
+      toast.error("Could not copy the invocation");
+    }
+  };
   return (
     <li
       className='border-border/40 border-b last:border-b-0'
@@ -88,6 +124,20 @@ export const InvocationRow = ({ appId, iv }: { appId: string; iv: FunctionInvoca
             </pre>
           )}
           <InvocationCalls appId={appId} invocationId={iv.id} />
+          {iv.failed && appRef && fn && (
+            <div>
+              <Button
+                variant='outline'
+                size='sm'
+                className='h-6 gap-1.5 px-2 text-xs'
+                onClick={copyBrief}
+                data-testid='admin-app-invocation-copy'
+              >
+                <ClipboardCopy className='size-3' />
+                Copy for an agent
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </li>

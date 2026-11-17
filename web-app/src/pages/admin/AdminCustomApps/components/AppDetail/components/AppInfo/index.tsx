@@ -71,6 +71,13 @@ export const AppInfo = ({ app }: { app: CustomApp }) => {
 
             {/* URLs — what to share with the customer or use in iframes. */}
             <Section title='URLs'>
+              {/* What an operator copying these needs to know: they are built from the
+                  slugs, so a slug change moves every link (and is refused while the app
+                  has an OLTP store, `handlers.rs`), and they serve production. */}
+              <p className='text-muted-foreground text-xs' data-testid='admin-app-urls-help'>
+                Built from the org and app slugs, so renaming the app&rsquo;s slug changes both.
+                Both serve production; staging and sandboxes have hosts of their own.
+              </p>
               <UrlRow label='Subpath' url={app.url} />
               {app.url_subdomain && (
                 <UrlRow label='Subdomain' url={app.url_subdomain} recommended absolute />

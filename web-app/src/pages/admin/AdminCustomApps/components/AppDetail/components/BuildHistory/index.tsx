@@ -1,6 +1,10 @@
 import { Badge } from "@/components/ui/shadcn/badge";
 import { useAppBuilds } from "@/hooks/api/customApps/useAppBuilds";
+import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
+import type { AppBuild } from "@/types/apps";
 import { shortBuildId } from "../../../AppLifecycle/lifecycleCopy";
+import { environmentLabel } from "../Secrets/environmentLabel";
 import { IncompleteSource, SourceLink } from "./SourceLink";
 
 const RTF = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
@@ -32,7 +36,7 @@ function timeAgo(iso: string): string {
  * A list and nothing more. It used to carry the live/draft channel cards and a
  * "Make live" button per row, which made it one of four places a pointer move could
  * be made under three different names; the `AppLifecycle` card above it owns those
- * verbs now ("Promote draft", "Roll back to…"), and this is the ledger they choose
+ * verbs now ("Promote to production", "Roll back to…"), and this is the ledger they choose
  * from. Empty for legacy rows never published via `oxyc publish`.
  */
 export const BuildHistory = ({ appId }: { appId: string }) => {
@@ -68,12 +72,13 @@ export const BuildHistory = ({ appId }: { appId: string }) => {
                 <span className='font-mono text-xs' title={b.build_id}>
                   {shortBuildId(b.build_id)}
                 </span>
-                {b.is_published && <Badge className='h-5'>Live</Badge>}
+                {b.is_published && <Badge className='h-5'>Production</Badge>}
                 {b.is_draft && !b.is_published && (
                   <Badge variant='secondary' className='h-5'>
-                    Draft
+                    Staging
                   </Badge>
                 )}
+                <ValidationBadge build={b} />
               </div>
               <span
                 className='truncate text-muted-foreground text-xs'
@@ -81,16 +86,54 @@ export const BuildHistory = ({ appId }: { appId: string }) => {
               >
                 {timeAgo(b.created_at)}
                 {b.published_by_email ? ` · ${b.published_by_email}` : ""}
+                {b.published_to
+                  ? ` · published to ${environmentLabel(b.published_to).toLowerCase()}`
+                  : ""}
               </span>
               {b.source_repo?.trim() && b.commit_sha?.trim() ? (
                 <SourceLink repo={b.source_repo} sha={b.commit_sha} branch={b.source_branch} />
               ) : (
                 <IncompleteSource repo={b.source_repo} sha={b.commit_sha} />
               )}
+              {b.validation_status === "failed" && b.validation_detail && (
+                <p
+                  className={cn("whitespace-pre-wrap break-words text-xs", ADMIN_TONE.danger.text)}
+                  data-testid={`admin-app-build-validation-detail-${shortBuildId(b.build_id)}`}
+                >
+                  {b.validation_detail}
+                </p>
+              )}
             </div>
           </li>
         ))}
       </ul>
     </div>
+  );
+};
+
+/**
+ * Whether production may take this build, said only when it may not. Production
+ * refuses a build whose validation has not passed (`validation_not_passed`), and
+ * this list is what a rollback chooses from, so a build it cannot choose says so
+ * here rather than at the confirm. A passed build carries no badge: that is every
+ * build that ever served, and badging them all would hide the one that matters.
+ */
+const ValidationBadge = ({ build }: { build: AppBuild }) => {
+  const status = build.validation_status;
+  if (!status || status === "passed") return null;
+  const failed = status === "failed";
+  return (
+    <span
+      className={cn(
+        "rounded-sm px-1.5 py-px font-medium text-[10px]",
+        failed
+          ? cn(ADMIN_TONE.danger.bg, ADMIN_TONE.danger.text)
+          : cn(ADMIN_TONE.muted.bg, ADMIN_TONE.muted.text)
+      )}
+      title={build.validation_detail ?? undefined}
+      data-testid={`admin-app-build-validation-${shortBuildId(build.build_id)}`}
+    >
+      {failed ? "Validation failed" : "Validating"}
+    </span>
   );
 };

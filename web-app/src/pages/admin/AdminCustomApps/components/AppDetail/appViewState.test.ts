@@ -129,8 +129,35 @@ describe("writeAppViewState", () => {
       channel: "draft",
       section: "builds",
       fn: "syncOrders",
-      preview: "/x?a=1"
+      preview: "/x?a=1",
+      env: null
     });
+  });
+});
+
+describe("the environment", () => {
+  it("reads a sandbox or staging by name, and production as no param", () => {
+    expect(readAppViewState(params("env=staging"), published).env).toBe("staging");
+    expect(readAppViewState(params("env=dev-luong"), published).env).toBe("dev-luong");
+    expect(readAppViewState(params(""), published).env).toBeNull();
+    // Named production is the default spelled out: the same answer as no param.
+    expect(readAppViewState(params("env=production"), published).env).toBeNull();
+  });
+
+  it("reads a name `oxyc env` could not have made as production, not as a name to send", () => {
+    for (const bad of ["Staging", "../prod", "dev luong", "-x", "a".repeat(64)]) {
+      expect(readAppViewState(params(`env=${encodeURIComponent(bad)}`), published).env).toBeNull();
+    }
+  });
+
+  it("keeps production out of the URL and every other environment in it", () => {
+    expect(writeAppViewState(params("fn=ingest"), { env: "staging" }, published).toString()).toBe(
+      "fn=ingest&env=staging"
+    );
+    expect(
+      writeAppViewState(params("env=staging"), { env: "production" }, published).toString()
+    ).toBe("");
+    expect(writeAppViewState(params("env=staging"), { env: null }, published).toString()).toBe("");
   });
 });
 

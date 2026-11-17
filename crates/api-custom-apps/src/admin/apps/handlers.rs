@@ -1209,6 +1209,9 @@ pub async fn list_builds(Path(id): Path<Uuid>) -> Result<Json<BuildHistoryRespon
             source_repo: b.source_repo,
             commit_sha: b.commit_sha,
             source_branch: b.source_branch,
+            validation_status: b.validation_status,
+            validation_detail: b.validation_detail,
+            published_to: b.published_to,
         })
         .collect();
     Ok(Json(BuildHistoryResponse {

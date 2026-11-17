@@ -59,13 +59,13 @@ describe("LifecycleCard — what is live", () => {
     expect(screen.getByTestId("app-lifecycle-live").textContent).toContain("aaaaaaa");
     expect(screen.getByTestId("app-lifecycle-live").textContent).toContain("ops@oxy.tech");
     expect(screen.getByTestId("app-lifecycle-draft").textContent).toContain("bbbbbbb");
-    expect(screen.getByTestId("app-lifecycle-draft").textContent).toContain("ahead of live");
+    expect(screen.getByTestId("app-lifecycle-draft").textContent).toContain("ahead of production");
     expect(screen.getByTestId("app-lifecycle-held").textContent).toBe("2 writes held on staging");
   });
 
   it("says the draft is the live build when nothing is ahead", () => {
     renderCard(lifecycle({ draftAhead: false }));
-    expect(screen.getByTestId("app-lifecycle-draft").textContent).toBe("Same as live");
+    expect(screen.getByTestId("app-lifecycle-draft").textContent).toBe("Same as production");
     expect(screen.queryByTestId("app-lifecycle-promote")).toBeNull();
   });
 

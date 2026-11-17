@@ -3,24 +3,33 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CustomAppsService } from "@/services/api/customApps";
 import queryKeys from "../queryKey";
 
-/** The app's Oxy Functions (active build) + their manifest config. */
-export function useAppFunctions(id: string | undefined) {
+/** The app's Oxy Functions + their manifest config, in one environment: the
+ *  build it serves. `undefined` (and `"production"`) is production. */
+export function useAppFunctions(id: string | undefined, environment?: string) {
+  const env = scoped(environment);
   return useQuery({
-    queryKey: queryKeys.customApps.functions(id ?? ""),
-    queryFn: () => CustomAppsService.listFunctions(id as string),
+    queryKey: queryKeys.customApps.functions(id ?? "", env),
+    queryFn: () => CustomAppsService.listFunctions(id as string, env),
     enabled: !!id
   });
 }
+
+/** Production is the unscoped key and request, so a caller that names it and one
+ *  that does not share one cache entry. */
+const scoped = (environment: string | undefined) =>
+  environment && environment !== "production" ? environment : undefined;
 
 /** Recent invocation history for one function. Enabled only when opened. */
 export function useFunctionInvocations(
   id: string | undefined,
   name: string | undefined,
-  enabled: boolean
+  enabled: boolean,
+  environment?: string
 ) {
+  const env = scoped(environment);
   return useQuery({
-    queryKey: queryKeys.customApps.functionInvocations(id ?? "", name ?? ""),
-    queryFn: () => CustomAppsService.listFunctionInvocations(id as string, name as string),
+    queryKey: queryKeys.customApps.functionInvocations(id ?? "", name ?? "", env),
+    queryFn: () => CustomAppsService.listFunctionInvocations(id as string, name as string, env),
     enabled: !!id && !!name && enabled
   });
 }
@@ -81,11 +90,22 @@ export function invocationCallsPollMs(reason: string | null): number | false {
 export function useRunFunction() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name, input }: { id: string; name: string; input?: unknown }) =>
-      CustomAppsService.runFunction(id, name, input),
-    onSuccess: (_data, { id, name }) => {
+    mutationFn: ({
+      id,
+      name,
+      input,
+      environment
+    }: {
+      id: string;
+      name: string;
+      input?: unknown;
+      /** Where to run it: the build that environment serves, on its data.
+       *  `undefined` is production. */
+      environment?: string;
+    }) => CustomAppsService.runFunction(id, name, input, scoped(environment)),
+    onSuccess: (_data, { id, name, environment }) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.customApps.functionInvocations(id, name)
+        queryKey: queryKeys.customApps.functionInvocations(id, name, scoped(environment))
       });
     }
   });

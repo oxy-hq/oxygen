@@ -395,6 +395,15 @@ pub struct BuildSummary {
     pub source_repo: Option<String>,
     pub commit_sha: Option<String>,
     pub source_branch: Option<String>,
+    /// Bundle validation: `passed` | `pending` | `failed`. Production refuses a
+    /// build that has not passed (`validation_not_passed`), so the ledger a
+    /// rollback chooses from says which builds it may choose.
+    pub validation_status: String,
+    /// Why validation failed, when it did.
+    pub validation_detail: Option<String>,
+    /// The environment the publish moved first: `staging` for a channel publish,
+    /// `dev-<handle>` for one to a sandbox. `None` for builds older than the column.
+    pub published_to: Option<String>,
 }
 
 /// `GET /{id}/builds` response: the build history plus who last promoted a

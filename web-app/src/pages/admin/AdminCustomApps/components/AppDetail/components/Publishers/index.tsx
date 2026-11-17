@@ -191,6 +191,17 @@ const RegisterForm = ({ appId, onDone }: { appId: string; onDone: () => void }) 
               required: "Required — the environment the publish job runs in"
             })}
           />
+          {/* Oxy has no approval step of its own before a publish; GitHub's environment
+              protection is where one goes, and this field is what ties the two. The
+              token's git ref is not compared (see the workflow field), so branch limits
+              belong there too. */}
+          <span
+            className='text-muted-foreground text-xs'
+            data-testid='admin-app-publisher-environment-help'
+          >
+            To require a reviewer or limit which branches publish, protect this environment in the
+            repo&rsquo;s GitHub settings.
+          </span>
         </Field>
       </div>
       <Field id='publisher-workflow' label='Workflow path' error={errors.workflow_ref?.message}>

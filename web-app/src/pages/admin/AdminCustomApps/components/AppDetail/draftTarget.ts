@@ -61,7 +61,7 @@ export function draftTarget(
  * an unpromoted app.
  *
  * The switch used to read Published / Draft / Live — the same words the lifecycle
- * card uses for *actions* (Promote draft, Unpublish, Roll back). It is a view switch:
+ * card uses for *actions* (Promote to production, Unpublish, Roll back). It is a view switch:
  * it chooses what the iframe frames and flips nothing server-side. So its controls now
  * say where they look — Production or Staging — and the lifecycle words stay with the
  * verbs that move pointers.

@@ -10,6 +10,7 @@ import { EnvironmentPicker } from "./EnvironmentPicker";
 import { environmentLabel, STAGING } from "./environmentLabel";
 import { SecretRow } from "./SecretRow";
 import { SetSecretDialog } from "./SetSecretDialog";
+import { isUnset } from "./secretState";
 
 /**
  * The AppDetail "Secrets" section: every key this app needs, and whether it has
@@ -31,10 +32,29 @@ import { SetSecretDialog } from "./SetSecretDialog";
  * Rows a person has to act on come first and are the only coloured thing here.
  * A healthy key carries no badge at all: badging every row is what stops the
  * broken one from standing out.
+ *
+ * The environment is the pane's own (its picker) in the dossier, and the console's
+ * on `/admin/apps/:org/:app`, where one switcher scopes Functions and Secrets
+ * together: there the pane shows no picker of its own, so the two panels cannot be
+ * on different environments.
  */
-export const Secrets = ({ appId }: { appId: string }) => {
+export const Secrets = ({
+  appId,
+  environment: controlled,
+  onEnvironmentChange
+}: {
+  appId: string;
+  /** The console's environment. When given, the pane follows it and shows no picker. */
+  environment?: string;
+  onEnvironmentChange?: (environment: string) => void;
+}) => {
   /** Whose secrets are shown and written: production unless the picker moved. */
-  const [environment, setEnvironment] = useState(PRODUCTION);
+  const [own, setOwn] = useState(PRODUCTION);
+  const environment = controlled ?? own;
+  const setEnvironment = (next: string) =>
+    controlled !== undefined ? onEnvironmentChange?.(next) : setOwn(next);
+  /** Show only keys with no value here and none to inherit. */
+  const [unsetOnly, setUnsetOnly] = useState(false);
   const secrets = useAppSecrets(appId, environment);
   // Which keys production stores, for the rows of another environment: the
   // same query (and cache entry) as the section badge, so no extra request.
@@ -63,6 +83,7 @@ export const Secrets = ({ appId }: { appId: string }) => {
     environment !== STAGING &&
     !!environments.data &&
     !environments.data.some((e) => e.name === environment && e.status !== "deleting");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires on the sandbox going, not on every render's new setter
   useEffect(() => {
     if (!sandboxGone) return;
     setEditing(null);
@@ -71,7 +92,9 @@ export const Secrets = ({ appId }: { appId: string }) => {
 
   return (
     <div className='flex flex-col gap-2' data-testid='admin-app-secrets'>
-      <EnvironmentPicker appId={appId} value={environment} onChange={switchTo} />
+      {controlled === undefined && (
+        <EnvironmentPicker appId={appId} value={environment} onChange={switchTo} />
+      )}
 
       {refused ? (
         <NonProductionRefused environment={environment} onBack={() => switchTo(PRODUCTION)} />
@@ -81,27 +104,44 @@ export const Secrets = ({ appId }: { appId: string }) => {
               fails: setting a key is exactly what an operator may be here to do, and the
               declaration list is not needed to do it. */}
           <AdminAsync query={secrets} noun='this app&rsquo;s secrets' rows={2}>
-            {(data) => (
-              <>
-                {data.declaration_error && <DeclarationError message={data.declaration_error} />}
-                {data.entries.length === 0 ? (
-                  <EmptyState />
-                ) : (
-                  <ul className='flex flex-col gap-1.5' data-testid='admin-app-secrets-list'>
-                    {data.entries.map((entry) => (
-                      <SecretRow
-                        key={entry.key}
-                        appId={appId}
-                        environment={environment}
-                        entry={entry}
-                        productionHolds={productionKeys?.has(entry.key)}
-                        onSet={() => setEditing({ key: entry.key, stored: entry.is_set })}
+            {(data) => {
+              const unset = data.entries.filter((e) => isUnset(e, productionKeys?.has(e.key)));
+              const shown = unsetOnly ? unset : data.entries;
+              return (
+                <>
+                  {data.declaration_error && <DeclarationError message={data.declaration_error} />}
+                  {/* Only when it narrows something: with nothing unset, or everything
+                    unset, the toggle would select the list it is already showing. */}
+                  {unset.length > 0 && unset.length < data.entries.length && (
+                    <label className='flex items-center gap-1.5 self-start text-muted-foreground text-xs'>
+                      <input
+                        type='checkbox'
+                        checked={unsetOnly}
+                        onChange={(e) => setUnsetOnly(e.target.checked)}
+                        data-testid='admin-app-secrets-unset-only'
                       />
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
+                      Unset only ({unset.length} of {data.entries.length})
+                    </label>
+                  )}
+                  {data.entries.length === 0 ? (
+                    <EmptyState />
+                  ) : (
+                    <ul className='flex flex-col gap-1.5' data-testid='admin-app-secrets-list'>
+                      {shown.map((entry) => (
+                        <SecretRow
+                          key={entry.key}
+                          appId={appId}
+                          environment={environment}
+                          entry={entry}
+                          productionHolds={productionKeys?.has(entry.key)}
+                          onSet={() => setEditing({ key: entry.key, stored: entry.is_set })}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </>
+              );
+            }}
           </AdminAsync>
 
           <div>
@@ -197,11 +237,19 @@ const DeclarationError = ({ message }: { message: string }) => (
  * every healthy app, and it would sit beside seven other sections that show no
  * badge at all.
  */
-export const SecretsBadge = ({ appId }: { appId: string }) => {
-  // Production's count, whatever the pane's picker shows: the badge answers "is
-  // the live app missing something", and a sandbox someone is still filling in
-  // must not raise it on every viewer's collapsed section.
-  const { data } = useAppSecrets(appId, PRODUCTION);
+export const SecretsBadge = ({
+  appId,
+  environment = PRODUCTION
+}: {
+  appId: string;
+  /** Whose count. The dossier leaves it at production: its badge answers "is the
+   *  live app missing something", and a sandbox someone is still filling in must
+   *  not raise it on every viewer's collapsed section, whatever its picker shows.
+   *  The console passes its environment, because there the badge sits beside a
+   *  scope chip naming that environment and must count the list under it. */
+  environment?: string;
+}) => {
+  const { data } = useAppSecrets(appId, environment);
   if (!data?.missing_required) return null;
   return (
     <span

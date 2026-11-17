@@ -8,6 +8,7 @@ import { relativeTime } from "@/pages/admin/utils";
 import { CustomAppsService } from "@/services/api/customApps";
 import type { AppSecretEntry } from "@/types/apps";
 import { CopyFrom } from "./CopyFrom";
+import { inheritsFrom } from "./secretState";
 
 /**
  * One key. Four states, and only one of them is loud:
@@ -131,22 +132,6 @@ export const SecretRow = ({
     </li>
   );
 };
-
-/** Which environment's value a run reads for a key stored nowhere here — in
- *  the order the server resolves `ctx.env`: staging's before production's.
- *  The server's `inherits_production` says only that the key is shared and
- *  unset here; when production is known to hold no value either, a run reads
- *  nothing, so the row is missing rather than inherited. */
-function inheritsFrom(
-  entry: AppSecretEntry,
-  productionHolds: boolean | undefined
-): "staging" | "production" | "workspace" | null {
-  if (entry.is_set) return null;
-  if (entry.shared_from_workspace) return "workspace";
-  if (entry.inherits_staging) return "staging";
-  if (entry.inherits_production && productionHolds !== false) return "production";
-  return null;
-}
 
 const StateBadge = ({
   tone,

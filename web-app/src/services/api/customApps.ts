@@ -44,6 +44,12 @@ const appSecretWrite = (status: number): AppSecretWrite => (status === 201 ? "cr
  */
 const appPath = (id: string) => `/customer-apps/${encodeURIComponent(id)}`;
 
+/** `?environment=` for an environment-scoped read or run. Production is sent as no
+ *  param at all, which is what every one of these endpoints already means by it. */
+function environmentParams(environment: string | undefined): { environment?: string } {
+  return environment && environment !== "production" ? { environment } : {};
+}
+
 export const CustomAppsService = {
   /**
    * Fleet health — every published app the caller can see, worst first.
@@ -193,16 +199,26 @@ export const CustomAppsService = {
 
   // ── Oxy Functions (manage / debug) ─────────────────────────────────────────
 
-  /** The app's Oxy Functions in its active build, with their manifest config. */
-  async listFunctions(id: string): Promise<AppFunctionSummary[]> {
-    const response = await apiClient.get(`${appPath(id)}/functions`);
+  /** The app's Oxy Functions with their manifest config: the active build's, or
+   *  the build `environment` serves (`staging`, a sandbox) when one is named.
+   *  `undefined` is production, the server's own default. */
+  async listFunctions(id: string, environment?: string): Promise<AppFunctionSummary[]> {
+    const response = await apiClient.get(`${appPath(id)}/functions`, {
+      params: environmentParams(environment)
+    });
     return response.data;
   },
 
-  /** Recent invocations of one function (newest first), for the debug history. */
-  async listFunctionInvocations(id: string, name: string): Promise<FunctionInvocation[]> {
+  /** Recent invocations of one function (newest first), for the debug history,
+   *  in one environment (production when none is named). */
+  async listFunctionInvocations(
+    id: string,
+    name: string,
+    environment?: string
+  ): Promise<FunctionInvocation[]> {
     const response = await apiClient.get(
-      `${appPath(id)}/functions/${encodeURIComponent(name)}/invocations`
+      `${appPath(id)}/functions/${encodeURIComponent(name)}/invocations`,
+      { params: environmentParams(environment) }
     );
     return response.data;
   },
@@ -227,11 +243,19 @@ export const CustomAppsService = {
   /** Trigger a one-off background run of a function as a job, optionally with
    *  JSON input params handed to the function as its request body. Returns the
    *  run id to watch via `getFunctionRun`. */
-  async runFunction(id: string, name: string, input?: unknown): Promise<{ run_id: string }> {
+  async runFunction(
+    id: string,
+    name: string,
+    input?: unknown,
+    environment?: string
+  ): Promise<{ run_id: string }> {
     const response = await apiClient.post(
       `${appPath(id)}/functions/${encodeURIComponent(name)}/runs`,
       // `undefined` → axios sends no body → the function runs with no params.
-      input ?? undefined
+      input ?? undefined,
+      // No environment is production, as the server reads it; a named one runs
+      // the build that environment serves, against its own data.
+      { params: environmentParams(environment) }
     );
     return response.data;
   },

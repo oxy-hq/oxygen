@@ -4,6 +4,7 @@ import { useAppFunctions } from "@/hooks/api/customApps/useAppFunctions";
 import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import type { AppFunctionSummary } from "@/types/apps";
 import { FunctionDetail } from "./FunctionDetail";
+import type { AppRef } from "./InvocationRow";
 
 /**
  * The AppDetail "Functions" section: the app's Oxy Functions in its active
@@ -14,14 +15,25 @@ import { FunctionDetail } from "./FunctionDetail";
 export const Functions = ({
   appId,
   selected,
-  onSelect
+  onSelect,
+  environment,
+  appUrl,
+  appRef
 }: {
   appId: string;
+  /** When given, a failed invocation offers "Copy for an agent". */
+  appRef?: AppRef;
   /** `?fn=` from the admin URL — the open function, or none. */
   selected: string | null;
   onSelect: (name: string | null) => void;
+  /** The environment whose build is listed and where Run now runs. `undefined`
+   *  is production, the server's own default. */
+  environment?: string;
+  /** The app's canonical URL (`<base>/customer-apps/<org>/<app>/`), which a
+   *  route function is served under as `fn/<name>`. Omit where it is unknown. */
+  appUrl?: string;
 }) => {
-  const functions = useAppFunctions(appId);
+  const functions = useAppFunctions(appId, environment);
 
   return (
     <AdminAsync
@@ -45,6 +57,9 @@ export const Functions = ({
               fn={fn}
               selected={selected}
               onSelect={onSelect}
+              environment={environment}
+              appUrl={appUrl}
+              appRef={appRef}
             />
           ))}
         </ul>
@@ -63,12 +78,18 @@ const FunctionRow = ({
   appId,
   fn,
   selected,
-  onSelect
+  onSelect,
+  environment,
+  appUrl,
+  appRef
 }: {
   appId: string;
+  appRef?: AppRef;
   fn: AppFunctionSummary;
   selected: string | null;
   onSelect: (name: string | null) => void;
+  environment?: string;
+  appUrl?: string;
 }) => {
   const open = selected === fn.name;
   const setOpen = () => onSelect(open ? null : fn.name);
@@ -91,7 +112,15 @@ const FunctionRow = ({
           <SurfaceBadges fn={fn} />
         </div>
       </button>
-      {open && <FunctionDetail appId={appId} fn={fn} />}
+      {open && (
+        <FunctionDetail
+          appId={appId}
+          fn={fn}
+          environment={environment}
+          appUrl={appUrl}
+          appRef={appRef}
+        />
+      )}
     </li>
   );
 };
@@ -113,6 +142,15 @@ const SurfaceBadges = ({ fn }: { fn: AppFunctionSummary }) => (
     {fn.airway && (
       <Badge variant='secondary' className='h-5'>
         Airway
+      </Badge>
+    )}
+    {fn.check && (
+      <Badge
+        variant='secondary'
+        className='h-5'
+        title='Marked "check": true — run by oxyc checks run'
+      >
+        Check
       </Badge>
     )}
     {fn.secrets_write && (

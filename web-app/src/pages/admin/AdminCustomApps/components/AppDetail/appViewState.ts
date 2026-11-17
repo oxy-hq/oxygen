@@ -53,7 +53,24 @@ export interface AppViewState {
    * stays legible in the admin URL bar.
    */
   preview: string | null;
+  /**
+   * The environment the console's environment-scoped panels act on (functions,
+   * their runs and invocations, secrets): `production`, `staging`, or a sandbox's
+   * name. `null` is production, which is also what every endpoint means by no
+   * `?environment=`, so a link without the param and the console's default agree.
+   *
+   * In the URL rather than per panel because "staging, function `ingest`, Run now"
+   * is a place to send someone — and because a console where Secrets showed staging
+   * while Functions ran production was two answers to "where am I acting?".
+   */
+  env: string | null;
 }
+
+/** An environment name as `oxyc env` creates one: lowercase, digits and dashes.
+ *  Anything else is a hand-edited URL, and is read as production rather than sent
+ *  to the server as a name it will refuse. */
+const ENVIRONMENT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const PRODUCTION_ENV = "production";
 
 const DEVICES: readonly Device[] = ["desktop", "tablet", "mobile"];
 const SECTIONS: readonly SectionId[] = [
@@ -78,7 +95,8 @@ const PARAM = {
   channel: "channel",
   section: "section",
   fn: "fn",
-  preview: "preview"
+  preview: "preview",
+  env: "env"
 } as const;
 
 /**
@@ -101,6 +119,7 @@ export function readAppViewState(
   const section = params.get(PARAM.section);
   const fn = params.get(PARAM.fn);
   const preview = params.get(PARAM.preview);
+  const env = params.get(PARAM.env);
 
   return {
     device: DEVICES.includes(device as Device) ? (device as Device) : "desktop",
@@ -110,7 +129,8 @@ export function readAppViewState(
     // Must stay a path within the app. An absolute URL here would let a link
     // point the preview at any origin, which is a redirect the admin console
     // would be lending its frame to.
-    preview: preview?.startsWith("/") && !preview.startsWith("//") ? preview : null
+    preview: preview?.startsWith("/") && !preview.startsWith("//") ? preview : null,
+    env: env && env !== PRODUCTION_ENV && ENVIRONMENT_NAME.test(env) ? env : null
   };
 }
 
@@ -145,6 +165,8 @@ export function writeAppViewState(
     // "/" is the app's own root — the state a fresh preview is already in.
     set(PARAM.preview, patch.preview ?? null, patch.preview === "/");
   }
+  // Production is the default, so it never lands in the URL.
+  if ("env" in patch) set(PARAM.env, patch.env ?? null, patch.env === PRODUCTION_ENV);
   return next;
 }
 

@@ -15,9 +15,13 @@ vi.mock("@/hooks/api/customApps/useAppFunctions", () => ({
   useFunctionInvocations: () => ({ isLoading: false, data: invocations }),
   useRunFunction: () => ({ mutate: vi.fn(), isPending: false }),
   useFunctionRun: () => ({ data: undefined }),
-  useInvocationCalls: (_app: string, invocationId: string) => {
-    callsAsked.push(invocationId);
-    return { isPending: false, isError: false, data: TRACE };
+  // Honours `enabled` the way React Query does: a disabled query asks for nothing.
+  // The row mounts the hook closed (its "Copy for an agent" reads the same cache
+  // entry once open), so a mock that recorded every call would see a request no
+  // network ever made.
+  useInvocationCalls: (_app: string, invocationId: string, enabled = true) => {
+    if (enabled) callsAsked.push(invocationId);
+    return { isPending: false, isError: false, data: enabled ? TRACE : undefined };
   }
 }));
 

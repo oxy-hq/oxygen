@@ -65,6 +65,42 @@ export const PublishCiPanel = ({ app }: { app: CustomApp }) => {
             A token secret is the fallback where OIDC is not available.
           </p>
         </div>
+
+        {/* Where a publish goes and what refuses a move to production, stated where CI
+            is set up. A publish lands on staging. `--promote` (`channel=published`, which
+            a publish token may send) moves production too, in the same request, right
+            after staging. Every production move passes
+            `custom_apps_promote::production::admissible`: staging served the build, and
+            its validation passed. Only the plan routes, Promote to production and
+            rollback (also `oxyc promote` and `oxyc rollback`), run all of
+            `custom_apps_promote/blockers.rs`, which adds required secrets and unconfirmed
+            schedule retirements. A promoting publish checks neither
+            (`custom_apps_publish::set_pointers`). */}
+        <div
+          className='space-y-1 border-border/60 border-t pt-2'
+          data-testid='apps-console-ci-gates'
+        >
+          <p className='text-muted-foreground text-xs'>
+            A publish lands on <span className='text-foreground'>staging</span>. With{" "}
+            <code className='font-mono'>--promote</code> it moves production too, straight from CI.
+            Production also moves by Promote to production or a rollback.
+          </p>
+          <p className='text-muted-foreground text-xs'>
+            Every move to production refuses a build that:
+          </p>
+          <ul className='list-disc space-y-0.5 pl-4 text-muted-foreground text-xs'>
+            <li>staging never served (a promoting publish serves it on staging first);</li>
+            <li>has not passed validation.</li>
+          </ul>
+          <p className='text-muted-foreground text-xs'>
+            Promote to production and a rollback also refuse one that:
+          </p>
+          <ul className='list-disc space-y-0.5 pl-4 text-muted-foreground text-xs'>
+            <li>declares a required secret production has no value for (a rollback only warns);</li>
+            <li>would retire a schedule nobody confirmed.</li>
+          </ul>
+          <p className='text-muted-foreground text-xs'>A promoting publish checks neither.</p>
+        </div>
       </div>
     </ConsolePanel>
   );

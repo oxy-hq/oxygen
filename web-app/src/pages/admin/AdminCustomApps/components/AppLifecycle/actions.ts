@@ -37,7 +37,7 @@ export interface PlannedMove {
 }
 
 /**
- * The staff console's verbs. Promote draft and roll back are production moves made
+ * The staff console's verbs. Promote to production and roll back are production moves made
  * through the plan routes `oxyc promote` and `oxyc rollback` call, acting on the plan
  * the confirm showed (`planned`): they are refused on the same blockers, register and
  * retire schedules as those do, and refuse a plan production moved past since it was

@@ -12,8 +12,8 @@
 # `published_at` set (crates/app/src/cli/commands/seed_apps.rs). So on this
 # fixture the card offers Unpublish (published) and then Publish (a pointer
 # move of the draft onto the live channel — the same `POST
-# /customer-apps/{id}/publish` the Promote draft verb calls), and never
-# "Promote draft" (nothing is ahead of live) nor "Roll back to…" (no retained
+# /customer-apps/{id}/publish` the Promote to production verb calls), and never
+# "Promote to production" (nothing is ahead of production) nor "Roll back to…" (no retained
 # build that is not live). Those two verbs are covered by
 # `AppLifecycle/LifecycleCard.test.tsx`; do not loosen this flow to "a
 # promote-ish button exists" to pretend otherwise. If a second build is ever
@@ -86,7 +86,7 @@ cases:
           The page is the oxy-starter app's console under /admin/apps. One
           lifecycle card is visible with a status pill (any of Published,
           Operational, Quiet, Not measured, Serving, No data — but NOT Draft),
-          a "Live" line naming a short build id, and an Unpublish control. No
+          a "Production" line naming a short build id, and an Unpublish control. No
           confirmation dialog is open, and no Publish control is visible. No
           error banner or blank screen.
 

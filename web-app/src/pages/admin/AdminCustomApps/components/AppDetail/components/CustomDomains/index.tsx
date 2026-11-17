@@ -88,6 +88,13 @@ export const CustomDomains = ({ appId }: { appId: string }) => {
           {add.isPending ? "Adding…" : "Add domain"}
         </Button>
       </form>
+      {/* What adding one does, said before it is done (`custom_domain_host.rs`:
+          a custom domain is read as production). The form gave no hint, so "will
+          staging move to it?" was answered only by trying. */}
+      <p className='text-muted-foreground text-xs' data-testid='admin-app-domain-help'>
+        A custom domain serves production only. Staging and sandboxes stay on their platform hosts,
+        and the app&rsquo;s existing URLs keep working.
+      </p>
 
       <LifecycleConfirm
         testId='admin-app-domain-confirm'

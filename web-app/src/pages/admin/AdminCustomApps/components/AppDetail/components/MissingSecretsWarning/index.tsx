@@ -11,7 +11,7 @@ import { environmentLabel } from "../Secrets/environmentLabel";
  * webhook answering 401 to every delivery is the failure this exists to name.
  *
  * Said where no plan is read: a first publish. The
- * console's Promote draft and Roll back confirm on the move's plan instead, where
+ * console's Promote to production and Roll back confirm on the move's plan instead, where
  * `required_secrets_unset` blocks a promote (as it refuses `oxyc promote`) and a
  * rollback only warns.
  *

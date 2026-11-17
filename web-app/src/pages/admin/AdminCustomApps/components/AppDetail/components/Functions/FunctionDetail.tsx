@@ -3,8 +3,12 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/shadcn/button";
 import { useFunctionInvocations, useRunFunction } from "@/hooks/api/customApps/useAppFunctions";
+import { PRODUCTION } from "@/types/appEnvironments";
 import type { AppFunctionSummary } from "@/types/apps";
-import { InvocationRow } from "./InvocationRow";
+import { CopyButton } from "../../../UrlActions";
+import { environmentLabel } from "../Secrets/environmentLabel";
+import { functionUrl } from "./functionUrl";
+import { type AppRef, InvocationRow } from "./InvocationRow";
 import { RunPanel } from "./RunPanel";
 
 /** How many invocations to show before "Show more" (the endpoint returns up to
@@ -13,7 +17,23 @@ const INVOCATIONS_PAGE = 10;
 
 /** Expanded body of a function row: manifest config, a "Run now" trigger that
  *  surfaces the resulting job run, and recent invocation history. */
-export const FunctionDetail = ({ appId, fn }: { appId: string; fn: AppFunctionSummary }) => {
+export const FunctionDetail = ({
+  appId,
+  fn,
+  environment,
+  appUrl,
+  appRef
+}: {
+  appId: string;
+  fn: AppFunctionSummary;
+  /** Where Run now runs and whose invocations are listed. `undefined` is production. */
+  environment?: string;
+  /** The app's canonical URL; a route function is served under it as `fn/<name>`. */
+  appUrl?: string;
+  /** When given, failed invocations offer "Copy for an agent". */
+  appRef?: AppRef;
+}) => {
+  const where = environment ?? PRODUCTION;
   const [runId, setRunId] = useState<string | null>(null);
   const [visible, setVisible] = useState(INVOCATIONS_PAGE);
   // Prefill the params box with the author-declared example (manifest
@@ -22,7 +42,7 @@ export const FunctionDetail = ({ appId, fn }: { appId: string; fn: AppFunctionSu
     fn.input_example != null ? JSON.stringify(fn.input_example, null, 2) : ""
   );
   const run = useRunFunction();
-  const invocations = useFunctionInvocations(appId, fn.name, true);
+  const invocations = useFunctionInvocations(appId, fn.name, true, environment);
 
   const onRun = () => {
     // The input box is handed to the function as its `req` body (its params).
@@ -38,7 +58,7 @@ export const FunctionDetail = ({ appId, fn }: { appId: string; fn: AppFunctionSu
       }
     }
     run.mutate(
-      { id: appId, name: fn.name, input },
+      { id: appId, name: fn.name, input, environment },
       {
         onSuccess: ({ run_id }) => setRunId(run_id),
         onError: (e) => toast.error(e instanceof Error ? e.message : "Couldn't start the run")
@@ -49,6 +69,7 @@ export const FunctionDetail = ({ appId, fn }: { appId: string; fn: AppFunctionSu
   return (
     <div className='flex flex-col gap-3 border-border/60 border-t px-3 py-3'>
       <ConfigChips fn={fn} />
+      {fn.route && appUrl && where === PRODUCTION && <RouteUrl appUrl={appUrl} name={fn.name} />}
 
       <div className='flex flex-col gap-1.5'>
         <span className='font-medium text-muted-foreground text-xs uppercase tracking-wide'>
@@ -68,7 +89,7 @@ export const FunctionDetail = ({ appId, fn }: { appId: string; fn: AppFunctionSu
             on the function in <code>oxy-app.json</code> to prefill a real, editable value here.
           </span>
         )}
-        <div>
+        <div className='flex flex-wrap items-center gap-2'>
           <Button size='sm' variant='outline' disabled={run.isPending} onClick={onRun}>
             {run.isPending ? (
               <Loader2 className='size-3.5 animate-spin' />
@@ -77,6 +98,15 @@ export const FunctionDetail = ({ appId, fn }: { appId: string; fn: AppFunctionSu
             )}
             Run now
           </Button>
+          {/* Run now is a real run, not a dry one: it executes the build this
+              environment serves, against this environment's data. It used to say
+              nothing, and always meant production. */}
+          <span
+            className='text-muted-foreground text-xs'
+            data-testid='admin-app-function-run-where'
+          >
+            Runs in {environmentLabel(where).toLowerCase()} — the build it serves, against its data.
+          </span>
         </div>
       </div>
 
@@ -95,7 +125,7 @@ export const FunctionDetail = ({ appId, fn }: { appId: string; fn: AppFunctionSu
           <>
             <ul className='flex flex-col'>
               {invocations.data.slice(0, visible).map((iv) => (
-                <InvocationRow key={iv.id} appId={appId} iv={iv} />
+                <InvocationRow key={iv.id} appId={appId} iv={iv} fn={fn.name} appRef={appRef} />
               ))}
             </ul>
             {invocations.data.length > visible && (
@@ -112,6 +142,25 @@ export const FunctionDetail = ({ appId, fn }: { appId: string; fn: AppFunctionSu
           <p className='text-muted-foreground text-xs'>No invocations recorded yet.</p>
         )}
       </div>
+    </div>
+  );
+};
+
+/**
+ * Where a route function is called, as the runtime serves it: the app's own URL
+ * plus `fn/<name>`. Shown for production only, where that URL is certain; another
+ * environment serves the same path from its own host.
+ */
+const RouteUrl = ({ appUrl, name }: { appUrl: string; name: string }) => {
+  const url = functionUrl(appUrl, name);
+  if (!url) return null;
+  return (
+    <div className='flex min-w-0 items-center gap-1.5 text-xs' data-testid='admin-app-function-url'>
+      <span className='shrink-0 text-muted-foreground'>Called at</span>
+      <code className='min-w-0 truncate font-mono' title={url}>
+        {url}
+      </code>
+      <CopyButton value={url} label='function URL' />
     </div>
   );
 };

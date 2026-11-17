@@ -28,7 +28,7 @@ export { PlannedMoveConfirm } from "./PlannedMoveConfirm";
  * Reads through `useAppLifecycle` (shared cache with every other panel) and acts
  * through the admin `/customer-apps/{id}/*` mutations.
  *
- * Promote draft and roll back confirm on the move's dry-run plan — the one
+ * Promote to production and roll back confirm on the move's dry-run plan — the one
  * `oxyc promote --dry-run` prints — and act on that plan: a blocker holds the verb,
  * as it refuses `oxyc promote`, and a schedule the plan retires is named in the
  * confirm and confirmed by it. A first publish still says only which `required`

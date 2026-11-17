@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 
 /**
  * One panel of the app console — the only content container this surface has.
@@ -19,6 +20,7 @@ export const ConsolePanel = ({
   id,
   title,
   question,
+  scope,
   actions,
   children,
   className
@@ -28,6 +30,13 @@ export const ConsolePanel = ({
   title: string;
   /** The operator question this panel answers, e.g. "Q4 — who can open this app". */
   question?: string;
+  /**
+   * Which environment the panel shows, when it is one environment's: "Production"
+   * for panels that only read production, or the console's environment for panels
+   * that follow its switch. `warn` when that is not production. Absent on panels
+   * about the app as a whole (identity, domains, publishers).
+   */
+  scope?: { label: string; warn?: boolean };
   /** One control at most. A panel needing a toolbar is two panels. */
   actions?: ReactNode;
   children: ReactNode;
@@ -43,6 +52,19 @@ export const ConsolePanel = ({
         {question ? (
           <span className='truncate font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
             {question}
+          </span>
+        ) : null}
+        {scope ? (
+          <span
+            className={cn(
+              "shrink-0 rounded-sm px-1 py-px font-medium text-[10px]",
+              scope.warn
+                ? cn(ADMIN_TONE.warn.bg, ADMIN_TONE.warn.text)
+                : "bg-muted text-muted-foreground"
+            )}
+            data-testid={`apps-console-panel-${id}-scope`}
+          >
+            {scope.label}
           </span>
         ) : null}
       </div>

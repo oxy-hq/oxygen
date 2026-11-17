@@ -143,14 +143,24 @@ const useAdminAppRow = (id: string | undefined) =>
 export function useListedAvailability(app: { id: string; availability?: AppAvailabilityReading }): {
   reading: AppAvailabilityReading | undefined;
   isLoading: boolean;
+  /** When the reading was last re-read (epoch ms), or `undefined` while the panel
+   *  still shows the one the registry walk supplied. */
+  readAt: number | undefined;
 } {
   const row = useAdminAppRow(app.id);
   // A re-read row replaces the caller's reading, including by carrying none.
   if (row.data) {
-    return { reading: row.data.availability, isLoading: false };
+    return { reading: row.data.availability, isLoading: false, readAt: row.dataUpdatedAt };
   }
-  return { reading: app.availability, isLoading: !app.availability && row.isLoading };
+  return {
+    reading: app.availability,
+    isLoading: !app.availability && row.isLoading,
+    readAt: undefined
+  };
 }
+
+/** How often the availability reading is re-read, for the panel to state. */
+export const AVAILABILITY_REREAD_SECONDS = ROW_REFRESH_MS / 1000;
 
 /**
  * Diagnostic snapshot. Only fires when both slugs are present so the

@@ -579,9 +579,14 @@ const customAppKeys = {
   /** One app's admin detail — the response that carries `staging_url`. */
   detail: (id: string) => ["customApps", "detail", id] as const,
   builds: (id: string) => ["customApps", "builds", id] as const,
-  functions: (id: string) => ["customApps", "functions", id] as const,
-  functionInvocations: (id: string, name: string) =>
-    ["customApps", "functions", id, name, "invocations"] as const,
+  functions: (id: string, environment?: string) =>
+    environment
+      ? (["customApps", "functions", id, "env", environment] as const)
+      : (["customApps", "functions", id] as const),
+  functionInvocations: (id: string, name: string, environment?: string) =>
+    environment
+      ? (["customApps", "functions", id, name, "invocations", environment] as const)
+      : (["customApps", "functions", id, name, "invocations"] as const),
   functionRun: (id: string, runId: string) => ["customApps", "functionRun", id, runId] as const,
   /** One invocation's call trace. A recorded trace never changes. */
   invocationCalls: (id: string, invocationId: string) =>

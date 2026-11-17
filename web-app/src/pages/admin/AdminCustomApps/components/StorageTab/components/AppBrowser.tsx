@@ -1,11 +1,14 @@
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Lock, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   useAppStorageObjects,
   useDeleteStorageObjects
 } from "@/hooks/api/customApps/useAppStorage";
+import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { AppStorageUsageRow } from "@/types/apps";
+import { LifecycleConfirm } from "../../AppLifecycle";
 import { daysUntilExpiry, formatBytes, formatRelative } from "../utils";
 import { PrefixBreakdown } from "./PrefixBreakdown";
 
@@ -19,10 +22,19 @@ interface Props {
  * Deliberately not backed by the rollup: the rollup holds no per-object rows,
  * and an operator here is investigating *now* — a listing up to a sweep old
  * would show files they just deleted.
+ *
+ * **Read-only until asked.** An operator opens this to look; a permanent delete of
+ * a customer's files is the rare case. It used to show a checkbox on every row and a
+ * red Delete beside the filter on every visit, behind a browser `confirm`. Now the
+ * listing opens read-only and "Enable deletes" is a deliberate step, after which the
+ * checkboxes appear and a delete confirms through the console's own dialog. The org
+ * OLTP panel does the same with its write switch.
  */
 export function AppBrowser({ app }: Props) {
   const [prefix, setPrefix] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [writable, setWritable] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useAppStorageObjects(
     app.appId,
     prefix
@@ -43,10 +55,13 @@ export function AppBrowser({ app }: Props) {
   const onDelete = async () => {
     const keys = [...selected];
     if (keys.length === 0) return;
-    if (!window.confirm(`Permanently delete ${keys.length} object(s) from ${app.appName}?`)) {
-      return;
-    }
     await remove.mutateAsync(keys);
+    setSelected(new Set());
+    setConfirming(false);
+  };
+
+  const lockAgain = () => {
+    setWritable(false);
     setSelected(new Set());
   };
 
@@ -78,17 +93,67 @@ export function AppBrowser({ app }: Props) {
           className='flex-1 rounded border bg-transparent px-2 py-1 text-xs'
           data-testid='admin-storage-prefix-filter'
         />
-        <Button
-          variant='destructive'
-          size='sm'
-          disabled={selected.size === 0 || remove.isPending}
-          onClick={onDelete}
-          data-testid='admin-storage-delete-selected'
-        >
-          <Trash2 className='mr-1 size-3' />
-          Delete {selected.size > 0 ? selected.size : ""}
-        </Button>
+        {writable ? (
+          <>
+            <Button
+              variant='destructive'
+              size='sm'
+              disabled={selected.size === 0 || remove.isPending}
+              onClick={() => setConfirming(true)}
+              data-testid='admin-storage-delete-selected'
+            >
+              <Trash2 className='mr-1 size-3' />
+              Delete {selected.size > 0 ? selected.size : ""}
+            </Button>
+            <Button variant='ghost' size='sm' onClick={lockAgain} data-testid='admin-storage-lock'>
+              Done
+            </Button>
+          </>
+        ) : (
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => setWritable(true)}
+            data-testid='admin-storage-enable-deletes'
+          >
+            Enable deletes
+          </Button>
+        )}
       </div>
+      <p
+        className={cn(
+          "flex items-center gap-1.5 border-b px-2 py-1 text-xs",
+          writable ? cn(ADMIN_TONE.warn.bg, ADMIN_TONE.warn.text) : "text-muted-foreground"
+        )}
+        data-testid='admin-storage-mode'
+      >
+        {writable ? (
+          <>
+            <Trash2 className='size-3' />
+            Deletes enabled: selected objects are removed from S3 for good.
+          </>
+        ) : (
+          <>
+            <Lock className='size-3' />
+            Read-only. Enable deletes to select and remove objects.
+          </>
+        )}
+      </p>
+      <LifecycleConfirm
+        copy={
+          confirming
+            ? {
+                title: `Delete ${selected.size} object${selected.size === 1 ? "" : "s"}?`,
+                description: `They are removed from ${app.appName || app.appSlug}'s storage permanently. The app loses any file it still reads from these keys, and this cannot be undone here.`,
+                confirm: "Delete permanently"
+              }
+            : null
+        }
+        pending={remove.isPending}
+        onConfirm={onDelete}
+        onCancel={() => setConfirming(false)}
+        testId='admin-storage-delete-confirm'
+      />
 
       <div className='flex-1 overflow-auto'>
         {isLoading ? (
@@ -104,14 +169,16 @@ export function AppBrowser({ app }: Props) {
                 const days = daysUntilExpiry(o.expireAfter, o.lastModified);
                 return (
                   <tr key={o.key} className='border-b hover:bg-muted/50'>
-                    <td className='w-8 px-2 py-1'>
-                      <input
-                        type='checkbox'
-                        checked={selected.has(o.key)}
-                        onChange={() => toggle(o.key)}
-                        aria-label={`Select ${o.path}`}
-                      />
-                    </td>
+                    {writable && (
+                      <td className='w-8 px-2 py-1'>
+                        <input
+                          type='checkbox'
+                          checked={selected.has(o.key)}
+                          onChange={() => toggle(o.key)}
+                          aria-label={`Select ${o.path}`}
+                        />
+                      </td>
+                    )}
                     <td className='px-2 py-1 font-mono text-xs'>{o.path}</td>
                     <td className='px-2 py-1 text-right tabular-nums'>{formatBytes(o.size)}</td>
                     <td className='px-2 py-1 text-right text-muted-foreground text-xs'>

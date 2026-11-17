@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/shadcn/input";
 import { useBatchPromoteLatestApps } from "@/hooks/api/customApps/useBatchAppMutations";
 import { errMessage } from "@/hooks/api/errMessage";
 import { cn } from "@/libs/shadcn/utils";
+import { timeAgo } from "@/libs/utils/date";
 import { AdminEmptyState } from "@/pages/admin/components/AdminEmptyState";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type {
@@ -248,6 +249,20 @@ export const AppsFleet = ({
                 <span className='text-foreground/70'>{h.label}</span> — {h.why}
               </span>
             ))}
+          </p>
+        )}
+
+        {/* How old the health column is, beside it. The endpoint returns
+            `evaluated_at` so the page can say its own age (`useFleetHealth`), and
+            nothing did: "nothing changed" and "nothing re-checked" looked the same. */}
+        {fleet && (
+          <p
+            className='border-t px-4 py-1.5 text-[11px] text-muted-foreground'
+            data-testid='admin-apps-fleet-evaluated'
+            title={new Date(fleet.evaluated_at).toLocaleString()}
+          >
+            Health evaluated {timeAgo(fleet.evaluated_at)} · re-checked every minute while this page
+            is open.
           </p>
         )}
 

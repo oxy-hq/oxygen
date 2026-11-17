@@ -18,13 +18,13 @@ export interface ConfirmCopy {
 export const shortBuildId = (s: string) => (s.length > 10 ? s.slice(0, 7) : s);
 
 export const LIFECYCLE_COPY = {
-  /** Point the live channel at the draft build. */
+  /** Point production at the build staging is serving. */
   promote: (draft: string, live: string | null): ConfirmCopy => ({
-    title: "Promote the draft to live?",
+    title: "Promote staging to production?",
     description: `Customers will see build ${shortBuildId(draft)}${
       live ? ` instead of ${shortBuildId(live)}` : ""
     } immediately. You can roll back here at any time.`,
-    confirm: "Promote draft"
+    confirm: "Promote to production"
   }),
 
   /** First publish: the app appears for the org's members. `null` when the surface

@@ -189,6 +189,16 @@ export interface AppBuild {
   source_repo?: string | null;
   commit_sha?: string | null;
   source_branch?: string | null;
+  /** The workflow identity of a trusted-publishing (OIDC) build. */
+  published_via?: string | null;
+  /** Bundle validation: `passed` | `pending` | `failed`. Production refuses a
+   *  build that has not passed. Absent from servers older than the field. */
+  validation_status?: "passed" | "pending" | "failed" | string;
+  /** Why validation failed, when it did. */
+  validation_detail?: string | null;
+  /** The environment the publish moved first: `staging`, or `dev-<handle>` for a
+   *  sandbox publish. Null for builds older than the column. */
+  published_to?: string | null;
 }
 
 /**
@@ -214,6 +224,8 @@ export interface AppFunctionSummary {
   /** Wired as an Airway pipeline transform step. */
   airway: boolean;
   timeout_seconds: number | null;
+  /** Marked `"check": true` in the manifest — run by `oxyc checks run`. */
+  check?: boolean;
   /** Background-run retry policy, when declared. */
   retries: {
     max_attempts: number;
