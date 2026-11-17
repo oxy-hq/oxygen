@@ -15,6 +15,8 @@ pub mod access;
 /// A sandbox agent token on the verify and read-back routes: an own sandbox
 /// is required, everything else is a not-found.
 pub(crate) mod agent_scope;
+/// A read-only browser of an app's own OLTP data, in one environment.
+pub mod data;
 mod dto;
 /// The `?environment=` parameter and who may name a non-production one.
 pub mod environment_scope;
@@ -275,4 +277,10 @@ fn console_routes() -> Router<AppState> {
         // not a number a sweep old.
         .route("/{id}/storage/objects", get(storage::browse))
         .route("/{id}/storage/delete", post(storage::delete_objects))
+        // An app's own OLTP data, read-only, in `?environment=`: its schema's
+        // tables, then one page of one. Gated like the function-output tail,
+        // refused under a lockdown, and audited before a result leaves.
+        .route("/{id}/data/tables", get(data::list_tables))
+        // One page (`?table=&limit=&offset=&order=&dir=`) of one table.
+        .route("/{id}/data/rows", get(data::list_rows))
 }

@@ -51,7 +51,7 @@ const appPath = (id: string) => `/customer-apps/${encodeURIComponent(id)}`;
 
 /** `?environment=` for an environment-scoped read or run. Production is sent as no
  *  param at all, which is what every one of these endpoints already means by it. */
-function environmentParams(environment: string | undefined): { environment?: string } {
+export function environmentParams(environment: string | undefined): { environment?: string } {
   return environment && environment !== "production" ? { environment } : {};
 }
 

@@ -665,6 +665,11 @@ const customAppKeys = {
   domains: (id: string) => ["customApps", "domains", id] as const,
   /** The curated scaffold templates the create dialog offers. Deployment-wide. */
   templates: () => ["customApps", "templates"] as const,
+  /** The app's OLTP tables in one environment, and one page of one of them. */
+  dataTables: (id: string, environment: string) =>
+    ["customApps", "data", id, environment, "tables"] as const,
+  dataRows: (id: string, environment: string, page: unknown) =>
+    ["customApps", "data", id, environment, "rows", page] as const,
   // Storage: fleet rollup vs per-app live S3 listing (two sources, two keys).
   storageFleet: (sort: string) => ["customApps", "storage", "fleet", sort] as const,
   storageObjects: (id: string, prefix: string) =>

@@ -25,6 +25,7 @@ import { ConsolePanel } from "../ConsolePanel";
 import { AppMapPanel } from "./AppMap";
 import { AppStoragePanel } from "./AppStoragePanel";
 import { ChecksPanel } from "./Checks";
+import { AppDataPanel } from "./DataBrowser";
 import { EnvironmentStrip } from "./EnvironmentStrip";
 import { environmentScope } from "./environmentScope";
 import { InvocationsPanel } from "./Invocations";
@@ -243,6 +244,10 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
                 appRef={app}
               />
             </ConsolePanel>
+
+            {/* What those functions stored with ctx.oltp, read-only, in the switch's
+                environment. Loads only when asked: every read is audited. */}
+            <AppDataPanel app={app} environment={environment} scope={followsSwitch} />
 
             {/* The badge counts the environment the panel shows, the one its scope chip
                 names; the switch's options carry every other environment's count. */}
