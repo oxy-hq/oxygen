@@ -253,6 +253,10 @@ pub struct PublishResult {
     /// unaffected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// How long each pipeline stage took, in order (`oxyc publish` prints
+    /// them). Omitted when empty, as `warnings` is.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stages: Vec<crate::custom_apps_publish_attempts::StageTiming>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -463,6 +467,7 @@ impl PublishTarget {
             org_slug: org_slug.to_string(),
             is_new_app,
             warnings,
+            stages: Vec::new(),
         }
     }
 }
@@ -1608,10 +1613,22 @@ pub async fn publish_to(
     input: PublishInput,
     target: PublishTarget,
 ) -> Result<PublishResult, PublishError> {
-    let agent = sandbox_agent_publish::AgentPublish::of(&input, &target)?;
+    publish_staged(input, target)
+        .await
+        .map_err(|failed| failed.error)
+}
+
+/// [`publish_to`], a refusal carrying the pipeline stage it was refused at.
+pub async fn publish_staged(
+    input: PublishInput,
+    target: PublishTarget,
+) -> Result<PublishResult, crate::custom_apps_publish_attempts::Failed<PublishError>> {
+    use crate::custom_apps_publish_attempts::Failed;
+    let agent =
+        sandbox_agent_publish::AgentPublish::of(&input, &target).map_err(Failed::unstaged)?;
     let published = pipeline::store_and_point(input, target).await;
     match agent {
-        Some(agent) => published.map_err(|refused| agent.sees(refused)),
+        Some(agent) => published.map_err(|failed| failed.map(|refused| agent.sees(refused))),
         None => published,
     }
 }
@@ -1757,9 +1774,9 @@ pub async fn publish_handler(
     // A sandbox agent token is told a sandbox that is not its own as its
     // other routes tell it; everyone else reads the text they always did.
     let agent = credential.is_agent();
-    let published = publish_to(input, target)
+    let published = publish_staged(input, target)
         .await
-        .map_err(|refused| PublishRefusal::told(refused, agent))?;
+        .map_err(|failed| PublishRefusal::told(failed.error, agent).at_stage(failed.stage))?;
     // One audit row for every publish that succeeded, whatever the credential.
     if let Ok(db) = oxy::database::client::establish_connection().await {
         super::custom_apps_publish_audit::published(&db, &actor, marker, &published).await;

@@ -72,6 +72,7 @@ import {
   type PublishResult,
   uploadBundle
 } from "../publish/server.js";
+import { formatStages } from "../publish/stages.js";
 import { tarGzDir } from "../publish/tarball.js";
 import { staleKitWarnings } from "../publish/versions.js";
 import * as log from "../ui/log.js";
@@ -423,11 +424,14 @@ function printResult(
       ? result.environment_url
       : `${target}${result.url}  (no zone configured — send header ${APP_ENV_HEADER}: ${result.environment})`;
     process.stdout.write(`  build ${result.build_id} → ${result.environment} — ${where}\n`);
-    return;
+  } else {
+    process.stdout.write(
+      `  build ${result.build_id} → ${result.channel} channel · ${target}${result.url}\n`
+    );
   }
-  process.stdout.write(
-    `  build ${result.build_id} → ${result.channel} channel · ${target}${result.url}\n`
-  );
+  // How long each pipeline stage took; servers older than the timings send none.
+  const stages = formatStages(result.stages);
+  if (stages) process.stdout.write(`  stages ${stages}\n`);
 }
 
 /** What one publish produced — a built-but-unsent bundle, or an uploaded one. */

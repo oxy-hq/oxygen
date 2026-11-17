@@ -13,6 +13,7 @@ import { bearerHeader, isSandboxAgentToken } from "../auth/token-kind.js";
 import * as log from "../ui/log.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 import { printableLines } from "../util/printable.js";
+import { PUBLISH_STAGE_HEADER, refusalHeadline, type StageTiming } from "./stages.js";
 
 const LOOKUP_TIMEOUT_MS = 30_000;
 /** The bundle upload, which can be tens of megabytes. */
@@ -187,6 +188,8 @@ export interface PublishResult {
   environment?: string;
   /** The environment's own host, when one is configured; null otherwise. */
   environment_url?: string | null;
+  /** How long each pipeline stage took, in order. Absent from older servers. */
+  stages?: StageTiming[];
 }
 
 export interface UploadRequest {
@@ -217,7 +220,10 @@ export async function uploadBundle(req: UploadRequest): Promise<PublishResult> {
     { method: "POST", headers: bearerHeader(req.token), body: form },
     UPLOAD_TIMEOUT_MS
   );
-  if (!response.ok) throw publishRefused(response.status, await response.text(), req.token);
+  if (!response.ok) {
+    const stage = response.headers.get(PUBLISH_STAGE_HEADER);
+    throw publishRefused(response.status, await response.text(), req.token, stage);
+  }
   return json<PublishResult>(response, "publish");
 }
 
@@ -230,10 +236,15 @@ export async function uploadBundle(req: UploadRequest): Promise<PublishResult> {
  * well as in `detail`: `oxyc mcp` hands a model the message and the hint and
  * never the body, and a publish that failed without saying why cannot be fixed.
  */
-function publishRefused(status: number, body: string, token: string): CliError {
+function publishRefused(
+  status: number,
+  body: string,
+  token: string,
+  stage: string | null
+): CliError {
   const refusal = readRefusal(body);
   const agent = isSandboxAgentToken(token);
-  const headline = `publish failed (${status})`;
+  const headline = refusalHeadline(status, stage);
   return new CliError(agent ? withReason(headline, refusal) : headline, {
     code: exitCodeForStatus(status),
     detail: agent ? printableLines(body.slice(0, 4000)) : body.slice(0, 4000),

@@ -1,5 +1,6 @@
 import { PRODUCTION } from "@/types/appEnvironments";
 import type { MovePlan, MoveRequest, MoveTarget } from "@/types/appPromote";
+import type { PublishAttemptList } from "@/types/appPublishAttempts";
 import type {
   AppBuildHistory,
   AppFunctionSummary,
@@ -181,6 +182,16 @@ export const CustomAppsService = {
    */
   async listBuilds(id: string): Promise<AppBuildHistory> {
     const response = await apiClient.get(`${appPath(id)}/builds`);
+    return response.data;
+  },
+
+  /** Publish attempts, newest first: the newest `limit` that failed beside the
+   *  newest `limit` that landed, each with its stage timings. The server caps
+   *  `limit` at what it keeps of each outcome. */
+  async listPublishAttempts(id: string, limit?: number): Promise<PublishAttemptList> {
+    const response = await apiClient.get(`${appPath(id)}/publishes`, {
+      params: limit ? { limit } : {}
+    });
     return response.data;
   },
 

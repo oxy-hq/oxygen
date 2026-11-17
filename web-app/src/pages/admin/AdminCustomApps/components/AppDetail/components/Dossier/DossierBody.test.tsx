@@ -15,6 +15,10 @@ vi.mock("../AppLogs", () => ({ AppLogs: () => null }));
 vi.mock("../AppSettings", () => ({ AppSettings: () => null }));
 vi.mock("../Availability", () => ({ Availability: () => null }));
 vi.mock("../BuildHistory", () => ({ BuildHistory: () => null }));
+// The retained builds' failed-publish list reads the publish attempts.
+vi.mock("@/hooks/api/customApps/useAppPublishAttempts", () => ({
+  useAppPublishAttempts: () => ({ data: undefined })
+}));
 vi.mock("../../../AppLifecycle", () => ({ AppLifecycle: () => null }));
 vi.mock("../CustomDomains", () => ({ CustomDomains: () => null }));
 vi.mock("../Environments", () => ({ Environments: () => null }));

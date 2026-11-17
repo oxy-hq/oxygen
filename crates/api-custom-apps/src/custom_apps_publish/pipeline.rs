@@ -8,13 +8,20 @@
 //! guard armed; `store`, `record`, `promote` and `point` run under it, so a
 //! failure in any of them undoes whatever was written so far, once. `after`
 //! cannot fail the publish.
+//!
+//! Each stage is clocked under its [`Stage`] name, and every publish whose
+//! caller is authorized for the app — landed or refused — leaves one attempt
+//! row with the timings and, for a refusal, the stage and the error
+//! (`custom_apps_publish_attempts`). A caller refused authorization leaves
+//! none: nothing it sends is written into an app it may not publish. The app
+//! row's upsert is the first write, and is clocked as part of `store`.
 
 use axum::body::Bytes;
 use entity::organizations;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use super::admit::admit;
+use super::admit::{admit, authorize};
 use super::inflate::{Inflated, inflate};
 use super::orphan::OrphanGuard;
 use super::{
@@ -23,33 +30,96 @@ use super::{
     gc_builds, migrations, move_pointers, queue_migrations_for, reconcile_moved_environment,
     record_build, record_functions, sandbox_agent_publish, staging_task, store,
 };
+use crate::custom_apps_publish_attempts::{Attempt, AttemptFacts, Failed, Stage, StageTimer};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 
-/// [`super::publish_to`], once the credential has been held to its target.
+/// [`super::publish_to`], once the credential has been held to its target:
+/// the stages, timed, and the attempt they make recorded.
 pub(super) async fn store_and_point(
-    mut input: PublishInput,
+    input: PublishInput,
     target: PublishTarget,
-) -> Result<PublishResult, PublishError> {
-    target.refuse_promote(&input)?;
+) -> Result<PublishResult, Failed<PublishError>> {
     let db = oxy::database::client::establish_connection()
         .await
-        .map_err(|e| PublishError::Db(e.to_string()))?;
-    let admitted = admit(&db, &input, &target).await?;
-    let mut inflated = inflate(&db, &mut input, &admitted).await?;
+        .map_err(|e| Failed::unstaged(PublishError::Db(e.to_string())))?;
+    let mut attempt = Attempt::begin(attempt_facts(&input, &target));
+    let published = stages(&db, input, &target, &mut attempt).await;
+    attempt
+        .finish(&db, published.as_ref().err().map(ToString::to_string))
+        .await;
+    match published {
+        Ok(result) => Ok(PublishResult {
+            stages: attempt.timings(),
+            ..result
+        }),
+        Err(error) => Err(Failed {
+            error,
+            stage: attempt.failed_stage(),
+        }),
+    }
+}
+
+/// What the attempt row says of the publish before it runs.
+fn attempt_facts(input: &PublishInput, target: &PublishTarget) -> AttemptFacts {
+    AttemptFacts {
+        app_slug: input.app_slug.clone(),
+        build_id: input.build_id.clone(),
+        environment: target.moved(input.promote).0.name(),
+        published_by: input.published_by,
+        published_via: input.published_via.clone(),
+        published_token_id: sandbox_agent_publish::author(input),
+    }
+}
+
+/// The stages in order, each clocked on `attempt`, which learns the app and
+/// the build as they are settled.
+async fn stages(
+    db: &DatabaseConnection,
+    mut input: PublishInput,
+    target: &PublishTarget,
+    attempt: &mut Attempt,
+) -> Result<PublishResult, PublishError> {
+    // Admit, in two pieces clocked as one: until the caller is authorized for
+    // this app, a refusal is not the app's to record.
+    let org = attempt
+        .clock
+        .run(Stage::Admit, authorize_refusing_promote(db, &input, target))
+        .await?;
+    attempt.authorized_org = Some(org.id);
+    let admitted = attempt
+        .clock
+        .run(Stage::Admit, admit(db, &input, target, org))
+        .await?;
+    // An app that already exists outlives a failure; one this publish creates
+    // does not, and is set once the publish stands.
+    attempt.app_id = admitted
+        .existing_app
+        .as_ref()
+        .map(|app| app.id)
+        .or(admitted.sandbox_app);
+    let mut inflated = attempt
+        .clock
+        .run(Stage::Inflate, inflate(db, &mut input, &admitted))
+        .await?;
     let files = std::mem::take(&mut inflated.files);
 
-    let (app_id, is_new_app, rollback) =
-        app_row_for(&db, &admitted.org, &input, admitted.sandbox_app).await?;
-    let mut guard = OrphanGuard::armed(&db, app_id, &input.build_id, rollback);
+    let (app_id, is_new_app, rollback) = attempt
+        .clock
+        .run(
+            Stage::Store,
+            app_row_for(db, &admitted.org, &input, admitted.sandbox_app),
+        )
+        .await?;
+    let mut guard = OrphanGuard::armed(db, app_id, &input.build_id, rollback);
     let ctx = Publishing {
-        db: &db,
+        db,
         app_id,
         input: &input,
-        target: &target,
+        target,
         org: &admitted.org,
         inflated: &inflated,
     };
-    let (build_pk, warnings) = match write(&ctx, &mut guard, files).await {
+    let (build_pk, warnings) = match write(&ctx, &mut guard, &mut attempt.clock, files).await {
         Ok(written) => written,
         Err(e) => {
             guard.undo().await;
@@ -57,9 +127,26 @@ pub(super) async fn store_and_point(
         }
     };
     guard.disarm();
+    // Only now: an app this publish created was undone with a failure.
+    attempt.app_id = Some(app_id);
+    attempt.app_build_id = Some(build_pk);
 
-    let warnings = after(&ctx, build_pk, warnings).await;
+    let warnings = attempt
+        .clock
+        .run_infallible(Stage::After, after(&ctx, build_pk, warnings))
+        .await;
     Ok(target.result(&admitted.org.slug, input, (app_id, is_new_app), warnings))
+}
+
+/// Admit's first piece: a sandbox publish that promotes is refused, then the
+/// caller is held to the org and app it names.
+async fn authorize_refusing_promote(
+    db: &DatabaseConnection,
+    input: &PublishInput,
+    target: &PublishTarget,
+) -> Result<organizations::Model, PublishError> {
+    target.refuse_promote(input)?;
+    authorize(db, input).await
 }
 
 /// What every stage after the app row's upsert reads.
@@ -77,13 +164,14 @@ struct Publishing<'a> {
 async fn write(
     ctx: &Publishing<'_>,
     guard: &mut OrphanGuard<'_>,
+    clock: &mut StageTimer,
     files: Vec<(String, Vec<u8>)>,
 ) -> Result<(Uuid, Vec<String>), PublishError> {
-    let stored = store_bytes(ctx, files).await?;
+    let stored = clock.run(Stage::Store, store_bytes(ctx, files)).await?;
     guard.bytes_stored();
-    let build_pk = record(ctx, guard, stored).await?;
-    promote(ctx, build_pk).await?;
-    let warnings = point(ctx, build_pk).await?;
+    let build_pk = clock.run(Stage::Record, record(ctx, guard, stored)).await?;
+    clock.run(Stage::Promote, promote(ctx, build_pk)).await?;
+    let warnings = clock.run(Stage::Point, point(ctx, build_pk)).await?;
     Ok((build_pk, warnings))
 }
 

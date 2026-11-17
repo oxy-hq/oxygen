@@ -1,11 +1,14 @@
 import { Badge } from "@/components/ui/shadcn/badge";
 import { useAppBuilds } from "@/hooks/api/customApps/useAppBuilds";
+import { useAppPublishAttempts } from "@/hooks/api/customApps/useAppPublishAttempts";
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { AppBuild } from "@/types/apps";
 import { shortBuildId } from "../../../AppLifecycle/lifecycleCopy";
 import { environmentLabel } from "../Secrets/environmentLabel";
+import { landedByBuild } from "./publishStages";
 import { IncompleteSource, SourceLink } from "./SourceLink";
+import { BuildStages } from "./StagesBar";
 
 const RTF = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 const TIME_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -42,6 +45,10 @@ function timeAgo(iso: string): string {
 export const BuildHistory = ({ appId }: { appId: string }) => {
   const { data, isLoading, error } = useAppBuilds(appId);
   const builds = data?.builds;
+  // Each build's stage timings, from the attempt that landed it. A build older than
+  // the timings, or a read that failed, simply has no bar.
+  const attempts = useAppPublishAttempts(appId);
+  const landed = landedByBuild(attempts.data?.attempts);
 
   if (isLoading) {
     return <p className='text-muted-foreground text-xs'>Loading deployments…</p>;
@@ -67,7 +74,7 @@ export const BuildHistory = ({ appId }: { appId: string }) => {
             data-testid={`admin-app-build-${shortBuildId(b.build_id)}`}
             className='flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2'
           >
-            <div className='flex min-w-0 flex-col'>
+            <div className='flex min-w-0 flex-1 flex-col'>
               <div className='flex items-center gap-2'>
                 <span className='font-mono text-xs' title={b.build_id}>
                   {shortBuildId(b.build_id)}
@@ -103,6 +110,10 @@ export const BuildHistory = ({ appId }: { appId: string }) => {
                   {b.validation_detail}
                 </p>
               )}
+              <BuildStages
+                attempt={landed.get(b.id)}
+                testId={`admin-app-build-${shortBuildId(b.build_id)}-stages`}
+              />
             </div>
           </li>
         ))}

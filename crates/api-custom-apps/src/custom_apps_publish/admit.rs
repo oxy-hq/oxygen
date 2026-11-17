@@ -21,13 +21,25 @@ pub(super) struct Admitted {
     pub sandbox_app: Option<Uuid>,
 }
 
+/// The first half of admit: the org the publish names, once the caller may
+/// publish this app into it. Until this returns, the publish is nobody's to
+/// record — a caller refused here has no standing in that app's history.
+pub(super) async fn authorize(
+    db: &DatabaseConnection,
+    input: &PublishInput,
+) -> Result<organizations::Model, PublishError> {
+    let org = resolve_publish_org(db, input).await?;
+    authorize_publish(db, &org, input).await?;
+    Ok(org)
+}
+
+/// The rest of admit, for a caller [`authorize`] let through.
 pub(super) async fn admit(
     db: &DatabaseConnection,
     input: &PublishInput,
     target: &PublishTarget,
+    org: organizations::Model,
 ) -> Result<Admitted, PublishError> {
-    let org = resolve_publish_org(db, input).await?;
-    authorize_publish(db, &org, input).await?;
     limits::refuse_past_publish_rate(db, org.id, input).await?;
     // A semantic pin is staging-only and must name a ready revision of the
     // workspace this publish targets (which `ensure_same_workspace` below

@@ -14,12 +14,20 @@
 //!
 //! The token's other refusals leave here as text and are named after their
 //! status on the way out (`custom_apps_agent_body::shape_for_agent`).
+//!
+//! A refusal from inside the pipeline names the stage it came from in the
+//! [`STAGE_HEADER`] header, whatever the body: `oxyc` prints it, and the body
+//! every client already reads is unchanged.
 
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 use super::custom_apps_agent_body::Refusal;
 use super::custom_apps_publish::PublishError;
+use super::custom_apps_publish_attempts::Stage;
+
+/// The response header naming the pipeline stage a publish was refused at.
+pub const STAGE_HEADER: &str = "x-oxy-publish-stage";
 
 /// A refused publish: its status, and a text or a coded JSON body.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +36,8 @@ pub struct PublishRefusal {
     /// `Some` answers JSON.
     code: Option<&'static str>,
     message: String,
+    /// The pipeline stage it was refused at, sent as [`STAGE_HEADER`].
+    stage: Option<Stage>,
 }
 
 /// The code a sandbox agent token is given for a refusal that is text for
@@ -46,6 +56,7 @@ impl PublishRefusal {
             status,
             code: None,
             message,
+            stage: None,
         }
     }
 
@@ -57,7 +68,13 @@ impl PublishRefusal {
             status: refused.status(),
             code: refused.code().or_else(for_agent),
             message: refused.to_string(),
+            stage: None,
         }
+    }
+
+    /// The same refusal, naming the pipeline stage it came from.
+    pub fn at_stage(self, stage: Option<Stage>) -> Self {
+        Self { stage, ..self }
     }
 }
 
@@ -75,10 +92,16 @@ impl From<PublishError> for PublishRefusal {
 
 impl IntoResponse for PublishRefusal {
     fn into_response(self) -> Response {
-        match self.code {
+        let mut response = match self.code {
             Some(code) => Refusal::new(self.status, code, self.message).into_response(),
             None => (self.status, self.message).into_response(),
+        };
+        if let Some(stage) = self.stage {
+            response
+                .headers_mut()
+                .insert(STAGE_HEADER, HeaderValue::from_static(stage.name()));
         }
+        response
     }
 }
 
@@ -158,5 +181,28 @@ mod tests {
             (status, body.as_str()),
             (StatusCode::BAD_REQUEST, "missing app")
         );
+    }
+
+    /// A refusal from inside the pipeline names its stage in a header; its
+    /// status and body are what they were. One from outside names none.
+    #[tokio::test]
+    async fn a_staged_refusal_names_its_stage_in_a_header() {
+        let refused = || PublishError::BadTarball("not gzip".into());
+        let text = refused().to_string();
+        let response = PublishRefusal::from(refused())
+            .at_stage(Some(Stage::Inflate))
+            .into_response();
+        assert_eq!(
+            response.headers().get(STAGE_HEADER).map(|v| v.as_bytes()),
+            Some(&b"inflate"[..])
+        );
+        let (status, _, body) =
+            body_of(PublishRefusal::from(refused()).at_stage(Some(Stage::Inflate))).await;
+        assert_eq!((status, body), (StatusCode::UNPROCESSABLE_ENTITY, text));
+
+        let unstaged = PublishRefusal::from(refused())
+            .at_stage(None)
+            .into_response();
+        assert!(unstaged.headers().get(STAGE_HEADER).is_none());
     }
 }

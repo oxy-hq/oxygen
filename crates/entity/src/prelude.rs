@@ -15,6 +15,7 @@ pub use super::app_function_invocation_calls::Entity as AppFunctionInvocationCal
 pub use super::app_function_invocations::Entity as AppFunctionInvocations;
 pub use super::app_functions::Entity as AppFunctions;
 pub use super::app_members::Entity as AppMembers;
+pub use super::app_publish_attempts::Entity as AppPublishAttempts;
 pub use super::app_publish_tokens::Entity as AppPublishTokens;
 pub use super::app_publishers::Entity as AppPublishers;
 pub use super::app_secret_grants::Entity as AppSecretGrants;

@@ -88,6 +88,7 @@ pub mod app_function_invocation_calls;
 pub mod app_function_invocations;
 pub mod app_functions;
 pub mod app_members;
+pub mod app_publish_attempts;
 pub mod app_publish_tokens;
 pub mod app_publishers;
 pub mod app_secret_grants;

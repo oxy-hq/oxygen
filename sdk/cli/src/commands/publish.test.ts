@@ -175,6 +175,10 @@ beforeAll(async () => {
         org_slug: "acme",
         is_new_app: false,
         warnings: ["schedule for fn refresh did not register"],
+        stages: [
+          { stage: "admit", ms: 12 },
+          { stage: "store", ms: 1248 }
+        ],
         ...(environment
           ? {
               environment,
@@ -278,6 +282,8 @@ describe("oxyc publish", () => {
     });
     expect(tarList(upload?.bundle ?? Buffer.alloc(0))).toEqual(["index.html"]);
     expect(result.stdout).toContain("Published new version of acme/sales (id app-1)");
+    // How long each pipeline stage took, as the server timed it.
+    expect(result.stdout).toContain("stages admit 12ms · store 1.2s (total 1.3s)");
     // The server's warnings, which the Rust client dropped.
     expect(result.stderr).toContain("schedule for fn refresh did not register");
   });

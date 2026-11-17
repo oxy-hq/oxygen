@@ -35,6 +35,9 @@ pub mod invocations;
 /// An app's failures grouped per `(function, fingerprint)` — the pager's key.
 pub mod issues;
 mod ops;
+/// `GET /{id}/publishes`: every publish attempt, failed ones included, with
+/// its stage timings.
+pub mod publishes;
 /// Production's releases over a window, each beside the one before it, and
 /// the three environments' pointer moves.
 pub mod releases;
@@ -222,6 +225,9 @@ fn console_routes() -> Router<AppState> {
         // published channel back to any retained one. Pointer moves only —
         // bytes already live in S3.
         .route("/{id}/builds", get(handlers::list_builds))
+        // Every publish attempt beside the builds that landed: failed ones
+        // with their stage and error, each with its stage timings.
+        .route("/{id}/publishes", get(publishes::list_publishes))
         .route("/{id}/rollback", post(handlers::rollback_app))
         // Batch mutations for the admin apps table: publish / unpublish / delete
         // many apps in one request. POST even for delete, since the id set travels

@@ -11,7 +11,7 @@
 //! - [`custom_apps_functions`]: the Oxy Functions host, the V8 runtime, the host
 //!   ops and their policy; [`webhooks`] and [`app_function_executor`] run them
 //!   from a provider's call or the task queue.
-//! - [`custom_apps_publish`] (+ `_form`, `_oidc`, `_audit`, `_refusal`),
+//! - [`custom_apps_publish`] (+ `_form`, `_oidc`, `_audit`, `_refusal`, `_attempts`),
 //!   [`custom_apps_promote`], [`custom_apps_sandboxes`], [`custom_apps_secrets`],
 //!   [`custom_apps_migrations`], [`custom_apps_nonproduction`],
 //!   [`custom_apps_env_schedules`], [`custom_apps_tail`]: the lifecycle.
@@ -85,6 +85,8 @@ pub mod custom_apps_planes;
 /// production's pointer for every writer.
 pub mod custom_apps_promote;
 pub mod custom_apps_publish;
+/// Every publish, failed ones included, and how long each of its stages took.
+pub mod custom_apps_publish_attempts;
 /// The audit row of a bundle publish, and what one says of a publish token.
 pub(crate) mod custom_apps_publish_audit;
 pub mod custom_apps_publish_form;

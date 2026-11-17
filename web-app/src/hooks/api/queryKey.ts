@@ -579,6 +579,7 @@ const customAppKeys = {
   /** One app's admin detail — the response that carries `staging_url`. */
   detail: (id: string) => ["customApps", "detail", id] as const,
   builds: (id: string) => ["customApps", "builds", id] as const,
+  publishAttempts: (id: string) => ["customApps", "publishAttempts", id] as const,
   functions: (id: string, environment?: string) =>
     environment
       ? (["customApps", "functions", id, "env", environment] as const)

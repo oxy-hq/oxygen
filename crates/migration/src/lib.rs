@@ -258,6 +258,7 @@ mod m20261116_000001_create_compile_manifest;
 mod m20261116_000001_fleet_job_claims;
 mod m20261116_000001_revoke_legacy_api_keys;
 mod m20261116_000001_user_ui_preferences;
+mod m20261117_000002_app_publish_attempts;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
@@ -538,6 +539,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261116_000001_revoke_legacy_api_keys::Migration),
             Box::new(m20261116_000001_create_compile_manifest::Migration),
             Box::new(m20261116_000001_user_ui_preferences::Migration),
+            Box::new(m20261117_000002_app_publish_attempts::Migration),
         ]
     }
 

@@ -32,13 +32,13 @@ use uuid::Uuid;
 const IDENTITY: &str =
     "github-oidc:acme/app/.github/workflows/oxy-publish.yml@refs/heads/main env=production";
 
-struct Tenant {
-    org_id: Uuid,
-    admin: AuthenticatedUser,
-    workspace: Uuid,
+pub(crate) struct Tenant {
+    pub(crate) org_id: Uuid,
+    pub(crate) admin: AuthenticatedUser,
+    pub(crate) workspace: Uuid,
 }
 
-async fn seed_tenant(db: &DatabaseConnection) -> Tenant {
+pub(crate) async fn seed_tenant(db: &DatabaseConnection) -> Tenant {
     let org_id = Uuid::new_v4();
     organizations::ActiveModel {
         id: ActiveValue::Set(org_id),
@@ -121,7 +121,13 @@ fn bundle() -> Vec<u8> {
         .expect("finish gzip")
 }
 
-fn input(t: &Tenant, slug: &str, build_id: &str, promote: bool, who: Publisher) -> PublishInput {
+pub(crate) fn input(
+    t: &Tenant,
+    slug: &str,
+    build_id: &str,
+    promote: bool,
+    who: Publisher,
+) -> PublishInput {
     PublishInput {
         org_ref: Some(OrgRef::Id(t.org_id)),
         app_slug: slug.to_string(),

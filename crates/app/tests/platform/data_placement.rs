@@ -189,6 +189,10 @@ const TABLES: &[(&str, Placement)] = &[
     ),
     ("app_functions", Control("functions per build")),
     ("app_members", Control("per-app membership")),
+    (
+        "app_publish_attempts",
+        Control("custom-app publish outcomes and stage timings; ids and refusal text only"),
+    ),
     ("app_publish_tokens", Control("CI publish token hashes")),
     ("app_publishers", Control("OIDC trusted publishers")),
     (
