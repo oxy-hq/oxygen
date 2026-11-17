@@ -7,7 +7,10 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
+// No `Eq`: `ModelEx` holds the run's periods and fits, and both of those
+// models carry floats.
+#[sea_orm::model]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "simulation_runs")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
@@ -48,26 +51,12 @@ pub struct Model {
     pub started_at: DateTimeWithTimeZone,
     pub finished_at: Option<DateTimeWithTimeZone>,
     pub error: Option<String>,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(has_many = "super::simulation_run_periods::Entity")]
-    Periods,
-    #[sea_orm(has_many = "super::simulation_run_fits::Entity")]
-    Fits,
-}
-
-impl Related<super::simulation_run_periods::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Periods.def()
-    }
-}
-
-impl Related<super::simulation_run_fits::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Fits.def()
-    }
+    #[sea_orm(has_many)]
+    #[serde(skip)]
+    pub simulation_run_periods: HasMany<super::simulation_run_periods::Entity>,
+    #[sea_orm(has_many)]
+    #[serde(skip)]
+    pub simulation_run_fits: HasMany<super::simulation_run_fits::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

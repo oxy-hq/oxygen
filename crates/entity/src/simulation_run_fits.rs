@@ -6,6 +6,7 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "simulation_run_fits")]
 pub struct Model {
@@ -33,24 +34,15 @@ pub struct Model {
     pub true_local_slope: f64,
     /// `refused` | `converged` | `confidently_wrong`.
     pub outcome: String,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::simulation_runs::Entity",
-        from = "Column::RunId",
-        to = "super::simulation_runs::Column::RunId",
+        belongs_to,
+        from = "run_id",
+        to = "run_id",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
-    Run,
-}
-
-impl Related<super::simulation_runs::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Run.def()
-    }
+    #[serde(skip)]
+    pub simulation_runs: BelongsTo<super::simulation_runs::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -12,6 +12,7 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "experiment_designs")]
 pub struct Model {
@@ -28,22 +29,9 @@ pub struct Model {
     pub updated_at: DateTimeWithTimeZone,
     /// `None` while a draft; set once, by Register.
     pub frozen_at: Option<DateTimeWithTimeZone>,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::experiments::Entity",
-        from = "Column::ExperimentId",
-        to = "super::experiments::Column::Id"
-    )]
-    Experiment,
-}
-
-impl Related<super::experiments::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Experiment.def()
-    }
+    #[sea_orm(belongs_to, from = "experiment_id", to = "id")]
+    #[serde(skip)]
+    pub experiments: BelongsTo<super::experiments::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

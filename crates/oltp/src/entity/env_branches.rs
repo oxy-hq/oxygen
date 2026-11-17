@@ -76,6 +76,7 @@ impl EnvBranchStatus {
     }
 }
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "oltp_env_branches")]
 pub struct Model {
@@ -113,32 +114,18 @@ pub struct Model {
     pub created_at: DateTimeWithTimeZone,
     pub last_reset_at: Option<DateTimeWithTimeZone>,
     pub updated_at: DateTimeWithTimeZone,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::tenants::Entity",
-        from = "Column::TenantRowId",
-        to = "super::tenants::Column::Id",
+        belongs_to,
+        from = "tenant_row_id",
+        to = "id",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
-    Tenants,
-    #[sea_orm(has_many = "super::env_branch_roles::Entity")]
-    EnvBranchRoles,
-}
-
-impl Related<super::tenants::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Tenants.def()
-    }
-}
-
-impl Related<super::env_branch_roles::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::EnvBranchRoles.def()
-    }
+    #[serde(skip)]
+    pub tenants: BelongsTo<super::tenants::Entity>,
+    #[sea_orm(has_many)]
+    #[serde(skip)]
+    pub env_branch_roles: HasMany<super::env_branch_roles::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

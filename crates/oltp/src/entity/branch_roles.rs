@@ -13,6 +13,7 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "oltp_branch_roles")]
 pub struct Model {
@@ -25,24 +26,15 @@ pub struct Model {
     /// AES-GCM-sealed password, valid on this branch only.
     pub password_ciphertext: Vec<u8>,
     pub created_at: DateTimeWithTimeZone,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::branches::Entity",
-        from = "Column::BranchRowId",
-        to = "super::branches::Column::Id",
+        belongs_to,
+        from = "branch_row_id",
+        to = "id",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
-    Branches,
-}
-
-impl Related<super::branches::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Branches.def()
-    }
+    #[serde(skip)]
+    pub branches: BelongsTo<super::branches::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -49,14 +49,17 @@
 //! ## Scope, and the guard
 //!
 //! The heading is true of **this crate**. Sea-ORM entities also live in seven
-//! others — `cameras`, `airhouse`, `agentic/{runtime,airway,automation,analytics}`
-//! — and 23 of those still lack the attribute. `COLUMN` is simply unresolvable
-//! there for now; that is pending work, not a decision.
+//! others: `oltp`, `cameras`, `airhouse` and
+//! `agentic/{runtime,airway,automation,analytics}`. `oltp`'s all carry the
+//! attribute. 23 in the other six still lack it, so `COLUMN` cannot be resolved
+//! for those yet. That is pending work, not a decision.
 //!
 //! Because the failure mode is "still compiles", none of this is left to review
-//! attention: `typed_column_guard` scans the whole workspace and fails on any
-//! *new* entity that omits the attribute, with the 23 listed as a shrinking
-//! backlog.
+//! attention. `typed_column_guard` scans the whole workspace and fails on any
+//! entity outside its `PENDING` list that omits the attribute; those 23 are a
+//! backlog that only shrinks. It runs in CI's test partitions: `entity` is an
+//! `always-test` package (`.config/test-selection.toml`), so every PR runs it,
+//! even one that touches only another crate's entities.
 
 pub mod prelude;
 

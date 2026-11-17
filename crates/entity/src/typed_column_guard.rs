@@ -12,6 +12,13 @@
 //! report all-clear while someone in `crates/cameras` hits an unresolvable
 //! `COLUMN` with no way to tell whether that is deliberate.
 //!
+//! The scan reaches past this crate's own dependencies, so the dependency graph
+//! cannot tell CI's test selection when it is affected. `entity` is therefore
+//! an `always-test` package in `.config/test-selection.toml`, and is not
+//! excluded by the `default-filter` in `.config/nextest.toml`. While it was
+//! excluded there, this guard ran nowhere, and 21 entities landed without the
+//! attribute before anyone noticed.
+//!
 //! `PENDING` is a backlog, not an exemption list. Those entities predate the
 //! attribute and are listed so the guard can fail on *new* omissions today
 //! rather than waiting for the backlog to clear. Removing an entry — by adding

@@ -7,7 +7,10 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+// `Eq` because `experiment_flips` (which derives it) belongs to this entity,
+// and its `ModelEx` can only be `Eq` if this one's is.
+#[sea_orm::model]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "experiment_runs")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
@@ -47,18 +50,9 @@ pub struct Model {
     pub retrospective: bool,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(has_many = "super::experiment_flips::Entity")]
-    Flips,
-}
-
-impl Related<super::experiment_flips::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Flips.def()
-    }
+    #[sea_orm(has_many)]
+    #[serde(skip)]
+    pub experiment_flips: HasMany<super::experiment_flips::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

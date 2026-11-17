@@ -12,6 +12,7 @@
 
 use sea_orm::entity::prelude::*;
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "airway_workspace_pipeline_state")]
 pub struct Model {
@@ -32,8 +33,5 @@ pub struct Model {
     pub version: i64,
     pub updated_at: ChronoDateTimeUtc,
 }
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}

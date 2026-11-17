@@ -26,9 +26,23 @@ retries = 0
 # truly needs exclusive resources, scope it with a per-test override or a
 # `[test-groups]` entry instead of serializing all ~2,900 tests.
 
-# Exclude auto-generated crates (no meaningful test coverage) from the default
-# run so local and CI behave identically.
-default-filter = "not package(=migration) and not package(=entity)"
+# `migration` is left out of the default run, so local and CI behave
+# identically.
+#
+# `entity` used to be left out with it, as "auto-generated, no meaningful test
+# coverage". But the generated modules hold no tests: every test in the crate
+# is hand-written, and two of them guard the whole tree. `typed_column_guard`
+# checks that every Sea-ORM entity under `crates/` carries `#[sea_orm::model]`,
+# and `schema_guard` that every entity names a table the migrator still
+# creates. Filtered out here, they ran nowhere, CI included, and
+# `typed_column_guard` sat red on `main` while 21 entities landed without the
+# attribute. The crate's tests are one unit-test binary that runs in about a
+# second.
+#
+# `typed_column_guard` walks every crate, so `entity` is also an `always-test`
+# package in .config/test-selection.toml. Without that, a PR adding an entity
+# to `crates/oltp` would not select it.
+default-filter = "not package(=migration)"
 
 # Per-test results and timings, which CI turns into each partition's job
 # summary: failures, then the slowest tests (scripts/ci/nextest-summary.py).

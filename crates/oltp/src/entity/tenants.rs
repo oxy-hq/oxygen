@@ -32,6 +32,7 @@ impl TenantStatus {
     }
 }
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "oltp_tenants")]
 pub struct Model {
@@ -88,26 +89,12 @@ pub struct Model {
 
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(has_many = "super::roles::Entity")]
-    Roles,
-    #[sea_orm(has_many = "super::env_branches::Entity")]
-    EnvBranches,
-}
-
-impl Related<super::roles::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Roles.def()
-    }
-}
-
-impl Related<super::env_branches::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::EnvBranches.def()
-    }
+    #[sea_orm(has_many)]
+    #[serde(skip)]
+    pub roles: HasMany<super::roles::Entity>,
+    #[sea_orm(has_many)]
+    #[serde(skip)]
+    pub env_branches: HasMany<super::env_branches::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

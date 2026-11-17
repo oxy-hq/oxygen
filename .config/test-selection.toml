@@ -18,6 +18,7 @@
 # audit call-site and one-door scans — so no dependency edge says when they are
 # affected. Tested whenever anything is.
 always-test = [
+  "entity",                  # typed_column_guard walks crates/; schema_guard reads crates/migration
   "oxy-app",                 # authz_boundaries, no_dropped_partner_tables, shared_db_registry, …
   "oxy-app-core",            # audit::call_sites_guard walks crates/
   "oxy-custom-apps",         # usage_reads walks crates/

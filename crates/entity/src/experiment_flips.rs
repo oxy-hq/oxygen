@@ -7,6 +7,7 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "experiment_flips")]
 pub struct Model {
@@ -34,24 +35,15 @@ pub struct Model {
     pub attempts: i32,
     /// The local hour (like `due_at`) its last send failed; `None` if it never has.
     pub failed_at: Option<DateTime>,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::experiment_runs::Entity",
-        from = "Column::RunId",
-        to = "super::experiment_runs::Column::Id",
+        belongs_to,
+        from = "run_id",
+        to = "id",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
-    Run,
-}
-
-impl Related<super::experiment_runs::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Run.def()
-    }
+    #[serde(skip)]
+    pub experiment_runs: BelongsTo<super::experiment_runs::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

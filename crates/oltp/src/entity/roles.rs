@@ -30,6 +30,7 @@ pub enum GrantLevel {
     ReadOnly,
 }
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "oltp_roles")]
 pub struct Model {
@@ -65,24 +66,15 @@ pub struct Model {
     pub created_at: DateTimeWithTimeZone,
     /// Last explicit rotation. `None` means never rotated since creation.
     pub rotated_at: Option<DateTimeWithTimeZone>,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::tenants::Entity",
-        from = "Column::TenantRowId",
-        to = "super::tenants::Column::Id",
+        belongs_to,
+        from = "tenant_row_id",
+        to = "id",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
-    Tenants,
-}
-
-impl Related<super::tenants::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Tenants.def()
-    }
+    #[serde(skip)]
+    pub tenants: BelongsTo<super::tenants::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

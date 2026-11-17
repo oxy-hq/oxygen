@@ -5,6 +5,7 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "experiments")]
 pub struct Model {
@@ -17,18 +18,9 @@ pub struct Model {
     pub owner: String,
     pub created_by: Uuid,
     pub created_at: DateTimeWithTimeZone,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(has_many = "super::experiment_designs::Entity")]
-    Designs,
-}
-
-impl Related<super::experiment_designs::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Designs.def()
-    }
+    #[sea_orm(has_many)]
+    #[serde(skip)]
+    pub experiment_designs: HasMany<super::experiment_designs::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
