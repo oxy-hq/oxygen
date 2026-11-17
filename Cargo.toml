@@ -1215,7 +1215,18 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # `git diff --name-only 0.1.62 0.1.63` is `netsuite.rs` and the version lines:
 # no shared module, no trait change, no new dependency. Opt-in, so an existing
 # netsuite pipeline extracts exactly what it did before.
-airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.63", default-features = false, features = [
+#
+# 0.1.64 carries two `sp_api` changes. airway-internal#251: `orders` re-reads
+# 29 days instead of the shared 7, so an order's status keeps updating past day
+# 8 (a twice-daily window still fits one 30-day report). airway-internal#252:
+# a seller `fba_fee_preview` resource (Fee Preview report, per-SKU referral and
+# FBA fees), a windowless snapshot appended for history.
+# `git diff --name-only 0.1.63 0.1.64` is `sp_api.rs`, CHANGELOG and the
+# version lines: no shared module, no trait change, no new dependency. The new
+# resource is in the SELLER roster, so a seller pipeline that omits
+# `resources:` WILL pull it on its next run: bmg's `amazon_sp` does, which
+# is the intent (its P&L will read fees from it).
+airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.64", default-features = false, features = [
   "duckdb",
   "postgres",
 ] }
