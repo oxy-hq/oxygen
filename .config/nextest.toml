@@ -26,23 +26,30 @@ retries = 0
 # truly needs exclusive resources, scope it with a per-test override or a
 # `[test-groups]` entry instead of serializing all ~2,900 tests.
 
-# `migration` is left out of the default run, so local and CI behave
-# identically.
+# No package is left out of the default run, so local and CI run the same
+# tests.
 #
-# `entity` used to be left out with it, as "auto-generated, no meaningful test
-# coverage". But the generated modules hold no tests: every test in the crate
-# is hand-written, and two of them guard the whole tree. `typed_column_guard`
-# checks that every Sea-ORM entity under `crates/` carries `#[sea_orm::model]`,
-# and `schema_guard` that every entity names a table the migrator still
-# creates. Filtered out here, they ran nowhere, CI included, and
-# `typed_column_guard` sat red on `main` while 21 entities landed without the
-# attribute. The crate's tests are one unit-test binary that runs in about a
-# second.
+# `entity` and `migration` used to be left out, as "auto-generated, no
+# meaningful test coverage". But the generated modules hold no tests: every
+# test in both crates is hand-written, and filtered out here they ran nowhere,
+# CI included. Each crate's tests are one unit-test binary that needs no
+# database and runs in about a second.
 #
-# `typed_column_guard` walks every crate, so `entity` is also an `always-test`
-# package in .config/test-selection.toml. Without that, a PR adding an entity
-# to `crates/oltp` would not select it.
-default-filter = "not package(=migration)"
+# - `entity`: two of its tests guard the whole tree. `typed_column_guard`
+#   checks that every Sea-ORM entity under `crates/` carries
+#   `#[sea_orm::model]`, and `schema_guard` that every entity names a table the
+#   migrator still creates. `typed_column_guard` sat red on `main` while 21
+#   entities landed without the attribute. It walks every crate, so `entity` is
+#   also an `always-test` package in .config/test-selection.toml; without that,
+#   a PR adding an entity to `crates/oltp` would not select it.
+# - `migration`: each test pins DDL that deployed databases depend on. They
+#   render a migration's statement to a string and assert on it: `settings.id`
+#   is `serial`, not an identity column; the agentic tables match their twins
+#   in `crates/agentic/runtime`, which create the same tables `IF NOT EXISTS`,
+#   so drift there is silent; the preview tables keep the CHECKs and partial
+#   indexes their callers rely on. They read nothing outside their own crate,
+#   so the dependency graph selects `migration` for any change to it, and it
+#   needs no `always-test` entry.
 
 # Per-test results and timings, which CI turns into each partition's job
 # summary: failures, then the slowest tests (scripts/ci/nextest-summary.py).
