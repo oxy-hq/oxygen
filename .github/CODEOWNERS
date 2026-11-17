@@ -10,9 +10,9 @@
 #
 #   Handle            Person   Primary area
 #   ----------------  -------  --------------------------------------------------
-#   @luong-komorebi   Luong    Platform · custom apps · admin · authz · fleet · web shell · CI
+#   @luong-komorebi   Luong    Platform · custom apps · admin · authz · fleet · airhouse · web shell · CI
 #   @haitrr           Hai      Semantic model · world model · metrics & monitoring · experiments
-#   @hotay            Tay      Cameras/video · airhouse · airway · agentic runtime
+#   @hotay            Tay      Cameras/video · airway · connector · agentic runtime · schedules
 #   @nresh            Nick     Onboarding · browser tests · sources
 #   @NTtanh           Mars     Billing · multi-tenancy · secrets · IDE/git · client shell
 #
@@ -61,6 +61,14 @@ internal-docs/admin-surfaces.md                    @luong-komorebi @haitrr
 # console, Tay owns the Airhouse fleet it operates on)
 crates/app/src/server/api/admin/airhouse.rs        @luong-komorebi @hotay
 web-app/src/pages/admin/AdminAirhouse/             @luong-komorebi @hotay
+# Airhouse itself — moved from Tay 2026-11-16 on the crates/platform/ precedent:
+# 25 of the 30 commits since 2026-09 are Luong's and they are features (tenant
+# lifecycle #3911/#3923, the role-keyed read pool #3984, shared-session claims
+# #4037/#4047, the local airhouse in `oxy start` #3929); Tay's last feature here
+# is July's (#2688). Tay backs up — he built the warehouse + connector, and the
+# connector (crates/agentic/connector/) stays his.
+crates/airhouse/                                   @luong-komorebi @hotay
+internal-docs/airhouse-integration.md              @luong-komorebi @hotay
 
 # Per-org OLTP Postgres — Neon-provisioned tenant DBs behind ctx.oltp/ctx.tx,
 # writer isolation, provisioning console (new 2026-08, #2851). Tay backs up: the
@@ -115,6 +123,11 @@ crates/api-operating-graph/                        @luong-komorebi @NTtanh
 # Org chat moved into `oxy-api-threads` (2026-11-16), owners unchanged.
 crates/api-threads/src/chat/                       @luong-komorebi @NTtanh
 crates/api-notifications/                          @luong-komorebi @NTtanh
+# The Slack bot and Slack delivery (the universal bot #2134, notifications that
+# reach the right person #3614), out of oxy-app since 2026-11-12 (was
+# `crates/app/src/integrations/slack/`; Tay's #4085/#4089 are the extraction).
+crates/slack/                                      @luong-komorebi @NTtanh
+crates/api-slack/                                  @luong-komorebi @NTtanh
 # The notifications page and its settings UI (#3626, #3640), uncovered until
 # 2026-10-19. A feature leaf inside the shared components/ tree, like Crew/.
 web-app/src/pages/Notifications/                   @luong-komorebi @NTtanh
@@ -267,10 +280,9 @@ internal-docs/medallion-architecture.md            @hotay @luong-komorebi
 internal-docs/video-analytics-data-schema.md       @hotay @luong-komorebi
 internal-docs/congestion-evidence-clips.md         @hotay @luong-komorebi
 
-# Airhouse (warehouse + connector)
-crates/airhouse/                                   @hotay @luong-komorebi
+# Warehouse connector (crates/airhouse/ itself moved to Luong's section
+# 2026-11-16 — see there)
 crates/agentic/connector/                          @hotay @luong-komorebi
-internal-docs/airhouse-integration.md              @hotay @luong-komorebi
 
 # Airway ELT
 crates/agentic/airway/                             @hotay @nresh
@@ -294,6 +306,10 @@ crates/agentic/http/                               @hotay @luong-komorebi
 internal-docs/worker-fleet.md                      @hotay @luong-komorebi
 internal-docs/adr-postgres-as-worker-queue.md      @hotay @luong-komorebi
 crates/app/.claude/skills/oxy-task-spec-default/              @hotay @luong-komorebi
+# Schedules and the automation run surface, out of oxy-app since 2026-11-15
+# (was `server/api/{schedules,automation}.rs`). The cron scheduler is Tay's
+# (#2350); Luong backs up — schedules outside production (#3639) are his.
+crates/api-automations/                            @hotay @luong-komorebi
 
 # LLM stack — moved from Luong 2026-09-28, on the condition the old rule named:
 # Tay consolidated the whole stack onto agentic-llm in two parts (#3190, #3254),

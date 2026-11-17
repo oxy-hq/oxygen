@@ -130,6 +130,11 @@ AREAS = [
     ("crates/api-airway",                                 "Airway surface"),
     ("crates/api-source-upload",                          "Airway surface"),
     ("crates/app/src/server/api/source_upload.rs",        "Source uploads"),
+    # Schedules + the automation run surface, out of oxy-app 2026-11-15; the old
+    # paths keep the scheduler's history attributed.
+    ("crates/api-automations",                            "Schedules & automation runs"),
+    ("crates/app/src/server/api/schedules.rs",            "Schedules & automation runs"),
+    ("crates/app/src/server/api/automation.rs",           "Schedules & automation runs"),
     ("crates/agentic/runtime",                            "Agentic runtime / task queue"),
     ("crates/agentic/core",                               "Agentic FSM core"),
     ("crates/agentic/pipeline",                           "Agentic pipeline facade"),
@@ -196,6 +201,11 @@ AREAS = [
     # The inbox page and notification settings UI (#3626, #3640).
     ("web-app/src/pages/Notifications",                   "Notifications & push"),
     ("web-app/src/components/Notifications",              "Notifications & push"),
+    # The Slack bot + delivery, split into crates/slack and crates/api-slack
+    # 2026-11-12; the pre-extraction path keeps the history attributed.
+    ("crates/slack",                                      "Slack bot & delivery"),
+    ("crates/api-slack",                                  "Slack bot & delivery"),
+    ("crates/app/src/integrations/slack",                 "Slack bot & delivery"),
     ("crates/git",                                        "Git client / IDE git"),
     ("crates/app/src/server/api/custom_apps_shell_context.rs", "Client shell context"),
     ("web-app/.agents",                                   "Client shell (.agents)"),
