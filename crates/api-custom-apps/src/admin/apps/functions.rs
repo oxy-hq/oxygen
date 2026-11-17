@@ -72,6 +72,19 @@ pub struct FunctionSummary {
     /// JSON Schema for the value the function returns (manifest
     /// `outputSchema`), same subset. Display only.
     pub output_schema: Option<serde_json::Value>,
+    /// The `webhook:` block, when the function declares one: it is reachable by
+    /// a signed POST from a third party. Names only, never a key's value.
+    pub webhook: Option<WebhookSummary>,
+}
+
+/// What a function's `webhook:` block names. Either field may be absent from
+/// a manifest the route would refuse; the console still shows the surface.
+#[derive(Debug, Serialize)]
+pub struct WebhookSummary {
+    /// The header the provider's signature arrives in.
+    pub signature_header: Option<String>,
+    /// The app secret holding the signing key(s).
+    pub secret_var: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -112,6 +125,16 @@ struct ManifestView {
     destinations: Option<Vec<String>>,
     #[serde(default, rename = "inputExample")]
     input_example: Option<serde_json::Value>,
+    #[serde(default)]
+    webhook: Option<WebhookView>,
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
+struct WebhookView {
+    #[serde(default, rename = "signatureHeader")]
+    signature_header: Option<String>,
+    #[serde(default, rename = "secretVar")]
+    secret_var: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
@@ -170,6 +193,10 @@ fn to_summary(name: String, manifest: Option<&serde_json::Value>) -> FunctionSum
         input_example: m.input_example,
         input_schema: schema("inputSchema"),
         output_schema: schema("outputSchema"),
+        webhook: m.webhook.map(|w| WebhookSummary {
+            signature_header: w.signature_header,
+            secret_var: w.secret_var,
+        }),
     }
 }
 

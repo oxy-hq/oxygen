@@ -248,6 +248,9 @@ export interface AppFunctionSummary {
   input_schema?: Record<string, unknown> | null;
   /** JSON Schema for the returned value: manifest `outputSchema`. */
   output_schema?: Record<string, unknown> | null;
+  /** The manifest's `webhook:` block: reachable by a signed POST from a third
+   *  party. Names only. Absent from servers older than the field. */
+  webhook?: { signature_header: string | null; secret_var: string | null } | null;
 }
 
 /** Where a secret's declaration came from. `undeclared` means it is stored but

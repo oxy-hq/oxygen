@@ -1,6 +1,7 @@
 import { PRODUCTION } from "@/types/appEnvironments";
 import type { MovePlan, MoveRequest, MoveTarget } from "@/types/appPromote";
 import type { PublishAttemptList } from "@/types/appPublishAttempts";
+import type { RecentTraces } from "@/types/appRecentTraces";
 import type {
   AppBuildHistory,
   AppFunctionSummary,
@@ -286,6 +287,20 @@ export const CustomAppsService = {
     const response = await apiClient.get(
       `${appPath(id)}/invocations/${encodeURIComponent(invocationId)}/calls`
     );
+    return response.data;
+  },
+
+  /** Each function's latest `perFunction` recorded runs in `environment`, folded
+   *  to what each touched — the app map, in one request rather than a listing and
+   *  a trace read per run. */
+  async listRecentTraces(
+    id: string,
+    environment?: string,
+    perFunction?: number
+  ): Promise<RecentTraces> {
+    const response = await apiClient.get(`${appPath(id)}/recent-traces`, {
+      params: { ...environmentParams(environment), per_function: perFunction }
+    });
     return response.data;
   },
 

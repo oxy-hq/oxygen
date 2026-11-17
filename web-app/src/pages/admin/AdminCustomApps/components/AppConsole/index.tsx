@@ -22,6 +22,7 @@ import { useAppViewState } from "../AppDetail/useAppViewState";
 import { AppIdentity } from "../AppIdentity";
 import { AppLifecycle, LifecycleVerdictPill } from "../AppLifecycle";
 import { ConsolePanel } from "../ConsolePanel";
+import { AppMapPanel } from "./AppMap";
 import { AppStoragePanel } from "./AppStoragePanel";
 import { ChecksPanel } from "./Checks";
 import { EnvironmentStrip } from "./EnvironmentStrip";
@@ -205,6 +206,16 @@ export const AppConsole = ({ app }: { app: CustomApp }) => {
             <ConsolePanel id='access' title='Access' question='Q4 — who can open this app'>
               <AppAccessPane app={app} />
             </ConsolePanel>
+
+            {/* What starts each function and what it reaches, in the environment the
+                switch names; a function clicked here opens in Functions below. */}
+            <AppMapPanel
+              appId={app.id}
+              environment={environment}
+              scope={followsSwitch}
+              selected={view.fn}
+              onOpenFunction={openFunction}
+            />
 
             <ConsolePanel
               id='functions'

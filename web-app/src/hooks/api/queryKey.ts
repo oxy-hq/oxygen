@@ -602,6 +602,12 @@ const customAppKeys = {
   /** One invocation's call trace. A recorded trace never changes. */
   invocationCalls: (id: string, invocationId: string) =>
     ["customApps", "invocationCalls", id, invocationId] as const,
+  /** Each function's latest recorded runs in one environment (`undefined` is
+   *  production), folded to what they touched: the app map. */
+  recentTraces: (id: string, environment?: string) =>
+    environment
+      ? (["customApps", "recentTraces", id, environment] as const)
+      : (["customApps", "recentTraces", id] as const),
   /** The app's failures grouped per `(function, fingerprint)`, over `days`. */
   issues: (id: string, days: number) => ["customApps", "issues", id, days] as const,
   /** The release timeline over `days`. Under the `customApps` prefix, so a production

@@ -53,6 +53,42 @@ fn summary_projects_the_check_flag() {
     assert!(!to_summary("bare".into(), None).check);
 }
 
+/// A webhook is an entry point the console's app map draws, so the block's
+/// names reach it; a function without one has no webhook surface at all.
+#[test]
+fn summary_projects_the_webhook_block() {
+    let s = to_summary(
+        "stripe-events".into(),
+        Some(&json!({
+            "route": false,
+            "webhook": {
+                "secretVar": "STRIPE_WEBHOOK_SECRET",
+                "signatureHeader": "stripe-signature",
+                "encoding": "hex"
+            }
+        })),
+    );
+    let webhook = s.webhook.expect("webhook projected");
+    assert_eq!(webhook.secret_var.as_deref(), Some("STRIPE_WEBHOOK_SECRET"));
+    assert_eq!(
+        webhook.signature_header.as_deref(),
+        Some("stripe-signature")
+    );
+
+    // An incomplete block is still the surface: the route refuses it, and the
+    // console shows what was declared rather than hiding it.
+    let partial = to_summary("half".into(), Some(&json!({ "webhook": {} })));
+    let webhook = partial.webhook.expect("an empty block is still a webhook");
+    assert!(webhook.secret_var.is_none() && webhook.signature_header.is_none());
+
+    assert!(
+        to_summary("plain".into(), Some(&json!({})))
+            .webhook
+            .is_none()
+    );
+    assert!(to_summary("bare".into(), None).webhook.is_none());
+}
+
 #[test]
 fn summary_projects_declared_schemas() {
     let input = json!({ "type": "object", "properties": { "store": { "type": "integer" } } });

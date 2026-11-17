@@ -38,6 +38,8 @@ mod ops;
 /// `GET /{id}/publishes`: every publish attempt, failed ones included, with
 /// its stage timings.
 pub mod publishes;
+/// Each function's latest recorded traces, digested: the console's app map.
+pub mod recent_traces;
 /// Production's releases over a window, each beside the one before it, and
 /// the three environments' pointer moves.
 pub mod releases;
@@ -161,6 +163,12 @@ fn core_routes() -> Router<AppState> {
         .route(
             "/{id}/invocations/{invocation_id}/calls",
             get(invocation_calls::get_invocation_calls),
+        )
+        // Each function's latest recorded traces in one environment, folded to
+        // what they touched: the console's app map. One bounded DB read.
+        .route(
+            "/{id}/recent-traces",
+            get(recent_traces::list_recent_traces),
         )
         // The same failed invocations, one row per distinct failure. Derived
         // on every read, production only — a DB read like its neighbours.
