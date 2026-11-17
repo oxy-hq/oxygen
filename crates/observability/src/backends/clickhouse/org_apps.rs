@@ -199,18 +199,38 @@ fn org_in_predicate(org_ids: &[String]) -> String {
 /// share computed against a bounded subset would be wrong in proportion to how
 /// much of the platform that caller cannot see. It carries no tenant identity
 /// — it is one number about the platform — so there is nothing in it to fence.
-fn fleet_wall_ms_sql(days: u32) -> String {
+fn fleet_wall_ms_sql(days: u32, offset_days: u32) -> String {
     format!(
         "SELECT sum(duration_ms) AS wall_ms \
          FROM custom_app_events \
-         WHERE timestamp >= now() - INTERVAL {days} DAY \
+         WHERE {window} \
          AND {SERVED_KINDS} \
-         AND {PRODUCTION_ONLY}"
+         AND {PRODUCTION_ONLY}",
+        window = fleet_window(days, offset_days),
     )
 }
 
+/// The fleet reads' time predicate: the last `days` days, shifted back by
+/// `offset_days`.
+///
+/// With no offset it is exactly the open-ended clause every other read uses,
+/// so the current window cannot drift from the per-org console's. With one,
+/// the upper bound is exclusive and the lower bound is `days + offset` back,
+/// so the prior window and the current one tile without overlapping.
+fn fleet_window(days: u32, offset_days: u32) -> String {
+    if offset_days == 0 {
+        format!("timestamp >= now() - INTERVAL {days} DAY")
+    } else {
+        format!(
+            "timestamp >= now() - INTERVAL {from} DAY \
+             AND timestamp < now() - INTERVAL {offset_days} DAY",
+            from = days.saturating_add(offset_days),
+        )
+    }
+}
+
 /// One row per org: the fleet list's performance columns.
-fn fleet_orgs_sql(org_ids: &[String], days: u32) -> String {
+fn fleet_orgs_sql(org_ids: &[String], days: u32, offset_days: u32) -> String {
     format!(
         "SELECT org_id, \
          count() AS requests, \
@@ -223,11 +243,12 @@ fn fleet_orgs_sql(org_ids: &[String], days: u32) -> String {
          sum(duration_ms) AS wall_ms \
          FROM custom_app_events \
          WHERE {predicate} \
-         AND timestamp >= now() - INTERVAL {days} DAY \
+         AND {window} \
          AND {SERVED_KINDS} \
          AND {PRODUCTION_ONLY} \
          GROUP BY org_id",
         predicate = org_in_predicate(org_ids),
+        window = fleet_window(days, offset_days),
     )
 }
 
@@ -454,6 +475,7 @@ pub(super) async fn get_fleet_org_traffic(
     storage: &ClickHouseObservabilityStorage,
     org_ids: &[String],
     days: u32,
+    offset_days: u32,
 ) -> Result<std::collections::HashMap<String, OrgAppTotals>, OxyError> {
     // An empty `IN ()` is a ClickHouse syntax error, and a deployment with no
     // orgs is an ordinary state.
@@ -462,7 +484,7 @@ pub(super) async fn get_fleet_org_traffic(
     }
     let rows = storage
         .read_client()
-        .query(&fleet_orgs_sql(org_ids, days))
+        .query(&fleet_orgs_sql(org_ids, days, offset_days))
         .fetch_all::<FleetOrgRow>()
         .await
         .map_err(|e| query_failed("fleet org traffic", e))?;
@@ -495,6 +517,7 @@ pub(super) async fn get_fleet_org_traffic(
 pub(super) async fn get_fleet_wall_ms(
     storage: &ClickHouseObservabilityStorage,
     days: u32,
+    offset_days: u32,
 ) -> Result<u64, OxyError> {
     #[derive(Debug, Deserialize, Row)]
     struct WallRow {
@@ -502,7 +525,7 @@ pub(super) async fn get_fleet_wall_ms(
     }
     let rows = storage
         .read_client()
-        .query(&fleet_wall_ms_sql(days))
+        .query(&fleet_wall_ms_sql(days, offset_days))
         .fetch_all::<WallRow>()
         .await
         .map_err(|e| query_failed("fleet wall time", e))?;
@@ -530,7 +553,7 @@ mod tests {
             org_days_sql("o", 30),
             org_apps_sql("o", 30),
             org_routes_sql("o", 30, 20, 15),
-            fleet_orgs_sql(&["o".into()], 30),
+            fleet_orgs_sql(&["o".into()], 30, 0),
         ];
         for sql in statements {
             assert!(
@@ -569,7 +592,7 @@ mod tests {
     /// The fleet statement is org-first too, by `IN` rather than `=`.
     #[test]
     fn fleet_statement_leads_with_org_id() {
-        let sql = fleet_orgs_sql(&["a".into(), "b".into()], 7);
+        let sql = fleet_orgs_sql(&["a".into(), "b".into()], 7, 0);
         let where_body = sql.split("WHERE ").nth(1).expect("statement has a WHERE");
         assert!(
             where_body.starts_with("org_id IN ('a','b')"),
@@ -588,7 +611,7 @@ mod tests {
             org_days_sql("o", 30),
             org_apps_sql("o", 30),
             org_routes_sql("o", 30, 20, 15),
-            fleet_orgs_sql(&["o".into()], 30),
+            fleet_orgs_sql(&["o".into()], 30, 0),
         ] {
             assert!(
                 sql.contains("(duration_ms, outcome = 'ok')"),
@@ -645,7 +668,7 @@ mod tests {
             assert!(sql.contains("sum(init_ms) AS init_ms"), "{sql}");
         }
         assert!(
-            fleet_orgs_sql(&["o".into()], 30).contains("sum(duration_ms) AS wall_ms"),
+            fleet_orgs_sql(&["o".into()], 30, 0).contains("sum(duration_ms) AS wall_ms"),
             "the fleet rollup needs the same exact figure"
         );
     }
@@ -697,13 +720,41 @@ mod tests {
     /// bounded reader's share too large by whatever they cannot see.
     #[test]
     fn the_fleet_denominator_is_not_scoped_to_any_org() {
-        let sql = fleet_wall_ms_sql(30);
+        let sql = fleet_wall_ms_sql(30, 0);
         assert!(!sql.contains("org_id"), "no org filter belongs here: {sql}");
         assert!(sql.contains("sum(duration_ms) AS wall_ms"), "{sql}");
         // Same traffic definition as everything else, or the share is of a
         // different population than the numerator.
         assert!(sql.contains("kind IN ('serve', 'fn', 'data')"), "{sql}");
         assert!(sql.contains(PRODUCTION_ONLY), "{sql}");
+    }
+
+    /// The current window is the same open-ended clause every per-org read
+    /// uses, so the fleet list and the console cannot count different days.
+    #[test]
+    fn the_current_fleet_window_matches_the_per_org_reads() {
+        assert_eq!(fleet_window(30, 0), "timestamp >= now() - INTERVAL 30 DAY");
+        assert!(org_window("o", 30).contains(&fleet_window(30, 0)));
+    }
+
+    /// The prior window tiles against the current one: it starts `2 × days`
+    /// back and stops, exclusively, where the current window starts. An
+    /// inclusive upper bound would count the boundary instant twice; a lower
+    /// bound of `days` would make the prior window empty.
+    #[test]
+    fn the_prior_fleet_window_ends_where_the_current_one_starts() {
+        let w = fleet_window(30, 30);
+        assert!(w.contains("timestamp >= now() - INTERVAL 60 DAY"), "{w}");
+        assert!(w.contains("timestamp < now() - INTERVAL 30 DAY"), "{w}");
+        for sql in [
+            fleet_orgs_sql(&["o".into()], 30, 30),
+            fleet_wall_ms_sql(30, 30),
+        ] {
+            assert!(
+                sql.contains(&w),
+                "every fleet read takes the shifted window: {sql}"
+            );
+        }
     }
 
     /// Days-since-epoch is formatted, not guessed at by each caller.

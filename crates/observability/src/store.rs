@@ -408,10 +408,15 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
     /// that needs them asks [`Self::get_org_app_traffic`] for one org.
     ///
     /// An org absent from the map served nothing in the window.
+    ///
+    /// `offset_days` shifts the window back: `0` is the last `days` days, and
+    /// `days` is the `days` before those — the prior period the fleet list
+    /// compares against.
     async fn get_fleet_org_traffic(
         &self,
         _org_ids: &[String],
         _days: u32,
+        _offset_days: u32,
     ) -> Result<HashMap<String, OrgAppTotals>, OxyError> {
         Ok(HashMap::new())
     }
@@ -421,8 +426,9 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
     ///
     /// Unfenced on purpose: the bill is over every tenant, so a share computed
     /// against a bounded subset would overstate it by whatever the caller
-    /// cannot see. One scalar, carrying no tenant identity.
-    async fn get_fleet_wall_ms(&self, _days: u32) -> Result<u64, OxyError> {
+    /// cannot see. One scalar, carrying no tenant identity. `offset_days`
+    /// shifts the window back, as on [`Self::get_fleet_org_traffic`].
+    async fn get_fleet_wall_ms(&self, _days: u32, _offset_days: u32) -> Result<u64, OxyError> {
         Ok(0)
     }
 

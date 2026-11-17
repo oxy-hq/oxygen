@@ -57,6 +57,13 @@ use oxy_app_core::llm_usage::RUN_TOKENS;
 /// a run by its event count, so without the collapse every token sum downstream
 /// is inflated by however many LLM calls the run made.
 fn org_run_usage_cte() -> String {
+    org_run_usage_cte_for(Period::Current)
+}
+
+/// The run CTE over either window. The prior one feeds the console's
+/// comparison line; its statement differs from the current one only in the
+/// `created_at` predicate, so the two cannot count different runs.
+fn org_run_usage_cte_for(period: Period) -> String {
     format!(
         "WITH run_usage AS ( \
             SELECT ar.id AS run_id, \
@@ -70,9 +77,10 @@ fn org_run_usage_cte() -> String {
             JOIN agentic_run_events e \
                 ON e.run_id = ar.id AND e.event_type IN ('llm_start', 'llm_end') \
             JOIN workspaces w ON ar.workspace_id = w.id \
-            WHERE ar.created_at > now() - make_interval(days => $1) AND w.org_id = $2 \
+            WHERE {window} AND w.org_id = $2 \
             GROUP BY ar.id, ar.created_at, ar.workspace_id, ar.source_type, ar.schedule_id \
-        ) "
+        ) ",
+        window = period.created_at(),
     )
 }
 
@@ -88,11 +96,15 @@ const TOKEN_SUMS: &str = "SUM(input_tokens)::bigint AS input_tokens, \
 
 /// `(day, model)` — the window total and the trend.
 fn days_sql() -> String {
+    days_sql_for(Period::Current)
+}
+
+fn days_sql_for(period: Period) -> String {
     format!(
         "{cte} SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day, \
          model, {TOKEN_SUMS} \
          FROM run_usage GROUP BY day, model ORDER BY day",
-        cte = org_run_usage_cte(),
+        cte = org_run_usage_cte_for(period),
     )
 }
 
@@ -157,6 +169,30 @@ fn by_attendance_sql() -> String {
     )
 }
 
+/// Which window a fleet statement reads: the last `days` days, or the `days`
+/// before those — the prior period the fleet list measures change against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Period {
+    Current,
+    Prior,
+}
+
+impl Period {
+    /// The `created_at` predicate, bound to `$1` (days) either way so the
+    /// window never reaches the SQL text. The prior window ends, exclusively
+    /// on the current window's side, where the current one starts: the two
+    /// tile, and a run on the boundary is counted once.
+    fn created_at(self) -> &'static str {
+        match self {
+            Period::Current => "ar.created_at > now() - make_interval(days => $1)",
+            Period::Prior => {
+                "ar.created_at > now() - make_interval(days => $1 * 2) \
+                 AND ar.created_at <= now() - make_interval(days => $1)"
+            }
+        }
+    }
+}
+
 /// Every org with LLM usage in the window, plus its unattended share.
 ///
 /// `scope` is a bounded platform grant's org list, each id bound as its own
@@ -164,7 +200,7 @@ fn by_attendance_sql() -> String {
 /// produces **no clause at all** — not `IN ()`, which would match nothing and
 /// report every org as having no spend. `Some(&[])` must never reach here; the
 /// caller short-circuits it.
-fn fleet_sql(scope: Option<&[Uuid]>, values: &mut Vec<sea_orm::Value>) -> String {
+fn fleet_sql(scope: Option<&[Uuid]>, values: &mut Vec<sea_orm::Value>, period: Period) -> String {
     let fence = match scope {
         None => String::new(),
         Some(orgs) => {
@@ -189,7 +225,7 @@ fn fleet_sql(scope: Option<&[Uuid]>, values: &mut Vec<sea_orm::Value>) -> String
             JOIN agentic_run_events e \
                 ON e.run_id = ar.id AND e.event_type IN ('llm_start', 'llm_end') \
             JOIN workspaces w ON ar.workspace_id = w.id \
-            WHERE ar.created_at > now() - make_interval(days => $1){fence} \
+            WHERE {window}{fence} \
             GROUP BY ar.id, w.org_id, ar.schedule_id \
         ) \
         SELECT ru.org_id AS org_id, ru.model AS model, \
@@ -200,7 +236,8 @@ fn fleet_sql(scope: Option<&[Uuid]>, values: &mut Vec<sea_orm::Value>) -> String
                COUNT(*)::bigint AS run_count, \
                COUNT(*) FILTER (WHERE ru.unattended)::bigint AS unattended_runs \
         FROM run_usage ru \
-        GROUP BY ru.org_id, ru.model"
+        GROUP BY ru.org_id, ru.model",
+        window = period.created_at(),
     )
 }
 
@@ -291,6 +328,21 @@ pub(super) async fn fetch_days(
     .await
 }
 
+/// The same daily series over the prior window, for the console's comparison.
+pub(super) async fn fetch_prior_days(
+    db: &sea_orm::DatabaseConnection,
+    days: i32,
+    org_id: Uuid,
+) -> Result<Vec<DayModelRow>, DbErr> {
+    DayModelRow::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        days_sql_for(Period::Prior),
+        [days.into(), org_id.into()],
+    ))
+    .all(db)
+    .await
+}
+
 pub(super) async fn fetch_by_model(
     db: &sea_orm::DatabaseConnection,
     days: i32,
@@ -327,9 +379,10 @@ pub(super) async fn fetch_fleet(
     db: &sea_orm::DatabaseConnection,
     days: i32,
     scope: Option<&[Uuid]>,
+    period: Period,
 ) -> Result<Vec<FleetOrgRow>, DbErr> {
     let mut values: Vec<sea_orm::Value> = vec![days.into()];
-    let sql = fleet_sql(scope, &mut values);
+    let sql = fleet_sql(scope, &mut values, period);
     FleetOrgRow::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         sql,
@@ -349,6 +402,7 @@ mod tests {
     fn org_statements() -> Vec<String> {
         vec![
             days_sql(),
+            days_sql_for(Period::Prior),
             by_model_sql(),
             by_workspace_sql(),
             by_surface_sql(),
@@ -398,10 +452,10 @@ mod tests {
     /// the run made.
     #[test]
     fn every_statement_collapses_each_run_to_one_row() {
-        for sql in org_statements()
-            .into_iter()
-            .chain([fleet_sql(None, &mut vec![])])
-        {
+        for sql in org_statements().into_iter().chain([
+            fleet_sql(None, &mut vec![], Period::Current),
+            fleet_sql(None, &mut vec![], Period::Prior),
+        ]) {
             assert!(
                 sql.contains("GROUP BY ar.id,"),
                 "each run must collapse to one row before the outer grouping: {sql}"
@@ -423,7 +477,7 @@ mod tests {
             "unattended must come from schedule_id: {sql}"
         );
         assert!(
-            fleet_sql(None, &mut vec![]).contains(
+            fleet_sql(None, &mut vec![], Period::Current).contains(
                 "(ar.schedule_id IS NOT NULL \
                     AND COALESCE(ar.metadata->>'trigger', 'scheduled') <> 'manual') AS unattended"
             ),
@@ -450,7 +504,7 @@ mod tests {
     fn the_fleet_fence_binds_each_org_as_a_numbered_placeholder() {
         let mut values: Vec<sea_orm::Value> = vec![30i32.into()];
         let orgs = [Uuid::nil(), Uuid::from_u128(7)];
-        let sql = fleet_sql(Some(&orgs), &mut values);
+        let sql = fleet_sql(Some(&orgs), &mut values, Period::Current);
         assert!(
             sql.contains("AND w.org_id IN ($2,$3)"),
             "orgs bind after the window: {sql}"
@@ -463,7 +517,7 @@ mod tests {
     /// as a quiet platform rather than as a broken query.
     #[test]
     fn an_unbounded_reader_gets_no_fence_clause() {
-        let sql = fleet_sql(None, &mut vec![30i32.into()]);
+        let sql = fleet_sql(None, &mut vec![30i32.into()], Period::Current);
         assert!(!sql.contains("w.org_id IN"), "no fence for an owner: {sql}");
         assert!(
             sql.contains("WHERE ar.created_at > now() - make_interval(days => $1) WITH")
@@ -476,14 +530,35 @@ mod tests {
     /// `make_interval(days => $1)` is the only place it may appear.
     #[test]
     fn the_window_is_bound_not_interpolated() {
-        for sql in org_statements()
-            .into_iter()
-            .chain([fleet_sql(None, &mut vec![])])
-        {
+        for sql in org_statements().into_iter().chain([
+            fleet_sql(None, &mut vec![], Period::Current),
+            fleet_sql(None, &mut vec![], Period::Prior),
+        ]) {
             assert!(
                 sql.contains("make_interval(days => $1)"),
                 "the window must be bound: {sql}"
             );
         }
+    }
+
+    /// The prior window is the `days` before the current one: it starts
+    /// `2 × days` back and ends where the current window starts, so the two
+    /// tile. Both bounds ride the bound window parameter; neither is text.
+    #[test]
+    fn the_prior_fleet_window_tiles_against_the_current_one() {
+        let sql = fleet_sql(None, &mut vec![30i32.into()], Period::Prior);
+        assert!(
+            sql.contains("ar.created_at > now() - make_interval(days => $1 * 2)"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("ar.created_at <= now() - make_interval(days => $1)"),
+            "{sql}"
+        );
+        let current = fleet_sql(None, &mut vec![30i32.into()], Period::Current);
+        assert!(
+            !current.contains("$1 * 2"),
+            "the current window is unchanged: {current}"
+        );
     }
 }

@@ -69,6 +69,10 @@ export interface OrgCost {
   total: CostTotals;
   derived: CostDerived;
   by_day: CostDay[];
+  /** The window before, day by day; `null` when it could not be read. */
+  prior_by_day: CostDay[] | null;
+  /** The prior window's priced spend; `null` alongside `prior_by_day`. */
+  prior_cost_usd: number | null;
   by_model: CostBucket[];
   by_workspace: CostBucket[];
   by_surface: CostBucket[];
@@ -188,21 +192,12 @@ export interface OrgResources {
   partial: boolean;
 }
 
-/** The typical org per dimension — what the scale view indexes against. */
-export interface FleetMedians {
-  cost_usd: number | null;
-  run_count: number | null;
-  requests: number | null;
-  function_compute_gbs: number | null;
-  egress_gb: number | null;
-  storage_gib_month: number | null;
-}
-
 /** One org's row on the fleet list. App-side fields are `null` when unmeasured. */
 export interface FleetRow {
   org_id: string;
   org_name: string;
   org_slug: string;
+  /** Priced LLM spend over the window. */
   cost_usd: number;
   run_count: number;
   unpriced_runs: number;
@@ -224,19 +219,41 @@ export interface FleetRow {
   egress_gb: number | null;
   /** `null` means no storage readings, not an empty bucket. */
   storage_gib_month: number | null;
+  /** App storage at S3 list. `null` when there are no readings. */
+  storage_usd: number | null;
+  /** App egress at AWS list. `null` when apps are unmeasured. */
+  egress_usd: number | null;
+  /** Share of the operator-supplied serving bill. `null` without one. */
+  compute_usd: number | null;
+  /** LLM spend plus every priced component. */
+  cost_to_serve_usd: number;
+  /**
+   * The same total over the window before this one. `null` when the prior
+   * window could not be read; `0` when the org cost nothing then.
+   */
+  prior_cost_to_serve_usd: number | null;
 }
 
 export interface Fleet {
   window_days: number;
   apps_measured: boolean;
-  medians: FleetMedians;
   /**
    * False when the storage read itself failed — a fault, not the sweeper
    * being behind. The two look identical in the rows (`null` either way), so
    * the page has to be told which it is.
    */
   storage_read: boolean;
-  /** What a compute figure assumes, so the scale view can say so. */
+  /** True when an operator-supplied fleet bill prices function compute. */
+  compute_priced: boolean;
+  /**
+   * False when there is no prior window to compare against — it was past
+   * retention, a read of it failed, or it priced different components. No
+   * comparison is drawn.
+   */
+  prior_read: boolean;
+  /** False when the window before reaches past retention: nothing failed. */
+  prior_retained: boolean;
+  /** What a compute figure assumes. */
   provisioned_memory_mb: number | null;
   rows: FleetRow[];
 }

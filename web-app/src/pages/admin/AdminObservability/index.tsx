@@ -1,6 +1,8 @@
-import { ArrowLeft, Building2, Gauge } from "lucide-react";
+import { ArrowLeft, Building2, Gauge, Search } from "lucide-react";
+import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
+import { Input } from "@/components/ui/shadcn/input";
 import { useObservabilityFleet } from "@/hooks/api/adminObservability/useObservabilityFleet";
 import { useOrgApps } from "@/hooks/api/adminObservability/useOrgApps";
 import { useOrgCost } from "@/hooks/api/adminObservability/useOrgCost";
@@ -11,10 +13,10 @@ import { AdminEmptyState } from "../components/AdminEmptyState";
 import { AdminPage } from "../components/AdminPage";
 import { ComputePanel } from "./components/ComputePanel";
 import { CostPanel } from "./components/CostPanel";
-import { FleetTable } from "./components/FleetTable";
+import { FleetOverview } from "./components/FleetOverview";
+import { OrgStanding } from "./components/OrgStanding";
 import { PerformancePanel } from "./components/PerformancePanel";
 import { ResourcesPanel } from "./components/ResourcesPanel";
-import { ScaleView } from "./components/ScaleView";
 import { DEFAULT_WINDOW, isWindow, type WindowDays, WindowPicker } from "./components/WindowPicker";
 
 /**
@@ -34,11 +36,13 @@ const AdminObservability = () => {
 
   const parsed = Number(params.get("days"));
   const days: WindowDays = isWindow(parsed) ? parsed : DEFAULT_WINDOW;
-  const view: FleetView = params.get("view") === "scale" ? "scale" : "table";
-  const setView = (next: FleetView) => {
+  // The search lives in the URL too, so a pasted link shows the same orgs.
+  // A retired `?view=scale` from the old toggle is ignored, not an error.
+  const query = params.get("q") ?? "";
+  const setQuery = (next: string) => {
     const update = new URLSearchParams(params);
-    if (next === "table") update.delete("view");
-    else update.set("view", next);
+    if (next) update.set("q", next);
+    else update.delete("q");
     setParams(update, { replace: true });
   };
   const setDays = (next: WindowDays) => {
@@ -52,36 +56,42 @@ const AdminObservability = () => {
   return orgId ? (
     <OrgConsole orgId={orgId} days={days} setDays={setDays} />
   ) : (
-    <FleetList days={days} setDays={setDays} view={view} setView={setView} />
+    <FleetList days={days} setDays={setDays} query={query} setQuery={setQuery} />
   );
 };
 
 const FleetList = ({
   days,
   setDays,
-  view,
-  setView
+  query,
+  setQuery
 }: {
   days: WindowDays;
   setDays: (d: WindowDays) => void;
-  view: FleetView;
-  setView: (v: FleetView) => void;
+  query: string;
+  setQuery: (q: string) => void;
 }) => {
   const fleet = useObservabilityFleet(days);
-  const scale = view === "scale";
 
   return (
     <AdminPage
       width='wide'
       data-testid='admin-observability'
-      description={
-        scale
-          ? "How big each organization is against the typical one, on every axis at once."
-          : "What each organization costs us, and how its custom apps are performing. Pick one to see why."
-      }
+      description='What each organization costs us to serve, and what it did for it. Pick one to see why.'
       actions={
         <div className='flex items-center gap-2'>
-          <ViewSwitch view={view} onChange={setView} />
+          <div className='relative w-56'>
+            <Search className='pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground' />
+            <Input
+              type='search'
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder='Find an organization'
+              aria-label='Find an organization'
+              className='h-7 pl-7 text-xs'
+              data-testid='admin-observability-search'
+            />
+          </div>
           <WindowPicker days={days} onChange={setDays} />
         </div>
       }
@@ -100,44 +110,11 @@ const FleetList = ({
           />
         }
       >
-        {(data) => (scale ? <ScaleView fleet={data} /> : <FleetTable fleet={data} />)}
+        {(data) => <FleetOverview fleet={data} query={query} />}
       </AdminAsync>
     </AdminPage>
   );
 };
-
-/**
- * Table or scale. A projection of one list, like the tenants directory's
- * `?type=`, so it rides a query param rather than a tab or a second route —
- * the same data answering two questions.
- */
-export type FleetView = "table" | "scale";
-
-const ViewSwitch = ({ view, onChange }: { view: FleetView; onChange: (v: FleetView) => void }) => (
-  <div
-    className='flex items-center gap-1'
-    role='group'
-    aria-label='View'
-    data-testid='admin-observability-view'
-  >
-    {(["table", "scale"] as const).map((v) => (
-      <button
-        key={v}
-        type='button'
-        onClick={() => onChange(v)}
-        aria-pressed={view === v}
-        data-testid={`admin-observability-view-${v}`}
-        className={
-          view === v
-            ? "rounded-md bg-foreground px-2 py-1 font-medium text-[11px] text-background uppercase tracking-wide"
-            : "rounded-md px-2 py-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide transition-colors hover:bg-muted hover:text-foreground"
-        }
-      >
-        {v === "table" ? "Table" : "Scale"}
-      </button>
-    ))}
-  </div>
-);
 
 const OrgConsole = ({
   orgId,
@@ -149,6 +126,12 @@ const OrgConsole = ({
   setDays: (d: WindowDays) => void;
 }) => {
   const cost = useOrgCost(orgId, days);
+  // The fleet read places this org among the rest. Ranking needs every org's
+  // cost to serve, so it is a fleet-wide read: used when the operator came
+  // from the list and it is cached, and otherwise run only when asked — a
+  // direct link to one org does not pay for every tenant's.
+  const [placeAmongFleet, setPlaceAmongFleet] = useState(false);
+  const fleet = useObservabilityFleet(days, { enabled: placeAmongFleet });
   const apps = useOrgApps(orgId, days);
   const resources = useOrgResources(orgId, days);
   // The org's identity rides the cost response — one indexed lookup after the
@@ -187,6 +170,25 @@ const OrgConsole = ({
         </div>
       }
     >
+      {fleet.data || placeAmongFleet ? (
+        <AdminAsync query={fleet} noun="this organization's cost to serve" rows={2}>
+          {(data) => <OrgStanding orgId={orgId} fleet={data} />}
+        </AdminAsync>
+      ) : (
+        <div className='flex items-center gap-2 text-muted-foreground text-xs'>
+          <span>Its rank by cost to serve needs a read of every organization.</span>
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-7 text-xs'
+            onClick={() => setPlaceAmongFleet(true)}
+            data-testid='admin-observability-place-among-fleet'
+          >
+            Show its place in the fleet
+          </Button>
+        </div>
+      )}
+
       <AdminAsync query={cost} noun="this organization's spend" rows={4}>
         {(data) => <CostPanel cost={data} />}
       </AdminAsync>

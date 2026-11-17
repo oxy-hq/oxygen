@@ -42,6 +42,7 @@
 mod apps;
 mod cost;
 mod cost_rollup;
+mod cost_to_serve;
 mod derive;
 mod fleet;
 mod meters;
@@ -50,7 +51,6 @@ mod metrics_pricing;
 mod metrics_rollup;
 mod rates;
 mod resources;
-mod scale;
 mod storage_rollup;
 
 use axum::Router;

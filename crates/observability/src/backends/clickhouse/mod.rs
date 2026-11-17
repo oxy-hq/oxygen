@@ -1077,16 +1077,21 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
         &self,
         org_ids: &[String],
         days: u32,
+        offset_days: u32,
     ) -> Result<HashMap<String, OrgAppTotals>, OxyError> {
         with_query_timeout(
             "get_fleet_org_traffic",
-            org_apps::get_fleet_org_traffic(self, org_ids, days),
+            org_apps::get_fleet_org_traffic(self, org_ids, days, offset_days),
         )
         .await
     }
 
-    async fn get_fleet_wall_ms(&self, days: u32) -> Result<u64, OxyError> {
-        with_query_timeout("get_fleet_wall_ms", org_apps::get_fleet_wall_ms(self, days)).await
+    async fn get_fleet_wall_ms(&self, days: u32, offset_days: u32) -> Result<u64, OxyError> {
+        with_query_timeout(
+            "get_fleet_wall_ms",
+            org_apps::get_fleet_wall_ms(self, days, offset_days),
+        )
+        .await
     }
 
     async fn shutdown(&self) {

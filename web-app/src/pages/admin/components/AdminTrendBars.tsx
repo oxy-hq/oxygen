@@ -8,6 +8,12 @@ export interface AdminTrendPoint {
   detail: string;
   /** Draws the bar in the warning tone — a day with failures, say. */
   flagged?: boolean;
+  /**
+   * The same day one window earlier, drawn as a tick across the bar so a jump
+   * is read against a baseline rather than against the chart's own peak.
+   * `undefined` draws no tick.
+   */
+  baseline?: number;
 }
 
 /**
@@ -28,12 +34,15 @@ export const AdminTrendBars = ({
   points,
   emptyLabel,
   testId,
-  className
+  className,
+  baselineLabel
 }: {
   points: AdminTrendPoint[];
   emptyLabel: string;
   testId: string;
   className?: string;
+  /** Names the baseline ticks in the footer, when the points carry them. */
+  baselineLabel?: string;
 }) => {
   if (points.length === 0) {
     return (
@@ -49,8 +58,11 @@ export const AdminTrendBars = ({
     );
   }
 
-  const max = Math.max(...points.map((p) => p.value), Number.EPSILON);
+  // One scale for bars and ticks, so a tick above its bar means "less than
+  // the same day last time" in the same units.
+  const max = Math.max(...points.map((p) => Math.max(p.value, p.baseline ?? 0)), Number.EPSILON);
   const peak = points.reduce((a, b) => (b.value > a.value ? b : a), points[0]);
+  const compared = points.some((p) => p.baseline !== undefined);
 
   return (
     <div className={cn("space-y-1.5", className)} data-testid={testId}>
@@ -68,16 +80,34 @@ export const AdminTrendBars = ({
                   ? "bg-muted-foreground/20"
                   : p.flagged
                     ? "bg-warning/70 group-hover:bg-warning"
-                    : "bg-primary/70 group-hover:bg-primary"
+                    : // Lighter under a baseline, so the tick reads across it.
+                      compared
+                      ? "bg-muted-foreground/40 group-hover:bg-muted-foreground/60"
+                      : "bg-primary/70 group-hover:bg-primary"
               )}
               style={{ height: `${Math.max((p.value / max) * 100, p.value > 0 ? 4 : 1.5)}%` }}
             />
+            {p.baseline !== undefined && p.baseline > 0 ? (
+              <div
+                aria-hidden
+                className='pointer-events-none absolute inset-x-0 h-0.5 rounded-full bg-foreground'
+                style={{ bottom: `calc(${(p.baseline / max) * 100}% - 1px)` }}
+              />
+            ) : null}
           </div>
         ))}
       </div>
       <div className='flex items-center justify-between font-mono text-[10px] text-muted-foreground tabular-nums'>
         <span>{points[0].day}</span>
-        <span className='text-foreground/70'>peak {peak.detail}</span>
+        <span className='flex items-center gap-3'>
+          <span className='text-foreground/70'>peak {peak.detail}</span>
+          {compared && baselineLabel ? (
+            <span className='flex items-center gap-1 font-sans'>
+              <span aria-hidden className='inline-block h-0.5 w-3 rounded-full bg-foreground' />
+              {baselineLabel}
+            </span>
+          ) : null}
+        </span>
         <span>{points[points.length - 1].day}</span>
       </div>
     </div>

@@ -28,7 +28,7 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use super::cost_rollup::{self, BucketModelRow, DayModelRow};
-use super::{WindowQuery, connect_scoped};
+use super::{WindowQuery, connect_scoped, cost_to_serve};
 
 /// Window totals. Tokens are always real; `cost_usd` covers only the runs
 /// whose model has a rate, and `unpriced_runs` names the rest rather than
@@ -105,6 +105,13 @@ pub struct OrgCost {
     pub total: CostTotals,
     pub derived: CostDerived,
     pub by_day: Vec<CostDay>,
+    /// The `days` before the window, day by day, so a jump is dated against
+    /// a baseline rather than against the chart's own peak. `None` when the
+    /// prior window could not be read, or is past run retention — the chart
+    /// then draws no comparison.
+    pub prior_by_day: Option<Vec<CostDay>>,
+    /// The prior window's priced spend; `None` alongside `prior_by_day`.
+    pub prior_cost_usd: Option<f64>,
     pub by_model: Vec<CostBucket>,
     pub by_workspace: Vec<CostBucket>,
     pub by_surface: Vec<CostBucket>,
@@ -134,6 +141,10 @@ async fn org_cost(
         .await
         .map_err(db_err)?;
     let (total, by_day) = fold_days(&day_rows);
+
+    let prior = read_prior(&db, days, org_id).await;
+    let prior_cost_usd = prior.as_ref().map(|(t, _)| t.cost_usd);
+    let prior_by_day = prior.map(|(_, d)| d);
 
     let by_model = fold_buckets(
         &cost_rollup::fetch_by_model(&db, days, org_id)
@@ -168,6 +179,8 @@ async fn org_cost(
         total,
         derived,
         by_day,
+        prior_by_day,
+        prior_cost_usd,
         by_model,
         by_workspace,
         by_surface,
@@ -184,6 +197,31 @@ async fn org_cost(
 /// A missing row keeps the id as the name — the fence already proved the
 /// caller may see this org, so an absent `organizations` row is a race with a
 /// deletion, not an authorization question.
+/// The `days` before the window, folded — or `None`, and the page draws no
+/// comparison.
+///
+/// A comparison, not a figure the page stands on: if it cannot be read it is
+/// dropped and logged, and every other number still renders. Past run retention
+/// it is not read at all — those runs are deleted, so the window would read as
+/// empty and the spend as new.
+async fn read_prior(
+    db: &sea_orm::DatabaseConnection,
+    days: i32,
+    org_id: Uuid,
+) -> Option<(CostTotals, Vec<CostDay>)> {
+    let horizon = cost_to_serve::retention_horizon_days(false);
+    if !cost_to_serve::prior_retained(days.max(0) as u32, horizon) {
+        return None;
+    }
+    match cost_rollup::fetch_prior_days(db, days, org_id).await {
+        Ok(rows) => Some(fold_days(&rows)),
+        Err(e) => {
+            tracing::warn!(error = %e, %org_id, "prior-window daily cost read failed");
+            None
+        }
+    }
+}
+
 async fn load_identity(
     db: &sea_orm::DatabaseConnection,
     org_id: Uuid,

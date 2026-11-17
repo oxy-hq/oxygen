@@ -146,7 +146,7 @@ fn window_bounds(days: i32) -> (DateTime<FixedOffset>, DateTime<FixedOffset>) {
 /// setting it changed nothing. With no local there is nothing left to drop.
 async fn read_fleet_wall_ms(state: &AppState, days: i32) -> Option<f64> {
     let store = state.observability.as_ref()?;
-    match store.get_fleet_wall_ms(days.max(0) as u32).await {
+    match store.get_fleet_wall_ms(days.max(0) as u32, 0).await {
         Ok(ms) => Some(ms as f64),
         Err(e) => {
             tracing::warn!(error = %e, "fleet wall-time denominator failed");

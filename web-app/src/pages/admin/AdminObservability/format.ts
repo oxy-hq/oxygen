@@ -117,3 +117,26 @@ const OUTCOME_LABELS: Record<string, string> = {
 export function outcomeLabel(outcome: string): string {
   return OUTCOME_LABELS[outcome] ?? outcome;
 }
+
+/**
+ * A change, signed with a real minus: `+12%`, `−8%`. Under half a percent
+ * reads `±0%` rather than a sign that would claim a direction.
+ */
+export function signedPct(change: number | null | undefined): string {
+  if (change == null || !Number.isFinite(change)) return "—";
+  if (Math.abs(change) < 0.005) return "±0%";
+  return `${change > 0 ? "+" : "−"}${pct(Math.abs(change))}`;
+}
+
+/**
+ * Dollars for a ranked figure: whole dollars from $10 up (`$1,842`, `$669`),
+ * cents below that. Where `usd` compacts to `$1.8k` for dense tables, a
+ * ranking compares neighbours and needs the digits.
+ */
+export function money(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  if (n === 0) return "$0";
+  if (n >= 10) return `$${Math.round(n).toLocaleString("en-US")}`;
+  if (n >= 0.01) return `$${n.toFixed(2)}`;
+  return usd(n);
+}

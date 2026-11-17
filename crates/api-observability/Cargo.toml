@@ -36,6 +36,8 @@ oxy-custom-apps = { workspace = true }
 # The admin section's cost rollup reads Postgres directly (`agentic_runs` ×
 # `agentic_run_events`), priced by `oxy_app_core::llm_usage`.
 sea-orm = { workspace = true }
+# The fleet list reads the current and the prior window side by side.
+futures = { workspace = true }
 chrono = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true }

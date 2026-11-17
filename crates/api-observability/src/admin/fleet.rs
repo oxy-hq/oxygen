@@ -1,6 +1,6 @@
-//! `GET /admin/observability/fleet` — one row per org: spend, app traffic and
-//! the latency tail, so the surface answers *"what is out there?"* before
-//! *"which one thing?"*.
+//! `GET /admin/observability/fleet` — one row per org: what it costs to serve,
+//! what it did for that, and how its apps performed, so the surface answers
+//! *"what is out there?"* before *"which one thing?"*.
 //!
 //! That ordering is a rule the admin console wrote for itself after
 //! `/admin/apps` shipped as a redirect to whichever app most needed a person:
@@ -11,21 +11,28 @@
 //! Orgs with **no** spend and no traffic are included, not filtered out. An
 //! org that went quiet is a finding, and a list that only shows active orgs
 //! cannot show it.
+//!
+//! **Cost to serve** — LLM spend plus the app resources this surface can price
+//! — and the rules for comparing it with the window before live in
+//! `cost_to_serve`. This module reads, folds the rows, and serializes.
 
 use axum::extract::{Query, State};
 use axum::response::Response;
 use axum::{Json, Router, routing::get};
 use oxy_app::surface::admin_db::db_err;
 use oxy_app_core::AppState;
-use oxy_app_core::llm_usage::price;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use uuid::Uuid;
 
-use super::cost_rollup;
-use super::{WindowQuery, connect_fleet, rates, scale, storage_rollup};
+use super::cost_rollup::{self, Period};
+use super::cost_to_serve::{
+    self, BYTES_PER_GB_DECIMAL, Basis, PriorReads, TrafficRead, Window, accumulate_cost,
+    cost_to_serve,
+};
+use super::{WindowQuery, connect_fleet, rates, storage_rollup};
 
 /// One org's row.
 ///
@@ -39,6 +46,7 @@ pub struct FleetRow {
     pub org_name: String,
     pub org_slug: String,
     // Cost (Postgres: always answerable)
+    /// Priced LLM spend over the window.
     pub cost_usd: f64,
     pub run_count: i64,
     pub unpriced_runs: i64,
@@ -58,7 +66,7 @@ pub struct FleetRow {
     pub apps: Option<u64>,
     pub p95_ms: Option<f64>,
     pub failure_rate: Option<f64>,
-    // Resource meters, for the scale view
+    // Resource quantities
     /// Provisioned GB-seconds of function compute. `None` when unmeasured, or
     /// when the isolate ceiling is disabled and there is no basis to convert
     /// wall time against.
@@ -68,22 +76,20 @@ pub struct FleetRow {
     /// Time-weighted storage over the window. `None` means **no readings**,
     /// not an empty bucket.
     pub storage_gib_month: Option<f64>,
-}
-
-/// The typical org, per dimension — the denominator the scale view indexes
-/// against.
-///
-/// The **median**, not the mean: with one dominant tenant the mean *is* that
-/// tenant, every other org indexes to nearly zero, and the comparison says
-/// nothing. `None` for a dimension nothing could answer.
-#[derive(Debug, Default, Serialize)]
-pub struct FleetMedians {
-    pub cost_usd: Option<f64>,
-    pub run_count: Option<f64>,
-    pub requests: Option<f64>,
-    pub function_compute_gbs: Option<f64>,
-    pub egress_gb: Option<f64>,
-    pub storage_gib_month: Option<f64>,
+    // Cost to serve
+    /// App storage at S3 list. `None` when there are no readings.
+    pub storage_usd: Option<f64>,
+    /// App egress at AWS list. `None` when apps are unmeasured.
+    pub egress_usd: Option<f64>,
+    /// This org's share of the operator-supplied serving bill. `None` without
+    /// one: the fleet's price is never invented.
+    pub compute_usd: Option<f64>,
+    /// LLM spend plus every priced component above.
+    pub cost_to_serve_usd: f64,
+    /// The same total over the `days` before the window, read with the same
+    /// components. `None` when the prior window could not be read — no
+    /// comparison, rather than a comparison against zero.
+    pub prior_cost_to_serve_usd: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -92,15 +98,40 @@ pub struct Fleet {
     /// False when no observability store is configured, so every row's app
     /// fields are absent for want of a source.
     pub apps_measured: bool,
-    /// The typical org per dimension, for the scale view.
-    pub medians: FleetMedians,
     /// False when the storage read itself failed. Distinct from an org with no
     /// readings: one is a fault, the other is the sweeper not having reached
     /// an app yet, and the page must not show a database error as the latter.
     pub storage_read: bool,
-    /// What a compute figure assumes, so the scale view can say so.
+    /// True when an operator-supplied fleet bill prices function compute, so
+    /// the page can say which components its totals include.
+    pub compute_priced: bool,
+    /// False when there is no prior window to compare against — it was past
+    /// retention, a read of it failed, or it priced different components — so
+    /// the page drops its comparison rather than reporting every org as new.
+    pub prior_read: bool,
+    /// False when the window before reaches past run or traffic retention, so
+    /// the page can say *why* there is no comparison: nothing failed.
+    pub prior_retained: bool,
+    /// What a compute figure assumes, so the page can say so.
     pub provisioned_memory_mb: Option<f64>,
     pub rows: Vec<FleetRow>,
+}
+
+impl Fleet {
+    /// The answer for a grant that reaches no org: nothing to read, so
+    /// nothing failed.
+    fn empty(window_days: u32, apps_measured: bool) -> Self {
+        Self {
+            window_days,
+            apps_measured,
+            storage_read: true,
+            compute_priced: false,
+            prior_read: true,
+            prior_retained: true,
+            provisioned_memory_mb: rates::provisioned_memory_mb(),
+            rows: Vec::new(),
+        }
+    }
 }
 
 pub(super) fn router() -> Router<AppState> {
@@ -111,10 +142,10 @@ pub(super) fn router() -> Router<AppState> {
 /// row. The fence is the caller's bounded grant, applied the same way the cost
 /// rollup applies it.
 #[derive(Debug, FromQueryResult)]
-struct OrgRow {
-    id: Uuid,
-    name: String,
-    slug: String,
+pub(super) struct OrgRow {
+    pub(super) id: Uuid,
+    pub(super) name: String,
+    pub(super) slug: String,
 }
 
 /// The org list's statement, with each in-scope org bound as its own
@@ -153,176 +184,215 @@ async fn visible_orgs(
     .await
 }
 
+/// `[now - (days + offset), now - offset]`, for the storage rollup's explicit
+/// bounds. The ClickHouse and Postgres reads express the same window in SQL.
+fn bounds(
+    days: i32,
+    offset_days: i32,
+) -> (
+    chrono::DateTime<chrono::FixedOffset>,
+    chrono::DateTime<chrono::FixedOffset>,
+) {
+    let end = chrono::Utc::now() - chrono::Duration::days(i64::from(offset_days));
+    (
+        (end - chrono::Duration::days(i64::from(days))).into(),
+        end.into(),
+    )
+}
+
+/// The app-store reads for one window. `Ok(None)` when the deployment has no
+/// observability store; the fleet's wall time only when a bill needs it.
+async fn read_traffic(
+    state: &AppState,
+    org_ids: &[String],
+    days: u32,
+    offset_days: u32,
+    priced: bool,
+) -> Result<TrafficRead, oxy_shared::errors::OxyError> {
+    let Some(store) = state.observability.as_ref() else {
+        return Ok(None);
+    };
+    let traffic = store
+        .get_fleet_org_traffic(org_ids, days, offset_days)
+        .await?;
+    // The apportioning denominator. Its failure leaves compute unpriced for
+    // the window rather than failing the page: every other column stands.
+    let fleet_wall_ms = if priced {
+        match store.get_fleet_wall_ms(days, offset_days).await {
+            Ok(ms) => Some(ms as f64),
+            Err(e) => {
+                tracing::warn!(error = %e, offset_days, "fleet wall time read failed");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    Ok(Some((traffic, fleet_wall_ms)))
+}
+
+/// What every read of one request shares.
+struct Reader<'a> {
+    state: &'a AppState,
+    db: &'a sea_orm::DatabaseConnection,
+    scope: Option<&'a [Uuid]>,
+    org_ids: &'a [Uuid],
+    org_keys: Vec<String>,
+    days: i32,
+    priced: bool,
+}
+
+type WindowReads = (
+    Result<Vec<cost_rollup::FleetOrgRow>, sea_orm::DbErr>,
+    Result<HashMap<Uuid, storage_rollup::OrgStorage>, sea_orm::DbErr>,
+    Result<TrafficRead, oxy_shared::errors::OxyError>,
+);
+
+impl Reader<'_> {
+    /// One window's cost, storage and traffic reads, run together.
+    async fn window(&self, period: Period) -> WindowReads {
+        let offset = match period {
+            Period::Current => 0,
+            Period::Prior => self.days,
+        };
+        let (start, end) = bounds(self.days, offset);
+        let window = self.days.max(0) as u32;
+        futures::join!(
+            cost_rollup::fetch_fleet(self.db, self.days, self.scope, period),
+            storage_rollup::fleet_storage(self.db, self.org_ids, start, end),
+            read_traffic(
+                self.state,
+                &self.org_keys,
+                window,
+                offset.max(0) as u32,
+                self.priced
+            ),
+        )
+    }
+
+    /// The prior window, when it is still retained and every read of it
+    /// came back; otherwise no comparison.
+    async fn prior(&self, retained: bool) -> Option<PriorReads> {
+        if !retained {
+            return None;
+        }
+        let (cost, storage, traffic) = self.window(Period::Prior).await;
+        cost_to_serve::gather_prior(cost, storage, traffic)
+    }
+}
+
+/// Storage: a failure must not blank the page — the other columns are
+/// independent — but it must not pass for "the sweeper is behind" either, so
+/// it is logged and the response says `storage_read` failed.
+fn storage_or_unread(
+    read: Result<HashMap<Uuid, storage_rollup::OrgStorage>, sea_orm::DbErr>,
+    orgs: usize,
+) -> (HashMap<Uuid, storage_rollup::OrgStorage>, bool) {
+    match read {
+        Ok(s) => (s, true),
+        Err(e) => {
+            tracing::warn!(error = %e, orgs, "fleet storage rollup failed");
+            (HashMap::new(), false)
+        }
+    }
+}
+
 async fn fleet(
     State(state): State<AppState>,
     AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Query(q): Query<WindowQuery>,
 ) -> Result<Json<Fleet>, Response> {
     let days = q.days();
+    let window = days.max(0) as u32;
     let (db, scope) = connect_fleet(&actor).await?;
+    let apps_measured = state.observability.is_some();
 
     // A bounded grant that reaches no org sees an empty list, and no statement
     // runs: an empty `IN ()` would either fail to parse or, read the other way,
     // match every org — which is the opposite of what the fence is for.
     if scope.as_deref().is_some_and(<[Uuid]>::is_empty) {
-        return Ok(Json(Fleet {
-            window_days: days as u32,
-            apps_measured: state.observability.is_some(),
-            medians: FleetMedians::default(),
-            storage_read: true,
-            provisioned_memory_mb: rates::provisioned_memory_mb(),
-            rows: Vec::new(),
-        }));
+        return Ok(Json(Fleet::empty(window, apps_measured)));
     }
 
     let orgs = visible_orgs(&db, scope.as_deref()).await.map_err(db_err)?;
-    let cost_rows = cost_rollup::fetch_fleet(&db, days, scope.as_deref())
-        .await
-        .map_err(db_err)?;
-
-    // Storage, batched: two statements over the whole fleet rather than the
-    // per-org meter's two each. A failure here must not blank the page — the
-    // other columns are independent — but it must not pass for "the sweeper
-    // is behind" either, so it is logged and the response says `storage_read`
-    // failed.
-    let (start, end) = {
-        let end = chrono::Utc::now();
-        (
-            (end - chrono::Duration::days(i64::from(days))).into(),
-            end.into(),
-        )
-    };
     let org_ids: Vec<Uuid> = orgs.iter().map(|o| o.id).collect();
-    let (storage, storage_read) =
-        match storage_rollup::fleet_storage(&db, &org_ids, start, end).await {
-            Ok(s) => (s, true),
-            Err(e) => {
-                tracing::warn!(error = %e, orgs = org_ids.len(), "fleet storage rollup failed");
-                (Default::default(), false)
-            }
-        };
-
-    // App performance, batched over every visible org in one statement.
-    let apps_measured = state.observability.is_some();
-    let traffic = match state.observability.as_ref() {
-        None => Default::default(),
-        Some(store) => {
-            let ids: Vec<String> = orgs.iter().map(|o| o.id.to_string()).collect();
-            store
-                .get_fleet_org_traffic(&ids, days.max(0) as u32)
-                .await
-                .map_err(super::store_err)?
-        }
+    let fleet_bill = rates::fleet_cost_usd_month();
+    let reader = Reader {
+        state: &state,
+        db: &db,
+        scope: scope.as_deref(),
+        org_ids: &org_ids,
+        org_keys: org_ids.iter().map(Uuid::to_string).collect(),
+        days,
+        priced: fleet_bill.is_some(),
     };
+    let retained =
+        cost_to_serve::prior_retained(window, cost_to_serve::retention_horizon_days(apps_measured));
+
+    // Both windows at once. The current window's cost and traffic reads fail
+    // the page, as they always have; the prior is a comparison, and one that
+    // cannot be made is dropped, not invented.
+    let ((cost_rows, storage, traffic), prior) =
+        futures::join!(reader.window(Period::Current), reader.prior(retained));
+    let cost_rows = cost_rows.map_err(db_err)?;
+    let (traffic, fleet_wall_ms) = traffic.map_err(super::store_err)?.unwrap_or_default();
+    let (storage, storage_read) = storage_or_unread(storage, org_ids.len());
+
+    let current = Window {
+        cost_rows: &cost_rows,
+        traffic: &traffic,
+        storage: &storage,
+        basis: Basis {
+            days: window,
+            apps_measured,
+            include_storage: storage_read,
+            fleet_wall_ms,
+            fleet_bill,
+        },
+    };
+    let prior_totals = prior
+        .as_ref()
+        .and_then(|p| cost_to_serve::prior_totals(&org_ids, &current.basis, p));
 
     let provisioned_mb = rates::provisioned_memory_mb();
     let rows = fold_fleet(FleetFold {
         orgs,
-        cost_rows: &cost_rows,
-        traffic: &traffic,
-        storage: &storage,
-        apps_measured,
+        current: &current,
+        prior: prior_totals.as_ref(),
         provisioned_mb,
         days,
     });
 
-    let medians = medians_of(&rows);
-
     Ok(Json(Fleet {
-        window_days: days as u32,
+        window_days: window,
         apps_measured,
-        medians,
         storage_read,
+        compute_priced: current.basis.compute_priced(),
+        prior_read: prior_totals.is_some(),
+        prior_retained: retained,
         provisioned_memory_mb: provisioned_mb,
         rows,
     }))
 }
 
-/// The typical org per dimension.
-///
-/// Orgs that could not be measured on a dimension are **excluded from that
-/// dimension's sample**, rather than counted as zero. Three measured orgs and
-/// three unmeasured ones would otherwise produce a median of zero, and every
-/// measured org would then index against nothing.
-pub(super) fn medians_of(rows: &[FleetRow]) -> FleetMedians {
-    fn med<T, F>(rows: &[T], f: F) -> Option<f64>
-    where
-        F: Fn(&T) -> Option<f64>,
-    {
-        let sample: Vec<f64> = rows.iter().filter_map(f).collect();
-        scale::median(&sample)
-    }
-    FleetMedians {
-        cost_usd: med(rows, |r| Some(r.cost_usd)),
-        run_count: med(rows, |r| Some(r.run_count as f64)),
-        requests: med(rows, |r| r.requests.map(|v| v as f64)),
-        function_compute_gbs: med(rows, |r| r.function_compute_gbs),
-        egress_gb: med(rows, |r| r.egress_gb),
-        storage_gib_month: med(rows, |r| r.storage_gib_month),
-    }
-}
-
-/// Everything the per-org fold needs. A struct rather than seven arguments,
-/// and the reason the fold is not in the handler at all: pricing and
-/// aggregation are business logic, and `backend-architecture.md` keeps HTTP
-/// handlers to parse → call → serialize. `cost.rs` already splits this way
-/// with `fold_days` / `fold_buckets`; this follows it.
+/// Everything the per-org fold needs. A struct rather than a list of
+/// arguments, and the reason the fold is not in the handler at all: pricing
+/// and aggregation are business logic, and `backend-architecture.md` keeps
+/// HTTP handlers to parse → call → serialize. `cost.rs` already splits this
+/// way with `fold_days` / `fold_buckets`; this follows it.
 pub(super) struct FleetFold<'a> {
     pub(super) orgs: Vec<OrgRow>,
-    pub(super) cost_rows: &'a [cost_rollup::FleetOrgRow],
-    pub(super) traffic:
-        &'a std::collections::HashMap<String, oxy_observability::types::OrgAppTotals>,
-    pub(super) storage: &'a std::collections::HashMap<Uuid, storage_rollup::OrgStorage>,
-    pub(super) apps_measured: bool,
+    pub(super) current: &'a Window<'a>,
+    /// Each org's prior-window total, or `None` when it could not be read.
+    pub(super) prior: Option<&'a HashMap<Uuid, f64>>,
     pub(super) provisioned_mb: Option<f64>,
     pub(super) days: i32,
 }
 
-/// One org's priced tokens, folded from its per-model rows.
-#[derive(Default)]
-struct Acc {
-    cost_usd: f64,
-    run_count: i64,
-    unpriced_runs: i64,
-    unattended_runs: i64,
-    input_tokens: i64,
-    output_tokens: i64,
-    cache_creation: i64,
-    cache_read: i64,
-}
-
-/// Fold the per-(org, model) cost rows into one accumulator per org.
-///
-/// Each bucket is priced at **its own** rate before anything is summed:
-/// pricing a summed token count would charge every token at one model's rate,
-/// and be wrong by whatever the model mix is.
-fn accumulate_cost(rows: &[cost_rollup::FleetOrgRow]) -> BTreeMap<Uuid, Acc> {
-    let mut by_org: BTreeMap<Uuid, Acc> = BTreeMap::new();
-    for r in rows {
-        let acc = by_org.entry(r.org_id).or_default();
-        match price(
-            &r.model,
-            r.input_tokens,
-            r.output_tokens,
-            r.cache_creation,
-            r.cache_read,
-        ) {
-            Some(c) => acc.cost_usd += c,
-            None => acc.unpriced_runs += r.run_count,
-        }
-        acc.run_count += r.run_count;
-        acc.unattended_runs += r.unattended_runs;
-        acc.input_tokens += r.input_tokens;
-        acc.output_tokens += r.output_tokens;
-        acc.cache_creation += r.cache_creation;
-        acc.cache_read += r.cache_read;
-    }
-    by_org
-}
-
 /// Build the fleet's rows. Pure: every input is already read.
 pub(super) fn fold_fleet(f: FleetFold<'_>) -> Vec<FleetRow> {
-    let by_org = accumulate_cost(f.cost_rows);
+    let w = f.current;
+    let by_org = accumulate_cost(w.cost_rows);
     f.orgs
         .into_iter()
         .map(|o| {
@@ -330,7 +400,10 @@ pub(super) fn fold_fleet(f: FleetFold<'_>) -> Vec<FleetRow> {
             let cost_usd = acc.map(|a| a.cost_usd).unwrap_or(0.0);
             let run_count = acc.map(|a| a.run_count).unwrap_or(0);
             let unpriced_runs = acc.map(|a| a.unpriced_runs).unwrap_or(0);
-            let t = f.traffic.get(&o.id.to_string());
+            let t = w.traffic.get(&o.id.to_string());
+            let storage = w.storage.get(&o.id);
+            let serve = cost_to_serve(cost_usd, storage, t, &w.basis);
+            let measured = w.basis.apps_measured;
             FleetRow {
                 org_id: o.id,
                 org_name: o.name,
@@ -358,24 +431,29 @@ pub(super) fn fold_fleet(f: FleetFold<'_>) -> Vec<FleetRow> {
                     super::derive::cache_hit_share(a.input_tokens, a.cache_creation, a.cache_read)
                 }),
                 // `None` when unmeasured; `Some(0)` when measured and quiet.
-                requests: t.map(|t| t.requests).or(zero_if(f.apps_measured, 0)),
-                sessions: t.map(|t| t.sessions).or(zero_if(f.apps_measured, 0)),
-                people: t.map(|t| t.people).or(zero_if(f.apps_measured, 0)),
-                apps: t.map(|t| t.apps).or(zero_if(f.apps_measured, 0)),
+                requests: t.map(|t| t.requests).or(zero_if(measured, 0)),
+                sessions: t.map(|t| t.sessions).or(zero_if(measured, 0)),
+                people: t.map(|t| t.people).or(zero_if(measured, 0)),
+                apps: t.map(|t| t.apps).or(zero_if(measured, 0)),
                 p95_ms: t.map(|t| t.p95_ms),
                 failure_rate: t.and_then(|t| super::derive::failure_rate(t.failed, t.requests)),
                 // Exact summed wall time, the same figure the Resources panel
                 // meters, so the two cannot disagree about how busy an org was.
                 function_compute_gbs: t
                     .and_then(|t| rates::gb_seconds(t.wall_ms as f64, f.provisioned_mb)),
-                egress_gb: t.map(|t| t.bytes as f64 / 1_000_000_000.0),
+                egress_gb: t.map(|t| t.bytes as f64 / BYTES_PER_GB_DECIMAL),
                 // `None` means no readings, which is not an empty bucket: the
                 // sweeper only appends a sample when its walk completed.
-                storage_gib_month: f
-                    .storage
-                    .get(&o.id)
+                storage_gib_month: storage
                     .filter(|s| s.apps_with_samples > 0)
-                    .map(|s| s.gib * (f64::from(f.days.max(0) as u32) / 30.0)),
+                    .map(|s| rates::gib_months(s.gib, w.basis.days)),
+                storage_usd: serve.storage_usd,
+                egress_usd: serve.egress_usd,
+                compute_usd: serve.compute_usd,
+                cost_to_serve_usd: serve.total(),
+                // An org missing from a prior window that *was* read spent
+                // nothing then: zero, which is what makes it new.
+                prior_cost_to_serve_usd: f.prior.map(|p| p.get(&o.id).copied().unwrap_or(0.0)),
             }
         })
         .collect()
@@ -393,109 +471,5 @@ fn zero_if<T>(measured: bool, zero: T) -> Option<T> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A measured-but-quiet org reports zero; an unmeasured deployment reports
-    /// absent. These are different answers and the column header says which.
-    #[test]
-    fn measured_and_quiet_is_zero_while_unmeasured_is_absent() {
-        assert_eq!(zero_if(true, 0u64), Some(0));
-        assert_eq!(zero_if(false, 0u64), None);
-    }
-
-    /// A bounded grant binds each org it may see. The org list is the page's
-    /// spine — every row comes from it — so a fence that leaked here would
-    /// list orgs the cost rollup then refuses to populate, and the page would
-    /// read "these orgs spent nothing" about tenants the caller may not see.
-    #[test]
-    fn the_org_list_binds_each_in_scope_org() {
-        let mut values: Vec<sea_orm::Value> = Vec::new();
-        let sql = visible_orgs_sql(Some(&[Uuid::nil(), Uuid::from_u128(3)]), &mut values);
-        assert!(
-            sql.contains("WHERE id IN ($1,$2)"),
-            "the list takes no window param, so orgs start at $1: {sql}"
-        );
-        assert_eq!(values.len(), 2, "one bound value per org");
-    }
-
-    /// An unbounded reader gets no `WHERE` at all. `IN ()` would list no orgs,
-    /// so the whole surface would render as an empty platform.
-    #[test]
-    fn an_unbounded_reader_lists_every_org() {
-        let sql = visible_orgs_sql(None, &mut Vec::new());
-        assert!(!sql.contains("WHERE"), "no fence for an owner: {sql}");
-        assert!(sql.contains("ORDER BY name"), "{sql}");
-    }
-
-    fn row(cost: f64, requests: Option<u64>, storage: Option<f64>) -> FleetRow {
-        FleetRow {
-            org_id: Uuid::nil(),
-            org_name: String::new(),
-            org_slug: String::new(),
-            cost_usd: cost,
-            run_count: 0,
-            unpriced_runs: 0,
-            input_tokens: 0,
-            output_tokens: 0,
-            cost_per_run_usd: None,
-            monthly_run_rate_usd: None,
-            unattended_run_share: None,
-            cache_hit_share: None,
-            requests,
-            sessions: None,
-            people: None,
-            apps: None,
-            p95_ms: None,
-            failure_rate: None,
-            function_compute_gbs: None,
-            egress_gb: None,
-            storage_gib_month: storage,
-        }
-    }
-
-    /// An org that could not be measured on a dimension is excluded from that
-    /// dimension's sample, not counted as zero.
-    ///
-    /// Three measured orgs beside three unmeasured ones would otherwise give a
-    /// median of zero, and every measured org would index against nothing —
-    /// the scale view would show six orgs all infinitely above typical.
-    #[test]
-    fn an_unmeasured_org_is_excluded_from_that_dimension_not_zeroed() {
-        let rows = [
-            row(10.0, Some(100), Some(4.0)),
-            row(20.0, None, None),
-            row(30.0, Some(300), Some(8.0)),
-            row(40.0, None, None),
-        ];
-        let m = medians_of(&rows);
-        // Two measured values, 100 and 300 → 200. Counting the absences as
-        // zero would give 50.
-        assert_eq!(m.requests, Some(200.0));
-        assert_eq!(m.storage_gib_month, Some(6.0));
-        // Cost is answerable for every org, so all four count.
-        assert_eq!(m.cost_usd, Some(25.0));
-    }
-
-    /// A dimension nothing could answer has no median at all, so the view says
-    /// there is no typical account rather than indexing against zero.
-    #[test]
-    fn a_dimension_nothing_can_answer_has_no_median() {
-        let rows = [row(1.0, None, None), row(2.0, None, None)];
-        let m = medians_of(&rows);
-        assert_eq!(m.requests, None);
-        assert_eq!(m.storage_gib_month, None);
-        assert_eq!(m.function_compute_gbs, None);
-    }
-
-    /// The list is ordered by name, not by cost. The *table* sorts by spend —
-    /// that is the frontend's job and it is interactive — but the API's order
-    /// must not depend on data, or the same request returns rows in a
-    /// different order as spend moves, which breaks pagination the day it is
-    /// added.
-    #[test]
-    fn the_api_orders_by_name_not_by_spend() {
-        let sql = visible_orgs_sql(None, &mut Vec::new());
-        assert!(sql.ends_with("ORDER BY name"), "{sql}");
-    }
-}
+#[path = "fleet_tests.rs"]
+mod tests;

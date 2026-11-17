@@ -1,8 +1,9 @@
-import { CalendarClock, Coins, Database, Repeat } from "lucide-react";
+import { CalendarClock, Coins, Database, Repeat, TrendingUp } from "lucide-react";
 import type { CostBucket, OrgCost } from "@/services/api/adminObservability";
 import { AdminSectionLabel } from "../../components/AdminSectionLabel";
 import { AdminTrendBars } from "../../components/AdminTrendBars";
-import { compact, pct, shortModel, surfaceLabel, usd } from "../format";
+import { alignWindow } from "../dailySeries";
+import { compact, pct, shortModel, signedPct, surfaceLabel, usd } from "../format";
 import { BreakdownBars, type BreakdownItem } from "./BreakdownBars";
 
 /**
@@ -23,6 +24,11 @@ import { BreakdownBars, type BreakdownItem } from "./BreakdownBars";
  */
 export const CostPanel = ({ cost }: { cost: OrgCost }) => {
   const { total, derived } = cost;
+  const series = alignWindow(cost.by_day, cost.prior_by_day, cost.window_days);
+  const change =
+    cost.prior_cost_usd != null && cost.prior_cost_usd > 0
+      ? total.cost_usd / cost.prior_cost_usd - 1
+      : null;
 
   return (
     <section className='space-y-5' data-testid='admin-observability-cost'>
@@ -43,6 +49,14 @@ export const CostPanel = ({ cost }: { cost: OrgCost }) => {
               </div>
             </div>
             <div className='flex flex-wrap gap-5 text-right'>
+              {cost.prior_cost_usd != null ? (
+                <Figure
+                  icon={TrendingUp}
+                  label='vs prior'
+                  value={change != null ? signedPct(change) : "new"}
+                  hint={`Priced spend over the ${cost.window_days} days before: ${usd(cost.prior_cost_usd)}`}
+                />
+              ) : null}
               <Figure
                 icon={CalendarClock}
                 label='Run-rate / mo'
@@ -67,11 +81,17 @@ export const CostPanel = ({ cost }: { cost: OrgCost }) => {
           <AdminTrendBars
             testId='admin-observability-cost-trend'
             emptyLabel='No LLM activity in this window.'
-            points={cost.by_day.map((d) => ({
-              day: d.day,
-              value: d.cost_usd,
-              detail: `${usd(d.cost_usd)} · ${d.run_count.toLocaleString()} run${d.run_count === 1 ? "" : "s"}`
-            }))}
+            baselineLabel={`same day, ${cost.window_days}d earlier`}
+            points={
+              cost.by_day.length === 0
+                ? []
+                : series.map((d) => ({
+                    day: d.day,
+                    value: d.cost_usd,
+                    baseline: d.prior_cost_usd ?? undefined,
+                    detail: `${usd(d.cost_usd)} · ${d.run_count.toLocaleString()} run${d.run_count === 1 ? "" : "s"}${d.prior_cost_usd != null ? ` · ${usd(d.prior_cost_usd)} ${cost.window_days}d earlier` : ""}`
+                  }))
+            }
           />
 
           <dl className='grid grid-cols-2 gap-3 text-xs sm:grid-cols-4'>

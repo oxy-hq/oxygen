@@ -106,6 +106,41 @@ pub fn month_to_window(usd_month: f64, window_days: u32) -> f64 {
     usd_month * (f64::from(window_days) / 30.0)
 }
 
+/// Storage held over the window, in GiB-months, from a time-weighted average.
+///
+/// One definition for the Resources panel and the fleet list, so the two
+/// cannot report a different quantity — or a different dollar figure — for
+/// the same org over the same window.
+pub fn gib_months(average_gib: f64, window_days: u32) -> f64 {
+    average_gib * (f64::from(window_days) / 30.0)
+}
+
+/// App storage priced at S3 Standard list. Direct: the org is the only
+/// consumer of its buckets.
+pub fn storage_usd(gib_months: f64) -> f64 {
+    gib_months * S3_STANDARD_USD_PER_GB_MONTH
+}
+
+/// App egress in decimal GB priced at AWS list. Direct, and errs high: traffic
+/// served through CloudFront costs less.
+pub fn egress_usd(gb: f64) -> f64 {
+    gb * EGRESS_USD_PER_GB
+}
+
+/// This org's share of the serving fleet's bill over the window, apportioned
+/// by measured wall time. `None` without an operator-supplied fleet bill or a
+/// fleet that ran nothing — never an invented rate.
+pub fn compute_usd(
+    org_wall_ms: f64,
+    fleet_wall_ms: Option<f64>,
+    fleet_bill_usd_month: Option<f64>,
+    window_days: u32,
+) -> Option<f64> {
+    fleet_wall_ms
+        .and_then(|fleet| apportion(org_wall_ms, fleet, fleet_bill_usd_month))
+        .map(|m| month_to_window(m, window_days))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,6 +198,22 @@ mod tests {
     /// The list prices are the published ones. Pinned so a change is a
     /// deliberate edit with a diff, not a drift nobody notices — the whole
     /// reason they live in code.
+    #[test]
+    fn storage_and_egress_price_at_list() {
+        assert_eq!(gib_months(10.0, 30), 10.0);
+        assert_eq!(gib_months(10.0, 15), 5.0);
+        assert!((storage_usd(100.0) - 2.3).abs() < 1e-9);
+        assert!((egress_usd(100.0) - 9.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn compute_needs_both_a_bill_and_a_fleet_that_ran() {
+        assert_eq!(compute_usd(25.0, Some(100.0), None, 30), None);
+        assert_eq!(compute_usd(25.0, None, Some(400.0), 30), None);
+        assert_eq!(compute_usd(25.0, Some(100.0), Some(400.0), 30), Some(100.0));
+        assert_eq!(compute_usd(25.0, Some(100.0), Some(400.0), 15), Some(50.0));
+    }
+
     #[test]
     fn list_prices_are_the_published_aws_rates() {
         assert_eq!(S3_STANDARD_USD_PER_GB_MONTH, 0.023);

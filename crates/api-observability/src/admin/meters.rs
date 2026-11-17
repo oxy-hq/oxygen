@@ -9,8 +9,8 @@
 //! function that can only return one meter cannot accidentally emit two, or
 //! none, and each is testable on its own.
 
+use super::rates;
 use super::resources::{Attribution, Meter, MeterInput};
-use super::{rates, storage_rollup};
 
 /// Bytes per GB, decimal — egress is billed in decimal gigabytes, unlike
 /// storage, which is binary. Mixing them is a 7% error in the direction of
@@ -35,13 +35,13 @@ fn storage_meter(input: &MeterInput<'_>) -> Meter {
     match &input.storage {
         // Apps exist and at least one reported. A measured figure.
         Some(s) if s.apps_with_samples > 0 => {
-            let gib_month = s.gib * (f64::from(input.window_days) / 30.0);
+            let gib_month = rates::gib_months(s.gib, input.window_days);
             Meter {
                 key: "storage",
                 label: "App storage",
                 quantity: Some(gib_month),
                 unit: "GiB-month",
-                cost_usd: Some(gib_month * rates::S3_STANDARD_USD_PER_GB_MONTH),
+                cost_usd: Some(rates::storage_usd(gib_month)),
                 attribution: Attribution::Direct,
                 note: None,
             }
@@ -75,7 +75,7 @@ fn egress_meter(input: &MeterInput<'_>) -> Meter {
                 label: "App egress",
                 quantity: Some(gb),
                 unit: "GB",
-                cost_usd: Some(gb * rates::EGRESS_USD_PER_GB),
+                cost_usd: Some(rates::egress_usd(gb)),
                 attribution: Attribution::Direct,
                 note: Some(
                     "AWS list price for transfer to the internet. Anything served through \
@@ -97,10 +97,12 @@ fn compute_meter(input: &MeterInput<'_>) -> Meter {
             // differ by most of the figure.
             let wall_ms = t.wall_ms as f64;
             let gbs = rates::gb_seconds(wall_ms, input.provisioned_mb);
-            let cost = input
-                .fleet_wall_ms
-                .and_then(|fleet| rates::apportion(wall_ms, fleet, input.fleet_cost))
-                .map(|m| rates::month_to_window(m, input.window_days));
+            let cost = rates::compute_usd(
+                wall_ms,
+                input.fleet_wall_ms,
+                input.fleet_cost,
+                input.window_days,
+            );
             Meter {
                 key: "function_compute",
                 label: "Function compute",
@@ -212,6 +214,7 @@ fn unmeasured_app_meter(key: &'static str, label: &'static str, unit: &'static s
 
 #[cfg(test)]
 mod tests {
+    use super::super::storage_rollup;
     use super::*;
     use oxy_observability::types::OrgAppTotals;
 

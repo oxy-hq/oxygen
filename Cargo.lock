@@ -10069,6 +10069,7 @@ dependencies = [
  "axum",
  "chrono",
  "entity",
+ "futures",
  "linfa",
  "linfa-reduction",
  "migration",
