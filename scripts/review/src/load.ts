@@ -79,6 +79,23 @@ export async function changedSinceLast(
   return new Set(names.filter((n) => inPr.has(n)));
 }
 
+/**
+ * Lenses that finished on an earlier full review of this PR, and so read every file then
+ * in it. A lens that finished only on incremental rounds read only the files those
+ * rounds changed, so it does not count: on a later push it still matches the whole diff
+ * of each file that push touches.
+ */
+export function lensesFinished(prev: Pick<ReviewState, "rounds">): Set<string> {
+  const ids = new Set(config.LENSES.map((l) => l.id));
+  const done = new Set<string>();
+  for (const r of prev.rounds) {
+    if (r.mode !== "full") continue;
+    for (const [name, p] of Object.entries(r.passes ?? {}))
+      if (p.ok && ids.has(name)) done.add(name);
+  }
+  return done;
+}
+
 export async function loadRound({
   gh,
   repo,
@@ -112,7 +129,20 @@ export async function loadRound({
   });
   const files = parseUnifiedDiff(diffText);
   const changedSince = await changedSinceLast(prev, head, files, cwd);
-  const plan = buildPlan({ files, config, exists: (p) => existsSync(join(cwd, p)), changedSince });
+  const delta =
+    changedSince && prev.head
+      ? parseUnifiedDiff(
+          await git(["diff", "--no-color", "--no-ext-diff", "-M", prev.head, head], { cwd })
+        )
+      : null;
+  const plan = buildPlan({
+    files,
+    config,
+    exists: (p) => existsSync(join(cwd, p)),
+    changedSince,
+    delta,
+    covered: lensesFinished(prev)
+  });
   return {
     meta,
     head,

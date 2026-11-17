@@ -120,7 +120,12 @@ function stepSummary(state: ReviewState, view: SummaryView): void {
     const tools = Object.entries(p.tools)
       .map(([t, c]) => `${t}×${c}`)
       .join(" ");
-    return `| ${n} | ${p.ok ? "ok" : p.subtype} | $${p.cost} | ${Math.round(p.ms / 1000)}s | ${tools} |`;
+    const k = (n: number | undefined) => (n === undefined ? "–" : `${Math.round(n / 1000)}K`);
+    // The first call shows whether the pass found the shared prefix cached (a read) or
+    // paid to write it again; the totals are every call the pass made.
+    const first = `${k(p.first?.cacheWrite)} / ${k(p.first?.cacheRead)}`;
+    const total = `${k(p.usage?.cacheWrite)} / ${k(p.usage?.cacheRead)} · out ${k(p.usage?.output)}`;
+    return `| ${n} | ${p.ok ? "ok" : p.subtype} | $${p.cost} | ${Math.round(p.ms / 1000)}s | ${first} | ${total} | ${tools} |`;
   });
   const title = `### ${state.verdict ?? "no verdict"} (${state.status}) · $${view.cost.toFixed(2)}`;
   appendFileSync(
@@ -128,8 +133,8 @@ function stepSummary(state: ReviewState, view: SummaryView): void {
     [
       title,
       "",
-      "| pass | result | cost | time | tools |",
-      "|---|---|---|---|---|",
+      "| pass | result | cost | time | first call: cache written / read | all calls | tools |",
+      "|---|---|---|---|---|---|---|",
       ...passes,
       ""
     ].join("\n")

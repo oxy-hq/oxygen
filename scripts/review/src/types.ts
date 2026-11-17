@@ -173,6 +173,21 @@ export interface Possible {
   why: string;
 }
 
+/** Tokens one pass used, summed over its turns (the SDK's per-model totals). */
+export interface TokenUsage {
+  /** Input read at full price: neither written to nor read from the prompt cache. */
+  input: number;
+  /** Written to the prompt cache (1.25x input price). */
+  cacheWrite: number;
+  /** Read from the prompt cache (a small fraction of input price). */
+  cacheRead: number;
+  /** Output, thinking included. */
+  output: number;
+}
+
+/** The input side of a pass's first model call: whether it found the shared prefix cached. */
+export type FirstCallUsage = Omit<TokenUsage, "output">;
+
 export interface PassSummary {
   ok: boolean;
   subtype: string;
@@ -180,6 +195,9 @@ export interface PassSummary {
   ms: number;
   turns: number;
   tools: Record<string, number>;
+  /** Absent on rounds recorded before usage was kept. */
+  usage?: TokenUsage;
+  first?: FirstCallUsage;
 }
 
 export interface Round {
@@ -272,6 +290,8 @@ export interface PassResult<T = unknown> {
   turns: number;
   tools: Record<string, number>;
   error: string;
+  usage?: TokenUsage;
+  first?: FirstCallUsage;
 }
 
 export interface PassSpec {
@@ -280,6 +300,12 @@ export interface PassSpec {
   schema: Record<string, unknown>;
   effort: Effort;
   taskTokens?: number;
+  /**
+   * Called once, as soon as the pass's first model response starts arriving: from then on
+   * its prompt prefix is in the cache, so passes started after it read that prefix
+   * instead of each writing it again (round.ts starts the others on this).
+   */
+  onFirstResponse?: () => void;
 }
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";

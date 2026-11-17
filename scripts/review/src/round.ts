@@ -112,25 +112,91 @@ function passSpec(item: Scheduled, prompts: Prompts): PassSpec {
   };
 }
 
+interface Gate {
+  opened: Promise<void>;
+  open: () => void;
+  /** Start the timer that opens it anyway: a pass that is slow to answer holds no one long. */
+  arm: () => void;
+  close: () => void;
+}
+
+/** A gate that opens once: on `open()`, or `ms` after `arm()`. `close` stops its timer. */
+export function gate(ms: number): Gate {
+  let open = () => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return {
+    opened,
+    open,
+    arm: () => {
+      timer ??= setTimeout(open, ms);
+    },
+    close: () => clearTimeout(timer)
+  };
+}
+
+/**
+ * Which pass each pass waits for before it starts: the first pass of its kind. A request
+ * reads a cached prefix only once an earlier request's response has started, so passes
+ * started together each paid to write the same prefix. Only passes of one kind can share
+ * one: a pass's output schema is a tool definition, and tools open the prompt, so the
+ * general, lens, recheck and verify passes differ from the first token (measured on
+ * #4168: lens and verify first calls each wrote ~30K tokens and read none). In practice
+ * this means a round's second and third lens wait for its first.
+ */
+export function waitsFor<T>(run: readonly T[], kindOf: (item: T) => string): Map<T, T> {
+  const out = new Map<T, T>();
+  const leaders = new Map<string, T>();
+  for (const item of run) {
+    const leader = leaders.get(kindOf(item));
+    if (leader === undefined) leaders.set(kindOf(item), item);
+    else out.set(item, leader);
+  }
+  return out;
+}
+
+/** Run the scheduled passes, each starting once the pass it waits for has begun answering. */
 async function runScheduled(
   run: readonly Scheduled[],
   budget: Budget,
   prompts: Prompts,
   exec: Exec
 ): Promise<PassResult[]> {
-  return Promise.all(
-    run.map(async (item) => {
-      const result = await exec.runPass<unknown>({
-        ...passSpec(item, prompts),
-        model: config.MODELS.finder,
-        budgetUsd: item.cap,
-        cwd: exec.cwd,
-        graph: exec.graph
-      });
-      budget.settle(item.cap, result.cost);
-      return result;
-    })
+  const items = run.map((item) => ({ item, spec: passSpec(item, prompts) }));
+  // The schema follows the kind; effort is in the key in case two kinds ever share one.
+  const waits = waitsFor(items, (i) => `${i.item.kind}:${i.spec.effort}`);
+  const gates = new Map(
+    [...new Set(waits.values())].map((i) => [i, gate(config.STAGGER_MAX_WAIT_MS)])
   );
+  try {
+    return await Promise.all(
+      items.map(async (entry) => {
+        const before = waits.get(entry);
+        if (before) await gates.get(before)?.opened;
+        const mine = gates.get(entry);
+        mine?.arm();
+        try {
+          const result = await exec.runPass<unknown>({
+            ...entry.spec,
+            ...(mine ? { onFirstResponse: mine.open } : {}),
+            model: config.MODELS.finder,
+            budgetUsd: entry.item.cap,
+            cwd: exec.cwd,
+            graph: exec.graph
+          });
+          budget.settle(entry.item.cap, result.cost);
+          return result;
+        } finally {
+          // A pass that ended without ever answering must not hold the ones behind it.
+          mine?.open();
+        }
+      })
+    );
+  } finally {
+    for (const g of gates.values()) g.close();
+  }
 }
 
 async function verify(
@@ -287,7 +353,9 @@ function roundRecord({
           cost: cents(r.cost),
           ms: r.ms,
           turns: r.turns,
-          tools: r.tools
+          tools: r.tools,
+          ...(r.usage ? { usage: r.usage } : {}),
+          ...(r.first ? { first: r.first } : {})
         }
       ])
     )

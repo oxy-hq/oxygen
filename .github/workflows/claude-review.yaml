@@ -62,7 +62,14 @@ jobs:
           cache: pnpm
           cache-dependency-path: scripts/review/pnpm-lock.yaml
 
+      # No code-review-graph: across 30 sampled passes (3 PRs, Nov 2026) the reviewer
+      # never called it, yet its tool definitions sat in every pass's prompt and the
+      # build took ~25s a run. The eval already ran without it. Turn it back on here
+      # and drop --no-graph below together; the per-pass tool counts in the review
+      # state show whether it then earns its place.
       - uses: ./.github/actions/claude-search-tools
+        with:
+          graph: "false"
 
       - name: Install the reviewer
         working-directory: scripts/review
@@ -78,4 +85,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: node scripts/review/review.ts --pr "$PR" --post --require-key
+        run: node scripts/review/review.ts --pr "$PR" --post --require-key --no-graph

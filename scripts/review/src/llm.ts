@@ -4,12 +4,13 @@
 import type {
   HookCallback,
   McpServerConfig,
+  SDKMessage,
   SDKResultMessage
 } from "@anthropic-ai/claude-agent-sdk";
 import { ALLOWED_TOOLS } from "../config.ts";
 import { guardHook } from "./guard.ts";
 import { agentEnv } from "./redact.ts";
-import type { PassResult, RunPass } from "./types.ts";
+import type { FirstCallUsage, PassResult, RunPass, TokenUsage } from "./types.ts";
 
 const SYSTEM_APPEND = [
   "You are an automated pull-request reviewer for this repository, running in CI.",
@@ -30,6 +31,65 @@ function preToolUse(cwd: string): HookCallback {
       : {};
 }
 
+/** Tokens across every model the pass called, from the SDK's per-model totals. */
+export function usageOf(
+  result: Pick<SDKResultMessage, "modelUsage"> | null
+): TokenUsage | undefined {
+  const models = Object.values(result?.modelUsage ?? {});
+  if (!models.length) return undefined;
+  const sum = (pick: (m: (typeof models)[number]) => number) =>
+    models.reduce((n, m) => n + (pick(m) || 0), 0);
+  return {
+    input: sum((m) => m.inputTokens),
+    cacheWrite: sum((m) => m.cacheCreationInputTokens),
+    cacheRead: sum((m) => m.cacheReadInputTokens),
+    output: sum((m) => m.outputTokens)
+  };
+}
+
+interface Consumed {
+  result: SDKResultMessage | null;
+  tools: Record<string, number>;
+  first?: FirstCallUsage;
+}
+
+/**
+ * Read a pass's message stream: tool counts, the first call's input usage, the result.
+ * `onFirst` fires on the first sign of a response, a stream event when partial messages
+ * are on, else the first assistant message.
+ */
+export async function consume(
+  stream: AsyncIterable<SDKMessage>,
+  onFirst: (() => void) | undefined
+): Promise<Consumed> {
+  const out: Consumed = { result: null, tools: {} };
+  let fired = false;
+  const fire = () => {
+    if (fired) return;
+    fired = true;
+    onFirst?.();
+  };
+  for await (const m of stream) {
+    if (m.type === "stream_event") fire();
+    else if (m.type === "assistant") {
+      fire();
+      if (!out.first && m.parent_tool_use_id === null) {
+        const u = m.message.usage;
+        out.first = {
+          input: u.input_tokens ?? 0,
+          cacheWrite: u.cache_creation_input_tokens ?? 0,
+          cacheRead: u.cache_read_input_tokens ?? 0
+        };
+      }
+      for (const b of m.message.content)
+        if (b.type === "tool_use") out.tools[b.name] = (out.tools[b.name] ?? 0) + 1;
+    } else if (m.type === "result") {
+      out.result = m;
+    }
+  }
+  return out;
+}
+
 function errorsOf(result: SDKResultMessage | null, crash: string | null): string {
   if (crash) return crash;
   return result && result.subtype !== "success" ? result.errors.join("; ").slice(0, 500) : "";
@@ -48,12 +108,12 @@ export const runPass: RunPass = async <T>({
   budgetUsd,
   taskTokens,
   cwd,
-  graph
+  graph,
+  onFirstResponse
 }: Parameters<RunPass>[0]): Promise<PassResult<T>> => {
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
   const started = Date.now();
-  const tools: Record<string, number> = {};
-  let result: SDKResultMessage | null = null;
+  let consumed: Consumed = { result: null, tools: {} };
   let crash: string | null = null;
   try {
     const stream = query({
@@ -64,6 +124,9 @@ export const runPass: RunPass = async <T>({
         cwd,
         maxBudgetUsd: budgetUsd,
         ...(taskTokens ? { taskBudget: { total: taskTokens } } : {}),
+        // Only the pass others wait on streams partial messages: it is how they learn,
+        // within a second or two, that its prefix is cached.
+        ...(onFirstResponse ? { includePartialMessages: true } : {}),
         outputFormat: { type: "json_schema", schema },
         systemPrompt: { type: "preset", preset: "claude_code", append: SYSTEM_APPEND },
         // `project` loads the CLAUDE.md files (root, and nested ones as files are read).
@@ -82,20 +145,15 @@ export const runPass: RunPass = async <T>({
         hooks: { PreToolUse: [{ hooks: [preToolUse(cwd)] }] }
       }
     });
-    for await (const m of stream) {
-      if (m.type === "assistant") {
-        for (const b of m.message.content)
-          if (b.type === "tool_use") tools[b.name] = (tools[b.name] ?? 0) + 1;
-      } else if (m.type === "result") {
-        result = m;
-      }
-    }
+    consumed = await consume(stream, onFirstResponse);
   } catch (err) {
     crash = (err instanceof Error ? err.message : String(err)).slice(0, 500);
   }
+  const { result, tools, first } = consumed;
   // The SDK validated it against `schema`; that is the contract the caller's T names.
   const output =
     result?.subtype === "success" ? ((result.structured_output as T | undefined) ?? null) : null;
+  const usage = usageOf(result);
   return {
     name,
     ok: output !== null,
@@ -106,6 +164,8 @@ export const runPass: RunPass = async <T>({
     ms: Date.now() - started,
     turns: result?.num_turns ?? 0,
     tools,
-    error: errorsOf(result, crash)
+    error: errorsOf(result, crash),
+    ...(usage ? { usage } : {}),
+    ...(first ? { first } : {})
   };
 };

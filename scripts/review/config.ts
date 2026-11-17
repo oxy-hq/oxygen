@@ -148,6 +148,11 @@ export const BUDGET = {
   overshoot: 0.25
 };
 
+// A round's second and third lens start when the first lens's response begins arriving,
+// so they can read its prompt prefix from the cache instead of each writing ~30K tokens
+// (round.ts, waitsFor). This caps the wait when that response is slow to come.
+export const STAGGER_MAX_WAIT_MS = 20_000;
+
 // Tokens the model is told it has (the SDK's task budget), so a large diff ends with
 // findings and a "not reviewed" list instead of being cut off by the dollar cap.
 export const TASK_TOKENS = { general: 400_000, lens: 150_000, verify: 200_000, recheck: 100_000 };

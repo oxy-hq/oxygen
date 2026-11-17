@@ -67,6 +67,58 @@ export interface PrRecord {
   rejected?: number;
   rounds?: number;
   ms?: number[];
+  /** What each pass cost over every round of this PR, by pass name. */
+  passes?: Record<string, PassTotals>;
+}
+
+/**
+ * One pass's spend, summed. The token fields count only `metered` runs: rounds recorded
+ * before usage was kept carry a cost and no tokens.
+ */
+export interface PassTotals {
+  runs: number;
+  cost: number;
+  metered: number;
+  input: number;
+  cacheWrite: number;
+  cacheRead: number;
+  output: number;
+}
+
+const noSpend = (): PassTotals => ({
+  runs: 0,
+  cost: 0,
+  metered: 0,
+  input: 0,
+  cacheWrite: 0,
+  cacheRead: 0,
+  output: 0
+});
+
+/** Add one pass run, or one PR's totals, into the entry for `name`. */
+function addSpend(out: Record<string, PassTotals>, name: string, add: PassTotals): void {
+  const into = out[name] ?? noSpend();
+  for (const k of Object.keys(into) as (keyof PassTotals)[]) into[k] += add[k];
+  out[name] = into;
+}
+
+/** Per-pass spend across rounds: the split the cost levers are chosen from. */
+export function passTotals(rounds: readonly Round[]): Record<string, PassTotals> {
+  const out: Record<string, PassTotals> = {};
+  for (const r of rounds)
+    for (const [name, p] of Object.entries(r.passes ?? {})) {
+      const u = p.usage;
+      addSpend(out, name, {
+        runs: 1,
+        cost: p.cost,
+        metered: u ? 1 : 0,
+        input: u?.input ?? 0,
+        cacheWrite: u?.cacheWrite ?? 0,
+        cacheRead: u?.cacheRead ?? 0,
+        output: u?.output ?? 0
+      });
+    }
+  return out;
 }
 
 function legacyReview(
@@ -86,7 +138,7 @@ function legacyReview(
 
 function rollup(
   rounds: readonly Round[]
-): Pick<PrRecord, "cost" | "candidates" | "rejected" | "rounds" | "ms"> {
+): Pick<PrRecord, "cost" | "candidates" | "rejected" | "rounds" | "ms" | "passes"> {
   const sum = (pick: (r: Round) => number | undefined) =>
     rounds.reduce((n, r) => n + (pick(r) ?? 0), 0);
   const ran = rounds.filter((r) => r.cost > 0);
@@ -95,7 +147,8 @@ function rollup(
     candidates: sum((r) => r.candidates),
     rejected: sum((r) => r.rejected),
     rounds: ran.length,
-    ms: ran.map((r) => r.ms)
+    ms: ran.map((r) => r.ms),
+    passes: passTotals(rounds)
   };
 }
 
@@ -262,6 +315,8 @@ export interface Aggregate {
   suggestions: { with: Bucket; without: Bucket };
   verifier: { candidates: number; rejected: number };
   cost: { total: number; perPr: number; p50ms: number | null; p90ms: number | null };
+  /** Spend by pass name, summed over every round of every PR in the window. */
+  byPass: Record<string, PassTotals>;
   size: { median: number | null; over1000: number };
   people: {
     approved: number;
@@ -269,6 +324,13 @@ export interface Aggregate {
     overrides: number[];
   };
   recurring: { rule: string; prs: number[] }[];
+}
+
+function sumPasses(records: readonly PrRecord[]): Record<string, PassTotals> {
+  const out: Record<string, PassTotals> = {};
+  for (const r of records)
+    for (const [name, t] of Object.entries(r.passes ?? {})) addSpend(out, name, t);
+  return out;
 }
 
 /** The numbers the weekly report prints. */
@@ -313,6 +375,7 @@ export function aggregate(records: readonly PrRecord[]): Aggregate {
       p50ms: quantile(ms, 0.5),
       p90ms: quantile(ms, 0.9)
     },
+    byPass: sumPasses(v2),
     size: { median: quantile(lines, 0.5), over1000: records.filter((r) => r.lines > 1000).length },
     people: {
       approved: records.filter((r) => r.approved).length,

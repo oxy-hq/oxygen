@@ -1,7 +1,7 @@
 // The weekly report, in Markdown: figures first, one line per item.
 
 import type { Escape } from "./escapes.ts";
-import type { Aggregate, Bucket } from "./metrics.ts";
+import type { Aggregate, Bucket, PassTotals } from "./metrics.ts";
 
 const pct = (v: number | null): string => (v === null ? "n/a" : `${v}%`);
 const secs = (ms: number | null): string => (ms === null ? "n/a" : `${Math.round(ms / 1000)}s`);
@@ -24,6 +24,58 @@ function bucketTable(title: string, buckets: Record<string, Bucket>): string {
     ...rows,
     ""
   ].join("\n");
+}
+
+/** The passes that are not lenses: every other pass is named after the lens that ran. */
+const CORE_PASSES = new Set(["general", "recheck", "verify"]);
+
+const share = (part: number, total: number): string =>
+  total > 0 ? `${Math.round((100 * part) / total)}%` : "n/a";
+
+/** Thousands of tokens per metered run, or a dash when no run of this pass was metered. */
+const perRun = (tokens: number, t: PassTotals): string =>
+  t.metered ? `${Math.round(tokens / t.metered / 1000)}K` : "–";
+
+const totalCost = (byPass: Aggregate["byPass"]): number =>
+  Object.values(byPass).reduce((n, t) => n + t.cost, 0);
+
+/** Where the money goes, by pass: the table the cost levers are chosen from. */
+export function passTable(byPass: Aggregate["byPass"]): string {
+  const total = totalCost(byPass);
+  const rows = Object.entries(byPass)
+    .sort((a, b) => b[1].cost - a[1].cost)
+    .map(
+      ([name, t]) =>
+        `| ${name} | ${t.runs} | $${t.cost.toFixed(2)} | ${share(t.cost, total)} | $${(t.cost / t.runs).toFixed(2)} | ${perRun(t.cacheWrite, t)} | ${perRun(t.cacheRead, t)} | ${perRun(t.input, t)} | ${perRun(t.output, t)} |`
+    );
+  if (!rows.length) return "No pass recorded its cost in this window.";
+  return [
+    "#### Cost by pass",
+    "",
+    "Tokens are per run, over the runs that recorded them. A cache write costs 1.25x input and a read a twentieth of it, so a pass whose first call writes the prefix another pass already wrote is paying twice for it.",
+    "",
+    "| | runs | cost | share | per run | cache written | cache read | fresh input | output |",
+    "|---|---|---|---|---|---|---|---|---|",
+    ...rows,
+    ""
+  ].join("\n");
+}
+
+/** One headline line: the general pass, all lenses together, verify and recheck. */
+export function passSplit(byPass: Aggregate["byPass"]): string | null {
+  const total = totalCost(byPass);
+  if (total <= 0) return null;
+  const cost = (name: string) => byPass[name]?.cost ?? 0;
+  const lenses = Object.entries(byPass)
+    .filter(([name]) => !CORE_PASSES.has(name))
+    .reduce((n, [, t]) => n + t.cost, 0);
+  const parts: [string, number][] = [
+    ["general", cost("general")],
+    ["lenses", lenses],
+    ["verify", cost("verify")],
+    ["recheck", cost("recheck")]
+  ];
+  return `Spend by pass: ${parts.map(([n, c]) => `${n} ${share(c, total)}`).join(" · ")}.`;
 }
 
 /** Whether a one-click suggestion gets acted on more than a fix in words. */
@@ -73,10 +125,12 @@ export function headline({
   const f = agg.findings;
   const c = agg.coverage;
   const legacy = new Set(escapes.filter((e) => !e.broad && e.legacy).map((e) => e.fix)).size;
+  const split = passSplit(agg.byPass);
   return [
     `${agg.prs} PRs merged. ${c.reviewedHead} had a finished review of the merged commit; ${c.mergedUnreviewed.length} did not.`,
     `${f.n} findings from the review pipeline: ${pct(f.addressedPct)} addressed before merge, ${pct(f.withdrawnPct)} withdrawn as wrong, ${pct(f.openPct)} still open at merge.`,
     `Cost $${agg.cost.total.toFixed(2)} (about $${agg.cost.perPr.toFixed(2)} per PR). Review time p50 ${secs(agg.cost.p50ms)}, p90 ${secs(agg.cost.p90ms)}.`,
+    ...(split ? [split] : []),
     `Possible escaped bugs: ${escapedCount(escapes)} fix PR(s) changed lines whose original PR the pipeline reviewed without flagging them; ${legacy} more trace to PRs the previous reviewer saw.`
   ];
 }
@@ -119,6 +173,8 @@ export function renderReport({
     suggestionLine(agg.suggestions),
     `Verifier: rejected ${agg.verifier.rejected} of ${agg.verifier.candidates} candidates before posting.`,
     "",
+    "### Cost",
+    passTable(agg.byPass),
     "### Escaped bugs",
     escapesSection(escapes),
     "",

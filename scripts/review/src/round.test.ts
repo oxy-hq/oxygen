@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as config from "../config.ts";
 import { parseUnifiedDiff } from "./diff.ts";
-import { passResult, prMeta, finding as storedFinding } from "./fixtures.ts";
+import { must, passResult, prMeta, finding as storedFinding } from "./fixtures.ts";
 import { buildPlan } from "./plan.ts";
 import type { RoundInput } from "./round.ts";
-import { runRound } from "./round.ts";
+import { runRound, waitsFor } from "./round.ts";
 import { emptyState } from "./state.ts";
 import type { PassResult, RawFinding, ReviewState, ReviewStatus, RunPass } from "./types.ts";
 
@@ -339,4 +339,71 @@ test("an incremental round can raise the roadmap judgement to changed, never low
     graph: false
   });
   assert.equal(raised.state.roadmap?.behaviour, "changed");
+});
+
+/** The fixture's round with two lenses, the only kind of pass that can share a prefix. */
+function twoLenses(): RoundInput {
+  const base = load(emptyState(1, config.STATE_VERSION));
+  const pick = (id: string) => ({ id, prompt: `lens-${id}.md`, reason: "test" });
+  return { ...base, plan: { ...base.plan, lenses: [pick("authz"), pick("security")] } };
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 5));
+
+test("a round's later lenses start once its first lens answers; general does not wait, and usage is kept", async () => {
+  const events: string[] = [];
+  const usage = { input: 10, cacheWrite: 30_000, cacheRead: 5, output: 900 };
+  const runPass: RunPass = async <T>(spec: Parameters<RunPass>[0]): Promise<PassResult<T>> => {
+    events.push(`start ${spec.name}`);
+    await tick();
+    if (spec.onFirstResponse) {
+      events.push(`${spec.name} answering`);
+      spec.onFirstResponse();
+      await tick();
+    }
+    const output =
+      spec.name === "verify" ? { results: [] } : ({ findings: [], not_reviewed: [] } as unknown);
+    return passResult<T>({
+      name: spec.name,
+      output: output as T,
+      cost: 0.1,
+      usage,
+      first: { input: 10, cacheWrite: spec.name === "security" ? 0 : 30_000, cacheRead: 0 }
+    });
+  };
+  const out = await runRound({ load: twoLenses(), repo: "o/r", runPass, cwd: ".", graph: false });
+  assert.deepEqual(events.slice(0, 4), [
+    "start general",
+    "start authz",
+    "authz answering",
+    "start security"
+  ]);
+  const passes = must(out.state.rounds[0]?.passes, "passes");
+  assert.deepEqual(passes.general?.usage, usage);
+  assert.equal(passes.security?.first?.cacheWrite, 0);
+});
+
+test("a first lens that never answers does not hold the lenses behind it", async () => {
+  const names: string[] = [];
+  const runPass: RunPass = async <T>(spec: Parameters<RunPass>[0]): Promise<PassResult<T>> => {
+    names.push(spec.name);
+    return passResult<T>({ name: spec.name, ok: false, subtype: "crashed" });
+  };
+  const started = Date.now();
+  await runRound({ load: twoLenses(), repo: "o/r", runPass, cwd: ".", graph: false });
+  assert.deepEqual(names, ["general", "authz", "security"]);
+  assert.ok(Date.now() - started < config.STAGGER_MAX_WAIT_MS / 2);
+});
+
+test("a pass waits only for the first pass of its own kind", () => {
+  const run = [
+    { name: "general", kind: "general:high" },
+    { name: "recheck", kind: "recheck:medium" },
+    { name: "authz", kind: "lens:medium" },
+    { name: "routes", kind: "lens:medium" },
+    { name: "ci", kind: "lens:medium" }
+  ];
+  const waits = waitsFor(run, (r) => r.kind);
+  const order = Object.fromEntries([...waits].map(([item, before]) => [item.name, before.name]));
+  assert.deepEqual(order, { routes: "authz", ci: "authz" });
 });

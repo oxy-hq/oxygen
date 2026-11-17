@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import { test } from "node:test";
 import * as config from "../config.ts";
 import { parseUnifiedDiff } from "./diff.ts";
-import { candidate, finding, must, prMeta } from "./fixtures.ts";
+import { candidate, finding, must, prMeta, round } from "./fixtures.ts";
+import { lensesFinished } from "./load.ts";
 import { buildPlan, guidanceFor, selectLenses } from "./plan.ts";
 import {
   contextBlock,
@@ -15,7 +16,16 @@ import {
   template,
   verifyPrompt
 } from "./prompts.ts";
-import type { DiffFile } from "./types.ts";
+import type { DiffFile, PassSummary } from "./types.ts";
+
+const passSummary = (ok: boolean): PassSummary => ({
+  ok,
+  subtype: ok ? "success" : "crashed",
+  cost: 0,
+  ms: 0,
+  turns: 0,
+  tools: {}
+});
 
 function diffOf(path: string, added: string[]): DiffFile {
   const [file] = parseUnifiedDiff(`diff --git a/${path} b/${path}
@@ -79,6 +89,59 @@ test("incremental plans review only files changed since the last head", () => {
   const plan = buildPlan({ files, config, exists: () => false, changedSince: new Set(["b.rs"]) });
   assert.equal(plan.mode, "incremental");
   assert.deepEqual(plan.inScope, ["b.rs"]);
+});
+
+test("a re-push runs a lens on what it changed, not on lines an earlier round's lens read", () => {
+  const path = "crates/app/src/agentic_wiring/project_ctx/mod.rs";
+  // The PR added `password` on its first push; this push adds an unrelated line.
+  const whole = [diffOf(path, ["let password = mint();", "let x = 1;"])];
+  const delta = [diffOf(path, ["let x = 1;"])];
+  const plan = (covered: Set<string>, d = delta) =>
+    buildPlan({
+      files: whole,
+      config,
+      exists: () => false,
+      changedSince: new Set([path]),
+      delta: d,
+      covered
+    });
+  assert.deepEqual(plan(new Set(["security"])).lenses, []);
+  // The push adds a trigger of its own: the lens runs on it.
+  const fresh = plan(new Set(["security"]), [diffOf(path, ["let password = again();"])]);
+  assert.deepEqual(
+    fresh.lenses.map((l) => l.id),
+    ["security"]
+  );
+  assert.match(must(fresh.lenses[0]).reason, /^adds `password`/);
+  // A lens that never finished on this PR still reads the earlier lines.
+  const unread = plan(new Set());
+  assert.deepEqual(
+    unread.lenses.map((l) => l.id),
+    ["security"]
+  );
+  assert.match(must(unread.lenses[0]).reason, /no full review of this PR has run this lens/);
+});
+
+test("a full review, or an incremental one without a delta, matches the whole PR diff", () => {
+  const path = "crates/app/src/agentic_wiring/project_ctx/mod.rs";
+  const whole = [diffOf(path, ["let password = mint();"])];
+  const ids = (p: ReturnType<typeof buildPlan>) => p.lenses.map((l) => l.id);
+  assert.deepEqual(
+    ids(buildPlan({ files: whole, config, exists: () => false, covered: new Set(["security"]) })),
+    ["security"]
+  );
+  assert.deepEqual(
+    ids(
+      buildPlan({
+        files: whole,
+        config,
+        exists: () => false,
+        changedSince: new Set([path]),
+        covered: new Set(["security"])
+      })
+    ),
+    ["security"]
+  );
 });
 
 test("guidance is the nearest CLAUDE.md above each file", () => {
@@ -183,4 +246,18 @@ test("a pattern in prose or in the reviewer's own config does not trigger a lens
     selectLenses([doc, own], config.LENSES, 5, config.PATCH_EXCLUDE).selected.map((l) => l.id),
     ["ci"]
   );
+});
+
+test("a lens counts as having read the PR only once it finished on a full review", () => {
+  const prev = {
+    rounds: [
+      round({ passes: { security: passSummary(true), general: passSummary(true) } }),
+      round({ passes: { authz: passSummary(false) } }),
+      // An incremental round read only the files it changed (F1 on #4168): a lens that
+      // finished there has not read the rest of the PR.
+      round({ mode: "incremental", passes: { routes: passSummary(true) } }),
+      round()
+    ]
+  };
+  assert.deepEqual([...lensesFinished(prev)], ["security"]);
 });

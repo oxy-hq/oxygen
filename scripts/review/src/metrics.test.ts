@@ -423,3 +423,58 @@ test("the report compares findings posted with a one-click suggestion against th
   const none = renderReport({ agg: aggregate([]), escapes: [], window: { from: "a", to: "b" } });
   assert.match(none, /One-click suggestions: none posted\./);
 });
+
+test("the report splits spend by pass, and shows tokens only for rounds that recorded them", () => {
+  const pass = (cost: number, usage?: { cacheWrite: number; cacheRead: number }) => ({
+    ok: true,
+    subtype: "success",
+    cost,
+    ms: 0,
+    turns: 3,
+    tools: {},
+    ...(usage ? { usage: { input: 1_000, output: 6_000, ...usage } } : {})
+  });
+  const state = v2State({
+    rounds: [
+      // Recorded before usage was kept: a cost, no tokens.
+      round({ cost: 2, passes: { general: pass(1.2), security: pass(0.5), verify: pass(0.3) } }),
+      round({
+        mode: "incremental",
+        cost: 1,
+        passes: {
+          general: pass(0.4, { cacheWrite: 30_000, cacheRead: 90_000 }),
+          recheck: pass(0.2, { cacheWrite: 2_000, cacheRead: 40_000 }),
+          ci: pass(0.4, { cacheWrite: 28_000, cacheRead: 30_000 })
+        }
+      })
+    ]
+  });
+  const rec = prRecord({
+    pr: pr(),
+    comments: [
+      {
+        user: { login: "github-actions[bot]", type: "Bot" },
+        body: `${config.SUMMARY_MARKER}\n${encodeState(state)}`
+      }
+    ],
+    reviewComments: [],
+    reviews: [],
+    files: [],
+    lastCommitAt: null,
+    config
+  });
+  const agg = aggregate([rec, rec]);
+  const general = agg.byPass.general;
+  assert.deepEqual(
+    [general?.runs, general?.metered, general?.cacheWrite],
+    [4, 2, 60_000],
+    "two PRs, two rounds each; only the later round was metered"
+  );
+  const report = renderReport({ agg, escapes: [], window: { from: "a", to: "b" } });
+  assert.match(report, /Spend by pass: general 53% · lenses 30% · verify 10% · recheck 7%\./);
+  assert.match(report, /\| general \| 4 \| \$3\.20 \| 53% \| \$0\.80 \| 30K \| 90K \| 1K \| 6K \|/);
+  assert.match(report, /\| security \| 2 \| \$1\.00 \| 17% \| \$0\.50 \| – \| – \| – \| – \|/);
+  const none = renderReport({ agg: aggregate([]), escapes: [], window: { from: "a", to: "b" } });
+  assert.doesNotMatch(none, /Spend by pass/);
+  assert.match(none, /No pass recorded its cost in this window\./);
+});
