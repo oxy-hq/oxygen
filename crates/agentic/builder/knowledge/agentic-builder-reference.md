@@ -2,7 +2,7 @@
 source:
   - sdk/cli/skills/oxy-agents/SKILL.md
   - sdk/cli/skills/oxy-agents/references/quick-reference.md
-reconciled-hash: adb0606050b251a654e73db9d3cc495e1b6fadfe
+reconciled-hash: 91afd7525a7d8e001cb8f3a8d20bb5de836e1550
 note: |
   Authored condensation of the platform skills listed above. Not auto-synced —
   scripts/sync-skills.sh only copies the verbatim YAML templates. Re-condense
@@ -21,10 +21,11 @@ you do not define its states or its tools.
 
 - **`.agentic.yml` is the agent.** The classic `.agent.yml` format has been
   removed — never create one or copy one from an old workspace.
-- **Translate classic agents with `oxy migrate-agents`** — when a compile fails
-  the revision with `classic agent format (.agent.yml) is retired`, or with an
-  automation step whose `agent_ref` names a `.agent.yml`. Until both are gone
-  the workspace keeps serving its previous revision. First `oxy migrate-agents --dry-run
+- **Translate classic agents with `oxy migrate-agents`** — when a compile warns
+  `classic agent format (.agent.yml) is retired` (a deployment that has turned
+  the refusal on fails the revision with that message instead, and keeps serving
+  the previous one), or when an automation's `agent_ref` still names a
+  `.agent.yml`. First `oxy migrate-agents --dry-run
   --json <dir>` (writes nothing; lists each classic file, dropped fields such as
   `tools: visualize` or inline `tests:`, what `cannot be mapped` — `omni_query`,
   `anonymize`, `type: routing`; those files stay put unless `--force` drops the
@@ -197,8 +198,8 @@ everything else**). A global value replaces every default, so top-level
 | any other string (`enabled`, `high`) | silently **disabled** |
 
 Anthropic: `adaptive`/`effort` native from 4.6 (`xhigh` from 4.7); 4.7+
-rejects `budget_tokens`, so Oxy sends the nearest effort and warns; older
-models get a budget, `xhigh` → `high`. OpenAI: `effort` → reasoning effort
+rejects `budget_tokens`, so Oxy sends the nearest effort and warns; on 3.7–4.5
+`adaptive` (mid-range) and `effort` become a budget, `xhigh` → `high`. OpenAI: `effort` → reasoning effort
 (`xhigh`/`max` → `high`), `adaptive` = model default, `budget_tokens` ignored.
 `open_ai_compat`: anything but `disabled` adds a chain-of-thought prompt.
 Write `effort` on current models. `llm.extended_thinking: {model, thinking}`
@@ -233,8 +234,10 @@ ignored).
 - `oxy test [<file>.test.yml]` runs LLM-judged evals — with no file, every
   `*.test.yml` (`target:`, inferred from `sales.agentic.test.yml` →
   `sales.agentic.yml`; `settings: {runs: 3, concurrency: 5, judge_model}`;
-  `cases: [{name, prompt, expected, tags}]`; the target must be an
-  `.agentic.yml`; `--tag`, `--case`, `--min-accuracy 0.8` exits 1 below it).
+  `cases: [{name, prompt, expected, tags}]`; a judge from a different model
+  family; the target must be an `.agentic.yml`; a case's `tool:` is parsed but
+  not yet checked; `--tag`, `--case`, `--min-accuracy 0.8` exits 1 below it,
+  `--threshold-mode average|all`, `--format json`, `-v`).
 - **`oxy build` does not check agents** — it does nothing any more.
 - A JSON schema *is* published for `.agentic.yml`; an editor header on line 1
   is optional — preserve it if present:
@@ -244,7 +247,7 @@ ignored).
 
 | Symptom | Fix |
 | --- | --- |
-| compile fails: `classic agent format (.agent.yml) is retired` | `oxy migrate-agents` (dry-run first); previous revision serves meanwhile |
+| compile warns (or, where refusal is on, fails): `classic agent format (.agent.yml) is retired` | `oxy migrate-agents` (dry-run first) |
 | `YAML parse error: …` | duplicate key, `thinking: false`, or unknown `semantic_engine.vendor` |
 | `no databases configured` | name a database, or give context views a `datasource` |
 | agent can't see a table | add its database to `databases:` |
@@ -257,6 +260,7 @@ ignored).
 | `thinking: false` rejected | boolean, not a mode — write `disabled` |
 | a default check stopped running | a `validation:` section replaced the defaults |
 | `validation config error: unknown … rule` | fix the name or move it to its stage |
+| `validation config error: invalid params for rule '…'` | fix the parameter's type |
 | `invalid timezone '…'` | use an IANA name (`UTC`, `America/New_York`) |
 | `environment variable '${X}' … is not set` | set it in the server environment |
 | `semantic engine connection error` | check the Cube/Looker `base_url` and credentials |
