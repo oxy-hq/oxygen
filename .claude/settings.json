@@ -76,7 +76,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/oxyc-cloud-session.sh\"",
+            "command": "OXY_ENV=\"${OXY_ENV:-dev}\" \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/oxyc-cloud-session.sh\"",
             "timeout": 120
           }
         ]

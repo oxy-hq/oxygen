@@ -132,10 +132,12 @@ then one `browser_navigate("http://127.0.0.1:5173/dev-login?as=<persona>&next=<p
 navigation is the whole sign-in, no OAuth. Personas, routes, and what a 403/409/503 means:
 the `oxy-run-and-verify` skill.
 
-That is local only. On a deployment (dev, staging, prod) the same one navigation is
-`browser_navigate("$(oxyc login-link --env dev --next <path>)")` — a one-time link that
-opens a browser session bounded by your `oxyc` token. Never script Google or a password:
-`internal-docs/dev-sign-in.md`.
+That is local only. A deployment's `/login` (`aip.dev.oxy.tech` included) is a dead end for an
+agent: Google, GitHub and the email link all need a person, so never click them. Run
+`oxyc login-link --env dev --next <path>`, then `browser_navigate` to the one-time URL it prints,
+a session bounded by your `oxyc` token. No token in a cloud session (exit 4): mint an agent token
+the user approves from any device, which the SessionStart hook's message and `oxy-run-and-verify`
+("A deployment") spell out. Mechanics: `internal-docs/dev-sign-in.md`.
 
 ## `oxyc` — talking to a running deployment
 
@@ -288,7 +290,7 @@ skill** rather than reasoning it out again — its `SKILL.md` carries the full c
 | `oxy-compile-boundary` | new `.foo.yml` file type, or any per-request read that walks the workspace FS | every workspace artifact is a `*_definitions` Postgres row keyed by `revision_id`, not an FS read |
 | `oxy-route-classification` ¹ | add/move a route under `server/router/`, or a handler touching disk/`.git`/state dir | FS-touching routes MUST be `IdeOnly` in `role_manifest.rs`; persisted-data reads MUST stay `FleetOk` |
 | `oxy-customer-apps-perf` ¹ | add/move a `/customer-apps/**` route or custom-app data endpoint; any per-request read on that hot path | serving routes need Cache-Control + SSE-safe compression; result caches keyed `project_id`-first, read after auth gates, honor `?refresh` |
-| `oxy-run-and-verify` | verify a change in the running app, seed data, sign in as a persona, screenshot a feature or reproduce a UI bug | never `--local`; `just up`, not hand-started servers; sign in by persona (`/dev-login?as=`), never by editing env |
+| `oxy-run-and-verify` | verify a change in the running app, seed data, sign in as a persona, screenshot a feature or reproduce a UI bug; sign a browser in to dev / staging / prod | never `--local`; `just up`, not hand-started servers; sign in by persona (`/dev-login?as=`), never by editing env; on a deployment, `oxyc login-link`, never the provider's page |
 | `oxy-data-placement` | a new table or migration, a webhook/ingest that stores org data, a custom-app data surface, a failing `data_placement` test | org data never in Oxy's Postgres; the shape picks the store (facts → Airhouse, records → org OLTP, files → storage); customer warehouses read-only; OLTP store provisioning stays manual (an app environment's branch of it is lifecycle-managed) |
 | `oxy-roadmap` | a PR that adds or changes product behaviour, a failing `roadmap` status, editing `internal-docs/platform-roadmap.md`, picking a line id, `Roadmap:` trailer | the trailer is the link, so the doc never cites a PR; a PR edits a line only to start, land, add or reword it; the summary is regenerated, never hand-edited; ids are pinned, never renamed |
 

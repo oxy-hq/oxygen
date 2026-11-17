@@ -93,6 +93,58 @@ describe("the cloud-session hook", () => {
   });
 
   /**
+   * A cloud image once shipped oxyc 0.11 while the docs named 0.12's
+   * `oxyc login --no-wait`, and the hook only installed a MISSING oxyc. Now an
+   * older one is upgraded to what the registry says is latest. `oxyc` and
+   * `npm` are stubs: `npm` logs every call, so the test sees what it was asked.
+   */
+  const runUpgrade = (installed: string, latest: string) => {
+    const home = mkdtempSync(join(tmpdir(), "oxyc-hook-"));
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    const calls = join(home, "npm-calls");
+    writeFileSync(join(bin, "oxyc"), `#!/bin/sh\necho ${installed}\n`, { mode: 0o755 });
+    writeFileSync(
+      join(bin, "npm"),
+      `#!/bin/sh\necho "$*" >>"${calls}"\n[ "$1" = view ] && echo ${latest}\nexit 0\n`,
+      { mode: 0o755 }
+    );
+    const hook = spawnSync("bash", [`${template}${HOOK}`], {
+      encoding: "utf8",
+      input: "{}",
+      env: {
+        PATH: `${bin}:${process.env.PATH}`,
+        HOME: home,
+        CLAUDE_CODE_REMOTE: "true",
+        OXY_ENV: "http://127.0.0.1:9"
+      }
+    });
+    let logged = "";
+    try {
+      logged = readFileSync(calls, "utf8");
+    } catch {
+      // npm was never called.
+    }
+    rmSync(home, { recursive: true, force: true });
+    expect(hook.status).toBe(0);
+    return logged
+      .split("\n")
+      .filter((l) => l.startsWith("install"))
+      .map((l) => l.trim());
+  };
+
+  it("upgrades an oxyc older than the registry's latest", () => {
+    expect(runUpgrade("0.11.0", "0.12.1")).toEqual(["install -g @oxy-hq/cli@0.12.1"]);
+  });
+
+  it("leaves a current oxyc, and one newer than the registry, alone", () => {
+    expect(runUpgrade("0.12.1", "0.12.1")).toEqual([]);
+    expect(runUpgrade("0.13.0", "0.12.1")).toEqual([]);
+    // Compared as versions, not strings: 0.9 is older than 0.10.
+    expect(runUpgrade("0.10.0", "0.9.9")).toEqual([]);
+  });
+
+  /**
    * `OXY_TOKEN=from-proxy`: the network secret is the credential, so the hook
    * prints no mint line and checks the secret is attached with `oxyc whoami`.
    * `oxyc` is a stub here that exits with the code a real whoami would.
