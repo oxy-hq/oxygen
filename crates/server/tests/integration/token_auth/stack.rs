@@ -74,6 +74,7 @@ pub(crate) fn flat_api() -> Router {
         oxy_api_tenancy::admin_sections()
             .into_iter()
             .chain(oxy_api_identity::admin_sections())
+            .chain(oxy_api_custom_apps::admin_sections())
             .collect(),
     )
 }

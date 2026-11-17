@@ -72,7 +72,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::server::router::AppState;
+use oxy_app_core::AppState;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -233,9 +233,8 @@ async fn sees_all_tokens(
     db: &sea_orm::DatabaseConnection,
     actor: &oxy_auth::types::AuthenticatedUser,
 ) -> bool {
-    let caller = crate::server::authz::Caller::from_user(actor);
-    crate::server::authz::globals::platform_holds(db, &caller, oxy_authz::Cap::OperatePlatform)
-        .await
+    let caller = oxy_server_authz::Caller::from_user(actor);
+    oxy_server_authz::globals::platform_holds(db, &caller, oxy_authz::Cap::OperatePlatform).await
 }
 
 pub async fn list_tokens(

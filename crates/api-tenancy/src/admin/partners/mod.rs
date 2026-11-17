@@ -40,7 +40,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::server::router::AppState;
+use oxy_app_core::AppState;
 use oxy_app_core::audit::{self, AuditEntry};
 
 pub(crate) fn router() -> Router<AppState> {
@@ -100,10 +100,8 @@ pub(super) fn require_owner_for_sensitive_caps(
     manage_billing: bool,
     manage_secrets: bool,
 ) -> Result<(), StatusCode> {
-    let caller = crate::server::authz::Caller::from_user(actor);
-    if (manage_billing || manage_secrets)
-        && !crate::server::authz::globals::is_global_owner(&caller)
-    {
+    let caller = oxy_server_authz::Caller::from_user(actor);
+    if (manage_billing || manage_secrets) && !oxy_server_authz::globals::is_global_owner(&caller) {
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(())

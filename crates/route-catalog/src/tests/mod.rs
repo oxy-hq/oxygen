@@ -112,6 +112,10 @@ const REQUIRED_GROUPS: &[&str] = &[
     // named a re-export, not a function, so they were missing from the catalog
     // until the admin split's first PR, with only a build warning to show it.
     "/api/admin/observability",
+    // The admin split (PR 2): the partner registry (`oxy-api-tenancy`, its own
+    // section) and the CI publish tokens (`oxy-api-custom-apps`).
+    "/api/admin/partners",
+    "/api/admin/app-publish-tokens",
     "/api/control/",
     "/api/fleet/",
     "/api/{workspace_id}/threads",

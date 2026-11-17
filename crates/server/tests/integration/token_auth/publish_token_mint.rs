@@ -9,7 +9,7 @@
 
 use axum::http::StatusCode;
 use entity::org_members::OrgRole;
-use oxy_app::server::api::admin::app_publish_tokens::{MINTED, REVOKED};
+use oxy_api_custom_apps::admin::app_publish_tokens::{MINTED, REVOKED};
 use oxy_authz::RoleCeiling;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use serde_json::{Value, json};

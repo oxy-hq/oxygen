@@ -84,6 +84,28 @@ const CUSTOM_APP_TARGET_PREFIXES: [&str; 2] = ["oxy::app_function", "custom_app_
 /// re-answer the data question first.
 const CUSTOM_APPS_MODULE_MARKER: &str = "custom_apps";
 
+/// Modules whose path carries [`CUSTOM_APPS_MODULE_MARKER`] only because of
+/// the crate they live in, re-answered one at a time against the data question
+/// above. Matched a path segment at a time, so a submodule is covered and a
+/// sibling that merely shares the prefix is not.
+///
+/// - `oxy_api_custom_apps::admin::app_publish_tokens` — the staff console's CI
+///   publish tokens, out of `oxy-app`'s `admin::app_publish_tokens` in the
+///   admin split (PR 2), where Sentry kept them. Its three `error!` lines carry
+///   a fixed step name and a Postgres error over Oxy's own
+///   `app_publish_tokens` table and the audit log: staff-minted, app-unscoped
+///   rows, no tenant object key, manifest or app name. Never the plaintext;
+///   the hash is only ever a bound parameter.
+const CUSTOM_APPS_MARKER_EXEMPT: [&str; 1] = ["oxy_api_custom_apps::admin::app_publish_tokens"];
+
+/// Whether `name` is one of [`CUSTOM_APPS_MARKER_EXEMPT`], or under one.
+fn is_custom_apps_marker_exempt(name: &str) -> bool {
+    CUSTOM_APPS_MARKER_EXEMPT.iter().any(|prefix| {
+        name.strip_prefix(prefix)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+    })
+}
+
 /// Whether a dotted/`::`-separated name belongs to custom-app code.
 ///
 /// Applied to two different names, because the two barriers are handed
@@ -97,7 +119,7 @@ fn is_custom_app_namespace(name: &str) -> bool {
     CUSTOM_APP_TARGET_PREFIXES
         .iter()
         .any(|prefix| name.starts_with(prefix))
-        || name.contains(CUSTOM_APPS_MODULE_MARKER)
+        || (name.contains(CUSTOM_APPS_MODULE_MARKER) && !is_custom_apps_marker_exempt(name))
 }
 
 /// Modules that run warehouse queries on a tenant's behalf: the data plane and
@@ -546,6 +568,39 @@ mod tests {
         );
     }
 
+    /// The CI publish tokens kept their Sentry issues when the admin split
+    /// moved them under the `custom_apps` marker ([`CUSTOM_APPS_MARKER_EXEMPT`]),
+    /// at both barriers. The exemption is a path segment, not a prefix of the
+    /// text: a sibling module sharing the name, and every other module of the
+    /// crate, stay dropped.
+    #[test]
+    fn the_ci_publish_tokens_keep_their_sentry_lines_after_the_move() {
+        for module in [
+            "oxy_api_custom_apps::admin::app_publish_tokens",
+            "oxy_api_custom_apps::admin::app_publish_tokens::mint",
+        ] {
+            assert_eq!(
+                sentry_disposition(module, &Level::ERROR),
+                Disposition::Event,
+                "{module}"
+            );
+            assert!(!drop_log(Some(module)), "{module}");
+            assert!(!is_data_plane_module(module), "{module}");
+        }
+        for module in [
+            "oxy_api_custom_apps::admin::app_publish_tokens_extra",
+            "oxy_api_custom_apps::admin",
+            "oxy_api_custom_apps::serve",
+        ] {
+            assert_eq!(
+                sentry_disposition(module, &Level::ERROR),
+                Disposition::Drop,
+                "{module}"
+            );
+            assert!(drop_log(Some(module)), "{module}");
+        }
+    }
+
     /// #3204. The 5xx line duplicates the handler's own error, so it raises no
     /// issue — but it is still real signal, so it is not dropped either.
     #[test]
@@ -814,6 +869,15 @@ mod tests {
             "oxy_api_observability::admin::metrics_pricing",
             "oxy_api_observability::admin::metrics_rollup",
             "oxy_api_threads::admin::explorer",
+            // The admin split (PR 2): the partner registry, Postgres only, kept
+            // and not the data plane as there. (The CI publish tokens moved
+            // into `oxy_api_custom_apps`, whose name carries the marker: see
+            // `a_log_from_a_custom_app_module_is_dropped`.)
+            "oxy_api_tenancy::admin::partners",
+            "oxy_api_tenancy::admin::partners::detail",
+            "oxy_api_tenancy::admin::partners::grant",
+            "oxy_api_tenancy::admin::partners::membership",
+            "oxy_api_tenancy::admin::partners::people",
         ] {
             assert!(!drop_log(Some(module)), "{module}");
         }
@@ -1147,6 +1211,14 @@ mod tests {
             "oxy_api_observability::admin::metrics_pricing",
             "oxy_api_observability::admin::metrics_rollup",
             "oxy_api_threads::admin::explorer",
+            // The admin split (PR 2): the partner registry and the CI publish
+            // tokens, Postgres only, not the data plane as there.
+            "oxy_api_tenancy::admin::partners",
+            "oxy_api_tenancy::admin::partners::detail",
+            "oxy_api_tenancy::admin::partners::grant",
+            "oxy_api_tenancy::admin::partners::membership",
+            "oxy_api_tenancy::admin::partners::people",
+            "oxy_api_custom_apps::admin::app_publish_tokens",
             "oxy::connectors_admin",
             "oxy::database::client",
             "oxy_semantic::parser",

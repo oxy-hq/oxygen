@@ -216,7 +216,10 @@ fn external_seam_routes() -> SeamRouter {
 /// logs and client-error reads authenticate inline, before they look the app up,
 /// and read the build store and ClickHouse, which every replica has. Its
 /// `/customer-apps/{*path}` route rides `outer`, with its declarations in
-/// `outer_decls` (absolute, because that router sits beside `/api`).
+/// `outer_decls` (absolute, because that router sits beside `/api`). On
+/// `admin` (the admin split, PR 2): the staff console's CI publish tokens,
+/// `/app-publish-tokens*`, behind `PlatformApps`, declaring nothing (the
+/// console's `/{*rest}` FleetOk wildcard places them, as before).
 ///
 /// `oxy-api-notifications` rides the api seam at the `/api` root, where
 /// `build_global_routes` had its routes, and declares every one FleetOk
@@ -412,6 +415,7 @@ fn surface_seams() -> SurfaceSeams {
             .chain(oxy_api_identity::admin_sections())
             .chain(oxy_api_observability::admin_sections())
             .chain(oxy_api_threads::admin_sections())
+            .chain(oxy_api_custom_apps::admin_sections())
             .collect(),
         // Operations the surfaces document, merged into the served OpenAPI
         // document (`oxyc schema` reads it).

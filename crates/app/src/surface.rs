@@ -352,7 +352,6 @@ pub mod seams {
 /// around them. Tests only; no surface's `src` takes anything from here.
 pub mod testing {
     pub use crate::agentic_wiring;
-    pub use crate::server::api::admin::app_publish_tokens;
     pub use crate::server::api::middlewares::{app_publish_token_scope, workspace_context};
     // `data` and `semantic` left with their handlers for `oxy-api-semantic`
     // (2026-11-16); `projects` had no reader once `data`'s did not need it.

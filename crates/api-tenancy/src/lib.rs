@@ -178,16 +178,29 @@ pub fn workspace_route_roles() -> &'static [RouteRoleDecl] {
 }
 
 /// The staff console's org and workspace administration, mounted under
-/// `/api/admin` through the admin seam. One section: all three (orgs,
+/// `/api/admin` through the admin seam. The first section: all three (orgs,
 /// workspaces, and an org's subdomain) sit behind `PlatformOrgs`, the
 /// capability they had in `oxy-app`; `create_org` additionally asks for
 /// `PlatformOrgCreate` inside the handler.
+///
+/// The second section is the partner registry (`/partners*`, the staff half of
+/// [`partner_console`]), behind `PlatformPartners`, the capability it had in
+/// `oxy-app` before the admin split (PR 2) moved `admin::partners` here.
+/// Neither declares anything: the console's `/{*rest}` FleetOk wildcard places
+/// both, as before.
 pub fn admin_sections() -> Vec<AdminSection> {
-    vec![AdminSection {
-        capability: oxy_app::surface::Action::PlatformOrgs,
-        routes: admin_routes(),
-        decls: vec![],
-    }]
+    vec![
+        AdminSection {
+            capability: oxy_app::surface::Action::PlatformOrgs,
+            routes: admin_routes(),
+            decls: vec![],
+        },
+        AdminSection {
+            capability: oxy_app::surface::Action::PlatformPartners,
+            routes: admin_partner_routes(),
+            decls: vec![],
+        },
+    ]
 }
 
 /// Relative to `/admin`. Its own function so the route catalog can seed it.
@@ -195,6 +208,13 @@ pub fn admin_routes() -> Router<AppState> {
     admin::orgs::router()
         .merge(admin::workspaces::router())
         .merge(admin::org_subdomains::router())
+}
+
+/// The partner registry, relative to `/admin`. Its own function (and its own
+/// section) because it sits behind a different capability from
+/// [`admin_routes`], and so the route catalog can seed it.
+pub fn admin_partner_routes() -> Router<AppState> {
+    Router::new().merge(admin::partners::router())
 }
 
 /// The OpenAPI operations this crate documents, merged into the served

@@ -385,6 +385,7 @@ pub(crate) fn surface_seams() -> oxy_app::surface::testing::SurfaceSeams {
             routes: oxy_api_custom_apps::public_routes(),
             decls: oxy_api_custom_apps::public_route_roles().to_vec(),
         },
+        admin: oxy_api_custom_apps::admin_sections(),
         ..SurfaceSeams::empty()
     }
 }

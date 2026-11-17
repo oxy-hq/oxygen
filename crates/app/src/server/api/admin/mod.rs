@@ -9,7 +9,6 @@
 
 pub mod airhouse;
 pub mod app_admins;
-pub mod app_publish_tokens;
 pub mod assume;
 pub mod audit;
 pub mod billing;
@@ -23,7 +22,6 @@ mod internal_jobs_reach;
 mod internal_jobs_rows;
 pub mod oltp;
 pub mod org_filter;
-pub mod partners;
 pub mod routing;
 pub mod scope;
 pub mod usage_report;
@@ -161,7 +159,10 @@ use crate::server::router::{AdminSection, AppState};
 /// Moved out by the admin split and arriving through `extracted` behind the
 /// capability they had here: Admin → Metrics' LLM cost (`/metrics/*`,
 /// `PlatformOperate`) is `oxy-api-observability`'s, and the Explorer
-/// (`/explorer/*`, `PlatformExplorer`) `oxy-api-threads`'.
+/// (`/explorer/*`, `PlatformExplorer`) `oxy-api-threads`'. In PR 2: the
+/// partner registry (`/partners*`, `PlatformPartners`) is `oxy-api-tenancy`'s,
+/// its own section beside the org console's, and the CI publish tokens
+/// (`/app-publish-tokens*`, `PlatformApps`) `oxy-api-custom-apps`'.
 pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
     // route_layer applied per sub-router so only billing gets the strict
     // owner guard; everything else escalates to a capability, and anything
@@ -177,7 +178,6 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // The custom-app registry is NOT merged here: it is the `/customer-apps`
         // surface in `router::global`, behind the one `apps::guarded` stack.
         .merge(audit::router().route_layer(cap(Action::PlatformAudit)))
-        .merge(app_publish_tokens::router().route_layer(cap(Action::PlatformApps)))
         // Every staff member's sandbox agent tokens (`PlatformOperate`) and every
         // token carrying a standing (`PlatformGrants`) moved to
         // `oxy-api-identity` and arrive through `extracted` below, behind the
@@ -208,7 +208,6 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // Who gets it, and switching it off for another person: the staff list,
         // so the capability that administers staff access.
         .merge(usage_report::recipients::router().route_layer(cap(Action::PlatformGrants)))
-        .merge(partners::router().route_layer(cap(Action::PlatformPartners)))
         .merge(billing::router().route_layer(strict))
         .merge(app_admins::router().route_layer(cap(Action::PlatformGrants)))
         // Sections from extracted surface crates, each behind the capability it

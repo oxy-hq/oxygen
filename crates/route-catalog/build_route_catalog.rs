@@ -238,6 +238,15 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_tenancy",
         function: "admin_routes",
     },
+    // The same crate's partner registry (`/partners*`), out of `oxy-app`'s
+    // `admin::partners` in the admin split (PR 2): its own section behind
+    // `PlatformPartners`, so its own seed, on the same admin seam.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_tenancy",
+        function: "admin_partner_routes",
+    },
     // `oxy-api-workspace-health`: the console's health rollup, eval trigger and
     // history, through the same admin seam.
     Seed {
@@ -364,6 +373,15 @@ const SEEDS: &[Seed] = &[
         prefix: "/api/{workspace_id}",
         module: "oxy_api_custom_apps",
         function: "workspace_routes",
+    },
+    // And a fourth: the staff console's CI publish tokens
+    // (`/app-publish-tokens*`), out of `oxy-app`'s `admin::app_publish_tokens`
+    // in the admin split (PR 2), ride `SurfaceSeams::admin`, inside `/api/admin`.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_custom_apps",
+        function: "admin_routes",
     },
     // `oxy-api-tenancy` (its onboarding module) also fills the `SurfaceSeams::workspace` seam, which lands
     // inside the `/{workspace_id}` tree rather than beside it — two mount

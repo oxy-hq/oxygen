@@ -16,7 +16,8 @@
 //!   [`custom_apps_migrations`], [`custom_apps_nonproduction`],
 //!   [`custom_apps_env_schedules`], [`custom_apps_tail`]: the lifecycle.
 //! - [`admin`]: the staff console, `/api/customer-apps`, behind
-//!   [`admin::apps::guarded`].
+//!   [`admin::apps::guarded`], and the CI publish tokens,
+//!   `/api/admin/app-publish-tokens`, on the admin seam ([`admin_sections`]).
 //! - [`custom_apps_activity`], [`custom_apps_shell_context`],
 //!   [`custom_apps_threads`], [`custom_apps_availability`],
 //!   [`custom_apps_debug`], [`workspace_custom_apps`], [`me_apps`]: the reads
@@ -41,6 +42,7 @@
 //! - [`serve::serve_dispatch`] on `SurfaceSeams::outer`, the top-level
 //!   `/customer-apps/{*path}` route (its layers are built by the composition
 //!   root), with [`serve::serve_dispatch_roles`] as `SurfaceSeams::outer_decls`;
+//! - [`admin_sections`] on `SurfaceSeams::admin`, inside `/api/admin`;
 //! - the task executors, background jobs, [`function_runtime`], the `oxy migrate`
 //!   report and the demo seed's half, which `oxy-server`'s `custom_apps_seams`
 //!   builds from the items below.
@@ -725,6 +727,24 @@ pub fn public_routes() -> Router<AppState> {
             "/customer-apps/{project_id}/events",
             post(custom_apps_activity::post_event),
         )
+}
+
+/// The staff console's CI publish tokens (`/api/admin/app-publish-tokens`),
+/// mounted under `/api/admin` through the admin seam. One section behind
+/// `PlatformApps`, the capability `oxy-app`'s `admin::router` gave it before
+/// the admin split (PR 2) moved `admin::app_publish_tokens` here. It declares
+/// nothing: the console's `/{*rest}` FleetOk wildcard places it, as before.
+pub fn admin_sections() -> Vec<oxy_app::surface::AdminSection> {
+    vec![oxy_app::surface::AdminSection {
+        capability: oxy_app::surface::Action::PlatformApps,
+        routes: admin_routes(),
+        decls: vec![],
+    }]
+}
+
+/// Relative to `/admin`. Its own function so the route catalog can seed it.
+pub fn admin_routes() -> Router<AppState> {
+    Router::new().merge(admin::app_publish_tokens::router())
 }
 
 /// The data plane's two documented operations, merged into the served OpenAPI

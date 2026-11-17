@@ -2,9 +2,10 @@
 //! [`RefuseSandboxAgent`](oxy_app_core::agent_refusal::RefuseSandboxAgent) and which
 //! are decided by the environment they name.
 //!
-//! The extractor itself is in `oxy-app-core` (`agent_refusal`), because an
-//! `oxy-app` handler (`admin::app_publish_tokens`) takes it too; the tables are the
-//! console's own, so they live with the console.
+//! The extractor itself is in `oxy-app-core` (`agent_refusal`), because a
+//! handler outside this crate took it too when it was written
+//! (`admin::app_publish_tokens`, `oxy-app`'s until the admin split moved it
+//! here); the tables are the console's own, so they live with the console.
 
 /// Every route whose handler takes [`RefuseSandboxAgent`], as `(method, path
 /// under /api)`: the staff console's writes to state a sandbox is not.

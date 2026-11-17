@@ -155,7 +155,7 @@ fn strip_comments_removes_prose_and_keeps_code() {
 /// than against a specific sentence, so no docs edit anywhere can make it vacuous.
 #[test]
 fn read_applies_the_stripping() {
-    let rel = "crates/app/src/server/api/admin/app_publish_tokens.rs";
+    let rel = "crates/api-custom-apps/src/admin/app_publish_tokens.rs";
 
     // Establish the premise before testing against it. "No output line is a comment" is
     // true by construction for a file that HAS no comments — so without this, the test
@@ -347,7 +347,7 @@ fn scope_write_paths_use_the_fallible_helper() {
 /// engineer's CI token — cross-operator DoS with no boundary.
 #[test]
 fn publish_tokens_are_fenced_to_their_minter() {
-    let src = read("crates/app/src/server/api/admin/app_publish_tokens.rs");
+    let src = read("crates/api-custom-apps/src/admin/app_publish_tokens.rs");
     assert!(
         src.contains("Column::CreatedBy.eq(actor.id)"),
         "`list_tokens` no longer filters to the caller's own tokens — every App \
