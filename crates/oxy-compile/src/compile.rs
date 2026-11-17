@@ -19,6 +19,7 @@
 
 use crate::classic_agents::{ClassicAgentWarning, agent_ref_warnings, retired_file_warning};
 use crate::errors::CompileError;
+use crate::manifest::SourceEntry;
 use crate::outcome::{CompileOutcome, FailureKind, FileFailure, Promotion, RevisionStatus};
 use crate::walker::{AutomationKind, DiscoveredFile, FileKind, discover};
 use crate::writer::{
@@ -213,6 +214,22 @@ pub trait ConfigGate: Send + Sync {
     /// override). A compile with no gate only warns.
     fn refuses_classic_agents(&self) -> bool {
         false
+    }
+
+    /// Build the semantic model this revision would serve, exactly as the
+    /// reader will (`views` and `topics` are the pushed text of each file, in
+    /// discovery order; `config` supplies the dialect map). `None`: this gate
+    /// does not check semantic models, and the revision records no verdict.
+    ///
+    /// What happens to a model that does not build is the ratchet's call, not
+    /// the gate's: see [`crate::semantic_gate`].
+    fn check_semantic_model(
+        &self,
+        _config: Option<&CompiledConfig>,
+        _views: &[crate::semantic_gate::SemanticSource<'_>],
+        _topics: &[crate::semantic_gate::SemanticSource<'_>],
+    ) -> Option<Result<(), crate::semantic_gate::SemanticModelError>> {
+        None
     }
 }
 
@@ -450,7 +467,7 @@ pub async fn compile_workspace(
         request.branch,
         request.promote,
         kind_str,
-        request.config_gate.as_deref(),
+        request.config_gate.as_ref(),
     )
     .await;
 
@@ -474,6 +491,9 @@ pub(crate) struct CompileBatch {
     pub(crate) compiled: u32,
     /// Classic-agent warnings ([`crate::classic_agents`]). Logged, not stored.
     pub(crate) warnings: Vec<ClassicAgentWarning>,
+    /// Every compiled file by content, for the revision's manifest
+    /// ([`crate::manifest`]). A file that failed has no entry.
+    pub(crate) sources: Vec<SourceEntry>,
 }
 
 /// Compile each file and flag duplicates within one revision. Two files with
@@ -507,6 +527,7 @@ pub(crate) async fn compile_files(
         failures: Vec::new(),
         compiled: 0,
         warnings: Vec::new(),
+        sources: Vec::new(),
     };
     let mut first_seen: HashMap<(FileKind, String), String> = HashMap::new();
 
@@ -516,8 +537,15 @@ pub(crate) async fn compile_files(
             batch.warnings.push(retired_file_warning(file).await);
             continue;
         }
-        match compile_one_with(file, refusals).await {
-            Ok(produced) => {
+        let compiled = match read_file(file).await {
+            Ok(content) => compile_content(file, &content, refusals).map(|rows| (rows, content)),
+            Err(f) => Err(f),
+        };
+        match compiled {
+            Ok((produced, content)) => {
+                batch
+                    .sources
+                    .extend(SourceEntry::new(&file.rel_path, file.kind, &content));
                 for row in produced {
                     if let Some(key) = row_dedupe_key(&row, &file.kind) {
                         if let Some(first_path) = first_seen.get(&(file.kind, key.clone())) {
@@ -559,7 +587,7 @@ async fn drive_compile(
     branch: Option<String>,
     promote: bool,
     kind: &str,
-    config_gate: Option<&dyn ConfigGate>,
+    config_gate: Option<&std::sync::Arc<dyn ConfigGate>>,
 ) -> Result<CompileOutcome, CompileError> {
     let files = discover(workspace_path)?;
     debug!(file_count = files.len(), "files discovered");
@@ -574,6 +602,7 @@ async fn drive_compile(
         mut failures,
         compiled,
         warnings: _,
+        sources,
     } = compile_files(
         &files,
         AutomationRefusals {
@@ -630,6 +659,15 @@ async fn drive_compile(
         });
     }
 
+    // Build the semantic model the way the reader will, and refuse a compile
+    // that breaks a model the served revision has working
+    // ([`crate::semantic_gate`]). After every config transform, like the gate
+    // above, because the dialect map comes from the compiled config.
+    let (semantic_validated, semantic_refusal) =
+        crate::semantic_gate::judge(db, ctx.workspace_id, config_gate, &rows, &sources).await;
+    failures.extend(semantic_refusal);
+    let fingerprints = crate::manifest::fingerprints(&sources, semantic_validated);
+
     let status = if failures.is_empty() {
         RevisionStatus::Ready
     } else {
@@ -649,6 +687,8 @@ async fn drive_compile(
             promote,
             kind: kind.to_string(),
             schema_migration_count: count_schema_migrations(&rows),
+            sources: &sources,
+            fingerprints: &fingerprints,
         },
     )
     .await?;
@@ -759,10 +799,16 @@ async fn compile_one(file: &DiscoveredFile) -> Result<Vec<CompiledRow>, FileFail
 /// Per-file compile. Returns one or more rows on success, a structured
 /// failure on parse / shape errors. `refusals` says which retired automation
 /// steps fail the file ([`AutomationRefusals`]).
+#[cfg(test)]
 async fn compile_one_with(
     file: &DiscoveredFile,
     refusals: AutomationRefusals,
 ) -> Result<Vec<CompiledRow>, FileFailure> {
+    compile_content(file, &read_file(file).await?, refusals)
+}
+
+/// A discovered file's text, as every kind compiles it (lossy UTF-8).
+async fn read_file(file: &DiscoveredFile) -> Result<String, FileFailure> {
     let bytes = tokio::fs::read(&file.abs_path)
         .await
         .map_err(|e| FileFailure {
@@ -770,8 +816,15 @@ async fn compile_one_with(
             kind: FailureKind::Io,
             message: e.to_string(),
         })?;
-    let content = String::from_utf8_lossy(&bytes).into_owned();
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
 
+/// Compile one file's text into its rows.
+fn compile_content(
+    file: &DiscoveredFile,
+    content: &str,
+    refusals: AutomationRefusals,
+) -> Result<Vec<CompiledRow>, FileFailure> {
     match file.kind {
         FileKind::Config => compile_config(file, &content),
         FileKind::RetiredAgent => Ok(Vec::new()),

@@ -260,6 +260,10 @@ const TABLES: &[(&str, Placement)] = &[
         Control("compiled cross-entity reference graph"),
     ),
     (
+        "compiled_sources",
+        Control("compiled semantic file text, stored once per workspace by content hash"),
+    ),
+    (
         "compliance_arbitrations",
         Backlog {
             holds: "operator verdicts on camera compliance reports",
@@ -589,6 +593,14 @@ const TABLES: &[(&str, Placement)] = &[
         ),
     ),
     ("reconcile_configs", Control("compiled reconcile.yml")),
+    (
+        "revision_fingerprints",
+        Control("per-kind content hash of a compiled revision, and its semantic verdict"),
+    ),
+    (
+        "revision_manifest",
+        Control("the compiled files of a revision, by path and content hash"),
+    ),
     ("revisions", Control("compile revisions")),
     ("run_sequences", Control("run index counters")),
     (

@@ -59,6 +59,20 @@ impl ConfigGate for RuntimeConfigGate {
     fn refuses_classic_agents(&self) -> bool {
         cache::is_enabled(rollout::COMPILE_REFUSE_CLASSIC_AGENTS_FLAG)
     }
+
+    /// Build the semantic model as a serving pod would (`oxy::config::
+    /// semantic_check`). Whether a failure refuses the compile is the ratchet's
+    /// call (`oxy_compile::semantic_gate`).
+    fn check_semantic_model(
+        &self,
+        config: Option<&CompiledConfig>,
+        views: &[oxy_compile::SemanticSource<'_>],
+        topics: &[oxy_compile::SemanticSource<'_>],
+    ) -> Option<Result<(), oxy_compile::SemanticModelError>> {
+        Some(oxy::config::semantic_check::check_compiled_semantic_model(
+            config, views, topics,
+        ))
+    }
 }
 
 /// The deprecated environment override of the `compile_refuse_file_credentials`

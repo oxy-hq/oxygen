@@ -254,6 +254,7 @@ mod m20261108_000040_rate_limit_windows;
 mod m20261108_000300_drop_dead_legacy_tables;
 mod m20261109_000110_workspace_default_branch_attempted_at;
 mod m20261113_000001_app_secret_grants;
+mod m20261116_000001_create_compile_manifest;
 mod m20261116_000001_fleet_job_claims;
 mod m20261116_000001_revoke_legacy_api_keys;
 
@@ -534,6 +535,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261113_000001_app_secret_grants::Migration),
             Box::new(m20261116_000001_fleet_job_claims::Migration),
             Box::new(m20261116_000001_revoke_legacy_api_keys::Migration),
+            Box::new(m20261116_000001_create_compile_manifest::Migration),
         ]
     }
 

@@ -41,6 +41,9 @@
 //!
 //! ## Freshness and size
 //!
+//! A compiled revision's entry never expires (its rows never change) and is
+//! shared with any revision whose semantic files are byte-identical
+//! ([`crate::content_alias`]). For the working copy,
 //! TTL is a safety net; [`SemanticLayerCache::invalidate_workspace`] on every
 //! semantic-file write, branch switch and pull is the primary mechanism, and it
 //! clears every key for the workspace because the writer knows the workspace
@@ -105,6 +108,14 @@ impl LayerKey {
     }
 }
 
+/// `key` under the revision its content was first recorded under.
+fn canonical_key(key: &LayerKey) -> LayerKey {
+    LayerKey {
+        workspace_id: key.workspace_id,
+        source: crate::content_alias::canonical_source(key.workspace_id, key.source),
+    }
+}
+
 struct Entry {
     built_at: Instant,
     layer: Arc<airlayer::SemanticLayer>,
@@ -149,17 +160,25 @@ impl SemanticLayerCache {
     /// A live entry, or `None` on miss or expiry. Marks the entry
     /// most-recently used, so the LRU evicts by traffic rather than insertion
     /// order.
+    ///
+    /// A compiled revision's entry never expires, and one recorded with the
+    /// same content as an earlier revision is looked up under that one — the
+    /// same two rules as the engine cache (`engine_cache::expires`,
+    /// [`crate::content_alias`]), so a layer and the engine built from it are
+    /// always found, or missed, together.
     pub fn lookup(&self, key: &LayerKey) -> Option<Arc<airlayer::SemanticLayer>> {
+        let key = canonical_key(key);
         let mut guard = self.inner.lock().expect("layer cache mutex poisoned");
-        let entry = guard.get(key)?;
-        if entry.built_at.elapsed() >= self.ttl {
-            guard.pop(key);
+        let entry = guard.get(&key)?;
+        if crate::engine_cache::expires(key.source) && entry.built_at.elapsed() >= self.ttl {
+            guard.pop(&key);
             return None;
         }
         Some(entry.layer.clone())
     }
 
     pub fn insert(&self, key: LayerKey, layer: Arc<airlayer::SemanticLayer>) {
+        let key = canonical_key(&key);
         let mut guard = self.inner.lock().expect("layer cache mutex poisoned");
         guard.put(
             key,
@@ -315,5 +334,26 @@ mod tests {
             DEFAULT_LAYER_TTL, DEFAULT_ENGINE_TTL,
             "an engine must not outlive its layer, nor a layer its engine"
         );
+    }
+
+    /// Same two rules as the engine cache, so a layer and its engine are found
+    /// or missed together: a revision outlives the TTL, and identical content
+    /// shares one entry.
+    #[test]
+    fn a_revision_layer_outlives_the_ttl_and_is_shared_by_identical_content() {
+        let cache = SemanticLayerCache::with_ttl(Duration::from_millis(30));
+        let ws = Uuid::new_v4();
+        let (r1, r2) = (Uuid::new_v4(), Uuid::new_v4());
+        crate::content_alias::record_revision_content(ws, r1, [5; 32]);
+        crate::content_alias::record_revision_content(ws, r2, [5; 32]);
+        let built = layer();
+        cache.insert(LayerKey::revision(ws, r1), built.clone());
+        cache.insert(LayerKey::working_copy(ws), layer());
+        std::thread::sleep(Duration::from_millis(60));
+        let shared = cache
+            .lookup(&LayerKey::revision(ws, r2))
+            .expect("identical content is served the first revision's layer");
+        assert!(Arc::ptr_eq(&built, &shared));
+        assert!(cache.lookup(&LayerKey::working_copy(ws)).is_none());
     }
 }

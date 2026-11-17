@@ -22,6 +22,16 @@
 //! so the cache is always current, and the one read a revision still pays
 //! resolves its bodies concurrently.
 //!
+//! A revision compiled with a manifest (`oxy_compile::manifest`) is read from the
+//! text that was pushed — one more query, no S3 GET, the author's file byte for
+//! byte, as the directory loader would read it. When every file was read that
+//! way the scan is deterministic, and its content identity is recorded
+//! (`scan_identity`, `oxy_airlayer_compat::content_alias`): a later revision with
+//! the same semantic files is then handed this one's files, layer and engine, so
+//! a promote that left `semantics/` alone costs a pod no rebuild. An older
+//! revision, or a file whose text the compile could not keep, reads as before
+//! and is never recorded.
+//!
 //! This module also holds the two readers that still write a directory, because
 //! what they hand to their caller is one: [`materialise_agent_context`] (an
 //! agent's `context:` globs match files) and [`materialise_monitor_config`].
@@ -64,6 +74,12 @@ impl CompiledSemanticFiles {
 
     pub fn topics(&self) -> &[SemanticFile] {
         &self.topics
+    }
+
+    /// Files already in reader order. Tests build scans directly with it.
+    #[cfg(test)]
+    pub(super) fn from_parts(views: Vec<SemanticFile>, topics: Vec<SemanticFile>) -> Self {
+        Self { views, topics }
     }
 
     /// The file a compiled row came from, by its workspace-relative path.
@@ -250,10 +266,15 @@ async fn load_compiled_scan(
     views: &[CompiledArtifact],
     topics: &[CompiledArtifact],
 ) -> Result<ScanDir, ArtifactError> {
-    let files = CompiledSemanticFiles {
-        views: resolve_files(views, "view.yml").await.map_err(io_err)?,
-        topics: resolve_files(topics, "topic.yml").await.map_err(io_err)?,
-    };
+    let pushed = pushed_sources(origin).await;
+    let (views, views_pushed) = resolve_files(views, "view.yml", &pushed)
+        .await
+        .map_err(io_err)?;
+    let (topics, topics_pushed) = resolve_files(topics, "topic.yml", &pushed)
+        .await
+        .map_err(io_err)?;
+    let files = CompiledSemanticFiles { views, topics };
+    let deterministic = views_pushed && topics_pushed;
 
     // info, not debug: this fires once per revision per process rather than
     // once per request, and it is the line that shows the cache working.
@@ -261,14 +282,71 @@ async fn load_compiled_scan(
         ?origin,
         views = files.views.len(),
         topics = files.topics.len(),
+        from_pushed_text = deterministic,
         "semantic scan: read from the compile boundary"
     );
 
-    let scan = ScanDir::Compiled(Arc::new(files));
-    if let Some(key) = revision_key(origin) {
+    let key = revision_key(origin);
+    let scan = match key {
+        Some(key) if deterministic => share_identical(key, files),
+        _ => ScanDir::Compiled(Arc::new(files)),
+    };
+    if let Some(key) = key {
         remember_scan(key, &scan);
     }
     Ok(scan)
+}
+
+/// The pushed text of `origin`'s semantic files, by path (empty for the
+/// working copy, and for a revision compiled before the manifest existed).
+///
+/// A failed read degrades to empty rather than failing the scan: every file
+/// then resolves the way it did before the manifest, through its row, which is
+/// slower and is never recorded as an identity, but is correct.
+async fn pushed_sources(origin: Origin) -> HashMap<String, String> {
+    let Origin::Compiled { revision_id, .. } = origin else {
+        return HashMap::new();
+    };
+    match super::compiled::semantic_sources_at(revision_id).await {
+        Ok(sources) => sources,
+        Err(e) => {
+            tracing::warn!(%revision_id, error = %e, "semantic scan: could not read the pushed text; reading the rows instead");
+            HashMap::new()
+        }
+    }
+}
+
+/// Record this revision's content identity, and hand back the in-memory files
+/// of the earlier revision it matches when this process still holds them.
+///
+/// Only called for a scan whose every body is the immutable pushed text: a body
+/// re-serialised from a row is equivalent but not byte-identical, and an
+/// identity built from it could differ between two reads of the same revision
+/// (`oxy_airlayer_compat::content_alias`, "Only deterministic text is
+/// recorded"). Sharing the files is belt and braces on top of the digest: they
+/// must also compare equal.
+fn share_identical(key: (Uuid, Uuid), files: CompiledSemanticFiles) -> ScanDir {
+    let (workspace_id, revision_id) = key;
+    let digest = super::scan_identity::digest(&files);
+    let canonical = oxy_airlayer_compat::content_alias::record_revision_content(
+        workspace_id,
+        revision_id,
+        digest,
+    );
+    if canonical != revision_id {
+        tracing::info!(
+            %workspace_id,
+            %revision_id,
+            %canonical,
+            "semantic scan: same semantic files as an earlier revision; sharing its layer and engine"
+        );
+        if let Some(ScanDir::Compiled(existing)) = cached_scan_at((workspace_id, canonical))
+            && *existing == files
+        {
+            return ScanDir::Compiled(existing);
+        }
+    }
+    ScanDir::Compiled(Arc::new(files))
 }
 
 /// `origin`'s revision from the cache, else `read` — which runs for one
@@ -412,7 +490,11 @@ fn revision_key(origin: Origin) -> Option<(Uuid, Uuid)> {
 /// This process's scan of `origin`'s revision, if it has one. The guard is held
 /// for the map op, never across an await.
 fn cached_scan(origin: Origin) -> Option<ScanDir> {
-    let key = revision_key(origin)?;
+    cached_scan_at(revision_key(origin)?)
+}
+
+/// [`cached_scan`] by `(workspace, revision)`.
+fn cached_scan_at(key: (Uuid, Uuid)) -> Option<ScanDir> {
     let mut cache = scan_cache().lock().ok()?;
     cache.get(&key).cloned()
 }
@@ -539,10 +621,16 @@ pub async fn read_semantic_entity<S: DiskSlot>(
 /// is `(revision_id, name)`, so distinct names with the same basename DO ship as
 /// two rows; keying on the basename would silently keep one of them and airlayer
 /// would see only the survivor at query time.
+///
+/// A row whose path `pushed` has text is that text, with no fetch: the file as
+/// it was pushed, the same bytes the directory loader would read. Any other row
+/// resolves through [`resolve_body`] as before. The `bool` says whether every
+/// row was pushed text.
 async fn resolve_files(
     rows: &[CompiledArtifact],
     fallback_suffix: &str,
-) -> Result<Vec<SemanticFile>, std::io::Error> {
+    pushed: &HashMap<String, String>,
+) -> Result<(Vec<SemanticFile>, bool), std::io::Error> {
     use futures::stream::{StreamExt, TryStreamExt};
 
     // Rows are cloned into their fetches rather than borrowed. A stream of
@@ -551,7 +639,7 @@ async fn resolve_files(
     // of `Send` is not general enough"). The clone is cheap next to the GET it
     // feeds, and it runs once per revision.
     let mut seen: BTreeMap<PathBuf, ()> = BTreeMap::new();
-    let targets: Vec<(PathBuf, CompiledArtifact)> = rows
+    let targets: Vec<(PathBuf, CompiledArtifact, Option<String>)> = rows
         .iter()
         .filter_map(|row| {
             let relative = relative_scan_path(&row.file_path, &row.name, fallback_suffix)?;
@@ -561,9 +649,10 @@ async fn resolve_files(
                     "semantic scan: two rows read as the same file — the second replaces the first"
                 );
             }
-            Some((relative, row.clone()))
+            Some((relative, row.clone(), pushed.get(&row.file_path).cloned()))
         })
         .collect();
+    let all_pushed = targets.iter().all(|(_, _, text)| text.is_some());
 
     // Bodies resolve concurrently — each is an S3 GET when the blob bucket is
     // set, and one after another those GETs were the whole cost of a scan —
@@ -572,13 +661,16 @@ async fn resolve_files(
     // rows that share a path still end last-writer-wins, as the warning above
     // promises, and the first failing row is still the one reported.
     let bodies: Vec<(PathBuf, SemanticFile)> =
-        futures::stream::iter(targets.into_iter().map(|(relative, row)| async move {
-            let body = resolve_body(&row).await.map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("resolve body for semantic row {}: {e}", row.name),
-                )
-            })?;
+        futures::stream::iter(targets.into_iter().map(|(relative, row, text)| async move {
+            let body = match text {
+                Some(text) => text.into_bytes(),
+                None => resolve_body(&row).await.map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("resolve body for semantic row {}: {e}", row.name),
+                    )
+                })?,
+            };
             let yaml = String::from_utf8(body).map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
@@ -597,9 +689,16 @@ async fn resolve_files(
         .try_collect()
         .await?;
 
-    // Later rows win a shared path; the map then yields them sorted by path.
-    let files: BTreeMap<PathBuf, SemanticFile> = bodies.into_iter().collect();
-    Ok(files.into_values().collect())
+    Ok((reader_order(bodies), all_pushed))
+}
+
+/// Files keyed by their path below the kind, in the order the parser is handed
+/// them: later entries win a shared path, and the map yields them sorted. One
+/// definition for the scan and for the compile-time check
+/// (`super::semantic_check`), so the two parse the same model.
+pub(super) fn reader_order(files: Vec<(PathBuf, SemanticFile)>) -> Vec<SemanticFile> {
+    let files: BTreeMap<PathBuf, SemanticFile> = files.into_iter().collect();
+    files.into_values().collect()
 }
 
 /// How many row bodies one read of a revision resolves at once. Bounded so a large
@@ -645,7 +744,11 @@ async fn resolve_body(row: &CompiledArtifact) -> Result<Vec<u8>, String> {
 /// neither. Nothing is written for these rows any more, but the compiler reads
 /// the path out of a workspace YAML, and a row the directory loader would not
 /// have read must not become part of the model here either.
-fn relative_scan_path(file_path: &str, row_name: &str, fallback_suffix: &str) -> Option<PathBuf> {
+pub(super) fn relative_scan_path(
+    file_path: &str,
+    row_name: &str,
+    fallback_suffix: &str,
+) -> Option<PathBuf> {
     let trimmed = file_path
         .strip_prefix("semantics/views/")
         .or_else(|| file_path.strip_prefix("semantics/topics/"))
@@ -1533,7 +1636,10 @@ mod tests {
         rows.push(row("semantics/views/shared.view.yml", "first"));
         rows.push(row("semantics/views/shared.view.yml", "second"));
 
-        let files = resolve_files(&rows, "view.yml").await.expect("resolve");
+        let (files, all_pushed) = resolve_files(&rows, "view.yml", &HashMap::new())
+            .await
+            .expect("resolve");
+        assert!(!all_pushed, "no row had pushed text");
 
         assert_eq!(files.len(), count + 1, "one file per distinct path");
         for i in 0..count {
@@ -1557,5 +1663,86 @@ mod tests {
         let mut sorted = paths.clone();
         sorted.sort();
         assert_eq!(paths, sorted, "files come back sorted by path");
+    }
+
+    /// A row whose pushed text the manifest holds is read as that text — the
+    /// author's file, comments and key order included — with no fetch, and a
+    /// scan is deterministic only when every row was.
+    #[tokio::test]
+    async fn pushed_text_replaces_the_row_and_marks_the_scan_deterministic() {
+        let rows = vec![
+            row("semantics/views/a.view.yml", "a"),
+            row("semantics/views/b.view.yml", "b"),
+        ];
+        let mut pushed = HashMap::new();
+        pushed.insert(
+            "semantics/views/a.view.yml".to_string(),
+            "# the author's comment\nname: a\n".to_string(),
+        );
+        let (files, all_pushed) = resolve_files(&rows, "view.yml", &pushed)
+            .await
+            .expect("resolve");
+        assert!(!all_pushed, "b still came from its row");
+        assert_eq!(files[0].yaml, "# the author's comment\nname: a\n");
+        assert_eq!(files[1].yaml, body_of("b"));
+
+        pushed.insert(
+            "semantics/views/b.view.yml".to_string(),
+            "name: b\n".to_string(),
+        );
+        let (_, all_pushed) = resolve_files(&rows, "view.yml", &pushed)
+            .await
+            .expect("resolve");
+        assert!(all_pushed);
+    }
+
+    /// A revision whose deterministic scan matches an earlier revision's is
+    /// handed that revision's files, and its layer and engine keys resolve to
+    /// that revision's entries. One that differs keeps its own.
+    #[test]
+    fn identical_revisions_share_the_files_and_the_cache_identity() {
+        let ws = Uuid::new_v4();
+        let (r1, r2, r3) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let files = || {
+            CompiledSemanticFiles::from_parts(
+                vec![SemanticFile {
+                    file_path: "semantics/views/a.view.yml".into(),
+                    yaml: "name: a\n".into(),
+                }],
+                vec![],
+            )
+        };
+        let first = share_identical((ws, r1), files());
+        remember_scan((ws, r1), &first);
+        let second = share_identical((ws, r2), files());
+        let (ScanDir::Compiled(a), ScanDir::Compiled(b)) = (&first, &second) else {
+            panic!("compiled scans");
+        };
+        assert!(
+            Arc::ptr_eq(a, b),
+            "the second revision reuses the first's files"
+        );
+        use oxy_airlayer_compat::{LayerSource, content_alias::canonical_source};
+        assert_eq!(
+            canonical_source(ws, LayerSource::Revision(r2)),
+            LayerSource::Revision(r1)
+        );
+
+        let changed = CompiledSemanticFiles::from_parts(
+            vec![SemanticFile {
+                file_path: "semantics/views/a.view.yml".into(),
+                yaml: "name: a\ndescription: changed\n".into(),
+            }],
+            vec![],
+        );
+        let third = share_identical((ws, r3), changed);
+        let ScanDir::Compiled(c) = &third else {
+            panic!("compiled scan");
+        };
+        assert!(!Arc::ptr_eq(a, c));
+        assert_eq!(
+            canonical_source(ws, LayerSource::Revision(r3)),
+            LayerSource::Revision(r3)
+        );
     }
 }

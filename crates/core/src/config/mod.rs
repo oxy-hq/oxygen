@@ -22,6 +22,8 @@ mod naming;
 pub mod oxy;
 mod revision_files;
 pub mod scan;
+mod scan_identity;
+pub mod semantic_check;
 mod served_revision;
 mod storage;
 

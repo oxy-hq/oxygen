@@ -20,6 +20,7 @@
 //! enforces it — if you are here to add `airlayer` to another manifest, add a
 //! re-export or a helper above instead.
 
+pub mod content_alias;
 pub mod engine_cache;
 pub mod layer_cache;
 pub mod lever_conflicts;

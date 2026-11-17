@@ -239,6 +239,40 @@ pub(super) async fn resolve_world_model_config_at(
         .map(|m| m.definition))
 }
 
+/// The pushed text of each semantic view and topic in a revision, by
+/// workspace-relative path, from its manifest (`revision_manifest` →
+/// `compiled_sources`). Empty for a revision compiled before the manifest
+/// existed, or for a file whose text the compile could not keep; the scan then
+/// reads that file the way it always has.
+pub(super) async fn semantic_sources_at(
+    revision_id: Uuid,
+) -> Result<std::collections::HashMap<String, String>, ArtifactError> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    const SQL: &str = "SELECT m.file_path, s.content \
+                       FROM revision_manifest m \
+                       JOIN compiled_sources s \
+                         ON s.workspace_id = m.workspace_id \
+                        AND s.content_sha256 = m.content_sha256 \
+                       WHERE m.revision_id = $1 AND m.kind IN ('view', 'topic')";
+    let rows = conn()
+        .await?
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            SQL,
+            [revision_id.into()],
+        ))
+        .await
+        .map_err(|e| ArtifactError::Backend(e.to_string()))?;
+    rows.into_iter()
+        .map(|row| {
+            let path = row.try_get::<String>("", "file_path");
+            let content = row.try_get::<String>("", "content");
+            path.and_then(|p| content.map(|c| (p, c)))
+                .map_err(|e| ArtifactError::Backend(e.to_string()))
+        })
+        .collect()
+}
+
 pub(super) async fn list_semantic_views_at(
     revision_id: Uuid,
 ) -> Result<Vec<CompiledArtifact>, ArtifactError> {

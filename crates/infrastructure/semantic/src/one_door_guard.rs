@@ -144,6 +144,12 @@ const ALLOWED: &[(&str, &str)] = &[
          and `load_files` takes an arbitrary path set with dialects derived \
          from live connectors rather than config.",
     ),
+    (
+        "crates/core/src/config/semantic_check.rs",
+        "The compile-time semantic gate builds a revision that is not promoted \
+         yet, once per compile and off the request path. Caching it under the \
+         revision would pin an engine for a revision the gate may refuse.",
+    ),
 ];
 
 fn repo_root() -> PathBuf {

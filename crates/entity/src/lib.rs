@@ -211,6 +211,7 @@ pub mod backfill_ranges;
 /// `entity::procedure_definitions::*` call sites resolving.
 pub use automation_definitions as procedure_definitions;
 pub mod compiled_references;
+pub mod compiled_sources;
 pub mod context_document_definitions;
 pub mod experiment_designs;
 pub mod experiment_flips;
@@ -220,6 +221,8 @@ pub mod experiment_results;
 pub mod experiment_runs;
 pub mod experiments;
 pub mod monitor_configs;
+pub mod revision_fingerprints;
+pub mod revision_manifest;
 pub mod revisions;
 pub mod schema_migration_definitions;
 pub mod semantic_topics;

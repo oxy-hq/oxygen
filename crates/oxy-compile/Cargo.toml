@@ -22,7 +22,7 @@ serde_yaml.workspace = true
 sha2.workspace = true
 slugify = { workspace = true }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs", "macros", "sync"] }
+tokio = { workspace = true, features = ["fs", "macros", "rt", "sync"] }
 tracing.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 glob = { workspace = true }

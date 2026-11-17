@@ -108,6 +108,7 @@ pub fn spawn_compile_maintenance(config: CompileMaintenanceConfig) {
             reap_stuck_compiles(&db, config.stuck_timeout_secs).await;
             if config.retention_days > 0 {
                 prune_old_revisions(&db, config.retention_days).await;
+                prune_unreferenced_sources(&db).await;
             }
         }
     });
@@ -176,6 +177,26 @@ pub async fn prune_old_revisions(db: &DatabaseConnection, retention_days: u64) {
         ),
         Ok(_) => {}
         Err(e) => tracing::warn!(?e, "compile_maintenance: retention sweep failed"),
+    }
+}
+
+/// How long compiled source text no manifest names is kept. Only a bound on
+/// storage: the sweep's safety against a compile in flight does not depend on it
+/// (`oxy_compile::prune_unreferenced_sources` says why), so a generous day costs
+/// nothing.
+const SOURCE_PRUNE_GRACE: Duration = Duration::from_secs(86_400);
+
+/// Delete compiled source text that no revision's manifest names any more.
+/// Bodies are shared across revisions, so the revision cascade above leaves
+/// them; this is their `git gc`.
+async fn prune_unreferenced_sources(db: &DatabaseConnection) {
+    match oxy_compile::prune_unreferenced_sources(db, SOURCE_PRUNE_GRACE).await {
+        Ok(pruned) if pruned > 0 => tracing::info!(
+            pruned,
+            "compile_maintenance: pruned compiled sources no revision names"
+        ),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(?e, "compile_maintenance: source sweep failed"),
     }
 }
 

@@ -6,10 +6,19 @@
 //! `worktrees/` holds agent worktrees, each a full copy of the project —
 //! `.semantics`, `.oxy_state`, ...) and the build/vendor directories
 //! (`target`, `node_modules`, `dist`, `build`) at any depth — see
-//! [`is_skipped`].
+//! [`is_skipped`]. A skipped directory is pruned, not walked and filtered.
+//!
+//! "Once" is literal. Discovery used to run one recursive `glob` per kind, ten
+//! in all, and each descended into every skipped directory before the skip
+//! rule threw the matches away: ten passes over `node_modules` and `.git` to
+//! find nothing. Measured on a working copy of 24,701 entries (an app's
+//! `node_modules`, `.git`, one agent worktree) that was 323 ms per discovery
+//! against 3.6 ms for this walk, with the same files found;
+//! `internal-docs/compile-performance.md` has the numbers for smaller trees.
 
 use crate::errors::CompileError;
-use glob::glob;
+use std::ffi::OsStr;
+use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
 
@@ -150,82 +159,209 @@ pub fn discover(workspace_root: &Path) -> Result<Vec<DiscoveredFile>, CompileErr
         });
     }
 
-    // YAML kinds — one glob per extension. Done sequentially because
-    // workspaces have ~tens to ~hundreds of files and the per-glob
-    // overhead is negligible.
-    push_glob(
-        workspace_root,
-        "**/*.agentic.yml",
-        FileKind::AgenticAgent,
-        &mut out,
-    )?;
-    push_glob(
-        workspace_root,
-        "**/*.agent.yml",
-        FileKind::RetiredAgent,
-        &mut out,
-    )?;
-    push_glob(
-        workspace_root,
-        "**/*.view.yml",
-        FileKind::SemanticView,
-        &mut out,
-    )?;
-    push_glob(
-        workspace_root,
-        "**/*.topic.yml",
-        FileKind::SemanticTopic,
-        &mut out,
-    )?;
-    push_glob(
-        workspace_root,
-        "**/*.procedure.yml",
-        FileKind::Automation(AutomationKind::Procedure),
-        &mut out,
-    )?;
-    push_glob(
-        workspace_root,
-        "**/*.automation.yml",
-        FileKind::Automation(AutomationKind::Automation),
-        &mut out,
-    )?;
-    push_glob(
-        workspace_root,
-        "**/*.airway.yml",
-        FileKind::AirwayPipeline,
-        &mut out,
-    )?;
-    push_glob(
-        workspace_root,
-        "**/*.simulation.yml",
-        FileKind::Simulation,
-        &mut out,
-    )?;
-    push_glob(
-        workspace_root,
-        "**/*.sql",
-        FileKind::VerifiedQuery,
-        &mut out,
-    )?;
-    // Must follow the VerifiedQuery glob, which skips `schemas/` so these
-    // files are claimed here exactly once.
-    push_glob(
-        workspace_root,
-        "schemas/**/*.sql",
-        FileKind::SchemaMigration,
-        &mut out,
-    )?;
+    // Every kind claimed by its file name, in one pass over the tree.
+    walk_named_kinds(workspace_root, &mut out)?;
     push_context_documents(workspace_root, &mut out)?;
 
     out.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
     Ok(out)
 }
 
-/// Markdown reached by an agent's `context:`. Must follow the agent glob: which
+/// The kinds a file below the root is claimed by from its name alone. No
+/// suffix here ends another, so the order never decides between two.
+///
+/// A new `*.foo.yml` kind is one line here. `.sql` is not in the table because
+/// its kind depends on where the file sits ([`classify`]).
+const NAMED_KINDS: &[(&str, FileKind)] = &[
+    (".agentic.yml", FileKind::AgenticAgent),
+    (".agent.yml", FileKind::RetiredAgent),
+    (".view.yml", FileKind::SemanticView),
+    (".topic.yml", FileKind::SemanticTopic),
+    (
+        ".procedure.yml",
+        FileKind::Automation(AutomationKind::Procedure),
+    ),
+    (
+        ".automation.yml",
+        FileKind::Automation(AutomationKind::Automation),
+    ),
+    (".airway.yml", FileKind::AirwayPipeline),
+    (".simulation.yml", FileKind::Simulation),
+];
+
+/// The kind `file_name`, at workspace-relative `rel_path`, would compile as;
+/// `None` for a file no kind claims. `.sql` under `schemas/` (at the root) is
+/// DDL; anywhere else it is a verified query, including under `modeling/`,
+/// which [`Walk::file`] then drops by name so the drop is reported.
+fn classify(rel_path: &str, file_name: &str) -> Option<FileKind> {
+    if let Some((_, kind)) = NAMED_KINDS
+        .iter()
+        .find(|(suffix, _)| file_name.ends_with(suffix))
+    {
+        return Some(*kind);
+    }
+    if !file_name.ends_with(".sql") {
+        return None;
+    }
+    if rel_path.starts_with("schemas/") {
+        Some(FileKind::SchemaMigration)
+    } else {
+        Some(FileKind::VerifiedQuery)
+    }
+}
+
+/// Walk the tree below `root` once, pruning skipped directories, and push
+/// every file a [`NAMED_KINDS`] suffix or `.sql` claims.
+///
+/// An unreadable root is an error: "could not look" must not come back as
+/// "found nothing" (`internal-docs/compile-boundary.md` § "Absent is not
+/// empty"). An unreadable directory below it is skipped with a warning.
+fn walk_named_kinds(root: &Path, out: &mut Vec<DiscoveredFile>) -> Result<(), CompileError> {
+    let walk_err = |e: std::io::Error| CompileError::Walk(format!("{}: {e}", root.display()));
+    let entries = fs::read_dir(root).map_err(walk_err)?;
+    let mut walk = Walk {
+        out,
+        ancestors: vec![fs::canonicalize(root).map_err(walk_err)?],
+    };
+    walk.directory(root, "", entries);
+    Ok(())
+}
+
+/// One pass over the tree.
+///
+/// Directory symlinks are followed, as the per-kind globs this replaced
+/// followed them, so a workspace that links `semantics/` in from elsewhere
+/// keeps compiling. `ancestors` holds the real path of every directory being
+/// walked, root first: a link back to one of them is a loop, which the globs
+/// followed until the path grew too long, and which this does not follow.
+struct Walk<'a> {
+    out: &'a mut Vec<DiscoveredFile>,
+    ancestors: Vec<PathBuf>,
+}
+
+impl Walk<'_> {
+    fn directory(&mut self, dir: &Path, rel_dir: &str, entries: fs::ReadDir) {
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    warn!(rel_dir, %error, "discovery: a directory entry is not readable");
+                    continue;
+                }
+            };
+            let name = entry.file_name();
+            let path = dir.join(&name);
+            let rel_path = match rel_dir {
+                "" => name.to_string_lossy().into_owned(),
+                parent => format!("{parent}/{}", name.to_string_lossy()),
+            };
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            let is_link = file_type.is_symlink();
+            let is_dir = if is_link {
+                fs::metadata(&path).is_ok_and(|meta| meta.is_dir())
+            } else {
+                file_type.is_dir()
+            };
+            if is_dir {
+                self.descend(&path, &rel_path, &name, is_link);
+            } else if let Some(file_name) = name.to_str() {
+                // A name that is not UTF-8 matched no glob before, and matches
+                // no suffix now.
+                self.file(path, rel_path, file_name);
+            }
+        }
+    }
+
+    fn descend(&mut self, path: &Path, rel_path: &str, name: &OsStr, is_link: bool) {
+        if is_skipped_component(&name.to_string_lossy()) {
+            // One line per directory, not per file: this prunes before it
+            // descends, which is what keeps it out of `node_modules`.
+            dropped(
+                rel_path,
+                "a skipped directory; nothing below it is discovered",
+            );
+            return;
+        }
+        let real = if is_link {
+            match fs::canonicalize(path) {
+                Ok(real) if self.ancestors.contains(&real) => {
+                    warn!(
+                        rel_path,
+                        "discovery: a directory symlink leads back to a directory it is inside; \
+                         not followed"
+                    );
+                    return;
+                }
+                Ok(real) => real,
+                Err(error) => {
+                    warn!(rel_path, %error, "discovery: a directory symlink cannot be resolved");
+                    return;
+                }
+            }
+        } else {
+            // Not a link, so its real path is its real parent's plus its name.
+            match self.ancestors.last() {
+                Some(parent) => parent.join(name),
+                None => path.to_path_buf(),
+            }
+        };
+        match fs::read_dir(path) {
+            Ok(entries) => {
+                self.ancestors.push(real);
+                self.directory(path, rel_path, entries);
+                self.ancestors.pop();
+            }
+            Err(error) => warn!(rel_path, %error, "discovery: a directory is not readable"),
+        }
+    }
+
+    fn file(&mut self, abs_path: PathBuf, rel_path: String, file_name: &str) {
+        let Some(kind) = classify(&rel_path, file_name) else {
+            return;
+        };
+        // Follows a symlink, as the globs did: a link to a file is that file,
+        // and a dangling link is nothing.
+        if !abs_path.is_file() {
+            return;
+        }
+        // Don't include test files that mirror an extension —
+        // `foo.agent.test.yml` is NOT a real `.agentic.yml`.
+        // Same idea as `crates/core/src/config/storage.rs:421`.
+        //
+        // Matched against the FILE NAME only, deliberately: a real
+        // `orders.view.yml` under `semantics/v1.test.cases/` is a view. The
+        // conventional `x.agent.test.yml` and the pinned-divergence
+        // `drafts/scratch.test.agentic.yml` both carry `.test.` in the file
+        // name, so both drop, and the working-copy lister
+        // (`storage.rs::list_entity_files`) applies the same rule.
+        if file_name.contains(".test.") {
+            dropped(&rel_path, "test file mirroring an entity extension");
+            return;
+        }
+        // VerifiedQuery only applies outside `modeling/` — the dbt-shaped
+        // SQL files there are handled by Airform's separate compile pipeline.
+        if kind == FileKind::VerifiedQuery && rel_path.starts_with("modeling/") {
+            dropped(
+                &rel_path,
+                "dbt-shaped SQL under modeling/, owned by Airform",
+            );
+            return;
+        }
+        self.out.push(DiscoveredFile {
+            rel_path,
+            abs_path,
+            kind,
+        });
+    }
+}
+
+/// Markdown reached by an agent's `context:`. Must follow the agent walk: which
 /// documents exist as a kind is decided by the agents already in `out`.
 ///
-/// Not a `push_glob`, because there is no pattern to give it — the patterns are
-/// the agents' own. The two skip rules it would have applied are applied by
+/// Not a [`NAMED_KINDS`] suffix, because no name claims a document — the
+/// patterns are the agents' own. The two skip rules apply all the same, in
 /// the walk this shares with the working-copy arm, so the enumerations cannot
 /// disagree.
 fn push_context_documents(root: &Path, out: &mut Vec<DiscoveredFile>) -> Result<(), CompileError> {
@@ -240,104 +376,21 @@ fn push_context_documents(root: &Path, out: &mut Vec<DiscoveredFile>) -> Result<
     Ok(())
 }
 
-/// Glob expansion + skip filter + classification helper.
-fn push_glob(
-    root: &Path,
-    pattern: &str,
-    kind: FileKind,
-    out: &mut Vec<DiscoveredFile>,
-) -> Result<(), CompileError> {
-    let glob_pattern = root.join(pattern).to_string_lossy().into_owned();
-    let entries = glob(&glob_pattern).map_err(|e| CompileError::Walk(e.to_string()))?;
-
-    for entry in entries {
-        let abs_path = match entry {
-            Ok(p) => p,
-            Err(e) => {
-                warn!(error = %e, pattern = pattern, "glob entry failed");
-                continue;
-            }
-        };
-
-        if !abs_path.is_file() {
-            continue;
-        }
-
-        let rel = match abs_path.strip_prefix(root) {
-            Ok(r) => r.to_string_lossy().replace('\\', "/"),
-            Err(_) => continue,
-        };
-
-        // Only the parent directories are checked against `is_skipped` — it
-        // exists to prune directories (see its doc comment), not to drop a
-        // dot-prefixed FILE. A dot-prefixed dir like `.oxy_state/` is still
-        // skipped at any depth; `.draft.simulation.yml` at the workspace
-        // root, or `legit/.wip.simulation.yml`, is not.
-        let (dir_part, file_name) = match rel.rsplit_once('/') {
-            Some((dir, name)) => (dir, name),
-            None => ("", rel.as_str()),
-        };
-        if is_skipped(dir_part) {
-            dropped(&rel, "under a skipped directory");
-            continue;
-        }
-
-        // Don't include test files that mirror an extension —
-        // `foo.agent.test.yml` is NOT a real `.agentic.yml`.
-        // Same idea as `crates/core/src/config/storage.rs:421`.
-        //
-        // Matched against the FILE NAME only, deliberately. `.test.` names a
-        // test file, and the sibling arm above goes out of its way to check
-        // `dir_part` so that file names are left to this one; matching the
-        // whole `rel` made this arm the only one that pruned on a DIRECTORY
-        // name, so a real `orders.view.yml` under `semantics/v1.test.cases/`
-        // vanished. That also put the two workspace enumerations back into
-        // the disagreement `list_simulations_and_the_walker_drop_the_same_paths`
-        // exists to prevent: `storage.rs::list_by_sub_extension` has no
-        // `.test.` rule at all, so it listed such a file while this dropped
-        // it. The conventional `x.agent.test.yml` and the pinned-divergence
-        // `drafts/scratch.test.agentic.yml` both carry `.test.` in the file
-        // name, so both still drop.
-        if file_name.contains(".test.") {
-            dropped(&rel, "test file mirroring an entity extension");
-            continue;
-        }
-
-        // VerifiedQuery only applies outside `modeling/` — the dbt-shaped
-        // SQL files there are handled by Airform's separate compile
-        // pipeline (Phase 1.6c will fold those in). `schemas/` is not a drop:
-        // the `schemas/**/*.sql` glob claims those as `SchemaMigration`
-        // immediately after, so it is not reported as one.
-        if matches!(kind, FileKind::VerifiedQuery) && rel.starts_with("schemas/") {
-            continue;
-        }
-        if matches!(kind, FileKind::VerifiedQuery) && rel.starts_with("modeling/") {
-            dropped(&rel, "dbt-shaped SQL under modeling/, owned by Airform");
-            continue;
-        }
-
-        out.push(DiscoveredFile {
-            rel_path: rel,
-            abs_path,
-            kind,
-        });
-    }
-
-    Ok(())
-}
-
-/// Report a file that matched a glob but will not be compiled.
+/// Report a path discovery will not compile: a file an entity kind would
+/// have claimed, or a skipped directory it did not walk.
 ///
 /// Discovery is the only thing between a file on disk and a
 /// `*_definitions` row, so a drop with no record reads to the user as "my
 /// view disappeared" with nothing to grep for — and the skip set matches
 /// whole path components at any depth, so a workspace that happens to keep
 /// models under `dist/` (distribution) or `build/` loses them with no error
-/// anywhere. DEBUG rather than WARN on purpose: the common case is a
-/// `node_modules/` with thousands of matches, and a warn per file would bury
-/// every other line in the compile log.
+/// anywhere. A skipped directory is reported once, by its own path, because
+/// it is pruned rather than walked: naming each file under it would mean
+/// walking `node_modules`, which is the cost pruning exists to avoid. DEBUG
+/// rather than WARN on purpose: every `.git` and `node_modules` is one of
+/// these, and a warn each would bury every other line in the compile log.
 fn dropped(rel_path: &str, reason: &str) {
-    debug!(rel_path, reason, "discovery dropped a file");
+    debug!(rel_path, reason, "discovery dropped a path");
 }
 
 /// Directories that should never be walked: build outputs, vendored
@@ -492,7 +545,7 @@ mod tests {
         }
         // …and the converse, so the loop above cannot pass by discovering
         // nothing: a dot-prefixed FILE is NOT a skipped path. `is_skipped`
-        // prunes directories; `push_glob` deliberately leaves file names to
+        // prunes directories; the walk deliberately leaves file names to
         // the `.test.` filter, which is what keeps both arms agreeing.
         assert!(
             !is_skipped(""),
@@ -668,8 +721,9 @@ mod tests {
     /// A dropped file must leave a trace. Discovery is the only thing between
     /// a file on disk and a row in Postgres, so a silent drop reads to the
     /// user as "my view disappeared" with nothing to grep for. DEBUG rather
-    /// than WARN because the common case is a `node_modules/` with thousands
-    /// of matches — a warn per file would be unreadable.
+    /// than WARN because every `.git` and `node_modules` is a drop. A skipped
+    /// directory is pruned, not walked, so its trace names the directory: the
+    /// files below it are never listed, which is the point of pruning.
     #[test]
     fn a_dropped_file_is_reported_at_debug_rather_than_vanishing() {
         let dir = TempDir::new().unwrap();
@@ -682,12 +736,80 @@ mod tests {
         assert!(found.is_empty(), "both files are dropped: {found:?}");
 
         assert!(
-            logs.contains("sub/build/stray.view.yml"),
-            "a file pruned by a skipped directory must be greppable; got:\n{logs}"
+            logs.contains("sub/build"),
+            "a skipped directory must be greppable by its path; got:\n{logs}"
         );
         assert!(
             logs.contains("semantics/orders.test.view.yml"),
             "a file pruned as a test fixture must be greppable; got:\n{logs}"
+        );
+    }
+
+    /// `.sql` is DDL only under the ROOT `schemas/`, the way the
+    /// `schemas/**/*.sql` glob anchored it; a `schemas/` deeper down is an
+    /// ordinary directory of verified queries. And a kind is claimed by its
+    /// name wherever it sits, root-level and dot-prefixed file names included.
+    #[test]
+    fn sql_is_ddl_only_under_the_root_schemas_directory() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+
+        write(root, "schemas/001_init.sql", "CREATE TABLE t (id int)");
+        write(root, "schemas/v2/002_more.sql", "ALTER TABLE t ADD c int");
+        write(root, "reports/schemas/top.sql", "SELECT 1");
+        write(root, "top.sql", "SELECT 1");
+        write(root, ".draft.simulation.yml", "name: draft");
+
+        let found = discover(root).unwrap();
+        let by_path: Vec<_> = found
+            .iter()
+            .map(|f| (f.rel_path.as_str(), f.kind))
+            .collect();
+
+        assert_eq!(
+            by_path,
+            vec![
+                (".draft.simulation.yml", FileKind::Simulation),
+                ("reports/schemas/top.sql", FileKind::VerifiedQuery),
+                ("schemas/001_init.sql", FileKind::SchemaMigration),
+                ("schemas/v2/002_more.sql", FileKind::SchemaMigration),
+                ("top.sql", FileKind::VerifiedQuery),
+            ]
+        );
+    }
+
+    /// The globs this walk replaced followed directory symlinks, so a
+    /// workspace that links a directory in still compiles it, under the
+    /// link's path. A link back to a directory already being walked is a
+    /// loop: the globs followed it until the path grew too long; the walk
+    /// stops at it, and still finds every real file once.
+    #[cfg(unix)]
+    #[test]
+    fn directory_symlinks_are_followed_but_a_loop_is_not() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        let shared = TempDir::new().unwrap();
+
+        write(shared.path(), "orders.view.yml", "name: orders");
+        write(root, "semantics/topics/sales.topic.yml", "name: sales");
+        std::os::unix::fs::symlink(shared.path(), root.join("semantics/views")).unwrap();
+        // A loop: `semantics/topics/up` -> `semantics`.
+        std::os::unix::fs::symlink(root.join("semantics"), root.join("semantics/topics/up"))
+            .unwrap();
+        // A dangling link named like a view is nothing.
+        std::os::unix::fs::symlink(root.join("gone"), root.join("ghost.view.yml")).unwrap();
+
+        let found = discover(root).unwrap();
+        let paths: Vec<_> = found.iter().map(|f| f.rel_path.as_str()).collect();
+
+        assert_eq!(
+            paths,
+            vec![
+                "semantics/topics/sales.topic.yml",
+                "semantics/views/orders.view.yml",
+            ],
+            "the linked view is found under the link's path, the loop is cut, and the \
+             dangling link is skipped"
         );
     }
 

@@ -29,6 +29,11 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
+#[path = "writer_manifest.rs"]
+mod manifest;
+pub use manifest::prune_unreferenced_sources;
+pub(crate) use manifest::served_semantic_verdict;
+
 pub struct RevisionContext {
     pub revision_id: Uuid,
     pub workspace_id: Uuid,
@@ -114,6 +119,12 @@ pub struct FinaliseInput<'a> {
     /// `revisions` — so the caller gets [`Promotion::Deferred`] and owns
     /// the apply-then-promote step.
     pub schema_migration_count: u32,
+    /// Every compiled file by content, written as the revision's manifest
+    /// ([`crate::manifest`]) in the same transaction as `rows`.
+    pub sources: &'a [crate::manifest::SourceEntry],
+    /// One per kind, plus `semantic` (carrying the semantic gate's verdict)
+    /// and `all`.
+    pub fingerprints: &'a [crate::manifest::Fingerprint],
 }
 
 /// Outcome of a finalise call. The common-case is `Committed { .. }`
@@ -180,6 +191,7 @@ pub async fn finalise_revision(
     }
 
     write_compiled_rows(&txn, ctx, input.rows, &blob_keys).await?;
+    manifest::write_manifest(&txn, ctx, input.sources, input.fingerprints).await?;
 
     let error_summary_json = if input.failures.is_empty() {
         None
@@ -1039,6 +1051,8 @@ mod promotion_tests {
             promote,
             kind: kind.to_string(),
             schema_migration_count: schemas,
+            sources: &[],
+            fingerprints: &[],
         }
     }
 

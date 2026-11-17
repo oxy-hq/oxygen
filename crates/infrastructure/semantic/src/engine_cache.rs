@@ -45,10 +45,16 @@
 //!
 //! ## Freshness
 //!
-//! TTL is a safety net. [`SemanticEngineCache::invalidate_workspace`] on every
-//! semantic-file write, branch switch, and pull is the primary mechanism — and
-//! it clears EVERY key for that workspace, because the writer knows the
-//! workspace changed but not which revision/dialect entries that invalidates.
+//! A `Revision` entry is current by construction: the revision's rows never
+//! change, so it never expires and leaves only by LRU. Two revisions whose
+//! semantic files are byte-identical share one entry ([`crate::content_alias`]),
+//! so a promote that did not touch `semantics/` finds the engine already built.
+//!
+//! For the working copy, TTL is a safety net.
+//! [`SemanticEngineCache::invalidate_workspace`] on every semantic-file write,
+//! branch switch, and pull is the primary mechanism — and it clears EVERY key
+//! for that workspace, because the writer knows the workspace changed but not
+//! which revision/dialect entries that invalidates.
 //!
 //! ## Bounded
 //!
@@ -165,6 +171,29 @@ pub fn dialect_fingerprint(databases: &[DatabaseConfig]) -> u64 {
     hasher.finish()
 }
 
+/// Whether an entry built from `source` expires by age.
+///
+/// Only the working copy does: its files change under the cache. A compiled
+/// revision's rows are written once, in the transaction that finalises it, and
+/// never updated (`oxy_compile::writer`), so an engine built from one is as
+/// current an hour later as when it was built. Expiring it anyway made every
+/// pod rebuild every served workspace's engine once a minute — re-validating
+/// the model and rebuilding the join graph on the request path — to re-derive
+/// the same engine. The LRU still bounds how many are kept.
+pub(crate) fn expires(source: LayerSource) -> bool {
+    matches!(source, LayerSource::WorkingCopy)
+}
+
+/// `key` with its revision replaced by the revision its content was first
+/// recorded under ([`crate::content_alias`]), so two revisions with identical
+/// semantic files share one engine.
+fn canonical_key(key: &EngineKey) -> EngineKey {
+    EngineKey {
+        source: crate::content_alias::canonical_source(key.workspace_id, key.source),
+        ..*key
+    }
+}
+
 struct Entry {
     built_at: Instant,
     engine: Arc<airlayer::SemanticEngine>,
@@ -177,7 +206,7 @@ pub struct SemanticEngineCache {
 }
 
 /// A safety net behind explicit invalidation, not the freshness mechanism —
-/// see the module docs.
+/// see the module docs. It applies to working-copy entries only ([`expires`]).
 ///
 /// Deliberately the same 60s as the semantic LAYER cache, and not longer. The
 /// world-model handlers plan from the layer and compile against the engine, so
@@ -214,11 +243,16 @@ impl SemanticEngineCache {
 
     /// A live entry, or `None` on miss or expiry. Marks the entry most-recently
     /// used, so the LRU evicts by actual traffic rather than insertion order.
+    ///
+    /// A compiled revision's entry never expires: see [`expires`]. A revision
+    /// recorded with the same content as an earlier one is looked up under that
+    /// one ([`crate::content_alias`]).
     pub fn lookup(&self, key: &EngineKey) -> Option<Arc<airlayer::SemanticEngine>> {
+        let key = canonical_key(key);
         let mut guard = self.inner.lock().expect("engine cache mutex poisoned");
-        let entry = guard.get(key)?;
-        if entry.built_at.elapsed() >= self.ttl {
-            guard.pop(key);
+        let entry = guard.get(&key)?;
+        if expires(key.source) && entry.built_at.elapsed() >= self.ttl {
+            guard.pop(&key);
             return None;
         }
         Some(entry.engine.clone())
@@ -243,6 +277,7 @@ impl SemanticEngineCache {
         if let Some(engine) = self.lookup(&key) {
             return Ok(engine);
         }
+        let key = canonical_key(&key);
         // Built outside the lock: a slow build must not block lookups for
         // other workspaces. Two concurrent misses both build and the last
         // writer wins, which is idempotent.
@@ -251,8 +286,8 @@ impl SemanticEngineCache {
         // No eager sweep of the workspace's other revisions. Across a promote
         // window, requests pinned to the old revision and the new one are both
         // in flight, so evicting one on the other's insert makes the two
-        // ping-pong expensive rebuilds. The TTL retires a dead revision within
-        // a minute and the LRU bounds the total either way, so keeping both is
+        // ping-pong expensive rebuilds. The LRU retires a dead revision once
+        // traffic moves on and bounds the total either way, so keeping both is
         // cheaper than choosing between them.
         guard.put(
             key,
@@ -306,6 +341,7 @@ impl SemanticEngineCache {
     /// layer compiles, not which layer it is, so every dialect map's engine for
     /// this source was built from the layer being replaced.
     pub fn invalidate_source(&self, workspace_id: Uuid, source: LayerSource) {
+        let source = crate::content_alias::canonical_source(workspace_id, source);
         let mut guard = self.inner.lock().expect("engine cache mutex poisoned");
         let doomed: Vec<EngineKey> = guard
             .iter()
@@ -680,5 +716,77 @@ mod tests {
         }
         cache.invalidate_workspace(ws);
         assert_eq!(cache.len(), 0);
+    }
+
+    // ── Compiled revisions ───────────────────────────────────────────────────
+
+    /// A revision's rows never change, so its engine never goes stale: it must
+    /// outlive the TTL that retires a working-copy engine.
+    #[test]
+    fn a_revision_entry_outlives_the_ttl_and_a_working_copy_entry_does_not() {
+        let cache = SemanticEngineCache::with_ttl(Duration::from_millis(30));
+        let ws = Uuid::new_v4();
+        let revision = EngineKey::revision(ws, Uuid::new_v4(), &[]);
+        let working = EngineKey::working_copy(ws, &[]);
+        let rev_a = cache.get_or_build(revision, build_empty).unwrap();
+        let wc_a = cache.get_or_build(working, build_empty).unwrap();
+        std::thread::sleep(Duration::from_millis(60));
+        let rev_b = cache
+            .get_or_build(revision, || {
+                panic!("a revision's engine must not be rebuilt")
+            })
+            .unwrap();
+        let wc_b = cache.get_or_build(working, build_empty).unwrap();
+        assert!(Arc::ptr_eq(&rev_a, &rev_b));
+        assert!(!Arc::ptr_eq(&wc_a, &wc_b), "the working copy still expires");
+    }
+
+    /// Two revisions the reader recorded with the same content share one
+    /// engine; a third with different content builds its own.
+    #[test]
+    fn revisions_with_identical_content_share_one_engine() {
+        let cache = SemanticEngineCache::new();
+        let ws = Uuid::new_v4();
+        let (r1, r2, r3) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        crate::content_alias::record_revision_content(ws, r1, [1; 32]);
+        crate::content_alias::record_revision_content(ws, r2, [1; 32]);
+        crate::content_alias::record_revision_content(ws, r3, [3; 32]);
+        let first = cache
+            .get_or_build(EngineKey::revision(ws, r1, &[]), build_empty)
+            .unwrap();
+        let shared = cache
+            .get_or_build(EngineKey::revision(ws, r2, &[]), || {
+                panic!("identical content must reuse the engine")
+            })
+            .unwrap();
+        assert!(Arc::ptr_eq(&first, &shared));
+        let other = cache
+            .get_or_build(EngineKey::revision(ws, r3, &[]), build_empty)
+            .unwrap();
+        assert!(!Arc::ptr_eq(&first, &other));
+        // The dialect map is still part of the key: same content, different
+        // dialects, different engine.
+        let duck = cache
+            .get_or_build(
+                EngineKey::revision(ws, r2, &[db("w", "duckdb")]),
+                build_empty,
+            )
+            .unwrap();
+        assert!(!Arc::ptr_eq(&first, &duck));
+    }
+
+    /// Invalidating an aliased revision reaches the entry it shares.
+    #[test]
+    fn invalidating_an_aliased_revision_drops_the_shared_entry() {
+        let cache = SemanticEngineCache::new();
+        let ws = Uuid::new_v4();
+        let (r1, r2) = (Uuid::new_v4(), Uuid::new_v4());
+        crate::content_alias::record_revision_content(ws, r1, [9; 32]);
+        crate::content_alias::record_revision_content(ws, r2, [9; 32]);
+        cache
+            .get_or_build(EngineKey::revision(ws, r1, &[]), build_empty)
+            .unwrap();
+        cache.invalidate_source(ws, LayerSource::Revision(r2));
+        assert!(cache.lookup(&EngineKey::revision(ws, r1, &[])).is_none());
     }
 }

@@ -43,7 +43,12 @@
 //!   - `walker.rs` is the only module that lists the filesystem, with one
 //!     exception it calls into: `context_documents.rs`, the markdown walk it
 //!     shares with the working-copy reader so the two cannot disagree.
-//!   - `writer.rs` is the only module that touches the database.
+//!   - `writer.rs` is the only module that touches the database (with its
+//!     `writer_manifest.rs` submodule for the content-addressed rows).
+//!   - `manifest.rs` builds a revision's manifest — every compiled file by
+//!     content hash, the pushed text of the semantic files, one fingerprint per
+//!     kind — and `semantic_gate.rs` decides what a semantic model that does not
+//!     build does to the compile (the ratchet). Both are pure.
 //!   - `compile.rs` orchestrates and holds the parsing logic; no I/O
 //!     of either kind except via the other two modules.
 //!
@@ -60,9 +65,11 @@ pub mod compile;
 pub mod context_documents;
 pub mod duckdb_mirror;
 pub mod errors;
+pub mod manifest;
 pub mod outcome;
 pub mod preagg_blob;
 pub mod preagg_ledger;
+pub mod semantic_gate;
 pub mod walker;
 pub mod workspace_path;
 pub mod writer;
@@ -79,13 +86,16 @@ pub use compile::{
 pub use entity::workspace_compiled_configs::{CompiledConfig, merge_compiled_config};
 pub use errors::CompileError;
 pub use outcome::{CompileOutcome, FailureKind, FileFailure, Promotion, RevisionStatus};
+pub use semantic_gate::{SemanticModelError, SemanticSource};
 // Apply-then-promote lives in `oxy-app`: this crate withholds promotion for a
 // revision carrying `schemas/*.sql` (see [`Promotion::Deferred`]) but cannot
 // apply the DDL itself — that is a network call to a tenant database, and
 // `oxy-compile` deliberately does not depend on `oxy-oltp`. This is the door
 // the applier comes back through.
 pub use workspace_path::resolve_workspace_path;
-pub use writer::{SUPERSEDED_BY_NEWER_COMPILER, compiler_is_older, promote_existing};
+pub use writer::{
+    SUPERSEDED_BY_NEWER_COMPILER, compiler_is_older, promote_existing, prune_unreferenced_sources,
+};
 
 /// Identifier the compile worker stamps on every `revisions` row so
 /// operator dashboards can spot version-skew across a rolling deploy.
