@@ -1,7 +1,7 @@
 // Everything the review writes to GitHub. `gh` is the github.ts module, passed in so
 // tests can hand over a fake.
 
-import { commentableLines } from "./diff.ts";
+import { commentableLines, hunkText } from "./diff.ts";
 import { severityRank } from "./findings.ts";
 import { renderInline } from "./render.ts";
 import type { DiffFile, Finding, GitHub, IssueComment } from "./types.ts";
@@ -16,6 +16,22 @@ const keep: Clean = (t) => t;
 export interface InlinePick {
   finding: Finding;
   line: number;
+  /** First line of a multi-line comment: the span a suggestion replaces. */
+  startLine?: number;
+  /** Post the finding's suggestion: it replaces exactly `startLine`..`line`. */
+  suggest: boolean;
+}
+
+/**
+ * Where a finding's suggestion can be posted: its lines, all in one hunk, and not already
+ * reading what it suggests. Null sends the finding out with its fix in words only.
+ */
+function suggestionSpan(f: Finding, file: DiffFile | undefined): [number, number] | null {
+  if (f.suggestion === undefined || !file) return null;
+  const end = f.end_line ?? f.line;
+  const current = hunkText(file, f.line, end);
+  if (current === null || current.replace(/\s+$/, "") === f.suggestion) return null;
+  return [f.line, end];
 }
 
 /** New findings worth an inline comment, anchored to a line GitHub will accept. */
@@ -24,6 +40,7 @@ export function pickInline(
   diffFiles: readonly DiffFile[],
   max: number
 ): InlinePick[] {
+  const files = new Map(diffFiles.map((f) => [f.path, f]));
   const lines = new Map(diffFiles.map((f) => [f.path, commentableLines(f)]));
   const picked: InlinePick[] = [];
   const sorted = [...findings].sort((a, b) => severityRank(b.severity) - severityRank(a.severity));
@@ -32,9 +49,19 @@ export function pickInline(
     if (f.inline || severityRank(f.severity) < severityRank("should_fix")) continue;
     const ok = lines.get(f.file);
     if (!ok) continue;
-    const span = [f.line, ...(f.end_line ? [f.end_line] : [])];
-    const anchor = span.find((n) => ok.has(n));
-    if (anchor) picked.push({ finding: f, line: anchor });
+    const span = suggestionSpan(f, files.get(f.file));
+    if (span) {
+      const [start, end] = span;
+      picked.push({
+        finding: f,
+        line: end,
+        suggest: true,
+        ...(start < end ? { startLine: start } : {})
+      });
+      continue;
+    }
+    const anchor = [f.line, ...(f.end_line ? [f.end_line] : [])].find((n) => ok.has(n));
+    if (anchor) picked.push({ finding: f, line: anchor, suggest: false });
   }
   return picked;
 }
@@ -65,9 +92,10 @@ export async function postInline({
     body: `Automated review of \`${head.slice(0, 9)}\`: ${ids} inline.${summaryUrl ? ` [Summary and verdict](${summaryUrl}).` : ""}`,
     comments: picks.map((p) => ({
       path: p.finding.file,
+      ...(p.startLine === undefined ? {} : { start_line: p.startLine, start_side: "RIGHT" }),
       line: p.line,
       side: "RIGHT",
-      body: clean(renderInline(p.finding))
+      body: clean(renderInline(p.finding, { suggest: p.suggest }))
     }))
   });
   const posted = await gh.listReviewComments(repo, pr);

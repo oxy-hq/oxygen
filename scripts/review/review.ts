@@ -152,9 +152,12 @@ async function publish(args: Args, load: Loaded, outcome: RoundOutcome): Promise
       warn(view, `inline comments were not posted: ${messageOf(e)}`);
       return new Map<string, number>();
     });
+    const suggested = new Set(picks.filter((p) => p.suggest).map((p) => p.finding.id));
     for (const f of state.findings) {
       const id = inline.get(f.id);
-      if (id !== undefined) f.inline = id;
+      if (id === undefined) continue;
+      f.inline = id;
+      if (suggested.has(f.id)) f.suggested = true;
     }
     await resolveClosed({
       gh,

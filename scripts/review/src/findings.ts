@@ -1,6 +1,7 @@
 // Turning raw model output into findings worth posting: normalise, merge, filter, judge.
 
 import type * as Config from "../config.ts";
+import { clip } from "./text.ts";
 import type { Candidate, Category, Finding, RawFinding, Severity, Verdict } from "./types.ts";
 import { CATEGORIES, SEVERITIES } from "./types.ts";
 
@@ -72,6 +73,23 @@ const cleanPath = (p: unknown): string =>
     .replace(/^(\.\/|[ab]\/)/, "")
     .replace(/:\d+(-\d+)?$/, "");
 
+// A suggestion replaces whole lines in one click, so it is posted as given or not at all.
+const MAX_SUGGESTION_LINES = 40;
+
+/** The replacement text, or nothing when it cannot be posted as a suggestion as given. */
+function suggestionOf(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  let s = v.replace(/\r\n/g, "\n");
+  // A model that wrapped it in a fence anyway: keep what is inside.
+  const fenced = s.match(/^\s*```[^\n]*\n([\s\S]*?)\n?```\s*$/);
+  if (fenced) s = fenced[1] ?? "";
+  // Leading blank lines and trailing whitespace go; the first line's indentation stays.
+  s = s.replace(/^\n+/, "").replace(/\s+$/, "");
+  if (!s.trim() || s.includes("```") || s.split("\n").length > MAX_SUGGESTION_LINES)
+    return undefined;
+  return s;
+}
+
 const isSeverity = (v: unknown): v is Severity => (SEVERITIES as readonly unknown[]).includes(v);
 const isCategory = (v: unknown): v is Category => (CATEGORIES as readonly unknown[]).includes(v);
 
@@ -80,18 +98,20 @@ export function normalizeFinding(raw: RawFinding, source: string): Candidate {
   const line = Math.max(1, Math.trunc(Number(raw.line) || 1));
   const end = Math.trunc(Number(raw.end_line) || 0);
   const rule = text(raw.rule).trim();
+  const suggestion = suggestionOf(raw.suggestion);
   return {
-    title: text(raw.title).trim().slice(0, 200),
+    title: clip(text(raw.title), 200),
     file: cleanPath(raw.file),
     line,
     end_line: end > line ? end : null,
     category: isCategory(raw.category) ? raw.category : "correctness",
     severity: isSeverity(raw.severity) ? raw.severity : "nit",
     confidence: Math.min(1, Math.max(0, Number(raw.confidence) || 0)),
-    reasoning: text(raw.reasoning).trim().slice(0, 2500),
-    fix: text(raw.fix).trim().slice(0, 1500),
+    reasoning: clip(text(raw.reasoning), 2500),
+    fix: clip(text(raw.fix), 1500),
     rule: rule ? rule.slice(0, 120) : null,
-    sources: [source]
+    sources: [source],
+    ...(suggestion === undefined ? {} : { suggestion })
   };
 }
 
@@ -115,7 +135,11 @@ export function dedupFindings(findings: readonly Candidate[]): Candidate[] {
       severityRank(f.severity) > severityRank(twin.severity) ? f.severity : twin.severity;
     const confidence = Math.max(twin.confidence, f.confidence);
     const sources = [...new Set([...twin.sources, ...f.sources])];
-    if (f.confidence > twin.confidence) Object.assign(twin, f);
+    if (f.confidence > twin.confidence) {
+      Object.assign(twin, f);
+      // A suggestion is text for its own pass's lines: never pair it with another's.
+      if (f.suggestion === undefined) delete twin.suggestion;
+    }
     Object.assign(twin, { severity, confidence, sources });
   }
   return out;

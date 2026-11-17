@@ -99,6 +99,9 @@ export function collectCandidates(results: readonly PassResult[]): {
   return { candidates, notReviewed };
 }
 
+/** The candidate without its suggestion: one nobody vouched for is never posted. */
+const unsuggested = ({ suggestion: _suggestion, ...c }: Candidate): Candidate => c;
+
 export interface Verified {
   confirmed: Candidate[];
   possible: Candidate[];
@@ -117,7 +120,7 @@ export function applyVerification(
   if (!verdicts) {
     for (const c of candidates) {
       (c.confidence >= 0.8 ? out.confirmed : out.possible).push({
-        ...c,
+        ...unsuggested(c),
         unverified: true,
         why: "not verified: the verifier did not run"
       });
@@ -140,12 +143,14 @@ export function applyVerification(
     const v = c.cid === undefined ? undefined : byId.get(c.cid);
     const verdict = v?.verdict ?? "uncertain";
     const severity = v?.severity ?? c.severity;
-    if (verdict === "confirmed")
-      out.confirmed.push({ ...c, severity, sources: sources.get(c.cid) ?? c.sources });
-    else if (verdict === "rejected") out.rejected.push({ ...c, why: v?.reason ?? "" });
+    const bare = unsuggested(c);
+    if (verdict === "confirmed") {
+      const kept = v?.suggestion_ok === true ? c : bare;
+      out.confirmed.push({ ...kept, severity, sources: sources.get(c.cid) ?? c.sources });
+    } else if (verdict === "rejected") out.rejected.push({ ...bare, why: v?.reason ?? "" });
     else if (severityRank(severity) >= severityRank("should_fix"))
-      out.possible.push({ ...c, severity, why: v?.reason ?? "no verdict" });
-    else out.rejected.push({ ...c, why: `uncertain nit: ${v?.reason ?? ""}` });
+      out.possible.push({ ...bare, severity, why: v?.reason ?? "no verdict" });
+    else out.rejected.push({ ...bare, why: `uncertain nit: ${v?.reason ?? ""}` });
   }
   return out;
 }

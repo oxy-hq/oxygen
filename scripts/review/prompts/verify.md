@@ -19,6 +19,11 @@ For each candidate:
    the consequence. A request-path performance problem is never a nit.
 5. When two candidates are the same root cause, confirm the clearer one and set
    `duplicate_of` on the other to its id.
+6. A candidate may carry a `suggestion`: the exact new text for its lines `line` to
+   `end_line`, which the author can commit in one click. Set `suggestion_ok` to true
+   only when replacing exactly those lines in the head with it fixes the problem, keeps
+   the code compiling and changes nothing else. Otherwise set it false: the finding is
+   still posted, with its fix in words.
 
 Reject only with a reason from the code. "Seems unlikely" is `uncertain`, not
 `rejected`. Return exactly one result per candidate id.

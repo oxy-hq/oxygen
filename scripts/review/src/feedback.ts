@@ -1,51 +1,21 @@
-// What was said about findings: replies naming an id, thread replies, and reactions on
-// inline comments. Bots are first-class here: an agent's or another bot's reply, rating
-// or dispute counts exactly like a person's. Only the reviewer's own comments are left
-// out, so it never grades itself.
+// What people said about findings: replies in a finding's inline thread, and PR comments
+// that name its id. Bots are first-class here: an agent's or another bot's reply or
+// dispute counts exactly like a person's. Only the reviewer's own comments are left out,
+// so it never grades itself.
+//
+// Nobody is asked to rate a finding. What it led to is the measure: fixed or obsolete
+// before merge (addressed), withdrawn when a reply showed it was wrong, or still open at
+// merge. A reply is the one thing a person writes, and it does work: the recheck pass
+// reads it and withdraws the finding when the reason holds.
 
 import type { Finding, GhUser, IssueComment, ReviewComment } from "./types.ts";
 
-const NEGATIVE =
-  /\b(not useful|useless|false positive|wrong|noise|noisy|incorrect|disagree|irrelevant)\b/i;
-const POSITIVE = /\b(useful|good catch|nice catch|valid|agreed|fixed it|thanks)\b/i;
 const MENTION = /\bF(\d{1,3})\b/g;
 const OWN_MARKER = "<!-- oxy-review:";
 
 type Said = Pick<IssueComment, "user" | "body">;
 
-export interface Feedback {
-  id: string;
-  kind: "useful" | "not_useful";
-  note: string;
-}
-
-export interface Tally {
-  useful: number;
-  not_useful: number;
-  notes: string[];
-  replies: number;
-}
-
 const idsIn = (text: string): string[] => [...text.matchAll(MENTION)].map((m) => `F${m[1] ?? ""}`);
-
-/** `F3 not useful: covered by the caller` → [{ id: "F3", kind: "not_useful", note }]. */
-export function parseFeedback(text: string | null | undefined): Feedback[] {
-  const out: Feedback[] = [];
-  for (const line of (text ?? "").split("\n")) {
-    if (line.trim().startsWith(">")) continue; // quoted text is someone else's words
-    const ids = idsIn(line);
-    if (!ids.length) continue;
-    const kind = NEGATIVE.test(line) ? "not_useful" : POSITIVE.test(line) ? "useful" : null;
-    if (!kind) continue;
-    const note = line
-      .replace(MENTION, "")
-      .replace(/^[\s:,.-]+/, "")
-      .trim()
-      .slice(0, 300);
-    for (const id of new Set(ids)) out.push({ id, kind, note });
-  }
-  return out;
-}
 
 export function isBot(user: GhUser | null, botLogins: readonly string[]): boolean {
   if (!user) return true;
@@ -64,48 +34,8 @@ export const speaker = (c: Said): string =>
   `${c.user?.login ?? "unknown"}${c.user?.type === "Bot" ? " (bot)" : ""}`;
 
 /**
- * Per-finding feedback from PR conversation comments, inline-thread replies and
- * reactions on the inline comment that carries each finding.
- */
-export function collectFeedback({
-  issueComments,
-  reviewComments,
-  findings,
-  reviewerLogins
-}: {
-  issueComments: readonly IssueComment[];
-  reviewComments: readonly ReviewComment[];
-  findings: readonly Pick<Finding, "id" | "inline">[];
-  reviewerLogins: readonly string[];
-}): Map<string, Tally> {
-  const tally = new Map<string, Tally>(
-    findings.map((f) => [f.id, { useful: 0, not_useful: 0, notes: [], replies: 0 }])
-  );
-  const others = (c: Said) => !isOwn(c, reviewerLogins);
-  for (const c of [...issueComments, ...reviewComments].filter(others)) {
-    for (const fb of parseFeedback(c.body)) {
-      const t = tally.get(fb.id);
-      if (!t) continue;
-      t[fb.kind]++;
-      if (fb.note) t.notes.push(fb.note);
-    }
-  }
-  const byInline = new Map(findings.filter((f) => f.inline).map((f) => [f.inline, f.id]));
-  for (const c of reviewComments) {
-    const own = tally.get(byInline.get(c.id) ?? "");
-    if (own) {
-      own.useful += c.reactions?.["+1"] ?? 0;
-      own.not_useful += c.reactions?.["-1"] ?? 0;
-    }
-    const parent = tally.get(byInline.get(c.in_reply_to_id ?? null) ?? "");
-    if (parent && others(c)) parent.replies++;
-  }
-  return tally;
-}
-
-/**
- * What anyone but the reviewer said about each finding, for the recheck pass to weigh:
- * replies in its inline thread, and PR comments that name its id.
+ * What anyone but the reviewer said about each finding, for the recheck pass to weigh
+ * and the metrics to count: replies in its inline thread, and PR comments that name its id.
  */
 export function threadReplies({
   reviewComments,

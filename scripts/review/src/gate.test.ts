@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { HIGH_RISK, OVERRIDE_LABEL, RELEASE_AUTOMATION, REVIEWER_LOGINS } from "../config.ts";
 import { ownersFor, parseCodeowners } from "./codeowners.ts";
-import { collectFeedback, discussion, parseFeedback, threadReplies } from "./feedback.ts";
+import { discussion, threadReplies } from "./feedback.ts";
 import { finding, must, prMeta, reviewState } from "./fixtures.ts";
 import type { GateInput } from "./gate.ts";
 import { evaluateGate, evaluateRisk, riskReport, touchedAreas } from "./gate.ts";
@@ -219,19 +219,7 @@ test("the gate's report says, per area, why, which files and who approved or can
   assert.match(riskReport(billing.areas), /and 4 more$/m);
 });
 
-test("feedback parsing", () => {
-  assert.deepEqual(parseFeedback("F3 not useful: the caller checks it"), [
-    { id: "F3", kind: "not_useful", note: "not useful: the caller checks it" }
-  ]);
-  assert.deepEqual(
-    parseFeedback("F1, F2 good catch").map((f) => f.id),
-    ["F1", "F2"]
-  );
-  assert.deepEqual(parseFeedback("> F3 not useful\nthanks"), [], "quoted lines are someone else's");
-  assert.deepEqual(parseFeedback("see F4"), [], "a mention alone is not a rating");
-});
-
-test("bots are first-class: their ratings, replies and disputes count; only the reviewer's own comments do not", () => {
+test("bots are first-class: their replies and disputes count; only the reviewer's own comments do not", () => {
   const findings = [
     { id: "F1", inline: 100 },
     { id: "F2", inline: null }
@@ -240,18 +228,13 @@ test("bots are first-class: their ratings, replies and disputes count; only the 
   const agent = { login: "claude[bot]", type: "Bot" };
   const reviewer = { login: "github-actions[bot]", type: "Bot" };
   const issueComments: IssueComment[] = [
-    { user: human, body: "F2 not useful" },
-    { user: agent, body: "F1 not useful: the caller already checks it" },
-    { user: reviewer, body: "<!-- oxy-review:summary -->\nF1 not useful (quoted in the summary)" },
-    { user: reviewer, body: "Agentic healing: F1 not useful, recorded by another workflow" }
+    { user: human, body: "F2: the caller checks it" },
+    { user: agent, body: "F1 is wrong: the caller already checks it" },
+    { user: reviewer, body: "<!-- oxy-review:summary -->\nF1 (quoted in the summary)" },
+    { user: reviewer, body: "Agentic healing: F1, recorded by another workflow" }
   ];
   const reviewComments: ReviewComment[] = [
-    {
-      id: 100,
-      user: reviewer,
-      body: "F1\n<!-- oxy-review:finding F1 -->",
-      reactions: { "+1": 2, "-1": 1 }
-    },
+    { id: 100, user: reviewer, body: "F1\n<!-- oxy-review:finding F1 -->" },
     { id: 101, in_reply_to_id: 100, user: human, body: "this is wrong, it is guarded" },
     { id: 102, in_reply_to_id: 100, user: agent, body: "Intentional: see the guard in auth.rs" },
     {
@@ -261,18 +244,6 @@ test("bots are first-class: their ratings, replies and disputes count; only the 
       body: "**F1 fixed** in `abc`\n<!-- oxy-review:reply F1 -->"
     }
   ];
-  const tally = collectFeedback({
-    issueComments,
-    reviewComments,
-    findings,
-    reviewerLogins: REVIEWER_LOGINS
-  });
-  // 1 reaction + the agent's comment + the other workflow's comment; the summary is the reviewer's own.
-  const f1 = must(tally.get("F1"));
-  assert.deepEqual(f1.not_useful, 3);
-  assert.equal(f1.useful, 2);
-  assert.equal(f1.replies, 2, "a person's and an agent's reply; not the reviewer's");
-  assert.equal(tally.get("F2")?.not_useful, 1);
   const replies = threadReplies({
     reviewComments,
     issueComments,
@@ -285,10 +256,16 @@ test("bots are first-class: their ratings, replies and disputes count; only the 
     "claude[bot] (bot): Intentional: see the guard in auth.rs"
   ]);
   assert.ok(
-    r1.some((r) => r.startsWith("claude[bot] (bot): F1 not useful")),
+    r1.some((r) => r.startsWith("claude[bot] (bot): F1 is wrong")),
     "a PR comment naming the id counts"
   );
+  assert.ok(
+    r1.some((r) => r.startsWith("github-actions[bot] (bot): Agentic healing")),
+    "another workflow on the same identity is not the reviewer: no marker"
+  );
   assert.ok(!r1.some((r) => r.includes("oxy-review")), "never the reviewer's own words");
+  assert.equal(r1.length, 4);
+  assert.deepEqual(must(replies.get("F2")), ["dev: F2: the caller checks it"]);
   const convo = discussion(issueComments, REVIEWER_LOGINS);
   assert.equal(convo.length, 3);
   assert.ok(convo[1]?.startsWith("claude[bot] (bot):"));

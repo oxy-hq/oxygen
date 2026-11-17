@@ -14,17 +14,11 @@ const PR_FIELDS = `
   comments(first: 100) { nodes { body createdAt author { login __typename } } }
   reviews(first: 50) { nodes { state author { login __typename } } }
   reviewThreads(first: 50) { nodes { comments(first: 20) { nodes {
-    databaseId body author { login __typename } replyTo { databaseId }
-    reactionGroups { content reactors { totalCount } } } } } }`;
+    databaseId body author { login __typename } replyTo { databaseId } } } } }`;
 
 interface Author {
   login: string;
   __typename: string;
-}
-
-interface ReactionGroup {
-  content: string;
-  reactors: { totalCount: number } | null;
 }
 
 /** One pull request as the GraphQL query above returns it. */
@@ -51,7 +45,6 @@ export interface PrNode {
           body: string;
           author: Author | null;
           replyTo: { databaseId: number } | null;
-          reactionGroups: ReactionGroup[] | null;
         }[];
       };
     }[];
@@ -78,8 +71,6 @@ async function graphql<T>(query: string, variables: Record<string, unknown>): Pr
 
 const user = (a: Author | null): GhUser | null =>
   a ? { login: a.login, type: a.__typename === "Bot" ? "Bot" : "User" } : null;
-const reaction = (groups: ReactionGroup[] | null, content: string): number =>
-  groups?.find((g) => g.content === content)?.reactors?.totalCount ?? 0;
 
 /** One GraphQL PR node in the REST shapes the metrics code reads. */
 export function fromGraphql(node: PrNode): Fetched {
@@ -89,11 +80,7 @@ export function fromGraphql(node: PrNode): Fetched {
         id: c.databaseId,
         in_reply_to_id: c.replyTo?.databaseId ?? null,
         body: c.body,
-        user: user(c.author),
-        reactions: {
-          "+1": reaction(c.reactionGroups, "THUMBS_UP"),
-          "-1": reaction(c.reactionGroups, "THUMBS_DOWN")
-        }
+        user: user(c.author)
       })
     )
   );

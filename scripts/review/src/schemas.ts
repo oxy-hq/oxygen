@@ -38,7 +38,10 @@ export const FINDINGS_SCHEMA = {
           severity: { type: "string", enum: SEVERITIES },
           confidence: { type: "number", minimum: 0, maximum: 1 },
           fix: str("The concrete change."),
-          rule: str("Repo guidance this breaks (CLAUDE.md section, skill, R-* id), or empty.")
+          rule: str("Repo guidance this breaks (CLAUDE.md section, skill, R-* id), or empty."),
+          suggestion: str(
+            "Only when the whole fix is new text for head lines `line` to `end_line` (or `line` alone) of `file`: that exact text, indentation included, no code fence. Omit it otherwise."
+          )
         }
       }
     },
@@ -94,7 +97,12 @@ export const VERIFY_SCHEMA = {
           reason: str("What in the code settles it."),
           verdict: { type: "string", enum: ["confirmed", "rejected", "uncertain"] },
           severity: { type: "string", enum: SEVERITIES },
-          duplicate_of: { type: "string" }
+          duplicate_of: { type: "string" },
+          suggestion_ok: {
+            type: "boolean",
+            description:
+              "Only for a candidate with a `suggestion`: true when replacing exactly its lines with it fixes the problem and nothing else."
+          }
         }
       }
     }

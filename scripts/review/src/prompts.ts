@@ -191,10 +191,12 @@ export function verifyPrompt({
     title: c.title,
     file: c.file,
     line: c.line,
+    end_line: c.end_line,
     severity: c.severity,
     category: c.category,
     reasoning: c.reasoning,
-    fix: c.fix
+    fix: c.fix,
+    ...(c.suggestion === undefined ? {} : { suggestion: c.suggestion })
   }));
   return fill(template("verify.md"), {
     mergeBase,

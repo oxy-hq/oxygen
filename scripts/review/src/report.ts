@@ -13,17 +13,24 @@ function bucketTable(title: string, buckets: Record<string, Bucket>): string {
     .sort((a, b) => b[1].n - a[1].n)
     .map(
       ([k, b]) =>
-        `| ${k} | ${b.n} | ${pct(Math.round((100 * b.addressed) / b.n))} | ${b.withdrawn} | ${b.open} | ${b.notUseful} / ${b.useful} |`
+        `| ${k} | ${b.n} | ${pct(Math.round((100 * b.addressed) / b.n))} | ${b.withdrawn} | ${b.open} | ${b.replied} |`
     );
   if (!rows.length) return "";
   return [
     `#### ${title}`,
     "",
-    "| | findings | addressed | withdrawn | open at merge | 👎 / 👍 |",
+    "| | findings | addressed | withdrawn | open at merge | replied to |",
     "|---|---|---|---|---|---|",
     ...rows,
     ""
   ].join("\n");
+}
+
+/** Whether a one-click suggestion gets acted on more than a fix in words. */
+function suggestionLine({ with: w, without: wo }: Aggregate["suggestions"]): string {
+  if (!w.n) return "One-click suggestions: none posted.";
+  const rate = (b: Bucket) => pct(b.n ? Math.round((100 * b.addressed) / b.n) : null);
+  return `One-click suggestions: ${w.n} posted, ${rate(w)} addressed; should-fix and blocking findings without one: ${rate(wo)} of ${wo.n}.`;
 }
 
 function escapesSection(escapes: readonly Escape[]): string {
@@ -68,7 +75,7 @@ export function headline({
   const legacy = new Set(escapes.filter((e) => !e.broad && e.legacy).map((e) => e.fix)).size;
   return [
     `${agg.prs} PRs merged. ${c.reviewedHead} had a finished review of the merged commit; ${c.mergedUnreviewed.length} did not.`,
-    `${f.n} findings from the review pipeline: ${pct(f.addressedPct)} addressed before merge, ${pct(f.withdrawnPct)} withdrawn as wrong, ${f.notUseful} rated not useful.`,
+    `${f.n} findings from the review pipeline: ${pct(f.addressedPct)} addressed before merge, ${pct(f.withdrawnPct)} withdrawn as wrong, ${pct(f.openPct)} still open at merge.`,
     `Cost $${agg.cost.total.toFixed(2)} (about $${agg.cost.perPr.toFixed(2)} per PR). Review time p50 ${secs(agg.cost.p50ms)}, p90 ${secs(agg.cost.p90ms)}.`,
     `Possible escaped bugs: ${escapedCount(escapes)} fix PR(s) changed lines whose original PR the pipeline reviewed without flagging them; ${legacy} more trace to PRs the previous reviewer saw.`
   ];
@@ -109,6 +116,7 @@ export function renderReport({
     bucketTable("By category", agg.byCategory),
     bucketTable("By severity", agg.bySeverity),
     bucketTable("By pass", agg.byLens),
+    suggestionLine(agg.suggestions),
     `Verifier: rejected ${agg.verifier.rejected} of ${agg.verifier.candidates} candidates before posting.`,
     "",
     "### Escaped bugs",

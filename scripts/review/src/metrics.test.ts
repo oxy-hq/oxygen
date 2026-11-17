@@ -73,13 +73,13 @@ const pr = (o: Partial<PrMeta> = {}): PrMeta =>
     ...o
   });
 
-test("a v2 PR record carries findings, feedback, cost and coverage", () => {
+test("a v2 PR record carries findings, replies, cost and coverage", () => {
   const comments = [
     {
       user: { login: "github-actions[bot]", type: "Bot" },
       body: `${config.SUMMARY_MARKER}\n${encodeState(v2State())}`
     },
-    { user: human, body: "F2 not useful" }
+    { user: human, body: "F2 is wrong: the caller checks it" }
   ];
   const r = prRecord({
     pr: pr(),
@@ -96,7 +96,8 @@ test("a v2 PR record carries findings, feedback, cost and coverage", () => {
   assert.equal(r.rounds, 2);
   assert.equal(r.approved, true);
   assert.deepEqual(r.highRisk, ["authz"]);
-  assert.equal(r.findings.find((f) => f.id === "F2")?.not_useful, 1);
+  assert.equal(r.findings.find((f) => f.id === "F2")?.replies, 1);
+  assert.equal(r.findings.find((f) => f.id === "F1")?.replies, 0);
 });
 
 test("legacy and unreviewed PRs are recognised", () => {
@@ -131,7 +132,7 @@ test("legacy and unreviewed PRs are recognised", () => {
   assert.deepEqual([none.review, none.override], ["none", true]);
 });
 
-test("aggregate: addressed means fixed or obsolete; rules on two PRs recur", () => {
+test("aggregate: outcomes, not ratings; addressed means fixed or obsolete; rules on two PRs recur", () => {
   const comments = [
     {
       user: { login: "github-actions[bot]", type: "Bot" },
@@ -140,7 +141,7 @@ test("aggregate: addressed means fixed or obsolete; rules on two PRs recur", () 
   ];
   const a = prRecord({
     pr: pr(),
-    comments,
+    comments: [...comments, { user: human, body: "F3: deliberate, see the design doc" }],
     reviewComments: [],
     reviews: [],
     files: [],
@@ -160,6 +161,9 @@ test("aggregate: addressed means fixed or obsolete; rules on two PRs recur", () 
   assert.equal(agg.findings.n, 6);
   assert.equal(agg.findings.addressedPct, 33);
   assert.equal(agg.findings.withdrawnPct, 33);
+  assert.equal(agg.findings.openPct, 33);
+  assert.equal(agg.findings.replied, 1, "one finding was answered, on one PR");
+  assert.equal(agg.bySeverity.blocking?.replied, 1);
   assert.deepEqual(agg.coverage.mergedUnreviewed, [9]);
   assert.deepEqual(agg.recurring, [{ rule: "R-S1", prs: [1, 9] }]);
   assert.equal(agg.byLens.authz?.n, 4);
@@ -185,6 +189,9 @@ test("aggregate: addressed means fixed or obsolete; rules on two PRs recur", () 
       report.includes("flagged as F3") &&
       report.includes("R-S1")
   );
+  assert.match(report, /33% still open at merge\./);
+  assert.match(report, /\| open at merge \| replied to \|/);
+  assert.doesNotMatch(report, /👍|👎|rated/, "nobody is asked to rate a finding");
 });
 
 test("fix titles", () => {
@@ -240,7 +247,9 @@ test("wasFlagged matches nearby v2 findings and legacy mentions", () => {
         category: "correctness",
         lens: "general",
         rule: null,
-        status: "withdrawn"
+        status: "withdrawn",
+        replies: 0,
+        suggested: false
       }
     ]
   };
@@ -316,7 +325,7 @@ test("GraphQL PR nodes become the REST shapes the record reads", async () => {
     labels: { nodes: [{ name: config.OVERRIDE_LABEL }] },
     commits: { nodes: [{ commit: { committedDate: "2026-10-09T00:00:00Z" } }] },
     comments: {
-      nodes: [{ body: "F1 useful", createdAt: "t", author: { login: "dev", __typename: "User" } }]
+      nodes: [{ body: "F1 noted", createdAt: "t", author: { login: "dev", __typename: "User" } }]
     },
     reviews: { nodes: [{ state: "APPROVED", author: { login: "ana", __typename: "User" } }] },
     reviewThreads: {
@@ -328,15 +337,13 @@ test("GraphQL PR nodes become the REST shapes the record reads", async () => {
                 databaseId: 9,
                 body: "b",
                 author: { login: "github-actions", __typename: "Bot" },
-                replyTo: null,
-                reactionGroups: [{ content: "THUMBS_DOWN", reactors: { totalCount: 2 } }]
+                replyTo: null
               },
               {
                 databaseId: 10,
                 body: "no",
                 author: { login: "dev", __typename: "User" },
-                replyTo: { databaseId: 9 },
-                reactionGroups: []
+                replyTo: { databaseId: 9 }
               }
             ]
           }
@@ -348,7 +355,6 @@ test("GraphQL PR nodes become the REST shapes the record reads", async () => {
   assert.deepEqual(f.pr.base, { ref: "main", repo: { default_branch: "main" } });
   assert.equal(f.pr.merge_commit_sha, "m5");
   const [top, reply] = f.reviewComments;
-  assert.deepEqual(top?.reactions, { "+1": 0, "-1": 2 });
   assert.equal(top?.user?.type, "Bot");
   assert.equal(reply?.in_reply_to_id, 9);
   assert.equal(f.lastCommitAt, "2026-10-09T00:00:00Z");
@@ -378,4 +384,42 @@ test("attribution keeps the PRs that wrote most of what a fix changed, and skips
   );
   assert.deepEqual(attribute([intro(1, "a.rs", 400)]), { broad: true, culprits: [] });
   assert.deepEqual(attribute([]), { broad: false, culprits: [] });
+});
+
+test("the report compares findings posted with a one-click suggestion against the rest", () => {
+  const state = v2State({
+    findings: [
+      finding({ id: "F1", severity: "should_fix", status: "fixed", suggested: true }),
+      finding({ id: "F2", severity: "should_fix", status: "open", suggested: true }),
+      finding({ id: "F3", severity: "blocking", status: "fixed" }),
+      finding({ id: "F4", severity: "nit", status: "open" })
+    ]
+  });
+  const rec = prRecord({
+    pr: pr(),
+    comments: [
+      {
+        user: { login: "github-actions[bot]", type: "Bot" },
+        body: `${config.SUMMARY_MARKER}\n${encodeState(state)}`
+      }
+    ],
+    reviewComments: [],
+    reviews: [],
+    files: [],
+    lastCommitAt: null,
+    config
+  });
+  const agg = aggregate([rec]);
+  assert.deepEqual(
+    [agg.suggestions.with.n, agg.suggestions.with.addressed, agg.suggestions.without.n],
+    [2, 1, 1],
+    "nits are never posted inline, so they are not the comparison"
+  );
+  const report = renderReport({ agg, escapes: [], window: { from: "a", to: "b" } });
+  assert.match(
+    report,
+    /One-click suggestions: 2 posted, 50% addressed; should-fix and blocking findings without one: 100% of 1\./
+  );
+  const none = renderReport({ agg: aggregate([]), escapes: [], window: { from: "a", to: "b" } });
+  assert.match(none, /One-click suggestions: none posted\./);
 });

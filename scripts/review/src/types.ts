@@ -112,6 +112,7 @@ export interface RawFinding {
   confidence?: unknown;
   fix?: unknown;
   rule?: unknown;
+  suggestion?: unknown;
 }
 
 /** A normalised finding, not yet given an id. */
@@ -127,6 +128,11 @@ export interface Candidate {
   fix: string;
   rule: string | null;
   sources: string[];
+  /**
+   * The exact new text of head lines `line`..`end_line`, posted as a GitHub suggestion
+   * the author applies in one click. Kept only when the verifier vouched for it.
+   */
+  suggestion?: string;
   cid?: string;
   unverified?: boolean;
   why?: string;
@@ -152,6 +158,10 @@ export interface Finding {
   reasoning?: string;
   fix?: string;
   inline?: number | null;
+  /** Only for the round that posts it inline; never stored (compactForStorage drops it). */
+  suggestion?: string;
+  /** Its inline comment offered a one-click suggestion: the metrics compare what that led to. */
+  suggested?: boolean;
 }
 
 export interface Possible {
@@ -234,6 +244,8 @@ export interface VerifyVerdict {
   verdict: "confirmed" | "rejected" | "uncertain";
   severity: Severity;
   duplicate_of?: string;
+  /** For a candidate with a suggestion: true only when applying it fixes exactly this. */
+  suggestion_ok?: boolean;
 }
 
 export interface VerifyOutput {
@@ -298,7 +310,6 @@ export interface ReviewComment {
   pull_request_review_id?: number;
   body: string | null;
   user: GhUser | null;
-  reactions?: { "+1"?: number; "-1"?: number };
 }
 
 export interface PrReview {

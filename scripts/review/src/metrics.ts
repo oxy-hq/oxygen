@@ -2,8 +2,7 @@
 // Pure: metrics.ts does the fetching.
 
 import type * as Config from "../config.ts";
-import type { Tally } from "./feedback.ts";
-import { collectFeedback, isBot } from "./feedback.ts";
+import { isBot, threadReplies } from "./feedback.ts";
 import { matchesAny } from "./globs.ts";
 import { decodeState, findSummaryComment } from "./state.ts";
 import type {
@@ -32,7 +31,7 @@ type MetricsConfig = Pick<
 const LEGACY_VERDICT =
   /\b(LGTM with nits|LGTM|Needs changes|Blocking|No actionable issues found)\b/;
 
-export interface RecordFinding extends Partial<Tally> {
+export interface RecordFinding {
   id: string;
   title: string;
   file: string;
@@ -42,6 +41,10 @@ export interface RecordFinding extends Partial<Tally> {
   lens: string;
   rule: string | null;
   status: FindingStatus;
+  /** Comments by anyone but the reviewer: replies in its thread, PR comments naming its id. */
+  replies: number;
+  /** Its inline comment offered a one-click suggestion. */
+  suggested: boolean;
 }
 
 export interface PrRecord {
@@ -146,7 +149,7 @@ export function prRecord({
       findings: []
     };
   }
-  const feedback = collectFeedback({
+  const replies = threadReplies({
     issueComments: comments,
     reviewComments,
     findings: state.findings,
@@ -163,7 +166,8 @@ export function prRecord({
       lens: f.lens,
       rule: f.rule,
       status: f.status,
-      ...feedback.get(f.id)
+      replies: replies.get(f.id)?.length ?? 0,
+      suggested: f.suggested === true
     })
   );
   return {
@@ -191,23 +195,23 @@ export interface Bucket {
   addressed: number;
   withdrawn: number;
   open: number;
-  notUseful: number;
-  useful: number;
+  /** Findings someone answered: a reply in the thread or a PR comment naming the id. */
+  replied: number;
 }
 
 /**
- * Uber's "addressed" is "no longer reproduced on the final commit": here fixed or
- * obsolete. Withdrawn means the reviewer conceded it was wrong.
+ * Outcomes, not ratings. Uber's "addressed" is "no longer reproduced on the final
+ * commit": here fixed or obsolete. Withdrawn means the reviewer conceded it was wrong.
+ * Open means it was merged past: noise, or a risk someone accepted.
  */
 function tally(findings: readonly RecordFinding[]): Bucket {
-  const t: Bucket = { n: 0, addressed: 0, withdrawn: 0, open: 0, notUseful: 0, useful: 0 };
+  const t: Bucket = { n: 0, addressed: 0, withdrawn: 0, open: 0, replied: 0 };
   for (const f of findings) {
     t.n++;
     if (f.status === "fixed" || f.status === "obsolete") t.addressed++;
     else if (f.status === "withdrawn") t.withdrawn++;
     else t.open++;
-    t.notUseful += f.not_useful ? 1 : 0;
-    t.useful += f.useful ? 1 : 0;
+    t.replied += f.replies ? 1 : 0;
   }
   return t;
 }
@@ -248,11 +252,14 @@ export interface Aggregate {
   findings: Bucket & {
     addressedPct: number | null;
     withdrawnPct: number | null;
-    notUsefulPct: number | null;
+    openPct: number | null;
+    repliedPct: number | null;
   };
   byCategory: Record<string, Bucket>;
   bySeverity: Record<string, Bucket>;
   byLens: Record<string, Bucket>;
+  /** Findings posted with a one-click suggestion, against the other should-fix and blocking ones. */
+  suggestions: { with: Bucket; without: Bucket };
   verifier: { candidates: number; rejected: number };
   cost: { total: number; perPr: number; p50ms: number | null; p90ms: number | null };
   size: { median: number | null; over1000: number };
@@ -286,11 +293,16 @@ export function aggregate(records: readonly PrRecord[]): Aggregate {
       ...totals,
       addressedPct: pct(totals.addressed, totals.n),
       withdrawnPct: pct(totals.withdrawn, totals.n),
-      notUsefulPct: pct(totals.notUseful, totals.n)
+      openPct: pct(totals.open, totals.n),
+      repliedPct: pct(totals.replied, totals.n)
     },
     byCategory: bucket(findings, (f) => f.category),
     bySeverity: bucket(findings, (f) => f.severity),
     byLens: bucket(findings, (f) => f.lens),
+    suggestions: {
+      with: tally(findings.filter((f) => f.suggested)),
+      without: tally(findings.filter((f) => !f.suggested && f.severity !== "nit"))
+    },
     verifier: {
       candidates: v2.reduce((n, r) => n + (r.candidates ?? 0), 0),
       rejected: v2.reduce((n, r) => n + (r.rejected ?? 0), 0)

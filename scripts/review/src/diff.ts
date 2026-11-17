@@ -107,6 +107,19 @@ export function commentableLines(file: DiffFile): Set<number> {
   return lines;
 }
 
+/**
+ * The head text of new-side lines `start`..`end` when one hunk holds all of them, else
+ * null. GitHub anchors a multi-line comment (and so a suggestion) only inside one hunk.
+ */
+export function hunkText(file: DiffFile, start: number, end: number): string | null {
+  if (end < start) return null;
+  for (const h of file.hunks) {
+    const lines = h.lines.filter((l) => l.newNo !== null && l.newNo >= start && l.newNo <= end);
+    if (lines.length === end - start + 1) return lines.map((l) => l.text).join("\n");
+  }
+  return null;
+}
+
 export function addedText(file: DiffFile): string {
   const out: string[] = [];
   for (const h of file.hunks) for (const l of h.lines) if (l.type === "+") out.push(l.text);

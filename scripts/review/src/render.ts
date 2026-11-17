@@ -3,6 +3,7 @@
 
 import type { TouchedArea } from "./gate.ts";
 import { isClosed } from "./state.ts";
+import { longestTickRun } from "./text.ts";
 import type {
   Finding,
   LensPick,
@@ -177,8 +178,7 @@ function coverageSection(view: SummaryView, roadmap: RoadmapJudgement | undefine
 
 function footer(view: SummaryView): string {
   const how =
-    "Rate a finding by replying `F2 not useful: <why>` or with 👍/👎 on its inline comment. " +
-    "Disagree? Reply in its thread; the next push re-checks it. " +
+    "Fix a finding and push. If one is wrong, reply in its thread (or `F2: <why>` on the PR); the next push re-checks it. " +
     "A Blocking or unfinished review fails `review-gate`; a maintainer can apply the `review-override` label.";
   const run = view.runUrl ? ` · [run](${view.runUrl})` : "";
   return `<sub>${how} · ${money(view.cost)} · ${duration(view.ms)}${run}</sub>`;
@@ -222,8 +222,23 @@ export function renderSummary(
   return full.length <= LIMIT ? full : build(false);
 }
 
-/** The body of one inline review comment. */
-export function renderInline(f: Finding): string {
+/**
+ * A GitHub suggestion block for `text`. The fence is longer than any backtick run in it,
+ * so a ``` line in the replacement (a Markdown doc, a doc comment's example) cannot close
+ * the block early and have a one-click commit drop the rest of the span. normalizeFinding
+ * declines such suggestions today; this does not rely on it.
+ */
+export function suggestionBlock(text: string): string {
+  const fence = "`".repeat(Math.max(3, longestTickRun(text) + 1));
+  return `${fence}suggestion\n${text}\n${fence}`;
+}
+
+/**
+ * The body of one inline review comment. With `suggest`, the finding's suggestion goes in
+ * as a GitHub suggestion block: the comment must span exactly the lines it replaces.
+ */
+export function renderInline(f: Finding, { suggest = false }: { suggest?: boolean } = {}): string {
+  const block = suggest && f.suggestion !== undefined ? suggestionBlock(f.suggestion) : "";
   return [
     `**${f.id} · ${SEVERITY_LABEL[f.severity]} · ${f.category}**: ${f.title}`,
     "",
@@ -231,7 +246,11 @@ export function renderInline(f: Finding): string {
     "",
     f.fix ? `**Fix:** ${f.fix}` : "",
     "",
-    "<sub>Rate it with 👍/👎. If it is wrong, reply here: the next push re-checks it.</sub>",
+    block,
+    "",
+    block
+      ? "<sub>Commit the suggestion, or push your own fix. Wrong? Reply here with why: the next push re-checks it.</sub>"
+      : "<sub>Wrong? Reply here with why: the next push re-checks it.</sub>",
     `<!-- oxy-review:finding ${f.id} -->`
   ]
     .filter((s, i, all) => !(s === "" && all[i - 1] === ""))

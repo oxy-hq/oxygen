@@ -19,6 +19,7 @@ import {
 import type { Trailer } from "../../roadmap/trailer.ts";
 import type { RoadmapConfig } from "../config.ts";
 import { matchesAny } from "./globs.ts";
+import { clip } from "./text.ts";
 import type { CommitStatus, GeneralOutput, ReviewState, RoadmapJudgement } from "./types.ts";
 
 const cap = (s: string): string => s.slice(0, 140); // GitHub truncates status descriptions
@@ -59,7 +60,7 @@ export function judgementOf(
   known: ReadonlySet<string>
 ): RoadmapJudgement | undefined {
   if (!raw || (raw.behaviour !== "changed" && raw.behaviour !== "unchanged")) return undefined;
-  const reason = text(raw.reasoning).replace(/\s+/g, " ").trim().slice(0, REASON_CHARS);
+  const reason = clip(text(raw.reasoning).replace(/\s+/g, " "), REASON_CHARS);
   if (raw.behaviour === "unchanged") return { behaviour: "unchanged", reason, line: null };
   const l = text(raw.line).trim().toLowerCase();
   const line = l === "new" || (known.size ? known.has(l) : isValidId(l)) ? l : null;

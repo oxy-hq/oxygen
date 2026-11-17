@@ -1,6 +1,7 @@
 // The review's memory between pushes, carried base64-encoded in the summary comment.
 // It is also the record the weekly metrics read, so its fields are a contract.
 
+import { clip } from "./text.ts";
 import type {
   Candidate,
   ClosedStatus,
@@ -84,7 +85,7 @@ export function applyRecheck(
   return findings.map((f) => {
     const r = byId.get(f.id);
     if (!r || isClosed(f.status) || !isClosed(r.status)) return f;
-    return { ...f, status: r.status, closed: sha.slice(0, 9), why: r.reason.slice(0, 300) };
+    return { ...f, status: r.status, closed: sha.slice(0, 9), why: clip(r.reason, 300) };
   });
 }
 
@@ -111,7 +112,8 @@ export function addFindings(
       status: "open",
       first: sha.slice(0, 9),
       reasoning: f.reasoning,
-      fix: f.fix
+      fix: f.fix,
+      ...(f.suggestion === undefined ? {} : { suggestion: f.suggestion })
     })
   );
   return { findings: [...state.findings, ...added], added, next };
@@ -127,11 +129,13 @@ export function compactForStorage(
   { lean = false }: { lean?: boolean } = {}
 ): ReviewState {
   const findings = state.findings.slice(-MAX_FINDINGS).map((f): Finding => {
+    // A suggestion is posted once, with the inline comment; the state never needs it.
+    const { suggestion: _suggestion, ...kept } = f;
     if (lean || isClosed(f.status)) {
-      const { reasoning: _reasoning, fix: _fix, ...rest } = f;
+      const { reasoning: _reasoning, fix: _fix, ...rest } = kept;
       return rest;
     }
-    return { ...f, reasoning: (f.reasoning ?? "").slice(0, 700), fix: (f.fix ?? "").slice(0, 400) };
+    return { ...kept, reasoning: clip(f.reasoning ?? "", 700), fix: clip(f.fix ?? "", 400) };
   });
   return { ...state, findings, rounds: state.rounds.slice(-MAX_ROUNDS) };
 }

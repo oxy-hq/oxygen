@@ -44,6 +44,12 @@ A performance problem on a request path is never a nit.
   when it depends on something you could not confirm (say what in `reasoning`); below
   0.5, do not report it.
 - `fix`: the concrete change, in a sentence or a short snippet.
+- `suggestion`: only when the whole fix is new text for lines `line` to `end_line` of
+  this file (set `end_line` when it is more than one line), and those lines are in the
+  diff. Give the exact replacement for those lines, indentation included, with no code
+  fence. The author commits it in one click, so leave it out when the fix touches any
+  other line or file, needs a decision, or you are not sure it compiles. A finding
+  without one is fine; a wrong one costs the author's trust in the next.
 - `rule`: when the finding breaks written repo guidance, name it (`CLAUDE.md:
   Authorization`, `oxy-data-placement`, `R-M2`). Otherwise leave it empty.
 - `category`: the closest listed category.
