@@ -215,9 +215,44 @@ pub(crate) async fn publish_app(
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,
+        confirm_schedule_removals: Vec::new(),
     })
     .await
     .expect("a bundle carrying every declared function publishes and promotes")
+}
+
+/// Production's own value for `key` in app `app_id` of `workspace`. A build
+/// declaring `key` required — a webhook's `secretVar` is, by construction —
+/// cannot be promoted, by a promoting publish or `oxyc promote`, until
+/// production holds one (`custom_apps_publish::production_gate`); a test
+/// whose production serves such a build sets it first, as an operator would.
+pub(crate) async fn set_production_secret(
+    t: &Tenant,
+    workspace: Uuid,
+    app_id: Uuid,
+    key: &str,
+    value: &str,
+) {
+    let secrets = oxy::service::secret_manager::SecretManagerService::new(workspace);
+    secrets
+        .set_app_secret_in(&t.db, app_id, None, key, value, t.guest_id)
+        .await
+        .unwrap_or_else(|e| panic!("set production's {key}: {e}"));
+    secrets.clear_cache().await;
+}
+
+/// Staging's build made live by the promote `oxyc promote` sends, as the
+/// guest: the path for a build whose required keys production holds only once
+/// the app exists.
+pub(crate) async fn promote_staging(t: &Tenant, app_id: Uuid) {
+    use oxy_api_custom_apps::custom_apps_promote::{act, resolve::PromoteRequest};
+    let request = PromoteRequest {
+        from: "staging".to_string(),
+        ..Default::default()
+    };
+    act::promote(&t.db, &t.guest(), app_id, "production", &request)
+        .await
+        .expect("staging's build is promoted to production");
 }
 
 /// Publishes `functions` as build `build_id` of app `slug`, promoted (to
@@ -252,6 +287,7 @@ pub(crate) async fn publish_build(
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,
+        confirm_schedule_removals: Vec::new(),
     })
     .await
     .expect("the bundle publishes")

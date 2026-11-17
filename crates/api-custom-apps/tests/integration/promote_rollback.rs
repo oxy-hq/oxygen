@@ -11,6 +11,7 @@
 //! | `rollback` | the default target is the previous build (twice swaps back), `--to` names one the environment served, a sandbox is `not_rollbackable`, an environment with nothing before is `nothing_to_roll_back_to` |
 //! | `blockers` | an unset `required` key blocks a promote and only warns a rollback; retiring a registered schedule needs the function named; rollback re-registers its target's schedules |
 //! | `batch_audit` | the batch publish, promote-latest and unpublish write the single handlers' audit row for every app they move, for the same actor, in the move's transaction; an app whose move is refused has none |
+//! | `second_person` | with the app's second-person rule on, its publisher's Promote to production and console rollback to a build production never served are `409 same_person_promote`; their rollback to a build production served stays open; `PUT …/promotion-rule` sets the rule |
 //! | `agent_built` | a build a sandbox agent token published is `409 draft_published_by_agent` on every new path — promote from staging, a sandbox's promote to staging, a staging rollback — dry runs included |
 
 use axum::http::StatusCode;
@@ -31,6 +32,7 @@ mod lock_resolved;
 mod migrations;
 mod paths;
 mod rollback;
+mod second_person;
 
 /// One request to `/api` in the minter's own browser session: a staff person.
 pub(crate) async fn person(

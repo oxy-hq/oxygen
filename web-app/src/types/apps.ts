@@ -114,6 +114,13 @@ export interface CustomApp {
    * on list responses (batched); absent elsewhere. Drives "Not from CI".
    */
   live_published_via?: "ci" | "person" | null;
+  /**
+   * The four-eyes rule: production refuses a promote by whoever published the build —
+   * the same user, or the same CI workflow or token. A rollback to a build production served
+   * before is exempt; one to a build it never served is refused like a promote. Absent from a
+   * server predating it, which reads as off.
+   */
+  require_second_person_to_promote?: boolean;
 }
 
 /**

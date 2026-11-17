@@ -222,6 +222,10 @@ pub struct AppResponse {
     /// `healthy`. `no_opinion` inside it is a measured "not enough traffic".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub availability: Option<crate::custom_apps_availability::AvailabilityReading>,
+    /// The four-eyes rule: production refuses a promote by the identity that
+    /// published the build (`custom_apps_promote::second_person`). Set by `PUT
+    /// /customer-apps/{id}/promotion-rule`; on every response.
+    pub require_second_person_to_promote: bool,
 }
 
 impl AppResponse {
@@ -268,6 +272,7 @@ impl AppResponse {
             live_published_via: None,
             verdict: None,
             availability: None,
+            require_second_person_to_promote: m.require_second_person_to_promote,
         }
     }
 }

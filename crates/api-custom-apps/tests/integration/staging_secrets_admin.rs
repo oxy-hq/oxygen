@@ -220,7 +220,7 @@ async fn staff_set_a_sandbox_secret_and_its_view_shows_what_staging_lends() {
     use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
     use_a_fixed_encryption_key();
     let t = seeded_tenant().await;
-    let spec = FunctionSpec {
+    let spec = || FunctionSpec {
         name: "noop",
         manifest: json!({ "route": true }),
         js: "export default async () => Response.json({});",
@@ -231,10 +231,33 @@ async fn staff_set_a_sandbox_secret_and_its_view_shows_what_staging_lends() {
         "SHARED": { "required": true, "shared": true },
         "NOWHERE": { "required": true },
     });
-    let app = crate::staging_function_homes::publish_with_env(&t, "sbx-admin", &[spec], declared)
-        .await
-        .expect("publish")
-        .app_id;
+    // Production serves a build that shares `SHARED` and requires nothing:
+    // a key is lent to a sandbox only when production's build shares it too.
+    // The app's build below cannot be production's — `NOWHERE` is required
+    // and set nowhere, and production refuses a build for that — so it is
+    // staging's draft, and the sandboxes below serve it.
+    let production = json!({ "SHARED": { "shared": true } });
+    crate::staging_function_homes::publish_env_build(
+        &t,
+        "sbx-admin",
+        &[spec()],
+        production,
+        "homes-0",
+        true,
+    )
+    .await
+    .expect("production's build");
+    let app = crate::staging_function_homes::publish_env_build(
+        &t,
+        "sbx-admin",
+        &[spec()],
+        declared,
+        "homes-1",
+        false,
+    )
+    .await
+    .expect("publish")
+    .app_id;
     make_guest_staff();
     let staff = || user(t.guest_id, LOCAL_GUEST_EMAIL);
     for (key, value, environment) in [
@@ -250,6 +273,7 @@ async fn staff_set_a_sandbox_secret_and_its_view_shows_what_staging_lends() {
     // Two sandboxes serving the app's build, so its declarations apply.
     let build = entity::app_builds::Entity::find()
         .filter(entity::app_builds::Column::AppId.eq(app))
+        .filter(entity::app_builds::Column::BuildId.eq("homes-1"))
         .one(&t.db)
         .await
         .expect("read build")

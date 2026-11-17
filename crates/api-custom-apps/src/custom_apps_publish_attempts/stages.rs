@@ -24,6 +24,9 @@ pub enum Stage {
     Store,
     /// The build row and its functions.
     Record,
+    /// A promoting publish's production gates and four-eyes rule
+    /// (`custom_apps_publish::production_gate`). Writes nothing.
+    Gate,
     /// A promoting publish's schema migrations.
     Promote,
     /// Move the pointers and reconcile their schedules.
@@ -35,11 +38,12 @@ pub enum Stage {
 
 impl Stage {
     /// Every stage, in pipeline order.
-    pub const ALL: [Stage; 7] = [
+    pub const ALL: [Stage; 8] = [
         Stage::Admit,
         Stage::Inflate,
         Stage::Store,
         Stage::Record,
+        Stage::Gate,
         Stage::Promote,
         Stage::Point,
         Stage::After,
@@ -52,6 +56,7 @@ impl Stage {
             Stage::Inflate => "inflate",
             Stage::Store => "store",
             Stage::Record => "record",
+            Stage::Gate => "gate",
             Stage::Promote => "promote",
             Stage::Point => "point",
             Stage::After => "after",

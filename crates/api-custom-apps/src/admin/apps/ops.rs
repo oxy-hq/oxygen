@@ -489,6 +489,7 @@ pub async fn publish_one(
         build: BuildRef::Draft,
         action: EnvAction::Promote,
         actor: Some(actor.id),
+        actor_via: promote::second_person::via_of(&actor.user),
         expect_current: None,
         refuse_same: false,
     };
@@ -670,6 +671,7 @@ pub(super) async fn promote_latest_one(
         build: BuildRef::Newest,
         action: EnvAction::Promote,
         actor: Some(actor.id),
+        actor_via: promote::second_person::via_of(&actor.user),
         expect_current: None,
         refuse_same: false,
     };

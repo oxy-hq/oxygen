@@ -168,6 +168,17 @@ export const CustomAppsService = {
   },
 
   /**
+   * Turn the app's four-eyes rule on or off (`PUT …/promotion-rule`): with it on,
+   * production refuses a promote by whoever published the build. Answers the app.
+   */
+  async setPromotionRule(id: string, requireSecondPerson: boolean): Promise<CustomApp> {
+    const response = await apiClient.put(`${appPath(id)}/promotion-rule`, {
+      require_second_person_to_promote: requireSecondPerson
+    });
+    return response.data;
+  },
+
+  /**
    * Promote the newest build on each of `ids` — the fleet's batch action.
    * Best-effort per id server-side: one app failing never aborts the rest, and
    * the response carries a per-app outcome so the UI can report "promoted 4,

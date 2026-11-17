@@ -21,6 +21,7 @@ pub const REFUSED_WRITES: &[(&str, &str)] = &[
     ("DELETE", "/customer-apps/{id}"),
     ("POST", "/customer-apps/{id}/publish"),
     ("DELETE", "/customer-apps/{id}/publish"),
+    ("PUT", "/customer-apps/{id}/promotion-rule"),
     ("POST", "/customer-apps/{id}/rollback"),
     ("POST", "/customer-apps/{id}/environments/{name}/promote"),
     ("POST", "/customer-apps/{id}/environments/{name}/rollback"),

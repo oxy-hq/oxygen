@@ -59,6 +59,7 @@ mod inflate;
 mod limits;
 mod orphan;
 mod pipeline;
+mod production_gate;
 
 /// How many builds to retain per app **in each retention window**
 /// (`custom_apps_sandboxes::retention`). Older builds (not currently pointed
@@ -121,6 +122,11 @@ pub struct PublishInput {
     /// `promote`. Unrelated to [`Self::branch`], which is the APP SOURCE
     /// branch. See `custom_apps_staging_pin`.
     pub semantic_revision_id: Option<Uuid>,
+    /// A promoting publish's `confirm_schedule_removals` (`oxyc publish
+    /// --promote --remove-schedule <function>`): each production schedule the
+    /// build retires, named to confirm it, as `oxyc promote` names them.
+    /// Empty on a draft, which retires nothing.
+    pub confirm_schedule_removals: Vec<String>,
 }
 
 /// Who a publish request is recorded as — the publisher fields of [`PublishInput`].
@@ -165,11 +171,7 @@ impl Publisher {
         // A trusted-access (`ci`) token: the publisher is its service account,
         // which has a `users` row, so the build names it — and carries the
         // workflow identity the exchange verified, as a machine publish does.
-        let published_via = user
-            .credential
-            .as_ref()
-            .filter(|c| c.kind == oxy_auth::token::StoredKind::Ci)
-            .map(|c| c.name.clone());
+        let published_via = super::custom_apps_promote::second_person::via_of(user);
         Self {
             published_by: Some(user.id),
             // `user.email`, never a display label. This value is not decoration:
@@ -389,6 +391,12 @@ pub enum PublishError {
         "too many publishes: at most {limit} an hour per publisher in an org. Try again in {retry_after_secs}s"
     )]
     RateLimited { limit: u32, retry_after_secs: u64 },
+    /// A promoting publish production refused, with every blocker `oxyc
+    /// promote`'s plan would list for the build (`custom_apps_promote::blockers`).
+    /// Surfaced as 409 with the blockers as JSON. Nothing of the publish
+    /// landed, staging included (`custom_apps_publish::production_gate`).
+    #[error("{}", production_gate::refused_message(.0))]
+    ProductionBlocked(Vec<super::custom_apps_promote::Blocker>),
     #[error("database error: {0}")]
     Db(String),
     #[error("storage error: {0}")]
@@ -534,7 +542,9 @@ impl PublishError {
                 StatusCode::FORBIDDEN
             }
             PublishError::UnknownEnvironment { .. } => StatusCode::NOT_FOUND,
-            PublishError::EnvironmentDeleting { .. } => StatusCode::CONFLICT,
+            PublishError::EnvironmentDeleting { .. } | PublishError::ProductionBlocked(_) => {
+                StatusCode::CONFLICT
+            }
             PublishError::AgentDraft(refused) => refused.status(),
             PublishError::Db(_) | PublishError::S3(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -546,6 +556,8 @@ impl PublishError {
         match self {
             PublishError::SandboxTokenRefused => Some("sandbox_token_refused"),
             PublishError::AgentDraft(refused) => Some(refused.code()),
+            // The first blocker's code, as a refused `oxyc promote` answers.
+            PublishError::ProductionBlocked(blockers) => blockers.first().map(|b| b.code),
             _ => None,
         }
     }
@@ -1111,6 +1123,7 @@ async fn upsert_app(
         // Leave to the DB default ('org'): a new app is org-visible unless
         // explicitly restricted later.
         visibility: sea_orm::ActiveValue::NotSet,
+        require_second_person_to_promote: sea_orm::ActiveValue::NotSet,
         id: ActiveValue::Set(id),
         slug: ActiveValue::Set(input.app_slug.clone()),
         name: ActiveValue::Set(name),
@@ -1403,9 +1416,9 @@ async fn set_pointers(
     db: &DatabaseConnection,
     app_id: Uuid,
     build_pk: Uuid,
-    promote: bool,
-    actor: Option<Uuid>,
+    input: &PublishInput,
 ) -> Result<(), PublishError> {
+    let (promote, actor) = (input.promote, input.published_by);
     if promote {
         // Promotion gate (validator-can't-be-bypassed): only a build whose
         // validation is recorded `passed` may go live. Redundant on this path —
@@ -1434,12 +1447,20 @@ async fn set_pointers(
             build: build_pk.into(),
             action: super::custom_apps_environments::EnvAction::Promote,
             actor,
+            actor_via: input.published_via.clone(),
             expect_current: None,
             refuse_same: false,
         };
         super::custom_apps_promote::move_locked(&txn, row, &mv)
             .await
-            .map_err(|e| PublishError::Db(format!("production's pointer could not move: {e}")))?;
+            .map_err(|e| match e {
+                // The four-eyes rule, read again under the lock: it was
+                // turned on after this publish's gate read it.
+                super::custom_apps_promote::PromoteError::Blocked(blockers) => {
+                    PublishError::ProductionBlocked(blockers)
+                }
+                e => PublishError::Db(format!("production's pointer could not move: {e}")),
+            })?;
     }
     txn.commit().await.map_err(db_err)?;
     Ok(())
@@ -1662,9 +1683,7 @@ async fn move_pointers(
     input: &PublishInput,
 ) -> Result<(), PublishError> {
     match target {
-        PublishTarget::Channels => {
-            set_pointers(db, app_id, build_pk, input.promote, input.published_by).await
-        }
+        PublishTarget::Channels => set_pointers(db, app_id, build_pk, input).await,
         // Staging's pointer and its mirror, under the app's row lock, with
         // the draft's guards asked again of the locked row — and never
         // production's, whatever the input says.

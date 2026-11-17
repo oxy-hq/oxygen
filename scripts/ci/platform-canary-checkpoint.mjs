@@ -20,7 +20,12 @@
  *      is unchanged, while this build compiles against the checkout's SDK;
  *   3. creates or reuses the canary's org, user, grant, ClickHouse database,
  *      OLTP writer and workspace database, then compiles and promotes;
- *   4. publishes with the workspace `oxyc`, sets `CANARY_STEPS` to every step
+ *   4. publishes with the workspace `oxyc` to staging, gives production the
+ *      `required` key the build declares (the `echo` webhook's
+ *      `CANARY_PROBE_SECRET`) when it has none, and promotes with `oxyc
+ *      promote` — production refuses a build whose required key it holds no
+ *      value for, so a first `--promote` publish could never land — then sets
+ *      `CANARY_STEPS` to every step
  *      the canary declares minus `OMITTED_IN_CI` below, and runs
  *      `oxyc checks run` twice: the first run may fail only `secrets_roundtrip`
  *      (it reads the value the previous run wrote, so a fresh stack has none),
@@ -47,6 +52,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -57,6 +63,8 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CANARY_DIR = join(REPO, "customer-apps", "examples", "platform-canary");
 const OXYC = join(REPO, "sdk", "cli", "dist", "main.mjs");
 const APP_SLUG = "platform-canary";
+/** The `required` key the build declares: the `echo` webhook's signing secret. */
+const PROBE_SECRET = "CANARY_PROBE_SECRET";
 /** The app's OLTP writer: the slug with hyphens as underscores, as the platform derives it. */
 const OLTP_WRITER = "app:platform_canary";
 const WAREHOUSE_NAME = "canary_warehouse";
@@ -713,7 +721,7 @@ async function mintApiToken(opts, canary) {
 // ── 4. publish, configure, check ─────────────────────────────────────────────
 
 function publish(opts, app, canary, workspaceId, work) {
-  step("oxyc publish (workspace build of oxyc)");
+  step("oxyc publish to staging (workspace build of oxyc)");
   // A dev-login JWT is an ordinary session bearer, and publish accepts it — the
   // verification design (§9) listed that as an open assumption; it holds. The
   // credentials path points at nothing so a laptop's real `oxyc login` cannot
@@ -726,7 +734,6 @@ function publish(opts, app, canary, workspaceId, work) {
       "publish",
       "--target",
       opts.target,
-      "--promote",
       "--project",
       workspaceId,
       "--org",
@@ -751,6 +758,62 @@ function publish(opts, app, canary, workspaceId, work) {
     `${result.is_new_app ? "registered" : "published"} ${opts.orgSlug}/${APP_SLUG} build ${result.build_id} → ${result.channel}`
   );
   return result.app_id;
+}
+
+/**
+ * Production's value for the webhook signing key the build declares, so the
+ * promote below is not refused `required_secrets_unset`. Set only when
+ * production has none: on a reused stack a value is already there, and the
+ * external probe of a real deployment signs with it.
+ */
+async function ensureProbeSecret(opts, canary, appId) {
+  step(`production's ${PROBE_SECRET}`);
+  const path = `/api/customer-apps/${appId}/secrets`;
+  const listed = await must(opts.target, canary.token, "GET", path, undefined, "list secrets");
+  const entries = listed.json?.entries ?? [];
+  if (entries.some((e) => e.key === PROBE_SECRET && e.is_set)) {
+    note("already set");
+    return;
+  }
+  const value = randomBytes(32).toString("hex");
+  await must(
+    opts.target,
+    canary.token,
+    "POST",
+    path,
+    { key: PROBE_SECRET, value },
+    `set ${PROBE_SECRET}`
+  );
+  note("set to a fresh random value");
+}
+
+/** Staging's build to production, through `oxyc promote` — the plan, then the act. */
+function promoteToProduction(opts, canary, appId, work) {
+  step("oxyc promote (staging → production)");
+  const r = capture(
+    "node",
+    [
+      OXYC,
+      "promote",
+      appId,
+      "--target",
+      opts.target,
+      "--token-env",
+      "CANARY_JWT",
+      "--yes",
+      "--json"
+    ],
+    { env: { CANARY_JWT: canary.token, OXY_CREDENTIALS_PATH: join(work, "no-credentials.json") } }
+  );
+  if (r.status !== 0) fail(`oxyc promote exited ${r.status} (see the log above)`);
+  let plan;
+  try {
+    plan = JSON.parse(r.stdout);
+  } catch {
+    fail(`oxyc promote printed no JSON plan: ${r.stdout.slice(0, 200)}`);
+  }
+  if (!plan.moved) fail(`oxyc promote did not move production: ${r.stdout.slice(0, 300)}`);
+  note(`production serves build ${plan.build.build_id}`);
 }
 
 async function configureSteps(opts, canary, appId) {
@@ -951,6 +1014,8 @@ async function main() {
     const apiToken = await mintApiToken(opts, canary);
 
     const appId = publish(opts, app, canary, workspaceId, work);
+    await ensureProbeSecret(opts, canary, appId);
+    promoteToProduction(opts, canary, appId, work);
     await configureSteps(opts, canary, appId);
 
     // Run 1 primes `secrets_roundtrip`: the step reads the value the previous

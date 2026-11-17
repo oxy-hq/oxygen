@@ -914,7 +914,12 @@ the target's public `build-config`, and uploads the bundle — to the **draft**
 channel (staging). `--env` defaults to **production**; name it. Ship it with
 `oxyc promote`, below. `--promote` still publishes and promotes in one request,
 through the same server-side path, and the server answers it with a
-deprecation warning: it shows nobody the plan.
+deprecation warning: it shows nobody the plan. It meets the blockers `oxyc
+promote` meets — confirm each production schedule it retires with
+`--remove-schedule <function>` — and a blocker refuses the whole publish
+(exit `6`, each blocker named with what to do): nothing lands, staging
+included. With the app's second-person rule on, `--promote` is always refused:
+publish to staging and have someone else promote.
 
 - **The manifest** is read strictly: `oxy-app.json` is validated against the
   JSON Schema `@oxy-hq/sdk` generates from its `OxyAppManifest` type (the same
@@ -1043,8 +1048,10 @@ sending the plan's build and `expect_current` back — `409 target_moved` if the
 target moved in between. `--dry-run` stops at the plan. A plan with blockers is
 refused before any act (exit `6`): `staging_never_served` (production only
 serves a build staging has served), `validation_not_passed`,
-`required_secrets_unset`, and `schedule_removal_unconfirmed` — name each retired
-schedule with `--remove-schedule <function>`. `--build` names an older build the
+`required_secrets_unset`, `schedule_removal_unconfirmed` — name each retired
+schedule with `--remove-schedule <function>` — and `same_person_promote` (the
+app requires a second person to promote, and you published the build; a
+rollback to a build production served before is exempt). `--build` names an older build the
 source served (publish id or UUID). Promoting the build already served is
 `409 already_serving`.
 

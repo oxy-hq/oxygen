@@ -529,6 +529,7 @@ async fn ensure_app(conn: &Conn, target: &AppTarget, app_id: Uuid) -> Result<(),
         // Leave to the DB default ('org'): a new app is org-visible unless
         // explicitly restricted later.
         visibility: sea_orm::ActiveValue::NotSet,
+        require_second_person_to_promote: sea_orm::ActiveValue::NotSet,
         id: ActiveValue::Set(app_id),
         slug: ActiveValue::Set(target.slug.clone()),
         name: ActiveValue::Set(target.name.clone()),
@@ -609,6 +610,7 @@ async fn point_app_at(conn: &Conn, app_id: Uuid, build_pk: Uuid) -> Result<(), O
         build: build_pk.into(),
         action: crate::custom_apps_environments::EnvAction::Promote,
         actor: None,
+        actor_via: None,
         expect_current: None,
         refuse_same: false,
     };

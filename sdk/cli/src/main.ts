@@ -1786,6 +1786,12 @@ function buildProgram(): Command {
         "--app-env <dev-handle>",
         "publish to this sandbox instead of the draft/live channel — never --promote"
       )
+      .option(
+        "--remove-schedule <function>",
+        "with --promote: confirm retiring this function's production schedule (repeatable)",
+        collect,
+        []
+      )
       .addHelpText(
         "after",
         "\n--org takes a slug or a UUID (default: OXY_ORG, then oxy-app.json orgSlug, then\n" +
@@ -1802,7 +1808,11 @@ function buildProgram(): Command {
           "`customerWarehouseWrites` reason. `--allow-function-lint` is the way past a\n" +
           "false positive — please open an issue naming the rule.\n" +
           "\n--app-env dev-<handle> moves only that sandbox's build pointer — a staff\n" +
-          "credential only, never a publish token, and never combined with --promote.\n"
+          "credential only, never a publish token, and never combined with --promote.\n" +
+          "\n--promote meets the blockers `oxyc promote` meets: a required secret production\n" +
+          "has no value for, a schedule retirement not confirmed with --remove-schedule, and\n" +
+          "the app's second-person rule. A blocker refuses the whole publish (exit 6) and\n" +
+          "nothing lands, staging included.\n"
       )
   ).action(async (opts: Record<string, unknown>) => {
     await runPublish(createContext(globals(opts)), {
@@ -1819,7 +1829,8 @@ function buildProgram(): Command {
       json: opts.json as boolean | undefined,
       semanticBranch: opts.semanticBranch as string | undefined,
       allowFunctionLint: opts.allowFunctionLint as boolean | undefined,
-      appEnv: opts.appEnv as string | undefined
+      appEnv: opts.appEnv as string | undefined,
+      removeSchedules: opts.removeSchedule as string[] | undefined
     });
   });
 

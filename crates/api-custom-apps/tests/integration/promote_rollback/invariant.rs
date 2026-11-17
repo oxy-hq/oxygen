@@ -78,6 +78,7 @@ async fn the_move_asks_again_under_the_app_row_lock() {
         build: stg.into(),
         action: EnvAction::Promote,
         actor: Some(agent.t.guest_id),
+        actor_via: None,
         expect_current: Some(Some(prod)),
         refuse_same: true,
     };

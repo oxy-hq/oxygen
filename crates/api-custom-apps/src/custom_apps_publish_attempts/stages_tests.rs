@@ -73,7 +73,7 @@ fn timings_come_out_in_pipeline_order_whatever_order_they_were_clocked() {
     assert_eq!(
         names(&timer.timings()),
         [
-            "admit", "inflate", "store", "record", "promote", "point", "after"
+            "admit", "inflate", "store", "record", "gate", "promote", "point", "after"
         ]
     );
 }

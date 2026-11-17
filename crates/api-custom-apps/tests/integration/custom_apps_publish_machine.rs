@@ -14,7 +14,7 @@
 /// `app_publish` on a personal token: what the combination does today.
 mod personal_grant;
 
-use crate::common::test_db;
+use crate::common::{Schema, test_db, test_db_with};
 use entity::{
     app_builds, app_environment_events, app_environments, apps, org_members, org_members::OrgRole,
     organizations, partner_publish_consent, users, workspaces,
@@ -149,6 +149,7 @@ pub(crate) fn input(
         machine_app_id: who.machine_app_id,
         published_via: who.published_via,
         semantic_revision_id: None,
+        confirm_schedule_removals: Vec::new(),
     }
 }
 
@@ -189,7 +190,10 @@ async fn human_first_publish(db: &DatabaseConnection, t: &Tenant, slug: &str) ->
 
 #[tokio::test]
 async fn a_machine_publish_inserts_a_build_attributed_to_its_workflow() {
-    let db = test_db().await;
+    // Every migrator: a promoting publish reads production's registered
+    // schedules (`agentic_schedules`, a side migrator's table) before it moves
+    // production, as `oxyc promote`'s plan does (`production_gate`).
+    let db = test_db_with(Schema::All).await;
     let t = seed_tenant(&db).await;
     let app_id = human_first_publish(&db, &t, "machine-app").await;
 

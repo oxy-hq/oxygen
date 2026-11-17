@@ -15,14 +15,21 @@
 //! The token's other refusals leave here as text and are named after their
 //! status on the way out (`custom_apps_agent_body::shape_for_agent`).
 //!
+//! * A promoting publish production refused (`409`) is JSON for everyone, in
+//!   the body a refused `oxyc promote` answers: the first blocker's code
+//!   under `code` and `error`, the sentence, and every blocker under
+//!   `blockers` (`custom_apps_publish::production_gate`).
+//!
 //! A refusal from inside the pipeline names the stage it came from in the
 //! [`STAGE_HEADER`] header, whatever the body: `oxyc` prints it, and the body
 //! every client already reads is unchanged.
 
+use axum::Json;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 use super::custom_apps_agent_body::Refusal;
+use super::custom_apps_promote::Blocker;
 use super::custom_apps_publish::PublishError;
 use super::custom_apps_publish_attempts::Stage;
 
@@ -38,6 +45,8 @@ pub struct PublishRefusal {
     message: String,
     /// The pipeline stage it was refused at, sent as [`STAGE_HEADER`].
     stage: Option<Stage>,
+    /// What a refused promoting publish lists; empty for every other refusal.
+    blockers: Vec<Blocker>,
 }
 
 /// The code a sandbox agent token is given for a refusal that is text for
@@ -57,6 +66,7 @@ impl PublishRefusal {
             code: None,
             message,
             stage: None,
+            blockers: Vec::new(),
         }
     }
 
@@ -64,11 +74,21 @@ impl PublishRefusal {
     /// sandbox agent token; for anyone else this is the `From` below.
     pub fn told(refused: PublishError, agent: bool) -> Self {
         let for_agent = || agent_code(&refused).filter(|_| agent);
+        let (status, code, message) = (
+            refused.status(),
+            refused.code().or_else(for_agent),
+            refused.to_string(),
+        );
+        let blockers = match refused {
+            PublishError::ProductionBlocked(blockers) => blockers,
+            _ => Vec::new(),
+        };
         Self {
-            status: refused.status(),
-            code: refused.code().or_else(for_agent),
-            message: refused.to_string(),
+            status,
+            code,
+            message,
             stage: None,
+            blockers,
         }
     }
 
@@ -93,6 +113,15 @@ impl From<PublishError> for PublishRefusal {
 impl IntoResponse for PublishRefusal {
     fn into_response(self) -> Response {
         let mut response = match self.code {
+            Some(code) if !self.blockers.is_empty() => {
+                let body = serde_json::json!({
+                    "code": code,
+                    "error": code,
+                    "message": self.message,
+                    "blockers": self.blockers,
+                });
+                (self.status, Json(body)).into_response()
+            }
             Some(code) => Refusal::new(self.status, code, self.message).into_response(),
             None => (self.status, self.message).into_response(),
         };
@@ -163,6 +192,39 @@ mod tests {
         let refused = PublishRefusal::told(PublishError::SandboxWithPromote, true);
         let (_, content_type, _) = body_of(refused).await;
         assert!(content_type.is_some_and(|t| t.starts_with("text/plain")));
+    }
+
+    /// A promoting publish production refused: a 409 in the body a refused
+    /// `oxyc promote` answers, naming every blocker, whoever publishes.
+    #[tokio::test]
+    async fn a_refused_promoting_publish_lists_every_blocker_as_json() {
+        use crate::custom_apps_promote::blockers::same_person_promote;
+        use crate::custom_apps_promote::error::{REQUIRED_SECRETS_UNSET, SAME_PERSON_PROMOTE};
+        let refused = || {
+            PublishError::ProductionBlocked(vec![
+                Blocker {
+                    code: REQUIRED_SECRETS_UNSET,
+                    message: "the build declares required keys production has no value for: \
+                              STRIPE_KEY"
+                        .into(),
+                },
+                same_person_promote("b-7"),
+            ])
+        };
+        for agent in [false, true] {
+            let (status, content_type, body) =
+                body_of(PublishRefusal::told(refused(), agent)).await;
+            assert_eq!(status, StatusCode::CONFLICT);
+            assert_eq!(content_type.as_deref(), Some("application/json"));
+            let body: serde_json::Value = serde_json::from_str(&body).expect("a JSON body");
+            assert_eq!(body["code"], REQUIRED_SECRETS_UNSET);
+            assert_eq!(body["error"], REQUIRED_SECRETS_UNSET);
+            assert_eq!(body["blockers"][0]["code"], REQUIRED_SECRETS_UNSET);
+            assert_eq!(body["blockers"][1]["code"], SAME_PERSON_PROMOTE);
+            let message = body["message"].as_str().unwrap_or_default();
+            assert!(message.contains("STRIPE_KEY"), "{message}");
+            assert!(message.contains("nothing of it was published"), "{message}");
+        }
     }
 
     /// Every other refusal is the text it always was.

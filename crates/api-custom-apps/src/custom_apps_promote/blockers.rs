@@ -8,10 +8,14 @@
 //! | `validation_not_passed` | production moves to a build whose validation is not `passed` |
 //! | `required_secrets_unset` | a production **promote** to a build declaring a `required` key production has no value for. A rollback, the emergency path, only warns |
 //! | `schedule_removal_unconfirmed` | production's move would retire a registered schedule the request did not name in `confirm_schedule_removals` — a rollback too |
+//! | `same_person_promote` | a production **promote** by the identity that published the build, while the app requires a second person (`second_person`). A rollback, the emergency path, is exempt when production served its target before — every `oxyc rollback` target did; the console's rollback to a build production never served is refused by the production move itself |
+//!
+//! A promoting publish (`oxyc publish --promote`) meets the same table as a
+//! promote, before anything of it lands (`custom_apps_publish::production_gate`).
 
 use super::error::{
-    Blocker, REQUIRED_SECRETS_UNSET, SCHEDULE_REMOVAL_UNCONFIRMED, STAGING_NEVER_SERVED,
-    VALIDATION_NOT_PASSED,
+    Blocker, REQUIRED_SECRETS_UNSET, SAME_PERSON_PROMOTE, SCHEDULE_REMOVAL_UNCONFIRMED,
+    STAGING_NEVER_SERVED, VALIDATION_NOT_PASSED,
 };
 
 use crate::custom_apps_build_state::{PromoteRefusal, Validation};
@@ -46,6 +50,11 @@ pub struct ProductionFacts<'a> {
     pub schedule_removals: &'a [String],
     /// `confirm_schedule_removals`, as the request named them.
     pub confirmed_removals: &'a [String],
+    /// `apps.require_second_person_to_promote`.
+    pub second_person_required: bool,
+    /// Whoever moves production is the identity that published the build
+    /// (`second_person::Identity::is`).
+    pub mover_published: bool,
 }
 
 /// The blockers of a production move, in the order of the table above, and
@@ -66,7 +75,8 @@ pub fn evaluate(facts: ProductionFacts<'_>) -> (Vec<Blocker>, Vec<String>) {
                 code: REQUIRED_SECRETS_UNSET,
                 message: format!(
                     "the build declares required keys production has no value for: {keys} — \
-                     set them first (`oxyc env secret` or the console's Secrets tab)"
+                     set them first, in the console's Secrets panel on Production (`oxyc env \
+                     secret` sets a sandbox's only)"
                 ),
             }),
             Act::Rollback => warnings.push(format!(
@@ -89,6 +99,9 @@ pub fn evaluate(facts: ProductionFacts<'_>) -> (Vec<Blocker>, Vec<String>) {
                 unconfirmed.join(", ")
             ),
         });
+    }
+    if facts.act == Act::Promote && facts.second_person_required && facts.mover_published {
+        blockers.push(same_person_promote(facts.build_label));
     }
     (blockers, warnings)
 }
@@ -115,6 +128,32 @@ pub fn validation_not_passed(build_label: &str, status: &str) -> Blocker {
     }
 }
 
+/// The four-eyes rule, on a rollback to a build production never served:
+/// moving production to it is a promote, and its publisher may not.
+pub fn same_person_rollback(build_label: &str) -> Blocker {
+    Blocker {
+        code: SAME_PERSON_PROMOTE,
+        message: format!(
+            "this app requires a second person to promote, and production has never served \
+             build {build_label:?}, so moving production to it is a promote — by the identity \
+             that published it (the same user, CI workflow or token). Someone else moves it, or \
+             roll back to a build production served before"
+        ),
+    }
+}
+
+/// The four-eyes rule: someone other than the build's publisher promotes it.
+pub fn same_person_promote(build_label: &str) -> Blocker {
+    Blocker {
+        code: SAME_PERSON_PROMOTE,
+        message: format!(
+            "this app requires a second person to promote, and build {build_label:?} was \
+             published by the identity promoting it (the same user, CI workflow or token) — \
+             someone else promotes it (`oxyc promote`, or the console's Promote)"
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +167,8 @@ mod tests {
             required_unset: &[],
             schedule_removals: &[],
             confirmed_removals: &[],
+            second_person_required: false,
+            mover_published: false,
         }
     }
 
@@ -198,5 +239,57 @@ mod tests {
             });
             assert!(blockers.is_empty(), "{act:?}");
         }
+    }
+
+    /// The four-eyes rule: promote × rule on/off × same/different mover. Only
+    /// a promote by its publisher with the rule on is refused.
+    #[test]
+    fn a_promote_by_its_publisher_is_refused_only_while_the_rule_is_on() {
+        for (rule, same, refused) in [
+            (true, true, true),
+            (true, false, false),
+            (false, true, false),
+            (false, false, false),
+        ] {
+            let (blockers, warnings) = evaluate(ProductionFacts {
+                second_person_required: rule,
+                mover_published: same,
+                ..facts(Act::Promote)
+            });
+            let expected = if refused {
+                vec![SAME_PERSON_PROMOTE]
+            } else {
+                vec![]
+            };
+            assert_eq!(codes(&blockers), expected, "rule {rule}, same {same}");
+            assert!(warnings.is_empty());
+        }
+    }
+
+    /// A planned rollback is the emergency path: its target is one production
+    /// served (`resolve`, ruling 6), so the rule never refuses it, nor warns
+    /// about it. A rollback to a build production never served is refused by
+    /// the production move (`second_person::refuse_same_person`).
+    #[test]
+    fn a_rollback_is_exempt_from_the_second_person_rule() {
+        let (blockers, warnings) = evaluate(ProductionFacts {
+            second_person_required: true,
+            mover_published: true,
+            ..facts(Act::Rollback)
+        });
+        assert!(blockers.is_empty() && warnings.is_empty());
+    }
+
+    /// The sentence names the build and the way forward.
+    #[test]
+    fn the_second_person_blocker_names_the_build_and_who_may_promote() {
+        let blocker = same_person_promote("b-7");
+        assert_eq!(blocker.code, SAME_PERSON_PROMOTE);
+        assert!(blocker.message.contains("\"b-7\""), "{}", blocker.message);
+        assert!(
+            blocker.message.contains("someone else"),
+            "{}",
+            blocker.message
+        );
     }
 }

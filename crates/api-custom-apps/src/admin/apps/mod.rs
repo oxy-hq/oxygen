@@ -35,6 +35,8 @@ pub mod invocations;
 /// An app's failures grouped per `(function, fingerprint)` — the pager's key.
 pub mod issues;
 mod ops;
+/// The app's four-eyes rule: who may promote its builds.
+pub mod promotion_rule;
 /// `GET /{id}/publishes`: every publish attempt, failed ones included, with
 /// its stage timings.
 pub mod publishes;
@@ -135,6 +137,10 @@ fn core_routes() -> Router<AppState> {
         .route(
             "/{id}/publish",
             post(handlers::publish_app).delete(handlers::unpublish_app),
+        )
+        .route(
+            "/{id}/promotion-rule",
+            axum::routing::put(promotion_rule::set_promotion_rule),
         )
         // Oxy Functions management/debug surface for the AppDetail Functions
         // section: list the app's functions + config, one function's recent

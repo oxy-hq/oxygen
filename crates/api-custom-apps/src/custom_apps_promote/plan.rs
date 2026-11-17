@@ -9,7 +9,8 @@
 //!   environment last did);
 //! - functions added, removed and changed;
 //! - production only: schedule changes against the schedules registered now,
-//!   and `required` keys production has no value for;
+//!   `required` keys production has no value for, and whether the mover
+//!   published the build (the app's four-eyes rule, `second_person`);
 //! - migrations: for production the pending files per store, applied before
 //!   the move; for staging the declared files, queued after it;
 //! - blockers and warnings.
@@ -30,6 +31,7 @@ use super::functions_diff::{self, FunctionChanges};
 use super::production::{MigrationsApplied, load_build};
 use super::resolve::Resolved;
 use super::schedules::{self, ScheduleChanges};
+use super::second_person::Identity;
 use crate::custom_apps_build_history as history;
 use crate::custom_apps_build_state::BuildState;
 use crate::custom_apps_migrations::{self as migrations, StoredMigrations, files_not_in};
@@ -91,12 +93,20 @@ pub struct Plan {
     pub migrations_applied: Option<MigrationsApplied>,
 }
 
-/// Everything the plan reads, for `r`. `confirmed` is the request's
-/// `confirm_schedule_removals`.
+/// What a request asks of the plan, beside what it names.
+#[derive(Debug, Clone, Copy)]
+pub struct Asked<'a> {
+    /// The request's `confirm_schedule_removals`.
+    pub confirmed: &'a [String],
+    /// Who would move the environment (`second_person`).
+    pub mover: &'a Identity,
+}
+
+/// Everything the plan reads, for `r`.
 pub async fn build(
     db: &DatabaseConnection,
     r: &Resolved,
-    confirmed: &[String],
+    asked: Asked<'_>,
 ) -> Result<Plan, PromoteError> {
     let current = match r.current {
         Some(current) => Some(load_build(db, r.app.id, current).await?),
@@ -133,16 +143,17 @@ pub async fn build(
         migrations_applied: None,
     };
     if r.to == AppEnvironment::Production {
-        production_checks(db, r, confirmed, &mut plan).await?;
+        production_checks(db, r, asked, &mut plan).await?;
     }
     Ok(plan)
 }
 
-/// Production's half: schedules, required keys, and the blockers.
+/// Production's half: schedules, required keys, who promotes, and the
+/// blockers.
 async fn production_checks(
     db: &DatabaseConnection,
     r: &Resolved,
-    confirmed: &[String],
+    asked: Asked<'_>,
     plan: &mut Plan,
 ) -> Result<(), PromoteError> {
     let changes = schedules::diff(db, &r.app, &r.build).await?;
@@ -160,7 +171,9 @@ async fn production_checks(
         validation: &BuildState::of(&r.build).validation,
         required_unset: &required_unset,
         schedule_removals: &removals,
-        confirmed_removals: confirmed,
+        confirmed_removals: asked.confirmed,
+        second_person_required: r.app.require_second_person_to_promote,
+        mover_published: Identity::published(&r.build).is(asked.mover),
     });
     plan.schedules = Some(changes);
     plan.required_secrets_unset = required_unset;

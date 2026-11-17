@@ -102,6 +102,7 @@ pub(crate) async fn publish_into_sandbox(
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,
+        confirm_schedule_removals: Vec::new(),
     };
     publish_to(publish, PublishTarget::Sandbox(sandbox(handle)))
         .await

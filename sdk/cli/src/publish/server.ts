@@ -13,6 +13,7 @@ import { bearerHeader, isSandboxAgentToken } from "../auth/token-kind.js";
 import * as log from "../ui/log.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 import { printableLines } from "../util/printable.js";
+import { productionRefused } from "./production-refusal.js";
 import { PUBLISH_STAGE_HEADER, refusalHeadline, type StageTiming } from "./stages.js";
 
 const LOOKUP_TIMEOUT_MS = 30_000;
@@ -222,9 +223,21 @@ export async function uploadBundle(req: UploadRequest): Promise<PublishResult> {
   );
   if (!response.ok) {
     const stage = response.headers.get(PUBLISH_STAGE_HEADER);
-    throw publishRefused(response.status, await response.text(), req.token, stage);
+    const body = await response.text();
+    throw (
+      productionRefused(response.status, body, appLabel(req.fields)) ??
+      publishRefused(response.status, body, req.token, stage)
+    );
   }
   return json<PublishResult>(response, "publish");
+}
+
+/** `<org>/<app>` from the upload's fields, for a remedy that names the command. */
+function appLabel(fields: UploadRequest["fields"]): string {
+  const field = (name: string) => fields.find(([key]) => key === name)?.[1];
+  const app = field("app") ?? "<app>";
+  const org = field("org");
+  return org ? `${org}/${app}` : app;
 }
 
 /**

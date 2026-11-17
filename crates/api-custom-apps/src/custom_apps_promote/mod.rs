@@ -20,6 +20,7 @@
 //! | [`resolve`] | the request bodies; which environment moves, to which build, from what |
 //! | [`plan`] | what a dry run shows, and the act answers |
 //! | [`blockers`] | which facts refuse the act (pure) |
+//! | [`second_person`] | the four-eyes rule: who counts as the build's publisher |
 //! | [`functions_diff`], [`schedules`] | what changes for functions and production's schedules |
 //! | [`production`] | the one production-pointer function |
 //! | [`target`] | which build a production move is aimed at, named under the row lock |
@@ -40,6 +41,7 @@ pub mod plan;
 pub mod production;
 pub mod resolve;
 pub mod schedules;
+pub mod second_person;
 pub mod staging;
 pub mod target;
 pub mod unpublish;

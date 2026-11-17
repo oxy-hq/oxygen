@@ -41,6 +41,7 @@ fn input() -> PublishInput {
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,
+        confirm_schedule_removals: Vec::new(),
     }
 }
 

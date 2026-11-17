@@ -26,6 +26,8 @@ interface Received {
   method: string;
   authorization?: string;
   fields: Record<string, string>;
+  /** Every `confirm_schedule_removals` field, in order: it is sent once per function. */
+  confirmations: string[];
   bundle?: Buffer;
   exchangeBody?: string;
 }
@@ -41,6 +43,8 @@ let generalExchange: { status: number; body: unknown } | undefined;
 let publisherRefuses = false;
 /** What the fake answers the upload with. */
 let uploadStatus = 200;
+/** Set: the upload is refused `409` with this body, as production refuses a promoting publish. */
+let productionRefusal: unknown;
 /** What the fake answers the project's database list with. */
 let databasesStatus = 200;
 /**
@@ -73,7 +77,8 @@ beforeAll(async () => {
       path,
       method: req.method ?? "GET",
       authorization: req.headers.authorization,
-      fields: {}
+      fields: {},
+      confirmations: []
     };
     received.push(record);
     const reply = (status: number, value: unknown) => {
@@ -154,6 +159,9 @@ beforeAll(async () => {
         body: raw
       }).formData();
       for (const [name, value] of form.entries()) {
+        if (name === "confirm_schedule_removals" && typeof value === "string") {
+          record.confirmations.push(value);
+        }
         if (typeof value === "string") record.fields[name] = value;
         else record.bundle = Buffer.from(await value.arrayBuffer());
       }
@@ -165,6 +173,7 @@ beforeAll(async () => {
       ) {
         return reply(403, { error: "not an app admin" });
       }
+      if (productionRefusal !== undefined) return reply(409, productionRefusal);
       if (uploadStatus !== 200) return reply(uploadStatus, { error: "nope" });
       const environment = record.fields.environment;
       return reply(200, {
@@ -205,6 +214,7 @@ beforeEach(() => {
   generalExchange = undefined;
   publisherRefuses = false;
   uploadStatus = 200;
+  productionRefusal = undefined;
   databasesStatus = 200;
   workspaces = TWO_WORKSPACES;
 });
@@ -313,6 +323,57 @@ describe("oxyc publish", () => {
     });
     // `--branch` is the app source branch; the semantic branch must not leak into it.
     expect(uploads()[0]?.fields.branch).not.toBe("feat/views");
+  });
+
+  it("--remove-schedule confirms each retired schedule on a promoting publish", async () => {
+    const dir = app();
+    const result = await publish(
+      dir,
+      ["--dir", "out", "--promote", "--remove-schedule", "nightly", "--remove-schedule", "hourly"],
+      { OXY_TOKEN: "good-token" }
+    );
+    expect(result.status, result.stderr).toBe(0);
+    const [upload] = uploads();
+    expect(upload?.fields.channel).toBe("published");
+    expect(upload?.confirmations).toEqual(["nightly", "hourly"]);
+  });
+
+  it("refuses --remove-schedule without --promote before calling the server", async () => {
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out", "--remove-schedule", "nightly"], {
+      OXY_TOKEN: "good-token"
+    });
+    expect(result.status).toBe(ExitCode.USAGE);
+    expect(result.stderr).toContain("--remove-schedule needs --promote");
+    expect(received).toHaveLength(0);
+  });
+
+  it("names each blocker of a refused promoting publish and what to do about it", async () => {
+    productionRefusal = {
+      code: "required_secrets_unset",
+      error: "required_secrets_unset",
+      message: "production refused this promoting publish, so nothing of it was published",
+      blockers: [
+        {
+          code: "required_secrets_unset",
+          message: "the build declares required keys production has no value for: STRIPE_KEY"
+        },
+        {
+          code: "same_person_promote",
+          message: "this app requires a second person to promote"
+        }
+      ]
+    };
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out", "--promote"], { OXY_TOKEN: "good-token" });
+    expect(result.status).toBe(ExitCode.REQUEST);
+    expect(result.stderr).toContain(
+      "production refused this promoting publish (409): required_secrets_unset, same_person_promote"
+    );
+    expect(result.stderr).toContain("STRIPE_KEY");
+    expect(result.stderr).toContain("Secrets panel, on Production");
+    expect(result.stderr).toContain("someone else runs `oxyc promote acme/sales`");
+    expect(result.stderr).toContain("nothing was published, staging included");
   });
 
   it("refuses --semantic-branch with --promote before calling the server", async () => {

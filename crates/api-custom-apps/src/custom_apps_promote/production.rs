@@ -14,7 +14,9 @@
 //!    `staging_never_served` (invariant 1: *production only ever serves a
 //!    build staging has served*, its evidence any `staging` event for the
 //!    build); one whose validation is not `passed` is
-//!    `validation_not_passed`.
+//!    `validation_not_passed`; a promote by the build's own publisher, while
+//!    the app requires a second person, is `same_person_promote` — and so is
+//!    their rollback to a build production never served (`second_person`).
 //! 2. **Migrations, before the pointer** — the build's pending OLTP files,
 //!    then its Airhouse files, re-read from the stored bundle and applied
 //!    through `apply_on_promote` / `apply_airhouse_on_promote` unchanged. A
@@ -24,9 +26,10 @@
 //!    reversed.
 //! 3. **Move, under the app's row lock** — in one transaction holding
 //!    `apps` `FOR UPDATE`, everything in 1 is asked again of the database as
-//!    it is now, then production's pointer moves
-//!    (`custom_apps_environments::record_move`, the one writer of it) with the
-//!    app's `published_at` and promotion stamps.
+//!    it is now — and, for a promote, the app's four-eyes rule
+//!    (`second_person`), read from the locked row — then production's pointer
+//!    moves (`custom_apps_environments::record_move`, the one writer of it)
+//!    with the app's `published_at` and promotion stamps.
 
 use chrono::Utc;
 use entity::{app_builds, apps};
@@ -41,6 +44,7 @@ use uuid::Uuid;
 use super::audit::{MoveAudit, MoveRow, promoted_entry, published_entry};
 use super::blockers::{Act, staging_never_served, validation_not_passed};
 use super::error::PromoteError;
+use super::second_person;
 use super::target::BuildRef;
 use crate::custom_apps_agent_built::AgentBuilt;
 use crate::custom_apps_build_state::{BuildState, PromoteRefusal};
@@ -59,6 +63,11 @@ pub struct ProductionMove {
     /// `Promote` or `Rollback`: what the `production` event records.
     pub action: EnvAction,
     pub actor: Option<Uuid>,
+    /// The machine identity moving production, beside `actor`: a trusted
+    /// publisher's workflow or a CI token's name, as `app_builds.published_via`
+    /// records one. With `actor`, what the four-eyes rule compares against
+    /// the build's publisher (`second_person`).
+    pub actor_via: Option<String>,
     /// `Some(b)`: refuse `409 target_moved` unless production still serves
     /// `b` (`None` inside: serves nothing) when the row is locked.
     pub expect_current: Option<Option<Uuid>>,
@@ -116,8 +125,9 @@ pub async fn move_production_audited(
             .map_err(|e| PromoteError::internal("load the app", e))?
             .ok_or(PromoteError::AppNotFound)?;
         let build = mv.build.resolve(db, &app).await?;
-        check_pointer(db, &app, &build, mv).await?;
+        let previous = check_pointer(db, &app, &build, mv).await?;
         admissible(db, &build).await?;
+        second_person::refuse_same_person(db, &app, &build, mv, previous).await?;
         let applied = apply_migrations(db, &app, &build).await?;
         let txn = db
             .begin()
@@ -176,6 +186,7 @@ async fn move_resolved<C: ConnectionTrait>(
 ) -> Result<apps::Model, PromoteError> {
     let previous = check_pointer(conn, &row, &build, mv).await?;
     admissible(conn, &build).await?;
+    second_person::refuse_same_person(conn, &row, &build, mv, previous).await?;
     let now = Utc::now().fixed_offset();
     let mut active: apps::ActiveModel = row.into();
     active.published_at = ActiveValue::Set(Some(now));

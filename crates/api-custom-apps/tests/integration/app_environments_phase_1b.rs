@@ -95,6 +95,7 @@ pub(crate) async fn two_environments(t: &Tenant) -> (Uuid, Uuid, Uuid) {
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,
+        confirm_schedule_removals: Vec::new(),
     })
     .await
     .expect("an unpromoted publish lands in staging");

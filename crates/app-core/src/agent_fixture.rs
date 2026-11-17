@@ -81,6 +81,7 @@ pub fn app(id: Uuid, org_id: Uuid, workspace_id: Uuid) -> entity::apps::Model {
         repo_path: None,
         last_promoted_by: None,
         last_promoted_at: None,
+        require_second_person_to_promote: false,
         created_at: now,
         updated_at: now,
     }

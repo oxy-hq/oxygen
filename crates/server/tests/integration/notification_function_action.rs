@@ -145,6 +145,7 @@ async fn publish_app(org: Uuid, guest: Uuid) -> Uuid {
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,
+        confirm_schedule_removals: Vec::new(),
     })
     .await
     .expect("an app with a function and a catalogue action publishes")

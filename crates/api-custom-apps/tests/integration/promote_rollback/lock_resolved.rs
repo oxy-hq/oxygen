@@ -40,6 +40,7 @@ fn move_to(agent: &Agent, build: BuildRef) -> ProductionMove {
         build,
         action: EnvAction::Promote,
         actor: Some(agent.t.guest_id),
+        actor_via: None,
         expect_current: None,
         refuse_same: false,
     }

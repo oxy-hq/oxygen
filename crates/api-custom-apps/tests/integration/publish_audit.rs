@@ -43,8 +43,15 @@ async fn every_publish_leaves_one_audit_row_naming_its_environment_and_its_crede
             "dev-a1",
         ),
         (&[("build_id", "draft-1")], false, "staging"),
+        // The app's first build registered `tick`'s production schedule, and
+        // this bundle has no `tick`: a promoting publish confirms retiring it,
+        // as `oxyc promote --remove-schedule` does.
         (
-            &[("build_id", "live-1"), ("promote", "true")],
+            &[
+                ("build_id", "live-1"),
+                ("promote", "true"),
+                ("confirm_schedule_removals", "tick"),
+            ],
             false,
             "production",
         ),

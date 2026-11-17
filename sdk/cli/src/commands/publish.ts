@@ -100,6 +100,11 @@ export interface PublishFlags {
   allowFunctionLint?: boolean;
   /** A `dev-<handle>` sandbox to publish to instead of the draft/live channel. */
   appEnv?: string;
+  /**
+   * With --promote: `--remove-schedule`, once per function whose production
+   * schedule the build retires — the confirmation `oxyc promote` takes.
+   */
+  removeSchedules?: string[];
 }
 
 function envValue(name: string): string | undefined {
@@ -152,6 +157,24 @@ function refuseOutsideOwnSandbox(token: string, flags: PublishFlags): void {
       "compiling a workspace branch is outside what the token reaches — publish without it"
     );
   }
+}
+
+/**
+ * `--remove-schedule` confirms retiring a PRODUCTION schedule, which only a
+ * promoting publish does: refused without --promote, before the build, as the
+ * server refuses it (`400`).
+ */
+export function refuseConfirmationsWithoutPromote(flags: PublishFlags): void {
+  if (flags.promote || (flags.removeSchedules ?? []).length === 0) return;
+  throw usageError(
+    "--remove-schedule needs --promote",
+    "a draft retires no production schedule — confirm the retirement on `oxyc promote` instead"
+  );
+}
+
+/** One `confirm_schedule_removals` field per function, as the server reads them. */
+export function scheduleConfirmations(flags: PublishFlags): Array<[string, string]> {
+  return (flags.removeSchedules ?? []).map((name) => ["confirm_schedule_removals", name]);
 }
 
 /** One manifest build step, output to stderr so stdout stays the result. */
@@ -465,6 +488,7 @@ export async function publish(ctx: Context, flags: PublishFlags): Promise<Publis
   if (flags.semanticBranch !== undefined && !flags.semanticBranch.trim()) {
     throw usageError("--semantic-branch needs a branch name");
   }
+  refuseConfirmationsWithoutPromote(flags);
   if (flags.appEnv !== undefined) {
     // Normalized (and validated) once, here — every later read of
     // `flags.appEnv` can trust it is exactly a `dev-<handle>` name.
@@ -592,7 +616,8 @@ export async function publish(ctx: Context, flags: PublishFlags): Promise<Publis
         ["commit_sha", provenance.commit],
         ["branch", provenance.branch],
         ["semantic_revision_id", semanticRevision],
-        ["environment", flags.appEnv]
+        ["environment", flags.appEnv],
+        ...scheduleConfirmations(flags)
       ]
     });
   } catch (cause) {

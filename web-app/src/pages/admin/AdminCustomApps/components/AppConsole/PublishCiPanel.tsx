@@ -4,6 +4,8 @@ import ROUTES from "@/libs/utils/routes";
 import { CommandSnippet } from "@/pages/admin/components/CommandSnippet";
 import type { CustomApp } from "@/types/apps";
 import { ConsolePanel, PanelRow } from "../ConsolePanel";
+import { PromotionRule } from "./PromotionRule";
+import { gateLine, productionGates } from "./productionGates";
 
 /**
  * How a repo gets to publish this app — Q6.
@@ -32,6 +34,7 @@ import { ConsolePanel, PanelRow } from "../ConsolePanel";
 export const PublishCiPanel = ({ app }: { app: CustomApp }) => {
   const tokens = usePublishTokens();
   const active = tokens.data?.length ?? null;
+  const gates = productionGates(app.require_second_person_to_promote ?? false);
 
   return (
     <ConsolePanel id='ci' title='Publishing & CI' question='Q6 — let a repo publish'>
@@ -68,14 +71,11 @@ export const PublishCiPanel = ({ app }: { app: CustomApp }) => {
 
         {/* Where a publish goes and what refuses a move to production, stated where CI
             is set up. A publish lands on staging. `--promote` (`channel=published`, which
-            a publish token may send) moves production too, in the same request, right
-            after staging. Every production move passes
-            `custom_apps_promote::production::admissible`: staging served the build, and
-            its validation passed. Only the plan routes, Promote to production and
-            rollback (also `oxyc promote` and `oxyc rollback`), run all of
-            `custom_apps_promote/blockers.rs`, which adds required secrets and unconfirmed
-            schedule retirements. A promoting publish checks neither
-            (`custom_apps_publish::set_pointers`). */}
+            a publish token may send) moves production too, in the same request. All
+            three paths below run the blockers in `custom_apps_promote/blockers.rs`; a
+            promoting publish runs them before anything of it lands
+            (`custom_apps_publish/production_gate.rs`), so a refusal leaves staging where
+            it was too. The list is `productionGates`, which is tested. */}
         <div
           className='space-y-1 border-border/60 border-t pt-2'
           data-testid='apps-console-ci-gates'
@@ -85,22 +85,20 @@ export const PublishCiPanel = ({ app }: { app: CustomApp }) => {
             <code className='font-mono'>--promote</code> it moves production too, straight from CI.
             Production also moves by Promote to production or a rollback.
           </p>
-          <p className='text-muted-foreground text-xs'>
-            Every move to production refuses a build that:
-          </p>
+          <p className='text-muted-foreground text-xs'>All three refuse a build that:</p>
           <ul className='list-disc space-y-0.5 pl-4 text-muted-foreground text-xs'>
-            <li>staging never served (a promoting publish serves it on staging first);</li>
-            <li>has not passed validation.</li>
+            {gates.map((gate) => (
+              <li key={gate.code} data-testid={`apps-console-ci-gate-${gate.code}`}>
+                {gateLine(gate)}
+              </li>
+            ))}
           </ul>
           <p className='text-muted-foreground text-xs'>
-            Promote to production and a rollback also refuse one that:
+            A refused promoting publish publishes nothing, staging included.
           </p>
-          <ul className='list-disc space-y-0.5 pl-4 text-muted-foreground text-xs'>
-            <li>declares a required secret production has no value for (a rollback only warns);</li>
-            <li>would retire a schedule nobody confirmed.</li>
-          </ul>
-          <p className='text-muted-foreground text-xs'>A promoting publish checks neither.</p>
         </div>
+
+        <PromotionRule app={app} />
       </div>
     </ConsolePanel>
   );

@@ -30,7 +30,7 @@ use uuid::Uuid;
 
 use crate::common::demo_workspace_id;
 use crate::custom_app_functions_fixture::{
-    FunctionSpec, Tenant, invocations, publish_app, seeded_tenant,
+    BUILD_ID, FunctionSpec, Tenant, invocations, promote_staging, publish_build, seeded_tenant,
 };
 use crate::env_schedules::{publish_sandbox, run_spec};
 use crate::sandbox_publish::{app_row, sandbox};
@@ -81,16 +81,20 @@ async fn set_secret(t: &Tenant, app: Uuid, environment: Option<&str>, value: &st
 /// sandbox holds none of its own.
 async fn hooked_app(t: &Tenant, slug: &str) -> apps::Model {
     use_a_fixed_encryption_key();
-    let app_id = publish_app(t, slug, demo_workspace_id(), &[hook()])
+    // The hook's signing key is required by construction, and production
+    // refuses a build declaring a required key it holds no value for — a
+    // promoting publish included. So: publish, set production's key, promote.
+    let app_id = publish_build(t, slug, demo_workspace_id(), BUILD_ID, false, &[hook()])
         .await
         .app_id;
+    set_secret(t, app_id, None, "prod-key").await;
+    promote_staging(t, app_id).await;
     make_guest_staff();
     let app = app_row(&t.db, app_id).await;
     ops::create(&t.db, &app, &sandbox("a1"), &t.guest())
         .await
         .expect("create the sandbox");
     publish_sandbox(t, slug, "sbx-1", "a1", &[hook()]).await;
-    set_secret(t, app.id, None, "prod-key").await;
     set_secret(t, app.id, Some("staging"), "stg-key").await;
     app
 }

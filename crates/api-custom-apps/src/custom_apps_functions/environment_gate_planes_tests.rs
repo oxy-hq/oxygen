@@ -160,6 +160,7 @@ async fn production_asks_the_database_nothing() {
         repo_path: None,
         last_promoted_by: None,
         last_promoted_at: None,
+        require_second_person_to_promote: false,
         created_at: Utc::now().fixed_offset(),
         updated_at: Utc::now().fixed_offset(),
     };

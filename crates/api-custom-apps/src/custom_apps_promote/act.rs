@@ -29,6 +29,7 @@ use super::plan::{self, Plan};
 use super::production::{self, ProductionMove, describe};
 use super::resolve::{self, PromoteRequest, Resolved, RollbackRequest};
 use super::schedules;
+use super::second_person::{self, Identity};
 use super::staging::{self, StagingMove};
 use crate::custom_apps_auth;
 use crate::custom_apps_environments::EnvAction;
@@ -88,7 +89,12 @@ async fn execute(
     // A build a sandbox agent token published is refused before it is
     // planned, as every promote path refuses it — and again by the move.
     production::refuse_agent_built(db, &r.build).await?;
-    let mut plan = plan::build(db, &r, opts.confirmed).await?;
+    let mover = Identity::of_user(&actor.user);
+    let asked = plan::Asked {
+        confirmed: opts.confirmed,
+        mover: &mover,
+    };
+    let mut plan = plan::build(db, &r, asked).await?;
     if opts.dry_run {
         return Ok(plan);
     }
@@ -141,6 +147,7 @@ async fn move_pointer(
         build: r.build.id.into(),
         action,
         actor: Some(actor.user.id),
+        actor_via: second_person::via_of(&actor.user),
         expect_current: Some(expected),
         refuse_same: true,
     };

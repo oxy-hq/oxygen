@@ -298,6 +298,7 @@ async fn create_app_unscoped(
         // Leave to the DB default ('org'): a new app is org-visible unless
         // explicitly restricted later.
         visibility: sea_orm::ActiveValue::NotSet,
+        require_second_person_to_promote: sea_orm::ActiveValue::NotSet,
         id: ActiveValue::Set(id),
         slug: ActiveValue::Set(slug),
         name: ActiveValue::Set(req.name),
@@ -1276,6 +1277,7 @@ pub async fn rollback_app(
         build: build.id.into(),
         action: crate::custom_apps_environments::EnvAction::Rollback,
         actor: Some(actor.user.id),
+        actor_via: crate::custom_apps_promote::second_person::via_of(&actor.user),
         expect_current: None,
         refuse_same: false,
     };

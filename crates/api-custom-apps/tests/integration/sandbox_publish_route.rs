@@ -128,12 +128,16 @@ async fn the_environment_field_selects_a_sandbox_and_every_publish_names_its_env
         draft["environment_url"],
         format!("https://staging--local--{slug}.customer-apps-dev.oxygen-hq.com/")
     );
+    // The app's first build registered `tick`'s production schedule, and
+    // this bundle has no `tick`: a promoting publish confirms retiring it, as
+    // `oxyc promote --remove-schedule` does.
     let (status, body) = publish(
         slug,
         &[
             ("build_id", "live-1"),
             ("environment", ""),
             ("promote", "true"),
+            ("confirm_schedule_removals", "tick"),
         ],
         false,
     )

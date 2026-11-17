@@ -5,7 +5,8 @@
 //! none is renamed here. What each one means — `org` accepts a slug or a UUID,
 //! `org_id` is the explicit UUID alias that wins when both are sent, `channel`
 //! and `promote` are two spellings of one flag, `project` and `project_id` are
-//! one field — is the handler's business and is decided here, once.
+//! one field, `confirm_schedule_removals` is sent once per function — is the
+//! handler's business and is decided here, once.
 
 use axum::extract::Multipart;
 use axum::http::StatusCode;
@@ -32,6 +33,8 @@ pub struct PublishForm {
     /// A sandbox to publish to (`dev-<handle>`); absent or empty is the
     /// publish this route always made.
     pub environment: Option<String>,
+    /// A promoting publish's confirmed schedule retirements, by function.
+    pub confirm_schedule_removals: Vec<String>,
 }
 
 /// Every field as it arrived, before validation. A `_invalid` holds a value
@@ -55,6 +58,7 @@ struct RawFields {
     semantic_revision_id: Option<Uuid>,
     semantic_revision_invalid: Option<String>,
     environment: Option<String>,
+    confirm_schedule_removals: Vec<String>,
 }
 
 fn bad_request(message: String) -> PublishRefusal {
@@ -81,6 +85,8 @@ impl RawFields {
             "source_repo" => self.source_repo = non_empty(val),
             "commit_sha" => self.commit_sha = non_empty(val),
             "environment" => self.environment = Some(val),
+            // Repeated, one function each, as `oxyc promote` sends the list.
+            "confirm_schedule_removals" => self.confirm_schedule_removals.extend(non_empty(val)),
             "channel" => self.promote = val == "published",
             "promote" => self.promote = val == "true" || val == "1",
             // Staging pin (`--semantic-branch`). Not `branch`, which is the
@@ -183,6 +189,7 @@ impl PublishForm {
         if let Some(bad) = raw.org_id_invalid {
             return Err(bad_request(format!("org_id is not a valid UUID: {bad:?}")));
         }
+        refuse_confirmations_without_promote(&raw)?;
         // No org sent — `publish` infers it from the pinned workspace (a
         // workspace belongs to exactly one org), which is why the workspace
         // is required and the refusal names the flag that sets it.
@@ -216,6 +223,7 @@ impl PublishForm {
             commit_sha: raw.commit_sha,
             semantic_revision_id: raw.semantic_revision_id,
             environment: raw.environment,
+            confirm_schedule_removals: raw.confirm_schedule_removals,
         })
     }
 
@@ -239,8 +247,23 @@ impl PublishForm {
             machine_app_id: publisher.machine_app_id,
             published_via: publisher.published_via,
             semantic_revision_id: self.semantic_revision_id,
+            confirm_schedule_removals: self.confirm_schedule_removals,
         }
     }
+}
+
+/// A confirmed retirement belongs to a promoting publish: a draft retires no
+/// production schedule, so a confirmation sent with one is a `400`, not
+/// silently ignored — it says the publisher meant to promote.
+fn refuse_confirmations_without_promote(raw: &RawFields) -> Result<(), PublishRefusal> {
+    if raw.promote || raw.confirm_schedule_removals.is_empty() {
+        return Ok(());
+    }
+    Err(bad_request(format!(
+        "confirm_schedule_removals ({}) confirms retiring a production schedule, which only a \
+         promoting publish does: add --promote (channel=published), or drop --remove-schedule",
+        raw.confirm_schedule_removals.join(", ")
+    )))
 }
 
 #[cfg(test)]
@@ -270,6 +293,30 @@ mod tests {
         let id = Uuid::new_v4();
         raw.take_text("project", id.to_string());
         assert_eq!(raw.project_id, Some(id));
+    }
+
+    /// One function per field, as `oxyc publish --remove-schedule` repeats
+    /// it; an empty one is omitted like every other field.
+    #[test]
+    fn schedule_confirmations_collect_one_function_per_field() {
+        let mut raw = RawFields::default();
+        raw.take_text("confirm_schedule_removals", "nightly".into());
+        raw.take_text("confirm_schedule_removals", "".into());
+        raw.take_text("confirm_schedule_removals", "hourly".into());
+        assert_eq!(raw.confirm_schedule_removals, vec!["nightly", "hourly"]);
+    }
+
+    /// A confirmation needs a promote to confirm anything.
+    #[test]
+    fn a_confirmation_without_promote_is_refused() {
+        let mut raw = RawFields::default();
+        assert!(refuse_confirmations_without_promote(&raw).is_ok());
+        raw.take_text("confirm_schedule_removals", "nightly".into());
+        let refused = refuse_confirmations_without_promote(&raw).expect_err("a draft");
+        let text = format!("{refused:?}");
+        assert!(text.contains("400") && text.contains("nightly"), "{text}");
+        raw.take_text("channel", "published".into());
+        assert!(refuse_confirmations_without_promote(&raw).is_ok());
     }
 
     #[test]

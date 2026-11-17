@@ -23,7 +23,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::common::demo_workspace_id;
-use crate::custom_app_functions_fixture::{FunctionSpec, Tenant, seeded_tenant};
+use crate::custom_app_functions_fixture::{FunctionSpec, Tenant, promote_staging, seeded_tenant};
 use crate::staging_function_homes::publish_env_build;
 use crate::staging_functions::make_guest_staff;
 use crate::staging_secrets_admin::{
@@ -72,18 +72,21 @@ async fn a_named_build_is_reconciled_against_productions_keys() {
     let t = seeded_tenant().await;
     let live = json!({ "OLD": { "required": true } });
     let next = json!({ "OLD": { "required": true }, "NEW": { "required": true } });
-    let app = publish_env_build(&t, "promote-warn", &[noop()], live, "pw-1", true)
+    // Production refuses a build declaring a required key it has no value
+    // for, so OLD is set before pw-1 goes live: publish, set, promote.
+    let app = publish_env_build(&t, "promote-warn", &[noop()], live, "pw-1", false)
         .await
-        .expect("live build")
+        .expect("pw-1 on staging")
         .app_id;
-    publish_env_build(&t, "promote-warn", &[noop()], next, "pw-2", false)
-        .await
-        .expect("staging's draft");
     make_guest_staff();
     let staff = || user(t.guest_id, LOCAL_GUEST_EMAIL);
     admin_set(Path(app), staff(), None, request("OLD", "v", None))
         .await
         .expect("production has OLD");
+    promote_staging(&t, app).await;
+    publish_env_build(&t, "promote-warn", &[noop()], next, "pw-2", false)
+        .await
+        .expect("staging's draft");
 
     let view = |build| async move {
         admin_list(

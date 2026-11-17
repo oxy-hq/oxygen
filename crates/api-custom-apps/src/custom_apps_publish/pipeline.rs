@@ -1,13 +1,14 @@
 //! The publish as a pipeline of stages: admit → inflate → store → record →
-//! promote → point → after. A child of `custom_apps_publish`, which owns the
+//! gate → promote → point → after. A child of `custom_apps_publish`, which owns the
 //! types and the helpers each stage calls; this file owns the order, and
 //! [`OrphanGuard`] the one compensation that undoes a publish that failed
 //! after it started writing.
 //!
 //! `admit` and `inflate` write nothing. The app row is then upserted and the
-//! guard armed; `store`, `record`, `promote` and `point` run under it, so a
-//! failure in any of them undoes whatever was written so far, once. `after`
-//! cannot fail the publish.
+//! guard armed; `store`, `record`, `gate`, `promote` and `point` run under it,
+//! so a failure in any of them undoes whatever was written so far, once — a
+//! promoting publish production refuses (`production_gate`) included, staging
+//! half and all. `after` cannot fail the publish.
 //!
 //! Each stage is clocked under its [`Stage`] name, and every publish whose
 //! caller is authorized for the app — landed or refused — leaves one attempt
@@ -24,6 +25,7 @@ use uuid::Uuid;
 use super::admit::{admit, authorize};
 use super::inflate::{Inflated, inflate};
 use super::orphan::OrphanGuard;
+use super::production_gate;
 use super::{
     PROMOTING_PUBLISH_DEPRECATED, PublishError, PublishInput, PublishResult, PublishTarget,
     app_row_for, asset_manifest, build_id_taken, cache, drop_resolution_cache, env_schedules,
@@ -170,6 +172,8 @@ async fn write(
     let stored = clock.run(Stage::Store, store_bytes(ctx, files)).await?;
     guard.bytes_stored();
     let build_pk = clock.run(Stage::Record, record(ctx, guard, stored)).await?;
+    let gate = production_gate::check(ctx.db, ctx.app_id, build_pk, ctx.input);
+    clock.run(Stage::Gate, gate).await?;
     clock.run(Stage::Promote, promote(ctx, build_pk)).await?;
     let warnings = clock.run(Stage::Point, point(ctx, build_pk)).await?;
     Ok((build_pk, warnings))

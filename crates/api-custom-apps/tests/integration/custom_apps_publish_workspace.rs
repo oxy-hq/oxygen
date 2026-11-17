@@ -136,6 +136,7 @@ fn input(t: &Tenant, slug: &str, project_id: Uuid, build_id: &str) -> PublishInp
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,
+        confirm_schedule_removals: Vec::new(),
     }
 }
 

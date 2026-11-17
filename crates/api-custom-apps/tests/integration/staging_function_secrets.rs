@@ -14,7 +14,9 @@ use oxy_api_custom_apps::custom_apps_publish::PublishError;
 use serde_json::json;
 
 use crate::common::demo_workspace_id;
-use crate::custom_app_functions_fixture::{FunctionSpec, seeded_tenant};
+use crate::custom_app_functions_fixture::{
+    FunctionSpec, promote_staging, seeded_tenant, set_production_secret,
+};
 use crate::staging_function_homes::{call, publish_env_build, publish_with_env};
 use crate::staging_functions::{data, make_guest_staff, production_host, staging_host};
 
@@ -253,9 +255,21 @@ async fn publish_refuses_shared_on_a_key_productions_build_writes() {
         manifest: json!({ "route": true, "webhook": { "secretVar": "SIGNING_KEY" } }),
         js: "export default async () => Response.json({});",
     };
-    publish_env_build(&t, app, &[writer, hook], json!({}), "pw-prod", true)
+    // The hook's signing key is required by construction, and production
+    // refuses a build declaring a required key it holds no value for — a
+    // promoting publish included. So: publish, set production's key, promote.
+    let published = publish_env_build(&t, app, &[writer, hook], json!({}), "pw-prod", false)
         .await
         .unwrap();
+    set_production_secret(
+        &t,
+        demo_workspace_id(),
+        published.app_id,
+        "SIGNING_KEY",
+        "prod",
+    )
+    .await;
+    promote_staging(&t, published.app_id).await;
     let err = publish_env_build(
         &t,
         app,

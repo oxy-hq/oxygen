@@ -870,6 +870,7 @@ async fn a_build_from_before_the_events_stays_a_rollback_target() {
         build: old.into(),
         action: EnvAction::Rollback,
         actor: Some(actor),
+        actor_via: None,
         expect_current: None,
         refuse_same: false,
     };

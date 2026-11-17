@@ -26,6 +26,7 @@ pub const STAGING_NEVER_SERVED: &str = "staging_never_served";
 pub const VALIDATION_NOT_PASSED: &str = "validation_not_passed";
 pub const REQUIRED_SECRETS_UNSET: &str = "required_secrets_unset";
 pub const SCHEDULE_REMOVAL_UNCONFIRMED: &str = "schedule_removal_unconfirmed";
+pub const SAME_PERSON_PROMOTE: &str = "same_person_promote";
 
 /// The code a failed migration is answered with, whatever its status.
 pub const MIGRATION_FAILED: &str = "migration_failed";

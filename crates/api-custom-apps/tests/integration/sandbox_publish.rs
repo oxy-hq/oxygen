@@ -97,6 +97,7 @@ pub(crate) fn input(t: &Tenant, slug: &str, build_id: &str, tarball: Vec<u8>) ->
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,
+        confirm_schedule_removals: Vec::new(),
     }
 }
 

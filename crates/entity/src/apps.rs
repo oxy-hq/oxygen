@@ -74,6 +74,16 @@ pub struct Model {
     /// so adding a tier later doesn't need a type migration.
     #[sea_orm(default_value = "org")]
     pub visibility: String,
+    /// The app's four-eyes rule. When `true`, production refuses a
+    /// **promote** by the identity that published the build: the same user,
+    /// or the same CI workflow or token (`custom_apps_promote::second_person`).
+    /// A rollback to a build production served before, the emergency path,
+    /// is exempt; one to a build it never served is a promote. `false` until
+    /// an app admin turns it on; `serde(default)` so a payload from before
+    /// the column still deserializes.
+    #[sea_orm(default_value = false)]
+    #[serde(default)]
+    pub require_second_person_to_promote: bool,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
     #[sea_orm(
@@ -137,6 +147,7 @@ mod tests {
             last_promoted_by: None,
             last_promoted_at: None,
             visibility: "org".into(),
+            require_second_person_to_promote: false,
             created_at: Default::default(),
             updated_at: Default::default(),
         };
