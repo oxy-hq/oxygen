@@ -77,6 +77,28 @@ pub async fn transition_run(
     answer: Option<&str>,
     error_message: Option<&str>,
 ) -> Result<(), DbErr> {
+    transition_run_in(
+        db,
+        run_id,
+        task_status,
+        task_metadata,
+        answer,
+        error_message,
+    )
+    .await
+}
+
+/// [`transition_run`] on any connection, so a caller can make the transition
+/// part of its own transaction (the stream notification is a `pg_notify`,
+/// which Postgres delivers at commit).
+pub async fn transition_run_in<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    run_id: &str,
+    task_status: &str,
+    task_metadata: Option<Value>,
+    answer: Option<&str>,
+    error_message: Option<&str>,
+) -> Result<(), DbErr> {
     let mut model = run::ActiveModel {
         id: Set(run_id.to_string()),
         task_status: Set(Some(task_status.to_string())),

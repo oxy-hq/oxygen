@@ -28,6 +28,7 @@
 //! a person asking again is the retry here.
 
 mod from_git;
+mod main_source;
 mod status;
 mod working_copy;
 
@@ -37,6 +38,7 @@ use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 pub use from_git::NotFromGit;
+pub use main_source::{MainSource, main_source};
 pub use status::{CompileState, compile_task_in_flight, status};
 
 use from_git::Unresolved;

@@ -324,3 +324,126 @@ async fn a_git_source_compile_is_checked_then_queued_as_its_own_kind() {
         "a git compile must not be queued as the kind only the Factory takes"
     );
 }
+
+// A working-copy compile only a node that holds the files can claim.
+//
+// INC-164: prod has no IDE node, so `compile` (`from_git: false`) rows queued by
+// "Run compile now" were never claimed. The default source now resolves the
+// workspace's branch on GitHub first, as `compile_request` does.
+
+const HEAD: &str = "0123456789abcdef0123456789abcdef01234567";
+
+/// A workspace GitHub serves (`acme/analytics`, PAT connection) with a promoted
+/// revision, so a commit compile may claim it. `main` is at `HEAD` when
+/// `branch_exists`; otherwise GitHub answers 404 for it.
+async fn github_workspace(w: &World, branch_exists: bool) -> (wiremock::MockServer, Uuid) {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    let github = MockServer::start().await;
+    // SAFETY: nextest runs each test in its own process (`test_db_with` asserts it).
+    unsafe { std::env::set_var("GITHUB_API_URL", github.uri()) };
+    if branch_exists {
+        Mock::given(method("GET"))
+            .and(path("/repos/acme/analytics/commits/heads/main"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(HEAD))
+            .mount(&github)
+            .await;
+    }
+    let ws = crate::compile_from_git::seed_workspace(&w.db, None).await;
+    let rev = revision(&w.db, ws).await;
+    let mut row: workspaces::ActiveModel = workspaces::Entity::find_by_id(ws)
+        .one(&w.db)
+        .await
+        .unwrap()
+        .unwrap()
+        .into();
+    row.current_revision_id = ActiveValue::Set(Some(rev));
+    row.update(&w.db).await.expect("promote a revision");
+    (github, ws)
+}
+
+#[tokio::test]
+async fn run_compile_now_queues_the_commit_github_has_when_it_can_serve_the_branch() {
+    let w = world().await;
+    let (_github, ws) = github_workspace(&w, true).await;
+
+    let body = RunCompileRequest {
+        workspace_id: ws,
+        git_sha: None,
+        branch: None,
+        promote: true,
+        source: CompileSource::default(),
+    };
+    let queued = reply(run_compile_now(as_actor(&w.unbounded), Json(body)).await).await;
+    assert_eq!(queued.status, StatusCode::OK, "{}", queued.body);
+    assert_eq!(
+        runs_of(&w.db, ws, "compile").await,
+        0,
+        "a working-copy compile no node here can claim"
+    );
+    assert_eq!(runs_of(&w.db, ws, "compile_git").await, 1);
+    let at_head = Count::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT COUNT(*) AS n FROM agentic_task_queue WHERE spec->>'workspace_id' = $1 \
+         AND spec->>'git_sha' = $2 AND spec->>'from_git' = 'true'",
+        [ws.to_string().into(), HEAD.into()],
+    ))
+    .one(&w.db)
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(at_head.n, 1);
+}
+
+/// GitHub cannot serve the branch and this process holds no working copy: the
+/// operator is told why, and nothing is queued for a node that does not exist.
+#[tokio::test]
+async fn a_compile_nothing_here_can_claim_is_refused_not_queued() {
+    use oxy_app::server::api::admin::compiles::source::enqueue_main;
+    use oxy_app::server::compile_request::Refusal;
+    let w = world().await;
+    let (_github, ws) = github_workspace(&w, false).await;
+
+    let refused = enqueue_main(&w.db, ws, None, None, true, false)
+        .await
+        .expect_err("no commit and no working copy");
+    assert!(
+        matches!(refused, Refusal::NeedsWorkingCopy { .. }),
+        "{refused:?}"
+    );
+    assert!(
+        refused.to_string().contains("holds no working copy"),
+        "{refused}"
+    );
+    assert_eq!(runs_of(&w.db, ws, "compile").await, 0);
+    assert_eq!(runs_of(&w.db, ws, "compile_git").await, 0);
+    let rows = Count::find_by_statement(Statement::from_string(
+        DatabaseBackend::Postgres,
+        "SELECT COUNT(*) AS n FROM agentic_task_queue".to_string(),
+    ))
+    .one(&w.db)
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(rows.n, 0, "a refused compile wrote a queue row");
+
+    // No default branch recorded and none named: the same refusal, not a guess.
+    let no_branch = enqueue_main(&w.db, w.ws_a, None, None, true, false)
+        .await
+        .expect_err("nothing says which branch to ask GitHub about");
+    assert!(matches!(no_branch, Refusal::Conflict(_)), "{no_branch:?}");
+}
+
+/// A process that does hold the workspace's files compiles them, as it always did.
+#[tokio::test]
+async fn a_process_that_owns_the_working_copy_still_compiles_it() {
+    use oxy_app::server::api::admin::compiles::source::enqueue_main;
+    let w = world().await;
+    let (_github, ws) = github_workspace(&w, false).await;
+
+    enqueue_main(&w.db, ws, None, None, true, true)
+        .await
+        .expect("queued");
+    assert_eq!(runs_of(&w.db, ws, "compile").await, 1);
+    assert_eq!(runs_of(&w.db, ws, "compile_git").await, 0);
+}

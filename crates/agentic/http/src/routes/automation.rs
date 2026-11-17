@@ -323,9 +323,22 @@ pub async fn cancel_automation_run(
         // about 5 s; writing `failed` here would close it under that driver.
         // A scoped run's coordinator lives in this process, so no channel
         // here still means case 1 or 2.
-        let held_elsewhere = agentic_pipeline::queued_run::held_by_the_queue(&state.db, &run_id)
-            .await
-            .unwrap_or(false);
+        let mut held_elsewhere =
+            agentic_pipeline::queued_run::held_by_the_queue(&state.db, &run_id)
+                .await
+                .unwrap_or(false);
+        // ...unless no driver ever took it, in which case none may ever come:
+        // close it here, atomically with its queue entry.
+        if held_elsewhere
+            && agentic_pipeline::queued_run::close_if_never_claimed(&state.db, &run_id)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(%run_id, error = %e, "cancel: closing a never-claimed run failed");
+                    false
+                })
+        {
+            held_elsewhere = false;
+        }
         // Gate the write on `task_status` being non-terminal. The
         // status enum lives in `crud::user_facing_status`:
         // `done | failed | cancelled | timed_out` are terminal,

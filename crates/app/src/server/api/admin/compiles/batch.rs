@@ -10,7 +10,8 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{BATCH_MAX_IDS, connect, error_body, insert_run_and_enqueue_compile, promote_one};
+use super::source::enqueue_main;
+use super::{BATCH_MAX_IDS, connect, error_body, promote_one};
 use crate::server::api::admin::scope;
 
 // POST /admin/compiles/batch/run — enqueue a compile per workspace
@@ -106,11 +107,12 @@ async fn run_one_compile(
             StatusCode::NOT_FOUND => format!("workspace {workspace_id} not found"),
             _ => "platform grant could not be read".to_string(),
         })?;
-    insert_run_and_enqueue_compile(db, workspace_id, None, None, promote)
+    let owns = crate::server::role_manifest::process_can_compile();
+    enqueue_main(db, workspace_id, None, None, promote, owns)
         .await
         .map_err(|e| {
-            tracing::error!(?e, %workspace_id, "admin/compiles: batch enqueue failed");
-            format!("{e}")
+            tracing::warn!(%e, %workspace_id, "admin/compiles: batch enqueue refused");
+            e.to_string()
         })
 }
 

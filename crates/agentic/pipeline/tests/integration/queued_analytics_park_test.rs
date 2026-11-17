@@ -517,3 +517,71 @@ async fn an_interrupted_continuation_is_recovered_not_continued() {
         );
     }
 }
+
+/// `close_if_never_claimed` closes a queued Global run no driver ever took,
+/// atomically with its queue rows, and nothing else: not a claimed entry, not
+/// a run under a live lease, not a scoped entry, not one already ended.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancel_closes_a_run_only_while_it_was_never_claimed() {
+    use agentic_pipeline::queued_run::close_if_never_claimed;
+    let Some(db) = test_db().await else {
+        eprintln!("skipping: no DB available");
+        return;
+    };
+    let ws = Uuid::new_v4();
+    let seeded = || async {
+        let q = seed(ws);
+        seed_queued_analytics_run(&db, &q).await.expect("seed");
+        q.run_id
+    };
+
+    // Claimed: its driver's.
+    let claimed = seeded().await;
+    set_entry(&db, &claimed, "queue_status = 'claimed', claim_count = 1").await;
+    assert!(!close_if_never_claimed(&db, &claimed).await.unwrap());
+
+    // Live lease on a still-queued entry: its driver's.
+    let leased = seeded().await;
+    assert!(crud::try_acquire_driver(&db, &leased, "pod").await.unwrap());
+    assert!(!close_if_never_claimed(&db, &leased).await.unwrap());
+
+    // Scoped: its coordinator's.
+    let scoped = seeded().await;
+    set_entry(&db, &scoped, "scope_owned = true").await;
+    assert!(!close_if_never_claimed(&db, &scoped).await.unwrap());
+    for id in [&claimed, &leased, &scoped] {
+        let run = crud::get_run(&db, id).await.unwrap().unwrap();
+        assert_ne!(run.task_status.as_deref(), Some("cancelled"), "{id}");
+    }
+
+    // Never claimed: closed, with a stale lease no obstacle.
+    let open = seeded().await;
+    assert!(
+        crud::try_acquire_driver(&db, &open, "dead-pod")
+            .await
+            .unwrap()
+    );
+    expire_lease(&db, &open).await;
+    assert!(close_if_never_claimed(&db, &open).await.unwrap());
+    let run = crud::get_run(&db, &open).await.unwrap().unwrap();
+    assert_eq!(run.task_status.as_deref(), Some("cancelled"));
+    assert_eq!(run.error_message.as_deref(), Some("cancelled by user"));
+    assert!(run.driver_id.is_none());
+    let entry = crud::get_queue_entry(&db, &open).await.unwrap().unwrap();
+    assert_eq!(entry.queue_status, "cancelled");
+    assert!(
+        !close_if_never_claimed(&db, &open).await.unwrap(),
+        "an ended run stays as it ended"
+    );
+}
+
+async fn expire_lease(db: &DatabaseConnection, run_id: &str) {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agentic_runs SET driver_heartbeat_at = now() - interval '1 hour' WHERE id = $1",
+        [run_id.into()],
+    ))
+    .await
+    .expect("expire the lease");
+}

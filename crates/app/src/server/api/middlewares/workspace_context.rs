@@ -1100,13 +1100,80 @@ const RECENT_COMPILE_TASKS_SQL: &str = "SELECT queue_status, updated_at FROM age
      ORDER BY updated_at DESC \
      LIMIT $2";
 
+/// How long a working-copy compile (`from_git: false`) may sit unclaimed before
+/// it is treated as having no node that can take it.
+///
+/// Only a process that owns the workspace's files (an IDE node) claims one
+/// (`compile_worker`'s `!from_git && !process_can_compile()` refusal), and it
+/// polls about every second. Unclaimed for ten minutes, there is no such node in
+/// this deployment (prod has none: INC-164), so the row would sit `queued`
+/// forever, its run showing `running`, and — counted as "in flight" — swallow
+/// every later commit compile of a new head.
+const WORKING_COPY_UNCLAIMED_BOUND_SECS: i64 = 10 * 60;
+
+/// Why a retired working-copy compile's run says it ended.
+const WORKING_COPY_UNCLAIMED_REASON: &str = "no node in this deployment holds a working copy; \
+     unclaimed for 10 min";
+
 /// The in-flight check for the lazy self-heal. A queued STAGING compile is not
-/// a compile of the workspace's main revision, so it must not suppress one.
+/// a compile of the workspace's main revision, so it must not suppress one, and
+/// neither does a working-copy compile nothing can claim (`$2` = the bound).
 const IN_FLIGHT_MAIN_COMPILE_SQL: &str = "SELECT 1 FROM agentic_task_queue \
      WHERE queue_status IN ('queued', 'claimed') \
        AND spec->>'type' = 'compile' \
        AND spec->>'workspace_id' = $1 \
        AND COALESCE(spec->>'kind', 'main') = 'main' \
+       AND NOT (COALESCE(spec->>'from_git', 'false') = 'false' \
+                AND queue_status = 'queued' \
+                AND claim_count = 0 \
+                AND created_at < now() - make_interval(secs => $2::double precision)) \
+     LIMIT 1";
+
+/// Retire the stranded working-copy compiles of one workspace (`$1`), and end
+/// their runs. The queue row goes `cancelled`, not `failed`: a failure would
+/// start the self-heal backoff (`compile_task_status_is_failure`) and delay the
+/// commit compile about to be queued, while a cancel breaks the failure run
+/// (`leading_failure_count`) — nothing was attempted. The run is `cancelled`
+/// too, with the reason in `error_message`: it keeps `failed_runs` in workspace
+/// health honest, since no compile ran.
+const RETIRE_UNCLAIMED_WORKING_COPY_SQL: &str = "WITH retired AS ( \
+       UPDATE agentic_task_queue SET queue_status = 'cancelled', updated_at = now() \
+       WHERE spec->>'type' = 'compile' \
+         AND spec->>'workspace_id' = $1 \
+         AND COALESCE(spec->>'kind', 'main') = 'main' \
+         AND COALESCE(spec->>'from_git', 'false') = 'false' \
+         AND queue_status = 'queued' \
+         AND claim_count = 0 \
+         AND created_at < now() - make_interval(secs => $2::double precision) \
+       RETURNING run_id), \
+     runs AS ( \
+       UPDATE agentic_runs SET task_status = 'cancelled', error_message = $3, \
+           driver_id = NULL, driver_heartbeat_at = NULL, updated_at = now() \
+       WHERE id IN (SELECT run_id FROM retired) \
+         AND (task_status IS NULL OR task_status NOT IN ('done', 'failed', 'cancelled', 'timed_out')) \
+       RETURNING 1) \
+     SELECT (SELECT count(*) FROM retired)::bigint AS n";
+
+/// How long a retired working-copy compile counts as evidence that no node in
+/// this deployment claims one. While it does, the working-copy self-heal queues
+/// no replacement: the new row would be unclaimable too, and would count as in
+/// flight for [`WORKING_COPY_UNCLAIMED_BOUND_SECS`], deduping every commit
+/// compile hand-off in that window. An hour, so a deployment whose IDE node was
+/// only briefly down resumes working-copy self-heal within the hour.
+const RETIRED_WORKING_COPY_MEMORY_SECS: i64 = 60 * 60;
+
+/// Whether `$1`'s workspace has a working-copy compile that was retired (or
+/// cancelled) recently after waiting out the whole unclaimed bound (`$3`) with
+/// no claim, within the memory window (`$2`).
+const RECENTLY_RETIRED_WORKING_COPY_SQL: &str = "SELECT 1 FROM agentic_task_queue \
+     WHERE spec->>'type' = 'compile' \
+       AND spec->>'workspace_id' = $1 \
+       AND COALESCE(spec->>'kind', 'main') = 'main' \
+       AND COALESCE(spec->>'from_git', 'false') = 'false' \
+       AND queue_status = 'cancelled' \
+       AND claim_count = 0 \
+       AND updated_at > now() - make_interval(secs => $2::double precision) \
+       AND updated_at - created_at >= make_interval(secs => $3::double precision) \
      LIMIT 1";
 
 /// Length of the leading run of failures in a NEWEST-FIRST status list.
@@ -1443,12 +1510,31 @@ pub(crate) async fn enqueue_compile_deduped_as(
         return;
     }
 
+    let retired = retire_stranded_working_copy_compiles(&txn, workspace_id).await;
+    // No node here claims a working-copy compile, so another would only be
+    // retired in turn — and, queued, would dedupe every commit hand-off meanwhile.
+    if !how.from_git && (retired > 0 || recently_retired_working_copy(&txn, workspace_id).await) {
+        tracing::warn!(
+            %workspace_id,
+            %reason,
+            retired,
+            "lazy compile: no node claims a working-copy compile here; not queueing another"
+        );
+        if let Err(e) = txn.commit().await {
+            tracing::warn!(?e, %workspace_id, "lazy compile: committing the retire failed");
+        }
+        return;
+    }
+
     // Re-check for an in-flight compile INSIDE the lock.
     let already = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             IN_FLIGHT_MAIN_COMPILE_SQL,
-            [workspace_id.to_string().into()],
+            [
+                workspace_id.to_string().into(),
+                WORKING_COPY_UNCLAIMED_BOUND_SECS.into(),
+            ],
         ))
         .await;
     if matches!(already, Ok(Some(_))) {
@@ -1511,6 +1597,112 @@ pub(crate) async fn enqueue_compile_deduped_as(
     match txn.commit().await {
         Ok(_) => tracing::info!(%workspace_id, %reason, "enqueued auto compile (deduped)"),
         Err(e) => tracing::warn!(?e, %workspace_id, %reason, "auto compile commit failed"),
+    }
+}
+
+/// End the workspace's working-copy compiles that no node has claimed within
+/// [`WORKING_COPY_UNCLAIMED_BOUND_SECS`], in the caller's advisory-locked txn so
+/// they are gone before the in-flight check reads. Returns how many queue rows
+/// it retired.
+///
+/// Best-effort, and that has to be true of the transaction too: a failed
+/// statement aborts a Postgres transaction, and the compile the caller queues
+/// next would go with it. So the statement runs in a savepoint (a nested
+/// `begin()`), released on success and rolled back alone on error.
+async fn retire_stranded_working_copy_compiles(
+    txn: &sea_orm::DatabaseTransaction,
+    workspace_id: Uuid,
+) -> u64 {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionTrait};
+    let savepoint = match txn.begin().await {
+        Ok(sp) => sp,
+        Err(e) => {
+            tracing::warn!(?e, %workspace_id, "lazy compile: could not open a savepoint to retire stranded compiles");
+            return 0;
+        }
+    };
+    let retired = savepoint
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            RETIRE_UNCLAIMED_WORKING_COPY_SQL,
+            [
+                workspace_id.to_string().into(),
+                WORKING_COPY_UNCLAIMED_BOUND_SECS.into(),
+                WORKING_COPY_UNCLAIMED_REASON.into(),
+            ],
+        ))
+        .await
+        .map(|row| {
+            row.and_then(|r| r.try_get::<i64>("", "n").ok())
+                .unwrap_or(0)
+        });
+    match retired {
+        Ok(n) => match savepoint.commit().await {
+            Ok(()) => {
+                if n > 0 {
+                    tracing::warn!(%workspace_id, retired = n, "lazy compile: retired working-copy compiles no node could claim");
+                }
+                n as u64
+            }
+            Err(e) => {
+                tracing::warn!(?e, %workspace_id, "lazy compile: releasing the retire savepoint failed");
+                0
+            }
+        },
+        Err(e) => {
+            tracing::warn!(?e, %workspace_id, "lazy compile: retiring stranded compiles failed");
+            if let Err(e) = savepoint.rollback().await {
+                tracing::warn!(?e, %workspace_id, "lazy compile: rolling back the retire savepoint failed");
+            }
+            0
+        }
+    }
+}
+
+/// Whether a working-copy compile was retired here within
+/// [`RETIRED_WORKING_COPY_MEMORY_SECS`] after waiting out the whole unclaimed
+/// bound. A failed read answers `false`: the self-heal then queues, as before.
+///
+/// That holds only because the read runs in a savepoint (a nested `begin()`),
+/// as the retire does: a failed statement aborts a Postgres transaction, and
+/// on the caller's advisory-locked txn it would take the enqueue down with it.
+async fn recently_retired_working_copy(
+    txn: &sea_orm::DatabaseTransaction,
+    workspace_id: Uuid,
+) -> bool {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionTrait};
+    let savepoint = match txn.begin().await {
+        Ok(sp) => sp,
+        Err(e) => {
+            tracing::warn!(?e, %workspace_id, "lazy compile: could not open a savepoint to read retired compiles");
+            return false;
+        }
+    };
+    let read = savepoint
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            RECENTLY_RETIRED_WORKING_COPY_SQL,
+            [
+                workspace_id.to_string().into(),
+                RETIRED_WORKING_COPY_MEMORY_SECS.into(),
+                WORKING_COPY_UNCLAIMED_BOUND_SECS.into(),
+            ],
+        ))
+        .await;
+    match read {
+        Ok(row) => {
+            if let Err(e) = savepoint.commit().await {
+                tracing::warn!(?e, %workspace_id, "lazy compile: releasing the read savepoint failed");
+            }
+            row.is_some()
+        }
+        Err(e) => {
+            tracing::warn!(?e, %workspace_id, "lazy compile: reading recently retired compiles failed");
+            if let Err(e) = savepoint.rollback().await {
+                tracing::warn!(?e, %workspace_id, "lazy compile: rolling back the read savepoint failed");
+            }
+            false
+        }
     }
 }
 

@@ -319,6 +319,73 @@ impl ChatStart {
     }
 }
 
+/// Close `run_id` as `cancelled` if it was put on the Global queue and no
+/// driver ever took it; otherwise write nothing. Returns whether it closed.
+///
+/// For a cancel, after the durable flag is written. Left to its driver, a run
+/// nothing will ever drive (a working-copy `compile` on a deployment with no
+/// IDE node) stays `running` with a `queued` entry for good. "Never taken" is
+/// one transaction, serialised against a driver by the run row's lock (the
+/// lease is taken by an `UPDATE` of that row) and by the claim's own
+/// `queue_status = 'queued'` predicate:
+///
+/// - the run is not terminal and holds no live lease: `driver_id` is null,
+///   or its heartbeat is older than [`crud::DRIVER_LEASE_TTL_SECS`], the same
+///   test `crud::try_acquire_driver` applies;
+/// - its root entry is `Global` (`scope_owned = false`), `queued`, and has
+///   `claim_count = 0`: a claim released back to the queue has been taken
+///   once, so its driver may have written to the run.
+///
+/// The entry is cancelled by a conditional `UPDATE`: a claim that lands first
+/// matches nothing here and wins, and the run is then left alone. Only when
+/// it matched are the rest of the tree's live rows cancelled and the run
+/// transitioned, so the two never disagree.
+pub async fn close_if_never_claimed(db: &DatabaseConnection, run_id: &str) -> Result<bool, DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let txn = db.begin().await?;
+    let pg = DatabaseBackend::Postgres;
+    // Lock the run first: a driver taking the lease blocks on this row.
+    let idle = txn
+        .query_one_raw(Statement::from_sql_and_values(
+            pg,
+            "SELECT id FROM agentic_runs \
+             WHERE id = $1 \
+               AND COALESCE(task_status, '') <> ALL (ARRAY['done','failed','cancelled','timed_out']) \
+               AND (driver_id IS NULL OR driver_heartbeat_at IS NULL \
+                    OR driver_heartbeat_at < now() - make_interval(secs => $2)) \
+             FOR UPDATE",
+            [run_id.into(), (crud::DRIVER_LEASE_TTL_SECS as i32).into()],
+        ))
+        .await?;
+    if idle.is_none() {
+        return Ok(false);
+    }
+    let root = txn
+        .execute_raw(Statement::from_sql_and_values(
+            pg,
+            "UPDATE agentic_task_queue SET queue_status = 'cancelled', updated_at = now() \
+             WHERE task_id = $1 AND scope_owned = false \
+               AND queue_status = 'queued' AND claim_count = 0",
+            [run_id.into()],
+        ))
+        .await?;
+    if root.rows_affected() != 1 {
+        return Ok(false);
+    }
+    crud::cancel_queued_tasks_for_run(&txn, run_id).await?;
+    crud::transition_run_in(
+        &txn,
+        run_id,
+        "cancelled",
+        None,
+        None,
+        Some("cancelled by user"),
+    )
+    .await?;
+    txn.commit().await?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

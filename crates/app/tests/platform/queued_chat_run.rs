@@ -860,24 +860,30 @@ async fn with_queued_starts_off_a_members_workflow_keeps_its_own_coordinator() {
     );
 }
 
-/// A Stop on a queued workflow is its driver's to close: the cancel writes the
-/// durable flag and leaves the row, where it used to fail it under a driver
-/// that may already be running it. A scoped run with nothing driving it in
-/// this process is still closed on the spot, as before.
+/// A Stop on a queued workflow nothing ever claimed closes it on the spot: no
+/// driver holds it, and on a deployment with no node to drive it none ever
+/// would, so the flag alone left it `running` forever. A run a driver holds (a
+/// `claimed` entry) is still its driver's to close: the cancel writes the
+/// durable flag and leaves the row. A scoped run with nothing driving it in
+/// this process is closed on the spot too, as `failed`.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_cancel_leaves_a_queued_workflow_to_its_driver() {
+async fn a_cancel_closes_a_never_claimed_workflow_and_leaves_a_claimed_one_to_its_driver() {
     let f = fixture().await;
     let db = &f.db;
     let (app, _) = workflow_app(&f, true).await;
-    let (status, body) = post(
-        &app,
-        "/agentic-workflows/runs",
-        json!({ "workflow_ref": "automations/greet.automation.yml" }),
-    )
-    .await;
-    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
-    let run_id = body["run_id"].as_str().expect("run_id").to_string();
+    let start = || async {
+        let (status, body) = post(
+            &app,
+            "/agentic-workflows/runs",
+            json!({ "workflow_ref": "automations/greet.automation.yml" }),
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+        body["run_id"].as_str().expect("run_id").to_string()
+    };
 
+    // Never claimed: closed by the cancel, run and queue row both.
+    let run_id = start().await;
     let (status, _) = post(
         &app,
         &format!("/agentic-workflows/runs/{run_id}/cancel"),
@@ -886,6 +892,30 @@ async fn a_cancel_leaves_a_queued_workflow_to_its_driver() {
     .await;
     assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
     let run = crud::get_run(db, &run_id).await.unwrap().unwrap();
+    assert_eq!(run.task_status.as_deref(), Some("cancelled"));
+    assert!(run.cancel_requested_at.is_some());
+    let entry = crud::get_queue_entry(db, &run_id).await.unwrap().unwrap();
+    assert_eq!(entry.queue_status, "cancelled");
+    assert!(
+        !agentic_pipeline::queued_run::held_by_the_queue(db, &run_id)
+            .await
+            .unwrap()
+    );
+
+    // Claimed by a driver: left to it.
+    let claimed = start().await;
+    crud::claim_task_under_root(db, "some-driver", &claimed)
+        .await
+        .unwrap()
+        .expect("claimed");
+    let (status, _) = post(
+        &app,
+        &format!("/agentic-workflows/runs/{claimed}/cancel"),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
+    let run = crud::get_run(db, &claimed).await.unwrap().unwrap();
     assert_eq!(
         run.task_status.as_deref(),
         Some("running"),
@@ -896,7 +926,7 @@ async fn a_cancel_leaves_a_queued_workflow_to_its_driver() {
         "the flag the driver polls"
     );
     assert!(
-        agentic_pipeline::queued_run::held_by_the_queue(db, &run_id)
+        agentic_pipeline::queued_run::held_by_the_queue(db, &claimed)
             .await
             .unwrap()
     );

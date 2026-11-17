@@ -361,3 +361,219 @@ async fn a_compiler_bump_reaches_a_workspace_whose_head_has_not_moved() {
     let again = tick(&fx.db).await;
     assert_eq!((again.checked, again.enqueued), (1, 0), "{again:?}");
 }
+
+// ── A working-copy compile nothing can claim (INC-164) ───────────────────────
+
+impl Fx {
+    /// A queued working-copy compile `age_minutes` old that no node has claimed.
+    async fn working_copy_compile_waiting(&self, age_minutes: i32) {
+        // A workspace with no default branch gets the working-copy self-heal.
+        self.db
+            .execute_unprepared(&format!(
+                "UPDATE workspaces SET default_branch = NULL WHERE id = '{}'",
+                self.ws
+            ))
+            .await
+            .unwrap();
+        enqueue_lazy_compile(&self.db, self.ws).await;
+        assert_eq!(self.tasks().await, [("compile".to_string(), None)]);
+        self.db
+            .execute_unprepared(&format!(
+                "UPDATE agentic_task_queue SET created_at = now() - interval '{age_minutes} minutes'"
+            ))
+            .await
+            .unwrap();
+    }
+
+    /// `(queue_status, run task_status, run error_message)` of the working-copy compile.
+    async fn working_copy_compile_outcome(&self) -> (String, Option<String>, Option<String>) {
+        let row = self
+            .db
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT q.queue_status, r.task_status, r.error_message FROM agentic_task_queue q \
+                 JOIN agentic_runs r ON r.id = q.run_id WHERE r.source_type = 'compile'",
+            ))
+            .await
+            .unwrap()
+            .expect("the working-copy compile");
+        (
+            row.try_get_by_index(0).unwrap(),
+            row.try_get_by_index(1).unwrap(),
+            row.try_get_by_index(2).unwrap(),
+        )
+    }
+
+    async fn a_new_head_arrives(&self) {
+        oxy_app::server::api::middlewares::workspace_context::enqueue_import_compile(
+            &self.db,
+            self.ws,
+            SHA.to_string(),
+            "main".to_string(),
+        )
+        .await;
+    }
+}
+
+/// With no IDE node, a working-copy compile is never claimed. It must not
+/// swallow every later commit compile of a new head, and its run must not read
+/// `running` for good.
+#[tokio::test]
+async fn a_working_copy_compile_nobody_claims_does_not_block_the_next_commit_compile() {
+    let fx = Fx::new().await;
+    fx.working_copy_compile_waiting(30).await;
+
+    fx.a_new_head_arrives().await;
+
+    let tasks = fx.tasks().await;
+    assert!(
+        tasks.contains(&("compile_git".to_string(), Some(SHA.to_string()))),
+        "the new head was deduped against a compile nobody can claim: {tasks:?}"
+    );
+    let (queue, run, why) = fx.working_copy_compile_outcome().await;
+    assert_eq!(queue, "cancelled", "a cancel, so no failure backoff starts");
+    assert_eq!(run.as_deref(), Some("cancelled"));
+    assert!(why.expect("a reason").contains("no node"), "names why");
+}
+
+/// A working-copy compile the IDE has had only moments to claim still counts:
+/// the hand-off is deduped against it, as before.
+#[tokio::test]
+async fn a_fresh_working_copy_compile_still_dedupes_the_next_commit_compile() {
+    let fx = Fx::new().await;
+    fx.working_copy_compile_waiting(1).await;
+
+    fx.a_new_head_arrives().await;
+
+    assert_eq!(fx.tasks().await, [("compile".to_string(), None)]);
+    let (queue, run, _) = fx.working_copy_compile_outcome().await;
+    assert_eq!(queue, "queued");
+    assert_ne!(run.as_deref(), Some("cancelled"));
+}
+
+// ── No factory: retiring a stranded row must not mint the next one ───────────
+
+impl Fx {
+    /// A working-copy compile row put straight on the queue, so the lazy
+    /// self-heal (throttled to one call per process window) is still free to
+    /// run once. `created_ago`/`updated_ago` are minutes.
+    async fn seed_working_copy_row(&self, status: &str, created_ago: i32, updated_ago: i32) {
+        use agentic_core::delegation::TaskSpec;
+        use agentic_runtime::orchestrator::crud::queue::TaskScope;
+        let id = Uuid::new_v4().to_string();
+        agentic_runtime::crud::insert_run(
+            &self.db,
+            &id,
+            "compile main (seeded)",
+            None,
+            "compile",
+            Some(serde_json::json!({})),
+            self.ws,
+        )
+        .await
+        .expect("seed run");
+        let spec = TaskSpec::Compile {
+            workspace_id: self.ws,
+            git_sha: None,
+            branch: None,
+            promote: true,
+            kind: Some("main".to_string()),
+            owner_user_id: None,
+            from_git: false,
+        };
+        agentic_runtime::crud::enqueue_task(
+            &self.db,
+            &id,
+            &id,
+            None,
+            &spec,
+            None,
+            TaskScope::Global,
+        )
+        .await
+        .expect("seed task");
+        self.db
+            .execute_unprepared(&format!(
+                "UPDATE agentic_task_queue SET queue_status = '{status}', \
+                 created_at = now() - interval '{created_ago} minutes', \
+                 updated_at = now() - interval '{updated_ago} minutes' WHERE task_id = '{id}'"
+            ))
+            .await
+            .expect("age the seeded task");
+        // No recorded default branch: the lazy self-heal is the working-copy one.
+        self.db
+            .execute_unprepared(&format!(
+                "UPDATE workspaces SET default_branch = NULL WHERE id = '{}'",
+                self.ws
+            ))
+            .await
+            .unwrap();
+    }
+}
+
+/// The self-heal that retires a stranded row must not queue a replacement: it
+/// would count as in flight for the whole bound and dedupe every hand-off.
+#[tokio::test]
+async fn retiring_a_stranded_working_copy_compile_does_not_queue_another() {
+    let fx = Fx::new().await;
+    fx.seed_working_copy_row("queued", 30, 30).await;
+
+    enqueue_lazy_compile(&fx.db, fx.ws).await;
+
+    assert_eq!(fx.tasks().await, [("compile".to_string(), None)]);
+    let (queue, _, _) = fx.working_copy_compile_outcome().await;
+    assert_eq!(queue, "cancelled");
+}
+
+/// Evidence that no node claims a working-copy compile outlasts the row.
+#[tokio::test]
+async fn a_recently_retired_working_copy_compile_stops_the_next_one_being_queued() {
+    let fx = Fx::new().await;
+    fx.seed_working_copy_row("cancelled", 40, 20).await;
+
+    enqueue_lazy_compile(&fx.db, fx.ws).await;
+
+    assert_eq!(fx.tasks().await, [("compile".to_string(), None)]);
+}
+
+/// Skipping the working-copy compile leaves the commit compile alone.
+#[tokio::test]
+async fn a_commit_hand_off_still_queues_after_a_stranded_row_was_retired() {
+    let fx = Fx::new().await;
+    fx.seed_working_copy_row("queued", 30, 30).await;
+    enqueue_lazy_compile(&fx.db, fx.ws).await;
+
+    fx.a_new_head_arrives().await;
+
+    let tasks = fx.tasks().await;
+    assert!(
+        tasks.contains(&("compile_git".to_string(), Some(SHA.to_string()))),
+        "{tasks:?}"
+    );
+}
+
+/// A retire that errors costs nothing but the retire: the statement is
+/// savepointed, so the enqueue's own insert still lands. The failure is made
+/// in the database (a trigger refusing the cancel), not by a hook in the code.
+#[tokio::test]
+async fn a_failing_retire_does_not_lose_the_compile_queued_after_it() {
+    let fx = Fx::new().await;
+    fx.seed_working_copy_row("queued", 30, 30).await;
+    fx.db
+        .execute_unprepared(
+            "CREATE FUNCTION refuse_cancel() RETURNS trigger LANGUAGE plpgsql AS \
+             $$ BEGIN RAISE EXCEPTION 'retire refused'; END $$; \
+             CREATE TRIGGER refuse_cancel BEFORE UPDATE ON agentic_task_queue \
+             FOR EACH ROW WHEN (NEW.queue_status = 'cancelled') EXECUTE FUNCTION refuse_cancel();",
+        )
+        .await
+        .expect("install the failing trigger");
+
+    fx.a_new_head_arrives().await;
+
+    let tasks = fx.tasks().await;
+    assert!(
+        tasks.contains(&("compile_git".to_string(), Some(SHA.to_string()))),
+        "the compile queued after a failed retire was lost: {tasks:?}"
+    );
+}

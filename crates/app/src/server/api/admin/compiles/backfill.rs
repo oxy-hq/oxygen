@@ -7,7 +7,8 @@ use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde::Serialize;
 
-use super::{connect, db_err, insert_run_and_enqueue_compile, listing_scope};
+use super::source::enqueue_main;
+use super::{connect, db_err, listing_scope};
 
 /// Max workspaces enqueued per backfill call. Bounds the in-memory load, the
 /// per-request wall-clock (sequential enqueues), and the resulting compile
@@ -22,6 +23,14 @@ pub struct BackfillResponse {
     /// call again to continue.
     pub remaining: bool,
     pub task_ids: Vec<String>,
+    /// Workspaces this server could not queue a compile for, with why.
+    pub skipped: Vec<SkippedWorkspace>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct SkippedWorkspace {
+    pub workspace_id: uuid::Uuid,
+    pub reason: String,
 }
 
 /// Enqueue a promoting compile for up to `BACKFILL_BATCH` workspaces that have
@@ -56,14 +65,20 @@ pub async fn backfill_uncompiled(
     // COUNT query.
     let remaining = uncompiled.len() as u64 > BACKFILL_BATCH;
 
+    let owns = crate::server::role_manifest::process_can_compile();
     let mut task_ids = Vec::new();
+    let mut skipped = Vec::new();
     for ws in uncompiled.into_iter().take(BACKFILL_BATCH as usize) {
-        match insert_run_and_enqueue_compile(&db, ws.id, None, None, true).await {
+        match enqueue_main(&db, ws.id, None, None, true, owns).await {
             Ok(task_id) => task_ids.push(task_id),
-            // One bad workspace shouldn't abort the whole backfill — log and
-            // keep going so the rest still get queued.
+            // One bad workspace shouldn't abort the whole backfill — report it
+            // and keep going so the rest still get queued.
             Err(e) => {
-                tracing::error!(?e, workspace_id = %ws.id, "backfill: enqueue failed; skipping");
+                tracing::warn!(%e, workspace_id = %ws.id, "backfill: not enqueued; skipping");
+                skipped.push(SkippedWorkspace {
+                    workspace_id: ws.id,
+                    reason: e.to_string(),
+                });
             }
         }
     }
@@ -72,5 +87,6 @@ pub async fn backfill_uncompiled(
         enqueued: task_ids.len(),
         remaining,
         task_ids,
+        skipped,
     }))
 }
