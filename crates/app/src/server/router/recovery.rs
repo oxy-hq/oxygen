@@ -328,8 +328,10 @@ pub enum StartupPass {
     /// Skip it and go straight to the queue-gated loops (`oxy worker`, which
     /// hosts no coordinators of its own and cannot tell a live peer's run from
     /// an orphan). Costs at most `STRANDED_GRACE_SECS` + one tick of latency:
-    /// `find_stuck_runs` selects `needs_resume` / `shutdown` too, so nothing
-    /// is lost, only delayed.
+    /// `find_stuck_runs` selects `needs_resume` / `shutdown` too, and covers
+    /// `analytics` roots (chat runs a dead serve replica was driving) as well
+    /// as `workflow` / `airway`, so nothing is lost, only delayed. An
+    /// `awaiting_input` root is re-driven by its answer, from any replica.
     Skip,
 }
 

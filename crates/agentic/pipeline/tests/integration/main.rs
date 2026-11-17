@@ -24,6 +24,7 @@ mod drive_policy_test;
 mod function_retries_test;
 mod graceful_shutdown_relabel_test;
 mod integration_tests;
+mod orphaned_chat_recovery_test;
 mod preview_airway_sample_test;
 mod preview_run_recovery_test;
 mod queued_analytics_park_test;

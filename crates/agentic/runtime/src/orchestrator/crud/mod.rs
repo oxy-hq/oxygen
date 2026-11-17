@@ -38,9 +38,9 @@ pub use queue_stats::{
     DEAD_TASKS_LIMIT, QueueStats, QueueTaskRow, STALE_TASKS_LIMIT, get_queue_stats,
 };
 pub use recovery::{
-    StuckRun, complete_run_with_lost_outcome, find_pending_global_runs, find_stuck_runs,
-    get_active_root_runs, get_max_child_counter, get_resumable_root_runs, increment_attempt,
-    mark_recovery_failed, owning_run_id, retire_run,
+    LEASE_LIVENESS_SOURCE_TYPES, STRANDED_SOURCE_TYPES, StuckRun, complete_run_with_lost_outcome,
+    find_pending_global_runs, find_stuck_runs, get_active_root_runs, get_max_child_counter,
+    get_resumable_root_runs, increment_attempt, mark_recovery_failed, owning_run_id, retire_run,
 };
 pub use retry::{
     RetryState, cancel_waiting_retry, final_failure_message, requeue_failed_attempt, retry_state,

@@ -313,7 +313,14 @@ async fn leave_queued_work_for_the_fleet(
 /// whose clock restarts at the reaper's re-queue, so a deferring node leaves
 /// the run for the fleet for one grace and takes it only if nobody did.
 /// `Except` is a no-op on this path by construction (the selection is
-/// `workflow` + `airway`, never `compile`), so a worker's tick is unchanged.
+/// `workflow`, `airway` and `analytics`, never `compile`), so a worker's tick
+/// drives every run it selects.
+///
+/// **What it selects is not this process's own work.** `analytics` roots a
+/// dead `oxy serve` replica was direct-driving are selected here too, from
+/// any process, once their driver lease lapses — the replacement for the
+/// `ide`'s one-shot startup pass, which no longer runs in a fleet without an
+/// `ide` pod. See `agentic_runtime::crud::find_stuck_runs`.
 #[allow(clippy::too_many_arguments)]
 pub async fn recover_stranded_runs(
     db: DatabaseConnection,

@@ -566,16 +566,19 @@ pub async fn mark_task_global(db: &DatabaseConnection, task_id: &str) -> Result<
 /// for the global recovery path by clearing `scope_owned`.
 ///
 /// Scoped rows are otherwise invisible to `find_pending_global_runs` and
-/// excluded from `find_stuck_runs`, so an orphan waits for a process restart. Clearing the
+/// excluded from `find_stuck_runs` (for `workflow` / `airway`), so an orphan
+/// would wait for a process restart. Clearing the
 /// flag lets `find_pending_global_runs` select the root for
 /// `recover_single_run`, which rebuilds a scoped transport and re-adopts the
 /// whole subtree via [`claim_task_under_root`].
 ///
 /// **Gated to `workflow` / `airway` on purpose.** Recovery re-executes the
 /// interrupted unit from scratch. For automation/airway that is one step; for
-/// an agent run it is a full turn, i.e. duplicate LLM calls. This mirrors the
-/// `source_type` filter in `find_stuck_runs`. Agent runs stay stranded until
-/// restart — the existing, deliberate trade.
+/// an agent run it is a full turn, i.e. duplicate LLM calls, so an agent's
+/// scoped root is not handed to the latency worker the moment it is released.
+/// An agent (`analytics`) root is not left stranded either: once its driver
+/// lease lapses, `find_stuck_runs` selects it (it treats a stale scoped row as
+/// no shield for that kind) and recovery resumes it from its checkpoint.
 ///
 /// Only roots are touched (`parent_task_id IS NULL`): a descendant is
 /// re-driven with its root, never on its own — a coordinator that claimed one

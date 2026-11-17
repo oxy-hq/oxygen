@@ -31,7 +31,13 @@ pub const PENDING_GLOBAL_STATUSES: [&str; 6] = [
 
 /// Render [`PENDING_GLOBAL_STATUSES`] as the body of a SQL `IN (...)` list.
 pub fn pending_global_status_sql() -> String {
-    PENDING_GLOBAL_STATUSES
+    sql_list(&PENDING_GLOBAL_STATUSES)
+}
+
+/// Render compile-time string constants as the body of a SQL `IN (...)` list.
+/// Only for `const` arrays of plain identifiers — nothing here is escaped.
+fn sql_list(items: &[&str]) -> String {
+    items
         .iter()
         .map(|s| format!("'{s}'"))
         .collect::<Vec<_>>()
@@ -200,13 +206,41 @@ pub struct StuckRun {
     pub unclaimed_secs: u64,
 }
 
-/// Find runs that are stranded **and** safe for the periodic global
-/// driver loop to pick up — `workflow` + `airway` (the Phase 1/2
-/// schedulable targets).
+/// The `source_type`s the periodic stranded tick ([`find_stuck_runs`]) selects.
 ///
-/// "Stranded" means: no queue entry is `claimed` (a live worker — the
-/// dead case is the reaper's job) **and** no entry is `queued` *and*
-/// `scope_owned = true`. The `scope_owned` split is load-bearing:
+/// - `workflow`, `airway` — the schedulable, queue-driven kinds it started with.
+/// - `analytics` — chat runs and custom-app asks. A root left non-terminal by a
+///   dead `oxy serve` replica (a direct drive: a chat the queue admission
+///   declined, a cold-resumed answer) used to wait for the `ide`'s one-shot
+///   startup pass, and with no `ide` pod nothing ran that. See
+///   [`find_stuck_runs`] for what makes selecting one safe from any process.
+///
+/// Not `builder` (removed with the IDE; its recovery would edit a working copy)
+/// and not the one-shot kinds (`compile`, `preagg_cycle`, custom kinds), which
+/// live on `queued` Global rows the latency worker already selects.
+pub const STRANDED_SOURCE_TYPES: [&str; 3] = ["workflow", "airway", "analytics"];
+
+/// The kinds among [`STRANDED_SOURCE_TYPES`] whose `queued` + `scope_owned`
+/// rows shield the run only while **fresh** (younger than the grace).
+///
+/// Every analytics driver holds the driver lease for the life of its
+/// coordinator — the start stamps it at insert, a direct drive and recovery
+/// heartbeat it (`lifecycle::driver_lease`) — so once the lease has lapsed no
+/// coordinator is alive to claim a scoped row. Such a row is a dead
+/// direct-drive's delegation, released by its graceful shutdown or re-queued
+/// by the reaper, and nothing but the root's recovery claims it
+/// (`claim_task_under_root` adopts the subtree). Shielding it for ever is what
+/// would strand a delegating chat. The grace still covers a row a live
+/// coordinator just enqueued, as a second guard behind the lease.
+pub const LEASE_LIVENESS_SOURCE_TYPES: [&str; 1] = ["analytics"];
+
+/// Find runs that are stranded **and** safe for the periodic global
+/// driver loop to pick up — roots of a [`STRANDED_SOURCE_TYPES`] kind.
+///
+/// "Stranded" means: the driver lease has lapsed, no queue entry is `claimed`
+/// (a live worker — the dead case is the reaper's job) **and** no entry is
+/// `queued` *and* `scope_owned = true`. The `scope_owned` split is
+/// load-bearing:
 ///
 /// - `claimed` (any scope) → a live coordinator owns it → exclude (this is
 ///   the rung-2 anti-poaching invariant; a live per-request coordinator
@@ -214,14 +248,20 @@ pub struct StuckRun {
 ///   transient not-yet-claimed children are `queued scope_owned = true`).
 /// - `queued` + `scope_owned = true` → an interactive run's not-yet-claimed
 ///   task; its live coordinator is about to claim it (the grace window
-///   covers the enqueue→start gap) → exclude.
+///   covers the enqueue→start gap) → exclude. For a
+///   [`LEASE_LIVENESS_SOURCE_TYPES`] kind only while the row is younger than
+///   the grace: past it, with the lease lapsed, the coordinator is gone.
 /// - `queued` + `scope_owned = false` → a Global orphan / scheduler-seeded
 ///   task with **no consumer** in Phase 1 (no standalone unscoped claim
 ///   worker). This does NOT shield the run — it is exactly the rung-4 /
 ///   Phase-2 case the periodic driver must pick up and drive.
 ///
-/// Also excludes runs whose driver lease is still fresh, so two ticks /
-/// replicas don't both grab the same stranded run.
+/// The lease is what makes this safe from **any** process, with no premise
+/// about who died: every driver of these kinds holds it while alive, so a run
+/// a peer drives is never selected. `awaiting_input` is not selected at all:
+/// a root parked on a person holds no lease by design, and an answer re-drives
+/// it from whichever replica takes it (`agentic_pipeline::queued_answer`, or
+/// the answer route's lease-guarded cold resume).
 ///
 /// `get_resumable_root_runs` is still correct for *startup* recovery: a
 /// process restart kills every in-flight coordinator, so everything
@@ -272,6 +312,8 @@ pub async fn find_stuck_runs(
     let held_by_a_live_coordinator = queue_rows_of_root("q");
     let queued_global = queue_rows_of_root("g");
     let unclaimed_secs = unclaimed_secs_sql("g", "$2");
+    let kinds = sql_list(&STRANDED_SOURCE_TYPES);
+    let lease_kinds = sql_list(&LEASE_LIVENESS_SOURCE_TYPES);
     // `GROUP BY r.id` alone is enough for the other `r.*` columns: `id` is the
     // table's primary key, so Postgres treats them as functionally dependent.
     let sql = format!(
@@ -283,7 +325,7 @@ pub async fn find_stuck_runs(
           ON {queued_global} \
          AND g.queue_status = 'queued' \
          AND g.scope_owned = false \
-        WHERE r.source_type IN ('workflow', 'airway') \
+        WHERE r.source_type IN ({kinds}) \
           AND r.parent_run_id IS NULL \
           AND r.task_status IN ('running', 'delegating', 'waiting_on_child', 'waiting_on_children', 'needs_resume', 'shutdown') \
           AND r.updated_at < now() - make_interval(secs => $1) \
@@ -296,7 +338,9 @@ pub async fn find_stuck_runs(
               WHERE {held_by_a_live_coordinator} \
                 AND ( \
                   q.queue_status = 'claimed' \
-                  OR (q.queue_status = 'queued' AND q.scope_owned = true) \
+                  OR (q.queue_status = 'queued' AND q.scope_owned = true \
+                      AND (r.source_type NOT IN ({lease_kinds}) \
+                           OR q.updated_at >= now() - make_interval(secs => $1))) \
                 ) \
           ) \
         GROUP BY r.id"
@@ -337,8 +381,9 @@ pub async fn find_stuck_runs(
 /// **Source-type policy:** this query is type-agnostic on purpose. The
 /// "freshly seeded, never claimed" precondition (`queue_status='queued'`
 /// + `scope_owned=false`) means no worker has yet executed the spec, so
-/// the LLM-double-spend concern that justifies `find_stuck_runs`'s
-/// `('workflow', 'airway')` filter does not apply here. Any new top-level
+/// nothing about it needs `find_stuck_runs`' kind list
+/// ([`STRANDED_SOURCE_TYPES`]), which names the kinds whose orphans can have
+/// no queued Global row at all. Any new top-level
 /// source type (analytics agents, future kinds) must be picked up by
 /// this latency worker — otherwise scheduled / run-now runs sit
 /// `queued` forever. Tests in `latency_worker_picks_up_all_source_types`
@@ -607,8 +652,8 @@ pub async fn complete_run_with_lost_outcome(
 /// `root.1` and `root` satisfy the predicate and the ordering alone decides
 /// which comes back. `DESC` returns the child — which retires the child run
 /// and leaves the parent in `delegating`/`waiting_on_child` with no live queue
-/// row and nothing to wake it (`find_stuck_runs` only sweeps
-/// `source_type = 'workflow'`). That is the same "reads as in flight for ever"
+/// row and nothing to wake it (`find_stuck_runs` selects roots only). That is
+/// the same "reads as in flight for ever"
 /// one level up, which is what the caller exists to stop.
 ///
 /// Shortest match is the root because a root id never contains `.` — every

@@ -67,9 +67,9 @@ pub enum DrivePolicy {
     ///
     /// The fallback lives in this predicate, for both placement forms, rather
     /// than on the periodic stranded tick, because that tick cannot provide it
-    /// alone. `find_stuck_runs` is scoped to `workflow` + `airway` on purpose
-    /// (it also selects runs with **no** queue row, and re-driving an analytics
-    /// run from there double-spends its LLM calls), so a declined
+    /// alone. `find_stuck_runs` selects only the kinds whose orphan can have no
+    /// queue row at all (`workflow`, `airway`, `analytics` —
+    /// `agentic_runtime::crud::STRANDED_SOURCE_TYPES`), so a declined
     /// `preagg_cycle`, `app_function` or `health_eval_workspace` is invisible to
     /// it at any age. The tick applies this same predicate to what it does
     /// select — it is the pass that reaps a dead worker's claim, and it must not

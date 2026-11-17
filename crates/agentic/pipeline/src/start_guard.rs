@@ -7,9 +7,14 @@
 //! the handler's future is dropped, and with it the start, before anything
 //! spawned a driver. Nothing then ends the run: it stays `running` with a lease
 //! nobody renews, no event is ever written, and reopening its thread resumes a
-//! stream that never produces one. No periodic pass retires it either — the
-//! stranded tick selects only `workflow` and `airway` roots, and the boot
-//! cleanup runs once per process start.
+//! stream that never produces one. The periodic stranded tick would retire it
+//! eventually (it selects an `analytics` root once its lease lapses, and a
+//! start has no checkpoint to resume), but only after `DRIVER_LEASE_TTL_SECS`
+//! and a recovery attempt; this guard ends it the moment its caller is gone.
+//!
+//! The tick may select a start at all only because a start is bounded: an HTTP
+//! start lives inside the request timeout (60 s, under the 90 s lease TTL), so
+//! a start whose lease has lapsed is a start whose process died.
 //!
 //! [`StartGuard`] is armed for the start and disarmed when it returns, whether
 //! with a pipeline or an error (the error path marks the run failed itself).
