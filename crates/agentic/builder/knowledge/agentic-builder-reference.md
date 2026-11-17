@@ -2,7 +2,7 @@
 source:
   - sdk/cli/skills/oxy-agents/SKILL.md
   - sdk/cli/skills/oxy-agents/references/quick-reference.md
-reconciled-hash: 91afd7525a7d8e001cb8f3a8d20bb5de836e1550
+reconciled-hash: 729db98eaa70969c75da9fa0c1f86f62dade3188
 note: |
   Authored condensation of the platform skills listed above. Not auto-synced —
   scripts/sync-skills.sh only copies the verbatim YAML templates. Re-condense
@@ -34,9 +34,10 @@ you do not define its states or its tools.
   Jinja (`{{ databases.x.dialect }}`) reaches the model literally, and a classic
   `name:` is dropped, so the agent's id becomes its file stem.
 - **There is no `kind:` field.** Every `.agentic.yml` runs the same analytics
-  pipeline; a file named `app_builder.agentic.yml` is not special. Generating
-  views or agent files is the Builder Agent (chat Build mode), which no
-  `.agentic.yml` configures.
+  pipeline; a file named `app_builder.agentic.yml` is not special, and no
+  `.agentic.yml` writes views or agent files — those are edited in the
+  workspace's repository (`oxyc workspace clone`, or the Factory's "Work in
+  your editor" panel) and pushed, which compiles them.
 - **Automations are a different file** (`.automation.yml`; `.procedure.yml`
   still works; `.workflow.yml` is no longer recognised). An agent can *run* an
   automation in its context; it cannot *be* one.
@@ -74,7 +75,9 @@ enough when the views declare a `datasource`. Top-level keys: `instructions`,
 level**, by the runtime and both validators, so a typo (`stats:`, `solve:`)
 silently drops the setting. Duplicate keys are a YAML parse error. File rules:
 `.agentic.yaml`, a path under a dot-directory / `build/` / `dist/` / `target/`
-/ `node_modules/`, or `.test.` in the name is not deployed to the cloud.
+/ `node_modules/`, or `.test.` in the name is not deployed to the cloud. An
+agent is referenced by its workspace-relative path (`agents/sales.agentic.yml`);
+the UI shows the stem.
 
 ## How a question flows
 
@@ -236,8 +239,9 @@ ignored).
   `sales.agentic.yml`; `settings: {runs: 3, concurrency: 5, judge_model}`;
   `cases: [{name, prompt, expected, tags}]`; a judge from a different model
   family; the target must be an `.agentic.yml`; a case's `tool:` is parsed but
-  not yet checked; `--tag`, `--case`, `--min-accuracy 0.8` exits 1 below it,
-  `--threshold-mode average|all`, `--format json`, `-v`).
+  not yet checked; `--tag`, `--case <index-or-name>`, `--min-accuracy 0.8`
+  exits 1 below it, `--threshold-mode average|all`, `--format json`,
+  `--output-json`, `-v`).
 - **`oxy build` does not check agents** — it does nothing any more.
 - A JSON schema *is* published for `.agentic.yml`; an editor header on line 1
   is optional — preserve it if present:
