@@ -315,7 +315,7 @@ weigh nothing, so your own token declarations still win; adopting it means delet
 them, and deleting any `--oxy-shell-*` or `!important` rules aimed at the shell or
 kit. Without the import, nothing about the app's look changes.
 
-Three rules of the design system go beyond the reference:
+Five rules of the design system go beyond the reference:
 
 - **Overlays blur the page behind them** (`--scrim`, and `--scrim-blur`, 8px; 0px under
   reduced transparency). A modal `<dialog>` gets the blur from the theme on its own; give
@@ -328,6 +328,15 @@ Three rules of the design system go beyond the reference:
   `AlertStrip`, `bg-card py-2`, on a grey page) takes the card's inner padding
   (`--card-padding`) at its sides, so its label lines up with the cards below rather than
   sitting on the box's edge.
+- **A side panel on the desk runs the full height and is modal.** A right-hand detail
+  panel (the reference's `SidePanel`) runs from under the top bar to the bottom of the
+  frame. While it is open the page behind it is scrimmed and blurred as above and inert;
+  focus moves into it, Esc or a click on the scrim closes it, and focus returns to the row
+  that opened it. On a phone it stays a full-screen view with no scrim.
+- **Square corners are for controls and surfaces, not for marks drawn on a map or a
+  chart.** A map marker or cell, a pin, and a chart's points and lines keep their own
+  shape. Everything else follows the design system, status dots (round, always with a
+  word) and count badges (square) included.
 
 **Light and dark.** With the theme, the app has both modes and shows the signed-in
 person's, the one Oxygen home shows: `OxyShell` applies it and puts one Light / Dark /
