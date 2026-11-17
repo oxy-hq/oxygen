@@ -225,13 +225,27 @@ async fn flush<T, F>(
         Err(e) => {
             let batch_len = batch.len();
             let dropped = queue.on_failure(batch, std::time::Instant::now());
-            tracing::error!(
-                stream,
-                requeued = batch_len - dropped.min(batch_len),
-                dropped,
-                error = %e,
-                "custom-app telemetry insert failed"
-            );
+            if dropped > 0 {
+                tracing::error!(
+                    stream,
+                    requeued = batch_len - dropped.min(batch_len),
+                    dropped,
+                    error = %e,
+                    "custom-app telemetry insert failed"
+                );
+            } else {
+                // WARN, not ERROR: nothing was lost — the whole batch is back
+                // in the queue and retried on backoff. Same split as the span
+                // bridge (`telemetry.rs`): loss is the branch above and stays
+                // ERROR; an outage long enough to fill the buffer reaches it.
+                tracing::warn!(
+                    stream,
+                    requeued = batch_len,
+                    dropped,
+                    error = %e,
+                    "custom-app telemetry insert failed"
+                );
+            }
         }
     }
 }
