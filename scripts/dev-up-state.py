@@ -6,6 +6,9 @@ observed rather than assumed: personas come from asking the running server's
 dev-login endpoint, workspaces and custom apps from the database it serves. A
 persona the seed never created therefore reads as refused here, not as a name.
 Tokens are never written to disk.
+
+The URLs are this checkout's: each checkout's stack has its own ports (its slot,
+scripts/dev-slots.py), and every stack reads the one shared database.
 """
 
 import json
@@ -118,9 +121,19 @@ def refusal(result):
 
 def summarize(state, probes):
     running = state["frontend_running"]
+    print(
+        f"    slot      {state['slot']}  (this checkout's ports; `just stacks` lists all)"
+    )
     print(f"    frontend  {FRONTEND}" + ("" if running else "  (not running)"))
-    print(f"    backend   {BACKEND}   internal, no auth: {state['internal_url']}")
-    print(f"    database  {state['database_url']}")
+    shared = state["backend_shared_from"]
+    if shared is not None:
+        owner = "OXY_DEV_BACKEND_URL" if shared == "url" else f"slot {shared}"
+        print(f"    backend   {BACKEND}   {owner}'s: its binary, not this checkout's")
+    else:
+        print(f"    backend   {BACKEND}   internal, no auth: {state['internal_url']}")
+    print(
+        f"    database  {state['database_url']}  (shared by every stack on this machine)"
+    )
     print(f"    state     {os.path.relpath(ENV('STATE_JSON'), ENV('REPO'))}")
     print("\n    personas  (GET /api/auth/dev-login?as=<persona>)")
     for persona, result in probes.items():
@@ -171,14 +184,23 @@ def main():
         app["url"] = f"{FRONTEND}/customer-apps/{app['org_slug']}/{app['app_slug']}/"
         app["admin_path"] = f"/admin/apps/{app['org_slug']}/{app['app_slug']}"
 
+    from_slot = ENV("BACKEND_FROM") or None
     state = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "repo": ENV("REPO"),
+        "slot": as_int(ENV("SLOT")),
         "frontend_url": FRONTEND,
         "frontend_running": bool(ENV("FRONTEND_PID")),
         "backend_url": BACKEND,
-        "internal_url": ENV("INTERNAL_URL"),
+        # A slot number, "url" (OXY_DEV_BACKEND_URL), or null: this checkout's own backend.
+        "backend_shared_from": as_int(from_slot) if from_slot != "url" else from_slot,
+        "internal_url": ENV("INTERNAL_URL") or None,
         "database_url": ENV("DATABASE_URL"),
+        "data_layer": {
+            "shared": True,
+            "postgres": ENV("DATABASE_URL"),
+            "airhouse_admin": ENV("AIRHOUSE_URL") or None,
+        },
         "binary": ENV("BIN"),
         "pids": {
             "backend": as_int(ENV("BACKEND_PID")),

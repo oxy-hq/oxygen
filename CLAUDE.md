@@ -128,9 +128,11 @@ the flows above, which are the committed regression suite: don't hand-drive a fl
 should be writing, don't write a flow to see a page once.
 
 The loop is `just up` (build, start, seed, Vite — idempotent), then read `.oxy-dev/state.json`,
-then one `browser_navigate("http://127.0.0.1:5173/dev-login?as=<persona>&next=<path>")` — that
-navigation is the whole sign-in, no OAuth. Personas, routes, and what a 403/409/503 means:
-the `oxy-run-and-verify` skill.
+then one `browser_navigate("<frontend_url>/dev-login?as=<persona>&next=<path>")` — that
+navigation is the whole sign-in, no OAuth. Each checkout's stack has its own ports (`:5173` is
+only slot 0's) over one shared database, so parallel sessions each `just up` in their own
+worktree; `--frontend-only` skips the backend build for a web-app-only change. Personas, routes,
+and what a 403/409/503 means: the `oxy-run-and-verify` skill.
 
 That is local only. A deployment's `/login` (`aip.dev.oxy.tech` included) is a dead end for an
 agent: Google, GitHub and the email link all need a person, so never click them. Run

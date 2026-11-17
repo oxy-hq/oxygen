@@ -79,41 +79,98 @@ Local development runs the production path — cloud/enterprise mode with real a
 ### One command: `just up`
 
 ```bash
-just up        # build, start, seed, Vite — detached and idempotent; re-run after any change
-just status    # what is running and whether it answers (exit 1 when it is not serving)
-just down      # stop the backend + Vite; `just down --db` also stops the Postgres container
+just up        # build, data layer, backend, seed, Vite — detached and idempotent; re-run after any change
+just status    # this checkout's stack: what runs and whether it answers (exit 1 when not serving)
+just stacks    # every stack on this machine, and the shared data layer
+just down      # stop this checkout's backend + Vite (--release also gives its slot back)
 ```
+
+**One stack per checkout, any number per machine.** The main clone, every `just wt-claim`
+slot and any `git worktree` each run their own backend and Vite, so parallel agent sessions
+(one per worktree) never fight over ports. Each checkout holds a *slot* N in a machine-wide
+registry (`scripts/dev-slots.py`, state in `~/.local/state/oxy-dev`) and uses its ports:
+
+| | slot 0 | slot 1 | slot N |
+| - | - | - | - |
+| API | `:3000` | `:3010` | `3000+10N` |
+| internal API (no auth, `127.0.0.1`) | `:3001` | `:3011` | `3001+10N` |
+| Vite | `:5173` | `:5183` | `5173+10N` |
+
+A checkout keeps its slot across runs, so its URLs (and the browser sessions on them) stay
+put. A slot goes to another checkout only when its own checkout is deleted, or when every slot
+is taken and this one's stack is not running. If something else grabs a port of the slot,
+`just up` moves the checkout to the next free slot. `OXY_DEV_SLOT=N` pins one. Read the URLs
+from `.oxy-dev/state.json`, never assume `:5173`.
 
 `just up` (`scripts/dev-up.sh`) does, in order:
 
 1. `cargo build -p oxy-server` — an incremental no-op when nothing changed.
-2. `oxy start --enterprise` — Docker Postgres on `localhost:15432`, a local Airhouse (admin
-   API `localhost:8080`, wire `localhost:5445`), the API on `:3000`, and the no-auth internal
-   API on `127.0.0.1:3001`. Reused while it is healthy and the binary is
-   unchanged; restarted when the build produced a new binary.
-3. `oxy seed --workspace-path ./examples` — the `local` org with the Demo workspace and the
+2. **The shared data layer**: Docker Postgres `oxy-postgres` on `localhost:15432` (db `oxy`),
+   a local Airhouse (admin API `localhost:8080`, wire `localhost:5445`) and, with
+   `OXY_OBSERVABILITY_BACKEND=clickhouse`, `oxy-clickhouse`. Reused while healthy; when it
+   is not, `oxy start --db-only` brings it up, one starter at a time machine-wide.
+3. `oxy serve --enterprise` on this slot's ports, pointed at the data layer (the variables
+   `oxy start` would set; `.env` values win). Reused while ready and the binary is unchanged;
+   restarted when the build produced a new binary.
+4. `oxy seed --workspace-path ./examples` — the `local` org with the Demo workspace and the
    `oxy-starter` custom app, plus the tenant orgs (`acme`, `northwind`, `globex`, …), every
-   workspace given its Airhouse tenant, compiled and promoted. Idempotent.
-4. Vite on `http://127.0.0.1:5173`, proxying `/api` and `/customer-apps` to `:3000`. Web-app
-   edits hot-reload; nothing restarts it unless you pass `--restart`.
+   workspace given its Airhouse tenant, compiled and promoted. Idempotent, and one seed at a
+   time machine-wide (a second one says whose it is waiting for).
+5. Vite on this slot's port, proxying `/api` and `/customer-apps` to this slot's backend.
+   Web-app edits hot-reload; nothing restarts it unless you pass `--restart`.
 
 | Flag | Effect |
 | ---- | ------ |
 | `--no-build` | use the existing binary (`$OXY_BIN`, else `target/debug/oxy`) |
 | `--no-seed` | skip `oxy seed` |
 | `--no-frontend` | API only |
+| `--frontend-only` | Vite only, proxying to a backend that is already running on this machine (this checkout's, else the lowest slot's; `OXY_DEV_BACKEND_URL` names one). No cargo, no Docker: for a web-app-only change, it skips the build entirely |
 | `--restart` | restart the backend and Vite even when healthy (e.g. after editing `.env`) |
-| `--clean` | `oxy start --clean`: wipe the database volumes first |
-| `--no-airhouse` | `oxy start --no-airhouse`: no local Airhouse |
+| `--clean` | wipe the shared database volumes first (`oxy start --db-only --clean`) |
+| `--no-airhouse` | this backend gets no Airhouse, and none is started for it |
+| `--force` | let `--clean` / `down --db` go ahead while another checkout's stack runs |
 
-It needs a running Docker daemon and uses fixed ports, so it is one stack per machine (for
-side-by-side checkouts, see below). It refuses to start when a port it needs is held by a
-process it did not start, and prints that process. Every run writes fresh log files under
-`.oxy-dev/logs/`, and `.oxy-dev/state.json` records the URLs, pids, seeded workspaces and
-sign-in personas. To land signed in, open
-`http://127.0.0.1:5173/dev-login?as=member` (or `owner`, `staff`, `operator`, `partner`) —
-see **Dev sign-in** below. Coding agents: the `oxy-run-and-verify` skill
-(`.claude/skills/oxy-run-and-verify/SKILL.md`) is the full guide.
+Every run writes fresh log files under `.oxy-dev/logs/`, and `.oxy-dev/state.json` records
+the slot, URLs, pids, seeded workspaces and sign-in personas. To land signed in, open
+`<frontend_url>/dev-login?as=member` (or `owner`, `staff`, `operator`, `partner`) — see
+**Dev sign-in** below. Two `just up` in one checkout take turns; the second finds the stack
+up. Coding agents: the `oxy-run-and-verify` skill (`.claude/skills/oxy-run-and-verify/SKILL.md`)
+is the full guide.
+
+#### What the stacks share, and what that means
+
+All stacks read and write **one database** (and one Airhouse, and one state dir,
+`~/.local/share/oxy`): several `oxy serve` processes on one Postgres, which is the shape of a
+production fleet, so leases, queue claims and startup migrations (an advisory lock) already
+expect it. Sign in once per persona and the same orgs, users and workspaces are everywhere.
+What follows from it:
+
+- **The last seed wins.** The seed compiles and promotes the Demo workspace from the seeding
+  checkout's `examples/`, with that checkout's binary. A branch that changes `examples/` or
+  the compiler sees its own revision until another checkout runs `just up`.
+- **Migrations are shared.** A branch's new migration is applied for everyone, so it must be
+  one the other checkouts' binaries can run against (the rule production rollbacks already
+  impose). Iterating on a migration in place needs its own database, which this does not
+  give (below).
+- **Background work goes to whoever claims it.** Runs execute in the process that started
+  them, but periodic work (schedules, monitor scans, pre-aggregation, retention) runs on
+  whichever backend's worker claims it first.
+- **One encryption key.** Secrets in the database are sealed with `OXY_ENCRYPTION_KEY` (or
+  `<state dir>/encryption_key.txt` when unset), and a backend whose key differs refuses to
+  boot (`does not open this database's`). A worktree without a `.env` gets a symlink to the
+  main checkout's, so every stack has the same keys, dev-login roster and LLM keys.
+- **`--clean` and `down --db` are machine-wide**, so they refuse while another checkout's
+  stack runs (`--force` to insist).
+- **Only `just up` keeps the containers alive.** `oxy start` (and `just dev-backend`,
+  `--local`, the agentic test runner's spawned backend) *recreates* `oxy-postgres` on every
+  start, and removes the containers it created when it stops. So does `just up` on an older
+  branch whose `scripts/dev-up.sh` still runs `oxy start --enterprise`; rebase it. `just up`
+  stops such a legacy backend when it finds one recorded in its own checkout.
+
+A fully isolated stack (its own Postgres and Airhouse) needs `oxy start` to take a container
+name prefix and ports, which it does not yet: its container names and ports are fixed in
+`crates/core/src/database/docker*.rs`, and the seed's Airhouse tenants and OLTP org databases
+are named from fixed seeded ids, so two control planes cannot share one cluster.
 
 ### By hand
 
@@ -137,6 +194,11 @@ Against a Postgres you run yourself, set `OXY_DATABASE_URL` and use
 You can run several local Oxy instances at once — typically one per git
 checkout or [worktree](https://git-scm.com/docs/git-worktree) — to test
 multi-instance behavior or work on two branches without stopping each other.
+
+**`just up` does this for you**: every checkout gets its own slot of ports and they share
+one data layer (see **One command: `just up`** above). It passes the ports itself, so the
+variables below only matter for stacks you start by hand. When you do, start each with
+`oxy serve` against one Postgres; a second `oxy start` would recreate the first one's.
 
 All ports are configurable from the repo-root `.env`, which **both** the backend
 (`cargo run serve`, via `dotenv`) and the Vite dev server (`pnpm run dev`, via

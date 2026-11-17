@@ -1,6 +1,6 @@
 ---
 name: oxy-run-and-verify
-description: Use when you need to run, start, or launch the Oxy / Oxygen app locally and look at a change in the real product — verify a UI or API change in the browser, confirm a fix works end to end, seed demo data, sign in as a member / org owner / staff / app operator / partner, screenshot a feature, or reproduce a reported UI bug with the Playwright MCP — or sign a browser in to a deployment (dev aip.dev.oxy.tech, staging, production) past its Google / GitHub / email login. Triggers on "run the app", "start the server", "start the stack", "just up", "check it in the browser", "see it working", "screenshot the page", "reproduce this bug", "sign in as", "log in as a member", "dev-login", "seed data", "state.json", "which persona", "503 needs_recompile", "x-oxy-assume-required", "aip.dev.oxy.tech", "log in to dev", "login-link", "can't log in". This is the project skill the built-in `run` skill looks for. Not for authoring committed regression flows (agentic-browser-test) or for unit/integration tests.
+description: Use when you need to run, start, or launch the Oxy / Oxygen app locally and look at a change in the real product — verify a UI or API change in the browser, confirm a fix works end to end, seed demo data, sign in as a member / org owner / staff / app operator / partner, screenshot a feature, or reproduce a reported UI bug with the Playwright MCP — or sign a browser in to a deployment (dev aip.dev.oxy.tech, staging, production) past its Google / GitHub / email login. Triggers on "run the app", "start the server", "start the stack", "just up", "just stacks", "port already in use", "another session's stack", "frontend-only", "check it in the browser", "see it working", "screenshot the page", "reproduce this bug", "sign in as", "log in as a member", "dev-login", "seed data", "state.json", "which persona", "503 needs_recompile", "x-oxy-assume-required", "aip.dev.oxy.tech", "log in to dev", "login-link", "can't log in". This is the project skill the built-in `run` skill looks for. Not for authoring committed regression flows (agentic-browser-test) or for unit/integration tests.
 ---
 
 # Run the stack, sign in as a persona, verify
@@ -8,8 +8,8 @@ description: Use when you need to run, start, or launch the Oxy / Oxygen app loc
 The loop is always the same, and it never involves `--local`, hand-started servers, or env edits:
 
 1. **`just up`** — builds, starts, seeds, serves. Idempotent: re-run it after any change.
-2. **Read `.oxy-dev/state.json`** — URLs, pids, log paths, personas, seeded workspace ids.
-3. **`browser_navigate` to `http://127.0.0.1:5173/dev-login?as=<persona>&next=<path>`** — that one navigation is the whole sign-in.
+2. **Read `.oxy-dev/state.json`** — URLs, pids, log paths, personas, seeded workspace ids. **The ports are this checkout's** (slot 0 is `:5173`, slot 1 `:5183`, …): take `frontend_url` / `backend_url` from the file, never assume `:5173`.
+3. **`browser_navigate` to `<frontend_url>/dev-login?as=<persona>&next=<path>`** (`dev_login_template` in state.json) — that one navigation is the whole sign-in.
 4. Look, click, screenshot. Change code. Back to 1 (or nothing, for web-app edits — Vite hot-reloads).
 
 **Here vs `agentic-browser-test`:** this skill is for *looking at* a change once. A regression you want kept belongs in a committed flow under `web-app/tests/agentic/flows/`; invoke that skill for it.
@@ -17,6 +17,8 @@ The loop is always the same, and it never involves `--local`, hand-started serve
 ## Running it from Claude Code
 
 - Run `just up` / `just status` / `just down` **with the Bash sandbox disabled**: they need the Docker socket, `ps`, and to bind ports. Sandboxed, the script exits at once naming the problem.
+- **Other sessions' stacks are not in your way.** One stack per checkout, any number per machine: each checkout holds its own slot of ports, and they all share one database. Work in your own worktree (`cd "$(just wt-claim <branch>)"`) and `just up` there; never stop, restart or `--clean` a stack you did not start. `just stacks` shows who runs what.
+- **A web-app-only change needs no backend of its own**: `just up --frontend-only` runs only Vite, proxying to a backend already running on this machine (no cargo build, no Docker). That backend is another checkout's binary, so use a full `just up` when the change touches `crates/**` or an API the web-app calls.
 - A **cold** `just up` can outlast the 10-minute Bash timeout (a ~7 min first build, image pulls, then the seed compiling ~10 workspaces). Run it with `run_in_background: true` and wait for the completion notification. A warm run is mostly the seed step.
 - The exit code is the contract. On failure the script prints the last 40 log lines and the log path, so read those before retrying anything.
 
@@ -24,24 +26,29 @@ The loop is always the same, and it never involves `--local`, hand-started serve
 
 | Command | Does |
 | ------- | ---- |
-| `just up` | `cargo build -p oxy-server` → `oxy start --enterprise` (Docker Postgres :15432, API :3000, no-auth internal API 127.0.0.1:3001) → `oxy seed --workspace-path ./examples --llm-keys --fixtures` (compiles + promotes every seeded workspace; copies env LLM keys into their secrets; builds the `pulse-demo` fixture app once) → Vite on 127.0.0.1:5173 → writes state.json and prints three ready sign-in links |
+| `just up` | claims this checkout's slot → `cargo build -p oxy-server` → the **shared** data layer (Docker Postgres :15432, Airhouse :8080/:5445; started by `oxy start --db-only` only when not healthy) → `oxy serve --enterprise` on the slot's API + no-auth internal ports → `oxy seed --workspace-path ./examples --llm-keys --fixtures` (compiles + promotes every seeded workspace; copies env LLM keys into their secrets; builds the `pulse-demo` fixture app once; one seed at a time machine-wide) → Vite on the slot's port → writes state.json and prints three ready sign-in links |
 | `just up --no-build` | reuse the existing binary (`$OXY_BIN`, else `target/debug/oxy`) |
 | `just up --no-seed` | skip the seed (faster when data and compiled revisions are already there) |
 | `just up --no-frontend` | API only, for `curl` checks |
+| `just up --frontend-only` | Vite only, proxying to a backend already running on this machine (this checkout's, else the lowest slot's; `OXY_DEV_BACKEND_URL` names one) |
 | `just up --restart` | restart backend + Vite even when healthy (after editing `.env`) |
-| `just up --clean` | wipe the database volumes first (`oxy start --clean`) |
-| `just status` | pids, `/api/ready`, Vite + its `/api` proxy, containers, current log paths. Exits 1 when not serving |
-| `just down` / `just down --db` | stop backend + Vite / also `docker stop` the Postgres + ClickHouse containers |
+| `just up --clean` | wipe the **shared** database volumes first; refused while another checkout's stack runs (`--force`) |
+| `just status` | slot, pids, `/api/ready`, Vite + its `/api` proxy, containers, current log paths. Exits 1 when not serving |
+| `just stacks` | every stack on this machine: slot, ports, health, checkout, branch; and the data layer |
+| `just down` | stop this checkout's backend + Vite (`--release` also gives the slot back). `--db` also stops the shared containers, refused while another checkout's stack runs |
 
-Reuse rules: the backend is kept when it is ours, ready, and the binary is unchanged; a build that produced a new binary restarts it. Vite is kept when it is ours and answering. A port held by anything else fails the run and prints the process holding it. That is usually a server you started by hand, so stop it rather than working around it.
+Reuse rules: the backend is kept when it is ours, ready, and the binary is unchanged; a build that produced a new binary restarts it. Vite is kept when it is ours and answering. The data layer is kept whenever it is healthy, whoever started it. A slot port held by anything else moves this checkout to the next free slot (the holder is printed); a data-layer port held by anything else fails the run. A second `just up` in the same checkout waits for the first, then reuses what it started.
 
 ## `.oxy-dev/state.json`
 
 | Key | Use |
 | --- | --- |
-| `frontend_url`, `backend_url`, `internal_url`, `database_url` | where things are (always `127.0.0.1` for HTTP) |
-| `dev_login_template` | `http://127.0.0.1:5173/dev-login?as={persona}&next={path}` |
-| `token_template` | `http://127.0.0.1:3000/api/auth/dev-login?as={persona}` — GET returns `{token}` for `curl`, sets no cookie |
+| `slot` | this checkout's slot N: API `3000+10N`, internal `3001+10N`, Vite `5173+10N` |
+| `frontend_url`, `backend_url`, `internal_url`, `database_url` | where things are (always `127.0.0.1` for HTTP). `internal_url` is null with `--frontend-only` |
+| `backend_shared_from` | null for this checkout's own backend; with `--frontend-only`, the slot (a number) whose backend Vite proxies to, or the string `"url"` when `OXY_DEV_BACKEND_URL` named it |
+| `data_layer` | the shared Postgres URL and Airhouse admin URL every stack uses |
+| `dev_login_template` | `<frontend_url>/dev-login?as={persona}&next={path}` |
+| `token_template` | `<backend_url>/api/auth/dev-login?as={persona}` — GET returns `{token}` for `curl`, sets no cookie |
 | `personas` | `{name: email}`; `persona_checks` holds what the server actually answered for each |
 | `workspaces[]` | `org_slug`, `workspace_name`, `workspace_id`, `compiled`, `home_path` |
 | `custom_apps[]` | `org_slug`, `app_slug`, `url` |
@@ -65,7 +72,7 @@ Seeded orgs: `local` (Demo `70787bb2-e11b-5488-b2c3-02e60d5fc7d3` from `./exampl
 
 ## Route map
 
-`W` = `/<org_slug>/workspaces/<workspace_id>` (see `workspaces[].home_path`). All paths are on `http://127.0.0.1:5173`.
+`W` = `/<org_slug>/workspaces/<workspace_id>` (see `workspaces[].home_path`). All paths are on `frontend_url`.
 
 | Surface | Path |
 | ------- | ---- |
@@ -100,7 +107,9 @@ Seeded orgs: `local` (Demo `70787bb2-e11b-5488-b2c3-02e60d5fc7d3` from `./exampl
 | bounced to `/login` | no session / expired | navigate to the dev-login URL again |
 | staff lands on `/admin/billing/queue` | that email is also in `OXY_OWNER`; a Global Owner is sent to admin from user-facing routes | use another persona for tenant pages |
 | chat run errors on the provider / API key | no LLM key in the env when the seed ran (`just up` seeds with `--llm-keys`, storing keys as workspace secrets; a bare `oxy seed` does not) | put `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` in `.env`, `just up` |
-| custom-app data 403 `origin not allowed` | a non-loopback origin | browse `127.0.0.1:5173` |
+| custom-app data 403 `origin not allowed` | a non-loopback origin | browse `frontend_url` (`127.0.0.1`) |
+| backend refuses to boot, log says the key `does not open this database's` secrets | this checkout's `OXY_ENCRYPTION_KEY` differs from the one the shared database was sealed with | use the main checkout's `.env` (a worktree without one gets a symlink to it) |
+| `waiting for seed lock` / `data-layer lock`, held by another checkout | another session's `just up` is seeding or starting the shared data layer | nothing: it goes on when that one finishes |
 
 ## After a change
 
@@ -120,7 +129,7 @@ Seeded orgs: `local` (Demo `70787bb2-e11b-5488-b2c3-02e60d5fc7d3` from `./exampl
 - Find elements with `browser_snapshot` (accessibility tree + refs) and prefer `data-testid`s. Use `browser_take_screenshot` for evidence; files land in `.playwright-mcp/` (gitignored).
 - Diagnose with `browser_network_requests` (look for the 403/409/503 shapes above) and `browser_console_messages`.
 - Missing browser: `pnpm --dir web-app/node_modules/@playwright/mcp exec playwright install chromium`.
-- API-only check: `TOKEN=$(curl -s --noproxy '*' 'http://127.0.0.1:3000/api/auth/dev-login?as=member' | jq -r .token)`, then `curl -s --noproxy '*' -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/api/orgs`.
+- API-only check: `API=$(jq -r .backend_url .oxy-dev/state.json)`, `TOKEN=$(curl -s --noproxy '*' "$API/api/auth/dev-login?as=member" | jq -r .token)`, then `curl -s --noproxy '*' -H "Authorization: Bearer $TOKEN" "$API/api/orgs"`.
 
 ## A deployment (dev, staging, prod), not this machine
 
@@ -166,5 +175,5 @@ An agent token, without blocking on the person:
 - **`invalid archive member … librusty_v8.a` / `could not find native static library rusty_v8`**: the V8 prebuilt (~39 MB `.gz`) download was cut short. The sandbox proxy does this, and so do two cargo processes racing on `target/debug/gn_out`. Delete `target/debug/gn_out/obj/librusty_v8.*`, run `cargo clean -p v8`, and rebuild once, unsandboxed and alone.
 - **`pnpm exec` can run an implicit `pnpm install`** when `node_modules` is behind the lockfile. For one-off tools call the binary directly: `web-app/node_modules/.bin/{tsc,vitest}`, and `node_modules/.bin/biome` from the repo root.
 - **Don't set `OXY_DEV_LOGIN_EMAILS`**: it replaces the persona roster. **Don't export `OXY_ROLE`**: `oxy start` is one all-roles process, and `just up` strips it.
-- `oxy start` recreates the `oxy-postgres` container on every backend restart (the volume survives), and sets `OXY_DATABASE_URL` only for itself. A separate `oxy seed` / `oxy compile` needs `OXY_DATABASE_URL=postgresql://postgres:postgres@localhost:15432/oxy`.
-- One stack per machine: the ports are fixed. A second checkout needs its own ports, as described in DEVELOPMENT.md "Running multiple instances side by side".
+- **Never run `oxy start` (or `just dev-backend`) beside `just up` stacks**: it recreates the shared `oxy-postgres` container, dropping every stack's database, and removes it when it stops. `just up` runs backends as `oxy serve` and starts the containers with `oxy start --db-only` only when they are down. A separate `oxy seed` / `oxy compile` needs `OXY_DATABASE_URL=postgresql://postgres:postgres@localhost:15432/oxy`.
+- **The database is shared by every stack**, so the last seed wins the Demo workspace's compiled revision (from the seeding checkout's `examples/`), a branch's migration is applied for everyone, and periodic background work runs on whichever backend claims it. What your change shows can come from another checkout's `just up`: re-run yours before you trust a seeded or compiled result. DEVELOPMENT.md "What the stacks share" has the list.
