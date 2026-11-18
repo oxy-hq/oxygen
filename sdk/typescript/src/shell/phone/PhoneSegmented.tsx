@@ -1,5 +1,6 @@
-import { type KeyboardEvent, useRef } from "react";
+import { type KeyboardEvent, useLayoutEffect, useRef } from "react";
 import { cx } from "../cx";
+import { edgesToFade, scrollToShow } from "./segmentedScroll";
 
 export interface PhoneSegmentedOption<T extends string = string> {
   value: T;
@@ -16,7 +17,10 @@ export interface PhoneSegmentedProps<T extends string = string> {
 }
 
 /** Equal 44px segments for a small switch: List | Map, Day | Week | Month.
- *  A radio group: one tab stop, arrow keys move the choice. */
+ *  A radio group: one tab stop, arrow keys move the choice. A label too long for
+ *  an equal share keeps its whole width, and a row still too wide for the screen
+ *  scrolls sideways, faded at an edge with more beyond it, the selected option
+ *  kept in view: no label is cut. */
 export function PhoneSegmented<T extends string = string>({
   options,
   value,
@@ -24,6 +28,50 @@ export function PhoneSegmented<T extends string = string>({
   ariaLabel
 }: PhoneSegmentedProps<T>) {
   const groupRef = useRef<HTMLDivElement>(null);
+  const placed = useRef(false);
+  const labels = options.map((o) => o.label).join("\n");
+  const selected = options.findIndex((o) => o.value === value);
+
+  // The edges to fade, measured again on a scroll and whenever the row or an
+  // option changes size (a font arriving, a new label). The mark is also what
+  // makes the row scroll (shell.css), so a row that fits never becomes a scroll
+  // container. Before paint, so an overflowing row is never drawn spilling out.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs for new labels, which are new options to watch.
+  useLayoutEffect(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const mark = () => {
+      const fade = edgesToFade(group);
+      if (fade) group.setAttribute("data-oxy-fade", fade);
+      else group.removeAttribute("data-oxy-fade");
+    };
+    mark();
+    group.addEventListener("scroll", mark, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(mark);
+    if (observer) {
+      observer.observe(group);
+      for (const option of group.children) observer.observe(option);
+    }
+    return () => {
+      group.removeEventListener("scroll", mark);
+      observer?.disconnect();
+    };
+  }, [labels]);
+
+  // The selected option stays wholly in view, clear of the fades: at once as the
+  // row first draws, smoothly when the choice moves.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs for new labels, which move the options.
+  useLayoutEffect(() => {
+    const group = groupRef.current;
+    const option = group?.querySelectorAll<HTMLElement>("button")[selected];
+    if (!group || !option) return;
+    const left = scrollToShow(group, option);
+    if (left !== null) {
+      const smooth = placed.current && !prefersReducedMotion();
+      group.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
+    }
+    placed.current = true;
+  }, [selected, labels]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
@@ -69,5 +117,12 @@ export function PhoneSegmented<T extends string = string>({
         );
       })}
     </div>
+  );
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
 }

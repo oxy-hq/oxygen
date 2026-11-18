@@ -7,6 +7,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { SEGMENT_FADE_PX } from "./segmentedScroll";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const raw = readFileSync(join(here, "..", "shell.css"), "utf8");
@@ -169,5 +170,57 @@ describe("shell.css phone kit", () => {
     const at = section.indexOf("@media (prefers-reduced-motion: reduce)");
     expect(at).toBeGreaterThanOrEqual(0);
     expect(section.slice(at)).toMatch(/\.oxy-phone-sheet \{\s*animation-name: oxy-phone-fade-in;/);
+  });
+
+  // Round 9 (the polish audit's X2 and X3). These hold with or without the theme: each acts only
+  // where 2.28 cut a label or a value, so a row or a value that fits lays out as it did (the
+  // no-theme pixel proof in the PR). jsdom lays nothing out, so the rules are held as text.
+  it("sizes segments by their labels where an equal share would cut one, and scrolls rather than cut", () => {
+    const row = rule(".oxy-phone-segmented");
+    // A 1fr track never drops below its max-content minimum: equal while every label fits.
+    expect(row).toMatch(/grid-auto-columns: minmax\(max-content, 1fr\);/);
+    // As shrinkable as 2.28's row in a flex or grid parent, so a long row overflows itself.
+    expect(row).toMatch(/min-width: 0;/);
+    // A row that fits is no scroll container: one repaints its edges and labels a shade apart
+    // (measured in Chrome, 1/255 on 24 pixels of a fitting row).
+    expect(row).not.toMatch(/overflow|scrollbar/);
+    // Only a row PhoneSegmented marks as wider than its box scrolls, without a bar.
+    const fade = rule(".oxy-phone-segmented[data-oxy-fade]");
+    expect(fade).toMatch(/overflow-x: auto;/);
+    expect(fade).toMatch(/scrollbar-width: none;/);
+    expect(rule(".oxy-phone-segmented[data-oxy-fade]::-webkit-scrollbar")).toMatch(
+      /display: none;/
+    );
+    // The fade, on the edge PhoneSegmented marks, over the width it keeps the selection clear of.
+    expect(fade).toMatch(/-webkit-mask-image: var\(--oxy-phone-segmented-fade\);/);
+    expect(fade).toMatch(/(^|\s)mask-image: var\(--oxy-phone-segmented-fade\);/);
+    const px = `${SEGMENT_FADE_PX}px`;
+    expect(rule('.oxy-phone-segmented[data-oxy-fade~="start"]')).toContain(
+      `--oxy-phone-segmented-fade-start: ${px};`
+    );
+    expect(rule('.oxy-phone-segmented[data-oxy-fade~="end"]')).toContain(
+      `--oxy-phone-segmented-fade-end: ${px};`
+    );
+    // The reach is the option's own: 44px tall, as before.
+    expect(rule(".oxy-phone-segmented__option")).toMatch(/min-height: var\(--control-h-lg, 44px\)/);
+  });
+
+  it("never cuts a card figure's value through a glyph", () => {
+    const dd = rule(".oxy-phone-card__figure dd");
+    // Its parts wrap rather than run past the column's edge; one line stays one line.
+    expect(dd).toMatch(/flex-wrap: wrap;/);
+    expect(dd).toMatch(/white-space: nowrap;/);
+    expect(dd).toMatch(/overflow: hidden;/);
+    // Text alone is a block, so it ends in an ellipsis (an anonymous flex item cannot).
+    const text = rule(".oxy-phone-card__figure dd:not(:has(> *))");
+    expect(text).toMatch(/display: block;/);
+    expect(text).toMatch(/text-overflow: ellipsis;/);
+    // An element of text alone wraps inside itself, and is never clipped at its own box: that
+    // cuts the ink of a glyph past its advance in a value that fits (a bold "—", an "f"; measured
+    // in Chrome for the PR, 10-31 pixels at up to 168/255 with overflow-x: clip).
+    const leaf = rule(".oxy-phone-card__figure dd > :where(:not(:empty):not(:has(*)))");
+    expect(leaf).toMatch(/white-space: normal;/);
+    expect(leaf).toMatch(/overflow-wrap: anywhere;/);
+    expect(leaf).not.toMatch(/overflow(-[xy])?:|text-overflow/);
   });
 });

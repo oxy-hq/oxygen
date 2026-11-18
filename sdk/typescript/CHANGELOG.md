@@ -156,6 +156,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A corner computed from the radius never goes negative.** Every
   `calc(var(--oxy-shell-radius) - Npx)` is clamped at 0, so a zero radius gives a
   square corner by value rather than by the browser dropping an invalid length.
+- **No `PhoneSegmented` label is cut while there is room.** Segments are equal while every
+  label fits an equal share, as before; a label that does not keeps its whole width and the
+  others share the rest (at 320px "Attention (12)" was cut beside options with room to
+  spare). A row still too wide for the screen scrolls sideways, without a bar, faded on the
+  edge with more options beyond it, and keeps the selected option wholly in view, clear of
+  the fade. A row that fits lays out as it did, with or without the theme.
+- **A `PhoneCard` figure's value is never cut through a glyph.** Its parts wrap onto a second
+  line rather than run past the column's edge ("3.73" and "vs 4.14"), text alone that still
+  does not fit ends in an ellipsis, and an element of the app's that holds only text wraps
+  inside itself; the whole value stays in the DOM, so a screen reader reads all of it. This covers an app's own `oxy-phone-card__figures` list too. A value that
+  fits lays out as it did. With the theme, a card has one figure column per figure (up to
+  three), so two figures share its width rather than wrapping beside an empty third column.
+- **With the theme, a `PhoneSection`'s title lines up with the page title and its cards.**
+  2.28's 4px inset (the reference phone's too) set it 4px right of both, and its action 4px
+  in from their right edge. Without the theme it keeps the 4px.
+- **With the theme, a `PhoneSheet`'s Back shows its focus ring only when the sheet was opened
+  from the keyboard** (the control that opened it showed focus, as the browser judges it).
+  Back still takes focus on open; a tap, a click or a sheet open on arrival no longer rings
+  it, which Chrome's guess for a script's focus did. Without the theme, focus is as 2.28 set it.
 
 ## [2.28.1] - 2026-11-11
 

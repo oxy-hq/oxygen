@@ -6,6 +6,7 @@
 
 import { type ReactNode, useContext, useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
+import { isOxyThemeApplied } from "../../theme/index";
 import { cx } from "../cx";
 import { trapTab } from "../NavSheet";
 import { ShellPortalContext } from "../portal";
@@ -76,11 +77,24 @@ function PhoneSheetPanel({
     if (historyEntry) return holdHistoryEntry(() => closeRef.current());
   }, [historyEntry]);
 
+  // Whether the sheet was opened from the keyboard: read once, as it opens, from
+  // the control that opened it, which still has focus then, and whose focus the
+  // browser has judged to show (`:focus-visible`) or not. A tap, a click or a
+  // link that opens the sheet leaves nothing focused that shows it.
+  const fromKeyboard = useRef<boolean | null>(null);
+
   // Apart from the effect above: the shell's portal container arrives after its
   // first commit, and a sheet open by then is rebuilt there with a new Back.
+  // With the theme, Back takes focus with its ring only for a sheet opened from
+  // the keyboard. A bare focus() leaves that to the browser's guess for a script,
+  // which in Chrome rings Back after a tap on something that takes no focus, and
+  // on a sheet open on arrival. Without the theme, focus() as 2.28 called it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs for a new container.
   useEffect(() => {
-    backRef.current?.focus();
+    if (fromKeyboard.current === null) fromKeyboard.current = focusShows(document.activeElement);
+    const back = backRef.current;
+    if (!back) return;
+    back.focus(isOxyThemeApplied(back) ? { focusVisible: fromKeyboard.current } : undefined);
   }, [container]);
 
   return createPortal(
@@ -114,4 +128,15 @@ function PhoneSheetPanel({
     </div>,
     container ?? document.body
   );
+}
+
+/** Whether `el` holds focus that shows, as the browser judges it. */
+function focusShows(el: Element | null): boolean {
+  if (!el || el === document.body) return false;
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    // An engine that does not know the selector gives no judgement to follow.
+    return false;
+  }
 }

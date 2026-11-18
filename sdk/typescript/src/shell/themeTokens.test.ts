@@ -563,4 +563,30 @@ describe("shell.css follows the design system's own parts with the theme", () =>
       /opacity: calc\(0\.6 \+ 0\.4 \* var\(--oxy-shell-themed, 0\)\);/
     );
   });
+
+  it("lines a phone section's title up with the cards under it with the theme, 4px in without", () => {
+    // 2.28's 4px a side (the reference phone's too) set the title 4px right of the page title and
+    // the cards' edges; with the theme the switch takes it to 0. Measured in Chrome for the PR.
+    expect(rule(".oxy-phone-section__header")).toMatch(
+      /padding: 0 calc\(4px - 4px \* var\(--oxy-shell-themed, 0\)\);/
+    );
+  });
+
+  it("gives a card one figure column per figure with the theme, 2.28's three without", () => {
+    expect(rule(".oxy-phone-card__figures")).toMatch(
+      /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/
+    );
+    // The count sits in :where(), so the rule weighs one class, as the base rule does: it wins by
+    // coming later, and an app's own column rule still outranks it (a bare :has() weighs 0,3,0).
+    const one = queried(".oxy-phone-card__figures:where(:has(> :last-child:nth-child(1)))");
+    const two = queried(".oxy-phone-card__figures:where(:has(> :last-child:nth-child(2)))");
+    for (const q of [one, two]) {
+      expect(q.outside).toEqual([]);
+      expect(q.inside.map((r) => r.query)).toEqual([THEMED_QUERY]);
+    }
+    expect(one.inside[0].body).toMatch(/^\s*grid-template-columns: minmax\(0, 1fr\);\s*$/);
+    expect(two.inside[0].body).toMatch(
+      /^\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);\s*$/
+    );
+  });
 });

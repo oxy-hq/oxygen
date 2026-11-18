@@ -2965,12 +2965,16 @@
   gap: 8px;
 }
 
+/* 4px a side as 2.28 drew it (and the reference phone still does), which set the title 4px right
+   of the page title and of the cards' edges under it. With the theme, none: the title starts on the
+   one left edge the page title and the cards share, and the action ends on their right edge.
+   A length, so --oxy-shell-themed switches it: 2.28's 4px without the theme. */
 .oxy-phone-section__header {
   display: flex;
   min-height: 24px;
   align-items: center;
   gap: 8px;
-  padding: 0 4px;
+  padding: 0 calc(4px - 4px * var(--oxy-shell-themed, 0));
 }
 
 .oxy-phone-section__title {
@@ -3309,6 +3313,23 @@
   margin: 0;
 }
 
+/* With the theme, one column per figure, up to the three a card shows: two figures share the
+   card's width rather than wrapping or cutting their values beside an empty third column, and one
+   takes it all. Counted with :has(), so an app's own `oxy-phone-card__figures` list (Store Ops,
+   Marketing) is counted too, inside :where() so the rule weighs what the base rule does (one
+   class) and an app's own column rule still wins. A column count cannot be mixed by a number, so
+   this switches on the theme's marker through a style query; without the theme, or without style
+   queries, three. */
+@container style(--oxy-theme-contract: 1) {
+  .oxy-phone-card__figures:where(:has(> :last-child:nth-child(1))) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oxy-phone-card__figures:where(:has(> :last-child:nth-child(2))) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .oxy-phone-card__figure {
   display: flex;
   min-width: 0;
@@ -3328,11 +3349,18 @@
   color: var(--oxy-shell-muted-fg);
 }
 
+/* A value never cuts through a glyph. 2.28 clipped whatever passed the column's edge, mid-digit.
+   Now the parts of a value made of several (a figure and its "vs 4.14") wrap onto a second line
+   rather than run past the edge, text alone that still does not fit ends in an ellipsis, and an
+   element of text wraps inside itself; the text stays whole in the DOM, so a screen reader reads
+   all of it. Each rule acts only where 2.28 cut the value: a value that fits lays out, and paints,
+   as it did. */
 .oxy-phone-card__figure dd {
   display: flex;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px 6px;
   margin: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -3340,6 +3368,24 @@
   line-height: 1.3;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+}
+
+/* Text alone (the usual value, a string): a block, so it can take an ellipsis; in a flex container
+   the text sits in an anonymous item that cannot. One line of text lays out the same either way. */
+.oxy-phone-card__figure dd:not(:has(> *)) {
+  display: block;
+  text-overflow: ellipsis;
+}
+
+/* An element that holds only text (a toned amount, a "vs 4.14") and is still wider than the column
+   on its own: its text wraps inside it, between words or, for one long word, anywhere. Wrapping
+   rather than an ellipsis, because an ellipsis needs a clip on the app's own element, and a clip
+   at its box cuts the ink of a glyph that runs past its advance (a bold "—", an "f") in values
+   that fit. An element with children (an icon, a hint and its reach) is left as the app drew it.
+   The test sits in :where(), so an app's own rule for the element outranks this one. */
+.oxy-phone-card__figure dd > :where(:not(:empty):not(:has(*))) {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* The status pill (PhoneCard's `status`). With the theme, the tone's chip pair,
@@ -3370,11 +3416,18 @@
 
 /* ── PhoneSegmented ── */
 
+/* Equal columns while every label fits in an equal share, as 2.28 drew them. A label that does not
+   keeps its whole width (a 1fr track never drops below its max-content minimum) and the others
+   share what is left: 2.28 cut "Attention…" at 320 beside options with room to spare. A row still
+   wider than its box scrolls (below). Both act only where 2.28 cut a label: a row that fits lays
+   out, and paints, as it did. `min-width: 0` keeps the row as shrinkable as 2.28's in a flex or
+   grid parent, so a long row overflows itself rather than widening the page. */
 .oxy-phone-segmented {
   box-sizing: border-box;
   display: grid;
+  min-width: 0;
   min-height: 48px;
-  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-columns: minmax(max-content, 1fr);
   grid-auto-flow: column;
   gap: 2px;
   border-radius: var(--radius-control, var(--oxy-shell-radius));
@@ -3388,6 +3441,38 @@
     var(--segment-track, transparent) calc(var(--oxy-shell-themed, 0) * 100%),
     color-mix(in srgb, var(--oxy-shell-foreground) 8%, var(--oxy-shell-background))
   );
+}
+
+/* A row wider than its box: PhoneSegmented marks it `data-oxy-fade` (the edges with more options
+   beyond them) only then, so a row that fits never becomes a scroll container, which repaints its
+   edges and labels a shade apart. It scrolls sideways without a bar, rather than cutting a label;
+   PhoneSegmented keeps the selected option in view. The fade over the last 24px of such an edge is
+   the cue that it scrolls: a mask, so the labels and the track fade together (only alpha is read). */
+.oxy-phone-segmented[data-oxy-fade] {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  --oxy-phone-segmented-fade: linear-gradient(
+    to right,
+    transparent,
+    black var(--oxy-phone-segmented-fade-start, 0px),
+    black calc(100% - var(--oxy-phone-segmented-fade-end, 0px)),
+    transparent
+  );
+  -webkit-mask-image: var(--oxy-phone-segmented-fade);
+  mask-image: var(--oxy-phone-segmented-fade);
+}
+
+.oxy-phone-segmented[data-oxy-fade]::-webkit-scrollbar {
+  display: none;
+}
+
+.oxy-phone-segmented[data-oxy-fade~="start"] {
+  --oxy-phone-segmented-fade-start: 24px;
+}
+
+.oxy-phone-segmented[data-oxy-fade~="end"] {
+  --oxy-phone-segmented-fade-end: 24px;
 }
 
 .oxy-phone-segmented__option {

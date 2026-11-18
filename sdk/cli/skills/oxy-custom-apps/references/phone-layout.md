@@ -85,6 +85,13 @@ history and settings come after, or behind a tab.
   with `!important` corner rules or `--oxy-shell-*` overrides: delete them when you
   import the theme, because the theme's names are read first and those rules only
   fight it.
+- Leave the kit's widths to it (SDK 2.29 and later). `PhoneSegmented` keeps every
+  label whole: a long label takes its width, and a row too wide scrolls with a fade,
+  the selected option in view. A `PhoneCard` figure's value wraps or ends in an
+  ellipsis, never cut through a glyph, and with the theme a card has one figure column
+  per figure. A rule of your own on `.oxy-phone-segmented` columns or option padding,
+  or on `.oxy-phone-card__figures` columns, outranks the kit and brings the cut back:
+  delete it.
 
 ## Checking it
 
