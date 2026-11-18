@@ -71,7 +71,7 @@ impl Rejection {
             Self::ServiceAccountRequired => {
                 "name the service account this run acts as, by its id: 'service_account' is the \
                  account's id (a UUID, not '<org_slug>/<name>'), shown under Organization → API \
-                 access → the service account"
+                 tokens → Service accounts → the account"
             }
             Self::Envelope("wrong_audience") => {
                 "the OIDC token was not requested for this deployment's audience, which is \
@@ -246,7 +246,7 @@ mod tests {
         // It asks for the id, and says where the id is.
         let said = body["error"].as_str().unwrap_or_default();
         assert!(said.contains("account's id"), "{said}");
-        assert!(said.contains("API access"), "{said}");
+        assert!(said.contains("API tokens → Service accounts"), "{said}");
     }
 
     #[test]

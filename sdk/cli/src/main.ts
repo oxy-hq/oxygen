@@ -714,7 +714,7 @@ function buildProgram(): Command {
     tokens
       .command("create")
       .description(
-        "open Account → Personal access tokens in the browser — or, with --agent or --sandbox-agent, mint an agent's own token, or with --org-service-account an organization's"
+        "open Settings → Organization → API tokens in the browser — or, with --agent or --sandbox-agent, mint an agent's own token, or with --org-service-account an organization's"
       )
       .option(
         "--agent",

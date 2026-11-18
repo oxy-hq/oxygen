@@ -387,9 +387,13 @@ interface Subject {
 }
 
 /**
- * Organization settings → API access, as a link. `?settings=<section>` is the
- * web app's deep link into its settings dialog; a deployment without the
- * section drops the parameter and lands on Home.
+ * Settings → Organization → API tokens → Service accounts, as a link.
+ * `?settings=<section>` is the web app's deep link into its settings dialog; a
+ * deployment without the section drops the parameter and lands on Home.
+ *
+ * The old id of what was Organization → API access, on purpose: the web app
+ * sends it to the Service accounts tab for good, and a deployment that
+ * predates the move knows only this one. See `TOKENS_SETTINGS_SECTION`.
  */
 export const API_ACCESS_SETTINGS_SECTION = "organization.api_access";
 
@@ -431,7 +435,7 @@ export function manualSteps(s: Subject, r: Extract<Registration, { kind: "manual
     ? `\n    ${s.host.replace(/\/+$/, "")}/?settings=${API_ACCESS_SETTINGS_SECTION}`
     : "";
 
-  return `  In the web app, as an org admin — Organization settings → API access → Service accounts:${page}
+  return `  In the web app, as an org admin — Settings → Organization → API tokens → Service accounts:${page}
     1. create the service account \`${accountName}\`, role member, unless it exists
     2. open it and, under Trusted access, add a trust policy:
          repository    ${s.repository}
@@ -537,7 +541,7 @@ export async function runInitCi(ctx: Context, flags: InitCiFlags): Promise<void>
       `the workflow names its service account as ${SERVICE_ACCOUNT_ID_PLACEHOLDER}: the ID of ${serviceAccount} could not be looked up from here`
     );
     log.hint(
-      `replace the placeholder with the account's ID — Organization settings → API access → Service accounts → ${account.name} — or re-run \`oxyc init-ci --force\` once it exists and you are logged in. The name itself is never accepted: an ID cannot be taken over by another organization.`
+      `replace the placeholder with the account's ID — Settings → Organization → API tokens → Service accounts → ${account.name} — or re-run \`oxyc init-ci --force\` once it exists and you are logged in. The name itself is never accepted: an ID cannot be taken over by another organization.`
     );
   }
   // A repo still on pnpm 10 conventions would learn this from a red first run.

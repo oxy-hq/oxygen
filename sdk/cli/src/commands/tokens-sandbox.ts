@@ -184,10 +184,10 @@ export async function discard(
   const kept = !secret
     ? "Nothing was minted, and nothing was kept."
     : !sendable
-      ? "What it returned is not a token, so nothing could be revoked with it, and nothing was kept — check Account → Personal access tokens in the web app for a token you did not expect."
+      ? "What it returned is not a token, so nothing could be revoked with it, and nothing was kept — check Settings → Organization → API tokens → Personal access tokens in the web app for a token you did not expect."
       : outcome === "revoked" || outcome === "already_invalid"
         ? "What it minted was revoked, and nothing was kept."
-        : "Nothing was kept on this machine, but the deployment did not confirm revoking what it minted — revoke it in the web app: Account → Personal access tokens.";
+        : "Nothing was kept on this machine, but the deployment did not confirm revoking what it minted — revoke it in the web app: Settings → Organization → API tokens → Personal access tokens.";
   // A mismatch quotes what the deployment said (slugs, an expiry, an error
   // body), so both parts pass through `printable` here, the one place every
   // refusal is raised.
@@ -352,7 +352,7 @@ export async function runTokensRevokeCurrent(ctx: Context): Promise<void> {
     // it for every session in the environment. That is the web app's act.
     throw usageError(
       `--current revokes the token in ${variable}, and ${variable}=from-proxy holds none`,
-      "the token is the cloud environment's network secret: revoke it in the web app (Account → Personal access tokens), then delete the secret"
+      "the token is the cloud environment's network secret: revoke it in the web app (Settings → Organization → API tokens → Personal access tokens), then delete the secret"
     );
   }
   if (!isRevocable(credential.token)) {

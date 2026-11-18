@@ -6,9 +6,7 @@ import {
   CreditCard,
   Database,
   Eye,
-  Fingerprint,
   HardHat,
-  Key,
   KeyRound,
   KeySquare,
   type LucideIcon,
@@ -22,6 +20,7 @@ import {
 } from "lucide-react";
 import { AirhouseLogo } from "@/components/icons";
 import type { SettingsSection } from "@/stores/useSettingsDialog";
+import { API_TOKENS_TABS, SECRETS_TABS } from "./tabs";
 
 type NavIcon = LucideIcon | React.ComponentType<{ className?: string }>;
 
@@ -58,6 +57,18 @@ interface NavItem {
    * admin who may not use the Factory is not shown it. See `canUseFactory`.
    */
   requiresFactory?: boolean;
+  /**
+   * The section reads data the server still keys by the org's workspace (its routes take a
+   * workspace id), so it is hidden while the org has none — an org still being set up. The item
+   * can sit in the Organization group all the same: each org has exactly one workspace, and no
+   * screen names it.
+   */
+  needsWorkspace?: boolean;
+  /**
+   * The section's tabs, which a link can open directly as `<section>.<tab>`. The section itself
+   * decides which of them the viewer may see.
+   */
+  tabs?: readonly string[];
 }
 
 export interface NavGroup {
@@ -68,6 +79,20 @@ export interface NavGroup {
 export interface VisibleNavGroup extends NavGroup {
   subtitle?: string;
 }
+
+/**
+ * Organization → API tokens. Shared by two places in the nav: the Organization group, where it
+ * lives, and the Account group when no org is loaded (`visibleNavGroups`). A personal access
+ * token spans orgs and needs none, so a signed-in person with no current org — someone with only
+ * pending invites, or staff and app operators outside any org — still reaches their own tokens.
+ * On that page they see only the Personal access tokens tab.
+ */
+const API_TOKENS_ITEM: NavItem = {
+  value: "organization.api_tokens",
+  label: "API tokens",
+  icon: KeySquare,
+  tabs: API_TOKENS_TABS
+};
 
 // Ungated items are the ones a plain Member can actually use: the org and
 // workspace rosters are readable by any member server-side, and Activity Logs
@@ -110,14 +135,24 @@ export const CLOUD_NAV: NavGroup[] = [
         icon: BriefcaseBusiness,
         requires: "orgAdmin"
       },
-      // Machine access to the org: service accounts, the token inventory and the
-      // token policy. Every route behind it is org-admin only, so it carries the
-      // same gate as the rest of the org's shape.
+      // Every token that lets something call Oxygen, in one place: the viewer's own
+      // personal access tokens, and for org admins the service accounts, every token
+      // reaching the org, and the token policy. Ungated because a personal token is
+      // always its owner's to manage; the admin tabs are gated inside the section,
+      // by the same org role their routes check.
+      API_TOKENS_ITEM,
+      // Values Oxygen keeps for the org's apps, agents and databases. They are
+      // stored under the org's one workspace and its routes check the workspace
+      // role and the Factory grant, so the item carries those gates rather than
+      // `orgAdmin` — name the axis the server enforces (see `NavGate`).
       {
-        value: "organization.api_access",
-        label: "API access",
-        icon: KeySquare,
-        requires: "orgAdmin"
+        value: "organization.secrets",
+        label: "Secrets",
+        icon: KeyRound,
+        requires: "workspaceAdmin",
+        requiresFactory: true,
+        needsWorkspace: true,
+        tabs: SECRETS_TABS
       },
       {
         value: "organization.billing",
@@ -162,18 +197,8 @@ export const CLOUD_NAV: NavGroup[] = [
       // Oxy staff only — previews are a staff tool, never the customer's, so a
       // tenant admin does not see this either. See `useCanUsePreviews`.
       { value: "workspace.previews", label: "Previews", icon: Eye, requires: "staff" },
-      // "API tokens", the title of the section it opens: a read-only inventory
-      // of the personal, service-account and trusted-access tokens that reach
-      // this workspace. The section id keeps its old name because
-      // `?settings=workspace.api_keys` is a link people already hold.
-      { value: "workspace.api_keys", label: "API tokens", icon: Key, requires: "workspaceAdmin" },
-      {
-        value: "workspace.secrets",
-        label: "Secrets",
-        icon: KeyRound,
-        requires: "workspaceAdmin",
-        requiresFactory: true
-      },
+      // API tokens and Secrets used to be here. Both moved to Organization; the old
+      // ids redirect (`RENAMED_SECTIONS`).
       {
         // "Connections", not "Integrations" — the org-level section above is
         // already called Integration (GitHub + Slack) and two near-identical
@@ -199,17 +224,13 @@ export const CLOUD_NAV: NavGroup[] = [
   },
   // Customer-apps management used to live here. It now has its own
   // top-level surface at `/admin/apps`, gated by `is_app_admin`.
-  // The viewer's own credentials, across every org and workspace: the group
-  // needs neither loaded, and the item is ungated because a token is always
-  // its owner's to manage. Cloud only — local mode has no sign-in to mint for.
-  // Notifications are the viewer's own the same way: every
-  // `/notifications/preferences` route reads and writes the caller's settings.
+  // The viewer's own settings, across every org: every
+  // `/notifications/preferences` route reads and writes the caller's. Personal
+  // access tokens used to be here too; they are a tab of Organization → API
+  // tokens now, so every token is in one place.
   {
     label: "Account",
-    items: [
-      { value: "account.tokens", label: "Personal access tokens", icon: Fingerprint },
-      { value: "account.notifications", label: "Notifications", icon: Bell }
-    ]
+    items: [{ value: "account.notifications", label: "Notifications", icon: Bell }]
   },
   {
     label: "Preferences",
@@ -224,8 +245,10 @@ export const LOCAL_NAV: NavGroup[] = [
       { value: "workspace.databases", label: "Databases", icon: Database },
       { value: "workspace.airhouse", label: "Airhouse", icon: AirhouseLogo },
       { value: "workspace.oltp", label: "OLTP Database", icon: Database },
-      { value: "workspace.api_keys", label: "API tokens", icon: Key },
-      { value: "workspace.secrets", label: "Secrets", icon: KeyRound },
+      // Local mode has no sign-in, so no tokens to list or mint: API tokens is
+      // cloud only. Secrets is the same section the cloud nav files under
+      // Organization; local mode has no org, so it sits here.
+      { value: "organization.secrets", label: "Secrets", icon: KeyRound, tabs: SECRETS_TABS },
       { value: "workspace.connections", label: "Connections", icon: Plug },
       { value: "workspace.apps", label: "Apps", icon: AppWindow },
       { value: "workspace.activity_logs", label: "Activity Logs", icon: Activity }
@@ -236,6 +259,31 @@ export const LOCAL_NAV: NavGroup[] = [
     items: [{ value: "preferences.appearance", label: "Appearance", icon: SunMoon }]
   }
 ];
+
+/** Where a link opens: a section, and optionally one of its tabs. */
+export interface SettingsTarget {
+  section: SettingsSection;
+  tab?: string;
+}
+
+/**
+ * Section ids that no longer exist, and where each now lives. These are links people hold — in
+ * emails already sent, in published `oxyc` versions, in bookmarks — so an entry is never
+ * removed, only added.
+ *
+ * - `account.tokens`: Account → Personal access tokens, now a tab of API tokens.
+ * - `organization.api_access`: Organization → API access, renamed API tokens. Its first tab
+ *   was Service accounts, so that is where the old link lands.
+ * - `workspace.api_keys`: Workspace → API tokens, a per-workspace list of tokens. Each org has
+ *   one workspace, so the org's list is the same list.
+ * - `workspace.secrets`: Workspace → Secrets, now Organization → Secrets.
+ */
+export const RENAMED_SECTIONS: Readonly<Record<string, SettingsTarget>> = {
+  "account.tokens": { section: "organization.api_tokens", tab: "personal" },
+  "organization.api_access": { section: "organization.api_tokens", tab: "service_accounts" },
+  "workspace.api_keys": { section: "organization.api_tokens", tab: "all" },
+  "workspace.secrets": { section: "organization.secrets" }
+};
 
 export interface NavVisibilityContext {
   isLocalMode: boolean;
@@ -299,15 +347,23 @@ export function visibleNavGroups(ctx: NavVisibilityContext): VisibleNavGroup[] {
     return undefined;
   };
 
+  // With no org loaded the Organization group is dropped, and API tokens with it; its Personal
+  // access tokens tab needs no org, so the item moves to the Account group instead.
+  const groupItems = (g: NavGroup): NavItem[] =>
+    !ctx.isLocalMode && !ctx.hasOrg && g.label === "Account"
+      ? [API_TOKENS_ITEM, ...g.items]
+      : g.items;
+
   return (ctx.isLocalMode ? LOCAL_NAV : CLOUD_NAV)
     .filter((g) => groupAvailable(g.label))
     .map((g) => ({
       ...g,
       subtitle: groupSubtitle(g.label),
-      items: g.items.filter(
+      items: groupItems(g).filter(
         (i) =>
           gateSatisfied(i.requires, ctx) &&
           (!i.requiresFactory || ctx.isLocalMode || ctx.canUseFactory !== false) &&
+          (!i.needsWorkspace || ctx.hasWorkspace) &&
           (!i.requiresBilling || ctx.billingEnabled)
       )
     }))

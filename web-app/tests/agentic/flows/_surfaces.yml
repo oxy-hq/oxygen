@@ -175,6 +175,9 @@
 - surface: settings-org-api-access
   paths:
     - "src/components/settings/SettingsDialog/sections/organization/ApiAccess/"
+    # The tab ids and redirects the flows' deep links go through.
+    - "src/components/settings/SettingsDialog/nav.ts"
+    - "src/components/settings/SettingsDialog/useSettingsDeepLink.ts"
     - "src/hooks/api/orgApiAccess/"
     - "src/services/api/orgApiAccess.ts"
   flows:
@@ -220,7 +223,8 @@
 # section with no create button. The section is gone with the keys themselves.
 
 # The expiry field, the token mask and the kind labels here are also used by
-# Organization → API access.
+# the service-account tabs of Organization → API tokens, and by the secret
+# dialogs' "Create API token".
 - surface: settings-account-tokens
   paths:
     - "src/components/settings/SettingsDialog/sections/account/PersonalTokens/"

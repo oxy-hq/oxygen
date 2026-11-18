@@ -24,7 +24,7 @@ const FALLBACK_WRITE_FIX: &str = "this invocation read the key from another envi
 /// Why `ctx.secrets.set` refuses a key read from a shared workspace secret.
 const SHARED_SECRET_WRITE: &str = "ctx.secrets.set refused: this key is a workspace \
      secret shared with the app, and an app value would shadow it and fork its rotation. Rotate \
-     it in the workspace's Settings → Secrets, or stop sharing it with this app first";
+     it under Settings → Organization → Secrets, or stop sharing it with this app first";
 
 /// `Refuse` fix for an isolated email with nobody to deliver it to.
 const NO_INVOKER_FIX: &str = "mail outside production goes only to the invoking user, and \

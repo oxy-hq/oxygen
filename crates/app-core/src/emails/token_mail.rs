@@ -98,26 +98,29 @@ pub enum Audience<'a> {
 
 impl Audience<'_> {
     /// Where the reader acts on the token: their own token list, or the org's
-    /// API access settings. `None` when the deployment's URL is unknown
+    /// service accounts. `None` when the deployment's URL is unknown
     /// (`OXY_API_URL` unset); the mail then names the place in words.
     pub fn settings_url(&self) -> Option<String> {
         let base = crate::custom_apps_host_dispatch::admin_base_url()?;
         Some(format!("{base}/?settings={}", self.settings_key()))
     }
 
-    /// The `?settings=` value of the page that lists the token.
+    /// The `?settings=` value of the page that lists the token: a tab of
+    /// Organization → API tokens, named as `<section>.<tab>`. The ids these
+    /// mails used before (`account.tokens`, `organization.api_access`) still
+    /// open the same tabs, so mail already sent keeps working.
     pub fn settings_key(&self) -> &'static str {
         match self {
-            Self::Owner => "account.tokens",
-            Self::OrgAdmins { .. } => "organization.api_access",
+            Self::Owner => "organization.api_tokens.personal",
+            Self::OrgAdmins { .. } => "organization.api_tokens.service_accounts",
         }
     }
 
     /// The place, in words, for a mail with no link.
     pub fn settings_label(&self) -> &'static str {
         match self {
-            Self::Owner => "Account → Personal access tokens",
-            Self::OrgAdmins { .. } => "Organization → API access",
+            Self::Owner => "Organization → API tokens → Personal access tokens",
+            Self::OrgAdmins { .. } => "Organization → API tokens → Service accounts",
         }
     }
 }
@@ -188,7 +191,7 @@ mod tests {
             paragraphs: vec!["one <b>".into(), "two".into()],
             link: Some((
                 "Extend it",
-                "https://oxy.example/?settings=account.tokens".into(),
+                "https://oxy.example/?settings=organization.api_tokens.personal".into(),
             )),
         }
         .message()
@@ -197,14 +200,14 @@ mod tests {
         assert!(!mail.html_body.contains("one <b>"));
         assert!(
             mail.html_body
-                .contains("https://oxy.example/?settings&#x3D;account.tokens")
+                .contains("https://oxy.example/?settings&#x3D;organization.api_tokens.personal")
                 || mail
                     .html_body
-                    .contains("https://oxy.example/?settings=account.tokens")
+                    .contains("https://oxy.example/?settings=organization.api_tokens.personal")
         );
         assert_eq!(
             mail.text_body,
-            "one <b>\n\ntwo\n\nExtend it: https://oxy.example/?settings=account.tokens\n"
+            "one <b>\n\ntwo\n\nExtend it: https://oxy.example/?settings=organization.api_tokens.personal\n"
         );
     }
 

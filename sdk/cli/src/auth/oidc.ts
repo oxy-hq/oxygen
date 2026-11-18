@@ -171,7 +171,7 @@ export function fallsBackToPublisher(refusal: OidcExchangeError): boolean {
 
 /** Where a person finds a service account's id. */
 const WHERE_THE_ID_IS =
-  "it is shown in the web app under Organization settings → API access → Service accounts → (the account), and `oxyc init-ci` writes it into the workflow.";
+  "it is shown in the web app under Settings → Organization → API tokens → Service accounts → (the account), and `oxyc init-ci` writes it into the workflow.";
 
 /** How a workflow names the account it acts as. */
 const NAME_THE_ACCOUNT = `set OXY_SERVICE_ACCOUNT to the service account's ID (or pass --service-account): the account whose trust policy matches this workflow. ${WHERE_THE_ID_IS}`;
@@ -402,7 +402,7 @@ export function exchangeError(
         detail: serverSaid,
         hint:
           "if the job declares no `environment:`, add `environment: <name>` to the job, with the name the trust policy was registered under.\n" +
-          "If it does, the trust policy itself names no environment while the organization requires one: an org admin sets it on the policy (Organization settings → API access → Service accounts → the account → Trusted access)."
+          "If it does, the trust policy itself names no environment while the organization requires one: an org admin sets it on the policy (Settings → Organization → API tokens → Service accounts → the account → Trusted access)."
       });
     case "no_matching_policy":
       return new OidcExchangeError(
@@ -411,7 +411,7 @@ export function exchangeError(
           ...base,
           detail: [serverSaid, runIdentity(env)].filter(Boolean).join("\n") || undefined,
           hint:
-            "check the account named by --service-account / OXY_SERVICE_ACCOUNT, and register a policy on it — in the web app under Organization settings → API access → Service accounts → (the account) → Trusted access, or with `oxyc init-ci` from this repo.\n" +
+            "check the account named by --service-account / OXY_SERVICE_ACCOUNT, and register a policy on it — in the web app under Settings → Organization → API tokens → Service accounts → (the account) → Trusted access, or with `oxyc init-ci` from this repo.\n" +
             "The repository, the workflow file and the job's `environment:` must all match the policy."
         }
       );

@@ -268,7 +268,8 @@ impl TokenError {
                 StatusCode::CONFLICT,
                 format!(
                     "the service account '{account}' already exists as {role}: ask for that \
-                     role, or change the account's role on the organization's API access page"
+                     role, or change the account's role under Settings → Organization → API \
+                     tokens → Service accounts"
                 ),
                 Some("role_mismatch"),
             ),

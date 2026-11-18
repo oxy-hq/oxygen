@@ -40,7 +40,7 @@ export const TokensToolbar = ({
           <Search />
         </InputGroupAddon>
         <InputGroupInput
-          placeholder='Search tokens, apps or workspaces'
+          placeholder='Search tokens, organizations or apps'
           aria-label='Search tokens'
           value={query}
           onChange={(e) => onQuery(e.target.value)}

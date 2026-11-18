@@ -204,7 +204,7 @@ export const draftFromToken = (
 /** Why the draft can't be saved yet, or `null`. The server answers 400 to the same thing. */
 export const draftProblem = (draft: AccessDraft): string | null =>
   draft.mode === "selected" && grantsFromDraft(draft).length === 0
-    ? "Select at least one workspace, or switch to all access."
+    ? "Select at least one organization, or switch to all access."
     : null;
 
 export interface LifetimeCap {

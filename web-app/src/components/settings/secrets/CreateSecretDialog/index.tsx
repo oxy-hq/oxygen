@@ -1,7 +1,6 @@
 import type React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { SecretInput } from "@/components/ui/SecretInput";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -22,6 +21,8 @@ import { useSharedSecrets, useShareSecret } from "@/hooks/api/secrets/useSharedS
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { validateSecretName } from "@/libs/utils";
 import type { SecretFormData } from "@/types/secret";
+import { SecretValueField } from "../CreateApiToken";
+import { useMintedApiToken } from "../CreateApiToken/useMintedApiToken";
 import { type Scope, WhoCanRead } from "./components/WhoCanRead";
 
 interface CreateSecretDialogProps {
@@ -60,11 +61,27 @@ export const CreateSecretDialog: React.FC<CreateSecretDialogProps> = ({
   const setAppSecret = useSetWorkspaceAppSecret(project.id);
   const { data: sharing } = useSharedSecrets(open);
   const apps = sharing?.apps ?? [];
+  // A token created for this secret: saved as its value, revoked if the dialog closes unsaved.
+  const token = useMintedApiToken();
+  const { discard: discardToken } = token;
+  // However the dialog closes — its own buttons, Escape, or the parent dropping `open` — a token
+  // it did not save goes with it, including one still being minted.
+  useEffect(() => {
+    if (!open) discardToken();
+  }, [open, discardToken]);
 
   const [formData, setFormData] = useState<SecretFormData>({ ...EMPTY, name: initialName ?? "" });
   const [scope, setScope] = useState<Scope>(workspaceScope(initialAppIds));
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  const pending = createSecret.isPending || share.isPending || setAppSecret.isPending;
+  const pending =
+    createSecret.isPending || share.isPending || setAppSecret.isPending || token.pending;
+  const value = token.minted?.value ?? formData.value;
+  const forApp = scope.kind === "app" ? apps.find((a) => a.app_id === scope.appId) : undefined;
+
+  const close = (next: boolean) => {
+    if (!next) token.discard();
+    onOpenChange(next);
+  };
 
   // Each open starts from what the caller asked for.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on open, not on a new array identity
@@ -80,7 +97,7 @@ export const CreateSecretDialog: React.FC<CreateSecretDialogProps> = ({
     const next: { [key: string]: string } = {};
     const nameValidation = validateSecretName(formData.name);
     if (!nameValidation.isValid) next.name = nameValidation.error ?? "Invalid name";
-    if (!formData.value.trim()) next.value = "Secret value is required";
+    if (!value.trim()) next.value = "Secret value is required";
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -91,10 +108,12 @@ export const CreateSecretDialog: React.FC<CreateSecretDialogProps> = ({
     try {
       if (scope.kind === "app") {
         // The hook says whether it created or rotated the key.
-        await setAppSecret.mutateAsync({ appId: scope.appId, key: name, value: formData.value });
+        await setAppSecret.mutateAsync({ appId: scope.appId, key: name, value });
       } else {
         await createWorkspaceSecret(name, [...scope.appIds]);
       }
+      // Saved: the token is the secret's now, not one to take back on close.
+      token.settle();
       onSecretCreated();
     } catch (error) {
       // The mutation hooks toast their own failures; the dialog stays open.
@@ -105,7 +124,7 @@ export const CreateSecretDialog: React.FC<CreateSecretDialogProps> = ({
   const createWorkspaceSecret = async (name: string, appIds: string[]) => {
     const created = await createSecret.mutateAsync({
       name,
-      value: formData.value,
+      value,
       description: formData.description?.trim() || undefined
     });
     if (appIds.length === 0) {
@@ -125,8 +144,8 @@ export const CreateSecretDialog: React.FC<CreateSecretDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-md'>
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-md'>
         <DialogHeader>
           <DialogTitle>New secret</DialogTitle>
           <DialogDescription>
@@ -147,17 +166,17 @@ export const CreateSecretDialog: React.FC<CreateSecretDialogProps> = ({
             {errors.name && <FieldError>{errors.name}</FieldError>}
           </div>
 
-          <div className='grid gap-2'>
-            <Label htmlFor='value'>Value *</Label>
-            <SecretInput
-              id='value'
-              placeholder='Enter secret value'
-              value={formData.value}
-              onChange={(e) => setFormData({ ...formData, value: e.target.value })}
-              className={errors.value ? "border-destructive" : ""}
-            />
-            {errors.value && <FieldError>{errors.value}</FieldError>}
-          </div>
+          <SecretValueField
+            id='value'
+            label='Value *'
+            placeholder='Enter secret value'
+            value={formData.value}
+            onChange={(next) => setFormData((prev) => ({ ...prev, value: next }))}
+            error={errors.value}
+            token={token}
+            secretName={formData.name}
+            app={forApp ? { name: forApp.app_name, slug: forApp.app_slug } : undefined}
+          />
 
           <WhoCanRead
             apps={apps}
@@ -182,7 +201,7 @@ export const CreateSecretDialog: React.FC<CreateSecretDialogProps> = ({
         </div>
 
         <DialogFooter>
-          <Button variant='outline' onClick={() => onOpenChange(false)}>
+          <Button variant='outline' onClick={() => close(false)}>
             Cancel
           </Button>
           <Button onClick={handleCreate} disabled={pending} data-testid='secret-create-submit'>

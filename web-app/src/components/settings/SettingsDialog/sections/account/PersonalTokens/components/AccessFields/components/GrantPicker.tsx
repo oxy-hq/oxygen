@@ -21,7 +21,7 @@ interface Props {
   onRetry: () => void;
 }
 
-/** The org → workspace list behind "Selected workspaces". */
+/** The list of organizations behind "Selected organizations". */
 const GrantPicker: React.FC<Props> = ({ draft, dispatch, options, loading, failed, onRetry }) => {
   if (loading) {
     return (
@@ -53,7 +53,7 @@ const GrantPicker: React.FC<Props> = ({ draft, dispatch, options, loading, faile
   if (options.orgs.length === 0) {
     return (
       <p className='rounded-md border p-3 text-muted-foreground text-xs'>
-        You aren't in an organization yet, so there are no workspaces to select.
+        You aren't in an organization yet, so there is nothing to select.
       </p>
     );
   }
@@ -76,7 +76,7 @@ const GrantPicker: React.FC<Props> = ({ draft, dispatch, options, loading, faile
       </div>
       <p className='text-muted-foreground text-xs'>
         {draftProblem(draft) ??
-          "Read can view. Write can run and edit. Admin can manage the workspace. Full does whatever you can."}
+          "Read can view. Write can run and edit. Admin can manage the organization. Full does whatever you can."}
       </p>
       {partnerOrgs.length > 0 && (
         <Caution testId='account-token-partner-caution'>

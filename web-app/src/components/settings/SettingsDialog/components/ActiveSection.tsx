@@ -3,8 +3,7 @@ import type { SettingsSection } from "@/stores/useSettingsDialog";
 import type { Organization, OrgRole } from "@/types/organization";
 import type { Workspace } from "@/types/workspace";
 import AccountNotifications from "../sections/account/Notifications";
-import PersonalTokens from "../sections/account/PersonalTokens";
-import OrgApiAccess from "../sections/organization/ApiAccess";
+import ApiTokens from "../sections/organization/ApiAccess";
 import OrgAppAccess from "../sections/organization/AppAccess";
 import Billing from "../sections/organization/Billing";
 import OrgCrew from "../sections/organization/Crew";
@@ -13,11 +12,11 @@ import Integration from "../sections/organization/Integration";
 import OrgLocations from "../sections/organization/Locations";
 import OrgMembers from "../sections/organization/Members";
 import OrgPositions from "../sections/organization/Positions";
+import Secrets from "../sections/organization/Secrets";
 import OrgTeams from "../sections/organization/Teams";
 import Appearance from "../sections/preferences/Appearance";
 import ActivityLogs from "../sections/workspace/ActivityLogs";
 import Airhouse from "../sections/workspace/Airhouse";
-import ApiKeys from "../sections/workspace/ApiKeys";
 import Apps from "../sections/workspace/Apps";
 import Connections from "../sections/workspace/Connections";
 import Databases from "../sections/workspace/Databases";
@@ -25,7 +24,6 @@ import WorkspaceMembers from "../sections/workspace/Members";
 import Oltp from "../sections/workspace/Oltp";
 import OxyAccess from "../sections/workspace/OxyAccess";
 import Previews from "../sections/workspace/Previews";
-import Secrets from "../sections/workspace/Secrets";
 import NoAccessNotice from "./NoAccessNotice";
 
 export type ActiveSectionProps = {
@@ -48,7 +46,7 @@ export type ActiveSectionProps = {
  *
  * A section's own `Can*` wrapper is defence-in-depth on top of that, not the
  * primary gate, and coverage is uneven: General, Databases, Apps, Secrets
- * and ApiKeys carry one; Integration, Teams and App access do not
+ * and API tokens' admin tabs carry one; Integration, Teams and App access do not
  * (they hide mutations via `viewerRole`/`canManage` instead). Billing and Oxy
  * access get their wrapper here because they have none internally. Anything
  * added below inherits the nav gate — give it a `requires` entry in `nav.ts`.
@@ -77,9 +75,12 @@ export function ActiveSection({ activeSection, org, role, workspace, close }: Ac
       {org && role && activeSection === "organization.positions" && (
         <OrgPositions org={org} viewerRole={role} />
       )}
-      {org && role && activeSection === "organization.api_access" && (
-        <OrgApiAccess org={org} viewerRole={role} />
+      {/* No org needed: with none loaded the page shows the viewer's own tokens only. */}
+      {activeSection === "organization.api_tokens" && (
+        <ApiTokens org={org && role ? org : null} viewerRole={org ? role : null} />
       )}
+      {/* Local mode lists Secrets too, and has no org: the workspace is what it needs. */}
+      {workspace && activeSection === "organization.secrets" && <Secrets />}
       {org && role && activeSection === "organization.billing" && (
         <CanOrgAdmin
           fallback={
@@ -98,8 +99,6 @@ export function ActiveSection({ activeSection, org, role, workspace, close }: Ac
       {workspace && activeSection === "workspace.previews" && (
         <Previews workspace={workspace} onOpened={close} />
       )}
-      {workspace && activeSection === "workspace.api_keys" && <ApiKeys />}
-      {workspace && activeSection === "workspace.secrets" && <Secrets />}
       {workspace && activeSection === "workspace.connections" && <Connections />}
       {workspace && activeSection === "workspace.apps" && <Apps />}
       {workspace && activeSection === "workspace.oxy_access" && (
@@ -115,7 +114,6 @@ export function ActiveSection({ activeSection, org, role, workspace, close }: Ac
       )}
       {workspace && activeSection === "workspace.activity_logs" && <ActivityLogs />}
 
-      {activeSection === "account.tokens" && <PersonalTokens />}
       {activeSection === "account.notifications" && <AccountNotifications />}
 
       {activeSection === "preferences.appearance" && <Appearance />}

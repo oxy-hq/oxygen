@@ -16,8 +16,9 @@
 # and the Activity drawer kept their `api-key-*` testids from that era, which is
 # why this file keeps its name.
 #
-# Surface: Settings dialog → Account → Personal access tokens, opened by the
-# `?settings=account.tokens` deep link (useSettingsDeepLink). The section needs
+# Surface: Settings dialog → Organization → API tokens → Personal access
+# tokens, opened by `?settings=account.tokens` — the tab's old id, which the web
+# app redirects there (useSettingsDeepLink). The section needs
 # no workspace or role; `/home` is just a page that mounts the dialog, and
 # OXY_PATH_PREFIX lands it on the Demo workspace. The runner signs in as
 # flow@oxy.local.

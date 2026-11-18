@@ -34,10 +34,16 @@ const baseOptions = (): TokenOptions => ({
       role: "admin",
       via: "member",
       policy: { max_lifetime_days: null, allow_all_access_tokens: true },
-      workspaces: [
-        { workspace_id: "w1", name: "Analytics", role: "admin" },
-        { workspace_id: "w2", name: "Finance", role: "viewer" }
-      ]
+      workspaces: [{ workspace_id: "w1", name: "Analytics", role: "admin" }]
+    },
+    {
+      org_id: "o3",
+      org_name: "Initech",
+      org_slug: "initech",
+      role: "member",
+      via: "member",
+      policy: { max_lifetime_days: null, allow_all_access_tokens: true },
+      workspaces: [{ workspace_id: "w2", name: "Finance", role: "viewer" }]
     },
     {
       org_id: "o2",
@@ -65,11 +71,12 @@ const open = async (over: Partial<TokenOptions> = {}) => {
   return user;
 };
 
-const workspace = (name: string) =>
+/** One organization's row in the "Selected organizations" picker. */
+const org = (name: string) =>
   within(
     screen
-      .getAllByTestId("account-token-workspace")
-      .find((row) => row.getAttribute("data-workspace-name") === name) as HTMLElement
+      .getAllByTestId("account-token-org")
+      .find((row) => row.getAttribute("data-org-name") === name) as HTMLElement
   );
 
 const sentBody = () => mutate.mock.calls[0][0];
@@ -94,16 +101,17 @@ describe("CreateTokenDialog", () => {
     expect(screen.getByTestId("account-token-submit")).toBeDisabled();
   });
 
-  it("needs at least one workspace once Selected is chosen, then sends it as a grant", async () => {
+  it("needs at least one organization once Selected is chosen, then sends it as a grant", async () => {
     const user = await open();
     await user.click(screen.getByTestId("account-token-access-selected"));
     expect(screen.getByTestId("account-token-submit")).toBeDisabled();
 
-    await user.click(workspace("Analytics").getByTestId("account-token-workspace-checkbox"));
+    await user.click(org("Acme").getByTestId("account-token-org-wide-checkbox"));
     await user.click(screen.getByTestId("account-token-submit"));
+    // An organization is picked as an org-wide grant: no screen names the org's workspace.
     expect(sentBody()).toMatchObject({
       all_access: false,
-      grants: [{ kind: "workspace", org_id: "o1", workspace_id: "w1", role_ceiling: "owner" }],
+      grants: [{ kind: "workspace", org_id: "o1", workspace_id: null, role_ceiling: "owner" }],
       expires_in_days: 90
     });
   });
@@ -111,24 +119,26 @@ describe("CreateTokenDialog", () => {
   it("says when the caller's own role caps a grant", async () => {
     const user = await open();
     await user.click(screen.getByTestId("account-token-access-selected"));
-    await user.click(workspace("Finance").getByTestId("account-token-workspace-checkbox"));
-    expect(workspace("Finance").getByText(/capped at Read, your role here/)).toBeInTheDocument();
+    await user.click(org("Initech").getByTestId("account-token-org-wide-checkbox"));
+    expect(org("Initech").getByText(/capped at Read, your role here/)).toBeInTheDocument();
   });
 
-  it("sends one org-wide grant for 'all workspaces, including future ones'", async () => {
+  it("sends one grant per organization picked, at the access chosen for each", async () => {
     const user = await open();
     await user.click(screen.getByTestId("account-token-access-selected"));
-    await user.click(screen.getAllByTestId("account-token-org-wide-checkbox")[0]);
+    await user.click(org("Acme").getByTestId("account-token-org-wide-checkbox"));
+    await user.click(org("Globex").getByTestId("account-token-org-wide-checkbox"));
     await user.click(screen.getByTestId("account-token-submit"));
     expect(sentBody().grants).toEqual([
-      { kind: "workspace", org_id: "o1", workspace_id: null, role_ceiling: "owner" }
+      { kind: "workspace", org_id: "o1", workspace_id: null, role_ceiling: "owner" },
+      { kind: "workspace", org_id: "o2", workspace_id: null, role_ceiling: "owner" }
     ]);
   });
 
   it("moves the expiry inside an org's max lifetime when the token is narrowed to it", async () => {
     const user = await open();
     await user.click(screen.getByTestId("account-token-access-selected"));
-    await user.click(workspace("Ops").getByTestId("account-token-workspace-checkbox"));
+    await user.click(org("Globex").getByTestId("account-token-org-wide-checkbox"));
 
     expect(within(screen.getByTestId("account-token-expiry-90")).getByRole("radio")).toBeDisabled();
     expect(
@@ -156,7 +166,8 @@ describe("CreateTokenDialog", () => {
 
   it("warns that an org refusing all-access tokens won't accept this one", async () => {
     const base = baseOptions();
-    base.orgs[1].policy.allow_all_access_tokens = false;
+    const globex = base.orgs.find((o) => o.org_name === "Globex");
+    if (globex) globex.policy.allow_all_access_tokens = false;
     await open({ orgs: base.orgs });
     expect(screen.getByTestId("account-token-all-access-caution")).toHaveTextContent(
       "Globex doesn't accept all-access tokens."

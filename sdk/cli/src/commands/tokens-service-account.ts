@@ -512,7 +512,7 @@ async function unstored(
   const ended =
     outcome === "revoked" || outcome === "already_invalid"
       ? "The token that was minted for it is revoked, and nothing was kept."
-      : `Nothing was kept on this machine, but revoking the token minted for it was not confirmed — revoke token ${printable(tokenId)} on the organization's API access page.`;
+      : `Nothing was kept on this machine, but revoking the token minted for it was not confirmed — revoke token ${printable(tokenId)} under Settings → Organization → API tokens → Service accounts.`;
   if (error instanceof CliError) {
     return new CliError(redacted(error.message, secret), {
       code: error.code,
@@ -580,7 +580,7 @@ export async function runTokensCreateServiceAccount(
     );
     log.info("the token was not printed and is not kept on this machine");
     log.info(
-      "the app's functions read it on their next run; the token it replaced is still valid until revoked on the organization's API access page"
+      "the app's functions read it on their next run; the token it replaced is still valid until revoked under Settings → Organization → API tokens → Service accounts"
     );
   } else {
     // STDOUT IS THE SECRET AND NOTHING ELSE.
@@ -598,6 +598,6 @@ export async function runTokensCreateServiceAccount(
     log.info("as an admin it can also change members' roles, remove members and send invitations");
   }
   log.info(
-    `token id ${printable(token.id)} — revoke it on the organization's API access page, or with the token itself: OXY_TOKEN=… oxyc tokens revoke --current`
+    `token id ${printable(token.id)} — revoke it under Settings → Organization → API tokens → Service accounts, or with the token itself: OXY_TOKEN=… oxyc tokens revoke --current`
   );
 }

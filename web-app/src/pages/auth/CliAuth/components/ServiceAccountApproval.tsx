@@ -68,8 +68,8 @@ const OrgOwnedNotice: React.FC = () => (
     <AlertTitle className='line-clamp-none'>This token belongs to the organization</AlertTitle>
     <AlertDescription>
       <p>
-        It keeps working if you leave the organization. It is listed, and revoked, on the
-        organization's API access page.
+        It keeps working if you leave the organization. It is listed, and revoked, under Settings →
+        Organization → API tokens → Service accounts.
       </p>
     </AlertDescription>
   </Alert>

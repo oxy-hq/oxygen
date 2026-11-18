@@ -14,11 +14,12 @@
 # (`HEADED=1 pnpm test:agentic settings-org-api-access`) and add it to a
 # bucket in `.github/workflows/agentic-tests.yaml`.
 #
-# Surface: Settings dialog → Organization → API access, opened by the
-# `?settings=organization.api_access` deep link (useSettingsDeepLink). The
-# section is gated on org admin, so the runner's account (flow@oxy.local) must
-# be an owner or admin of the seeded org; a plain member is shown no such nav
-# item and the deep link falls through.
+# Surface: Settings dialog → Organization → API tokens, opened on its Service
+# accounts tab by `?settings=organization.api_access` — the page's old id,
+# which the web app redirects there (`RENAMED_SECTIONS`), so this flow also
+# proves old links still land. The admin tabs are gated on org admin, so the
+# runner's account (flow@oxy.local) must be an owner or admin of the seeded
+# org; a plain member sees only Personal access tokens.
 #
 # NEEDS A FRESH ORG. A service account's name is unique within its org, and
 # this flow always creates `flow-deployer`. On a backend where an earlier run
@@ -53,7 +54,7 @@ cases:
   - name: create a service account, mint a token, see it in the inventory
     tags: [settings, api-access, service-accounts, regression]
     steps:
-      - wait_for: "selector:[data-testid=settings-api-access]"
+      - wait_for: "selector:[data-testid=settings-api-tokens]"
 
       - act: |
           Create a service account:
@@ -95,8 +96,8 @@ cases:
       - assert: "selector [data-testid=api-access-inventory-unavailable] is not visible"
       - assert: "selector [data-testid=api-access-inventory-error] is not visible"
       - judge: |
-          The Settings dialog shows Organization → API access with the
-          "Tokens" tab selected. The table lists a token named "flow token"
+          The Settings dialog shows Organization → API tokens with the
+          "All tokens" tab selected. The table lists a token named "flow token"
           whose owner is "flow-deployer", whose kind reads "Service account",
           and whose status is "Active" with an expiry about 90 days out. No
           error message and no "aren't available here yet" notice is shown.

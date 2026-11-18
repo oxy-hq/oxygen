@@ -106,7 +106,9 @@ mod tests {
             display_prefix: "oxy_pat_Ab3x",
             expires_at: at(),
             audience: Audience::Owner,
-            extend_url: Some("https://oxy.example/?settings=account.tokens".into()),
+            extend_url: Some(
+                "https://oxy.example/?settings=organization.api_tokens.personal".into(),
+            ),
         })
         .unwrap();
         assert_eq!(
@@ -120,7 +122,7 @@ mod tests {
         assert!(mail.text_body.contains("will be refused"));
         assert!(
             mail.text_body
-                .contains("https://oxy.example/?settings=account.tokens")
+                .contains("https://oxy.example/?settings=organization.api_tokens.personal")
         );
     }
 
@@ -134,7 +136,9 @@ mod tests {
                 org_name: "Acme",
                 account: "deploy-bot",
             },
-            extend_url: Some("https://oxy.example/?settings=organization.api_access".into()),
+            extend_url: Some(
+                "https://oxy.example/?settings=organization.api_tokens.service_accounts".into(),
+            ),
         })
         .unwrap();
         assert_eq!(
@@ -150,7 +154,7 @@ mod tests {
         assert!(
             account
                 .text_body
-                .contains("settings=organization.api_access")
+                .contains("settings=organization.api_tokens.service_accounts")
         );
     }
 }

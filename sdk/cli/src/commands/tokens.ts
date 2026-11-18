@@ -37,11 +37,16 @@ import { out } from "../ui/tty.js";
 import { CliError, ExitCode } from "../util/errors.js";
 
 /**
- * Account → Personal access tokens, as a link.
+ * Settings → Organization → API tokens → Personal access tokens, as a link.
  *
  * `?settings=<section>` is the web app's deep link into its settings dialog
  * (`useSettingsDeepLink`); an unknown section is dropped rather than opening
  * the wrong one, so a deployment without the page lands on Home.
+ *
+ * This is the page's old id, on purpose. The page became a tab of API tokens
+ * (`organization.api_tokens.personal`), and the web app sends the old id
+ * there for good; a deployment that predates the move knows only the old one.
+ * A published oxyc meets both, so it sends the id that works on both.
  */
 export const TOKENS_SETTINGS_SECTION = "account.tokens";
 
@@ -58,7 +63,7 @@ function managementError(response: ApiResponse, target: string, what: string): C
       detail:
         "a token cannot list, create or revoke tokens — otherwise a leaked one could outlive its own revocation.",
       hint:
-        `manage them in the web app: ${tokensPageUrl(target)}   (Account → Personal access tokens)\n` +
+        `manage them in the web app: ${tokensPageUrl(target)}   (Settings → Organization → API tokens)\n` +
         "to end the token this machine is using: `oxyc logout`"
     });
   }
@@ -164,7 +169,7 @@ export async function runTokensRevoke(ctx: Context, id: string): Promise<void> {
  */
 export function runTokensCreate(ctx: Context, open: (url: string) => void = openBrowser): void {
   const url = tokensPageUrl(ctx.target());
-  log.info(`Opening ${url} — Account → Personal access tokens.`);
+  log.info(`Opening ${url} — Settings → Organization → API tokens.`);
   log.info("If it doesn't open automatically, paste that URL into your browser.");
   open(url);
   process.stdout.write(`${url}\n`);

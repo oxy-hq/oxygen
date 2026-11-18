@@ -13,7 +13,7 @@ import type { AppRef, SecretsFilter, SecretsScope } from "../types";
 const FILTERS: { value: SecretsFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "shared", label: "Shared with apps" },
-  { value: "unshared", label: "Workspace only" }
+  { value: "unshared", label: "Not shared with apps" }
 ];
 
 /** The app filter's value for "don't narrow by app". A `Select` cannot hold "". */

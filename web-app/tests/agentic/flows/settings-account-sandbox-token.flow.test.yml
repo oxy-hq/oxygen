@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=../../../../json-schemas/flow-test.json
 #
-# Mint a sandbox agent token (`oxy_sbx_…`) from Account → Personal access
+# Mint a sandbox agent token (`oxy_sbx_…`) from API tokens → Personal access
 # tokens, see it listed as its own kind, then revoke it
 # (internal-docs/2026-10-03-sandbox-agent-credential-design.md §2 and §5).
 #
@@ -25,9 +25,9 @@
 # staff reach is not standing, so without the membership `/home` answers
 # assume_role_required and the settings dialog never mounts.
 #
-# Surface: Settings dialog → Account → Personal access tokens, opened by the
-# `?settings=account.tokens` deep link (useSettingsDeepLink), exactly as
-# settings-account-tokens opens it.
+# Surface: Settings dialog → Organization → API tokens → Personal access
+# tokens, opened by `?settings=account.tokens` — the tab's old id, which the web
+# app redirects there (useSettingsDeepLink).
 #
 # The flow creates its own token. Same name every run; on a reused backend
 # several rows can share it. The list is newest first, so every step says to
@@ -125,7 +125,7 @@ cases:
       - assert: "selector [data-testid=account-token-secret-dialog] is not visible"
       - assert: "selector [data-testid=account-token-revoke-confirm] is not visible"
       - judge: |
-          The Settings dialog shows "Personal access tokens" with a table of
+          The Settings dialog shows API tokens with "Personal access tokens" and a table of
           tokens. A row named "flow sandbox agent token" has the kind "Sandbox
           agent", an Access that names one app as org/app (for example
           "acme/oxy-starter"), and a "Revoked" status. No error message and no

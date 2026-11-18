@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/shadcn/select";
 import type { TokenKind, TokenOwner } from "@/types/apiToken";
 import type { InventoryFilters as Filters } from "@/types/orgApiAccess";
-import type { PickableItem } from "../../shared/AccessPicker";
 import { KIND_LABELS } from "../../utils/tokens";
 import { hasActiveFilters, withFilter } from "../inventory";
 
@@ -22,10 +21,13 @@ interface InventoryFiltersProps {
   filters: Filters;
   onChange: (next: Filters) => void;
   owners: TokenOwner[];
-  workspaces: PickableItem[];
 }
 
-export function InventoryFilters({ filters, onChange, owners, workspaces }: InventoryFiltersProps) {
+/**
+ * Kind and owner. There was a workspace filter too; each org has one workspace now and no screen
+ * names it, so the list is the organization's whole and the filter went.
+ */
+export function InventoryFilters({ filters, onChange, owners }: InventoryFiltersProps) {
   const people = owners.filter((o) => o.type === "user");
   const accounts = owners.filter((o) => o.type === "service_account");
   const pick = <K extends keyof Filters>(key: K, value: string) =>
@@ -69,27 +71,6 @@ export function InventoryFilters({ filters, onChange, owners, workspaces }: Inve
           </SelectItem>
           <OwnerGroup label='People' owners={people} />
           <OwnerGroup label='Service accounts' owners={accounts} />
-        </SelectContent>
-      </Select>
-
-      <Select value={filters.workspace_id ?? ALL} onValueChange={(v) => pick("workspace_id", v)}>
-        <SelectTrigger
-          size='sm'
-          className='h-8 w-44 text-xs'
-          aria-label='Filter by workspace'
-          data-testid='api-access-inventory-filter-workspace'
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL} className='text-xs'>
-            All workspaces
-          </SelectItem>
-          {workspaces.map((workspace) => (
-            <SelectItem key={workspace.id} value={workspace.id} className='text-xs'>
-              {workspace.name}
-            </SelectItem>
-          ))}
         </SelectContent>
       </Select>
 

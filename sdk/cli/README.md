@@ -180,7 +180,7 @@ oxyc logout                 # revoke the cached token, then forget it
 oxyc tokens list [--json]   # your personal access tokens
 oxyc tokens revoke <id>
 oxyc tokens revoke --current   # end the token in OXY_TOKEN
-oxyc tokens create          # opens Account → Personal access tokens
+oxyc tokens create          # opens Settings → Organization → API tokens
 oxyc tokens create --sandbox-agent --app <org>/<app> [--app …] [--hours 8] [--name …] [--browser | --no-browser [--approver <email>]]
 oxyc tokens create --agent [--standing] [--hours 8] [--name …] [--browser | --no-browser [--approver <email>]]
 oxyc tokens create --org-service-account <org>/<account> [--role member|admin] [--token-name …] [--expires-in-days 90] [--set-app-secret <org>/<app> --key <KEY> [--app-env production|staging]] [--browser | --no-browser [--approver <email>]]
@@ -267,8 +267,10 @@ since the output is the token. It still expires in fifteen minutes.
 **`tokens`** manages personal access tokens, and the server allows that from a
 **browser session only**: a token that could list, mint or revoke tokens could
 outlive its own revocation. Since `login` now stores a token, `tokens list` and
-`tokens revoke` usually answer with a pointer to the web app (Account →
-Personal access tokens, `<deployment>/?settings=account.tokens`); they work
+`tokens revoke` usually answer with a pointer to the web app (Settings →
+Organization → API tokens → Personal access tokens,
+`<deployment>/?settings=account.tokens`, an old link the web app still sends
+there); they work
 from a login that stored a session token. `tokens create` always opens that
 page — a new token's secret is shown once, and a terminal is the wrong place.
 
@@ -566,7 +568,7 @@ sign-in at all; use `OXY_TOKEN` there.
 What makes the deployment honour the job is a
 **trust policy** on that service account, naming the repository, the workflow
 file and the job's `environment:` — registered by `oxyc init-ci`, or in the web
-app under Organization settings → API access → Service accounts → *the
+app under Settings → Organization → API tokens → Service accounts → *the
 account* → Trusted access.
 
 **The account is always named, never guessed.** Anyone can register a trust
@@ -583,8 +585,8 @@ same account name under it and register a policy on your repository's public
 ids. A workflow that said `acme/deployer` would then be naming *their*
 account. An ID never changes hands, so it is the only thing the deployment
 takes: anything else answers `400 service_account_required`, and `oxyc` does
-not fall back from that. The ID is shown in the web app (Organization settings
-→ API access → Service accounts → *the account*), and `oxyc init-ci` writes it
+not fall back from that. The ID is shown in the web app (Settings → Organization
+→ API tokens → Service accounts → *the account*), and `oxyc init-ci` writes it
 for you. `oxyc` passes the value through untouched; the answer still says
 `<org>/<name>`, so the log reads as it did.
 

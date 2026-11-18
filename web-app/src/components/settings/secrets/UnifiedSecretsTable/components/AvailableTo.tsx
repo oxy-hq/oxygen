@@ -94,7 +94,7 @@ export const AvailableTo = ({ row }: { row: UnifiedRow }) => {
     <div className='flex flex-wrap items-center gap-1' data-testid='secret-available-to'>
       <Badge variant='secondary' className='gap-1 font-normal'>
         <Building2 className='size-3' />
-        Workspace
+        Organization
       </Badge>
       {row.sharedWith.map((app) => (
         <AppBadge key={app.id} app={app} title={`${app.name} reads it as ctx.env.${row.name}`} />

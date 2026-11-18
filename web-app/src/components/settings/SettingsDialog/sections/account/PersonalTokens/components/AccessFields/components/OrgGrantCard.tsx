@@ -2,8 +2,7 @@ import type React from "react";
 import { useId } from "react";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Checkbox } from "@/components/ui/shadcn/checkbox";
-import { cn } from "@/libs/shadcn/utils";
-import type { TokenOptionOrg, TokenOptionWorkspace } from "@/types/apiToken";
+import type { RoleCeiling, TokenOptionOrg } from "@/types/apiToken";
 import {
   type AccessAction,
   DEFAULT_CEILING,
@@ -12,7 +11,7 @@ import {
   isRevokedTarget,
   type OrgDraft
 } from "../../../accessDraft";
-import { CEILING_LABELS } from "../../../accessSummary";
+import { CEILING_LABELS, CEILINGS } from "../../../accessSummary";
 import CeilingSelect from "./CeilingSelect";
 
 interface Props {
@@ -21,15 +20,6 @@ interface Props {
   draft?: OrgDraft;
   /** Targets an org took away from the token being edited: shown, and not pickable. */
   revoked: GrantTarget[];
-  dispatch: React.Dispatch<AccessAction>;
-}
-
-interface WorkspaceRowProps {
-  org: Pick<TokenOptionOrg, "org_id" | "org_name">;
-  workspace: TokenOptionWorkspace;
-  draft?: OrgDraft;
-  /** The org removed this workspace from the token; it can't be added back. */
-  locked: boolean;
   dispatch: React.Dispatch<AccessAction>;
 }
 
@@ -44,128 +34,119 @@ const RemovedNote: React.FC<{ orgName: string }> = ({ orgName }) => (
   </span>
 );
 
-/** One workspace: a checkbox, and once ticked, how much the token may do there. */
-const WorkspaceRow: React.FC<WorkspaceRowProps> = ({ org, workspace, draft, locked, dispatch }) => {
-  const id = useId();
-  const orgId = org.org_id;
-  const wide = !!draft?.wide;
-  const ceiling = draft?.workspaces[workspace.workspace_id];
-  // An org-wide grant still covers a workspace whose own grant was removed.
-  const removed = locked && !wide;
-  const picked = ceiling !== undefined && !removed;
-  // A grant can't lift the token above its owner's own role: say so instead of implying it can.
-  const capped = picked && !wide && effectiveCeiling(ceiling, workspace.role) !== ceiling;
+/** The lowest of `roles`, the one that caps a grant over all of them; `fallback` when none. */
+const lowestRole = (roles: RoleCeiling[], fallback: RoleCeiling): RoleCeiling =>
+  roles.reduce<RoleCeiling | null>(
+    (low, role) => (low === null || CEILINGS.indexOf(role) < CEILINGS.indexOf(low) ? role : low),
+    null
+  ) ?? fallback;
 
-  return (
-    <li
-      className='flex min-h-10 items-center gap-2 px-3 py-1'
-      data-testid='account-token-workspace'
-      data-workspace-name={workspace.name}
-    >
-      <Checkbox
-        id={id}
-        // Covered by the org-wide grant: shown ticked, and not individually editable.
-        checked={wide || picked}
-        disabled={wide || removed}
-        onCheckedChange={(on) =>
-          dispatch({
-            type: "set_workspace",
-            orgId,
-            workspaceId: workspace.workspace_id,
-            on: on === true
-          })
-        }
-        data-testid='account-token-workspace-checkbox'
-      />
-      <label htmlFor={id} className='min-w-0 flex-1 cursor-pointer truncate text-xs'>
-        {workspace.name}
-        {removed && <RemovedNote orgName={org.org_name} />}
-        {capped && (
-          <span className='ml-2 text-muted-foreground'>
-            capped at {CEILING_LABELS[workspace.role]}, your role here
-          </span>
-        )}
-      </label>
-      {picked && !wide && (
-        <CeilingSelect
-          value={ceiling}
-          onChange={(next) =>
-            dispatch({
-              type: "set_workspace_ceiling",
-              orgId,
-              workspaceId: workspace.workspace_id,
-              ceiling: next
-            })
-          }
-          label={`Access to ${workspace.name}`}
-          testId='account-token-workspace-ceiling'
-        />
-      )}
-    </li>
-  );
-};
-
-/** One org in the picker: its workspaces, and the option to cover all of them, future ones too. */
+/**
+ * One org in the picker: a checkbox, and once ticked, how much the token may do there.
+ *
+ * Reach is chosen by organization. A pick is stored as an org-wide grant (`workspace_id: null`):
+ * an org has one workspace and no screen names it, so an org-wide grant is "this organization".
+ *
+ * A few orgs still have more than one workspace until they are merged (grain memo §7), and a
+ * token made earlier may be narrowed to one of them. There the two differ, so a narrowed grant
+ * stays narrowed: changing its access changes each narrowed grant's ceiling and never widens it,
+ * the row says it covers only part of the org, and the cap is the lowest role it covers. Only an
+ * org with one workspace — where the two reach the same data — turns a narrowed grant org-wide
+ * when its access changes.
+ */
 const OrgGrantCard: React.FC<Props> = ({ org, draft, revoked, dispatch }) => {
-  const wideId = useId();
-  // The org ended an org-wide grant: that one can't come back, single workspaces still can.
-  const wideRemoved = isRevokedTarget({ revoked }, org.org_id, null);
-  const wide = !!draft?.wide && !wideRemoved;
+  const id = useId();
+  const single = org.workspaces.length <= 1;
+  const narrowIds = Object.keys(draft?.workspaces ?? {});
+  const narrowCeilings = Object.values(draft?.workspaces ?? {});
+  // The draft holds only live grants, so a pick shown here is one the token still has.
+  const wide = !!draft?.wide;
+  const narrowed = !wide && narrowIds.length > 0;
+  const picked = wide || narrowed;
+  // What the org took away from this token. With one workspace, the org-wide grant and the one on
+  // its workspace reach the same data, so either closes the org. With several, only taking away
+  // the org-wide grant closes the tick, which is what ticking would add back.
+  const removed = single
+    ? revoked.some((target) => target.orgId === org.org_id)
+    : isRevokedTarget({ revoked }, org.org_id, null);
+  const ceiling = wide
+    ? (draft?.wideCeiling ?? DEFAULT_CEILING)
+    : (narrowCeilings[0] ?? DEFAULT_CEILING);
+  // The caller's own role caps the grant. An org-wide grant meets every workspace's role, a
+  // narrowed one only its own; the lowest is the one that caps.
+  const covered = narrowed
+    ? org.workspaces.filter((w) => narrowIds.includes(w.workspace_id))
+    : org.workspaces;
+  const role = lowestRole(
+    covered.map((w) => w.role),
+    org.role
+  );
+  // A grant can't lift the token above its owner's own role: say so instead of implying it can.
+  const capped = picked && effectiveCeiling(ceiling, role) !== ceiling;
+
+  const toggle = (on: boolean) => {
+    dispatch({ type: "set_org_wide", orgId: org.org_id, on });
+    if (on) return;
+    for (const workspaceId of narrowIds) {
+      dispatch({ type: "set_workspace", orgId: org.org_id, workspaceId, on: false });
+    }
+  };
+
+  const setCeiling = (next: RoleCeiling) => {
+    if (narrowed && !single) {
+      for (const workspaceId of narrowIds) {
+        dispatch({ type: "set_workspace_ceiling", orgId: org.org_id, workspaceId, ceiling: next });
+      }
+      return;
+    }
+    if (!wide) dispatch({ type: "set_org_wide", orgId: org.org_id, on: true });
+    dispatch({ type: "set_org_ceiling", orgId: org.org_id, ceiling: next });
+  };
 
   return (
     <div
-      className='overflow-hidden rounded-md border'
+      className='flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border px-3 py-1.5'
       data-testid='account-token-org'
       data-org-name={org.org_name}
     >
-      <div className='flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b bg-muted/40 px-3 py-2'>
-        <span className='min-w-0 truncate font-medium text-xs'>{org.org_name}</span>
-        {org.via === "partner" && (
-          <Badge variant='outline' className='font-normal'>
-            Partner
-          </Badge>
+      <Checkbox
+        id={id}
+        checked={picked}
+        // Untick a grant the token still holds, but never re-add one the org closed.
+        disabled={removed && !picked}
+        onCheckedChange={(on) => toggle(on === true)}
+        data-testid='account-token-org-wide-checkbox'
+      />
+      <label htmlFor={id} className='min-w-0 flex-1 cursor-pointer truncate text-xs'>
+        <span className='font-medium'>{org.org_name}</span>
+        {removed && !picked && <RemovedNote orgName={org.org_name} />}
+        {narrowed && !single && (
+          <span
+            className='ml-2 text-muted-foreground'
+            title={`This token was limited to part of ${org.org_name} when it was made. Changing its access keeps that limit; untick and tick it again to give it all of ${org.org_name}.`}
+            data-testid='account-token-org-partial'
+          >
+            only part of it
+          </span>
         )}
-        <div className='ml-auto flex items-center gap-2'>
-          <Checkbox
-            id={wideId}
-            checked={wide}
-            disabled={wideRemoved}
-            onCheckedChange={(on) =>
-              dispatch({ type: "set_org_wide", orgId: org.org_id, on: on === true })
-            }
-            data-testid='account-token-org-wide-checkbox'
-          />
-          <label htmlFor={wideId} className='cursor-pointer text-xs'>
-            All workspaces in this org, including future ones
-            {wideRemoved && <RemovedNote orgName={org.org_name} />}
-          </label>
-          {wide && (
-            <CeilingSelect
-              value={draft?.wideCeiling ?? DEFAULT_CEILING}
-              onChange={(ceiling) =>
-                dispatch({ type: "set_org_ceiling", orgId: org.org_id, ceiling })
-              }
-              label={`Access to every workspace in ${org.org_name}`}
-              testId='account-token-org-ceiling'
-            />
-          )}
-        </div>
-      </div>
-      {org.workspaces.length === 0 ? (
-        <p className='px-3 py-2 text-muted-foreground text-xs'>No workspaces yet.</p>
-      ) : (
-        <ul className={cn("divide-y", wide && "opacity-60")}>
-          {org.workspaces.map((workspace) => (
-            <WorkspaceRow
-              key={workspace.workspace_id}
-              org={org}
-              workspace={workspace}
-              draft={draft}
-              locked={isRevokedTarget({ revoked }, org.org_id, workspace.workspace_id)}
-              dispatch={dispatch}
-            />
-          ))}
-        </ul>
+        {capped && (
+          <span className='ml-2 text-muted-foreground'>
+            capped at {CEILING_LABELS[role]}, your role here
+          </span>
+        )}
+      </label>
+      {org.via === "partner" && (
+        <Badge variant='outline' className='font-normal'>
+          Partner
+        </Badge>
+      )}
+      {picked && (
+        <CeilingSelect
+          value={ceiling}
+          onChange={setCeiling}
+          label={`Access to ${org.org_name}`}
+          testId='account-token-org-ceiling'
+        />
       )}
     </div>
   );

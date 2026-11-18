@@ -99,7 +99,7 @@ afterEach(() => {
 });
 
 describe("tokensPageUrl", () => {
-  it("deep-links Account → Personal access tokens, whatever the target's trailing slash", () => {
+  it("deep-links the personal access tokens tab, whatever the target's trailing slash", () => {
     expect(tokensPageUrl(TARGET)).toBe(PAGE);
     expect(tokensPageUrl(`${TARGET}/`)).toBe(PAGE);
   });
@@ -163,7 +163,7 @@ describe("oxyc tokens list", () => {
     expect(cause.code).toBe(ExitCode.AUTH);
     expect(cause.message).toContain("needs a browser session");
     expect(cause.hint).toContain(PAGE);
-    expect(cause.hint).toContain("Account → Personal access tokens");
+    expect(cause.hint).toContain("Settings → Organization → API tokens");
     expect(cause.hint).toContain("oxyc logout");
   });
 

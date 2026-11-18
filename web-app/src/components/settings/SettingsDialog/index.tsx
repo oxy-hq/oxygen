@@ -1,29 +1,21 @@
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/shadcn/dialog";
-import { useAuth } from "@/contexts/AuthContext";
-import useCanUsePreviews from "@/hooks/useCanUsePreviews";
-import { useRole } from "@/hooks/useRole";
 import { cn } from "@/libs/shadcn/utils";
-import { canUseFactory } from "@/libs/utils/factoryAccess";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import useSettingsDialog from "@/stores/useSettingsDialog";
 import { ActiveSection } from "./components/ActiveSection";
 import { MobileSettingsView } from "./components/MobileSettingsView";
 import { VersionBadge } from "./components/VersionBadge";
-import { visibleNavGroups } from "./nav";
+import { useVisibleNavGroups } from "./useVisibleNavGroups";
 
 export default function SettingsDialog() {
   const { isOpen, section, open, close } = useSettingsDialog();
-  const { isLocalMode, authConfig } = useAuth();
   const { org } = useCurrentOrg();
   const role = useCurrentOrg((s) => s.role);
   const { workspace } = useCurrentWorkspace();
-  const { is } = useRole();
-  const isStaff = !!useCanUsePreviews();
 
-  const billingEnabled = authConfig.billing_enabled;
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   // Always land on the section list when the dialog opens on mobile, so users
@@ -32,18 +24,7 @@ export default function SettingsDialog() {
     if (!isOpen) setMobileDetailOpen(false);
   }, [isOpen]);
 
-  const visibleGroups = visibleNavGroups({
-    isLocalMode,
-    isOrgAdmin: is.orgAdmin,
-    isWorkspaceAdmin: is.workspaceAdmin,
-    isStaff,
-    canUseFactory: canUseFactory(workspace),
-    billingEnabled,
-    hasOrg: !!org && !!role,
-    hasWorkspace: !!workspace,
-    orgName: org?.name,
-    workspaceName: workspace?.name
-  });
+  const visibleGroups = useVisibleNavGroups();
 
   const allItems = visibleGroups.flatMap((g) => g.items);
   const activeSection = allItems.some((i) => i.value === section)

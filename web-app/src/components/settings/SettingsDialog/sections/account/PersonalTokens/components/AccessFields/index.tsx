@@ -57,7 +57,7 @@ const StandingOption: React.FC<StandingProps> = ({ draft, dispatch, flag, title,
 };
 
 /**
- * What a token can reach: all access (the default) or selected workspaces, plus the staff and
+ * What a token can reach: all access (the default) or selected organizations, plus the staff and
  * partner options for the people who hold that standing. Shared by create and Edit access.
  *
  * Rows of the token sheet, for a parent that stacks them: the type as a segmented control, then
@@ -73,7 +73,7 @@ const AccessFields: React.FC<Props> = ({
   sandbox
 }) => {
   const group = useId();
-  const workspaces = useId();
+  const organizations = useId();
   const refusing = orgsRefusingAllAccess(options);
   const sandboxActive = !!sandbox?.active;
   // Picking an access mode leaves the sandbox agent type, which shares the one radio group.
@@ -103,7 +103,7 @@ const AccessFields: React.FC<Props> = ({
             testId='account-token-access-selected'
             checked={!sandboxActive && draft.mode === "selected"}
             onSelect={() => setMode("selected")}
-            label='Selected workspaces'
+            label='Selected organizations'
             variant='segment'
           />
           {sandbox && (
@@ -120,13 +120,12 @@ const AccessFields: React.FC<Props> = ({
         {!sandboxActive && draft.mode === "all" && (
           <div className='mt-2 flex flex-col gap-2'>
             <p className='text-muted-foreground text-xs'>
-              Everything you can reach, in every organization and workspace, including ones you join
-              later.
+              Everything you can reach, in every organization, including ones you join later.
             </p>
             {refusing.length > 0 && (
               <Caution testId='account-token-all-access-caution'>
                 {listNames(refusing)} {refusing.length === 1 ? "doesn't" : "don't"} accept
-                all-access tokens. Select workspaces instead to use the token there.
+                all-access tokens. Select organizations instead to use the token there.
               </Caution>
             )}
           </div>
@@ -136,9 +135,9 @@ const AccessFields: React.FC<Props> = ({
       {sandboxActive
         ? sandbox.fields
         : draft.mode === "selected" && (
-            <SheetRow label='Workspaces' labelId={workspaces}>
+            <SheetRow label='Organizations' labelId={organizations}>
               {/* biome-ignore lint/a11y/useSemanticElements: a fieldset can't sit on the sheet's value edge beside its own label. */}
-              <div role='group' aria-labelledby={workspaces}>
+              <div role='group' aria-labelledby={organizations}>
                 <GrantPicker
                   draft={draft}
                   dispatch={dispatch}

@@ -15,6 +15,9 @@ it reaches, and sending it.
 
 ## Which kind to create
 
+Every kind lives on one page: **Settings → Organization → API tokens**, which
+opens with the same guide as this table.
+
 | | Belongs to | Use it for |
 | --- | --- | --- |
 | **Personal access token** (`oxy_pat_…`) | you | `oxyc`, a script on your machine, anything that should act as you |
@@ -26,16 +29,21 @@ integration that several people depend on belongs to a service account, which an
 organization admin can see and end.
 
 If the caller runs in GitHub Actions, prefer trusted access and store no secret
-at all: Settings → Organization → **API access** → a service account → **Trusted
-access** gives you the workflow block to paste.
+at all: Settings → Organization → **API tokens** → **Service accounts** → a
+service account → **Trusted access** gives you the workflow block to paste.
+
+If the caller is one of your custom apps, its token lives in one of the app's
+secrets. Create it there, without copying anything: see
+[A token for a custom app](#a-token-for-a-custom-app).
 
 ## Creating a personal access token
 
-1. Open **Settings → Account → API tokens**.
+1. Open **Settings → Organization → API tokens → Personal access tokens**.
 2. **Create token**, and name it after where it will live — `laptop`,
    `nightly-report` — so you can tell later which one to revoke.
 3. Choose its access: **All access** reaches everything you do, or pick the
-   workspaces it needs. Pick the workspaces.
+   organizations it needs, and how much it may do in each. Pick the
+   organizations.
 4. Choose when it expires. You can extend it later without changing the secret,
    so nothing needs redeploying.
 
@@ -44,11 +52,29 @@ characters are ever displayed.
 
 ## Creating a service account token
 
-1. Open **Settings → Organization → API access → Service accounts**.
+1. Open **Settings → Organization → API tokens → Service accounts**.
 2. **New**, and name it after the job rather than a person: `nightly-sync`,
    `bookkeeping-upload`.
-3. Give it the workspaces it needs, at the lowest role that works.
+3. Give it the lowest role that works.
 4. Create a token on it. Again, the secret is shown once.
+
+## A token for a custom app
+
+A custom app that calls the Oxygen API keeps a service account token in one of
+its secrets. You don't need to create the token on one page and paste it on
+another:
+
+1. Open **Settings → Organization → Secrets**, and the app's secret under
+   **One app** (or **Create** a new one for the app).
+2. **Change value** → **Create API token**.
+3. Pick the service account, or keep the new one named after the app, and
+   choose its access and expiry.
+4. **Create token**, then save the secret.
+
+The token goes straight into the secret and is never shown. It is listed under
+**API tokens → Service accounts → the account**, where you can revoke it. If
+you close the secret without saving, the token is revoked again. Creating one
+needs an organization owner or admin.
 
 ## Sending a token
 
@@ -62,8 +88,8 @@ curl -H "X-API-Key: $OXY_TOKEN" \
      https://app.oxygen-hq.com/api/{workspace_id}/agents
 ```
 
-Most resources are workspace-scoped (`/api/{workspace_id}/…`). The workspace id
-is on **Settings → Workspace → API tokens**, under the list.
+Most resources take an id in the path (`/api/{workspace_id}/…`). Copy it from
+**Settings → Organization → API tokens**, under **ID for API calls**.
 
 ### Python
 
@@ -94,13 +120,12 @@ console.log(`Found ${data.length} agents`);
 
 ## Finding and ending a token
 
-**Settings → Account → API tokens** lists your own, searchable by token, by
-organization and by the apps it reaches, and filterable by whether it still
-works or is about to expire. **Settings → Workspace → API tokens** lists every
-token that reaches one workspace, whoever owns it. **Settings → Organization →
-API access** lists every token that reaches the organization, where an admin can
-end a personal token's access to that organization without touching what it does
-elsewhere.
+**Settings → Organization → API tokens → Personal access tokens** lists your
+own, searchable by token, by organization and by the apps it reaches, and
+filterable by whether it still works or is about to expire. **All tokens**, on
+the same page, lists every token that reaches the organization, whoever owns
+it, and is where an admin can end a personal token's access to that
+organization without touching what it does elsewhere.
 
 ## API reference
 

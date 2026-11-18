@@ -44,7 +44,9 @@ export const AppChecklist = ({
   const shown = apps.filter((a) => !q || a.app_name.toLowerCase().includes(q));
 
   if (apps.length === 0) {
-    return <p className='text-muted-foreground text-xs'>This workspace has no custom apps yet.</p>;
+    return (
+      <p className='text-muted-foreground text-xs'>Your organization has no custom apps yet.</p>
+    );
   }
 
   const toggle = (id: string, on: boolean) => {

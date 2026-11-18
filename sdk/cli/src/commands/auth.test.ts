@@ -119,7 +119,7 @@ describe("oxyc logout", () => {
     await runLogout(context());
     expect(loadCredential(TARGET)).toBeUndefined();
     expect(stderr).toContain("did not confirm a revoke");
-    expect(stderr).toContain("Account → Personal access tokens");
+    expect(stderr).toContain("Settings → Organization → API tokens → Personal access tokens");
   });
 
   it("says a legacy API key is removed, with nothing left to revoke (409 legacy_immutable)", async () => {

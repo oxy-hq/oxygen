@@ -4,6 +4,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AxiosError, type AxiosResponse } from "axios";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import useSettingsDialog from "@/stores/useSettingsDialog";
 import type { Grant, Token } from "@/types/apiToken";
 import type {
   InventoryToken,
@@ -114,6 +115,15 @@ vi.mock("@/hooks/api/workspaces/useWorkspaces", () => ({
 vi.mock("@/hooks/api/appAccess", () => ({
   useOrgAppAccessList: () => loaded([{ id: "app-1", name: "Store Ops" }])
 }));
+// The personal tokens tab has its own tests; here it only has to be the tab a member gets.
+vi.mock("../../account/PersonalTokens", () => ({
+  default: () => <div data-testid='personal-tokens-tab' />
+}));
+// Whether the viewer could open Secrets is the nav's decision, tested in nav.test.ts.
+const nav = vi.hoisted(() => ({ canOpenSecrets: true }));
+vi.mock("../../../useVisibleNavGroups", () => ({
+  useCanOpenSection: () => nav.canOpenSecrets
+}));
 // jsdom has no canvas; the activity chart is Phase 1's and not under test here.
 vi.mock("@/components/Echarts/EChart", () => ({ default: () => <div /> }));
 
@@ -217,6 +227,14 @@ const showAccount = async () => {
 };
 
 beforeEach(() => {
+  // Most of this file is about the admin tabs, so it opens on Service accounts the way the old
+  // `?settings=organization.api_access` link does; "which tab" has its own cases below.
+  useSettingsDialog.setState({
+    isOpen: true,
+    section: "organization.api_tokens",
+    tab: "service_accounts"
+  });
+  nav.canOpenSecrets = true;
   queries.accounts = loaded([account()]);
   queries.tokens = loaded([token()]);
   queries.policies = loaded([trustPolicy()]);
@@ -231,18 +249,96 @@ afterEach(() => {
 });
 
 describe("who can see it", () => {
-  it("tells a member why they can't, and reads nothing on their behalf", () => {
+  it("gives a member their own tokens and the guide, and reads nothing an admin route serves", () => {
     show("member");
-    expect(
-      screen.getByText(/organization owner or admin to manage API access/)
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId("settings-api-access")).not.toBeInTheDocument();
+    expect(screen.getByTestId("settings-api-tokens")).toBeInTheDocument();
+    expect(screen.getByTestId("personal-tokens-tab")).toBeInTheDocument();
+    // One tab is not a tab bar: no admin tab to click, even from a link that named one.
+    expect(screen.queryByTestId("api-access-tab-service-accounts")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("api-access-tab-tokens")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("api-access-tab-policy")).not.toBeInTheDocument();
     expect(reads.accounts).toBe(0);
   });
 
-  it.each(["owner", "admin"] as const)("shows the section to an org %s", (role) => {
+  it.each(["owner", "admin"] as const)("gives an org %s every tab", (role) => {
     show(role);
-    expect(screen.getByTestId("settings-api-access")).toBeInTheDocument();
+    for (const id of [
+      "api-tokens-tab-personal",
+      "api-access-tab-service-accounts",
+      "api-access-tab-tokens",
+      "api-access-tab-policy"
+    ]) {
+      expect(screen.getByTestId(id)).toBeInTheDocument();
+    }
+  });
+});
+
+describe("with no org loaded", () => {
+  it("still lists the viewer's own tokens, and nothing that needs an org", () => {
+    useSettingsDialog.setState({ tab: "service_accounts" });
+    render(<ApiAccessSection org={null} viewerRole={null} />);
+    expect(screen.getByTestId("personal-tokens-tab")).toBeInTheDocument();
+    expect(screen.queryByTestId("api-access-tab-service-accounts")).not.toBeInTheDocument();
+    expect(reads.accounts).toBe(0);
+  });
+});
+
+describe("which tab", () => {
+  it("opens on Personal access tokens when nothing names a tab", () => {
+    useSettingsDialog.setState({ tab: null });
+    show();
+    expect(screen.getByTestId("api-tokens-tab-personal")).toHaveAttribute("data-state", "active");
+    expect(screen.getByTestId("personal-tokens-tab")).toBeInTheDocument();
+  });
+
+  it("opens the tab a link named", () => {
+    useSettingsDialog.setState({ tab: "policy" });
+    show();
+    expect(screen.getByTestId("api-access-tab-policy")).toHaveAttribute("data-state", "active");
+  });
+
+  it("falls back to the first tab the viewer has when a link names one they don't", () => {
+    useSettingsDialog.setState({ tab: "all" });
+    show("member");
+    expect(screen.getByTestId("personal-tokens-tab")).toBeInTheDocument();
+    expect(screen.queryByTestId("api-access-inventory")).not.toBeInTheDocument();
+  });
+
+  it("keeps the tab in the dialog's store, so a link and a click agree", async () => {
+    const user = show();
+    await user.click(screen.getByTestId("api-access-tab-tokens"));
+    expect(useSettingsDialog.getState().tab).toBe("all");
+  });
+});
+
+describe("which token do I need", () => {
+  const row = (id: string) => within(screen.getByTestId(`api-tokens-guide-${id}`));
+
+  it("takes an admin to the tab that makes each kind", async () => {
+    const user = show();
+    await user.click(row("service-account").getByRole("button"));
+    expect(useSettingsDialog.getState().tab).toBe("service_accounts");
+    await user.click(row("personal").getByRole("button"));
+    expect(useSettingsDialog.getState().tab).toBe("personal");
+  });
+
+  it("sends a custom app's token to the app's secret, where it can be created in place", async () => {
+    const user = show();
+    await user.click(row("custom-app").getByRole("button", { name: /Create API token/ }));
+    expect(useSettingsDialog.getState()).toMatchObject({
+      section: "organization.secrets",
+      tab: "app"
+    });
+  });
+
+  it("tells a member who makes the kinds they can't, instead of linking to a tab they lack", () => {
+    nav.canOpenSecrets = false;
+    show("member");
+    expect(row("personal").getByRole("button")).toBeInTheDocument();
+    expect(row("service-account").queryByRole("button")).not.toBeInTheDocument();
+    expect(row("service-account").getByText(/from an organization admin/)).toBeInTheDocument();
+    expect(row("custom-app").queryByRole("button")).not.toBeInTheDocument();
+    expect(row("secret").getByText(/set by an organization admin/)).toBeInTheDocument();
   });
 });
 

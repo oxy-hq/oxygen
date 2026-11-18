@@ -53,15 +53,15 @@ describe("summarizeAccess", () => {
   it("measures an all-access token's reach by its owner: you, or its owner on a staff list", () => {
     const allAccess = token({ all_access: true });
     expect(summarizeAccess(allAccess).lines).toEqual([
-      "Every organization and workspace you can reach, now and later."
+      "Every organization you can reach, now and later."
     ]);
     // A staff list is read by someone else: "you" would be the wrong person.
     expect(summarizeAccess(allAccess, "its owner").lines).toEqual([
-      "Every organization and workspace its owner can reach, now and later."
+      "Every organization its owner can reach, now and later."
     ]);
   });
 
-  it("counts workspaces and the orgs they are in", () => {
+  it("counts the organizations its grants reach, however each grant is narrowed", () => {
     const summary = summarizeAccess(
       token({
         grants: [
@@ -71,11 +71,12 @@ describe("summarizeAccess", () => {
         ]
       })
     );
-    expect(summary.label).toBe("3 workspaces in 2 orgs");
+    // Two grants in Acme, one in Globex: each org has one workspace, so it is two organizations.
+    expect(summary.label).toBe("2 organizations");
   });
 
-  it("uses the singular for one workspace in one org", () => {
-    expect(summarizeAccess(token({ grants: [grant({})] })).label).toBe("1 workspace in 1 org");
+  it("names the one organization a narrowed grant reaches", () => {
+    expect(summarizeAccess(token({ grants: [grant({})] })).label).toBe("Acme");
   });
 
   it("names the org when the only grant covers all of it", () => {
@@ -84,11 +85,11 @@ describe("summarizeAccess", () => {
         grants: [grant({ workspace_id: null, workspace_name: null, role_ceiling: "admin" })]
       })
     );
-    expect(summary.label).toBe("All workspaces in Acme");
-    expect(summary.lines).toEqual(["Acme: every workspace (Admin)"]);
+    expect(summary.label).toBe("Acme");
+    expect(summary.lines).toEqual(["Acme (Admin)"]);
   });
 
-  it("combines picked workspaces with an org-wide grant elsewhere", () => {
+  it("reads an org-wide grant and a narrowed one alike, as their organizations", () => {
     const summary = summarizeAccess(
       token({
         grants: [
@@ -103,7 +104,7 @@ describe("summarizeAccess", () => {
         ]
       })
     );
-    expect(summary.label).toBe("1 workspace in 1 org, all of Globex");
+    expect(summary.label).toBe("2 organizations");
   });
 
   it("ignores a grant its org revoked, and says so in the detail", () => {
@@ -124,7 +125,7 @@ describe("summarizeAccess", () => {
     );
     expect(summary.label).toBe("All access");
     expect(summary.lines).toHaveLength(2);
-    expect(summary.lines[1]).toContain("Acme: every workspace");
+    expect(summary.lines[1]).toContain("Acme (Read)");
     expect(summary.lines[1]).toContain("removed by the organization");
   });
 

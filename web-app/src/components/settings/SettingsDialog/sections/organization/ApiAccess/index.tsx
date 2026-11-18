@@ -1,89 +1,158 @@
 import { KeySquare } from "lucide-react";
+import type React from "react";
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
+import useSettingsDialog from "@/stores/useSettingsDialog";
 import type { Organization, OrgRole } from "@/types/organization";
-import NoAccessNotice from "../../../components/NoAccessNotice";
 import SectionHeader from "../../../components/SectionHeader";
+import type { ApiTokensTab } from "../../../tabs";
+import PersonalTokens from "../../account/PersonalTokens";
+import { ApiIdField } from "./components/ApiIdField";
+import { TokenGuide } from "./components/TokenGuide";
 import { Inventory } from "./Inventory";
 import { Policy } from "./Policy";
 import { ServiceAccounts } from "./ServiceAccounts";
 
-interface ApiAccessSectionProps {
-  org: Organization;
-  viewerRole: OrgRole;
+interface ApiTokensSectionProps {
+  /** `null` when no org is loaded: the page then holds only the viewer's own tokens. */
+  org: Organization | null;
+  viewerRole: OrgRole | null;
 }
 
-type ApiAccessTab = "service-accounts" | "tokens" | "policy";
+interface TabContext {
+  /** Set for every tab but Personal access tokens, which are shown only with an org loaded. */
+  org: Organization | null;
+  /** The service account open in the Service accounts tab, if any. */
+  accountId: string | null;
+  setAccountId: (id: string | null) => void;
+  /** Open one account's page from anywhere on this page. */
+  openAccount: (id: string) => void;
+}
+
+interface TabDef {
+  id: ApiTokensTab;
+  label: string;
+  /** Organization owners and admins only: every route behind the tab checks that role. */
+  orgAdminOnly: boolean;
+  testId: string;
+  render: (ctx: TabContext) => React.ReactNode;
+}
 
 /**
- * Organization → API access: everything that reaches the org without a person
- * at a keyboard.
+ * The page's tabs, in order. A new tab is one entry here plus its id in `API_TOKENS_TABS`
+ * (`tabs.ts`), which is what makes it linkable as `?settings=organization.api_tokens.<id>`.
  *
- * - **Service accounts**: identities the org owns, their tokens, and the
- *   GitHub Actions workflows trusted to act as them.
- * - **Tokens**: the inventory of every credential reaching the org, whoever
- *   holds it.
- * - **Policy**: the org's rules for those tokens.
- *
- * The nav gate (`requires: "orgAdmin"`) is the primary check. `canManage` is
- * the second line, and because the tabs render nothing without it, it also
- * holds every admin-only read back from a member who arrives by deep link.
+ * The test ids of the three admin tabs keep their `api-access-` names from when this page was
+ * Organization → API access, because the authored browser flows find them by those.
  */
-export default function ApiAccessSection({ org, viewerRole }: ApiAccessSectionProps) {
-  const [tab, setTab] = useState<ApiAccessTab>("service-accounts");
-  // Lives here rather than in the Service accounts tab so it survives a tab
-  // switch, and so the inventory can open an account's page from a token row.
-  const [accountId, setAccountId] = useState<string | null>(null);
-  const canManage = viewerRole === "owner" || viewerRole === "admin";
-
-  if (!canManage) {
-    return (
-      <NoAccessNotice>
-        You need to be an organization owner or admin to manage API access.
-      </NoAccessNotice>
-    );
+const TABS: readonly TabDef[] = [
+  {
+    id: "personal",
+    label: "Personal access tokens",
+    orgAdminOnly: false,
+    testId: "api-tokens-tab-personal",
+    render: () => <PersonalTokens />
+  },
+  {
+    id: "service_accounts",
+    label: "Service accounts",
+    orgAdminOnly: true,
+    testId: "api-access-tab-service-accounts",
+    render: ({ org, accountId, setAccountId }) =>
+      org && <ServiceAccounts org={org} selectedId={accountId} onSelect={setAccountId} />
+  },
+  {
+    id: "all",
+    label: "All tokens",
+    orgAdminOnly: true,
+    testId: "api-access-tab-tokens",
+    render: ({ org, openAccount }) => org && <Inventory org={org} onOpenAccount={openAccount} />
+  },
+  {
+    id: "policy",
+    label: "Policy",
+    orgAdminOnly: true,
+    testId: "api-access-tab-policy",
+    render: ({ org }) => org && <Policy org={org} />
   }
+];
 
-  const openAccount = (id: string) => {
-    setAccountId(id);
-    setTab("service-accounts");
+/**
+ * Organization → API tokens: every token that lets something call Oxygen without anyone signing
+ * in, in one place. It replaced three pages — Account → Personal access tokens, Organization →
+ * API access and Workspace → API tokens — whose old `?settings=` ids redirect to the matching tab
+ * (`RENAMED_SECTIONS` in `nav.ts`).
+ *
+ * - **Personal access tokens**: the viewer's own, across every org. Every member.
+ * - **Service accounts**: identities the org owns, their tokens, and the GitHub Actions
+ *   workflows trusted to act as them. Org admins.
+ * - **All tokens**: every credential reaching the org, whoever holds it. Org admins.
+ * - **Policy**: the org's rules for those tokens. Org admins.
+ *
+ * The nav item is ungated, because a personal token is always its owner's to manage, and it needs
+ * no org: with none loaded it sits under Account and shows the personal tab alone. The admin tabs
+ * are gated here by the same org role their routes check, so a member sees the guide and their
+ * own tokens and nothing an admin route would refuse to fill.
+ */
+export default function ApiTokensSection({ org, viewerRole }: ApiTokensSectionProps) {
+  const requested = useSettingsDialog((s) => s.tab);
+  const setTab = useSettingsDialog((s) => s.setTab);
+  // Lives here rather than in the Service accounts tab so it survives a tab switch, and so the
+  // inventory can open an account's page from a token row.
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const isOrgAdmin = !!org && (viewerRole === "owner" || viewerRole === "admin");
+
+  const visible = TABS.filter((tab) => !tab.orgAdminOnly || isOrgAdmin);
+  const active = visible.find((tab) => tab.id === requested) ?? visible[0];
+
+  const ctx: TabContext = {
+    org,
+    accountId,
+    setAccountId,
+    openAccount: (id) => {
+      setAccountId(id);
+      setTab("service_accounts");
+    }
   };
 
   return (
-    <div className='flex flex-col gap-5' data-testid='settings-api-access'>
+    <div className='flex flex-col gap-5' data-testid='settings-api-tokens'>
       <SectionHeader
         icon={KeySquare}
-        title='API access'
-        description='What can reach this organization without someone signing in: service accounts, the tokens they and your members hold, and the rules those tokens follow.'
+        title='API tokens'
+        description='A token lets a script, a scheduled job or another service call Oxygen without anyone signing in.'
       />
 
-      <Tabs value={tab} onValueChange={(value) => setTab(value as ApiAccessTab)} className='gap-4'>
-        <TabsList className='w-fit'>
-          <TabsTrigger
-            value='service-accounts'
-            className='px-3 text-xs'
-            data-testid='api-access-tab-service-accounts'
-          >
-            Service accounts
-          </TabsTrigger>
-          <TabsTrigger value='tokens' className='px-3 text-xs' data-testid='api-access-tab-tokens'>
-            Tokens
-          </TabsTrigger>
-          <TabsTrigger value='policy' className='px-3 text-xs' data-testid='api-access-tab-policy'>
-            Policy
-          </TabsTrigger>
-        </TabsList>
+      <TokenGuide visibleTabs={visible.map((tab) => tab.id)} />
 
-        <TabsContent value='service-accounts'>
-          <ServiceAccounts org={org} selectedId={accountId} onSelect={setAccountId} />
-        </TabsContent>
-        <TabsContent value='tokens'>
-          <Inventory org={org} onOpenAccount={openAccount} />
-        </TabsContent>
-        <TabsContent value='policy'>
-          <Policy org={org} />
-        </TabsContent>
-      </Tabs>
+      {visible.length === 1 ? (
+        <div className='flex flex-col gap-3'>
+          <h4 className='font-medium text-sm'>{active.label}</h4>
+          {active.render(ctx)}
+        </div>
+      ) : (
+        <Tabs value={active.id} onValueChange={(value) => setTab(value)} className='gap-4'>
+          <TabsList className='w-fit max-w-full overflow-x-auto'>
+            {visible.map((tab) => (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className='px-3 text-xs'
+                data-testid={tab.testId}
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {visible.map((tab) => (
+            <TabsContent key={tab.id} value={tab.id}>
+              {tab.render(ctx)}
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
+
+      <ApiIdField />
     </div>
   );
 }

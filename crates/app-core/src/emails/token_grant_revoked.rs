@@ -30,8 +30,8 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
       {{org_name}} will now be refused.
     </p>
     <p style="margin:0;font-size:13px;line-height:1.6;color:#71717a;">
-      You can see this under Account → Personal access tokens. To reach {{org_name}} again, ask one of
-      its administrators, then create a new token.
+      You can see this under Settings → Organization → API tokens → Personal access tokens. To
+      reach {{org_name}} again, ask one of its administrators, then create a new token.
     </p>
   </div>
 </body>
@@ -67,9 +67,9 @@ fn message(args: &GrantRevokedEmail<'_>) -> Result<EmailMessage, OxyError> {
     let text_body = format!(
         "An administrator of {org} ({by}) ended the access your API token \"{token}\" ({prefix}…) \
          had to that organization.\n\nThe token itself still works everywhere else it could reach. \
-         Anything using it against {org} will now be refused.\n\nYou can see this under Account → \
-         Personal access tokens. To reach {org} again, ask one of its administrators, then create \
-         a new token.\n",
+         Anything using it against {org} will now be refused.\n\nYou can see this under Settings → \
+         Organization → API tokens → Personal access tokens. To reach {org} again, ask one of its \
+         administrators, then create a new token.\n",
         org = args.org_name,
         by = args.revoked_by,
         token = args.token_name,

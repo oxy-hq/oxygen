@@ -52,7 +52,7 @@ export const AppsMissingSecrets = ({
                     variant='outline'
                     className='h-7 gap-1.5 font-mono text-xs'
                     disabled={share.isPending}
-                    title={`The workspace already has ${key.key}: share it with ${app.appName}`}
+                    title={`A shared secret ${key.key} already exists: share it with ${app.appName}`}
                     data-testid={`secrets-missing-share-${key.key}`}
                     onClick={() =>
                       share.mutate({

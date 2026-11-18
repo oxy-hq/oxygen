@@ -214,8 +214,8 @@ statements that must land together go in one `ctx.oltp.tx`. The store is
 provisioned per org by an operator; until then calls fail naming that step.
 
 **Where `ctx.env` comes from.** The app's own secrets (its Secrets panel,
-`oxyc env secret set`), plus any workspace secret a workspace admin has shared
-with the app in Settings → Secrets — read under the secret's own name, so one
+`oxyc env secret set`), plus any shared secret an admin has shared with the
+app in Settings → Organization → Secrets — read under the secret's own name, so one
 `SLACK_BOT_TOKEN` can serve every app that needs it and rotates once. The app's
 own value of a key wins over a shared one. Nothing else of the workspace is
 visible, and the manifest cannot ask for more: declaring a key in `env` only
@@ -833,7 +833,8 @@ everyone who uses it. So set it up in two layers:
 - **A personal environment, for someone who wants no approval per session.**
   They create their own environment with the same network access. They add
   their own network secret, with their own personal access token (`oxy_pat_…`,
-  from Account → Personal access tokens), and `OXY_TOKEN=from-proxy`. What
+  from Settings → Organization → API tokens → Personal access tokens), and
+  `OXY_TOKEN=from-proxy`. What
   they do is still recorded as them.
 
 Two things to avoid:

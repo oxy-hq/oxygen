@@ -134,10 +134,10 @@ pub async fn authenticate_request(
 /// What a caller still sending `oxy_<32 hex>` is told. Names the replacement,
 /// because the whole point of recognising a removed format is to shorten the
 /// distance between the 401 and the fix.
-pub const LEGACY_KEY_REMOVED: &str = "Legacy API keys (oxy_…) were removed. Mint an API token instead: a personal \
-     access token under Settings → Account → API tokens, or an organization \
-     service account under Settings → Organization → API access. Both are sent \
-     the same way, in Authorization: Bearer or X-API-Key.";
+pub const LEGACY_KEY_REMOVED: &str = "Legacy API keys (oxy_…) were removed. Mint an API token instead, under \
+     Settings → Organization → API tokens: a personal access token, or a \
+     service account's token. Both are sent the same way, in Authorization: \
+     Bearer or X-API-Key.";
 
 /// Whether the request's only credential is a removed legacy key, by shape
 /// alone — no database read, and nothing is admitted either way.

@@ -100,7 +100,7 @@ interface Props {
 }
 
 /**
- * "All access, with staff standing", "3 workspaces in 2 orgs", or a sandbox agent token's apps
+ * "All access, with staff standing", "3 organizations", or a sandbox agent token's apps
  * by reference. One line, cut with an ellipsis where the column is narrow. The tooltip has the
  * whole of it, every app included, then each grant. It is the one hover text: a native `title`
  * beside it would show two at once.

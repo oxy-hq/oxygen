@@ -30,7 +30,7 @@ in the job. Nothing else needs configuring: `oxyc` reads `OXY_TOKEN` first.
   `contents: read` beside it or `actions/checkout` loses its access.
 - **A trust policy** on a service account, naming this repository, the workflow
   file and the job's `environment:`. An org admin registers it in the web app
-  under **Organization settings → API access → Service accounts →** *the
+  under **Settings → Organization → API tokens → Service accounts →** *the
   account* **→ Trusted access**, or `oxyc init-ci` does it from the repository.
   A run that matches no policy fails with the repository, workflow, ref and
   event it presented.
@@ -45,7 +45,7 @@ in the job. Nothing else needs configuring: `oxyc` reads `OXY_TOKEN` first.
 | Input | Default | |
 | --- | --- | --- |
 | `version` | `latest` | The `@oxy-hq/cli` version to install. Pin an exact version so a release cannot change what the job runs. |
-| `service-account` | **required** | The **ID** (a UUID) of the account to act as, shown in the web app under Organization settings → API access → Service accounts → *the account*; `oxyc init-ci` writes it. The deployment matches the run against that account's trust policies and no other — it never picks an account on a run's behalf, because anyone can register a trust policy that names a repository. An ID, never `<org-slug>/<name>`: a slug is free for anyone once its org renames or is deleted, so a name can be taken over and an ID cannot. With none, or with anything that is not an ID, the step fails before installing anything. |
+| `service-account` | **required** | The **ID** (a UUID) of the account to act as, shown in the web app under Settings → Organization → API tokens → Service accounts → *the account*; `oxyc init-ci` writes it. The deployment matches the run against that account's trust policies and no other — it never picks an account on a run's behalf, because anyone can register a trust policy that names a repository. An ID, never `<org-slug>/<name>`: a slug is free for anyone once its org renames or is deleted, so a name can be taken over and an ID cannot. With none, or with anything that is not an ID, the step fails before installing anything. |
 | `host` | `https://app.oxygen-hq.com` | Base URL of the Oxygen deployment. It must be the one the later `oxyc` commands talk to — a token is only good where it was minted. `https` only, except `localhost`. |
 | `export-token` | `true` | Export the token as `OXY_TOKEN`. Set `false` to receive it only as the `token` output, and hand it to the one step that needs it. |
 
@@ -54,7 +54,7 @@ in the job. Nothing else needs configuring: `oxyc` reads `OXY_TOKEN` first.
 | Output | |
 | --- | --- |
 | `token` | The minted `oxy_ci_…` token. Masked in logs. |
-| `token-id` | The token's id, as the deployment records it — what to look for in the org's API access inventory and audit trail. |
+| `token-id` | The token's id, as the deployment records it — what to look for in the org's token list (Settings → Organization → API tokens → All tokens) and audit trail. |
 | `expires-at` | When the token expires on its own (RFC 3339). |
 | `service-account` | The `<org-slug>/<name>` of the account the job is acting as — the readable name, for the log. |
 

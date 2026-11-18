@@ -448,7 +448,7 @@ describe("manualSteps", () => {
   });
 
   it("says where in the web app, and links the page when the deployment is known", () => {
-    const where = "Organization settings → API access → Service accounts";
+    const where = "Settings → Organization → API tokens → Service accounts";
     const unlinked = manualSteps(SUBJECT, { kind: "manual", reason: "not logged in" });
     expect(unlinked).toContain(where);
     expect(unlinked).toContain("under Trusted access, add a trust policy");

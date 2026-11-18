@@ -111,13 +111,11 @@ describe("TokenRow", () => {
   it("shows the masked token, its access and when it was last used", () => {
     show(token({ platform: true }));
     expect(screen.getByTestId("account-token-masked")).toHaveTextContent("oxy_pat_Ab3x…wxyz");
-    expect(screen.getByTestId("account-token-access-label")).toHaveTextContent(
-      "1 workspace in 1 org"
-    );
+    expect(screen.getByTestId("account-token-access-label")).toHaveTextContent("Acme");
     // Standing reads on in the same line, in words.
     expect(screen.getByTestId("account-token-standing-platform")).toHaveTextContent("staff");
     expect(screen.getByTestId("account-token-access")).toHaveTextContent(
-      "1 workspace in 1 org, with staff standing"
+      "Acme, with staff standing"
     );
     expect(screen.getByTestId("account-token-kind")).toHaveTextContent("Personal");
     expect(screen.getByTestId("account-token-row")).toHaveTextContent("Never");
@@ -161,7 +159,7 @@ describe("TokenRow", () => {
     show(token());
     expect(screen.getByTestId("account-token-access")).not.toHaveAttribute("title");
     await userEvent.hover(screen.getByTestId("account-token-access-label"));
-    const summary = await screen.findAllByText("1 workspace in 1 org", {}, { timeout: 5000 });
+    const summary = await screen.findAllByText("Acme", {}, { timeout: 5000 });
     // The label in the cell, and the same words leading the tooltip.
     expect(summary.length).toBeGreaterThan(1);
   });
@@ -505,13 +503,13 @@ describe("TokenRow", () => {
     });
   });
 
-  it("locks a workspace its org removed, instead of offering a tick that would do nothing", async () => {
+  it("locks an org that removed the token, instead of offering a tick that would do nothing", async () => {
     const [held] = token().grants;
     const user = show(token({ grants: [{ ...held, revoked_at: "2026-10-02T00:00:00Z" }] }));
     await openMenu(user);
     await user.click(screen.getByTestId("account-token-edit-access"));
 
-    const checkbox = await screen.findByTestId("account-token-workspace-checkbox");
+    const checkbox = await screen.findByTestId("account-token-org-wide-checkbox");
     expect(checkbox).toBeDisabled();
     expect(checkbox).toHaveAttribute("data-state", "unchecked");
     expect(screen.getByTestId("account-token-grant-removed")).toHaveTextContent("removed by Acme");
@@ -524,8 +522,8 @@ describe("TokenRow", () => {
     await openMenu(user);
     await user.click(screen.getByTestId("account-token-edit-access"));
 
-    // Opens on the token's current grant: Analytics, ticked.
-    const checkbox = await screen.findByTestId("account-token-workspace-checkbox");
+    // Opens on the token's current grant: Acme (narrowed to its one workspace), ticked.
+    const checkbox = await screen.findByTestId("account-token-org-wide-checkbox");
     expect(checkbox).toHaveAttribute("data-state", "checked");
 
     // Nothing selected is not saveable; all access is.

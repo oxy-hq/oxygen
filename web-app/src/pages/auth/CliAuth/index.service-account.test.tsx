@@ -212,7 +212,7 @@ describe("/cli-auth with kind=service_account", () => {
       error: httpError(409, {
         code: "role_mismatch",
         error:
-          "the service account 'store-ops-tablets' already exists as member: ask for that role, or change the account's role on the organization's API access page"
+          "the service account 'store-ops-tablets' already exists as member: ask for that role, or change the account's role under Settings → Organization → API tokens → Service accounts"
       }),
       refetch: vi.fn()
     };

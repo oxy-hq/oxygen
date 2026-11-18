@@ -62,7 +62,7 @@ export const CopyFromWorkspace = ({
     try {
       onCopy(await SecretService.revealSecret(project.id, match.id));
     } catch {
-      toast.error(`Couldn't read the workspace value for ${match.name}.`);
+      toast.error(`Couldn't read the shared value of ${match.name}.`);
     } finally {
       setBusy(false);
     }
@@ -70,7 +70,7 @@ export const CopyFromWorkspace = ({
 
   return (
     <p className='text-muted-foreground text-xs'>
-      This workspace already has a secret named <code>{match.name}</code>.{" "}
+      A shared secret named <code>{match.name}</code> already exists.{" "}
       <button
         type='button'
         className='underline underline-offset-2 hover:text-foreground disabled:opacity-50'
@@ -80,7 +80,7 @@ export const CopyFromWorkspace = ({
       >
         Copy its value
       </button>{" "}
-      — a copy taken now, so rotating the workspace secret later won't change this one.
+      — a copy taken now, so rotating the shared secret later won't change this one.
     </p>
   );
 };

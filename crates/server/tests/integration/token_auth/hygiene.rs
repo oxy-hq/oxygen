@@ -330,7 +330,7 @@ async fn a_service_account_tokens_leak_is_mailed_to_the_orgs_admins() {
     assert!(
         outbox()[0]
             .text_body
-            .contains("settings=organization.api_access")
+            .contains("settings=organization.api_tokens.service_accounts")
     );
 }
 
@@ -406,7 +406,7 @@ async fn the_expiry_notice_goes_out_once_a_week_ahead_and_again_after_extend() {
     assert!(
         token_mail
             .text_body
-            .contains("https://oxy.example/?settings=account.tokens")
+            .contains("https://oxy.example/?settings=organization.api_tokens.personal")
     );
     assert!(
         !mail.iter().any(|m| m.subject.contains("legacy")),
@@ -469,7 +469,7 @@ async fn a_service_account_tokens_notice_goes_to_its_orgs_admins() {
     assert!(
         mail[0]
             .text_body
-            .contains("https://oxy.example/?settings=organization.api_access")
+            .contains("https://oxy.example/?settings=organization.api_tokens.service_accounts")
     );
 }
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { gateSatisfied, type NavVisibilityContext, visibleNavGroups } from "./nav";
+import {
+  CLOUD_NAV,
+  gateSatisfied,
+  LOCAL_NAV,
+  type NavVisibilityContext,
+  RENAMED_SECTIONS,
+  visibleNavGroups
+} from "./nav";
 
 /**
  * The settings nav is the dialog's entire permission surface, and a wrong gate
@@ -31,12 +38,13 @@ describe("visibleNavGroups", () => {
     it("sees only the sections they can actually use", () => {
       expect(sectionsFor({})).toEqual([
         "organization.members",
+        // Their own personal access tokens; the admin tabs are gated inside.
+        "organization.api_tokens",
         "workspace.members",
         // Their own read-only `Reader` credential — see the note in nav.ts.
         "workspace.airhouse",
         "workspace.oltp",
         "workspace.activity_logs",
-        "account.tokens",
         "account.notifications",
         "preferences.appearance"
       ]);
@@ -49,12 +57,10 @@ describe("visibleNavGroups", () => {
         "organization.crew",
         "organization.locations",
         "organization.positions",
-        "organization.api_access",
+        "organization.secrets",
         "organization.billing",
         "organization.integration",
         "workspace.databases",
-        "workspace.api_keys",
-        "workspace.secrets",
         "workspace.apps",
         "workspace.oxy_access"
       ]) {
@@ -70,24 +76,46 @@ describe("visibleNavGroups", () => {
       ]);
       expect(sectionsFor({ hasWorkspace: false })).toEqual([
         "organization.members",
-        "account.tokens",
+        // Personal tokens need no workspace: an org still being set up can mint one.
+        "organization.api_tokens",
         "account.notifications",
         "preferences.appearance"
       ]);
     });
 
     it("offers their own tokens to anyone signed in, with no org or workspace loaded", () => {
-      // A token belongs to its owner, not to a tenant: no role gates it, and it
-      // must be reachable from the "you're not in an organization yet" state too.
+      // A token belongs to its owner, not to a tenant: no role gates it, and it must be
+      // reachable from the "you're not in an organization yet" state too. With no org it moves
+      // to the Account group, since the Organization group is dropped.
       expect(sectionsFor({ hasOrg: false, hasWorkspace: false })).toEqual([
-        "account.tokens",
+        "organization.api_tokens",
         "account.notifications",
         "preferences.appearance"
       ]);
+      const account = visibleNavGroups({ ...CLOUD_BASE, hasOrg: false, hasWorkspace: false }).find(
+        (g) => g.label === "Account"
+      );
+      expect(account?.items.map((i) => i.value)).toContain("organization.api_tokens");
     });
 
-    it("has no Account group in local mode, which has no sign-in to mint a token for", () => {
-      expect(sectionsFor({ isLocalMode: true, hasOrg: false })).not.toContain("account.tokens");
+    it("lists API tokens once, under Organization, when an org is loaded", () => {
+      const groups = visibleNavGroups(CLOUD_BASE);
+      const holders = groups.filter((g) =>
+        g.items.some((i) => i.value === "organization.api_tokens")
+      );
+      expect(holders.map((g) => g.label)).toEqual(["Organization"]);
+    });
+
+    it("keeps Secrets out of an org with no workspace yet, whose routes it could not call", () => {
+      expect(
+        sectionsFor({ isOrgAdmin: true, isWorkspaceAdmin: true, hasWorkspace: false })
+      ).not.toContain("organization.secrets");
+    });
+
+    it("has no API tokens and no Account group in local mode, which has no sign-in", () => {
+      expect(sectionsFor({ isLocalMode: true, hasOrg: false })).not.toContain(
+        "organization.api_tokens"
+      );
       // Nor anyone to notify.
       expect(sectionsFor({ isLocalMode: true, hasOrg: false })).not.toContain(
         "account.notifications"
@@ -111,8 +139,8 @@ describe("visibleNavGroups", () => {
     it("grants workspace sections to an org member holding workspace admin", () => {
       const sections = sectionsFor({ isWorkspaceAdmin: true });
       expect(sections).toContain("workspace.databases");
-      expect(sections).toContain("workspace.api_keys");
-      expect(sections).toContain("workspace.secrets");
+      // Filed under Organization, gated on the workspace role its routes check.
+      expect(sections).toContain("organization.secrets");
       expect(sections).toContain("workspace.apps");
       expect(sections).toContain("workspace.airhouse");
     });
@@ -138,20 +166,18 @@ describe("visibleNavGroups", () => {
         "organization.crew",
         "organization.locations",
         "organization.positions",
-        "organization.api_access",
+        "organization.api_tokens",
+        "organization.secrets",
         "organization.billing",
         "organization.integration",
         "workspace.members",
         "workspace.databases",
         "workspace.airhouse",
         "workspace.oltp",
-        "workspace.api_keys",
-        "workspace.secrets",
         "workspace.connections",
         "workspace.apps",
         "workspace.oxy_access",
         "workspace.activity_logs",
-        "account.tokens",
         "account.notifications",
         "preferences.appearance"
       ]);
@@ -173,7 +199,7 @@ describe("visibleNavGroups", () => {
       // both flags arrive true together; the gate must still read the axis it
       // was given rather than inferring one from the other.
       const sections = sectionsFor({ isOrgAdmin: true });
-      expect(sections).not.toContain("workspace.secrets");
+      expect(sections).not.toContain("organization.secrets");
     });
   });
 
@@ -195,7 +221,7 @@ describe("visibleNavGroups", () => {
     // exemption itself is asserted directly below.
     it("shows every workspace section despite carrying no role", () => {
       const sections = sectionsFor({ isLocalMode: true, hasOrg: false });
-      expect(sections).toContain("workspace.secrets");
+      expect(sections).toContain("organization.secrets");
       expect(sections).toContain("workspace.apps");
       expect(sections).toContain("workspace.databases");
       expect(sections).toContain("preferences.appearance");
@@ -261,7 +287,7 @@ describe("visibleNavGroups", () => {
 });
 
 describe("sections that write the workspace's config are the Factory's", () => {
-  const FACTORY_SECTIONS = ["workspace.databases", "workspace.secrets", "workspace.connections"];
+  const FACTORY_SECTIONS = ["workspace.databases", "organization.secrets", "workspace.connections"];
 
   /// A workspace admin of the customer's org the server will not let into the
   /// Factory would open each of these and meet a refusal; they are not offered.
@@ -273,7 +299,7 @@ describe("sections that write the workspace's config are the Factory's", () => {
     });
     for (const hidden of FACTORY_SECTIONS) expect(sections).not.toContain(hidden);
     // The rest of what a workspace admin has is untouched.
-    expect(sections).toContain("workspace.api_keys");
+    expect(sections).toContain("organization.api_tokens");
     expect(sections).toContain("workspace.oxy_access");
   });
 
@@ -291,5 +317,35 @@ describe("sections that write the workspace's config are the Factory's", () => {
   it("are not hidden in local mode, where there is no Factory to gate", () => {
     const sections = sectionsFor({ isLocalMode: true, canUseFactory: false });
     expect(sections).toContain("workspace.databases");
+  });
+});
+
+describe("sections that moved", () => {
+  const everySection = (): string[] =>
+    [...CLOUD_NAV, ...LOCAL_NAV].flatMap((g) => g.items.map((i) => i.value));
+
+  it("sends every old id to a section the nav still has", () => {
+    // An old id is a link someone holds: it must land on a real section, never on nothing.
+    for (const [old, target] of Object.entries(RENAMED_SECTIONS)) {
+      expect(everySection(), old).toContain(target.section);
+      expect(everySection(), old).not.toContain(old);
+    }
+  });
+
+  it("names only tabs the target section has", () => {
+    for (const [old, target] of Object.entries(RENAMED_SECTIONS)) {
+      if (!target.tab) continue;
+      const item = CLOUD_NAV.flatMap((g) => g.items).find((i) => i.value === target.section);
+      expect(item?.tabs, old).toContain(target.tab);
+    }
+  });
+
+  it("puts every token in one section, and every secret in another", () => {
+    expect(RENAMED_SECTIONS).toEqual({
+      "account.tokens": { section: "organization.api_tokens", tab: "personal" },
+      "organization.api_access": { section: "organization.api_tokens", tab: "service_accounts" },
+      "workspace.api_keys": { section: "organization.api_tokens", tab: "all" },
+      "workspace.secrets": { section: "organization.secrets" }
+    });
   });
 });

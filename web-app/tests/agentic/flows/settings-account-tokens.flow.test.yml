@@ -13,11 +13,12 @@
 # (`HEADED=1 pnpm test:agentic settings-account-tokens`) and add it to a
 # cloud-mode bucket in `.github/workflows/agentic-tests.yaml`.
 #
-# Surface: Settings dialog → Account → Personal access tokens, opened by the
-# `?settings=account.tokens` deep link (useSettingsDeepLink). The section needs
-# no workspace or role; `/home` is just a page that mounts the dialog, and
-# OXY_PATH_PREFIX lands it on the Demo workspace. The runner signs in as
-# flow@oxy.local, who owns that workspace, so the grant picker offers it.
+# Surface: Settings dialog → Organization → API tokens → Personal access
+# tokens, opened by the `?settings=organization.api_tokens.personal` deep link
+# (useSettingsDeepLink). The tab needs no workspace or role; `/home` is just a
+# page that mounts the dialog, and OXY_PATH_PREFIX lands it on the Demo
+# workspace. The runner signs in as flow@oxy.local, who owns that org, so the
+# grant picker offers it.
 #
 # The flow creates its own token. Same name every run; on a reused backend
 # several rows can share it. The list is newest first, so every step says to
@@ -48,10 +49,10 @@ settings:
   max_steps: 25
 
 setup:
-  - "goto:/home?settings=account.tokens"
+  - "goto:/home?settings=organization.api_tokens.personal"
 
 cases:
-  - name: create a selected-workspace token, see it listed, revoke it
+  - name: create a selected-organization token, see it listed, revoke it
     tags: [settings, api-tokens, regression]
     steps:
       - wait_for: "selector:[data-testid=settings-account-tokens]"
@@ -59,19 +60,19 @@ cases:
       # All access is the default, so the click on Selected is what the
       # recording proves.
       - act: |
-          Start a token limited to selected workspaces:
+          Start a token limited to selected organizations:
           1. browser_click [data-testid=account-token-create-button].
           2. In [data-testid=account-token-dialog], browser_type
              "flow selected token" into [data-testid=account-token-name].
           3. browser_click [data-testid=account-token-access-selected].
 
       # The picker is fed by GET /user/token-options; gate on its first
-      # workspace so the next step never clicks into a loading skeleton.
-      - wait_for: "selector:[data-testid=account-token-grant-picker] [data-testid=account-token-workspace-checkbox]"
+      # organization so the next step never clicks into a loading skeleton.
+      - wait_for: "selector:[data-testid=account-token-grant-picker] [data-testid=account-token-org-wide-checkbox]"
 
       - act: |
           In [data-testid=account-token-grant-picker]:
-          1. browser_click the first [data-testid=account-token-workspace-checkbox].
+          1. browser_click the first [data-testid=account-token-org-wide-checkbox].
           2. browser_click [data-testid=account-token-submit] (it reads
              "Create token").
 
@@ -106,10 +107,10 @@ cases:
       - assert: 'selector [data-testid=account-token-row][data-token-name="flow selected token"][data-token-status=revoked] is visible'
       - assert: "selector [data-testid=account-token-secret-dialog] is not visible"
       - assert: "selector [data-testid=account-token-revoke-confirm] is not visible"
-      - assert: 'text "1 workspace in 1 org" is visible'
       - judge: |
-          The Settings dialog shows "Personal access tokens" with a table of
-          tokens. A row named "flow selected token" has the kind "Personal",
-          an Access of "1 workspace in 1 org" (not "All access"), and a
+          The Settings dialog shows API tokens with the "Personal access
+          tokens" tab selected and a table of tokens. A row named "flow
+          selected token" has the kind "Personal", an Access naming one
+          organization (not "All access", and no mention of workspaces), and a
           "Revoked" status. No error message and no "aren't available on this
           server" notice is shown.

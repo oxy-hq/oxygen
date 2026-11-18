@@ -146,7 +146,9 @@ export async function runLogout(ctx: Context): Promise<void> {
     // was never going to be, and saying so on every logout from an older
     // deployment would be noise about something nobody can change.
     log.warn("the token was removed from this machine, but the server did not confirm a revoke");
-    log.hint("revoke it in the web app: Account → Personal access tokens");
+    log.hint(
+      "revoke it in the web app: Settings → Organization → API tokens → Personal access tokens"
+    );
   }
 }
 

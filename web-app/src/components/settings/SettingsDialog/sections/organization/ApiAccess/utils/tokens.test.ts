@@ -38,7 +38,11 @@ describe("tokenLifecycle", () => {
   // Their rows therefore read exactly like a live token's, and the only thing
   // that says otherwise is the status the server sends.
   it("says Removed for a legacy key, whatever the rest of the row says", () => {
-    const removed = { tone: "removed", label: "Removed", detail: "Legacy API keys no longer authenticate" };
+    const removed = {
+      tone: "removed",
+      label: "Removed",
+      detail: "Legacy API keys no longer authenticate"
+    };
     // Not revoked, never expires: the live shape.
     expect(tokenLifecycle({ status: "removed", expires_at: null, revoked_at: null }, NOW)).toEqual(
       removed

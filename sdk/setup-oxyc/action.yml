@@ -14,7 +14,7 @@ inputs:
   service-account:
     description: >-
       The ID (a UUID) of the service account to act as — shown in the web app
-      under Organization settings → API access → Service accounts → the
+      under Settings → Organization → API tokens → Service accounts → the
       account. Required: the deployment matches this run against that
       account's trust policies and no other. An ID, never `<org-slug>/<name>`:
       a name can be taken over by another organization, an ID cannot.

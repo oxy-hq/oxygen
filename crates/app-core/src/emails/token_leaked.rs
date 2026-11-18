@@ -98,7 +98,7 @@ mod tests {
         assert!(mail.text_body.contains("Create a new token"));
         assert!(
             mail.text_body
-                .contains("under Account → Personal access tokens")
+                .contains("under Organization → API tokens → Personal access tokens")
         );
     }
 
@@ -114,7 +114,9 @@ mod tests {
             },
             source: None,
             url: Some(&long),
-            settings_url: Some("https://oxy.example/?settings=organization.api_access".into()),
+            settings_url: Some(
+                "https://oxy.example/?settings=organization.api_tokens.service_accounts".into(),
+            ),
         })
         .unwrap();
         assert!(
@@ -122,6 +124,9 @@ mod tests {
                 .contains("service account deploy-bot in Acme")
         );
         assert!(!mail.text_body.contains(&long));
-        assert!(mail.text_body.contains("settings=organization.api_access"));
+        assert!(
+            mail.text_body
+                .contains("settings=organization.api_tokens.service_accounts")
+        );
     }
 }

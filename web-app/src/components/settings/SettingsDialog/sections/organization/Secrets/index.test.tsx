@@ -23,6 +23,8 @@ vi.mock("@/services/secretService", () => ({
 vi.mock("@/services/api/customApps", () => ({
   CustomAppsService: { setWorkspaceAppSecret: vi.fn() }
 }));
+// Not local mode: the page points at API tokens, and a secret can hold a new one.
+vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ isLocalMode: false }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 // Not under test: the role gate, the table, and Radix's select, which jsdom cannot open.
 vi.mock("@/components/auth/Can", () => ({

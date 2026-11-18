@@ -36,7 +36,7 @@ models:
     api_url: https://gateway.example/v1
 ```
 
-Store the value under **Settings → Secrets** with the name matching `key_var`
+Store the value under **Settings → Organization → Secrets** with the name matching `key_var`
 exactly. On Oxygen Cloud the workspace secret store is the only source — a
 `.env` file is read in local mode only.
 
@@ -172,7 +172,7 @@ models:
     headers:
       x-portkey-provider: openai
       x-portkey-virtual-key:
-        env_var: PORTKEY_VIRTUAL_KEY   # resolved from Settings → Secrets
+        env_var: PORTKEY_VIRTUAL_KEY   # resolved from Settings → Organization → Secrets
 ```
 
 The same shape covers **Helicone** (`Helicone-Auth`), an authenticated
@@ -215,7 +215,7 @@ tokens are short-lived, so you'd have to refresh the secret.
 | `404 {"message":"Not found"}` | `vendor: openai` against a Chat-Completions-only gateway. Switch to `openai_compat`. |
 | `You didn't provide an API key` | The `key_var` secret didn't resolve — check the secret name matches `key_var` exactly, and that it exists in *this* workspace. |
 | `Incorrect API key provided` | Key resolved, but the gateway rejected it. |
-| Works locally, fails on cloud | The key is in `.env`, which cloud doesn't read. Add it under Settings → Secrets. |
+| Works locally, fails on cloud | The key is in `.env`, which cloud doesn't read. Add it under Settings → Organization → Secrets. |
 | Traffic leaving your region | `api_url` unset or inherited from a model that defaults to `api.openai.com`. |
 
 ## Testing a gateway setup

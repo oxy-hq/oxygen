@@ -74,7 +74,7 @@ export const DeleteSecretDialog: React.FC<DeleteSecretDialogProps> = ({
                   <code className='font-mono text-foreground'>ctx.env.{name}</code>.
                 </p>
               ) : (
-                <p>No app reads it. The workspace's databases, integrations and agents may.</p>
+                <p>No app reads it. Your organization's databases, integrations and agents may.</p>
               )}
               {secret.description && <p className='border-l-2 pl-3'>{secret.description}</p>}
             </div>

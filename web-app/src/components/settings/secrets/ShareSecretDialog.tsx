@@ -75,8 +75,8 @@ export const ShareSecretDialog = ({
         />
         {apps.length === 0 && onCreateFor && (
           <p className='text-muted-foreground text-xs'>
-            Publish an app and it will appear here. The secret keeps its value in the meantime — the
-            workspace's databases, integrations and agents already read it.
+            Publish an app and it will appear here. The secret keeps its value in the meantime —
+            your organization's databases, integrations and agents already read it.
           </p>
         )}
         <DialogFooter>

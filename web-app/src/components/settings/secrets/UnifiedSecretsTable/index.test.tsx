@@ -28,6 +28,8 @@ vi.mock("@/hooks/api/customApps/useCustomApps", () => ({
 vi.mock("@/services/secretService", () => ({
   SecretService: { updateSecret: vi.fn(), deleteSecret: vi.fn() }
 }));
+// Not local mode: the page points at API tokens, and a secret can hold a new one.
+vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ isLocalMode: false }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/hooks/api/secrets/useSharedSecrets", () => ({
   useSharedSecrets: () => ({ data: { shared: [], apps: [] } }),

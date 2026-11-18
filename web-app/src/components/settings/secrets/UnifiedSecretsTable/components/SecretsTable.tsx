@@ -32,14 +32,14 @@ interface SecretsTableProps {
 
 const EMPTY: Record<SecretsScope, { title: string; description: string }> = {
   workspace: {
-    title: "No workspace secrets yet",
+    title: "No shared secrets yet",
     description:
       "Store a credential once here and choose which apps read it. Rotating it reaches all of them."
   },
   app: {
     title: "No app has its own secret",
     description:
-      "An app stores its own value of a key when it must differ from the workspace's. Most apps read a shared workspace secret instead."
+      "An app stores its own value of a key when it must differ from the shared one. Most apps read a shared secret instead."
   }
 };
 

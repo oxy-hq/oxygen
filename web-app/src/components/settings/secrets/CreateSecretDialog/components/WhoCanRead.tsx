@@ -59,7 +59,7 @@ export const WhoCanRead = ({
           className='flex-1 text-xs'
           data-testid='secret-scope-workspace'
         >
-          Workspace &amp; shared apps
+          Shared with apps
         </ToggleGroupItem>
         <ToggleGroupItem value='app' className='flex-1 text-xs' data-testid='secret-scope-app'>
           One app only
@@ -95,7 +95,7 @@ export const WhoCanRead = ({
           </Select>
           <p className='text-muted-foreground text-xs'>
             Only this app can read it, as <code>ctx.env.{name.trim() || "KEY"}</code>. It wins over
-            a shared workspace secret of the same name.
+            a shared secret of the same name.
           </p>
           <CopyFromWorkspace name={name} onCopy={onCopy} />
         </>

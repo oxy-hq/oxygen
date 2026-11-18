@@ -45,6 +45,16 @@ const CUSTOMER_SCREENS: readonly string[] = [
   "components/settings/SettingsDialog/sections/workspace/Airhouse/",
   "components/settings/SettingsDialog/sections/workspace/Oltp/",
   "components/settings/SettingsDialog/sections/workspace/ActivityLogs/",
+  // Organization → API tokens (its shell, its guide, the personal tokens tab and the org's
+  // token list) and Organization → Secrets with the secret dialogs. The service-account screens
+  // are not listed yet: they still pick and describe workspaces.
+  "components/settings/SettingsDialog/sections/organization/ApiAccess/index.tsx",
+  "components/settings/SettingsDialog/sections/organization/ApiAccess/components/",
+  "components/settings/SettingsDialog/sections/organization/ApiAccess/Inventory/",
+  "components/settings/SettingsDialog/sections/account/PersonalTokens/",
+  "components/settings/tokens/",
+  "components/settings/SettingsDialog/sections/organization/Secrets/",
+  "components/settings/secrets/",
   "hooks/api/agentic-automations/useLogItems.ts"
 ];
 

@@ -1,18 +1,18 @@
-import { Fingerprint, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
-import SectionHeader from "../../../components/SectionHeader";
 import CreateTokenDialog from "./components/CreateTokenDialog";
 import TokenSecretDialog, { type SecretReveal } from "./components/TokenSecretDialog";
 import TokenTable from "./components/TokenTable";
 
 /**
- * Account → Personal access tokens: the caller's own tokens, across every organization and
- * workspace. Needs no workspace, so it works before one is selected.
+ * The Personal access tokens tab of Organization → API tokens: the caller's own tokens, across
+ * every organization. Needs no workspace, so it works before one is selected.
  *
- * It used to end with a line pointing at Workspace → Legacy API keys. Legacy keys were removed,
- * so there is nowhere left to point.
+ * It was its own section, Account → Personal access tokens, until every token moved onto one
+ * page. The folder stays under `account/` because the admin console and the service-account
+ * screens import its helpers by this path.
  */
 const PersonalTokens: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
@@ -20,23 +20,23 @@ const PersonalTokens: React.FC = () => {
   const [reveal, setReveal] = useState<SecretReveal | null>(null);
 
   return (
-    <div className='flex flex-col gap-5' data-testid='settings-account-tokens'>
-      <SectionHeader
-        icon={Fingerprint}
-        title='Personal access tokens'
-        description='A token signs in as you from oxyc, a script or CI. Give it everything you can reach, or only the workspaces you pick.'
-        actions={
-          <Button
-            size='sm'
-            variant='outline'
-            onClick={() => setCreateOpen(true)}
-            data-testid='account-token-create-button'
-          >
-            <Plus />
-            Create token
-          </Button>
-        }
-      />
+    <div className='flex flex-col gap-4' data-testid='settings-account-tokens'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+        <p className='text-muted-foreground text-xs'>
+          Signs in as you from oxyc, a script or CI, and stops working if you leave. Give it
+          everything you can reach, or only the organizations you pick.
+        </p>
+        <Button
+          size='sm'
+          variant='outline'
+          className='self-start sm:self-auto'
+          onClick={() => setCreateOpen(true)}
+          data-testid='account-token-create-button'
+        >
+          <Plus />
+          Create token
+        </Button>
+      </div>
 
       <TokenTable onRegenerated={(result) => setReveal({ ...result, reason: "regenerated" })} />
 

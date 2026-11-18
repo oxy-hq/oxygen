@@ -9,7 +9,6 @@ import { useOrgTokens } from "@/hooks/api/orgApiAccess";
 import type { InventoryFilters as Filters, InventoryToken } from "@/types/orgApiAccess";
 import type { Organization } from "@/types/organization";
 import { EmptyState, ListState } from "../shared/ListState";
-import { usePickableWorkspaces } from "../shared/usePickableLists";
 import { InventoryFilters } from "./components/InventoryFilters";
 import { InventoryRow } from "./components/InventoryRow";
 import { LegacyKeyGroup } from "./components/LegacyKeyGroup";
@@ -27,9 +26,9 @@ interface InventoryProps {
  * short-lived ones trusted access hands out), then the removed legacy API keys in a group of
  * their own. One read feeds both, so the controls above apply to both.
  *
- * The kind, owner and workspace filters are the server's — they are the query key, so the list
- * is re-read. The search box is not: it narrows what came back, by token, owner, workspace and
- * app, which is the question an org admin actually arrives with and is not worth a round trip.
+ * The kind and owner filters are the server's — they are the query key, so the list is re-read.
+ * The search box is not: it narrows what came back, by token, owner and app, which is the
+ * question an org admin actually arrives with and is not worth a round trip.
  */
 export function Inventory({ org, onOpenAccount }: InventoryProps) {
   const [filters, setFilters] = useState<Filters>({});
@@ -39,7 +38,6 @@ export function Inventory({ org, onOpenAccount }: InventoryProps) {
   // would shrink the menu to that one owner. With no filter on, this is the
   // same cache entry as the read above, so it costs nothing extra.
   const { data: everyToken } = useOrgTokens(org.id);
-  const workspaces = usePickableWorkspaces(org.id);
   const all = data ?? [];
   const q = query.trim().toLowerCase();
   const rows = useMemo(
@@ -62,7 +60,7 @@ export function Inventory({ org, onOpenAccount }: InventoryProps) {
             <Search />
           </InputGroupAddon>
           <InputGroupInput
-            placeholder='Search tokens, owners or workspaces'
+            placeholder='Search tokens, owners or apps'
             aria-label='Search the inventory'
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -73,7 +71,6 @@ export function Inventory({ org, onOpenAccount }: InventoryProps) {
           filters={filters}
           onChange={setFilters}
           owners={ownerOptions(everyToken ?? [])}
-          workspaces={workspaces.items}
         />
       </div>
 

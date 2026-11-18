@@ -95,7 +95,7 @@ export const LiftAppSecretDialog = ({
       // make the whole move a no-op for that app.
       await deleteSecret.mutateAsync(target.secretId);
       toast.success(
-        `${target.key} is now a workspace secret, read by ${readers.size} app${
+        `${target.key} is now a shared secret, read by ${readers.size} app${
           readers.size === 1 ? "" : "s"
         }`
       );
@@ -110,12 +110,12 @@ export const LiftAppSecretDialog = ({
   /**
    * Say what the half-done move left behind, and undo what can be undone.
    *
-   * A bare "nothing changed" is wrong here and traps the user: the workspace
+   * A bare "nothing changed" is wrong here and traps the user: the shared
    * secret would already exist, so re-opening this dialog takes the
    * `nameTaken` branch, which offers no way to finish.
    */
   const reportFailure = async (error: unknown, createdId: string | null, shared: boolean) => {
-    const title = `Couldn't move ${target.key} to the workspace`;
+    const title = `Couldn't make ${target.key} a shared secret`;
     // What the server said, when it said anything. It goes *after* the state,
     // never instead of it: `apiErrorMessage` prefers the server's sentence, and
     // "Request failed with status code 403" does not tell anyone what now
@@ -135,10 +135,10 @@ export const LiftAppSecretDialog = ({
       // name taken, and this dialog would then offer no way to finish.
       try {
         await deleteSecret.mutateAsync(createdId);
-        say(`It could not be shared, so the workspace copy was removed. Nothing changed.`);
+        say(`It could not be shared, so the shared copy was removed. Nothing changed.`);
       } catch {
         say(
-          `${target.key} was created as a workspace secret but not shared, and could not be removed. Share or delete it from the Workspace tab.`
+          `${target.key} was created as a shared secret but no app was given it, and it could not be removed. Share or delete it from the Shared tab.`
         );
       }
       return;
@@ -146,7 +146,7 @@ export const LiftAppSecretDialog = ({
     // Shared, but the app's own copy is still there — and it wins, so the move
     // has not taken effect yet. Say exactly that.
     say(
-      `${target.key} is now a workspace secret, but ${target.appName}'s own copy could not be removed — and an app's own value wins, so ${target.appName} still reads the old one. Delete it from the Custom apps tab.`
+      `${target.key} is now a shared secret, but ${target.appName}'s own copy could not be removed — and an app's own value wins, so ${target.appName} still reads the old one. Delete it from the One app tab.`
     );
     onDone();
   };
@@ -161,14 +161,14 @@ export const LiftAppSecretDialog = ({
           <DialogDescription>
             {nameTaken ? (
               <>
-                This workspace already has a secret called{" "}
-                <code className='font-mono'>{target.key}</code>. Share that one from the Workspace
-                tab instead, then delete {target.appName}'s own copy.
+                A shared secret called <code className='font-mono'>{target.key}</code> already
+                exists. Share that one from the Shared tab instead, then delete {target.appName}'s
+                own copy.
               </>
             ) : (
               <>
-                It is stored inside {target.appName} today, where nothing else can read it. Moving
-                it to the workspace keeps one value and lets any app read it as{" "}
+                It is stored inside {target.appName} today, where nothing else can read it. Making
+                it shared keeps one value and lets any app read it as{" "}
                 <code className='font-mono'>ctx.env.{target.key}</code>.
               </>
             )}
@@ -198,7 +198,7 @@ export const LiftAppSecretDialog = ({
           </Button>
           {!nameTaken && (
             <Button onClick={lift} disabled={running} data-testid='lift-app-secret-confirm'>
-              {running ? <Spinner /> : "Move to workspace"}
+              {running ? <Spinner /> : "Make shared"}
             </Button>
           )}
         </DialogFooter>

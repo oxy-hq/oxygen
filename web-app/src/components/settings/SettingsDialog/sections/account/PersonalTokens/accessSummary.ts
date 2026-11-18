@@ -76,7 +76,7 @@ export const toTokenSummary = (
 export type Standing = "platform" | "partner";
 
 export interface AccessSummary {
-  /** "All access", "3 workspaces in 2 orgs". */
+  /** "All access", "Acme", "3 organizations". */
   label: string;
   /** Standing the token carries, shown as badges. */
   standing: Standing[];
@@ -99,17 +99,17 @@ const grantLine = (grant: Grant): string => {
   if (grant.kind === "app_publish") {
     return `${grant.org_name}: publish ${grant.app_name ?? "an app"}`;
   }
-  // Checked before the workspace reading below: an app grant's `workspace_id` is `null` too,
-  // and there it must never be read as "every workspace".
+  // Checked before the org reading below: an app grant's `workspace_id` is `null` too, and it
+  // reaches one app, never the whole org.
   if (grant.kind === "app_sandbox") {
     const line = `${grant.org_name}: sandboxes of ${grant.app_name ?? "an app"}`;
     // Who ended it isn't on the grant, so the line doesn't say.
     return live(grant) ? line : `${line}, no longer covered`;
   }
-  const where =
-    grant.workspace_id === null ? "every workspace" : (grant.workspace_name ?? "a workspace");
+  // An org-wide grant and one narrowed to the org's workspace reach the same data: each org has
+  // one workspace, and no screen names it. Both read as the organization.
   const ceiling = grant.role_ceiling ? CEILING_LABELS[grant.role_ceiling] : CEILING_LABELS.owner;
-  return removedByOrg(`${grant.org_name}: ${where} (${ceiling})`, grant);
+  return removedByOrg(`${grant.org_name} (${ceiling})`, grant);
 };
 
 /** "Sandboxes of Store Ops", "Sandboxes of Store Ops and Refunds", "Sandboxes of 3 apps". */
@@ -144,23 +144,17 @@ export const sandboxGrantApps = (grants: Grant[]): SandboxGrantApp[] =>
       ref: grantAppRef(grant)
     }));
 
-/** "3 workspaces in 2 orgs", "All workspaces in Acme", or both, plus any app-publish grants. */
+/** "Acme", "3 organizations", plus any app-publish grants: "Acme, publish 2 apps". */
 const grantsLabel = (grants: Grant[]): string => {
   const active = grants.filter(live);
-  const wide = active.filter((g) => g.kind === "workspace" && g.workspace_id === null);
-  const narrow = active.filter((g) => g.kind === "workspace" && g.workspace_id !== null);
+  // Org-wide or narrowed to the org's one workspace: either way, the organization.
+  const reach = active.filter((g) => g.kind === "workspace");
   const apps = active.filter((g) => g.kind === "app_publish");
 
   const parts: string[] = [];
-  if (narrow.length > 0) {
-    parts.push(
-      `${plural(narrow.length, "workspace")} in ${plural(distinctOrgs(narrow).length, "org")}`
-    );
-  }
-  if (wide.length > 0) {
-    const orgs = distinctOrgs(wide);
-    const scope = orgs.length === 1 ? wide[0].org_name : plural(orgs.length, "org");
-    parts.push(narrow.length > 0 ? `all of ${scope}` : `All workspaces in ${scope}`);
+  if (reach.length > 0) {
+    const orgs = distinctOrgs(reach);
+    parts.push(orgs.length === 1 ? reach[0].org_name : plural(orgs.length, "organization"));
   }
   if (apps.length > 0) parts.push(`publish ${plural(apps.length, "app")}`);
   // Every grant was taken away by its org: the token still exists and reaches nothing.
@@ -202,10 +196,7 @@ export const summarizeAccess = (
       label: "All access",
       standing,
       blocked,
-      lines: [
-        `Every organization and workspace ${owner} can reach, now and later.`,
-        ...removed.map(grantLine)
-      ]
+      lines: [`Every organization ${owner} can reach, now and later.`, ...removed.map(grantLine)]
     };
   }
   return { label: grantsLabel(grants), standing, blocked, lines: grants.map(grantLine) };

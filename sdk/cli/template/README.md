@@ -279,7 +279,7 @@ What makes oxy honour the statement is a **trust policy** on the service
 account, and it has to exist before the first publish. An org admin registers
 one **per environment**, once:
 
-1. In the web app: **Organization settings → API access → Service accounts**.
+1. In the web app: **Settings → Organization → API tokens → Service accounts**.
    Create a service account — `deployer` is the conventional name — with the
    role *member*.
 2. Open it and, under **Trusted access**, add a policy for each of `dev` and
@@ -300,7 +300,7 @@ presented, which is usually enough to see which field is off.
 
 **Name the account the workflow acts as, by its ID**, in an
 `OXY_SERVICE_ACCOUNT` **variable** on the environment. The ID is on the
-account's page (Organization settings → API access → Service accounts → the
+account's page (Settings → Organization → API tokens → Service accounts → the
 account). It is required for a trust policy to be used at all: the deployment
 matches a run against the policies of the one account its workflow names, and
 never picks one on a run's behalf — anyone can register a policy that names a
@@ -326,7 +326,7 @@ Use it where the deployment has no trusted access yet, or where a repository
 cannot be given a trust policy. Each of the two **GitHub environments** — `dev`
 and `production` — holds its own **`OXY_TOKEN`** (Settings → Environments →
 *environment* → Environment secrets). Prefer a **service account token**
-(Organization settings → API access → Service accounts → *account* → Tokens),
+(Settings → Organization → API tokens → Service accounts → *account* → Tokens),
 granted only what publishing needs; a personal access token or an older
 workspace API key also works, and carries its owner's access with it — a
 leaked one is that person, not "this app only".
