@@ -1,3 +1,102 @@
+/**
+ * A workspace's pages under `wsBase`. `root` is its landing page: the base itself
+ * where the base names the workspace, `/<org>/home` where it is the org, whose
+ * own root is the org dispatcher.
+ */
+function workspaceRoutes(wsBase: string, root: string) {
+  return {
+    ROOT: root,
+    HOME: `${wsBase}/home`,
+    NEW: `${wsBase}/new`,
+
+    THREADS: `${wsBase}/threads`,
+    THREAD: (threadId: string) => `${wsBase}/threads/${threadId}`,
+
+    // Canonical "Automations" routes (formerly Automations / Automations).
+    AUTOMATIONS: `${wsBase}/automations`,
+    AUTOMATION: (pathb64: string) => ({
+      ROOT: `${wsBase}/automations/${pathb64}`
+    }),
+
+    // Back-compat aliases — same key names kept so existing call sites
+    // compile unchanged, but they now resolve to the canonical
+    // `/automations` paths. The legacy `/automations` URL still renders
+    // (see App.tsx) for old bookmarks/deep links.
+    WORKFLOWS: `${wsBase}/automations`,
+    WORKFLOW: (pathb64: string) => ({
+      ROOT: `${wsBase}/automations/${pathb64}`
+    }),
+
+    PIPELINE: (pathb64: string) => ({
+      ROOT: `${wsBase}/pipelines/${pathb64}`,
+      RUN: (runId: string) => `${wsBase}/pipelines/${pathb64}/runs/${runId}`
+    }),
+
+    IDE: {
+      ROOT: `${wsBase}/ide`,
+      FILES: {
+        ROOT: `${wsBase}/ide/files`,
+        FILE: (pathb64: string) => `${wsBase}/ide/files/${pathb64}`
+      },
+      DATABASE: {
+        ROOT: `${wsBase}/ide/database`
+      },
+      COORDINATOR: {
+        ROOT: `${wsBase}/ide/coordinator`,
+        OVERVIEW: `${wsBase}/ide/coordinator/overview`,
+        JOBS: `${wsBase}/ide/coordinator/jobs`,
+        JOB_DETAIL: (scheduleId: string) => `${wsBase}/ide/coordinator/jobs/${scheduleId}`,
+        RUNS: `${wsBase}/ide/coordinator/runs`,
+        RUN_DETAIL: (runId: string) => `${wsBase}/ide/coordinator/runs/${runId}`,
+        RECOVERY: `${wsBase}/ide/coordinator/recovery`,
+        QUEUE: `${wsBase}/ide/coordinator/queue`
+      },
+      OBSERVABILITY: {
+        ROOT: `${wsBase}/ide/observability`,
+        TRACES: `${wsBase}/ide/observability/traces`,
+        TRACE: (traceId: string) => `${wsBase}/ide/observability/traces/${traceId}`,
+        CLUSTERS: `${wsBase}/ide/observability/clusters`,
+        CLUSTERS_V2: `${wsBase}/ide/observability/clusters-v2`,
+        METRICS: `${wsBase}/ide/observability/metrics`,
+        METRIC: (metricName: string) =>
+          `${wsBase}/ide/observability/metrics/${encodeURIComponent(metricName)}`,
+        EXECUTION_ANALYTICS: `${wsBase}/ide/observability/execution-analytics`
+      },
+      SEMANTIC: {
+        ROOT: `${wsBase}/ide/semantic`
+      },
+      WORLD_MODEL: {
+        ROOT: `${wsBase}/ide/world-model`
+      },
+      EXPERIMENTS: {
+        ROOT: `${wsBase}/ide/experiments`,
+        DETAIL: (name: string) => `${wsBase}/ide/experiments/${encodeURIComponent(name)}`
+      },
+      EDGE: {
+        ROOT: `${wsBase}/ide/edge`,
+        DASHBOARD: `${wsBase}/ide/edge`,
+        PLAYBACK: `${wsBase}/ide/edge/playback`,
+        DETECTIONS: `${wsBase}/ide/edge/detections`,
+        TOPOLOGY: `${wsBase}/ide/edge/topology`,
+        DEVICES: `${wsBase}/ide/edge/devices`,
+        BOX: (boxId: string) => `${wsBase}/ide/edge/boxes/${boxId}`,
+        ROLLOUTS: `${wsBase}/ide/edge/rollouts`,
+        ROLLOUT: (planId: string) => `${wsBase}/ide/edge/rollouts/${planId}`,
+        AUDIT: `${wsBase}/ide/edge/audit`,
+        PACK: `${wsBase}/ide/edge/pack`
+      }
+    },
+
+    CONTEXT_GRAPH: `${wsBase}/context-graph`,
+    /** The read-only world model a customer opens from the home. The Factory's
+     *  own, with its exploration tools, is `IDE.WORLD_MODEL`. */
+    WORLD_MODEL: `${wsBase}/world-model`,
+    /** The setup wizard. `setup`, not `onboarding`: `/<org>/onboarding` is the
+     *  org's own retired wizard, which redirects to the org root. */
+    ONBOARDING: `${wsBase}/setup`
+  };
+}
+
 const ROUTES = {
   ROOT: "/",
   ONBOARDING: "/onboarding",
@@ -76,7 +175,7 @@ const ROUTES = {
   },
 
   // Org-scoped routes. Passing an empty `orgSlug` degrades to flat local-mode
-  // paths (e.g. `/home` instead of `/acme/workspaces/<id>/home`) — in local
+  // paths (e.g. `/home` instead of `/acme/home`) — in local
   // mode there's no org and a single implicit workspace, and every call site
   // already defaults to `useCurrentOrg(...).slug ?? ""`, so this makes URL
   // building mode-agnostic without touching the ~100 consumers.
@@ -96,97 +195,26 @@ const ROUTES = {
         CHECKOUT_CANCELLED: `${base}/billing/checkout-cancelled`
       },
 
-      WORKSPACE: (wsId: string) => {
-        const wsBase = isLocal ? "" : `${base}/workspaces/${wsId}`;
-        return {
-          ROOT: wsBase,
-          HOME: `${wsBase}/home`,
-          NEW: `${wsBase}/new`,
+      /**
+       * The org's pages, at `/<org>/<page>`. An org has one workspace, so the
+       * address names only the org and the shell loads its workspace
+       * (`OrgWorkspace`). The id is no longer read: every caller still passes
+       * one, and dropping the parameter is a follow-up.
+       */
+      WORKSPACE: (_wsId?: string) =>
+        isLocal ? workspaceRoutes("", "") : workspaceRoutes(base, `${base}/home`),
 
-          THREADS: `${wsBase}/threads`,
-          THREAD: (threadId: string) => `${wsBase}/threads/${threadId}`,
-
-          // Canonical "Automations" routes (formerly Automations / Automations).
-          AUTOMATIONS: `${wsBase}/automations`,
-          AUTOMATION: (pathb64: string) => ({
-            ROOT: `${wsBase}/automations/${pathb64}`
-          }),
-
-          // Back-compat aliases — same key names kept so existing call sites
-          // compile unchanged, but they now resolve to the canonical
-          // `/automations` paths. The legacy `/automations` URL still renders
-          // (see App.tsx) for old bookmarks/deep links.
-          WORKFLOWS: `${wsBase}/automations`,
-          WORKFLOW: (pathb64: string) => ({
-            ROOT: `${wsBase}/automations/${pathb64}`
-          }),
-
-          PIPELINE: (pathb64: string) => ({
-            ROOT: `${wsBase}/pipelines/${pathb64}`,
-            RUN: (runId: string) => `${wsBase}/pipelines/${pathb64}/runs/${runId}`
-          }),
-
-          IDE: {
-            ROOT: `${wsBase}/ide`,
-            FILES: {
-              ROOT: `${wsBase}/ide/files`,
-              FILE: (pathb64: string) => `${wsBase}/ide/files/${pathb64}`
-            },
-            DATABASE: {
-              ROOT: `${wsBase}/ide/database`
-            },
-            COORDINATOR: {
-              ROOT: `${wsBase}/ide/coordinator`,
-              OVERVIEW: `${wsBase}/ide/coordinator/overview`,
-              JOBS: `${wsBase}/ide/coordinator/jobs`,
-              JOB_DETAIL: (scheduleId: string) => `${wsBase}/ide/coordinator/jobs/${scheduleId}`,
-              RUNS: `${wsBase}/ide/coordinator/runs`,
-              RUN_DETAIL: (runId: string) => `${wsBase}/ide/coordinator/runs/${runId}`,
-              RECOVERY: `${wsBase}/ide/coordinator/recovery`,
-              QUEUE: `${wsBase}/ide/coordinator/queue`
-            },
-            OBSERVABILITY: {
-              ROOT: `${wsBase}/ide/observability`,
-              TRACES: `${wsBase}/ide/observability/traces`,
-              TRACE: (traceId: string) => `${wsBase}/ide/observability/traces/${traceId}`,
-              CLUSTERS: `${wsBase}/ide/observability/clusters`,
-              CLUSTERS_V2: `${wsBase}/ide/observability/clusters-v2`,
-              METRICS: `${wsBase}/ide/observability/metrics`,
-              METRIC: (metricName: string) =>
-                `${wsBase}/ide/observability/metrics/${encodeURIComponent(metricName)}`,
-              EXECUTION_ANALYTICS: `${wsBase}/ide/observability/execution-analytics`
-            },
-            SEMANTIC: {
-              ROOT: `${wsBase}/ide/semantic`
-            },
-            WORLD_MODEL: {
-              ROOT: `${wsBase}/ide/world-model`
-            },
-            EXPERIMENTS: {
-              ROOT: `${wsBase}/ide/experiments`,
-              DETAIL: (name: string) => `${wsBase}/ide/experiments/${encodeURIComponent(name)}`
-            },
-            EDGE: {
-              ROOT: `${wsBase}/ide/edge`,
-              DASHBOARD: `${wsBase}/ide/edge`,
-              PLAYBACK: `${wsBase}/ide/edge/playback`,
-              DETECTIONS: `${wsBase}/ide/edge/detections`,
-              TOPOLOGY: `${wsBase}/ide/edge/topology`,
-              DEVICES: `${wsBase}/ide/edge/devices`,
-              BOX: (boxId: string) => `${wsBase}/ide/edge/boxes/${boxId}`,
-              ROLLOUTS: `${wsBase}/ide/edge/rollouts`,
-              ROLLOUT: (planId: string) => `${wsBase}/ide/edge/rollouts/${planId}`,
-              AUDIT: `${wsBase}/ide/edge/audit`,
-              PACK: `${wsBase}/ide/edge/pack`
-            }
-          },
-
-          CONTEXT_GRAPH: `${wsBase}/context-graph`,
-          /** The read-only world model a customer opens from the home. The Factory's
-           *  own, with its exploration tools, is `IDE.WORLD_MODEL`. */
-          WORLD_MODEL: `${wsBase}/world-model`,
-          ONBOARDING: `${wsBase}/onboarding`
-        };
+      /**
+       * A link that opens one particular workspace: `/<org>/workspaces/<id>/<page>`
+       * remembers it as this org's, then redirects to `/<org>/<page>`
+       * (`WorkspaceEntry`). For links made outside that workspace — the admin
+       * console, the Factory switcher, Open Factory — while some orgs still have
+       * more than one. Inside the shell, use `WORKSPACE`.
+       */
+      ENTER_WORKSPACE: (wsId: string) => {
+        if (isLocal) return workspaceRoutes("", "");
+        const entry = `${base}/workspaces/${wsId}`;
+        return workspaceRoutes(entry, entry);
       }
     };
   }

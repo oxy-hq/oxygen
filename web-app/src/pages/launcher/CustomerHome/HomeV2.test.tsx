@@ -415,7 +415,7 @@ describe("the apps-first home", () => {
     renderHome();
     expect(screen.getByTestId("world-model-card")).toHaveAttribute(
       "href",
-      "/northwind/workspaces/ws-1/world-model"
+      "/northwind/world-model"
     );
     expect(screen.getByText("Your recent questions")).toBeInTheDocument();
   });

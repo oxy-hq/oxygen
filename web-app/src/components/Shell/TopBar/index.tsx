@@ -41,7 +41,7 @@ function AskOxygenButton() {
  * left; the rail is the dock; on the right Ask (the Spotlight) and the bell
  * (Notification Center), plus a status item while something is wrong (an app
  * down, the browser offline), and the day and time last. Spans the content column
- * above `<main>` and the Ask dock. Hidden inside the IDE and onboarding (gated with
+ * above `<main>` and the Ask dock. Hidden inside the IDE and the setup wizard (gated with
  * the rail in WorkspaceShell). Mirrors the rail's `bg-sidebar-background` so the
  * two read as one frame. `leading` sits before the breadcrumb — the shell puts the
  * mobile nav drawer's menu button there.

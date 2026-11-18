@@ -62,14 +62,15 @@ afterEach(() => {
 
 describe("the Factory's workspace switcher", () => {
   it("is only the name for an org's own admins when it has one workspace", () => {
-    renderAt("/acme/workspaces/ws-1/ide/semantic");
+    renderAt("/acme/ide/semantic");
     expect(screen.getByTestId("ide-workspace-name")).toHaveTextContent("Acme Analytics");
     expect(screen.queryByTestId("ide-workspace-switcher")).toBeNull();
   });
 
+  // Through the entry link, which remembers ws-2 and then shows the org address.
   it("moves to another of the org's workspaces on the same section", () => {
     workspaces = [ws("ws-1", "Acme Analytics"), ws("ws-2", "Acme Sandbox")];
-    renderAt("/acme/workspaces/ws-1/ide/coordinator/runs/run-9");
+    renderAt("/acme/ide/coordinator/runs/run-9");
     fireEvent.click(screen.getByTestId("ide-workspace-switcher"));
     expect(screen.queryByTestId("ide-open-other-org")).toBeNull();
     fireEvent.click(screen.getByTestId("ide-workspace-option-ws-2"));
@@ -80,17 +81,15 @@ describe("the Factory's workspace switcher", () => {
 
   it("stays put when the current workspace is picked", () => {
     workspaces = [ws("ws-1", "Acme Analytics"), ws("ws-2", "Acme Sandbox")];
-    renderAt("/acme/workspaces/ws-1/ide/semantic");
+    renderAt("/acme/ide/semantic");
     fireEvent.click(screen.getByTestId("ide-workspace-switcher"));
     fireEvent.click(screen.getByTestId("ide-workspace-option-ws-1"));
-    expect(screen.getByTestId("location")).toHaveTextContent(
-      /^\/acme\/workspaces\/ws-1\/ide\/semantic$/
-    );
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/ide\/semantic$/);
   });
 
   it("names the organization for staff and opens another organization's Factory", () => {
     staff = true;
-    renderAt("/acme/workspaces/ws-1/ide");
+    renderAt("/acme/ide");
     const trigger = screen.getByTestId("ide-workspace-switcher");
     expect(trigger).toHaveTextContent("Acme/Acme Analytics");
     fireEvent.click(trigger);

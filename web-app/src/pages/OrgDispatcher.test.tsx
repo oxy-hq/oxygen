@@ -185,25 +185,17 @@ describe("OrgDispatcher — an org with a ready workspace", () => {
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home$/);
   });
 
-  it("sends an operator straight into the workspace", () => {
+  // Staff once went into the workspace; with the workspace gone from the address
+  // that is the org home too.
+  it.each([
+    ["an operator", STAFF_USER],
+    ["a partner's staff", { ...MEMBER_USER, partner_memberships: [{ partner_id: "p-1" }] }],
+    ["a platform owner", { ...MEMBER_USER, is_owner: true }]
+  ])("sends %s to the org home as well", (_who, who) => {
     workspaces = [{ id: "ws-1", status: "ready" }];
-    user = STAFF_USER;
+    user = who;
     renderAt();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1$/);
-  });
-
-  it("sends a partner's staff straight into the workspace", () => {
-    workspaces = [{ id: "ws-1", status: "ready" }];
-    user = { ...MEMBER_USER, partner_memberships: [{ partner_id: "p-1" }] };
-    renderAt();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1$/);
-  });
-
-  it("a platform owner who is not an app admin is staff too", () => {
-    workspaces = [{ id: "ws-1", status: "ready" }];
-    user = { ...MEMBER_USER, is_owner: true };
-    renderAt();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home$/);
   });
 
   it("carries a settings deep link into the page it lands on, and nothing else", () => {
@@ -234,10 +226,14 @@ describe("OrgDispatcher — an org with several workspaces", () => {
     appCounts = { "ws-apps": 3 };
   });
 
-  it("lands staff on the workspace with the most apps", () => {
+  const remembered = () => localStorage.getItem("oxy:last_workspace:user-1:org-1");
+
+  it("remembers the workspace with the most apps for the home to load from", () => {
     user = STAFF_USER;
+    localStorage.setItem("user", JSON.stringify({ id: "user-1" }));
     renderAt();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-apps$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home$/);
+    expect(remembered()).toBe("ws-apps");
   });
 
   it("waits for the counts instead of landing on the first in the list", () => {
@@ -247,12 +243,13 @@ describe("OrgDispatcher — an org with several workspaces", () => {
     expect(screen.queryByTestId("location")).toBeNull();
   });
 
-  it("keeps the workspace this staff member opened last", () => {
+  it("keeps the workspace this person opened last", () => {
     user = STAFF_USER;
     localStorage.setItem("user", JSON.stringify({ id: "user-1" }));
     localStorage.setItem("oxy:last_workspace:user-1:org-1", "ws-empty");
     renderAt();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-empty$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home$/);
+    expect(remembered()).toBe("ws-empty");
   });
 
   it("sends a customer to the org home, which picks the workspace itself", () => {

@@ -22,8 +22,8 @@ import { TopBar } from "./TopBar";
 
 /** The workspace chrome: icon rail + universal top bar + content column + Ask
  *  dock. Wraps every workspace route. The rail, top bar, and dock hide inside
- *  Oxygen Factory / the IDE (it has its own chrome) and on the onboarding
- *  wizard; the content column is identical everywhere so pages never re-layout
+ *  Oxygen Factory / the IDE (it has its own chrome) and on the setup wizard
+ *  (`/<org>/setup`; local mode's old `/onboarding` too); the content column is identical everywhere so pages never re-layout
  *  between routes. */
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -58,7 +58,13 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   const path = location.pathname;
   const inIde = /\/ide(\/|$)/.test(path);
-  const hideRail = inIde || /\/onboarding(\/|$)/.test(path);
+  // The setup wizard owns the screen. Matched against its own address rather
+  // than any `/setup` segment, which an id or a name in another page's address
+  // could carry.
+  const onSetup = [ws.ONBOARDING, "/onboarding"].some(
+    (p) => path === p || path.startsWith(`${p}/`)
+  );
+  const hideRail = inIde || onSetup;
 
   // In local mode ws.ROOT is "" — the index route is "/".
   const isHome = path === org.HOME || path === ws.HOME || path === (ws.ROOT || "/");

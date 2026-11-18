@@ -156,7 +156,7 @@ const RunRow = ({
                 <Button asChild size='sm' variant='outline' className='h-7 gap-1.5'>
                   <Link
                     to={ROUTES.ORG(run.org_slug as string)
-                      .WORKSPACE(run.workspace_id as string)
+                      .ENTER_WORKSPACE(run.workspace_id as string)
                       .THREAD(run.thread_id as string)}
                   >
                     Open thread

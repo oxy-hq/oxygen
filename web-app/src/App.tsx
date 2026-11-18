@@ -8,7 +8,6 @@ import {
   RouterProvider,
   Routes,
   useNavigate,
-  useParams,
   useSearchParams
 } from "react-router-dom";
 import { FactoryGuard } from "@/components/FactoryGuard";
@@ -69,10 +68,11 @@ import KioskManagePage from "./pages/KioskManage";
 import LoginPage from "./pages/login";
 import NotificationsPage from "./pages/Notifications";
 import OrgDispatcher from "./pages/OrgDispatcher";
-import OrgHome from "./pages/OrgHome";
+import OrgWorkspace from "./pages/OrgWorkspace";
 import OnboardingPage from "./pages/onboarding";
 import PostLoginDispatcher from "./pages/PostLoginDispatcher";
 import QuickBooksConnected from "./pages/quickbooks/QuickBooksConnected";
+import WorkspaceEntry from "./pages/WorkspaceEntry";
 import useAskDock from "./stores/useAskDock";
 import useCurrentOrg from "./stores/useCurrentOrg";
 import useCurrentWorkspace from "./stores/useCurrentWorkspace";
@@ -183,26 +183,20 @@ const RouteFallback = () => (
 let lastSeenWsId: string | undefined;
 
 interface WorkspaceLayoutProps {
-  /** The workspace to load when the URL does not name one: the org home. */
+  /** The org's workspace (`OrgWorkspace`). Unset in local mode, which has one. */
   workspaceId?: string;
-  /** Render the org's home page in the shell instead of the workspace's routes. */
-  orgHome?: boolean;
 }
 
-const WorkspaceLayout = React.memo(function WorkspaceLayout({
-  workspaceId,
-  orgHome = false
-}: WorkspaceLayoutProps) {
+const WorkspaceLayout = React.memo(function WorkspaceLayout({ workspaceId }: WorkspaceLayoutProps) {
   const { authConfig, isLocalMode } = useAuth();
-  const { wsId: wsIdParam } = useParams<{ wsId: string }>();
   const orgSlug = useCurrentOrg((s) => s.org?.slug);
   const orgId = useCurrentOrg((s) => s.org?.id);
   const navigate = useNavigate();
 
-  // In local mode the router doesn't carry a :wsId segment — the single
-  // implicit workspace is addressed by the nil UUID.
-  const wsId = isLocalMode ? LOCAL_WORKSPACE_ID : (workspaceId ?? wsIdParam);
-  // biome-ignore lint/style/noNonNullAssertion: local gets the constant, cloud gets the :wsId param
+  // The address never names the workspace: cloud is handed the org's
+  // (`OrgWorkspace`), local's single implicit one is the nil UUID.
+  const wsId = isLocalMode ? LOCAL_WORKSPACE_ID : workspaceId;
+  // biome-ignore lint/style/noNonNullAssertion: local gets the constant, cloud gets the org's workspace
   const workspaceQuery = useWorkspace(wsId!);
   const { isPending, isError, error, data, isMaterializing, materializingTimedOut, refetch } =
     workspaceQuery;
@@ -258,9 +252,9 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
   // Several pieces of chrome are deliberately kept mounted across route
   // changes (the Ask dock) so collapsing/switching
   // pages never loses a draft — but that also means they survive a
-  // workspace switch, since only the `:wsId` route param changes.
-  // `wsId` (from `useParams`) changes synchronously with navigation, so this
-  // is a more robust place for the reset than deriving it from
+  // workspace switch. `wsId` (the prop `OrgWorkspace` hands down) changes in
+  // the same render as the switch, so this is a more robust place for the
+  // reset than deriving it from
   // `useCurrentWorkspace` (which only updates once the `setWorkspace(data)`
   // effect above fires, and unmounts/remounts with WorkspaceShell while the
   // target workspace is loading). Reset anything workspace-scoped held in
@@ -375,143 +369,142 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout({
     <HotkeysProvider>
       <SettingsDialog />
       <WorkspaceShell>
-        {orgHome ? (
-          <LauncherPage />
-        ) : (
-          <Routes>
-            <Route index element={<LauncherPage />} />
+        <Routes>
+          <Route index element={<LauncherPage />} />
 
-            <Route path='home' element={<LauncherPage />} />
-            {/* The rail "Chat" button lands here — a composer + recent threads
+          <Route path='home' element={<LauncherPage />} />
+          {/* The rail "Chat" button lands here — a composer + recent threads
               (replacing the old bulk threads-management list). */}
-            <Route path='threads' element={<ChatPage />} />
-            <Route path='threads/:threadId' element={<ThreadPage />} />
-            {/* The customer's read-only world model, opened from the home's card. */}
-            <Route path='world-model' element={<CustomerWorldModelPage />} />
-            {/* Canonical "Automations" routes (formerly Automations / Automations). */}
-            <Route path='automations' element={<AutomationsListPage />} />
-            <Route path='automations/:pathb64' element={<AutomationPage />} />
-            {/* Back-compat: legacy /automations URLs keep rendering for old
+          <Route path='threads' element={<ChatPage />} />
+          <Route path='threads/:threadId' element={<ThreadPage />} />
+          {/* The customer's read-only world model, opened from the home's card. */}
+          <Route path='world-model' element={<CustomerWorldModelPage />} />
+          {/* Canonical "Automations" routes (formerly Automations / Automations). */}
+          <Route path='automations' element={<AutomationsListPage />} />
+          <Route path='automations/:pathb64' element={<AutomationPage />} />
+          {/* Back-compat: legacy /automations URLs keep rendering for old
               bookmarks and deep links. */}
-            <Route path='workflows' element={<AutomationsListPage />} />
-            <Route path='workflows/:pathb64' element={<AutomationPage />} />
-            {/* Pipelines are Factory work: the page manages them (backfills, resets,
+          <Route path='workflows' element={<AutomationsListPage />} />
+          <Route path='workflows/:pathb64' element={<AutomationPage />} />
+          {/* Pipelines are Factory work: the page manages them (backfills, resets,
                 schedules, source files), so someone the server will not let into the
                 Factory is sent home instead of to a page whose requests are refused. */}
-            <Route
-              path='pipelines/:pathb64'
-              element={
-                <FactoryGuard>
-                  <AirwayPage />
-                </FactoryGuard>
-              }
-            />
-            <Route
-              path='pipelines/:pathb64/runs/:runId'
-              element={
-                <FactoryGuard>
-                  <AirwayPage />
-                </FactoryGuard>
-              }
-            />
-            <Route
-              path='ide'
-              element={
-                <FactoryGuard>
-                  <Suspense fallback={<RouteFallback />}>
-                    <IdePage />
-                  </Suspense>
-                </FactoryGuard>
-              }
-            >
-              {/* Files: the served revision, read-only, beside the repository and
+          <Route
+            path='pipelines/:pathb64'
+            element={
+              <FactoryGuard>
+                <AirwayPage />
+              </FactoryGuard>
+            }
+          />
+          <Route
+            path='pipelines/:pathb64/runs/:runId'
+            element={
+              <FactoryGuard>
+                <AirwayPage />
+              </FactoryGuard>
+            }
+          />
+          <Route
+            path='ide'
+            element={
+              <FactoryGuard>
+                <Suspense fallback={<RouteFallback />}>
+                  <IdePage />
+                </Suspense>
+              </FactoryGuard>
+            }
+          >
+            {/* Files: the served revision, read-only, beside the repository and
               how to open it. */}
-              <Route path='files/*' element={<IdeFilesPage />} />
+            <Route path='files/*' element={<IdeFilesPage />} />
 
-              {/* SQL client: runs queries against the compiled database config. */}
-              <Route path='database' element={<DatabaseLayout />}>
-                <Route index element={<QueryWorkspacePage />} />
-              </Route>
+            {/* SQL client: runs queries against the compiled database config. */}
+            <Route path='database' element={<DatabaseLayout />}>
+              <Route index element={<QueryWorkspacePage />} />
+            </Route>
 
-              {/* Semantic model — explorer + metric tree */}
-              <Route path='semantic' element={<SemanticLayerPage />} />
+            {/* Semantic model — explorer + metric tree */}
+            <Route path='semantic' element={<SemanticLayerPage />} />
 
-              {/* World Model — business-model graph; first icon in the IDE sidebar */}
-              <Route path='world-model' element={<WorldModelView />} />
+            {/* World Model — business-model graph; first icon in the IDE sidebar */}
+            <Route path='world-model' element={<WorldModelView />} />
 
-              {/* Experiments — pre-registered, priced, run and reported. */}
-              <Route path='experiments' element={<ExperimentsListPage />} />
-              <Route path='experiments/:name' element={<ExperimentDetailPage />} />
+            {/* Experiments — pre-registered, priced, run and reported. */}
+            <Route path='experiments' element={<ExperimentsListPage />} />
+            <Route path='experiments/:name' element={<ExperimentDetailPage />} />
 
-              {/* Edge routes — fleet topology, list management, timeline
+            {/* Edge routes — fleet topology, list management, timeline
               playback (subsumes the old Compliance pages), audit log,
               and domain pack — all behind one IDE section so the
               operator stops hunting between Settings and the IDE. */}
-              <Route path='edge' element={<EdgeLayout />}>
-                <Route index element={<EdgeDashboardPage />} />
-                <Route path='playback' element={<EdgePlaybackPage />} />
-                <Route path='detections' element={<EdgeDetectionsPage />} />
-                <Route path='topology' element={<EdgeTopologyPage />} />
-                <Route path='devices' element={<EdgeDevicesPage />} />
-                <Route path='boxes/:boxId' element={<EdgeBoxDetailPage />} />
-                {/* Legacy /ide/edge/list redirected to the old FleetPage's
+            <Route path='edge' element={<EdgeLayout />}>
+              <Route index element={<EdgeDashboardPage />} />
+              <Route path='playback' element={<EdgePlaybackPage />} />
+              <Route path='detections' element={<EdgeDetectionsPage />} />
+              <Route path='topology' element={<EdgeTopologyPage />} />
+              <Route path='devices' element={<EdgeDevicesPage />} />
+              <Route path='boxes/:boxId' element={<EdgeBoxDetailPage />} />
+              {/* Legacy /ide/edge/list redirected to the old FleetPage's
                 list-toggle URL; FleetPage is gone now, so route to the
                 new Devices tab which is its functional successor. */}
-                <Route path='list' element={<Navigate to='../devices' replace />} />
-                <Route path='timeline' element={<Navigate to='../playback' replace />} />
-                <Route path='rollouts' element={<EdgeRolloutsPage />} />
-                <Route path='rollouts/:planId' element={<EdgeRolloutDetailPage />} />
-                <Route path='audit' element={<EdgeAuditPage />} />
-                <Route path='pack' element={<EdgePackPage />} />
-              </Route>
-              {/* Legacy /ide/compliance — kept as a back-compat redirect so
+              <Route path='list' element={<Navigate to='../devices' replace />} />
+              <Route path='timeline' element={<Navigate to='../playback' replace />} />
+              <Route path='rollouts' element={<EdgeRolloutsPage />} />
+              <Route path='rollouts/:planId' element={<EdgeRolloutDetailPage />} />
+              <Route path='audit' element={<EdgeAuditPage />} />
+              <Route path='pack' element={<EdgePackPage />} />
+            </Route>
+            {/* Legacy /ide/compliance — kept as a back-compat redirect so
               bookmarks and the old "View clip" links still land somewhere
               useful. Drops the cameraId/reportId segments since the
               timeline page resolves to the most recent event. */}
-              <Route path='compliance/*' element={<Navigate to='../edge/timeline' replace />} />
+            <Route path='compliance/*' element={<Navigate to='../edge/timeline' replace />} />
 
-              {/* Coordinator routes */}
-              <Route path='coordinator' element={<CoordinatorLayout />}>
-                <Route path='overview' element={<OverviewPage />} />
-                <Route path='jobs' element={<JobsPage />} />
-                <Route path='jobs/:scheduleId' element={<JobDetailPage />} />
-                <Route path='runs' element={<RunsPage />} />
-                <Route path='runs/:runId' element={<RunDetailPage />} />
-                <Route path='recovery' element={<RecoveryPage />} />
-                <Route path='queue' element={<QueueHealthPage />} />
-                <Route index element={<Navigate to='overview' replace />} />
-              </Route>
-
-              {/* Observability routes (enterprise only) */}
-              {authConfig.enterprise && (
-                <Route path='observability' element={<ObservabilityLayout />}>
-                  <Route path='traces' element={<TracesPage />} />
-                  <Route path='traces/:traceId' element={<TraceDetailPage />} />
-                  <Route path='clusters' element={<ClusterMapPage />} />
-                  <Route path='metrics' element={<MetricsPage />} />
-                  <Route path='metrics/:metricName' element={<MetricDetailPage />} />
-                  <Route path='execution-analytics' element={<ExecutionAnalytics />} />
-                </Route>
-              )}
-
-              {/* Oxygen Factory lands on the World Model — the business-model
-              overview — rather than the raw file tree. */}
-              <Route index element={<Navigate to='world-model' replace />} />
+            {/* Coordinator routes */}
+            <Route path='coordinator' element={<CoordinatorLayout />}>
+              <Route path='overview' element={<OverviewPage />} />
+              <Route path='jobs' element={<JobsPage />} />
+              <Route path='jobs/:scheduleId' element={<JobDetailPage />} />
+              <Route path='runs' element={<RunsPage />} />
+              <Route path='runs/:runId' element={<RunDetailPage />} />
+              <Route path='recovery' element={<RecoveryPage />} />
+              <Route path='queue' element={<QueueHealthPage />} />
+              <Route index element={<Navigate to='overview' replace />} />
             </Route>
-            <Route path='onboarding' element={<AgenticSetupPage />} />
-            {/* A back-office view: reads the served revision (`/context-graph/sources`). */}
-            <Route
-              path='context-graph'
-              element={
-                <FactoryGuard>
-                  <ContextGraphPage />
-                </FactoryGuard>
-              }
-            />
 
-            <Route path='*' element={<UnknownWorkspacePath />} />
-          </Routes>
-        )}
+            {/* Observability routes (enterprise only) */}
+            {authConfig.enterprise && (
+              <Route path='observability' element={<ObservabilityLayout />}>
+                <Route path='traces' element={<TracesPage />} />
+                <Route path='traces/:traceId' element={<TraceDetailPage />} />
+                <Route path='clusters' element={<ClusterMapPage />} />
+                <Route path='metrics' element={<MetricsPage />} />
+                <Route path='metrics/:metricName' element={<MetricDetailPage />} />
+                <Route path='execution-analytics' element={<ExecutionAnalytics />} />
+              </Route>
+            )}
+
+            {/* Oxygen Factory lands on the World Model — the business-model
+              overview — rather than the raw file tree. */}
+            <Route index element={<Navigate to='world-model' replace />} />
+          </Route>
+          {/* `setup` in the cloud, where `/<org>/onboarding` is the org's retired
+                wizard; `onboarding` is local mode's old address. */}
+          <Route path='setup' element={<AgenticSetupPage />} />
+          <Route path='onboarding' element={<AgenticSetupPage />} />
+          {/* A back-office view: reads the served revision (`/context-graph/sources`). */}
+          <Route
+            path='context-graph'
+            element={
+              <FactoryGuard>
+                <ContextGraphPage />
+              </FactoryGuard>
+            }
+          />
+
+          <Route path='*' element={<UnknownWorkspacePath />} />
+        </Routes>
       </WorkspaceShell>
     </HotkeysProvider>
   );
@@ -800,25 +793,17 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
                 }
               />
 
-              {/* Org root sends a customer to the org home, and staff into a workspace;
-                  an org with nothing ready shows "being set up" */}
+              {/* Org root sends everyone to the org home; an org with nothing
+                  ready shows "being set up" */}
               <Route index element={<OrgDispatcher />} />
-              {/* The org's home: every app the person can open, across its
-                  workspaces. Chat, threads and settings load from one workspace
-                  behind it. */}
-              <Route path='home' element={<OrgHome Layout={WorkspaceLayout} />} />
               {/* The org onboarding wizard is gone; old links land on the org root. */}
               <Route path='onboarding' element={<Navigate to='..' replace />} />
-
-              {/* Workspace-scoped routes */}
-              <Route
-                path='workspaces/:wsId/*'
-                element={
-                  <SidebarProvider>
-                    <WorkspaceLayout />
-                  </SidebarProvider>
-                }
-              />
+              {/* The old workspace address, kept for every link that carries it: it
+                  remembers the workspace and redirects to `/<org>/<page>`. */}
+              <Route path='workspaces/:wsId/*' element={<WorkspaceEntry />} />
+              {/* Every other page of the org — home, chat, automations, the
+                  Factory — from the org's one workspace. */}
+              <Route path='*' element={<OrgWorkspace Layout={WorkspaceLayout} />} />
             </Route>
           </Route>
         </Route>

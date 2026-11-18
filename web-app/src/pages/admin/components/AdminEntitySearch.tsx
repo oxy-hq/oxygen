@@ -354,7 +354,7 @@ export const AdminEntitySearch = () => {
                         if (openable) {
                           go(
                             ROUTES.ORG(t.org_slug as string)
-                              .WORKSPACE(t.workspace_id as string)
+                              .ENTER_WORKSPACE(t.workspace_id as string)
                               .THREAD(t.id)
                           );
                         }
@@ -389,7 +389,7 @@ export const AdminEntitySearch = () => {
                         if (openable) {
                           go(
                             ROUTES.ORG(r.org_slug as string)
-                              .WORKSPACE(r.workspace_id as string)
+                              .ENTER_WORKSPACE(r.workspace_id as string)
                               .THREAD(r.thread_id as string)
                           );
                         }

@@ -39,7 +39,7 @@ export default function FactoryAccessPanel({
         <div className='flex justify-end'>
           <Button asChild variant='outline' size='sm'>
             <Link
-              to={ROUTES.ORG(orgSlug).WORKSPACE(workspaceId).IDE.ROOT}
+              to={ROUTES.ORG(orgSlug).ENTER_WORKSPACE(workspaceId).IDE.ROOT}
               data-testid='factory-access-open-factory'
             >
               <ExternalLink className='size-3.5' />

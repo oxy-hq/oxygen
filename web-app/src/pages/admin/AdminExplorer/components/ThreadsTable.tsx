@@ -78,7 +78,7 @@ export const ThreadsTable = ({ rows }: { rows: ExplorerThread[] }) => {
                     >
                       <Link
                         to={ROUTES.ORG(t.org_slug as string)
-                          .WORKSPACE(t.workspace_id as string)
+                          .ENTER_WORKSPACE(t.workspace_id as string)
                           .THREAD(t.id)}
                         title='Open thread'
                       >

@@ -182,7 +182,7 @@ const WorkspaceAccessRow = ({ row, dim }: { row: OxyAccessRow; dim?: boolean }) 
           disabled={row.locked}
           onClick={() =>
             window.open(
-              ROUTES.ORG(row.org_slug).WORKSPACE(row.workspace_id).IDE.ROOT,
+              ROUTES.ORG(row.org_slug).ENTER_WORKSPACE(row.workspace_id).IDE.ROOT,
               "_blank",
               "noopener"
             )

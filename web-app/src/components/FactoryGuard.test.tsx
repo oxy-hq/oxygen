@@ -14,17 +14,17 @@ import { FactoryGuard } from "./FactoryGuard";
 
 function renderAtIde() {
   render(
-    <MemoryRouter initialEntries={["/acme/workspaces/ws-1/ide"]}>
+    <MemoryRouter initialEntries={["/acme/ide"]}>
       <Routes>
         <Route
-          path='/acme/workspaces/ws-1/ide'
+          path='/acme/ide'
           element={
             <FactoryGuard>
               <div>the IDE</div>
             </FactoryGuard>
           }
         />
-        <Route path='/acme/workspaces/ws-1/home' element={<div>home</div>} />
+        <Route path='/acme/home' element={<div>home</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -105,17 +105,17 @@ describe("the pages the Factory's guard stands in front of", () => {
       workspace: { id: "ws-1", factory_access: false } as Workspace
     });
     render(
-      <MemoryRouter initialEntries={["/acme/workspaces/ws-1/pipelines/x"]}>
+      <MemoryRouter initialEntries={["/acme/pipelines/x"]}>
         <Routes>
           <Route
-            path='/acme/workspaces/ws-1/pipelines/x'
+            path='/acme/pipelines/x'
             element={
               <FactoryGuard>
                 <Page />
               </FactoryGuard>
             }
           />
-          <Route path='/acme/workspaces/ws-1/home' element={<div>home</div>} />
+          <Route path='/acme/home' element={<div>home</div>} />
         </Routes>
       </MemoryRouter>
     );

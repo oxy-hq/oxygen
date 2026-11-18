@@ -53,9 +53,10 @@ vi.mock("@/stores/useCurrentOrg", () => ({
 vi.mock("@/stores/useSettingsDialog", () => ({ default: () => vi.fn() }));
 vi.mock("react-router-dom", () => ({
   useNavigate: () => vi.fn(),
-  useLocation: () => ({ pathname: "/", search: "", state: null }),
-  useParams: () => ({ wsId: WS_ID })
+  useLocation: () => ({ pathname: "/", search: "", state: null })
 }));
+// The shell hands the hook the org's workspace; the address names none.
+vi.mock("@/contexts/ChosenWorkspaceContext", () => ({ useChosenWorkspaceId: () => WS_ID }));
 
 /** Every `enabled` flag Home passed to the setup probe, newest last. */
 const probeEnabledCalls: boolean[] = [];

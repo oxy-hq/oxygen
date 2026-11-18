@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import ROUTES from "@/libs/utils/routes";
 import type { CustomAppSummary } from "@/types/apps";
 import { WorkspaceShell } from "./WorkspaceShell";
 
@@ -154,13 +155,13 @@ describe("WorkspaceShell rail", () => {
   });
 
   it("shows the same marks on a workspace page", () => {
-    renderAt("/acme/workspaces/ws-1/threads");
+    renderAt("/acme/threads");
     expect(screen.getByTestId("rail-app-revenue")).toBeInTheDocument();
     expect(screen.getByTestId("rail-app-forecast")).toBeInTheDocument();
   });
 
   it("takes Home to the org home", () => {
-    renderAt("/acme/workspaces/ws-1/threads");
+    renderAt("/acme/threads");
     fireEvent.click(screen.getByTestId("rail-hq"));
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/home$/);
   });
@@ -180,7 +181,7 @@ describe("WorkspaceShell rail, Home", () => {
   });
 
   it("keeps Home lit on the read-only world model", () => {
-    renderAt("/acme/workspaces/ws-1/world-model");
+    renderAt("/acme/world-model");
     expect(screen.getByTestId("rail-hq").className).toContain("bg-muted");
   });
 });
@@ -199,11 +200,11 @@ describe("the staff Factory button in the rail", () => {
   it("goes straight into the Factory, with no dialog, in an org the staff member belongs to", () => {
     operator = true;
     memberOf = ["org-acme"];
-    renderAt("/acme/workspaces/ws-1/threads");
+    renderAt("/acme/threads");
     expect(screen.getByTestId("rail-open-factory")).toHaveAccessibleName(/Oxygen Factory/);
     fireEvent.click(screen.getByTestId("rail-open-factory"));
     expect(screen.queryByTestId("open-factory-dialog")).toBeNull();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1\/ide$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/ide$/);
   });
 
   it("shows the Oxygen Factory mark, not a terminal icon", () => {
@@ -216,10 +217,10 @@ describe("the staff Factory button in the rail", () => {
   it("goes straight into the Factory when staff already act as this org", () => {
     operator = true;
     actingAs = "org-acme";
-    renderAt("/acme/workspaces/ws-1/threads");
+    renderAt("/acme/threads");
     fireEvent.click(screen.getByTestId("rail-open-factory"));
     expect(screen.queryByTestId("open-factory-dialog")).toBeNull();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1\/ide$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/ide$/);
   });
 
   /// `Ring::Factory` admits staff by `operate_platform`. An App Operator is staff
@@ -236,5 +237,18 @@ describe("the staff Factory button in the rail", () => {
     renderAt("/acme/home");
     expect(screen.queryByTestId("rail-open-factory")).toBeNull();
     expect(screen.getByTestId("rail-core")).toBeInTheDocument();
+  });
+});
+
+describe("WorkspaceShell on the setup wizard", () => {
+  // The wizard owns the screen: no rail, no top bar, no Ask dock.
+  it("hides the rail at the wizard's address", () => {
+    renderAt(ROUTES.ORG("acme").WORKSPACE().ONBOARDING);
+    expect(screen.queryByTestId("rail-hq")).toBeNull();
+  });
+
+  it("keeps the rail on another page that merely has a `setup` segment", () => {
+    renderAt("/acme/threads/setup");
+    expect(screen.getByTestId("rail-hq")).toBeInTheDocument();
   });
 });

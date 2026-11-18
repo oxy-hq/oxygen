@@ -1,6 +1,6 @@
 import { Database, GitFork, KeyRound } from "lucide-react";
 import { useEffect, useMemo } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useChosenWorkspaceId } from "@/contexts/ChosenWorkspaceContext";
 import useAgents from "@/hooks/api/agents/useAgents";
@@ -51,15 +51,14 @@ export default function useWorkspaceReadiness(): WorkspaceReadiness {
   const navigate = useNavigate();
   const location = useLocation();
   const openSettings = useSettingsDialog((s) => s.open);
-  const { wsId: paramWsId } = useParams<{ wsId: string }>();
-  // The org home has no :wsId segment; it loads from a chosen workspace instead.
-  const chosenWsId = useChosenWorkspaceId();
-  const urlWsId = paramWsId ?? chosenWsId;
+  // The workspace the shell was handed for this org (`OrgWorkspace`); the
+  // address does not name one.
+  const urlWsId = useChosenWorkspaceId();
   const locationState = location.state as { agentPath?: string } | null;
 
   // The Zustand store lags one render behind workspace switches; gate every
   // query so we don't decide a redirect using the previous workspace's data.
-  // In local mode there is no :wsId URL segment, so skip the URL check.
+  // Local mode is handed none (it has one workspace), so skip the check there.
   const wsMatch = !!project?.id && (isLocalMode || project.id === urlWsId);
 
   // Falling back to `project.id` keeps fabricated/partial Workspace objects

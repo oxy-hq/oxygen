@@ -1,10 +1,8 @@
 import { createContext, useContext } from "react";
 
 /**
- * The workspace a page loads from when the URL does not name one: the org home
- * (`/<org>/home`) shows every app in the org but still talks to one workspace
- * for chat, threads, setup readiness and settings. `undefined` on a workspace
- * route, where the `:wsId` URL segment names it.
+ * The workspace the org's pages load from (`OrgWorkspace`): the address names
+ * only the org, `/<org>/<page>`. `undefined` in local mode, which has one.
  */
 const ChosenWorkspaceContext = createContext<string | undefined>(undefined);
 

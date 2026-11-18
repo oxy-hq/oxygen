@@ -15,7 +15,6 @@ import {
   setLastWorkspaceId
 } from "@/libs/utils/lastWorkspace";
 import ROUTES from "@/libs/utils/routes";
-import { landsInWorkspace } from "@/libs/utils/staffLanding";
 import type { Organization } from "@/types/organization";
 
 /**
@@ -27,9 +26,8 @@ import type { Organization } from "@/types/organization";
  *                                   or the admin console for staff standing
  *   has orgs, 0 workspaces        → /:slug (OrgDispatcher renders "being set up")
  *   has orgs, no navigable ws     → /:slug (every ws is still cloning)
- *   has orgs, ≥1 navigable ws     → /:slug/home for a customer; staff (an operator
- *                                   or a partner's staff) go to
- *                                   /:slug/workspaces/:last-or-most-apps
+ *   has orgs, ≥1 navigable ws     → /:slug/home, loading from the last-opened
+ *                                   workspace, else the one with the most apps
  *
  * …**unless the user holds a partner role**, in which case every branch that would
  * have left them without a workspace sends them to `/partners` instead. A partner's
@@ -52,7 +50,7 @@ import type { Organization } from "@/types/organization";
  */
 export default function PostLoginDispatcher() {
   const { data: orgs, isPending: orgsPending, isError: orgsError } = useOrgs();
-  const { data: user, isPending: userPending } = useCurrentUser();
+  const { data: user } = useCurrentUser();
   // `partner_memberships` is already on /user — no extra request.
   const isPartner = (user?.partner_memberships?.length ?? 0) > 0;
 
@@ -85,7 +83,9 @@ export default function PostLoginDispatcher() {
   if (injectedOrg) {
     return injectedOrg.defaultProjectId ? (
       <Navigate
-        to={into(ROUTES.ORG(injectedOrg.orgSlug).WORKSPACE(injectedOrg.defaultProjectId).ROOT)}
+        to={into(
+          ROUTES.ORG(injectedOrg.orgSlug).ENTER_WORKSPACE(injectedOrg.defaultProjectId).ROOT
+        )}
         replace
       />
     ) : (
@@ -142,14 +142,8 @@ export default function PostLoginDispatcher() {
   }
   setLastWorkspaceId(chosenOrg.id, target.id);
 
-  // Who is landing decides where, so wait for the profile: staff work inside a
-  // workspace, a customer lands on the org's home, which loads from the same
-  // workspace. The redirect replaces this page, so a guess would stick for the visit.
-  if (userPending) return <FullPageSpinner />;
-  if (!landsInWorkspace(user)) {
-    return <Navigate to={into(ROUTES.ORG(chosenOrg.slug).HOME)} replace />;
-  }
-  return <Navigate to={into(ROUTES.ORG(chosenOrg.slug).WORKSPACE(target.id).ROOT)} replace />;
+  // The org's home, which loads from the workspace remembered above.
+  return <Navigate to={into(ROUTES.ORG(chosenOrg.slug).HOME)} replace />;
 }
 
 function FullPageSpinner() {

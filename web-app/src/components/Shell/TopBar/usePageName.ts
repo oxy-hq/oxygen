@@ -6,7 +6,7 @@ import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 
 /**
  * The breadcrumb label for the current core-app page. The TopBar is hidden
- * inside `/ide` and `/onboarding` (the rail hides there too), so those never
+ * inside `/ide` and the setup wizard, `/setup` (the rail hides there too), so those never
  * need a label. Custom apps are full-page surfaces outside the SPA, so their
  * names belong to the SDK top bar (follow-up), not here.
  */

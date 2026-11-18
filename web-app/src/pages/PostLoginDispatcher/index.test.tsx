@@ -76,9 +76,9 @@ describe("PostLoginDispatcher", () => {
     ["an app admin", { is_app_admin: true }],
     ["a platform owner", { is_owner: true }],
     ["a partner's staff", { partner_memberships: [{ partner_id: "p-1" }] }]
-  ])("keeps %s landing in a workspace", (_, who) => {
+  ])("lands %s on the org home too: the workspace is gone from the address", (_, who) => {
     user.data = { ...user.data, ...who };
-    expect(land("/")).toBe("/acme/workspaces/ws-1");
+    expect(land("/")).toBe("/acme/home");
   });
 
   it("carries it to the org root when there is no workspace yet", () => {
@@ -96,13 +96,15 @@ describe("PostLoginDispatcher", () => {
     expect(land("/?utm=mail")).not.toContain("?");
   });
 
-  it("lands a staff member's first visit on the workspace with the most apps", () => {
+  it("remembers the workspace with the most apps on a first visit, for the home to load from", () => {
+    localStorage.setItem("user", JSON.stringify({ id: "user-1" }));
     user.data = { ...user.data, is_app_admin: true };
     workspaces.data = [
       { id: "ws-empty", status: "ready" },
       { id: "ws-apps", status: "ready" }
     ];
     appCounts.data = { "ws-apps": 2 };
-    expect(land("/")).toBe("/acme/workspaces/ws-apps");
+    expect(land("/")).toBe("/acme/home");
+    expect(localStorage.getItem("oxy:last_workspace:user-1:org-1")).toBe("ws-apps");
   });
 });

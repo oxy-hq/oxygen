@@ -57,7 +57,7 @@ export function WorkspaceSwitcher() {
   const goTo = (workspaceId: string) => {
     setOpen(false);
     if (workspaceId === workspace?.id) return;
-    navigate(factoryPageIn(orgRoutes.WORKSPACE(workspaceId).IDE, currentRoot, pathname));
+    navigate(factoryPageIn(orgRoutes.ENTER_WORKSPACE(workspaceId).IDE, currentRoot, pathname));
   };
   const openOtherOrg = () => {
     setOpen(false);

@@ -242,7 +242,7 @@ const RecentRunRow = ({ run }: { run: ExplorerRun }) => {
       <li>
         <Link
           to={ROUTES.ORG(run.org_slug as string)
-            .WORKSPACE(run.workspace_id as string)
+            .ENTER_WORKSPACE(run.workspace_id as string)
             .THREAD(run.thread_id as string)}
           className='block transition-colors hover:bg-muted/40'
         >

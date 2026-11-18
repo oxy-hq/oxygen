@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import ROUTES from "@/libs/utils/routes";
 import { factoryPageIn } from "./factoryPageIn";
 
-/** Moving to another workspace's Factory keeps the section, never an id inside it. */
+/**
+ * Moving to another workspace's Factory keeps the section, never an id inside it.
+ * The current page is the org's address; the target is an entry link, the only
+ * address that names another workspace.
+ */
 
-const from = ROUTES.ORG("acme").WORKSPACE("ws-1").IDE.ROOT;
-const to = ROUTES.ORG("acme").WORKSPACE("ws-2").IDE;
+const from = ROUTES.ORG("acme").WORKSPACE().IDE.ROOT;
+const to = ROUTES.ORG("acme").ENTER_WORKSPACE("ws-2").IDE;
 const pageFor = (pathname: string) => factoryPageIn(to, from, pathname);
 
 describe("factoryPageIn", () => {
@@ -39,7 +43,7 @@ describe("factoryPageIn", () => {
     expect(pageFor(from)).toBe("/acme/workspaces/ws-2/ide");
     expect(pageFor(`${from}/something-new`)).toBe("/acme/workspaces/ws-2/ide");
     // An org slug that is itself "ide" is not mistaken for the section.
-    const odd = ROUTES.ORG("ide").WORKSPACE("ws-1").IDE.ROOT;
+    const odd = ROUTES.ORG("ide").WORKSPACE().IDE.ROOT;
     expect(factoryPageIn(to, odd, `${odd}/semantic`)).toBe("/acme/workspaces/ws-2/ide/semantic");
   });
 });
