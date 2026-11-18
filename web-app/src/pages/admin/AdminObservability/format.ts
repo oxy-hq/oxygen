@@ -8,11 +8,19 @@
  * the admin console's own conventions keep naming.
  */
 
-/** Compact USD: $0.0042 · $3.21 · $1.2k · $4.5M. Cost spans many orders of
- *  magnitude here, so precision follows scale. `—` for nullish. */
+/**
+ * The smallest amount four decimals can write. A few bytes of storage cost
+ * $0.00000002 a month, which `toFixed(4)` prints as "$0.0000": a cost that was
+ * not zero, drawn as one. Below this, `usd` says how small instead.
+ */
+const SMALLEST_WRITTEN_USD = 0.0001;
+
+/** Compact USD: <$0.0001 · $0.0042 · $3.21 · $1.2k · $4.5M. Cost spans many
+ *  orders of magnitude here, so precision follows scale. `—` for nullish. */
 export function usd(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
   if (n === 0) return "$0";
+  if (n > 0 && n < SMALLEST_WRITTEN_USD) return "<$0.0001";
   if (n < 0.01) return `$${n.toFixed(4)}`;
   if (n < 1_000) return `$${n.toFixed(2)}`;
   if (n < 1_000_000) return `$${(n / 1_000).toFixed(1)}k`;

@@ -3,6 +3,7 @@ import {
   BASELINE_FLOOR_USD,
   bytes,
   compact,
+  money,
   ms,
   outcomeLabel,
   pct,
@@ -54,6 +55,39 @@ describe("usd", () => {
     expect(usd(3.21)).toBe("$3.21");
     expect(usd(1_234)).toBe("$1.2k");
     expect(usd(4_500_000)).toBe("$4.50M");
+  });
+
+  /**
+   * Dev's pokehouse-dev and Delightree Demo on 2026-11-18: a few bytes of
+   * storage, $0.0000000167 and $0.0000000034 over 30 days. Four decimals
+   * printed both as "$0.0000", a cost that was not zero drawn as one. Below
+   * the smallest amount four decimals can write, it says so.
+   */
+  it("says a non-zero amount under $0.0001 is under it, never $0.0000", () => {
+    expect(usd(1.672924414024125e-8)).toBe("<$0.0001");
+    expect(usd(3.4272459186153647e-9)).toBe("<$0.0001");
+    // Rounds to "0.0001" at four decimals, which would claim a full $0.0001.
+    expect(usd(0.00009)).toBe("<$0.0001");
+  });
+
+  it("writes $0.0001 and up in digits", () => {
+    expect(usd(0.0001)).toBe("$0.0001");
+    expect(usd(0.00011)).toBe("$0.0001");
+  });
+
+  /** Cost is never negative today; if one ever is, it is not "small". */
+  it("does not call a negative amount under $0.0001", () => {
+    expect(usd(-2e-8)).not.toMatch(/^</);
+    expect(usd(-5)).not.toMatch(/^</);
+  });
+});
+
+describe("money", () => {
+  /** The ranked rows and the org sentence read `money`, which hands sub-cent amounts to `usd`. */
+  it("keeps usd's sub-cent rule, so a ranked row never reads $0.0000", () => {
+    expect(money(1.672924414024125e-8)).toBe("<$0.0001");
+    expect(money(0.0042)).toBe("$0.0042");
+    expect(money(0)).toBe("$0");
   });
 });
 
