@@ -658,3 +658,67 @@ describe("app events", () => {
     expect(warnings[0]?.message).toContain("use integer minor units or a decimal string");
   });
 });
+
+describe("app calls", () => {
+  const call = (extra = ""): string =>
+    `export default async (req, ctx) => { await ctx.apps.call${extra}("locations", "lookup", {}); };`;
+
+  it("flags ctx.apps.call and ctx.apps.send when the manifest declares no calls", () => {
+    for (const member of ["call", "send"]) {
+      const { dir, manifest } = tmpApp(
+        {
+          "functions/f.ts": `export default async (req, ctx) => { await ctx.apps.${member}("a", "b"); };`
+        },
+        { functions: { f: { entry: "functions/f.ts" } } }
+      );
+      const { issues } = lintAppFunctions(dir, manifest);
+      const hit = issues.find(
+        (i) => i.rule === "capability" && i.message.includes(`ctx.apps.${member}(`)
+      );
+      expect(hit?.level).toBe("error");
+      expect(hit?.message).toContain('"calls": { "<app>": ["<function>"] }');
+    }
+  });
+
+  it("flags an empty calls block like none", () => {
+    const { dir, manifest } = tmpApp(
+      { "functions/f.ts": call() },
+      { calls: { locations: [] }, functions: { f: { entry: "functions/f.ts" } } }
+    );
+    expect(lintAppFunctions(dir, manifest).issues.map((i) => i.rule)).toContain("capability");
+  });
+
+  it("is silent for a declared pair, with or without a type argument", () => {
+    const { dir, manifest } = tmpApp(
+      { "functions/f.ts": call("<{ id: string }>") },
+      { calls: { locations: ["lookup"] }, functions: { f: { entry: "functions/f.ts" } } }
+    );
+    expect(lintAppFunctions(dir, manifest).issues).toEqual([]);
+  });
+
+  it("flags a literal pair the manifest does not declare", () => {
+    const { dir, manifest } = tmpApp(
+      { "functions/f.ts": call() },
+      {
+        calls: { locations: ["other"], billing: ["lookup"] },
+        functions: { f: { entry: "functions/f.ts" } }
+      }
+    );
+    const { issues } = lintAppFunctions(dir, manifest);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.level).toBe("error");
+    expect(issues[0]?.path).toBe("line 1");
+    expect(issues[0]?.message).toContain("locations/lookup");
+    expect(issues[0]?.message).toContain("AppCallRefused");
+  });
+
+  it("does not guess at a non-literal pair", () => {
+    const { dir, manifest } = tmpApp(
+      {
+        "functions/f.ts": "export default async (req, ctx) => { await ctx.apps.call(a, b, {}); };"
+      },
+      { calls: { locations: ["lookup"] }, functions: { f: { entry: "functions/f.ts" } } }
+    );
+    expect(lintAppFunctions(dir, manifest).issues).toEqual([]);
+  });
+});

@@ -187,7 +187,8 @@ function cell(value: unknown, fallback: string): string {
 
 /**
  * One line per row: its id (what `invocations held` takes), function,
- * environment and status. The keys are the server's `InvocationSummary` —
+ * environment and status, then `parent <id>` when another app's call started
+ * it (`parent_invocation_id`; `mode` is then `call`). The keys are the server's `InvocationSummary` —
  * a row's id is `id`, not the `invocation_id` the held route answers with.
  */
 function printInvocationsTable(invocations: unknown[]): void {
@@ -197,8 +198,13 @@ function printInvocationsTable(invocations: unknown[]): void {
   }
   for (const raw of invocations) {
     const row = raw as Record<string, unknown>;
+    // A call from another app (`mode: "call"`) names the invocation that made it.
+    const parent =
+      typeof row.parent_invocation_id === "string" && row.parent_invocation_id !== ""
+        ? ` parent ${row.parent_invocation_id}`
+        : "";
     process.stdout.write(
-      `${cell(row.id, "?").padEnd(38)} ${cell(row.function_name, "?").padEnd(20)} ${cell(row.environment, "production").padEnd(12)} ${cell(row.status, "?")}\n`
+      `${cell(row.id, "?").padEnd(38)} ${cell(row.function_name, "?").padEnd(20)} ${cell(row.environment, "production").padEnd(12)} ${cell(row.status, "?")}${parent}\n`
     );
   }
 }

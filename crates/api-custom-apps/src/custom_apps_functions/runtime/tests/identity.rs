@@ -112,6 +112,8 @@ async fn isolate_sees_camel_case_identity_and_the_legacy_org_id_alias() {
             build_id: uuid::Uuid::nil(),
             event: None,
             delivery: None,
+            caller: None,
+            nested: false,
         },
     )
     .await;
@@ -158,6 +160,8 @@ async fn isolate_sees_the_build_id_it_was_started_with() {
             build_id: build,
             event: None,
             delivery: None,
+            caller: None,
+            nested: false,
         },
     )
     .await;

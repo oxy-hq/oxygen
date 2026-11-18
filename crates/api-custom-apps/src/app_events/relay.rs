@@ -109,6 +109,7 @@ use chrono::{DateTime, Utc};
 use entity::{app_environments, app_event_deliveries, app_event_schemas, app_events, apps};
 use futures::FutureExt;
 use oxy_app_core::custom_app_environment::AppEnvironmentKind;
+use oxy_custom_apps::calls::SendTarget;
 use oxy_custom_apps::events::{
     MAX_DELAY_SECS, MAX_PAYLOAD_BYTES, OxyEvent, event_id, qualified_type,
 };
@@ -223,6 +224,9 @@ pub struct RelayedEvent {
     pub delay_seconds: i32,
     /// Why the event is stored but delivered to nobody.
     pub relay_error: Option<String>,
+    /// The one listener of a directed event (`ctx.apps.send`), resolved when
+    /// the row was read; `None` for an event its subscribers receive.
+    pub directed: Option<Listener>,
     /// Deliver to this one listener (app id, function) and no other: the
     /// backfill event `oxyc events resync --backfill` queues.
     pub only_listener: Option<(Uuid, String)>,
@@ -501,13 +505,31 @@ pub(crate) async fn relay_rows(
             .await
             .map_err(failed)?;
         let key = (app.id, environment.clone(), row.name.clone());
-        if !schemas.contains_key(&key) {
+        let send = SendTarget::parse(&row.name);
+        if send.is_none() && !schemas.contains_key(&key) {
             let found = EventSchemas::read(db, app.id, &environment, &row.name)
                 .await
                 .map_err(failed)?;
             schemas.insert(key.clone(), found);
         }
-        let event = read_row(&app, row, environment, wrong_environment, &schemas[&key]);
+        let mut event = match &send {
+            Some(_) => read_row(
+                &app,
+                row,
+                environment,
+                wrong_environment,
+                &EventSchemas::directed(),
+            ),
+            None => read_row(&app, row, environment, wrong_environment, &schemas[&key]),
+        };
+        if let (Some(target), None) = (&send, &event.relay_error) {
+            match super::directed::resolve(db, org_id, &event.envelope.environment, &app, target)
+                .await
+            {
+                Ok(listener) => event.directed = Some(listener),
+                Err(reason) => event.relay_error = Some(reason),
+            }
+        }
         events.push(event);
         sources.push(row);
     }
@@ -584,9 +606,21 @@ struct EventSchemas {
     declared: bool,
     /// Every revision recorded for it, in any environment.
     revisions: Vec<app_event_schemas::Model>,
+    /// A `ctx.apps.send`: nothing to declare, no revision to find.
+    directed: bool,
 }
 
 impl EventSchemas {
+    /// What a directed event is read against: it has no catalogue entry and
+    /// no schema revision, so neither can be missing.
+    fn directed() -> Self {
+        Self {
+            declared: true,
+            revisions: Vec::new(),
+            directed: true,
+        }
+    }
+
     async fn read(
         db: &DatabaseConnection,
         app_id: Uuid,
@@ -602,6 +636,7 @@ impl EventSchemas {
                 .filter(app_event_schemas::Column::EventName.eq(name))
                 .all(db)
                 .await?,
+            directed: false,
         })
     }
 }
@@ -660,7 +695,7 @@ fn read_row(
             })
         })
         .or_else(|| {
-            revision.is_none().then(|| {
+            (revision.is_none() && !schemas.directed).then(|| {
                 format!("published against a schema revision recorded for no `{event_type}`")
             })
         });
@@ -690,6 +725,7 @@ fn read_row(
         schema_revision_id: row.schema_revision,
         delay_seconds: row.delay_seconds,
         relay_error,
+        directed: None,
         only_listener: None,
     }
 }
@@ -757,14 +793,15 @@ async fn store_and_fan_out(
                 environment.clone(),
                 event.envelope.event_type.clone(),
             );
-            if !listening.contains_key(&key) {
+            if let Some(listener) = &event.directed {
+                listening.insert(key.clone(), vec![listener.clone()]);
+            } else if !listening.contains_key(&key) {
                 let mut found =
                     listeners(db, event.org_id, environment, &event.envelope.event_type).await?;
                 if is_table_event_type(&event.envelope.event_type) {
                     // A table is in one workspace's Airhouse.
                     found.retain(|l| l.workspace_id == event.workspace_id);
                 }
-
                 listening.insert(key.clone(), found);
             }
             for listener in listening[&key].iter().filter(|l| {
@@ -927,7 +964,14 @@ async fn deliver(
         None
     } else {
         let mut task = AppFunctionTask::new(listener.app_id.to_string(), &listener.function_name);
-        task.trigger = Some("event".to_string());
+        // A directed event (`ctx.apps.send`) runs as a call: its function
+        // need not listen to anything, only be callable.
+        let trigger = if event.directed.is_some() {
+            "call"
+        } else {
+            "event"
+        };
+        task.trigger = Some(trigger.to_string());
         task.input =
             Some(serde_json::to_value(&event.envelope).map_err(|e| DbErr::Custom(e.to_string()))?);
         task.environment = (environment != PRODUCTION).then(|| environment.clone());

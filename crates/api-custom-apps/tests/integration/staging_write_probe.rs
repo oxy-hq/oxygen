@@ -107,6 +107,10 @@ const HELD_ELSEWHERE: &[(&str, &str)] = &[
         "tx.publish",
         "app_events_publish::a_staging_publish_without_a_branch_is_held_and_writes_nothing",
     ),
+    (
+        "apps.send",
+        "app_events_publish::a_staging_send_without_a_branch_is_held_and_writes_nothing",
+    ),
 ];
 
 /// The key `storage.put` wrote, for the steps after it.

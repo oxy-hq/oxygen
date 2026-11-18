@@ -24,11 +24,14 @@
 //! task carries is capped ([`cap_error`]).
 
 use agentic_core::delegation::TaskOutcome;
+use oxy_custom_apps::calls::SendTarget;
+
+use crate::custom_apps_functions::queued_admission::QueuedTrigger;
 use oxy_custom_apps::events::OxyEvent;
 use sea_orm::DbErr;
 use uuid::Uuid;
 
-use super::{FunctionRun, JobArgs, QueuedTrigger, run_function};
+use super::{FunctionRun, JobArgs, run_function};
 use crate::app_events::cap_error;
 use crate::app_events::deliveries::{self, AttemptOutcome, DeliveryInfo, DeliveryStart};
 use crate::app_events::subscriptions;
@@ -44,10 +47,26 @@ pub(super) async fn deliver(job: &JobArgs, delivery_id: Uuid) -> TaskOutcome {
         Ok(started) => started,
         Err(answered) => return answered,
     };
-    // A `call` delivery (a `ctx.apps.send`) names its function and has no
-    // subscription to check: the function need not listen to anything, and its
-    // admission ("callable") is decided when it runs (`queued_admission`).
-    let subscribed = if needs_subscription(job.trigger) {
+    // A directed event (`ctx.apps.send`) names its function and has no
+    // subscription to check; its admission ("callable") is decided when it
+    // runs (`queued_admission`). The name and the task's trigger must agree:
+    // a send-named event queued as anything else, or a call-triggered task of
+    // an ordinary event or of another function, is killed, not run.
+    let send = SendTarget::parse(&event_name(&envelope));
+    let calls = !needs_subscription(job.trigger);
+    let subscribed = if calls
+        && send
+            .as_ref()
+            .is_some_and(|t| t.function == job.function_name)
+    {
+        Ok(true)
+    } else if calls || send.is_some() {
+        let reason = format!(
+            "{} is not a send to {}, but the task says it is one or the name does",
+            envelope.event_type, job.function_name
+        );
+        return delivery.kill(Some(info.attempt), None, &reason).await;
+    } else {
         subscriptions::listener_subscribes(
             &job.db,
             job.app_id,
@@ -56,8 +75,6 @@ pub(super) async fn deliver(job: &JobArgs, delivery_id: Uuid) -> TaskOutcome {
             &envelope.event_type,
         )
         .await
-    } else {
-        Ok(true)
     };
     let ran = match subscribed {
         Ok(false) => {
@@ -75,6 +92,15 @@ pub(super) async fn deliver(job: &JobArgs, delivery_id: Uuid) -> TaskOutcome {
 /// is to a function that listens to nothing.
 fn needs_subscription(trigger: QueuedTrigger) -> bool {
     trigger != QueuedTrigger::Call
+}
+
+/// The outbox name of the event: its type without the publisher
+/// (`<publisher>/<name>`), which a directed event's target is read from.
+fn event_name(envelope: &OxyEvent) -> String {
+    envelope
+        .event_type
+        .split_once('/')
+        .map_or_else(String::new, |(_, name)| name.to_string())
 }
 
 /// The delivery one task answers for, and how this module answers the task.
@@ -197,17 +223,44 @@ async fn run_listener(
     envelope: &oxy_custom_apps::events::OxyEvent,
     info: &deliveries::DeliveryInfo,
 ) -> Result<FunctionRun, String> {
-    let body = serde_json::to_vec(envelope)
-        .map_err(|e| format!("the envelope does not serialise: {e}"))?;
+    // A directed event is a call: the function gets the sent body as its
+    // request, and `ctx.caller` names the sender.
+    let send = SendTarget::parse(&event_name(envelope));
+    let body = match &send {
+        Some(_) => serde_json::to_vec(&envelope.data),
+        None => serde_json::to_vec(envelope),
+    }
+    .map_err(|e| format!("the envelope does not serialise: {e}"))?;
+    // TODO(app-events-hardening): the row's `actor` is the sender's own claim
+    // until the outbox carries the host-signed provenance MAC (the hardening
+    // branch), so a send delivers no actor and runs as the system. That MAC is
+    // what lifts this: verified, the actor may be presented.
+    let caller = send
+        .as_ref()
+        .zip(envelope.invocation)
+        .map(
+            |(target, invocation_id)| crate::custom_apps_functions::runtime::CtxCaller {
+                app: envelope.source.trim_start_matches("/apps/").to_string(),
+                function: target.caller_function.clone(),
+                invocation_id,
+                actor: None,
+            },
+        );
     let event = crate::custom_apps_functions::EventRun {
         cause: crate::custom_apps_functions::runtime::EventCause {
             id: envelope.id,
             event_type: envelope.event_type.clone(),
             root_id: envelope.rootid,
             depth: envelope.depth,
-            actor: envelope.actor.clone(),
+            // Unverified for a send (see above), so none.
+            actor: if send.is_some() {
+                None
+            } else {
+                envelope.actor.clone()
+            },
         },
         delivery: info.clone(),
+        caller,
     };
     run_function(job, body, Some(event)).await
 }

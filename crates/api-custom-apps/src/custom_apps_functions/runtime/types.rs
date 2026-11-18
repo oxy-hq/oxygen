@@ -40,6 +40,28 @@ pub struct InvocationCtx {
     /// the isolate, for every other trigger.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delivery: Option<crate::app_events::deliveries::DeliveryInfo>,
+    /// `ctx.caller`: the app, function and invocation whose `ctx.apps.call` or
+    /// `ctx.apps.send` started this invocation. `None` (`null` in the isolate)
+    /// for every other trigger. The host's alone; attribution, never authority.
+    pub caller: Option<CtxCaller>,
+    /// Whether this invocation is a callee, which runs on its root's admission
+    /// and holds a nested permit its caller took (`limits::try_nested`)
+    /// instead of taking an org and a global one (`runtime::run_in`). Never
+    /// reaches the isolate.
+    #[serde(skip)]
+    pub nested: bool,
+}
+
+/// Who called this function with `ctx.apps.call` or `ctx.apps.send`, as the
+/// host knows it. `actor` is the caller's verified actor (the person whose
+/// action started the chain, when one did), for attribution only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CtxCaller {
+    pub app: String,
+    pub function: String,
+    #[serde(rename = "invocationId")]
+    pub invocation_id: uuid::Uuid,
+    pub actor: Option<String>,
 }
 
 /// The event an invocation handles, as a publish from it chains from it (app

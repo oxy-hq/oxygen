@@ -82,7 +82,8 @@ impl CallLabel {
             | HostCall::Tx { .. }
             | HostCall::Oltp { .. }
             | HostCall::Airhouse { .. }
-            | HostCall::Events { .. } => {}
+            | HostCall::Events { .. }
+            | HostCall::Apps { .. } => {}
         }
         label
     }

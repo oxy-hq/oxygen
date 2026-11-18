@@ -245,6 +245,41 @@ describe("validateOxyAppManifest", () => {
     });
   });
 
+  describe("app calls", () => {
+    const base = { schemaVersion: 2, slug: "x" };
+
+    it("accepts callable and calls", () => {
+      expect(
+        messages({
+          ...base,
+          calls: { locations: ["lookup"], "b-2": ["a", "b"] },
+          functions: { f: { route: false, callable: true } }
+        })
+      ).toEqual([]);
+    });
+
+    it("refuses a bad app slug, an empty list, a bad or repeated function name", () => {
+      const found = errors({
+        ...base,
+        calls: { Bad_App: ["a"], empty: [], b: ["Bad", "ok", "ok"] }
+      });
+      expect(found.map((f) => f.path).sort()).toEqual(
+        ["calls.Bad_App", "calls.b.0", "calls.b.2", "calls.empty"].sort()
+      );
+    });
+
+    it("refuses more than 64 pairs", () => {
+      const calls: Record<string, string[]> = {};
+      for (let i = 0; i < 13; i++) calls[`app${i}`] = ["a", "b", "c", "d", "e"];
+      const found = errors({ ...base, calls });
+      expect(found.map((f) => f.path)).toContain("calls");
+    });
+
+    it("refuses a non-boolean callable", () => {
+      expect(errors({ ...base, functions: { f: { callable: "yes" } } })).not.toHaveLength(0);
+    });
+  });
+
   it("warns, without refusing, about a field it does not know", () => {
     const issues = validateOxyAppManifest({
       schemaVersion: 2,

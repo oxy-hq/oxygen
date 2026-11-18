@@ -106,14 +106,14 @@ const SEE_NEW_GRANTS: &str = "SELECT 1 FROM pg_catalog.pg_seclabel LIMIT 0";
 const _: () = assert!(oxy_oltp::platform::EVENT_MAX_DATA_TEXT_BYTES as usize == MAX_PAYLOAD_BYTES);
 
 /// A publish that passed every check on its arguments.
-struct Checked {
-    name: String,
-    key: String,
-    data: Value,
-    delay_seconds: i64,
+pub(super) struct Checked {
+    pub(super) name: String,
+    pub(super) key: String,
+    pub(super) data: Value,
+    pub(super) delay_seconds: i64,
     /// The schema revision of the running build's declaration, which the data
-    /// was validated against.
-    revision: Uuid,
+    /// was validated against. `None` for a `ctx.apps.send`, which has none.
+    pub(super) revision: Option<Uuid>,
 }
 
 impl ProjectFunctionHost {
@@ -256,23 +256,22 @@ impl ProjectFunctionHost {
             key,
             data,
             delay_seconds,
-            revision: revision.id,
+            revision: Some(revision.id),
         })
     }
 
-    /// 0 for a publish no event's handler made; the cause's depth plus one
-    /// otherwise.
+    /// 0 for a publish nothing in a chain made; the run's depth plus one
+    /// otherwise — the depth an event's handler or a callee has is its
+    /// cause's, so a call and a publish share one counter (`apps_op`).
     fn publish_depth(&self) -> i32 {
-        self.event_cause
-            .as_ref()
-            .map_or(0, |cause| cause.depth.saturating_add(1))
+        super::apps_op::next_depth(self.chain().position)
     }
 
     /// The writer a publish is written as, resolved on the run's OLTP home —
     /// the writer first, so a missing writer role says so in `ctx.oltp`'s
     /// words, and an org with no OLTP store at all is told how to get one —
     /// then granted the definer function on `outbox`, the store it writes.
-    async fn publish_writer(
+    pub(super) async fn publish_writer(
         &self,
         op: HostOp,
         outbox: &OutboxTarget,
@@ -318,28 +317,27 @@ impl ProjectFunctionHost {
     /// The event's id and [`PUBLISH_SQL`]'s twelve parameters, in its order:
     /// id, environment, name, key, data, schema revision, actor, causation id,
     /// root id, depth, invocation id, delay seconds.
-    fn publish_params(&self, checked: &Checked) -> (Uuid, Vec<Value>) {
+    pub(super) fn publish_params(&self, checked: &Checked) -> (Uuid, Vec<Value>) {
         let environment = self.policy.environment().name();
         let event_type = qualified_type(&self.identity.app_slug, &checked.name);
         let id = event_id(self.org_id, &environment, &event_type, &checked.key);
         let invocation = self.identity.invocation_id;
-        let cause = self.event_cause.as_ref();
-        // The person whose action started the chain: the cause's, or this
-        // run's caller when a person called it. Attribution only.
-        let actor = match cause {
-            Some(cause) => cause.actor.clone(),
-            None => self.identity.user_id.map(|user| user.to_string()),
-        };
-        let root = cause.map_or(invocation, |cause| cause.root_id);
+        let chain = self.chain();
+        let actor = chain.actor.clone();
+        let root = chain.root;
         let params = vec![
             json!(id.to_string()),
             json!(environment),
             json!(checked.name),
             json!(checked.key),
             checked.data.clone(),
-            json!(checked.revision.to_string()),
+            checked
+                .revision
+                .map_or(Value::Null, |r| json!(r.to_string())),
             actor.map_or(Value::Null, Value::String),
-            cause.map_or(Value::Null, |cause| json!(cause.id.to_string())),
+            chain
+                .causation
+                .map_or(Value::Null, |id| json!(id.to_string())),
             json!(root.to_string()),
             json!(self.publish_depth()),
             json!(invocation.to_string()),
@@ -350,7 +348,7 @@ impl ProjectFunctionHost {
 
     /// The publish in a one-shot transaction of its own on `conn`, writing
     /// `outbox`.
-    async fn publish_alone(
+    pub(super) async fn publish_alone(
         &self,
         outbox: &OutboxTarget,
         conn: &WriterConnection,
@@ -488,7 +486,7 @@ impl ProjectFunctionHost {
 /// `delaySeconds`: absent (or `null`) is 0; otherwise a whole number of
 /// seconds from 0 to [`MAX_DELAY_SECS`] — `30.0` is whole, `1.5` and `"30"`
 /// are not.
-fn delay_seconds(value: Option<&Value>) -> Result<i64, String> {
+pub(super) fn delay_seconds(value: Option<&Value>) -> Result<i64, String> {
     let seconds = match value {
         None | Some(Value::Null) => return Ok(0),
         Some(Value::Number(n)) => match (n.as_u64(), n.as_f64()) {
@@ -510,7 +508,7 @@ fn delay_seconds(value: Option<&Value>) -> Result<i64, String> {
 /// Postgres's `text`, and so `jsonb`, cannot hold it (`22P05`): refused by
 /// the store, the publish would abort a `tx` handle, so the host refuses it
 /// first.
-fn holds_nul(value: &Value) -> bool {
+pub(super) fn holds_nul(value: &Value) -> bool {
     match value {
         Value::String(s) => s.contains('\0'),
         Value::Array(items) => items.iter().any(holds_nul),

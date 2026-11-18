@@ -574,6 +574,21 @@ pub const ALLOWED: &[(&str, &str, &str)] = &[
         "custom-apps domain setting; migrate into oxy-custom-apps' own config",
     ),
     (
+        "OXY_FUNCTION_MAX_CHAIN_IN_FLIGHT",
+        "crates/api-custom-apps/src/custom_apps_functions/limits.rs",
+        "custom-apps domain setting; migrate into oxy-custom-apps' own config",
+    ),
+    (
+        "OXY_FUNCTION_MAX_NESTED_CONCURRENCY",
+        "crates/api-custom-apps/src/custom_apps_functions/limits.rs",
+        "custom-apps domain setting; migrate into oxy-custom-apps' own config",
+    ),
+    (
+        "OXY_FUNCTION_MAX_ORG_NESTED_CONCURRENCY",
+        "crates/api-custom-apps/src/custom_apps_functions/limits.rs",
+        "custom-apps domain setting; migrate into oxy-custom-apps' own config",
+    ),
+    (
         "OXY_FUNCTION_MAX_QUEUED",
         "crates/api-custom-apps/src/custom_apps_functions/limits.rs",
         "custom-apps domain setting; migrate into oxy-custom-apps' own config",

@@ -357,47 +357,37 @@ pub async fn mirror_once(db: &DatabaseConnection) -> Result<MirrorStats, DbErr> 
 }
 
 /// Mark `ids` mirrored; the ids that were still there to mark.
-/// The most pages one pass reads looking for [`BATCH`] events of orgs with the
-/// flag on.
-const MAX_PAGES: usize = 20;
-
 /// Up to [`BATCH`] unmirrored events of orgs with `app_events` on, oldest
-/// first. The flag is read in process, not in SQL, so the read is paged by
-/// keyset `(relayed_at, id)` past events of orgs that have it off: they never
-/// stall the orgs behind them.
+/// first. The flag is read in process, so the orgs are listed first (every org
+/// with an app) and the flag-on ones go into the query: events of an org with
+/// the flag off are never read, however many there are, and never stall the
+/// orgs behind them.
 async fn pending_events(db: &DatabaseConnection) -> Result<Vec<app_events::Model>, DbErr> {
-    let mut found = Vec::new();
-    let mut after: Option<(sea_orm::prelude::DateTimeWithTimeZone, Uuid)> = None;
-    for _ in 0..MAX_PAGES {
-        let mut query = app_events::Entity::find()
-            .filter(app_events::Column::MirroredAt.is_null())
-            .filter(app_events::Column::RelayError.is_null());
-        if let Some((at, id)) = after {
-            query = query.filter(
-                sea_orm::Condition::any()
-                    .add(app_events::Column::RelayedAt.gt(at))
-                    .add(
-                        sea_orm::Condition::all()
-                            .add(app_events::Column::RelayedAt.eq(at))
-                            .add(app_events::Column::Id.gt(id)),
-                    ),
-            );
-        }
-        let page = query
-            .order_by_asc(app_events::Column::RelayedAt)
-            .order_by_asc(app_events::Column::Id)
-            .limit(BATCH)
-            .all(db)
-            .await?;
-        let full = page.len() as u64 >= BATCH;
-        after = page.last().map(|e| (e.relayed_at, e.id));
-        found.extend(page.into_iter().filter(|e| super::enabled_for(e.org_id)));
-        if found.len() as u64 >= BATCH || !full {
-            break;
+    let rows = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT DISTINCT org_id FROM apps",
+        ))
+        .await?;
+    let mut enabled = Vec::new();
+    for row in rows {
+        let org: Uuid = row.try_get("", "org_id")?;
+        if super::enabled_for(org) {
+            enabled.push(org);
         }
     }
-    found.truncate(BATCH as usize);
-    Ok(found)
+    if enabled.is_empty() {
+        return Ok(Vec::new());
+    }
+    app_events::Entity::find()
+        .filter(app_events::Column::MirroredAt.is_null())
+        .filter(app_events::Column::RelayError.is_null())
+        .filter(app_events::Column::OrgId.is_in(enabled))
+        .order_by_asc(app_events::Column::RelayedAt)
+        .order_by_asc(app_events::Column::Id)
+        .limit(BATCH)
+        .all(db)
+        .await
 }
 
 async fn mark(db: &DatabaseConnection, ids: &[Uuid]) -> Result<HashSet<Uuid>, DbErr> {

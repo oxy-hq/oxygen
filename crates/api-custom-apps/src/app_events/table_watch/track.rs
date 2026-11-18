@@ -174,7 +174,12 @@ async fn track_cursor(
         .table_id(ws, &schema, &table.table)
         .await
         .map_err(|e| e.to_string())?;
+    // Ids are compared only for the table they were read from: outside
+    // production a watch reads production's table until the environment's own
+    // copy appears, and that copy is another table with another id, not a
+    // replacement (`record_check` takes its id as the new baseline).
     if let (Some(was), Some(now)) = (cursor.table_id, table_id)
+        && cursor.watched_schema.as_deref() == Some(schema.as_str())
         && was != now
     {
         broken.push(format!(

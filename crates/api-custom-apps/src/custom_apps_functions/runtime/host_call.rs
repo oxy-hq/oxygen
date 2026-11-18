@@ -102,6 +102,14 @@ pub(super) enum HostCall {
         payload: serde_json::Value,
         reply: HostReply,
     },
+    /// `ctx.apps.call(app, fn, body, opts)` and `ctx.apps.send(...)`:
+    /// `payload` is `{ app, function, body, ... }`; the caller is the host's,
+    /// never the function's.
+    Apps {
+        op: String,
+        payload: serde_json::Value,
+        reply: HostReply,
+    },
 }
 
 impl HostCall {
@@ -126,6 +134,7 @@ impl HostCall {
             HostCall::Oltp { .. } => Family::Oltp,
             HostCall::Airhouse { .. } => Family::Airhouse,
             HostCall::Events { .. } => Family::Events,
+            HostCall::Apps { .. } => Family::Apps,
         }
     }
 
@@ -140,7 +149,8 @@ impl HostCall {
             | HostCall::Tx { op, .. }
             | HostCall::Oltp { op, .. }
             | HostCall::Airhouse { op, .. }
-            | HostCall::Events { op, .. } => Some(op),
+            | HostCall::Events { op, .. }
+            | HostCall::Apps { op, .. } => Some(op),
             HostCall::SemanticQuery { .. } => Some("query"),
             HostCall::AirwayRun { .. } => Some("run"),
             HostCall::SecretsSet { .. } => Some("set"),
@@ -202,7 +212,8 @@ impl HostCall {
             | HostCall::Tx { reply, .. }
             | HostCall::Oltp { reply, .. }
             | HostCall::Airhouse { reply, .. }
-            | HostCall::Events { reply, .. } => reply,
+            | HostCall::Events { reply, .. }
+            | HostCall::Apps { reply, .. } => reply,
         }
     }
 }
@@ -327,6 +338,7 @@ pub(super) async fn dispatch_host_call(
         HostCall::Events { payload, reply, .. } => {
             (reply, host.events(sub_op_name(op), payload).await)
         }
+        HostCall::Apps { payload, reply, .. } => (reply, host.apps(sub_op_name(op), payload).await),
         HostCall::SecretsSet { key, value, reply } => (reply, host.secrets_set(key, value).await),
         HostCall::SendEmail { input, reply } => (reply, host.send_email(input).await),
         HostCall::Notify { input, reply } => (reply, host.notify(input).await),

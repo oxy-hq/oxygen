@@ -230,4 +230,14 @@ pub trait FunctionHost: Send + Sync {
         op: String,
         payload: serde_json::Value,
     ) -> Result<serde_json::Value, HostError>;
+    /// `ctx.apps.call` / `ctx.apps.send` — run another app's function in this
+    /// app's environment, or queue it. `op` is `call` or `send`; `payload`
+    /// carries `{ app, function, body, timeoutMs? }` or `{ app, function,
+    /// body, delaySeconds?, key? }`. Gated by the fail-closed `calls`
+    /// capability, which names the pairs the manifest declares.
+    async fn apps(
+        &self,
+        op: String,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, HostError>;
 }

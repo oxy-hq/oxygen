@@ -37,6 +37,12 @@ const EVENTS: &str = "`ctx.events.publish` and `tx.events.publish` write the org
      event in the canary's `events` catalogue and `events.publish`, then a step that publishes \
      it with a run-tagged key (outside and inside `ctx.oltp.tx`) and checks the `eventId`.";
 
+const APPS: &str = "`ctx.apps.call` and `ctx.apps.send` run another app's function in the org, which needs a \
+     second canary app with a `callable` function, a `calls` declaration naming it, and the \
+     `app_events` flag on for the `oxy-canary` org (a send also needs the org's OLTP store); it \
+     has none of them. Unblocked by: publishing that second app, turning `app_events` on, and a \
+     step that calls it and checks its answer and `ctx.caller`.";
+
 /// Host ops the canary does not exercise: each with why, and what would unblock it.
 const EXEMPT: &[(&str, &str)] = &[
     (
@@ -80,6 +86,8 @@ const EXEMPT: &[(&str, &str)] = &[
     ),
     ("events.publish", EVENTS),
     ("tx.publish", EVENTS),
+    ("apps.call", APPS),
+    ("apps.send", APPS),
     (
         "events.changes",
         "`ctx.tables.changes` answers only inside a function a table change started, which \

@@ -655,6 +655,34 @@ fn app_access_ring_matches_the_shipped_gate_for_a_restricted_app() {
     });
 }
 
+/// `Action::AppCall` is `Action::AppAccess` on the same ring: a call from a
+/// person is asked whether the person may open the target app. Both shipped
+/// checks are `user_can_access_app`, so the oracle is the same, open and
+/// restricted.
+#[test]
+fn app_call_ring_matches_the_shipped_gate_for_an_open_app() {
+    assert_app_ring(Action::AppCall, false, |s| {
+        s.is_staff
+            || s.has_develop_apps
+            || s.is_org_member
+            || s.is_org_admin
+            || s.is_org_owner
+            || frontline_with_grant(s)
+    });
+}
+
+#[test]
+fn app_call_ring_matches_the_shipped_gate_for_a_restricted_app() {
+    assert_app_ring(Action::AppCall, true, |s| {
+        s.is_staff
+            || s.has_develop_apps
+            || s.is_org_owner
+            || s.is_org_admin
+            || (s.is_org_member && (s.is_app_member || s.is_app_admin))
+            || frontline_with_grant(s)
+    });
+}
+
 #[test]
 fn workspace_data_ring_matches_the_shipped_data_plane_gate() {
     // Oracle = `check_custom_app_gates` composed: `is_org_member`, the

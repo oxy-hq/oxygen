@@ -33,7 +33,7 @@ the fact is missing from `PrincipalFacts`, not that the crate needs a connection
 
 ## Vocabulary
 
-- **`Action`** (49) — the closed vocabulary of things a caller can do. This is what call
+- **`Action`** (57) — the closed vocabulary of things a caller can do. This is what call
   sites name.
 - **`Ring`** — the authority level that gates an action. **Private on purpose:** a
   ring is how the model is *stated*, not a menu callers pick from. Public, it would let a

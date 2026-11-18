@@ -1,6 +1,7 @@
 //! Shared fixtures for the runtime's tests — `MockHost`, `test_ctx`, the
 //! `run_*` helpers — and the topic modules that use them.
 
+mod apps;
 mod attachments_and_notify;
 mod broker_gates;
 mod crypto;
@@ -42,6 +43,8 @@ pub(super) struct MockHost {
     /// Every `(surface, payload)` a publish handed the host, in order:
     /// `"events"` for `ctx.events.publish`, `"tx"` for `tx.events.publish`.
     published: std::sync::Mutex<Vec<(&'static str, serde_json::Value)>>,
+    /// Every `(op, payload)` `ctx.apps.call` / `ctx.apps.send` handed the host.
+    apps_calls: std::sync::Mutex<Vec<(String, serde_json::Value)>>,
     /// When set, `ctx.query` fails with this message instead of answering.
     query_error: Option<String>,
     /// With `query_error`: only the first `ctx.query` fails; later ones
@@ -78,6 +81,10 @@ impl MockHost {
     fn tx_ops(&self) -> Vec<String> {
         self.tx_ops.lock().unwrap().clone()
     }
+    fn apps_calls(&self) -> Vec<(String, serde_json::Value)> {
+        self.apps_calls.lock().unwrap().clone()
+    }
+
     fn published(&self) -> Vec<(&'static str, serde_json::Value)> {
         self.published.lock().unwrap().clone()
     }
@@ -308,6 +315,23 @@ impl FunctionHost for MockHost {
         self.published.lock().unwrap().push(("events", payload));
         Ok(serde_json::json!({ "eventId": "evt-1" }))
     }
+    async fn apps(
+        &self,
+        op: String,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, HostError> {
+        self.apps_calls
+            .lock()
+            .unwrap()
+            .push((op.clone(), payload.clone()));
+        if payload["function"] == "boom" {
+            return Err(HostError::from("AppCallFailed: the callee broke"));
+        }
+        Ok(match op.as_str() {
+            "send" => serde_json::json!({ "eventId": "evt-send" }),
+            _ => serde_json::json!({ "echo": payload["body"] }),
+        })
+    }
     async fn secrets_set(
         &self,
         _key: String,
@@ -344,6 +368,8 @@ pub(super) fn test_ctx() -> InvocationCtx {
         build_id: uuid::Uuid::nil(),
         event: None,
         delivery: None,
+        caller: None,
+        nested: false,
     }
 }
 

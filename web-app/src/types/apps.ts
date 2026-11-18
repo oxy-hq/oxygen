@@ -339,8 +339,10 @@ export interface AppNotificationKinds {
 /** One recorded invocation of a function (route / schedule / manual job). */
 export interface FunctionInvocation {
   id: string;
-  /** `route` | `schedule` | `airway`. */
+  /** `route` | `schedule` | `airway` | `manual` | `webhook` | `event` | `call`. */
   mode: string;
+  /** The invocation that made this one: the caller's, for mode `call`. */
+  parent_invocation_id?: string | null;
   /** `running` | `success` | `error` | `cancelled` | `timeout` | `shed`.
    *  Recorded verbatim: `success` only means the handler returned without
    *  throwing — read `failed` for whether it worked. */

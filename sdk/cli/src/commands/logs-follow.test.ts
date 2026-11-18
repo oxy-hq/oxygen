@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CliError, ExitCode } from "../util/errors.js";
-import { follow, followTimeout, type Printer, SseParser } from "./logs-follow.js";
+import { follow, followTimeout, type Printer, printerFor, SseParser } from "./logs-follow.js";
 
 const URL_BASE = "https://oxy.test/api/customer-apps/a1/environments/dev-a1/tail";
 
@@ -37,6 +37,31 @@ const label = (value: unknown): string => (typeof value === "string" ? value : "
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("the human start line", () => {
+  it("names the parent invocation only when another app's call started it", () => {
+    let out = "";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      out += String(chunk);
+      return true;
+    });
+    const frame = printerFor(false).frame;
+    frame("start", {
+      function: "f",
+      mode: "call",
+      invocation_id: "i2",
+      parent_invocation_id: "i1"
+    });
+    frame("start", {
+      function: "f",
+      mode: "route",
+      invocation_id: "i3",
+      parent_invocation_id: null
+    });
+    write.mockRestore();
+    expect(out).toBe(">> f started (call) i2 parent i1\n>> f started (route) i3\n");
+  });
 });
 
 describe("SseParser", () => {

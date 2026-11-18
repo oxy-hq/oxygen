@@ -155,6 +155,18 @@ export const GATED_CAPABILITIES: readonly GatedCapability[] = [
       isObject(spec.events) && Array.isArray(spec.events.publish) && spec.events.publish.length > 0
   },
   {
+    hostField: "calls",
+    manifest: "calls",
+    declare: '"calls": { "<app>": ["<function>"] }',
+    ops: ["apps.call", "apps.send"],
+    gate: "manifest",
+    // As the host: the app's top-level `calls` (merged into each function's
+    // spec by the lint, because it grants every function) names at least one pair.
+    declares: (spec) =>
+      isObject(spec.calls) &&
+      Object.values(spec.calls).some((fns) => Array.isArray(fns) && fns.length > 0)
+  },
+  {
     hostField: "customer_warehouse_writes",
     manifest: "customerWarehouseWrites",
     declare: '"customerWarehouseWrites": { "<database>": "<why this write stays there>" }',

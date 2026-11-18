@@ -636,6 +636,26 @@ describe("oxyc validate on an oxy-app.json", () => {
     );
   });
 
+  it("fails the run on a malformed calls block, and passes a valid one", () => {
+    const bad = oxycValidate(
+      app({ slug: "store-ops", calls: { Locations: ["lookup"], billing: [] } }),
+      ["--json"]
+    );
+    expect(bad.status).toBe(ExitCode.FAILURE);
+    expect(JSON.parse(bad.stdout).findings.map((f: { path: string }) => f.path)).toEqual(
+      expect.arrayContaining(["calls.Locations", "calls.billing"])
+    );
+    const good = oxycValidate(
+      app({
+        slug: "store-ops",
+        calls: { locations: ["lookup"] },
+        functions: { f: { callable: true } }
+      }),
+      []
+    );
+    expect(good.status, good.stderr).toBe(0);
+  });
+
   it("passes a valid catalogue, warning about a kind nothing sends", () => {
     const root = app({
       slug: "store-ops",

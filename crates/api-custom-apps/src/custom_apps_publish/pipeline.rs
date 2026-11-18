@@ -403,6 +403,15 @@ async fn after(ctx: &Publishing<'_>, build_pk: Uuid, mut warnings: Vec<String>) 
     if input.promote {
         warnings.push(PROMOTING_PUBLISH_DEPRECATED.to_string());
     }
+    warnings.extend(
+        super::calls::warnings(
+            ctx.db,
+            ctx.org.id,
+            &ctx.target.published_to(),
+            inflated.manifest_json.as_ref(),
+        )
+        .await,
+    );
     gc_builds(ctx.db, app_id, &[build_pk]).await;
     drop_resolution_cache(ctx.target);
     warm_cache(app_id, input, inflated);

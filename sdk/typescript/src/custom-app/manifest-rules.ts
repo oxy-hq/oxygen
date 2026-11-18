@@ -44,3 +44,6 @@ export const FUNCTION_NAME_RULE = `a lowercase letter, then up to 63 lowercase l
 export function isValidFunctionName(name: string): boolean {
   return FUNCTION_NAME_PATTERN.test(name);
 }
+
+/** At most this many (app, function) pairs in a manifest's top-level `calls`. */
+export const CALLS_MAX_PAIRS = 64;

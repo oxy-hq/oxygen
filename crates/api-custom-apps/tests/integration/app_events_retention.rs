@@ -147,6 +147,7 @@ impl Fix {
             schema_revision_id: revision,
             delay_seconds: 0,
             relay_error: error.map(str::to_string),
+            directed: None,
             only_listener: None,
         };
         fan_out(self.db(), &[event]).await.expect("fan out");

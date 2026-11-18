@@ -99,7 +99,8 @@ describe("oxy-app.schema.json", () => {
       "timeoutSeconds",
       "webhook",
       "on",
-      "events"
+      "events",
+      "callable"
     ]) {
       expect(fn[field], field).toBeDefined();
     }
@@ -112,6 +113,7 @@ describe("oxy-app.schema.json", () => {
       "build",
       "environments",
       "events",
+      "calls",
       "$schema"
     ]) {
       expect(app[field], field).toBeDefined();

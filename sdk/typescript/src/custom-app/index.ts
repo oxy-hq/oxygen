@@ -39,6 +39,8 @@ export type {
   NotifyTarget,
   OxyAirhouseApi,
   OxyAirwayApi,
+  OxyAppsApi,
+  OxyCallerInfo,
   OxyCryptoApi,
   OxyDeliveryInfo,
   OxyEmailApi,

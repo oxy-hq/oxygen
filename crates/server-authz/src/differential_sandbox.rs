@@ -284,6 +284,7 @@ fn the_token_holds_no_tenant_standing_whatever_its_minter_is() {
             Action::WorkspaceEdit,
             Action::WorkspaceManage,
             Action::AppAccess,
+            Action::AppCall,
             Action::WorkspaceDataAccess,
         ] {
             for resource in [

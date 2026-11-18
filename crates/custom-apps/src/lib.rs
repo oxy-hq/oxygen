@@ -15,6 +15,7 @@
 //! - `non_production`: may this caller open a non-production environment.
 //! - `agent_built`: the mark of a build a sandbox agent token published.
 //! - `audience`: who can reach an app (the rule `ctx.org.*` and `ctx.notify` share).
+//! - `calls`: app-to-app calls: the manifest's `calls` / `callable` keys, the budget and error labels.
 //! - `events`: app events: the deterministic event id, the `OxyEvent` envelope and the
 //!   manifest's `events` catalogue and `on` / `events.publish` keys.
 //! - `function_trigger`: why a one-off function job was queued, and what the queue reads back.
@@ -70,6 +71,7 @@ pub mod bundle_cache;
 pub mod cache;
 pub mod call_trace;
 pub mod call_trace_store;
+pub mod calls;
 pub mod custom_domains;
 pub mod env_resolve;
 pub mod environments;

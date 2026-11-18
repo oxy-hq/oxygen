@@ -183,6 +183,22 @@ async fn op_ctx_events(
         .await?)
 }
 
+/// `ctx.apps.call` / `ctx.apps.send` — bridge to `FunctionHost::apps`. The
+/// calling app is the host's own, so no caller identity crosses this boundary.
+#[op2]
+#[string]
+async fn op_ctx_apps(
+    state: Rc<RefCell<OpState>>,
+    #[string] op: String,
+    #[string] payload_json: String,
+) -> Result<String, JsErrorBox> {
+    let host = host_sender(&state)?;
+    let payload = neutral::parse_payload(&payload_json);
+    Ok(host
+        .call("ctx.apps", |reply| HostCall::Apps { op, payload, reply })
+        .await?)
+}
+
 /// `ctx.secrets.set(key, value)` — bridge to `FunctionHost::secrets_set`.
 #[op2]
 #[string]
@@ -408,6 +424,7 @@ deno_core::extension!(
         op_ctx_oltp,
         op_ctx_airhouse,
         op_ctx_events,
+        op_ctx_apps,
         op_ctx_hmac,
         op_ctx_verify_hmac,
         op_ctx_timing_safe_equal,

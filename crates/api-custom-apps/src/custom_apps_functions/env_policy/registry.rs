@@ -257,6 +257,20 @@ host_ops! {
         family: Tx("publish"), capability: Events, staging: Staged::ByHome(Plane::Oltp),
         holds: HoldBy::Host,
     },
+    /// Runs another app's function in the caller's own environment: the
+    /// callee's build, secrets and environment policy decide what its side
+    /// effects do (`host/apps_op.rs`), so the call itself is allowed
+    /// everywhere. It refuses when the target has no build in the environment.
+    AppsCall = "apps.call" {
+        family: Apps("call"), capability: Calls, staging: ALLOW,
+        holds: by_not_running("apps", "CALL"),
+    },
+    /// Queues the call as a directed event in the environment's outbox, which
+    /// lands where `events.publish` does.
+    AppsSend = "apps.send" {
+        family: Apps("send"), capability: Calls, staging: Staged::ByHome(Plane::Oltp),
+        holds: HoldBy::Host,
+    },
     /// `ctx.tables.changes(event)`: the rows a table event's snapshot changed,
     /// read from Airhouse as the platform. Writes nothing, and answers only
     /// for the event that started this run, so every environment allows it.

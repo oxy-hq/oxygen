@@ -30,7 +30,10 @@ export default defineConfig({
     // `@oxy-hq/sdk/events` — `onEvent` and `NonRetryableError` for an event
     // listener function. Pure TS, no React; its own entry so a listener
     // bundle carries nothing else.
-    events: "src/events/index.ts"
+    events: "src/events/index.ts",
+    // `@oxy-hq/sdk/apps` — `AppCallError` and `isAppCallError` for a function
+    // that calls another app. Pure TS, no React.
+    apps: "src/apps/index.ts"
   },
   format: ["cjs", "esm"],
   dts: true,

@@ -104,8 +104,13 @@ pub struct InvocationSummary {
     pub id: Uuid,
     pub function_name: String,
     /// `"route"` (HTTP) | `"schedule"` (cron fire) | `"manual"` (run-now / API
-    /// job) | `"airway"`.
+    /// job) | `"webhook"` | `"event"` | `"call"` (another app's
+    /// `ctx.apps.call`, or a `ctx.apps.send` delivered) | `"airway"`.
     pub mode: String,
+    /// The invocation that made this one: the caller's, for mode `call`.
+    /// Absent for every other run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_invocation_id: Option<Uuid>,
     /// The app environment it ran in: `production`, `staging` or `dev-<handle>`.
     pub environment: String,
     /// The publish's build id of the build that ran. `None` only if the build
@@ -296,6 +301,7 @@ pub(crate) fn summary(
         id: row.id,
         function_name: row.function_name,
         mode: row.mode,
+        parent_invocation_id: row.parent_invocation_id,
         environment: row.environment,
         build_id: build_label,
         build_uuid: row.build_id,

@@ -290,6 +290,47 @@ export interface OxyEventsApi {
   ): Promise<{ eventId: string }>;
 }
 
+/** `ctx.apps` — call or message a `callable` function of another app. */
+export interface OxyAppsApi {
+  /**
+   * Call `fn` of app `app` and wait for its JSON answer. The pair must be
+   * listed in `oxy-app.json`'s top-level `calls`. Runs the target's build in
+   * this environment (production calls production, staging calls staging, a
+   * sandbox the target's same sandbox). Throws `AppCallError`
+   * (`@oxy-hq/sdk/apps`) on failure. `timeoutMs` caps the wait; the callee's
+   * budget is the smaller of it, the callee function's own timeout and this
+   * invocation's remaining time.
+   */
+  call<T = unknown>(
+    app: string,
+    fn: string,
+    body?: unknown,
+    opts?: { timeoutMs?: number }
+  ): Promise<T>;
+  /**
+   * Fire and forget: queue a call to `fn` of `app` and return at once.
+   * `key` makes a repeated send the same one; `delaySeconds` holds it back.
+   */
+  send(
+    app: string,
+    fn: string,
+    body?: unknown,
+    opts?: { delaySeconds?: number; key?: string }
+  ): Promise<{ eventId: string }>;
+}
+
+/** Who started this invocation, on `ctx.caller`, when another app's call or send did. */
+export interface OxyCallerInfo {
+  /** The calling app's slug. */
+  app: string;
+  /** The calling function's name. */
+  function: string;
+  /** The calling invocation's id. */
+  invocationId: string;
+  /** The caller's verified actor, for attribution only (never authorization). */
+  actor: string | null;
+}
+
 /**
  * What a table event's `data` holds: one DuckLake snapshot that inserted into
  * or deleted from the watched table. `inserted` and `deleted` are row-image
@@ -1387,6 +1428,20 @@ export interface OxyFunctionContext {
   tables: OxyTablesApi;
   /** Delivery facts; set only when this run handles an event. */
   delivery?: OxyDeliveryInfo;
+  /**
+   * **App calls.** Call or message a `callable` function of another app. Gated
+   * by the top-level `calls` in `oxy-app.json`. See {@link OxyAppsApi}.
+   */
+  apps: OxyAppsApi;
+  /**
+   * `null` unless another app's `ctx.apps.call` / `send` started this
+   * invocation. A `call` made by a person runs as that person (`ctx.user` is
+   * them, after the platform checked they may open the target app); a call
+   * from a background run, and every delivered `send`, runs as the system
+   * identity. `caller` is for attribution only: `actor` is the person behind a
+   * call, and absent on a delivered `send`, whose sender's claim is unverified.
+   */
+  caller: OxyCallerInfo | null;
 }
 
 /** Signature of a function's default export: `export default async (req, ctx) => Response`. */

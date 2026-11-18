@@ -89,6 +89,12 @@ export interface OxyAppFunctionManifest {
    * invocation surface.
    */
   on?: string | OxyAppTableWatch | Array<string | OxyAppTableWatch>;
+  /**
+   * Let other apps call this function (`ctx.apps.call` / `ctx.apps.send`). The
+   * caller must also name it under its own top-level `calls`. Default false.
+   * Nothing else about the function changes: it is an ordinary function.
+   */
+  callable?: boolean;
   /** App events this function may publish (`ctx.events.publish`). */
   events?: OxyAppFunctionEventsManifest;
   /**
@@ -584,6 +590,14 @@ export interface OxyAppManifest {
    * under `events.publish`; other apps' functions subscribe with `on`.
    */
   events?: Record<string, OxyAppEventDeclaration>;
+  /**
+   * The functions of other apps this app's functions may call, keyed by the
+   * callee's app slug: `{ "locations": ["lookup"] }`. A function can use
+   * `ctx.apps.call` / `ctx.apps.send` only on a listed pair. Each value is a
+   * non-empty list of function names with no duplicates; at most 64 (app,
+   * function) pairs in total. The callee must mark the function `callable`.
+   */
+  calls?: Record<string, string[]>;
   /**
    * Schema migrations for the app's OLTP store (`ctx.oltp`) that ship WITH this
    * bundle and run on promote.

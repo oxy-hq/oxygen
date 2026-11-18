@@ -76,6 +76,8 @@ export const HOST_OPS = [
   "platform.facts",
   "events.publish",
   "tx.publish",
+  "apps.call",
+  "apps.send",
   "events.changes"
 ] as const;
 
@@ -106,7 +108,8 @@ export const SURFACES = {
   platformFacts: "ctx.platform.facts",
   semanticQuery: "ctx.semantic.query",
   airwayRun: "ctx.airway.run",
-  events: "ctx.events"
+  events: "ctx.events",
+  apps: "ctx.apps"
 } as const;
 
 /** One refusal the host writes: the file it is quoted from and its template. */
@@ -142,6 +145,20 @@ export const REFUSALS = {
     source: "host.rs",
     refusal:
       'EventsCapabilityMissing: this function has not declared the `events` capability (add "events": { "publish": ["<name>"] } to its oxy-app.json entry)'
+  },
+  appsCapability: {
+    source: "host/apps_op.rs",
+    refusal:
+      'AppsCapabilityMissing: this function has not declared the apps it calls (add "calls": { "<app>": ["<function>"] } to oxy-app.json)'
+  },
+  appCallUndeclared: {
+    source: "host/apps_op.rs",
+    refusal:
+      'AppCallRefused: oxy-app.json does not declare a call to {app}/{function} (add it under "calls")'
+  },
+  appCallNames: {
+    source: "host/apps_op.rs",
+    refusal: "AppCallRefused: `app` and `function` must be non-empty strings"
   },
   eventKeyInvalid: {
     source: "host/events_op.rs",
@@ -394,6 +411,11 @@ export const GATES = [
     hostField: "events",
     manifest: "events",
     ops: ["events.publish", "tx.publish"]
+  },
+  {
+    hostField: "calls",
+    manifest: "calls",
+    ops: ["apps.call", "apps.send"]
   },
   {
     hostField: "customer_warehouse_writes",

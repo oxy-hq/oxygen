@@ -104,7 +104,13 @@ export const InvocationRow = ({
             {iv.function_name ?? "—"}
           </span>
         )}
-        <span className='w-16 shrink-0 text-muted-foreground'>{iv.mode}</span>
+        <span
+          className='w-16 shrink-0 text-muted-foreground'
+          title={iv.parent_invocation_id ? `called by ${iv.parent_invocation_id}` : undefined}
+          data-testid='admin-app-invocation-mode'
+        >
+          {iv.mode}
+        </span>
         <span className='w-14 shrink-0 text-muted-foreground'>
           {iv.duration_ms != null ? formatMs(iv.duration_ms) : "—"}
         </span>

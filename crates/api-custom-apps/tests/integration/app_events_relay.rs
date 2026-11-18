@@ -437,6 +437,7 @@ impl Relay {
             schema_revision_id: None,
             delay_seconds: 0,
             relay_error: None,
+            directed: None,
             only_listener: None,
         }
     }

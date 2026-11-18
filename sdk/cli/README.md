@@ -1413,6 +1413,8 @@ oxyc fn run <app> <function> [--app-env <name>] [--as-schedule] [--data …] [--
 oxyc checks run <app> --app-env <name>       # see "Checks" above
 
 oxyc invocations list <app> [--app-env] [--build] [--function] [--limit]
+                                             # an invocation another app's call started (mode `call`)
+                                             # prints `parent <id>`; --json carries `parent_invocation_id`
 oxyc invocations held <app> <invocation-id>
 oxyc logs <app> [--app-env] [--invocation] [--request] [--hours] [--limit]
 oxyc logs <app> [--app-env <name>] --follow [--timeout <seconds>] [--json]

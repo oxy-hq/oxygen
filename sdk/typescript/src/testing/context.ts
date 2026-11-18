@@ -15,6 +15,7 @@ import * as nodeCryptoImport from "node:crypto";
 import type {
   NotifyResult,
   NotifyTarget,
+  OxyCallerInfo,
   OxyFunctionApp,
   OxyFunctionContext,
   OxyFunctionRow,
@@ -26,6 +27,15 @@ import type {
   OxyPlatformFacts
 } from "../custom-app/function-context";
 import { checkNotifications } from "../custom-app/notification-catalog";
+import {
+  callerFrom,
+  checkAppCall,
+  createTestApps,
+  recordSend,
+  runAppCall,
+  type TestAppHandler,
+  type TestApps
+} from "./apps";
 import { createTestEvents, eventId, recordPublish, type TestEvents } from "./events";
 import { isSafeOutbound } from "./fetch-rules";
 import { type FunctionGates, MAX_SCHEMA_NAME_LEN, type ManifestLike, readGates } from "./gates";
@@ -104,6 +114,14 @@ export interface TestContextOptions {
    */
   events?: TestEvents;
   /**
+   * Handlers for `ctx.apps.call`, keyed `"<app>/<function>"`. A pair with no
+   * handler throws `AppCallError` kind `not_found`. The manifest's top-level
+   * `calls` still has to declare the pair, as the host requires.
+   */
+  apps?: Record<string, TestAppHandler>;
+  /** `ctx.caller`; `null` (not called by another app) when omitted. */
+  caller?: OxyCallerInfo | null;
+  /**
    * What `ctx.tables.changes(event)` answers, by event id: the rows that
    * event's snapshot changed. An event with no entry has no rows.
    */
@@ -167,6 +185,8 @@ export interface TestState {
   readonly semantic: { on(answer: (spec: Record<string, unknown>) => unknown): void };
   /** Every publish that took effect (a rolled-back transaction's are absent). */
   readonly events: TestEvents;
+  /** Every `ctx.apps.send` that took effect (recorded, never delivered). */
+  readonly apps: TestApps;
   readonly airway: { runs: { pipelineRef: string; variables: unknown }[] };
 }
 
@@ -278,7 +298,8 @@ export function createTestContext(
       }
     },
     airway: { runs: [] },
-    events: options.events ?? createTestEvents()
+    events: options.events ?? createTestEvents(),
+    apps: createTestApps()
   };
 
   const notifyKeys = new Map<string, NotifyResult>();
@@ -720,6 +741,29 @@ export function createTestContext(
           (a) => publishImpl(a, (e) => recordPublish(state.events, e))
         ) as Promise<{ eventId: string }>
     },
+    apps: {
+      call: (async (app: string, fn: string, body?: unknown, opts?: { timeoutMs?: number }) =>
+        op("apps.call", { app, function: fn, body, timeoutMs: opts?.timeoutMs }, async () => {
+          const [a, f] = checkAppCall(gates, app, fn);
+          return runAppCall(options.apps ?? {}, a, f, body, opts);
+        })) as OxyFunctionContext["apps"]["call"],
+      send: (app, fn, body, opts) =>
+        op(
+          "apps.send",
+          { app, function: fn, body, key: opts?.key, delaySeconds: opts?.delaySeconds },
+          () => {
+            const [a, f] = checkAppCall(gates, app, fn);
+            return recordSend(state.apps, ctx.user.orgId, ctx.environment, {
+              app: a,
+              function: f,
+              body: body === undefined ? null : body,
+              key: opts?.key ?? null,
+              delaySeconds: opts?.delaySeconds ?? 0
+            });
+          }
+        ) as Promise<{ eventId: string }>
+    },
+    caller: callerFrom(options.caller),
     tables: {
       changes: (event, opts) =>
         op(

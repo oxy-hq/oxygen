@@ -97,6 +97,8 @@ export type HostOp =
   | "platform.facts"
   | "events.publish"
   | "tx.publish"
+  | "apps.call"
+  | "apps.send"
   | "events.changes";
 
 /**

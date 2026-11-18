@@ -62,12 +62,13 @@ const fn read_isolated(op: HostOp) -> Row {
 
 /// Every op on the OLTP plane: what an env branch or a sandbox schema isolates
 /// and an unready home refuses.
-pub(super) const OLTP_PLANE_OPS: [HostOp; 5] = [
+pub(super) const OLTP_PLANE_OPS: [HostOp; 6] = [
     HostOp::TxBeginOltp,
     HostOp::OltpQuery,
     HostOp::OltpExec,
     HostOp::EventsPublish,
     HostOp::TxPublish,
+    HostOp::AppsSend,
 ];
 
 const ROWS: &[Row] = &[
@@ -110,6 +111,8 @@ const ROWS: &[Row] = &[
     read(HostOp::PlatformFacts),
     write(HostOp::EventsPublish, HOLD),
     write(HostOp::TxPublish, HOLD),
+    read(HostOp::AppsCall),
+    write(HostOp::AppsSend, HOLD),
     read(HostOp::EventsChanges),
 ];
 

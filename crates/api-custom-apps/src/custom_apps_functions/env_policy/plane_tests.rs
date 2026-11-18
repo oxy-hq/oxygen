@@ -56,6 +56,8 @@ fn non_production_allow_is_reads_only() {
         .map(|op| op.name())
         .collect();
     let expected: BTreeSet<&str> = [
+        // The callee's own environment decides what its side effects do.
+        "apps.call",
         "query",
         "query_stream",
         "semantic.query",

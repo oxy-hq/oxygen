@@ -26,6 +26,12 @@ export {
 // Home widgets' publish checks, for the same kind of test.
 export { checkWidgets, type WidgetFinding } from "../custom-app/widgets";
 export {
+  createTestApps,
+  type SentAppCall,
+  type TestAppHandler,
+  type TestApps
+} from "./apps";
+export {
   createTestContext,
   type HostCall,
   type HostOpImpl,

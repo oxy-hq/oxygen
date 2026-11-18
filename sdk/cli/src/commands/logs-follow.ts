@@ -127,7 +127,10 @@ function printHuman(name: string, data: Record<string, unknown>): void {
       );
       return;
     case "start":
-      process.stdout.write(`>> ${fn} started (${text(data.mode)}) ${inv}\n`);
+      // `mode` is `call` when another app's call started it, and then names its parent.
+      process.stdout.write(
+        `>> ${fn} started (${text(data.mode)}) ${inv}${data.parent_invocation_id ? ` parent ${text(data.parent_invocation_id)}` : ""}\n`
+      );
       return;
     case "finish": {
       const how = `${text(data.status)} ${text(data.http_status)} in ${text(data.duration_ms)}ms`;

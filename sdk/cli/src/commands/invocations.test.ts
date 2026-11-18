@@ -154,6 +154,39 @@ describe("runInvocationsList", () => {
     expect(printed.trim().split(/\s+/)).toEqual([ROW.id, "submit-order", "dev-a1", "success"]);
   });
 
+  it("adds parent <id> to a row another app's call started, and only then", async () => {
+    const called = { ...ROW, id: "inv-called", mode: "call", parent_invocation_id: "inv-parent" };
+    const orphan = { ...ROW, id: "inv-top", parent_invocation_id: null };
+    stubFetch(
+      {
+        "GET /api/customer-apps/acme/store/invocations": () => ({
+          status: 200,
+          body: { invocations: [called, orphan] }
+        })
+      },
+      calls
+    );
+    let printed = "";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      printed += String(chunk);
+      return true;
+    });
+
+    await runInvocationsList(fakeContext({ bearer: "tok" }), "acme/store", { json: false });
+    write.mockRestore();
+
+    const [first, second] = printed.trim().split("\n");
+    expect(first?.trim().split(/\s+/)).toEqual([
+      "inv-called",
+      "submit-order",
+      "dev-a1",
+      "success",
+      "parent",
+      "inv-parent"
+    ]);
+    expect(second).not.toContain("parent");
+  });
+
   it("builds ?function=&environment=&build=&limit= in that order", async () => {
     stubFetch(
       {

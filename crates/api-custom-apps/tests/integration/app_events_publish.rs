@@ -73,6 +73,7 @@ const RUN = {
     if (s.throwAfter) throw new Error("the handler threw after publishing");
     return published;
   }),
+  appsSend: (ctx, s) => ctx.apps.send(s.app, s.fn, s.body, s.opts),
   oltpExec: (ctx, s) => ctx.oltp.exec(s.sql),
   oltpQuery: (ctx, s) => ctx.oltp.query(s.sql),
   txExec: (ctx, s) => ctx.oltp.tx((tx) => tx.exec(s.sql)),
@@ -102,8 +103,14 @@ fn schema() -> Value {
 
 /// The app's `events` catalogue: [`EVENT`] only.
 fn catalog() -> Value {
-    json!({ "events": { EVENT: { "schema": schema() } } })
+    json!({
+        "events": { EVENT: { "schema": schema() } },
+        "calls": { CALLEE: ["handle"] },
+    })
 }
+
+/// The app the driver sends to: callable, so only the environment decides.
+const CALLEE: &str = "send-callee";
 
 fn drive() -> FunctionSpec {
     FunctionSpec {
@@ -179,6 +186,19 @@ impl Publisher {
         let workspace = compile(&t, root.path()).await;
         let store = AppStore::new(&t, &slug).await;
         let app_id = publish_app(&t, &slug, workspace).await;
+        crate::app_events_delivery::publish_app(
+            &t,
+            CALLEE,
+            workspace,
+            "1",
+            &[FunctionSpec {
+                name: "handle",
+                manifest: json!({ "callable": true }),
+                js: "export default async () => Response.json({ ok: true });",
+            }],
+            json!({}),
+        )
+        .await;
         Self {
             t,
             slug,
@@ -1489,6 +1509,62 @@ async fn a_staging_publish_lands_on_the_branch_and_never_in_production() {
         assert!(
             !may_publish(production).await,
             "never granted on production's store"
+        );
+    })
+    .await;
+}
+
+fn send_step() -> Value {
+    json!({ "kind": "appsSend", "app": CALLEE, "fn": "handle", "body": { "n": 1 }, "opts": { "key": "s1" } })
+}
+
+/// `ctx.apps.send` is held in staging with no OLTP branch exactly as a publish
+/// is: it writes nothing to production's store, lists itself in the held row
+/// and queues no relay.
+#[tokio::test]
+async fn a_staging_send_without_a_branch_is_held_and_writes_nothing() {
+    with_publisher(Publisher::new, |p| async move {
+        make_guest_staff();
+        let host = staging_host(&p.t, &p.slug);
+        let (out, channel) = p.drive_on(Some(&host), vec![send_step()]).await;
+        assert_eq!(channel, "staging");
+        let error = outcome(&out[0]).expect_err("held without a branch");
+        assert!(
+            host_message(&error).starts_with("HeldInStaging: "),
+            "{error}"
+        );
+        let rows = held_rows(&p.t).await;
+        assert_eq!(rows.len(), 1, "one held row per invocation");
+        assert!(held_ops(&rows[0]).iter().any(|op| op == "apps.send"));
+        assert!(p.outbox().await.is_empty(), "nothing in production's store");
+        assert!(p.relay_tasks().await.is_empty());
+    })
+    .await;
+}
+
+/// With the OLTP staging branch a staging send lands in the branch's outbox as
+/// a staging event, never in production's.
+#[tokio::test]
+async fn a_staging_send_lands_on_the_branch_and_never_in_production() {
+    with_publisher(Publisher::new, |p| async move {
+        make_guest_staff();
+        let branch = p.store.provision_branch().await;
+        let host = staging_host(&p.t, &p.slug);
+        let (out, _) = p.drive_on(Some(&host), vec![send_step()]).await;
+        outcome(&out[0]).expect("a staging send lands on the branch");
+        assert!(p.outbox().await.is_empty(), "nothing in production's store");
+        let admin = crate::common::admin_url().await;
+        let on_branch = connect(&on_database(&admin, &branch.database_name)).await;
+        let rows = on_branch
+            .query("SELECT environment, name FROM oxy_events.outbox", &[])
+            .await
+            .expect("read the branch's outbox");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get::<_, String>(0), "staging");
+        assert!(
+            rows[0]
+                .get::<_, String>(1)
+                .starts_with("call:send-callee:handle:")
         );
     })
     .await;

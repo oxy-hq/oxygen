@@ -177,11 +177,11 @@ pub(crate) async fn run_delivery(
 /// declares [`EVENT`].
 pub(crate) struct Fx {
     pub(crate) t: Tenant,
-    workspace: Uuid,
+    pub(crate) workspace: Uuid,
     publisher: Uuid,
     publisher_slug: String,
-    store: AppStore,
-    tag: String,
+    pub(crate) store: AppStore,
+    pub(crate) tag: String,
     _root: tempfile::TempDir,
 }
 
@@ -349,7 +349,7 @@ impl Fx {
     /// What a [`Self::reporting_listener`] published, by key: the bodies of
     /// the outbox rows still waiting for a relay, read back from the org's
     /// store (the events this test relayed are no longer waiting).
-    async fn reported(&self) -> BTreeMap<String, Value> {
+    pub(crate) async fn reported(&self) -> BTreeMap<String, Value> {
         let db = &self.t.db;
         let claim = outbox::claim(db, self.t.org_id, &OutboxTarget::Production, 100)
             .await
@@ -426,7 +426,7 @@ impl Fx {
     }
 
     /// The delivery's queued task, by its `run_id`: what a worker claims.
-    async fn task(&self, delivery: &deliveries::Model) -> (TaskSpec, Value) {
+    pub(crate) async fn task(&self, delivery: &deliveries::Model) -> (TaskSpec, Value) {
         let run_id = delivery.run_id.clone().expect("a pending delivery's run");
         let row = self
             .t
@@ -529,7 +529,7 @@ async fn connect(dsn: &str) -> tokio_postgres::Client {
 
 /// Publish `functions` (and the manifest keys in `extra`) as build `build` of
 /// `slug` in `workspace`, promoted.
-async fn publish_app(
+pub(crate) async fn publish_app(
     t: &Tenant,
     slug: &str,
     workspace: Uuid,

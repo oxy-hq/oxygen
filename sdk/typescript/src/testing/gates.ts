@@ -15,6 +15,8 @@ export interface ManifestLike {
   functions?: Record<string, Record<string, unknown> | undefined>;
   /** The notification catalogue; `createTestContext` refuses one publish would. */
   notifications?: unknown;
+  /** The apps this app's functions may call: app slug -> function names. */
+  calls?: Record<string, unknown>;
 }
 
 /** `FunctionCapabilities` for one function, plus its write allowlist. */
@@ -42,6 +44,12 @@ export interface FunctionGates {
    * when it declares none, which is what the host refuses `ctx.events` for.
    */
   events: Set<string> | null;
+  /**
+   * `calls`: the `"<app>/<function>"` pairs the manifest declares, for every
+   * function of the app; `null` when it declares none, which is what the host
+   * refuses `ctx.apps` for.
+   */
+  calls: Set<string> | null;
   /** `destinations`: the databases `ctx.warehouse` writes and `ctx.tx` may name. */
   destinations: string[];
   /** `customerWarehouseWrites`: database → the non-blank reason, blank ones dropped. */
@@ -104,6 +112,17 @@ function events(spec: Record<string, unknown>): Set<string> | null {
   return names.length > 0 ? new Set(names) : null;
 }
 
+/** `calls` in `host.rs`: `null` unless the top-level `calls` names at least one pair. */
+function calls(manifest: ManifestLike): Set<string> | null {
+  if (!isObject(manifest.calls)) return null;
+  const pairs = new Set<string>();
+  for (const [app, fns] of Object.entries(manifest.calls)) {
+    if (!Array.isArray(fns)) continue;
+    for (const fn of fns) if (typeof fn === "string") pairs.add(`${app}/${fn}`);
+  }
+  return pairs.size > 0 ? pairs : null;
+}
+
 /** Read the gates for `functionName` from `manifest`, or throw naming what is missing. */
 export function readGates(manifest: ManifestLike, functionName: string): FunctionGates {
   const spec = manifest.functions?.[functionName];
@@ -138,6 +157,7 @@ export function readGates(manifest: ManifestLike, functionName: string): Functio
     oltp: flag(spec, "oltp", "enabled"),
     airhouse: flag(spec, "airhouse", "enabled"),
     events: events(spec),
+    calls: calls(manifest),
     destinations,
     customerWarehouseWrites,
     fetchMaxBytes: typeof fetch.maxResponseBytes === "number" ? fetch.maxResponseBytes : null

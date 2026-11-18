@@ -12,7 +12,8 @@ pub struct Model {
     pub app_id: Uuid,
     pub build_id: Uuid,
     pub function_name: String,
-    /// `"route"` | `"schedule"` | `"airway"`.
+    /// `"route"` | `"schedule"` | `"airway"` | `"manual"` | `"webhook"` |
+    /// `"event"` | `"call"`.
     pub mode: String,
     /// `None` for system (schedule/airway) invocations.
     pub user_id: Option<Uuid>,

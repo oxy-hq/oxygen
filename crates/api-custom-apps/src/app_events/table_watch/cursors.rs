@@ -155,7 +155,8 @@ pub async fn record_check(
         DatabaseBackend::Postgres,
         "UPDATE app_event_table_cursors \
             SET head_snapshot = $2, watched_schema = $3, table_columns = $4, state = $5, \
-                table_id = COALESCE(table_id, $7), state_detail = $6, checked_at = now(), updated_at = now() \
+                table_id = CASE WHEN watched_schema IS DISTINCT FROM $3 THEN $7 \
+                                ELSE COALESCE(table_id, $7) END, state_detail = $6, checked_at = now(), updated_at = now() \
           WHERE id = $1",
         [
             id.into(),

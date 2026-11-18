@@ -56,6 +56,7 @@ pub(super) async fn inflate(
     let catalogue_warnings = check_notification_catalogue(manifest_json.as_ref())?;
     check_widgets(manifest_json.as_ref())?;
     check_events(manifest_json.as_ref())?;
+    super::calls::check(manifest_json.as_ref(), &fn_specs)?;
     check_table_watches(manifest_json.as_ref())?;
     // A `shared` env key falls back to production's value outside production,
     // so it may not be one an environment must hold its own of.

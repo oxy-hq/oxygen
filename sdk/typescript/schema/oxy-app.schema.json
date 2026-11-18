@@ -80,6 +80,21 @@
           },
           "description": "The events this app publishes, keyed by event name — dot-separated lowercase (`statement.uploaded`). Functions list the ones they may publish under `events.publish`; other apps' functions subscribe with `on`."
         },
+        "calls": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,63}$"
+            }
+          },
+          "description": "The functions of other apps this app's functions may call, keyed by the callee's app slug: `{ \"locations\": [\"lookup\"] }`. A function can use `ctx.apps.call` / `ctx.apps.send` only on a listed pair. Each value is a non-empty list of function names with no duplicates; at most 64 (app, function) pairs in total. The callee must mark the function `callable`.",
+          "propertyNames": {
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "maxLength": 63
+          }
+        },
         "migrations": {
           "$ref": "#/definitions/OxyAppMigrationsManifest",
           "description": "Schema migrations for the app's OLTP store (`ctx.oltp`) that ship WITH this bundle and run on promote.\n\n`dir` is a directory inside the built bundle holding numbered `.sql` files. The platform runs them in lexical order, **once each, ever**, inside a transaction, as the app's own writer role, and records each one.\n\nWhat changes for the author: you no longer write defensive `IF NOT EXISTS` / idempotent upserts, because re-running is a no-op by construction rather than by your care. And you **may not edit, rename or copy a migration that has already run** — all three fail the promote by name, and the fix is always a new file.\n\nThe `.sql` files are ordinary bundle files, fetchable over the app's own host: put no secrets in them."
@@ -209,6 +224,10 @@
             }
           ],
           "description": "App events this function runs on: one `<app-slug>/<event-name>` or a list. `<app-slug>` is the publishing app (this app's own slug for its own events); `<event-name>` is dot-separated lowercase, e.g. `statements/statement.uploaded`. A `{ table }` entry runs the function when an Airhouse table changes (see  {@link  OxyAppTableWatch } ). Counts as an invocation surface."
+        },
+        "callable": {
+          "type": "boolean",
+          "description": "Let other apps call this function (`ctx.apps.call` / `ctx.apps.send`). The caller must also name it under its own top-level `calls`. Default false. Nothing else about the function changes: it is an ordinary function."
         },
         "events": {
           "$ref": "#/definitions/OxyAppFunctionEventsManifest",

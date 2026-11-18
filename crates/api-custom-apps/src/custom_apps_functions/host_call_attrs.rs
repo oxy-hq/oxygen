@@ -404,6 +404,17 @@ const CALLER_ERROR_LABELS: &[&str] = &[
     // default): the reply tells the function, and a switch that is off on
     // purpose pages nobody. Refused before anything is written.
     "EventsNotEnabled",
+    // `ctx.apps.call` / `ctx.apps.send` (`host/apps_op.rs`): each says what to
+    // change, or is the callee's own failure, which the callee's invocation
+    // reports on its own account. A busy pool is the shed counter's to report.
+    "AppCallRefused",
+    "AppCallNotFound",
+    "AppCallNotCallable",
+    "AppCallNotDeployed",
+    "AppCallTimeout",
+    "AppCallFailed",
+    "AppCallBusy",
+    "AppCallDepthExceeded",
     // `ctx.tables.changes` from a run no table change started, or for another
     // event than the one that did (`host/table_ops.rs`): the function's own
     // call, the same on every attempt.
@@ -454,6 +465,7 @@ const PLATFORM_ERROR_LABELS: &[&str] = &[
     "AirhouseCapabilityMissing",
     "EmailCapabilityMissing",
     "EventsCapabilityMissing",
+    "AppsCapabilityMissing",
     "OltpCapabilityMissing",
     "OrgCapabilityMissing",
     "PlatformCapabilityMissing",
@@ -1007,6 +1019,8 @@ mod tests {
             "../app-core/src/emails",
             "src/custom_apps_functions/host.rs",
             "src/custom_apps_functions/host",
+            // App-call errors: their labels are written with the kinds.
+            "../custom-apps/src/calls.rs",
             // The storage module moved down with the serving lift.
             "../custom-apps/src/storage",
             // The notifications surface moved out of `oxy-app`.

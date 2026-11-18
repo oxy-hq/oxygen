@@ -30,6 +30,7 @@ pub enum Family {
     Org,
     Platform,
     Events,
+    Apps,
 }
 
 impl Family {
@@ -51,6 +52,7 @@ impl Family {
         Family::Org,
         Family::Platform,
         Family::Events,
+        Family::Apps,
     ];
 
     /// The family's wire name: the head of each of its ops' names.
@@ -72,6 +74,7 @@ impl Family {
             Family::Org => "org",
             Family::Platform => "platform",
             Family::Events => "events",
+            Family::Apps => "apps",
         }
     }
 
@@ -90,6 +93,7 @@ impl Family {
             Family::Airhouse => "airhouse.other",
             Family::Storage => "storage.other",
             Family::Events => "events.other",
+            Family::Apps => "apps.other",
             _ => "other",
         }
     }
@@ -134,6 +138,9 @@ pub enum Capability {
     Airhouse,
     /// `events.publish` — the bare event names the function may publish.
     Events,
+    /// `calls` — the (app, function) pairs the manifest declares under its
+    /// top-level `calls`; `ctx.apps.call` and `ctx.apps.send`.
+    Calls,
     /// A customer-warehouse write: gated per database the call names
     /// (`destinations` and `customerWarehouseWrites`), by the host's
     /// `check_write_destination`, never at the op level — so the broker
@@ -158,6 +165,7 @@ impl Capability {
             Capability::Oltp => Some("oltp"),
             Capability::Airhouse => Some("airhouse"),
             Capability::Events => Some("events"),
+            Capability::Calls => Some("calls"),
             Capability::WarehouseWrite => Some("customer_warehouse_writes"),
         }
     }

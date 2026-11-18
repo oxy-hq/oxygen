@@ -7,6 +7,7 @@
 
 pub mod api;
 pub mod deliveries;
+pub mod directed;
 pub mod envelope;
 pub mod gate;
 pub mod marks;

@@ -145,9 +145,11 @@ impl TableReader for Fake {
     }
     async fn table_id(&self, _: Uuid, schema: &str, table: &str) -> Result<Option<i64>, ReadError> {
         let w = self.0.lock().unwrap();
+        // An environment's own copy is another table, with an id of its own.
+        let copy = if schema.contains("__") { 100 } else { 0 };
         Ok(w.columns
             .contains_key(&format!("{schema}.{table}"))
-            .then_some(w.table_id))
+            .then_some(w.table_id + copy))
     }
     async fn change_page(
         &self,
@@ -1033,6 +1035,103 @@ async fn events_of_orgs_with_the_flag_off_never_stall_the_mirror_for_the_others(
         assert_eq!(
             copied, want,
             "the enabled org's events, behind 450 of another's"
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn the_environments_own_copy_appearing_is_not_a_replaced_table() {
+    with_tw(|tw| async move {
+        let table = format!("app_{}.lines", tw.slug.replace('-', "_"));
+        let schema = table.split('.').next().unwrap().to_string();
+        let fake = world(|w| {
+            w.changed = Vec::new();
+            w.table_id = 3;
+            w.columns.insert(format!("{schema}.lines"), cols(&[("id", "INTEGER")]));
+        });
+        let app = tw
+            .watcher(&format!("{}-a", tw.slug), json!({ "table": table }), ECHO_JS, json!({}))
+            .await;
+        sea_orm::ConnectionTrait::execute_unprepared(
+            &tw.t.db,
+            &format!("UPDATE app_environments SET events_enabled = true WHERE app_id = '{app}' AND name = 'staging'"),
+        )
+        .await
+        .expect("switch on");
+        // Placed, reading production's table (id 3).
+        track_once(&tw.t.db, tw.org(), "staging").await.expect("place");
+        track_once(&tw.t.db, tw.org(), "staging").await.expect("pass");
+        assert_eq!(tw.cursor("staging").await.table_id, Some(3));
+        // The environment's own copy appears: another table, another id.
+        fake.0
+            .lock()
+            .unwrap()
+            .columns
+            .insert(format!("{schema}__staging.lines"), cols(&[("id", "INTEGER")]));
+        track_once(&tw.t.db, tw.org(), "staging").await.expect("pass");
+        let cursor = tw.cursor("staging").await;
+        assert_eq!(cursor.state, "active", "{:?}", cursor.state_detail);
+        assert_eq!(cursor.table_id, Some(103), "the copy's id is the new baseline");
+        // A replace of the copy itself is still a break.
+        fake.0.lock().unwrap().table_id = 4;
+        track_once(&tw.t.db, tw.org(), "staging").await.expect("pass");
+        assert_eq!(tw.cursor("staging").await.state, BROKEN);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn more_events_of_flag_off_orgs_than_a_pass_reads_never_stall_the_mirror() {
+    with_tw(|tw| async move {
+        let _ = world(|_| {});
+        tw.watcher(&format!("{}-a", tw.slug), on_lines(), ECHO_JS, json!({}))
+            .await;
+        track_once(&tw.t.db, tw.org(), "production")
+            .await
+            .expect("pass");
+        let ids: Vec<Uuid> = tw.events(TYPE).await.into_iter().map(|e| e.id).collect();
+        // Far more than one pass reads (20 pages of 200) of an org with the
+        // flag off, all older than the enabled org's.
+        let other = Uuid::new_v4();
+        // The flag-off org owns an app, so it is listed and the flag decides.
+        crate::app_events_api::run_sql(
+            &tw.t.db,
+            "INSERT INTO organizations (id, name, slug) VALUES ($1, 'Off', 'off-' || substr($1::text, 1, 8))",
+            vec![other.into()],
+        )
+        .await;
+        crate::app_events_api::run_sql(
+            &tw.t.db,
+            "INSERT INTO apps SELECT (jsonb_populate_record(NULL::apps, to_jsonb(a) || \
+               jsonb_build_object('id', gen_random_uuid(), 'org_id', $1::uuid, \
+                                  'slug', 'off-' || substr($1::text, 1, 8)))).* \
+               FROM (SELECT * FROM apps WHERE org_id = $2 LIMIT 1) a",
+            vec![other.into(), tw.org().into()],
+        )
+        .await;
+        crate::app_events_api::run_sql(
+            &tw.t.db,
+            "INSERT INTO app_events (id, org_id, workspace_id, environment, source_app_id, type, \
+                key, data_bytes, writer_role, root_id, depth, published_at, relayed_at) \
+             SELECT gen_random_uuid(), $1, $1, 'production', NULL, 'x/y', 'k' || g, 2, 'w', \
+                gen_random_uuid(), 0, now() - interval '1 day', now() - interval '1 day' \
+               FROM generate_series(1, 4500) g",
+            vec![other.into()],
+        )
+        .await;
+        let log = Arc::new(RecordingLog(Mutex::new(Vec::new())));
+        oxy_api_custom_apps::app_events::mirror::install_log(log.clone());
+        oxy_api_custom_apps::app_events::mirror::mirror_once(&tw.t.db)
+            .await
+            .expect("mirror");
+        let mut copied = log.0.lock().unwrap().clone();
+        copied.sort();
+        let mut want = ids;
+        want.sort();
+        assert_eq!(
+            copied, want,
+            "the enabled org's events, behind 4,500 of another's"
         );
     })
     .await;

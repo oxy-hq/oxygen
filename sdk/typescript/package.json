@@ -49,6 +49,16 @@
         "default": "./dist/events.cjs"
       }
     },
+    "./apps": {
+      "import": {
+        "types": "./dist/apps.d.mts",
+        "default": "./dist/apps.mjs"
+      },
+      "require": {
+        "types": "./dist/apps.d.cts",
+        "default": "./dist/apps.cjs"
+      }
+    },
     "./theme.css": "./dist/theme.css",
     "./email": {
       "import": {

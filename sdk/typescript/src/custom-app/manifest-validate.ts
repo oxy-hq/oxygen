@@ -22,7 +22,13 @@
 // Nothing past ES2020.
 
 import { checkFunctionSchemas } from "./function-schema";
-import { FUNCTION_NAME_RULE, SLUG_RULE } from "./manifest-rules";
+import {
+  CALLS_MAX_PAIRS,
+  FUNCTION_NAME_RULE,
+  isValidFunctionName,
+  isValidSlug,
+  SLUG_RULE
+} from "./manifest-rules";
 import { type ManifestSchemaNode, OXY_APP_SCHEMA } from "./manifest-schema";
 import { checkNotifications } from "./notification-catalog";
 import { checkWidgets } from "./widgets";
@@ -111,7 +117,7 @@ export function validateOxyAppManifest(raw: unknown): ManifestIssue[] {
     });
   }
 
-  issues.push(...surfaceRule(raw), ...eventsRule(raw));
+  issues.push(...surfaceRule(raw), ...eventsRule(raw), ...callsRule(raw));
 
   // The catalogue's checks know more about `notifications` than the schema does
   // (which categories exist, which kinds a function sends), so where both speak
@@ -157,7 +163,7 @@ function dedupe(issues: ManifestIssue[]): ManifestIssue[] {
 }
 
 /**
- * At least one of `route` / `schedule` / `airwayStep` / `webhook` / `on` must be active
+ * At least one of `route` / `schedule` / `airwayStep` / `webhook` / `on` / `callable` must be active
  * — `route` defaults to true only when no other surface is declared. A function
  * nothing can invoke is a bundle entry the author forgot to wire.
  */
@@ -170,7 +176,8 @@ function surfaceRule(raw: Record<string, unknown>): ManifestIssue[] {
       fn.schedule !== undefined ||
       fn.airwayStep !== undefined ||
       fn.webhook !== undefined ||
-      fn.on !== undefined;
+      fn.on !== undefined ||
+      fn.callable === true;
     const route = typeof fn.route === "boolean" ? fn.route : !other;
     if (!route && !other) {
       out.push({
@@ -242,6 +249,62 @@ function eventsRule(raw: Record<string, unknown>): ManifestIssue[] {
         path: `functions.${name}.${at}`,
         message: `function ${JSON.stringify(name)} \`${at}\` ${JSON.stringify(entry)} must be <app-slug>/<event-name> and match ${ON_REF.source}`
       });
+    });
+  }
+  return out;
+}
+
+/**
+ * `calls`: app-slug keys, each a non-empty list of unique function names, at
+ * most `CALLS_MAX_PAIRS` pairs in total. Shape errors (a non-object `calls`,
+ * a non-array value) are the schema's; this skips what is not the right type.
+ */
+function callsRule(raw: Record<string, unknown>): ManifestIssue[] {
+  const out: ManifestIssue[] = [];
+  if (!isRecord(raw.calls)) return out;
+  let pairs = 0;
+  for (const [app, fns] of Object.entries(raw.calls)) {
+    if (!isValidSlug(app)) {
+      out.push({
+        level: "error",
+        path: `calls.${app}`,
+        message: `calls key ${JSON.stringify(app)} must be an app slug: ${SLUG_RULE}`
+      });
+    }
+    if (!Array.isArray(fns)) continue;
+    if (fns.length === 0) {
+      out.push({
+        level: "error",
+        path: `calls.${app}`,
+        message: `calls.${app} must list at least one function name`
+      });
+    }
+    const seen = new Set<string>();
+    fns.forEach((fn, i) => {
+      if (typeof fn !== "string") return;
+      pairs += 1;
+      if (!isValidFunctionName(fn)) {
+        out.push({
+          level: "error",
+          path: `calls.${app}.${i}`,
+          message: `function name ${JSON.stringify(fn)} in calls.${app} must be ${FUNCTION_NAME_RULE}`
+        });
+      }
+      if (seen.has(fn)) {
+        out.push({
+          level: "error",
+          path: `calls.${app}.${i}`,
+          message: `calls.${app} lists ${JSON.stringify(fn)} more than once`
+        });
+      }
+      seen.add(fn);
+    });
+  }
+  if (pairs > CALLS_MAX_PAIRS) {
+    out.push({
+      level: "error",
+      path: "calls",
+      message: `calls names ${pairs} (app, function) pairs; the most allowed is ${CALLS_MAX_PAIRS}`
     });
   }
   return out;

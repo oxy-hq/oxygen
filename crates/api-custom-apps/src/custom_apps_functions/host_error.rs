@@ -57,10 +57,12 @@ pub enum CapabilityArea {
     Oltp,
     Airhouse,
     Events,
+    /// `calls` — `ctx.apps.call` and `ctx.apps.send`.
+    Apps,
 }
 
 impl CapabilityArea {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Secrets,
         Self::Email,
         Self::Notify,
@@ -70,6 +72,7 @@ impl CapabilityArea {
         Self::Oltp,
         Self::Airhouse,
         Self::Events,
+        Self::Apps,
     ];
 
     /// The word before `CapabilityMissing`; `None` for the unlabelled gate.
@@ -84,6 +87,7 @@ impl CapabilityArea {
             Self::Oltp => Some("Oltp"),
             Self::Airhouse => Some("Airhouse"),
             Self::Events => Some("Events"),
+            Self::Apps => Some("Apps"),
         }
     }
 

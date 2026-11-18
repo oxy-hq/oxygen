@@ -47,35 +47,44 @@ pub(super) async fn run_in(
     // limit concurrency while still paying for every thread.
     let queued_at = std::time::Instant::now();
     let org_label = org_id.to_string();
-    let _admission = match super::super::limits::admit(org_id, &mut cancel).await {
-        Ok(permit) => {
-            oxy_telemetry::metrics::record::custom_app_admission_wait(
-                &org_label,
-                super::super::limits::elapsed_since(queued_at),
-            );
-            permit
-        }
-        // The caller left while queued. Nothing was refused and nobody is
-        // waiting for an answer, so this is a cancellation like any other —
-        // counting it as a shed would make the shed rate track how impatient
-        // users are rather than how loaded the fleet is.
-        Err(reason) if !reason.is_shed() => {
-            tracing::debug!(
-                target: "oxy.custom_app.admission",
-                queued_ms = queued_at.elapsed().as_millis() as u64,
-                "caller went away while queued for a concurrency permit"
-            );
-            return Err(RuntimeError::Cancelled);
-        }
-        Err(reason) => {
-            oxy_telemetry::metrics::record::custom_app_admission_shed(&org_label, reason.as_str());
-            tracing::warn!(
-                target: "oxy.custom_app.admission",
-                reason = reason.as_str(),
-                queued_ms = queued_at.elapsed().as_millis() as u64,
-                "shed a function invocation: no concurrency permit came free"
-            );
-            return Err(RuntimeError::Overloaded);
+    // A callee runs on its root's admission: its caller took it a nested
+    // permit, so it takes nothing here and never waits.
+    let _admission = if ctx.nested {
+        None
+    } else {
+        match super::super::limits::admit(org_id, &mut cancel).await {
+            Ok(permit) => {
+                oxy_telemetry::metrics::record::custom_app_admission_wait(
+                    &org_label,
+                    super::super::limits::elapsed_since(queued_at),
+                );
+                Some(permit)
+            }
+            // The caller left while queued. Nothing was refused and nobody is
+            // waiting for an answer, so this is a cancellation like any other —
+            // counting it as a shed would make the shed rate track how impatient
+            // users are rather than how loaded the fleet is.
+            Err(reason) if !reason.is_shed() => {
+                tracing::debug!(
+                    target: "oxy.custom_app.admission",
+                    queued_ms = queued_at.elapsed().as_millis() as u64,
+                    "caller went away while queued for a concurrency permit"
+                );
+                return Err(RuntimeError::Cancelled);
+            }
+            Err(reason) => {
+                oxy_telemetry::metrics::record::custom_app_admission_shed(
+                    &org_label,
+                    reason.as_str(),
+                );
+                tracing::warn!(
+                    target: "oxy.custom_app.admission",
+                    reason = reason.as_str(),
+                    queued_ms = queued_at.elapsed().as_millis() as u64,
+                    "shed a function invocation: no concurrency permit came free"
+                );
+                return Err(RuntimeError::Overloaded);
+            }
         }
     };
 

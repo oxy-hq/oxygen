@@ -33,11 +33,17 @@ impl HostOp {
         use HostOp::*;
         match self {
             Query | QueryStream | WarehouseQuery | OrgPeople | OrgPlaces | OrgAssignments
-            | PlatformFacts | EventsChanges => Plane::Reads,
+            | PlatformFacts => Plane::Reads,
+            // Not a read, but the call writes nothing itself: the callee runs under
+            // its own environment's policy (`host/apps_op.rs`).
+            AppsCall => Plane::Reads,
+            PlatformFacts | EventsChanges => Plane::Reads,
             SemanticQuery => Plane::Semantic,
             WarehouseInsert | WarehouseExec | WarehouseUpsert | TxBegin | TxQuery | TxExec
             | TxCommit | TxRollback => Plane::Warehouse,
-            TxBeginOltp | OltpQuery | OltpExec | EventsPublish | TxPublish => Plane::Oltp,
+            TxBeginOltp | OltpQuery | OltpExec | EventsPublish | TxPublish | AppsSend => {
+                Plane::Oltp
+            }
             AirhouseQuery | AirhouseExec | AirhouseAppend => Plane::Airhouse,
             StorageGetUploadUrl
             | StorageGetDownloadUrl

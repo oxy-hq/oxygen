@@ -247,6 +247,10 @@ async function completeChecklist(ctx, runId: string, storeGuid: string) {
 }
 ```
 
+## Asking another app
+
+To use another app's data or rule, call its function (`ctx.apps.call`) instead of copying its tables; both manifests declare it. See [references/app-calls.md](references/app-calls.md).
+
 ## React when a table changes
 
 A function can run when an Airhouse table changes, with no one calling it:
@@ -1021,5 +1025,6 @@ the sandbox with `--semantic-branch <branch>`, or set the planes above — see
 | [references/verifying-in-the-browser.md](references/verifying-in-the-browser.md) | You changed something a person sees (`src/**`, or a function a card calls) and need to prove it on the published page. |
 | [references/reading-data.md](references/reading-data.md) | You need a deployment's live data while building: an agent's own `--agent` token, `oxyc api` / `routes` / `schema`, and `oxyc proxy` for `pnpm dev` against cloud data. |
 | [references/performance-and-usage.md](references/performance-and-usage.md) | You write an Oxy Function, a bulk action, caching or idempotency keys — or need to know what Oxy does for load speed and usage tracking, and the opt-outs. |
+| [references/app-calls.md](references/app-calls.md) | One app needs another app's data or rule: `callable`, `calls`, `ctx.apps.call` / `send`, `ctx.caller`, `AppCallError`, the same-environment rule, limits and testing. |
 | [references/phone-layout.md](references/phone-layout.md) | A screen people open on a phone: when to build a phone view, the `usePhoneLayout()` pattern, what each desktop part becomes, and how to check it. |
 | [references/minimal-starter.md](references/minimal-starter.md) | You are writing an app by hand instead of scaffolding it, or need the smallest correct layout. |

@@ -348,6 +348,161 @@ pub fn elapsed_since(started: Instant) -> f64 {
     started.elapsed().as_secs_f64()
 }
 
+/// Nested-isolate ceiling per process: how many callee isolates may run at
+/// once, beside the roots `MAX_CONCURRENCY_ENV` bounds. Defaults to the root
+/// ceiling.
+pub const MAX_NESTED_ENV: &str = "OXY_FUNCTION_MAX_NESTED_CONCURRENCY";
+/// Nested-isolate ceiling per org, under the process one. Defaults to the org
+/// root ceiling.
+pub const MAX_ORG_NESTED_ENV: &str = "OXY_FUNCTION_MAX_ORG_NESTED_CONCURRENCY";
+/// Callee isolates in flight in one chain of calls.
+pub const MAX_CHAIN_IN_FLIGHT_ENV: &str = "OXY_FUNCTION_MAX_CHAIN_IN_FLIGHT";
+/// Callee isolates one chain may start in all.
+pub const MAX_CALLS_PER_CHAIN: usize = 32;
+const DEFAULT_CHAIN_IN_FLIGHT: usize = 4;
+
+/// Why a callee could not be given capacity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NestedRefusal {
+    /// The org's nested pool is full.
+    Org,
+    /// The process's nested pool is full.
+    Global,
+}
+
+/// Capacity of one callee isolate, held while it runs. A callee runs on its
+/// root's admission (the root holds the `Admission` for the whole chain), so it
+/// takes these instead: its own pools, which only callees draw on.
+pub struct NestedPermit {
+    _org: OwnedSemaphorePermit,
+    _global: OwnedSemaphorePermit,
+}
+
+impl std::fmt::Debug for NestedPermit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("NestedPermit")
+    }
+}
+
+fn nested_global_permits() -> usize {
+    match parse_env(MAX_NESTED_ENV, max_concurrency()) {
+        0 => Semaphore::MAX_PERMITS,
+        n => n,
+    }
+}
+
+fn nested_org_permits() -> usize {
+    match parse_env(MAX_ORG_NESTED_ENV, max_org_concurrency()) {
+        0 => Semaphore::MAX_PERMITS,
+        n => n.min(nested_global_permits()),
+    }
+}
+
+fn nested_global_semaphore() -> &'static Arc<Semaphore> {
+    static SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    SEM.get_or_init(|| Arc::new(Semaphore::new(nested_global_permits())))
+}
+
+fn nested_org_semaphore(org_id: Uuid) -> Arc<Semaphore> {
+    static ORGS: OnceLock<Mutex<HashMap<Uuid, Arc<Semaphore>>>> = OnceLock::new();
+    let map = ORGS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = map.lock().unwrap_or_else(|e| e.into_inner());
+    guard
+        .entry(org_id)
+        .or_insert_with(|| Arc::new(Semaphore::new(nested_org_permits())))
+        .clone()
+}
+
+/// Capacity for a callee that must not wait: a callee only ever waits for its
+/// own callee's completion, which its deadline bounds, so no wait here can
+/// close a cycle (the waits-for graph over permits has no edges).
+pub fn try_nested(org_id: Uuid) -> Result<NestedPermit, NestedRefusal> {
+    let org = nested_org_semaphore(org_id)
+        .try_acquire_owned()
+        .map_err(|_| NestedRefusal::Org)?;
+    let global = Arc::clone(nested_global_semaphore())
+        .try_acquire_owned()
+        .map_err(|_| NestedRefusal::Global)?;
+    Ok(NestedPermit {
+        _org: org,
+        _global: global,
+    })
+}
+
+/// [`try_nested`] for a root caller, which holds no nested permit and so may
+/// wait for one, up to `wait` (and the queue budget).
+pub async fn wait_nested(org_id: Uuid, wait: Duration) -> Result<NestedPermit, NestedRefusal> {
+    let started = Instant::now();
+    let budget = wait.min(queue_budget());
+    let org = tokio::time::timeout(budget, nested_org_semaphore(org_id).acquire_owned())
+        .await
+        .map_err(|_| NestedRefusal::Org)?
+        .map_err(|_| NestedRefusal::Org)?;
+    let left = budget.saturating_sub(started.elapsed());
+    let global = tokio::time::timeout(left, Arc::clone(nested_global_semaphore()).acquire_owned())
+        .await
+        .map_err(|_| NestedRefusal::Global)?
+        .map_err(|_| NestedRefusal::Global)?;
+    Ok(NestedPermit {
+        _org: org,
+        _global: global,
+    })
+}
+
+/// Callee isolates a chain may have in flight at once.
+pub fn chain_in_flight_limit() -> usize {
+    static VALUE: OnceLock<usize> = OnceLock::new();
+    *VALUE.get_or_init(|| parse_env(MAX_CHAIN_IN_FLIGHT_ENV, DEFAULT_CHAIN_IN_FLIGHT).max(1))
+}
+
+/// Why a chain could not start another callee.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChainRefusal {
+    InFlight,
+    Total,
+}
+
+/// The one chain of calls a root run and its callees make together: how many
+/// callees are running and how many it has started. Shared by `Arc` down the
+/// chain; a send's delivery starts a new one.
+#[derive(Debug, Default)]
+pub struct ChainBudget {
+    in_flight: std::sync::atomic::AtomicUsize,
+    total: std::sync::atomic::AtomicUsize,
+}
+
+/// A callee's place in its chain, given back when the callee ends.
+pub struct ChainSlot(Arc<ChainBudget>);
+
+impl Drop for ChainSlot {
+    fn drop(&mut self) {
+        self.0
+            .in_flight
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl ChainBudget {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// A slot for one more callee, or why there is none. Never waits.
+    pub fn try_slot(self: &Arc<Self>) -> Result<ChainSlot, ChainRefusal> {
+        use std::sync::atomic::Ordering::SeqCst;
+        if self.total.load(SeqCst) >= MAX_CALLS_PER_CHAIN {
+            return Err(ChainRefusal::Total);
+        }
+        let in_flight = self.in_flight.fetch_add(1, SeqCst);
+        if in_flight >= chain_in_flight_limit() {
+            self.in_flight.fetch_sub(1, SeqCst);
+            return Err(ChainRefusal::InFlight);
+        }
+        self.total.fetch_add(1, SeqCst);
+        Ok(ChainSlot(Arc::clone(self)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,5 +793,47 @@ mod tests {
             "resolving the cap must publish it — a gauge left at 0 is \
              indistinguishable from the cap being disabled"
         );
+    }
+
+    /// A callee never waits for capacity that only its own kind can free: with
+    /// the nested pool full it is refused at once, and a root waits only its
+    /// budget. The permits come back when the chain unwinds.
+    #[tokio::test]
+    async fn the_nested_pool_refuses_a_callee_at_once_and_a_root_after_its_budget() {
+        unsafe {
+            std::env::set_var(MAX_NESTED_ENV, "2");
+            std::env::set_var(MAX_ORG_NESTED_ENV, "2");
+        }
+        let org = Uuid::new_v4();
+        let first = try_nested(org).expect("first fits");
+        let second = try_nested(org).expect("second fits");
+        let started = Instant::now();
+        assert_eq!(try_nested(org).err(), Some(NestedRefusal::Org));
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "a callee does not wait"
+        );
+        let waited = wait_nested(org, Duration::from_millis(200)).await.err();
+        assert_eq!(waited, Some(NestedRefusal::Org));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        drop((first, second));
+        assert!(try_nested(org).is_ok(), "the permits came back");
+    }
+
+    /// A chain is held to four callees in flight and thirty-two calls.
+    #[test]
+    fn a_chain_is_bounded_in_flight_and_in_total() {
+        let chain = ChainBudget::new();
+        let held: Vec<_> = (0..chain_in_flight_limit())
+            .map(|_| chain.try_slot().expect("within the limit"))
+            .collect();
+        assert_eq!(chain.try_slot().err(), Some(ChainRefusal::InFlight));
+        drop(held);
+        let mut total = chain_in_flight_limit();
+        while total < MAX_CALLS_PER_CHAIN {
+            drop(chain.try_slot().expect("slots come back"));
+            total += 1;
+        }
+        assert_eq!(chain.try_slot().err(), Some(ChainRefusal::Total));
     }
 }

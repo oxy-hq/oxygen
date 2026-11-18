@@ -77,6 +77,8 @@ export interface CtxCall {
   call: string;
   /** The first argument when it is a string literal — the database of a write. */
   database?: string;
+  /** `ctx.apps.call` / `send`: the app and function when both arguments are string literals. */
+  appTarget?: { app: string; fn: string };
   /**
    * Set on the staging twin of a write whose database `nonProduction.destinations`
    * maps: the database the call names, while `database` is the one staging
@@ -280,7 +282,7 @@ function loadSources(
  * property read, which the host never sees.
  */
 const CTX_CALL =
-  /(?<![\w$])ctx\s*\??\.\s*([A-Za-z_$][\w$]*)(?:\s*\??\.\s*([A-Za-z_$][\w$]*))?\s*\(/g;
+  /(?<![\w$])ctx\s*\??\.\s*([A-Za-z_$][\w$]*)(?:\s*\??\.\s*([A-Za-z_$][\w$]*))?\s*(?:<[^()]*>\s*)?\(/g;
 
 /**
  * `<name>.events.publish(` where `<name>` is not `ctx`: the publish made on the
@@ -318,6 +320,14 @@ function ctxCalls(fn: string, file: SourceFile, masked: string): CtxCall[] {
         const database = literalString(file.source.slice(first.start, first.end).trim());
         if (database !== undefined) call.database = database;
       }
+    }
+    if (member === "apps.call" || member === "apps.send") {
+      const args = splitArgs(masked, at + m[0].length);
+      const [app, name] = [0, 1].map((i) => {
+        const arg = args?.[i];
+        return arg ? literalString(file.source.slice(arg.start, arg.end).trim()) : undefined;
+      });
+      if (app !== undefined && name !== undefined) call.appTarget = { app, fn: name };
     }
     calls.push(call);
   }
@@ -413,10 +423,30 @@ function absentGlobals(fn: string, file: SourceFile, masked: string): FunctionLi
 
 // ── capabilities and destinations ────────────────────────────────────────────
 
-function capabilityIssues(spec: Record<string, unknown>, call: CtxCall): FunctionLintIssue[] {
+function capabilityIssues(
+  spec: Record<string, unknown>,
+  call: CtxCall,
+  manifest: Record<string, unknown>
+): FunctionLintIssue[] {
   const issues: FunctionLintIssue[] = [];
+  // `calls` is app-wide: the top-level block grants every function of the app.
+  const effective = { ...spec, calls: manifest.calls };
   for (const cap of capabilitiesFor(call.member)) {
-    if (cap.gate !== "manifest" || cap.declares(spec)) continue;
+    if (cap.gate !== "manifest" || cap.declares(effective)) continue;
+    if (cap.hostField === "calls") {
+      issues.push({
+        rule: "capability",
+        fn: call.fn,
+        level: "error",
+        file: call.file,
+        path: `line ${call.line}`,
+        message:
+          `\`${call.call}\` needs the \`calls\` capability, and ${MANIFEST} declares no ` +
+          `top-level \`calls\` — the host refuses the call (fail-closed); add ` +
+          `${cap.declare} at the top level of ${MANIFEST}`
+      });
+      continue;
+    }
     issues.push({
       rule: "capability",
       fn: call.fn,
@@ -430,6 +460,27 @@ function capabilityIssues(spec: Record<string, unknown>, call: CtxCall): Functio
     });
   }
   return issues;
+}
+
+/** A `ctx.apps.call("app", "fn")` naming a pair the top-level `calls` does not list. */
+function undeclaredCall(manifest: Record<string, unknown>, call: CtxCall): FunctionLintIssue[] {
+  const target = call.appTarget;
+  if (!target || !isObject(manifest.calls)) return [];
+  const listed = manifest.calls[target.app];
+  if (Array.isArray(listed) && listed.includes(target.fn)) return [];
+  return [
+    {
+      rule: "capability",
+      fn: call.fn,
+      level: "error",
+      file: call.file,
+      path: `line ${call.line}`,
+      message:
+        `\`${call.call}${JSON.stringify(target.app)}, ${JSON.stringify(target.fn)}…\` calls ` +
+        `${target.app}/${target.fn}, which ${MANIFEST} does not declare — the host refuses it ` +
+        `(AppCallRefused); add it under "calls": { ${JSON.stringify(target.app)}: [${JSON.stringify(target.fn)}] }`
+    }
+  ];
 }
 
 /**
@@ -577,7 +628,10 @@ export function lintAppFunctions(
         result.issues.push(...absentGlobals(fn, file, masked));
       }
       for (const call of ctxCalls(fn, file, masked)) {
-        result.issues.push(...capabilityIssues(spec, call));
+        result.issues.push(
+          ...capabilityIssues(spec, call, manifest),
+          ...undeclaredCall(manifest, call)
+        );
         const destination = destinationIssue(spec, call);
         if (destination) {
           result.issues.push(destination);

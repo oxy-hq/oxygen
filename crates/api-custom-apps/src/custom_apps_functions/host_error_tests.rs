@@ -22,6 +22,7 @@ fn capability_missing_renders_the_hosts_words_for_every_labelled_area() {
         (CapabilityArea::Oltp, "OltpCapabilityMissing"),
         (CapabilityArea::Airhouse, "AirhouseCapabilityMissing"),
         (CapabilityArea::Events, "EventsCapabilityMissing"),
+        (CapabilityArea::Apps, "AppsCapabilityMissing"),
     ] {
         let text = format!("{label}: this function has not declared the `x` capability");
         let error = HostError::capability_missing(area, text.clone());

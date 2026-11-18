@@ -32,6 +32,8 @@ use agentic_connector::{SqlDialect, StringLiteral};
 mod airhouse_ops;
 mod airhouse_overlay;
 mod airhouse_overlay_copy;
+pub(in crate::custom_apps_functions) mod apps_op;
+mod apps_send;
 mod config_source;
 mod connector_cache;
 mod destinations;
@@ -198,6 +200,13 @@ pub struct ProjectFunctionHost {
     /// The event whose delivery started this invocation, which a publish
     /// from it chains from (`events_op`). `None` for every other trigger.
     event_cause: Option<super::runtime::EventCause>,
+    /// How this invocation sits in a chain of calls, and what it may spend:
+    /// set for every invocation that can call (`apps_op`).
+    chain_scope: apps_op::ChainScope,
+    /// The person behind this run, when one is: what a call from it carries
+    /// into the callee and is authorized as (`apps_op`). `None` for a
+    /// background run, whose calls run as the system.
+    person: Option<apps_op::Person>,
     /// Whether this invocation has queued the table tracker after a write
     /// (`table_ops`): once is enough.
     table_nudged: std::sync::atomic::AtomicBool,
@@ -272,6 +281,10 @@ pub struct FunctionCapabilities {
     /// validated against. Read from the build, never from the function's
     /// entry. Empty for a function that publishes nothing.
     pub event_catalog: oxy_custom_apps::events::catalog::EventCatalog,
+    /// Gate for `ctx.apps.call` and `ctx.apps.send`: the (app, function) pairs
+    /// the build's top-level `calls` declares, for every function of the app.
+    /// Empty → not declared, every call refused.
+    pub calls: oxy_custom_apps::calls::DeclaredCalls,
     /// Customer warehouses this function may write to despite the read-only
     /// rule, each with the reason its manifest gave. Empty → none.
     pub customer_warehouse_writes: BTreeMap<String, String>,
@@ -307,6 +320,7 @@ impl FunctionCapabilities {
             Capability::Oltp => matches!(self.oltp, WriterCapability::Enabled { .. }),
             Capability::Airhouse => matches!(self.airhouse, WriterCapability::Enabled { .. }),
             Capability::Events => self.events.is_some(),
+            Capability::Calls => !self.calls.is_empty(),
             // Decided per database the call names (`check_write_destination`),
             // after the op is admitted; the op itself is open to every function.
             Capability::WarehouseWrite => true,
@@ -349,6 +363,9 @@ impl FunctionCapabilities {
             | Capability::StorageReadAndWrite => self.refuse_storage(capability),
             Capability::Oltp => refuse_oltp(&self.oltp),
             Capability::Airhouse => refuse_airhouse(&self.airhouse),
+            Capability::Calls => {
+                HostError::capability_missing(CapabilityArea::Apps, apps_op::CAPABILITY_MISSING)
+            }
             Capability::Events => HostError::capability_missing(
                 CapabilityArea::Events,
                 "EventsCapabilityMissing: this function has not declared the `events` \
@@ -390,6 +407,9 @@ impl FunctionCapabilities {
             airhouse: WriterCapability::resolve(true, "test-app"),
             events: Some(BTreeSet::from(["order.placed".to_string()])),
             events_writer: WriterCapability::resolve(true, "test-app"),
+            calls: oxy_custom_apps::calls::DeclaredCalls {
+                apps: [("other-app".to_string(), ["ping".to_string()].into())].into(),
+            },
             ..Default::default()
         }
     }
@@ -488,6 +508,8 @@ impl ProjectFunctionHost {
             fallback_secrets: Default::default(),
             sandbox_companies: Default::default(),
             event_cause: None,
+            chain_scope: Default::default(),
+            person: None,
             table_nudged: std::sync::atomic::AtomicBool::new(false),
             policy,
             identity,
@@ -531,6 +553,19 @@ impl ProjectFunctionHost {
     /// from it chains from `cause` (its causation, root, depth and actor).
     pub fn with_event_cause(mut self, cause: Option<super::runtime::EventCause>) -> Self {
         self.event_cause = cause;
+        self
+    }
+
+    /// This host for a run a person started: its calls run as them.
+    pub fn with_person(mut self, person: Option<apps_op::Person>) -> Self {
+        self.person = person;
+        self
+    }
+
+    /// This host for an invocation of a chain of calls: its depth, the budget
+    /// it may spend and who to cancel when it ends (`apps_op::ChainScope`).
+    pub fn with_chain_scope(mut self, scope: apps_op::ChainScope) -> Self {
+        self.chain_scope = scope;
         self
     }
 
@@ -1310,6 +1345,16 @@ impl FunctionHost for ProjectFunctionHost {
         payload: serde_json::Value,
     ) -> Result<serde_json::Value, HostError> {
         self.events_op(&op, payload).await.map_err(HostError::from)
+    }
+
+    /// `ctx.apps.call` / `ctx.apps.send` — another app's function, in this
+    /// app's environment (`host/apps_op.rs`, `host/apps_send.rs`).
+    async fn apps(
+        &self,
+        op: String,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, HostError> {
+        self.apps_op(&op, payload).await
     }
 
     async fn secrets_set(

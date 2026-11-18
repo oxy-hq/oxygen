@@ -100,6 +100,10 @@ const PROBED_ELSEWHERE: &[(&str, &str)] = &[
         "tx.publish",
         "app_events_publish::a_staging_publish_lands_on_the_branch_and_never_in_production",
     ),
+    (
+        "apps.send",
+        "app_events_publish::a_staging_send_lands_on_the_branch_and_never_in_production",
+    ),
 ];
 
 /// Each reaches outside the database it runs in.

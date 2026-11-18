@@ -69,6 +69,18 @@ export function generateManifestSchema() {
     propertyNames: { pattern: FUNCTION_NAME_PATTERN.source }
   };
 
+  // `calls`: slug keys, lists of function names. The rest (non-empty, no
+  // duplicates, 64 pairs in total) is `callsRule` in manifest-validate.ts: the
+  // schema validator walks no `minItems` / `uniqueItems` / `maxProperties`.
+  root.properties.calls = {
+    ...root.properties.calls,
+    propertyNames: { pattern: SLUG_PATTERN.source, maxLength: SLUG_MAX_LEN },
+    additionalProperties: {
+      type: "array",
+      items: { type: "string", pattern: FUNCTION_NAME_PATTERN.source }
+    }
+  };
+
   return {
     $schema: generated.$schema,
     $id: SCHEMA_ID,

@@ -159,6 +159,36 @@ function __wrapOp(opName) {
   };
 }
 
+// The kind an apps.call / apps.send failure carries, from the label the host
+// heads its message with (`<Label>: <text>`). The SDK's `AppCallError` and
+// `isAppCallError` recognise the error by its name.
+const __APP_CALL_KINDS = {
+  AppCallRefused: "refused",
+  AppCallNotFound: "not_found",
+  AppCallNotCallable: "not_callable",
+  AppCallNotDeployed: "not_deployed",
+  AppCallTimeout: "timeout",
+  AppCallFailed: "failed",
+  AppCallBusy: "busy",
+  AppCallDepthExceeded: "depth_exceeded",
+};
+const __appsOp = async (op, fields) => {
+  try {
+    return await __wrapOp("op_ctx_apps")(op, fields);
+  } catch (e) {
+    // The broker heads a host failure with the surface (`ctx.apps: `).
+    const message = String(e?.message ?? e).replace(/^ctx\.apps: /, "");
+    const head = message.split(":", 1)[0];
+    const kind = __APP_CALL_KINDS[head];
+    if (!kind) throw e;
+    const err = new Error(message.slice(head.length + 2));
+    err.name = "AppCallError";
+    err.kind = kind;
+    err.hostMessage = message;
+    throw err;
+  }
+};
+
 // The fields of an events.publish(type, data, opts?) the host reads, and no
 // others: `opts` contributes `key` and `delaySeconds` alone, so an option named
 // `type` or `id` cannot change what is published or where. An option left out
@@ -302,6 +332,11 @@ globalThis.__buildCtx = (ctxData) => ({
   // differently. Set only on an event run; the host's facts, frozen like
   // `app`.
   delivery: ctxData.delivery ? Object.freeze({ ...ctxData.delivery }) : undefined,
+  // Who called this function — { app, function, invocationId, actor } — when
+  // another app's ctx.apps.call or ctx.apps.send started this run, else null.
+  // The host's facts, frozen. Attribution only: `ctx.user` is the system
+  // identity on such a run, never the caller's user.
+  caller: ctxData.caller ? Object.freeze({ ...ctxData.caller }) : null,
   log: (...args) => Deno.core.ops.op_ctx_log("info", args.map(String).join(" ")),
   // Synchronous — pure CPU, so these skip the host-call channel entirely.
   //
@@ -437,6 +472,23 @@ globalThis.__buildCtx = (ctxData) => ({
   events: {
     publish: (type, data, opts) =>
       __wrapOp("op_ctx_events")("publish", __publishFields(type, data, opts)),
+  },
+  // apps.call(app, fn, body?, { timeoutMs? }) runs another app's function, as
+  // that app, in this run's environment, and resolves its JSON answer.
+  // apps.send(app, fn, body?, { delaySeconds?, key? }) queues the call instead
+  // and resolves { eventId }. Both need the pair under `calls` in oxy-app.json.
+  // A refusal or the callee's failure throws an AppCallError with a `kind`.
+  apps: {
+    call: (app, fn, body, opts) =>
+      __appsOp("call", { app, function: fn, body: body ?? null, timeoutMs: opts?.timeoutMs }),
+    send: (app, fn, body, opts) =>
+      __appsOp("send", {
+        app,
+        function: fn,
+        body: body ?? null,
+        delaySeconds: opts?.delaySeconds,
+        key: opts?.key,
+      }),
   },
   // tables.changes(event, opts?) — the rows the snapshot of the table event
   // that started this run changed: { inserted, deleted, hasMore }. `opts` is

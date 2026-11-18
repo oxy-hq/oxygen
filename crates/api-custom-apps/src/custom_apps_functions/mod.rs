@@ -34,6 +34,8 @@ mod build_handshake;
 /// handed back to the broker for the call's trace record.
 #[cfg(feature = "custom-app-functions")]
 mod call_note;
+#[cfg(feature = "custom-app-functions")]
+pub(crate) mod call_run;
 /// Whose call this is — the scope every per-call key (result cache,
 /// idempotency record, rate-limit bucket) is built from, environment included.
 mod call_scope;
@@ -783,6 +785,11 @@ fn manifest_capabilities(
         kinds
     });
     let publishes = entry.publishes();
+    // Declared by the build (top-level `calls`), for every function of the app;
+    // checked when the build was published, so one that does not parse here
+    // declares nothing.
+    let calls = oxy_custom_apps::calls::DeclaredCalls::from_manifest(build.manifest_json.as_ref())
+        .unwrap_or_default();
     host::FunctionCapabilities {
         secrets_write: entry.secrets_write(),
         email_send: entry.email_send(),
@@ -798,7 +805,12 @@ fn manifest_capabilities(
         oltp: host::WriterCapability::resolve(entry.oltp_enabled(), &app.slug),
         airhouse: host::WriterCapability::resolve(entry.airhouse_enabled(), &app.slug),
         events: (!publishes.is_empty()).then(|| publishes.iter().cloned().collect()),
-        events_writer: host::WriterCapability::resolve(!publishes.is_empty(), &app.slug),
+        // A send is written as the app's events writer too.
+        events_writer: host::WriterCapability::resolve(
+            !publishes.is_empty() || !calls.is_empty(),
+            &app.slug,
+        ),
+        calls,
         // Checked when the build was published (`app_events::declared_events`),
         // so a catalogue that does not parse here declares nothing.
         event_catalog: if publishes.is_empty() {
@@ -1658,6 +1670,9 @@ async fn isolate_route(
         policy: prepared.policy,
         event: None,
         delivery: None,
+        called_by: None,
+        chain: None,
+        nested: false,
     };
     run_stage(args).await
 }
@@ -1798,6 +1813,8 @@ pub(crate) type RunEventSink = tokio::sync::mpsc::Sender<(String, serde_json::Va
 pub(crate) struct EventRun {
     pub cause: runtime::EventCause,
     pub delivery: crate::app_events::deliveries::DeliveryInfo,
+    /// Set for the delivery of a `ctx.apps.send`: who sent it (`ctx.caller`).
+    pub caller: Option<runtime::CtxCaller>,
 }
 
 /// How a queued run that started ended, as its invocation row records it.
@@ -1884,7 +1901,22 @@ pub(crate) async fn run_scheduled_function(
         .await
         .map_err(|e| e.into_message(function_name))?;
     let owner_id = org_owner(db, app.org_id).await?;
-    let invocation_id = insert_queued_invocation(db, &app, &admitted, function_name, &queued).await;
+    let parent = event_run
+        .as_ref()
+        .and_then(|e| e.caller.as_ref())
+        .map(|c| c.invocation_id);
+    let invocation_id = insert_queued_invocation(
+        db,
+        &app,
+        &admitted,
+        function_name,
+        &queued,
+        QueuedFor {
+            parent,
+            user_id: None,
+        },
+    )
+    .await;
     let run = QueuedRun {
         db,
         app: &app,
@@ -1897,6 +1929,7 @@ pub(crate) async fn run_scheduled_function(
         query_exec,
         preagg,
         event_run,
+        call: None,
     };
     Ok(run_queued(run, prepared, input, events).await)
 }
@@ -1917,6 +1950,14 @@ async fn org_owner(db: &sea_orm::DatabaseConnection, org_id: Uuid) -> Result<Uui
         .ok_or_else(|| format!("no owner for org {org_id}"))
 }
 
+/// Who and what a queued run's row names beyond the app and function: the
+/// invocation that made it, and the person it runs for (a call from a person).
+#[cfg(feature = "custom-app-functions")]
+pub(crate) struct QueuedFor {
+    pub parent: Option<Uuid>,
+    pub user_id: Option<Uuid>,
+}
+
 /// The queued run's invocation row, written up front so cancellation has
 /// something to poll. `user_id` is `None`: no caller to attribute the run to.
 #[cfg(feature = "custom-app-functions")]
@@ -1926,6 +1967,7 @@ async fn insert_queued_invocation(
     admitted: &pipeline::Admitted,
     function_name: &str,
     queued: &QueuedBy<'_>,
+    for_: QueuedFor,
 ) -> Uuid {
     let invocation_id = Uuid::new_v4();
     if let Err(e) = (app_function_invocations::ActiveModel {
@@ -1934,7 +1976,7 @@ async fn insert_queued_invocation(
         build_id: Set(admitted.build_id),
         function_name: Set(function_name.to_string()),
         mode: Set(queued.mode.to_string()),
-        user_id: Set(None),
+        user_id: Set(for_.user_id),
         status: Set("running".to_string()),
         duration_ms: Set(None),
         error: Set(None),
@@ -1948,7 +1990,7 @@ async fn insert_queued_invocation(
         error_kind: Set(None),
         environment: Set(admitted.resolved.environment.name()),
         credential_token_id: Set(queued.credential_token_id),
-        parent_invocation_id: Set(None),
+        parent_invocation_id: Set(for_.parent),
     })
     .insert(db)
     .await
@@ -1973,6 +2015,8 @@ struct QueuedRun<'a> {
     query_exec: std::sync::Arc<dyn seam::FunctionQueryExecutor>,
     preagg: oxy_app_core::preagg_cache_ctx::PreaggCacheCtx,
     event_run: Option<EventRun>,
+    /// Set for another app's `ctx.apps.call` (`call_run`).
+    call: Option<call_run::CallRun>,
 }
 
 /// Run the isolate, record the run, hand its events to the sink, and report
@@ -1987,7 +2031,13 @@ async fn run_queued(
     let clock = pipeline::RunClock::start();
     let (db, app, admitted) = (run.db, run.app, run.admitted);
     let (function_name, mode) = (run.function_name, run.queued.mode);
-    let (owner_id, invocation_id) = (run.owner_id, run.invocation_id);
+    let invocation_id = run.invocation_id;
+    // The person a call runs for, else the org owner a system run is under.
+    let owner_id = run
+        .call
+        .as_ref()
+        .and_then(|c| c.person.as_ref())
+        .map_or(run.owner_id, |p| p.user_id);
     // An event's delivery keeps no output and only a capped error: what a
     // listener returns or throws may carry the event's body, which never
     // enters Oxy's Postgres (app events design §6.6). Every other queued run
@@ -2039,9 +2089,44 @@ fn system_run_args<'a>(
 ) -> RunArgs<'a> {
     let (app, manifest, function_name) = (run.app, &run.admitted.manifest, run.function_name);
     let system_email = format!("schedule+{function_name}@system.oxy");
-    let (event, delivery) = match run.event_run {
-        Some(EventRun { cause, delivery }) => (Some(cause), Some(delivery)),
-        None => (None, None),
+    let (event, delivery, mut caller) = match run.event_run {
+        Some(EventRun {
+            cause,
+            delivery,
+            caller,
+        }) => (Some(cause), Some(delivery), caller),
+        None => (None, None, None),
+    };
+    let mut timeout = resolve_timeout(manifest);
+    let mut chain = None;
+    let mut nested = false;
+    if let Some(call) = &run.call {
+        timeout = call.budget;
+        nested = true;
+        caller = Some(call.caller.clone());
+        chain = Some(call.chain());
+    }
+    // A call from a person runs as them, credential and all, and the callee's
+    // own role, teams and reach are resolved for them below; every other queued
+    // run is the system.
+    let person = run.call.as_ref().and_then(|c| c.person.clone());
+    let (user_id, user_email, authz_caller, user_name, user_picture, identity_kind) = match person {
+        Some(p) => (
+            p.user_id,
+            p.email,
+            p.caller,
+            p.name,
+            p.picture,
+            runtime::CtxIdentityKind::User,
+        ),
+        None => (
+            run.owner_id,
+            Some(system_email.clone()),
+            oxy_server_authz::Caller::without_credential(run.owner_id, &system_email),
+            None,
+            None,
+            runtime::CtxIdentityKind::System,
+        ),
     };
     RunArgs {
         db: run.db,
@@ -2052,20 +2137,20 @@ fn system_run_args<'a>(
         // No real request behind a schedule; mirrors `FnRequest::from_body`.
         method: "POST".to_string(),
         headers: std::collections::BTreeMap::new(),
-        user_id: run.owner_id,
-        user_email: Some(system_email.clone()),
+        user_id,
+        user_email,
         // A system run has no request, so no credential — and its synthetic
         // address matches no staff grant, exactly as before.
-        caller: oxy_server_authz::Caller::without_credential(run.owner_id, &system_email),
+        caller: authz_caller,
         // No caller to attribute this run to — and note this path serves the
         // console's manual `Run now` as well as a cron tick, so a person may well
         // have clicked. The `user_id` above is the org owner's (the invocation row
         // needs a non-null FK and `ctx.secrets` a `created_by`), but every caller
         // field stays empty so a function can't mistake either trigger for the
         // owner using the app.
-        user_name: None,
-        user_picture: None,
-        identity_kind: runtime::CtxIdentityKind::System,
+        user_name,
+        user_picture,
+        identity_kind,
         org_id: app.org_id,
         invocation_id: run.invocation_id,
         function_name,
@@ -2075,7 +2160,7 @@ fn system_run_args<'a>(
         // No HTTP request behind a cron tick, an Airway step or a manual job
         // run. See the field docs on `RunArgs` for why this stays `None`.
         request_id: None,
-        timeout: resolve_timeout(manifest),
+        timeout,
         write_destinations: manifest.write_destinations(),
         caps: manifest_capabilities(manifest, app, &prepared.build),
         logs: clock.logs.clone(),
@@ -2083,6 +2168,9 @@ fn system_run_args<'a>(
         cancel: run.cancel,
         preagg: run.preagg,
         policy: prepared.policy,
+        called_by: caller,
+        chain,
+        nested,
         // An event's delivery: what a publish from it chains from, and the
         // attempt `ctx.delivery` reports. `None` for every other queued run.
         event,
@@ -2303,6 +2391,13 @@ struct RunArgs<'a> {
     event: Option<runtime::EventCause>,
     /// `ctx.delivery`, set with `event`.
     delivery: Option<crate::app_events::deliveries::DeliveryInfo>,
+    /// `ctx.caller`: set when another app's call or send started this run.
+    called_by: Option<runtime::CtxCaller>,
+    /// Where a call put this run in its chain (`call_run`); an event run's
+    /// position is its event's.
+    chain: Option<call_run::ChainStart>,
+    /// A callee, which runs on its root's admission (`limits`).
+    nested: bool,
 }
 
 /// The span the isolate thread runs under — see the call site in
@@ -2560,6 +2655,22 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
     // add its whole size to the invocation future every frame above reserves
     // — the overflow `handle_function_request` boxes against.
     let human = args.identity_kind == runtime::CtxIdentityKind::User;
+    // Where this run sits in a chain of calls and events, and what it may
+    // spend: its timeout from now, and a token that ends every call it made
+    // when the run ends (`host::apps_op`).
+    let chain_scope = host::apps_op::ChainScope::for_run(
+        args.event.as_ref(),
+        args.chain.as_ref(),
+        args.timeout,
+        &args.cancel,
+    );
+    let person = human.then(|| host::apps_op::Person {
+        caller: args.caller.clone(),
+        user_id: args.user_id,
+        email: args.user_email.clone(),
+        name: args.user_name.clone(),
+        picture: args.user_picture.clone(),
+    });
     let (project, env, app_role, org_standing, held) = tokio::join!(
         Box::pin(resolve_project_context(&args)),
         env_cache::resolve(args.db, args.app.project_id, args.app.id, &args.policy),
@@ -2679,7 +2790,9 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
                 .with_shared_secrets(env.shared_secrets),
         )
         .with_fallback_secrets(fallback_values)
-        .with_event_cause(args.event.clone()),
+        .with_event_cause(args.event.clone())
+        .with_chain_scope(chain_scope.clone())
+        .with_person(person),
     );
 
     let ctx = runtime::InvocationCtx {
@@ -2703,6 +2816,8 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
         airhouse_schema: args.caps.airhouse.schema(),
         event: args.event,
         delivery: args.delivery,
+        caller: args.called_by,
+        nested: args.nested,
     };
 
     // §11.4 — cancellation watchdog: poll `cancel_requested_at` every 1s and
@@ -2769,6 +2884,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
     )
     .await;
     watchdog.abort();
+    chain_scope.end();
     host_for_audit.end_of_invocation().await;
     // The broker notes a failure before it answers the call, so every call the
     // handler awaited has been noted by the time the isolate returned.

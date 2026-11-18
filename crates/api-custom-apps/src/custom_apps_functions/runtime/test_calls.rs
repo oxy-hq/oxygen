@@ -59,6 +59,11 @@ pub(super) fn sample(op: HostOp) -> HostCall {
             payload,
             reply,
         },
+        Family::Apps => HostCall::Apps {
+            op: sub,
+            payload,
+            reply,
+        },
         Family::Storage => HostCall::Storage {
             op: sub,
             payload,
@@ -159,6 +164,11 @@ pub(super) fn loaded(op: HostOp) -> HostCall {
             reply,
         },
         Family::Events => HostCall::Events {
+            op: sub,
+            payload,
+            reply,
+        },
+        Family::Apps => HostCall::Apps {
             op: sub,
             payload,
             reply,

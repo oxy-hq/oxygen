@@ -201,6 +201,14 @@ pub enum Action {
     /// The workspace-keyed data plane behind an app is [`Self::WorkspaceDataAccess`],
     /// a different resource: do not hand this ring a workspace id.
     AppAccess,
+    /// Another app's `ctx.apps.call` or `ctx.apps.send`, from a run that has a
+    /// person behind it: may that person open the target app? It decides what
+    /// [`Self::AppAccess`] decides — the same ring — and is its own action so
+    /// the log says a call was attempted and a later tightening touches one arm
+    /// (the precedent is [`Self::ExperimentApplyWriteBack`] on the
+    /// `WorkspaceEdit` ring). A background run (a schedule, an event) has no
+    /// person and is not asked. A sandbox agent token does not cover it.
+    AppCall,
     /// Reach a workspace's custom-app **data plane** (`check_custom_app_gates`):
     /// every route under `/customer-apps/{workspace}/…` — SQL and semantic queries,
     /// agent asks, automation runs, threads, activity. Keyed on a WORKSPACE, not an
@@ -455,7 +463,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 56] = [
+    pub const ALL: [Action; 57] = [
         Action::OrgRead,
         Action::ManageLocations,
         Action::ManageOrgRoles,
@@ -479,6 +487,7 @@ impl Action {
         Action::ExperimentApplyWriteBack,
         Action::ExperimentAbort,
         Action::AppAccess,
+        Action::AppCall,
         Action::WorkspaceDataAccess,
         Action::AppAdmin,
         Action::AppAccessManage,
@@ -542,6 +551,7 @@ impl Action {
             Action::ExperimentApplyWriteBack => "experiment_apply_write_back",
             Action::ExperimentAbort => "experiment_abort",
             Action::AppAccess => "app_access",
+            Action::AppCall => "app_call",
             Action::WorkspaceDataAccess => "workspace_data_access",
             Action::AppAdmin => "app_admin",
             Action::AppAccessManage => "app_access_manage",
@@ -604,7 +614,7 @@ impl Action {
             | Action::ExperimentPrice
             | Action::ExperimentAuthor
             | Action::ExperimentApplyWriteBack => Ring::WorkspaceEdit,
-            Action::AppAccess => Ring::AppAccess,
+            Action::AppAccess | Action::AppCall => Ring::AppAccess,
             Action::WorkspaceDataAccess => Ring::WorkspaceData,
             Action::AppAdmin => Ring::AppAdmin,
             Action::AppAccessManage => Ring::AppGrant,
