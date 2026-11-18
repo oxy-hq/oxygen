@@ -3,7 +3,7 @@ import type { CostBucket, OrgCost } from "@/services/api/adminObservability";
 import { AdminSectionLabel } from "../../components/AdminSectionLabel";
 import { AdminTrendBars } from "../../components/AdminTrendBars";
 import { alignWindow } from "../dailySeries";
-import { compact, pct, shortModel, signedPct, surfaceLabel, usd } from "../format";
+import { compact, pct, shortModel, surfaceLabel, usd, versusPrior, versusShort } from "../format";
 import { BreakdownBars, type BreakdownItem } from "./BreakdownBars";
 
 /**
@@ -25,10 +25,7 @@ import { BreakdownBars, type BreakdownItem } from "./BreakdownBars";
 export const CostPanel = ({ cost }: { cost: OrgCost }) => {
   const { total, derived } = cost;
   const series = alignWindow(cost.by_day, cost.prior_by_day, cost.window_days);
-  const change =
-    cost.prior_cost_usd != null && cost.prior_cost_usd > 0
-      ? total.cost_usd / cost.prior_cost_usd - 1
-      : null;
+  const versus = versusPrior(total.cost_usd, cost.prior_cost_usd);
 
   return (
     <section className='space-y-5' data-testid='admin-observability-cost'>
@@ -49,11 +46,11 @@ export const CostPanel = ({ cost }: { cost: OrgCost }) => {
               </div>
             </div>
             <div className='flex flex-wrap gap-5 text-right'>
-              {cost.prior_cost_usd != null ? (
+              {versus != null ? (
                 <Figure
                   icon={TrendingUp}
                   label='vs prior'
-                  value={change != null ? signedPct(change) : "new"}
+                  value={versusShort(versus)}
                   hint={`Priced spend over the ${cost.window_days} days before: ${usd(cost.prior_cost_usd)}`}
                 />
               ) : null}

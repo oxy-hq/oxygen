@@ -79,16 +79,55 @@ describe("summarizeFleet", () => {
   it("draws no comparison when the prior window could not be read", () => {
     const s = summarizeFleet(fleet([row("A", 30, null), row("B", 10, null)], false));
     expect(s.priorTotal).toBeNull();
-    expect(s.change).toBeNull();
-    expect(s.ranked.every((o) => o.movement === null && o.change === null)).toBe(true);
+    expect(s.versus).toBeNull();
+    expect(s.ranked.every((o) => o.movement === null && o.versus === null)).toBe(true);
   });
 
   it("reports change against a non-zero prior only", () => {
     const s = summarizeFleet(fleet([row("A", 30, 10), row("B", 10, 0)]));
-    expect(s.change).toBeCloseTo(3);
-    expect(s.ranked[0].change).toBeCloseTo(2);
+    expect(s.versus).toEqual({ kind: "pct", change: 3 });
+    expect(s.ranked[0].versus).toEqual({ kind: "pct", change: 2 });
     // From zero there is no ratio: "new" carries it instead.
-    expect(s.ranked[1].change).toBeNull();
+    expect(s.ranked[1].versus).toEqual({ kind: "new", prior: 0 });
+  });
+
+  /**
+   * Dev on 2026-11-18, the fleet that read "up 231432043622%": three orgs
+   * that started spending, and two whose only cost, then and now, was a few
+   * billionths of a dollar of storage.
+   */
+  const devFleet = () =>
+    fleet([
+      row("Oxygen", 46.0961664, 0),
+      row("July", 0.50585565, 0),
+      row("Testzxfcv", 0.04658775, 0),
+      row("Pokehouse", 1.672924414e-8, 1.672925705e-8, { requests: 2296 }),
+      row("Delightree", 3.427245919e-9, 3.427247241e-9, { requests: 2929 })
+    ]);
+
+  it("compares the total with nothing when the prior total is negligible", () => {
+    const s = summarizeFleet(devFleet());
+    expect(s.priorTotal).toBeGreaterThan(0);
+    expect(s.versus?.kind).toBe("new");
+  });
+
+  it("ranks no org against a prior it barely had", () => {
+    const s = summarizeFleet(devFleet());
+    const byName = Object.fromEntries(s.ranked.map((o) => [o.row.org_name, o]));
+    // Was "↓3" and "±0%": a fall from first place earned on $0.00000002.
+    for (const name of ["Pokehouse", "Delightree"]) {
+      expect(byName[name].movement).toBe("new");
+      expect(byName[name].versus?.kind).toBe("new");
+    }
+  });
+
+  it("still ranks orgs whose prior was a real amount", () => {
+    // Prior order: B ($0.02), A ($0.01); C's $0.009 is not a place.
+    const s = summarizeFleet(fleet([row("A", 3, 0.01), row("B", 2, 0.02), row("C", 1, 0.009)]));
+    const byName = Object.fromEntries(s.ranked.map((o) => [o.row.org_name, o]));
+    expect(byName.A.movement).toBe(1);
+    expect(byName.B.movement).toBe(-1);
+    expect(byName.C.movement).toBe("new");
   });
 
   it("states how concentrated the total is", () => {
@@ -122,6 +161,17 @@ describe("isCostJump", () => {
     const byName = Object.fromEntries(s.ranked.map((o) => [o.row.org_name, o]));
     expect(isCostJump(byName.Big)).toBe(true);
     expect(isCostJump(byName.Tiny)).toBe(false);
+  });
+
+  it("flags growth past tenfold, which reads as a baseline rather than a percentage", () => {
+    const s = summarizeFleet(fleet([row("Tenfold", 47, 0.5)]));
+    expect(s.ranked[0].versus).toEqual({ kind: "from", prior: 0.5 });
+    expect(isCostJump(s.ranked[0])).toBe(true);
+  });
+
+  it("does not flag an org whose prior was negligible: it is new, not a jump", () => {
+    const s = summarizeFleet(fleet([row("Fresh", 47, 2e-8)]));
+    expect(isCostJump(s.ranked[0])).toBe(false);
   });
 });
 

@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { bytes, compact, ms, outcomeLabel, pct, shortModel, surfaceLabel, usd } from "./format";
+import {
+  BASELINE_FLOOR_USD,
+  bytes,
+  compact,
+  ms,
+  outcomeLabel,
+  pct,
+  priorAmount,
+  shortModel,
+  surfaceLabel,
+  usd,
+  versusPrior,
+  versusShort
+} from "./format";
 
 describe("null is not zero", () => {
   /**
@@ -63,6 +76,81 @@ describe("pct", () => {
 
   it("takes a digit count for the places that want one", () => {
     expect(pct(0.2567, 1)).toBe("25.7%");
+  });
+});
+
+describe("versusPrior", () => {
+  /**
+   * Dev's fleet on 2026-11-18: $47 this month against $0.00000002 of storage
+   * the month before. Divided through, that is "up 231432043622%" — a number
+   * no row on the page can be traced to.
+   */
+  const DEV_TOTAL = 46.6486;
+  const DEV_PRIOR = 2.0156504e-8;
+
+  const changeOf = (v: ReturnType<typeof versusPrior>) => {
+    if (v?.kind !== "pct") throw new Error(`expected a percentage, got ${v?.kind ?? "null"}`);
+    return v.change;
+  };
+
+  it("draws no comparison when the prior window was not read", () => {
+    expect(versusPrior(10, null)).toBeNull();
+    expect(versusPrior(10, undefined)).toBeNull();
+  });
+
+  it("calls a cost over a zero prior new", () => {
+    expect(versusPrior(10, 0)).toEqual({ kind: "new", prior: 0 });
+  });
+
+  it("calls a cost over a negligible prior new, never a percentage", () => {
+    expect(versusPrior(DEV_TOTAL, DEV_PRIOR)).toEqual({ kind: "new", prior: DEV_PRIOR });
+    expect(versusPrior(5, BASELINE_FLOOR_USD - 0.0001)?.kind).toBe("new");
+    // Both windows under a cent: still nothing to divide by, not "±0%".
+    expect(versusPrior(3.4272459e-9, 3.4272472e-9)?.kind).toBe("new");
+  });
+
+  it("gives a percentage over a normal prior", () => {
+    expect(changeOf(versusPrior(47, 40))).toBeCloseTo(0.175);
+    expect(changeOf(versusPrior(30, 40))).toBeCloseTo(-0.25);
+    // A cent is a baseline: the floor itself compares.
+    expect(versusPrior(0.05, BASELINE_FLOOR_USD)?.kind).toBe("pct");
+  });
+
+  it("names the baseline once the cost is ten times it", () => {
+    expect(versusPrior(47, 4.7)).toEqual({ kind: "from", prior: 4.7 });
+    expect(versusPrior(47, 0.02)).toEqual({ kind: "from", prior: 0.02 });
+    expect(versusPrior(46.9, 4.7)?.kind).toBe("pct");
+  });
+});
+
+describe("versusShort", () => {
+  it("renders each kind compactly", () => {
+    expect(versusShort({ kind: "new", prior: 0 })).toBe("new");
+    expect(versusShort({ kind: "pct", change: 0.175 })).toBe("+18%");
+    expect(versusShort({ kind: "pct", change: -0.25 })).toBe("−25%");
+    expect(versusShort({ kind: "from", prior: 0.42 })).toBe("from $0.42");
+  });
+
+  /** The rule the page broke: whatever the baseline, no percentage past +899%. */
+  it.each([
+    [46.6486, 2.0156504e-8],
+    [46.6486, 0.0099],
+    [46.6486, 0.01],
+    [10_000, 0.5],
+    [3.4272459e-9, 3.4272472e-9]
+  ])("never renders a four-digit percentage (%s against %s)", (current, prior) => {
+    const v = versusPrior(current, prior);
+    if (v == null) throw new Error("expected a comparison");
+    expect(versusShort(v)).not.toMatch(/\d{4}%/);
+  });
+});
+
+describe("priorAmount", () => {
+  it("says what the prior window cost, in words a baseline can be read in", () => {
+    expect(priorAmount(0)).toBe("nothing");
+    expect(priorAmount(2.0156504e-8)).toBe("under $0.01");
+    expect(priorAmount(0.42)).toBe("$0.42");
+    expect(priorAmount(1_842.4)).toBe("$1,842");
   });
 });
 

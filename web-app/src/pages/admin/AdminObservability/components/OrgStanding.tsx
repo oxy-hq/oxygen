@@ -3,7 +3,7 @@ import { cn } from "@/libs/shadcn/utils";
 import type { Fleet } from "@/services/api/adminObservability";
 import { ADMIN_TONE } from "../../components/adminTone";
 import { isCostJump, summarizeFleet } from "../fleetSummary";
-import { money, pct, signedPct } from "../format";
+import { money, pct, priorAmount, signedPct, versusPrior } from "../format";
 import { COST_PARTS, CompositionBar } from "./CompositionBar";
 
 /**
@@ -20,7 +20,9 @@ export const OrgStanding = ({ orgId, fleet }: { orgId: string; fleet: Fleet }) =
   const row = ranked?.row ?? fleet.rows.find((r) => r.org_id === orgId);
   if (!row) return null;
   const days = fleet.window_days;
-  const prior = row.prior_cost_to_serve_usd;
+  // Off the row, not `ranked`: an idle org is not ranked but still has a prior.
+  const versus = versusPrior(row.cost_to_serve_usd, row.prior_cost_to_serve_usd);
+  const tone = ranked && isCostJump(ranked) ? ADMIN_TONE.warn.text : "text-foreground";
 
   return (
     <section
@@ -29,22 +31,27 @@ export const OrgStanding = ({ orgId, fleet }: { orgId: string; fleet: Fleet }) =
     >
       <p className='text-muted-foreground text-xs'>
         <Em>{money(row.cost_to_serve_usd)}</Em> to serve over the last {days} days
-        {prior == null ? (
+        {versus == null ? (
           ". "
-        ) : prior === 0 ? (
-          <>, against nothing the {days} days before. </>
+        ) : versus.kind === "new" ? (
+          <>
+            , against {priorAmount(versus.prior)} the {days} days before.{" "}
+          </>
+        ) : versus.kind === "from" ? (
+          <>
+            ,{" "}
+            <span className={cn("font-semibold tabular-nums", tone)}>
+              up from {money(versus.prior)}
+            </span>{" "}
+            the {days} days before.{" "}
+          </>
         ) : (
           <>
             ,{" "}
-            <span
-              className={cn(
-                "font-semibold tabular-nums",
-                ranked && isCostJump(ranked) ? ADMIN_TONE.warn.text : "text-foreground"
-              )}
-            >
-              {signedPct(row.cost_to_serve_usd / prior - 1)}
+            <span className={cn("font-semibold tabular-nums", tone)}>
+              {signedPct(versus.change)}
             </span>{" "}
-            on the {days} days before ({money(prior)}).{" "}
+            on the {days} days before ({money(row.prior_cost_to_serve_usd)}).{" "}
           </>
         )}
         {ranked ? (

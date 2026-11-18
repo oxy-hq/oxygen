@@ -1,4 +1,5 @@
 import type { Fleet, FleetRow } from "@/services/api/adminObservability";
+import { BASELINE_FLOOR_USD, type VersusPrior, versusPrior } from "./format";
 
 /**
  * The fleet, ranked by cost to serve — the order the page is opened for.
@@ -17,11 +18,11 @@ export interface RankedOrg {
   share: number | null;
   /**
    * Places gained since the prior window (negative = fell). `"new"` when it
-   * cost nothing then; `null` when the prior window could not be read.
+   * cost under a cent then; `null` when the prior window could not be read.
    */
   movement: number | "new" | null;
-  /** Fractional change in cost to serve; `null` without a non-zero prior. */
-  change: number | null;
+  /** Cost to serve against the prior window; `null` when it could not be read. */
+  versus: VersusPrior | null;
 }
 
 export interface FleetSummary {
@@ -33,8 +34,8 @@ export interface FleetSummary {
   total: number;
   /** The same over the prior window; `null` when it could not be read. */
   priorTotal: number | null;
-  /** Fractional change of the total; `null` without a non-zero prior. */
-  change: number | null;
+  /** The total against the prior total; `null` when it could not be read. */
+  versus: VersusPrior | null;
   /** How many of the costliest orgs carry half of the total. */
   toHalf: number | null;
   /** …and 80% of it. */
@@ -77,10 +78,12 @@ export function summarizeFleet(fleet: Fleet): FleetSummary {
 
   // Prior ranks over every org that cost something then — including orgs
   // that are idle now, which is how a fall is measured rather than assumed.
+  // "Something" is a cent or more: a first place held on $0.00000002 is not
+  // a place to fall from.
   const priorRank = new Map<string, number>();
   if (fleet.prior_read) {
     const before = fleet.rows
-      .filter((r) => (r.prior_cost_to_serve_usd ?? 0) > 0)
+      .filter((r) => (r.prior_cost_to_serve_usd ?? 0) >= BASELINE_FLOOR_USD)
       .sort(byCost((r) => r.prior_cost_to_serve_usd ?? 0));
     for (const [i, r] of before.entries()) priorRank.set(r.org_id, i + 1);
   }
@@ -90,14 +93,13 @@ export function summarizeFleet(fleet: Fleet): FleetSummary {
 
   const ranked: RankedOrg[] = active.map((row, i) => {
     const rank = i + 1;
-    const prior = row.prior_cost_to_serve_usd;
     const before = priorRank.get(row.org_id);
     return {
       row,
       rank,
       share: total > 0 ? row.cost_to_serve_usd / total : null,
       movement: !fleet.prior_read ? null : before == null ? "new" : before - rank,
-      change: prior != null && prior > 0 ? row.cost_to_serve_usd / prior - 1 : null
+      versus: versusPrior(row.cost_to_serve_usd, row.prior_cost_to_serve_usd)
     };
   });
 
@@ -107,15 +109,20 @@ export function summarizeFleet(fleet: Fleet): FleetSummary {
     idle,
     total,
     priorTotal,
-    change: priorTotal != null && priorTotal > 0 ? total / priorTotal - 1 : null,
+    versus: versusPrior(total, priorTotal),
     toHalf: countToReach(costs, total, 0.5),
     toEighty: countToReach(costs, total, 0.8)
   };
 }
 
-/** Cost more than doubled on a figure big enough to matter. */
+/**
+ * Cost more than doubled on a figure big enough to matter. Growth past
+ * tenfold is a doubling too; an org that cost under a cent before is new.
+ */
 export function isCostJump(o: RankedOrg): boolean {
-  return o.change != null && o.change >= 1 && o.row.cost_to_serve_usd >= JUMP_FLOOR_USD;
+  const v = o.versus;
+  const doubled = v?.kind === "from" || (v?.kind === "pct" && v.change >= 1);
+  return doubled && o.row.cost_to_serve_usd >= JUMP_FLOOR_USD;
 }
 
 /** Case-insensitive match on name or slug. An empty query matches everything. */

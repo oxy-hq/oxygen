@@ -12,7 +12,7 @@ import {
   priorNote,
   summarizeFleet
 } from "../fleetSummary";
-import { money, pct } from "../format";
+import { money, pct, priorAmount } from "../format";
 import { RELIABILITY_DANGER_AT, reliabilityTone } from "../reliabilityTone";
 import { CompositionKey } from "./CompositionBar";
 import { CostUsageMap } from "./CostUsageMap";
@@ -147,7 +147,7 @@ export const FleetOverview = ({ fleet, query }: { fleet: Fleet; query: string })
  * but never says — "three orgs carry half" is the margin conversation.
  */
 const FleetSentence = ({ summary, days }: { summary: FleetSummary; days: number }) => {
-  const { ranked, idle, total, priorTotal, change, toHalf, toEighty } = summary;
+  const { ranked, idle, total, versus, toHalf, toEighty } = summary;
   const n = ranked.length;
   return (
     <p
@@ -159,20 +159,24 @@ const FleetSentence = ({ summary, days }: { summary: FleetSummary; days: number 
         {n.toLocaleString()} active org{n === 1 ? "" : "s"}
       </Em>{" "}
       over the last {days} days
-      {priorTotal == null ? (
+      {versus == null ? (
         ". "
-      ) : priorTotal === 0 ? (
-        <>, against nothing the {days} days before. </>
-      ) : change != null ? (
+      ) : versus.kind === "new" ? (
+        <>
+          , against {priorAmount(versus.prior)} the {days} days before.{" "}
+        </>
+      ) : versus.kind === "from" ? (
+        <>
+          , <Em>up from {money(versus.prior)}</Em> the {days} days before.{" "}
+        </>
+      ) : (
         <>
           ,{" "}
           <Em>
-            {change >= 0 ? "up" : "down"} {Math.abs(Math.round(change * 100))}%
+            {versus.change >= 0 ? "up" : "down"} {Math.abs(Math.round(versus.change * 100))}%
           </Em>{" "}
           on the {days} days before.{" "}
         </>
-      ) : (
-        ". "
       )}
       {n >= 3 && toHalf != null && toEighty != null ? (
         <>

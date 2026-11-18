@@ -140,3 +140,51 @@ export function money(n: number | null | undefined): string {
   if (n >= 0.01) return `$${n.toFixed(2)}`;
   return usd(n);
 }
+
+/**
+ * Below a cent, a prior window is no baseline. Dev's fleet once cost
+ * $0.00000002 of storage in a month and $47 the next, which divided through
+ * reads "up 231432043622%": true arithmetic, and a number nothing on the page
+ * can be traced to. Every money figure here rounds to the cent, so a cent is
+ * the smallest prior a reader can check a percentage against.
+ */
+export const BASELINE_FLOOR_USD = 0.01;
+
+/** At ten times the baseline, "+900%" stops reading as a size; the baseline itself does. */
+const TENFOLD = 10;
+
+/** How a cost stands against the same span before it. */
+export type VersusPrior =
+  /** The prior cost under a cent (or nothing): no baseline to compare with. */
+  | { kind: "new"; prior: number }
+  /** A percentage a reader can check: `change` is fractional (0.23 = +23%). */
+  | { kind: "pct"; change: number }
+  /** Ten times the prior or more: say where it grew from, not a four-digit percentage. */
+  | { kind: "from"; prior: number };
+
+/** `null` when the prior window was not read — no comparison, not a zero one. */
+export function versusPrior(current: number, prior: number | null | undefined): VersusPrior | null {
+  if (prior == null || !Number.isFinite(prior)) return null;
+  if (prior < BASELINE_FLOOR_USD) return { kind: "new", prior };
+  if (current >= prior * TENFOLD) return { kind: "from", prior };
+  return { kind: "pct", change: current / prior - 1 };
+}
+
+/** For a cell or a tooltip: `+23%`, `−8%`, `±0%`, `from $0.42`, `new`. */
+export function versusShort(v: VersusPrior): string {
+  switch (v.kind) {
+    case "new":
+      return "new";
+    case "pct":
+      return signedPct(v.change);
+    case "from":
+      return `from ${money(v.prior)}`;
+  }
+}
+
+/** A prior cost as a sentence reads it: "against nothing", "against under $0.01". */
+export function priorAmount(prior: number): string {
+  if (prior <= 0) return "nothing";
+  if (prior < BASELINE_FLOOR_USD) return "under $0.01";
+  return money(prior);
+}

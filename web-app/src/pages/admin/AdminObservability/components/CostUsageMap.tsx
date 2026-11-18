@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "@/libs/shadcn/utils";
 import { isCostJump, type RankedOrg } from "../fleetSummary";
-import { compact, money, signedPct } from "../format";
+import { compact, money, versusShort } from "../format";
 import {
   axisCount,
   axisUsd,
@@ -411,10 +411,10 @@ const MapTooltip = ({ o, x, y, width }: { o: RankedOrg; x: number; y: number; wi
         <dd className='text-right'>{compact(r.run_count)}</dd>
         <dt className='text-muted-foreground'>Per run</dt>
         <dd className='text-right'>{money(perRun)}</dd>
-        {o.change != null ? (
+        {o.versus != null ? (
           <>
             <dt className='text-muted-foreground'>vs prior</dt>
-            <dd className='text-right'>{signedPct(o.change)}</dd>
+            <dd className='text-right'>{versusShort(o.versus)}</dd>
           </>
         ) : null}
       </dl>

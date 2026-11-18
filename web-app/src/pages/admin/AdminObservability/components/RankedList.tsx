@@ -4,7 +4,7 @@ import { cn } from "@/libs/shadcn/utils";
 import type { FleetRow } from "@/services/api/adminObservability";
 import { ADMIN_TONE } from "../../components/adminTone";
 import { isCostJump, type RankedOrg } from "../fleetSummary";
-import { money, pct, signedPct } from "../format";
+import { money, pct, versusShort } from "../format";
 import { reliabilityTone } from "../reliabilityTone";
 import { CompositionBar } from "./CompositionBar";
 
@@ -76,14 +76,15 @@ export const RankedList = ({
           </div>
           <div className='pl-3 text-right tabular-nums'>
             <div className='font-medium'>{money(o.row.cost_to_serve_usd)}</div>
-            {o.change != null ? (
+            {/* "new" is already said, once, in the movement column. */}
+            {o.versus != null && o.versus.kind !== "new" ? (
               <div
                 className={cn(
                   "text-[10px]",
                   isCostJump(o) ? ADMIN_TONE.warn.text : "text-muted-foreground"
                 )}
               >
-                {signedPct(o.change)}
+                {versusShort(o.versus)}
               </div>
             ) : null}
           </div>
@@ -105,7 +106,7 @@ const Movement = ({ movement }: { movement: RankedOrg["movement"] }) => {
     return (
       <span
         className='text-center text-[10px] text-muted-foreground'
-        title='Cost nothing in the prior window'
+        title='Cost under $0.01 in the prior window'
       >
         new
       </span>
