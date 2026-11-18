@@ -28,7 +28,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use super::account_access::{AccountEdit, AccountRole, AccountWant};
-use super::credential::{StoredKind, source};
+use super::credential::StoredKind;
 use super::personal::{self, GrantSpec, Minted, NewToken};
 
 /// Why revoking an account's tokens is recorded on each of them.
@@ -108,7 +108,8 @@ pub async fn create<C: ConnectionTrait>(
     })
 }
 
-async fn find_by_name<C: ConnectionTrait>(
+/// The org's account of this name, if it has one.
+pub async fn find_by_name<C: ConnectionTrait>(
     db: &C,
     org_id: Uuid,
     name: &str,
@@ -325,27 +326,9 @@ pub struct NewAccountToken {
     pub expires_at: Option<DateTime<Utc>>,
     /// The person minting it — audit only.
     pub created_by: Uuid,
-    /// `credential::source::UI` from the org's API access page; Phase 4's
-    /// exchange passes its own.
+    /// `credential::source::UI` from the org's API access page,
+    /// `credential::source::OXYC` from `oxyc tokens create --org-service-account`.
     pub source: &'static str,
-}
-
-impl NewAccountToken {
-    /// A token minted by an org admin in the browser.
-    pub fn from_ui(
-        name: String,
-        grants: Vec<GrantSpec>,
-        expires_at: Option<DateTime<Utc>>,
-        created_by: Uuid,
-    ) -> Self {
-        Self {
-            name,
-            grants,
-            expires_at,
-            created_by,
-            source: source::UI,
-        }
-    }
 }
 
 /// Mint an `oxy_sat_` token acting as `account`: grant-bound, never

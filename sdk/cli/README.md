@@ -183,6 +183,7 @@ oxyc tokens revoke --current   # end the token in OXY_TOKEN
 oxyc tokens create          # opens Account → Personal access tokens
 oxyc tokens create --sandbox-agent --app <org>/<app> [--app …] [--hours 8] [--name …] [--browser | --no-browser [--approver <email>]]
 oxyc tokens create --agent [--standing] [--hours 8] [--name …] [--browser | --no-browser [--approver <email>]]
+oxyc tokens create --org-service-account <org>/<account> [--role member|admin] [--token-name …] [--expires-in-days 90] [--set-app-secret <org>/<app> --key <KEY> [--app-env production|staging]] [--browser | --no-browser [--approver <email>]]
 ```
 
 **An agent runs on its own token, never on the person's `oxyc login`.** Which
@@ -414,6 +415,45 @@ What comes back is checked before anything is printed: it must be a whole
 must carry no standing that was not asked for. A deployment that predates agent
 tokens would otherwise hand back an ordinary ninety-day login. On any mismatch
 the command prints nothing, revokes what was minted, and exits `8`.
+
+**`tokens create --org-service-account <org>/<account>`** mints a token
+(`oxy_sat_…`) of an **organization's service account**: a credential that
+belongs to the organization rather than a person, such as the one a custom
+app's function holds to call that organization's admin routes. The account is
+reused when the organization has one of that name, and created otherwise —
+as a `member` unless `--role admin`. An existing account at another role is
+refused, never changed. The token carries one grant over the whole organization
+at the account's role, and lives `--expires-in-days` (default 90; the
+organization's token policy may cap it).
+
+```bash
+oxyc tokens create --org-service-account acme/store-ops-tablets --role admin \
+  --set-app-secret acme/store-ops --key TABLETS_API_KEY --env dev
+```
+
+Creating an account or minting its token is browser-session-only on the server:
+a token asking gets `403 session_required`, so a leaked one can never mint its
+successor. So this is the same browser approval as `--agent`, and it is
+approved by an **owner or admin of that organization** (or staff in an assume
+session for it), on a page that first asks the server what approving would
+create — the organization, the account (new or existing) and its role, the
+token's name, lifetime and reach — and shows that.
+
+Where the token goes:
+
+- without `--set-app-secret`, stdout is the token and nothing else, printed once;
+- with `--set-app-secret <org>/<app> --key <KEY>`, it is written straight into
+  that app's secret (`--app-env production`, the default, or `staging`) with
+  `POST /api/customer-apps/{id}/secrets`, on this machine's own `oxyc login`
+  (an owner or app admin), and **never printed**. The app is resolved before
+  the browser opens, and must be in the account's organization.
+
+Never written to the credentials file. What comes back is checked first — a
+whole `oxy_sat_`, described by the server as that account's token with one
+org-wide grant at the asked role, expiring no later than asked — and on a
+mismatch, or a secret that could not be stored, the token is revoked with
+itself and nothing is printed. Not `--service-account`: that global flag names
+the account a GitHub Actions run acts as.
 
 Credentials live in the OS config directory under **`oxy`** — the same file the
 Rust `oxy login` wrote before it was removed, so an existing login still works:

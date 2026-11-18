@@ -25,6 +25,23 @@ fn an_approval_is_only_ever_of_the_kind_asked_for() {
 }
 
 #[test]
+fn a_service_account_request_is_approved_only_as_one() {
+    let account = json!({ "kind": "service_account", "org": "acme", "account": "store-ops" });
+    let account_mint = json!({ "kind": "service_account", "org": "acme", "account": "store-ops" });
+    let agent = json!({ "kind": "agent", "hours": "4" });
+    let sandbox = json!({ "kind": "sandbox_agent", "apps": "acme/store" });
+    let agent_mint = json!({ "kind": "agent", "expires_in_hours": 4 });
+
+    assert!(mint_matches_ask(&account, Some(&account_mint)));
+    assert!(!mint_matches_ask(&account, None));
+    assert!(!mint_matches_ask(&account, Some(&agent_mint)));
+    // A sandbox agent's or an agent's request never becomes an org's account.
+    assert!(!mint_matches_ask(&sandbox, Some(&account_mint)));
+    assert!(!mint_matches_ask(&agent, Some(&account_mint)));
+    assert!(!mint_matches_ask(&json!({}), Some(&account_mint)));
+}
+
+#[test]
 fn a_refused_approval_tells_the_cli_why() {
     let reason = denial_reason(&TokenError::AppNotFound("x".into()));
     assert!(

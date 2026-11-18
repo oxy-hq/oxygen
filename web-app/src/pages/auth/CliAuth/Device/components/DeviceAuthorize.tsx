@@ -9,6 +9,7 @@ import { type CliSession, leaveTo, readCliSession } from "../../cliSession";
 import AgentApproval from "../../components/AgentApproval";
 import MintApproval, { type ApprovalSubmit } from "../../components/MintApproval";
 import MintPage from "../../components/MintPage";
+import ServiceAccountApproval from "../../components/ServiceAccountApproval";
 import { deviceReturnTo, readDeviceAsk } from "../deviceRequest";
 import DeviceLoginApproval from "./DeviceLoginApproval";
 import DeviceRequestMissing from "./DeviceRequestMissing";
@@ -135,6 +136,14 @@ const DeviceAuthorize: React.FC<{ userCode: string }> = ({ userCode }) => {
       return <MintApproval request={{ hostname, ask: ask.ask }} onDeclined={decline} {...sheet} />;
     case "agent_mint":
       return <AgentApproval request={{ hostname, ask: ask.ask }} onDeclined={decline} {...sheet} />;
+    case "service_account_mint":
+      return (
+        <ServiceAccountApproval
+          request={{ hostname, ask: ask.ask }}
+          onDeclined={decline}
+          {...sheet}
+        />
+      );
     case "invalid":
       return <MintPage status='error' title={ask.title} lead={ask.reason} />;
   }

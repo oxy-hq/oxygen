@@ -270,7 +270,50 @@ export interface CliAgentMintRequest {
   name?: string;
 }
 
-export type CliMintRequest = CliSandboxMintRequest | CliAgentMintRequest;
+/** A service account's standing in its organization (`orgApiAccess.ts` names it the same). */
+export type CliServiceAccountRole = "member" | "admin";
+
+/**
+ * What `oxyc tokens create --org-service-account` asks the browser to approve: a token of an
+ * organization's service account, the account created first when the organization has none of
+ * that name. Only an owner or admin of the organization may approve it.
+ */
+export interface CliServiceAccountMintRequest {
+  kind: "service_account";
+  /** The organization, by slug or id, as oxyc sent it. */
+  org: string;
+  /** The service account's name. */
+  account: string;
+  /** The role a new account is created with, and the one an existing account must have. */
+  role: CliServiceAccountRole;
+  /** Left out, the server names the token `minted by oxyc on <hostname>`. */
+  name?: string;
+  /** 1 to 3650. Left out, the default lifetime of a token made on the API access page. */
+  expires_in_days?: number;
+}
+
+export type CliMintRequest =
+  | CliSandboxMintRequest
+  | CliAgentMintRequest
+  | CliServiceAccountMintRequest;
+
+/**
+ * `POST /auth/cli/service-account/preview`: what approving a service-account token's mint would
+ * create, as the server would create it. Every check the approval makes, and nothing written; a
+ * mint that would be refused is refused here with the same answer.
+ */
+export interface ServiceAccountMintPreview {
+  org: { id: string; slug: string; name: string };
+  account: {
+    name: string;
+    role: CliServiceAccountRole;
+    /** `false`: approving creates the account. */
+    exists: boolean;
+  };
+  token: { name: string; expires_in_days: number; expires_at: string | null };
+  /** One grant: the whole organization, at the account's role. */
+  grant: { org_wide: boolean; role_ceiling: CliServiceAccountRole };
+}
 
 /**
  * `POST /auth/cli/authorize`, the browser half of an oxyc PKCE flow. With no `mint` it is

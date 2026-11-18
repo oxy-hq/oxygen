@@ -18,6 +18,8 @@
 //!   extend, regenerate, revoke;
 //! - [`service_account`] — org-owned service accounts and their `oxy_sat_`
 //!   tokens; [`account_access`] — their request bodies, parsed and checked;
+//!   [`service_account_mint`] — the same account and token asked for through
+//!   `oxyc` and approved in the browser;
 //! - [`trust_policy`] — the trust policies on a service account, and their
 //!   grants; [`trust_policy_access`] — their request bodies, parsed and checked;
 //! - [`ci`] — the 15-minute `oxy_ci_` token a trust policy mints for one CI
@@ -90,6 +92,7 @@ pub mod sandbox_admission;
 pub mod sandbox_recheck;
 pub mod service;
 pub mod service_account;
+pub mod service_account_mint;
 pub mod standing;
 pub mod store;
 pub mod trust_policy;

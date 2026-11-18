@@ -6,11 +6,13 @@ import { type CliSession, leaveTo, readCliSession } from "../cliSession";
 import AgentApproval from "./AgentApproval";
 import MintApproval, { type ApprovalSubmit } from "./MintApproval";
 import MintPage from "./MintPage";
+import ServiceAccountApproval from "./ServiceAccountApproval";
 
 type Step = "checking" | "confirm" | "redirecting" | "declined";
 
 /**
- * The browser half of `oxyc tokens create --sandbox-agent` and of `oxyc tokens create --agent`.
+ * The browser half of `oxyc tokens create --sandbox-agent`, `--agent` and
+ * `--org-service-account`.
  * A token is minted only in a browser session, so oxyc opens this page and waits. Nothing is
  * authorized, and nothing leaves the page, until the person reads what is asked for and
  * approves: the link that opened this page could have come from anywhere.
@@ -19,7 +21,7 @@ type Step = "checking" | "confirm" | "redirecting" | "declined";
  * goes to oxyc's loopback listener. oxyc exchanges it for the token, which is never in a URL.
  *
  * Every state is the same sheet: the page keeps its shape from the first check to the outcome.
- * The two kinds of token differ only in the approval itself.
+ * The kinds of token differ only in the approval itself.
  */
 const MintAuthorize: React.FC<{ request: TokenRequest }> = ({ request }) => {
   const [step, setStep] = useState<Step>("checking");
@@ -94,11 +96,14 @@ const MintAuthorize: React.FC<{ request: TokenRequest }> = ({ request }) => {
     // The session lapsed while the page sat open: sign in again and come back here.
     onSessionLapsed: () => leaveTo(loginHref)
   };
-  return request.kind === "agent_mint" ? (
-    <AgentApproval request={request} {...approval} />
-  ) : (
-    <MintApproval request={request} {...approval} />
-  );
+  switch (request.kind) {
+    case "agent_mint":
+      return <AgentApproval request={request} {...approval} />;
+    case "service_account_mint":
+      return <ServiceAccountApproval request={request} {...approval} />;
+    case "mint":
+      return <MintApproval request={request} {...approval} />;
+  }
 };
 
 export default MintAuthorize;

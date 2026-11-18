@@ -55,6 +55,7 @@ use oxy_auth::extractor::SessionOnly;
 use oxy_auth::token::agent as agent_mint;
 use oxy_auth::token::cli_login::{self as code_store, Redeemed};
 use oxy_auth::token::device_login::{self, Pending, Polled};
+use oxy_auth::token::service_account_mint as account_mint;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -251,7 +252,10 @@ fn mint_matches_ask(ask: &Value, mint: Option<&Value>) -> bool {
     match (ask.get("kind").and_then(Value::as_str), mint) {
         (None, None) => true,
         (Some("agent"), Some(mint)) => agent_mint::asked_for(mint),
-        (Some("sandbox_agent"), Some(mint)) => !agent_mint::asked_for(mint),
+        (Some("service_account"), Some(mint)) => account_mint::asked_for(mint),
+        (Some("sandbox_agent"), Some(mint)) => {
+            !agent_mint::asked_for(mint) && !account_mint::asked_for(mint)
+        }
         _ => false,
     }
 }

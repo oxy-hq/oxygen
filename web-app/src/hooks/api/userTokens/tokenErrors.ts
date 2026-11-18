@@ -155,6 +155,26 @@ export const agentMintErrorMessage = (error: unknown): string => {
   return apiStatus(error) === 400 ? apiErrorMessage(error, failed) : failed;
 };
 
+/**
+ * Why a service-account token's mint can't be approved, from the preview or the approval. The
+ * server's refusals for it are written to be read by the approver — the organization they don't
+ * manage, the account at another role, a disabled account, the organization's lifetime cap — so
+ * any 4xx says what it said. A 5xx or a lost connection says only that it failed.
+ */
+export const serviceAccountMintErrorMessage = (error: unknown): string => {
+  const failed = "Couldn't check this request. Try again, or run oxyc again for a new link.";
+  if (tokenErrorCode(error) === "session_required") return MINT_NEEDS_SESSION;
+  const status = apiStatus(error) ?? 500;
+  return status >= 400 && status < 500 ? asSentence(apiErrorMessage(error, failed)) : failed;
+};
+
+/** A server's reason (`"the org …"`) as a sentence on the page: capitalized, with a full stop. */
+const asSentence = (text: string): string => {
+  const trimmed = text.trim();
+  const capped = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  return /[.!?]$/.test(capped) ? capped : `${capped}.`;
+};
+
 /** A 404 `app_not_found`: the apps on offer are out of date and worth reading again. */
 export const isUnavailableAppError = (error: unknown): boolean =>
   tokenErrorCode(error) === "app_not_found";

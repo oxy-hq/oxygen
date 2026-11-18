@@ -4,9 +4,11 @@ import type {
   CliAuthorizeResponse,
   CliDeviceApproveRequest,
   CliDeviceRequest,
+  CliServiceAccountMintRequest,
   CreateSandboxAgentTokenRequest,
   CreateTokenRequest,
   ExtendBody,
+  ServiceAccountMintPreview,
   Token,
   TokenOptions,
   TokenWithSecret,
@@ -90,6 +92,21 @@ export const WorkspaceTokenService = {
 export const CliAuthService = {
   async authorize(request: CliAuthorizeRequest): Promise<CliAuthorizeResponse> {
     const response = await apiClient.post<CliAuthorizeResponse>("/auth/cli/authorize", request);
+    return response.data;
+  },
+
+  /**
+   * What approving a service-account token's mint would create, read under the session before
+   * the person approves: the organization, the account (new or existing), the token, its reach.
+   */
+  async previewServiceAccount(
+    hostname: string,
+    mint: CliServiceAccountMintRequest
+  ): Promise<ServiceAccountMintPreview> {
+    const response = await apiClient.post<ServiceAccountMintPreview>(
+      "/auth/cli/service-account/preview",
+      { hostname, mint }
+    );
     return response.data;
   },
 

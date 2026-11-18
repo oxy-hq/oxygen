@@ -9,15 +9,20 @@ use serde_json::{Map, Value};
 pub(super) const USER_CODE_ALPHABET: &[u8] = b"BCDFGHJKLMNPQRSTVWXZ";
 pub const USER_CODE_LEN: usize = 8;
 /// The `/cli-auth` parameters an ask may carry, each with its length limit.
-const ASK_FIELDS: [(&str, usize); 5] = [
+const ASK_FIELDS: [(&str, usize); 9] = [
     ("kind", 32),
     ("apps", 2048),
     ("hours", 8),
     ("name", 400),
     ("standing", 8),
+    // `kind=service_account`: the org, the account, its role, the lifetime.
+    ("org", 100),
+    ("account", 64),
+    ("role", 16),
+    ("days", 8),
 ];
 /// The kinds a request may ask for, besides a login (no `kind`).
-const ASK_KINDS: [&str; 2] = ["sandbox_agent", "agent"];
+const ASK_KINDS: [&str; 3] = ["sandbox_agent", "agent", "service_account"];
 
 /// The longest address an email can be (RFC 5321 §4.5.3.1.3, path minus `<>`).
 const APPROVER_EMAIL_MAX: usize = 254;

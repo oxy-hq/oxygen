@@ -50,6 +50,7 @@ mod sandbox_agent_staff;
 mod sandbox_agent_staging;
 mod sandbox_agent_sweep;
 mod serve_tree_usage;
+mod service_account_cli;
 mod service_accounts;
 mod service_tokens;
 mod session_key;

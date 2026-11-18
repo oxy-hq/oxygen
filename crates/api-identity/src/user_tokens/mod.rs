@@ -13,8 +13,9 @@
 //!   token trades a one-time ticket for a browser session that acts as it
 //!   ([`browser_session`]);
 //! - `POST /api/auth/cli/authorize` and its public `/exchange` — `oxyc login`,
-//!   and the same exchange minting a sandbox agent token ([`sandbox`]) or an
-//!   **agent token** ([`agent`]) the browser session approved ([`cli_login`]);
+//!   and the same exchange minting a sandbox agent token ([`sandbox`]), an
+//!   **agent token** ([`agent`]) or an org **service account's token**
+//!   ([`service_account`]) the browser session approved ([`cli_login`]);
 //! - `POST /api/auth/cli/device`, `/device/poll` and the session's
 //!   `/device/requests/{user_code}` — the same approvals for a CLI no browser
 //!   can reach, collected by polling ([`device_login`]);
@@ -61,6 +62,7 @@ pub mod sandbox_describe;
 pub(crate) mod sandbox_staff;
 pub mod sandbox_staging;
 mod service;
+pub mod service_account;
 pub(crate) mod standing_staff;
 pub(crate) mod view;
 

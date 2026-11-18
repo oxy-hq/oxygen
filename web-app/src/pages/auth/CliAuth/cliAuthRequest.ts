@@ -7,6 +7,8 @@
  *   mint beside it: the code oxyc exchanges yields that token instead of a login.
  * - `agent_mint`: `oxyc tokens create --agent`. The same handoff again, for an agent token: a
  *   personal token that reaches what its approver does, for hours.
+ * - `service_account_mint`: `oxyc tokens create --org-service-account`. The same handoff, for a
+ *   token of an organization's service account, the account created when it has none.
  * - `legacy`: an older oxyc that sends no `code_challenge` and expects the session token itself.
  * - `invalid`: nothing usable. With a `title` it was a token request, and is refused as one.
  */
@@ -29,6 +31,14 @@ export type CliAuthRequest =
       codeChallenge: string;
       hostname: string;
       ask: AgentAsk;
+    }
+  | {
+      kind: "service_account_mint";
+      port: string;
+      state: string;
+      codeChallenge: string;
+      hostname: string;
+      ask: ServiceAccountAsk;
     };
 
 /**
@@ -58,12 +68,30 @@ export interface AgentAsk {
   standing: boolean;
 }
 
+/**
+ * What oxyc asked an organization's service-account token to be, as it arrived. Nothing is
+ * resolved or checked here: the page asks the server what approving it would create.
+ */
+export interface ServiceAccountAsk {
+  /** The organization, by slug or id. */
+  org: string;
+  /** The service account's name. */
+  account: string;
+  /** The `role` param, or `null` when oxyc left it to the default (member). */
+  role: string | null;
+  /** The `days` param, or `null` when oxyc left the lifetime to the server's default. */
+  days: string | null;
+  /** The `name` param, or `null` when oxyc sent none. */
+  name: string | null;
+}
+
 export type PkceRequest = Extract<CliAuthRequest, { kind: "pkce" }>;
 type MintRequest = Extract<CliAuthRequest, { kind: "mint" }>;
 type AgentMintRequest = Extract<CliAuthRequest, { kind: "agent_mint" }>;
+type ServiceAccountMintRequest = Extract<CliAuthRequest, { kind: "service_account_mint" }>;
 export type LegacyRequest = Extract<CliAuthRequest, { kind: "legacy" }>;
-/** Either token request: the two share the session check, the handoff and the sheet. */
-export type TokenRequest = MintRequest | AgentMintRequest;
+/** Any token request: they share the session check, the handoff and the sheet. */
+export type TokenRequest = MintRequest | AgentMintRequest | ServiceAccountMintRequest;
 
 const INVALID_HANDOFF = "Invalid CLI login request (missing or malformed port/state).";
 const INVALID_PKCE = "This login link is incomplete. Run `oxyc login` again to get a new one.";
@@ -75,11 +103,12 @@ const TWO_KINDS =
   "This link asks for two kinds of token at once, so nothing on it can be approved. Run the oxyc command again to get a new one.";
 
 /**
- * The two kinds of token `/cli-auth` mints. Anything else in `kind` is refused, never guessed
- * at, and so is a link that asks for both.
+ * The kinds of token `/cli-auth` mints. Anything else in `kind` is refused, never guessed at,
+ * and so is a link that asks for two.
  */
 const SANDBOX_AGENT = "sandbox_agent";
 const AGENT = "agent";
+const SERVICE_ACCOUNT = "service_account";
 
 // base64url of a SHA-256: always 43 characters, which is the only length the server accepts
 // (`clean_challenge`). Padding is tolerated, as it is there. Anything else is refused here, so a
@@ -120,15 +149,41 @@ const parseAgentAsk = (params: URLSearchParams): AgentAsk | null => {
   return { hours, name, standing };
 };
 
+/** What an organization's service-account token was asked to be, or `null` when it can't be read. */
+const parseServiceAccountAsk = (params: URLSearchParams): ServiceAccountAsk | null => {
+  const org = (params.get("org") ?? "").trim();
+  const account = (params.get("account") ?? "").trim();
+  const role = params.get("role");
+  const days = params.get("days");
+  const name = params.get("name");
+  if (!org || !account) return null;
+  const values = [org, account, role ?? "", days ?? "", name ?? ""];
+  if (values.some((value) => CONTROL_CHARACTER.test(value))) return null;
+  return { org, account, role, days, name };
+};
+
+/** The params that belong to one kind alone, so a link carrying another kind's is two kinds. */
+const OWN_PARAMS: Record<string, string[]> = {
+  [SANDBOX_AGENT]: ["apps"],
+  [AGENT]: ["standing"],
+  [SERVICE_ACCOUNT]: ["org", "account", "role", "days"]
+};
+
 /**
- * A link that asks for both kinds: `kind` twice, or one kind with the other's own param. The
- * two tokens are far apart in what they reach, so the page picks neither.
+ * A link that asks for two kinds: `kind` twice, or one kind with another's own param. The
+ * tokens are far apart in what they reach, so the page picks none. `hours` is the two agent
+ * tokens' and never a service account's.
  */
 const asksForTwoKinds = (params: URLSearchParams): boolean => {
   if (new Set(params.getAll("kind")).size > 1) return true;
-  const kind = params.get("kind");
+  const kind = params.get("kind") ?? "";
+  // A kind the page doesn't know is refused as one, below, whatever else the link carries.
+  if (!(kind in OWN_PARAMS)) return false;
+  const foreign = Object.entries(OWN_PARAMS)
+    .filter(([owner]) => owner !== kind)
+    .flatMap(([, own]) => own);
   return (
-    (kind === AGENT && params.has("apps")) || (kind === SANDBOX_AGENT && params.has("standing"))
+    foreign.some((param) => params.has(param)) || (kind === SERVICE_ACCOUNT && params.has("hours"))
   );
 };
 
@@ -182,6 +237,7 @@ export const parseCliAuthRequest = (params: URLSearchParams): CliAuthRequest => 
 export type TokenAsk =
   | { kind: "mint"; ask: MintAsk }
   | { kind: "agent_mint"; ask: AgentAsk }
+  | { kind: "service_account_mint"; ask: ServiceAccountAsk }
   | { kind: "invalid"; reason: string; title: string };
 
 /**
@@ -203,6 +259,10 @@ export const readTokenAsk = (params: URLSearchParams): TokenAsk => {
     case AGENT: {
       const ask = parseAgentAsk(params);
       return ask ? { kind: "agent_mint", ask } : incomplete;
+    }
+    case SERVICE_ACCOUNT: {
+      const ask = parseServiceAccountAsk(params);
+      return ask ? { kind: "service_account_mint", ask } : incomplete;
     }
     default:
       return { kind: "invalid", reason: UNKNOWN_KIND, title: MINT_TITLE };
@@ -244,6 +304,19 @@ const agentQuery = (ask: AgentAsk): string => {
   return params.join("&");
 };
 
+/** The service account params as oxyc sent them. */
+const serviceAccountQuery = (ask: ServiceAccountAsk): string => {
+  const params = [
+    `kind=${SERVICE_ACCOUNT}`,
+    `org=${encodeURIComponent(ask.org)}`,
+    `account=${encodeURIComponent(ask.account)}`
+  ];
+  if (ask.role !== null) params.push(`role=${encodeURIComponent(ask.role)}`);
+  if (ask.days !== null) params.push(`days=${encodeURIComponent(ask.days)}`);
+  if (ask.name !== null) params.push(`name=${encodeURIComponent(ask.name)}`);
+  return params.join("&");
+};
+
 /**
  * This page's own URL, to come back to after signing in. Carries the PKCE params when present,
  * and what a mint asked for, so the flow resumes as the one that was started.
@@ -262,6 +335,8 @@ export const returnToUrl = (
       return `${pkce}&${mintQuery(request.ask)}`;
     case "agent_mint":
       return `${pkce}&${agentQuery(request.ask)}`;
+    case "service_account_mint":
+      return `${pkce}&${serviceAccountQuery(request.ask)}`;
     case "pkce":
       return pkce;
   }

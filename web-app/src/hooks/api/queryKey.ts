@@ -208,7 +208,10 @@ const apiKeyKeys = {
 /** The caller's own personal access tokens (`/user/tokens`). Not workspace-scoped. */
 const cliDeviceKeys = {
   all: ["cliDevice"] as const,
-  request: (userCode: string) => [...cliDeviceKeys.all, "request", { userCode }] as const
+  request: (userCode: string) => [...cliDeviceKeys.all, "request", { userCode }] as const,
+  /** What approving one service-account token's mint, from one computer, would create. */
+  serviceAccountPreview: (hostname: string, mint: unknown) =>
+    [...cliDeviceKeys.all, "serviceAccountPreview", { hostname, mint }] as const
 };
 
 const userTokenKeys = {

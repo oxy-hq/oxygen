@@ -61,6 +61,25 @@ const OPTIONS: TokenOptions = {
   agent: { default_hours: 8, max_hours: 168 },
   sandbox_apps: [APP]
 };
+const previewAsked = vi.fn();
+// One object, as react-query hands back: Approve arms against what it shows, by identity.
+const SA_PREVIEW = {
+  data: {
+    org: { id: "org-acme", slug: "acme", name: "Acme" },
+    account: { name: "store-ops-tablets", role: "admin", exists: false },
+    token: { name: "tablets", expires_in_days: 90, expires_at: "2027-02-16T12:00:00Z" },
+    grant: { org_wide: true, role_ceiling: "admin" }
+  },
+  isError: false,
+  error: null,
+  refetch: vi.fn()
+};
+vi.mock("@/hooks/api/cliAuth/useServiceAccountPreview", () => ({
+  default: (hostname: string, mint: unknown) => {
+    previewAsked(hostname, mint);
+    return SA_PREVIEW;
+  }
+}));
 vi.mock("@/hooks/api/userTokens/useUserTokens", () => ({
   useTokenOptions: () => ({ data: OPTIONS, isLoading: false, isError: false, refetch: vi.fn() })
 }));
@@ -197,6 +216,43 @@ describe("/cli-auth/device", () => {
     expect((approve.mock.calls[0] as [{ mint: { standing: boolean } }])[0].mint.standing).toBe(
       false
     );
+  });
+
+  it("approves an organization's service account token once the code matches", async () => {
+    deviceRequest = pending({
+      kind: "service_account",
+      org: "acme",
+      account: "store-ops-tablets",
+      role: "admin",
+      days: "90",
+      name: "tablets"
+    });
+    open("/cli-auth/device?code=BCDF-GHJK");
+    expect(await screen.findByTestId("cli-auth-sa-account")).toHaveTextContent(
+      "store-ops-tablets admin"
+    );
+    expect(screen.getByTestId("cli-auth-mint-command")).toHaveTextContent(
+      "oxyc tokens create --org-service-account acme/store-ops-tablets --role admin --no-browser"
+    );
+    expect(previewAsked).toHaveBeenCalledWith(
+      "cloud-box",
+      expect.objectContaining({ org: "acme" })
+    );
+    await attend();
+    const confirm = screen.getByTestId("cli-auth-confirm");
+    expect(confirm).toBeDisabled();
+    await user().type(screen.getByTestId("cli-auth-device-code-typed"), "BCDF-GHJK");
+    await user().click(confirm);
+    expect((approve.mock.calls[0] as [unknown])[0]).toEqual({
+      mint: {
+        kind: "service_account",
+        org: "acme",
+        account: "store-ops-tablets",
+        role: "admin",
+        name: "tablets",
+        expires_in_days: 90
+      }
+    });
   });
 
   it("tells oxyc when the person declines", async () => {

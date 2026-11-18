@@ -16,6 +16,13 @@ const TOKEN_ERROR_CODES = [
   "use_service_account_routes",
   "repository_unresolved",
   "environment_required",
+  // An organization's service-account token asked for through oxyc: the approval page says
+  // each of these in its own words.
+  "org_admin_required",
+  "org_not_found",
+  "role_mismatch",
+  "service_account_disabled",
+  "invalid_service_account_token",
   // Policy and hygiene.
   "exceeds_policy",
   "rate_limited"

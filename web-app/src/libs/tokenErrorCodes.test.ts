@@ -7,6 +7,18 @@ describe("isTokenErrorCode", () => {
     expect(isTokenErrorCode("standing_required")).toBe(true);
   });
 
+  it("knows a service-account mint's refusals, which the approval page words itself", () => {
+    for (const code of [
+      "org_admin_required",
+      "org_not_found",
+      "role_mismatch",
+      "service_account_disabled",
+      "invalid_service_account_token"
+    ]) {
+      expect(isTokenErrorCode(code), code).toBe(true);
+    }
+  });
+
   it("is false for another route's code, and for a body with none", () => {
     expect(isTokenErrorCode("subscription_required")).toBe(false);
     expect(isTokenErrorCode(undefined)).toBe(false);

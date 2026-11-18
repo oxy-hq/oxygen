@@ -31,8 +31,9 @@ pub mod source {
     pub const OXYC_LOGIN: &str = "oxyc_login";
     /// Minted by `POST /api/auth/oidc/exchange` — trusted access.
     pub const OIDC: &str = "oidc";
-    /// Minted by `POST /api/auth/cli/exchange` for a code that asked for a
-    /// token other than the login's — `oxyc tokens create --sandbox-agent`.
+    /// Minted by `POST /api/auth/cli/exchange` (or a device-code poll) for a
+    /// code that asked for a token other than the login's — `oxyc tokens
+    /// create --sandbox-agent`, and `--org-service-account` (an `oxy_sat_`).
     pub const OXYC: &str = "oxyc";
     /// Minted by `POST /api/auth/cli/exchange` for a code approved as an
     /// **agent token** (`super::agent`): an all-access personal token an

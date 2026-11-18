@@ -133,6 +133,18 @@ pub(super) async fn create(
     org_id: Uuid,
     body: CreateAccountBody,
 ) -> Result<ServiceAccountDto, TokenError> {
+    let row = create_row(db, actor, org_id, body).await?;
+    dto(db, &row).await
+}
+
+/// Create the account and its `service_account.created` row, in one
+/// transaction: what [`create`] answers with, before it is put on the wire.
+pub(crate) async fn create_row(
+    db: &DatabaseConnection,
+    actor: &RequestActor,
+    org_id: Uuid,
+    body: CreateAccountBody,
+) -> Result<service_accounts::Model, TokenError> {
     let want = body.want()?;
     let txn = db.begin().await?;
     let row = service_account::create(&txn, org_id, want, actor.id).await?;
@@ -146,7 +158,7 @@ pub(super) async fn create(
     )
     .await?;
     txn.commit().await?;
-    dto(db, &row).await
+    Ok(row)
 }
 
 /// Drop this pod's cached credentials of the account's tokens.

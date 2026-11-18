@@ -128,6 +128,12 @@ pub fn token_routes() -> Router<AppState> {
         // `oxyc login`, step one. Session-only like the rest: it is the first
         // half of minting a token.
         .route("/auth/cli/authorize", post(cli_login::authorize))
+        // What approving a service-account token would create, for the page.
+        // Session-only, and writes nothing.
+        .route(
+            "/auth/cli/service-account/preview",
+            post(cli_login::preview_service_account),
+        )
         // `oxyc … --no-browser`: the page reads a device-code request and
         // decides it, under the session.
         .route(
@@ -394,6 +400,7 @@ const API_ROLES: &[RouteRoleDecl] = &[
     fleet("/user/tokens/{id}/activity"),
     fleet("/user/token-options"),
     fleet("/auth/cli/authorize"),
+    fleet("/auth/cli/service-account/preview"),
     fleet("/auth/cli/device/requests/{user_code}"),
     fleet("/auth/cli/device/requests/{user_code}/approve"),
     fleet("/auth/cli/device/requests/{user_code}/deny"),

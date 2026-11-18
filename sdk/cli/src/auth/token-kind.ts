@@ -124,6 +124,21 @@ export function isWellFormedPersonalToken(token: string | undefined): token is s
   return typeof token === "string" && PERSONAL_TOKEN_RE.test(token);
 }
 
+/** What `oxyc tokens create --service-account` mints. */
+export const SERVICE_ACCOUNT_TOKEN_PREFIX = "oxy_sat_";
+
+/** The same shape again, under the service-account prefix. */
+const SERVICE_ACCOUNT_TOKEN_RE = /^oxy_sat_[0-9A-Za-z]{36}$/;
+
+/**
+ * Whether the string is a whole service-account token and nothing else.
+ * `oxyc tokens create --service-account` prints it, or stores it as an app's
+ * secret: a value with anything but letters and digits goes to neither.
+ */
+export function isWellFormedServiceAccountToken(token: string | undefined): token is string {
+  return typeof token === "string" && SERVICE_ACCOUNT_TOKEN_RE.test(token);
+}
+
 /**
  * Whether the string may be sent as a bearer at all: the characters every
  * credential this CLI handles is made of (a token, a legacy key, a JWT), and a

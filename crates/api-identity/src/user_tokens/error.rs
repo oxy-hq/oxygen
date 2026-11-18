@@ -77,6 +77,26 @@ pub enum TokenError {
     /// 409 `agent_token_fixed` — an agent token is never renamed, widened,
     /// extended or regenerated.
     AgentTokenFixed,
+    /// 400 `invalid_service_account_token` — a service-account token's mint
+    /// (`oxyc tokens create --org-service-account`) that cannot be honoured: an
+    /// account name that is not a slug, a role that is not member or admin, a
+    /// lifetime out of range, a field it does not take. The reason is the
+    /// `error`.
+    InvalidServiceAccountToken(String),
+    /// 404 `org_not_found` — a mint named an org that does not exist or that
+    /// the approver is not in. The two read the same. The body names the org
+    /// as `org`, as it was sent.
+    OrgNotFound(String),
+    /// 403 `org_admin_required` — the approver is in the org a mint names, and
+    /// may not manage its service accounts.
+    OrgAdminRequired,
+    /// 409 `role_mismatch` — the org's account of that name stands at another
+    /// role. It is never changed by a mint; the body names `account` and the
+    /// `role` it has.
+    RoleMismatch { account: String, role: String },
+    /// 409 `service_account_disabled` — the org's account of that name is
+    /// disabled, so a token minted for it would authenticate nothing.
+    ServiceAccountDisabled(String),
     /// 400 `access_denied` — a device-code request the person refused, or
     /// whose approval was refused under their session. The reason is the
     /// `error`, as the page said it.
@@ -227,6 +247,39 @@ impl TokenError {
                     .into(),
                 Some("agent_token_fixed"),
             ),
+            Self::InvalidServiceAccountToken(message) => (
+                StatusCode::BAD_REQUEST,
+                message.clone(),
+                Some("invalid_service_account_token"),
+            ),
+            Self::OrgNotFound(org) => (
+                StatusCode::NOT_FOUND,
+                format!("no organization '{org}' that you are in"),
+                Some("org_not_found"),
+            ),
+            Self::OrgAdminRequired => (
+                StatusCode::FORBIDDEN,
+                "only an owner or admin of the organization may create its service accounts \
+                 and their tokens"
+                    .into(),
+                Some("org_admin_required"),
+            ),
+            Self::RoleMismatch { account, role } => (
+                StatusCode::CONFLICT,
+                format!(
+                    "the service account '{account}' already exists as {role}: ask for that \
+                     role, or change the account's role on the organization's API access page"
+                ),
+                Some("role_mismatch"),
+            ),
+            Self::ServiceAccountDisabled(account) => (
+                StatusCode::CONFLICT,
+                format!(
+                    "the service account '{account}' is disabled, so a token for it would not \
+                     work: enable it on the organization's API access page first"
+                ),
+                Some("service_account_disabled"),
+            ),
             Self::AccessDenied(reason) => (
                 StatusCode::BAD_REQUEST,
                 reason.clone(),
@@ -278,6 +331,13 @@ impl IntoResponse for TokenError {
             }
             Self::AppNotFound(app_id) => {
                 body["app_id"] = json!(app_id);
+            }
+            Self::OrgNotFound(org) => {
+                body["org"] = json!(org);
+            }
+            Self::RoleMismatch { account, role } => {
+                body["account"] = json!(account);
+                body["role"] = json!(role);
             }
             Self::RateLimited { retry_after_secs } => {
                 let mut response = (status, Json(body)).into_response();

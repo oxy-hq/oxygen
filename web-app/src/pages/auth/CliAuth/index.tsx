@@ -21,8 +21,8 @@ export const isFramed = (): boolean => {
 };
 
 /**
- * `/cli-auth` — the browser side of `oxyc login`, and of `oxyc tokens create --sandbox-agent`
- * and `oxyc tokens create --agent`.
+ * `/cli-auth` — the browser side of `oxyc login`, and of `oxyc tokens create --sandbox-agent`,
+ * `--agent` and `--org-service-account`.
  *
  * A current oxyc opens this page with `?port&state&code_challenge&hostname` (PKCE): the person
  * confirms the computer, and oxyc gets a single-use code to exchange for its own token. An older
@@ -31,8 +31,9 @@ export const isFramed = (): boolean => {
  * With a `kind` beside the PKCE params, the page approves a token instead: the same handoff, and
  * the code yields that token. `kind=sandbox_agent` with `apps`, `hours` and `name` is a sandbox
  * agent token; `kind=agent` with `hours`, `standing` and `name` is an agent token, which reaches
- * everything its approver does. A link that asks for a kind the page doesn't know, or for both,
- * is refused on the same sheet, with nothing on it to approve.
+ * everything its approver does; `kind=service_account` with `org`, `account`, `role`, `days` and
+ * `name` is a token of an organization's service account. A link that asks for a kind the page
+ * doesn't know, or for two, is refused on the same sheet, with nothing on it to approve.
  *
  * Security: the callback URL is only ever `http://127.0.0.1:<port>` built from the integer
  * `port` param — never an arbitrary URL — so this can't be abused as an open redirect.
@@ -60,6 +61,7 @@ const CliAuth: React.FC = () => {
       return <PkceAuthorize request={request} />;
     case "mint":
     case "agent_mint":
+    case "service_account_mint":
       return <MintAuthorize request={request} />;
     case "legacy":
       return <LegacyHandoff request={request} />;

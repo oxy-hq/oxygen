@@ -25,8 +25,8 @@
 //! **A legacy key is listed and never touched** (§3.5). The org cannot end its
 //! reach: revoke-grant answers 409 `legacy_immutable`. Only its owner can.
 
-mod account_tokens;
-mod accounts;
+pub(crate) mod account_tokens;
+pub(crate) mod accounts;
 mod audit;
 mod dto;
 pub mod handlers;

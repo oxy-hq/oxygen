@@ -40,7 +40,18 @@
 //! no earlier token retired. Any other `mint` is read as a sandbox agent
 //! token's, as before.
 //!
-//! **Only a browser session approves either mint.** `authorize` takes
+//! ## Minting a service-account token the same way
+//!
+//! A `mint` of `kind: "service_account"` asks for an org service account's
+//! `oxy_sat_` token (`service_account.rs`): the account is reused or created,
+//! and the token minted, exactly as the org's API access page does both. The
+//! same rules hold — checked at `authorize` under the session (who may manage
+//! the org's service accounts, the account, the token), checked again and
+//! minted at `exchange`, no earlier token retired. Before it is approved the
+//! page asks `POST /auth/cli/service-account/preview` what approving would
+//! create: the same checks, nothing written.
+//!
+//! **Only a browser session approves any mint.** `authorize` takes
 //! `SessionOnly` before it reads its body, so a token — as a bearer, or as the
 //! browser session it opened (`browser_session.rs`) — answers 403
 //! `session_required` whatever the body asks for: a credential never mints or
@@ -59,6 +70,7 @@ use oxy_auth::token::agent as agent_mint;
 use oxy_auth::token::cli_login::{self, Redeemed};
 use oxy_auth::token::credential::source;
 use oxy_auth::token::personal::{self, NewToken};
+use oxy_auth::token::service_account_mint as account_mint;
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -70,7 +82,7 @@ use super::audit::{self, Event};
 use super::error::TokenError;
 use super::handlers::{TokenWithSecret, parse};
 use super::service::{self, Minted};
-use super::{agent, login_lifetime, reach, sandbox, view};
+use super::{agent, login_lifetime, reach, sandbox, service_account, view};
 use crate::authz;
 
 /// Why an earlier `oxyc on <hostname>` token was revoked.
@@ -132,6 +144,11 @@ pub(super) async fn approval(
         Some(mint) if agent_mint::asked_for(mint) => {
             agent::approve(db, actor, hostname, mint).await.map(Some)
         }
+        Some(mint) if account_mint::asked_for(mint) => {
+            service_account::approve(db, actor, hostname, mint)
+                .await
+                .map(Some)
+        }
         Some(mint) => approve_sandbox(db, actor, hostname, mint).await.map(Some),
     }
 }
@@ -155,6 +172,34 @@ async fn approve_sandbox(
     let checked = sandbox::check(db, actor, mint, Some(&default_name)).await?;
     sandbox::within_policy(db, &checked, checked.request.expires_at(Utc::now())).await?;
     Ok(checked.request.stored(&checked.app_ids()))
+}
+
+#[derive(Deserialize)]
+pub struct PreviewBody {
+    hostname: String,
+    mint: Value,
+}
+
+/// `POST /auth/cli/service-account/preview` — what approving a service-account
+/// token's `mint` would create, for the approval page to lay out: every check
+/// the approval makes, under the session, and nothing written.
+pub async fn preview_service_account(
+    _: SessionOnly<ManageTokens>,
+    actor: RequestActor,
+    body: Bytes,
+) -> Result<Json<service_account::Preview>, TokenError> {
+    let body: PreviewBody = parse(&body)?;
+    let hostname = cli_login::clean_hostname(&body.hostname)
+        .ok_or_else(|| TokenError::Invalid("'hostname' must be 1 to 255 characters".into()))?;
+    if !account_mint::asked_for(&body.mint) {
+        return Err(TokenError::InvalidServiceAccountToken(format!(
+            "'mint.kind' must be \"{}\"",
+            account_mint::KIND
+        )));
+    }
+    let db = establish_connection().await?;
+    let preview = service_account::preview(&db, &actor, &hostname, &body.mint).await?;
+    Ok(Json(preview))
 }
 
 /// `POST /auth/cli/exchange` — redeem the code and mint the CLI's token.
@@ -209,6 +254,11 @@ pub(super) async fn mint_redeemed(
         None => mint(db, &actor, host, collected).await,
         Some(approved) if agent_mint::asked_for(approved) => {
             agent::redeem(db, &actor, approved, host, collected)
+                .await
+                .map_err(no_longer_honoured)
+        }
+        Some(approved) if account_mint::asked_for(approved) => {
+            service_account::redeem(db, &actor, approved, host, collected)
                 .await
                 .map_err(no_longer_honoured)
         }

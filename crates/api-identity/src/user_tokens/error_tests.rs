@@ -78,6 +78,34 @@ fn each_refusal_carries_the_contracts_status_and_code() {
             Some("invalid_agent_token"),
         ),
         (TokenError::AgentTokenFixed, 409, Some("agent_token_fixed")),
+        (
+            TokenError::InvalidServiceAccountToken("bad role".into()),
+            400,
+            Some("invalid_service_account_token"),
+        ),
+        (
+            TokenError::OrgNotFound("acme".into()),
+            404,
+            Some("org_not_found"),
+        ),
+        (
+            TokenError::OrgAdminRequired,
+            403,
+            Some("org_admin_required"),
+        ),
+        (
+            TokenError::RoleMismatch {
+                account: "store-ops".into(),
+                role: "member".into(),
+            },
+            409,
+            Some("role_mismatch"),
+        ),
+        (
+            TokenError::ServiceAccountDisabled("store-ops".into()),
+            409,
+            Some("service_account_disabled"),
+        ),
         (TokenError::Internal("db down".into()), 500, None),
     ];
     for (error, status, code) in cases {
@@ -143,6 +171,30 @@ async fn an_agent_mint_refusal_says_why_and_nothing_else() {
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(body["code"], "agent_token_fixed");
     assert!(body["error"].as_str().is_some_and(|e| e.contains("revoke")));
+}
+
+#[tokio::test]
+async fn a_service_account_mint_refusal_names_what_it_is_about() {
+    let (status, body) = body_of(TokenError::OrgNotFound("acme".into())).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["code"], "org_not_found");
+    assert_eq!(body["org"], "acme");
+
+    let mismatch = TokenError::RoleMismatch {
+        account: "store-ops".into(),
+        role: "admin".into(),
+    };
+    let (status, body) = body_of(mismatch).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["code"], "role_mismatch");
+    assert_eq!(body["account"], "store-ops");
+    assert_eq!(body["role"], "admin");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("already exists as admin")),
+        "{body}"
+    );
 }
 
 #[test]

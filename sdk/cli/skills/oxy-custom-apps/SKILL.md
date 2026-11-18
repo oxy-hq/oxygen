@@ -222,6 +222,14 @@ visible, and the manifest cannot ask for more: declaring a key in `env` only
 makes it show as missing until someone sets or shares it. `ctx.secrets.set`
 refuses a key the run read from a shared workspace secret; rotate it in Settings.
 
+**A function that calls Oxygen's own org routes** (kiosks at
+`/api/orgs/{org}/frontline/devices`, members, apps) holds an organization's
+service-account token in a secret, never a person's: `oxyc tokens create
+--org-service-account <org>/<account> --role admin --set-app-secret <org>/<app>
+--key <KEY> --env <env>`. An owner or admin of the org approves it in the
+browser, and the token goes into the app's secret without being printed. Legacy
+`oxy_…` API keys authenticate nothing.
+
 **Not a store:** `ctx.secrets` holds credentials you rotate. A cursor, a
 counter or a JSON blob is a record. `oxyc validate` warns about it, about
 keys in Airhouse migrations, and lists every customer-warehouse write exception.

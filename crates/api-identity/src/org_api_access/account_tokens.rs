@@ -9,19 +9,20 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use entity::prelude::Workspaces;
 use entity::{api_tokens, service_accounts, workspaces};
 use oxy_app_core::audit::RequestActor;
 use oxy_auth::ExtendTo;
 use oxy_auth::token::StoredKind;
-use oxy_auth::token::account_access::CreateAccountTokenBody;
+use oxy_auth::token::account_access::{AccountRole, CreateAccountTokenBody};
+use oxy_auth::token::credential::source;
 use oxy_auth::token::personal::{self, GrantSpec};
 use oxy_auth::token::service_account::{self, NewAccountToken};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
 };
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use crate::token_activity::{ActivityResponse, last_used_at, token_activity};
@@ -32,7 +33,7 @@ use crate::user_tokens::error::TokenError;
 use crate::user_tokens::{policy_cap, view};
 
 /// A token and the secret that is shown exactly once.
-pub(super) struct Minted {
+pub(crate) struct Minted {
     pub token: TokenDto,
     pub secret: String,
 }
@@ -160,6 +161,48 @@ pub(super) async fn list(
     dtos(db, account, &rows).await
 }
 
+/// A token a create body asks for, checked against an account of `role` in
+/// `org_id`: what [`mint`] writes. Every check that can refuse the token is
+/// here, so a caller that must create the account first — `oxyc tokens create
+/// --org-service-account` — can run them all before writing anything.
+pub(crate) struct Planned {
+    /// The org and role it was checked for: [`mint`] refuses an account of any other.
+    org_id: Uuid,
+    role: AccountRole,
+    name: String,
+    grants: Vec<GrantSpec>,
+    expires_at: Option<DateTime<Utc>>,
+}
+
+impl Planned {
+    pub(crate) fn expires_at(&self) -> Option<DateTime<Utc>> {
+        self.expires_at
+    }
+}
+
+/// Check `body` for an account of `role` in `org_id`: its shape, its grants
+/// against the role, every workspace a grant names, and the org's lifetime cap.
+pub(crate) async fn plan(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    role: AccountRole,
+    body: &CreateAccountTokenBody,
+) -> Result<Planned, TokenError> {
+    let name = body.name()?;
+    let grants = body.grants(org_id, role)?;
+    let expires_at = body.expires_at(Utc::now())?;
+    check_workspaces(db, org_id, &grants).await?;
+    let shape = policy_cap::new_token(StoredKind::ServiceAccount, false);
+    policy_cap::check(db, &shape, &[org_id], expires_at).await?;
+    Ok(Planned {
+        org_id,
+        role,
+        name,
+        grants,
+        expires_at,
+    })
+}
+
 pub(super) async fn create(
     db: &DatabaseConnection,
     actor: &RequestActor,
@@ -168,15 +211,35 @@ pub(super) async fn create(
 ) -> Result<Minted, TokenError> {
     let role = service_account::role_of(account)
         .ok_or_else(|| TokenError::Internal("service account has an unknown org_role".into()))?;
-    let name = body.name()?;
-    let grants = body.grants(account.org_id, role)?;
-    let expires_at = body.expires_at(Utc::now())?;
-    check_workspaces(db, account.org_id, &grants).await?;
-    let shape = policy_cap::new_token(StoredKind::ServiceAccount, false);
-    policy_cap::check(db, &shape, &[account.org_id], expires_at).await?;
+    let planned = plan(db, account.org_id, role, &body).await?;
+    mint(db, actor, account, planned, source::UI, Map::new()).await
+}
 
+/// Mint what [`plan`] checked, as `actor`, with its `token.created` row in the
+/// same transaction. `source` says where it was asked for, and `extra` adds to
+/// the row's detail.
+pub(crate) async fn mint(
+    db: &DatabaseConnection,
+    actor: &RequestActor,
+    account: &service_accounts::Model,
+    planned: Planned,
+    source: &'static str,
+    extra: Map<String, Value>,
+) -> Result<Minted, TokenError> {
+    // The grants were checked against this org and role; another account's would differ.
+    if planned.org_id != account.org_id || service_account::role_of(account) != Some(planned.role) {
+        return Err(TokenError::Internal(
+            "a token was planned for another org or role than its account's".into(),
+        ));
+    }
     let txn = db.begin().await?;
-    let new = NewAccountToken::from_ui(name, grants, expires_at, actor.id);
+    let new = NewAccountToken {
+        name: planned.name,
+        grants: planned.grants,
+        expires_at: planned.expires_at,
+        created_by: actor.id,
+        source,
+    };
     let minted = service_account::mint(&txn, account, new).await?;
     let stored = personal::grants_for(&txn, &[minted.row.id]).await?;
     // One row, in the account's org: its grants there, which are all it has.
@@ -188,7 +251,7 @@ pub(super) async fn create(
         account,
         token_audit::CREATED,
         &minted.row,
-        detail,
+        with(detail, Value::Object(extra)),
         None,
     )
     .await?;

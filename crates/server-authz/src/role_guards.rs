@@ -185,6 +185,28 @@ where
     }
 }
 
+impl<A: OrgAdminAction> OrgAdminFor<A> {
+    /// This door for a request whose org is **not in its path**, as
+    /// [`OrgAdmin::of`] is [`OrgAdmin`]'s: `ctx` is the org resolved the way
+    /// `org_middleware` resolves one (`oxy_app::surface::resolve_org_context`),
+    /// and the decision is the guard's own — `A`'s label and action, the same
+    /// shipped check — taken through [`crate::enforce_for`].
+    pub async fn of(
+        db: &sea_orm::DatabaseConnection,
+        caller: &crate::Caller,
+        ctx: OrgContext,
+    ) -> Result<Self, StatusCode> {
+        let resource = authz::Resource::org(ctx.org.id);
+        let allowed =
+            authz::enforce_for(db, caller, A::LABEL, A::ACTION, resource, is_officer(&ctx)).await;
+        if allowed {
+            Ok(OrgAdminFor(ctx, PhantomData))
+        } else {
+            Err(StatusCode::FORBIDDEN)
+        }
+    }
+}
+
 /// Caller is an Org Admin **on this org for real** — Global Owner / Global
 /// Admin synthetic-Owner memberships are explicitly rejected. Use for
 /// surfaces that must never be exposed via the cross-tenant operator

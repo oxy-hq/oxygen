@@ -94,6 +94,7 @@ import { runSkillsInstall, runSkillsList } from "./commands/skills.js";
 import { runTokensCreate, runTokensList, runTokensRevoke } from "./commands/tokens.js";
 import { runTokensCreateAgent } from "./commands/tokens-agent.js";
 import { runTokensCreateSandboxAgent, runTokensRevokeCurrent } from "./commands/tokens-sandbox.js";
+import { runTokensCreateServiceAccount } from "./commands/tokens-service-account.js";
 import { runValidate } from "./commands/validate.js";
 import { runAdopt, runDoctor, runUpdate } from "./commands/workspace.js";
 import { registerWorkspace } from "./commands/workspace-cli.js";
@@ -713,7 +714,7 @@ function buildProgram(): Command {
     tokens
       .command("create")
       .description(
-        "open Account → Personal access tokens in the browser — or, with --agent or --sandbox-agent, mint an agent's own token"
+        "open Account → Personal access tokens in the browser — or, with --agent or --sandbox-agent, mint an agent's own token, or with --org-service-account an organization's"
       )
       .option(
         "--agent",
@@ -743,6 +744,25 @@ function buildProgram(): Command {
         "with --agent or --sandbox-agent: approve by device code from any device — the default where no browser can reach this machine (a cloud session, SSH)"
       )
       .addOption(approverOption("with --no-browser, on --agent or --sandbox-agent"))
+      .option(
+        "--org-service-account <org>/<account>",
+        "mint a token of an organization's service account (oxy_sat_…), creating the account if it has none of that name; an owner or admin of the organization approves it once in the browser"
+      )
+      .option(
+        "--role <member|admin>",
+        "with --org-service-account: the account's role (default member). An existing account must already have it"
+      )
+      .option("--token-name <name>", "with --org-service-account: the token's name")
+      .option(
+        "--expires-in-days <n>",
+        "with --org-service-account: the token's lifetime, 1 to 3650 (default 90; the organization's token policy may cap it)"
+      )
+      .option(
+        "--set-app-secret <org>/<app>",
+        "with --org-service-account: store the token as this app's secret instead of printing it (needs --key; uses your own oxyc login)"
+      )
+      .option("--key <KEY>", "with --set-app-secret: the secret's name")
+      .option("--app-env <environment>", "with --set-app-secret: production (default) or staging")
       .addHelpText(
         "after",
         "\nWhich one an agent mints:\n\n" +
@@ -758,15 +778,22 @@ function buildProgram(): Command {
           "Where no browser can reach this machine (a cloud container, CI, a remote box), add\n" +
           "--no-browser: oxyc prints a URL and a code, the operator approves from any device,\n" +
           "and the token is printed the same way. Add --approver <email> and the operator is\n" +
-          "told by push, email and Slack; the notice has no code, so send them the link oxyc prints.\n"
+          "told by push, email and Slack; the notice has no code, so send them the link oxyc prints.\n\n" +
+          "An organization's own credential, for an app's function to call its admin routes:\n\n" +
+          "    oxyc tokens create --org-service-account acme/store-ops-tablets --role admin \\\n" +
+          "      --set-app-secret acme/store-ops --key TABLETS_API_KEY --env dev\n\n" +
+          "An owner or admin of the organization approves it in the browser. With\n" +
+          "--set-app-secret the token goes straight into the app's secret and is never\n" +
+          "printed; without it, stdout is the token and nothing else.\n"
       )
   ).action(async (opts: Record<string, unknown>, cmd: Command) => {
     const ctx = createContext(globals(opts));
     const apps = opts.app as string[];
     const hours = opts.hours as string | undefined;
     const name = opts.name as string | undefined;
+    const serviceAccount = opts.orgServiceAccount as string | undefined;
     // Only a mint has an approval to route; plain `tokens create` opens a page.
-    const minting = Boolean(opts.agent || opts.sandboxAgent);
+    const minting = Boolean(opts.agent || opts.sandboxAgent || serviceAccount !== undefined);
     const browserFlag = opts.browser as boolean | undefined;
     const approverSource = cmd.getOptionValueSource("approver");
     const { noBrowser, approver } = minting
@@ -775,6 +802,42 @@ function buildProgram(): Command {
           const plain = browserFlag === false;
           return { noBrowser: plain, approver: approverFrom(opts, plain, approverSource) };
         })();
+    // The service account's own flags mean nothing without it.
+    const accountFlags = ["role", "tokenName", "expiresInDays", "setAppSecret", "key", "appEnv"];
+    if (serviceAccount === undefined && accountFlags.some((flag) => opts[flag] !== undefined)) {
+      throw usageError(
+        "--role, --token-name, --expires-in-days, --set-app-secret, --key and --app-env are only valid with --org-service-account",
+        "--org-service-account <org>/<account> mints an organization's service account token"
+      );
+    }
+    if (serviceAccount !== undefined) {
+      if (opts.agent || opts.sandboxAgent) {
+        throw usageError(
+          "--org-service-account is a different token from --agent and --sandbox-agent: pass one",
+          "--org-service-account mints a token that belongs to an organization, not to a person"
+        );
+      }
+      if (apps.length > 0 || hours !== undefined || name !== undefined || opts.standing) {
+        throw usageError(
+          "--app, --hours, --name and --standing are not valid with --org-service-account",
+          "name the token with --token-name, and its lifetime with --expires-in-days"
+        );
+      }
+      await runTokensCreateServiceAccount(
+        ctx,
+        {
+          serviceAccount,
+          role: opts.role as string | undefined,
+          tokenName: opts.tokenName as string | undefined,
+          expiresInDays: opts.expiresInDays as string | undefined,
+          setAppSecret: opts.setAppSecret as string | undefined,
+          key: opts.key as string | undefined,
+          appEnv: opts.appEnv as string | undefined
+        },
+        { noBrowser, approver }
+      );
+      return;
+    }
     // Two different tokens. Asked for both, neither is minted.
     if (opts.agent && opts.sandboxAgent) {
       throw usageError(
